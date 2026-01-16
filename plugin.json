@@ -2,7 +2,7 @@
   "name": "Pinch-habit",
   "author": "Roy",
   "url": "https://github.com/royc01/pinch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "2.10.14",
   "disabledInPublish": true,
   "backends": [
@@ -23,7 +23,6 @@
   },
   "readme": {
     "default": "README.md",
-    "en_US": "README.md",
     "zh_CN": "README_zh_CN.md"
   },
   "funding": {
