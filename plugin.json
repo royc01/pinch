@@ -13,12 +13,10 @@
   ],
   "displayName": {
     "default": "Pinch Habit",
-    "en_US": "Pinch Habit",
     "zh_CN": "片趣打卡"
   },
   "description": {
     "default": "A habit tracking plugin for SiYuan",
-    "en_US": "A habit tracking plugin for SiYuan",
     "zh_CN": "思源笔记习惯打卡插件"
   },
   "readme": {
