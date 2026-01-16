@@ -51,7 +51,6 @@ export default class HabitTrackerPlugin extends Plugin {
     }
 
 
-
     // 传递当前插件实例给init函数
     init(this);
   }
@@ -60,7 +59,5 @@ export default class HabitTrackerPlugin extends Plugin {
     destroy()
   }
 
-  openSetting() {
-    // 如果需要设置功能，可以在这里实现
-  }
+  // 移除设置功能，避免在菜单中显示设置项
 }

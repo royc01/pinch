@@ -1,6 +1,6 @@
 {
   "name": "pinch",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "module",
   "description": "This is a sample plugin based on vite and vue for Siyuan (https://b3log.org/siyuan)",
   "author": "",
