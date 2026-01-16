@@ -56,6 +56,16 @@ jobs:
       - name: Build for production
         run: pnpm build
 
+      # Check if package.zip was created
+      - name: Verify package.zip exists
+        run: |
+          if [ ! -f "package.zip" ]; then
+            echo "Error: package.zip was not created!"
+            exit 1
+          fi
+          ls -la package.zip
+          echo "Package size: $(du -h package.zip)"
+
       - name: Release
         uses: ncipollo/release-action@v1
         with:

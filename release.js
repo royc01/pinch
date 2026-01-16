@@ -70,7 +70,6 @@ const args = process.argv.slice(2)
 const mode = args.find((arg) => arg.startsWith('--mode='))?.split('=')[1]
 
 
-
 const main = async () => {
   try {
 
@@ -163,6 +162,11 @@ const main = async () => {
       (err, stdout) => {
         if (err) {
           console.error('\x1B[31m%s\x1B[0m', '❌  Error for adding and committing:', err)
+          console.error('\x1B[31m%s\x1B[0m', '💡  Possible causes:')
+          console.error('\x1B[31m%s\x1B[0m', '   - Not in a git repository')
+          console.error('\x1B[31m%s\x1B[0m', '   - No remote repository configured')
+          console.error('\x1B[31m%s\x1B[0m', '   - No changes to commit')
+          console.error('\x1B[31m%s\x1B[0m', '   - Network connectivity issues')
           process.exit(1)
         }
 
@@ -170,9 +174,18 @@ const main = async () => {
         exec(`git push origin v${newVersion}`, (err) => {
           if (err) {
             console.error('\x1B[31m%s\x1B[0m', '❌  Error for pushing tag:', err)
+            console.error('\x1B[31m%s\x1B[0m', '💡  Possible causes:')
+            console.error('\x1B[31m%s\x1B[0m', '   - Remote repository access denied')
+            console.error('\x1B[31m%s\x1B[0m', '   - Tag already exists')
+            console.error('\x1B[31m%s\x1B[0m', '   - Network connectivity issues')
             process.exit(1)
           }
           console.log(`\n✅  Version successfully updated to: \x1B[32m${newVersion}\x1B[0m\n`)
+          
+          console.log('📢  Note: If you encounter GitHub API errors in the future, check:')
+          console.log('   - GitHub Actions permissions in .github/workflows/release.yml')
+          console.log('   - Ensure GITHUB_TOKEN has appropriate permissions')
+          console.log('   - Repository settings allow Actions to create releases')
         })
       },
     )
@@ -180,7 +193,10 @@ const main = async () => {
 
   } catch (error) {
     console.error('\x1B[31m%s\x1B[0m', '❌  Error:', error)
+    console.error('\x1B[31m%s\x1B[0m', '💡  Possible causes:')
+    console.error('\x1B[31m%s\x1B[0m', '   - Missing plugin.json or package.json files')
+    console.error('\x1B[31m%s\x1B[0m', '   - Insufficient file permissions')
+    console.error('\x1B[31m%s\x1B[0m', '   - Invalid version format')
   }
 }
 main()
-
