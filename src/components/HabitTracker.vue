@@ -1,0 +1,5661 @@
+<template>
+  <div class="Pinch-habit-container">
+    <!-- 习惯列表页面 -->
+    <div class="habit-list-container">
+      <div class="Pinch-habit-header">
+        <div class="header-content">
+          <div class="date-display">{{ currentDateString.split('/')[0] }}<span>.</span>{{ currentDateString.split('/')[1] }}<span>.</span>{{ currentDateString.split('/')[2] }}</div>
+          <div class="header-buttons">
+            <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn">
+              <svg t="1767958238562" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="5893" width="200" height="200"><path d="M512 85.290667C747.648 85.290667 938.666667 276.352 938.666667 512.042667c0 235.648-191.061333 426.709333-426.709334 426.709333-235.690667 0-426.752-191.061333-426.752-426.709333C85.248 276.352 276.309333 85.248 512 85.248zM360.96 630.784a32 32 0 0 0-50.261333 39.594667A255.616 255.616 0 0 0 512 768.085333c79.36 0 152.746667-36.394667 201.045333-97.450666a32 32 0 0 0-50.261333-39.68A191.616 191.616 0 0 1 512 704.085333c-59.690667 0-114.773333-27.306667-150.997333-73.301333zM384 373.333333a53.333333 53.333333 0 1 0 0 106.624A53.333333 53.333333 0 0 0 384 373.333333z m256 0a53.333333 53.333333 0 1 0 0 106.624 53.333333 53.333333 0 0 0 0-106.624z" fill="var(--b3-theme-on-background)" ></path></svg>
+            </SyButton>
+            <SyButton @click="showTotalStatsPage = true" id="stats-btn" class="stats-btn">
+              <svg t="1767958081939" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="4693" width="200" height="200"><path d="M64.67 512c2.03-148.27 27.78-271.04 103.07-344.26C240.96 92.45 363.73 66.7 512 64.67c148.27 2.03 271.04 27.78 344.26 103.07C931.55 240.96 957.3 363.73 959.33 512c-2.03 148.27-27.78 271.04-103.07 344.26C783.04 931.55 660.27 957.3 512 959.33c-148.27-2.03-271.04-27.78-344.26-103.07C92.45 783.04 66.7 660.27 64.67 512z" ></path><path d="M339.12 720.13c-26.83 0-48.77-21.95-48.77-48.77V446.89c0-26.83 21.95-48.77 48.77-48.77 26.83 0 48.77 21.95 48.77 48.77v224.47c0.01 26.82-21.94 48.77-48.77 48.77zM512 720.13c-26.83 0-48.77-21.95-48.77-48.77V352.64c0-26.83 21.95-48.77 48.77-48.77 26.83 0 48.77 21.95 48.77 48.77v318.71c0 26.83-21.94 48.78-48.77 48.78zM684.88 720.13c-26.83 0-48.77-21.95-48.77-48.77V533.13c0-26.83 21.95-48.77 48.77-48.77 26.83 0 48.77 21.95 48.77 48.77v138.23c0 26.82-21.95 48.77-48.77 48.77z" fill="var(--b3-theme-background)" ></path></svg>
+            </SyButton>
+            <SyButton @click="showAddHabitModal = true" id="add-habit-btn">
+              <svg t="1767249216319" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="1606" width="16" height="16">
+                <path d="M512.67794 65.291029C265.701966 65.004503 66.200236 263.518742 65.293587 510.472204c-0.916882 247.286036 198.739367 447.915449 446.048939 448.236767 247.38632 0.322341 447.196065-199.272509 447.366957-446.883957C958.882422 265.25734 759.426741 65.579601 512.67794 65.291029zM772.621251 544.93204c-0.64059 26.420743-15.491833 41.562605-41.989323 41.606607-47.989991 0.080841-95.982028 0.124843-143.972019 0.151449 0.01228 45.808302 0.017396 91.615581-0.026606 137.418766-0.033769 35.107589-13.380752 48.577369-48.030923 48.683792-19.839861 0.061398-39.694047 0.370437-59.528791-0.11154-26.414603-0.642636-41.552371-15.495926-41.596374-41.999556-0.079818-47.998177-0.12382-95.996354-0.150426-143.993508-47.941895-0.027629-95.882767-0.072655-143.826709-0.154519-26.546609-0.044002-41.48381-15.205307-42.060955-41.548278-0.478907-21.701255-0.385786-43.417859-0.038886-65.119113 0.438998-27.465538 15.230889-42.333154 42.967604-42.441625 47.653323-0.176009 95.307669-0.155543 142.959969-0.122797 0.027629-47.950082 0.072655-95.89914 0.154519-143.851269 0.041956-26.552749 15.20019-41.49302 41.537022-42.070164 21.694091-0.477884 43.408649-0.385786 65.103764-0.037862 27.460422 0.438998 42.323944 15.233959 42.432415 42.977837 0.176009 47.667649 0.155543 95.335299 0.122797 143.001925 45.796022-0.01228 91.591021-0.017396 137.38295 0.026606 35.100426 0.033769 48.565089 13.382798 48.671513 48.039109C772.796236 505.231853 773.105275 525.093203 772.621251 544.93204z" p-id="1607"></path>
+              </svg>
+            </SyButton>
+          </div>
+        </div>
+      </div>
+
+      <!-- 本周日期显示，从周一开始 -->
+      <div class="week-dates">
+        <div 
+          v-for="date in weekDates" 
+          :key="date.fullDate"
+          :class="['week-date-item', { today: date.isToday }]"
+          @click="openMoodTracker(date.fullDate)">
+          <span class="weekday-name">{{ date.dayName }}</span>
+          <span v-if="moodData[date.fullDate] && moodData[date.fullDate].emoji" class="mood-emoji">
+            <div v-html="getSmallMoodSvg(moodData[date.fullDate].emoji)" class="mood-svg-small"></div>
+          </span>
+          <div class="week-date-number">{{ date.date }}</div>
+        </div>
+      </div>
+
+      <div class="habit-list">
+        <div v-if="habits.length === 0" class="empty-state">
+          {{ t('habitTracker.noHabits') }}
+        </div>
+        <div v-else class="habits-grid">
+          <transition-group name="habit-list" tag="div" class="habits-container">
+          <div v-for="habit in sortedHabits" :key="habit.id" :class="['habit-card', { 'completed': habit.completedToday || (habit.frequency && habit.frequency.startsWith('weekly') && getWeeklyCompletionStatus(habit)), 'paused': habit.isPaused }]">
+            <div class="habit-week-view">
+              <div class="week-habit-item">
+                <div class="emoji-section" @click="showHabitStats(habit)">
+                  <span class="habit-emoji">{{ habit.emoji || '📝' }}</span>
+                </div>
+                <div class="habit-info" @click="showHabitStats(habit)">
+                  <div class="habit-title">
+                                  {{ habit.name }}
+                                  <span v-if="habit.usePomodoro" class="pomodoro-indicator">🍅 {{ habit.pomodoroDuration ? habit.pomodoroDuration + 'min' : '25min' }}</span>
+                                </div>
+                  <div class="week-checkboxes">
+                    <div 
+                      v-for="day in getCalendarViewData(habit)" 
+                      :key="day.date" 
+                      :class="['day-checkbox', { completed: day.completed, today: day.isToday, past: day.isPast, future: day.isFuture, 'completed-by-weekly-rule': day.isCompletedByWeeklyRule }]"
+                      :title="day.date"
+                      @click="toggleDayCompletion(habit, day.date)"
+                    >
+                      <svg
+                        class="day-checkbox-icon"
+                        :class="{ completed: day.completed }"
+                        viewBox="0 0 1024 1024"
+                        width="16"
+                        height="16"
+                        xmlns="http://www.w3.org/2000/svg"
+                        >
+                        <path 
+                          v-if="!day.completed"
+                          d="M698.8,1024H325.2C145.6,1024,0,878.4,0,698.8V325.2C0,145.6,145.6,0,325.2,0h373.7
+	C878.4,0,1024,145.6,1024,325.2v373.7C1024,878.4,878.4,1024,698.8,1024z"
+                        ></path>
+                        <path 
+                          v-else
+                          d="M698.8,0H325.2C145.6,0,0,145.6,0,325.2v373.7C0,878.4,145.6,1024,325.2,1024h373.7
+	c179.6,0,325.2-145.6,325.2-325.2V325.2C1024,145.6,878.4,0,698.8,0z M749.4,364.5L526.7,720.7c-8.9,14.3-23.8,23.8-40.6,25.8
+	c-2,0.2-3.9,0.3-5.9,0.3c-14.6,0-28.6-5.9-39-16.6l-136.4-140c-21.6-22.4-21.5-57.8,0-80.2c20.8-21.6,55.1-22.2,76.7-1.4
+	c0.5,0.5,0.9,0.9,1.4,1.4l87.9,90.3l185.7-296.9c16.5-26.3,50.6-34,76.3-17.1C758.4,303.1,765.8,338.2,749.4,364.5z"
+                        ></path>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <div class="habit-actions">
+                  <!-- 默认按钮 -->
+                  <SyButton @click="toggleHabit(habit.id)" :type="habit.completedToday || (habit.frequency && habit.frequency.startsWith('weekly') && getWeeklyCompletionStatus(habit)) ? 'success' : 'default'" size="small" :class="['check-in-btn', { 'success-animation': showAnimation && animationHabitId === habit.id }]" :disabled="habit.isPaused">
+                                  <div v-if="showAnimation && animationHabitId === habit.id" class="rays-container">
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                    <div class="ray"></div>
+                                  </div>
+                    <svg v-if="habit.usePomodoro && habit.pomodoroRemaining !== undefined" :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
+                    </svg>
+                    <svg v-else-if="!habit.usePomodoro && (habit.completedToday || (habit.timesPerDay && habit.timesPerDay > 1 && getTodayCompletionCount(habit) === 0) || !habit.timesPerDay || habit.timesPerDay <= 1)" :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
+                    </svg>
+                    <svg v-else-if="habit.timesPerDay && habit.timesPerDay > 1 && getTodayCompletionCount(habit) > 0 && getTodayCompletionCount(habit) < habit.timesPerDay" 
+                         class="progress-pie" 
+                         width="26" 
+                         height="26" 
+                         viewBox="0 0 26 26">
+                      <clipPath id="rect-clip">
+                        <rect x="0" y="0" width="26" height="26" rx="8" ry="8" />
+                      </clipPath>
+                      <rect class="progress-pie__background" 
+                            x="0" 
+                            y="0" 
+                            width="26" 
+                            height="26" 
+                            rx="8" 
+                            ry="8" 
+                            fill="var(--b3-list-hover)" />
+                      <g clip-path="url(#rect-clip)">
+                        <path class="progress-pie__progress" 
+                              :d="getLargePiePath(habit)"
+                              fill="#f98f7a" />
+                      </g>
+                      <text x="13" y="16" text-anchor="middle" class="progress-pie__text">{{ getTodayCompletionCount(habit) }}</text>
+                    </svg>
+                    <span class="pomodoro-timer" v-else-if="habit.usePomodoro && habit.pomodoroRemaining !== undefined">
+                      {{ formatPomodoroTime(habit.pomodoroRemaining) }}
+                    </span>
+                    <svg v-else :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
+                    </svg>
+                  </SyButton>
+                </div>
+              </div>
+              <!-- 番茄钟功能区域 -->
+              <div v-if="habit.usePomodoro && habit.id === activePomodoroHabit?.id" class="pomodoro-inline-display">
+                <div class="pomodoro-timer-inline">
+                  <div class="timer-container">
+                    <div class="timer" :class="pomodoroStateClass(habit.pomodoroState)">{{ formatPomodoroTime(habit.pomodoroRemaining || 25 * 60) }}</div>
+                    <svg class="progress-ring" width="100" height="100">
+                      <circle class="progress-ring__bg" r="45" cx="50" cy="50" />
+                      <circle class="progress-ring__progress" r="45" cx="50" cy="50" :stroke-dasharray="inlineCircumference" :stroke-dashoffset="inlineStrokeDashoffset" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="pomodoro-controls-inline">
+                  <button @click="togglePomodoroPause" v-if="!habit.isPomodoroPaused" class="pause-btn">
+                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M768 912c-44.16 0-80-35.84-80-80V192a80 80 0 0 1 160 0v640c0 44.16-35.84 80-80 80zM256 912c-44.16 0-80-35.84-80-80V192a80 80 0 0 1 160 0v640c0 44.16-35.84 80-80 80z" ></path>
+                    </svg>
+                  </button>
+                  <button @click="togglePomodoroResume" v-if="habit.isPomodoroPaused" class="resume-btn">
+                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M897.143467 597.051733l-464.648534 311.5264c-46.976 31.488-110.592 18.944-142.08-28.023466A102.4 102.4 0 0 1 273.066667 823.5264V200.4736c0-56.5504 45.8496-102.4 102.4-102.4a102.4 102.4 0 0 1 57.028266 17.348267l464.64 311.5264c46.976 31.488 59.528533 95.104 28.032 142.08a102.4 102.4 0 0 1-28.023466 28.023466z"></path>
+                    </svg>
+                  </button>
+                  <button @click="stopCurrentPomodoro" class="stop-btn">
+                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M722.9375 933.875H301.0625a210.9375 210.9375 0 0 1-210.9375-210.9375V301.0625a210.9375 210.9375 0 0 1 210.9375-210.9375h421.875a210.9375 210.9375 0 0 1 210.9375 210.9375v421.875a210.9375 210.9375 0 0 1-210.9375 210.9375z"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          </transition-group>
+        </div>
+      </div>
+    </div>
+
+    <!-- 习惯统计面板 -->
+    <div v-if="selectedHabit" class="stats-panel">
+      <div class="stats-header">
+        <div class="stats-header-content">
+          <button @click="openEditHabitModal" class="icon-button">
+            <svg class="icon" viewBox="0 0 200 200" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M0,190c0-5.5,4.5-10,10-10h0h180c5.5,0,10,4.5,10,10c0,5.5-4.5,10-10,10c0,0,0,0,0,0H10C4.5,200,0,195.5,0,190 L0,190L0,190z M133.5,0c2.7,0,5.2,1.1,7.1,2.9l36.5,36.5c3.9,3.9,3.9,10.2,0,14.1L73.7,157.1c-1.9,1.9-4.4,2.9-7.1,2.9H30 c-5.5,0-10-4.5-10-10l0,0v-36.4c0-2.7,1-5.2,2.9-7.1L126.4,2.9C128.3,1.1,130.8,0,133.5,0z" ></path>
+            </svg>
+          </button>
+          <div class="stats-title">{{ selectedHabit.name }}</div>
+          <button @click="closeHabitStats" class="icon-button">
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" ></path>
+            </svg>
+          </button>
+        </div>
+        <div class="stats-emoji">{{ selectedHabit.emoji || '📝' }}</div>
+        <div class="habit-meta">
+          <span class="habit-frequency">{{ getFrequencyText(selectedHabit) }}</span>
+          <span class="habit-created">{{ getCreatedDateText(selectedHabit) }}</span>
+        </div>
+      </div>
+      <div class="stats-content">
+        <!-- 日历控件和视图容器 -->
+        <div class="calendar-container">
+          <!-- 日历控件 -->
+          <div class="calendar-controls">
+            <div class="calendar-navigation">
+              <button @click="changeStatsCalendarPeriod(selectedHabit, -1)" class="nav-btn">
+                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                  <path d="M747.245 81.064c-28.497-29.315-74.739-29.315-103.307 0l-367.236 378.011c-28.483 29.367-28.483 76.982 0 106.291l367.236 377.997c28.562 29.367 74.806 29.367 103.307 0 28.546-29.325 28.546-76.929 0-106.304l-315.6-324.841 315.599-324.803c28.545-29.367 28.544-76.973 0-106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+                </svg>
+              </button>
+              <span class="current-period">{{ getCurrentPeriodText(selectedHabit) }}</span>
+              <button @click="changeStatsCalendarPeriod(selectedHabit, 1)" class="nav-btn">
+                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                  <path d="M276.755 942.936c28.497 29.315 74.739 29.315 103.307 0l367.236-378.011c28.483-29.367 28.483-76.982 0-106.291l-367.236-377.997c-28.562-29.367-74.806-29.367-103.307 0-28.546 29.325-28.546 76.929 0 106.304l315.6 324.841-315.599 324.803c-28.545 29.367-28.544 76.973 0 106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <!-- 月视图 -->
+          <div class="calendar-view">
+            <div class="month-view">
+              <div class="weekdays-header">
+                <div v-for="day in weekdaysForCalendar" :key="day" class="weekday">{{ day }}</div>
+              </div>
+              <div class="month-grid">
+                <div 
+                  v-for="day in getStatsMonthViewData(selectedHabit)" 
+                  :key="day.date" 
+                  :class="['day', { completed: day.completed, today: day.date === getToday(), 'not-current-month': !day.isCurrentMonth }]"
+                  @click="!selectedHabit.isPaused && toggleDayCompletion(selectedHabit, day.date)"
+                >
+                  <span class="day-number">{{ day.date.split('-')[2] }}</span>
+                  <!-- 当目标次数大于1时显示进度条 -->
+                  <div v-if="day.targetCount > 1" class="day-progress-container">
+                    <div class="day-progress-bar">
+                      <div class="day-progress-fill" :style="{ width: (day.completedCount / day.targetCount * 100) + '%' }"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value">{{ calculateCurrentMonthStreak(selectedHabit) }}</div>
+            <div class="stat-label">{{ t('habitTracker.currentStreak') }}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">{{ calculateTotalMonthCompletions(selectedHabit) }}</div>
+            <div class="stat-label">{{ t('habitTracker.totalCompletions') }}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">{{ calculateCompletionRate(selectedHabit) }}<span> %</span></div>
+            <div class="stat-label">{{ t('habitTracker.completionRate') }}</div>
+          </div>
+        </div>
+      </div>
+        
+        <!-- 累计打卡数统计 -->
+        <div class="cumulative-stats">
+          <div class="stat-row">
+            <div class="stat-item">
+              <div class="stat-label">累计打卡</div>
+              <div class="stat-value">{{ selectedHabit.totalCompletions }}<span> 次</span></div>
+              <div class="monthly-progress-chart">
+                <div class="chart-bar" v-for="monthData in getMonthlyProgressData(selectedHabit)" :key="monthData.month">
+                  <div class="bar-fill" :style="{ height: monthData.percentage + '%' }"></div>
+                </div>
+              </div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">最长连续坚持</div>
+              <div class="stat-value">{{ calculateLongestStreak(selectedHabit).streak }}<span> 天</span></div>
+              <div class="stat-timeline" v-if="calculateLongestStreak(selectedHabit).startDate && calculateLongestStreak(selectedHabit).endDate">
+                <div class="stat-timeline-start">{{ formatTimelineDate(calculateLongestStreak(selectedHabit).startDate) }}</div>
+                <div class="stat-timeline-end">{{ formatTimelineDate(calculateLongestStreak(selectedHabit).endDate) }}</div>
+              </div>
+            </div>
+          </div>
+          <div class="stat-row">
+            <div class="stat-item">
+              <div class="stat-label">总完成率</div>
+              <div class="stat-value">{{ calculateTotalCompletionRate(selectedHabit) }}<span> %</span></div>
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: calculateTotalCompletionRate(selectedHabit) + '%' }"></div>
+              </div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">最常打卡时刻</div>
+              <div class="stat-value" v-html="calculateCommonTimeSlot(selectedHabit)"></div>
+              <!-- 小时分布条形图 -->
+              <div class="hour-distribution-chart">
+                <div class="chart-container">
+                  <div 
+                    v-for="hourData in getHourDistribution(selectedHabit)" 
+                    :key="hourData.hour"
+                    class="hour-bar"
+                    :style="{ height: calculateBarHeight(hourData.count) + '%' }"
+                    :title="`${hourData.hour}点: ${hourData.count}次`"
+                  >
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        
+        <div class="stats-actions">
+          <SyButton @click="togglePauseHabit(selectedHabit)" class="pause-button" :icon="selectedHabit.isPaused ? 'iconPlay' : 'iconPause'">
+            {{ selectedHabit.isPaused ? '恢复打卡' : '暂停打卡' }}
+          </SyButton>
+          <SyButton @click="deleteHabit(selectedHabit.id)" class="confirm-button" icon="iconTrashcan">
+            {{ t('habitTracker.delete') }}
+          </SyButton>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 总统计面板 -->
+    <div v-if="showTotalStatsPage" class="total-stats-panel">
+      <div class="stats-header">
+        <div class="stats-header-content">
+          <div class="stats-title">统计总览</div>
+          <button @click="showTotalStatsPage = false" class="icon-button">
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" ></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-value">{{ totalHabitsCount }}</div>
+          <div class="stat-label">总习惯数</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ totalCompletionsCount }}</div>
+          <div class="stat-label">总完成数</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{{ longestStreak }}</div>
+          <div class="stat-label">最长连续</div>
+        </div>
+      </div>
+      
+      <!-- 热力图区域 -->
+      <div class="heatmap-section">
+        <div class="heatmap-header">
+          <h3 class="heatmap-title">打卡热力图</h3>
+          <div class="heatmap-legend">
+            <span>无</span>
+            <div class="legend-colors">
+              <div class="legend-color intensity-0"></div>
+              <div class="legend-color intensity-1"></div>
+              <div class="legend-color intensity-2"></div>
+              <div class="legend-color intensity-3"></div>
+              <div class="legend-color intensity-4"></div>
+            </div>
+            <span>多</span>
+          </div>
+        </div>
+        <div class="heatmap-container">
+          <div class="heatmap-grid">
+            <div class="heatmap-weekdays">
+              <div class="heatmap-weekday">一</div>
+              <div class="heatmap-weekday">二</div>
+              <div class="heatmap-weekday">三</div>
+              <div class="heatmap-weekday">四</div>
+              <div class="heatmap-weekday">五</div>
+              <div class="heatmap-weekday">六</div>
+              <div class="heatmap-weekday">日</div>
+            </div>
+            <div class="heatmap-days-container">
+              <template v-for="(week, weekIndex) in heatmapGridData.weeks" :key="weekIndex">
+                <div class="heatmap-week-row">
+                  <template v-for="(day, dayIndex) in week" :key="dayIndex">
+                    <div 
+                      class="heatmap-day" 
+                      :class="`intensity-${day.intensity}`"
+                      :title="`${day.date}: ${day.count}次打卡`"
+                    ></div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+        <div class="heatmap-months">
+          <div v-for="month in heatmapMonths" :key="month.monthLabel" class="heatmap-month-label" :style="{ 'left': month.offset + '%' }">
+            {{ month.monthLabel }}
+          </div>
+        </div>
+      </div>
+      <!-- 每个习惯的统计列表 -->
+      <div class="habits-stats-list">
+        <div class="habit-stat-item" v-for="habit in habits" :key="habit.id">
+          <div class="habit-stat-content">
+            <div class="habit-stat-header">
+              <div class="habit-emoji-large">{{ habit.emoji || '📝' }}</div>
+              <span class="habit-name">{{ habit.name }}</span>
+              <span class="habit-created">{{ getCreatedDateText(habit) }}</span>
+            </div>
+            <div class="habit-stat-details">
+              <div class="stat-detail-item">
+                <span class="stat-value">{{ habit.totalCompletions || habit.calendar.filter(record => record.completed).length }}<span> 次</span></span>
+                <span class="stat-label">累计打卡</span>
+              </div>
+              <div class="stat-detail-item">
+                <span class="stat-value">{{ calculateLongestStreak(habit).streak }}<span> 天</span></span>
+                <span class="stat-label">最长连续</span>
+              </div>
+              <div class="stat-detail-item">
+                <span class="stat-value">{{ calculateTotalCompletionRate(habit) }}<span> %</span></span>
+                <span class="stat-label">总完成率</span>
+              </div>
+              <div class="stat-detail-item">
+                <span class="stat-value" v-html="calculateCommonTimeSlot(habit)"></span>
+                <span class="stat-label">打卡时刻</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 编辑习惯模态框 -->
+    <div v-show="showEditHabitModal" class="modal-overlay" @click.self="closeEditHabitModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>编辑习惯</h3>
+          <button @click="closeEditHabitModal" class="icon-button">
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body" v-if="editedHabit">
+          <div class="form-group">
+            <label>习惯名称</label>
+            <SyInput v-model="editedHabit.name" placeholder="输入习惯名称" />
+          </div>
+          <div class="form-group">
+            <label>选择图标</label>
+            <div class="emoji-selector">
+              <SyInput v-model="editedHabit.emoji" placeholder="选择或输入emoji" />
+              <SyButton 
+                @click="showEmojiPicker = !showEmojiPicker" 
+                type="default" 
+                size="small" 
+                class="emoji-picker-btn">
+                {{ editedHabit.emoji || '📝' }}
+              </SyButton>
+              <div class="emoji-picker" v-if="showEmojiPicker">
+                <div class="emoji-categories">
+                  <div 
+                    v-for="(emojis, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-category"
+                    :id="'emoji-category-' + category.toLowerCase().replace(/\s+/g, '-')">
+                    <h4>{{ category }}</h4>
+                    <div class="emoji-options-grid">
+                      <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmojiForEdit(emoji)">
+                        {{ emoji }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- 底部导航菜单 -->
+                <div class="emoji-nav">
+                  <div 
+                    v-for="(_, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-nav-item"
+                    @click="scrollToCategory('emoji-category-' + category.toLowerCase().replace(/\s+/g, '-'))">
+                    {{ getFixedEmojiForCategory(category) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>{{ t('habitTracker.frequency') }}</label>
+            <SySelect v-model="editedHabit.frequency" :options="frequencyOptions" />
+          </div>
+          <div class="form-group">
+            <label>{{ t('habitTracker.timesPerDay') }}</label>
+            <SySelect :modelValue="editedHabit.timesPerDay?.toString()" @update:modelValue="onTimesPerDayChange" :options="timesPerDayOptions" />
+          </div>
+          
+          <div class="form-group">
+            <label>
+              <input 
+                type="checkbox" 
+                v-model="editedHabit.usePomodoro" 
+                class="pomodoro-checkbox"
+              >
+              启用番茄钟功能
+            </label>
+          </div>
+          
+          <div class="form-group" v-if="editedHabit.usePomodoro">
+            <label>番茄钟时长</label>
+            <SySelect 
+              :modelValue="editedHabit.pomodoroDuration?.toString()" 
+              @update:modelValue="(value) => { if (editedHabit) editedHabit.pomodoroDuration = parseInt(value) || 25 }"
+              :options="pomodoroDurationOptions" 
+            />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <SyButton @click="saveEditedHabit" class="confirm-button">保存</SyButton>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加习惯模态框 -->
+    <div v-show="showAddHabitModal" class="modal-overlay" @click.self="showAddHabitModal = false">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>{{ t('habitTracker.addHabit') }}</h3>
+          <button @click="showAddHabitModal = false" class="icon-button">
+                      <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                        <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`" p-id="23336"></path>
+                      </svg>
+                    </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>{{ t('habitTracker.habitName') }}</label>
+            <SyInput v-model="newHabit.name" :placeholder="t('habitTracker.habitNamePlaceholder')" />
+          </div>
+          <div class="form-group">
+            <label>选择图标</label>
+            <div class="emoji-selector">
+              <SyInput v-model="newHabit.emoji" placeholder="选择或输入emoji" />
+              <SyButton 
+                @click="showEmojiPicker = !showEmojiPicker" 
+                type="default" 
+                size="small" 
+                class="emoji-picker-btn">
+                📝
+              </SyButton>
+              <div class="emoji-picker" v-if="showEmojiPicker">
+                <div class="emoji-categories">
+                  <div 
+                    v-for="(emojis, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-category"
+                    :id="'emoji-category-' + category.toLowerCase().replace(/\s+/g, '-')">
+
+                    <h4>{{ category }}</h4>
+                    <div class="emoji-options-grid">
+                      <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmoji(emoji)">
+                        {{ emoji }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- 底部导航菜单 -->
+                <div class="emoji-nav">
+                  <div 
+                    v-for="(_, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-nav-item"
+                    @click="scrollToCategory('emoji-category-' + category.toLowerCase().replace(/\s+/g, '-'))">
+                    {{ getFixedEmojiForCategory(category) }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>{{ t('habitTracker.frequency') }}</label>
+            <SySelect v-model="newHabit.frequency" :options="frequencyOptions" />
+          </div>
+          <div class="form-group">
+            <label>{{ t('habitTracker.timesPerDay') }}</label>
+            <SySelect v-model="newHabit.timesPerDay" :options="timesPerDayOptions" />
+          </div>
+          
+          <div class="form-group">
+            <label>
+              <input 
+                type="checkbox" 
+                v-model="newHabit.usePomodoro" 
+                class="pomodoro-checkbox"
+              >
+              启用番茄钟功能
+            </label>
+          </div>
+          
+          <div class="form-group" v-if="newHabit.usePomodoro">
+            <label>番茄钟时长</label>
+            <SySelect 
+              :modelValue="newHabit.pomodoroDuration" 
+              @update:modelValue="(value) => newHabit.pomodoroDuration = value"
+              :options="pomodoroDurationOptions" 
+            />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <SyButton @click="addHabit" class="confirm-button">{{ t('OK') }}</SyButton>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 情绪打卡模态框 -->
+    <div v-show="showMoodTracker" class="modal-overlay" @click.self="closeMoodTracker">
+      <div class="modal-content" @click.stop style="width: 350px;">
+        <div class="modal-header">
+          <h3>心情打卡 - {{ selectedDate }}</h3>
+          <button @click="closeMoodTracker" class="icon-button">
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>选择心情</label>
+            <div class="emoji-selector">
+              <div class="mood-emoji-grid">
+                <span 
+                  v-for="emoji in moodEmojis" 
+                  :key="emoji.id"
+                  class="mood-emoji-option"
+                  @click="selectMoodEmoji(emoji.emoji)"
+                  :class="{ selected: moodEntry.emoji === emoji.emoji }">
+                  <div v-html="getLargeMoodSvg(emoji.emoji)" class="mood-svg"></div>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>今日心情</label>
+            <SyInput v-model="moodEntry.note" placeholder="记录今天的心情或事件..." />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <SyButton @click="deleteMoodEntry" class="danger-button" v-if="moodEntry.emoji || moodEntry.note">删除</SyButton>
+          <SyButton @click="saveMoodEntry" class="confirm-button">保存</SyButton>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 情绪打卡月视图模态框 -->
+    <div v-if="showMoodCalendar" class="mood-calendar-panel">
+      <div class="stats-header">
+        <div class="stats-header-content">
+          <div class="stats-title">心情打卡月视图</div>
+          <button @click="showMoodCalendar = false" class="icon-button">
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" ></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="stats-content">
+                  <!-- 情绪统计柱状图 -->
+          <div class="mood-stats-container">
+            <div class="mood-stats-chart">
+              <div class="mood-stat-item" v-for="item in moodStatsData.data" :key="item.type">
+                <div class="mood-stat-bar-container">
+                  <div 
+                    class="mood-stat-bar" 
+                    :class="`mood-stat-bar-${item.type}`"
+                    :style="{ height: (item.count / moodStatsData.maxValue * 100) + '%' }"
+                  ></div>
+                </div>
+                <div class="mood-stat-count">{{ item.count }}</div>
+                <div class="mood-stat-emoji" v-html="getLargeMoodSvg(item.emoji)"></div>
+              </div>
+            </div>
+          </div>
+          <div class="calendar-container">
+          <div class="calendar-controls">
+            <div class="calendar-navigation">
+              <button @click="changeMoodCalendarMonth(-1)" class="nav-btn">
+                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                  <path d="M747.245 81.064c-28.497-29.315-74.739-29.315-103.307 0l-367.236 378.011c-28.483 29.367-28.483 76.982 0 106.291l367.236 377.997c28.562 29.367 74.806 29.367 103.307 0 28.546-29.325 28.546-76.929 0-106.304l-315.6-324.841 315.599-324.803c28.545-29.367 28.544-76.973 0-106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+                </svg>
+              </button>
+              <span class="current-period">{{ moodCalendarMonthYear }}</span>
+              <button @click="changeMoodCalendarMonth(1)" class="nav-btn">
+                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                  <path d="M276.755 942.936c28.497 29.315 74.739 29.315 103.307 0l367.236-378.011c28.483-29.367 28.483-76.982 0-106.291l-367.236-377.997c-28.562-29.367-74.806-29.367-103.307 0-28.546 29.325-28.546 76.929 0 106.304l315.6 324.841-315.599 324.803c-28.545 29.367-28.544 76.973 0 106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          
+          <div class="calendar-view">
+            <div class="month-view">
+              <div class="weekdays-header">
+                <div v-for="day in weekdaysForCalendar" :key="day" class="weekday">{{ day }}</div>
+              </div>
+              <div class="month-grid">
+                <div 
+                  v-for="day in moodCalendarData" 
+                  :key="day.date" 
+                  :class="['day', { 
+                    'completed': day.mood, 
+                    'today': day.isToday, 
+                    'not-current-month': !day.isCurrentMonth 
+                  }]"
+                  @click="openMoodTracker(day.date)"
+                >
+                    <div v-if="day.mood" class="mood-emoji-large" v-html="getLargeMoodSvg(day.mood.emoji)"></div>
+                  <span v-else class="day-number">{{ day.date.split('-')[2] }}</span>
+                </div>
+              </div>
+            </div>
+        
+          
+          </div>
+          
+          <!-- 本月情绪记录列表 -->
+          <div class="mood-list-container">
+            <h4 class="mood-list-title">本月心情记录</h4>
+            <div class="mood-list">
+              <div 
+                v-for="entry in currentMonthMoodEntries" 
+                :key="entry.date" 
+                class="mood-list-item"
+              >
+                <div class="mood-list-date">{{ entry.date.split('-')[2] }}</div>
+                <div class="mood-list-content">
+                  <div class="mood-list-emoji" v-html="getLargeMoodSvg(entry.mood.emoji)"></div>
+                  <div class="mood-list-note">{{ entry.mood.note }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.emoji-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.emoji-picker-btn {
+  margin-left: 8px;
+  border: none;
+  border-radius: 6px;
+  height: 28px;
+  width: 30px;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.pomodoro-checkbox {
+  margin-right: 8px;
+}
+
+.pomodoro-timer {
+  font-family: monospace;
+  font-weight: bold;
+  color: #e74c3c;
+}
+
+
+
+.pomodoro-label {
+  font-size: 12px;
+  color: #3498db;
+}
+
+.date-display {
+  font-weight: bold;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 5px;
+}
+
+.date-display span {
+  color: var(--b3-theme-on-background);
+}
+
+.emoji-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1000;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  overflow-y: auto;
+  width: 350px;
+}
+
+.emoji-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.emoji-category {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.emoji-category .emoji-option {
+  display: inline-block;
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.emoji-category .emoji-options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
+  gap: 4px;
+}
+
+.emoji-category h4 {
+  margin: 0 0 4px 0;
+  font-size: 12px;
+  color: #666;
+  padding: 0 4px;
+}
+
+.emoji-option:hover {
+  background-color: #f0f0f0;
+}
+
+.emoji-nav {
+  display: flex;
+  justify-content: space-around;
+  padding: 4px 0 0px 0;
+  border-top: 1px solid #eee;
+  margin-top: 8px;
+  position: sticky;
+  bottom: 0;
+  background: white;
+  z-index: 1001;
+}
+
+.emoji-nav-item {
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 16px;
+  color: #666;
+  text-align: center;
+  flex: 1;
+}
+
+.emoji-nav-item:hover {
+  background-color: #f0f0f0;
+  color: #333;
+}
+
+.icon-button {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--b3-theme-background);
+  fill: var(--b3-theme-background);
+}
+
+
+.icon-button:hover {
+  background-color: var(--b3-list-hover);
+  border-radius: 4px;
+}
+
+.day-checkbox-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  transition: all 0.2s;
+
+}
+
+
+.day-checkbox.today:not(.completed) .day-checkbox-icon,
+.day-checkbox.today.completed-by-weekly-rule .day-checkbox-icon,
+.day-checkbox.past.completed-by-weekly-rule .day-checkbox-icon,
+.day-checkbox.future.completed-by-weekly-rule .day-checkbox-icon{
+  color: oklch(68.98% 0.161 30.76 / 0.2);
+}
+
+.day-checkbox.past:not(.completed) .day-checkbox-icon {
+  color: var(--b3-list-hover);
+}
+
+
+.day-checkbox.completed .day-checkbox-icon {
+  color: #f98f7a;
+}
+
+.day-checkbox.future .day-checkbox-icon {
+  color: var(--b3-list-hover);
+}
+
+.week-habit-item {
+  display: flex;
+  align-items: center;
+  padding: 6px;
+}
+
+.confirm-button {
+  background-color: #f98f7a;
+  color: var(--b3-theme-background);
+  font-weight: bold;
+  border: none;
+  border-radius: 24px;
+  padding: 6px 12px;
+}
+
+.cumulative-stats {
+  margin: 10px 0;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 10px;
+  gap:10px;
+}
+
+.cumulative-stats .stat-item {
+  flex: 1;
+  background-color: var(--b3-theme-background);
+  border-radius: 24px;
+  padding: 20px;
+}
+
+.cumulative-stats .stat-value {
+  font-weight: 600;
+  font-size: 24px;
+  color: var(--b3-theme-on-background);
+  margin-top: 4px;
+  margin-bottom: 12px;
+}
+
+.cumulative-stats .stat-value span{
+  font-size: 12px;
+}
+
+.cumulative-stats .stat-label {
+  font-size: 12px;
+  color: var(--b3-scroll-color);
+}
+
+.stat-timeline {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  position: relative;
+  margin-left: 8px;
+}
+
+.stat-timeline::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  bottom: 0;
+  width: 2px;
+  background: #decdfa;
+  transform: translate(-50%, -50%);
+  height: 10px;
+  z-index: 1;
+}
+
+.stat-timeline .stat-timeline-start {
+  color: var(--b3-theme-on-surface);
+  position: relative;
+  z-index: 2;
+  padding: 2px 8px;
+}
+
+.stat-timeline .stat-timeline-start::before {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #decdfa;
+  top: 50%;
+  left: 0px;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+}
+
+.stat-timeline .stat-timeline-end {
+  color: var(--b3-theme-on-surface);
+  position: relative;
+  z-index: 2;
+  padding: 2px 8px;
+}
+
+.stat-timeline .stat-timeline-end::before {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #decdfa;
+  top: 50%;
+  left: 0px;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+}
+
+.monthly-progress-chart {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  height: 30px;
+  margin-top: 24px;
+  gap: 4px;
+  .chart-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    height: 100%;
+    min-width: 1px;
+    border-radius: 3px;
+    position: relative;
+    background-color: var(--b3-list-hover);
+    
+    .bar-fill {
+      width: 100%;
+      background: #f98f7a;
+      border-radius: 3px;
+      transition: height 0.3s ease;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+    }
+  }
+}
+.progress-bar {
+  width: 100%;
+  height: 24px;
+  background-color: var(--b3-list-hover);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 18px;
+  box-shadow: inset 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(to right, #fcd07d, #ffcb4c);
+  border-radius: 8px;
+  transition: width 0.3s ease;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.chart-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--b3-theme-on-background);
+}
+
+.chart-container {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 30px;
+  border-radius: 4px;
+  background-color: var(--b3-list-background);
+}
+
+.hour-bar {
+  flex: 1;
+  margin: 0 1px;
+  background: linear-gradient(to top, #7ba6d3, #7ba6d3);
+  min-width: 2px;
+  min-height: 15%;
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.3s;
+}
+
+.hour-bar:hover {
+  background-color: var(--b3-theme-primary-lighter);
+}
+
+
+
+
+
+.confirm-button:hover {
+  background-color: #e55a47;
+}
+
+.confirm-button:active {
+  background-color: #dc4a33;
+}
+
+.danger-button {
+  background-color: #e74c3c;
+  color: var(--b3-theme-background);
+  font-weight: bold;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 24px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-width: auto;
+  font-size: 14px;
+}
+
+.danger-button:hover {
+  background-color: #c0392b;
+}
+
+.danger-button:active {
+  background-color: #a93226;
+}
+
+.pause-button {
+  background-color: #fdd07d;
+  border: none;
+  color: var(--b3-theme-background);
+  padding: 8px 16px;
+  border-radius: 24px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-width: auto;
+  font-size: 14px;
+  font-weight: bold;
+
+}
+
+.pause-button:hover {
+  background-color: #ffcb4c;
+}
+
+.pause-button:active {
+  background-color: #ffcb4c;
+}
+
+.emoji-section {
+  text-align: center;
+  font-size: 36px;
+  width: 50px;
+  height: 50px;
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.habit-info {
+  flex: 1;
+  margin: 0 6px;
+}
+
+.habit-title {
+  font-weight: bold;
+  margin-bottom: 6px;
+  margin-left: 2px;
+  span{
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--b3-theme-on-surface);
+    background-color: var(--b3-list-hover);
+    padding: 2px 6px;
+    border-radius: 6px;
+  }
+}
+
+.week-checkboxes {
+  display: flex;
+}
+
+.day-checkbox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  padding: 2px;
+  transition: background-color 0.2s;
+}
+
+.day-checkbox-input {
+  margin: 0 0 4px 0;
+}
+
+.day-label {
+  font-size: 12px;
+}
+
+.check-in-btn {
+  background-color: var(--b3-list-hover);
+  border-radius: 8px;
+  border: none;
+  padding: 0;
+  min-width: auto;
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.check-in-btn .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--b3-theme-background);
+  transition: color 0.3s, fill 0.3s;
+}
+
+.check-in-btn[type="success"] {
+  background-color: #f98f7a;
+}
+
+.rays-container {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.ray {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 4px;
+  height: 12px;
+  background: #f98f7a;
+  border-radius: 4px;
+  transform-origin: bottom center;
+  opacity: 0;
+  animation: rayAnimation 0.4s ease-out forwards;
+}
+
+.ray:nth-child(1) { --rotation: 0deg; transform: rotate(0deg) translateY(-10px); }
+.ray:nth-child(2) { --rotation: 30deg; transform: rotate(30deg) translateY(-10px); }
+.ray:nth-child(3) { --rotation: 60deg; transform: rotate(60deg) translateY(-10px); }
+.ray:nth-child(4) { --rotation: 90deg; transform: rotate(90deg) translateY(-10px); }
+.ray:nth-child(5) { --rotation: 120deg; transform: rotate(120deg) translateY(-10px); }
+.ray:nth-child(6) { --rotation: 150deg; transform: rotate(150deg) translateY(-10px); }
+.ray:nth-child(7) { --rotation: 180deg; transform: rotate(180deg) translateY(-10px); }
+.ray:nth-child(8) { --rotation: 210deg; transform: rotate(210deg) translateY(-10px); }
+.ray:nth-child(9) { --rotation: 240deg; transform: rotate(240deg) translateY(-10px); }
+.ray:nth-child(10) { --rotation: 270deg; transform: rotate(270deg) translateY(-10px); }
+.ray:nth-child(11) { --rotation: 300deg; transform: rotate(300deg) translateY(-10px); }
+.ray:nth-child(12) { --rotation: 330deg; transform: rotate(330deg) translateY(-10px); }
+
+@keyframes rayAnimation {
+  0% {
+    opacity: 1;
+    transform: rotate(var(--rotation)) translateY(-10px) scale(0.2);
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--rotation)) translateY(-20px) scale(1);
+  }
+}
+
+.progress-pie__progress {
+  transition: d 0.3s ease-in-out;
+}
+
+.progress-pie__text {
+  font-weight: bold;
+  fill: var(--b3-theme-background);
+  text-anchor: middle;
+  dominant-baseline: middle;
+  font-size: 16px;
+}
+
+.week-dates {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.week-date-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 38px;
+  padding: 10px 6px;
+  border-radius: 14px;
+  background-color: var(--b3-theme-background);
+  box-shadow: rgba(0, 0, 0, 0.03) 0px 1px 5px 0px;
+  overflow: hidden;
+  position: relative;
+}
+
+.week-date-item.today {
+  position: relative;
+}
+.week-date-item.today .weekday-name {
+  color: #f98f7a;
+}
+.week-date .weekday-name {
+  font-size: 10px;
+  color: var(--b3-scroll-color);
+  margin-bottom: 4px;
+}
+
+.mood-emoji {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+
+.weekday-name {
+  font-size: 10px;
+  position: relative;
+}
+
+.weekday-name::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: var(--b3-border-color);
+}
+
+
+.week-date-item .mood-emoji {
+  position: absolute;
+  bottom: -12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 0;
+  opacity: 0.7;
+}
+
+
+.week-date-number {
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 1;
+  margin-top: 15px;
+}
+
+.day-progress-container {
+  position: absolute;
+  bottom: 2px;
+  left: 0;
+  right: 0;
+  padding: 0 4px;
+}
+
+.day-progress-bar {
+  width: 80%;
+  height: 4px;
+  background-color: var(--b3-list-hover);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 0 auto;
+}
+
+.day-progress-fill {
+  height: 100%;
+  background-color: #f98f7a;
+  transition: width 0.3s ease;
+}
+
+.mood-emoji-option {
+  display: inline-block;
+  font-size: 20px;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  margin: 2px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mood-emoji-option.selected {
+  background-color: #e3f2fd;
+  border: 2px solid #2196f3;
+}
+
+.mood-emoji-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.mood-svg {
+  width: 30px;
+  height: 30px;
+}
+
+.mood-svg svg {
+  width: 100%;
+  height: 100%;
+}
+
+.mood-svg-small {
+  width: 50px;
+  height: 50px;
+}
+
+.mood-svg-small svg {
+  width: 100%;
+  height: 100%;
+}
+
+</style>
+
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import SyButton from '@/components/SiyuanTheme/SyButton.vue';
+import SyInput from '@/components/SiyuanTheme/SyInput.vue';
+import SySelect from '@/components/SiyuanTheme/SySelect.vue';
+import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
+
+// 辅助函数：格式化日期为 YYYY-MM-DD 格式
+const formatDate = (date: Date): string => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+const formatTimelineDate = (date: Date | null): string => {
+  if (!date) return '';
+  
+  // 检查是否是有效日期
+  if (isNaN(date.getTime())) {
+    return '';
+  }
+  
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  
+  return `${year}.${month}.${day}`;
+};
+
+
+// 通用打卡状态切换函数
+const toggleHabitCompletion = (habit: Habit, date: string) => {
+  let dayRecord = habit.calendar.find(day => day.date === date);
+  
+  // 如果指定日期的记录不存在，则创建一条新记录
+  if (!dayRecord) {
+    const timesPerDay = Math.min(typeof habit.timesPerDay === 'string' ? parseInt(habit.timesPerDay) || 1 : habit.timesPerDay || 1, 20);
+    dayRecord = {
+      date: date,
+      completed: false,
+      completedCount: 0,
+      targetCount: timesPerDay
+    };
+    habit.calendar.push(dayRecord);
+  }
+  
+  // 检查是否已完成所有打卡任务
+  const targetCount = typeof dayRecord.targetCount === 'string' ? parseInt(dayRecord.targetCount) || 1 : dayRecord.targetCount || 1;
+  if (dayRecord.completed) {
+    // 如果已完成所有打卡任务，再次点击则重置打卡数据
+    dayRecord.completedCount = 0;
+    dayRecord.completed = false;
+    // 完成状态变为未完成时，移除时间戳
+    delete dayRecord.timestamp;
+    
+    // 如果完成状态变为未完成，且完成次数为0，从日历中移除该记录
+    if (dayRecord.completedCount === 0) {
+      habit.calendar = habit.calendar.filter(day => day.date !== date);
+    }
+  } else {
+    // 如果尚未完成所有打卡任务，则增加完成次数
+    if (dayRecord.completedCount < targetCount) {
+      dayRecord.completedCount = (dayRecord.completedCount || 0) + 1;
+    }
+    // 当完成次数达到目标次数时，标记为已完成
+    dayRecord.completed = dayRecord.completedCount >= targetCount;
+    
+    // 只在打卡完成时添加时间戳
+    if (dayRecord.completed && !dayRecord.timestamp) {
+      dayRecord.timestamp = Date.now();
+    }
+  }
+  
+  // 更新当天是否完成的标记
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const now = new Date();
+  const todayStr = formatDate(now);
+  habit.completedToday = date === todayStr && dayRecord.completed;
+  
+  // 更新总完成次数和连续打卡天数
+  habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+  
+    // 重新计算当前连续打卡天数
+  habit.currentStreak = calculateCurrentStreak(habit);
+};
+
+// 计算连续打卡天数 - 可用于当前连续或最长连续
+const calculateCurrentStreak = (habit: Habit, startDate?: Date) => {
+  // 如果提供了起始日期，则从该日期开始计算连续天数
+  const sortedCalendar = [...habit.calendar]
+    .filter(record => !startDate || new Date(record.date) >= startDate)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  let streak = 0;
+  for (const day of sortedCalendar) {
+    if (day.completed) {
+      streak++;
+    } else {
+      break; // 遇到未完成的天数就停止计算
+    }
+  }
+  return streak;
+};
+
+// 计算每月打卡进度数据
+const getMonthlyProgressData = (habit: Habit) => {
+  const currentYear = new Date().getFullYear();
+  
+  // 初始化12个月的数据
+  const monthlyData = [];
+  for (let month = 0; month < 12; month++) {
+    const monthEnd = new Date(currentYear, month + 1, 0); // 该月最后一天
+    const totalDays = monthEnd.getDate(); // 该月总天数
+    
+    // 计算该月的打卡记录数
+    const monthCompletions = habit.calendar.filter(record => {
+      const recordDate = new Date(record.date);
+      return recordDate.getFullYear() === currentYear && 
+             recordDate.getMonth() === month && 
+             record.completed;
+    }).length;
+    
+    const percentage = totalDays > 0 ? Math.round((monthCompletions / totalDays) * 100) : 0;
+    
+    monthlyData.push({
+      month: `${month + 1}月`,
+      completions: monthCompletions,
+      totalDays: totalDays,
+      percentage: percentage
+    });
+  }
+  
+  return monthlyData;
+};
+
+// 获取今天日期的函数
+const getToday = () => {
+  const today = new Date();
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  return formatDate(today);
+};
+
+// 检查是否为今天
+const isToday = (dateString: string) => {
+  return dateString === getToday();
+};
+
+// const plugin = usePlugin(); // Removed unused plugin variable
+
+// 表情选择相关
+const showEmojiPicker = ref(false);
+
+// 从思源笔记获取内置emoji配置
+const emojiCategories = ref<Record<string, string[]>>({});
+const commonEmojis = ref<string[]>([]);
+// 情绪打卡专用的SVG图标
+const moodEmojis = ref([
+  { id: 'excited', emoji: '🤩', largeSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="50" fill="#FDD07D"/><circle cx="37.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="10.9" fill="#FFFFFF"/><path d="M34.5,50.5c3.4,4.8,7.8,7.4,16.2,7.4c9.9,0,14.8-5.7,15.8-7.4" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M42.9,33c0-2.1-2-5.3-5.5-5.3c-2.9,0-5.7,2.5-5.7,5.3" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M69,33c0-2.1-2-5.3-5.5-5.3c-2.9,0-5.7,2.5-5.7,5.3" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>', smallSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M0,24.9V100h100V24.9C88.6,9.8,70.4,0,50,0S11.4,9.8,0,24.9z" fill="#FDD07D"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="4.2"/><circle cx="41.3" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="4.2"/><circle cx="55" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><path d="M41.8,25.9c1.8,2.5,4.1,3.9,8.6,3.9c5.3,0,7.8-3,8.4-3.9" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M46.2,16.6c0-1.1-1.1-2.8-2.9-2.8c-1.5,0-3,1.3-3,2.8" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M60.1,16.6c0-1.1-1.1-2.8-2.9-2.8c-1.5,0-3,1.3-3,2.8" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>' },
+  { id: 'happy', emoji: '😊', largeSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M78.3,100H21.7C8.2,100-2,88.7,0.3,76.5l11.5-59.9C13.7,7,22.7,0,33.2,0h34c10.6,0,19.6,7,21.4,16.6l11.2,59.9C102,88.8,91.8,100,78.3,100z" fill="#8aae97"/><circle cx="37.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="37.3" cy="32.8" r="8" fill="#000000"/><circle cx="33.4" cy="29" r="2.7" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="8" fill="#000000"/><circle cx="59.4" cy="29" r="2.7" fill="#FFFFFF"/><path d="M39.2,52.7c2.4,3.4,5.6,5.3,11.6,5.3c7.1,0,10.6-4.1,11.3-5.3" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>', smallSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M12.3,11.5L0,45.9V100h100V50.5L87,11.8C84.6,4.8,78,0,70.6,0H28.6C21.3,0,14.8,4.6,12.3,11.5z" fill="#8aae97"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="4.2" fill="#000000"/><circle cx="41.2" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="4.2" fill="#000000"/><circle cx="55" cy="14.5" r="1.4" fill="#FFFFFF"/><path d="M44.3,27c1.3,1.8,3,2.8,6.1,2.8c3.7,0,5.6-2.2,6-2.8" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>' },
+  { id: 'calm', emoji: '😌', largeSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M37.2,4.5L8.8,26C1.6,31.4-1.4,40.8,1.3,49.3l11.2,35.7c2.8,8.9,11,14.9,20.3,14.9h34.5c9.3,0,17.5-6,20.3-14.9l11.2-35.7c2.7-8.6-0.3-17.9-7.5-23.3L62.8,4.5C55.3-1.2,44.8-1.2,37.2,4.5z" fill="#89b0bc"/><circle cx="37.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="37.3" cy="32.8" r="8" fill="#000000"/><circle cx="33.4" cy="29" r="2.7" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="8" fill="#000000"/><circle cx="59.4" cy="29" r="2.7" fill="#FFFFFF"/><line x1="41.6" y1="52.7" x2="59.9" y2="52.7" stroke="#000000" stroke-width="3" stroke-linecap="round" stroke-miterlimit="10"/></svg>', smallSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M91.6,26L62.8,4.3c-7.6-5.7-18-5.7-25.6,0L8.4,26C2.9,30.2-0.2,36.8,0,43.5h0v56.5h100.1V43.5h0C100.2,36.8,97.2,30.2,91.6,26z" fill="#89b0bc"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="4.2" fill="#000000"/><circle cx="41.2" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="4.2" fill="#000000"/><circle cx="55" cy="14.5" r="1.4" fill="#FFFFFF"/><line x1="45.5" y1="27" x2="55.2" y2="27" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-miterlimit="10"/></svg>' },
+  { id: 'sad', emoji: '😢', largeSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M69.6,100H30.4C13.6,100,0,86.4,0,69.6V30.4C0,13.6,13.6,0,30.4,0h39.1C86.4,0,100,13.6,100,30.4v39.1C100,86.4,86.4,100,69.6,100z" fill="#f192c9"/><circle cx="37.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="37.3" cy="32.8" r="8" fill="#000000"/><circle cx="33.4" cy="29" r="2.7" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="8" fill="#000000"/><circle cx="59.4" cy="29" r="2.7" fill="#FFFFFF"/><path d="M23.6,24.9c1.4,0.1,4.2,0.5,7.5-1c4.1-2,5.5-4.4,6.7-6.8" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M76.9,24.9c-1.4,0.1-4.2,0.5-7.5-1c-4.1-2-5.5-4.4-6.7-6.8" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>', smallSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M69.6,100H30.5C13.7,100,0,86.4,0,69.6V30.5C0,13.7,13.7,0,30.5,0h39.1C86.4,0,100,13.7,100,30.5v39.1C100,86.4,86.4,100,69.6,100z" fill="#f192c9"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="4.2" fill="#000000"/><circle cx="41.2" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="57.1" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57.1" cy="16.5" r="4.2" fill="#000000"/><circle cx="55" cy="14.5" r="1.4" fill="#FFFFFF"/><path d="M36,12.3c0.7,0.1,2.2,0.3,4-0.5c2.2-1,2.9-2.3,3.6-3.6" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M64.3,12.3c-0.7,0.1-2.2,0.3-4-0.5c-2.2-1-2.9-2.3-3.6-3.6" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>' },
+  { id: 'angry', emoji: '😡', largeSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M59.3,4l2.9,3.1c2.5,2.7,6,4.1,9.7,4l4.2-0.1c7.3-0.2,13.3,5.8,13.1,13.1l-0.1,4.2c-0.1,3.7,1.3,7.2,4,9.7l3.1,2.9c5.4,5,5.4,13.5,0,18.5l-3.1,2.9c-2.7,2.5-4.1,6-4,9.7l0.1,4.2c0.2,7.3-5.8,13.3-13.1,13.1l-4.2-0.1c-3.7-0.1-7.2,1.3-9.7,4L59.3,96c-5,5.4-13.5,5.4-18.5,0l-2.9-3.1c-2.5-2.7-6-4.1-9.7-4L24,89.1c-7.3,0.2-13.3-5.8-13.1-13.1l0.1-4.2c0.1-3.7-1.3-7.2-4-9.7L4,59.3c-5.4-5-5.4-13.5,0-18.5l3.1-2.9c2.7-2.5,4.1-6,4-9.7L10.9,24c-0.2-7.3,5.8-13.3,13.1-13.1l4.2,0.1c3.7,0.1,7.2-1.3,9.7-4L40.7,4C45.8-1.3,54.2-1.3,59.3,4z" fill="#fc8f7b"/><circle cx="37.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="37.3" cy="32.8" r="8" fill="#000000"/><circle cx="33.4" cy="29" r="2.7" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="8" fill="#000000"/><circle cx="59.4" cy="29" r="2.7" fill="#FFFFFF"/><path d="M34.1,17.7c0.5,1,1.7,2.6,4.3,4.1c3.2,1.9,4.9,2.3,7.7,2.4" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M61.5,56.2c-0.7-1.2-4.2-5.3-11.3-5.3c-6,0-9.2,1.9-11.6,5.3" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M66.7,17.7c-0.5,1-1.7,2.6-4.3,4.1c-3.2,1.9-4.9,2.3-7.7,2.4" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>', smallSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M38,7c-2.5,2.7-6,4.1-9.7,4L0,10.9V100h100V11l-28.1,0.1c-3.7,0.1-7.2-1.3-9.7-4L59.3,4c-5-5.3-13.5-5.3-18.5,0L38,7z" fill="#fc8f7b"/><circle cx="43.3" cy="16.6" r="5.8" fill="#FFFFFF"/><circle cx="43.3" cy="16.6" r="4.2" fill="#000000"/><circle cx="41.2" cy="14.6" r="1.4" fill="#FFFFFF"/><circle cx="57.1" cy="16.6" r="5.8" fill="#FFFFFF"/><circle cx="57.1" cy="16.6" r="4.2" fill="#000000"/><circle cx="55" cy="14.6" r="1.4" fill="#FFFFFF"/><path d="M41.6,8.6c0.3,0.5,0.9,1.4,2.3,2.2c1.7,1,2.6,1.2,4.1,1.3" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M56.1,29c-0.4-0.6-2.2-2.8-6-2.8c-3.2,0-4.9,1-6.1,2.8" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M58.9,8.6c-0.3,0.5-0.9,1.4-2.3,2.2c-1.7,1-2.6,1.2-4.1,1.3" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>' }
+]);
+
+// 统一的SVG获取函数，减少重复代码
+const getMoodSvg = (emoji: string, size: 'large' | 'small' = 'large') => {
+  const mood = moodEmojis.value.find(m => m.emoji === emoji);
+  return mood ? (size === 'large' ? mood.largeSvg : mood.smallSvg) : '';
+};
+
+// 便捷函数：获取大型SVG
+const getLargeMoodSvg = (emoji: string) => getMoodSvg(emoji, 'large');
+
+// 便捷函数：获取小型SVG
+const getSmallMoodSvg = (emoji: string) => getMoodSvg(emoji, 'small');
+// 将十六进制代码转换为emoji字符
+const convertHexToEmoji = (hexCode: string): string => {
+  try {
+    // 如果已经是emoji字符，直接返回
+    if (/[^\u0000-\u00ff]/.test(hexCode)) {
+      return hexCode;
+    }
+    
+    // 检查是否包含文件扩展名，如果是则直接返回原值
+    if (typeof hexCode === 'string' && (hexCode.includes('.') || hexCode.includes('/'))) {
+      // 这是文件路径，不是emoji代码，直接返回
+      return hexCode;
+    }
+    
+    // 检查是否是十六进制代码
+    if (typeof hexCode === 'string') {
+      // 检查是否为有效的emoji十六进制代码格式
+      // 通常emoji代码由十六进制数字和可能的连字符组成，如'1f600'或'1f1f7-1f1f8'
+      const hexPattern = /^[0-9a-fA-F]+(-[0-9a-fA-F]+)*$/;
+      if (hexPattern.test(hexCode)) {
+        // 移除可能的前缀
+        let cleanHex = hexCode.replace(/^U\+|0x|\\u/g, '').replace(/-/g, ' ');
+        
+        // 将十六进制代码转换为字符
+        const codePoints = cleanHex.split(' ').map(h => parseInt(h, 16));
+        
+        // 检查codePoints数组是否包含有效的数值
+        if (codePoints.some(isNaN)) {
+          // 如果包含NaN值，返回原值
+          return hexCode;
+        }
+        
+        return String.fromCodePoint(...codePoints);
+      }
+    }
+    
+    // 如果不是有效的十六进制代码格式，直接返回原值
+    return hexCode;
+  } catch (error) {
+    console.warn('无法转换十六进制代码到emoji:', hexCode, error);
+    return hexCode;
+  }
+};
+
+// 获取思源笔记内置emoji
+const loadSiyuanEmojis = async () => {
+  try {
+    const emojiConf: any = await getEmojiConf();
+    if (emojiConf) {
+      // 按类别组织emoji
+      const categories: Record<string, string[]> = {};
+      
+      // 检查emojiConf是否为数组（思源API返回的是对象数组）
+      if (Array.isArray(emojiConf)) {
+        // 遍历数组中的每个对象
+        for (const emojiCategory of emojiConf) {
+          if (emojiCategory && typeof emojiCategory === 'object') {
+            // 检查是否有items属性（这是思源API实际返回的格式）
+            if (emojiCategory.items && Array.isArray(emojiCategory.items)) {
+              // 遍历items数组，尝试获取emoji字符
+              const emojis: string[] = [];
+              for (const item of emojiCategory.items) {
+                // 思源笔记API的emoji配置通常包含多个属性，其中可能有unicode、ch、emoji等
+                if (item && typeof item === 'object') {
+                  // 优先尝试获取emoji字符的各种可能属性
+                  if (item.ch) {
+                    emojis.push(item.ch);
+                  } else if (item.unicode) {
+                    // 如果是十六进制代码，转换为emoji字符
+                    emojis.push(convertHexToEmoji(item.unicode));
+                  } else if (item.emoji) {
+                    emojis.push(item.emoji);
+                  } else if (item.text) {
+                    emojis.push(item.text);
+                  } else {
+                    // 作为最后的尝试，遍历对象的值，寻找可能的emoji字符串
+                    const values = Object.values(item);
+                    for (const val of values) {
+                      if (typeof val === 'string' && val.length <= 5) { // emoji通常很短
+                        // 检查是否为emoji字符，使用更通用的正则表达式
+                        const emojiRegex = /(?:[\u2700-\u27bf]|(?:\ud83c[\udde6-\uddff]){2}|\ud83c[\udde6-\uddff]|\ud83c[\udff0-\udfff]|\ud83d[\udc00-\ude4f]|\ud83d[\ude80-\udeff]|\ud83e[\udd10-\uddff])|[^ -ÿ]/u;
+                        if (emojiRegex.test(val)) {
+                          emojis.push(val);
+                          break; // 找到一个就跳出
+                        }
+                      }
+                    }
+                  }
+                } else if (typeof item === 'string') {
+                  // 如果项目本身就是字符串，则直接使用
+                  emojis.push(item);
+                }
+              }
+              // 使用title作为分类名称，如果没有title则使用id
+              const categoryName = emojiCategory.title_zh_cn || emojiCategory.title || emojiCategory.id;
+              // 如果分类名称是'自定义'或'Custom'，则跳过这个分类
+              if (categoryName && categoryName !== '自定义' && categoryName !== 'Custom') {
+                categories[categoryName] = emojis;
+              }
+            }
+          }
+        }
+      } else {
+        // 如果不是数组，按原来的逻辑处理
+        for (const category in emojiConf) {
+          if (Array.isArray(emojiConf[category])) {
+            // 根据思源API的返回格式，获取每个emoji的字符
+            categories[category] = emojiConf[category].map((item: any) => item.ch);
+          } else {
+            // 尝试从items属性获取emoji
+            
+            if (emojiConf[category] && typeof emojiConf[category] === 'object') {
+              // 检查是否有items属性（这是思源API实际返回的格式）
+              if (emojiConf[category].items && Array.isArray(emojiConf[category].items)) {
+                // 遍历items数组，尝试获取emoji字符
+                const emojis: string[] = [];
+                for (const item of emojiConf[category].items) {
+                  // 思源笔记API的emoji配置通常包含多个属性，其中可能有unicode、ch、emoji等
+                  if (item && typeof item === 'object') {
+                    // 优先尝试获取emoji字符的各种可能属性
+                    if (item.ch) {
+                      emojis.push(item.ch);
+                    } else if (item.unicode) {
+                      // 如果是十六进制代码，转换为emoji字符
+                      emojis.push(convertHexToEmoji(item.unicode));
+                    } else if (item.emoji) {
+                      emojis.push(item.emoji);
+                    } else if (item.text) {
+                      emojis.push(item.text);
+                    } else {
+                      // 作为最后的尝试，遍历对象的值，寻找可能的emoji字符串
+                      const values = Object.values(item);
+                      for (const val of values) {
+                        if (typeof val === 'string' && val.length <= 5) { // emoji通常很短
+                          // 检查是否为emoji字符，使用更通用的正则表达式
+                          const emojiRegex = /(?:[\u2700-\u27bf]|(?:\ud83c[\udde6-\uddff]){2}|\ud83c[\udde6-\uddff]|\ud83c[\udff0-\udfff]|\ud83d[\udc00-\ude4f]|\ud83d[\ude80-\udeff]|\ud83e[\udd10-\uddff])|[^ -ÿ]/u;
+                          if (emojiRegex.test(val)) {
+                            emojis.push(val);
+                            break; // 找到一个就跳出
+                          }
+                        }
+                      }
+                    }
+                  } else if (typeof item === 'string') {
+                    // 如果项目本身就是字符串，则直接使用
+                    emojis.push(item);
+                  }
+                }
+                // 使用title作为分类名称，如果没有title则使用id
+                const categoryName = emojiConf[category].title_zh_cn || emojiConf[category].title || emojiConf[category].id || category;
+                // 如果分类名称是'自定义'或'Custom'，则跳过这个分类
+                if (categoryName !== '自定义' && categoryName !== 'Custom') {
+                  categories[categoryName] = emojis;
+                }
+              } else if (emojiConf[category].ch) {
+                // 如果直接有ch属性
+                categories[category] = [emojiConf[category].ch];
+              } else {
+                // 如果没有items属性，尝试获取对象中的所有可能的emoji值
+                categories[category] = Object.values(emojiConf[category]).filter(value => typeof value === 'string') as string[];
+              }
+            } else {
+              // 如果是其他类型，跳过这个类别
+              categories[category] = [];
+            }
+          }
+        }
+      }
+      
+      emojiCategories.value = categories;
+      
+      // 将所有emoji合并为一个数组
+      const allEmojis: string[] = [];
+      for (const category in categories) {
+        allEmojis.push(...categories[category]);
+      }
+      commonEmojis.value = allEmojis;
+    }
+  } catch (error) {
+    console.error('获取思源笔记emoji配置失败:', error);
+  }
+};
+
+// 组件挂载时加载思源笔记emoji
+onMounted(() => {
+  loadSiyuanEmojis();
+});
+
+// 选择emoji
+const selectEmoji = (emoji: string) => {
+  newHabit.value.emoji = emoji;
+  showEmojiPicker.value = false;
+};
+
+// 滚动到指定分类
+const scrollToCategory = (categoryId: string) => {
+  // 直接尝试滚动，不使用 nextTick，因为可能在不同上下文中有不同表现
+  const element = document.getElementById(categoryId);
+  
+  if (element) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else {
+    // 延时查找，适用于不同上下文
+    setTimeout(() => {
+      const element2 = document.getElementById(categoryId);
+      if (element2) {
+        element2.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  }
+};
+
+// 为分类获取对应的固定emoji
+const getFixedEmojiForCategory = (category: string): string => {
+  // 根据分类名称返回对应的固定emoji，您可以直接在此处手动修改
+  const emojiMap: Record<string, string> = {
+    '笑脸和人类': '😀',
+    '动物和自然': '🐷',
+    '食物和饮料': '🍎',
+    '活动': '⚽',
+    '旅行和地点': '✈️',
+    '物品': '🎁',
+    '符号': '❤️',
+    '旗帜': '🚩',
+    // 英文分类
+    'Smileys & People': '😀',
+    'Animals & Nature': '🐷',
+    'Food & Drink': '🍎',
+    'Activity': '⚽',
+    'Travel & Places': '✈️',
+    'Objects': '🎁',
+    'Symbols': '❤️',
+    'Flags': '🚩',
+  };
+  
+  return emojiMap[category] || '⭐'; // 默认返回星号emoji
+};
+
+// 国际化函数
+const t = (key: string) => {
+  // 从思源笔记获取语言资源
+  const lang = window.siyuan?.languages || {};
+  
+  // 如果思源笔记语言资源中没有找到，则返回默认中文文本
+  const defaultLang = {
+    'habitTracker.title': '习惯打卡',
+    'habitTracker.addHabit': '添加习惯',
+    'habitTracker.habitName': '习惯名称',
+    'habitTracker.habitNamePlaceholder': '例如：晨跑、读书、喝水',
+    'habitTracker.frequency': '打卡周期',
+    'habitTracker.customFrequency': '每周天数',
+    'habitTracker.customFrequencyPlaceholder': '输入每周要打卡的天数',
+    'habitTracker.timesPerDay': '每天频率',
+    'habitTracker.timesPerDayPlaceholder': '输入每天要完成的次数',
+    'habitTracker.reminderTime': '提醒时间',
+    'habitTracker.daily': '每天',
+    'habitTracker.weekly': '每周6天',
+    'habitTracker.custom': '自定义',
+    'habitTracker.checkIn': '打卡',
+    'habitTracker.checkedIn': '已打卡',
+    'habitTracker.delete': '删除',
+    'habitTracker.currentStreak': '连续天数',
+    'habitTracker.totalCompletions': '本月打卡',
+    'habitTracker.completionRate': '本月完成率',
+    'habitTracker.days': '天',
+    'habitTracker.times': '次',
+    'habitTracker.noHabits': '暂无习惯，点击上方按钮添加新习惯',
+    'habitTracker.confirmDelete': '确定要删除这个习惯吗？',
+    'habitTracker.weekView': '周视图',
+    'habitTracker.monthView': '月视图',
+    'Cancel': '取消',
+    'OK': '确定',
+  };
+  
+  return lang[key] || defaultLang[key] || key;
+};
+
+// 习惯数据
+const habits = ref<Habit[]>([]);
+const showAddHabitModal = ref(false);
+const showTotalStatsPage = ref(false);
+const showMoodCalendar = ref(false);
+const showAnimation = ref(false);
+const animationHabitId = ref<string | null>(null);
+
+// 存储动画期间的原始完成状态
+const animationOriginalStatus = ref<Record<string, boolean>>({});
+
+// const weekdays = ['一', '二', '三', '四', '五', '六', '日']; // 已注释：此变量未被使用，使用的是 weekdaysForCalendar 计算属性
+
+// 当前日期追踪（用于确保日期相关计算能够响应日期变化）
+const currentDate = ref(formatDate(new Date()));
+
+// 计算本周日期，从周一开始
+const weekDates = computed(() => {
+  const today = new Date();
+  const dayOfWeek = today.getDay(); // 0为周日，1-6为周一到周六
+  
+  // 计算周一的日期（如果今天是周日，则需要减去6天）
+  const monday = new Date(today);
+  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周日为0，周一为1
+  monday.setDate(today.getDate() - daysToMonday);
+  
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const dates = [];
+  
+  for (let i = 0; i < 7; i++) {
+    const currentDate = new Date(monday);
+    currentDate.setDate(monday.getDate() + i);
+    
+    const dateStr = `${currentDate.getDate()}`;
+    const fullDateStr = formatDate(currentDate);
+    const isToday = currentDate.toDateString() === today.toDateString();
+    
+    dates.push({
+      date: dateStr,
+      dayName: dayNames[i],
+      isToday: isToday,
+      fullDate: fullDateStr
+    });
+  }
+  
+  return dates;
+});
+
+// 番茄钟相关数据
+const activePomodoroHabit = ref<Habit | null>(null);
+
+// 计算属性：按当天完成状态和周目标完成状态排序的习惯列表（未完成的在前）
+const sortedHabits = computed(() => {
+  return [...habits.value].sort((a, b) => {
+    // 首先处理暂停状态：暂停的习惯放在最后
+    if (a.isPaused && !b.isPaused) {
+      return 1; // a 排在 b 后面
+    } else if (!a.isPaused && b.isPaused) {
+      return -1; // a 排在 b 前面
+    }
+    
+    // 检查 a 和 b 是否已完成周目标
+    const aWeeklyCompleted = a.frequency && a.frequency.startsWith('weekly') && getWeeklyCompletionStatus(a);
+    const bWeeklyCompleted = b.frequency && b.frequency.startsWith('weekly') && getWeeklyCompletionStatus(b);
+    
+    // 确定 a 和 b 的完成状态
+    // 对于周频次习惯：如果今天已打卡（completedToday为true），则认为已完成，不管周目标是否达成
+    // 对于日频次习惯：使用当天完成状态
+    // 如果当前正在执行动画，使用动画期间的原始状态
+    const aIsCompleted = a.frequency && a.frequency.startsWith('weekly') 
+      ? (animationOriginalStatus.value[a.id] !== undefined ? animationOriginalStatus.value[a.id] : (a.completedToday || aWeeklyCompleted)) 
+      : (animationOriginalStatus.value[a.id] !== undefined ? animationOriginalStatus.value[a.id] : a.completedToday);
+    const bIsCompleted = b.frequency && b.frequency.startsWith('weekly') 
+      ? (animationOriginalStatus.value[b.id] !== undefined ? animationOriginalStatus.value[b.id] : (b.completedToday || bWeeklyCompleted)) 
+      : (animationOriginalStatus.value[b.id] !== undefined ? animationOriginalStatus.value[b.id] : b.completedToday);
+    
+    // 比较完成状态：未完成的在前，已完成的在后
+    if (!aIsCompleted && bIsCompleted) {
+      return -1; // a（未完成）排在 b（已完成）前面
+    } else if (aIsCompleted && !bIsCompleted) {
+      return 1;  // b（未完成）排在 a（已完成）前面
+    } else {
+      // 在相同完成状态下，按创建日期倒序排列（最新的在前）
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+  });
+});
+
+// 新习惯表单数据
+const newHabit = ref({
+  name: '',
+  emoji: '',
+  frequency: 'daily' as 'daily' | 'weekly6' | 'weekly5' | 'weekly4' | 'weekly3' | 'weekly2' | 'weekly1',
+  timesPerDay: '1', // 每天次数
+  usePomodoro: false, // 是否使用番茄钟
+  pomodoroDuration: '25' // 番茄钟时长（分钟），默认25分钟
+});
+
+const frequencyOptions = ref([
+  { value: 'daily', text: t('habitTracker.daily') },
+  { value: 'weekly6', text: '每周6天' },
+  { value: 'weekly5', text: '每周5天' },
+  { value: 'weekly4', text: '每周4天' },
+  { value: 'weekly3', text: '每周3天' },
+  { value: 'weekly2', text: '每周2天' },
+  { value: 'weekly1', text: '每周1天' }
+]);
+
+// 每日打卡次数选项
+const timesPerDayOptions = ref([
+  { value: '1', text: '1次' },
+  { value: '2', text: '2次' },
+  { value: '3', text: '3次' },
+  { value: '4', text: '4次' },
+  { value: '5', text: '5次' },
+  { value: '6', text: '6次' },
+  { value: '7', text: '7次' },
+  { value: '8', text: '8次' },
+  { value: '9', text: '9次' },
+  { value: '10', text: '10次' },
+  { value: '11', text: '11次' },
+  { value: '12', text: '12次' },
+  { value: '13', text: '13次' },
+  { value: '14', text: '14次' },
+  { value: '15', text: '15次' },
+  { value: '16', text: '16次' },
+  { value: '17', text: '17次' },
+  { value: '18', text: '18次' },
+  { value: '19', text: '19次' },
+  { value: '20', text: '20次' }
+]);
+
+// 番茄钟时间选项
+const pomodoroDurationOptions = ref([
+  { value: '5', text: '5分钟' },
+  { value: '10', text: '10分钟' },
+  { value: '15', text: '15分钟' },
+  { value: '25', text: '25分钟' }, // 默认值
+  { value: '30', text: '30分钟' },
+  { value: '45', text: '45分钟' },
+  { value: '60', text: '60分钟' }
+]);
+
+// 初始化数据
+onMounted(async () => {
+  try {
+    habits.value = await getHabits();
+    
+    // 每次组件挂载时更新currentDayInfo为当前日期
+    const today = new Date();
+
+    // 使用本地日期格式而不是toISOString()，避免时区转换问题
+    const localDate = formatDate(today);
+    currentDayInfo.value.date = localDate;
+    currentDayInfo.value.dayOfWeek = today.getDay();
+    currentDayInfo.value.dayOfMonth = today.getDate();
+    currentDayInfo.value.month = today.getMonth() + 1;
+    currentDayInfo.value.year = today.getFullYear();
+    
+    // 更新currentDate变量
+    currentDate.value = localDate;
+    
+    // 加载情绪数据
+    moodData.value = await getMoodData();
+    
+    // 初始化每个习惯的completedToday属性
+    const todayStr = localDate;
+    habits.value.forEach(habit => {
+      const todayRecord = habit.calendar.find(day => day.date === todayStr);
+      habit.completedToday = todayRecord ? todayRecord.completed : false;
+    });
+    
+
+    
+  } catch (error) {
+    console.error('Error initializing habits:', error);
+    // 初始化失败时，使用空数组，确保界面仍能显示
+    habits.value = [];
+  }
+});
+
+// 组件卸载时清理定时器
+onUnmounted(() => {
+  // 清理主定时器
+  if ((window as any).habitTrackerTimer) {
+    clearInterval((window as any).habitTrackerTimer);
+    delete (window as any).habitTrackerTimer;
+  }
+  
+  // 清理备用定时器
+  if ((window as any).habitTrackerBackupTimer) {
+    clearInterval((window as any).habitTrackerBackupTimer);
+    delete (window as any).habitTrackerBackupTimer;
+  }
+  
+  // 清理番茄钟定时器
+  for (const habitId in pomodoroTimers) {
+    clearInterval(pomodoroTimers[habitId]);
+    delete pomodoroTimers[habitId];
+  }
+});
+
+// 生成日历数据
+const generateCalendarData = (): any[] => {
+  // 只返回空数组，因为只记录已打卡的日期
+  // 之前的实现可能会初始化全年的日历数据，但现在改为只在打卡时创建记录
+  // _targetCount 在创建日历记录时会单独处理，因此此处不需要使用该参数
+  return [];
+};
+
+// 添加习惯
+const addHabit = async () => {
+  if (!newHabit.value.name.trim()) {
+    alert('请输入习惯名称');
+    return;
+  }
+  
+  // 限制 timesPerDay 最大值为 20
+  const inputTimesPerDay = parseInt(newHabit.value.timesPerDay) || 1;
+  if (inputTimesPerDay > 20) {
+    alert('每日打卡次数不能超过20次');
+    return;
+  }
+  
+  const timesPerDay = Math.min(inputTimesPerDay, 20);
+  
+  const habit: Habit = {
+    id: Date.now().toString(),
+    name: newHabit.value.name,
+    emoji: newHabit.value.emoji,
+    frequency: newHabit.value.frequency,
+    timesPerDay: timesPerDay,
+    completedToday: false,
+    currentStreak: 0,
+    totalCompletions: 0,
+    calendar: generateCalendarData(),
+    createdAt: new Date().toISOString(),
+    usePomodoro: newHabit.value.usePomodoro || false, // 是否使用番茄钟
+    pomodoroDuration: parseInt(newHabit.value.pomodoroDuration) || 25 // 番茄钟时长，默认25分钟
+  };
+  
+  habits.value.push(habit);
+  await saveHabits(habits.value);
+  
+  // 重置表单
+  newHabit.value = {
+    name: '',
+    emoji: '',
+    frequency: 'daily',
+    timesPerDay: '1',
+    usePomodoro: false,
+    pomodoroDuration: '25'
+  };
+  
+  showAddHabitModal.value = false;
+};
+
+// 切换单日打卡状态 (目前未直接使用，保留供将来可能的功能扩展)
+// 切换单日打卡状态
+const toggleDayCompletion = async (habit: Habit, date: string) => {
+  toggleHabitCompletion(habit, date);
+  
+  await saveHabits(habits.value);
+};
+
+// 获取习惯频率对应的周目标次数
+const getWeeklyTarget = (frequency: string): number => {
+  if (!frequency.startsWith('weekly')) return 1;
+  
+  switch (frequency) {
+    case 'weekly2': return 2;
+    case 'weekly3': return 3;
+    case 'weekly4': return 4;
+    case 'weekly5': return 5;
+    case 'weekly6': return 6;
+    default: return 1;
+  }
+};
+
+// 获取一周的开始日期（周一）
+const getWeekStart = (date: Date): Date => {
+  const dayOfWeek = date.getDay();
+  const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // 周日是0，需要向前推6天到周一
+  const weekStart = new Date(date);
+  weekStart.setDate(date.getDate() + daysToMonday);
+  
+  // 设置时间为00:00:00以确保正确的日期比较
+  weekStart.setHours(0, 0, 0, 0);
+  return weekStart;
+};
+
+// 检查给定日期是否在同一周内（周一为一周的开始）
+const isSameWeek = (date1: Date, date2: Date): boolean => {
+  return getWeekStart(date1).getTime() === getWeekStart(date2).getTime();
+};
+
+// 通用函数：计算指定周的打卡完成情况
+const getWeekCompletionData = (habit: Habit, startOfWeek: Date) => {
+  // 计算本周已完成的打卡次数
+  const completedThisWeek = habit.frequency.startsWith('weekly') ? 
+    habit.calendar.filter(day => {
+      return day.completed && isSameWeek(new Date(day.date), startOfWeek);
+    }).length : 0;
+    
+  // 获取每周需要完成的次数
+  const requiredWeekCompletions = getWeeklyTarget(habit.frequency);
+  
+  // 对于weeklyN习惯，如果本周已经完成所需的打卡次数，则所有日期都显示为完成状态
+  const hasCompletedRequiredThisWeek = completedThisWeek >= requiredWeekCompletions;
+  
+  return {
+    hasCompletedRequiredThisWeek,
+    requiredWeekCompletions,
+    completedThisWeek
+  };
+};
+
+// 检查周目标是否已完成
+const getWeeklyCompletionStatus = (habit: Habit) => {
+  if (!habit.frequency || !habit.frequency.startsWith('weekly')) {
+    return false;
+  }
+  
+  // 获取每周需要完成的次数
+  const requiredWeekCompletions = getWeeklyTarget(habit.frequency);
+  
+  // 获取本周周一的日期
+  const thisWeekStart = getWeekStart(new Date());
+  
+  // 计算本周已完成的打卡次数
+  const completedThisWeek = habit.calendar.filter(day => {
+    return day.completed && isSameWeek(new Date(day.date), thisWeekStart);
+  }).length;
+  
+  // 检查是否已完成本周所需的打卡次数
+  return completedThisWeek >= requiredWeekCompletions;
+};
+
+// 获取指定日期的打卡完成次数
+const getCompletionCount = (habit: Habit, date: string) => {
+  const dayRecord = habit.calendar.find(day => day.date === date);
+  return dayRecord ? (dayRecord.completedCount || 0) : 0;
+};
+
+// 切换习惯完成状态
+const getTodayCompletionCount = (habit: Habit) => {
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const today = getToday();
+  return getCompletionCount(habit, today);
+};
+
+// 番茄钟相关变量
+let pomodoroTimers: { [key: string]: number } = {};
+
+// 内联番茄钟进度条相关计算
+const inlineRadius = ref(45);
+const inlineCircumference = computed(() => 2 * Math.PI * inlineRadius.value);
+
+// 计算内联进度条偏移量
+const inlineStrokeDashoffset = computed(() => {
+  if (!activePomodoroHabit.value || activePomodoroHabit.value.pomodoroRemaining === undefined) {
+    return inlineCircumference.value;
+  }
+  
+  // 强制依赖pomodoroRemaining，确保当它变化时计算属性重新计算
+  const remainingTime = activePomodoroHabit.value.pomodoroRemaining;
+  
+  // 计算进度比例（从0到1）
+  // 倒计时开始时剩余时间为最大值（进度0），结束时剩余时间为0（进度1）
+  const totalTime = getPomodoroTotalTime(activePomodoroHabit.value);
+  const progressRatio = 1 - (remainingTime / totalTime);
+  
+  // 计算stroke-dashoffset：从完整周长（无进度）到0（完整进度）
+  // 这样倒计时开始时进度条为空，结束时是满的
+  let offset = inlineCircumference.value * (1 - progressRatio);
+  
+  // 确保在边界情况下值是精确的
+  if (progressRatio >= 1) {
+    offset = 0; // 完全填满
+  } else if (progressRatio <= 0) {
+    offset = inlineCircumference.value; // 完全为空
+  }
+  
+  return offset;
+});
+
+const toggleHabit = async (habitId: string) => {
+  const habit = habits.value.find(h => h.id === habitId);
+  if (!habit) {
+
+    return;
+  }
+  
+  
+  
+  // 如果启用了番茄钟功能，检查当前是否已完成
+  if (habit.usePomodoro) {
+    // 如果习惯已完成，则取消完成状态
+    if (habit.completedToday) {
+      // 弹出确认取消打卡弹窗
+      if (confirm('是否要取消打卡记录？')) {
+
+        // 取消当天完成状态
+        // 使用本地日期格式而不是toISOString()，避免时区转换问题
+        const today = getToday();
+        let todayRecord = habit.calendar.find(day => day.date === today);
+        
+        if (todayRecord) {
+          // 清除当天所有打卡次数，重置为0
+          todayRecord.completed = false;
+          todayRecord.completedCount = 0;
+        }
+        
+        // 更新习惯的完成状态
+        habit.completedToday = false;
+        
+        // 重新计算连续打卡天数和总完成次数
+        habit.currentStreak = calculateCurrentStreak(habit);
+        habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+        
+        await saveHabits(habits.value);
+      }
+      return;
+    } else {
+      // 如果当前有其他番茄钟正在运行，先停止它
+      if (activePomodoroHabit.value && activePomodoroHabit.value.id !== habit.id) {
+        const previousHabit = activePomodoroHabit.value;
+        // 清除之前的番茄钟
+        activePomodoroHabit.value = null;
+        if (pomodoroTimers[previousHabit.id]) {
+          clearInterval(pomodoroTimers[previousHabit.id]);
+          delete pomodoroTimers[previousHabit.id];
+        }
+        // 清除番茄钟相关状态
+        delete previousHabit.pomodoroRemaining;
+        delete previousHabit.pomodoroState;
+      }
+      
+      // 设置当前激活的番茄钟习惯
+      activePomodoroHabit.value = habit;
+      // 启动番茄钟计时器
+      startPomodoroTimer(habit);
+      return;
+    }
+  }
+  
+
+  
+  // 检查是否为周频次习惯且已完成本周目标
+  if (habit.frequency && habit.frequency.startsWith('weekly')) {
+    if (getWeeklyCompletionStatus(habit)) {
+      // 如果周目标已完成，点击按钮应取消完成状态
+      if (confirm('是否要取消打卡记录？')) {
+        // 找到本周所有已完成的记录并取消完成状态
+        const today = new Date();
+        // 计算本周的周一
+        const todayWeekday = today.getDay();
+        const daysToMonday = todayWeekday === 0 ? -6 : 1 - todayWeekday; // 周日是0，需要向前推6天到周一
+        const thisWeekMonday = new Date(today);
+        thisWeekMonday.setDate(today.getDate() + daysToMonday);
+        
+        // 找到本周所有已完成的打卡记录，按日期倒序排列
+        const weeklyCompletedDays = habit.calendar
+          .filter(day => {
+            const dayDate = new Date(day.date);
+            // 计算这个日期属于哪一周（周一为一周的开始）
+            const dayStartOfWeek = new Date(dayDate);
+            const dayDayOfWeek = dayDate.getDay();
+            const dayDaysToMonday = dayDayOfWeek === 0 ? -6 : 1 - dayDayOfWeek; // 周日是0，需要向前推6天到周一
+            dayStartOfWeek.setDate(dayDate.getDate() + dayDaysToMonday);
+            
+            // 确保日期部分一致（重置时间部分为00:00:00）
+            const normalizedStartOfWeek = new Date(thisWeekMonday.getFullYear(), thisWeekMonday.getMonth(), thisWeekMonday.getDate());
+            const normalizedDayStartOfWeek = new Date(dayStartOfWeek.getFullYear(), dayStartOfWeek.getMonth(), dayStartOfWeek.getDate());
+            
+            // 检查是否与当前查看的周是同一周
+            return day.completed && 
+              normalizedStartOfWeek.getTime() === normalizedDayStartOfWeek.getTime();
+          })
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        // 取消最后一条打卡记录的完成状态
+        if (weeklyCompletedDays.length > 0) {
+          const lastCompletedDay = weeklyCompletedDays[0];
+          lastCompletedDay.completed = false;
+          lastCompletedDay.completedCount = 0;
+          // 重置当天的完成状态
+          if (lastCompletedDay.date === getToday()) {
+            habit.completedToday = false;
+          }
+          delete lastCompletedDay.timestamp;
+        }
+        
+        // 重新计算连续打卡天数和总完成次数
+        habit.currentStreak = calculateCurrentStreak(habit);
+        habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+        
+        await saveHabits(habits.value);
+      }
+      return; // 退出函数，不执行后续打卡逻辑
+    }
+  }
+  
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const today = getToday();
+  
+  // 使用通用打卡函数处理打卡逻辑
+  toggleHabitCompletion(habit, today);
+  
+  // 检查是否完成打卡，如果是则触发动画
+  const completedToday = habit.completedToday;
+  if (completedToday && !habit.usePomodoro) {  // 番茄钟习惯不使用此动画
+    // 保存原始完成状态，以便在动画期间保持在未完成区域
+    animationOriginalStatus.value[habit.id] = false; // 打卡前的状态是未完成
+    
+    // 触发成功动画
+    showAnimation.value = true;
+    animationHabitId.value = habit.id;
+    
+    // 动画结束后再保存数据和重置动画状态
+    setTimeout(async () => {
+      await saveHabits(habits.value);
+      showAnimation.value = false;
+      animationHabitId.value = null;
+      // 清除动画原始状态
+      delete animationOriginalStatus.value[habit.id];
+    }, 600); // 动画持续时间
+  } else {
+    // 如果没有完成打卡或使用番茄钟，直接保存数据
+    await saveHabits(habits.value);
+  }
+};
+
+// 启动番茄钟计时器
+const startPomodoroTimer = (habit: Habit) => {
+
+  
+  // 如果已有计时器，先清除
+  if (pomodoroTimers[habit.id]) {
+
+    clearInterval(pomodoroTimers[habit.id]);
+  }
+  
+  // 设置番茄钟时长，使用习惯配置的时长（分钟转换为秒）
+  const durationInMinutes = habit.pomodoroDuration || 25; // 默认25分钟
+  let remainingTime = durationInMinutes * 60; // 转换为秒
+
+  
+  // 更新习惯的番茄钟状态
+  habit.pomodoroRemaining = remainingTime;
+  habit.pomodoroState = 'work'; // 默认开始工作时间
+
+  
+  // 启动倒计时
+  pomodoroTimers[habit.id] = window.setInterval(() => {
+    remainingTime--;
+    habit.pomodoroRemaining = remainingTime;
+
+    
+    if (remainingTime <= 0) {
+      // 倒计时结束，完成打卡
+
+      clearInterval(pomodoroTimers[habit.id]);
+      completeHabitAfterPomodoro(habit);
+      
+      // 如果当前显示的是这个习惯的番茄钟页面，则关闭页面
+      if (activePomodoroHabit.value && activePomodoroHabit.value.id === habit.id) {
+        activePomodoroHabit.value = null;
+      }
+    }
+  }, 1000);
+  
+
+};
+
+// 番茄钟结束后完成打卡
+const completeHabitAfterPomodoro = async (habit: Habit) => {
+
+  
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const today = getToday();
+  
+  // 使用通用打卡函数处理打卡逻辑
+  toggleHabitCompletion(habit, today);
+  
+  // 清除番茄钟相关状态
+  delete habit.pomodoroRemaining;
+  delete habit.pomodoroState;
+  if (pomodoroTimers[habit.id]) {
+    clearInterval(pomodoroTimers[habit.id]);
+    delete pomodoroTimers[habit.id];
+  }
+  
+  await saveHabits(habits.value);
+
+};
+
+
+// 格式化番茄钟时间显示
+const formatPomodoroTime = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+// 获取番茄钟初始总时间
+const getPomodoroTotalTime = (habit: Habit): number => {
+  let totalTime = 0;
+  if (habit.pomodoroState === 'work') {
+    // 使用习惯配置的番茄钟时长
+    totalTime = (habit.pomodoroDuration || 25) * 60; // 默认25分钟
+  } else if (habit.pomodoroState === 'shortBreak') {
+    totalTime = 5 * 60; // 5分钟短休息
+  } else if (habit.pomodoroState === 'longBreak') {
+    totalTime = 15 * 60; // 15分钟长休息
+  } else {
+    totalTime = (habit.pomodoroDuration || 25) * 60; // 默认使用习惯配置的时长
+  }
+  return totalTime;
+};
+
+// 停止当前番茄钟（按钮点击事件）
+const stopCurrentPomodoro = () => {
+  if (activePomodoroHabit.value) {
+    const habit = activePomodoroHabit.value;
+    
+    controlPomodoro('stop', habit);
+    
+    // 清除当前激活的番茄钟
+    activePomodoroHabit.value = null;
+    
+    saveHabits(habits.value);
+  }
+};
+
+// 统一的番茄钟控制函数
+const controlPomodoro = (action: 'pause' | 'resume' | 'start' | 'stop', habit?: Habit) => {
+  if (!habit && activePomodoroHabit.value) {
+    habit = activePomodoroHabit.value;
+  }
+  
+  if (!habit) return;
+  
+  switch (action) {
+    case 'pause':
+      // 暂停定时器
+      if (pomodoroTimers[habit.id]) {
+        clearInterval(pomodoroTimers[habit.id]);
+        delete pomodoroTimers[habit.id];
+      }
+      
+      // 设置暂停状态
+      habit.isPomodoroPaused = true;
+      break;
+      
+    case 'resume':
+      // 清除暂停状态
+      habit.isPomodoroPaused = false;
+      
+      // 重新启动定时器，使用剩余时间继续
+      if (habit.pomodoroRemaining !== undefined) {
+        // 清除旧的定时器（如果有）
+        if (pomodoroTimers[habit.id]) {
+          clearInterval(pomodoroTimers[habit.id]);
+          delete pomodoroTimers[habit.id];
+        }
+        
+        // 重新启动定时器，使用剩余时间
+        startPomodoroTimerWithRemainingTime(habit, habit.pomodoroRemaining);
+      }
+      break;
+      
+    case 'start':
+      // 启动番茄钟
+      startPomodoroTimer(habit);
+      break;
+      
+    case 'stop':
+      // 停止番茄钟
+      if (pomodoroTimers[habit.id]) {
+        clearInterval(pomodoroTimers[habit.id]);
+        delete pomodoroTimers[habit.id];
+      }
+      
+      // 清除番茄钟相关状态
+      delete habit.pomodoroRemaining;
+      delete habit.pomodoroState;
+      delete habit.isPomodoroPaused;
+      break;
+  }
+  
+  // 保存状态
+  saveHabits(habits.value);
+};
+
+// 暂停番茄钟
+const togglePomodoroPause = () => {
+  if (activePomodoroHabit.value) {
+    controlPomodoro('pause', activePomodoroHabit.value);
+  }
+};
+
+// 继续番茄钟
+const togglePomodoroResume = () => {
+  if (activePomodoroHabit.value) {
+    controlPomodoro('resume', activePomodoroHabit.value);
+  }
+};
+
+// 使用剩余时间启动番茄钟计时器
+const startPomodoroTimerWithRemainingTime = (habit: Habit, remainingTime: number) => {
+  // 清除之前的定时器（如果存在）
+  if (pomodoroTimers[habit.id]) {
+    clearInterval(pomodoroTimers[habit.id]);
+    delete pomodoroTimers[habit.id];
+  }
+
+  // 初始化剩余时间
+  habit.pomodoroRemaining = remainingTime;
+
+  // 设置新的定时器
+  pomodoroTimers[habit.id] = window.setInterval(() => {
+    habit.pomodoroRemaining!--;
+    
+    if (habit.pomodoroRemaining! <= 0) {
+      // 倒计时结束，完成打卡
+      clearInterval(pomodoroTimers[habit.id]);
+      delete pomodoroTimers[habit.id];
+      completeHabitAfterPomodoro(habit);
+      
+      // 如果当前显示的是这个习惯的番茄钟页面，则关闭页面
+      if (activePomodoroHabit.value && activePomodoroHabit.value.id === habit.id) {
+        activePomodoroHabit.value = null;
+      }
+    }
+  }, 1000);
+};
+
+// 根据番茄钟状态返回对应的CSS类
+const pomodoroStateClass = (state?: 'work' | 'shortBreak' | 'longBreak') => {
+  if (!state) return 'pomodoro-running';
+  
+  switch (state) {
+    case 'work':
+      return 'pomodoro-running';
+    case 'shortBreak':
+      return 'pomodoro-short-break';
+    case 'longBreak':
+      return 'pomodoro-long-break';
+    default:
+      return 'pomodoro-running';
+  }
+};
+
+// 删除习惯
+const deleteHabit = async (habitId: string) => {
+  if (!confirm(t('habitTracker.confirmDelete'))) {
+    return;
+  }
+  
+  habits.value = habits.value.filter(h => h.id !== habitId);
+  await saveHabits(habits.value);
+  
+  // 关闭统计页面
+  selectedHabit.value = null;
+};
+
+
+
+// 计算大尺寸饼状图进度路径（用于裁剪）
+const getLargePiePath = (habit: Habit) => {
+  const completedCount = getTodayCompletionCount(habit);
+  const targetCount = habit.timesPerDay || 1;
+  const progress = Math.min(1, Math.max(0, completedCount / targetCount)); // 确保进度在0-1之间
+  
+  // 圆心坐标和半径（使用更大的半径以填充矩形）
+  const cx = 13; // 中心点调整为13（26/2）
+  const cy = 13; // 中心点调整为13（26/2）
+  const r = 16; // 使用更大的半径以填充矩形
+  
+  // 计算角度（从12点钟方向开始，顺时针）
+  const startAngle = -Math.PI / 2; // 从顶部开始
+  const endAngle = startAngle + 2 * Math.PI * progress;
+  
+  // 计算起点和终点坐标
+  const startX = cx + r * Math.cos(startAngle);
+  const startY = cy + r * Math.sin(startAngle);
+  const endX = cx + r * Math.cos(endAngle);
+  const endY = cy + r * Math.sin(endAngle);
+  
+  // 判断是否需要使用大弧形
+  const largeArcFlag = progress > 0.5 ? 1 : 0;
+  
+  // 构建路径
+  if (progress === 0) {
+    return `M ${cx} ${cy}`; // 中心点
+  } else if (progress === 1) {
+    // 完整饼图，从中心出发画一个完整的圆然后回到中心
+    return `M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx - 0.01} ${cy - r} Z`;
+  } else {
+    // 扇形路径：从中心到起点，画弧到终点，再回到中心
+    return `M ${cx} ${cy} L ${startX} ${startY} A ${r} ${r} 0 ${largeArcFlag} 1 ${endX} ${endY} Z`;
+  }
+};
+
+
+// 计算本月完成率
+const calculateCompletionRate = (habit: Habit) => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  
+  // 获取习惯的创建日期
+  // 使用更精确的方法处理ISO日期字符串，避免时区转换问题
+  const creationDateISO = habit.createdAt;
+  let creationDate: Date;
+  
+  if (creationDateISO.endsWith('Z')) {
+    // 如果是UTC时间格式，直接解析
+    creationDate = new Date(creationDateISO);
+  } else {
+    // 如果包含时区信息，直接解析
+    creationDate = new Date(creationDateISO);
+  }
+  
+  // 将创建日期调整为本地日期的开始时间，以确保正确比较
+  // 使用本地时间的年月日创建新日期，避免时区问题
+  const localCreationDate = new Date(creationDate.getFullYear(), creationDate.getMonth(), creationDate.getDate());
+  creationDate = localCreationDate;
+  
+  // 创建一个固定的创建日期副本，防止后续处理中被修改
+  const fixedCreationDate = new Date(creationDate);
+  
+  // 使用固定的创建日期进行后续计算
+  const creationDateForCalculation = fixedCreationDate;
+  
+
+
+  
+
+  
+  // 过滤出本月的打卡记录，但仅包括创建日期及之后的记录
+  const monthRecords = habit.calendar.filter(record => {
+    const recordDate = new Date(record.date);
+    // 将记录日期也设置为当天开始时间，以确保正确比较
+    recordDate.setHours(0, 0, 0, 0);
+    return recordDate.getFullYear() === currentYear && 
+           recordDate.getMonth() === currentMonth &&
+           recordDate >= creationDateForCalculation; // 只统计创建日期及之后的记录
+  });
+  
+
+  
+  if (habit.frequency.startsWith('weekly')) {
+    // 对于周频次习惯，计算基于应完成次数的完成率
+    
+    // 确定每周需要完成的次数
+    let weeklyTarget = 1; // 默认为1次
+    if (habit.frequency === 'weekly2') weeklyTarget = 2;
+    else if (habit.frequency === 'weekly3') weeklyTarget = 3;
+    else if (habit.frequency === 'weekly4') weeklyTarget = 4;
+    else if (habit.frequency === 'weekly5') weeklyTarget = 5;
+    else if (habit.frequency === 'weekly6') weeklyTarget = 6;
+    
+
+    
+    // 计算本周的周一和周日（仅用于确定月份的结束日期）
+    const todayWeekday = today.getDay();
+    const daysToMonday = todayWeekday === 0 ? -6 : 1 - todayWeekday; // 周日是0，需要向前推6天到周一
+    const thisWeekMonday = new Date(today);
+    thisWeekMonday.setDate(today.getDate() + daysToMonday);
+    
+    const daysToSunday = todayWeekday === 0 ? 0 : 7 - todayWeekday;
+    const thisWeekSunday = new Date(today);
+    thisWeekSunday.setDate(today.getDate() + daysToSunday);
+    
+    // 对于周频次习惯，我们统计完成周数而不是完成次数
+    // 计算实际完成的周数
+    let completedWeeks = 0;
+    
+    // 计算从创建日期所在周的周一到本周周日的所有周（不包括未来周）
+    const creationWeekStart = new Date(creationDateForCalculation);
+    const creationWeekday = creationDateForCalculation.getDay();
+    const daysToCreationMonday = creationWeekday === 0 ? -6 : 1 - creationWeekday; // 周日是0，需要向前推到周一
+    creationWeekStart.setDate(creationDateForCalculation.getDate() + daysToCreationMonday);
+    
+    // 计算本周的周日（今天所在的周）
+    const currentTodayWeekday = today.getDay();
+    const currentDaysToSunday = currentTodayWeekday === 0 ? 0 : 7 - currentTodayWeekday; // 如果今天是周日，则是0天后
+    const currentWeekSunday = new Date(today);
+    currentWeekSunday.setDate(today.getDate() + currentDaysToSunday);
+    
+
+    
+    // 计算需要处理的周数
+    const totalCalculatedWeeks = [];
+    let tempWeekStart = new Date(creationWeekStart);
+    
+    // 收集所有需要检查的周，从创建日期所在周到本周周日
+    while (tempWeekStart <= currentWeekSunday) {
+      const tempWeekEnd = new Date(tempWeekStart);
+      tempWeekEnd.setDate(tempWeekStart.getDate() + 6); // 周日
+      
+      // 确保周的结束日期不超过本周周日（避免包含未来周）
+      if (tempWeekEnd > currentWeekSunday) {
+        tempWeekEnd.setTime(currentWeekSunday.getTime());
+      }
+      
+      // 只统计创建日期之后的周，注意这里应该是判断周结束日期是否晚于创建日期
+      // 因为一周内的任何一天完成打卡都应计入该周
+      if (tempWeekEnd >= creationDateForCalculation) {
+        totalCalculatedWeeks.push({
+          start: new Date(tempWeekStart),
+          end: tempWeekEnd
+        });
+      }
+      
+      tempWeekStart.setDate(tempWeekStart.getDate() + 7); // 下一周
+    }
+    
+    // 不再需要计算 totalWeeks，使用 totalCalculatedWeeks.length
+    
+
+    
+    // 检查每一周的完成情况
+    for (const week of totalCalculatedWeeks) {
+      // 检查这一周内是否完成了目标次数
+      let weekCompletedCount = 0;
+      for (const record of habit.calendar) {
+        const recordDate = new Date(record.date);
+        // 将记录日期设置为当天的开始时间，以确保正确比较
+        recordDate.setHours(0, 0, 0, 0);
+        
+        // 检查这个记录是否在当前周内
+        if (recordDate >= week.start && recordDate <= week.end && record.completed) {
+          weekCompletedCount += record.completedCount || 1;
+        }
+      }
+      
+
+      
+      // 如果这一周完成了目标次数，则算作完成一周
+      if (weekCompletedCount >= weeklyTarget) {
+        completedWeeks++;
+
+      }
+    }
+    
+
+    
+    // 计算完成率：完成的周数 / 总周数 * 100%
+    const totalCalculatedWeeksCount = totalCalculatedWeeks.length;
+    const completionRate = totalCalculatedWeeksCount > 0 ? (completedWeeks / totalCalculatedWeeksCount) * 100 : 0;
+    const roundedRate = Math.round(completionRate);
+    
+
+    
+    return roundedRate;
+  } else {
+    // 对于日频次习惯，计算基于天数的完成率
+    
+
+    
+    // 计算本月已完成的天数
+    const completedDays = monthRecords.filter(record => record.completed).length;
+    
+    // 如果习惯是本月创建的，计算从创建日期到今天的天数
+    let totalDaysInPeriod = 0;
+    
+    if (creationDateForCalculation.getMonth() === currentMonth && creationDateForCalculation.getFullYear() === currentYear) {
+      // 本月创建的习惯：从创建日期到今天（包括今天）
+      // 使用本地日期格式来避免时区转换问题
+      const creationDateLocal = new Date(creationDateForCalculation.getFullYear(), creationDateForCalculation.getMonth(), creationDateForCalculation.getDate());
+      const todayLocal = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      // 计算从创建日期到今天的天数（包括今天）
+      totalDaysInPeriod = Math.floor((todayLocal.getTime() - creationDateLocal.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      
+
+    } else {
+      // 非本月创建的习惯：从月初到今天
+      const dayOfMonth = today.getDate();
+      totalDaysInPeriod = dayOfMonth;
+    }
+    
+    // 检查创建当天是否已完成打卡（如果创建当天就是今天，并且是本月创建）
+    if (creationDateForCalculation.getMonth() === currentMonth && 
+        creationDateForCalculation.getFullYear() === currentYear &&
+        creationDateForCalculation.getDate() === today.getDate() && 
+        creationDateForCalculation.getMonth() === today.getMonth() &&
+        creationDateForCalculation.getFullYear() === today.getFullYear()) {
+      // 如果是本月创建且创建当天就是今天，且今天已完成打卡
+      const todayRecord = habit.calendar.find(record => record.date === formatDate(today));
+      if (todayRecord && todayRecord.completed) {
+        
+        return 100;
+      }
+    }
+    
+
+    
+    // 计算完成率：已完成天数 / 统计周期内总天数 * 100%
+    const completionRate = totalDaysInPeriod > 0 ? (completedDays / totalDaysInPeriod) * 100 : 0;
+    const roundedRate = Math.round(completionRate);
+    
+
+    
+    return roundedRate;
+  }
+};
+
+// 获取标准化的创建日期
+const getNormalizedCreationDate = (habit: Habit) => {
+  const creationDate = new Date(habit.createdAt);
+  creationDate.setHours(0, 0, 0, 0); // 将创建日期调整为当天的开始时间
+  return creationDate;
+};
+
+// 获取标准化的日期对象
+const getNormalizedDate = (date: Date | string) => {
+  const normalizedDate = new Date(date);
+  normalizedDate.setHours(0, 0, 0, 0);
+  return normalizedDate;
+};
+
+
+
+// 获取本月的打卡记录
+const getMonthRecords = (habit: Habit, currentYear: number, currentMonth: number) => {
+  const creationDate = getNormalizedCreationDate(habit);
+  
+  return habit.calendar.filter(record => {
+    const recordDate = getNormalizedDate(record.date);
+    return recordDate.getFullYear() === currentYear && 
+           recordDate.getMonth() === currentMonth &&
+           recordDate >= creationDate; // 只统计创建日期之后的记录
+  });
+};
+
+// 计算本月连续打卡天数
+const calculateCurrentMonthStreak = (habit: Habit) => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  
+  const creationDate = getNormalizedCreationDate(habit);
+  
+  // 过滤出本月的打卡记录
+  const monthRecords = getMonthRecords(habit, currentYear, currentMonth)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // 按日期倒序排列
+  
+  if (monthRecords.length === 0) {
+    return 0; // 如果本月没有记录，则连续天数为0
+  }
+  
+  let streak = 0;
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const todayStr = getToday();
+  let currentDate = new Date(today);
+  
+  // 检查是否今天已完成
+  const todayRecord = habit.calendar.find(record => record.date === todayStr);
+  if (todayRecord && todayRecord.completed) {
+    streak++;
+  }
+  
+  // 往前检查连续的完成日期
+  for (let i = 1; ; i++) {
+    const checkDate = new Date(currentDate);
+    checkDate.setDate(currentDate.getDate() - i);
+    
+    // 使用本地日期格式而不是toISOString()，避免时区转换问题
+    const checkDateStr = formatDate(checkDate);
+    
+    // 检查是否还在当前月份
+    if (checkDate.getMonth() !== currentMonth || checkDate.getFullYear() !== currentYear) {
+      break; // 已经超出当前月份，停止计算
+    }
+    
+    // 检查日期是否在创建日期之后
+    if (checkDate < creationDate) {
+      break; // 已经超出创建日期，停止计算
+    }
+    
+    const record = habit.calendar.find(r => r.date === checkDateStr);
+    if (record && record.completed) {
+      streak++;
+    } else {
+      break; // 遇到未完成的日期，停止计算
+    }
+  }
+  
+  return streak;
+};
+
+// 计算本月总打卡数
+const calculateTotalMonthCompletions = (habit: Habit) => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  
+  // 使用公共函数获取本月的打卡记录
+  const monthRecords = getMonthRecords(habit, currentYear, currentMonth);
+  
+  // 过滤出已完成的记录并计算数量
+  return monthRecords.filter(record => record.completed).length;
+};
+
+// 计算最长连续打卡数
+const calculateLongestStreak = (habit: Habit) => {
+  if (!habit.calendar || habit.calendar.length === 0) {
+    return { streak: 0, startDate: null, endDate: null };
+  }
+  
+  // 按日期排序打卡记录
+  const sortedCalendar = [...habit.calendar]
+    .filter(record => record.completed) // 只考虑已完成的记录
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  
+  if (sortedCalendar.length === 0) {
+    return { streak: 0, startDate: null, endDate: null };
+  }
+  
+  let maxStreak = 0;
+  let currentStreak = 0;
+  let previousDate: Date | null = null;
+  
+  // 追踪最长连续序列的起始和结束日期
+  let maxStreakStartDate: Date | null = null;
+  let maxStreakEndDate: Date | null = null;
+  
+  // 追踪当前连续序列的起始日期
+  let currentStreakStartDate: Date | null = null;
+  
+  for (const record of sortedCalendar) {
+    const currentDate = new Date(record.date);
+    
+    if (previousDate === null) {
+      // 第一个记录
+      currentStreak = 1;
+      currentStreakStartDate = new Date(currentDate);
+    } else {
+      // 计算与前一天的差值
+      const diffDays = Math.floor((currentDate.getTime() - previousDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 1) {
+        // 连续的天
+        currentStreak++;
+      } else if (diffDays > 1) {
+        // 中断了，检查是否需要更新最大连续数
+        if (currentStreak > maxStreak) {
+          maxStreak = currentStreak;
+          maxStreakStartDate = currentStreakStartDate;
+          // 结束日期是前一个日期
+          maxStreakEndDate = new Date(previousDate);
+        }
+        // 重置当前连续数
+        currentStreak = 1;
+        currentStreakStartDate = new Date(currentDate);
+      }
+      // 如果diffDays === 0，说明是同一天，不做处理
+    }
+    
+    previousDate = currentDate;
+  }
+  
+  // 检查最后一个连续序列
+  if (currentStreak > maxStreak) {
+    maxStreak = currentStreak;
+    maxStreakStartDate = currentStreakStartDate;
+    maxStreakEndDate = previousDate;
+  } else if (maxStreak === 0 && currentStreak > 0) {
+    // 如果整个序列都是连续的
+    maxStreak = currentStreak;
+    maxStreakStartDate = currentStreakStartDate;
+    maxStreakEndDate = previousDate;
+  }
+  
+  return {
+    streak: maxStreak,
+    startDate: maxStreakStartDate,
+    endDate: maxStreakEndDate
+  };
+};
+
+// 计算常见打卡时段
+const calculateCommonTimeSlot = (habit: Habit) => {
+  // 从打卡记录中提取时间戳，分析常见打卡时段
+  
+  // 检查是否有时间戳数据
+  const completedRecordsWithTimestamp = habit.calendar.filter(record => record.completed && record.timestamp);
+  
+  if (completedRecordsWithTimestamp.length === 0) {
+    return '未打卡';
+  }
+  
+  // 提取小时信息并统计各小时的打卡次数
+  const hourCounts: { [key: number]: number } = {};
+  
+  for (const record of completedRecordsWithTimestamp) {
+    if (record.timestamp) {
+      const date = new Date(record.timestamp);
+      const hour = date.getHours(); // 获取小时（0-23）
+      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+    }
+  }
+  
+  // 找到打卡次数最多的小时
+  let mostCommonHour = -1;
+  let maxCount = 0;
+  
+  for (const hourStr in hourCounts) {
+    const hour = parseInt(hourStr);
+    const count = hourCounts[hour];
+    
+    if (count > maxCount) {
+      maxCount = count;
+      mostCommonHour = hour;
+    }
+  }
+  
+  if (mostCommonHour === -1) {
+    return '未打卡';
+  }
+  
+  // 返回格式为 "X~X+1点" 的时间段，其中"点"字用span包装
+  return `${mostCommonHour}~${mostCommonHour + 1}<span style="font-size: 12px;"> 点</span>`;
+};
+
+// 获取小时分布数据用于绘制条形图
+const getHourDistribution = (habit: Habit) => {
+  // 从打卡记录中提取时间戳，分析各小时的打卡分布
+  
+  // 检查是否有时间戳数据
+  const completedRecordsWithTimestamp = habit.calendar.filter(record => record.completed && record.timestamp);
+  
+  if (completedRecordsWithTimestamp.length === 0) {
+    // 如果没有数据，返回全为0的分布
+    const distribution = [];
+    for (let i = 0; i < 24; i++) {
+      distribution.push({ hour: i, count: 0 });
+    }
+    return distribution;
+  }
+  
+  // 提取小时信息并统计各小时的打卡次数
+  const hourCounts: { [key: number]: number } = {};
+  
+  for (const record of completedRecordsWithTimestamp) {
+    if (record.timestamp) {
+      const date = new Date(record.timestamp);
+      const hour = date.getHours(); // 获取小时（0-23）
+      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+    }
+  }
+  
+  // 生成24小时的分布数据
+  const distribution = [];
+  for (let i = 0; i < 24; i++) {
+    distribution.push({ hour: i, count: hourCounts[i] || 0 });
+  }
+  
+  return distribution;
+};
+
+// 计算总完成率
+const calculateTotalCompletionRate = (habit: Habit) => {
+  if (!habit.calendar || habit.calendar.length === 0) {
+    return 0;
+  }
+  
+  // 检查是否为周频率习惯
+  if (habit.frequency.startsWith('weekly')) {
+    // 对于周频率习惯，需要按周来计算完成率
+    return calculateWeeklyHabitCompletionRate(habit);
+  }
+  
+  // 对于非周频率习惯，计算打卡天数/创建天数*100%
+  const completedCount = habit.calendar.filter(record => record.completed).length;
+  
+  // 计算从创建日期到今天的总天数
+  const creationDate = new Date(habit.createdAt);
+  const today = new Date();
+  
+  // 设置时间为0点0分0秒，避免时区问题
+  creationDate.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  
+  // 计算总天数（包括今天）
+  const totalDays = Math.floor((today.getTime() - creationDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  
+  if (totalDays <= 0) {
+    return 0;
+  }
+  
+  const rate = (completedCount / totalDays) * 100;
+  return Math.round(rate);
+};
+
+// 计算周频率习惯的总完成率
+const calculateWeeklyHabitCompletionRate = (habit: Habit) => {
+  // 计算从创建日期到今天的周数
+  const creationDate = new Date(habit.createdAt);
+  const today = new Date();
+  
+  // 设置时间为0点0分0秒，避免时区问题
+  creationDate.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+  
+  // 计算创建日期所在周的周一
+  const creationWeekday = creationDate.getDay();
+  const daysToCreationMonday = creationWeekday === 0 ? -6 : 1 - creationWeekday; // 周日是0，需要向前推到周一
+  const creationWeekStart = new Date(creationDate);
+  creationWeekStart.setDate(creationDate.getDate() + daysToCreationMonday);
+  
+  // 计算本周的周日（今天所在的周）
+  const currentTodayWeekday = today.getDay();
+  const currentDaysToSunday = currentTodayWeekday === 0 ? 0 : 7 - currentTodayWeekday; // 如果今天是周日，则是0天后
+  const currentWeekSunday = new Date(today);
+  currentWeekSunday.setDate(today.getDate() + currentDaysToSunday);
+  
+  // 计算需要处理的周数
+  const totalCalculatedWeeks = [];
+  let tempWeekStart = new Date(creationWeekStart);
+  
+  // 收集所有需要检查的周，从创建日期所在周到本周周日
+  while (tempWeekStart <= currentWeekSunday) {
+    const tempWeekEnd = new Date(tempWeekStart);
+    tempWeekEnd.setDate(tempWeekStart.getDate() + 6); // 周日
+    
+    // 确保周的结束日期不超过本周周日（避免包含未来周）
+    if (tempWeekEnd > currentWeekSunday) {
+      tempWeekEnd.setTime(currentWeekSunday.getTime());
+    }
+    
+    // 只统计创建日期之后的周，注意这里应该是判断周结束日期是否晚于创建日期
+    // 因为一周内的任何一天完成打卡都应计入该周
+    if (tempWeekEnd >= creationDate) {
+      totalCalculatedWeeks.push({
+        start: new Date(tempWeekStart),
+        end: tempWeekEnd
+      });
+    }
+    
+    tempWeekStart.setDate(tempWeekStart.getDate() + 7); // 下一周
+  }
+  
+  // 获取每周目标次数
+  let weeklyTarget = 1; // 默认为1次
+  if (habit.frequency === 'weekly2') weeklyTarget = 2;
+  else if (habit.frequency === 'weekly3') weeklyTarget = 3;
+  else if (habit.frequency === 'weekly4') weeklyTarget = 4;
+  else if (habit.frequency === 'weekly5') weeklyTarget = 5;
+  else if (habit.frequency === 'weekly6') weeklyTarget = 6;
+  
+  // 计算每周的完成情况
+  let completedWeeks = 0;
+  
+  // 检查每一周的完成情况
+  for (const week of totalCalculatedWeeks) {
+    // 检查这一周内是否完成了目标次数
+    let weekCompletedCount = 0;
+    for (const record of habit.calendar) {
+      const recordDate = new Date(record.date);
+      // 将记录日期设置为当天的开始时间，以确保正确比较
+      recordDate.setHours(0, 0, 0, 0);
+      
+      // 检查这个记录是否在当前周内
+      if (recordDate >= week.start && recordDate <= week.end && record.completed) {
+        weekCompletedCount += record.completedCount || 1;
+      }
+    }
+    
+    // 如果这一周完成了目标次数，则算作完成一周
+    if (weekCompletedCount >= weeklyTarget) {
+      completedWeeks++;
+    }
+  }
+  
+  const totalCalculatedWeeksCount = totalCalculatedWeeks.length;
+  const rate = totalCalculatedWeeksCount > 0 ? (completedWeeks / totalCalculatedWeeksCount) * 100 : 0;
+  return Math.round(rate);
+};
+
+// 计算条形图高度
+const calculateBarHeight = (count: number) => {
+  // 根据打卡次数计算条形图高度，最大高度设为80%
+  // 如果没有打卡记录，返回最小高度
+  if (count <= 0) return 5;
+  
+  // 找到所有小时中的最大打卡次数
+  const hourDistribution = getHourDistribution(selectedHabit.value);
+  const maxCount = Math.max(...hourDistribution.map(h => h.count), 1);
+  
+  // 计算相对高度，最大为80%
+  return Math.max(5, (count / maxCount) * 80);
+};
+
+// 获取近18周的打卡数据用于热力图
+const getHeatmapData = () => {
+  // 创建一个空数组来存储18周的数据
+  const heatmapData = [];
+  
+  // 获取当前日期
+  const today = new Date();
+  
+  // 计算18周前的日期，确保包含本周
+  const dayOfWeek = today.getDay();
+  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周日(0)映射到6天前，其他日期映射到相应天数前
+  const thisMonday = new Date(today);
+  thisMonday.setDate(today.getDate() - daysToSubtract);
+  
+  // 从18周前的周一开始计算，确保包含本周
+  const startDate = new Date(thisMonday);
+  startDate.setDate(thisMonday.getDate() - 17 * 7); // 17周前的周一，这样总共包含18周（含本周）
+  
+  // 遍历所有习惯
+  for (const habit of habits.value) {
+    // 遍历习惯的打卡记录
+    for (const record of habit.calendar) {
+      if (record.completed) { // 只考虑已完成的记录
+        const recordDate = new Date(record.date);
+        
+        // 检查记录是否在18周范围内
+        if (recordDate >= startDate && recordDate <= today) {
+          // 将日期转换为YYYY-MM-DD格式字符串
+          const dateStr = formatDate(recordDate);
+          
+          // 查找是否已有该日期的记录
+          let dateEntry = heatmapData.find(entry => entry.date === dateStr);
+          
+          if (!dateEntry) {
+            // 如果没有找到，创建新的日期记录
+            dateEntry = {
+              date: dateStr,
+              count: 0
+            };
+            heatmapData.push(dateEntry);
+          }
+          
+          // 增加该日期的打卡次数
+          dateEntry.count++;
+        }
+      }
+    }
+  }
+  
+  // 按日期排序
+  heatmapData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  
+  // 计算最大打卡次数（用于颜色深度）
+  const maxCount = heatmapData.length > 0 ? Math.max(...heatmapData.map(d => d.count), 1) : 1;
+  
+  // 返回热力图数据和最大值
+  return {
+    data: heatmapData,
+    maxCount
+  };
+};
+
+// 获取热力图的星期和日期数据
+const getHeatmapGridData = () => {
+  const today = new Date();
+  
+  // 计算18周前的开始日期，确保包含本周
+  // 计算到本周周一的日期（确保包含本周）
+  const dayOfWeek = today.getDay();
+  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周日(0)映射到6天前，其他日期映射到相应天数前
+  const thisMonday = new Date(today);
+  thisMonday.setDate(today.getDate() - daysToSubtract);
+  
+  // 从18周前的周一开始计算
+  const startMonday = new Date(thisMonday);
+  startMonday.setDate(thisMonday.getDate() - 17 * 7); // 17周前的周一，这样总共包含18周（含本周）
+  
+  // 获取热力图数据
+  const { data: heatmapData, maxCount } = getHeatmapData();
+  
+  // 创建一个映射，以便快速查找特定日期的打卡次数
+  const dateMap = {};
+  heatmapData.forEach(item => {
+    dateMap[item.date] = item.count;
+  });
+  
+  // 生成数据：按星期组织，每一行代表一个特定的星期几
+  const weeks = [[], [], [], [], [], [], []]; // 每个数组代表一个星期中的某一天（周一到周日）
+  
+  // 计算从开始日期到当前日期的总天数
+  const totalDays = 18 * 7;
+  let currentDate = new Date(startMonday);
+  
+  // 为每一天生成数据
+  for (let i = 0; i < totalDays; i++) {
+    // 设置为当天的开始时间以避免时区问题
+    currentDate.setHours(0, 0, 0, 0);
+    
+    // 生成日期字符串
+    const dateStr = formatDate(currentDate);
+    
+    // 获取当天的打卡次数
+    const count = dateMap[dateStr] || 0;
+    
+    // 获取星期几 (0=周日, 1=周一, ..., 6=周六)
+    const dayOfWeek = currentDate.getDay();
+    // 将周日(0)转换为6，周一到周六分别是1-6，然后映射到数组索引0-6
+    const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周日(0)映射到索引6，周一(1)到周六(6)映射到索引0-5
+    
+    // 计算颜色强度 (0-4)
+    let intensity = 0;
+    if (maxCount > 0) {
+      if (count === 0) {
+        intensity = 0; // 无打卡
+      } else if (count < maxCount * 0.25) {
+        intensity = 1; // 轻微打卡
+      } else if (count < maxCount * 0.5) {
+        intensity = 2; // 中等打卡
+      } else if (count < maxCount * 0.75) {
+        intensity = 3; // 高度打卡
+      } else {
+        intensity = 4; // 最高打卡
+      }
+    }
+    
+    // 将数据添加到对应的星期数组中
+    weeks[dayIndex].push({
+      date: dateStr,
+      count: count,
+      intensity: intensity,
+      isCurrentYear: currentDate.getFullYear() === today.getFullYear()
+    });
+    
+    // 移动到下一天
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  // 重新组织数据：weeks现在是一个包含7个数组的数组，每个数组代表一个特定的星期几
+  // weeks[0] = 周一数据, weeks[1] = 周二数据, ..., weeks[6] = 周日数据
+  return {
+    weeks,
+    startDate: formatDate(startMonday),
+    endDate: formatDate(currentDate),
+    maxCount
+  };
+};
+
+// 计算总习惯数
+const totalHabitsCount = computed(() => {
+  return habits.value.length;
+});
+
+// 计算总完成数
+const totalCompletionsCount = computed(() => {
+  let total = 0;
+  for (const habit of habits.value) {
+    total += habit.calendar.filter(record => record.completed).length;
+  }
+  return total;
+});
+
+// 计算最长连续坚持天数
+const longestStreak = computed(() => {
+  let maxStreak = 0;
+  
+  for (const habit of habits.value) {
+    const streakResult = calculateLongestStreak(habit);
+    if (streakResult.streak > maxStreak) {
+      maxStreak = streakResult.streak;
+    }
+  }
+  
+  return maxStreak;
+});
+
+// 热力图网格数据
+const heatmapGridData = computed(() => {
+  return getHeatmapGridData();
+});
+
+// 热力图月份标签
+const heatmapMonths = computed(() => {
+  const months = [];
+  
+  // 从热力图数据中获取月份信息
+  const heatmapData = heatmapGridData.value;
+  const weeks = heatmapData.weeks;
+  
+
+  
+  // 由于热力图是横向布局，星期作为Y轴，日期作为X轴
+  // weeks数组中有7个子数组，每个子数组代表一个星期中的某一天（周一到周日）
+  // 每个子数组中的元素是按时间顺序排列的（从过去到现在）
+  
+  // 为了正确计算月份标签的位置，我们需要知道在X轴方向上每个月的起始日期位置
+  // 因为X轴是时间轴，我们需要找到所有日期中每个月的首次出现位置
+  
+  // 创建一个映射来存储每个日期在X轴上的位置
+  const datePositions = new Map();
+  
+  // 遍历热力图数据，记录每个日期在X轴上的位置
+  // 对于每个星期中的某一天（比如所有周一、所有周二等），它们在X轴上是按时间顺序排列的
+  for (let dayOfWeek = 0; dayOfWeek < weeks.length; dayOfWeek++) {
+    const daysOfThisWeekday = weeks[dayOfWeek];
+    
+    for (let dateIndex = 0; dateIndex < daysOfThisWeekday.length; dateIndex++) {
+      const day = daysOfThisWeekday[dateIndex];
+      const date = new Date(day.date);
+      const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+      
+      // 如果这个月份还没有记录位置，则记录这个日期在X轴上的位置
+      if (!datePositions.has(monthKey)) {
+        // 这个日期在X轴上的位置是 dateIndex
+        datePositions.set(monthKey, {
+          year: date.getFullYear(),
+          month: date.getMonth(),
+          position: dateIndex
+        });
+      }
+    }
+  }
+  
+  // 将位置映射转换为数组并按位置排序
+  const sortedPositions = Array.from(datePositions.values()).sort((a, b) => a.position - b.position);
+  
+  // 为每个唯一的月份创建标签，跳过第一个月
+  for (let i = 1; i < sortedPositions.length; i++) { // 从索引1开始，跳过第一个月
+    const pos = sortedPositions[i];
+    
+    // 使用相对位置计算，基于数组长度
+    // 每个星期数组的长度是18（代表18周）
+    const totalPoints = 18; // 每个星期数组包含18个数据点（18周）
+    
+    // 计算相对位置，考虑到需要在日期格子的中心显示月份标签
+    const relativePosition = pos.position / (totalPoints - 1); // 归一化到0-1范围
+    
+    // 转换为百分比
+    const offset = relativePosition * 100; // 百分比形式
+    
+    months.push({
+      monthLabel: `${String(pos.month + 1).padStart(2, '0')}月`,
+      offset: offset // 这个值将用作百分比
+    });
+  }
+  
+  return months;
+});
+
+
+// 初始化习惯视图模式
+const initializeHabitViewMode = (habit: Habit) => {
+  if (habit.currentWeekOffset === undefined) {
+    habit.currentWeekOffset = 0;
+  }
+};
+
+// 初始化统计页面视图模式
+const initializeStatsViewMode = (habit: Habit) => {
+  if (!habit.statsViewMode) {
+    habit.statsViewMode = 'month'; // 统计页面默认为月视图
+  }
+  if (habit.statsMonthOffset === undefined) {
+    habit.statsMonthOffset = 0;
+  }
+
+};
+
+// 获取日历视图数据（用于习惯项，固定为周视图）
+const getCalendarViewData = (habit: Habit) => {
+  initializeHabitViewMode(habit);
+  
+  // 直接使用当前日期，确保获取最新的日期
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  
+  return getWeekViewData(habit);
+};
+
+// 获取周视图数据
+const getWeekViewData = (habit: Habit) => {
+  const todayDate = new Date();
+  const targetDate = new Date(todayDate);
+  targetDate.setDate(todayDate.getDate() + (habit.currentWeekOffset || 0) * 7);
+  
+  // 找到这一周的开始（周一）
+  const startOfWeek = getWeekStart(targetDate);
+  
+  // 计算本周完成情况
+  const weekCompletionData = getWeekCompletionData(habit, startOfWeek);
+  
+  // 生成一周的数据（周一到周日）
+  const weekData = [];
+  
+  for (let i = 0; i < 7; i++) {
+    const currentDate = new Date(startOfWeek);
+    currentDate.setDate(startOfWeek.getDate() + i);
+    
+    // 使用本地日期格式而不是toISOString()，避免时区转换问题
+    const dateStr = formatDate(currentDate);
+    // 使用本地日期格式进行比较
+    const isTodayActual = isToday(dateStr);
+    
+    // 查找对应的打卡记录
+    const calendarRecord = habit.calendar.find(day => day.date === dateStr);
+    
+    // 检查是否是过去的日期（今天之前的日期）
+    // 使用本地日期比较，避免时区问题
+    const todayLocalDateStr = getToday();
+    const isPast = dateStr < todayLocalDateStr;
+    // 检查是否是未来的日期（今天之后的日期）
+    const isFuture = dateStr > todayLocalDateStr;
+    
+    // 对于weeklyN习惯，如果本周已经完成所需的打卡次数，则所有日期都显示为完成状态
+    const actualCompleted = calendarRecord ? calendarRecord.completed : false;
+    const isCompleted = weekCompletionData.hasCompletedRequiredThisWeek ? true : actualCompleted;
+    // 标识是否因为周频次逻辑而显示为完成（而非实际完成当天任务）
+    const isCompletedByWeeklyRule = weekCompletionData.hasCompletedRequiredThisWeek && !actualCompleted;
+    
+    weekData.push({
+      date: dateStr,
+      completed: isCompleted,
+      completedCount: calendarRecord ? calendarRecord.completedCount || 0 : 0,
+      targetCount: calendarRecord ? calendarRecord.targetCount || 1 : 1,
+      isPast,
+      isFuture,
+      isToday: isTodayActual,
+      isCompletedByWeeklyRule
+    });
+  }
+  
+  return weekData;
+};
+
+// 通用的月份数据生成函数
+const generateMonthViewData = (targetDate: Date, calendarData?: any[], moodData?: any) => {
+  // 获取当月第一天和最后一天
+  const firstDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+  const lastDay = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+
+  // 计算当月第一天是星期几 (0=周日, 1=周一, ..., 6=周六)
+  const prevMonthDays = calculatePrevMonthDays(firstDay);
+
+  // 计算需要显示的总天数（最多5行7列）
+  const daysInMonth = lastDay.getDate();
+  const daysNeeded = 35; // 5行7列
+
+  const monthData = [];
+
+  // 预计算年份和月份，避免重复访问
+  const targetYear = targetDate.getFullYear();
+  const targetMonth = targetDate.getMonth();
+
+  // 通用函数：根据日期获取数据
+  const getDayData = (date: Date) => {
+    const dateStr = formatDate(date);
+    let dayData;
+    if (calendarData !== undefined) {
+      // 处理打卡日历数据
+      dayData = calendarData.find(day => day.date === dateStr);
+    } else if (moodData !== undefined) {
+      // 处理情绪日历数据
+      dayData = moodData[dateStr];
+    } else {
+      // 仅返回日期信息
+      dayData = null;
+    }
+    
+    // 更精确地判断是否为当前月
+    const isCurrentMonth = (date.getMonth() === targetDate.getMonth() && 
+                          date.getFullYear() === targetDate.getFullYear());
+    
+    return {
+      date: dateStr,
+      data: dayData || null,
+      isCurrentMonth: isCurrentMonth,
+      isToday: dateStr === getToday()
+    };
+  };
+
+  // 添加上个月的日期
+  for (let i = prevMonthDays; i > 0; i--) {
+    const date = new Date(targetYear, targetMonth, -i + 1);
+    monthData.push(getDayData(date));
+  }
+
+  // 添加当前月的日期
+  for (let i = 1; i <= daysInMonth; i++) {
+    const date = new Date(targetYear, targetMonth, i);
+    monthData.push(getDayData(date));
+  }
+
+  // 添加下个月的日期以填满网格
+  const remainingDays = daysNeeded - monthData.length;
+  for (let i = 1; i <= remainingDays; i++) {
+    const date = new Date(targetYear, targetMonth + 1, i);
+    monthData.push(getDayData(date));
+  }
+
+  return monthData;
+};
+
+// 获取统计页面月视图数据
+const getStatsMonthViewData = (habit: Habit) => {
+  initializeStatsViewMode(habit);
+  const today = new Date();
+  const targetDate = new Date(today.getFullYear(), today.getMonth() + (habit.statsMonthOffset || 0), 1);
+
+  // 使用通用的月份数据生成函数
+  const rawData = generateMonthViewData(targetDate, habit.calendar);
+  
+  // 格式化为统计页面需要的格式
+  return rawData.map(item => ({
+    date: item.date,
+    completed: item.data ? item.data.completed : false,
+    completedCount: item.data ? (item.data.completedCount || 0) : 0,
+    targetCount: item.data ? (item.data.targetCount || 1) : 1,
+    isCurrentMonth: item.isCurrentMonth
+  }));
+};
+
+// 更改统计页面日历时间段
+const changeStatsCalendarPeriod = (habit: Habit, direction: number) => {
+  initializeStatsViewMode(habit);
+  
+  habit.statsMonthOffset = (habit.statsMonthOffset || 0) + direction;
+};
+
+// 获取当前时间段文本
+const getCurrentPeriodText = (habit: Habit) => {
+  initializeStatsViewMode(habit);
+  
+  const today = new Date();
+  const targetDate = new Date(today.getFullYear(), today.getMonth() + (habit.statsMonthOffset || 0), 1);
+  
+  const year = targetDate.getFullYear();
+  const month = targetDate.getMonth() + 1;
+  
+  // 月份始终使用阿拉伯数字
+  return `${year}年${month}月`;
+};
+
+
+
+// 当前选中的习惯
+const selectedHabit = ref<Habit | null>(null);
+
+// 当天日历相关
+const currentDayInfo = ref({
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  date: formatDate(new Date()),
+  dayOfWeek: new Date().getDay(),
+  dayOfMonth: new Date().getDate(),
+  month: new Date().getMonth() + 1,
+  year: new Date().getFullYear(),
+});
+
+// 星期名称数组，支持国际化
+const weekdaysForCalendar = computed(() => {
+  // 默认使用中文，根据当前语言环境返回相应的星期名称
+  if (window.siyuan?.languages?.zh_CN) {
+    return ['一', '二', '三', '四', '五', '六', '日'];
+  } else {
+    // 默认使用中文
+    return ['一', '二', '三', '四', '五', '六', '日'];
+  }
+});
+
+
+
+// 计算当月第一天前需要显示的天数
+const calculatePrevMonthDays = (firstDay: Date) => {
+  // 获取当月第一天是星期几 (0=周日, 1=周一, ..., 6=周六)
+  const dayOfWeek = firstDay.getDay();
+  // 计算前面需要多少天来自上个月
+  // 为了让日期正确对应到星期标题，我们需要计算正确的偏移量
+  // 星期一(1) → 0天偏移, 星期二(2) → 1天偏移, ..., 星期日(0) → 6天偏移
+  return dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+};
+
+// 计算当前日期字符串
+const currentDateString = computed(() => {
+  const date = new Date(); // 直接获取当前日期，而不是使用currentDayInfo
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+  return `${month}/${day}/周${weekdays[date.getDay()]}`;
+});
+
+// 获取习惯打卡频率的文本描述
+const getFrequencyText = (habit: Habit) => {
+  if (!habit.frequency) return '每天';
+  if (habit.frequency === 'daily') return '每天';
+  if (habit.frequency === 'weekly') return '每周1天';
+  if (habit.frequency === 'weekly1') return '每周1天';
+  if (habit.frequency === 'weekly2') return '每周2天';
+  if (habit.frequency === 'weekly3') return '每周3天';
+  if (habit.frequency === 'weekly4') return '每周4天';
+  if (habit.frequency === 'weekly5') return '每周5天';
+  if (habit.frequency === 'weekly6') return '每周6天';
+  // 检查是否存在customFrequency属性
+  if (habit.frequency === 'custom' && 'customFrequency' in habit && habit.customFrequency) {
+    return `每周${habit.customFrequency}天`;
+  }
+  return '每天'; // 默认
+};
+
+// 获取习惯创建日期的文本描述
+const getCreatedDateText = (habit: Habit) => {
+  if (!habit.createdAt) return '';
+  const date = new Date(habit.createdAt);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `创建于 ${year}-${month}-${day}`;
+};
+
+// 显示习惯统计页面
+const showHabitStats = (habit: Habit) => {
+  selectedHabit.value = habit;
+};
+
+// 显示编辑习惯模态框
+const showEditHabitModal = ref(false);
+const editedHabit = ref<Habit | null>(null);
+
+// 打开编辑习惯模态框
+const openEditHabitModal = () => {
+  if (selectedHabit.value) {
+    // 创建习惯的副本以避免直接修改原对象
+    editedHabit.value = JSON.parse(JSON.stringify(selectedHabit.value));
+    showEditHabitModal.value = true;
+  }
+};
+
+// 关闭编辑习惯模态框
+const closeEditHabitModal = () => {
+  showEditHabitModal.value = false;
+  editedHabit.value = null;
+};
+
+// 为编辑习惯选择emoji
+const selectEmojiForEdit = (emoji: string) => {
+  if (editedHabit.value) {
+    editedHabit.value.emoji = emoji;
+    showEmojiPicker.value = false;
+  }
+};
+
+// 处理timesPerDay变更
+const onTimesPerDayChange = (value: string | number) => {
+  if (editedHabit.value) {
+    editedHabit.value.timesPerDay = typeof value === 'string' ? parseInt(value) || 1 : value;
+  }
+};
+
+// 保存编辑后的习惯
+const saveEditedHabit = async () => {
+  if (editedHabit.value && selectedHabit.value) {
+    // 确保timesPerDay是数字类型
+    if (typeof editedHabit.value.timesPerDay === 'string') {
+      editedHabit.value.timesPerDay = parseInt(editedHabit.value.timesPerDay) || 1;
+    }
+    
+    // 更新原始习惯对象
+    Object.assign(selectedHabit.value, editedHabit.value);
+    
+    // 保存到存储
+    await saveHabits(habits.value);
+    
+    // 关闭模态框
+    closeEditHabitModal();
+  }
+};
+
+// 暂停或恢复习惯打卡
+const togglePauseHabit = async (habit: Habit) => {
+  if (habit) {
+    // 切换暂停状态
+    habit.isPaused = !habit.isPaused;
+    
+    // 保存到存储
+    await saveHabits(habits.value);
+  }
+};
+
+// 关闭统计页面
+const closeHabitStats = () => {
+  selectedHabit.value = null;
+};
+
+// 情绪数据
+const moodData = ref<MoodData>({});
+
+// 情绪打卡相关
+const showMoodTracker = ref(false);
+const selectedDate = ref('');
+const moodEntry = ref({
+  emoji: '',
+  note: ''
+});
+
+// 打开情绪打卡面板
+const openMoodTracker = async (date: string) => {
+  selectedDate.value = date;
+  // 尝试加载已保存的情绪数据
+  const moodData = await getMoodData();
+  const dateEntry = moodData[date];
+  if (dateEntry) {
+    moodEntry.value = {
+      emoji: dateEntry.emoji || '',
+      note: dateEntry.note || ''
+    };
+  } else {
+    moodEntry.value = {
+      emoji: '',
+      note: ''
+    };
+  }
+  showMoodTracker.value = true;
+};
+
+// 保存情绪打卡数据
+const saveMoodEntry = async () => {
+  try {
+    // 获取现有的情绪数据
+    const moodDataLocal = await getMoodData();
+    
+    // 更新当前日期的情绪数据
+    moodDataLocal[selectedDate.value] = {
+      emoji: moodEntry.value.emoji,
+      note: moodEntry.value.note,
+      timestamp: new Date().toISOString()
+    };
+    
+    // 保存到插件数据
+    await saveMoodData(moodDataLocal);
+    
+    // 更新本地情绪数据缓存
+    moodData.value = moodDataLocal;
+    
+    // 关闭面板
+    showMoodTracker.value = false;
+    
+
+  } catch (error) {
+    console.error('保存情绪数据失败:', error);
+  }
+};
+
+// 删除情绪打卡数据
+const deleteMoodEntry = async () => {
+  if (selectedDate.value) {
+    try {
+      // 获取现有的情绪数据
+      const moodDataLocal = await getMoodData();
+      
+      // 删除当前日期的情绪数据
+      delete moodDataLocal[selectedDate.value];
+      
+      // 保存到插件数据
+      await saveMoodData(moodDataLocal);
+      
+      // 更新本地情绪数据缓存
+      moodData.value = moodDataLocal;
+      
+      // 关闭面板
+      showMoodTracker.value = false;
+      
+
+    } catch (error) {
+      console.error('删除情绪数据失败:', error);
+    }
+  }
+};
+
+// 关闭情绪打卡面板
+const closeMoodTracker = () => {
+  showMoodTracker.value = false;
+  moodEntry.value = {
+    emoji: '',
+    note: ''
+  };
+};
+
+// 选择情绪emoji
+const selectMoodEmoji = (emoji: string) => {
+  moodEntry.value.emoji = emoji;
+  showEmojiPicker.value = false;
+};
+
+// 情绪打卡月视图相关
+const moodCalendarCurrentMonth = ref(0); // 月偏移量，0表示当前月，正数表示未来月，负数表示过去月
+
+// 计算情绪打卡月视图的月份年份显示
+const moodCalendarMonthYear = computed(() => {
+  const today = new Date();
+  const targetDate = new Date(today.getFullYear(), today.getMonth() + moodCalendarCurrentMonth.value, 1);
+  return `${targetDate.getFullYear()}年${targetDate.getMonth() + 1}月`;
+});
+
+// 计算情绪统计数据
+const moodStatsData = computed(() => {
+  const today = new Date();
+  const targetDate = new Date(today.getFullYear(), today.getMonth() + moodCalendarCurrentMonth.value, 1);
+  const currentYear = targetDate.getFullYear();
+  const currentMonth = targetDate.getMonth();
+  
+  // 初始化情绪统计数据
+  const stats = {
+    excited: 0,
+    happy: 0,
+    calm: 0,
+    sad: 0,
+    angry: 0
+  };
+  
+  // 遍历情绪数据，统计当前月份的各类情绪数量
+  for (const [dateStr, mood] of Object.entries(moodData.value)) {
+    const [year, month] = dateStr.split('-').map(Number);
+    
+    // 检查是否为当前月份
+    if (year === currentYear && month - 1 === currentMonth) {
+      // 根据情绪emoji匹配类型并计数
+      if (mood.emoji === '🤩') {
+        stats.excited++;
+      } else if (mood.emoji === '😊') {
+        stats.happy++;
+      } else if (mood.emoji === '😌') {
+        stats.calm++;
+      } else if (mood.emoji === '😢') {
+        stats.sad++;
+      } else if (mood.emoji === '😡') {
+        stats.angry++;
+      }
+    }
+  }
+  
+  // 计算最大值用于柱状图高度比例
+  const maxValue = Math.max(...Object.values(stats), 1);
+  
+  return {
+    data: [
+      { type: 'excited', count: stats.excited, emoji: '🤩', label: '兴奋' },
+      { type: 'happy', count: stats.happy, emoji: '😊', label: '开心' },
+      { type: 'calm', count: stats.calm, emoji: '😌', label: '平静' },
+      { type: 'sad', count: stats.sad, emoji: '😢', label: '难过' },
+      { type: 'angry', count: stats.angry, emoji: '😡', label: '愤怒' }
+    ],
+    maxValue
+  };
+});
+
+// 获取情绪打卡月视图数据
+const moodCalendarData = computed(() => {
+  const today = new Date();
+  const targetDate = new Date(today.getFullYear(), today.getMonth() + moodCalendarCurrentMonth.value, 1);
+
+  // 使用通用的月份数据生成函数
+  const rawData = generateMonthViewData(targetDate, undefined, moodData.value);
+  
+  // 格式化为情绪日历需要的格式
+  return rawData.map(item => ({
+    date: item.date,
+    mood: item.data,
+    isCurrentMonth: item.isCurrentMonth,
+    isToday: item.isToday
+  }));
+});
+
+// 获取当前月份的情绪记录列表
+const currentMonthMoodEntries = computed(() => {
+  const today = new Date();
+  const targetDate = new Date(today.getFullYear(), today.getMonth() + moodCalendarCurrentMonth.value, 1);
+  const currentYear = targetDate.getFullYear();
+  const currentMonth = targetDate.getMonth();
+  
+  // 过滤出当前月份的情绪记录
+  const entries: { date: string; mood: { emoji: string; note: string } }[] = [];
+  
+  // 避免重复创建Date对象，直接使用字符串比较
+  for (const [dateStr, mood] of Object.entries(moodData.value)) {
+    // 提取年月部分进行比较，避免创建Date对象
+    const [year, month] = dateStr.split('-').map(Number);
+    
+    // 检查是否为当前月份
+    if (year === currentYear && month - 1 === currentMonth) {
+      entries.push({ date: dateStr, mood });
+    }
+  }
+  
+  // 按日期排序（从新到旧）
+  entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  
+  return entries;
+});
+
+// 切换情绪打卡月视图的月份
+const changeMoodCalendarMonth = (offset: number) => {
+  moodCalendarCurrentMonth.value += offset;
+};
+
+// 切换统计页面视图模式（已移除，统计页面只显示月视图）
+// const toggleStatsViewMode = (habit: Habit) => {
+//   initializeStatsViewMode(habit);
+//   habit.statsViewMode = habit.statsViewMode === 'month' ? 'week' : 'month';
+// };
+</script>
+
+<style lang="scss" scoped>
+.Pinch-habit-container {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 4px;
+  
+  .Pinch-habit-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    h2 {
+      margin: 0;
+      color: var(--b3-theme-on-background);
+    }
+    
+    .icon {
+      margin-right: 4px;
+      vertical-align: middle;
+      width: 16px;
+      height: 16px;
+    }
+    
+    #add-habit-btn,#stats-btn,#mood-calendar-btn {
+      background: none;
+      border: none;
+      padding: 0;
+      margin: 0 6px 0 0;
+      cursor: pointer;
+      width: 26px;
+      height: 26px;
+      
+      svg {
+        color: var(--b3-theme-on-background);
+        width: 26px;
+        height: 26px;
+      }
+    }
+  }
+  
+  .habit-list {
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--b3-font-color1);
+      font-size: 16px;
+    }
+    
+    .habits-grid {
+      display: grid;
+      gap: 8px;
+    }
+    
+    .habits-container {
+      display: contents;
+    }
+    
+    .habit-card {
+      background: var(--b3-theme-background);
+      border-radius: 15px;
+      box-shadow: rgba(0, 0, 0, 0.06) 0px 1px 5px 0px;
+      
+      .habit-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        
+        .habit-title {
+          font-size: 16px;
+          font-weight: bold;
+          color: var(--b3-theme-on-background);
+          flex: 1;
+          margin-left: 2px;
+        }
+        
+        .habit-actions {
+          display: flex;
+          gap: 8px;
+        }
+      }
+      
+      .habit-stats {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--b3-border-color);
+        
+        .stats-item {
+          text-align: center;
+          
+          .stat-label {
+            display: block;
+            font-size: 10px;
+            color: var(--b3-scroll-color);
+          }
+          
+          .stat-value {
+            display: block;
+            font-weight: bold;
+            color: var(--b3-theme-on-background);
+          }
+        }
+      }
+      
+      .habit-calendar {
+        .calendar-controls {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+          
+          .view-selector {
+            display: flex;
+            gap: 4px;
+            
+            .view-btn {
+              padding: 4px 8px;
+              border: 1px solid var(--b3-border-color);
+              background-color: var(--b3-list-background);
+              color: var(--b3-font-color1);
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 12px;
+              
+              &.active {
+                background-color: var(--b3-theme-primary);
+                color: var(--b3-theme-on-primary);
+                border-color: var(--b3-theme-primary);
+              }
+              
+              &:hover {
+                background-color: var(--b3-list-hover);
+              }
+            }
+          }
+          
+          .calendar-navigation {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            
+            .nav-btn {
+              padding: 2px 6px;
+              border: 1px solid var(--b3-border-color);
+              background-color: var(--b3-list-background);
+              color: var(--b3-font-color1);
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 12px;
+              
+              &:hover {
+                background-color: var(--b3-list-hover);
+              }
+            }
+            
+            .current-period {
+              font-size: 12px;
+              color: var(--b3-font-color1);
+              min-width: 120px;
+              text-align: center;
+            }
+          }
+        }
+        
+        .calendar-weekdays {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          text-align: center;
+          font-size: 12px;
+          color: var(--b3-font-color1);
+          margin-bottom: 4px;
+        }
+        
+        .calendar-days {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 2px;
+          
+          .calendar-day {
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            font-size: 12px;
+            background-color: var(--b3-list-background);
+            color: var(--b3-font-color1);
+            
+            &.completed {
+              background-color: var(--b3-success-background);
+              color: var(--b3-success-text);
+            }
+            
+            &.today {
+              border: 2px solid var(--b3-theme-primary);
+            }
+            
+            .day-number {
+              font-size: 14px;
+            }
+          }
+        }
+      }
+    }
+    
+    .habit-card.completed {
+      box-shadow: inset 0 0 0 100px rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.06) 0px 1px 5px 0px;
+    }
+    
+    .habit-card.paused {
+      background-image: repeating-linear-gradient(-45deg, var(--b3-border-color), var(--b3-border-color) 5px, var(--b3-list-hover) 0, var(--b3-list-hover) 10px);
+      background-color: var(--b3-list-background);
+      opacity: 0.7;
+    }
+  } 
+  
+  
+}
+
+.stats-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  padding: 10px;
+  flex-direction: column;
+  --s: 20px; /* control the size*/
+  --c1: #2a936a;
+  --c2: #32a176;
+  --_g: radial-gradient(calc(var(--s)/2),var(--c1) 97%,#0000);
+  background:
+    var(--_g),var(--_g) calc(2*var(--s)) calc(2*var(--s)),
+    repeating-conic-gradient(from 45deg,#0000 0 25%,var(--c2) 0 50%) calc(-.707*var(--s)) calc(-.707*var(--s)),
+    repeating-linear-gradient(135deg,var(--c1) calc(var(--s)/-2) calc(var(--s)/2),var(--c2) 0 calc(2.328*var(--s)));
+  background-size: calc(4*var(--s)) calc(4*var(--s));
+  
+  /* 隐藏滚动条但保持滚动功能 */
+  -ms-overflow-style: none; /* IE 和 Edge */
+  scrollbar-width: none; /* Firefox */
+  
+  &::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+  
+  .stats-header {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 10px;
+    
+    .stats-emoji {
+      font-size: 70px;
+      align-self: center;
+      height: 100px;
+    }
+    
+    .habit-frequency {
+      text-align: center;
+      font-size: 10px;
+      color: #fff;
+      padding: 4px 10px;
+      background-color: #21855e;
+      border-radius: 12px;
+    }
+    
+    .habit-created {
+      text-align: center;
+      font-size: 10px;
+      color: #fff;
+      padding: 4px 10px;
+      background-color: #21855e;
+      border-radius: 12px;
+    }
+    
+    .habit-meta {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+    }
+    
+    .stats-header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    
+    .stats-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: var(--b3-theme-background);
+    }
+    
+    .stats-header-buttons {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+  }
+  .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 34px;
+      margin-top: 10px;
+      padding: 10px 0;
+      border-top: 1px solid var(--b3-border-color);
+      
+      .stat-item {
+        text-align: center;
+        border-radius: 24px;
+        
+        .stat-value {
+          font-size: 24px;
+          font-weight: 600;
+          color: var(--b3-theme-on-background);
+          margin-bottom: 4px;
+          span {
+            font-size: 12px;
+          }
+        }
+        
+        .stat-label {
+          font-size: 12px;
+          color: var(--b3-scroll-color);
+        }
+      }
+    }
+  .stats-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    
+    .calendar-controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 16px;
+      padding: 8px;
+      background: var(--b3-list-background);
+      border-radius: 4px;
+      
+      .view-selector {
+        display: flex;
+        gap: 4px;
+        
+        .sy-button {
+          min-width: 60px;
+        }
+      }
+      
+      .calendar-navigation {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        justify-content: center;
+        
+        .nav-btn {
+          background: none;
+          border: none;
+          padding: 4px;
+          cursor: pointer;
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background-color 0.2s;
+          
+          &:hover {
+            background-color: var(--b3-list-hover);
+          }
+          
+          &:active {
+            background-color: var(--b3-list-hover);
+          }
+        }
+        
+        .current-period {
+          text-align: center;
+          font-size: 14px;
+          flex: 1;
+          font-weight: 600;
+        }
+      }
+    }
+    
+    .calendar-container {
+      background-color: var(--b3-theme-background);
+      padding: 16px 16px 8px 16px;
+      border-radius: 24px;
+      box-shadow: rgba(0, 0, 0, 0.06) 0px 1px 5px 0px;
+    }
+
+    .calendar-view {
+      flex: 1;
+      margin-bottom: 20px;
+      
+      .weekdays-header {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        text-align: center;
+        font-weight: bold;
+        margin-bottom: 8px;
+        color: var(--b3-theme-on-surface);
+        gap: 14px;
+        font-size: 12px;
+      }
+      
+      .week-view {
+        .week-data {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 4px;
+        }
+      }
+      
+      .month-view {
+        .month-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 14px;
+        }
+      }
+      
+      .day {
+        position: relative;
+        aspect-ratio: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: var(--b3-list-background);
+        cursor: default;
+        font-weight: 600;
+        transition: background-color 0.2s;
+        
+        &.completed {
+          background: #f98f7a;
+          color: var(--b3-theme-background);
+          font-weight: bold;
+        }
+        
+        &.today:not(.completed) {
+          color: #f98f7a;
+        }
+        
+        &.not-current-month:not(.completed) {
+          color: var(--b3-theme-on-background);
+        }
+        &.not-current-month{
+          opacity: 0.3;
+        }
+        
+        &.past:not(.completed) {
+          color: oklch(68.98% 0.161 30.76 / 0.3);
+        }
+        
+        &.future:not(.completed) {
+          color: var(--b3-list-hover);
+        }
+        
+        .day-number {
+          font-size: 14px;
+        }
+      }
+    }
+    
+    .stats-actions {
+      display: flex;
+      flex-direction: column;
+      margin-top: 60px;
+      gap: 8px;
+      width: 100%;
+      
+      .sy-button {
+        width: 100%;
+        min-width: auto;
+      }
+    }
+  }
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--b3-theme-background);
+  border-radius: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-height: 90vh;
+  overflow-y: auto;
+  min-width: 400px;
+  
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    
+    h3 {
+      margin: 0;
+      font-size: 16px;
+      color: var(--b3-theme-on-background);
+    }
+  }
+  
+  .modal-body {
+    padding: 20px;
+    
+    .form-group {
+      margin-bottom: 16px;
+      
+      label {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 14px;
+        color: var(--b3-theme-on-background);
+      }
+    }
+    
+    .emoji-selector {
+      position: relative;
+      
+      .emoji-grid {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        background: var(--b3-theme-background);
+        border: 1px solid var(--b3-border-color);
+        border-radius: 4px;
+        padding: 8px;
+        z-index: 1001;
+        width: 300px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+    }
+    
+    .mood-emoji-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+      margin-top: 8px;
+      
+      .mood-emoji-option {
+        font-size: 24px;
+        text-align: center;
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 4px;
+        transition: background-color 0.2s;
+        
+        &.selected {
+          background-color: var(--b3-list-hover);
+        }
+        
+        .mood-svg {
+          width: 100%;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+      }
+    }
+  }
+  
+  .modal-footer {
+    padding: 16px 20px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+}
+
+.total-stats-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  padding: 10px;
+  flex-direction: column;
+  --s: 20px; /* control the size*/
+  --c1: #2a936a;
+  --c2: #32a176;
+  --_g: radial-gradient(calc(var(--s)/2),var(--c1) 97%,#0000);
+  background:
+    var(--_g),var(--_g) calc(2*var(--s)) calc(2*var(--s)),
+    repeating-conic-gradient(from 45deg,#0000 0 25%,var(--c2) 0 50%) calc(-.707*var(--s)) calc(-.707*var(--s)),
+    repeating-linear-gradient(135deg,var(--c1) calc(var(--s)/-2) calc(var(--s)/2),var(--c2) 0 calc(2.328*var(--s)));
+  background-size: calc(4*var(--s)) calc(4*var(--s));
+  
+  /* 隐藏滚动条但保持滚动功能 */
+  -ms-overflow-style: none; /* IE 和 Edge */
+  scrollbar-width: none; /* Firefox */
+  
+  &::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+  
+  .stats-header {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 10px;
+    
+    .stats-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: var(--b3-theme-background);
+    }
+    
+    .stats-header-buttons {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    
+    .stats-header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+    }
+  }
+  .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 10px;
+      
+      .stat-item {
+        text-align: center;
+        border-radius: 24px;
+        padding: 12px;
+        
+        .stat-value {
+          font-size: 24px;
+          font-weight: bold;
+          color: #ffcb4c;
+          margin-bottom: 4px;
+          span {
+            font-size: 12px;
+          }
+        }
+        
+        .stat-label {
+          font-weight: bold;
+          font-size: 12px;
+          color: var(--b3-theme-background);
+        }
+      }
+    }
+    
+    .heatmap-section {
+      margin: 10px 0;
+      padding: 15px;
+      background: var(--b3-theme-background);
+      border-radius: 12px;
+      
+      .heatmap-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      
+      .heatmap-title {
+        font-size: 14px;
+        font-weight: bold;
+        margin: 0;
+        color: var(--b3-theme-on-background);
+      }
+      
+      .heatmap-container {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch; /* 让子元素能够撑满容器宽度 */
+      }
+      
+      .heatmap-weekdays {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 4px;
+        margin-bottom: 4px;
+        width: fit-content;
+        
+        .heatmap-weekday {
+          width: 13px;
+          height: 13px;
+          font-size: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--b3-scroll-color);
+        }
+      }
+      
+      .heatmap-grid {
+        display: flex;
+        flex-direction: row;
+        gap: 1%;
+        width: 100%; /* 确保占满父容器宽度 */
+        height: 100%;
+        
+        .heatmap-weekdays {
+          display: flex;
+          flex-direction: column;
+          
+          .heatmap-weekday {
+            height: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+          }
+        }
+        
+        .heatmap-days-container {
+          display: flex;
+          flex-direction: column;
+          flex-grow: 1;
+          width: 100%; /* 确保占满可用宽度 */
+          height: 100%;
+        }
+        
+        .heatmap-week-row {
+          display: flex;
+          flex-direction: row;
+          gap: 1%; /* 使用百分比间隙，配合动态方块大小 */
+          margin-bottom: 4px; /* 添加行与行之间的间隙 */
+        }
+        
+        .heatmap-day {
+          width: calc(100% / 18); /* 每行18个方块，平均分配宽度 */
+          height: 13px; /* 固定高度为24px */
+          min-width: 8px;
+          min-height: 8px;
+          border-radius: 3px;
+          transition: all 0.2s ease;
+          
+          &.intensity-0 {
+            background-color: var(--b3-list-hover);
+          }
+          
+          &.intensity-1 {
+            background-color: rgba(252, 144, 121, 0.3);
+          }
+          
+          &.intensity-2 {
+            background-color: rgba(252, 144, 121, 0.5);
+          }
+          
+          &.intensity-3 {
+            background-color: rgba(252, 144, 121, 0.7);
+          }
+          
+          &.intensity-4 {
+            background-color: rgba(252, 144, 121, 1);
+          }
+        }
+      }
+      
+      .heatmap-months {
+        position: relative;
+        height: 20px;
+        margin-top: 4px;
+        width: 100%; /* 占满容器宽度 */
+        
+        .heatmap-month-label {
+          position: absolute;
+          font-size: 10px;
+          color: var(--b3-scroll-color);
+          white-space: nowrap;
+          transform: translateX(-50%);
+          top: 0;
+        }
+      }
+      
+      .heatmap-legend {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 10px;
+        color: var(--b3-scroll-color);
+        
+        .legend-colors {
+          display: flex;
+          gap: 2px;
+        }
+        
+        .legend-color {
+          width: 10px;
+          height: 10px;
+          border-radius: 2px;
+          
+          &.intensity-0 {
+            background-color: var(--b3-list-hover);
+          }
+          
+          &.intensity-1 {
+            background-color: rgba(252, 144, 121, 0.3);
+          }
+          
+          &.intensity-2 {
+            background-color: rgba(252, 144, 121, 0.5);
+          }
+          
+          &.intensity-3 {
+            background-color: rgba(252, 144, 121, 0.7);
+          }
+          
+          &.intensity-4 {
+            background-color: rgba(252, 144, 121, 1);
+          }
+        }
+      }
+    }
+    .habits-stats-list {
+    
+    .habits-stats-title {
+      font-size: 16px;
+      font-weight: bold;
+      margin: 10px 0;
+      color: var(--b3-theme-background);
+    }
+    
+    .habit-stat-item {
+      background: var(--b3-theme-background);
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: flex-start;
+      
+      .habit-emoji-large {
+        text-align: center;
+        font-size: 32px;
+        width: 50px;
+        height: 50px;
+        border-radius: 10px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      
+      .habit-stat-content {
+        flex: 1;
+        
+        .habit-stat-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 8px;
+          
+          .habit-emoji-large {
+            text-align: center;
+            font-size: 24px;
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 8px;
+          }
+          
+          .habit-name {
+            font-weight: bold;
+            color: var(--b3-theme-on-background);
+            margin-right: auto;
+            font-size: 16px;
+            flex: 1;
+          }
+          
+          .habit-created {
+            font-size: 10px;
+            color: var(--b3-theme-on-background);
+            white-space: nowrap;
+            background-color: var(--b3-list-hover);
+            padding: 4px 10px;
+            border-radius: 12px;
+          }
+          
+          .habit-completion-rate {
+            font-weight: bold;
+            color: #ffcb4c;
+            background: var(--b3-list-hover);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+          }
+        }
+        
+        .habit-stat-details {
+          display: flex;
+          justify-content: space-between;
+          
+          .stat-detail-item {
+            text-align: center;
+            flex: 1;
+            
+            .stat-label {
+              font-size: 10px;
+              color: var(--b3-scroll-color);
+              display: block;
+            }
+            
+            .stat-value {
+              font-weight: 600;
+              color: var(--b3-theme-on-background);
+              display: block;
+              font-size: 18px;
+            }
+            .stat-value span{
+              font-size: 12px;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  .stats-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+}
+.stats-panel{
+  background-color: var(--Sv-theme-surface);
+}
+
+.habit-list-enter-active, .habit-list-leave-active {
+  transition: all 0.3s ease;
+}
+.habit-list-enter-from, .habit-list-leave-to {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+.habit-card {
+  transition: all 0.3s ease;
+  transition-property: transform, opacity, height;
+  transition-duration: 0.3s;
+  transition-timing-function: ease;
+  transition-delay: 0s;
+  will-change: transform;
+}
+.today-calendar {
+  margin-bottom: 20px;
+  padding: 16px;
+  background-color: var(--b3-theme-surface);
+  border: 1px solid var(--b3-border-color);
+  border-radius: var(--b3-border-radius);
+  box-shadow: var(--b3-point-shadow);
+  
+  .calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--b3-border-color);
+    
+    h3 {
+      margin: 0;
+      font-size: 16px;
+      color: var(--b3-theme-on-background);
+    }
+    
+    .calendar-actions {
+      display: flex;
+      gap: 8px;
+      
+      .sy-button {
+        min-width: 40px;
+      }
+    }
+  }
+  
+  .calendar-day {
+    .day-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding: 8px 0;
+      
+      .day-date {
+        font-size: 18px;
+        font-weight: bold;
+        color: var(--b3-theme-on-background);
+      }
+      
+      .day-weather {
+        font-size: 16px;
+      }
+    }
+    
+    .day-habits {
+      .habit-item {
+        display: flex;
+        align-items: center;
+        padding: 8px;
+        margin-bottom: 8px;
+        background-color: var(--b3-list-background);
+        border-radius: 4px;
+        
+        &:last-child {
+          margin-bottom: 0;
+        }
+        
+        .habit-emoji {
+          margin-right: 8px;
+          font-size: 18px;
+        }
+        
+        .habit-name {
+          flex: 1;
+          color: var(--b3-theme-on-background);
+        }
+        
+        .sy-checkbox {
+          margin-left: auto;
+        }
+      }
+      
+      .no-habits {
+        text-align: center;
+        padding: 20px;
+        color: var(--b3-font-color3);
+        font-style: italic;
+      }
+    }
+  }
+}
+
+/* 内联番茄钟样式 */
+.pomodoro-inline-display {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-around;
+  padding: 8px;
+  background-color: var(--b3-list-hover);
+  border-radius: 8px;
+  margin: 0 8px 8px;
+}
+
+.pomodoro-timer-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.timer-container {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.pomodoro-timer-inline .timer {
+  position: absolute;
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  background-color: var(--b3-theme-background);
+  z-index: 1;
+}
+
+.pomodoro-timer-inline .progress-ring {
+  width: 100px;
+  height: 100px;
+  transform: rotate(-90deg);
+  position: relative;
+  z-index: 0;
+  
+  circle {
+    fill: none;
+    stroke-width: 8;
+  }
+  
+  .progress-ring__bg {
+    stroke: var(--b3-list-hover);
+  }
+  
+  .progress-ring__progress {
+    stroke: #f98f7a;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s ease-in-out;
+    transform-origin: 50% 50%;
+    
+    &.pomodoro-running {
+      stroke: #f98f7a;
+    }
+    
+    &.pomodoro-short-break {
+      stroke: #3498db;
+    }
+    
+    &.pomodoro-long-break {
+      stroke: #2ecc71;
+    }
+  }
+}
+
+.pomodoro-controls-inline {
+  display: flex;
+  gap: 12px;
+}
+
+.pomodoro-controls-inline .stop-btn {
+  background-color: #e74c3c;
+  color: var(--b3-theme-background);
+  border: none;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pomodoro-controls-inline .pause-btn {
+  background-color: #f39c12;
+  color: var(--b3-theme-background);
+  border: none;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+
+.pomodoro-button {
+  margin-right: 8px;
+}
+
+.pomodoro-controls-inline .resume-btn {
+  background-color: #27ae60;
+  color: var(--b3-theme-background);
+  border: none;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mood-calendar-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  padding: 10px;
+  flex-direction: column;
+  --s: 20px; /* control the size*/
+  --c1: #2a936a;
+  --c2: #32a176;
+  --_g: radial-gradient(calc(var(--s)/2),var(--c1) 97%,#0000);
+  background:
+    var(--_g),var(--_g) calc(2*var(--s)) calc(2*var(--s)),
+    repeating-conic-gradient(from 45deg,#0000 0 25%,var(--c2) 0 50%) calc(-.707*var(--s)) calc(-.707*var(--s)),
+    repeating-linear-gradient(135deg,var(--c1) calc(var(--s)/-2) calc(var(--s)/2),var(--c2) 0 calc(2.328*var(--s)));
+  background-size: calc(4*var(--s)) calc(4*var(--s));
+  
+  /* 隐藏滚动条但保持滚动功能 */
+  -ms-overflow-style: none; /* IE 和 Edge */
+  scrollbar-width: none; /* Firefox */
+  
+  &::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+  
+  .stats-header {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 10px;
+    
+    .stats-emoji {
+      font-size: 86px;
+      align-self: center;
+      height: 150px;
+    }
+    
+    .stats-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: var(--b3-theme-background);
+    }
+    
+    .stats-header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      
+      .stats-title {
+        margin: 0;
+        color: var(--b3-theme-background);
+      }
+      
+      .icon-button {
+        width: 28px;
+        height: 28px;
+        border: none;
+        background: none;
+        cursor: pointer;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        
+        .icon {
+          width: 16px;
+          height: 16px;
+          color: var(--b3-theme-background);
+          fill: var(--b3-theme-background);
+        }
+        
+        &:hover {
+          background-color: var(--b3-list-hover);
+          border-radius: 4px;
+        }
+      }
+    }
+  }
+  
+  .stats-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    
+    .calendar-container {
+      background-color: var(--b3-theme-background);
+      padding: 16px 16px 8px 16px;
+      border-radius: 24px;
+      box-shadow: rgba(0, 0, 0, 0.06) 0px 1px 5px 0px;
+      
+      .calendar-controls {
+        margin-bottom: 16px;
+        padding: 8px;
+        background: var(--b3-list-background);
+        border-radius: 4px;
+        
+        .calendar-navigation {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          width: 100%;
+          
+          .nav-btn {
+            background: none;
+            border: none;
+            padding: 4px;
+            cursor: pointer;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+            
+            &:hover {
+              background-color: var(--b3-list-hover);
+            }
+            
+            &:active {
+              background-color: var(--b3-list-hover);
+            }
+          }
+          
+          .current-period {
+            text-align: center;
+            font-size: 14px;
+            flex: 1;
+            font-weight: 600;
+          }
+        }
+      }
+    }
+    
+    .calendar-view {
+      flex: 1;
+      margin-bottom: 20px;
+      
+      .month-view {
+        .weekdays-header {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          text-align: center;
+          font-weight: bold;
+          margin-bottom: 8px;
+          color: var(--b3-theme-on-surface);
+          gap: 8px;
+          font-size: 12px;
+        }
+        
+        .month-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 14px;
+          
+          .day {
+            position: relative;
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 30%;
+            background: var(--b3-list-background);
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+            
+            &.not-current-month:not(.completed) {
+              color: var(--b3-theme-on-background);
+            }
+            
+            &.not-current-month {
+              opacity: 0.3;
+            }
+            
+            .day-number {
+              font-size: 14px;
+            }
+            
+            .mood-emoji-large {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              width: 70%;
+              height: 70%;
+              
+              svg {
+                width: 100%;
+                height: 100%;
+              }
+            }
+          }
+        }
+      }
+    }
+    .mood-list-container {
+      margin-top: 20px;
+      background: var(--b3-list-background);
+      border-radius: 8px;
+      
+      .mood-list-title {
+        margin: 0 0 12px 0;
+        font-size: 14px;
+        font-weight: bold;
+        color: var(--b3-theme-on-surface);
+      }
+      
+      .mood-list {
+        display: flex;
+        flex-direction: column;
+      }
+      
+      .mood-list-item {
+        display: flex;
+        align-items: flex-start;
+        padding: 16px 0;
+        background: var(--b3-theme-background);
+        border-radius: 6px;
+        position: relative;
+        
+        &::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 7px;
+          height: 100%;
+          width: 2px;
+          background: radial-gradient(circle at center, var(--b3-theme-on-background) 1px, transparent 1px);
+          background-size: 2px 5px;
+          background-repeat: repeat-y;
+          opacity: 0.3;
+        }
+        
+        .mood-list-date {
+          font-size: 14px;
+          font-weight: bold;
+          color: var(--b3-theme-on-background);
+          min-width: 30px;
+          position: relative;
+          z-index: 1;
+          background: var(--b3-theme-background);
+        }
+        
+        .mood-list-emoji {
+          width: 20px;
+          height: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          
+          svg {
+            width: 100%;
+            height: 100%;
+          }
+        }
+        
+        .mood-list-content {
+          flex: 1;
+          display: flex;
+          flex-direction: row;
+          gap: 8px;
+          background-color: var(--b3-list-hover);
+          border-radius: 12px;
+          margin-top: -8px;
+          padding: 8px;
+        }
+        
+        .mood-list-note {
+          flex: 1;
+          font-size: 13px;
+          color: var(--b3-theme-on-surface);
+          word-break: break-word;
+        }
+      }
+    }
+    
+    .mood-stats-container {
+      margin-bottom: 20px;
+      background: var(--b3-theme-background);
+      border-radius: 16px;
+      padding: 16px 0;
+      
+      .mood-stats-chart {
+        display: flex;
+        justify-content: space-around;
+        align-items: flex-end;
+        height: 150px;
+        padding: 10px 0;
+        
+        .mood-stat-item {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          flex: 1;
+          
+          .mood-stat-emoji {
+            width: 24px;
+            height: 24px;
+            margin-bottom: 4px;
+            
+            svg {
+              width: 100%;
+              height: 100%;
+            }
+          }
+          
+          .mood-stat-count {
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--b3-theme-on-surface);
+            margin-bottom: 4px;
+          }
+          
+          .mood-stat-bar-container {
+            width: 30px;
+            height: 100px;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 4px;
+            position: relative;
+            
+            .mood-stat-bar {
+              width: 100%;
+              border-radius: 10px;
+              position: absolute;
+              bottom: 0;
+              transition: height 0.5s ease;
+            }
+            
+            .mood-stat-bar-excited {
+              background-color: #fdd07d;
+            }
+            
+            .mood-stat-bar-happy {
+              background-color: #8aae97;
+            }
+            
+            .mood-stat-bar-calm {
+              background-color: #89b0bc;
+            }
+            
+            .mood-stat-bar-sad {
+              background-color: #f192c9;
+            }
+            
+            .mood-stat-bar-angry {
+              background-color: #fc8f7b;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+
+</style>

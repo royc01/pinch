@@ -1,0 +1,25 @@
+{
+  "addTopBarIcon": "HabitTracker",
+  "habitTracker": {
+    "title": "Habit Tracker",
+    "addHabit": "Add Habit",
+    "habitName": "Habit Name",
+    "habitNamePlaceholder": "e.g., Morning Run, Reading, Drinking Water",
+    "frequency": "Target Frequency",
+    "reminderTime": "Reminder Time",
+    "daily": "Daily",
+    "weekly": "Weekly",
+    "custom": "Custom",
+    "checkIn": "Check In",
+    "checkedIn": "Checked In",
+    "delete": "Delete",
+    "currentStreak": "Current Streak",
+    "totalCompletions": "Total Completions",
+    "completionRate": "Completion Rate",
+    "days": "days",
+    "times": "times",
+    "noHabits": "No habits yet, click the button above to add a new habit",
+    "clickToCheckIn": "Click to check in",
+    "confirmDelete": "Are you sure you want to delete this habit?"
+  }
+}

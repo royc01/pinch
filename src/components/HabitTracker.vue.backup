@@ -1,0 +1,2931 @@
+<template>
+  <div class="Pinch-habit-container">
+    <!-- 番茄钟独立页面 -->
+    <div v-if="activePomodoroHabit" class="pomodoro-page">
+      <div class="pomodoro-display">
+        <h2>{{ activePomodoroHabit.name }}</h2>
+        <div class="timer" :class="pomodoroStateClass(activePomodoroHabit.pomodoroState)">{{ formatPomodoroTime(activePomodoroHabit.pomodoroRemaining || 25 * 60) }}</div>
+        <div class="pomodoro-controls">
+          <button @click="stopCurrentPomodoro" class="stop-btn">停止</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 习惯列表页面 (当没有激活的番茄钟时显示) -->
+    <div v-else class="habit-list-container">
+      <div class="Pinch-habit-header">
+        <div class="header-content">
+          <div class="date-display">{{ currentDateString.split('/')[0] }}<span>/</span>{{ currentDateString.split('/')[1] }}<span>/</span>{{ currentDateString.split('/')[2] }}</div>
+          <SyButton @click="showAddHabitModal = true" id="add-habit-btn">
+            <svg t="1767249216319" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="1606" width="16" height="16">
+              <path d="M512.67794 65.291029C265.701966 65.004503 66.200236 263.518742 65.293587 510.472204c-0.916882 247.286036 198.739367 447.915449 446.048939 448.236767 247.38632 0.322341 447.196065-199.272509 447.366957-446.883957C958.882422 265.25734 759.426741 65.579601 512.67794 65.291029zM772.621251 544.93204c-0.64059 26.420743-15.491833 41.562605-41.989323 41.606607-47.989991 0.080841-95.982028 0.124843-143.972019 0.151449 0.01228 45.808302 0.017396 91.615581-0.026606 137.418766-0.033769 35.107589-13.380752 48.577369-48.030923 48.683792-19.839861 0.061398-39.694047 0.370437-59.528791-0.11154-26.414603-0.642636-41.552371-15.495926-41.596374-41.999556-0.079818-47.998177-0.12382-95.996354-0.150426-143.993508-47.941895-0.027629-95.882767-0.072655-143.826709-0.154519-26.546609-0.044002-41.48381-15.205307-42.060955-41.548278-0.478907-21.701255-0.385786-43.417859-0.038886-65.119113 0.438998-27.465538 15.230889-42.333154 42.967604-42.441625 47.653323-0.176009 95.307669-0.155543 142.959969-0.122797 0.027629-47.950082 0.072655-95.89914 0.154519-143.851269 0.041956-26.552749 15.20019-41.49302 41.537022-42.070164 21.694091-0.477884 43.408649-0.385786 65.103764-0.037862 27.460422 0.438998 42.323944 15.233959 42.432415 42.977837 0.176009 47.667649 0.155543 95.335299 0.122797 143.001925 45.796022-0.01228 91.591021-0.017396 137.38295 0.026606 35.100426 0.033769 48.565089 13.382798 48.671513 48.039109C772.796236 505.231853 773.105275 525.093203 772.621251 544.93204z" p-id="1607"></path>
+            </svg>
+          </SyButton>
+        </div>
+      </div>
+
+      <div class="habit-list">
+        <div v-if="habits.length === 0" class="empty-state">
+          {{ t('habitTracker.noHabits') }}
+        </div>
+        <div v-else class="habits-grid">
+          <div v-for="habit in sortedHabits" :key="habit.id" class="habit-card">
+            <div class="habit-week-view">
+              <div class="week-habit-item">
+                <div class="emoji-section" @click="showHabitStats(habit)">
+                  <span class="habit-emoji">{{ habit.emoji || '📝' }}</span>
+                </div>
+                <div class="habit-info" @click="showHabitStats(habit)">
+                  <div class="habit-title">{{ habit.usePomodoro ? '🍅 ' : '' }}{{ habit.name }}</div>
+                  <div class="week-checkboxes">
+                    <div 
+                      v-for="(day, index) in getCalendarViewData(habit)" 
+                      :key="index" 
+                      :class="['day-checkbox', { completed: day.completed, today: day.isToday, past: day.isPast, future: day.isFuture, 'completed-by-weekly-rule': day.isCompletedByWeeklyRule }]"
+                      :title="day.date"
+                      @click="toggleDayCompletion(habit, day.date)"
+                    >
+                      <svg
+                        class="day-checkbox-icon"
+                        :class="{ completed: day.completed }"
+                        :viewBox="day.completed ? '0 0 1024 1024' : '0 0 1024 1024'"
+                        :width="16"
+                        :height="16"
+                        xmlns="http://www.w3.org/2000/svg"
+                        :fill="day.completed ? `var(--b3-theme-on-background)` : `var(--b3-theme-on-background)`">
+                        <path 
+                          v-if="!day.completed"
+                          d="M950.848 237.728l0 548.576q0 68-48.288 116.288t-116.288 48.288l-548.576 0q-68 0-116.288-48.288t-48.288-116.288l0-548.576q0-68 48.288-116.288t116.288-48.288l548.576 0q68 0 116.288 48.288t48.288 116.288z"
+                        ></path>
+                        <path 
+                          v-else
+                          d="M796.16 133.12h-568.32C175.616 133.12 133.12 175.616 133.12 227.84v568.32c0 52.224 42.496 94.72 94.72 94.72h568.32c52.224 0 94.72-42.496 94.72-94.72v-568.32c0-52.224-42.496-94.72-94.72-94.72z m-75.776 306.176l-238.592 238.592c-15.872 15.872-42.496 15.872-59.904 0l-118.272-118.272c-15.872-15.872-15.872-42.496 0-59.904 15.872-15.872 42.496-15.872 59.904 0l90.112 90.112 208.384-208.384c15.872-15.872 42.496-15.872 59.904 0 14.336 15.36 14.336 41.984-1.536 57.856z"
+                        ></path>
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <div class="habit-actions">
+                  <SyButton @click="toggleHabit(habit.id)" :type="habit.completedToday || (habit.frequency && habit.frequency.startsWith('weekly') && getWeeklyCompletionStatus(habit)) ? 'success' : 'default'" size="small" class="check-in-btn">
+                    <svg v-if="habit.usePomodoro && habit.pomodoroRemaining !== undefined" :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
+                    </svg>
+                    <svg v-else-if="!habit.usePomodoro && (habit.completedToday || (habit.timesPerDay && habit.timesPerDay > 1 && getTodayCompletionCount(habit) === 0) || !habit.timesPerDay || habit.timesPerDay <= 1)" :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
+                    </svg>
+                    <span class="check-in-count" v-else-if="habit.timesPerDay && habit.timesPerDay > 1 && getTodayCompletionCount(habit) > 0 && getTodayCompletionCount(habit) < habit.timesPerDay">
+                      {{ getTodayCompletionCount(habit) }}
+                    </span>
+                    <span class="pomodoro-timer" v-else-if="habit.usePomodoro && habit.pomodoroRemaining !== undefined">
+                      {{ formatPomodoroTime(habit.pomodoroRemaining) }}
+                    </span>
+                    <svg v-else :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
+                    </svg>
+                  </SyButton>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 习惯统计面板 -->
+    <div v-if="selectedHabit" class="stats-panel">
+      <div class="stats-header">
+        <div class="stats-emoji">{{ selectedHabit.emoji || '📝' }}</div>
+        <div class="stats-title">{{ selectedHabit.name }}</div>
+        <div class="stats-header-buttons">
+          <button @click="openEditHabitModal" class="icon-button">
+            <svg class="icon" viewBox="0 0 200 200" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M0,190c0-5.5,4.5-10,10-10h0h180c5.5,0,10,4.5,10,10c0,5.5-4.5,10-10,10c0,0,0,0,0,0H10C4.5,200,0,195.5,0,190 L0,190L0,190z M133.5,0c2.7,0,5.2,1.1,7.1,2.9l36.5,36.5c3.9,3.9,3.9,10.2,0,14.1L73.7,157.1c-1.9,1.9-4.4,2.9-7.1,2.9H30 c-5.5,0-10-4.5-10-10l0,0v-36.4c0-2.7,1-5.2,2.9-7.1L126.4,2.9C128.3,1.1,130.8,0,133.5,0z" fill="var(--b3-theme-on-background)"></path>
+            </svg>
+          </button>
+          <button @click="closeHabitStats" class="icon-button">
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`" ></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="stats-content">
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value">{{ calculateCurrentMonthStreak(selectedHabit) }}</div>
+            <div class="stat-label">{{ t('habitTracker.currentStreak') }}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">{{ calculateTotalMonthCompletions(selectedHabit) }}</div>
+            <div class="stat-label">{{ t('habitTracker.totalCompletions') }}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">{{ calculateCompletionRate(selectedHabit) }}%</div>
+            <div class="stat-label">{{ t('habitTracker.completionRate') }}</div>
+          </div>
+        </div>
+        
+        <!-- 日历控件 -->
+        <div class="calendar-controls">
+          <div class="calendar-navigation">
+            <button @click="changeStatsCalendarPeriod(selectedHabit, -1)" class="nav-btn">
+              <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                <path d="M747.245 81.064c-28.497-29.315-74.739-29.315-103.307 0l-367.236 378.011c-28.483 29.367-28.483 76.982 0 106.291l367.236 377.997c28.562 29.367 74.806 29.367 103.307 0 28.546-29.325 28.546-76.929 0-106.304l-315.6-324.841 315.599-324.803c28.545-29.367 28.544-76.973 0-106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+              </svg>
+            </button>
+            <span class="current-period">{{ getCurrentPeriodText(selectedHabit) }}</span>
+            <button @click="changeStatsCalendarPeriod(selectedHabit, 1)" class="nav-btn">
+              <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                <path d="M276.755 942.936c28.497 29.315 74.739 29.315 103.307 0l367.236-378.011c28.483-29.367 28.483-76.982 0-106.291l-367.236-377.997c-28.562-29.367-74.806-29.367-103.307 0-28.546 29.325-28.546 76.929 0 106.304l315.6 324.841-315.599 324.803c-28.545 29.367-28.544 76.973 0 106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <!-- 月视图 -->
+        <div class="calendar-view">
+          <div class="month-view">
+            <div class="weekdays-header">
+              <div v-for="(day, index) in weekdaysForCalendar" :key="index" class="weekday">{{ day }}</div>
+            </div>
+            <div class="month-grid">
+              <div 
+                v-for="(day, index) in getStatsMonthViewData(selectedHabit)" 
+                :key="index" 
+                :class="['day', { completed: day.completed, today: day.date === new Date().toISOString().split('T')[0], 'not-current-month': !day.isCurrentMonth }]"
+                @click="toggleDayCompletion(selectedHabit, day.date)"
+              >
+                <span class="day-number">{{ day.date.split('-')[2] }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="stats-actions">
+          <SyButton @click="deleteHabit(selectedHabit.id)" class="confirm-button" icon="iconTrashcan">
+            {{ t('habitTracker.delete') }}
+          </SyButton>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 编辑习惯模态框 -->
+    <div v-show="showEditHabitModal" class="modal-overlay" @click.self="closeEditHabitModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>编辑习惯</h3>
+          <button @click="closeEditHabitModal" class="icon-button">
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body" v-if="editedHabit">
+          <div class="form-group">
+            <label>习惯名称</label>
+            <SyInput v-model="editedHabit.name" placeholder="输入习惯名称" />
+          </div>
+          <div class="form-group">
+            <label>选择图标</label>
+            <div class="emoji-selector">
+              <SyInput v-model="editedHabit.emoji" placeholder="选择或输入emoji" />
+              <SyButton 
+                @click="showEmojiPicker = !showEmojiPicker" 
+                type="default" 
+                size="small" 
+                class="emoji-picker-btn">
+                {{ editedHabit.emoji || '📝' }}
+              </SyButton>
+              <div class="emoji-picker" v-if="showEmojiPicker">
+                <div class="emoji-categories">
+                  <div 
+                    v-for="(emojis, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-category">
+                    <h4>{{ category }}</h4>
+                    <div class="emoji-options-grid">
+                      <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmojiForEdit(emoji)">
+                        {{ emoji }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>{{ t('habitTracker.frequency') }}</label>
+            <SySelect v-model="editedHabit.frequency" :options="frequencyOptions" />
+          </div>
+          <div class="form-group">
+            <label>{{ t('habitTracker.timesPerDay') }}</label>
+            <SySelect :modelValue="editedHabit.timesPerDay?.toString()" @update:modelValue="onTimesPerDayChange" :options="timesPerDayOptions" />
+          </div>
+          
+          <div class="form-group">
+            <label>
+              <input 
+                type="checkbox" 
+                v-model="editedHabit.usePomodoro" 
+                class="pomodoro-checkbox"
+              >
+              启用番茄钟功能
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <SyButton @click="saveEditedHabit" class="confirm-button">保存</SyButton>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加习惯模态框 -->
+    <div v-show="showAddHabitModal" class="modal-overlay" @click.self="showAddHabitModal = false">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>{{ t('habitTracker.addHabit') }}</h3>
+          <button @click="showAddHabitModal = false" class="icon-button">
+                      <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                        <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`" p-id="23336"></path>
+                      </svg>
+                    </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>{{ t('habitTracker.habitName') }}</label>
+            <SyInput v-model="newHabit.name" :placeholder="t('habitTracker.habitNamePlaceholder')" />
+          </div>
+          <div class="form-group">
+            <label>选择图标</label>
+            <div class="emoji-selector">
+              <SyInput v-model="newHabit.emoji" placeholder="选择或输入emoji" />
+              <SyButton 
+                @click="showEmojiPicker = !showEmojiPicker" 
+                type="default" 
+                size="small" 
+                class="emoji-picker-btn">
+                📝
+              </SyButton>
+              <div class="emoji-picker" v-if="showEmojiPicker">
+                <div class="emoji-categories">
+                  <div 
+                    v-for="(emojis, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-category">
+
+                    <h4>{{ category }}</h4>
+                    <div class="emoji-options-grid">
+                      <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmoji(emoji)">
+                        {{ emoji }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>{{ t('habitTracker.frequency') }}</label>
+            <SySelect v-model="newHabit.frequency" :options="frequencyOptions" />
+          </div>
+          <div class="form-group">
+            <label>{{ t('habitTracker.timesPerDay') }}</label>
+            <SySelect v-model="newHabit.timesPerDay" :options="timesPerDayOptions" />
+          </div>
+          
+          <div class="form-group">
+            <label>
+              <input 
+                type="checkbox" 
+                v-model="newHabit.usePomodoro" 
+                class="pomodoro-checkbox"
+              >
+              启用番茄钟功能
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <SyButton @click="addHabit" class="confirm-button">{{ t('OK') }}</SyButton>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.emoji-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.emoji-picker-btn {
+  margin-left: 8px;
+  border: none;
+  border-radius: 6px;
+  height: 28px;
+  width: 30px;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.pomodoro-checkbox {
+  margin-right: 8px;
+}
+
+.pomodoro-timer {
+  font-family: monospace;
+  font-weight: bold;
+  color: #e74c3c;
+}
+
+
+
+.pomodoro-label {
+  font-size: 12px;
+  color: #3498db;
+}
+
+.date-display {
+  font-weight: bold;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.date-display span {
+  color: oklch(68.98% 0.161 30.76 / 0.3);
+}
+
+.emoji-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1000;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  overflow-y: auto;
+  width: 480px;
+}
+
+.emoji-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.emoji-category {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.emoji-category .emoji-option {
+  display: inline-block;
+  font-size: 20px;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  margin: 2px;
+}
+
+.emoji-category .emoji-options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+  gap: 4px;
+}
+
+.emoji-category h4 {
+  margin: 0 0 4px 0;
+  font-size: 12px;
+  color: #666;
+  padding: 0 4px;
+}
+
+.emoji-option {
+  display: inline-block;
+  font-size: 20px;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.emoji-option:hover {
+  background-color: #f0f0f0;
+}
+
+.icon-button {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--b3-theme-on-background);
+  fill: var(--b3-theme-on-background);
+}
+
+.icon-button:hover {
+  background-color: var(--b3-list-hover);
+  border-radius: 4px;
+}
+
+.day-checkbox {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.day-checkbox-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.day-checkbox.past:not(.completed) .day-checkbox-icon,
+.day-checkbox.today:not(.completed) .day-checkbox-icon,
+.day-checkbox.past.completed-by-weekly-rule .day-checkbox-icon,
+.day-checkbox.future.completed-by-weekly-rule .day-checkbox-icon{
+  color: oklch(68.98% 0.161 30.76 / 0.3);
+}
+
+.day-checkbox.completed .day-checkbox-icon {
+  color: oklch(68.98% 0.161 30.76 );
+}
+
+.day-checkbox.future .day-checkbox-icon {
+  color: var(--b3-list-hover) 
+}
+
+.week-habit-item {
+  display: flex;
+  align-items: center;
+  padding: 6px;
+}
+
+.confirm-button {
+  background-color: #ee6f5b;
+  color: var(--b3-theme-background);
+  font-weight: bold;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+}
+
+.confirm-button:hover {
+  background-color: #e55a47;
+}
+
+.confirm-button:active {
+  background-color: #dc4a38;
+}
+
+.emoji-section {
+  text-align: center;
+  font-size: 32px;
+  width: 50px;
+  height: 50px;
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: var(--b3-list-hover);
+}
+
+.habit-info {
+  flex: 1;
+  margin: 0 6px;
+}
+
+.habit-title {
+  font-weight: bold;
+  margin-bottom: 8px;
+  margin-left: 2px;
+}
+
+.week-checkboxes {
+  display: flex;
+}
+
+.day-checkbox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  padding: 1px;
+  transition: background-color 0.2s;
+}
+
+.day-checkbox-input {
+  margin: 0 0 4px 0;
+}
+
+.day-label {
+  font-size: 12px;
+}
+
+.check-in-btn {
+  background-color: var(--b3-list-hover);
+  border-radius: 8px;
+  border: none;
+  padding: 0;
+  min-width: auto;
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.check-in-btn .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--b3-theme-background);
+  transition: color 0.3s, fill 0.3s;
+}
+
+.check-in-btn[type="success"] {
+  background-color: oklch(68.98% 0.161 30.76);
+}
+
+.check-in-count {
+  font-weight: bold;
+  font-size: 16px;
+}
+
+</style>
+
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted, computed } from 'vue';
+import SyButton from '@/components/SiyuanTheme/SyButton.vue';
+import SyInput from '@/components/SiyuanTheme/SyInput.vue';
+import SySelect from '@/components/SiyuanTheme/SySelect.vue';
+import { getHabits, saveHabits, Habit, getEmojiConf } from '@/api';
+
+// 当天日历相关
+const currentDayInfo = ref({
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  date: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`,
+  dayOfWeek: new Date().getDay(),
+  dayOfMonth: new Date().getDate(),
+  month: new Date().getMonth() + 1,
+  year: new Date().getFullYear(),
+});
+
+// 辅助函数：格式化日期为 YYYY-MM-DD 格式
+const formatDate = (date: Date): string => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
+// 获取今天日期的函数
+const getToday = () => {
+  const today = new Date();
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  return formatDate(today);
+};
+
+// 检查是否为今天
+const isToday = (dateString: string) => {
+  return dateString === getToday();
+};
+
+// const plugin = usePlugin(); // Removed unused plugin variable
+
+// 表情选择相关
+const showEmojiPicker = ref(false);
+
+// 从思源笔记获取内置emoji配置
+const emojiCategories = ref<Record<string, string[]>>({});
+const commonEmojis = ref<string[]>([]);
+
+// 将十六进制代码转换为emoji字符
+const convertHexToEmoji = (hexCode: string): string => {
+  try {
+    // 如果已经是emoji字符，直接返回
+    if (/[^\u0000-\u00ff]/.test(hexCode)) {
+      return hexCode;
+    }
+    
+    // 检查是否包含文件扩展名，如果是则直接返回原值
+    if (typeof hexCode === 'string' && (hexCode.includes('.') || hexCode.includes('/'))) {
+      // 这是文件路径，不是emoji代码，直接返回
+      return hexCode;
+    }
+    
+    // 检查是否是十六进制代码
+    if (typeof hexCode === 'string') {
+      // 检查是否为有效的emoji十六进制代码格式
+      // 通常emoji代码由十六进制数字和可能的连字符组成，如'1f600'或'1f1f7-1f1f8'
+      const hexPattern = /^[0-9a-fA-F]+(-[0-9a-fA-F]+)*$/;
+      if (hexPattern.test(hexCode)) {
+        // 移除可能的前缀
+        let cleanHex = hexCode.replace(/^U\+|0x|\\u/g, '').replace(/-/g, ' ');
+        
+        // 将十六进制代码转换为字符
+        const codePoints = cleanHex.split(' ').map(h => parseInt(h, 16));
+        
+        // 检查codePoints数组是否包含有效的数值
+        if (codePoints.some(isNaN)) {
+          // 如果包含NaN值，返回原值
+          return hexCode;
+        }
+        
+        return String.fromCodePoint(...codePoints);
+      }
+    }
+    
+    // 如果不是有效的十六进制代码格式，直接返回原值
+    return hexCode;
+  } catch (error) {
+    console.warn('无法转换十六进制代码到emoji:', hexCode, error);
+    return hexCode;
+  }
+};
+
+// 获取思源笔记内置emoji
+const loadSiyuanEmojis = async () => {
+  try {
+    const emojiConf: any = await getEmojiConf();
+    if (emojiConf) {
+      // 按类别组织emoji
+      const categories: Record<string, string[]> = {};
+      
+      // 检查emojiConf是否为数组（思源API返回的是对象数组）
+      if (Array.isArray(emojiConf)) {
+        // 遍历数组中的每个对象
+        for (const emojiCategory of emojiConf) {
+          if (emojiCategory && typeof emojiCategory === 'object') {
+            // 检查是否有items属性（这是思源API实际返回的格式）
+            if (emojiCategory.items && Array.isArray(emojiCategory.items)) {
+              // 遍历items数组，尝试获取emoji字符
+              const emojis = [];
+              for (const item of emojiCategory.items) {
+                // 思源笔记API的emoji配置通常包含多个属性，其中可能有unicode、ch、emoji等
+                if (item && typeof item === 'object') {
+                  // 优先尝试获取emoji字符的各种可能属性
+                  if (item.ch) {
+                    emojis.push(item.ch);
+                  } else if (item.unicode) {
+                    // 如果是十六进制代码，转换为emoji字符
+                    emojis.push(convertHexToEmoji(item.unicode));
+                  } else if (item.emoji) {
+                    emojis.push(item.emoji);
+                  } else if (item.text) {
+                    emojis.push(item.text);
+                  } else {
+                    // 作为最后的尝试，遍历对象的值，寻找可能的emoji字符串
+                    const values = Object.values(item);
+                    for (const val of values) {
+                      if (typeof val === 'string' && val.length <= 5) { // emoji通常很短
+                        // 检查是否为emoji字符，使用更通用的正则表达式
+                        const emojiRegex = /(?:[\u2700-\u27bf]|(?:\ud83c[\udde6-\uddff]){2}|\ud83c[\udde6-\uddff]|\ud83c[\udff0-\udfff]|\ud83d[\udc00-\ude4f]|\ud83d[\ude80-\udeff]|\ud83e[\udd10-\uddff])|[^ -ÿ]/u;
+                        if (emojiRegex.test(val)) {
+                          emojis.push(val);
+                          break; // 找到一个就跳出
+                        }
+                      }
+                    }
+                  }
+                } else if (typeof item === 'string') {
+                  // 如果项目本身就是字符串，则直接使用
+                  emojis.push(item);
+                }
+              }
+              // 使用title作为分类名称，如果没有title则使用id
+              const categoryName = emojiCategory.title_zh_cn || emojiCategory.title || emojiCategory.id;
+              // 如果分类名称是'自定义'或'Custom'，则跳过这个分类
+              if (categoryName && categoryName !== '自定义' && categoryName !== 'Custom') {
+                categories[categoryName] = emojis;
+              }
+            }
+          }
+        }
+      } else {
+        // 如果不是数组，按原来的逻辑处理
+        for (const category in emojiConf) {
+          if (Array.isArray(emojiConf[category])) {
+            // 根据思源API的返回格式，获取每个emoji的字符
+            const emojis = emojiConf[category].map((item: any) => item.ch);
+            categories[category] = emojis;
+          } else {
+            // 尝试从items属性获取emoji
+            
+            if (emojiConf[category] && typeof emojiConf[category] === 'object') {
+              // 检查是否有items属性（这是思源API实际返回的格式）
+              if (emojiConf[category].items && Array.isArray(emojiConf[category].items)) {
+                // 遍历items数组，尝试获取emoji字符
+                const emojis = [];
+                for (const item of emojiConf[category].items) {
+                  // 思源笔记API的emoji配置通常包含多个属性，其中可能有unicode、ch、emoji等
+                  if (item && typeof item === 'object') {
+                    // 优先尝试获取emoji字符的各种可能属性
+                    if (item.ch) {
+                      emojis.push(item.ch);
+                    } else if (item.unicode) {
+                      // 如果是十六进制代码，转换为emoji字符
+                      emojis.push(convertHexToEmoji(item.unicode));
+                    } else if (item.emoji) {
+                      emojis.push(item.emoji);
+                    } else if (item.text) {
+                      emojis.push(item.text);
+                    } else {
+                      // 作为最后的尝试，遍历对象的值，寻找可能的emoji字符串
+                      const values = Object.values(item);
+                      for (const val of values) {
+                        if (typeof val === 'string' && val.length <= 5) { // emoji通常很短
+                          // 检查是否为emoji字符，使用更通用的正则表达式
+                          const emojiRegex = /(?:[\u2700-\u27bf]|(?:\ud83c[\udde6-\uddff]){2}|\ud83c[\udde6-\uddff]|\ud83c[\udff0-\udfff]|\ud83d[\udc00-\ude4f]|\ud83d[\ude80-\udeff]|\ud83e[\udd10-\uddff])|[^ -ÿ]/u;
+                          if (emojiRegex.test(val)) {
+                            emojis.push(val);
+                            break; // 找到一个就跳出
+                          }
+                        }
+                      }
+                    }
+                  } else if (typeof item === 'string') {
+                    // 如果项目本身就是字符串，则直接使用
+                    emojis.push(item);
+                  }
+                }
+                // 使用title作为分类名称，如果没有title则使用id
+                const categoryName = emojiConf[category].title_zh_cn || emojiConf[category].title || emojiConf[category].id || category;
+                // 如果分类名称是'自定义'或'Custom'，则跳过这个分类
+                if (categoryName !== '自定义' && categoryName !== 'Custom') {
+                  categories[categoryName] = emojis;
+                }
+              } else if (emojiConf[category].ch) {
+                // 如果直接有ch属性
+                categories[category] = [emojiConf[category].ch];
+              } else {
+                // 如果没有items属性，尝试获取对象中的所有可能的emoji值
+                const emojiValues = Object.values(emojiConf[category]).filter(value => typeof value === 'string');
+                categories[category] = emojiValues as string[];
+              }
+            } else {
+              // 如果是其他类型，跳过这个类别
+              categories[category] = [];
+            }
+          }
+        }
+      }
+      
+      emojiCategories.value = categories;
+      
+      // 将所有emoji合并为一个数组
+      const allEmojis: string[] = [];
+      for (const category in categories) {
+        allEmojis.push(...categories[category]);
+      }
+      commonEmojis.value = allEmojis;
+    }
+  } catch (error) {
+    console.error('获取思源笔记emoji配置失败:', error);
+  }
+};
+
+// 组件挂载时加载思源笔记emoji
+onMounted(() => {
+  loadSiyuanEmojis();
+});
+
+// 选择emoji
+const selectEmoji = (emoji: string) => {
+  newHabit.value.emoji = emoji;
+  showEmojiPicker.value = false;
+};
+
+
+// 国际化函数
+const t = (key: string) => {
+  // 从思源笔记获取语言资源
+  const lang = window.siyuan?.languages || {};
+  
+  // 如果思源笔记语言资源中没有找到，则返回默认中文文本
+  const defaultLang = {
+    'habitTracker.title': '习惯打卡',
+    'habitTracker.addHabit': '添加习惯',
+    'habitTracker.habitName': '习惯名称',
+    'habitTracker.habitNamePlaceholder': '例如：晨跑、读书、喝水',
+    'habitTracker.frequency': '打卡周期',
+    'habitTracker.customFrequency': '每周天数',
+    'habitTracker.customFrequencyPlaceholder': '输入每周要打卡的天数',
+    'habitTracker.timesPerDay': '每天频率',
+    'habitTracker.timesPerDayPlaceholder': '输入每天要完成的次数',
+    'habitTracker.reminderTime': '提醒时间',
+    'habitTracker.daily': '每天',
+    'habitTracker.weekly': '每周6天',
+    'habitTracker.custom': '自定义',
+    'habitTracker.checkIn': '打卡',
+    'habitTracker.checkedIn': '已打卡',
+    'habitTracker.delete': '删除',
+    'habitTracker.currentStreak': '连续天数',
+    'habitTracker.totalCompletions': '本月打卡',
+    'habitTracker.completionRate': '本月完成率',
+    'habitTracker.days': '天',
+    'habitTracker.times': '次',
+    'habitTracker.noHabits': '暂无习惯，点击上方按钮添加新习惯',
+    'habitTracker.confirmDelete': '确定要删除这个习惯吗？',
+    'habitTracker.weekView': '周视图',
+    'habitTracker.monthView': '月视图',
+    'Cancel': '取消',
+    'OK': '确定',
+  };
+  
+  return lang[key] || defaultLang[key] || key;
+};
+
+// 习惯数据
+const habits = ref<Habit[]>([]);
+const showAddHabitModal = ref(false);
+// const weekdays = ['一', '二', '三', '四', '五', '六', '日']; // 已注释：此变量未被使用，使用的是 weekdaysForCalendar 计算属性
+
+// 当前日期追踪（用于确保日期相关计算能够响应日期变化）
+const currentDate = ref(new Date().toISOString().split('T')[0]);
+
+// 番茄钟相关数据
+const activePomodoroHabit = ref<Habit | null>(null);
+
+// 检查周目标是否已完成
+const getWeeklyCompletionStatus = (habit: Habit) => {
+  if (!habit.frequency || !habit.frequency.startsWith('weekly')) {
+    return false;
+  }
+  
+  // 确定每周需要完成的次数
+  let requiredWeekCompletions = 1; // 默认为1次
+  if (habit.frequency === 'weekly2') requiredWeekCompletions = 2;
+  else if (habit.frequency === 'weekly3') requiredWeekCompletions = 3;
+  else if (habit.frequency === 'weekly4') requiredWeekCompletions = 4;
+  else if (habit.frequency === 'weekly5') requiredWeekCompletions = 5;
+  else if (habit.frequency === 'weekly6') requiredWeekCompletions = 6;
+  
+  // 计算本周的周一和周日
+  const today = new Date();
+  const todayWeekday = today.getDay();
+  const daysToMonday = todayWeekday === 0 ? -6 : 1 - todayWeekday; // 周日是0，需要向前推6天到周一
+  const thisWeekMonday = new Date(today);
+  thisWeekMonday.setDate(today.getDate() + daysToMonday);
+  
+  const daysToSunday = todayWeekday === 0 ? 0 : 6 - todayWeekday;
+  const thisWeekSunday = new Date(today);
+  thisWeekSunday.setDate(today.getDate() + daysToSunday);
+  
+  // 计算本周已完成的打卡次数
+  const completedThisWeek = habit.calendar.filter(day => {
+    const dayDate = new Date(day.date);
+    // 检查日期是否在本周内
+    return day.completed && 
+           dayDate >= thisWeekMonday && 
+           dayDate <= thisWeekSunday;
+  }).length;
+  
+  // 检查是否已完成本周所需的打卡次数
+  return completedThisWeek >= requiredWeekCompletions;
+};
+
+// 计算属性：按当天完成状态和周目标完成状态排序的习惯列表（未完成的在前）
+const sortedHabits = computed(() => {
+  return [...habits.value].sort((a, b) => {
+    // 检查 a 和 b 是否已完成周目标
+    const aWeeklyCompleted = a.frequency && a.frequency.startsWith('weekly') && getWeeklyCompletionStatus(a);
+    const bWeeklyCompleted = b.frequency && b.frequency.startsWith('weekly') && getWeeklyCompletionStatus(b);
+    
+    // 如果 a 已完成周目标而 b 未完成周目标，则 b 排在前面
+    if (aWeeklyCompleted && !bWeeklyCompleted) {
+      return 1; // a 排在 b 后面
+    } else if (!aWeeklyCompleted && bWeeklyCompleted) {
+      return -1; // a 排在 b 前面
+    } else {
+      // 如果 a 和 b 都是周目标习惯且状态相同，或都不是周目标习惯，则按当天完成状态排序
+      const aNotCompleted = !a.completedToday;
+      const bNotCompleted = !b.completedToday;
+      
+      if (aNotCompleted && !bNotCompleted) {
+        return -1; // a 排在 b 前面
+      } else if (!aNotCompleted && bNotCompleted) {
+        return 1;  // b 排在 a 前面
+      } else {
+        return 0;  // 保持原有顺序
+      }
+    }
+  });
+});
+
+// 新习惯表单数据
+const newHabit = ref({
+  name: '',
+  emoji: '',
+  frequency: 'daily' as 'daily' | 'weekly6' | 'weekly5' | 'weekly4' | 'weekly3' | 'weekly2' | 'weekly1',
+  timesPerDay: '1', // 每天次数
+  usePomodoro: false // 是否使用番茄钟
+});
+
+const frequencyOptions = ref([
+  { value: 'daily', text: t('habitTracker.daily') },
+  { value: 'weekly6', text: '每周6天' },
+  { value: 'weekly5', text: '每周5天' },
+  { value: 'weekly4', text: '每周4天' },
+  { value: 'weekly3', text: '每周3天' },
+  { value: 'weekly2', text: '每周2天' },
+  { value: 'weekly1', text: '每周1天' }
+]);
+
+// 每日打卡次数选项
+const timesPerDayOptions = ref([
+  { value: '1', text: '1次' },
+  { value: '2', text: '2次' },
+  { value: '3', text: '3次' },
+  { value: '4', text: '4次' },
+  { value: '5', text: '5次' },
+  { value: '6', text: '6次' },
+  { value: '7', text: '7次' },
+  { value: '8', text: '8次' },
+  { value: '9', text: '9次' },
+  { value: '10', text: '10次' },
+  { value: '11', text: '11次' },
+  { value: '12', text: '12次' },
+  { value: '13', text: '13次' },
+  { value: '14', text: '14次' },
+  { value: '15', text: '15次' },
+  { value: '16', text: '16次' },
+  { value: '17', text: '17次' },
+  { value: '18', text: '18次' },
+  { value: '19', text: '19次' },
+  { value: '20', text: '20次' }
+]);
+
+// 初始化数据
+onMounted(async () => {
+  try {
+    habits.value = await getHabits();
+    
+    // 每次组件挂载时更新currentDayInfo为当前日期
+    const today = new Date();
+    console.log('Component mounted - full date object:', today.toString());
+    console.log('Component mounted - timezone offset:', today.getTimezoneOffset());
+    // 使用本地日期格式而不是toISOString()，避免时区转换问题
+    const localDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    currentDayInfo.value.date = localDate;
+    currentDayInfo.value.dayOfWeek = today.getDay();
+    currentDayInfo.value.dayOfMonth = today.getDate();
+    currentDayInfo.value.month = today.getMonth() + 1;
+    currentDayInfo.value.year = today.getFullYear();
+    
+    // 更新currentDate变量
+    currentDate.value = localDate;
+    
+    // 初始化每个习惯的completedToday属性
+    const todayStr = localDate;
+    habits.value.forEach(habit => {
+      const todayRecord = habit.calendar.find(day => day.date === todayStr);
+      habit.completedToday = todayRecord ? todayRecord.completed : false;
+    });
+    
+    console.log('Setting up timer, initial date:', currentDate.value);
+    
+    // 注释掉定时器频率检查，加载的时候获取日期就行
+    /*
+    const timer = setInterval(() => {
+      const now = new Date();
+      // 使用本地日期格式而不是toISOString()，避免时区转换问题
+      const newTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      console.log('Timer check - current date:', newTodayStr, 'currentDate ref:', currentDate.value);
+      if (currentDate.value !== newTodayStr) {
+        console.log('Date changed - updating currentDate from', currentDate.value, 'to', newTodayStr);
+        currentDate.value = newTodayStr;
+        
+        // 更新currentDayInfo为新日期
+        currentDayInfo.value.date = newTodayStr;
+        currentDayInfo.value.dayOfWeek = now.getDay();
+        currentDayInfo.value.dayOfMonth = now.getDate();
+        currentDayInfo.value.month = now.getMonth() + 1;
+        currentDayInfo.value.year = now.getFullYear();
+        
+        // 为每个习惯更新completedToday状态
+        habits.value.forEach(habit => {
+          const todayRecord = habit.calendar.find(day => day.date === newTodayStr);
+          habit.completedToday = todayRecord ? todayRecord.completed : false;
+        });
+      }
+    }, 300000); // 每5分钟检查一次
+    
+    // 立即执行一次检查，确保当前日期正确
+    setTimeout(() => {
+      const now = new Date();
+      // 使用本地日期格式而不是toISOString()，避免时区转换问题
+      const newTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      console.log('Initial timer check - current date:', newTodayStr, 'currentDate ref:', currentDate.value);
+      console.log('Initial timer check - full date object:', now.toString());
+      console.log('Initial timer check - timezone offset:', now.getTimezoneOffset());
+      if (currentDate.value !== newTodayStr) {
+        console.log('Initial date changed - updating currentDate from', currentDate.value, 'to', newTodayStr);
+        currentDate.value = newTodayStr;
+        
+        // 更新currentDayInfo为新日期
+        currentDayInfo.value.date = newTodayStr;
+        currentDayInfo.value.dayOfWeek = now.getDay();
+        currentDayInfo.value.dayOfMonth = now.getDate();
+        currentDayInfo.value.month = now.getMonth() + 1;
+        currentDayInfo.value.year = now.getFullYear();
+        
+        // 为每个习惯更新completedToday状态
+        habits.value.forEach(habit => {
+          const todayRecord = habit.calendar.find(day => day.date === newTodayStr);
+          habit.completedToday = todayRecord ? todayRecord.completed : false;
+        });
+      }
+    }, 1000); // 1秒后执行一次检查
+    
+    // 将定时器ID存储到组件实例上，以便后续清理
+    (window as any).habitTrackerTimer = timer;
+    
+    // 每5分钟也检查一次日期变化，作为备用机制
+    const backupTimer = setInterval(() => {
+      const now = new Date();
+      // 使用本地日期格式而不是toISOString()，避免时区转换问题
+      const newTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      if (currentDate.value !== newTodayStr) {
+        console.log('Backup timer: Date changed - updating currentDate from', currentDate.value, 'to', newTodayStr);
+        currentDate.value = newTodayStr;
+        
+        // 更新currentDayInfo为新日期
+        currentDayInfo.value.date = newTodayStr;
+        currentDayInfo.value.dayOfWeek = now.getDay();
+        currentDayInfo.value.dayOfMonth = now.getDate();
+        currentDayInfo.value.month = now.getMonth() + 1;
+        currentDayInfo.value.year = now.getFullYear();
+        
+        // 为每个习惯更新completedToday状态
+        habits.value.forEach(habit => {
+          const todayRecord = habit.calendar.find(day => day.date === newTodayStr);
+          habit.completedToday = todayRecord ? todayRecord.completed : false;
+        });
+      }
+    }, 300000); // 每5分钟检查一次
+    
+    // 备用定时器也立即执行一次检查
+    setTimeout(() => {
+      const now = new Date();
+      // 使用本地日期格式而不是toISOString()，避免时区转换问题
+      const newTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      console.log('Backup timer initial check - current date:', newTodayStr, 'currentDate ref:', currentDate.value);
+      console.log('Backup timer initial check - full date object:', now.toString());
+      console.log('Backup timer initial check - timezone offset:', now.getTimezoneOffset());
+      if (currentDate.value !== newTodayStr) {
+        console.log('Backup timer initial check: Date changed - updating currentDate from', currentDate.value, 'to', newTodayStr);
+        currentDate.value = newTodayStr;
+        
+        // 更新currentDayInfo为新日期
+        currentDayInfo.value.date = newTodayStr;
+        currentDayInfo.value.dayOfWeek = now.getDay();
+        currentDayInfo.value.dayOfMonth = now.getDate();
+        currentDayInfo.value.month = now.getMonth() + 1;
+        currentDayInfo.value.year = now.getFullYear();
+        
+        // 为每个习惯更新completedToday状态
+        habits.value.forEach(habit => {
+          const todayRecord = habit.calendar.find(day => day.date === newTodayStr);
+          habit.completedToday = todayRecord ? todayRecord.completed : false;
+        });
+      }
+    }, 2000); // 2秒后执行一次检查
+    
+    // 将备用定时器ID也存储到组件实例上
+    (window as any).habitTrackerBackupTimer = backupTimer;
+    */
+    
+    // 不再初始化日历数据，因为只记录已打卡的日期
+    
+    // 检查是否有习惯的番茄钟剩余时间，并恢复计时器
+    // 注意：这里不自动启动计时器，只保留数据，让用户点击打卡按钮时才启动
+    // habits.value.forEach(habit => {
+    //   if (habit.usePomodoro && habit.pomodoroRemaining !== undefined && habit.pomodoroRemaining > 0) {
+    //     // 如果有剩余时间，启动计时器
+    //     startPomodoroTimer(habit);
+    //   }
+    // });
+  } catch (error) {
+    console.error('Error initializing habits:', error);
+    // 初始化失败时，使用空数组，确保界面仍能显示
+    habits.value = [];
+  }
+});
+
+// 组件卸载时清理定时器
+onUnmounted(() => {
+  // 清理主定时器
+  if ((window as any).habitTrackerTimer) {
+    clearInterval((window as any).habitTrackerTimer);
+    delete (window as any).habitTrackerTimer;
+  }
+  
+  // 清理备用定时器
+  if ((window as any).habitTrackerBackupTimer) {
+    clearInterval((window as any).habitTrackerBackupTimer);
+    delete (window as any).habitTrackerBackupTimer;
+  }
+  
+  // 清理番茄钟定时器
+  for (const habitId in pomodoroTimers) {
+    clearInterval(pomodoroTimers[habitId]);
+    delete pomodoroTimers[habitId];
+  }
+});
+
+// 生成日历数据
+const generateCalendarData = (_targetCount: number = 1): any[] => { // eslint-disable-line @typescript-eslint/no-unused-vars
+  // 只返回空数组，因为只记录已打卡的日期
+  // 之前的实现可能会初始化全年的日历数据，但现在改为只在打卡时创建记录
+  // _targetCount 在创建日历记录时会单独处理，因此此处不需要使用该参数
+  return [];
+};
+
+// 添加习惯
+const addHabit = async () => {
+  if (!newHabit.value.name.trim()) {
+    alert('请输入习惯名称');
+    return;
+  }
+  
+  // 限制 timesPerDay 最大值为 20
+  const inputTimesPerDay = parseInt(newHabit.value.timesPerDay) || 1;
+  if (inputTimesPerDay > 20) {
+    alert('每日打卡次数不能超过20次');
+    return;
+  }
+  
+  const timesPerDay = Math.min(inputTimesPerDay, 20);
+  
+  const habit: Habit = {
+    id: Date.now().toString(),
+    name: newHabit.value.name,
+    emoji: newHabit.value.emoji,
+    frequency: newHabit.value.frequency,
+    timesPerDay: timesPerDay,
+    completedToday: false,
+    currentStreak: 0,
+    totalCompletions: 0,
+    calendar: generateCalendarData(timesPerDay),
+    createdAt: new Date().toISOString(),
+    usePomodoro: newHabit.value.usePomodoro || false // 是否使用番茄钟
+  };
+  
+  habits.value.push(habit);
+  await saveHabits(habits.value);
+  
+  // 重置表单
+  newHabit.value = {
+    name: '',
+    emoji: '',
+    frequency: 'daily',
+    timesPerDay: '1',
+    usePomodoro: false
+  };
+  
+  showAddHabitModal.value = false;
+};
+
+// 切换单日打卡状态 (目前未直接使用，保留供将来可能的功能扩展)
+// 切换单日打卡状态
+const toggleDayCompletion = async (habit: Habit, date: string) => {
+  let dayRecord = habit.calendar.find(day => day.date === date);
+  
+  // 如果指定日期的记录不存在，则创建一条新记录
+  if (!dayRecord) {
+    const timesPerDay = Math.min(typeof habit.timesPerDay === 'string' ? parseInt(habit.timesPerDay) || 1 : habit.timesPerDay || 1, 20);
+    dayRecord = {
+      date: date,
+      completed: false,
+      completedCount: 0,
+      targetCount: timesPerDay
+    };
+    habit.calendar.push(dayRecord);
+  }
+  
+  // 检查是否已完成所有打卡任务
+  const targetCount = typeof dayRecord.targetCount === 'string' ? parseInt(dayRecord.targetCount) || 1 : dayRecord.targetCount || 1;
+  if (dayRecord.completed) {
+    // 如果已完成所有打卡任务，再次点击则重置打卡数据
+    dayRecord.completedCount = 0;
+    dayRecord.completed = false;
+    // 完成状态变为未完成时，移除时间戳
+    delete dayRecord.timestamp;
+    
+    // 如果完成状态变为未完成，且完成次数为0，从日历中移除该记录
+    if (dayRecord.completedCount === 0) {
+      habit.calendar = habit.calendar.filter(day => day.date !== date);
+    }
+  } else {
+    // 如果尚未完成所有打卡任务，则增加完成次数
+    if (dayRecord.completedCount < targetCount) {
+      dayRecord.completedCount = (dayRecord.completedCount || 0) + 1;
+    }
+    // 当完成次数达到目标次数时，标记为已完成
+    dayRecord.completed = dayRecord.completedCount >= targetCount;
+    
+    // 只在打卡完成时添加时间戳
+    if (dayRecord.completed && !dayRecord.timestamp) {
+      dayRecord.timestamp = Date.now();
+    }
+  }
+  
+  // 更新当天是否完成的标记
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  habit.completedToday = date === todayStr && dayRecord.completed;
+  
+  // 更新总完成次数和连续打卡天数
+  habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+  
+  // 重新计算当前连续打卡天数
+  const sortedCalendar = [...habit.calendar].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  habit.currentStreak = 0;
+  for (const day of sortedCalendar) {
+    if (day.completed) {
+      habit.currentStreak++;
+    } else {
+      break; // 遇到未完成的天数就停止计算
+    }
+  }
+  
+  await saveHabits(habits.value);
+};
+
+// 检查周目标是否已完成
+const getWeeklyCompletionStatus = (habit: Habit) => {
+  if (!habit.frequency || !habit.frequency.startsWith('weekly')) {
+    return false;
+  }
+  
+  // 确定每周需要完成的次数
+  let requiredWeekCompletions = 1; // 默认为1次
+  if (habit.frequency === 'weekly2') requiredWeekCompletions = 2;
+  else if (habit.frequency === 'weekly3') requiredWeekCompletions = 3;
+  else if (habit.frequency === 'weekly4') requiredWeekCompletions = 4;
+  else if (habit.frequency === 'weekly5') requiredWeekCompletions = 5;
+  else if (habit.frequency === 'weekly6') requiredWeekCompletions = 6;
+  
+  // 计算本周的周一和周日
+  const today = new Date();
+  const todayWeekday = today.getDay();
+  const daysToMonday = todayWeekday === 0 ? -6 : 1 - todayWeekday; // 周日是0，需要向前推6天到周一
+  const thisWeekMonday = new Date(today);
+  thisWeekMonday.setDate(today.getDate() + daysToMonday);
+  
+  const daysToSunday = todayWeekday === 0 ? 0 : 6 - todayWeekday;
+  const thisWeekSunday = new Date(today);
+  thisWeekSunday.setDate(today.getDate() + daysToSunday);
+  
+  // 计算本周已完成的打卡次数
+  const completedThisWeek = habit.calendar.filter(day => {
+    const dayDate = new Date(day.date);
+    // 检查日期是否在本周内
+    return day.completed && 
+           dayDate >= thisWeekMonday && 
+           dayDate <= thisWeekSunday;
+  }).length;
+  
+  // 检查是否已完成本周所需的打卡次数
+  return completedThisWeek >= requiredWeekCompletions;
+};
+
+// 切换习惯完成状态
+const getTodayCompletionCount = (habit: Habit) => {
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const today = getToday();
+  const todayRecord = habit.calendar.find(day => day.date === today);
+  return todayRecord ? (todayRecord.completedCount || 0) : 0;
+};
+
+// 番茄钟相关变量
+let pomodoroTimers: { [key: string]: number } = {};
+
+const toggleHabit = async (habitId: string) => {
+  const habit = habits.value.find(h => h.id === habitId);
+  if (!habit) {
+    return;
+  }
+
+  const today = getToday();
+  const todayRecord = habit.calendar.find(day => day.date === today);
+
+  if (todayRecord) {
+    todayRecord.completedCount = todayRecord.completedCount ? todayRecord.completedCount + 1 : 1;
+  } else {
+    habit.calendar.push({ date: today, completedCount: 1 });
+  }
+
+  await saveHabits(habits.value);
+};
+
+    console.log('未找到习惯:', habitId);
+    return;
+  }
+  
+  console.log('点击习惯:', habit.name, 'usePomodoro:', habit.usePomodoro, 'completedToday:', habit.completedToday);
+  
+  // 如果启用了番茄钟功能，检查当前是否已完成
+  if (habit.usePomodoro) {
+    // 如果习惯已完成，则取消完成状态
+    if (habit.completedToday) {
+      // 弹出确认取消打卡弹窗
+      if (confirm('是否要取消打卡记录？')) {
+        console.log('取消番茄钟习惯完成状态 for habit:', habit.name);
+        // 取消当天完成状态
+        // 使用本地日期格式而不是toISOString()，避免时区转换问题
+        const today = getToday();
+        let todayRecord = habit.calendar.find(day => day.date === today);
+        
+        if (todayRecord) {
+          // 清除当天所有打卡次数，重置为0
+          todayRecord.completed = false;
+          todayRecord.completedCount = 0;
+        }
+        
+        // 更新习惯的完成状态
+        habit.completedToday = false;
+        
+        // 重新计算连续打卡天数和总完成次数
+        const sortedCalendar = [...habit.calendar].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        habit.currentStreak = 0;
+        for (const day of sortedCalendar) {
+          if (day.completed) {
+            habit.currentStreak++;
+          } else {
+            break; // 遇到未完成的天数就停止计算
+          }
+        }
+        habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+        
+        await saveHabits(habits.value);
+      }
+      return;
+    } else {
+      console.log('启动番茄钟计时器并跳转页面 for habit:', habit.name);
+      // 设置当前激活的番茄钟习惯
+      activePomodoroHabit.value = habit;
+      // 启动番茄钟计时器
+      startPomodoroTimer(habit);
+      return;
+    }
+  }
+  
+  console.log('执行普通打卡逻辑');
+  
+  // 检查是否为周频次习惯且已完成本周目标
+  if (habit.frequency && habit.frequency.startsWith('weekly')) {
+    if (getWeeklyCompletionStatus(habit)) {
+      // 如果周目标已完成，点击按钮应取消完成状态
+      if (confirm('是否要取消打卡记录？')) {
+        // 找到本周所有已完成的记录并取消完成状态
+        const today = new Date();
+        const todayWeekday = today.getDay();
+        const daysToMonday = todayWeekday === 0 ? -6 : 1 - todayWeekday; // 周日是0，需要向前推6天到周一
+        const thisWeekMonday = new Date(today);
+        thisWeekMonday.setDate(today.getDate() + daysToMonday);
+        
+        const daysToSunday = todayWeekday === 0 ? 0 : 6 - todayWeekday;
+        const thisWeekSunday = new Date(today);
+        thisWeekSunday.setDate(today.getDate() + daysToSunday);
+        
+        // 找到本周所有已完成的打卡记录，按日期倒序排列
+        const weeklyCompletedDays = habit.calendar
+          .filter(day => {
+            const dayDate = new Date(day.date);
+            return day.completed && dayDate >= thisWeekMonday && dayDate <= thisWeekSunday;
+          })
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        // 取消最后一条打卡记录的完成状态
+        if (weeklyCompletedDays.length > 0) {
+          const lastCompletedDay = weeklyCompletedDays[0];
+          lastCompletedDay.completed = false;
+          lastCompletedDay.completedCount = 0;
+          // 重置当天的完成状态
+          if (lastCompletedDay.date === getToday()) {
+            habit.completedToday = false;
+          }
+          delete lastCompletedDay.timestamp;
+        }
+        
+        // 重新计算连续打卡天数和总完成次数
+        const sortedCalendar = [...habit.calendar].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        habit.currentStreak = 0;
+        for (const day of sortedCalendar) {
+          if (day.completed) {
+            habit.currentStreak++;
+          } else {
+            break; // 遇到未完成的天数就停止计算
+          }
+        }
+        habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+        
+        await saveHabits(habits.value);
+      }
+      return; // 退出函数，不执行后续打卡逻辑
+    }
+  }
+  
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const today = getToday();
+  let todayRecord = habit.calendar.find(day => day.date === today);
+  
+  // 如果今天日期的记录不存在，则创建一条新记录
+  if (!todayRecord) {
+    const timesPerDay = Math.min(typeof habit.timesPerDay === 'string' ? parseInt(habit.timesPerDay) || 1 : habit.timesPerDay || 1, 20);
+    todayRecord = {
+      date: today,
+      completed: false,
+      completedCount: 0,
+      targetCount: timesPerDay
+    };
+    habit.calendar.push(todayRecord);
+  }
+  
+  // 检查是否已完成所有打卡任务
+  const targetCount = typeof todayRecord.targetCount === 'string' ? parseInt(todayRecord.targetCount) || 1 : todayRecord.targetCount || 1;
+  if (todayRecord.completed) {
+    // 如果已完成所有打卡任务，再次点击则重置打卡数据
+    // 弹出确认取消打卡弹窗
+    if (confirm('确定要取消打卡吗？')) {
+      todayRecord.completedCount = 0;
+      todayRecord.completed = false;
+      // 完成状态变为未完成时，移除时间戳
+      delete todayRecord.timestamp;
+      
+      // 如果完成状态变为未完成，且完成次数为0，从日历中移除该记录
+      if (todayRecord.completedCount === 0) {
+        habit.calendar = habit.calendar.filter(day => day.date !== today);
+      }
+    }
+  } else {
+    // 如果尚未完成所有打卡任务，则增加完成次数
+    if (todayRecord.completedCount < targetCount) {
+      todayRecord.completedCount = (todayRecord.completedCount || 0) + 1;
+    }
+    // 当完成次数达到目标次数时，标记为已完成
+    todayRecord.completed = todayRecord.completedCount >= targetCount;
+    
+    // 只在打卡完成时添加时间戳
+    if (todayRecord.completed && !todayRecord.timestamp) {
+      todayRecord.timestamp = Date.now();
+    }
+  }
+  
+  habit.completedToday = todayRecord?.completed || false;
+  
+  // 重新计算总完成次数（这里计算的是完成目标的天数）
+  habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+  
+  // 计算当前连续打卡天数
+  const sortedCalendar = [...habit.calendar].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  habit.currentStreak = 0;
+  for (const day of sortedCalendar) {
+    if (day.completed) {
+      habit.currentStreak++;
+    } else {
+      break; // 遇到未完成的天数就停止计算
+    }
+  }
+  
+  await saveHabits(habits.value);
+};
+
+// 启动番茄钟计时器
+const startPomodoroTimer = (habit: Habit) => {
+  console.log('startPomodoroTimer 被调用 for habit:', habit.name);
+  
+  // 如果已有计时器，先清除
+  if (pomodoroTimers[habit.id]) {
+    console.log('清除已有计时器 for habit:', habit.id);
+    clearInterval(pomodoroTimers[habit.id]);
+  }
+  
+  // 设置番茄钟时长（10秒，用于测试）
+  let remainingTime = 10; // 10秒用于测试
+  console.log('设置剩余时间:', remainingTime, '秒');
+  
+  // 更新习惯的番茄钟状态
+  habit.pomodoroRemaining = remainingTime;
+  habit.pomodoroState = 'work'; // 默认开始工作时间
+  console.log('更新番茄钟剩余时间:', habit.pomodoroRemaining, '状态:', habit.pomodoroState);
+  
+  // 启动倒计时
+  pomodoroTimers[habit.id] = window.setInterval(() => {
+    remainingTime--;
+    habit.pomodoroRemaining = remainingTime;
+    console.log('番茄钟倒计时更新，剩余时间:', remainingTime);
+    
+    if (remainingTime <= 0) {
+      // 倒计时结束，完成打卡
+      console.log('番茄钟倒计时结束，完成打卡 for habit:', habit.name);
+      clearInterval(pomodoroTimers[habit.id]);
+      completeHabitAfterPomodoro(habit);
+      
+      // 如果当前显示的是这个习惯的番茄钟页面，则关闭页面
+      if (activePomodoroHabit.value && activePomodoroHabit.value.id === habit.id) {
+        activePomodoroHabit.value = null;
+      }
+    }
+  }, 1000);
+  
+  console.log('已启动番茄钟计时器，ID:', pomodoroTimers[habit.id]);
+};
+
+// 番茄钟结束后完成打卡
+const completeHabitAfterPomodoro = async (habit: Habit) => {
+  console.log('completeHabitAfterPomodoro 被调用 for habit:', habit.name);
+  
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const today = getToday();
+  let todayRecord = habit.calendar.find(day => day.date === today);
+  
+  // 如果今天日期的记录不存在，则创建一条新记录
+  if (!todayRecord) {
+    const timesPerDay = Math.min(typeof habit.timesPerDay === 'string' ? parseInt(habit.timesPerDay) || 1 : habit.timesPerDay || 1, 20);
+    todayRecord = {
+      date: today,
+      completed: false,
+      completedCount: 0,
+      targetCount: timesPerDay
+    };
+    habit.calendar.push(todayRecord);
+  }
+  
+  // 检查是否已完成所有打卡任务
+  const targetCount = typeof todayRecord.targetCount === 'string' ? parseInt(todayRecord.targetCount) || 1 : todayRecord.targetCount || 1;
+  
+  // 如果尚未完成所有打卡任务，则增加完成次数
+  if (todayRecord.completedCount < targetCount) {
+    todayRecord.completedCount = (todayRecord.completedCount || 0) + 1;
+  }
+  // 当完成次数达到目标次数时，标记为已完成
+  todayRecord.completed = todayRecord.completedCount >= targetCount;
+  
+  // 只在打卡完成时添加时间戳
+  if (todayRecord.completed && !todayRecord.timestamp) {
+    todayRecord.timestamp = Date.now();
+  }
+  
+  habit.completedToday = todayRecord?.completed || false;
+  
+  // 重新计算总完成次数（这里计算的是完成目标的天数）
+  habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+  
+  // 计算当前连续打卡天数
+  const sortedCalendar = [...habit.calendar].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  habit.currentStreak = 0;
+  for (const day of sortedCalendar) {
+    if (day.completed) {
+      habit.currentStreak++;
+    } else {
+      break; // 遇到未完成的天数就停止计算
+    }
+  }
+  
+  // 清除番茄钟相关状态
+  delete habit.pomodoroRemaining;
+  delete habit.pomodoroState;
+  if (pomodoroTimers[habit.id]) {
+    clearInterval(pomodoroTimers[habit.id]);
+    delete pomodoroTimers[habit.id];
+  }
+  
+  await saveHabits(habits.value);
+  console.log('番茄钟打卡完成，已保存数据 for habit:', habit.name);
+};
+
+// 格式化番茄钟时间显示
+const formatPomodoroTime = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+// 停止番茄钟
+const stopPomodoro = (_habit: Habit) => { // eslint-disable-line @typescript-eslint/no-unused-vars
+  console.log('停止番茄钟 for habit:', activePomodoroHabit.value?.name);
+  
+  if (activePomodoroHabit.value) {
+    const habit = activePomodoroHabit.value;
+    
+    // 清除番茄钟相关状态
+    delete habit.pomodoroRemaining;
+    if (pomodoroTimers[habit.id]) {
+      clearInterval(pomodoroTimers[habit.id]);
+      delete pomodoroTimers[habit.id];
+    }
+    
+    // 重置当前激活的番茄钟习惯
+    activePomodoroHabit.value = null;
+  }
+};
+
+// 停止当前番茄钟（按钮点击事件）
+const stopCurrentPomodoro = () => {
+  if (activePomodoroHabit.value) {
+    stopPomodoro(activePomodoroHabit.value);
+  }
+};
+
+// 根据番茄钟状态返回对应的CSS类
+const pomodoroStateClass = (state?: 'work' | 'shortBreak' | 'longBreak') => {
+  if (!state) return 'pomodoro-running';
+  
+  switch (state) {
+    case 'work':
+      return 'pomodoro-running';
+    case 'shortBreak':
+      return 'pomodoro-short-break';
+    case 'longBreak':
+      return 'pomodoro-long-break';
+    default:
+      return 'pomodoro-running';
+  }
+};
+
+// 删除习惯
+const deleteHabit = async (habitId: string) => {
+  if (!confirm(t('habitTracker.confirmDelete'))) {
+    return;
+  }
+  
+  habits.value = habits.value.filter(h => h.id !== habitId);
+  await saveHabits(habits.value);
+  
+  // 关闭统计页面
+  selectedHabit.value = null;
+};
+
+// 计算本月完成率
+const calculateCompletionRate = (habit: Habit) => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  
+  console.log('开始计算完成率:', {
+    habitName: habit.name,
+    frequency: habit.frequency,
+    currentYear,
+    currentMonth: currentMonth + 1, // 月份从0开始，所以加1
+    today: today.toISOString().split('T')[0]
+  });
+  
+  // 过滤出本月的打卡记录
+  const monthRecords = habit.calendar.filter(record => {
+    const recordDate = new Date(record.date);
+    return recordDate.getFullYear() === currentYear && 
+           recordDate.getMonth() === currentMonth;
+  });
+  
+  console.log('本月打卡记录:', {
+    monthRecordsCount: monthRecords.length,
+    monthRecords: monthRecords
+  });
+  
+  if (habit.frequency.startsWith('weekly')) {
+    // 对于周频次习惯，计算基于应完成次数的完成率
+    
+    // 确定每周需要完成的次数
+    let weeklyTarget = 1; // 默认为1次
+    if (habit.frequency === 'weekly2') weeklyTarget = 2;
+    else if (habit.frequency === 'weekly3') weeklyTarget = 3;
+    else if (habit.frequency === 'weekly4') weeklyTarget = 4;
+    else if (habit.frequency === 'weekly5') weeklyTarget = 5;
+    else if (habit.frequency === 'weekly6') weeklyTarget = 6;
+    
+    console.log('周频次习惯计算:', {
+      weeklyTarget,
+      habitFrequency: habit.frequency
+    });
+    
+    // 计算本周的周一和周日
+    const todayWeekday = today.getDay();
+    const daysToMonday = todayWeekday === 0 ? -6 : 1 - todayWeekday; // 周日是0，需要向前推6天到周一
+    const thisWeekMonday = new Date(today);
+    thisWeekMonday.setDate(today.getDate() + daysToMonday);
+    
+    const daysToSunday = todayWeekday === 0 ? 0 : 7 - todayWeekday;
+    const thisWeekSunday = new Date(today);
+    thisWeekSunday.setDate(today.getDate() + daysToSunday);
+    
+    console.log('本周范围:', {
+      thisWeekMonday: thisWeekMonday.toISOString().split('T')[0],
+      thisWeekSunday: thisWeekSunday.toISOString().split('T')[0]
+    });
+    
+    // 计算本月第一个周一
+    const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
+    
+    const firstDayWeekday = firstDayOfMonth.getDay();
+    
+    // 计算本月第一个周一
+    const firstDayToMonday = firstDayWeekday === 0 ? 1 : (8 - firstDayWeekday) % 7;
+    const monthFirstMonday = new Date(firstDayOfMonth);
+    monthFirstMonday.setDate(firstDayOfMonth.getDate() + (firstDayWeekday === 1 ? 0 : firstDayToMonday));
+    
+    // 计算上个月最后一周的周日
+    const prevMonthLastDay = new Date(currentYear, currentMonth, 0); // 上个月最后一天
+    const prevMonthLastWeekday = prevMonthLastDay.getDay();
+    const prevMonthLastDayToSunday = (6 - prevMonthLastWeekday + 7) % 7;
+    const prevMonthLastSunday = new Date(prevMonthLastDay);
+    prevMonthLastSunday.setDate(prevMonthLastDay.getDate() + prevMonthLastDayToSunday);
+    
+    // 计算需要统计的起始日期
+    let periodStart = monthFirstMonday;
+    
+    // 如果今天在本月第一个周一之前，则统计上个月最后一周
+    if (today < monthFirstMonday) {
+      periodStart = prevMonthLastSunday; // 从上个月最后一周周日开始
+    }
+    
+    console.log('统计周期:', {
+      monthFirstMonday: monthFirstMonday.toISOString().split('T')[0],
+      prevMonthLastSunday: prevMonthLastSunday.toISOString().split('T')[0],
+      periodStart: periodStart.toISOString().split('T')[0]
+    });
+    
+    // 计算从起始日期到本周周日的周数
+    const daysFromStart = Math.floor((thisWeekSunday.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24));
+    let totalWeeks = Math.floor(daysFromStart / 7) + 1;
+    
+    // 确保至少统计1周
+    if (totalWeeks <= 0) {
+      totalWeeks = 1;
+    }
+    
+    // 计算应完成的总次数
+    const expectedTotalCompletions = totalWeeks * weeklyTarget;
+    
+    console.log('目标完成次数:', {
+      totalWeeks,
+      weeklyTarget,
+      expectedTotalCompletions
+    });
+    
+    // 对于周频次习惯，我们统计完成周数而不是完成次数
+    // 计算实际完成的周数
+    let completedWeeks = 0;
+    
+    // 需要计算的周范围：从periodStart开始，到thisWeekSunday结束
+    let currentWeekStart = new Date(periodStart);
+    
+    // 调整起始周的开始日期到正确的周一
+    const startWeekday = currentWeekStart.getDay();
+    const daysToStartMonday = startWeekday === 0 ? -6 : 1 - startWeekday; // 周日是0，需要向前推到周一
+    currentWeekStart.setDate(currentWeekStart.getDate() + daysToStartMonday);
+    
+    console.log('调整后的起始周周一:', currentWeekStart.toISOString().split('T')[0]);
+    
+    // 计算需要处理的周数
+    const totalCalculatedWeeks = [];
+    let tempWeekStart = new Date(currentWeekStart);
+    
+    // 收集所有需要检查的周
+    while (tempWeekStart <= thisWeekSunday) {
+      const tempWeekEnd = new Date(tempWeekStart);
+      tempWeekEnd.setDate(tempWeekStart.getDate() + 6); // 周日
+      
+      totalCalculatedWeeks.push({
+        start: new Date(tempWeekStart),
+        end: tempWeekEnd
+      });
+      
+      tempWeekStart.setDate(tempWeekStart.getDate() + 7); // 下一周
+    }
+    
+    console.log('需要计算的周:', totalCalculatedWeeks.map(w => ({
+      start: w.start.toISOString().split('T')[0],
+      end: w.end.toISOString().split('T')[0]
+    })));
+    
+    // 检查每一周的完成情况
+    for (const week of totalCalculatedWeeks) {
+      // 检查这一周内是否完成了目标次数
+      let weekCompletedCount = 0;
+      for (const record of habit.calendar) {
+        const recordDate = new Date(record.date);
+        
+        // 检查这个记录是否在当前周内
+        if (recordDate >= week.start && recordDate <= week.end && record.completed) {
+          weekCompletedCount += record.completedCount || 1;
+        }
+      }
+      
+      console.log('周完成情况:', {
+        weekStart: week.start.toISOString().split('T')[0],
+        weekEnd: week.end.toISOString().split('T')[0],
+        weekCompletedCount,
+        weeklyTarget
+      });
+      
+      // 如果这一周完成了目标次数，则算作完成一周
+      if (weekCompletedCount >= weeklyTarget) {
+        completedWeeks++;
+        console.log('完成周:', week.start.toISOString().split('T')[0]);
+      }
+    }
+    
+    console.log('总共完成周数:', completedWeeks, '总周数:', totalCalculatedWeeks.length);
+    
+    // 计算完成率：完成的周数 / 总周数 * 100%
+    const totalCalculatedWeeksCount = totalCalculatedWeeks.length;
+    const completionRate = totalCalculatedWeeksCount > 0 ? (completedWeeks / totalCalculatedWeeksCount) * 100 : 0;
+    const roundedRate = Math.round(completionRate);
+    
+    console.log('完成率计算结果:', {
+      completedWeeks,
+      totalCalculatedWeeksCount,
+      completionRate,
+      roundedRate
+    });
+    
+    return roundedRate;
+  } else {
+    // 对于日频次习惯，计算基于天数的完成率
+    
+    console.log('日频次习惯计算:', {
+      monthRecordsCount: monthRecords.length,
+      dayOfMonth: today.getDate()
+    });
+    
+    if (monthRecords.length === 0) {
+      console.log('本月无打卡记录，完成率: 0');
+      return 0;
+    }
+    
+    // 计算本月已度过天数（从月初到今天）
+    const dayOfMonth = today.getDate();
+    
+    // 计算本月已完成的天数
+    const completedDays = monthRecords.filter(record => record.completed).length;
+    
+    console.log('完成天数统计:', {
+      completedDays,
+      dayOfMonth
+    });
+    
+    // 计算完成率：已完成天数 / 本月已度过天数 * 100%
+    const completionRate = (completedDays / dayOfMonth) * 100;
+    const roundedRate = Math.round(completionRate);
+    
+    console.log('完成率计算结果:', {
+      completedDays,
+      dayOfMonth,
+      completionRate,
+      roundedRate
+    });
+    
+    return roundedRate;
+  }
+};
+
+// 计算本月连续打卡天数
+const calculateCurrentMonthStreak = (habit: Habit) => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  
+  // 过滤出本月的打卡记录
+  const monthRecords = habit.calendar
+    .filter(record => {
+      const recordDate = new Date(record.date);
+      return recordDate.getFullYear() === currentYear && recordDate.getMonth() === currentMonth;
+    })
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // 按日期倒序排列
+  
+  if (monthRecords.length === 0 || !monthRecords[0].completed) {
+    return 0; // 如果本月没有记录或最新记录未完成，则连续天数为0
+  }
+  
+  let streak = 0;
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  const todayStr = getToday();
+  let currentDate = new Date(today);
+  
+  // 检查是否今天已完成
+  const todayRecord = monthRecords.find(record => record.date === todayStr);
+  if (todayRecord && todayRecord.completed) {
+    streak++;
+  }
+  
+  // 往前检查连续的完成日期
+  for (let i = 1; ; i++) {
+    const checkDate = new Date(currentDate);
+    checkDate.setDate(currentDate.getDate() - i);
+    
+    // 使用本地日期格式而不是toISOString()，避免时区转换问题
+    const checkDateStr = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}-${String(checkDate.getDate()).padStart(2, '0')}`;
+    
+    // 检查是否还在当前月份
+    if (checkDate.getMonth() !== currentMonth || checkDate.getFullYear() !== currentYear) {
+      break; // 已经超出当前月份，停止计算
+    }
+    
+    const record = monthRecords.find(r => r.date === checkDateStr);
+    if (record && record.completed) {
+      streak++;
+    } else {
+      break; // 遇到未完成的日期，停止计算
+    }
+  }
+  
+  return streak;
+};
+
+// 计算本月总打卡数
+const calculateTotalMonthCompletions = (habit: Habit) => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  
+  // 过滤出本月的打卡记录并计算完成的数量
+  return habit.calendar.filter(record => {
+    const recordDate = new Date(record.date);
+    return recordDate.getFullYear() === currentYear && 
+           recordDate.getMonth() === currentMonth && 
+           record.completed;
+  }).length;
+};
+
+// 初始化习惯视图模式
+const initializeHabitViewMode = (habit: Habit) => {
+  if (habit.currentWeekOffset === undefined) {
+    habit.currentWeekOffset = 0;
+  }
+};
+
+// 初始化统计页面视图模式
+const initializeStatsViewMode = (habit: Habit) => {
+  if (!habit.statsViewMode) {
+    habit.statsViewMode = 'month'; // 统计页面默认为月视图
+  }
+  if (habit.statsMonthOffset === undefined) {
+    habit.statsMonthOffset = 0;
+  }
+
+};
+
+// 获取日历视图数据（用于习惯项，固定为周视图）
+const getCalendarViewData = (habit: Habit) => {
+  initializeHabitViewMode(habit);
+  
+  // 直接使用当前日期，确保获取最新的日期
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  
+  return getWeekViewData(habit);
+};
+
+// 获取周视图数据
+const getWeekViewData = (habit: Habit) => {
+  const todayDate = new Date();
+  const targetDate = new Date(todayDate);
+  targetDate.setDate(todayDate.getDate() + (habit.currentWeekOffset || 0) * 7);
+  
+  // 找到这一周的开始（周一）
+  const startOfWeek = new Date(targetDate);
+  const dayOfWeek = startOfWeek.getDay();
+  // 计算到周一的偏移量，JavaScript中周日是0，周一到周六是1-6
+  // 使用更明确的计算方法来确保周一开始
+  // 如果今天是周日(dayOfWeek === 0)，需要回退6天到上一周的周一
+  // 如果今天是周六(dayOfWeek === 6)，需要回退5天到本周的周一
+  const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  startOfWeek.setDate(startOfWeek.getDate() + daysToMonday);
+  
+  // 生成一周的数据（周一到周日）
+  const weekData = [];
+  
+    // 检查本周是否已经完成所需的打卡次数（对weeklyN习惯）
+  let requiredWeekCompletions = 1; // 默认为1次
+  if (habit.frequency === 'weekly2') requiredWeekCompletions = 2;
+  else if (habit.frequency === 'weekly3') requiredWeekCompletions = 3;
+  else if (habit.frequency === 'weekly4') requiredWeekCompletions = 4;
+  else if (habit.frequency === 'weekly5') requiredWeekCompletions = 5;
+  else if (habit.frequency === 'weekly6') requiredWeekCompletions = 6;
+  
+  // 计算本周已完成的打卡次数
+  const completedThisWeek = habit.frequency.startsWith('weekly') ? 
+    habit.calendar.filter(day => {
+      const dayDate = new Date(day.date);
+      // 计算这个日期属于哪一周（周一为一周的开始）
+      const dayStartOfWeek = new Date(dayDate);
+      const dayDayOfWeek = dayDate.getDay();
+      const dayDaysToMonday = dayDayOfWeek === 0 ? -6 : 1 - dayDayOfWeek; // 周日是0，需要向前推6天到周一
+      dayStartOfWeek.setDate(dayDate.getDate() + dayDaysToMonday);
+      
+      // 确保日期部分一致（重置时间部分为00:00:00）
+      const normalizedStartOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate());
+      const normalizedDayStartOfWeek = new Date(dayStartOfWeek.getFullYear(), dayStartOfWeek.getMonth(), dayStartOfWeek.getDate());
+      
+      // 检查是否与当前查看的周是同一周
+      return day.completed && 
+        normalizedStartOfWeek.getTime() === normalizedDayStartOfWeek.getTime();
+    }).length : 0;
+    
+  const hasCompletedRequiredThisWeek = completedThisWeek >= requiredWeekCompletions;
+  
+  for (let i = 0; i < 7; i++) {
+    const currentDate = new Date(startOfWeek);
+    currentDate.setDate(startOfWeek.getDate() + i);
+    
+    // 使用本地日期格式而不是toISOString()，避免时区转换问题
+    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+    // 使用本地日期格式进行比较
+    const isTodayActual = isToday(dateStr);
+    
+    // 查找对应的打卡记录
+    const calendarRecord = habit.calendar.find(day => day.date === dateStr);
+    
+    // 检查是否是过去的日期（今天之前的日期）
+    // 使用本地日期比较，避免时区问题
+    const todayLocalDateStr = getToday();
+    const isPast = dateStr < todayLocalDateStr;
+    // 检查是否是未来的日期（今天之后的日期）
+    const isFuture = dateStr > todayLocalDateStr;
+    
+    // 对于weeklyN习惯，如果本周已经完成所需的打卡次数，则所有日期都显示为完成状态
+    const actualCompleted = calendarRecord ? calendarRecord.completed : false;
+    const isCompleted = hasCompletedRequiredThisWeek ? true : actualCompleted;
+    // 标识是否因为周频次逻辑而显示为完成（而非实际完成当天任务）
+    const isCompletedByWeeklyRule = hasCompletedRequiredThisWeek && !actualCompleted;
+    
+    weekData.push({
+      date: dateStr,
+      completed: isCompleted,
+      completedCount: calendarRecord ? calendarRecord.completedCount || 0 : 0,
+      targetCount: calendarRecord ? calendarRecord.targetCount || 1 : 1,
+      isPast,
+      isFuture,
+      isToday: isTodayActual,
+      isCompletedByWeeklyRule
+    });
+  }
+  
+  return weekData;
+};
+
+// 获取统计页面月视图数据
+const getStatsMonthViewData = (habit: Habit) => {
+  initializeStatsViewMode(habit);
+  const today = new Date();
+  const targetDate = new Date(today.getFullYear(), today.getMonth() + (habit.statsMonthOffset || 0), 1);
+  
+  // 获取当月第一天和最后一天
+  const firstDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+  const lastDay = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+  
+  // 获取当月第一天是星期几 (0=周日, 1=周一, ..., 6=周六)
+  // firstDay.getDay() 用于计算 prevMonthDays，已在 calculatePrevMonthDays 函数中使用
+  
+  // 计算当月第一天前面需要显示的上个月的天数
+  // 为确保日期与星期标题正确对应，需要根据星期计算偏移量
+  const prevMonthDays = calculatePrevMonthDays(firstDay);
+  
+  // 计算需要显示的总天数（5行7列）
+  const daysInMonth = lastDay.getDate();
+  const daysNeeded = 35; // 5行7列
+  
+  const monthData = [];
+  
+  // 添加上个月的日期
+  for (let i = prevMonthDays; i > 0; i--) {
+    const date = new Date(targetDate.getFullYear(), targetDate.getMonth(), -i + 1);
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    
+    // 查找对应的打卡记录
+    const calendarRecord = habit.calendar.find(day => day.date === dateStr);
+    
+    // 更精确地判断是否为当前月
+    const isCurrentMonth = (date.getMonth() === targetDate.getMonth() && 
+                          date.getFullYear() === targetDate.getFullYear());
+    
+    monthData.push({
+      date: dateStr,
+      completed: calendarRecord ? calendarRecord.completed : false,
+      isCurrentMonth: isCurrentMonth
+    });
+  }
+  
+  // 添加当前月的日期
+  for (let i = 1; i <= daysInMonth; i++) {
+    const date = new Date(targetDate.getFullYear(), targetDate.getMonth(), i);
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    
+    // 查找对应的打卡记录
+    const calendarRecord = habit.calendar.find(day => day.date === dateStr);
+    
+    // 更精确地判断是否为当前月
+    const isCurrentMonth = (date.getMonth() === targetDate.getMonth() && 
+                          date.getFullYear() === targetDate.getFullYear());
+    
+    monthData.push({
+      date: dateStr,
+      completed: calendarRecord ? calendarRecord.completed : false,
+      isCurrentMonth: isCurrentMonth
+    });
+  }
+  
+  // 添加下个月的日期，直到填满6行7列
+  const remainingDays = daysNeeded - monthData.length;
+  for (let i = 1; i <= remainingDays; i++) {
+    const date = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, i);
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    
+    // 查找对应的打卡记录
+    const calendarRecord = habit.calendar.find(day => day.date === dateStr);
+    
+    // 更精确地判断是否为当前月
+    const isCurrentMonth = (date.getMonth() === targetDate.getMonth() && 
+                          date.getFullYear() === targetDate.getFullYear());
+    
+    monthData.push({
+      date: dateStr,
+      completed: calendarRecord ? calendarRecord.completed : false,
+      isCurrentMonth: isCurrentMonth
+    });
+  }
+  
+  return monthData;
+};
+
+// 更改统计页面日历时间段
+const changeStatsCalendarPeriod = (habit: Habit, direction: number) => {
+  initializeStatsViewMode(habit);
+  
+  habit.statsMonthOffset = (habit.statsMonthOffset || 0) + direction;
+};
+
+// 获取当前时间段文本
+const getCurrentPeriodText = (habit: Habit) => {
+  initializeStatsViewMode(habit);
+  
+  const today = new Date();
+  const targetDate = new Date(today.getFullYear(), today.getMonth() + (habit.statsMonthOffset || 0), 1);
+  
+  const year = targetDate.getFullYear();
+  const month = targetDate.getMonth() + 1;
+  
+  // 根据语言环境格式化日期
+  if (window.siyuan?.languages?.zh_CN) {
+    return `${year}年${month}月`;
+  } else {
+    // 使用英文格式，例如 "January 2023"
+    return targetDate.toLocaleDateString(window.siyuan?.languages?.lang || 'en', { year: 'numeric', month: 'long' });
+  }
+};
+
+
+
+// 当前选中的习惯
+const selectedHabit = ref<Habit | null>(null);
+
+// 星期名称数组，支持国际化
+const weekdaysForCalendar = computed(() => {
+  // 根据当前语言环境返回相应的星期名称
+  if (window.siyuan?.languages?.zh_CN) {
+    return ['一', '二', '三', '四', '五', '六', '日'];
+  } else {
+    // 默认使用英文缩写
+    return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  }
+});
+
+
+// 计算当月第一天前需要显示的天数
+const calculatePrevMonthDays = (firstDay: Date) => {
+  // 获取当月第一天是星期几 (0=周日, 1=周一, ..., 6=周六)
+  const dayOfWeek = firstDay.getDay();
+  // 计算前面需要多少天来自上个月
+  // 为了让日期正确对应到星期标题，我们需要计算正确的偏移量
+  // 星期一(1) → 0天偏移, 星期二(2) → 1天偏移, ..., 星期日(0) → 6天偏移
+  return dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+};
+
+// 计算当前日期字符串
+const currentDateString = computed(() => {
+  const date = new Date(); // 直接获取当前日期，而不是使用currentDayInfo
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+  return `${month}/${day}/周${weekdays[date.getDay()]}`;
+});
+
+// 显示习惯统计页面
+const showHabitStats = (habit: Habit) => {
+  selectedHabit.value = habit;
+};
+
+// 显示编辑习惯模态框
+const showEditHabitModal = ref(false);
+const editedHabit = ref<Habit | null>(null);
+
+// 打开编辑习惯模态框
+const openEditHabitModal = () => {
+  if (selectedHabit.value) {
+    // 创建习惯的副本以避免直接修改原对象
+    editedHabit.value = JSON.parse(JSON.stringify(selectedHabit.value));
+    showEditHabitModal.value = true;
+  }
+};
+
+// 关闭编辑习惯模态框
+const closeEditHabitModal = () => {
+  showEditHabitModal.value = false;
+  editedHabit.value = null;
+};
+
+// 为编辑习惯选择emoji
+const selectEmojiForEdit = (emoji: string) => {
+  if (editedHabit.value) {
+    editedHabit.value.emoji = emoji;
+  }
+};
+
+// 处理timesPerDay变更
+const onTimesPerDayChange = (value: string | number) => {
+  if (editedHabit.value) {
+    editedHabit.value.timesPerDay = typeof value === 'string' ? parseInt(value) || 1 : value;
+  }
+};
+
+// 保存编辑后的习惯
+const saveEditedHabit = async () => {
+  if (editedHabit.value && selectedHabit.value) {
+    // 确保timesPerDay是数字类型
+    if (typeof editedHabit.value.timesPerDay === 'string') {
+      editedHabit.value.timesPerDay = parseInt(editedHabit.value.timesPerDay) || 1;
+    }
+    
+    // 更新原始习惯对象
+    Object.assign(selectedHabit.value, editedHabit.value);
+    
+    // 保存到存储
+    await saveHabits(habits.value);
+    
+    // 关闭模态框
+    closeEditHabitModal();
+  }
+};
+
+// 关闭统计页面
+const closeHabitStats = () => {
+  selectedHabit.value = null;
+};
+
+// 切换统计页面视图模式（已移除，统计页面只显示月视图）
+// const toggleStatsViewMode = (habit: Habit) => {
+//   initializeStatsViewMode(habit);
+//   habit.statsViewMode = habit.statsViewMode === 'month' ? 'week' : 'month';
+// };
+</script>
+
+<style lang="scss" scoped>
+.Pinch-habit-container {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 4px;
+  
+  .Pinch-habit-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    
+    h2 {
+      margin: 0;
+      color: var(--b3-theme-on-background);
+    }
+    
+    .icon {
+      margin-right: 4px;
+      vertical-align: middle;
+      width: 16px;
+      height: 16px;
+    }
+    
+    #add-habit-btn {
+      background: none;
+      border: none;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+      width: 28px;
+      height: 28px;
+      
+      svg {
+        color: var(--b3-theme-on-background);
+        width: 28px;
+        height: 28px;
+      }
+    }
+  }
+  
+  .habit-list {
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--b3-font-color1);
+      font-size: 16px;
+    }
+    
+    .habits-grid {
+      display: grid;
+      gap: 8px;
+    }
+    
+    .habit-card {
+      background: var(--b3-theme-background);
+      border-radius: 15px;
+      box-shadow: rgba(0, 0, 0, 0.03) 0px 1px 5px 0px;
+      
+      .habit-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        
+        .habit-title {
+          font-size: 16px;
+          font-weight: bold;
+          color: var(--b3-theme-on-background);
+          flex: 1;
+          margin-left: 2px;
+        }
+        
+        .habit-actions {
+          display: flex;
+          gap: 8px;
+        }
+      }
+      
+      .habit-stats {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--b3-border-color);
+        
+        .stats-item {
+          text-align: center;
+          
+          .stat-label {
+            display: block;
+            font-size: 12px;
+            color: var(--b3-font-color1);
+          }
+          
+          .stat-value {
+            display: block;
+            font-weight: bold;
+            color: var(--b3-theme-on-background);
+          }
+        }
+      }
+      
+      .habit-calendar {
+        .calendar-controls {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+          
+          .view-selector {
+            display: flex;
+            gap: 4px;
+            
+            .view-btn {
+              padding: 4px 8px;
+              border: 1px solid var(--b3-border-color);
+              background-color: var(--b3-list-background);
+              color: var(--b3-font-color1);
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 12px;
+              
+              &.active {
+                background-color: var(--b3-theme-primary);
+                color: var(--b3-theme-on-primary);
+                border-color: var(--b3-theme-primary);
+              }
+              
+              &:hover {
+                background-color: var(--b3-list-hover);
+              }
+            }
+          }
+          
+          .calendar-navigation {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            
+            .nav-btn {
+              padding: 2px 6px;
+              border: 1px solid var(--b3-border-color);
+              background-color: var(--b3-list-background);
+              color: var(--b3-font-color1);
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 12px;
+              
+              &:hover {
+                background-color: var(--b3-list-hover);
+              }
+            }
+            
+            .current-period {
+              font-size: 12px;
+              color: var(--b3-font-color1);
+              min-width: 120px;
+              text-align: center;
+            }
+          }
+        }
+        
+        .calendar-weekdays {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          text-align: center;
+          font-size: 12px;
+          color: var(--b3-font-color1);
+          margin-bottom: 4px;
+        }
+        
+        .calendar-days {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 2px;
+          
+          .calendar-day {
+            aspect-ratio: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            font-size: 12px;
+            background-color: var(--b3-list-background);
+            color: var(--b3-font-color1);
+            
+            &.completed {
+              background-color: var(--b3-success-background);
+              color: var(--b3-success-text);
+            }
+            
+            &.today {
+              border: 2px solid var(--b3-theme-primary);
+            }
+            
+            .day-number {
+              font-size: 12px;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    
+    .modal-content {
+      background-color: var(--b3-theme-surface);
+      border-radius: 10px;
+      width: 400px;
+      max-width: 90vw;
+      box-shadow: var(--b3-dialog-shadow);
+      
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px;
+        
+        h3 {
+          margin: 0;
+          color: var(--b3-theme-on-background);
+        }
+      }
+      
+      .modal-body {
+        padding: 16px;
+        
+        .form-group {
+          margin-bottom: 16px;
+          
+          label {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--b3-theme-on-background);
+            font-size: 14px;
+          }
+        }
+      }
+      
+      .modal-footer {
+        padding: 16px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+    }
+  }
+}
+
+.stats-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--b3-theme-surface);
+  z-index: 2;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  
+  .stats-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--b3-border-color);
+    
+    .stats-emoji {
+      font-size: 24px;
+      margin-right: 10px;
+    }
+    
+    .stats-title {
+      flex: 1;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    
+    .stats-header-buttons {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+  }
+  
+  .stats-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+      
+      .stat-item {
+        text-align: center;
+        background: var(--b3-list-background);
+        border-radius: 4px;
+        
+        .stat-value {
+          font-size: 24px;
+          font-weight: bold;
+          color: #ee6f5b;
+          margin-bottom: 4px;
+        }
+        
+        .stat-label {
+          font-size: 12px;
+          color: var(--b3-font-color1);
+        }
+      }
+    }
+    
+    .calendar-controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 16px;
+      padding: 8px;
+      background: var(--b3-list-background);
+      border-radius: 4px;
+      
+      .view-selector {
+        display: flex;
+        gap: 4px;
+        
+        .sy-button {
+          min-width: 60px;
+        }
+      }
+      
+      .calendar-navigation {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        justify-content: center;
+        
+        .nav-btn {
+          background: none;
+          border: none;
+          padding: 4px;
+          cursor: pointer;
+          border-radius: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background-color 0.2s;
+          
+          &:hover {
+            background-color: var(--b3-list-hover);
+          }
+          
+          &:active {
+            background-color: var(--b3-list-hover);
+          }
+        }
+        
+        .current-period {
+          min-width: 120px;
+          text-align: center;
+          font-size: 14px;
+        }
+      }
+    }
+    
+    .calendar-view {
+      flex: 1;
+      margin-bottom: 20px;
+      
+      .weekdays-header {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        text-align: center;
+        font-weight: bold;
+        margin-bottom: 8px;
+        color: var(--b3-font-color1);
+      }
+      
+      .week-view {
+        .week-data {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 4px;
+        }
+      }
+      
+      .month-view {
+        .month-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 8px;
+        }
+      }
+      
+      .day {
+        position: relative;
+        aspect-ratio: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        border-radius: 30%;
+        background: var(--b3-list-background);
+        cursor: default;
+        font-weight: 700;
+        transition: background-color 0.2s;
+        
+        &.completed {
+          background: #ee6f5b;
+          color: var(--b3-theme-background);
+          font-weight: bold;
+        }
+        
+        &.today {
+          box-shadow: 0 0 0 2px oklch(68.98% 0.161 30.76 / 0.3);
+        }
+        
+        &.not-current-month:not(.completed) {
+          color: var(--b3-theme-on-background);
+        }
+        &.not-current-month{
+          opacity: 0.3;
+        }
+        
+        &.past:not(.completed) {
+          color: oklch(68.98% 0.161 30.76 / 0.3);
+        }
+        
+        &.future:not(.completed) {
+          color: var(--b3-list-hover);
+        }
+        
+        .day-number {
+          font-size: 12px;
+        }
+      }
+    }
+    
+    .stats-actions {
+      display: flex;
+      justify-content: center;
+      margin-top: auto;
+      
+      .sy-button {
+        min-width: 120px;
+      }
+    }
+  }
+}
+
+.today-calendar {
+  margin-bottom: 20px;
+  padding: 16px;
+  background-color: var(--b3-theme-surface);
+  border: 1px solid var(--b3-border-color);
+  border-radius: var(--b3-border-radius);
+  box-shadow: var(--b3-point-shadow);
+  
+  .calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--b3-border-color);
+    
+    h3 {
+      margin: 0;
+      font-size: 16px;
+      color: var(--b3-theme-on-background);
+    }
+    
+    .calendar-actions {
+      display: flex;
+      gap: 8px;
+      
+      .sy-button {
+        min-width: 40px;
+      }
+    }
+  }
+  
+  .calendar-day {
+    .day-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding: 8px 0;
+      
+      .day-date {
+        font-size: 18px;
+        font-weight: bold;
+        color: var(--b3-theme-on-background);
+      }
+      
+      .day-weather {
+        font-size: 16px;
+      }
+    }
+    
+    .day-habits {
+      .habit-item {
+        display: flex;
+        align-items: center;
+        padding: 8px;
+        margin-bottom: 8px;
+        background-color: var(--b3-list-background);
+        border-radius: 4px;
+        
+        &:last-child {
+          margin-bottom: 0;
+        }
+        
+        .habit-emoji {
+          margin-right: 8px;
+          font-size: 18px;
+        }
+        
+        .habit-name {
+          flex: 1;
+          color: var(--b3-theme-on-background);
+        }
+        
+        .sy-checkbox {
+          margin-left: auto;
+        }
+      }
+      
+      .no-habits {
+        text-align: center;
+        padding: 20px;
+        color: var(--b3-font-color3);
+        font-style: italic;
+      }
+    }
+  }
+}
+
+.pomodoro-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  min-height: 400px;
+  padding: 20px;
+  
+  .pomodoro-display {
+    text-align: center;
+    width: 100%;
+    max-width: 400px;
+    padding: 30px;
+    background-color: var(--b3-theme-background);
+    border-radius: 16px;
+    
+    h2 {
+      margin: 0 0 30px 0;
+      font-size: 28px;
+      color: var(--b3-theme-on-background);
+      font-weight: 600;
+    }
+    
+    .timer {
+      font-size: 80px;
+      font-weight: bold;
+      color: #e74c3c;
+      margin: 20px 0;
+      text-align: center;
+      letter-spacing: 2px;
+      
+      &.pomodoro-running {
+        color: #e74c3c;
+      }
+      
+      &.pomodoro-short-break {
+        color: #3498db;
+      }
+      
+      &.pomodoro-long-break {
+        color: #2ecc71;
+      }
+    }
+    
+    .pomodoro-controls {
+      margin-top: 40px;
+      
+      .stop-btn {
+        background-color: #ff6b6b;
+        color: white;
+        border: none;
+        padding: 14px 28px;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.3s;
+        
+        &:hover {
+          background-color: #ff5252;
+        }
+      }
+    }
+  }
+}
+</style>

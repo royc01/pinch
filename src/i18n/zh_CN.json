@@ -1,0 +1,25 @@
+{
+  "addTopBarIcon": "HabitTracker",
+  "habitTracker": {
+    "title": "习惯打卡",
+    "addHabit": "添加习惯",
+    "habitName": "习惯名称",
+    "habitNamePlaceholder": "例如：晨跑、读书、喝水",
+    "frequency": "目标频率",
+    "reminderTime": "提醒时间",
+    "daily": "每天",
+    "weekly": "每周",
+    "custom": "自定义",
+    "checkIn": "打卡",
+    "checkedIn": "已打卡",
+    "delete": "删除",
+    "currentStreak": "连续打卡",
+    "totalCompletions": "总打卡",
+    "completionRate": "完成率",
+    "days": "天",
+    "times": "次",
+    "noHabits": "暂无习惯，点击上方按钮添加新习惯",
+    "clickToCheckIn": "点击打卡",
+    "confirmDelete": "确定要删除这个习惯吗？"
+  }
+}

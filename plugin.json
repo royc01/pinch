@@ -1,0 +1,33 @@
+{
+  "name": "Pinch-habit",
+  "author": "Roy",
+  "url": "https://github.com/royc01/pinch",
+  "version": "0.0.1",
+  "minAppVersion": "2.10.14",
+  "disabledInPublish": true,
+  "backends": [
+    "all"
+  ],
+  "frontends": [
+    "all"
+  ],
+  "displayName": {
+    "default": "Pinch Habit",
+    "en_US": "Pinch Habit",
+    "zh_CN": "片趣打卡"
+  },
+  "description": {
+    "default": "A habit tracking plugin for SiYuan",
+    "en_US": "A habit tracking plugin for SiYuan",
+    "zh_CN": "思源笔记习惯打卡插件"
+  },
+  "readme": {
+    "default": "README.md",
+    "en_US": "README.md",
+    "zh_CN": "README_zh_CN.md"
+  },
+  "funding": {
+    "custom": ["https://afdian.com/a/Savor"]
+  },
+  "keywords": ["habit", "tracker", "check-in"]
+}
