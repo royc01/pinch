@@ -27,6 +27,8 @@
           v-for="date in weekDates" 
           :key="date.fullDate"
           :class="['week-date-item', { today: date.isToday }]"
+          @mouseenter="showCustomTooltip(date.fullDate, $event)"
+          @mouseleave="hideCustomTooltip"
           @click="openMoodTracker(date.fullDate)">
           <span class="weekday-name">{{ date.dayName }}</span>
           <span v-if="moodData[date.fullDate] && moodData[date.fullDate].emoji" class="mood-emoji">
@@ -34,6 +36,13 @@
           </span>
           <div class="week-date-number">{{ date.date }}</div>
         </div>
+      </div>
+      
+      <!-- 自定义提示框 -->
+      <div v-if="tooltipVisible && tooltipContent" 
+           class="custom-tooltip" 
+           :style="tooltipStyle">
+        {{ tooltipContent }}
       </div>
 
       <div class="habit-list">
@@ -636,7 +645,7 @@
           </div>
           <div class="form-group">
             <label>今日心情</label>
-            <SyInput v-model="moodEntry.note" placeholder="记录今天的心情或事件..." />
+            <SyTextarea v-model="moodEntry.note" placeholder="记录今天的心情或事件..." class="mood-input" />
           </div>
         </div>
         <div class="modal-footer">
@@ -727,7 +736,7 @@
                 class="mood-list-item"
               >
                 <div class="mood-list-date">{{ entry.date.split('-')[2] }}</div>
-                <div class="mood-list-content">
+                <div class="mood-list-content" @click="openMoodTracker(entry.date)">
                   <div class="mood-list-emoji" v-html="getLargeMoodSvg(entry.mood.emoji)"></div>
                   <div class="mood-list-note">{{ entry.mood.note }}</div>
                 </div>
@@ -1413,7 +1422,7 @@
   font-size: 20px;
   padding: 4px;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 8px;
   margin: 2px;
   width: 40px;
   height: 40px;
@@ -1423,8 +1432,8 @@
 }
 
 .mood-emoji-option.selected {
-  background-color: #e3f2fd;
-  border: 2px solid #2196f3;
+  background-color: var(--b3-list-hover);
+  box-shadow: 0 0 0 2px #f98f7a;
 }
 
 .mood-emoji-grid {
@@ -1434,9 +1443,23 @@
   margin-top: 8px;
 }
 
+.mood-input {
+  height: 80px;
+  min-height: 60px;
+  resize: vertical;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
 .mood-svg {
-  width: 30px;
-  height: 30px;
+  width: 40px;
+  height: 40px;
 }
 
 .mood-svg svg {
@@ -1461,6 +1484,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
+import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue';
 import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
 
 // 辅助函数：格式化日期为 YYYY-MM-DD 格式
@@ -3903,6 +3927,14 @@ const moodEntry = ref({
   note: ''
 });
 
+// 自定义提示框相关
+const tooltipVisible = ref(false);
+const tooltipContent = ref('');
+const tooltipStyle = ref({
+  top: '0px',
+  left: '0px'
+});
+
 // 打开情绪打卡面板
 const openMoodTracker = async (date: string) => {
   selectedDate.value = date;
@@ -4101,6 +4133,30 @@ const currentMonthMoodEntries = computed(() => {
 // 切换情绪打卡月视图的月份
 const changeMoodCalendarMonth = (offset: number) => {
   moodCalendarCurrentMonth.value += offset;
+};
+
+// 显示自定义提示框
+const showCustomTooltip = (date: string, event: MouseEvent) => {
+  const moodEntry = moodData.value[date];
+  if (moodEntry && moodEntry.note) {
+    tooltipContent.value = moodEntry.note;
+    tooltipVisible.value = true;
+    
+    // 设置提示框位置，相对于鼠标位置
+    const tooltipX = event.clientX + 10;
+    const tooltipY = event.clientY - 0;
+    
+    tooltipStyle.value = {
+      top: `${tooltipY}px`,
+      left: `${tooltipX}px`
+    };
+  }
+};
+
+// 隐藏自定义提示框
+const hideCustomTooltip = () => {
+  tooltipVisible.value = false;
+  tooltipContent.value = '';
 };
 
 // 切换统计页面视图模式（已移除，统计页面只显示月视图）
@@ -4668,34 +4724,6 @@ const changeMoodCalendarMonth = (offset: number) => {
         width: 300px;
         max-height: 200px;
         overflow-y: auto;
-      }
-    }
-    
-    .mood-emoji-grid {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
-      gap: 8px;
-      margin-top: 8px;
-      
-      .mood-emoji-option {
-        font-size: 24px;
-        text-align: center;
-        cursor: pointer;
-        padding: 4px;
-        border-radius: 4px;
-        transition: background-color 0.2s;
-        
-        &.selected {
-          background-color: var(--b3-list-hover);
-        }
-        
-        .mood-svg {
-          width: 100%;
-          height: 30px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
       }
     }
   }
@@ -5657,5 +5685,20 @@ const changeMoodCalendarMonth = (offset: number) => {
   }
 }
 
+/* 自定义提示框样式 */
+.custom-tooltip {
+  position: fixed;
+  background-color: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  max-width: 300px;
+  word-wrap: break-word;
+  z-index: 1000;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
 
 </style>

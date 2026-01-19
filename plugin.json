@@ -2,7 +2,7 @@
   "name": "pinch",
   "author": "Roy",
   "url": "https://github.com/royc01/pinch",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "minAppVersion": "2.10.14",
   "disabledInPublish": true,
   "backends": [
@@ -17,7 +17,7 @@
   },
   "description": {
     "default": "A habit tracking plugin for SiYuan",
-    "zh_CN": "思源笔记习惯打卡插件"
+    "zh_CN": "每一次微小的坚持都值得记录"
   },
   "readme": {
     "default": "README.md",
