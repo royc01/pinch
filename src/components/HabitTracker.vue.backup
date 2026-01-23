@@ -7,15 +7,13 @@
           <div class="date-display">{{ currentDateString.split('/')[0] }}<span>.</span>{{ currentDateString.split('/')[1] }}<span>.</span>{{ currentDateString.split('/')[2] }}</div>
           <div class="header-buttons">
             <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn">
-              <svg t="1767958238562" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="5893" width="200" height="200"><path d="M512 85.290667C747.648 85.290667 938.666667 276.352 938.666667 512.042667c0 235.648-191.061333 426.709333-426.709334 426.709333-235.690667 0-426.752-191.061333-426.752-426.709333C85.248 276.352 276.309333 85.248 512 85.248zM360.96 630.784a32 32 0 0 0-50.261333 39.594667A255.616 255.616 0 0 0 512 768.085333c79.36 0 152.746667-36.394667 201.045333-97.450666a32 32 0 0 0-50.261333-39.68A191.616 191.616 0 0 1 512 704.085333c-59.690667 0-114.773333-27.306667-150.997333-73.301333zM384 373.333333a53.333333 53.333333 0 1 0 0 106.624A53.333333 53.333333 0 0 0 384 373.333333z m256 0a53.333333 53.333333 0 1 0 0 106.624 53.333333 53.333333 0 0 0 0-106.624z" fill="var(--b3-theme-on-background)" ></path></svg>
+              <Icon name="smile" width="26" height="26" class="icon" />
             </SyButton>
             <SyButton @click="showTotalStatsPage = true" id="stats-btn" class="stats-btn">
-              <svg t="1767958081939" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="4693" width="200" height="200"><path d="M64.67 512c2.03-148.27 27.78-271.04 103.07-344.26C240.96 92.45 363.73 66.7 512 64.67c148.27 2.03 271.04 27.78 344.26 103.07C931.55 240.96 957.3 363.73 959.33 512c-2.03 148.27-27.78 271.04-103.07 344.26C783.04 931.55 660.27 957.3 512 959.33c-148.27-2.03-271.04-27.78-344.26-103.07C92.45 783.04 66.7 660.27 64.67 512z" ></path><path d="M339.12 720.13c-26.83 0-48.77-21.95-48.77-48.77V446.89c0-26.83 21.95-48.77 48.77-48.77 26.83 0 48.77 21.95 48.77 48.77v224.47c0.01 26.82-21.94 48.77-48.77 48.77zM512 720.13c-26.83 0-48.77-21.95-48.77-48.77V352.64c0-26.83 21.95-48.77 48.77-48.77 26.83 0 48.77 21.95 48.77 48.77v318.71c0 26.83-21.94 48.78-48.77 48.78zM684.88 720.13c-26.83 0-48.77-21.95-48.77-48.77V533.13c0-26.83 21.95-48.77 48.77-48.77 26.83 0 48.77 21.95 48.77 48.77v138.23c0 26.82-21.95 48.77-48.77 48.77z" fill="var(--b3-theme-background)" ></path></svg>
+              <Icon name="stats" width="26" height="26" class="icon" />
             </SyButton>
             <SyButton @click="showAddHabitModal = true" id="add-habit-btn">
-              <svg t="1767249216319" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="1606" width="16" height="16">
-                <path d="M512.67794 65.291029C265.701966 65.004503 66.200236 263.518742 65.293587 510.472204c-0.916882 247.286036 198.739367 447.915449 446.048939 448.236767 247.38632 0.322341 447.196065-199.272509 447.366957-446.883957C958.882422 265.25734 759.426741 65.579601 512.67794 65.291029zM772.621251 544.93204c-0.64059 26.420743-15.491833 41.562605-41.989323 41.606607-47.989991 0.080841-95.982028 0.124843-143.972019 0.151449 0.01228 45.808302 0.017396 91.615581-0.026606 137.418766-0.033769 35.107589-13.380752 48.577369-48.030923 48.683792-19.839861 0.061398-39.694047 0.370437-59.528791-0.11154-26.414603-0.642636-41.552371-15.495926-41.596374-41.999556-0.079818-47.998177-0.12382-95.996354-0.150426-143.993508-47.941895-0.027629-95.882767-0.072655-143.826709-0.154519-26.546609-0.044002-41.48381-15.205307-42.060955-41.548278-0.478907-21.701255-0.385786-43.417859-0.038886-65.119113 0.438998-27.465538 15.230889-42.333154 42.967604-42.441625 47.653323-0.176009 95.307669-0.155543 142.959969-0.122797 0.027629-47.950082 0.072655-95.89914 0.154519-143.851269 0.041956-26.552749 15.20019-41.49302 41.537022-42.070164 21.694091-0.477884 43.408649-0.385786 65.103764-0.037862 27.460422 0.438998 42.323944 15.233959 42.432415 42.977837 0.176009 47.667649 0.155543 95.335299 0.122797 143.001925 45.796022-0.01228 91.591021-0.017396 137.38295 0.026606 35.100426 0.033769 48.565089 13.382798 48.671513 48.039109C772.796236 505.231853 773.105275 525.093203 772.621251 544.93204z" p-id="1607"></path>
-              </svg>
+              <Icon name="add" width="16" height="16" class="icon" />
             </SyButton>
           </div>
         </div>
@@ -70,27 +68,11 @@
                       :title="day.date"
                       @click="toggleDayCompletion(habit, day.date)"
                     >
-                      <svg
+                      <Icon
+                        :name="day.completed ? 'squareCheck' : 'square'"
+                        :completed="day.completed"
                         class="day-checkbox-icon"
-                        :class="{ completed: day.completed }"
-                        viewBox="0 0 1024 1024"
-                        width="16"
-                        height="16"
-                        xmlns="http://www.w3.org/2000/svg"
-                        >
-                        <path 
-                          v-if="!day.completed"
-                          d="M698.8,1024H325.2C145.6,1024,0,878.4,0,698.8V325.2C0,145.6,145.6,0,325.2,0h373.7
-	C878.4,0,1024,145.6,1024,325.2v373.7C1024,878.4,878.4,1024,698.8,1024z"
-                        ></path>
-                        <path 
-                          v-else
-                          d="M698.8,0H325.2C145.6,0,0,145.6,0,325.2v373.7C0,878.4,145.6,1024,325.2,1024h373.7
-	c179.6,0,325.2-145.6,325.2-325.2V325.2C1024,145.6,878.4,0,698.8,0z M749.4,364.5L526.7,720.7c-8.9,14.3-23.8,23.8-40.6,25.8
-	c-2,0.2-3.9,0.3-5.9,0.3c-14.6,0-28.6-5.9-39-16.6l-136.4-140c-21.6-22.4-21.5-57.8,0-80.2c20.8-21.6,55.1-22.2,76.7-1.4
-	c0.5,0.5,0.9,0.9,1.4,1.4l87.9,90.3l185.7-296.9c16.5-26.3,50.6-34,76.3-17.1C758.4,303.1,765.8,338.2,749.4,364.5z"
-                        ></path>
-                      </svg>
+                      />
                     </div>
                   </div>
                 </div>
@@ -111,41 +93,31 @@
                                     <div class="ray"></div>
                                     <div class="ray"></div>
                                   </div>
-                    <svg v-if="habit.usePomodoro && habit.pomodoroRemaining !== undefined" :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
-                    </svg>
-                    <svg v-else-if="!habit.usePomodoro && (habit.completedToday || (habit.timesPerDay && habit.timesPerDay > 1 && getHabitCache(habit.id).todayCompletionCount === 0) || !habit.timesPerDay || habit.timesPerDay <= 1)" :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
-                    </svg>
-                    <svg v-else-if="habit.timesPerDay && habit.timesPerDay > 1 && getHabitCache(habit.id).todayCompletionCount > 0 && getHabitCache(habit.id).todayCompletionCount < habit.timesPerDay" 
-                         class="progress-pie" 
-                         width="26" 
-                         height="26" 
+                    <svg v-if="habit.timesPerDay && habit.timesPerDay > 1 && getHabitCache(habit.id).todayCompletionCount > 0 && getHabitCache(habit.id).todayCompletionCount < habit.timesPerDay"
+                         class="progress-pie"
+                         width="26"
+                         height="26"
                          viewBox="0 0 26 26">
                       <clipPath id="rect-clip">
                         <rect x="0" y="0" width="26" height="26" rx="8" ry="8" />
                       </clipPath>
-                      <rect class="progress-pie__background" 
-                            x="0" 
-                            y="0" 
-                            width="26" 
-                            height="26" 
-                            rx="8" 
-                            ry="8" 
+                      <rect class="progress-pie__background"
+                            x="0"
+                            y="0"
+                            width="26"
+                            height="26"
+                            rx="8"
+                            ry="8"
                             fill="var(--b3-list-hover)" />
                       <g clip-path="url(#rect-clip)">
-                        <path class="progress-pie__progress" 
+                        <path class="progress-pie__progress"
                               :d="getHabitCache(habit.id).piePath"
                               fill="#f98f7a" />
                       </g>
                       <text x="13" y="16" text-anchor="middle" class="progress-pie__text">{{ getHabitCache(habit.id).todayCompletionCount }}</text>
                     </svg>
-                    <span class="pomodoro-timer" v-else-if="habit.usePomodoro && habit.pomodoroRemaining !== undefined">
-                      {{ formatPomodoroTime(habit.pomodoroRemaining) }}
-                    </span>
-                    <svg v-else :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
-                    </svg>
+                    <Icon v-else name="check" :completed="habit.completedToday" class="icon" />
+
                   </SyButton>
                 </div>
               </div>
@@ -162,19 +134,13 @@
                 </div>
                 <div class="pomodoro-controls-inline">
                   <button @click="togglePomodoroPause" v-if="!habit.isPomodoroPaused" class="pause-btn">
-                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                      <path d="M768 912c-44.16 0-80-35.84-80-80V192a80 80 0 0 1 160 0v640c0 44.16-35.84 80-80 80zM256 912c-44.16 0-80-35.84-80-80V192a80 80 0 0 1 160 0v640c0 44.16-35.84 80-80 80z" ></path>
-                    </svg>
+                    <Icon name="pause" width="16" height="16" class="icon" />
                   </button>
                   <button @click="togglePomodoroResume" v-if="habit.isPomodoroPaused" class="resume-btn">
-                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                      <path d="M897.143467 597.051733l-464.648534 311.5264c-46.976 31.488-110.592 18.944-142.08-28.023466A102.4 102.4 0 0 1 273.066667 823.5264V200.4736c0-56.5504 45.8496-102.4 102.4-102.4a102.4 102.4 0 0 1 57.028266 17.348267l464.64 311.5264c46.976 31.488 59.528533 95.104 28.032 142.08a102.4 102.4 0 0 1-28.023466 28.023466z"></path>
-                    </svg>
+                    <Icon name="play" width="16" height="16" class="icon" />
                   </button>
                   <button @click="stopCurrentPomodoro" class="stop-btn">
-                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                      <path d="M722.9375 933.875H301.0625a210.9375 210.9375 0 0 1-210.9375-210.9375V301.0625a210.9375 210.9375 0 0 1 210.9375-210.9375h421.875a210.9375 210.9375 0 0 1 210.9375 210.9375v421.875a210.9375 210.9375 0 0 1-210.9375 210.9375z"></path>
-                    </svg>
+                    <Icon name="stop" width="16" height="16" class="icon" />
                   </button>
                 </div>
               </div>
@@ -190,15 +156,11 @@
       <div class="stats-header">
         <div class="stats-header-content">
           <button @click="openEditHabitModal" class="icon-button">
-            <svg class="icon" viewBox="0 0 200 200" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-              <path d="M0,190c0-5.5,4.5-10,10-10h0h180c5.5,0,10,4.5,10,10c0,5.5-4.5,10-10,10c0,0,0,0,0,0H10C4.5,200,0,195.5,0,190 L0,190L0,190z M133.5,0c2.7,0,5.2,1.1,7.1,2.9l36.5,36.5c3.9,3.9,3.9,10.2,0,14.1L73.7,157.1c-1.9,1.9-4.4,2.9-7.1,2.9H30 c-5.5,0-10-4.5-10-10l0,0v-36.4c0-2.7,1-5.2,2.9-7.1L126.4,2.9C128.3,1.1,130.8,0,133.5,0z" ></path>
-            </svg>
+            <Icon name="edit" width="16" height="16" class="icon" />
           </button>
           <div class="stats-title">{{ selectedHabit.name }}</div>
           <button @click="closeHabitStats" class="icon-button">
-            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" ></path>
-            </svg>
+            <Icon name="close" width="16" height="16" class="icon" />
           </button>
         </div>
         <div class="stats-emoji">{{ selectedHabit.emoji || '📝' }}</div>
@@ -214,15 +176,11 @@
           <div class="calendar-controls">
             <div class="calendar-navigation">
               <button @click="changeStatsCalendarPeriod(selectedHabit, -1)" class="nav-btn">
-                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                  <path d="M747.245 81.064c-28.497-29.315-74.739-29.315-103.307 0l-367.236 378.011c-28.483 29.367-28.483 76.982 0 106.291l367.236 377.997c28.562 29.367 74.806 29.367 103.307 0 28.546-29.325 28.546-76.929 0-106.304l-315.6-324.841 315.599-324.803c28.545-29.367 28.544-76.973 0-106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
-                </svg>
+                <Icon name="right" width="16" height="16" class="icon" />
               </button>
               <span class="current-period">{{ getCurrentPeriodText(selectedHabit) }}</span>
               <button @click="changeStatsCalendarPeriod(selectedHabit, 1)" class="nav-btn">
-                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                  <path d="M276.755 942.936c28.497 29.315 74.739 29.315 103.307 0l367.236-378.011c28.483-29.367 28.483-76.982 0-106.291l-367.236-377.997c-28.562-29.367-74.806-29.367-103.307 0-28.546 29.325-28.546 76.929 0 106.304l315.6 324.841-315.599 324.803c-28.545 29.367-28.544 76.973 0 106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
-                </svg>
+                <Icon name="left" width="16" height="16" class="icon" />
               </button>
             </div>
           </div>
@@ -334,9 +292,7 @@
         <div class="stats-header-content">
           <div class="stats-title">统计总览</div>
           <button @click="showTotalStatsPage = false" class="icon-button">
-            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" ></path>
-            </svg>
+            <Icon name="close" width="16" height="16" class="icon" />
           </button>
         </div>
       </div>
@@ -441,9 +397,7 @@
         <div class="modal-header">
           <h3>编辑习惯</h3>
           <button @click="closeEditHabitModal" class="icon-button">
-            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`"></path>
-            </svg>
+            <Icon name="close" width="16" height="16" class="icon" />
           </button>
         </div>
         <div class="modal-body" v-if="editedHabit">
@@ -534,10 +488,8 @@
         <div class="modal-header">
           <h3>{{ t('habitTracker.addHabit') }}</h3>
           <button @click="showAddHabitModal = false" class="icon-button">
-                      <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                        <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`" p-id="23336"></path>
-                      </svg>
-                    </button>
+            <Icon name="close" width="16" height="16" class="icon" />
+          </button>
         </div>
         <div class="modal-body">
           <div class="form-group">
@@ -628,9 +580,7 @@
         <div class="modal-header">
           <h3>心情打卡 - {{ selectedDate }}</h3>
           <button @click="closeMoodTracker" class="icon-button">
-            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`"></path>
-            </svg>
+            <Icon name="close" width="16" height="16" class="icon" />
           </button>
         </div>
         <div class="modal-body">
@@ -667,9 +617,7 @@
         <div class="stats-header-content">
           <div class="stats-title">心情打卡月视图</div>
           <button @click="showMoodCalendar = false" class="icon-button">
-            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" ></path>
-            </svg>
+            <Icon name="close" width="16" height="16" class="icon" />
           </button>
         </div>
       </div>
@@ -694,15 +642,11 @@
           <div class="calendar-controls">
             <div class="calendar-navigation">
               <button @click="changeMoodCalendarMonth(-1)" class="nav-btn">
-                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                  <path d="M747.245 81.064c-28.497-29.315-74.739-29.315-103.307 0l-367.236 378.011c-28.483 29.367-28.483 76.982 0 106.291l367.236 377.997c28.562 29.367 74.806 29.367 103.307 0 28.546-29.325 28.546-76.929 0-106.304l-315.6-324.841 315.599-324.803c28.545-29.367 28.544-76.973 0-106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
-                </svg>
+                <Icon name="right" width="16" height="16" class="icon" />
               </button>
               <span class="current-period">{{ moodCalendarMonthYear }}</span>
               <button @click="changeMoodCalendarMonth(1)" class="nav-btn">
-                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
-                  <path d="M276.755 942.936c28.497 29.315 74.739 29.315 103.307 0l367.236-378.011c28.483-29.367 28.483-76.982 0-106.291l-367.236-377.997c-28.562-29.367-74.806-29.367-103.307 0-28.546 29.325-28.546 76.929 0 106.304l315.6 324.841-315.599 324.803c-28.545 29.367-28.544 76.973 0 106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
-                </svg>
+                <Icon name="left" width="16" height="16" class="icon" />
               </button>
             </div>
           </div>
@@ -1498,6 +1442,7 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue';
+import Icon from '@/components/Icon.vue';
 import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
 
 // 日期格式化缓存 - 避免重复创建 Date 对象和字符串
@@ -1549,7 +1494,7 @@ const formatTimelineDate = (date: Date | null): string => {
 // 通用打卡状态切换函数
 const toggleHabitCompletion = (habit: Habit, date: string) => {
   let dayRecord = habit.calendar.find(day => day.date === date);
-  
+
   // 如果指定日期的记录不存在，则创建一条新记录
   if (!dayRecord) {
     const timesPerDay = Math.min(typeof habit.timesPerDay === 'string' ? parseInt(habit.timesPerDay) || 1 : habit.timesPerDay || 1, 20);
@@ -1561,19 +1506,21 @@ const toggleHabitCompletion = (habit: Habit, date: string) => {
     };
     habit.calendar.push(dayRecord);
   }
-  
+
   // 检查是否已完成所有打卡任务
   const targetCount = typeof dayRecord.targetCount === 'string' ? parseInt(dayRecord.targetCount) || 1 : dayRecord.targetCount || 1;
   if (dayRecord.completed) {
-    // 如果已完成所有打卡任务，再次点击则重置打卡数据
-    dayRecord.completedCount = 0;
-    dayRecord.completed = false;
-    // 完成状态变为未完成时，移除时间戳
-    delete dayRecord.timestamp;
-    
-    // 如果完成状态变为未完成，且完成次数为0，从日历中移除该记录
-    if (dayRecord.completedCount === 0) {
-      habit.calendar = habit.calendar.filter(day => day.date !== date);
+    // 如果已完成所有打卡任务，再次点击则确认是否取消打卡
+    if (confirm('是否要取消打卡记录？')) {
+      dayRecord.completedCount = 0;
+      dayRecord.completed = false;
+      // 完成状态变为未完成时，移除时间戳
+      delete dayRecord.timestamp;
+
+      // 如果完成状态变为未完成，且完成次数为0，从日历中移除该记录
+      if (dayRecord.completedCount === 0) {
+        habit.calendar = habit.calendar.filter(day => day.date !== date);
+      }
     }
   } else {
     // 如果尚未完成所有打卡任务，则增加完成次数
@@ -1582,22 +1529,25 @@ const toggleHabitCompletion = (habit: Habit, date: string) => {
     }
     // 当完成次数达到目标次数时，标记为已完成
     dayRecord.completed = dayRecord.completedCount >= targetCount;
-    
+
     // 只在打卡完成时添加时间戳
     if (dayRecord.completed && !dayRecord.timestamp) {
       dayRecord.timestamp = Date.now();
     }
   }
-  
+
   // 更新当天是否完成的标记
   // 使用本地日期格式而不是toISOString()，避免时区转换问题
   const now = new Date();
   const todayStr = formatDate(now);
   habit.completedToday = date === todayStr && dayRecord.completed;
-  
+
   // 更新总完成次数和连续打卡天数
   habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
   habit.currentStreak = calculateCurrentStreak(habit);
+
+  // 触发响应式更新，确保缓存重新计算
+  habits.value = [...habits.value];
 };
 
 // 缓存清理配置
@@ -2288,6 +2238,19 @@ const toggleDayCompletion = async (habit: Habit, date: string) => {
 
   // 使用防抖保存优化性能
   await debouncedSaveHabits(habits.value);
+  // 触发响应式更新，确保缓存重新计算
+  habits.value = [...habits.value];
+  // 如果是周频率习惯，清除周完成状态缓存
+  if (habit.frequency?.startsWith('weekly')) {
+    const cacheKey = `${habit.id}-weeklyStatus-${getWeekStart(new Date()).toISOString().split('T')[0]}`;
+    weeklyCompletionCache.delete(cacheKey);
+  }
+  // 清除连续打卡缓存
+  const streakCacheKey = `${habit.id}-${Date.now() - (Date.now() % 86400000)}`;
+  streakCache.delete(streakCacheKey);
+  // 清除完成率缓存
+  const completionRateCacheKey = `${habit.id}-${Date.now()}`;
+  completionRateCache.delete(completionRateCacheKey);
 };
 
 // 获取习惯频率对应的周目标次数
@@ -2437,16 +2400,16 @@ const toggleHabit = async (habitId: string) => {
         // 使用本地日期格式而不是toISOString()，避免时区转换问题
         const today = getToday();
         let todayRecord = habit.calendar.find(day => day.date === today);
-        
+
         if (todayRecord) {
           // 清除当天所有打卡次数，重置为0
           todayRecord.completed = false;
           todayRecord.completedCount = 0;
         }
-        
+
         // 更新习惯的完成状态
         habit.completedToday = false;
-        
+
         // 重新计算连续打卡天数和总完成次数
         // 更新习惯统计：连续天数、总完成次数、本月完成率等
         habit.currentStreak = calculateCurrentMonthStreak(habit);
@@ -2469,7 +2432,7 @@ const toggleHabit = async (habitId: string) => {
         delete previousHabit.pomodoroRemaining;
         delete previousHabit.pomodoroState;
       }
-      
+
       // 设置当前激活的番茄钟习惯
       activePomodoroHabit.value = habit;
       // 启动番茄钟计时器
@@ -2518,7 +2481,12 @@ const toggleHabit = async (habitId: string) => {
       habit.currentStreak = calculateCurrentMonthStreak(habit);
       // 总完成次数
       habit.totalCompletions = calculateTotalMonthCompletions(habit);
+      // 清除周完成状态缓存
+      const cacheKey = `${habit.id}-weeklyStatus-${getWeekStart(new Date()).toISOString().split('T')[0]}`;
+      weeklyCompletionCache.delete(cacheKey);
       await immediateSaveHabits(habits.value);
+      // 触发响应式更新，确保缓存重新计算
+      habits.value = [...habits.value];
     }
     return;
   }
