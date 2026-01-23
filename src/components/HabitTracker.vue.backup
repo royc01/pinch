@@ -2242,35 +2242,33 @@ const addHabit = async () => {
     alert('请输入习惯名称');
     return;
   }
-  
-  // 限制 timesPerDay 最大值为 20
+
   const inputTimesPerDay = parseInt(newHabit.value.timesPerDay) || 1;
   if (inputTimesPerDay > 20) {
     alert('每日打卡次数不能超过20次');
     return;
   }
-  
+
   const timesPerDay = Math.min(inputTimesPerDay, 20);
-  
+
   const habit: Habit = {
     id: Date.now().toString(),
     name: newHabit.value.name,
     emoji: newHabit.value.emoji,
     frequency: newHabit.value.frequency,
-    timesPerDay: timesPerDay,
+    timesPerDay,
     completedToday: false,
     currentStreak: 0,
     totalCompletions: 0,
     calendar: generateCalendarData(),
     createdAt: new Date().toISOString(),
-    usePomodoro: newHabit.value.usePomodoro || false, // 是否使用番茄钟
-    pomodoroDuration: parseInt(newHabit.value.pomodoroDuration) || 25 // 番茄钟时长，默认25分钟
+    usePomodoro: newHabit.value.usePomodoro || false,
+    pomodoroDuration: parseInt(newHabit.value.pomodoroDuration) || 25
   };
-  
-  habits.value.push(habit);
+
+  habits.value = [...habits.value, habit];
   await saveHabits(habits.value);
-  
-  // 重置表单
+
   newHabit.value = {
     name: '',
     emoji: '',
@@ -2279,7 +2277,7 @@ const addHabit = async () => {
     usePomodoro: false,
     pomodoroDuration: '25'
   };
-  
+
   showAddHabitModal.value = false;
 };
 
@@ -3516,34 +3514,20 @@ const getHeatmapGridData = () => {
 };
 
 // 计算总习惯数
-const totalHabitsCount = computed(() => {
-  return habits.value.length;
-});
+const totalHabitsCount = computed(() => habits.value.length);
 
 // 计算总完成数
-const totalCompletionsCount = computed(() => {
-  let total = 0;
-  for (const habit of habits.value) {
-    // 使用reduce替代filter+length，一次遍历完成计算
-    total += habit.calendar.reduce((count, record) => record.completed ? count + 1 : count, 0);
-  }
-  return total;
-});
+const totalCompletionsCount = computed(() =>
+  habits.value.reduce((total, habit) =>
+    total + habit.calendar.reduce((count, record) => record.completed ? count + 1 : count, 0),
+  0
+  )
+);
 
 // 计算最长连续坚持天数
-const longestStreak = computed(() => {
-  let maxStreak = 0;
-  
-  for (const habit of habits.value) {
-    // 使用缓存版本的计算函数（如果有的话）
-    const streakResult = calculateLongestStreak(habit);
-    if (streakResult.streak > maxStreak) {
-      maxStreak = streakResult.streak;
-    }
-  }
-  
-  return maxStreak;
-});
+const longestStreak = computed(() =>
+  Math.max(...habits.value.map(habit => calculateLongestStreak(habit).streak), 0)
+);
 
 // 热力图网格数据
 const heatmapGridData = computed(() => {
@@ -3552,7 +3536,6 @@ const heatmapGridData = computed(() => {
 
 // 热力图月份标签
 const heatmapMonths = computed(() => {
-  const months = [];
   const weeks = heatmapGridData.value.weeks;
   const datePositions = new Map();
   
@@ -3574,48 +3557,30 @@ const heatmapMonths = computed(() => {
     }
   }
   
-  const sortedPositions = Array.from(datePositions.values()).sort((a, b) => a.position - b.position);
-  
-  for (let i = 1; i < sortedPositions.length; i++) {
-    const pos = sortedPositions[i];
-    const relativePosition = pos.position / 17;
-    const offset = relativePosition * 100;
-    
-    months.push({
+  return Array.from(datePositions.values())
+    .sort((a, b) => a.position - b.position)
+    .slice(1)
+    .map(pos => ({
       monthLabel: `${String(pos.month + 1).padStart(2, '0')}月`,
-      offset
-    });
-  }
-  
-  return months;
+      offset: (pos.position / 17) * 100
+    }));
 });
 
 
 // 初始化习惯视图模式
 const initializeHabitViewMode = (habit: Habit) => {
-  if (habit.currentWeekOffset === undefined) {
-    habit.currentWeekOffset = 0;
-  }
+  habit.currentWeekOffset ??= 0;
 };
 
 // 初始化统计页面视图模式
 const initializeStatsViewMode = (habit: Habit) => {
-  if (!habit.statsViewMode) {
-    habit.statsViewMode = 'month'; // 统计页面默认为月视图
-  }
-  if (habit.statsMonthOffset === undefined) {
-    habit.statsMonthOffset = 0;
-  }
-
+  habit.statsViewMode ??= 'month';
+  habit.statsMonthOffset ??= 0;
 };
 
 // 获取日历视图数据（用于习惯项，固定为周视图）
 const getCalendarViewData = (habit: Habit) => {
   initializeHabitViewMode(habit);
-  
-  // 直接使用当前日期，确保获取最新的日期
-  // 使用本地日期格式而不是toISOString()，避免时区转换问题
-  
   return getWeekViewData(habit);
 };
 
@@ -3625,38 +3590,21 @@ const getWeekViewData = (habit: Habit) => {
   const targetDate = new Date(todayDate);
   targetDate.setDate(todayDate.getDate() + (habit.currentWeekOffset || 0) * 7);
   
-  // 找到这一周的开始（周一）
   const startOfWeek = getWeekStart(targetDate);
-  
-  // 计算本周完成情况
   const weekCompletionData = getWeekCompletionData(habit, startOfWeek);
-  
-  // 生成一周的数据（周一到周日）
   const weekData = [];
+  const todayLocalDateStr = getToday();
   
   for (let i = 0; i < 7; i++) {
     const currentDate = new Date(startOfWeek);
     currentDate.setDate(startOfWeek.getDate() + i);
-    
-    // 使用本地日期格式而不是toISOString()，避免时区转换问题
     const dateStr = formatDate(currentDate);
-    // 使用本地日期格式进行比较
     const isTodayActual = isToday(dateStr);
-    
-    // 查找对应的打卡记录
     const calendarRecord = habit.calendar.find(day => day.date === dateStr);
-    
-    // 检查是否是过去的日期（今天之前的日期）
-    // 使用本地日期比较，避免时区问题
-    const todayLocalDateStr = getToday();
     const isPast = dateStr < todayLocalDateStr;
-    // 检查是否是未来的日期（今天之后的日期）
     const isFuture = dateStr > todayLocalDateStr;
-    
-    // 对于weeklyN习惯，如果本周已经完成所需的打卡次数，则所有日期都显示为完成状态
     const actualCompleted = calendarRecord ? calendarRecord.completed : false;
     const isCompleted = weekCompletionData.hasCompletedRequiredThisWeek ? true : actualCompleted;
-    // 标识是否因为周频次逻辑而显示为完成（而非实际完成当天任务）
     const isCompletedByWeeklyRule = weekCompletionData.hasCompletedRequiredThisWeek && !actualCompleted;
     
     weekData.push({
@@ -3764,22 +3712,15 @@ const getStatsMonthViewData = (habit: Habit) => {
 // 更改统计页面日历时间段
 const changeStatsCalendarPeriod = (habit: Habit, direction: number) => {
   initializeStatsViewMode(habit);
-  
   habit.statsMonthOffset = (habit.statsMonthOffset || 0) + direction;
 };
 
 // 获取当前时间段文本
 const getCurrentPeriodText = (habit: Habit) => {
   initializeStatsViewMode(habit);
-  
   const today = new Date();
   const targetDate = new Date(today.getFullYear(), today.getMonth() + (habit.statsMonthOffset || 0), 1);
-  
-  const year = targetDate.getFullYear();
-  const month = targetDate.getMonth() + 1;
-  
-  // 月份始终使用阿拉伯数字
-  return `${year}年${month}月`;
+  return `${targetDate.getFullYear()}年${targetDate.getMonth() + 1}月`;
 };
 
 
@@ -3836,7 +3777,6 @@ const getHabitCache = (habitId: string) => {
 
 // 当天日历相关
 const currentDayInfo = ref({
-  // 使用本地日期格式而不是toISOString()，避免时区转换问题
   date: formatDate(new Date()),
   dayOfWeek: new Date().getDay(),
   dayOfMonth: new Date().getDate(),
@@ -3845,25 +3785,13 @@ const currentDayInfo = ref({
 });
 
 // 星期名称数组，支持国际化
-const weekdaysForCalendar = computed(() => {
-  // 默认使用中文，根据当前语言环境返回相应的星期名称
-  if (window.siyuan?.languages?.zh_CN) {
-    return ['一', '二', '三', '四', '五', '六', '日'];
-  } else {
-    // 默认使用中文
-    return ['一', '二', '三', '四', '五', '六', '日'];
-  }
-});
+const weekdaysForCalendar = computed(() => ['一', '二', '三', '四', '五', '六', '日']);
 
 
 
 // 计算当月第一天前需要显示的天数
 const calculatePrevMonthDays = (firstDay: Date) => {
-  // 获取当月第一天是星期几 (0=周日, 1=周一, ..., 6=周六)
   const dayOfWeek = firstDay.getDay();
-  // 计算前面需要多少天来自上个月
-  // 为了让日期正确对应到星期标题，我们需要计算正确的偏移量
-  // 星期一(1) → 0天偏移, 星期二(2) → 1天偏移, ..., 星期日(0) → 6天偏移
   return dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 };
 
@@ -3878,20 +3806,13 @@ const currentDateString = computed(() => {
 
 // 获取习惯打卡频率的文本描述
 const getFrequencyText = (habit: Habit) => {
-  if (!habit.frequency) return '每天';
-  if (habit.frequency === 'daily') return '每天';
-  if (habit.frequency === 'weekly') return '每周1天';
-  if (habit.frequency === 'weekly1') return '每周1天';
-  if (habit.frequency === 'weekly2') return '每周2天';
-  if (habit.frequency === 'weekly3') return '每周3天';
-  if (habit.frequency === 'weekly4') return '每周4天';
-  if (habit.frequency === 'weekly5') return '每周5天';
-  if (habit.frequency === 'weekly6') return '每周6天';
-  // 检查是否存在customFrequency属性
-  if (habit.frequency === 'custom' && 'customFrequency' in habit && habit.customFrequency) {
-    return `每周${habit.customFrequency}天`;
+  if (!habit.frequency || habit.frequency === 'daily') return '每天';
+  const match = habit.frequency.match(/weekly(\d)/);
+  if (match) return `每周${match[1]}天`;
+  if (habit.frequency === 'custom' && (habit as any).customFrequency) {
+    return `每周${(habit as any).customFrequency}天`;
   }
-  return '每天'; // 默认
+  return '每天';
 };
 
 // 获取习惯创建日期的文本描述
@@ -3946,18 +3867,11 @@ const onTimesPerDayChange = (value: string | number) => {
 // 保存编辑后的习惯
 const saveEditedHabit = async () => {
   if (editedHabit.value && selectedHabit.value) {
-    // 确保timesPerDay是数字类型
     if (typeof editedHabit.value.timesPerDay === 'string') {
       editedHabit.value.timesPerDay = parseInt(editedHabit.value.timesPerDay) || 1;
     }
-    
-    // 更新原始习惯对象
     Object.assign(selectedHabit.value, editedHabit.value);
-    
-    // 保存到存储
     await immediateSaveHabits(habits.value);
-    
-    // 关闭模态框
     closeEditHabitModal();
   }
 };
@@ -3965,10 +3879,7 @@ const saveEditedHabit = async () => {
 // 暂停或恢复习惯打卡
 const togglePauseHabit = async (habit: Habit) => {
   if (habit) {
-    // 切换暂停状态
     habit.isPaused = !habit.isPaused;
-    
-    // 保存到存储
     await immediateSaveHabits(habits.value);
   }
 };
@@ -4000,46 +3911,27 @@ const tooltipStyle = ref({
 // 打开情绪打卡面板
 const openMoodTracker = async (date: string) => {
   selectedDate.value = date;
-  // 尝试加载已保存的情绪数据
   const moodData = await getMoodData();
   const dateEntry = moodData[date];
-  if (dateEntry) {
-    moodEntry.value = {
-      emoji: dateEntry.emoji || '',
-      note: dateEntry.note || ''
-    };
-  } else {
-    moodEntry.value = {
-      emoji: '',
-      note: ''
-    };
-  }
+  moodEntry.value = dateEntry ? {
+    emoji: dateEntry.emoji || '',
+    note: dateEntry.note || ''
+  } : { emoji: '', note: '' };
   showMoodTracker.value = true;
 };
 
 // 保存情绪打卡数据
 const saveMoodEntry = async () => {
   try {
-    // 获取现有的情绪数据
     const moodDataLocal = await getMoodData();
-    
-    // 更新当前日期的情绪数据
     moodDataLocal[selectedDate.value] = {
       emoji: moodEntry.value.emoji,
       note: moodEntry.value.note,
       timestamp: new Date().toISOString()
     };
-    
-    // 保存到插件数据
     await saveMoodData(moodDataLocal);
-    
-    // 更新本地情绪数据缓存
     moodData.value = moodDataLocal;
-    
-    // 关闭面板
     showMoodTracker.value = false;
-    
-
   } catch (error) {
     console.error('保存情绪数据失败:', error);
   }
@@ -4047,37 +3939,22 @@ const saveMoodEntry = async () => {
 
 // 删除情绪打卡数据
 const deleteMoodEntry = async () => {
-  if (selectedDate.value) {
-    try {
-      // 获取现有的情绪数据
-      const moodDataLocal = await getMoodData();
-      
-      // 删除当前日期的情绪数据
-      delete moodDataLocal[selectedDate.value];
-      
-      // 保存到插件数据
-      await saveMoodData(moodDataLocal);
-      
-      // 更新本地情绪数据缓存
-      moodData.value = moodDataLocal;
-      
-      // 关闭面板
-      showMoodTracker.value = false;
-      
-
-    } catch (error) {
-      console.error('删除情绪数据失败:', error);
-    }
+  if (!selectedDate.value) return;
+  try {
+    const moodDataLocal = await getMoodData();
+    delete moodDataLocal[selectedDate.value];
+    await saveMoodData(moodDataLocal);
+    moodData.value = moodDataLocal;
+    showMoodTracker.value = false;
+  } catch (error) {
+    console.error('删除情绪数据失败:', error);
   }
 };
 
 // 关闭情绪打卡面板
 const closeMoodTracker = () => {
   showMoodTracker.value = false;
-  moodEntry.value = {
-    emoji: '',
-    note: ''
-  };
+  moodEntry.value = { emoji: '', note: '' };
 };
 
 // 选择情绪emoji
@@ -4172,23 +4049,16 @@ const currentMonthMoodEntries = computed(() => {
   const currentYear = targetDate.getFullYear();
   const currentMonth = targetDate.getMonth();
   
-  // 过滤出当前月份的情绪记录
   const entries: { date: string; mood: { emoji: string; note: string } }[] = [];
   
-  // 避免重复创建Date对象，直接使用字符串比较
   for (const [dateStr, mood] of Object.entries(moodData.value)) {
-    // 提取年月部分进行比较，避免创建Date对象
     const [year, month] = dateStr.split('-').map(Number);
-    
-    // 检查是否为当前月份
     if (year === currentYear && month - 1 === currentMonth) {
       entries.push({ date: dateStr, mood });
     }
   }
   
-  // 按日期排序（从新到旧）
   entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  
   return entries;
 });
 
@@ -4200,17 +4070,12 @@ const changeMoodCalendarMonth = (offset: number) => {
 // 显示自定义提示框
 const showCustomTooltip = (date: string, event: MouseEvent) => {
   const moodEntry = moodData.value[date];
-  if (moodEntry && moodEntry.note) {
+  if (moodEntry?.note) {
     tooltipContent.value = moodEntry.note;
     tooltipVisible.value = true;
-    
-    // 设置提示框位置，相对于鼠标位置
-    const tooltipX = event.clientX + 10;
-    const tooltipY = event.clientY - 0;
-    
     tooltipStyle.value = {
-      top: `${tooltipY}px`,
-      left: `${tooltipX}px`
+      top: `${event.clientY}px`,
+      left: `${event.clientX + 10}px`
     };
   }
 };
