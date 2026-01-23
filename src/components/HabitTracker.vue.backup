@@ -7,13 +7,15 @@
           <div class="date-display">{{ currentDateString.split('/')[0] }}<span>.</span>{{ currentDateString.split('/')[1] }}<span>.</span>{{ currentDateString.split('/')[2] }}</div>
           <div class="header-buttons">
             <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn">
-              <Icon name="smile" width="26" height="26" class="icon" />
+              <svg t="1767958238562" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="5893" width="200" height="200"><path d="M512 85.290667C747.648 85.290667 938.666667 276.352 938.666667 512.042667c0 235.648-191.061333 426.709333-426.709334 426.709333-235.690667 0-426.752-191.061333-426.752-426.709333C85.248 276.352 276.309333 85.248 512 85.248zM360.96 630.784a32 32 0 0 0-50.261333 39.594667A255.616 255.616 0 0 0 512 768.085333c79.36 0 152.746667-36.394667 201.045333-97.450666a32 32 0 0 0-50.261333-39.68A191.616 191.616 0 0 1 512 704.085333c-59.690667 0-114.773333-27.306667-150.997333-73.301333zM384 373.333333a53.333333 53.333333 0 1 0 0 106.624A53.333333 53.333333 0 0 0 384 373.333333z m256 0a53.333333 53.333333 0 1 0 0 106.624 53.333333 53.333333 0 0 0 0-106.624z" fill="var(--b3-theme-on-background)" ></path></svg>
             </SyButton>
             <SyButton @click="showTotalStatsPage = true" id="stats-btn" class="stats-btn">
-              <Icon name="stats" width="26" height="26" class="icon" />
+              <svg t="1767958081939" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="4693" width="200" height="200"><path d="M64.67 512c2.03-148.27 27.78-271.04 103.07-344.26C240.96 92.45 363.73 66.7 512 64.67c148.27 2.03 271.04 27.78 344.26 103.07C931.55 240.96 957.3 363.73 959.33 512c-2.03 148.27-27.78 271.04-103.07 344.26C783.04 931.55 660.27 957.3 512 959.33c-148.27-2.03-271.04-27.78-344.26-103.07C92.45 783.04 66.7 660.27 64.67 512z" ></path><path d="M339.12 720.13c-26.83 0-48.77-21.95-48.77-48.77V446.89c0-26.83 21.95-48.77 48.77-48.77 26.83 0 48.77 21.95 48.77 48.77v224.47c0.01 26.82-21.94 48.77-48.77 48.77zM512 720.13c-26.83 0-48.77-21.95-48.77-48.77V352.64c0-26.83 21.95-48.77 48.77-48.77 26.83 0 48.77 21.95 48.77 48.77v318.71c0 26.83-21.94 48.78-48.77 48.78zM684.88 720.13c-26.83 0-48.77-21.95-48.77-48.77V533.13c0-26.83 21.95-48.77 48.77-48.77 26.83 0 48.77 21.95 48.77 48.77v138.23c0 26.82-21.95 48.77-48.77 48.77z" fill="var(--b3-theme-background)" ></path></svg>
             </SyButton>
             <SyButton @click="showAddHabitModal = true" id="add-habit-btn">
-              <Icon name="add" width="16" height="16" class="icon" />
+              <svg t="1767249216319" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="1606" width="16" height="16">
+                <path d="M512.67794 65.291029C265.701966 65.004503 66.200236 263.518742 65.293587 510.472204c-0.916882 247.286036 198.739367 447.915449 446.048939 448.236767 247.38632 0.322341 447.196065-199.272509 447.366957-446.883957C958.882422 265.25734 759.426741 65.579601 512.67794 65.291029zM772.621251 544.93204c-0.64059 26.420743-15.491833 41.562605-41.989323 41.606607-47.989991 0.080841-95.982028 0.124843-143.972019 0.151449 0.01228 45.808302 0.017396 91.615581-0.026606 137.418766-0.033769 35.107589-13.380752 48.577369-48.030923 48.683792-19.839861 0.061398-39.694047 0.370437-59.528791-0.11154-26.414603-0.642636-41.552371-15.495926-41.596374-41.999556-0.079818-47.998177-0.12382-95.996354-0.150426-143.993508-47.941895-0.027629-95.882767-0.072655-143.826709-0.154519-26.546609-0.044002-41.48381-15.205307-42.060955-41.548278-0.478907-21.701255-0.385786-43.417859-0.038886-65.119113 0.438998-27.465538 15.230889-42.333154 42.967604-42.441625 47.653323-0.176009 95.307669-0.155543 142.959969-0.122797 0.027629-47.950082 0.072655-95.89914 0.154519-143.851269 0.041956-26.552749 15.20019-41.49302 41.537022-42.070164 21.694091-0.477884 43.408649-0.385786 65.103764-0.037862 27.460422 0.438998 42.323944 15.233959 42.432415 42.977837 0.176009 47.667649 0.155543 95.335299 0.122797 143.001925 45.796022-0.01228 91.591021-0.017396 137.38295 0.026606 35.100426 0.033769 48.565089 13.382798 48.671513 48.039109C772.796236 505.231853 773.105275 525.093203 772.621251 544.93204z" p-id="1607"></path>
+              </svg>
             </SyButton>
           </div>
         </div>
@@ -49,7 +51,7 @@
         </div>
         <div v-else class="habits-grid">
           <transition-group name="habit-list" tag="div" class="habits-container">
-          <div v-for="habit in sortedHabits" :key="habit.id" :class="['habit-card', { 'completed': habit.completedToday || getHabitCache(habit.id).weeklyCompleted, 'paused': habit.isPaused }]">
+          <div v-for="habit in sortedHabits" :key="habit.id" :class="['habit-card', { 'completed': habit.completedToday || (habit.frequency && habit.frequency.startsWith('weekly') && getWeeklyCompletionStatus(habit)), 'paused': habit.isPaused }]">
             <div class="habit-week-view">
               <div class="week-habit-item">
                 <div class="emoji-section" @click="showHabitStats(habit)">
@@ -68,17 +70,33 @@
                       :title="day.date"
                       @click="toggleDayCompletion(habit, day.date)"
                     >
-                      <Icon
-                        :name="day.completed ? 'squareCheck' : 'square'"
-                        :completed="day.completed"
+                      <svg
                         class="day-checkbox-icon"
-                      />
+                        :class="{ completed: day.completed }"
+                        viewBox="0 0 1024 1024"
+                        width="16"
+                        height="16"
+                        xmlns="http://www.w3.org/2000/svg"
+                        >
+                        <path 
+                          v-if="!day.completed"
+                          d="M698.8,1024H325.2C145.6,1024,0,878.4,0,698.8V325.2C0,145.6,145.6,0,325.2,0h373.7
+	C878.4,0,1024,145.6,1024,325.2v373.7C1024,878.4,878.4,1024,698.8,1024z"
+                        ></path>
+                        <path 
+                          v-else
+                          d="M698.8,0H325.2C145.6,0,0,145.6,0,325.2v373.7C0,878.4,145.6,1024,325.2,1024h373.7
+	c179.6,0,325.2-145.6,325.2-325.2V325.2C1024,145.6,878.4,0,698.8,0z M749.4,364.5L526.7,720.7c-8.9,14.3-23.8,23.8-40.6,25.8
+	c-2,0.2-3.9,0.3-5.9,0.3c-14.6,0-28.6-5.9-39-16.6l-136.4-140c-21.6-22.4-21.5-57.8,0-80.2c20.8-21.6,55.1-22.2,76.7-1.4
+	c0.5,0.5,0.9,0.9,1.4,1.4l87.9,90.3l185.7-296.9c16.5-26.3,50.6-34,76.3-17.1C758.4,303.1,765.8,338.2,749.4,364.5z"
+                        ></path>
+                      </svg>
                     </div>
                   </div>
                 </div>
                 <div class="habit-actions">
                   <!-- 默认按钮 -->
-                  <SyButton @click="toggleHabit(habit.id)" :type="habit.completedToday || getHabitCache(habit.id).weeklyCompleted ? 'success' : 'default'" size="small" :class="['check-in-btn', { 'success-animation': showAnimation && animationHabitId === habit.id }]" :disabled="habit.isPaused">
+                  <SyButton @click="toggleHabit(habit.id)" :type="habit.completedToday || (habit.frequency && habit.frequency.startsWith('weekly') && getWeeklyCompletionStatus(habit)) ? 'success' : 'default'" size="small" :class="['check-in-btn', { 'success-animation': showAnimation && animationHabitId === habit.id }]" :disabled="habit.isPaused">
                                   <div v-if="showAnimation && animationHabitId === habit.id" class="rays-container">
                                     <div class="ray"></div>
                                     <div class="ray"></div>
@@ -93,31 +111,41 @@
                                     <div class="ray"></div>
                                     <div class="ray"></div>
                                   </div>
-                    <svg v-if="habit.timesPerDay && habit.timesPerDay > 1 && getHabitCache(habit.id).todayCompletionCount > 0 && getHabitCache(habit.id).todayCompletionCount < habit.timesPerDay"
-                         class="progress-pie"
-                         width="26"
-                         height="26"
+                    <svg v-if="habit.usePomodoro && habit.pomodoroRemaining !== undefined" :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
+                    </svg>
+                    <svg v-else-if="!habit.usePomodoro && (habit.completedToday || (habit.timesPerDay && habit.timesPerDay > 1 && getTodayCompletionCount(habit) === 0) || !habit.timesPerDay || habit.timesPerDay <= 1)" :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
+                    </svg>
+                    <svg v-else-if="habit.timesPerDay && habit.timesPerDay > 1 && getTodayCompletionCount(habit) > 0 && getTodayCompletionCount(habit) < habit.timesPerDay" 
+                         class="progress-pie" 
+                         width="26" 
+                         height="26" 
                          viewBox="0 0 26 26">
                       <clipPath id="rect-clip">
                         <rect x="0" y="0" width="26" height="26" rx="8" ry="8" />
                       </clipPath>
-                      <rect class="progress-pie__background"
-                            x="0"
-                            y="0"
-                            width="26"
-                            height="26"
-                            rx="8"
-                            ry="8"
+                      <rect class="progress-pie__background" 
+                            x="0" 
+                            y="0" 
+                            width="26" 
+                            height="26" 
+                            rx="8" 
+                            ry="8" 
                             fill="var(--b3-list-hover)" />
                       <g clip-path="url(#rect-clip)">
-                        <path class="progress-pie__progress"
-                              :d="getHabitCache(habit.id).piePath"
+                        <path class="progress-pie__progress" 
+                              :d="getLargePiePath(habit)"
                               fill="#f98f7a" />
                       </g>
-                      <text x="13" y="16" text-anchor="middle" class="progress-pie__text">{{ getHabitCache(habit.id).todayCompletionCount }}</text>
+                      <text x="13" y="16" text-anchor="middle" class="progress-pie__text">{{ getTodayCompletionCount(habit) }}</text>
                     </svg>
-                    <Icon v-else name="check" :completed="habit.completedToday" class="icon" />
-
+                    <span class="pomodoro-timer" v-else-if="habit.usePomodoro && habit.pomodoroRemaining !== undefined">
+                      {{ formatPomodoroTime(habit.pomodoroRemaining) }}
+                    </span>
+                    <svg v-else :class="{'completed': habit.completedToday}" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M417.79639 1024c-31.740625 0-62.423229-12.901028-85.153612-36.177486l-297.372113-305.324334a125.972738 125.972738 0 0 1 0.03413-174.812345 118.293555 118.293555 0 0 1 170.307224 0l191.60416 196.826004L802.165119 56.968961C838.103697-0.471331 912.608842-17.194886 968.547427 19.733454c55.972715 36.860081 72.218454 113.310618 36.279876 170.68265L519.161612 967.139913a120.170689 120.170689 0 0 1-88.464194 56.211623 130.37547 130.37547 0 0 1-12.901028 0.648464z"></path>
+                    </svg>
                   </SyButton>
                 </div>
               </div>
@@ -134,13 +162,19 @@
                 </div>
                 <div class="pomodoro-controls-inline">
                   <button @click="togglePomodoroPause" v-if="!habit.isPomodoroPaused" class="pause-btn">
-                    <Icon name="pause" width="16" height="16" class="icon" />
+                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M768 912c-44.16 0-80-35.84-80-80V192a80 80 0 0 1 160 0v640c0 44.16-35.84 80-80 80zM256 912c-44.16 0-80-35.84-80-80V192a80 80 0 0 1 160 0v640c0 44.16-35.84 80-80 80z" ></path>
+                    </svg>
                   </button>
                   <button @click="togglePomodoroResume" v-if="habit.isPomodoroPaused" class="resume-btn">
-                    <Icon name="play" width="16" height="16" class="icon" />
+                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M897.143467 597.051733l-464.648534 311.5264c-46.976 31.488-110.592 18.944-142.08-28.023466A102.4 102.4 0 0 1 273.066667 823.5264V200.4736c0-56.5504 45.8496-102.4 102.4-102.4a102.4 102.4 0 0 1 57.028266 17.348267l464.64 311.5264c46.976 31.488 59.528533 95.104 28.032 142.08a102.4 102.4 0 0 1-28.023466 28.023466z"></path>
+                    </svg>
                   </button>
                   <button @click="stopCurrentPomodoro" class="stop-btn">
-                    <Icon name="stop" width="16" height="16" class="icon" />
+                    <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                      <path d="M722.9375 933.875H301.0625a210.9375 210.9375 0 0 1-210.9375-210.9375V301.0625a210.9375 210.9375 0 0 1 210.9375-210.9375h421.875a210.9375 210.9375 0 0 1 210.9375 210.9375v421.875a210.9375 210.9375 0 0 1-210.9375 210.9375z"></path>
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -156,11 +190,15 @@
       <div class="stats-header">
         <div class="stats-header-content">
           <button @click="openEditHabitModal" class="icon-button">
-            <Icon name="edit" width="16" height="16" class="icon" />
+            <svg class="icon" viewBox="0 0 200 200" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M0,190c0-5.5,4.5-10,10-10h0h180c5.5,0,10,4.5,10,10c0,5.5-4.5,10-10,10c0,0,0,0,0,0H10C4.5,200,0,195.5,0,190 L0,190L0,190z M133.5,0c2.7,0,5.2,1.1,7.1,2.9l36.5,36.5c3.9,3.9,3.9,10.2,0,14.1L73.7,157.1c-1.9,1.9-4.4,2.9-7.1,2.9H30 c-5.5,0-10-4.5-10-10l0,0v-36.4c0-2.7,1-5.2,2.9-7.1L126.4,2.9C128.3,1.1,130.8,0,133.5,0z" ></path>
+            </svg>
           </button>
           <div class="stats-title">{{ selectedHabit.name }}</div>
           <button @click="closeHabitStats" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" ></path>
+            </svg>
           </button>
         </div>
         <div class="stats-emoji">{{ selectedHabit.emoji || '📝' }}</div>
@@ -176,11 +214,15 @@
           <div class="calendar-controls">
             <div class="calendar-navigation">
               <button @click="changeStatsCalendarPeriod(selectedHabit, -1)" class="nav-btn">
-                <Icon name="right" width="16" height="16" class="icon" />
+                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                  <path d="M747.245 81.064c-28.497-29.315-74.739-29.315-103.307 0l-367.236 378.011c-28.483 29.367-28.483 76.982 0 106.291l367.236 377.997c28.562 29.367 74.806 29.367 103.307 0 28.546-29.325 28.546-76.929 0-106.304l-315.6-324.841 315.599-324.803c28.545-29.367 28.544-76.973 0-106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+                </svg>
               </button>
               <span class="current-period">{{ getCurrentPeriodText(selectedHabit) }}</span>
               <button @click="changeStatsCalendarPeriod(selectedHabit, 1)" class="nav-btn">
-                <Icon name="left" width="16" height="16" class="icon" />
+                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                  <path d="M276.755 942.936c28.497 29.315 74.739 29.315 103.307 0l367.236-378.011c28.483-29.367 28.483-76.982 0-106.291l-367.236-377.997c-28.562-29.367-74.806-29.367-103.307 0-28.546 29.325-28.546 76.929 0 106.304l315.6 324.841-315.599 324.803c-28.545 29.367-28.544 76.973 0 106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+                </svg>
               </button>
             </div>
           </div>
@@ -292,7 +334,9 @@
         <div class="stats-header-content">
           <div class="stats-title">统计总览</div>
           <button @click="showTotalStatsPage = false" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" ></path>
+            </svg>
           </button>
         </div>
       </div>
@@ -397,7 +441,9 @@
         <div class="modal-header">
           <h3>编辑习惯</h3>
           <button @click="closeEditHabitModal" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`"></path>
+            </svg>
           </button>
         </div>
         <div class="modal-body" v-if="editedHabit">
@@ -416,34 +462,31 @@
                 class="emoji-picker-btn">
                 {{ editedHabit.emoji || '📝' }}
               </SyButton>
-              <div class="emoji-picker" v-show="showEmojiPicker">
-                <div v-if="emojisLoading" class="emoji-loading">加载中...</div>
-                <template v-else>
-                  <div class="emoji-categories">
-                    <div 
-                      v-for="(emojis, category) in emojiCategories" 
-                      :key="category" 
-                      class="emoji-category"
-                      :id="getEmojiCategoryId(category)">
-                      <h4>{{ category }}</h4>
-                      <div class="emoji-options-grid">
-                        <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmojiForEdit(emoji)">
-                          {{ emoji }}
-                        </div>
+              <div class="emoji-picker" v-if="showEmojiPicker">
+                <div class="emoji-categories">
+                  <div 
+                    v-for="(emojis, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-category"
+                    :id="'emoji-category-' + category.toLowerCase().replace(/\s+/g, '-')">
+                    <h4>{{ category }}</h4>
+                    <div class="emoji-options-grid">
+                      <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmojiForEdit(emoji)">
+                        {{ emoji }}
                       </div>
                     </div>
                   </div>
-                  <!-- 底部导航菜单 -->
-                  <div class="emoji-nav">
-                    <div 
-                      v-for="(_, category) in emojiCategories" 
-                      :key="category" 
-                      class="emoji-nav-item"
-                      @click="scrollToCategory(getEmojiCategoryId(category))">
-                      {{ getFixedEmojiForCategory(category) }}
-                    </div>
+                </div>
+                <!-- 底部导航菜单 -->
+                <div class="emoji-nav">
+                  <div 
+                    v-for="(_, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-nav-item"
+                    @click="scrollToCategory('emoji-category-' + category.toLowerCase().replace(/\s+/g, '-'))">
+                    {{ getFixedEmojiForCategory(category) }}
                   </div>
-                </template>
+                </div>
               </div>
             </div>
           </div>
@@ -488,8 +531,10 @@
         <div class="modal-header">
           <h3>{{ t('habitTracker.addHabit') }}</h3>
           <button @click="showAddHabitModal = false" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
-          </button>
+                      <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                        <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`" p-id="23336"></path>
+                      </svg>
+                    </button>
         </div>
         <div class="modal-body">
           <div class="form-group">
@@ -507,35 +552,32 @@
                 class="emoji-picker-btn">
                 📝
               </SyButton>
-              <div class="emoji-picker" v-show="showEmojiPicker">
-                <div v-if="emojisLoading" class="emoji-loading">加载中...</div>
-                <template v-else>
-                  <div class="emoji-categories">
-                    <div 
-                      v-for="(emojis, category) in emojiCategories" 
-                      :key="category" 
-                      class="emoji-category"
-                      :id="getEmojiCategoryId(category)">
+              <div class="emoji-picker" v-if="showEmojiPicker">
+                <div class="emoji-categories">
+                  <div 
+                    v-for="(emojis, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-category"
+                    :id="'emoji-category-' + category.toLowerCase().replace(/\s+/g, '-')">
 
-                      <h4>{{ category }}</h4>
-                      <div class="emoji-options-grid">
-                        <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmoji(emoji)">
-                          {{ emoji }}
-                        </div>
+                    <h4>{{ category }}</h4>
+                    <div class="emoji-options-grid">
+                      <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmoji(emoji)">
+                        {{ emoji }}
                       </div>
                     </div>
                   </div>
-                  <!-- 底部导航菜单 -->
-                  <div class="emoji-nav">
-                    <div 
-                      v-for="(_, category) in emojiCategories" 
-                      :key="category" 
-                      class="emoji-nav-item"
-                      @click="scrollToCategory(getEmojiCategoryId(category))">
-                      {{ getFixedEmojiForCategory(category) }}
-                    </div>
+                </div>
+                <!-- 底部导航菜单 -->
+                <div class="emoji-nav">
+                  <div 
+                    v-for="(_, category) in emojiCategories" 
+                    :key="category" 
+                    class="emoji-nav-item"
+                    @click="scrollToCategory('emoji-category-' + category.toLowerCase().replace(/\s+/g, '-'))">
+                    {{ getFixedEmojiForCategory(category) }}
                   </div>
-                </template>
+                </div>
               </div>
             </div>
           </div>
@@ -580,7 +622,9 @@
         <div class="modal-header">
           <h3>心情打卡 - {{ selectedDate }}</h3>
           <button @click="closeMoodTracker" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" :fill="`var(--b3-theme-on-background)`"></path>
+            </svg>
           </button>
         </div>
         <div class="modal-body">
@@ -617,7 +661,9 @@
         <div class="stats-header-content">
           <div class="stats-title">心情打卡月视图</div>
           <button @click="showMoodCalendar = false" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
+            <svg class="icon" viewBox="0 0 1026 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+              <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z" ></path>
+            </svg>
           </button>
         </div>
       </div>
@@ -642,11 +688,15 @@
           <div class="calendar-controls">
             <div class="calendar-navigation">
               <button @click="changeMoodCalendarMonth(-1)" class="nav-btn">
-                <Icon name="right" width="16" height="16" class="icon" />
+                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                  <path d="M747.245 81.064c-28.497-29.315-74.739-29.315-103.307 0l-367.236 378.011c-28.483 29.367-28.483 76.982 0 106.291l367.236 377.997c28.562 29.367 74.806 29.367 103.307 0 28.546-29.325 28.546-76.929 0-106.304l-315.6-324.841 315.599-324.803c28.545-29.367 28.544-76.973 0-106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+                </svg>
               </button>
               <span class="current-period">{{ moodCalendarMonthYear }}</span>
               <button @click="changeMoodCalendarMonth(1)" class="nav-btn">
-                <Icon name="left" width="16" height="16" class="icon" />
+                <svg class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+                  <path d="M276.755 942.936c28.497 29.315 74.739 29.315 103.307 0l367.236-378.011c28.483-29.367 28.483-76.982 0-106.291l-367.236-377.997c-28.562-29.367-74.806-29.367-103.307 0-28.546 29.325-28.546 76.929 0 106.304l315.6 324.841-315.599 324.803c-28.545 29.367-28.544 76.973 0 106.356l0 0z" :fill="`var(--b3-theme-on-background)`"></path>
+                </svg>
               </button>
             </div>
           </div>
@@ -763,13 +813,6 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   overflow-y: auto;
   width: 350px;
-}
-
-.emoji-loading {
-  padding: 20px;
-  text-align: center;
-  color: #666;
-  font-size: 14px;
 }
 
 .emoji-categories {
@@ -1442,7 +1485,6 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue';
-import Icon from '@/components/Icon.vue';
 import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
 
 // 日期格式化缓存 - 避免重复创建 Date 对象和字符串
@@ -1464,17 +1506,6 @@ const getCachedDate = (date: Date): string => {
 // 辅助函数：格式化日期为 YYYY-MM-DD 格式（使用缓存优化性能）
 const formatDate = getCachedDate;
 
-// 通用日期解析函数，缓存已解析的 Date 对象
-const dateParseCache = new Map<string, Date>();
-const parseDate = (dateStr: string): Date => {
-  if (!dateParseCache.has(dateStr)) {
-    const date = new Date(dateStr);
-    date.setHours(0, 0, 0, 0);
-    dateParseCache.set(dateStr, date);
-  }
-  return dateParseCache.get(dateStr)!;
-};
-
 const formatTimelineDate = (date: Date | null): string => {
   if (!date) return '';
   
@@ -1494,7 +1525,7 @@ const formatTimelineDate = (date: Date | null): string => {
 // 通用打卡状态切换函数
 const toggleHabitCompletion = (habit: Habit, date: string) => {
   let dayRecord = habit.calendar.find(day => day.date === date);
-
+  
   // 如果指定日期的记录不存在，则创建一条新记录
   if (!dayRecord) {
     const timesPerDay = Math.min(typeof habit.timesPerDay === 'string' ? parseInt(habit.timesPerDay) || 1 : habit.timesPerDay || 1, 20);
@@ -1506,21 +1537,19 @@ const toggleHabitCompletion = (habit: Habit, date: string) => {
     };
     habit.calendar.push(dayRecord);
   }
-
+  
   // 检查是否已完成所有打卡任务
   const targetCount = typeof dayRecord.targetCount === 'string' ? parseInt(dayRecord.targetCount) || 1 : dayRecord.targetCount || 1;
   if (dayRecord.completed) {
-    // 如果已完成所有打卡任务，再次点击则确认是否取消打卡
-    if (confirm('是否要取消打卡记录？')) {
-      dayRecord.completedCount = 0;
-      dayRecord.completed = false;
-      // 完成状态变为未完成时，移除时间戳
-      delete dayRecord.timestamp;
-
-      // 如果完成状态变为未完成，且完成次数为0，从日历中移除该记录
-      if (dayRecord.completedCount === 0) {
-        habit.calendar = habit.calendar.filter(day => day.date !== date);
-      }
+    // 如果已完成所有打卡任务，再次点击则重置打卡数据
+    dayRecord.completedCount = 0;
+    dayRecord.completed = false;
+    // 完成状态变为未完成时，移除时间戳
+    delete dayRecord.timestamp;
+    
+    // 如果完成状态变为未完成，且完成次数为0，从日历中移除该记录
+    if (dayRecord.completedCount === 0) {
+      habit.calendar = habit.calendar.filter(day => day.date !== date);
     }
   } else {
     // 如果尚未完成所有打卡任务，则增加完成次数
@@ -1529,64 +1558,28 @@ const toggleHabitCompletion = (habit: Habit, date: string) => {
     }
     // 当完成次数达到目标次数时，标记为已完成
     dayRecord.completed = dayRecord.completedCount >= targetCount;
-
+    
     // 只在打卡完成时添加时间戳
     if (dayRecord.completed && !dayRecord.timestamp) {
       dayRecord.timestamp = Date.now();
     }
   }
-
+  
   // 更新当天是否完成的标记
   // 使用本地日期格式而不是toISOString()，避免时区转换问题
   const now = new Date();
   const todayStr = formatDate(now);
   habit.completedToday = date === todayStr && dayRecord.completed;
-
+  
   // 更新总完成次数和连续打卡天数
   habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
   habit.currentStreak = calculateCurrentStreak(habit);
-
-  // 触发响应式更新，确保缓存重新计算
-  habits.value = [...habits.value];
 };
 
-// 缓存清理配置
-const CACHE_TTL = 86400000;
-const MAX_CACHE_SIZE = 1000;
-
-// 通用缓存获取函数
-const getCachedValue = <T>(
-  cache: Map<string, {result: T, timestamp: number}>,
-  key: string
-): T | null => {
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.result;
-  }
-  return null;
-};
-
-// 通用缓存设置函数
-const setCachedValue = <T>(
-  cache: Map<string, {result: T, timestamp: number}>,
-  key: string,
-  value: T
-): void => {
-  cache.set(key, { result: value, timestamp: Date.now() });
-  if (cache.size > MAX_CACHE_SIZE) {
-    const oldestKey = Array.from(cache.keys())[0];
-    cache.delete(oldestKey);
-  }
-};
-
-// 缓存清理函数
-const cleanExpiredCache = <T>(cache: Map<string, {result: T, timestamp: number}>) => {
-  const now = Date.now();
-  for (const [key, value] of cache.entries()) {
-    if (now - value.timestamp > CACHE_TTL) {
-      cache.delete(key);
-    }
-  }
+// 统一的更新习惯统计函数 - 减少重复代码
+const updateHabitStats = (habit: Habit) => {
+  habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+  habit.currentStreak = calculateCurrentStreak(habit);
 };
 
 // 缓存对象，用于存储计算结果
@@ -1594,39 +1587,60 @@ const streakCache = new Map<string, {result: number, timestamp: number}>();
 
 // 计算连续打卡天数 - 可用于当前连续或最长连续
 const calculateCurrentStreak = (habit: Habit, startDate?: Date) => {
-  const cacheKey = `${habit.id}-${startDate ? startDate.getTime() : 'none'}-${Date.now() - (Date.now() % 86400000)}`;
+  // 创建缓存键
+  const cacheKey = `${habit.id}-${startDate ? startDate.getTime() : 'none'}-${Date.now() - (Date.now() % 86400000)}`; // 包含日期但忽略时间
   
-  const cached = getCachedValue(streakCache, cacheKey);
-  if (cached !== null) return cached;
-  
-  let filteredCalendar = habit.calendar;
-  if (startDate) {
-    const startNormalized = new Date(startDate);
-    startNormalized.setHours(0, 0, 0, 0);
-    filteredCalendar = filteredCalendar.filter(record => parseDate(record.date) >= startNormalized);
+  // 检查缓存（每日重置）
+  const cached = streakCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < 86400000) { // 一天内有效
+    return cached.result;
   }
   
+  // 如果提供了起始日期，则从该日期开始计算连续天数
+  let filteredCalendar = habit.calendar;
+  if (startDate) {
+    // 使用本地日期比较，避免时区转换问题
+    const startNormalized = new Date(startDate);
+    startNormalized.setHours(0, 0, 0, 0);
+    filteredCalendar = filteredCalendar.filter(record => {
+      const recordDate = new Date(record.date);
+      recordDate.setHours(0, 0, 0, 0);
+      return recordDate >= startNormalized;
+    });
+  }
+  
+  // 按日期倒序排列（最近的日期在前）
   const sortedCalendar = filteredCalendar
-    .sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime());
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   
   let streak = 0;
+  
+  // 从最新日期开始计算连续天数
   let expectedNextDate: Date | null = null;
   
   for (const day of sortedCalendar) {
-    if (!day.completed) break;
+    // 如果遇到未完成的记录，则停止计算
+    if (!day.completed) {
+      break; // 遇到未完成的天数就停止计算
+    }
     
-    const recordDate = parseDate(day.date);
+    const recordDate = new Date(day.date);
+    recordDate.setHours(0, 0, 0, 0);
     
+    // 如果是第一个完成的记录，或者日期是连续的
     if (expectedNextDate === null || recordDate.getTime() === expectedNextDate.getTime()) {
       streak++;
+      // 计算下一个期望的日期（前一天）
       expectedNextDate = new Date(recordDate);
       expectedNextDate.setDate(expectedNextDate.getDate() - 1);
     } else {
+      // 如果日期不连续，中断计算
       break;
     }
   }
   
-  setCachedValue(streakCache, cacheKey, streak);
+  // 缓存结果
+  streakCache.set(cacheKey, {result: streak, timestamp: Date.now()});
   
   return streak;
 };
@@ -1635,18 +1649,22 @@ const calculateCurrentStreak = (habit: Habit, startDate?: Date) => {
 const getMonthlyProgressData = (habit: Habit) => {
   const currentYear = new Date().getFullYear();
   
+  // 预先过滤出当年的数据，避免重复计算
   const yearlyData = habit.calendar.filter(record => {
-    const recordDate = parseDate(record.date);
+    const recordDate = new Date(record.date);
     return recordDate.getFullYear() === currentYear && record.completed;
   });
   
+  // 初始化12个月的数据
   const monthlyData = [];
   for (let month = 0; month < 12; month++) {
-    const monthEnd = new Date(currentYear, month + 1, 0);
-    const totalDays = monthEnd.getDate();
+    const monthEnd = new Date(currentYear, month + 1, 0); // 该月最后一天
+    const totalDays = monthEnd.getDate(); // 该月总天数
     
+    // 计算该月的打卡记录数，使用预过滤的数据
     const monthCompletions = yearlyData.filter(record => {
-      return parseDate(record.date).getMonth() === month;
+      const recordDate = new Date(record.date);
+      return recordDate.getMonth() === month;
     }).length;
     
     const percentage = totalDays > 0 ? Math.round((monthCompletions / totalDays) * 100) : 0;
@@ -1662,20 +1680,11 @@ const getMonthlyProgressData = (habit: Habit) => {
   return monthlyData;
 };
 
-// 缓存今天的日期，避免重复创建 Date 对象
-let cachedToday: string = '';
-let todayCacheTime: number = 0;
-
-// 获取今天日期的函数（带缓存优化）
+// 获取今天日期的函数
 const getToday = () => {
-  const now = Date.now();
-  // 如果缓存超过1分钟，重新计算
-  if (now - todayCacheTime > 60000 || !cachedToday) {
-    const today = new Date();
-    cachedToday = formatDate(today);
-    todayCacheTime = now;
-  }
-  return cachedToday;
+  const today = new Date();
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  return formatDate(today);
 };
 
 // 检查是否为今天
@@ -1687,7 +1696,6 @@ const isToday = (dateString: string) => {
 
 // 表情选择相关
 const showEmojiPicker = ref(false);
-const emojisLoading = ref(true);
 
 // 从思源笔记获取内置emoji配置 - 使用 shallowRef 优化性能（这些数据不需要深度响应式）
 const emojiCategories = shallowRef<Record<string, string[]>>({});
@@ -1802,11 +1810,11 @@ const extractEmojisFromItems = (items: any[]): string[] => {
 // 获取思源笔记内置emoji
 const loadSiyuanEmojis = async () => {
   try {
-    emojisLoading.value = true;
     const emojiConf: any = await getEmojiConf();
     if (emojiConf) {
       const categories: Record<string, string[]> = {};
 
+      // 处理数组格式的 emoji 配置
       if (Array.isArray(emojiConf)) {
         for (const emojiCategory of emojiConf) {
           if (emojiCategory?.items && Array.isArray(emojiCategory.items)) {
@@ -1817,14 +1825,17 @@ const loadSiyuanEmojis = async () => {
           }
         }
       } else {
+        // 处理对象格式的 emoji 配置
         for (const category in emojiConf) {
           const categoryData = emojiConf[category];
 
+          // 简单数组格式
           if (Array.isArray(categoryData)) {
             categories[category] = categoryData.map((item: any) => item.ch);
             continue;
           }
 
+          // 对象格式
           if (categoryData?.items && Array.isArray(categoryData.items)) {
             const categoryName = categoryData.title_zh_cn || categoryData.title || categoryData.id || category;
             if (categoryName !== '自定义' && categoryName !== 'Custom') {
@@ -1840,13 +1851,12 @@ const loadSiyuanEmojis = async () => {
 
       emojiCategories.value = categories;
 
+      // 将所有emoji合并为一个数组
       const allEmojis = Object.values(categories).flat();
       commonEmojis.value = allEmojis;
     }
   } catch (error) {
     console.error('获取思源笔记emoji配置失败:', error);
-  } finally {
-    emojisLoading.value = false;
   }
 };
 
@@ -1863,17 +1873,19 @@ const selectEmoji = (emoji: string) => {
 
 // 滚动到指定分类
 const scrollToCategory = (categoryId: string) => {
+  // 直接尝试滚动，不使用 nextTick，因为可能在不同上下文中有不同表现
   const element = document.getElementById(categoryId);
   
   if (element) {
     element.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } else {
-    requestAnimationFrame(() => {
+    // 延时查找，适用于不同上下文
+    setTimeout(() => {
       const element2 = document.getElementById(categoryId);
       if (element2) {
         element2.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
-    });
+    }, 100);
   }
 };
 
@@ -2018,50 +2030,50 @@ const activePomodoroHabit = ref<Habit | null>(null);
 // 计算属性：按当天完成状态和周目标完成状态排序的习惯列表（未完成的在前）
 // 优化：使用缓存和预计算减少重复计算
 const sortedHabits = computed(() => {
-  // 直接使用预计算的缓存数据，避免重复调用函数
-  const habitStatusArray: Array<{
-    habit: Habit;
+  // 预计算所有习惯的完成状态，避免在排序函数中重复计算
+  const habitStatusCache = new Map<string, {
     isPaused: boolean;
     isCompleted: boolean;
     createdAt: number;
-  }> = [];
+  }>();
 
-  const animationStatusMap = animationOriginalStatus.value;
-
+  // 预计算并缓存每个习惯的状态
   for (const habit of habits.value) {
-    const cache = getHabitCache(habit.id);
     const isWeekly = habit.frequency && habit.frequency.startsWith('weekly');
-    const animationStatus = animationStatusMap[habit.id];
+    const weeklyCompleted = isWeekly && getWeeklyCompletionStatus(habit);
+    const animationStatus = animationOriginalStatus.value[habit.id];
 
-    habitStatusArray.push({
-      habit,
+    habitStatusCache.set(habit.id, {
       isPaused: habit.isPaused || false,
       isCompleted: isWeekly
-        ? (animationStatus !== undefined ? animationStatus : (habit.completedToday || cache.weeklyCompleted))
+        ? (animationStatus !== undefined ? animationStatus : (habit.completedToday || weeklyCompleted))
         : (animationStatus !== undefined ? animationStatus : habit.completedToday),
       createdAt: new Date(habit.createdAt).getTime()
     });
   }
 
-  // 使用数组进行排序
-  return habitStatusArray.sort((a, b) => {
+  // 使用缓存的状态进行排序
+  return [...habits.value].sort((a, b) => {
+    const aStatus = habitStatusCache.get(a.id)!;
+    const bStatus = habitStatusCache.get(b.id)!;
+
     // 首先处理暂停状态：暂停的习惯放在最后
-    if (a.isPaused && !b.isPaused) {
+    if (aStatus.isPaused && !bStatus.isPaused) {
       return 1;
-    } else if (!a.isPaused && b.isPaused) {
+    } else if (!aStatus.isPaused && bStatus.isPaused) {
       return -1;
     }
 
     // 比较完成状态：未完成的在前，已完成的在后
-    if (!a.isCompleted && b.isCompleted) {
+    if (!aStatus.isCompleted && bStatus.isCompleted) {
       return -1;
-    } else if (a.isCompleted && !b.isCompleted) {
+    } else if (aStatus.isCompleted && !bStatus.isCompleted) {
       return 1;
     } else {
       // 在相同完成状态下，按创建日期倒序排列（最新的在前）
-      return b.createdAt - a.createdAt;
+      return bStatus.createdAt - aStatus.createdAt;
     }
-  }).map(item => item.habit);
+  });
 });
 
 // 新习惯表单数据
@@ -2136,13 +2148,7 @@ onMounted(async () => {
       habit.completedToday = todayRecord ? todayRecord.completed : false;
     });
     
-    // 定期清理过期缓存（每小时清理一次）
-    cacheCleanupTimer = setInterval(() => {
-      cleanExpiredCache(streakCache);
-      cleanExpiredCache(longestStreakCache);
-      cleanExpiredCache(completionRateCache);
-      cleanExpiredCache(weeklyCompletionCache);
-    }, 3600000) as unknown as number; // 1小时
+
     
   } catch (error) {
     console.error('Error initializing habits:', error);
@@ -2170,12 +2176,6 @@ onUnmounted(() => {
     clearInterval(pomodoroTimers[habitId]);
     delete pomodoroTimers[habitId];
   }
-  
-  // 清理缓存清理定时器
-  if (cacheCleanupTimer !== null) {
-    clearInterval(cacheCleanupTimer);
-    cacheCleanupTimer = null;
-  }
 });
 
 // 生成日历数据
@@ -2192,33 +2192,35 @@ const addHabit = async () => {
     alert('请输入习惯名称');
     return;
   }
-
+  
+  // 限制 timesPerDay 最大值为 20
   const inputTimesPerDay = parseInt(newHabit.value.timesPerDay) || 1;
   if (inputTimesPerDay > 20) {
     alert('每日打卡次数不能超过20次');
     return;
   }
-
+  
   const timesPerDay = Math.min(inputTimesPerDay, 20);
-
+  
   const habit: Habit = {
     id: Date.now().toString(),
     name: newHabit.value.name,
     emoji: newHabit.value.emoji,
     frequency: newHabit.value.frequency,
-    timesPerDay,
+    timesPerDay: timesPerDay,
     completedToday: false,
     currentStreak: 0,
     totalCompletions: 0,
     calendar: generateCalendarData(),
     createdAt: new Date().toISOString(),
-    usePomodoro: newHabit.value.usePomodoro || false,
-    pomodoroDuration: parseInt(newHabit.value.pomodoroDuration) || 25
+    usePomodoro: newHabit.value.usePomodoro || false, // 是否使用番茄钟
+    pomodoroDuration: parseInt(newHabit.value.pomodoroDuration) || 25 // 番茄钟时长，默认25分钟
   };
-
-  habits.value = [...habits.value, habit];
+  
+  habits.value.push(habit);
   await saveHabits(habits.value);
-
+  
+  // 重置表单
   newHabit.value = {
     name: '',
     emoji: '',
@@ -2227,7 +2229,7 @@ const addHabit = async () => {
     usePomodoro: false,
     pomodoroDuration: '25'
   };
-
+  
   showAddHabitModal.value = false;
 };
 
@@ -2238,19 +2240,6 @@ const toggleDayCompletion = async (habit: Habit, date: string) => {
 
   // 使用防抖保存优化性能
   await debouncedSaveHabits(habits.value);
-  // 触发响应式更新，确保缓存重新计算
-  habits.value = [...habits.value];
-  // 如果是周频率习惯，清除周完成状态缓存
-  if (habit.frequency?.startsWith('weekly')) {
-    const cacheKey = `${habit.id}-weeklyStatus-${getWeekStart(new Date()).toISOString().split('T')[0]}`;
-    weeklyCompletionCache.delete(cacheKey);
-  }
-  // 清除连续打卡缓存
-  const streakCacheKey = `${habit.id}-${Date.now() - (Date.now() % 86400000)}`;
-  streakCache.delete(streakCacheKey);
-  // 清除完成率缓存
-  const completionRateCacheKey = `${habit.id}-${Date.now()}`;
-  completionRateCache.delete(completionRateCacheKey);
 };
 
 // 获取习惯频率对应的周目标次数
@@ -2307,24 +2296,35 @@ const getWeekCompletionData = (habit: Habit, startOfWeek: Date) => {
 
 // 检查周目标是否已完成
 const getWeeklyCompletionStatus = (habit: Habit) => {
-  if (!habit.frequency?.startsWith('weekly')) {
+  if (!habit.frequency || !habit.frequency.startsWith('weekly')) {
     return false;
   }
   
-  const cacheKey = `${habit.id}-weeklyStatus-${getWeekStart(new Date()).toISOString().split('T')[0]}`;
+  // 创建缓存键
+  const cacheKey = `${habit.id}-weeklyStatus-${getWeekStart(new Date()).toISOString().split('T')[0]}`; // 按周缓存
   
-  const cached = getCachedValue(weeklyCompletionCache, cacheKey);
-  if (cached !== null) return cached;
+  // 检查缓存
+  const cached = weeklyCompletionCache.get(cacheKey);
+  if (cached) {
+    return cached.result;
+  }
   
+  // 获取每周需要完成的次数
   const requiredWeekCompletions = getWeeklyTarget(habit.frequency);
+  
+  // 获取本周周一的日期
   const thisWeekStart = getWeekStart(new Date());
   
+  // 计算本周已完成的打卡次数 - 使用reduce替代filter+length提高性能
   const completedThisWeek = habit.calendar.reduce((count, day) => {
     return (day.completed && isSameWeek(new Date(day.date), thisWeekStart)) ? count + 1 : count;
   }, 0);
   
+  // 检查是否已完成本周所需的打卡次数
   const result = completedThisWeek >= requiredWeekCompletions;
-  setCachedValue(weeklyCompletionCache, cacheKey, result);
+  
+  // 缓存结果
+  weeklyCompletionCache.set(cacheKey, {result, timestamp: Date.now()});
   
   return result;
 };
@@ -2344,9 +2344,6 @@ const getTodayCompletionCount = (habit: Habit) => {
 
 // 番茄钟相关变量
 let pomodoroTimers: { [key: string]: number } = {};
-
-// 缓存清理定时器 ID
-let cacheCleanupTimer: number | null = null;
 
 // 内联番茄钟进度条相关计算
 const inlineRadius = ref(45);
@@ -2400,20 +2397,18 @@ const toggleHabit = async (habitId: string) => {
         // 使用本地日期格式而不是toISOString()，避免时区转换问题
         const today = getToday();
         let todayRecord = habit.calendar.find(day => day.date === today);
-
+        
         if (todayRecord) {
           // 清除当天所有打卡次数，重置为0
           todayRecord.completed = false;
           todayRecord.completedCount = 0;
         }
-
+        
         // 更新习惯的完成状态
         habit.completedToday = false;
-
+        
         // 重新计算连续打卡天数和总完成次数
-        // 更新习惯统计：连续天数、总完成次数、本月完成率等
-        habit.currentStreak = calculateCurrentMonthStreak(habit);
-        habit.totalCompletions = calculateTotalMonthCompletions(habit);
+        updateHabitStats(habit);
 
         await immediateSaveHabits(habits.value);
       }
@@ -2432,7 +2427,7 @@ const toggleHabit = async (habitId: string) => {
         delete previousHabit.pomodoroRemaining;
         delete previousHabit.pomodoroState;
       }
-
+      
       // 设置当前激活的番茄钟习惯
       activePomodoroHabit.value = habit;
       // 启动番茄钟计时器
@@ -2443,52 +2438,58 @@ const toggleHabit = async (habitId: string) => {
   
 
   
-  if (habit.frequency?.startsWith('weekly') && getWeeklyCompletionStatus(habit)) {
-    if (confirm('是否要取消打卡记录？')) {
-      const today = new Date();
-      const todayWeekday = today.getDay();
-      const daysToMonday = todayWeekday === 0 ? -6 : 1 - todayWeekday;
-      const thisWeekMonday = new Date(today);
-      thisWeekMonday.setDate(today.getDate() + daysToMonday);
-      
-      const weeklyCompletedDays = habit.calendar
-        .filter(day => {
-          const dayDate = parseDate(day.date);
-          const dayDayOfWeek = dayDate.getDay();
-          const dayDaysToMonday = dayDayOfWeek === 0 ? -6 : 1 - dayDayOfWeek;
-          const dayStartOfWeek = new Date(dayDate);
-          dayStartOfWeek.setDate(dayDate.getDate() + dayDaysToMonday);
-          
-          const normalizedStartOfWeek = new Date(thisWeekMonday.getFullYear(), thisWeekMonday.getMonth(), thisWeekMonday.getDate());
-          const normalizedDayStartOfWeek = new Date(dayStartOfWeek.getFullYear(), dayStartOfWeek.getMonth(), dayStartOfWeek.getDate());
-          
-          return day.completed && normalizedStartOfWeek.getTime() === normalizedDayStartOfWeek.getTime();
-        })
-        .sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime());
-      
-      if (weeklyCompletedDays.length > 0) {
-        const lastCompletedDay = weeklyCompletedDays[0];
-        lastCompletedDay.completed = false;
-        lastCompletedDay.completedCount = 0;
-        if (lastCompletedDay.date === getToday()) {
-          habit.completedToday = false;
+  // 检查是否为周频次习惯且已完成本周目标
+  if (habit.frequency && habit.frequency.startsWith('weekly')) {
+    if (getWeeklyCompletionStatus(habit)) {
+      // 如果周目标已完成，点击按钮应取消完成状态
+      if (confirm('是否要取消打卡记录？')) {
+        // 找到本周所有已完成的记录并取消完成状态
+        const today = new Date();
+        // 计算本周的周一
+        const todayWeekday = today.getDay();
+        const daysToMonday = todayWeekday === 0 ? -6 : 1 - todayWeekday; // 周日是0，需要向前推6天到周一
+        const thisWeekMonday = new Date(today);
+        thisWeekMonday.setDate(today.getDate() + daysToMonday);
+        
+        // 找到本周所有已完成的打卡记录，按日期倒序排列
+        const weeklyCompletedDays = habit.calendar
+          .filter(day => {
+            const dayDate = new Date(day.date);
+            // 计算这个日期属于哪一周（周一为一周的开始）
+            const dayStartOfWeek = new Date(dayDate);
+            const dayDayOfWeek = dayDate.getDay();
+            const dayDaysToMonday = dayDayOfWeek === 0 ? -6 : 1 - dayDayOfWeek; // 周日是0，需要向前推6天到周一
+            dayStartOfWeek.setDate(dayDate.getDate() + dayDaysToMonday);
+            
+            // 确保日期部分一致（重置时间部分为00:00:00）
+            const normalizedStartOfWeek = new Date(thisWeekMonday.getFullYear(), thisWeekMonday.getMonth(), thisWeekMonday.getDate());
+            const normalizedDayStartOfWeek = new Date(dayStartOfWeek.getFullYear(), dayStartOfWeek.getMonth(), dayStartOfWeek.getDate());
+            
+            // 检查是否与当前查看的周是同一周
+            return day.completed && 
+              normalizedStartOfWeek.getTime() === normalizedDayStartOfWeek.getTime();
+          })
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        // 取消最后一条打卡记录的完成状态
+        if (weeklyCompletedDays.length > 0) {
+          const lastCompletedDay = weeklyCompletedDays[0];
+          lastCompletedDay.completed = false;
+          lastCompletedDay.completedCount = 0;
+          // 重置当天的完成状态
+          if (lastCompletedDay.date === getToday()) {
+            habit.completedToday = false;
+          }
+          delete lastCompletedDay.timestamp;
         }
-        delete lastCompletedDay.timestamp;
+        
+        // 重新计算连续打卡天数和总完成次数
+        updateHabitStats(habit);
+
+        await immediateSaveHabits(habits.value);
       }
-      
-      // 更新习惯统计：连续天数、总完成次数、本月完成率等
-      // 连续天数
-      habit.currentStreak = calculateCurrentMonthStreak(habit);
-      // 总完成次数
-      habit.totalCompletions = calculateTotalMonthCompletions(habit);
-      // 清除周完成状态缓存
-      const cacheKey = `${habit.id}-weeklyStatus-${getWeekStart(new Date()).toISOString().split('T')[0]}`;
-      weeklyCompletionCache.delete(cacheKey);
-      await immediateSaveHabits(habits.value);
-      // 触发响应式更新，确保缓存重新计算
-      habits.value = [...habits.value];
+      return; // 退出函数，不执行后续打卡逻辑
     }
-    return;
   }
   
   // 使用本地日期格式而不是toISOString()，避免时区转换问题
@@ -3101,71 +3102,96 @@ const longestStreakCache = new Map<string, {result: { streak: number, startDate:
 
 // 计算最长连续打卡数
 const calculateLongestStreak = (habit: Habit) => {
-  const cacheKey = `${habit.id}-longestStreak-${Date.now() - (Date.now() % 86400000)}`;
+  // 创建缓存键
+  const cacheKey = `${habit.id}-longestStreak-${Date.now() - (Date.now() % 86400000)}`; // 包含日期但忽略时间
   
-  const cached = getCachedValue(longestStreakCache, cacheKey);
-  if (cached !== null) return cached;
+  // 检查缓存（每日重置）
+  const cached = longestStreakCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < 86400000) { // 一天内有效
+    return cached.result;
+  }
   
-  if (!habit.calendar?.length) {
+  if (!habit.calendar || habit.calendar.length === 0) {
+    // 缓存结果
     const result = { streak: 0, startDate: null, endDate: null };
-    setCachedValue(longestStreakCache, cacheKey, result);
+    longestStreakCache.set(cacheKey, {result, timestamp: Date.now()});
     return result;
   }
   
+  // 按日期排序打卡记录
   const sortedCalendar = [...habit.calendar]
-    .filter(record => record.completed)
-    .sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime());
+    .filter(record => record.completed) // 只考虑已完成的记录
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   
   if (sortedCalendar.length === 0) {
+    // 缓存结果
     const result = { streak: 0, startDate: null, endDate: null };
-    setCachedValue(longestStreakCache, cacheKey, result);
+    longestStreakCache.set(cacheKey, {result, timestamp: Date.now()});
     return result;
   }
   
   let maxStreak = 0;
   let currentStreak = 0;
   let previousDate: Date | null = null;
+  
+  // 追踪最长连续序列的起始和结束日期
   let maxStreakStartDate: Date | null = null;
   let maxStreakEndDate: Date | null = null;
+  
+  // 追踪当前连续序列的起始日期
   let currentStreakStartDate: Date | null = null;
   
   for (const record of sortedCalendar) {
     const currentDate = new Date(record.date);
     
     if (previousDate === null) {
+      // 第一个记录
       currentStreak = 1;
       currentStreakStartDate = new Date(currentDate);
     } else {
-      const diffDays = Math.floor((currentDate.getTime() - previousDate.getTime()) / 86400000);
+      // 计算与前一天的差值
+      const diffDays = Math.floor((currentDate.getTime() - previousDate.getTime()) / (1000 * 60 * 60 * 24));
       
       if (diffDays === 1) {
+        // 连续的天
         currentStreak++;
       } else if (diffDays > 1) {
+        // 中断了，检查是否需要更新最大连续数
         if (currentStreak > maxStreak) {
           maxStreak = currentStreak;
           maxStreakStartDate = currentStreakStartDate;
+          // 结束日期是前一个日期
           maxStreakEndDate = new Date(previousDate);
         }
+        // 重置当前连续数
         currentStreak = 1;
         currentStreakStartDate = new Date(currentDate);
       }
+      // 如果diffDays === 0，说明是同一天，不做处理
     }
     
     previousDate = currentDate;
   }
   
+  // 检查最后一个连续序列
   if (currentStreak > maxStreak) {
     maxStreak = currentStreak;
     maxStreakStartDate = currentStreakStartDate;
     maxStreakEndDate = previousDate;
   } else if (maxStreak === 0 && currentStreak > 0) {
+    // 如果整个序列都是连续的
     maxStreak = currentStreak;
     maxStreakStartDate = currentStreakStartDate;
     maxStreakEndDate = previousDate;
   }
   
-  const result = { streak: maxStreak, startDate: maxStreakStartDate, endDate: maxStreakEndDate };
-  setCachedValue(longestStreakCache, cacheKey, result);
+  // 缓存结果
+  const result = {
+    streak: maxStreak,
+    startDate: maxStreakStartDate,
+    endDate: maxStreakEndDate
+  };
+  longestStreakCache.set(cacheKey, {result, timestamp: Date.now()});
   
   return result;
 };
@@ -3256,38 +3282,56 @@ const weeklyCompletionCache = new Map<string, {result: boolean, timestamp: numbe
 
 // 计算总完成率
 const calculateTotalCompletionRate = (habit: Habit) => {
-  const cacheKey = `${habit.id}-completionRate-${Date.now() - (Date.now() % 86400000)}`;
+  // 创建缓存键
+  const cacheKey = `${habit.id}-completionRate-${Date.now() - (Date.now() % 86400000)}`; // 包含日期但忽略时间
   
-  const cached = getCachedValue(completionRateCache, cacheKey);
-  if (cached !== null) return cached;
-  
-  if (!habit.calendar?.length) {
-    setCachedValue(completionRateCache, cacheKey, 0);
-    return 0;
+  // 检查缓存（每日重置）
+  const cached = completionRateCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < 86400000) { // 一天内有效
+    return cached.result;
   }
   
-  if (habit.frequency.startsWith('weekly')) {
-    const result = calculateWeeklyHabitCompletionRate(habit);
-    setCachedValue(completionRateCache, cacheKey, result);
+  if (!habit.calendar || habit.calendar.length === 0) {
+    // 缓存结果
+    const result = 0;
+    completionRateCache.set(cacheKey, {result, timestamp: Date.now()});
     return result;
   }
   
+  // 检查是否为周频率习惯
+  if (habit.frequency.startsWith('weekly')) {
+    // 对于周频率习惯，需要按周来计算完成率
+    const result = calculateWeeklyHabitCompletionRate(habit);
+    completionRateCache.set(cacheKey, {result, timestamp: Date.now()});
+    return result;
+  }
+  
+  // 对于非周频率习惯，计算打卡天数/创建天数*100%
+  // 使用reduce替代循环来计算完成数量，提高性能
   const completedCount = habit.calendar.reduce((count, record) => record.completed ? count + 1 : count, 0);
   
+  // 计算从创建日期到今天的总天数
   const creationDate = new Date(habit.createdAt);
   const today = new Date();
+  
+  // 设置时间为0点0分0秒，避免时区问题
   creationDate.setHours(0, 0, 0, 0);
   today.setHours(0, 0, 0, 0);
   
-  const totalDays = Math.floor((today.getTime() - creationDate.getTime()) / 86400000) + 1;
+  // 计算总天数（包括今天）
+  const totalDays = Math.floor((today.getTime() - creationDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   
   if (totalDays <= 0) {
-    setCachedValue(completionRateCache, cacheKey, 0);
-    return 0;
+    const result = 0;
+    completionRateCache.set(cacheKey, {result, timestamp: Date.now()});
+    return result;
   }
   
-  const finalResult = Math.round((completedCount / totalDays) * 100);
-  setCachedValue(completionRateCache, cacheKey, finalResult);
+  const rate = (completedCount / totalDays) * 100;
+  const finalResult = Math.round(rate);
+  
+  // 缓存结果
+  completionRateCache.set(cacheKey, {result: finalResult, timestamp: Date.now()});
   return finalResult;
 };
 
@@ -3392,87 +3436,143 @@ const calculateBarHeight = (count: number) => {
 
 // 获取近18周的打卡数据用于热力图
 const getHeatmapData = () => {
+  // 创建一个空数组来存储18周的数据
   const heatmapData = [];
+  
+  // 获取当前日期
   const today = new Date();
+  
+  // 计算18周前的日期，确保包含本周
   const dayOfWeek = today.getDay();
-  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周日(0)映射到6天前，其他日期映射到相应天数前
   const thisMonday = new Date(today);
   thisMonday.setDate(today.getDate() - daysToSubtract);
-  const startDate = new Date(thisMonday);
-  startDate.setDate(thisMonday.getDate() - 17 * 7);
   
+  // 从18周前的周一开始计算，确保包含本周
+  const startDate = new Date(thisMonday);
+  startDate.setDate(thisMonday.getDate() - 17 * 7); // 17周前的周一，这样总共包含18周（含本周）
+  
+  // 遍历所有习惯
   for (const habit of habits.value) {
+    // 遍历习惯的打卡记录
     for (const record of habit.calendar) {
-      if (record.completed) {
-        const recordDate = parseDate(record.date);
+      if (record.completed) { // 只考虑已完成的记录
+        const recordDate = new Date(record.date);
         
+        // 检查记录是否在18周范围内
         if (recordDate >= startDate && recordDate <= today) {
+          // 将日期转换为YYYY-MM-DD格式字符串
           const dateStr = formatDate(recordDate);
+          
+          // 查找是否已有该日期的记录
           let dateEntry = heatmapData.find(entry => entry.date === dateStr);
           
           if (!dateEntry) {
-            dateEntry = { date: dateStr, count: 0 };
+            // 如果没有找到，创建新的日期记录
+            dateEntry = {
+              date: dateStr,
+              count: 0
+            };
             heatmapData.push(dateEntry);
           }
+          
+          // 增加该日期的打卡次数
           dateEntry.count++;
         }
       }
     }
   }
   
-  heatmapData.sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime());
+  // 按日期排序
+  heatmapData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  
+  // 计算最大打卡次数（用于颜色深度）
   const maxCount = heatmapData.length > 0 ? Math.max(...heatmapData.map(d => d.count), 1) : 1;
   
-  return { data: heatmapData, maxCount };
+  // 返回热力图数据和最大值
+  return {
+    data: heatmapData,
+    maxCount
+  };
 };
 
 // 获取热力图的星期和日期数据
 const getHeatmapGridData = () => {
   const today = new Date();
+  
+  // 计算18周前的开始日期，确保包含本周
+  // 计算到本周周一的日期（确保包含本周）
   const dayOfWeek = today.getDay();
-  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周日(0)映射到6天前，其他日期映射到相应天数前
   const thisMonday = new Date(today);
   thisMonday.setDate(today.getDate() - daysToSubtract);
-  const startMonday = new Date(thisMonday);
-  startMonday.setDate(thisMonday.getDate() - 17 * 7);
   
+  // 从18周前的周一开始计算
+  const startMonday = new Date(thisMonday);
+  startMonday.setDate(thisMonday.getDate() - 17 * 7); // 17周前的周一，这样总共包含18周（含本周）
+  
+  // 获取热力图数据
   const { data: heatmapData, maxCount } = getHeatmapData();
   
+  // 创建一个映射，以便快速查找特定日期的打卡次数
   const dateMap = {};
   heatmapData.forEach(item => {
     dateMap[item.date] = item.count;
   });
   
-  const weeks = [[], [], [], [], [], [], []];
+  // 生成数据：按星期组织，每一行代表一个特定的星期几
+  const weeks = [[], [], [], [], [], [], []]; // 每个数组代表一个星期中的某一天（周一到周日）
+  
+  // 计算从开始日期到当前日期的总天数
   const totalDays = 18 * 7;
   let currentDate = new Date(startMonday);
   
+  // 为每一天生成数据
   for (let i = 0; i < totalDays; i++) {
+    // 设置为当天的开始时间以避免时区问题
     currentDate.setHours(0, 0, 0, 0);
-    const dateStr = formatDate(currentDate);
-    const count = dateMap[dateStr] || 0;
-    const dayOfWeek = currentDate.getDay();
-    const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     
+    // 生成日期字符串
+    const dateStr = formatDate(currentDate);
+    
+    // 获取当天的打卡次数
+    const count = dateMap[dateStr] || 0;
+    
+    // 获取星期几 (0=周日, 1=周一, ..., 6=周六)
+    const dayOfWeek = currentDate.getDay();
+    // 将周日(0)转换为6，周一到周六分别是1-6，然后映射到数组索引0-6
+    const dayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周日(0)映射到索引6，周一(1)到周六(6)映射到索引0-5
+    
+    // 计算颜色强度 (0-4)
     let intensity = 0;
     if (maxCount > 0) {
-      if (count === 0) intensity = 0;
-      else if (count < maxCount * 0.25) intensity = 1;
-      else if (count < maxCount * 0.5) intensity = 2;
-      else if (count < maxCount * 0.75) intensity = 3;
-      else intensity = 4;
+      if (count === 0) {
+        intensity = 0; // 无打卡
+      } else if (count < maxCount * 0.25) {
+        intensity = 1; // 轻微打卡
+      } else if (count < maxCount * 0.5) {
+        intensity = 2; // 中等打卡
+      } else if (count < maxCount * 0.75) {
+        intensity = 3; // 高度打卡
+      } else {
+        intensity = 4; // 最高打卡
+      }
     }
     
+    // 将数据添加到对应的星期数组中
     weeks[dayIndex].push({
       date: dateStr,
-      count,
-      intensity,
+      count: count,
+      intensity: intensity,
       isCurrentYear: currentDate.getFullYear() === today.getFullYear()
     });
     
+    // 移动到下一天
     currentDate.setDate(currentDate.getDate() + 1);
   }
   
+  // 重新组织数据：weeks现在是一个包含7个数组的数组，每个数组代表一个特定的星期几
+  // weeks[0] = 周一数据, weeks[1] = 周二数据, ..., weeks[6] = 周日数据
   return {
     weeks,
     startDate: formatDate(startMonday),
@@ -3482,20 +3582,34 @@ const getHeatmapGridData = () => {
 };
 
 // 计算总习惯数
-const totalHabitsCount = computed(() => habits.value.length);
+const totalHabitsCount = computed(() => {
+  return habits.value.length;
+});
 
 // 计算总完成数
-const totalCompletionsCount = computed(() =>
-  habits.value.reduce((total, habit) =>
-    total + habit.calendar.reduce((count, record) => record.completed ? count + 1 : count, 0),
-  0
-  )
-);
+const totalCompletionsCount = computed(() => {
+  let total = 0;
+  for (const habit of habits.value) {
+    // 使用reduce替代filter+length，一次遍历完成计算
+    total += habit.calendar.reduce((count, record) => record.completed ? count + 1 : count, 0);
+  }
+  return total;
+});
 
 // 计算最长连续坚持天数
-const longestStreak = computed(() =>
-  Math.max(...habits.value.map(habit => calculateLongestStreak(habit).streak), 0)
-);
+const longestStreak = computed(() => {
+  let maxStreak = 0;
+  
+  for (const habit of habits.value) {
+    // 使用缓存版本的计算函数（如果有的话）
+    const streakResult = calculateLongestStreak(habit);
+    if (streakResult.streak > maxStreak) {
+      maxStreak = streakResult.streak;
+    }
+  }
+  
+  return maxStreak;
+});
 
 // 热力图网格数据
 const heatmapGridData = computed(() => {
@@ -3504,18 +3618,37 @@ const heatmapGridData = computed(() => {
 
 // 热力图月份标签
 const heatmapMonths = computed(() => {
-  const weeks = heatmapGridData.value.weeks;
+  const months = [];
+  
+  // 从热力图数据中获取月份信息
+  const heatmapData = heatmapGridData.value;
+  const weeks = heatmapData.weeks;
+  
+
+  
+  // 由于热力图是横向布局，星期作为Y轴，日期作为X轴
+  // weeks数组中有7个子数组，每个子数组代表一个星期中的某一天（周一到周日）
+  // 每个子数组中的元素是按时间顺序排列的（从过去到现在）
+  
+  // 为了正确计算月份标签的位置，我们需要知道在X轴方向上每个月的起始日期位置
+  // 因为X轴是时间轴，我们需要找到所有日期中每个月的首次出现位置
+  
+  // 创建一个映射来存储每个日期在X轴上的位置
   const datePositions = new Map();
   
+  // 遍历热力图数据，记录每个日期在X轴上的位置
+  // 对于每个星期中的某一天（比如所有周一、所有周二等），它们在X轴上是按时间顺序排列的
   for (let dayOfWeek = 0; dayOfWeek < weeks.length; dayOfWeek++) {
     const daysOfThisWeekday = weeks[dayOfWeek];
     
     for (let dateIndex = 0; dateIndex < daysOfThisWeekday.length; dateIndex++) {
       const day = daysOfThisWeekday[dateIndex];
-      const date = parseDate(day.date);
+      const date = new Date(day.date);
       const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
       
+      // 如果这个月份还没有记录位置，则记录这个日期在X轴上的位置
       if (!datePositions.has(monthKey)) {
+        // 这个日期在X轴上的位置是 dateIndex
         datePositions.set(monthKey, {
           year: date.getFullYear(),
           month: date.getMonth(),
@@ -3525,30 +3658,58 @@ const heatmapMonths = computed(() => {
     }
   }
   
-  return Array.from(datePositions.values())
-    .sort((a, b) => a.position - b.position)
-    .slice(1)
-    .map(pos => ({
+  // 将位置映射转换为数组并按位置排序
+  const sortedPositions = Array.from(datePositions.values()).sort((a, b) => a.position - b.position);
+  
+  // 为每个唯一的月份创建标签，跳过第一个月
+  for (let i = 1; i < sortedPositions.length; i++) { // 从索引1开始，跳过第一个月
+    const pos = sortedPositions[i];
+    
+    // 使用相对位置计算，基于数组长度
+    // 每个星期数组的长度是18（代表18周）
+    const totalPoints = 18; // 每个星期数组包含18个数据点（18周）
+    
+    // 计算相对位置，考虑到需要在日期格子的中心显示月份标签
+    const relativePosition = pos.position / (totalPoints - 1); // 归一化到0-1范围
+    
+    // 转换为百分比
+    const offset = relativePosition * 100; // 百分比形式
+    
+    months.push({
       monthLabel: `${String(pos.month + 1).padStart(2, '0')}月`,
-      offset: (pos.position / 17) * 100
-    }));
+      offset: offset // 这个值将用作百分比
+    });
+  }
+  
+  return months;
 });
 
 
 // 初始化习惯视图模式
 const initializeHabitViewMode = (habit: Habit) => {
-  habit.currentWeekOffset ??= 0;
+  if (habit.currentWeekOffset === undefined) {
+    habit.currentWeekOffset = 0;
+  }
 };
 
 // 初始化统计页面视图模式
 const initializeStatsViewMode = (habit: Habit) => {
-  habit.statsViewMode ??= 'month';
-  habit.statsMonthOffset ??= 0;
+  if (!habit.statsViewMode) {
+    habit.statsViewMode = 'month'; // 统计页面默认为月视图
+  }
+  if (habit.statsMonthOffset === undefined) {
+    habit.statsMonthOffset = 0;
+  }
+
 };
 
 // 获取日历视图数据（用于习惯项，固定为周视图）
 const getCalendarViewData = (habit: Habit) => {
   initializeHabitViewMode(habit);
+  
+  // 直接使用当前日期，确保获取最新的日期
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
+  
   return getWeekViewData(habit);
 };
 
@@ -3558,21 +3719,38 @@ const getWeekViewData = (habit: Habit) => {
   const targetDate = new Date(todayDate);
   targetDate.setDate(todayDate.getDate() + (habit.currentWeekOffset || 0) * 7);
   
+  // 找到这一周的开始（周一）
   const startOfWeek = getWeekStart(targetDate);
+  
+  // 计算本周完成情况
   const weekCompletionData = getWeekCompletionData(habit, startOfWeek);
+  
+  // 生成一周的数据（周一到周日）
   const weekData = [];
-  const todayLocalDateStr = getToday();
   
   for (let i = 0; i < 7; i++) {
     const currentDate = new Date(startOfWeek);
     currentDate.setDate(startOfWeek.getDate() + i);
+    
+    // 使用本地日期格式而不是toISOString()，避免时区转换问题
     const dateStr = formatDate(currentDate);
+    // 使用本地日期格式进行比较
     const isTodayActual = isToday(dateStr);
+    
+    // 查找对应的打卡记录
     const calendarRecord = habit.calendar.find(day => day.date === dateStr);
+    
+    // 检查是否是过去的日期（今天之前的日期）
+    // 使用本地日期比较，避免时区问题
+    const todayLocalDateStr = getToday();
     const isPast = dateStr < todayLocalDateStr;
+    // 检查是否是未来的日期（今天之后的日期）
     const isFuture = dateStr > todayLocalDateStr;
+    
+    // 对于weeklyN习惯，如果本周已经完成所需的打卡次数，则所有日期都显示为完成状态
     const actualCompleted = calendarRecord ? calendarRecord.completed : false;
     const isCompleted = weekCompletionData.hasCompletedRequiredThisWeek ? true : actualCompleted;
+    // 标识是否因为周频次逻辑而显示为完成（而非实际完成当天任务）
     const isCompletedByWeeklyRule = weekCompletionData.hasCompletedRequiredThisWeek && !actualCompleted;
     
     weekData.push({
@@ -3680,15 +3858,22 @@ const getStatsMonthViewData = (habit: Habit) => {
 // 更改统计页面日历时间段
 const changeStatsCalendarPeriod = (habit: Habit, direction: number) => {
   initializeStatsViewMode(habit);
+  
   habit.statsMonthOffset = (habit.statsMonthOffset || 0) + direction;
 };
 
 // 获取当前时间段文本
 const getCurrentPeriodText = (habit: Habit) => {
   initializeStatsViewMode(habit);
+  
   const today = new Date();
   const targetDate = new Date(today.getFullYear(), today.getMonth() + (habit.statsMonthOffset || 0), 1);
-  return `${targetDate.getFullYear()}年${targetDate.getMonth() + 1}月`;
+  
+  const year = targetDate.getFullYear();
+  const month = targetDate.getMonth() + 1;
+  
+  // 月份始终使用阿拉伯数字
+  return `${year}年${month}月`;
 };
 
 
@@ -3701,50 +3886,10 @@ const selectedHabitLongestStreak = computed(() =>
   selectedHabit.value ? calculateLongestStreak(selectedHabit.value) : { streak: 0, startDate: null, endDate: null }
 );
 
-// 预计算所有习惯的状态，避免在模板中重复调用函数
-const habitsCache = computed(() => {
-  const cache = new Map<string, {
-    weeklyCompleted: boolean;
-    todayCompletionCount: number;
-    piePath: string;
-  }>();
-  
-  
-  for (const habit of habits.value) {
-    const weeklyCompleted = habit.frequency && habit.frequency.startsWith('weekly') 
-      ? getWeeklyCompletionStatus(habit) 
-      : false;
-    const todayCompletionCount = getTodayCompletionCount(habit);
-    const piePath = getLargePiePath(habit);
-    
-    cache.set(habit.id, { weeklyCompleted, todayCompletionCount, piePath });
-  }
-  
-  return cache;
-});
-
-// 预计算 emoji 分类 ID，避免在模板中重复计算
-const emojiCategoryIds = computed(() => {
-  const ids: Record<string, string> = {};
-  for (const category in emojiCategories.value) {
-    ids[category] = 'emoji-category-' + category.toLowerCase().replace(/\s+/g, '-');
-  }
-  return ids;
-});
-
-// 获取分类 ID 的辅助函数
-const getEmojiCategoryId = (category: string): string => {
-  return emojiCategoryIds.value[category] || '';
-};
-
-// 获取习惯缓存的辅助函数
-const getHabitCache = (habitId: string) => {
-  return habitsCache.value.get(habitId) || { weeklyCompleted: false, todayCompletionCount: 0, piePath: '' };
-};
-
 
 // 当天日历相关
 const currentDayInfo = ref({
+  // 使用本地日期格式而不是toISOString()，避免时区转换问题
   date: formatDate(new Date()),
   dayOfWeek: new Date().getDay(),
   dayOfMonth: new Date().getDate(),
@@ -3753,13 +3898,25 @@ const currentDayInfo = ref({
 });
 
 // 星期名称数组，支持国际化
-const weekdaysForCalendar = computed(() => ['一', '二', '三', '四', '五', '六', '日']);
+const weekdaysForCalendar = computed(() => {
+  // 默认使用中文，根据当前语言环境返回相应的星期名称
+  if (window.siyuan?.languages?.zh_CN) {
+    return ['一', '二', '三', '四', '五', '六', '日'];
+  } else {
+    // 默认使用中文
+    return ['一', '二', '三', '四', '五', '六', '日'];
+  }
+});
 
 
 
 // 计算当月第一天前需要显示的天数
 const calculatePrevMonthDays = (firstDay: Date) => {
+  // 获取当月第一天是星期几 (0=周日, 1=周一, ..., 6=周六)
   const dayOfWeek = firstDay.getDay();
+  // 计算前面需要多少天来自上个月
+  // 为了让日期正确对应到星期标题，我们需要计算正确的偏移量
+  // 星期一(1) → 0天偏移, 星期二(2) → 1天偏移, ..., 星期日(0) → 6天偏移
   return dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 };
 
@@ -3774,13 +3931,20 @@ const currentDateString = computed(() => {
 
 // 获取习惯打卡频率的文本描述
 const getFrequencyText = (habit: Habit) => {
-  if (!habit.frequency || habit.frequency === 'daily') return '每天';
-  const match = habit.frequency.match(/weekly(\d)/);
-  if (match) return `每周${match[1]}天`;
-  if (habit.frequency === 'custom' && (habit as any).customFrequency) {
-    return `每周${(habit as any).customFrequency}天`;
+  if (!habit.frequency) return '每天';
+  if (habit.frequency === 'daily') return '每天';
+  if (habit.frequency === 'weekly') return '每周1天';
+  if (habit.frequency === 'weekly1') return '每周1天';
+  if (habit.frequency === 'weekly2') return '每周2天';
+  if (habit.frequency === 'weekly3') return '每周3天';
+  if (habit.frequency === 'weekly4') return '每周4天';
+  if (habit.frequency === 'weekly5') return '每周5天';
+  if (habit.frequency === 'weekly6') return '每周6天';
+  // 检查是否存在customFrequency属性
+  if (habit.frequency === 'custom' && 'customFrequency' in habit && habit.customFrequency) {
+    return `每周${habit.customFrequency}天`;
   }
-  return '每天';
+  return '每天'; // 默认
 };
 
 // 获取习惯创建日期的文本描述
@@ -3835,11 +3999,18 @@ const onTimesPerDayChange = (value: string | number) => {
 // 保存编辑后的习惯
 const saveEditedHabit = async () => {
   if (editedHabit.value && selectedHabit.value) {
+    // 确保timesPerDay是数字类型
     if (typeof editedHabit.value.timesPerDay === 'string') {
       editedHabit.value.timesPerDay = parseInt(editedHabit.value.timesPerDay) || 1;
     }
+    
+    // 更新原始习惯对象
     Object.assign(selectedHabit.value, editedHabit.value);
+    
+    // 保存到存储
     await immediateSaveHabits(habits.value);
+    
+    // 关闭模态框
     closeEditHabitModal();
   }
 };
@@ -3847,7 +4018,10 @@ const saveEditedHabit = async () => {
 // 暂停或恢复习惯打卡
 const togglePauseHabit = async (habit: Habit) => {
   if (habit) {
+    // 切换暂停状态
     habit.isPaused = !habit.isPaused;
+    
+    // 保存到存储
     await immediateSaveHabits(habits.value);
   }
 };
@@ -3879,27 +4053,46 @@ const tooltipStyle = ref({
 // 打开情绪打卡面板
 const openMoodTracker = async (date: string) => {
   selectedDate.value = date;
+  // 尝试加载已保存的情绪数据
   const moodData = await getMoodData();
   const dateEntry = moodData[date];
-  moodEntry.value = dateEntry ? {
-    emoji: dateEntry.emoji || '',
-    note: dateEntry.note || ''
-  } : { emoji: '', note: '' };
+  if (dateEntry) {
+    moodEntry.value = {
+      emoji: dateEntry.emoji || '',
+      note: dateEntry.note || ''
+    };
+  } else {
+    moodEntry.value = {
+      emoji: '',
+      note: ''
+    };
+  }
   showMoodTracker.value = true;
 };
 
 // 保存情绪打卡数据
 const saveMoodEntry = async () => {
   try {
+    // 获取现有的情绪数据
     const moodDataLocal = await getMoodData();
+    
+    // 更新当前日期的情绪数据
     moodDataLocal[selectedDate.value] = {
       emoji: moodEntry.value.emoji,
       note: moodEntry.value.note,
       timestamp: new Date().toISOString()
     };
+    
+    // 保存到插件数据
     await saveMoodData(moodDataLocal);
+    
+    // 更新本地情绪数据缓存
     moodData.value = moodDataLocal;
+    
+    // 关闭面板
     showMoodTracker.value = false;
+    
+
   } catch (error) {
     console.error('保存情绪数据失败:', error);
   }
@@ -3907,22 +4100,37 @@ const saveMoodEntry = async () => {
 
 // 删除情绪打卡数据
 const deleteMoodEntry = async () => {
-  if (!selectedDate.value) return;
-  try {
-    const moodDataLocal = await getMoodData();
-    delete moodDataLocal[selectedDate.value];
-    await saveMoodData(moodDataLocal);
-    moodData.value = moodDataLocal;
-    showMoodTracker.value = false;
-  } catch (error) {
-    console.error('删除情绪数据失败:', error);
+  if (selectedDate.value) {
+    try {
+      // 获取现有的情绪数据
+      const moodDataLocal = await getMoodData();
+      
+      // 删除当前日期的情绪数据
+      delete moodDataLocal[selectedDate.value];
+      
+      // 保存到插件数据
+      await saveMoodData(moodDataLocal);
+      
+      // 更新本地情绪数据缓存
+      moodData.value = moodDataLocal;
+      
+      // 关闭面板
+      showMoodTracker.value = false;
+      
+
+    } catch (error) {
+      console.error('删除情绪数据失败:', error);
+    }
   }
 };
 
 // 关闭情绪打卡面板
 const closeMoodTracker = () => {
   showMoodTracker.value = false;
-  moodEntry.value = { emoji: '', note: '' };
+  moodEntry.value = {
+    emoji: '',
+    note: ''
+  };
 };
 
 // 选择情绪emoji
@@ -4017,16 +4225,23 @@ const currentMonthMoodEntries = computed(() => {
   const currentYear = targetDate.getFullYear();
   const currentMonth = targetDate.getMonth();
   
+  // 过滤出当前月份的情绪记录
   const entries: { date: string; mood: { emoji: string; note: string } }[] = [];
   
+  // 避免重复创建Date对象，直接使用字符串比较
   for (const [dateStr, mood] of Object.entries(moodData.value)) {
+    // 提取年月部分进行比较，避免创建Date对象
     const [year, month] = dateStr.split('-').map(Number);
+    
+    // 检查是否为当前月份
     if (year === currentYear && month - 1 === currentMonth) {
       entries.push({ date: dateStr, mood });
     }
   }
   
+  // 按日期排序（从新到旧）
   entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  
   return entries;
 });
 
@@ -4038,12 +4253,17 @@ const changeMoodCalendarMonth = (offset: number) => {
 // 显示自定义提示框
 const showCustomTooltip = (date: string, event: MouseEvent) => {
   const moodEntry = moodData.value[date];
-  if (moodEntry?.note) {
+  if (moodEntry && moodEntry.note) {
     tooltipContent.value = moodEntry.note;
     tooltipVisible.value = true;
+    
+    // 设置提示框位置，相对于鼠标位置
+    const tooltipX = event.clientX + 10;
+    const tooltipY = event.clientY - 0;
+    
     tooltipStyle.value = {
-      top: `${event.clientY}px`,
-      left: `${event.clientX + 10}px`
+      top: `${tooltipY}px`,
+      left: `${tooltipX}px`
     };
   }
 };
