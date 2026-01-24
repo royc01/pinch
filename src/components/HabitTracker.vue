@@ -20,28 +20,12 @@
       </div>
 
       <!-- 本周日期显示，从周一开始 -->
-      <div class="week-dates">
-        <div 
-          v-for="date in weekDates" 
-          :key="date.fullDate"
-          :class="['week-date-item', { today: date.isToday }]"
-          @mouseenter="showCustomTooltip(date.fullDate, $event)"
-          @mouseleave="hideCustomTooltip"
-          @click="openMoodTracker(date.fullDate)">
-          <span class="weekday-name">{{ date.dayName }}</span>
-          <span v-if="moodData[date.fullDate] && moodData[date.fullDate].emoji" class="mood-emoji">
-            <div v-html="getSmallMoodSvg(moodData[date.fullDate].emoji)" class="mood-svg-small"></div>
-          </span>
-          <div class="week-date-number">{{ date.date }}</div>
-        </div>
-      </div>
-      
-      <!-- 自定义提示框 -->
-      <div v-if="tooltipVisible && tooltipContent" 
-           class="custom-tooltip" 
-           :style="tooltipStyle">
-        {{ tooltipContent }}
-      </div>
+      <WeekDates 
+        :week-dates="weekDates"
+        :mood-data="moodData"
+        :open-mood-tracker="openMoodTracker"
+        :get-small-mood-svg="getSmallMoodSvg"
+      />
 
       <div class="habit-list">
         <div v-if="habits.length === 0" class="empty-state">
@@ -1279,77 +1263,6 @@
   font-size: 16px;
 }
 
-.week-dates {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 8px 0;
-}
-
-.week-date-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 38px;
-  padding: 10px 6px;
-  border-radius: 14px;
-  background-color: var(--b3-theme-background);
-  box-shadow: rgba(0, 0, 0, 0.03) 0px 1px 5px 0px;
-  overflow: hidden;
-  position: relative;
-}
-
-.week-date-item.today {
-  position: relative;
-}
-.week-date-item.today .weekday-name {
-  color: #f98f7a;
-}
-.week-date .weekday-name {
-  font-size: 10px;
-  color: var(--b3-scroll-color);
-  margin-bottom: 4px;
-}
-
-.mood-emoji {
-  font-size: 16px;
-  margin-bottom: 4px;
-}
-
-.weekday-name {
-  font-size: 10px;
-  position: relative;
-}
-
-.weekday-name::after {
-  content: '';
-  position: absolute;
-  bottom: -8px;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background-color: var(--b3-border-color);
-}
-
-
-.week-date-item .mood-emoji {
-  position: absolute;
-  bottom: -12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 0;
-  opacity: 0.7;
-}
-
-
-.week-date-number {
-  font-size: 14px;
-  font-weight: 600;
-  z-index: 1;
-  margin-top: 15px;
-}
-
 .day-progress-container {
   position: absolute;
   bottom: 4px;
@@ -1436,12 +1349,13 @@
 </style>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, shallowRef, triggerRef } from 'vue';
+import { ref, onMounted, onUnmounted, computed, shallowRef, triggerRef, nextTick } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue';
 import Icon from '@/components/Icon.vue';
+import WeekDates from '@/components/WeekDates.vue';
 import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
 
 // 日期格式化缓存 - 避免重复创建 Date 对象和字符串
@@ -2412,14 +2326,16 @@ const toggleHabit = async (habitId: string) => {
         // 更新习惯的完成状态
         habit.completedToday = false;
 
-        // 重新计算连续打卡天数和总完成次数
-        // 更新习惯统计：连续天数、总完成次数、本月完成率等
-        habit.currentStreak = calculateCurrentMonthStreak(habit);
-        habit.totalCompletions = calculateTotalMonthCompletions(habit);
         // 清除动画状态，避免影响排序
         delete animationOriginalStatus.value[habit.id];
 
         await immediateSaveHabits(habits.value);
+
+        // 推迟到下一个渲染周期计算统计数据，避免阻塞 UI
+        nextTick(() => {
+          habit.currentStreak = calculateCurrentMonthStreak(habit);
+          habit.totalCompletions = calculateTotalMonthCompletions(habit);
+        });
       }
       return;
     } else {
@@ -2482,20 +2398,24 @@ const toggleHabit = async (habitId: string) => {
         delete animationOriginalStatus.value[habit.id];
       }
       
-      // 更新习惯统计：连续天数、总完成次数、本月完成率等
-      // 连续天数
-      habit.currentStreak = calculateCurrentMonthStreak(habit);
-      // 总完成次数
-      habit.totalCompletions = calculateTotalMonthCompletions(habit);
-      // 清除周完成状态缓存
-      const cacheKey = `${habit.id}-weeklyStatus-${getWeekStart(new Date()).toISOString().split('T')[0]}`;
-      weeklyCompletionCache.delete(cacheKey);
-      // 清除完成率缓存
-      const completionRateCacheKey = `${habit.id}-completionRate-${Date.now() - (Date.now() % 86400000)}`;
-      completionRateCache.delete(completionRateCacheKey);
       await immediateSaveHabits(habits.value);
-      // 触发响应式更新
-      triggerRef(habits);
+
+      // 推迟到下一个渲染周期计算统计数据，避免阻塞 UI
+      nextTick(() => {
+        // 更新习惯统计：连续天数、总完成次数、本月完成率等
+        // 连续天数
+        habit.currentStreak = calculateCurrentMonthStreak(habit);
+        // 总完成次数
+        habit.totalCompletions = calculateTotalMonthCompletions(habit);
+        // 清除周完成状态缓存
+        const cacheKey = `${habit.id}-weeklyStatus-${getWeekStart(new Date()).toISOString().split('T')[0]}`;
+        weeklyCompletionCache.delete(cacheKey);
+        // 清除完成率缓存
+        const completionRateCacheKey = `${habit.id}-completionRate-${Date.now() - (Date.now() % 86400000)}`;
+        completionRateCache.delete(completionRateCacheKey);
+        // 触发响应式更新
+        triggerRef(habits);
+      });
     }
     return;
   }
@@ -3878,14 +3798,6 @@ const moodEntry = ref({
   note: ''
 });
 
-// 自定义提示框相关
-const tooltipVisible = ref(false);
-const tooltipContent = ref('');
-const tooltipStyle = ref({
-  top: '0px',
-  left: '0px'
-});
-
 // 打开情绪打卡面板
 const openMoodTracker = async (date: string) => {
   selectedDate.value = date;
@@ -4043,25 +3955,6 @@ const currentMonthMoodEntries = computed(() => {
 // 切换情绪打卡月视图的月份
 const changeMoodCalendarMonth = (offset: number) => {
   moodCalendarCurrentMonth.value += offset;
-};
-
-// 显示自定义提示框
-const showCustomTooltip = (date: string, event: MouseEvent) => {
-  const moodEntry = moodData.value[date];
-  if (moodEntry?.note) {
-    tooltipContent.value = moodEntry.note;
-    tooltipVisible.value = true;
-    tooltipStyle.value = {
-      top: `${event.clientY}px`,
-      left: `${event.clientX + 10}px`
-    };
-  }
-};
-
-// 隐藏自定义提示框
-const hideCustomTooltip = () => {
-  tooltipVisible.value = false;
-  tooltipContent.value = '';
 };
 
 // 切换统计页面视图模式（已移除，统计页面只显示月视图）
@@ -5588,22 +5481,6 @@ const hideCustomTooltip = () => {
       }
     }
   }
-}
-
-/* 自定义提示框样式 */
-.custom-tooltip {
-  position: fixed;
-  background-color: var(--b3-theme-background);
-  color: var(--b3-theme-on-background);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 14px;
-  max-width: 300px;
-  word-wrap: break-word;
-  z-index: 1000;
-  pointer-events: none;
-  backdrop-filter: blur(4px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 </style>
