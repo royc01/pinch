@@ -11,49 +11,46 @@
       </div>
       <div class="modal-body" v-if="localHabit">
         <div class="form-group">
-          <label>习惯名称</label>
-          <SyInput v-model="localHabit.name" placeholder="输入习惯名称" />
-        </div>
-        <div class="form-group">
           <label>选择图标</label>
           <div class="emoji-selector">
             <SyInput v-model="localHabit.emoji" placeholder="选择或输入emoji" />
-            <SyButton 
-              @click="showEmojiPicker = !showEmojiPicker" 
-              type="default" 
-              size="small" 
+            <SyButton
+              @click="showEmojiPicker = !showEmojiPicker"
+              type="default"
+              size="small"
               class="emoji-picker-btn">
               {{ localHabit.emoji || '📝' }}
             </SyButton>
             <div class="emoji-picker" v-show="showEmojiPicker">
-              <div v-if="emojisLoading" class="emoji-loading">加载中...</div>
-              <template v-else>
-                <div class="emoji-categories">
-                  <div 
-                    v-for="(emojis, category) in emojiCategories" 
-                    :key="category" 
-                    class="emoji-category"
-                    :id="getEmojiCategoryId(category)">
-                    <h4>{{ category }}</h4>
-                    <div class="emoji-options-grid">
-                      <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmoji(emoji)">
-                        {{ emoji }}
-                      </div>
+              <div class="emoji-categories">
+                <div
+                  v-for="(emojis, category) in emojiCategories"
+                  :key="category"
+                  class="emoji-category"
+                  :id="getEmojiCategoryId(category)">
+                  <h4>{{ category }}</h4>
+                  <div class="emoji-options-grid">
+                    <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmoji(emoji)">
+                      {{ emoji }}
                     </div>
                   </div>
                 </div>
-                <div class="emoji-nav">
-                  <div 
-                    v-for="(_, category) in emojiCategories" 
-                    :key="category" 
-                    class="emoji-nav-item"
-                    @click="scrollToCategory(getEmojiCategoryId(category))">
-                    {{ getFixedEmojiForCategory(category) }}
-                  </div>
+              </div>
+              <div class="emoji-nav">
+                <div
+                  v-for="(_, category) in emojiCategories"
+                  :key="category"
+                  class="emoji-nav-item"
+                  @click="scrollToCategory(getEmojiCategoryId(category))">
+                  {{ getFixedEmojiForCategory(category) }}
                 </div>
-              </template>
+              </div>
             </div>
           </div>
+        </div>
+        <div class="form-group">
+          <label>习惯名称</label>
+          <SyInput v-model="localHabit.name" placeholder="输入习惯名称" />
         </div>
         <div class="form-group">
           <label>{{ t('habitTracker.frequency') }}</label>
@@ -144,12 +141,6 @@ const selectEmoji = (emoji: string) => {
   }
 };
 
-const onTimesPerDayChange = (value: string | number) => {
-  if (localHabit.value) {
-    localHabit.value.timesPerDay = typeof value === 'string' ? parseInt(value) || 1 : value;
-  }
-};
-
 const getEmojiCategoryId = (category: string): string => {
   const emojiCategoryIds: Record<string, string> = {};
   Object.keys(props.emojiCategories).forEach((category, index) => {
@@ -170,21 +161,24 @@ const getFixedEmojiForCategory = (category: string): string => {
     '笑脸和人类': '😀',
     '动物和自然': '🐷',
     '食物和饮料': '🍎',
-    '活动和运动': '⚽',
-    '旅行和地点': '🏖️',
-    '物体和符号': '🔔',
-    '旗帜': '🏁'
+    '活动': '⚽',
+    '旅行和地点': '✈️',
+    '物品': '🎁',
+    '符号': '❤️',
+    '旗帜': '🚩',
   };
   return emojiMap[category] || '😀';
 };
 
+const onTimesPerDayChange = (value: string | number) => {
+  if (localHabit.value) {
+    localHabit.value.timesPerDay = typeof value === 'string' ? parseInt(value) || 1 : value;
+  }
+};
+
 const handleSave = () => {
   if (localHabit.value) {
-    if (typeof localHabit.value.timesPerDay === 'string') {
-      localHabit.value.timesPerDay = parseInt(localHabit.value.timesPerDay) || 1;
-    }
     emit('save', localHabit.value);
-    emit('close');
   }
 };
 </script>
@@ -299,23 +293,23 @@ const handleSave = () => {
   position: absolute;
   top: 100%;
   left: 0;
+  right: 0;
   background: var(--b3-theme-background);
   border: 1px solid var(--b3-border-color);
   border-radius: 8px;
-  padding: 12px;
-  z-index: 1001;
-  width: 320px;
-  max-height: 300px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  margin-top: 4px;
+  max-height: 50vh;
   overflow-y: auto;
 }
 
 .emoji-categories {
-  max-height: 220px;
-  overflow-y: auto;
 }
 
 .emoji-category {
-  margin-bottom: 12px;
+  padding: 8px;
+  border-bottom: 1px solid var(--b3-border-color);
 }
 
 .emoji-category h4 {
@@ -329,6 +323,7 @@ const handleSave = () => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
   gap: 4px;
+  overflow: hidden;
 }
 
 .emoji-option {
@@ -336,24 +331,21 @@ const handleSave = () => {
   font-size: 20px;
   cursor: pointer;
   border-radius: 4px;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
 }
 
 .emoji-option:hover {
   background-color: var(--b3-list-hover);
 }
 
-.emoji-loading {
-  text-align: center;
-  padding: 20px;
-  color: var(--b3-theme-on-background);
-  opacity: 0.6;
-}
-
 .emoji-nav {
   position: sticky;
   bottom: 0;
   background: var(--b3-theme-background);
-  padding-top: 8px;
+  padding: 4px 0;
   border-top: 1px solid var(--b3-border-color);
   display: flex;
   justify-content: space-around;

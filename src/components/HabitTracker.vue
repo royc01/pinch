@@ -1761,6 +1761,7 @@ onMounted(async () => {
       const todayRecord = habit.calendar.find(day => day.date === todayStr);
       habit.completedToday = todayRecord ? todayRecord.completed : false;
     });
+
     
     // 定期清理过期缓存（每小时清理一次）
     cacheCleanupTimer = setInterval(() => {
@@ -1976,31 +1977,27 @@ let cacheCleanupTimer: number | null = null;
 const inlineRadius = ref(45);
 const inlineCircumference = computed(() => 2 * Math.PI * inlineRadius.value);
 
+// 当前激活番茄钟的剩余时间（用于触发进度条更新）
+const activePomodoroRemaining = ref<number | undefined>(undefined);
+
 // 计算内联进度条偏移量
 const inlineStrokeDashoffset = computed(() => {
-  if (!activePomodoroHabit.value || activePomodoroHabit.value.pomodoroRemaining === undefined) {
+  if (activePomodoroRemaining.value === undefined) {
     return inlineCircumference.value;
   }
-  
-  // 强制依赖pomodoroRemaining，确保当它变化时计算属性重新计算
-  const remainingTime = activePomodoroHabit.value.pomodoroRemaining;
-  
-  // 计算进度比例（从0到1）
-  // 倒计时开始时剩余时间为最大值（进度0），结束时剩余时间为0（进度1）
-  const totalTime = getPomodoroTotalTime(activePomodoroHabit.value);
+
+  const remainingTime = activePomodoroRemaining.value;
+  const totalTime = (activePomodoroHabit.value?.pomodoroDuration || 25) * 60;
   const progressRatio = 1 - (remainingTime / totalTime);
-  
-  // 计算stroke-dashoffset：从完整周长（无进度）到0（完整进度）
-  // 这样倒计时开始时进度条为空，结束时是满的
+
   let offset = inlineCircumference.value * (1 - progressRatio);
-  
-  // 确保在边界情况下值是精确的
+
   if (progressRatio >= 1) {
-    offset = 0; // 完全填满
+    offset = 0;
   } else if (progressRatio <= 0) {
-    offset = inlineCircumference.value; // 完全为空
+    offset = inlineCircumference.value;
   }
-  
+
   return offset;
 });
 
@@ -2034,8 +2031,24 @@ const toggleHabit = async (habitId: string) => {
         // 更新习惯的完成状态
         habit.completedToday = false;
 
+        // 清除番茄钟状态
+        if (activePomodoroHabit.value && activePomodoroHabit.value.id === habit.id) {
+          activePomodoroHabit.value = null;
+          activePomodoroRemaining.value = undefined;
+          if (pomodoroTimers[habit.id]) {
+            clearInterval(pomodoroTimers[habit.id]);
+            delete pomodoroTimers[habit.id];
+          }
+          delete habit.pomodoroRemaining;
+          delete habit.pomodoroState;
+          delete habit.isPomodoroPaused;
+        }
+
         // 清除动画状态，避免影响排序
         delete animationOriginalStatus.value[habit.id];
+
+        // 触发响应式更新（shallowRef 需要重新赋值数组）
+        habits.value = [...habits.value];
 
         await immediateSaveHabits(habits.value);
 
@@ -2052,6 +2065,7 @@ const toggleHabit = async (habitId: string) => {
         const previousHabit = activePomodoroHabit.value;
         // 清除之前的番茄钟
         activePomodoroHabit.value = null;
+        activePomodoroRemaining.value = undefined;
         if (pomodoroTimers[previousHabit.id]) {
           clearInterval(pomodoroTimers[previousHabit.id]);
           delete pomodoroTimers[previousHabit.id];
@@ -2059,6 +2073,7 @@ const toggleHabit = async (habitId: string) => {
         // 清除番茄钟相关状态
         delete previousHabit.pomodoroRemaining;
         delete previousHabit.pomodoroState;
+        delete previousHabit.isPomodoroPaused;
       }
 
       // 设置当前激活的番茄钟习惯
@@ -2161,42 +2176,52 @@ const toggleHabit = async (habitId: string) => {
 // 启动番茄钟计时器
 const startPomodoroTimer = (habit: Habit) => {
 
-  
   // 如果已有计时器，先清除
   if (pomodoroTimers[habit.id]) {
-
     clearInterval(pomodoroTimers[habit.id]);
   }
-  
+
   // 设置番茄钟时长，使用习惯配置的时长（分钟转换为秒）
   const durationInMinutes = habit.pomodoroDuration || 25; // 默认25分钟
   let remainingTime = durationInMinutes * 60; // 转换为秒
 
-  
+
   // 更新习惯的番茄钟状态
   habit.pomodoroRemaining = remainingTime;
   habit.pomodoroState = 'work'; // 默认开始工作时间
+  habit.isPomodoroPaused = false; // 明确设置为未暂停
 
-  
+  // 更新响应式变量
+  activePomodoroRemaining.value = remainingTime;
+
+  // 触发响应式更新
+  habits.value = [...habits.value];
+
   // 启动倒计时
   pomodoroTimers[habit.id] = window.setInterval(() => {
     remainingTime--;
     habit.pomodoroRemaining = remainingTime;
 
-    
+    // 更新响应式变量以触发进度条更新
+    activePomodoroRemaining.value = remainingTime;
+
+    // 触发响应式更新以刷新倒计时显示
+    habits.value = [...habits.value];
+
     if (remainingTime <= 0) {
       // 倒计时结束，完成打卡
 
       clearInterval(pomodoroTimers[habit.id]);
       completeHabitAfterPomodoro(habit);
-      
+
       // 如果当前显示的是这个习惯的番茄钟页面，则关闭页面
       if (activePomodoroHabit.value && activePomodoroHabit.value.id === habit.id) {
         activePomodoroHabit.value = null;
+        activePomodoroRemaining.value = undefined;
       }
     }
   }, 1000);
-  
+
 
 };
 
@@ -2250,12 +2275,13 @@ const getPomodoroTotalTime = (habit: Habit): number => {
 const stopCurrentPomodoro = () => {
   if (activePomodoroHabit.value) {
     const habit = activePomodoroHabit.value;
-    
+
     controlPomodoro('stop', habit);
-    
+
     // 清除当前激活的番茄钟
     activePomodoroHabit.value = null;
-    
+    activePomodoroRemaining.value = undefined;
+
     saveHabits(habits.value);
   }
 };
@@ -2265,9 +2291,9 @@ const controlPomodoro = (action: 'pause' | 'resume' | 'start' | 'stop', habit?: 
   if (!habit && activePomodoroHabit.value) {
     habit = activePomodoroHabit.value;
   }
-  
+
   if (!habit) return;
-  
+
   switch (action) {
     case 'pause':
       // 暂停定时器
@@ -2275,15 +2301,18 @@ const controlPomodoro = (action: 'pause' | 'resume' | 'start' | 'stop', habit?: 
         clearInterval(pomodoroTimers[habit.id]);
         delete pomodoroTimers[habit.id];
       }
-      
+
       // 设置暂停状态
       habit.isPomodoroPaused = true;
+
+      // 触发响应式更新（shallowRef 需要重新赋值数组）
+      habits.value = [...habits.value];
       break;
-      
+
     case 'resume':
       // 清除暂停状态
       habit.isPomodoroPaused = false;
-      
+
       // 重新启动定时器，使用剩余时间继续
       if (habit.pomodoroRemaining !== undefined) {
         // 清除旧的定时器（如果有）
@@ -2291,31 +2320,40 @@ const controlPomodoro = (action: 'pause' | 'resume' | 'start' | 'stop', habit?: 
           clearInterval(pomodoroTimers[habit.id]);
           delete pomodoroTimers[habit.id];
         }
-        
+
         // 重新启动定时器，使用剩余时间
         startPomodoroTimerWithRemainingTime(habit, habit.pomodoroRemaining);
       }
+
+      // 触发响应式更新（shallowRef 需要重新赋值数组）
+      habits.value = [...habits.value];
       break;
-      
+
     case 'start':
       // 启动番茄钟
       startPomodoroTimer(habit);
       break;
-      
+
     case 'stop':
       // 停止番茄钟
       if (pomodoroTimers[habit.id]) {
         clearInterval(pomodoroTimers[habit.id]);
         delete pomodoroTimers[habit.id];
       }
-      
+
       // 清除番茄钟相关状态
       delete habit.pomodoroRemaining;
       delete habit.pomodoroState;
       delete habit.isPomodoroPaused;
+
+      // 清除响应式变量
+      activePomodoroRemaining.value = undefined;
+
+      // 触发响应式更新（shallowRef 需要重新赋值数组）
+      habits.value = [...habits.value];
       break;
   }
-  
+
   // 保存状态
   saveHabits(habits.value);
 };
@@ -2345,19 +2383,32 @@ const startPomodoroTimerWithRemainingTime = (habit: Habit, remainingTime: number
   // 初始化剩余时间
   habit.pomodoroRemaining = remainingTime;
 
+  // 更新响应式变量
+  activePomodoroRemaining.value = remainingTime;
+
+  // 触发响应式更新
+  habits.value = [...habits.value];
+
   // 设置新的定时器
   pomodoroTimers[habit.id] = window.setInterval(() => {
     habit.pomodoroRemaining!--;
-    
+
+    // 更新响应式变量以触发进度条更新
+    activePomodoroRemaining.value = habit.pomodoroRemaining;
+
+    // 触发响应式更新以刷新倒计时显示
+    habits.value = [...habits.value];
+
     if (habit.pomodoroRemaining! <= 0) {
       // 倒计时结束，完成打卡
       clearInterval(pomodoroTimers[habit.id]);
       delete pomodoroTimers[habit.id];
       completeHabitAfterPomodoro(habit);
-      
+
       // 如果当前显示的是这个习惯的番茄钟页面，则关闭页面
       if (activePomodoroHabit.value && activePomodoroHabit.value.id === habit.id) {
         activePomodoroHabit.value = null;
+        activePomodoroRemaining.value = undefined;
       }
     }
   }, 1000);

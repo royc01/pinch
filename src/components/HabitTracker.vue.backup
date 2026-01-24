@@ -280,10 +280,10 @@
             </div>
             <div class="stat-item">
               <div class="stat-label">最长连续坚持</div>
-              <div class="stat-value">{{ selectedHabitLongestStreak.streak }}<span> 天</span></div>
-              <div class="stat-timeline" v-if="selectedHabitLongestStreak.startDate && selectedHabitLongestStreak.endDate">
-                <div class="stat-timeline-start">{{ formatTimelineDate(selectedHabitLongestStreak.startDate) }}</div>
-                <div class="stat-timeline-end">{{ formatTimelineDate(selectedHabitLongestStreak.endDate) }}</div>
+              <div class="stat-value">{{ calculateLongestStreak(selectedHabit).streak }}<span> 天</span></div>
+              <div class="stat-timeline" v-if="calculateLongestStreak(selectedHabit).startDate && calculateLongestStreak(selectedHabit).endDate">
+                <div class="stat-timeline-start">{{ formatTimelineDate(calculateLongestStreak(selectedHabit).startDate) }}</div>
+                <div class="stat-timeline-end">{{ formatTimelineDate(calculateLongestStreak(selectedHabit).endDate) }}</div>
               </div>
             </div>
           </div>
@@ -1480,31 +1480,17 @@
 </style>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, shallowRef } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue';
 import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
 
-// 日期格式化缓存 - 避免重复创建 Date 对象和字符串
-const dateCache = new Map<number, string>();
-const getCachedDate = (date: Date): string => {
-  const key = date.getTime();
-  if (!dateCache.has(key)) {
-    const formatted = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    dateCache.set(key, formatted);
-    // 限制缓存大小，避免内存泄漏
-    if (dateCache.size > 1000) {
-      const firstKey = dateCache.keys().next().value;
-      dateCache.delete(firstKey);
-    }
-  }
-  return dateCache.get(key)!;
+// 辅助函数：格式化日期为 YYYY-MM-DD 格式
+const formatDate = (date: Date): string => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
-
-// 辅助函数：格式化日期为 YYYY-MM-DD 格式（使用缓存优化性能）
-const formatDate = getCachedDate;
 
 const formatTimelineDate = (date: Date | null): string => {
   if (!date) return '';
@@ -1573,75 +1559,25 @@ const toggleHabitCompletion = (habit: Habit, date: string) => {
   
   // 更新总完成次数和连续打卡天数
   habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+  
+    // 重新计算当前连续打卡天数
   habit.currentStreak = calculateCurrentStreak(habit);
 };
-
-// 统一的更新习惯统计函数 - 减少重复代码
-const updateHabitStats = (habit: Habit) => {
-  habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
-  habit.currentStreak = calculateCurrentStreak(habit);
-};
-
-// 缓存对象，用于存储计算结果
-const streakCache = new Map<string, {result: number, timestamp: number}>();
 
 // 计算连续打卡天数 - 可用于当前连续或最长连续
 const calculateCurrentStreak = (habit: Habit, startDate?: Date) => {
-  // 创建缓存键
-  const cacheKey = `${habit.id}-${startDate ? startDate.getTime() : 'none'}-${Date.now() - (Date.now() % 86400000)}`; // 包含日期但忽略时间
-  
-  // 检查缓存（每日重置）
-  const cached = streakCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp) < 86400000) { // 一天内有效
-    return cached.result;
-  }
-  
   // 如果提供了起始日期，则从该日期开始计算连续天数
-  let filteredCalendar = habit.calendar;
-  if (startDate) {
-    // 使用本地日期比较，避免时区转换问题
-    const startNormalized = new Date(startDate);
-    startNormalized.setHours(0, 0, 0, 0);
-    filteredCalendar = filteredCalendar.filter(record => {
-      const recordDate = new Date(record.date);
-      recordDate.setHours(0, 0, 0, 0);
-      return recordDate >= startNormalized;
-    });
-  }
-  
-  // 按日期倒序排列（最近的日期在前）
-  const sortedCalendar = filteredCalendar
+  const sortedCalendar = [...habit.calendar]
+    .filter(record => !startDate || new Date(record.date) >= startDate)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  
   let streak = 0;
-  
-  // 从最新日期开始计算连续天数
-  let expectedNextDate: Date | null = null;
-  
   for (const day of sortedCalendar) {
-    // 如果遇到未完成的记录，则停止计算
-    if (!day.completed) {
+    if (day.completed) {
+      streak++;
+    } else {
       break; // 遇到未完成的天数就停止计算
     }
-    
-    const recordDate = new Date(day.date);
-    recordDate.setHours(0, 0, 0, 0);
-    
-    // 如果是第一个完成的记录，或者日期是连续的
-    if (expectedNextDate === null || recordDate.getTime() === expectedNextDate.getTime()) {
-      streak++;
-      // 计算下一个期望的日期（前一天）
-      expectedNextDate = new Date(recordDate);
-      expectedNextDate.setDate(expectedNextDate.getDate() - 1);
-    } else {
-      // 如果日期不连续，中断计算
-      break;
-    }
   }
-  
-  // 缓存结果
-  streakCache.set(cacheKey, {result: streak, timestamp: Date.now()});
-  
   return streak;
 };
 
@@ -1649,22 +1585,18 @@ const calculateCurrentStreak = (habit: Habit, startDate?: Date) => {
 const getMonthlyProgressData = (habit: Habit) => {
   const currentYear = new Date().getFullYear();
   
-  // 预先过滤出当年的数据，避免重复计算
-  const yearlyData = habit.calendar.filter(record => {
-    const recordDate = new Date(record.date);
-    return recordDate.getFullYear() === currentYear && record.completed;
-  });
-  
   // 初始化12个月的数据
   const monthlyData = [];
   for (let month = 0; month < 12; month++) {
     const monthEnd = new Date(currentYear, month + 1, 0); // 该月最后一天
     const totalDays = monthEnd.getDate(); // 该月总天数
     
-    // 计算该月的打卡记录数，使用预过滤的数据
-    const monthCompletions = yearlyData.filter(record => {
+    // 计算该月的打卡记录数
+    const monthCompletions = habit.calendar.filter(record => {
       const recordDate = new Date(record.date);
-      return recordDate.getMonth() === month;
+      return recordDate.getFullYear() === currentYear && 
+             recordDate.getMonth() === month && 
+             record.completed;
     }).length;
     
     const percentage = totalDays > 0 ? Math.round((monthCompletions / totalDays) * 100) : 0;
@@ -1697,11 +1629,11 @@ const isToday = (dateString: string) => {
 // 表情选择相关
 const showEmojiPicker = ref(false);
 
-// 从思源笔记获取内置emoji配置 - 使用 shallowRef 优化性能（这些数据不需要深度响应式）
-const emojiCategories = shallowRef<Record<string, string[]>>({});
-const commonEmojis = shallowRef<string[]>([]);
-// 情绪打卡专用的SVG图标 - 使用 shallowRef 优化性能（静态数据不需要深度响应式）
-const moodEmojis = shallowRef([
+// 从思源笔记获取内置emoji配置
+const emojiCategories = ref<Record<string, string[]>>({});
+const commonEmojis = ref<string[]>([]);
+// 情绪打卡专用的SVG图标
+const moodEmojis = ref([
   { id: 'excited', emoji: '🤩', largeSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="50" fill="#FDD07D"/><circle cx="37.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="10.9" fill="#FFFFFF"/><path d="M34.5,50.5c3.4,4.8,7.8,7.4,16.2,7.4c9.9,0,14.8-5.7,15.8-7.4" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M42.9,33c0-2.1-2-5.3-5.5-5.3c-2.9,0-5.7,2.5-5.7,5.3" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M69,33c0-2.1-2-5.3-5.5-5.3c-2.9,0-5.7,2.5-5.7,5.3" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>', smallSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M0,24.9V100h100V24.9C88.6,9.8,70.4,0,50,0S11.4,9.8,0,24.9z" fill="#FDD07D"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="4.2"/><circle cx="41.3" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="4.2"/><circle cx="55" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><path d="M41.8,25.9c1.8,2.5,4.1,3.9,8.6,3.9c5.3,0,7.8-3,8.4-3.9" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M46.2,16.6c0-1.1-1.1-2.8-2.9-2.8c-1.5,0-3,1.3-3,2.8" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M60.1,16.6c0-1.1-1.1-2.8-2.9-2.8c-1.5,0-3,1.3-3,2.8" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>' },
   { id: 'happy', emoji: '😊', largeSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M78.3,100H21.7C8.2,100-2,88.7,0.3,76.5l11.5-59.9C13.7,7,22.7,0,33.2,0h34c10.6,0,19.6,7,21.4,16.6l11.2,59.9C102,88.8,91.8,100,78.3,100z" fill="#8aae97"/><circle cx="37.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="37.3" cy="32.8" r="8" fill="#000000"/><circle cx="33.4" cy="29" r="2.7" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="8" fill="#000000"/><circle cx="59.4" cy="29" r="2.7" fill="#FFFFFF"/><path d="M39.2,52.7c2.4,3.4,5.6,5.3,11.6,5.3c7.1,0,10.6-4.1,11.3-5.3" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>', smallSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M12.3,11.5L0,45.9V100h100V50.5L87,11.8C84.6,4.8,78,0,70.6,0H28.6C21.3,0,14.8,4.6,12.3,11.5z" fill="#8aae97"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="4.2" fill="#000000"/><circle cx="41.2" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="4.2" fill="#000000"/><circle cx="55" cy="14.5" r="1.4" fill="#FFFFFF"/><path d="M44.3,27c1.3,1.8,3,2.8,6.1,2.8c3.7,0,5.6-2.2,6-2.8" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>' },
   { id: 'calm', emoji: '😌', largeSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M37.2,4.5L8.8,26C1.6,31.4-1.4,40.8,1.3,49.3l11.2,35.7c2.8,8.9,11,14.9,20.3,14.9h34.5c9.3,0,17.5-6,20.3-14.9l11.2-35.7c2.7-8.6-0.3-17.9-7.5-23.3L62.8,4.5C55.3-1.2,44.8-1.2,37.2,4.5z" fill="#89b0bc"/><circle cx="37.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="37.3" cy="32.8" r="8" fill="#000000"/><circle cx="33.4" cy="29" r="2.7" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="8" fill="#000000"/><circle cx="59.4" cy="29" r="2.7" fill="#FFFFFF"/><line x1="41.6" y1="52.7" x2="59.9" y2="52.7" stroke="#000000" stroke-width="3" stroke-linecap="round" stroke-miterlimit="10"/></svg>', smallSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M91.6,26L62.8,4.3c-7.6-5.7-18-5.7-25.6,0L8.4,26C2.9,30.2-0.2,36.8,0,43.5h0v56.5h100.1V43.5h0C100.2,36.8,97.2,30.2,91.6,26z" fill="#89b0bc"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="4.2" fill="#000000"/><circle cx="41.2" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="4.2" fill="#000000"/><circle cx="55" cy="14.5" r="1.4" fill="#FFFFFF"/><line x1="45.5" y1="27" x2="55.2" y2="27" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-miterlimit="10"/></svg>' },
@@ -1764,95 +1696,138 @@ const convertHexToEmoji = (hexCode: string): string => {
   }
 };
 
-// Emoji 检测正则表达式 - 提取为常量避免重复创建
-const EMOJI_REGEX = /(?:[\u2700-\u27bf]|(?:\ud83c[\udde6-\uddff]){2}|\ud83c[\udde6-\uddff]|\ud83c[\udff0-\udfff]|\ud83d[\udc00-\ude4f]|\ud83d[\ude80-\udeff]|\ud83e[\udd10-\uddff])|[^\x00-\xFF]/u;
-
-// 从思源 API 的 emoji item 中提取 emoji 字符 - 统一的提取逻辑
-const extractEmojiFromItem = (item: any): string | null => {
-  if (!item) return null;
-
-  // 如果项目本身就是字符串，则直接使用
-  if (typeof item === 'string') {
-    return item;
-  }
-
-  // 如果是对象，尝试获取emoji字符的各种可能属性
-  if (typeof item === 'object') {
-    if (item.ch) return item.ch;
-    if (item.emoji) return item.emoji;
-    if (item.text) return item.text;
-    if (item.unicode) return convertHexToEmoji(item.unicode);
-
-    // 作为最后的尝试，遍历对象的值，寻找可能的emoji字符串
-    const values = Object.values(item);
-    for (const val of values) {
-      if (typeof val === 'string' && val.length <= 5 && EMOJI_REGEX.test(val)) {
-        return val;
-      }
-    }
-  }
-
-  return null;
-};
-
-// 从 emoji items 数组中提取所有 emojis
-const extractEmojisFromItems = (items: any[]): string[] => {
-  const emojis: string[] = [];
-  for (const item of items) {
-    const emoji = extractEmojiFromItem(item);
-    if (emoji) {
-      emojis.push(emoji);
-    }
-  }
-  return emojis;
-};
-
 // 获取思源笔记内置emoji
 const loadSiyuanEmojis = async () => {
   try {
     const emojiConf: any = await getEmojiConf();
     if (emojiConf) {
+      // 按类别组织emoji
       const categories: Record<string, string[]> = {};
-
-      // 处理数组格式的 emoji 配置
+      
+      // 检查emojiConf是否为数组（思源API返回的是对象数组）
       if (Array.isArray(emojiConf)) {
+        // 遍历数组中的每个对象
         for (const emojiCategory of emojiConf) {
-          if (emojiCategory?.items && Array.isArray(emojiCategory.items)) {
-            const categoryName = emojiCategory.title_zh_cn || emojiCategory.title || emojiCategory.id;
-            if (categoryName && categoryName !== '自定义' && categoryName !== 'Custom') {
-              categories[categoryName] = extractEmojisFromItems(emojiCategory.items);
+          if (emojiCategory && typeof emojiCategory === 'object') {
+            // 检查是否有items属性（这是思源API实际返回的格式）
+            if (emojiCategory.items && Array.isArray(emojiCategory.items)) {
+              // 遍历items数组，尝试获取emoji字符
+              const emojis: string[] = [];
+              for (const item of emojiCategory.items) {
+                // 思源笔记API的emoji配置通常包含多个属性，其中可能有unicode、ch、emoji等
+                if (item && typeof item === 'object') {
+                  // 优先尝试获取emoji字符的各种可能属性
+                  if (item.ch) {
+                    emojis.push(item.ch);
+                  } else if (item.unicode) {
+                    // 如果是十六进制代码，转换为emoji字符
+                    emojis.push(convertHexToEmoji(item.unicode));
+                  } else if (item.emoji) {
+                    emojis.push(item.emoji);
+                  } else if (item.text) {
+                    emojis.push(item.text);
+                  } else {
+                    // 作为最后的尝试，遍历对象的值，寻找可能的emoji字符串
+                    const values = Object.values(item);
+                    for (const val of values) {
+                      if (typeof val === 'string' && val.length <= 5) { // emoji通常很短
+                        // 检查是否为emoji字符，使用更通用的正则表达式
+                        const emojiRegex = /(?:[\u2700-\u27bf]|(?:\ud83c[\udde6-\uddff]){2}|\ud83c[\udde6-\uddff]|\ud83c[\udff0-\udfff]|\ud83d[\udc00-\ude4f]|\ud83d[\ude80-\udeff]|\ud83e[\udd10-\uddff])|[^-ÿ]/u;
+                        if (emojiRegex.test(val)) {
+                          emojis.push(val);
+                          break; // 找到一个就跳出
+                        }
+                      }
+                    }
+                  }
+                } else if (typeof item === 'string') {
+                  // 如果项目本身就是字符串，则直接使用
+                  emojis.push(item);
+                }
+              }
+              // 使用title作为分类名称，如果没有title则使用id
+              const categoryName = emojiCategory.title_zh_cn || emojiCategory.title || emojiCategory.id;
+              // 如果分类名称是'自定义'或'Custom'，则跳过这个分类
+              if (categoryName && categoryName !== '自定义' && categoryName !== 'Custom') {
+                categories[categoryName] = emojis;
+              }
             }
           }
         }
       } else {
-        // 处理对象格式的 emoji 配置
+        // 如果不是数组，按原来的逻辑处理
         for (const category in emojiConf) {
-          const categoryData = emojiConf[category];
-
-          // 简单数组格式
-          if (Array.isArray(categoryData)) {
-            categories[category] = categoryData.map((item: any) => item.ch);
-            continue;
-          }
-
-          // 对象格式
-          if (categoryData?.items && Array.isArray(categoryData.items)) {
-            const categoryName = categoryData.title_zh_cn || categoryData.title || categoryData.id || category;
-            if (categoryName !== '自定义' && categoryName !== 'Custom') {
-              categories[categoryName] = extractEmojisFromItems(categoryData.items);
-            }
-          } else if (categoryData?.ch) {
-            categories[category] = [categoryData.ch];
+          if (Array.isArray(emojiConf[category])) {
+            // 根据思源API的返回格式，获取每个emoji的字符
+            categories[category] = emojiConf[category].map((item: any) => item.ch);
           } else {
-            categories[category] = Object.values(categoryData).filter(v => typeof v === 'string') as string[];
+            // 尝试从items属性获取emoji
+            
+            if (emojiConf[category] && typeof emojiConf[category] === 'object') {
+              // 检查是否有items属性（这是思源API实际返回的格式）
+              if (emojiConf[category].items && Array.isArray(emojiConf[category].items)) {
+                // 遍历items数组，尝试获取emoji字符
+                const emojis: string[] = [];
+                for (const item of emojiConf[category].items) {
+                  // 思源笔记API的emoji配置通常包含多个属性，其中可能有unicode、ch、emoji等
+                  if (item && typeof item === 'object') {
+                    // 优先尝试获取emoji字符的各种可能属性
+                    if (item.ch) {
+                      emojis.push(item.ch);
+                    } else if (item.unicode) {
+                      // 如果是十六进制代码，转换为emoji字符
+                      emojis.push(convertHexToEmoji(item.unicode));
+                    } else if (item.emoji) {
+                      emojis.push(item.emoji);
+                    } else if (item.text) {
+                      emojis.push(item.text);
+                    } else {
+                      // 作为最后的尝试，遍历对象的值，寻找可能的emoji字符串
+                      const values = Object.values(item);
+                      for (const val of values) {
+                        if (typeof val === 'string' && val.length <= 5) { // emoji通常很短
+                          // 检查是否为emoji字符，使用更通用的正则表达式
+                          const emojiRegex = /(?:[\u2700-\u27bf]|(?:\ud83c[\udde6-\uddff]){2}|\ud83c[\udde6-\uddff]|\ud83c[\udff0-\udfff]|\ud83d[\udc00-\ude4f]|\ud83d[\ude80-\udeff]|\ud83e[\udd10-\uddff])|[^-ÿ]/u;
+                          if (emojiRegex.test(val)) {
+                            emojis.push(val);
+                            break; // 找到一个就跳出
+                          }
+                        }
+                      }
+                    }
+                  } else if (typeof item === 'string') {
+                    // 如果项目本身就是字符串，则直接使用
+                    emojis.push(item);
+                  }
+                }
+                // 使用title作为分类名称，如果没有title则使用id
+                const categoryName = emojiConf[category].title_zh_cn || emojiConf[category].title || emojiConf[category].id || category;
+                // 如果分类名称是'自定义'或'Custom'，则跳过这个分类
+                if (categoryName !== '自定义' && categoryName !== 'Custom') {
+                  categories[categoryName] = emojis;
+                }
+              } else if (emojiConf[category].ch) {
+                // 如果直接有ch属性
+                categories[category] = [emojiConf[category].ch];
+              } else {
+                // 如果没有items属性，尝试获取对象中的所有可能的emoji值
+                categories[category] = Object.values(emojiConf[category]).filter(value => typeof value === 'string') as string[];
+              }
+            } else {
+              // 如果是其他类型，跳过这个类别
+              categories[category] = [];
+            }
           }
         }
       }
-
+      
       emojiCategories.value = categories;
-
+      
       // 将所有emoji合并为一个数组
-      const allEmojis = Object.values(categories).flat();
+      const allEmojis: string[] = [];
+      for (const category in categories) {
+        allEmojis.push(...categories[category]);
+      }
       commonEmojis.value = allEmojis;
     }
   } catch (error) {
@@ -1950,35 +1925,12 @@ const t = (key: string) => {
     'Cancel': '取消',
     'OK': '确定',
   };
-
+  
   return lang[key] || defaultLang[key] || key;
 };
 
-// 防抖的保存函数 - 优化性能，减少频繁的存储操作
-let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-const debouncedSaveHabits = async (habitsToSave: Habit[]) => {
-  if (saveDebounceTimer) {
-    clearTimeout(saveDebounceTimer);
-  }
-  return new Promise<void>((resolve) => {
-    saveDebounceTimer = setTimeout(async () => {
-      await saveHabits(habitsToSave);
-      resolve();
-    }, 300); // 300ms 防抖延迟
-  });
-};
-
-// 立即保存函数（用于关键操作）
-const immediateSaveHabits = async (habitsToSave: Habit[]) => {
-  if (saveDebounceTimer) {
-    clearTimeout(saveDebounceTimer);
-    saveDebounceTimer = null;
-  }
-  await saveHabits(habitsToSave);
-};
-
 // 习惯数据
-const habits = shallowRef<Habit[]>([]);
+const habits = ref<Habit[]>([]);
 const showAddHabitModal = ref(false);
 const showTotalStatsPage = ref(false);
 const showMoodCalendar = ref(false);
@@ -2002,7 +1954,8 @@ const weekDates = computed(() => {
   const monday = new Date(today);
   const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // 周日为0，周一为1
   monday.setDate(today.getDate() - daysToMonday);
-
+  
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const dates = [];
   
   for (let i = 0; i < 7; i++) {
@@ -2015,7 +1968,7 @@ const weekDates = computed(() => {
     
     dates.push({
       date: dateStr,
-      dayName: WEEKDAY_NAMES[i],
+      dayName: dayNames[i],
       isToday: isToday,
       fullDate: fullDateStr
     });
@@ -2028,50 +1981,38 @@ const weekDates = computed(() => {
 const activePomodoroHabit = ref<Habit | null>(null);
 
 // 计算属性：按当天完成状态和周目标完成状态排序的习惯列表（未完成的在前）
-// 优化：使用缓存和预计算减少重复计算
 const sortedHabits = computed(() => {
-  // 预计算所有习惯的完成状态，避免在排序函数中重复计算
-  const habitStatusCache = new Map<string, {
-    isPaused: boolean;
-    isCompleted: boolean;
-    createdAt: number;
-  }>();
-
-  // 预计算并缓存每个习惯的状态
-  for (const habit of habits.value) {
-    const isWeekly = habit.frequency && habit.frequency.startsWith('weekly');
-    const weeklyCompleted = isWeekly && getWeeklyCompletionStatus(habit);
-    const animationStatus = animationOriginalStatus.value[habit.id];
-
-    habitStatusCache.set(habit.id, {
-      isPaused: habit.isPaused || false,
-      isCompleted: isWeekly
-        ? (animationStatus !== undefined ? animationStatus : (habit.completedToday || weeklyCompleted))
-        : (animationStatus !== undefined ? animationStatus : habit.completedToday),
-      createdAt: new Date(habit.createdAt).getTime()
-    });
-  }
-
-  // 使用缓存的状态进行排序
   return [...habits.value].sort((a, b) => {
-    const aStatus = habitStatusCache.get(a.id)!;
-    const bStatus = habitStatusCache.get(b.id)!;
-
     // 首先处理暂停状态：暂停的习惯放在最后
-    if (aStatus.isPaused && !bStatus.isPaused) {
-      return 1;
-    } else if (!aStatus.isPaused && bStatus.isPaused) {
-      return -1;
+    if (a.isPaused && !b.isPaused) {
+      return 1; // a 排在 b 后面
+    } else if (!a.isPaused && b.isPaused) {
+      return -1; // a 排在 b 前面
     }
-
+    
+    // 检查 a 和 b 是否已完成周目标
+    const aWeeklyCompleted = a.frequency && a.frequency.startsWith('weekly') && getWeeklyCompletionStatus(a);
+    const bWeeklyCompleted = b.frequency && b.frequency.startsWith('weekly') && getWeeklyCompletionStatus(b);
+    
+    // 确定 a 和 b 的完成状态
+    // 对于周频次习惯：如果今天已打卡（completedToday为true），则认为已完成，不管周目标是否达成
+    // 对于日频次习惯：使用当天完成状态
+    // 如果当前正在执行动画，使用动画期间的原始状态
+    const aIsCompleted = a.frequency && a.frequency.startsWith('weekly') 
+      ? (animationOriginalStatus.value[a.id] !== undefined ? animationOriginalStatus.value[a.id] : (a.completedToday || aWeeklyCompleted)) 
+      : (animationOriginalStatus.value[a.id] !== undefined ? animationOriginalStatus.value[a.id] : a.completedToday);
+    const bIsCompleted = b.frequency && b.frequency.startsWith('weekly') 
+      ? (animationOriginalStatus.value[b.id] !== undefined ? animationOriginalStatus.value[b.id] : (b.completedToday || bWeeklyCompleted)) 
+      : (animationOriginalStatus.value[b.id] !== undefined ? animationOriginalStatus.value[b.id] : b.completedToday);
+    
     // 比较完成状态：未完成的在前，已完成的在后
-    if (!aStatus.isCompleted && bStatus.isCompleted) {
-      return -1;
-    } else if (aStatus.isCompleted && !bStatus.isCompleted) {
-      return 1;
+    if (!aIsCompleted && bIsCompleted) {
+      return -1; // a（未完成）排在 b（已完成）前面
+    } else if (aIsCompleted && !bIsCompleted) {
+      return 1;  // b（未完成）排在 a（已完成）前面
     } else {
       // 在相同完成状态下，按创建日期倒序排列（最新的在前）
-      return bStatus.createdAt - aStatus.createdAt;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     }
   });
 });
@@ -2086,38 +2027,50 @@ const newHabit = ref({
   pomodoroDuration: '25' // 番茄钟时长（分钟），默认25分钟
 });
 
-// 辅助函数：生成数字选项 - 减少重复代码
-const createNumberOptions = (count: number, suffix: string) =>
-  Array.from({ length: count }, (_, i) => ({
-    value: String(i + 1),
-    text: `${i + 1}${suffix}`
-  }));
-
-// 频率选项 - 使用辅助函数减少重复代码
 const frequencyOptions = ref([
   { value: 'daily', text: t('habitTracker.daily') },
-  ...Array.from({ length: 6 }, (_, i) => ({
-    value: `weekly${6 - i}`,
-    text: `每周${6 - i}天`
-  }))
+  { value: 'weekly6', text: '每周6天' },
+  { value: 'weekly5', text: '每周5天' },
+  { value: 'weekly4', text: '每周4天' },
+  { value: 'weekly3', text: '每周3天' },
+  { value: 'weekly2', text: '每周2天' },
+  { value: 'weekly1', text: '每周1天' }
 ]);
 
-// 每日打卡次数选项 - 使用辅助函数生成，减少重复代码
-const timesPerDayOptions = ref(createNumberOptions(20, '次'));
+// 每日打卡次数选项
+const timesPerDayOptions = ref([
+  { value: '1', text: '1次' },
+  { value: '2', text: '2次' },
+  { value: '3', text: '3次' },
+  { value: '4', text: '4次' },
+  { value: '5', text: '5次' },
+  { value: '6', text: '6次' },
+  { value: '7', text: '7次' },
+  { value: '8', text: '8次' },
+  { value: '9', text: '9次' },
+  { value: '10', text: '10次' },
+  { value: '11', text: '11次' },
+  { value: '12', text: '12次' },
+  { value: '13', text: '13次' },
+  { value: '14', text: '14次' },
+  { value: '15', text: '15次' },
+  { value: '16', text: '16次' },
+  { value: '17', text: '17次' },
+  { value: '18', text: '18次' },
+  { value: '19', text: '19次' },
+  { value: '20', text: '20次' }
+]);
 
 // 番茄钟时间选项
 const pomodoroDurationOptions = ref([
   { value: '5', text: '5分钟' },
   { value: '10', text: '10分钟' },
   { value: '15', text: '15分钟' },
-  { value: '25', text: '25分钟' },
+  { value: '25', text: '25分钟' }, // 默认值
   { value: '30', text: '30分钟' },
   { value: '45', text: '45分钟' },
   { value: '60', text: '60分钟' }
 ]);
-
-// 星期名称数组 - 提取为常量避免重复
-const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 // 初始化数据
 onMounted(async () => {
@@ -2237,9 +2190,8 @@ const addHabit = async () => {
 // 切换单日打卡状态
 const toggleDayCompletion = async (habit: Habit, date: string) => {
   toggleHabitCompletion(habit, date);
-
-  // 使用防抖保存优化性能
-  await debouncedSaveHabits(habits.value);
+  
+  await saveHabits(habits.value);
 };
 
 // 获取习惯频率对应的周目标次数
@@ -2300,33 +2252,19 @@ const getWeeklyCompletionStatus = (habit: Habit) => {
     return false;
   }
   
-  // 创建缓存键
-  const cacheKey = `${habit.id}-weeklyStatus-${getWeekStart(new Date()).toISOString().split('T')[0]}`; // 按周缓存
-  
-  // 检查缓存
-  const cached = weeklyCompletionCache.get(cacheKey);
-  if (cached) {
-    return cached.result;
-  }
-  
   // 获取每周需要完成的次数
   const requiredWeekCompletions = getWeeklyTarget(habit.frequency);
   
   // 获取本周周一的日期
   const thisWeekStart = getWeekStart(new Date());
   
-  // 计算本周已完成的打卡次数 - 使用reduce替代filter+length提高性能
-  const completedThisWeek = habit.calendar.reduce((count, day) => {
-    return (day.completed && isSameWeek(new Date(day.date), thisWeekStart)) ? count + 1 : count;
-  }, 0);
+  // 计算本周已完成的打卡次数
+  const completedThisWeek = habit.calendar.filter(day => {
+    return day.completed && isSameWeek(new Date(day.date), thisWeekStart);
+  }).length;
   
   // 检查是否已完成本周所需的打卡次数
-  const result = completedThisWeek >= requiredWeekCompletions;
-  
-  // 缓存结果
-  weeklyCompletionCache.set(cacheKey, {result, timestamp: Date.now()});
-  
-  return result;
+  return completedThisWeek >= requiredWeekCompletions;
 };
 
 // 获取指定日期的打卡完成次数
@@ -2408,9 +2346,10 @@ const toggleHabit = async (habitId: string) => {
         habit.completedToday = false;
         
         // 重新计算连续打卡天数和总完成次数
-        updateHabitStats(habit);
-
-        await immediateSaveHabits(habits.value);
+        habit.currentStreak = calculateCurrentStreak(habit);
+        habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+        
+        await saveHabits(habits.value);
       }
       return;
     } else {
@@ -2484,9 +2423,10 @@ const toggleHabit = async (habitId: string) => {
         }
         
         // 重新计算连续打卡天数和总完成次数
-        updateHabitStats(habit);
-
-        await immediateSaveHabits(habits.value);
+        habit.currentStreak = calculateCurrentStreak(habit);
+        habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+        
+        await saveHabits(habits.value);
       }
       return; // 退出函数，不执行后续打卡逻辑
     }
@@ -2510,7 +2450,7 @@ const toggleHabit = async (habitId: string) => {
     
     // 动画结束后再保存数据和重置动画状态
     setTimeout(async () => {
-      await immediateSaveHabits(habits.value);
+      await saveHabits(habits.value);
       showAnimation.value = false;
       animationHabitId.value = null;
       // 清除动画原始状态
@@ -2518,7 +2458,7 @@ const toggleHabit = async (habitId: string) => {
     }, 600); // 动画持续时间
   } else {
     // 如果没有完成打卡或使用番茄钟，直接保存数据
-    await immediateSaveHabits(habits.value);
+    await saveHabits(habits.value);
   }
 };
 
@@ -3097,25 +3037,10 @@ const calculateTotalMonthCompletions = (habit: Habit) => {
   return monthRecords.filter(record => record.completed).length;
 };
 
-// 缓存对象，用于存储最长连续打卡计算结果
-const longestStreakCache = new Map<string, {result: { streak: number, startDate: Date | null, endDate: Date | null }, timestamp: number}>();
-
 // 计算最长连续打卡数
 const calculateLongestStreak = (habit: Habit) => {
-  // 创建缓存键
-  const cacheKey = `${habit.id}-longestStreak-${Date.now() - (Date.now() % 86400000)}`; // 包含日期但忽略时间
-  
-  // 检查缓存（每日重置）
-  const cached = longestStreakCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp) < 86400000) { // 一天内有效
-    return cached.result;
-  }
-  
   if (!habit.calendar || habit.calendar.length === 0) {
-    // 缓存结果
-    const result = { streak: 0, startDate: null, endDate: null };
-    longestStreakCache.set(cacheKey, {result, timestamp: Date.now()});
-    return result;
+    return { streak: 0, startDate: null, endDate: null };
   }
   
   // 按日期排序打卡记录
@@ -3124,10 +3049,7 @@ const calculateLongestStreak = (habit: Habit) => {
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   
   if (sortedCalendar.length === 0) {
-    // 缓存结果
-    const result = { streak: 0, startDate: null, endDate: null };
-    longestStreakCache.set(cacheKey, {result, timestamp: Date.now()});
-    return result;
+    return { streak: 0, startDate: null, endDate: null };
   }
   
   let maxStreak = 0;
@@ -3185,15 +3107,11 @@ const calculateLongestStreak = (habit: Habit) => {
     maxStreakEndDate = previousDate;
   }
   
-  // 缓存结果
-  const result = {
+  return {
     streak: maxStreak,
     startDate: maxStreakStartDate,
     endDate: maxStreakEndDate
   };
-  longestStreakCache.set(cacheKey, {result, timestamp: Date.now()});
-  
-  return result;
 };
 
 // 计算常见打卡时段
@@ -3276,39 +3194,20 @@ const getHourDistribution = (habit: Habit) => {
   return distribution;
 };
 
-// 缓存对象，用于存储各种计算结果
-const completionRateCache = new Map<string, {result: number, timestamp: number}>();
-const weeklyCompletionCache = new Map<string, {result: boolean, timestamp: number}>();
-
 // 计算总完成率
 const calculateTotalCompletionRate = (habit: Habit) => {
-  // 创建缓存键
-  const cacheKey = `${habit.id}-completionRate-${Date.now() - (Date.now() % 86400000)}`; // 包含日期但忽略时间
-  
-  // 检查缓存（每日重置）
-  const cached = completionRateCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp) < 86400000) { // 一天内有效
-    return cached.result;
-  }
-  
   if (!habit.calendar || habit.calendar.length === 0) {
-    // 缓存结果
-    const result = 0;
-    completionRateCache.set(cacheKey, {result, timestamp: Date.now()});
-    return result;
+    return 0;
   }
   
   // 检查是否为周频率习惯
   if (habit.frequency.startsWith('weekly')) {
     // 对于周频率习惯，需要按周来计算完成率
-    const result = calculateWeeklyHabitCompletionRate(habit);
-    completionRateCache.set(cacheKey, {result, timestamp: Date.now()});
-    return result;
+    return calculateWeeklyHabitCompletionRate(habit);
   }
   
   // 对于非周频率习惯，计算打卡天数/创建天数*100%
-  // 使用reduce替代循环来计算完成数量，提高性能
-  const completedCount = habit.calendar.reduce((count, record) => record.completed ? count + 1 : count, 0);
+  const completedCount = habit.calendar.filter(record => record.completed).length;
   
   // 计算从创建日期到今天的总天数
   const creationDate = new Date(habit.createdAt);
@@ -3322,17 +3221,11 @@ const calculateTotalCompletionRate = (habit: Habit) => {
   const totalDays = Math.floor((today.getTime() - creationDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   
   if (totalDays <= 0) {
-    const result = 0;
-    completionRateCache.set(cacheKey, {result, timestamp: Date.now()});
-    return result;
+    return 0;
   }
   
   const rate = (completedCount / totalDays) * 100;
-  const finalResult = Math.round(rate);
-  
-  // 缓存结果
-  completionRateCache.set(cacheKey, {result: finalResult, timestamp: Date.now()});
-  return finalResult;
+  return Math.round(rate);
 };
 
 // 计算周频率习惯的总完成率
@@ -3590,8 +3483,7 @@ const totalHabitsCount = computed(() => {
 const totalCompletionsCount = computed(() => {
   let total = 0;
   for (const habit of habits.value) {
-    // 使用reduce替代filter+length，一次遍历完成计算
-    total += habit.calendar.reduce((count, record) => record.completed ? count + 1 : count, 0);
+    total += habit.calendar.filter(record => record.completed).length;
   }
   return total;
 });
@@ -3601,7 +3493,6 @@ const longestStreak = computed(() => {
   let maxStreak = 0;
   
   for (const habit of habits.value) {
-    // 使用缓存版本的计算函数（如果有的话）
     const streakResult = calculateLongestStreak(habit);
     if (streakResult.streak > maxStreak) {
       maxStreak = streakResult.streak;
@@ -3881,12 +3772,6 @@ const getCurrentPeriodText = (habit: Habit) => {
 // 当前选中的习惯
 const selectedHabit = ref<Habit | null>(null);
 
-// 选中习惯的最长连续打卡 - 缓存计算结果避免重复计算
-const selectedHabitLongestStreak = computed(() =>
-  selectedHabit.value ? calculateLongestStreak(selectedHabit.value) : { streak: 0, startDate: null, endDate: null }
-);
-
-
 // 当天日历相关
 const currentDayInfo = ref({
   // 使用本地日期格式而不是toISOString()，避免时区转换问题
@@ -4008,7 +3893,7 @@ const saveEditedHabit = async () => {
     Object.assign(selectedHabit.value, editedHabit.value);
     
     // 保存到存储
-    await immediateSaveHabits(habits.value);
+    await saveHabits(habits.value);
     
     // 关闭模态框
     closeEditHabitModal();
@@ -4022,7 +3907,7 @@ const togglePauseHabit = async (habit: Habit) => {
     habit.isPaused = !habit.isPaused;
     
     // 保存到存储
-    await immediateSaveHabits(habits.value);
+    await saveHabits(habits.value);
   }
 };
 
