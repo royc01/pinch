@@ -103,6 +103,7 @@ export function init(pluginInstance: Plugin) {
       if (dock.element) {
         // 在挂载Vue应用前，先清空dock元素并添加我们的容器
         dock.element.innerHTML = '';
+        dock.element.style.overflow = 'hidden';
         dock.element.appendChild(container);
         app.mount(container);
       }

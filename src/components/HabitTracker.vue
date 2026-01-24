@@ -375,224 +375,43 @@
     </div>
     
     <!-- 编辑习惯模态框 -->
-    <div v-show="showEditHabitModal" class="modal-overlay" @click.self="closeEditHabitModal">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>编辑习惯</h3>
-          <button @click="closeEditHabitModal" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
-          </button>
-        </div>
-        <div class="modal-body" v-if="editedHabit">
-          <div class="form-group">
-            <label>习惯名称</label>
-            <SyInput v-model="editedHabit.name" placeholder="输入习惯名称" />
-          </div>
-          <div class="form-group">
-            <label>选择图标</label>
-            <div class="emoji-selector">
-              <SyInput v-model="editedHabit.emoji" placeholder="选择或输入emoji" />
-              <SyButton 
-                @click="showEmojiPicker = !showEmojiPicker" 
-                type="default" 
-                size="small" 
-                class="emoji-picker-btn">
-                {{ editedHabit.emoji || '📝' }}
-              </SyButton>
-              <div class="emoji-picker" v-show="showEmojiPicker">
-                <div v-if="emojisLoading" class="emoji-loading">加载中...</div>
-                <template v-else>
-                  <div class="emoji-categories">
-                    <div 
-                      v-for="(emojis, category) in emojiCategories" 
-                      :key="category" 
-                      class="emoji-category"
-                      :id="getEmojiCategoryId(category)">
-                      <h4>{{ category }}</h4>
-                      <div class="emoji-options-grid">
-                        <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmojiForEdit(emoji)">
-                          {{ emoji }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- 底部导航菜单 -->
-                  <div class="emoji-nav">
-                    <div 
-                      v-for="(_, category) in emojiCategories" 
-                      :key="category" 
-                      class="emoji-nav-item"
-                      @click="scrollToCategory(getEmojiCategoryId(category))">
-                      {{ getFixedEmojiForCategory(category) }}
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>{{ t('habitTracker.frequency') }}</label>
-            <SySelect v-model="editedHabit.frequency" :options="frequencyOptions" />
-          </div>
-          <div class="form-group">
-            <label>{{ t('habitTracker.timesPerDay') }}</label>
-            <SySelect :modelValue="editedHabit.timesPerDay?.toString()" @update:modelValue="onTimesPerDayChange" :options="timesPerDayOptions" />
-          </div>
-          
-          <div class="form-group">
-            <label>
-              <input 
-                type="checkbox" 
-                v-model="editedHabit.usePomodoro" 
-                class="pomodoro-checkbox"
-              >
-              启用番茄钟功能
-            </label>
-          </div>
-          
-          <div class="form-group" v-if="editedHabit.usePomodoro">
-            <label>番茄钟时长</label>
-            <SySelect 
-              :modelValue="editedHabit.pomodoroDuration?.toString()" 
-              @update:modelValue="(value) => { if (editedHabit) editedHabit.pomodoroDuration = parseInt(value) || 25 }"
-              :options="pomodoroDurationOptions" 
-            />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <SyButton @click="saveEditedHabit" class="confirm-button">保存</SyButton>
-        </div>
-      </div>
-    </div>
+    <EditHabitModal 
+      :show="showEditHabitModal"
+      :habit="editedHabit"
+      :emoji-categories="emojiCategories"
+      :emojisLoading="emojisLoading"
+      :frequency-options="frequencyOptions"
+      :times-per-day-options="timesPerDayOptions"
+      :pomodoro-duration-options="pomodoroDurationOptions"
+      :t="t"
+      @close="closeEditHabitModal"
+      @save="saveEditedHabit"
+    />
 
     <!-- 添加习惯模态框 -->
-    <div v-show="showAddHabitModal" class="modal-overlay" @click.self="showAddHabitModal = false">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>{{ t('habitTracker.addHabit') }}</h3>
-          <button @click="showAddHabitModal = false" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>{{ t('habitTracker.habitName') }}</label>
-            <SyInput v-model="newHabit.name" :placeholder="t('habitTracker.habitNamePlaceholder')" />
-          </div>
-          <div class="form-group">
-            <label>选择图标</label>
-            <div class="emoji-selector">
-              <SyInput v-model="newHabit.emoji" placeholder="选择或输入emoji" />
-              <SyButton 
-                @click="showEmojiPicker = !showEmojiPicker" 
-                type="default" 
-                size="small" 
-                class="emoji-picker-btn">
-                📝
-              </SyButton>
-              <div class="emoji-picker" v-show="showEmojiPicker">
-                <div v-if="emojisLoading" class="emoji-loading">加载中...</div>
-                <template v-else>
-                  <div class="emoji-categories">
-                    <div 
-                      v-for="(emojis, category) in emojiCategories" 
-                      :key="category" 
-                      class="emoji-category"
-                      :id="getEmojiCategoryId(category)">
-
-                      <h4>{{ category }}</h4>
-                      <div class="emoji-options-grid">
-                        <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmoji(emoji)">
-                          {{ emoji }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- 底部导航菜单 -->
-                  <div class="emoji-nav">
-                    <div 
-                      v-for="(_, category) in emojiCategories" 
-                      :key="category" 
-                      class="emoji-nav-item"
-                      @click="scrollToCategory(getEmojiCategoryId(category))">
-                      {{ getFixedEmojiForCategory(category) }}
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>{{ t('habitTracker.frequency') }}</label>
-            <SySelect v-model="newHabit.frequency" :options="frequencyOptions" />
-          </div>
-          <div class="form-group">
-            <label>{{ t('habitTracker.timesPerDay') }}</label>
-            <SySelect v-model="newHabit.timesPerDay" :options="timesPerDayOptions" />
-          </div>
-          
-          <div class="form-group">
-            <label>
-              <input 
-                type="checkbox" 
-                v-model="newHabit.usePomodoro" 
-                class="pomodoro-checkbox"
-              >
-              启用番茄钟功能
-            </label>
-          </div>
-          
-          <div class="form-group" v-if="newHabit.usePomodoro">
-            <label>番茄钟时长</label>
-            <SySelect 
-              :modelValue="newHabit.pomodoroDuration" 
-              @update:modelValue="(value) => newHabit.pomodoroDuration = value"
-              :options="pomodoroDurationOptions" 
-            />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <SyButton @click="addHabit" class="confirm-button">{{ t('OK') }}</SyButton>
-        </div>
-      </div>
-    </div>
+    <AddHabitModal 
+      :show="showAddHabitModal"
+      :habit="newHabit"
+      :emoji-categories="emojiCategories"
+      :emojisLoading="emojisLoading"
+      :frequency-options="frequencyOptions"
+      :times-per-day-options="timesPerDayOptions"
+      :pomodoro-duration-options="pomodoroDurationOptions"
+      :t="t"
+      @close="showAddHabitModal = false"
+      @add="handleAddHabit"
+    />
     
     <!-- 情绪打卡模态框 -->
-    <div v-show="showMoodTracker" class="modal-overlay" @click.self="closeMoodTracker">
-      <div class="modal-content" @click.stop style="width: 350px;">
-        <div class="modal-header">
-          <h3>心情打卡 - {{ selectedDate }}</h3>
-          <button @click="closeMoodTracker" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>选择心情</label>
-            <div class="emoji-selector">
-              <div class="mood-emoji-grid">
-                <span 
-                  v-for="emoji in moodEmojis" 
-                  :key="emoji.id"
-                  class="mood-emoji-option"
-                  @click="selectMoodEmoji(emoji.emoji)"
-                  :class="{ selected: moodEntry.emoji === emoji.emoji }">
-                  <div v-html="getLargeMoodSvg(emoji.emoji)" class="mood-svg"></div>
-                </span>
-              </div>
-            </div>
-          </div>
-          <div class="form-group">
-            <label>今日心情</label>
-            <SyTextarea v-model="moodEntry.note" placeholder="记录今天的心情或事件..." class="mood-input" />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <SyButton @click="deleteMoodEntry" class="danger-button" v-if="moodEntry.emoji || moodEntry.note">删除</SyButton>
-          <SyButton @click="saveMoodEntry" class="confirm-button">保存</SyButton>
-        </div>
-      </div>
-    </div>
+    <MoodTrackerModal
+      :show="showMoodTracker"
+      :selectedDate="selectedDate"
+      :moodEntry="moodEntry"
+      :moodEmojis="moodEmojis"
+      @close="closeMoodTracker"
+      @save="handleSaveMoodEntry"
+      @delete="handleDeleteMoodEntry"
+    />
     
     <!-- 情绪打卡月视图模态框 -->
     <div v-if="showMoodCalendar" class="mood-calendar-panel">
@@ -1286,76 +1105,16 @@
   transition: width 0.3s ease;
 }
 
-.mood-emoji-option {
-  display: inline-block;
-  font-size: 20px;
-  padding: 4px;
-  cursor: pointer;
-  border-radius: 8px;
-  margin: 2px;
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.mood-emoji-option.selected {
-  background-color: var(--b3-list-hover);
-  box-shadow: 0 0 0 2px #f98f7a;
-}
-
-.mood-emoji-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.mood-input {
-  height: 80px;
-  min-height: 60px;
-  resize: vertical;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px;
-  border: 1px solid var(--b3-border-color);
-  border-radius: 4px;
-  font-family: inherit;
-  font-size: 14px;
-  line-height: 1.4;
-}
-
-.mood-svg {
-  width: 40px;
-  height: 40px;
-}
-
-.mood-svg svg {
-  width: 100%;
-  height: 100%;
-}
-
-.mood-svg-small {
-  width: 50px;
-  height: 50px;
-}
-
-.mood-svg-small svg {
-  width: 100%;
-  height: 100%;
-}
-
 </style>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, shallowRef, triggerRef, nextTick } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
-import SyInput from '@/components/SiyuanTheme/SyInput.vue';
-import SySelect from '@/components/SiyuanTheme/SySelect.vue';
-import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue';
 import Icon from '@/components/Icon.vue';
 import WeekDates from '@/components/WeekDates.vue';
+import EditHabitModal from '@/components/EditHabitModal.vue';
+import AddHabitModal from '@/components/AddHabitModal.vue';
+import MoodTrackerModal from '@/components/MoodTrackerModal.vue';
 import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
 
 // 日期格式化缓存 - 避免重复创建 Date 对象和字符串
@@ -1602,7 +1361,6 @@ const isToday = (dateString: string) => {
 // const plugin = usePlugin(); // Removed unused plugin variable
 
 // 表情选择相关
-const showEmojiPicker = ref(false);
 const emojisLoading = ref(true);
 
 // 从思源笔记获取内置emoji配置 - 使用 shallowRef 优化性能（这些数据不需要深度响应式）
@@ -1770,54 +1528,6 @@ const loadSiyuanEmojis = async () => {
 onMounted(() => {
   loadSiyuanEmojis();
 });
-
-// 选择emoji
-const selectEmoji = (emoji: string) => {
-  newHabit.value.emoji = emoji;
-  showEmojiPicker.value = false;
-};
-
-// 滚动到指定分类
-const scrollToCategory = (categoryId: string) => {
-  const element = document.getElementById(categoryId);
-  
-  if (element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } else {
-    requestAnimationFrame(() => {
-      const element2 = document.getElementById(categoryId);
-      if (element2) {
-        element2.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    });
-  }
-};
-
-// 为分类获取对应的固定emoji
-const getFixedEmojiForCategory = (category: string): string => {
-  // 根据分类名称返回对应的固定emoji，您可以直接在此处手动修改
-  const emojiMap: Record<string, string> = {
-    '笑脸和人类': '😀',
-    '动物和自然': '🐷',
-    '食物和饮料': '🍎',
-    '活动': '⚽',
-    '旅行和地点': '✈️',
-    '物品': '🎁',
-    '符号': '❤️',
-    '旗帜': '🚩',
-    // 英文分类
-    'Smileys & People': '😀',
-    'Animals & Nature': '🐷',
-    'Food & Drink': '🍎',
-    'Activity': '⚽',
-    'Travel & Places': '✈️',
-    'Objects': '🎁',
-    'Symbols': '❤️',
-    'Flags': '🚩',
-  };
-  
-  return emojiMap[category] || '⭐'; // 默认返回星号emoji
-};
 
 // 国际化函数
 const t = (key: string) => {
@@ -2103,13 +1813,13 @@ const generateCalendarData = (): any[] => {
 };
 
 // 添加习惯
-const addHabit = async () => {
-  if (!newHabit.value.name.trim()) {
+const handleAddHabit = async (habitData: any) => {
+  if (!habitData.name.trim()) {
     alert('请输入习惯名称');
     return;
   }
 
-  const inputTimesPerDay = parseInt(newHabit.value.timesPerDay) || 1;
+  const inputTimesPerDay = parseInt(habitData.timesPerDay) || 1;
   if (inputTimesPerDay > 20) {
     alert('每日打卡次数不能超过20次');
     return;
@@ -2119,17 +1829,17 @@ const addHabit = async () => {
 
   const habit: Habit = {
     id: Date.now().toString(),
-    name: newHabit.value.name,
-    emoji: newHabit.value.emoji,
-    frequency: newHabit.value.frequency,
+    name: habitData.name,
+    emoji: habitData.emoji,
+    frequency: habitData.frequency,
     timesPerDay,
     completedToday: false,
     currentStreak: 0,
     totalCompletions: 0,
     calendar: generateCalendarData(),
     createdAt: new Date().toISOString(),
-    usePomodoro: newHabit.value.usePomodoro || false,
-    pomodoroDuration: parseInt(newHabit.value.pomodoroDuration) || 25
+    usePomodoro: habitData.usePomodoro || false,
+    pomodoroDuration: parseInt(habitData.pomodoroDuration) || 25
   };
 
   habits.value = [...habits.value, habit];
@@ -2143,8 +1853,6 @@ const addHabit = async () => {
     usePomodoro: false,
     pomodoroDuration: '25'
   };
-
-  showAddHabitModal.value = false;
 };
 
 // 切换单日打卡状态 (目前未直接使用，保留供将来可能的功能扩展)
@@ -3652,20 +3360,6 @@ const habitsCache = computed(() => {
   return cache;
 });
 
-// 预计算 emoji 分类 ID，避免在模板中重复计算
-const emojiCategoryIds = computed(() => {
-  const ids: Record<string, string> = {};
-  for (const category in emojiCategories.value) {
-    ids[category] = 'emoji-category-' + category.toLowerCase().replace(/\s+/g, '-');
-  }
-  return ids;
-});
-
-// 获取分类 ID 的辅助函数
-const getEmojiCategoryId = (category: string): string => {
-  return emojiCategoryIds.value[category] || '';
-};
-
 // 获取习惯缓存的辅助函数
 const getHabitCache = (habitId: string) => {
   return habitsCache.value.get(habitId) || { weeklyCompleted: false, todayCompletionCount: 0, piePath: '' };
@@ -3735,7 +3429,6 @@ const editedHabit = ref<Habit | null>(null);
 // 打开编辑习惯模态框
 const openEditHabitModal = () => {
   if (selectedHabit.value) {
-    // 创建习惯的副本以避免直接修改原对象
     editedHabit.value = JSON.parse(JSON.stringify(selectedHabit.value));
     showEditHabitModal.value = true;
   }
@@ -3747,28 +3440,10 @@ const closeEditHabitModal = () => {
   editedHabit.value = null;
 };
 
-// 为编辑习惯选择emoji
-const selectEmojiForEdit = (emoji: string) => {
-  if (editedHabit.value) {
-    editedHabit.value.emoji = emoji;
-    showEmojiPicker.value = false;
-  }
-};
-
-// 处理timesPerDay变更
-const onTimesPerDayChange = (value: string | number) => {
-  if (editedHabit.value) {
-    editedHabit.value.timesPerDay = typeof value === 'string' ? parseInt(value) || 1 : value;
-  }
-};
-
 // 保存编辑后的习惯
-const saveEditedHabit = async () => {
-  if (editedHabit.value && selectedHabit.value) {
-    if (typeof editedHabit.value.timesPerDay === 'string') {
-      editedHabit.value.timesPerDay = parseInt(editedHabit.value.timesPerDay) || 1;
-    }
-    Object.assign(selectedHabit.value, editedHabit.value);
+const saveEditedHabit = async (habit: Habit) => {
+  if (selectedHabit.value) {
+    Object.assign(selectedHabit.value, habit);
     await immediateSaveHabits(habits.value);
     closeEditHabitModal();
   }
@@ -3811,31 +3486,29 @@ const openMoodTracker = async (date: string) => {
 };
 
 // 保存情绪打卡数据
-const saveMoodEntry = async () => {
+const handleSaveMoodEntry = async (entry: any) => {
   try {
     const moodDataLocal = await getMoodData();
     moodDataLocal[selectedDate.value] = {
-      emoji: moodEntry.value.emoji,
-      note: moodEntry.value.note,
+      emoji: entry.emoji,
+      note: entry.note,
       timestamp: new Date().toISOString()
     };
     await saveMoodData(moodDataLocal);
     moodData.value = moodDataLocal;
-    showMoodTracker.value = false;
   } catch (error) {
     console.error('保存情绪数据失败:', error);
   }
 };
 
 // 删除情绪打卡数据
-const deleteMoodEntry = async () => {
+const handleDeleteMoodEntry = async () => {
   if (!selectedDate.value) return;
   try {
     const moodDataLocal = await getMoodData();
     delete moodDataLocal[selectedDate.value];
     await saveMoodData(moodDataLocal);
     moodData.value = moodDataLocal;
-    showMoodTracker.value = false;
   } catch (error) {
     console.error('删除情绪数据失败:', error);
   }
@@ -3845,12 +3518,6 @@ const deleteMoodEntry = async () => {
 const closeMoodTracker = () => {
   showMoodTracker.value = false;
   moodEntry.value = { emoji: '', note: '' };
-};
-
-// 选择情绪emoji
-const selectMoodEmoji = (emoji: string) => {
-  moodEntry.value.emoji = emoji;
-  showEmojiPicker.value = false;
 };
 
 // 情绪打卡月视图相关
@@ -4459,80 +4126,8 @@ const changeMoodCalendarMonth = (offset: number) => {
   }
 }
 
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
 
-.modal-content {
-  background: var(--b3-theme-background);
-  border-radius: 24px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  max-height: 90vh;
-  overflow-y: auto;
-  min-width: 400px;
-  
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 20px;
-    
-    h3 {
-      margin: 0;
-      font-size: 16px;
-      color: var(--b3-theme-on-background);
-    }
-  }
-  
-  .modal-body {
-    padding: 20px;
-    
-    .form-group {
-      margin-bottom: 16px;
-      
-      label {
-        display: block;
-        margin-bottom: 4px;
-        font-size: 14px;
-        color: var(--b3-theme-on-background);
-      }
-    }
-    
-    .emoji-selector {
-      position: relative;
-      
-      .emoji-grid {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        background: var(--b3-theme-background);
-        border: 1px solid var(--b3-border-color);
-        border-radius: 4px;
-        padding: 8px;
-        z-index: 1001;
-        width: 300px;
-        max-height: 200px;
-        overflow-y: auto;
-      }
-    }
-  }
-  
-  .modal-footer {
-    padding: 16px 20px;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-}
+
 
 .total-stats-panel {
   position: absolute;
