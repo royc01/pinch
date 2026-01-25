@@ -11,15 +11,15 @@
       </div>
       <div class="modal-body" v-if="localHabit">
         <div class="form-group">
-          <label>选择图标</label>
           <div class="emoji-selector">
-            <SyInput v-model="localHabit.emoji" placeholder="选择或输入emoji" />
+            <SyInput v-model="localHabit.emoji" placeholder="选择或输入emoji" class="emoji-input-hidden" />
             <SyButton
               @click="showEmojiPicker = !showEmojiPicker"
               type="default"
               size="small"
               class="emoji-picker-btn">
-              {{ localHabit.emoji || '📝' }}
+              <span v-if="localHabit?.emoji" class="emoji-display">{{ localHabit.emoji }}</span>
+              <span v-else>选择图标</span>
             </SyButton>
             <div class="emoji-picker" v-show="showEmojiPicker">
               <div class="emoji-categories">
@@ -279,14 +279,25 @@ const handleSave = () => {
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: center;
 }
 
 .emoji-picker-btn {
-  margin-left: 8px;
   border: none;
-  border-radius: 6px;
-  height: 28px;
-  width: 30px;
+  border-radius: 20px;
+  height: 80px;
+  width: 80px;
+  font-size: 14px;
+  color: var(--b3-theme-on-surface);
+  background-color: var(--b3-list-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.emoji-picker-btn .emoji-display {
+  font-size: 50px;
+  color: inherit;
 }
 
 .emoji-picker {
@@ -412,5 +423,9 @@ const handleSave = () => {
 
 .pomodoro-checkbox {
   margin-right: 8px;
+}
+
+.emoji-input-hidden {
+  display: none;
 }
 </style>

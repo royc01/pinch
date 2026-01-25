@@ -135,244 +135,47 @@
     </div>
 
     <!-- 习惯统计面板 -->
-    <div v-if="selectedHabit" class="stats-panel">
-      <div class="stats-header">
-        <div class="stats-header-content">
-          <button @click="openEditHabitModal" class="icon-button">
-            <Icon name="edit" width="16" height="16" class="icon" />
-          </button>
-          <div class="stats-title">{{ selectedHabit.name }}</div>
-          <button @click="closeHabitStats" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
-          </button>
-        </div>
-        <div class="stats-emoji">{{ selectedHabit.emoji || '📝' }}</div>
-        <div class="habit-meta">
-          <span class="habit-frequency">{{ getFrequencyText(selectedHabit) }}</span>
-          <span class="habit-created">{{ getCreatedDateText(selectedHabit) }}</span>
-        </div>
-      </div>
-      <div class="stats-content">
-        <!-- 日历控件和视图容器 -->
-        <div class="calendar-container">
-          <!-- 日历控件 -->
-          <div class="calendar-controls">
-            <div class="calendar-navigation">
-              <button @click="changeStatsCalendarPeriod(selectedHabit, -1)" class="nav-btn">
-                <Icon name="right" width="16" height="16" class="icon" />
-              </button>
-              <span class="current-period">{{ getCurrentPeriodText(selectedHabit) }}</span>
-              <button @click="changeStatsCalendarPeriod(selectedHabit, 1)" class="nav-btn">
-                <Icon name="left" width="16" height="16" class="icon" />
-              </button>
-            </div>
-          </div>
-          <!-- 月视图 -->
-          <div class="calendar-view">
-            <div class="month-view">
-              <div class="weekdays-header">
-                <div v-for="day in weekdaysForCalendar" :key="day" class="weekday">{{ day }}</div>
-              </div>
-              <div class="month-grid">
-                <div 
-                  v-for="day in getStatsMonthViewData(selectedHabit)" 
-                  :key="day.date" 
-                  :class="['day', { completed: day.completed, today: day.date === getToday(), 'not-current-month': !day.isCurrentMonth }]"
-                  @click="!selectedHabit.isPaused && toggleDayCompletion(selectedHabit, day.date)"
-                >
-                  <span class="day-number">{{ day.date.split('-')[2] }}</span>
-                  <!-- 当目标次数大于1时显示进度条 -->
-                  <div v-if="day.targetCount > 1" class="day-progress-container">
-                    <div class="day-progress-bar">
-                      <div class="day-progress-fill" :style="{ width: (day.completedCount / day.targetCount * 100) + '%' }"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        <div class="stats-grid">
-          <div class="stat-item">
-            <div class="stat-value">{{ calculateCurrentMonthStreak(selectedHabit) }}</div>
-            <div class="stat-label">{{ t('habitTracker.currentStreak') }}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value">{{ calculateTotalMonthCompletions(selectedHabit) }}</div>
-            <div class="stat-label">{{ t('habitTracker.totalCompletions') }}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value">{{ calculateCompletionRate(selectedHabit) }}<span> %</span></div>
-            <div class="stat-label">{{ t('habitTracker.completionRate') }}</div>
-          </div>
-        </div>
-      </div>
-        
-        <!-- 累计打卡数统计 -->
-        <div class="cumulative-stats">
-          <div class="stat-row">
-            <div class="stat-item">
-              <div class="stat-label">累计打卡</div>
-              <div class="stat-value">{{ selectedHabit.totalCompletions }}<span> 次</span></div>
-              <div class="monthly-progress-chart">
-                <div class="chart-bar" v-for="monthData in getMonthlyProgressData(selectedHabit)" :key="monthData.month">
-                  <div class="bar-fill" :style="{ height: monthData.percentage + '%' }"></div>
-                </div>
-              </div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">最长连续坚持</div>
-              <div class="stat-value">{{ selectedHabitLongestStreak.streak }}<span> 天</span></div>
-              <div class="stat-timeline" v-if="selectedHabitLongestStreak.startDate && selectedHabitLongestStreak.endDate">
-                <div class="stat-timeline-start">{{ formatTimelineDate(selectedHabitLongestStreak.startDate) }}</div>
-                <div class="stat-timeline-end">{{ formatTimelineDate(selectedHabitLongestStreak.endDate) }}</div>
-              </div>
-            </div>
-          </div>
-          <div class="stat-row">
-            <div class="stat-item">
-              <div class="stat-label">总完成率</div>
-              <div class="stat-value">{{ calculateTotalCompletionRate(selectedHabit) }}<span> %</span></div>
-              <div class="progress-bar">
-                <div class="progress-fill" :style="{ width: calculateTotalCompletionRate(selectedHabit) + '%' }"></div>
-              </div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">最常打卡时刻</div>
-              <div class="stat-value" v-html="calculateCommonTimeSlot(selectedHabit)"></div>
-              <!-- 小时分布条形图 -->
-              <div class="hour-distribution-chart">
-                <div class="chart-container">
-                  <div 
-                    v-for="hourData in getHourDistribution(selectedHabit)" 
-                    :key="hourData.hour"
-                    class="hour-bar"
-                    :style="{ height: calculateBarHeight(hourData.count) + '%' }"
-                    :title="`${hourData.hour}点: ${hourData.count}次`"
-                  >
-                  </div>
-                </div>
-
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        
-        <div class="stats-actions">
-          <SyButton @click="togglePauseHabit(selectedHabit)" class="pause-button" :icon="selectedHabit.isPaused ? 'iconPlay' : 'iconPause'">
-            {{ selectedHabit.isPaused ? '恢复打卡' : '暂停打卡' }}
-          </SyButton>
-          <SyButton @click="deleteHabit(selectedHabit.id)" class="confirm-button" icon="iconTrashcan">
-            {{ t('habitTracker.delete') }}
-          </SyButton>
-        </div>
-      </div>
-    </div>
+    <HabitStatsPanel
+      :habit="selectedHabit"
+      :weekdays="weekdaysForCalendar"
+      :month-view-data="selectedHabit ? getStatsMonthViewData(selectedHabit) : []"
+      :current-period-text="selectedHabit ? getCurrentPeriodText(selectedHabit) : ''"
+      :current-month-streak="selectedHabit ? calculateCurrentMonthStreak(selectedHabit) : 0"
+      :total-month-completions="selectedHabit ? calculateTotalMonthCompletions(selectedHabit) : 0"
+      :completion-rate="selectedHabit ? calculateCompletionRate(selectedHabit) : 0"
+      :monthly-progress-data="selectedHabit ? getMonthlyProgressData(selectedHabit) : []"
+      :longest-streak="selectedHabitLongestStreak"
+      :total-completion-rate="selectedHabit ? calculateTotalCompletionRate(selectedHabit) : 0"
+      :common-time-slot="selectedHabit ? calculateCommonTimeSlot(selectedHabit) : ''"
+      :hour-distribution="selectedHabit ? getHourDistribution(selectedHabit) : []"
+      :get-frequency-text="getFrequencyText"
+      :get-created-date-text="getCreatedDateText"
+      :format-timeline-date="formatTimelineDate"
+      :calculate-bar-height="calculateBarHeight"
+      :t="t"
+      @close="closeHabitStats"
+      @edit="openEditHabitModal"
+      @delete="selectedHabit && deleteHabit(selectedHabit.id)"
+      @toggle-pause="selectedHabit && togglePauseHabit(selectedHabit)"
+      @change-period="selectedHabit && changeStatsCalendarPeriod(selectedHabit, $event)"
+      @toggle-day="selectedHabit && toggleDayCompletion(selectedHabit, $event)"
+    />
     
     <!-- 总统计面板 -->
-    <div v-if="showTotalStatsPage" class="total-stats-panel">
-      <div class="stats-header">
-        <div class="stats-header-content">
-          <div class="stats-title">统计总览</div>
-          <button @click="showTotalStatsPage = false" class="icon-button">
-            <Icon name="close" width="16" height="16" class="icon" />
-          </button>
-        </div>
-      </div>
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-value">{{ totalHabitsCount }}</div>
-          <div class="stat-label">总习惯数</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-value">{{ totalCompletionsCount }}</div>
-          <div class="stat-label">总完成数</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-value">{{ longestStreak }}</div>
-          <div class="stat-label">最长连续</div>
-        </div>
-      </div>
-      
-      <!-- 热力图区域 -->
-      <div class="heatmap-section">
-        <div class="heatmap-header">
-          <h3 class="heatmap-title">打卡热力图</h3>
-          <div class="heatmap-legend">
-            <span>无</span>
-            <div class="legend-colors">
-              <div class="legend-color intensity-0"></div>
-              <div class="legend-color intensity-1"></div>
-              <div class="legend-color intensity-2"></div>
-              <div class="legend-color intensity-3"></div>
-              <div class="legend-color intensity-4"></div>
-            </div>
-            <span>多</span>
-          </div>
-        </div>
-        <div class="heatmap-container">
-          <div class="heatmap-grid">
-            <div class="heatmap-weekdays">
-              <div class="heatmap-weekday">一</div>
-              <div class="heatmap-weekday">二</div>
-              <div class="heatmap-weekday">三</div>
-              <div class="heatmap-weekday">四</div>
-              <div class="heatmap-weekday">五</div>
-              <div class="heatmap-weekday">六</div>
-              <div class="heatmap-weekday">日</div>
-            </div>
-            <div class="heatmap-days-container">
-              <template v-for="(week, weekIndex) in heatmapGridData.weeks" :key="weekIndex">
-                <div class="heatmap-week-row">
-                  <template v-for="(day, dayIndex) in week" :key="dayIndex">
-                    <div 
-                      class="heatmap-day" 
-                      :class="`intensity-${day.intensity}`"
-                      :title="`${day.date}: ${day.count}次打卡`"
-                    ></div>
-                  </template>
-                </div>
-              </template>
-            </div>
-          </div>
-        </div>
-        <div class="heatmap-months">
-          <div v-for="month in heatmapMonths" :key="month.monthLabel" class="heatmap-month-label" :style="{ 'left': month.offset + '%' }">
-            {{ month.monthLabel }}
-          </div>
-        </div>
-      </div>
-      <!-- 每个习惯的统计列表 -->
-      <div class="habits-stats-list">
-        <div class="habit-stat-item" v-for="habit in habits" :key="habit.id">
-          <div class="habit-stat-content">
-            <div class="habit-stat-header">
-              <div class="habit-emoji-large">{{ habit.emoji || '📝' }}</div>
-              <span class="habit-name">{{ habit.name }}</span>
-              <span class="habit-created">{{ getCreatedDateText(habit) }}</span>
-            </div>
-            <div class="habit-stat-details">
-              <div class="stat-detail-item">
-                <span class="stat-value">{{ habit.totalCompletions || habit.calendar.filter(record => record.completed).length }}<span> 次</span></span>
-                <span class="stat-label">累计打卡</span>
-              </div>
-              <div class="stat-detail-item">
-                <span class="stat-value">{{ calculateLongestStreak(habit).streak }}<span> 天</span></span>
-                <span class="stat-label">最长连续</span>
-              </div>
-              <div class="stat-detail-item">
-                <span class="stat-value">{{ calculateTotalCompletionRate(habit) }}<span> %</span></span>
-                <span class="stat-label">总完成率</span>
-              </div>
-              <div class="stat-detail-item">
-                <span class="stat-value" v-html="calculateCommonTimeSlot(habit)"></span>
-                <span class="stat-label">打卡时刻</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <StatisticsPanel
+      :show="showTotalStatsPage"
+      :total-habits-count="totalHabitsCount"
+      :total-completions-count="totalCompletionsCount"
+      :longest-streak="longestStreak"
+      :heatmap-grid-data="heatmapGridData"
+      :heatmap-months="heatmapMonths"
+      :habits="habits"
+      :get-created-date-text="getCreatedDateText"
+      :calculate-longest-streak="calculateLongestStreak"
+      :calculate-total-completion-rate="calculateTotalCompletionRate"
+      :calculate-common-time-slot="calculateCommonTimeSlot"
+      @close="showTotalStatsPage = false"
+    />
     
     <!-- 编辑习惯模态框 -->
     <EditHabitModal 
@@ -1115,6 +918,8 @@ import WeekDates from '@/components/WeekDates.vue';
 import EditHabitModal from '@/components/EditHabitModal.vue';
 import AddHabitModal from '@/components/AddHabitModal.vue';
 import MoodTrackerModal from '@/components/MoodTrackerModal.vue';
+import StatisticsPanel from '@/components/StatisticsPanel.vue';
+import HabitStatsPanel from '@/components/HabitStatsPanel.vue';
 import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
 
 // 日期格式化缓存 - 避免重复创建 Date 对象和字符串
@@ -2255,22 +2060,6 @@ const formatPomodoroTime = (seconds: number): string => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-// 获取番茄钟初始总时间
-const getPomodoroTotalTime = (habit: Habit): number => {
-  let totalTime = 0;
-  if (habit.pomodoroState === 'work') {
-    // 使用习惯配置的番茄钟时长
-    totalTime = (habit.pomodoroDuration || 25) * 60; // 默认25分钟
-  } else if (habit.pomodoroState === 'shortBreak') {
-    totalTime = 5 * 60; // 5分钟短休息
-  } else if (habit.pomodoroState === 'longBreak') {
-    totalTime = 15 * 60; // 15分钟长休息
-  } else {
-    totalTime = (habit.pomodoroDuration || 25) * 60; // 默认使用习惯配置的时长
-  }
-  return totalTime;
-};
-
 // 停止当前番茄钟（按钮点击事件）
 const stopCurrentPomodoro = () => {
   if (activePomodoroHabit.value) {
@@ -2436,11 +2225,10 @@ const deleteHabit = async (habitId: string) => {
     return;
   }
   
-  habits.value = habits.value.filter(h => h.id !== habitId);
-  await saveHabits(habits.value);
-  
-  // 关闭统计页面
   selectedHabit.value = null;
+  habits.value = habits.value.filter(h => h.id !== habitId);
+  triggerRef(habits);
+  await saveHabits(habits.value);
 };
 
 
@@ -3505,6 +3293,7 @@ const togglePauseHabit = async (habit: Habit) => {
   if (habit) {
     habit.isPaused = !habit.isPaused;
     await immediateSaveHabits(habits.value);
+    triggerRef(habits);
   }
 };
 
@@ -4180,364 +3969,7 @@ const changeMoodCalendarMonth = (offset: number) => {
 
 
 
-.total-stats-panel {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-  box-sizing: border-box;
-  overflow-y: auto;
-  display: flex;
-  padding: 10px;
-  flex-direction: column;
-  --s: 20px; /* control the size*/
-  --c1: #2a936a;
-  --c2: #32a176;
-  --_g: radial-gradient(calc(var(--s)/2),var(--c1) 97%,#0000);
-  background:
-    var(--_g),var(--_g) calc(2*var(--s)) calc(2*var(--s)),
-    repeating-conic-gradient(from 45deg,#0000 0 25%,var(--c2) 0 50%) calc(-.707*var(--s)) calc(-.707*var(--s)),
-    repeating-linear-gradient(135deg,var(--c1) calc(var(--s)/-2) calc(var(--s)/2),var(--c2) 0 calc(2.328*var(--s)));
-  background-size: calc(4*var(--s)) calc(4*var(--s));
-  
-  /* 隐藏滚动条但保持滚动功能 */
-  -ms-overflow-style: none; /* IE 和 Edge */
-  scrollbar-width: none; /* Firefox */
-  
-  &::-webkit-scrollbar {
-    display: none; /* Chrome, Safari, Opera */
-  }
-  
-  .stats-header {
-    display: flex;
-    flex-direction: column;
-    padding-bottom: 10px;
-    
-    .stats-title {
-      font-size: 18px;
-      font-weight: bold;
-      color: var(--b3-theme-background);
-    }
-    
-    .stats-header-buttons {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-    
-    .stats-header-content {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      width: 100%;
-    }
-  }
-  .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-      margin-bottom: 10px;
-      
-      .stat-item {
-        text-align: center;
-        border-radius: 24px;
-        padding: 12px;
-        
-        .stat-value {
-          font-size: 24px;
-          font-weight: bold;
-          color: #ffcb4c;
-          margin-bottom: 4px;
-          span {
-            font-size: 12px;
-          }
-        }
-        
-        .stat-label {
-          font-weight: bold;
-          font-size: 12px;
-          color: var(--b3-theme-background);
-        }
-      }
-    }
-    
-    .heatmap-section {
-      margin: 10px 0;
-      padding: 15px;
-      background: var(--b3-theme-background);
-      border-radius: 12px;
-      
-      .heatmap-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 12px;
-      }
-      
-      .heatmap-title {
-        font-size: 14px;
-        font-weight: bold;
-        margin: 0;
-        color: var(--b3-theme-on-background);
-      }
-      
-      .heatmap-container {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch; /* 让子元素能够撑满容器宽度 */
-      }
-      
-      .heatmap-weekdays {
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 4px;
-        margin-bottom: 4px;
-        width: fit-content;
-        
-        .heatmap-weekday {
-          width: 13px;
-          height: 13px;
-          font-size: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: var(--b3-scroll-color);
-        }
-      }
-      
-      .heatmap-grid {
-        display: flex;
-        flex-direction: row;
-        gap: 1%;
-        width: 100%; /* 确保占满父容器宽度 */
-        height: 100%;
-        
-        .heatmap-weekdays {
-          display: flex;
-          flex-direction: column;
-          
-          .heatmap-weekday {
-            height: 13px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 10px;
-          }
-        }
-        
-        .heatmap-days-container {
-          display: flex;
-          flex-direction: column;
-          flex-grow: 1;
-          width: 100%; /* 确保占满可用宽度 */
-          height: 100%;
-        }
-        
-        .heatmap-week-row {
-          display: flex;
-          flex-direction: row;
-          gap: 1%; /* 使用百分比间隙，配合动态方块大小 */
-          margin-bottom: 4px; /* 添加行与行之间的间隙 */
-        }
-        
-        .heatmap-day {
-          width: calc(100% / 18); /* 每行18个方块，平均分配宽度 */
-          height: 13px; /* 固定高度为24px */
-          min-width: 8px;
-          min-height: 8px;
-          border-radius: 3px;
-          transition: all 0.2s ease;
-          
-          &.intensity-0 {
-            background-color: var(--b3-list-hover);
-          }
-          
-          &.intensity-1 {
-            background-color: rgba(252, 144, 121, 0.3);
-          }
-          
-          &.intensity-2 {
-            background-color: rgba(252, 144, 121, 0.5);
-          }
-          
-          &.intensity-3 {
-            background-color: rgba(252, 144, 121, 0.7);
-          }
-          
-          &.intensity-4 {
-            background-color: rgba(252, 144, 121, 1);
-          }
-        }
-      }
-      
-      .heatmap-months {
-        position: relative;
-        height: 20px;
-        margin-top: 4px;
-        width: 100%; /* 占满容器宽度 */
-        
-        .heatmap-month-label {
-          position: absolute;
-          font-size: 10px;
-          color: var(--b3-scroll-color);
-          white-space: nowrap;
-          transform: translateX(-50%);
-          top: 0;
-        }
-      }
-      
-      .heatmap-legend {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 10px;
-        color: var(--b3-scroll-color);
-        
-        .legend-colors {
-          display: flex;
-          gap: 2px;
-        }
-        
-        .legend-color {
-          width: 10px;
-          height: 10px;
-          border-radius: 2px;
-          
-          &.intensity-0 {
-            background-color: var(--b3-list-hover);
-          }
-          
-          &.intensity-1 {
-            background-color: rgba(252, 144, 121, 0.3);
-          }
-          
-          &.intensity-2 {
-            background-color: rgba(252, 144, 121, 0.5);
-          }
-          
-          &.intensity-3 {
-            background-color: rgba(252, 144, 121, 0.7);
-          }
-          
-          &.intensity-4 {
-            background-color: rgba(252, 144, 121, 1);
-          }
-        }
-      }
-    }
-    .habits-stats-list {
-    
-    .habits-stats-title {
-      font-size: 16px;
-      font-weight: bold;
-      margin: 10px 0;
-      color: var(--b3-theme-background);
-    }
-    
-    .habit-stat-item {
-      background: var(--b3-theme-background);
-      border-radius: 12px;
-      padding: 10px;
-      margin-bottom: 10px;
-      display: flex;
-      align-items: flex-start;
-      
-      .habit-emoji-large {
-        text-align: center;
-        font-size: 32px;
-        width: 50px;
-        height: 50px;
-        border-radius: 10px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-      }
-      
-      .habit-stat-content {
-        flex: 1;
-        
-        .habit-stat-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 8px;
-          
-          .habit-emoji-large {
-            text-align: center;
-            font-size: 24px;
-            width: 30px;
-            height: 30px;
-            border-radius: 8px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-right: 8px;
-          }
-          
-          .habit-name {
-            font-weight: bold;
-            color: var(--b3-theme-on-background);
-            margin-right: auto;
-            font-size: 16px;
-            flex: 1;
-          }
-          
-          .habit-created {
-            font-size: 10px;
-            color: var(--b3-theme-on-background);
-            white-space: nowrap;
-            background-color: var(--b3-list-hover);
-            padding: 4px 10px;
-            border-radius: 12px;
-          }
-          
-          .habit-completion-rate {
-            font-weight: bold;
-            color: #ffcb4c;
-            background: var(--b3-list-hover);
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-          }
-        }
-        
-        .habit-stat-details {
-          display: flex;
-          justify-content: space-between;
-          
-          .stat-detail-item {
-            text-align: center;
-            flex: 1;
-            
-            .stat-label {
-              font-size: 10px;
-              color: var(--b3-scroll-color);
-              display: block;
-            }
-            
-            .stat-value {
-              font-weight: 600;
-              color: var(--b3-theme-on-background);
-              display: block;
-              font-size: 18px;
-            }
-            .stat-value span{
-              font-size: 12px;
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  .stats-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
-}
+
 .stats-panel{
   background-color: var(--Sv-theme-surface);
 }
