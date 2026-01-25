@@ -975,8 +975,6 @@ const isToday = (dateString: string) => {
   return dateString === getToday();
 };
 
-// const plugin = usePlugin(); // Removed unused plugin variable
-
 // 表情选择相关
 const emojisLoading = ref(true);
 
@@ -1217,8 +1215,6 @@ const animationHabitId = ref<string | null>(null);
 
 // 存储动画期间的原始完成状态
 const animationOriginalStatus = ref<Record<string, boolean>>({});
-
-// const weekdays = ['一', '二', '三', '四', '五', '六', '日']; // 已注释：此变量未被使用，使用的是 weekdaysForCalendar 计算属性
 
 // 当前日期追踪（用于确保日期相关计算能够响应日期变化）
 const currentDate = ref(formatDate(new Date()));
@@ -3886,6 +3882,18 @@ const changeMoodCalendarMonth = (offset: number) => {
 
 .pomodoro-controls-inline .pause-btn {
   background-color: #f39c12;
+  color: var(--b3-theme-background);
+  border: none;
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pomodoro-controls-inline .resume-btn {
+  background-color: #27ae60;
   color: var(--b3-theme-background);
   border: none;
   border-radius: 8px;
