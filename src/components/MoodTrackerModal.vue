@@ -75,9 +75,20 @@ const emit = defineEmits<{
 
 const localMoodEntry = ref<MoodEntry>({ ...props.moodEntry });
 
+const setDefaultEmoji = () => {
+  if (props.show && !localMoodEntry.value.emoji) {
+    localMoodEntry.value.emoji = '🤩';
+  }
+};
+
 watch(() => props.moodEntry, (newMoodEntry) => {
   localMoodEntry.value = { ...newMoodEntry };
+  setDefaultEmoji();
 }, { immediate: true, deep: true });
+
+watch(() => props.show, (newShow) => {
+  setDefaultEmoji();
+}, { immediate: true });
 
 const getLargeMoodSvg = (emoji: string) => {
   const mood = props.moodEmojis.find(m => m.emoji === emoji);
@@ -230,14 +241,20 @@ const handleDelete = () => {
   background-color: var(--b3-list-hover);
 }
 
-.mood-emoji-option.selected {
-  background-color: var(--b3-list-hover);
-  box-shadow: 0 0 0 2px var(--b3-theme-primary);
+
+
+.mood-emoji-option.selected .mood-svg {
+  opacity: 1;
+}
+
+.mood-emoji-option:not(.selected) .mood-svg {
+  opacity: 0.3;
 }
 
 .mood-svg {
   width: 40px;
   height: 40px;
+  transition: opacity 0.2s;
 }
 
 .mood-input {

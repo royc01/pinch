@@ -1954,19 +1954,9 @@ const controlPomodoro = (action: 'pause' | 'resume' | 'start' | 'stop', habit?: 
   saveHabits(habits.value);
 };
 
-// 暂停番茄钟
-const togglePomodoroPause = () => {
-  if (activePomodoroHabit.value) {
-    controlPomodoro('pause', activePomodoroHabit.value);
-  }
-};
+const togglePomodoroPause = () => controlPomodoro('pause', activePomodoroHabit.value);
 
-// 继续番茄钟
-const togglePomodoroResume = () => {
-  if (activePomodoroHabit.value) {
-    controlPomodoro('resume', activePomodoroHabit.value);
-  }
-};
+const togglePomodoroResume = () => controlPomodoro('resume', activePomodoroHabit.value);
 
 // 使用剩余时间启动番茄钟计时器
 const startPomodoroTimerWithRemainingTime = (habit: Habit, remainingTime: number) => {
@@ -2282,16 +2272,10 @@ const calculateCompletionRate = (habit: Habit) => {
   }
 };
 
-// 获取标准化的创建日期
-const getNormalizedCreationDate = (habit: Habit) => {
-  const creationDate = new Date(habit.createdAt);
-  creationDate.setHours(0, 0, 0, 0); // 将创建日期调整为当天的开始时间
-  return creationDate;
-};
-
-// 获取标准化的日期对象
-const getNormalizedDate = (date: Date | string) => {
-  const normalizedDate = new Date(date);
+// 获取标准化的日期对象（将时间部分清零）
+const getNormalizedDate = (date: Date | string | Habit) => {
+  const inputDate = typeof date === 'string' || date instanceof Date ? date : date.createdAt;
+  const normalizedDate = new Date(inputDate);
   normalizedDate.setHours(0, 0, 0, 0);
   return normalizedDate;
 };
@@ -2300,7 +2284,7 @@ const getNormalizedDate = (date: Date | string) => {
 
 // 获取本月的打卡记录
 const getMonthRecords = (habit: Habit, currentYear: number, currentMonth: number) => {
-  const creationDate = getNormalizedCreationDate(habit);
+  const creationDate = getNormalizedDate(habit);
   
   return habit.calendar.filter(record => {
     const recordDate = getNormalizedDate(record.date);
@@ -2316,7 +2300,7 @@ const calculateCurrentMonthStreak = (habit: Habit) => {
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth();
   
-  const creationDate = getNormalizedCreationDate(habit);
+  const creationDate = getNormalizedDate(habit);
   
   // 过滤出本月的打卡记录
   const monthRecords = getMonthRecords(habit, currentYear, currentMonth)

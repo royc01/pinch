@@ -9,21 +9,75 @@
       </div>
     </div>
     <div class="stats-content">
-      <div class="mood-stats-container">
-        <div class="mood-stats-chart">
-          <div class="mood-stat-item" v-for="item in moodStatsData.data" :key="item.type">
-            <div class="mood-stat-bar-container">
-              <div 
-                class="mood-stat-bar" 
-                :class="`mood-stat-bar-${item.type}`"
-                :style="{ height: (item.count / moodStatsData.maxValue * 100) + '%' }"
-              ></div>
+      <div class="stats-row">
+        <div class="mood-stats-container">
+          <div class="mood-stats-title">心情统计</div>
+          <div class="mood-stats-chart">
+            <div class="mood-stat-item" v-for="item in moodStatsData.data" :key="item.type">
+              <div class="mood-stat-bar-container">
+                <div 
+                  class="mood-stat-bar" 
+                  :class="`mood-stat-bar-${item.type}`"
+                  :style="{ height: (item.count / moodStatsData.maxValue * 100) + '%' }"
+                ></div>
+              </div>
+              <div class="mood-stat-count">{{ item.count }}</div>
+              <div class="mood-stat-emoji" v-html="props.getLargeMoodSvg(item.emoji)"></div>
             </div>
-            <div class="mood-stat-count">{{ item.count }}</div>
-            <div class="mood-stat-emoji" v-html="props.getLargeMoodSvg(item.emoji)"></div>
           </div>
         </div>
+        
+        <div class="mood-trend-container">
+        <div class="mood-trend-title">半年趋势图</div>
+        <div class="mood-trend-chart">
+          <svg viewBox="0 0 200 200" preserveAspectRatio="none">
+            <!-- 网格线 -->
+            <line v-for="y in 5" :key="`grid-${y}`"
+                  class="trend-grid-line"
+                  :x1="10" :y1="(y - 1) * 35 + 10"
+                  :x2="190" :y2="(y - 1) * 35 + 10" />
+            
+            <!-- Y轴标签 -->
+            <text v-for="score in 5" :key="`label-${score}`"
+                  class="trend-label"
+                  :x="2" :y="(5 - score) * 35 + 14">
+              {{ score * 20 }}
+            </text>
+            
+            <!-- 趋势线 -->
+            <polyline
+              class="trend-line"
+              :points="trendLinePoints"
+            />
+            
+            <!-- 数据点 -->
+            <circle v-for="(point, index) in trendData" :key="index"
+                    class="trend-point"
+                    :class="{ active: index === trendData.length - 1 }"
+                    :cx="point.x" :cy="point.y" r="4"
+                    @mouseenter="hoverPoint = index"
+                    @mouseleave="hoverPoint = -1"
+            />
+            
+            <!-- X轴标签 -->
+            <text v-for="(point, index) in trendData" :key="`month-${index}`"
+                  class="trend-label"
+                  :x="point.x" :y="195">
+              {{ point.month }}
+            </text>
+            
+            <!-- 分数标签（hover时显示） -->
+            <text v-if="hoverPoint >= 0 && trendData[hoverPoint]"
+                  class="trend-score-label"
+                  :x="trendData[hoverPoint].x"
+                  :y="trendData[hoverPoint].y - 10">
+              {{ trendData[hoverPoint].score }}
+            </text>
+          </svg>
+        </div>
       </div>
+      </div>
+      
       <div class="calendar-container">
         <div class="calendar-controls">
           <div class="calendar-navigation">
@@ -82,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
 
 interface MoodData {
@@ -132,6 +186,16 @@ const emit = defineEmits<{
   openMoodTracker: [date: string];
   changeMonth: [offset: number];
 }>();
+
+const hoverPoint = ref(-1);
+
+const moodScoreMap: Record<string, number> = {
+  '🤩': 5,
+  '😊': 4,
+  '😌': 3,
+  '😢': 2,
+  '😡': 1
+};
 
 const monthYear = computed(() => {
   const today = new Date();
@@ -215,6 +279,44 @@ const currentMonthMoodEntries = computed<MoodEntry[]>(() => {
   
   entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   return entries;
+});
+
+const trendData = computed(() => {
+  const today = new Date();
+  const data = [];
+  
+  for (let i = 5; i >= 0; i--) {
+    const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    
+    let totalScore = 0;
+    let count = 0;
+    
+    for (const [dateStr, mood] of Object.entries(props.moodData)) {
+      const [entryYear, entryMonth] = dateStr.split('-').map(Number);
+      if (entryYear === year && entryMonth - 1 === month) {
+        totalScore += moodScoreMap[mood.emoji] || 0;
+        count++;
+      }
+    }
+    
+    const avgScore = count > 0 ? Math.round((totalScore / count) * 20) : 0;
+    const monthLabel = `${month + 1}`;
+    
+    data.push({
+      month: monthLabel,
+      score: avgScore,
+      x: 10 + (5 - i) * 36,
+      y: 180 - (avgScore / 100) * 160
+    });
+  }
+  
+  return data;
+});
+
+const trendLinePoints = computed(() => {
+  return trendData.value.map(point => `${point.x},${point.y}`).join(' ');
 });
 
 const handleClose = () => {
@@ -318,6 +420,27 @@ const changeMonth = (offset: number) => {
     flex: 1;
     display: flex;
     flex-direction: column;
+    
+    .stats-row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 10px;
+      width: 100%;
+      
+      .mood-stats-container {
+        flex: 1;
+        background: var(--b3-theme-background);
+        border-radius: 16px;
+        padding: 10px;
+      }
+      
+      .mood-trend-container {
+        flex: 1;
+        background: var(--b3-theme-background);
+        border-radius: 16px;
+        padding: 10px;
+      }
+    }
     
     .calendar-container {
       background-color: var(--b3-theme-background);
@@ -448,16 +571,18 @@ const changeMonth = (offset: number) => {
     }
     
     .mood-stats-container {
-      margin-bottom: 20px;
-      background: var(--b3-theme-background);
-      border-radius: 16px;
-      padding: 16px 0;
+      .mood-stats-title {
+        font-size: 14px;
+        font-weight: bold;
+        color: var(--b3-theme-on-surface);
+        margin-bottom: 16px;
+        text-align: left;
+      }
       
       .mood-stats-chart {
         display: flex;
         justify-content: space-around;
         align-items: flex-end;
-        height: 150px;
         padding: 10px 0;
         
         .mood-stat-item {
@@ -467,8 +592,8 @@ const changeMonth = (offset: number) => {
           flex: 1;
           
           .mood-stat-emoji {
-            width: 24px;
-            height: 24px;
+            width: 20px;
+            height: 20px;
             margin-bottom: 4px;
             
             svg {
@@ -485,8 +610,8 @@ const changeMonth = (offset: number) => {
           }
           
           .mood-stat-bar-container {
-            width: 30px;
-            height: 100px;
+            width: 20px;
+            height: 80px;
             border-radius: 10px;
             overflow: hidden;
             margin-bottom: 4px;
@@ -524,6 +649,74 @@ const changeMonth = (offset: number) => {
       }
     }
     
+    .mood-trend-container {
+      .mood-trend-title {
+        font-size: 14px;
+        font-weight: bold;
+        color: var(--b3-theme-on-surface);
+        margin-bottom: 16px;
+        text-align: left;
+      }
+      
+      .mood-trend-chart {
+        height: 140px;
+        position: relative;
+        
+        svg {
+          width: 100%;
+          height: 100%;
+        }
+        
+        .trend-grid-line {
+          stroke: var(--b3-border-color);
+          stroke-width: 1;
+          stroke-dasharray: 4 4;
+        }
+        
+        .trend-axis-line {
+          stroke: var(--b3-theme-on-surface);
+          stroke-width: 1;
+        }
+        
+        .trend-line {
+          fill: none;
+          stroke: #f98f7a;
+          stroke-width: 2;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        
+        .trend-point {
+          fill: var(--b3-theme-background);
+          stroke: #f98f7a;
+          stroke-width: 2;
+          cursor: pointer;
+          transition: r 0.2s;
+          
+          &:hover {
+            r: 6;
+          }
+        }
+        
+        .trend-point.active {
+          fill: #f98f7a;
+        }
+        
+        .trend-label {
+          font-size: 10px;
+          fill: var(--b3-theme-on-surface);
+          text-anchor: middle;
+        }
+        
+        .trend-score-label {
+          font-size: 10px;
+          fill: #f98f7a;
+          text-anchor: middle;
+          font-weight: bold;
+        }
+      }
+    }
+    
     .mood-list-container {
       margin-top: 20px;
       background: var(--b3-list-background);
@@ -539,7 +732,6 @@ const changeMonth = (offset: number) => {
       .mood-list {
         display: flex;
         flex-direction: column;
-        max-height: 300px;
         overflow-y: auto;
         
         .mood-list-item {

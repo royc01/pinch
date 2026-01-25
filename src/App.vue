@@ -14,9 +14,6 @@ import HabitTracker from './components/HabitTracker.vue';
 .plugin-app-main {
   width: 100%;
   height: 100%;
-  max-height: 100vh;
-  box-sizing: border-box;
-  
   position: relative;
   display: flex;
   flex-direction: column;
