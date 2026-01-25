@@ -28,7 +28,7 @@
         </div>
         
         <div class="mood-trend-container">
-        <div class="mood-trend-title">半年趋势图</div>
+        <div class="mood-trend-title">心情趋势图</div>
         <div class="mood-trend-chart">
           <svg viewBox="0 0 200 200" preserveAspectRatio="none">
             <!-- 网格线 -->

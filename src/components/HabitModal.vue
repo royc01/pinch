@@ -11,17 +11,17 @@
       </div>
       <div class="modal-body" v-if="localHabit">
         <div class="form-group">
-          <div class="emoji-selector">
+          <div class="emoji-selector" @click.self="showEmojiPicker = false">
             <SyInput v-model="localHabit.emoji" placeholder="选择或输入emoji" class="emoji-input-hidden" />
             <SyButton
-              @click="showEmojiPicker = !showEmojiPicker"
+              @click.stop="showEmojiPicker = !showEmojiPicker"
               type="default"
               size="small"
               class="emoji-picker-btn">
               <span v-if="localHabit.emoji" class="emoji-display">{{ localHabit.emoji }}</span>
               <span v-else>选择图标</span>
             </SyButton>
-            <div class="emoji-picker" v-show="showEmojiPicker">
+            <div class="emoji-picker" v-show="showEmojiPicker" @click.stop>
               <div class="emoji-categories">
                 <div
                   v-for="(emojis, category) in emojiCategories"
@@ -67,11 +67,10 @@
         
         <div class="form-group">
           <label>
-            <input 
-              type="checkbox" 
-              v-model="localHabit.usePomodoro" 
+            <SyCheckbox 
+              v-model="localHabit.usePomodoro"
               class="pomodoro-checkbox"
-            >
+            />
             启用番茄钟功能
           </label>
         </div>
@@ -100,6 +99,7 @@ import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
+import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import type { Habit as ApiHabit } from '@/api';
 
 interface Habit extends ApiHabit {
@@ -437,10 +437,6 @@ const handleSubmit = () => {
 
 .confirm-button:active {
   background-color: #dc4a33;
-}
-
-.pomodoro-checkbox {
-  margin-right: 8px;
 }
 
 .emoji-input-hidden {
