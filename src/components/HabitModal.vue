@@ -4,7 +4,7 @@
       <Transition name="slide">
         <div class="modal-content" @click.stop v-show="show">
       <div class="modal-header">
-        <h3>编辑习惯</h3>
+        <h3>{{ titleText }}</h3>
         <button @click="emit('close')" class="icon-button">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
@@ -18,7 +18,7 @@
               type="default"
               size="small"
               class="emoji-picker-btn">
-              <span v-if="localHabit?.emoji" class="emoji-display">{{ localHabit.emoji }}</span>
+              <span v-if="localHabit.emoji" class="emoji-display">{{ localHabit.emoji }}</span>
               <span v-else>选择图标</span>
             </SyButton>
             <div class="emoji-picker" v-show="showEmojiPicker">
@@ -49,8 +49,8 @@
           </div>
         </div>
         <div class="form-group">
-          <label>习惯名称</label>
-          <SyInput v-model="localHabit.name" placeholder="输入习惯名称" />
+          <label>{{ t('habitTracker.habitName') }}</label>
+          <SyInput v-model="localHabit.name" :placeholder="t('habitTracker.habitNamePlaceholder')" />
         </div>
         <div class="form-group">
           <label>{{ t('habitTracker.frequency') }}</label>
@@ -58,7 +58,11 @@
         </div>
         <div class="form-group">
           <label>{{ t('habitTracker.timesPerDay') }}</label>
-          <SySelect :modelValue="localHabit.timesPerDay?.toString()" @update:modelValue="onTimesPerDayChange" :options="timesPerDayOptions" />
+          <SySelect 
+            :modelValue="localHabit.timesPerDay?.toString()" 
+            @update:modelValue="onTimesPerDayChange" 
+            :options="timesPerDayOptions" 
+          />
         </div>
         
         <div class="form-group">
@@ -76,13 +80,13 @@
           <label>番茄钟时长</label>
           <SySelect 
             :modelValue="localHabit.pomodoroDuration?.toString()" 
-            @update:modelValue="(value) => { if (localHabit) localHabit.pomodoroDuration = parseInt(value) || 25 }"
+            @update:modelValue="onPomodoroDurationChange"
             :options="pomodoroDurationOptions" 
           />
         </div>
       </div>
       <div class="modal-footer">
-        <SyButton @click="handleSave" class="confirm-button">保存</SyButton>
+        <SyButton @click="handleSubmit" class="confirm-button">{{ buttonText }}</SyButton>
       </div>
         </div>
       </Transition>
@@ -91,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
@@ -102,6 +106,15 @@ interface Habit extends ApiHabit {
   weeklyGoal?: number;
 }
 
+interface NewHabit {
+  name: string;
+  emoji: string;
+  frequency: string;
+  timesPerDay: string | number;
+  usePomodoro: boolean;
+  pomodoroDuration: string | number;
+}
+
 interface Option {
   value: string;
   text: string;
@@ -109,7 +122,8 @@ interface Option {
 
 interface Props {
   show: boolean;
-  habit: Habit | null;
+  mode: 'add' | 'edit';
+  habit: Habit | NewHabit | null;
   emojiCategories: Record<string, string[]>;
   emojisLoading: boolean;
   frequencyOptions: Option[];
@@ -122,11 +136,19 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
   close: [];
-  save: [habit: Habit];
+  submit: [habit: Habit | NewHabit];
 }>();
 
+const titleText = computed(() => {
+  return props.mode === 'add' ? props.t('habitTracker.addHabit') : '编辑习惯';
+});
+
+const buttonText = computed(() => {
+  return props.mode === 'add' ? props.t('OK') : '保存';
+});
+
 const showEmojiPicker = ref(false);
-const localHabit = ref<Habit | null>(null);
+const localHabit = ref<Habit | NewHabit | null>(null);
 
 watch(() => props.habit, (newHabit) => {
   if (newHabit) {
@@ -176,9 +198,15 @@ const onTimesPerDayChange = (value: string | number) => {
   }
 };
 
-const handleSave = () => {
+const onPomodoroDurationChange = (value: string | number) => {
   if (localHabit.value) {
-    emit('save', localHabit.value);
+    localHabit.value.pomodoroDuration = typeof value === 'string' ? parseInt(value) || 25 : value;
+  }
+};
+
+const handleSubmit = () => {
+  if (localHabit.value) {
+    emit('submit', localHabit.value);
   }
 };
 </script>
@@ -251,13 +279,26 @@ const handleSave = () => {
 }
 
 .icon-button {
-  background: none;
+  width: 28px;
+  height: 28px;
   border: none;
+  background: none;
   cursor: pointer;
-  padding: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.icon-button .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--b3-theme-on-background);
+  fill: var(--b3-theme-on-background);
+}
+
+.icon-button:hover {
+  background-color: var(--b3-list-hover);
+  border-radius: 4px;
 }
 
 .modal-body {
@@ -396,29 +437,6 @@ const handleSave = () => {
 
 .confirm-button:active {
   background-color: #dc4a33;
-}
-
-.icon-button {
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.icon-button .icon {
-  width: 16px;
-  height: 16px;
-  color: var(--b3-theme-on-background);
-  fill: var(--b3-theme-on-background);
-}
-
-.icon-button:hover {
-  background-color: var(--b3-list-hover);
-  border-radius: 4px;
 }
 
 .pomodoro-checkbox {

@@ -178,8 +178,9 @@
     />
     
     <!-- 编辑习惯模态框 -->
-    <EditHabitModal 
+    <HabitModal 
       :show="showEditHabitModal"
+      mode="edit"
       :habit="editedHabit"
       :emoji-categories="emojiCategories"
       :emojisLoading="emojisLoading"
@@ -188,12 +189,13 @@
       :pomodoro-duration-options="pomodoroDurationOptions"
       :t="t"
       @close="closeEditHabitModal"
-      @save="saveEditedHabit"
+      @submit="saveEditedHabit"
     />
 
     <!-- 添加习惯模态框 -->
-    <AddHabitModal 
+    <HabitModal 
       :show="showAddHabitModal"
+      mode="add"
       :habit="newHabit"
       :emoji-categories="emojiCategories"
       :emojisLoading="emojisLoading"
@@ -202,7 +204,7 @@
       :pomodoro-duration-options="pomodoroDurationOptions"
       :t="t"
       @close="showAddHabitModal = false"
-      @add="handleAddHabit"
+      @submit="handleAddHabit"
     />
     
     <!-- 情绪打卡模态框 -->
@@ -842,8 +844,7 @@ import { ref, onMounted, onUnmounted, computed, shallowRef, triggerRef, nextTick
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import Icon from '@/components/Icon.vue';
 import WeekDates from '@/components/WeekDates.vue';
-import EditHabitModal from '@/components/EditHabitModal.vue';
-import AddHabitModal from '@/components/AddHabitModal.vue';
+import HabitModal from '@/components/HabitModal.vue';
 import MoodTrackerModal from '@/components/MoodTrackerModal.vue';
 import StatisticsPanel from '@/components/StatisticsPanel.vue';
 import HabitStatsPanel from '@/components/HabitStatsPanel.vue';
