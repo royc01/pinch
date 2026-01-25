@@ -234,42 +234,11 @@
 </template>
 
 <style scoped>
-.emoji-selector {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.emoji-picker-btn {
-  margin-left: 8px;
-  border: none;
-  border-radius: 6px;
-  height: 28px;
-  width: 30px;
-}
-
 .header-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
   width: 100%;
-}
-
-.pomodoro-checkbox {
-  margin-right: 8px;
-}
-
-.pomodoro-timer {
-  font-family: monospace;
-  font-weight: bold;
-  color: #e74c3c;
-}
-
-
-
-.pomodoro-label {
-  font-size: 12px;
-  color: #3498db;
 }
 
 .date-display {
@@ -283,92 +252,6 @@
 
 .date-display span {
   color: var(--b3-theme-on-background);
-}
-
-.emoji-picker {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 1000;
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 10px;
-  padding: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  overflow-y: auto;
-  width: 350px;
-}
-
-.emoji-loading {
-  padding: 20px;
-  text-align: center;
-  color: #666;
-  font-size: 14px;
-}
-
-.emoji-categories {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.emoji-category {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.emoji-category .emoji-option {
-  display: inline-block;
-  font-size: 20px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.emoji-category .emoji-options-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
-  gap: 4px;
-}
-
-.emoji-category h4 {
-  margin: 0 0 4px 0;
-  font-size: 12px;
-  color: #666;
-  padding: 0 4px;
-}
-
-.emoji-option:hover {
-  background-color: #f0f0f0;
-}
-
-.emoji-nav {
-  display: flex;
-  justify-content: space-around;
-  padding: 4px 0 0px 0;
-  border-top: 1px solid #eee;
-  margin-top: 8px;
-  position: sticky;
-  bottom: 0;
-  background: white;
-  z-index: 1001;
-}
-
-.emoji-nav-item {
-  padding: 4px 8px;
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 16px;
-  color: #666;
-  text-align: center;
-  flex: 1;
-}
-
-.emoji-nav-item:hover {
-  background-color: #f0f0f0;
-  color: #333;
 }
 
 .icon-button {
