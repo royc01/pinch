@@ -848,7 +848,7 @@ import MoodTrackerModal from '@/components/MoodTrackerModal.vue';
 import StatisticsPanel from '@/components/StatisticsPanel.vue';
 import HabitStatsPanel from '@/components/HabitStatsPanel.vue';
 import MoodCalendarPanel from '@/components/MoodCalendarPanel.vue';
-import { getHabits, saveHabits, Habit, getMoodData, saveMoodData, MoodData } from '@/api';
+import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
 
 // 日期格式化缓存 - 避免重复创建 Date 对象和字符串
 const dateCache = new Map<number, string>();
@@ -1094,10 +1094,11 @@ const isToday = (dateString: string) => {
 // const plugin = usePlugin(); // Removed unused plugin variable
 
 // 表情选择相关
-const emojisLoading = ref(false);
+const emojisLoading = ref(true);
 
 // 从思源笔记获取内置emoji配置 - 使用 shallowRef 优化性能（这些数据不需要深度响应式）
 const emojiCategories = shallowRef<Record<string, string[]>>({});
+const commonEmojis = shallowRef<string[]>([]);
 // 情绪打卡专用的SVG图标 - 使用 shallowRef 优化性能（静态数据不需要深度响应式）
 const moodEmojis = shallowRef([
   { id: 'excited', emoji: '🤩', largeSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="50" fill="#FDD07D"/><circle cx="37.3" cy="32.8" r="10.9" fill="#FFFFFF"/><circle cx="63.3" cy="32.8" r="10.9" fill="#FFFFFF"/><path d="M34.5,50.5c3.4,4.8,7.8,7.4,16.2,7.4c9.9,0,14.8-5.7,15.8-7.4" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M42.9,33c0-2.1-2-5.3-5.5-5.3c-2.9,0-5.7,2.5-5.7,5.3" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M69,33c0-2.1-2-5.3-5.5-5.3c-2.9,0-5.7,2.5-5.7,5.3" stroke="#000000" stroke-width="3" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>', smallSvg: '<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M0,24.9V100h100V24.9C88.6,9.8,70.4,0,50,0S11.4,9.8,0,24.9z" fill="#FDD07D"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="4.2"/><circle cx="41.3" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="4.2"/><circle cx="55" cy="14.5" r="1.4" fill="#FFFFFF"/><circle cx="43.3" cy="16.5" r="5.8" fill="#FFFFFF"/><circle cx="57" cy="16.5" r="5.8" fill="#FFFFFF"/><path d="M41.8,25.9c1.8,2.5,4.1,3.9,8.6,3.9c5.3,0,7.8-3,8.4-3.9" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M46.2,16.6c0-1.1-1.1-2.8-2.9-2.8c-1.5,0-3,1.3-3,2.8" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/><path d="M60.1,16.6c0-1.1-1.1-2.8-2.9-2.8c-1.5,0-3,1.3-3,2.8" stroke="#000000" stroke-width="2" fill="none" stroke-linecap="round" stroke-miterlimit="10"/></svg>' },
@@ -1115,6 +1116,149 @@ const getMoodSvg = (emoji: string, size: 'large' | 'small' = 'large') => {
 
 // 便捷函数：获取小型SVG
 const getSmallMoodSvg = (emoji: string) => getMoodSvg(emoji, 'small');
+
+// 将十六进制代码转换为emoji字符
+const convertHexToEmoji = (hexCode: string): string => {
+  try {
+    // 如果已经是emoji字符，直接返回
+    if (/[^\u0000-\u00ff]/.test(hexCode)) {
+      return hexCode;
+    }
+    
+    // 检查是否包含文件扩展名，如果是则直接返回原值
+    if (typeof hexCode === 'string' && (hexCode.includes('.') || hexCode.includes('/'))) {
+      // 这是文件路径，不是emoji代码，直接返回
+      return hexCode;
+    }
+    
+    // 检查是否是十六进制代码
+    if (typeof hexCode === 'string') {
+      // 检查是否为有效的emoji十六进制代码格式
+      // 通常emoji代码由十六进制数字和可能的连字符组成，如'1f600'或'1f1f7-1f1f8'
+      const hexPattern = /^[0-9a-fA-F]+(-[0-9a-fA-F]+)*$/;
+      if (hexPattern.test(hexCode)) {
+        // 移除可能的前缀
+        let cleanHex = hexCode.replace(/^U\+|0x|\\u/g, '').replace(/-/g, ' ');
+        
+        // 将十六进制代码转换为字符
+        const codePoints = cleanHex.split(' ').map(h => parseInt(h, 16));
+        
+        // 检查codePoints数组是否包含有效的数值
+        if (codePoints.some(isNaN)) {
+          // 如果包含NaN值，返回原值
+          return hexCode;
+        }
+        
+        return String.fromCodePoint(...codePoints);
+      }
+    }
+    
+    // 如果不是有效的十六进制代码格式，直接返回原值
+    return hexCode;
+  } catch (error) {
+    console.warn('无法转换十六进制代码到emoji:', hexCode, error);
+    return hexCode;
+  }
+};
+
+// Emoji 检测正则表达式 - 提取为常量避免重复创建
+const EMOJI_REGEX = /(?:[\u2700-\u27bf]|(?:\ud83c[\udde6-\uddff]){2}|\ud83c[\udde6-\uddff]|\ud83c[\udff0-\udfff]|\ud83d[\udc00-\ude4f]|\ud83d[\ude80-\udeff]|\ud83e[\udd10-\uddff])|[^\x00-\xFF]/u;
+
+// 从思源 API 的 emoji item 中提取 emoji 字符 - 统一的提取逻辑
+const extractEmojiFromItem = (item: any): string | null => {
+  if (!item) return null;
+
+  // 如果项目本身就是字符串，则直接使用
+  if (typeof item === 'string') {
+    return item;
+  }
+
+  // 如果是对象，尝试获取emoji字符的各种可能属性
+  if (typeof item === 'object') {
+    if (item.ch) return item.ch;
+    if (item.emoji) return item.emoji;
+    if (item.text) return item.text;
+    if (item.unicode) return convertHexToEmoji(item.unicode);
+
+    // 作为最后的尝试，遍历对象的值，寻找可能的emoji字符串
+    const values = Object.values(item);
+    for (const val of values) {
+      if (typeof val === 'string' && val.length <= 5 && EMOJI_REGEX.test(val)) {
+        return val;
+      }
+    }
+  }
+
+  return null;
+};
+
+// 从 emoji items 数组中提取所有 emojis
+const extractEmojisFromItems = (items: any[]): string[] => {
+  const emojis: string[] = [];
+  for (const item of items) {
+    const emoji = extractEmojiFromItem(item);
+    if (emoji) {
+      emojis.push(emoji);
+    }
+  }
+  return emojis;
+};
+
+// 获取思源笔记内置emoji
+const loadSiyuanEmojis = async () => {
+  try {
+    emojisLoading.value = true;
+    const emojiConf: any = await getEmojiConf();
+    if (emojiConf) {
+      const categories: Record<string, string[]> = {};
+
+      if (Array.isArray(emojiConf)) {
+        for (const emojiCategory of emojiConf) {
+          if (emojiCategory?.items && Array.isArray(emojiCategory.items)) {
+            const categoryName = emojiCategory.title_zh_cn || emojiCategory.title || emojiCategory.id;
+            if (categoryName && categoryName !== '自定义' && categoryName !== 'Custom') {
+              categories[categoryName] = extractEmojisFromItems(emojiCategory.items);
+            }
+          }
+        }
+      } else {
+        for (const category in emojiConf) {
+          const categoryData = emojiConf[category];
+
+          if (Array.isArray(categoryData)) {
+            categories[category] = categoryData.map((item: any) => item.ch);
+            continue;
+          }
+
+          if (categoryData?.items && Array.isArray(categoryData.items)) {
+            const categoryName = categoryData.title_zh_cn || categoryData.title || categoryData.id || category;
+            if (categoryName !== '自定义' && categoryName !== 'Custom') {
+              categories[categoryName] = extractEmojisFromItems(categoryData.items);
+            }
+          } else if (categoryData?.ch) {
+            categories[category] = [categoryData.ch];
+          } else {
+            categories[category] = Object.values(categoryData).filter(v => typeof v === 'string') as string[];
+          }
+        }
+      }
+
+      emojiCategories.value = categories;
+
+      const allEmojis = Object.values(categories).flat();
+      commonEmojis.value = allEmojis;
+    }
+  } catch (error) {
+    console.error('获取思源笔记emoji配置失败:', error);
+  } finally {
+    emojisLoading.value = false;
+  }
+};
+
+// 组件挂载时加载思源笔记emoji
+onMounted(() => {
+  loadSiyuanEmojis();
+});
 
 // 国际化函数
 const t = (key: string) => {
