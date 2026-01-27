@@ -228,6 +228,7 @@ const audio = ref<HTMLAudioElement | null>(null);
 const volume = ref<number>(0.3);
 const currentSet = ref<number>(1);
 const isBreakMode = ref<boolean>(false);
+let audioContext: AudioContext | null = null;
 
 const stats = ref<FocusStatsSummary>({
   totalSessions: 0,
@@ -373,6 +374,41 @@ const stopAudio = () => {
   }
 };
 
+const playCompleteSound = async () => {
+  try {
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+
+    const playTone = (freq: number, startTime: number, duration: number) => {
+      const oscillator = audioContext!.createOscillator();
+      const gainNode = audioContext!.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext!.destination);
+
+      oscillator.frequency.value = freq;
+      oscillator.type = 'sine';
+
+      gainNode.gain.setValueAtTime(0.2, startTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+      oscillator.start(startTime);
+      oscillator.stop(startTime + duration);
+    };
+
+    const now = audioContext.currentTime;
+    playTone(523.25, now, 0.2);
+    playTone(659.25, now + 0.15, 0.2);
+    playTone(783.99, now + 0.3, 0.3);
+  } catch (err) {
+  }
+};
+
 const startTimer = () => {
   if (timerInterval.value) {
     clearInterval(timerInterval.value);
@@ -384,6 +420,14 @@ const startTimer = () => {
 
   if (!audio.value || audio.value.paused) {
     playAudio();
+  }
+
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+
+  if (audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {});
   }
 
   timerInterval.value = window.setInterval(() => {
@@ -436,6 +480,8 @@ const completeTimer = async () => {
       });
     }
 
+    playCompleteSound();
+
     await loadMonthlyRecords();
 
     if (currentSet.value < pomodoroSets.value && pomodoroSets.value >= 2) {
@@ -457,6 +503,7 @@ const completeTimer = async () => {
       return;
     }
   } else {
+    playCompleteSound();
 
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       new Notification('短休结束！', {
