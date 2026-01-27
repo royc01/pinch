@@ -14,15 +14,15 @@
           <div class="mood-stats-title">心情统计</div>
           <div class="mood-stats-chart">
             <div class="mood-stat-item" v-for="item in moodStatsData.data" :key="item.type">
+              <div class="mood-stat-count">{{ item.count }}</div>
               <div class="mood-stat-bar-container">
-                <div 
-                  class="mood-stat-bar" 
+                <div
+                  class="mood-stat-bar"
                   :class="`mood-stat-bar-${item.type}`"
                   :style="{ height: (item.count / moodStatsData.maxValue * 100) + '%' }"
                 ></div>
+                <div class="mood-stat-emoji" v-html="props.getLargeMoodSvg(item.emoji)"></div>
               </div>
-              <div class="mood-stat-count">{{ item.count }}</div>
-              <div class="mood-stat-emoji" v-html="props.getLargeMoodSvg(item.emoji)"></div>
             </div>
           </div>
         </div>
@@ -30,20 +30,13 @@
         <div class="mood-trend-container">
         <div class="mood-trend-title">心情趋势图</div>
         <div class="mood-trend-chart">
-          <svg viewBox="0 0 200 200" preserveAspectRatio="none">
+          <svg viewBox="0 0 200 120" preserveAspectRatio="none">
             <!-- 网格线 -->
             <line v-for="y in 5" :key="`grid-${y}`"
                   class="trend-grid-line"
-                  :x1="10" :y1="(y - 1) * 35 + 10"
-                  :x2="190" :y2="(y - 1) * 35 + 10" />
-            
-            <!-- Y轴标签 -->
-            <text v-for="score in 5" :key="`label-${score}`"
-                  class="trend-label"
-                  :x="2" :y="(5 - score) * 35 + 14">
-              {{ score * 20 }}
-            </text>
-            
+                  :x1="10" :y1="(y - 1) * 20 + 10"
+                  :x2="190" :y2="(y - 1) * 20 + 10" />
+
             <!-- 趋势线 -->
             <polyline
               class="trend-line"
@@ -62,7 +55,7 @@
             <!-- X轴标签 -->
             <text v-for="(point, index) in trendData" :key="`month-${index}`"
                   class="trend-label"
-                  :x="point.x" :y="195">
+                  :x="point.x" :y="115">
               {{ point.month }}
             </text>
             
@@ -308,7 +301,7 @@ const trendData = computed(() => {
       month: monthLabel,
       score: avgScore,
       x: 10 + (5 - i) * 36,
-      y: 180 - (avgScore / 100) * 160
+      y: 90 - (avgScore / 100) * 80
     });
   }
   
@@ -430,14 +423,14 @@ const changeMonth = (offset: number) => {
       .mood-stats-container {
         flex: 1;
         background: var(--b3-theme-background);
-        border-radius: 16px;
+        border-radius: 24px;
         padding: 10px;
       }
       
       .mood-trend-container {
         flex: 1;
         background: var(--b3-theme-background);
-        border-radius: 16px;
+        border-radius: 24px;
         padding: 10px;
       }
     }
@@ -583,7 +576,6 @@ const changeMonth = (offset: number) => {
         display: flex;
         justify-content: space-around;
         align-items: flex-end;
-        padding: 10px 0;
         
         .mood-stat-item {
           display: flex;
@@ -594,8 +586,15 @@ const changeMonth = (offset: number) => {
           .mood-stat-emoji {
             width: 20px;
             height: 20px;
-            margin-bottom: 4px;
-            
+            margin-bottom: 0;
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+
             svg {
               width: 100%;
               height: 100%;
@@ -618,12 +617,13 @@ const changeMonth = (offset: number) => {
             position: relative;
             
             .mood-stat-bar {
-              width: 100%;
-              border-radius: 10px;
-              position: absolute;
-              bottom: 0;
-              transition: height 0.5s ease;
-            }
+            width: 100%;
+            border-radius: 10px;
+            position: absolute;
+            bottom: 0;
+            transition: height 0.5s ease;
+            z-index: 1;
+          }
             
             .mood-stat-bar-excited {
               background-color: #fdd07d;
@@ -659,7 +659,7 @@ const changeMonth = (offset: number) => {
       }
       
       .mood-trend-chart {
-        height: 140px;
+        height: 100px;
         position: relative;
         
         svg {
@@ -703,13 +703,13 @@ const changeMonth = (offset: number) => {
         }
         
         .trend-label {
-          font-size: 10px;
+          font-size: 14px;
           fill: var(--b3-theme-on-surface);
           text-anchor: middle;
         }
         
         .trend-score-label {
-          font-size: 10px;
+          font-size: 14px;
           fill: #f98f7a;
           text-anchor: middle;
           font-weight: bold;

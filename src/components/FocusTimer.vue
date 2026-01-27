@@ -14,9 +14,10 @@
         <div class="timer-circle">
           <svg class="timer-svg" viewBox="0 0 200 200">
             <circle class="timer-bg" cx="100" cy="100" r="90" />
-            <circle class="timer-progress" cx="100" cy="100" r="90" 
-                    :stroke-dasharray="circumference" 
-                    :stroke-dashoffset="strokeDashoffset" />
+            <circle class="timer-progress" cx="100" cy="100" r="90"
+                    :stroke-dasharray="circumference"
+                    :stroke-dashoffset="strokeDashoffset"
+                    :style="{ stroke: isBreakMode ? 'rgb(46 170 220)' : '#f98f7a' }" />
           </svg>
           <div class="timer-text">
             <div class="time">{{ formattedTime }}</div>
@@ -43,7 +44,7 @@
       <div class="timer-settings">
         <div class="setting-section">
           <div class="setting-label">
-            <span>时长选择</span>
+            <span>专注时长</span>
             <span class="duration-value">{{ selectedDuration }}分钟</span>
           </div>
           <div class="duration-slider-container">
@@ -52,8 +53,9 @@
                    :disabled="isRunning || isPaused"
                    style="accent-color: var(--b3-theme-on-background)" />
             <div class="duration-marks">
-              <span v-for="mark in durationMarks" :key="mark"
-                    class="duration-mark">
+              <span v-for="(mark, index) in durationMarks" :key="mark"
+                    class="duration-mark"
+                    :style="{ left: `${(index / (durationMarks.length - 1)) * 100}%` }">
                 {{ mark }}
               </span>
             </div>
@@ -71,8 +73,9 @@
                    :disabled="isRunning || isPaused"
                    style="accent-color: var(--b3-theme-on-background)" />
             <div class="duration-marks">
-              <span v-for="mark in shortBreakMarks" :key="mark"
-                    class="duration-mark">
+              <span v-for="(mark, index) in shortBreakMarks" :key="mark"
+                    class="duration-mark"
+                    :style="{ left: `${(index / (shortBreakMarks.length - 1)) * 100}%` }">
                 {{ mark }}
               </span>
             </div>
@@ -81,7 +84,7 @@
 
         <div class="setting-section">
           <div class="setting-label">
-            <span>番茄组数</span>
+            <span>专注组数</span>
             <span class="duration-value">{{ pomodoroSets }}组</span>
           </div>
           <div class="duration-slider-container">
@@ -90,8 +93,9 @@
                    :disabled="isRunning || isPaused"
                    style="accent-color: var(--b3-theme-on-background)" />
             <div class="duration-marks">
-              <span v-for="mark in pomodoroSetMarks" :key="mark"
-                    class="duration-mark">
+              <span v-for="(mark, index) in pomodoroSetMarks" :key="mark"
+                    class="duration-mark"
+                    :style="{ left: `${(index / (pomodoroSetMarks.length - 1)) * 100}%` }">
                 {{ mark }}
               </span>
             </div>
@@ -99,7 +103,7 @@
         </div>
 
         <div class="setting-section">
-          <div class="setting-label">背景音效</div>
+          <div class="setting-label">白噪音</div>
           <div class="sound-selector">
             <button v-for="sound in soundOptions" :key="sound.id"
                     @click="selectSound(sound)"
@@ -188,7 +192,7 @@ interface Sound {
   emoji: string;
   icon: string;
 }
-const durationMarks = [5, 10, 15, 25, 30, 45, 60];
+const durationMarks = [1, 10, 15, 25, 30, 45, 60];
 
 const shortBreakMarks = [1, 3, 5, 10, 15];
 const pomodoroSetMarks = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -259,32 +263,32 @@ const firstDayOfMonth = computed(() => {
 const calendarDays = computed(() => {
   const days = [];
   const { year, month } = currentMonth.value;
-  
+
   let firstDay = firstDayOfMonth.value;
   const totalDays = daysInMonth.value;
-  
+
   const firstDayOfWeek = firstDay === 0 ? 6 : firstDay - 1;
-  
+
   for (let i = 0; i < firstDayOfWeek; i++) {
     days.push({ date: null, record: null, isToday: false });
   }
-  
+
   for (let day = 1; day <= totalDays; day++) {
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const record = monthlyRecords.value.find(r => r.date === dateStr);
-    
+
     const today = new Date();
-    const isToday = day === today.getDate() && 
-                   month === today.getMonth() && 
+    const isToday = day === today.getDate() &&
+                   month === today.getMonth() &&
                    year === today.getFullYear();
-    
+
     days.push({
       date: day,
       record: record || null,
       isToday
     });
   }
-  
+
   return days;
 });
 
@@ -341,13 +345,15 @@ const selectSound = (sound: Sound) => {
 
 const playAudio = () => {
   if (selectedSound.value.id === 'none') return;
-  
-  stopAudio();
-  
+
+  if (audio.value && !audio.value.paused) {
+    stopAudio();
+  }
+
   audio.value = new Audio(audioFiles[selectedSound.value.id]);
   audio.value.loop = true;
   audio.value.volume = volume.value;
-  
+
   audio.value.play().catch(err => {
     console.error('音频播放失败:', err);
   });
@@ -368,16 +374,21 @@ const stopAudio = () => {
 };
 
 const startTimer = () => {
+  if (timerInterval.value) {
+    clearInterval(timerInterval.value);
+    timerInterval.value = null;
+  }
+
   isRunning.value = true;
   isPaused.value = false;
-  
-  if (!isBreakMode.value) {
+
+  if (!audio.value || audio.value.paused) {
     playAudio();
   }
-  
+
   timerInterval.value = window.setInterval(() => {
     remainingTime.value--;
-    
+
     if (remainingTime.value <= 0) {
       completeTimer();
     }
@@ -387,9 +398,7 @@ const startTimer = () => {
 const pauseTimer = () => {
   isRunning.value = false;
   isPaused.value = true;
-  
-  stopAudio();
-  
+
   if (timerInterval.value) {
     clearInterval(timerInterval.value);
     timerInterval.value = null;
@@ -414,21 +423,21 @@ const stopTimer = () => {
 const completeTimer = async () => {
   if (!isBreakMode.value) {
     await addFocusSession(selectedDuration.value);
-    
+
     stats.value.totalSessions++;
     stats.value.totalMinutes += selectedDuration.value;
     stats.value.todaySessions++;
     stats.value.todayMinutes += selectedDuration.value;
-    
-    if (Notification.permission === 'granted') {
+
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       new Notification('专注完成！', {
         body: `${selectedDuration.value}分钟专注已完成`,
         icon: '🎉'
       });
     }
-    
+
     await loadMonthlyRecords();
-    
+
     if (currentSet.value < pomodoroSets.value && pomodoroSets.value >= 2) {
       if (timerInterval.value) {
         clearInterval(timerInterval.value);
@@ -437,11 +446,19 @@ const completeTimer = async () => {
       isBreakMode.value = true;
       remainingTime.value = shortBreakDuration.value * 60;
       currentSet.value++;
-      startTimer();
+
+      timerInterval.value = window.setInterval(() => {
+        remainingTime.value--;
+
+        if (remainingTime.value <= 0) {
+          completeTimer();
+        }
+      }, 1000);
       return;
     }
   } else {
-    if (Notification.permission === 'granted') {
+
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       new Notification('短休结束！', {
         body: `开始第 ${currentSet.value} 组专注`,
         icon: '☕'
@@ -453,10 +470,17 @@ const completeTimer = async () => {
     }
     isBreakMode.value = false;
     remainingTime.value = selectedDuration.value * 60;
-    startTimer();
+
+    timerInterval.value = window.setInterval(() => {
+      remainingTime.value--;
+
+      if (remainingTime.value <= 0) {
+        completeTimer();
+      }
+    }, 1000);
     return;
   }
-  
+
   stopTimer();
 };
 
@@ -519,12 +543,20 @@ onUnmounted(() => {
 });
 
 onMounted(async () => {
-  if (Notification.permission === 'default') {
-    Notification.requestPermission();
+  try {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      try {
+        await Notification.requestPermission();
+      } catch (e) {
+        console.error('Notification权限请求失败:', e);
+      }
+    }
+
+    await loadStats();
+    await loadMonthlyRecords();
+  } catch (e) {
+    console.error('onMounted错误:', e);
   }
-  
-  await loadStats();
-  await loadMonthlyRecords();
 });
 </script>
 
@@ -541,15 +573,7 @@ onMounted(async () => {
   display: flex;
   padding: 10px;
   flex-direction: column;
-  --s: 20px;
-  --c1: #2a936a;
-  --c2: #32a176;
-  --_g: radial-gradient(calc(var(--s)/2),var(--c1) 97%,#0000);
-  background:
-    var(--_g),var(--_g) calc(2*var(--s)) calc(2*var(--s)),
-    repeating-conic-gradient(from 45deg,#0000 0 25%,var(--c2) 0 50%) calc(-.707*var(--s)) calc(-.707*var(--s)),
-    repeating-linear-gradient(135deg,var(--c1) calc(var(--s)/-2) calc(var(--s)/2),var(--c2) 0 calc(2.328*var(--s)));
-  background-size: calc(4*var(--s)) calc(4*var(--s));
+  background-color: var(--b3-theme-background);
   
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -575,7 +599,7 @@ onMounted(async () => {
 .stats-title {
   font-size: 18px;
   font-weight: bold;
-  color: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
 }
 
 .timer-content {
@@ -591,7 +615,7 @@ onMounted(async () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 20px 0;
+  padding: 10px 0;
 }
 
 .timer-circle {
@@ -608,7 +632,7 @@ onMounted(async () => {
 
 .timer-bg {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.2);
+  stroke: var(--b3-list-hover);
   stroke-width: 14;
 }
 
@@ -634,18 +658,19 @@ onMounted(async () => {
 .time {
   font-size: 48px;
   font-weight: bold;
-  color: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
 }
 
 .mode-label {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--b3-theme-on-surface);
 }
 
 .timer-controls {
   display: flex;
   justify-content: center;
   gap: 16px;
+  margin-bottom: 20px;
 }
 
 .control-btn {
@@ -674,27 +699,27 @@ onMounted(async () => {
 }
 
 .start-btn {
-  background: linear-gradient(135deg, #ffcb4c, #fcd07d);
+  background: #f98f7a;
 }
 
 .pause-btn {
-  background: linear-gradient(135deg, #f98f7a, #fca07a);
+  background: var(--b3-theme-on-background);
 }
 
 .stop-btn {
-  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  background: var(--b3-theme-on-background);
 }
 
 .timer-settings {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  background: var(--b3-theme-background);
+  background: var(--b3-list-hover);
   border-radius: 20px;
   padding: 20px;
   width: 100%;
   box-sizing: border-box;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--b3-border-color) 0px 0px 0px 0.5px;
 }
 
 .setting-section {
@@ -714,7 +739,7 @@ onMounted(async () => {
 
 .duration-value {
   font-weight: bold;
-  color: #f98f7a;
+  color: var(--b3-theme-on-background);
 }
 
 .sound-selector {
@@ -727,6 +752,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
 }
 
 .duration-slider {
@@ -734,7 +760,7 @@ onMounted(async () => {
   height: 3px;
   -webkit-appearance: none;
   appearance: none;
-  background: var(--b3-border-color);
+  background: var(--b3-list-hover);
   border-radius: 3px;
   outline: none;
   cursor: pointer;
@@ -766,16 +792,19 @@ onMounted(async () => {
 }
 
 .duration-marks {
-  display: flex;
-  justify-content: space-between;
-  padding: 0 2px;
+  position: relative;
+  width: calc(100% - 16px);
+  height: 20px;
+  margin: 0 auto;
 }
 
 .duration-mark {
+  position: absolute;
   font-size: 12px;
   color: var(--b3-theme-on-surface);
   opacity: 0.6;
   transition: all 0.2s;
+  transform: translateX(-50%);
 }
 
 .sound-btn {
@@ -840,21 +869,6 @@ onMounted(async () => {
       background: #f87a6a;
     }
   }
-
-  &::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    background: #f98f7a;
-    border-radius: 50%;
-    cursor: pointer;
-    border: none;
-    transition: all 0.2s;
-
-    &:hover {
-      transform: scale(1.1);
-      background: #f87a6a;
-    }
-  }
 }
 
 .volume-value {
@@ -868,12 +882,12 @@ onMounted(async () => {
 .timer-stats {
   display: flex;
   justify-content: space-around;
-  background: var(--b3-theme-background);
+  background: var(--b3-list-hover);
   border-radius: 20px;
   padding: 20px;
   width: 100%;
   box-sizing: border-box;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--b3-border-color) 0px 0px 0px 0.5px;
 }
 
 .stat-item {
@@ -899,10 +913,10 @@ onMounted(async () => {
 }
 
 .timer-history {
-  background-color: var(--b3-theme-background);
+  background-color: var(--b3-list-hover);
   padding: 16px 16px 8px 16px;
   border-radius: 24px;
-  box-shadow: rgba(0, 0, 0, 0.06) 0px 1px 5px 0px;
+  box-shadow: var(--b3-border-color) 0px 0px 0px 0.5px;
   width: 100%;
   box-sizing: border-box;
 }
@@ -1032,7 +1046,7 @@ onMounted(async () => {
   justify-content: center;
 
   .icon {
-    color: var(--b3-theme-background);
+    color: var(--b3-theme-on-background);
   }
 }
 </style>

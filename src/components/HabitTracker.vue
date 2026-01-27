@@ -757,6 +757,13 @@ const getCachedDate = (date: Date): string => {
   return dateCache.get(key)!;
 };
 
+// 音频播放函数
+const playBubbleSound = () => {
+  const audio = new Audio('/plugins/pinch/audio/correct.mp3');
+  audio.volume = 0.1;
+  audio.play().catch(() => {});
+};
+
 // 辅助函数：格式化日期为 YYYY-MM-DD 格式（使用缓存优化性能）
 const formatDate = getCachedDate;
 
@@ -1772,6 +1779,9 @@ const toggleHabit = async (habitId: string) => {
   // 检查是否完成打卡，如果是则触发动画
   const completedToday = habit.completedToday;
   if (completedToday && !habit.usePomodoro) {  // 番茄钟习惯不使用此动画
+    // 播放打卡音效
+    playBubbleSound();
+    
     // 保存原始完成状态，以便在动画期间保持在未完成区域
     animationOriginalStatus.value[habit.id] = false; // 打卡前的状态是未完成
     
@@ -1847,14 +1857,15 @@ const startPomodoroTimer = (habit: Habit) => {
 
 // 番茄钟结束后完成打卡
 const completeHabitAfterPomodoro = async (habit: Habit) => {
+  // 播放打卡音效
+  playBubbleSound();
 
-  
   // 使用本地日期格式而不是toISOString()，避免时区转换问题
   const today = getToday();
-  
+
   // 使用通用打卡函数处理打卡逻辑
   toggleHabitCompletion(habit, today);
-  
+
   // 清除番茄钟相关状态
   delete habit.pomodoroRemaining;
   delete habit.pomodoroState;
@@ -1862,7 +1873,7 @@ const completeHabitAfterPomodoro = async (habit: Habit) => {
     clearInterval(pomodoroTimers[habit.id]);
     delete pomodoroTimers[habit.id];
   }
-  
+
   await saveHabits(habits.value);
 
 };

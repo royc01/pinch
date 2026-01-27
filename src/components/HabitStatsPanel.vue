@@ -21,11 +21,11 @@
         <div class="calendar-controls">
           <div class="calendar-navigation">
             <button @click="changeCalendarPeriod(-1)" class="nav-btn">
-              <Icon name="right" width="16" height="16" class="icon" />
+              <Icon name="left" width="16" height="16" class="icon" />
             </button>
             <span class="current-period">{{ currentPeriodText }}</span>
             <button @click="changeCalendarPeriod(1)" class="nav-btn">
-              <Icon name="left" width="16" height="16" class="icon" />
+              <Icon name="right" width="16" height="16" class="icon" />
             </button>
           </div>
         </div>
