@@ -6,6 +6,9 @@
         <div class="header-content">
           <div class="date-display">{{ currentDateString.split('/')[0] }}<span>.</span>{{ currentDateString.split('/')[1] }}<span>.</span>{{ currentDateString.split('/')[2] }}</div>
           <div class="header-buttons">
+            <SyButton @click="showFocusTimer = true" id="focus-timer-btn" class="focus-timer-btn">
+              <Icon name="timer" width="26" height="26" class="icon" />
+            </SyButton>
             <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn">
               <Icon name="smile" width="26" height="26" class="icon" />
             </SyButton>
@@ -230,6 +233,9 @@
       @open-mood-tracker="openMoodTracker"
       @change-month="changeMoodCalendarMonth"
     />
+    
+    <!-- 专注倒计时 -->
+    <FocusTimer :show="showFocusTimer" @close="showFocusTimer = false" />
   </div>
 </template>
 
@@ -732,6 +738,7 @@ import MoodTrackerModal from '@/components/MoodTrackerModal.vue';
 import StatisticsPanel from '@/components/StatisticsPanel.vue';
 import HabitStatsPanel from '@/components/HabitStatsPanel.vue';
 import MoodCalendarPanel from '@/components/MoodCalendarPanel.vue';
+import FocusTimer from '@/components/FocusTimer.vue';
 import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
 
 // 日期格式化缓存 - 避免重复创建 Date 对象和字符串
@@ -1209,6 +1216,7 @@ const habits = shallowRef<Habit[]>([]);
 const showAddHabitModal = ref(false);
 const showTotalStatsPage = ref(false);
 const showMoodCalendar = ref(false);
+const showFocusTimer = ref(false);
 const moodCalendarCurrentMonth = ref(0);
 const showAnimation = ref(false);
 const animationHabitId = ref<string | null>(null);
@@ -3188,7 +3196,7 @@ const changeMoodCalendarMonth = (offset: number) => {
       height: 16px;
     }
     
-    #add-habit-btn,#stats-btn,#mood-calendar-btn {
+    #add-habit-btn,#stats-btn,#mood-calendar-btn,#focus-timer-btn {
       background: none;
       border: none;
       padding: 0;

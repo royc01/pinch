@@ -669,3 +669,167 @@ export async function saveMoodData(moodData: MoodData): Promise<void> {
     throw error;
   }
 }
+
+// **************************************** Focus Timer ****************************************
+
+// 单日专注记录
+export interface DailyFocusRecord {
+  date: string; // YYYY-MM-DD 格式
+  sessions: number; // 当天专注次数
+  minutes: number; // 当天专注总时长（分钟）
+  timestamp: number; // 时间戳
+}
+
+// 专注计时器数据接口（按天存储）
+export interface FocusTimerData {
+  dailyRecords: DailyFocusRecord[];
+}
+
+// 专注统计摘要（用于显示）
+export interface FocusStatsSummary {
+  totalSessions: number;
+  totalMinutes: number;
+  todaySessions: number;
+  todayMinutes: number;
+  recentDays: DailyFocusRecord[]; // 最近7天的数据
+}
+
+// 获取专注计时器数据
+export async function getFocusTimerData(): Promise<FocusTimerData> {
+  try {
+    const plugin = usePlugin();
+    if (!plugin) {
+      console.error('插件实例未初始化');
+      return { dailyRecords: [] };
+    }
+    
+    const data = await plugin.loadData('Pinch-focus-timer.json');
+    
+    if (data) {
+      const parsed: FocusTimerData = typeof data === 'string' ? JSON.parse(data) : data;
+      
+      // 确保 dailyRecords 是数组
+      if (!parsed.dailyRecords || !Array.isArray(parsed.dailyRecords)) {
+        return { dailyRecords: [] };
+      }
+      
+      return parsed;
+    } else {
+      // 如果没有数据，返回默认值
+      return { dailyRecords: [] };
+    }
+  } catch (error) {
+    console.error('Error reading focus timer data:', error);
+    // 如果读取失败，返回默认值
+    return { dailyRecords: [] };
+  }
+}
+
+// 获取专注统计摘要
+export async function getFocusStatsSummary(): Promise<FocusStatsSummary> {
+  try {
+    const data = await getFocusTimerData();
+    const today = new Date().toISOString().split('T')[0];
+    
+    // 计算总数
+    const totalSessions = data.dailyRecords.reduce((sum, record) => sum + record.sessions, 0);
+    const totalMinutes = data.dailyRecords.reduce((sum, record) => sum + record.minutes, 0);
+    
+    // 查找今天的记录
+    const todayRecord = data.dailyRecords.find(record => record.date === today);
+    
+    // 获取最近7天的数据
+    const recentDays = data.dailyRecords
+      .filter(record => {
+        const recordDate = new Date(record.date);
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+        return recordDate >= sevenDaysAgo;
+      })
+      .sort((a, b) => b.timestamp - a.timestamp);
+    
+    return {
+      totalSessions,
+      totalMinutes,
+      todaySessions: todayRecord?.sessions || 0,
+      todayMinutes: todayRecord?.minutes || 0,
+      recentDays
+    };
+  } catch (error) {
+    console.error('Error getting focus stats summary:', error);
+    return {
+      totalSessions: 0,
+      totalMinutes: 0,
+      todaySessions: 0,
+      todayMinutes: 0,
+      recentDays: []
+    };
+  }
+}
+
+// 保存专注计时器数据
+export async function saveFocusTimerData(data: FocusTimerData): Promise<void> {
+  try {
+    const plugin = usePlugin();
+    if (!plugin) {
+      console.error('插件实例未初始化');
+      throw new Error('插件实例未初始化');
+    }
+    
+    // 保存到插件数据
+    await plugin.saveData('Pinch-focus-timer.json', data);
+  } catch (error) {
+    console.error('Error saving focus timer data:', error);
+    throw error;
+  }
+}
+
+// 添加单次专注记录
+export async function addFocusSession(duration: number): Promise<void> {
+  try {
+    const data = await getFocusTimerData();
+    const today = new Date().toISOString().split('T')[0];
+    const now = Date.now();
+    
+    // 查找今天的记录
+    let todayRecord = data.dailyRecords.find(record => record.date === today);
+    
+    if (todayRecord) {
+      // 如果今天已有记录，更新它
+      todayRecord.sessions += 1;
+      todayRecord.minutes += duration;
+      todayRecord.timestamp = now;
+    } else {
+      // 如果今天没有记录，创建新记录
+      data.dailyRecords.push({
+        date: today,
+        sessions: 1,
+        minutes: duration,
+        timestamp: now
+      });
+    }
+    
+    // 保存数据
+    await saveFocusTimerData(data);
+  } catch (error) {
+    console.error('Error adding focus session:', error);
+    throw error;
+  }
+}
+
+// 获取指定月份的记录
+export async function getMonthlyRecords(year: number, month: number): Promise<DailyFocusRecord[]> {
+  try {
+    const data = await getFocusTimerData();
+    
+    const monthlyRecords = data.dailyRecords.filter(record => {
+      const recordDate = new Date(record.date);
+      return recordDate.getFullYear() === year && recordDate.getMonth() === month;
+    });
+    
+    return monthlyRecords;
+  } catch (error) {
+    console.error('Error getting monthly records:', error);
+    return [];
+  }
+}

@@ -83,7 +83,7 @@ export function init(pluginInstance: Plugin) {
   pluginInstance.addDock({
     config: {
       position: "RightTop",  // 位置：右上角
-      size: { width: 300, height: 400 },  // 初始大小
+      size: { width: 500, height: 400 },  // 初始大小
       icon: 'ht-custom-icon',  // 图标
       title: "Pinch-habit",  // 标题
     },
