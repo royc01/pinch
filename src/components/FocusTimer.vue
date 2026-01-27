@@ -192,7 +192,7 @@ interface Sound {
   emoji: string;
   icon: string;
 }
-const durationMarks = [1, 10, 15, 25, 30, 45, 60];
+const durationMarks = [5, 10, 15, 25, 30, 45, 60];
 
 const shortBreakMarks = [1, 3, 5, 10, 15];
 const pomodoroSetMarks = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -355,9 +355,7 @@ const playAudio = () => {
   audio.value.loop = true;
   audio.value.volume = volume.value;
 
-  audio.value.play().catch(err => {
-    console.error('音频播放失败:', err);
-  });
+  audio.value.play().catch(() => {});
 };
 
 const updateVolume = () => {
@@ -374,15 +372,35 @@ const stopAudio = () => {
   }
 };
 
+const initAudioContext = async () => {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume();
+  }
+};
+
+const showNotification = (title: string, body: string, icon: string) => {
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    new Notification(title, { body, icon });
+  }
+};
+
+const startCountdown = () => {
+  timerInterval.value = window.setInterval(() => {
+    remainingTime.value--;
+
+    if (remainingTime.value <= 0) {
+      completeTimer();
+    }
+  }, 1000);
+};
+
 const playCompleteSound = async () => {
   try {
-    if (!audioContext) {
-      audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume();
-    }
+    await initAudioContext();
 
     const playTone = (freq: number, startTime: number, duration: number) => {
       const oscillator = audioContext!.createOscillator();
@@ -422,21 +440,9 @@ const startTimer = () => {
     playAudio();
   }
 
-  if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-  }
+  initAudioContext().catch(() => {});
 
-  if (audioContext.state === 'suspended') {
-    audioContext.resume().catch(() => {});
-  }
-
-  timerInterval.value = window.setInterval(() => {
-    remainingTime.value--;
-
-    if (remainingTime.value <= 0) {
-      completeTimer();
-    }
-  }, 1000);
+  startCountdown();
 };
 
 const pauseTimer = () => {
@@ -473,13 +479,7 @@ const completeTimer = async () => {
     stats.value.todaySessions++;
     stats.value.todayMinutes += selectedDuration.value;
 
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      new Notification('专注完成！', {
-        body: `${selectedDuration.value}分钟专注已完成`,
-        icon: '🎉'
-      });
-    }
-
+    showNotification('专注完成！', `${selectedDuration.value}分钟专注已完成`, '🎉');
     playCompleteSound();
 
     await loadMonthlyRecords();
@@ -492,39 +492,20 @@ const completeTimer = async () => {
       isBreakMode.value = true;
       remainingTime.value = shortBreakDuration.value * 60;
       currentSet.value++;
-
-      timerInterval.value = window.setInterval(() => {
-        remainingTime.value--;
-
-        if (remainingTime.value <= 0) {
-          completeTimer();
-        }
-      }, 1000);
+      startCountdown();
       return;
     }
   } else {
     playCompleteSound();
+    showNotification('短休结束！', `开始第 ${currentSet.value} 组专注`, '☕');
 
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      new Notification('短休结束！', {
-        body: `开始第 ${currentSet.value} 组专注`,
-        icon: '☕'
-      });
-    }
     if (timerInterval.value) {
       clearInterval(timerInterval.value);
       timerInterval.value = null;
     }
     isBreakMode.value = false;
     remainingTime.value = selectedDuration.value * 60;
-
-    timerInterval.value = window.setInterval(() => {
-      remainingTime.value--;
-
-      if (remainingTime.value <= 0) {
-        completeTimer();
-      }
-    }, 1000);
+    startCountdown();
     return;
   }
 
@@ -552,7 +533,6 @@ const loadStats = async () => {
     const summary = await getFocusStatsSummary();
     stats.value = summary;
   } catch (error) {
-    console.error('加载专注计时器数据失败:', error);
   }
 };
 
@@ -562,7 +542,6 @@ const loadMonthlyRecords = async () => {
     const records = await getMonthlyRecords(year, month);
     monthlyRecords.value = records;
   } catch (error) {
-    console.error('加载月度记录失败:', error);
   }
 };
 
@@ -595,14 +574,12 @@ onMounted(async () => {
       try {
         await Notification.requestPermission();
       } catch (e) {
-        console.error('Notification权限请求失败:', e);
       }
     }
 
     await loadStats();
     await loadMonthlyRecords();
   } catch (e) {
-    console.error('onMounted错误:', e);
   }
 });
 </script>
