@@ -117,6 +117,20 @@
                    style="accent-color: var(--b3-theme-on-background)" />
             <span class="volume-value">{{ Math.round(volume * 100) }}%</span>
           </div>
+          <div class="audio-download-section">
+            <div class="setting-label">
+              <span>本地音频</span>
+              <span v-if="isDownloading" class="download-status">下载中...</span>
+              <span v-else-if="useLocalAudio" class="download-status">已启用</span>
+            </div>
+            <div class="download-controls">
+              <button @click="downloadAudioFiles" 
+                      :disabled="isDownloading || useLocalAudio"
+                      :class="['download-btn', { disabled: isDownloading || useLocalAudio }]">
+                {{ isDownloading ? '下载中...' : (useLocalAudio ? '已启用' : '下载到本地') }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -214,6 +228,14 @@ const audioFiles: Record<string, string> = {
   river: '/plugins/pinch/audio/river.ogg'
 };
 
+const cdnAudioFiles: Record<string, string> = {
+  rain: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/rain.ogg',
+  jungle: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/jungle.ogg',
+  waves: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/waves.ogg',
+  campfire: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/campfire.ogg',
+  river: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/river.ogg'
+};
+
 const selectedDuration = ref<number>(25);
 const durationIndex = ref<number>(3);
 const shortBreakDurationIndex = ref<number>(2);
@@ -229,6 +251,8 @@ const volume = ref<number>(0.3);
 const currentSet = ref<number>(1);
 const isBreakMode = ref<boolean>(false);
 let audioContext: AudioContext | null = null;
+const isDownloading = ref<boolean>(false);
+const useLocalAudio = ref<boolean>(false);
 
 const stats = ref<FocusStatsSummary>({
   totalSessions: 0,
@@ -351,7 +375,8 @@ const playAudio = () => {
     stopAudio();
   }
 
-  audio.value = new Audio(audioFiles[selectedSound.value.id]);
+  const audioUrl = useLocalAudio.value ? audioFiles[selectedSound.value.id] : cdnAudioFiles[selectedSound.value.id];
+  audio.value = new Audio(audioUrl);
   audio.value.loop = true;
   audio.value.volume = volume.value;
 
@@ -361,6 +386,34 @@ const playAudio = () => {
 const updateVolume = () => {
   if (audio.value) {
     audio.value.volume = volume.value;
+  }
+};
+
+const downloadAudioFiles = async () => {
+  if (isDownloading.value) return;
+  isDownloading.value = true;
+
+  try {
+    const soundIds = ['rain', 'jungle', 'waves', 'campfire', 'river'];
+
+    for (const soundId of soundIds) {
+      const cdnUrl = cdnAudioFiles[soundId];
+      const localPath = `/data/plugins/pinch/audio/${soundId}.ogg`;
+
+      const response = await fetch(cdnUrl);
+      if (!response.ok) continue;
+
+      const blob = await response.blob();
+      const file = new File([blob], `${soundId}.ogg`, { type: 'audio/ogg' });
+
+      const { putFile } = await import('@/api');
+      await putFile(localPath, false, file);
+    }
+
+    useLocalAudio.value = true;
+  } catch (err) {
+  } finally {
+    isDownloading.value = false;
   }
 };
 
@@ -579,6 +632,12 @@ onMounted(async () => {
 
     await loadStats();
     await loadMonthlyRecords();
+
+    const { getFile } = await import('@/api');
+    const testFile = await getFile('/data/plugins/pinch/audio/rain.ogg');
+    if (testFile) {
+      useLocalAudio.value = true;
+    }
   } catch (e) {
   }
 });
@@ -901,6 +960,53 @@ onMounted(async () => {
   font-size: 14px;
   font-weight: 500;
   color: var(--b3-theme-on-surface);
+}
+
+.audio-download-section {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--b3-list-background);
+  border-radius: 12px;
+}
+
+.audio-download-section .setting-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.download-status {
+  font-size: 12px;
+  color: #f98f7a;
+  font-weight: 500;
+}
+
+.download-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.download-btn {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover:not(.disabled) {
+    opacity: 0.8;
+  }
+
+  &.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 
 .timer-stats {
