@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/package.json",
   "name": "pinch",
   "version": "1.0.8",
   "type": "module",

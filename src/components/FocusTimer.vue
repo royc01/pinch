@@ -103,33 +103,34 @@
         </div>
 
         <div class="setting-section">
-          <div class="setting-label">白噪音</div>
-          <div class="sound-selector">
+          <div class="setting-label">
+            <span>白噪音</span>
+            <div class="switch-container">
+              <label class="switch">
+                <input type="checkbox" :checked="enableAudio" @change="handleAudioToggle" />
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+          <div class="sound-selector" :class="{ disabled: isDownloading || !enableAudio }">
             <button v-for="sound in soundOptions" :key="sound.id"
                     @click="selectSound(sound)"
+                    :disabled="isDownloading || !enableAudio"
                     :class="['sound-btn', { active: selectedSound.id === sound.id }]">
-              <Icon :name="sound.icon" width="20" height="20" />
+              <Icon :name="sound.icon" width="80%" height="80%" />
             </button>
           </div>
-          <div class="volume-control" v-if="selectedSound.id !== 'none'">
+          <div class="volume-control" v-if="selectedSound.id !== 'none' && enableAudio">
             <span class="volume-icon">🔊</span>
             <input type="range" v-model="volume" @input="updateVolume" min="0" max="1" step="0.1" class="volume-slider"
                    style="accent-color: var(--b3-theme-on-background)" />
             <span class="volume-value">{{ Math.round(volume * 100) }}%</span>
           </div>
-          <div class="audio-download-section">
-            <div class="setting-label">
-              <span>本地音频</span>
-              <span v-if="isDownloading" class="download-status">下载中...</span>
-              <span v-else-if="useLocalAudio" class="download-status">已启用</span>
+          <div class="download-progress" v-if="isDownloading">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: `${downloadProgress}%` }"></div>
             </div>
-            <div class="download-controls">
-              <button @click="downloadAudioFiles" 
-                      :disabled="isDownloading || useLocalAudio"
-                      :class="['download-btn', { disabled: isDownloading || useLocalAudio }]">
-                {{ isDownloading ? '下载中...' : (useLocalAudio ? '已启用' : '下载到本地') }}
-              </button>
-            </div>
+            <span class="progress-text">{{ downloadProgress }}%</span>
           </div>
         </div>
       </div>
@@ -207,7 +208,6 @@ interface Sound {
   icon: string;
 }
 const durationMarks = [5, 10, 15, 25, 30, 45, 60];
-
 const shortBreakMarks = [1, 3, 5, 10, 15];
 const pomodoroSetMarks = [1, 2, 3, 4, 5, 6, 7, 8];
 
@@ -228,12 +228,12 @@ const audioFiles: Record<string, string> = {
   river: '/plugins/pinch/audio/river.ogg'
 };
 
-const cdnAudioFiles: Record<string, string> = {
-  rain: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/rain.ogg',
-  jungle: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/jungle.ogg',
-  waves: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/waves.ogg',
-  campfire: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/campfire.ogg',
-  river: 'https://cdn.jsdelivr.net/gh/pinch-plugin/audio@main/river.ogg'
+const githubAudioFiles: Record<string, string> = {
+  rain: 'https://gitee.com/royc01/pinch/raw/main/ogg/rain.ogg',
+  jungle: 'https://gitee.com/royc01/pinch/raw/main/ogg/jungle.ogg',
+  waves: 'https://gitee.com/royc01/pinch/raw/main/ogg/waves.ogg',
+  campfire: 'https://gitee.com/royc01/pinch/raw/main/ogg/campfire.ogg',
+  river: 'https://gitee.com/royc01/pinch/raw/main/ogg/river.ogg'
 };
 
 const selectedDuration = ref<number>(25);
@@ -252,7 +252,8 @@ const currentSet = ref<number>(1);
 const isBreakMode = ref<boolean>(false);
 let audioContext: AudioContext | null = null;
 const isDownloading = ref<boolean>(false);
-const useLocalAudio = ref<boolean>(false);
+const enableAudio = ref<boolean>(false);
+const downloadProgress = ref<number>(0);
 
 const stats = ref<FocusStatsSummary>({
   totalSessions: 0,
@@ -358,6 +359,18 @@ const updatePomodoroSets = () => {
   if (isRunning.value || isPaused.value) return;
 };
 
+const handleAudioToggle = async (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const checked = target.checked;
+  
+  if (checked && !isDownloading.value) {
+    enableAudio.value = true;
+    await downloadAudioFiles();
+  } else if (!checked) {
+    enableAudio.value = false;
+  }
+};
+
 const selectSound = (sound: Sound) => {
   selectedSound.value = sound;
   
@@ -375,8 +388,7 @@ const playAudio = () => {
     stopAudio();
   }
 
-  const audioUrl = useLocalAudio.value ? audioFiles[selectedSound.value.id] : cdnAudioFiles[selectedSound.value.id];
-  audio.value = new Audio(audioUrl);
+  audio.value = new Audio(audioFiles[selectedSound.value.id]);
   audio.value.loop = true;
   audio.value.volume = volume.value;
 
@@ -392,26 +404,45 @@ const updateVolume = () => {
 const downloadAudioFiles = async () => {
   if (isDownloading.value) return;
   isDownloading.value = true;
+  downloadProgress.value = 0;
 
   try {
+    const { readDir, putFile } = await import('@/api');
+
     const soundIds = ['rain', 'jungle', 'waves', 'campfire', 'river'];
+    const total = soundIds.length;
+    let downloadedCount = 0;
 
-    for (const soundId of soundIds) {
-      const cdnUrl = cdnAudioFiles[soundId];
-      const localPath = `/data/plugins/pinch/audio/${soundId}.ogg`;
+    const dirResult = await readDir('/data/plugins/pinch/audio');
+    const existingFiles = Array.isArray(dirResult) ? dirResult.map((f: any) => f.name) : [];
 
-      const response = await fetch(cdnUrl);
+    for (let i = 0; i < total; i++) {
+      const soundId = soundIds[i];
+      const fileName = `${soundId}.ogg`;
+      const localPath = `/data/plugins/pinch/audio/${fileName}`;
+
+      if (existingFiles.includes(fileName)) {
+        downloadedCount++;
+        downloadProgress.value = Math.round((downloadedCount / total) * 100);
+        continue;
+      }
+
+      const githubUrl = githubAudioFiles[soundId];
+
+      const response = await fetch(githubUrl);
       if (!response.ok) continue;
 
       const blob = await response.blob();
-      const file = new File([blob], `${soundId}.ogg`, { type: 'audio/ogg' });
 
-      const { putFile } = await import('@/api');
+      const file = new File([blob], fileName, { type: 'audio/ogg' });
+
       await putFile(localPath, false, file);
-    }
 
-    useLocalAudio.value = true;
+      downloadedCount++;
+      downloadProgress.value = Math.round((downloadedCount / total) * 100);
+    }
   } catch (err) {
+    console.error('下载出错:', err);
   } finally {
     isDownloading.value = false;
   }
@@ -633,10 +664,15 @@ onMounted(async () => {
     await loadStats();
     await loadMonthlyRecords();
 
-    const { getFile } = await import('@/api');
-    const testFile = await getFile('/data/plugins/pinch/audio/rain.ogg');
-    if (testFile) {
-      useLocalAudio.value = true;
+    const { readDir } = await import('@/api');
+    const dirResult = await readDir('/data/plugins/pinch/audio');
+    const existingFiles = Array.isArray(dirResult) ? dirResult.map((f: any) => f.name) : [];
+
+    const soundIds = ['rain', 'jungle', 'waves', 'campfire', 'river'];
+    const allFilesExist = soundIds.every(id => existingFiles.includes(`${id}.ogg`));
+
+    if (allFilesExist) {
+      enableAudio.value = true;
     }
   } catch (e) {
   }
@@ -898,7 +934,7 @@ onMounted(async () => {
   padding: 6px;
   border: none;
   background: var(--b3-list-hover);
-  border-radius: 12px;
+  border-radius: 30%;
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
@@ -962,51 +998,94 @@ onMounted(async () => {
   color: var(--b3-theme-on-surface);
 }
 
-.audio-download-section {
+.switch-container {
+  display: flex;
+  align-items: center;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--b3-border-color);
+  transition: .4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: #f98f7a;
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.slider.round {
+  border-radius: 24px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+.sound-selector.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.download-progress {
   margin-top: 12px;
   padding: 12px;
   background: var(--b3-list-background);
   border-radius: 12px;
 }
 
-.audio-download-section .setting-label {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--b3-border-color);
+  border-radius: 3px;
+  overflow: hidden;
 }
 
-.download-status {
+.progress-fill {
+  height: 100%;
+  background: #f98f7a;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  display: block;
+  text-align: center;
   font-size: 12px;
-  color: #f98f7a;
-  font-weight: 500;
-}
-
-.download-controls {
-  display: flex;
-  gap: 8px;
-}
-
-.download-btn {
-  flex: 1;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 8px;
-  background: var(--b3-theme-on-background);
-  color: var(--b3-theme-background);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover:not(.disabled) {
-    opacity: 0.8;
-  }
-
-  &.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  color: var(--b3-theme-on-surface);
+  margin-top: 8px;
 }
 
 .timer-stats {
