@@ -246,6 +246,7 @@ const remainingTime = ref<number>(25 * 60);
 const isRunning = ref<boolean>(false);
 const isPaused = ref<boolean>(false);
 const timerInterval = ref<number | null>(null);
+const timerDeadline = ref<number>(0);
 const audio = ref<HTMLAudioElement | null>(null);
 const volume = ref<number>(0.3);
 const currentSet = ref<number>(1);
@@ -473,13 +474,19 @@ const showNotification = (title: string, body: string, icon: string) => {
 };
 
 const startCountdown = () => {
+  timerDeadline.value = Date.now() + remainingTime.value * 1000;
+  
   timerInterval.value = window.setInterval(() => {
-    remainingTime.value--;
-
-    if (remainingTime.value <= 0) {
+    const now = Date.now();
+    const timeLeft = Math.ceil((timerDeadline.value - now) / 1000);
+    
+    if (timeLeft <= 0) {
+      remainingTime.value = 0;
       completeTimer();
+    } else {
+      remainingTime.value = timeLeft;
     }
-  }, 1000);
+  }, 100);
 };
 
 const playCompleteSound = async () => {
