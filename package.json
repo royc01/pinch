@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "pinch",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "type": "module",
   "description": "This is a sample plugin based on vite and vue for Siyuan (https://b3log.org/siyuan)",
   "author": "",
