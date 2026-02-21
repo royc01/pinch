@@ -12,12 +12,6 @@
             <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn">
               <Icon name="smile" width="26" height="26" class="icon" />
             </SyButton>
-            <SyButton @click="showTotalStatsPage = true" id="stats-btn" class="stats-btn">
-              <Icon name="stats" width="26" height="26" class="icon" />
-            </SyButton>
-            <SyButton @click="showAddHabitModal = true" id="add-habit-btn">
-              <Icon name="add" width="16" height="16" class="icon" />
-            </SyButton>
           </div>
         </div>
       </div>
@@ -31,10 +25,28 @@
       />
 
       <div class="habit-list">
-        <div v-if="habits.length === 0" class="empty-state">
+        <!-- 习惯打卡标题 -->
+        <div class="habit-manager-header">
+          <div class="header-left">
+            <div class="collapse-arrow" @click="toggleHabitListCollapsed" :class="{ collapsed: isHabitListCollapsed }">
+              <Icon name="arrowDown" width="16" height="16" class="icon" />
+            </div>
+            <div class="title">{{ t('habitTracker.title') }}</div>
+          </div>
+          <div class="header-actions">
+            <SyButton @click="showTotalStatsPage = true" id="stats-btn" class="stats-btn">
+              <Icon name="stats" width="26" height="26" class="icon" />
+            </SyButton>
+            <SyButton @click="showAddHabitModal = true" id="add-habit-btn" class="add-habit-btn">
+              <Icon name="add" width="16" height="16" class="icon" />
+            </SyButton>
+          </div>
+        </div>
+        
+        <div v-if="habits.length === 0" class="empty-state" v-show="!isHabitListCollapsed">
           {{ t('habitTracker.noHabits') }}
         </div>
-        <div v-else class="habits-grid">
+        <div v-else class="habits-grid" v-show="!isHabitListCollapsed">
           <transition-group name="habit-list" tag="div" class="habits-container">
           <div v-for="habit in sortedHabits" :key="habit.id" :class="['habit-card', { 'completed': habit.completedToday || getHabitCache(habit.id).weeklyCompleted, 'paused': habit.isPaused }]">
             <div class="habit-week-view">
@@ -236,6 +248,11 @@
     
     <!-- 专注倒计时 -->
     <FocusTimer :show="showFocusTimer" @close="showFocusTimer = false" />
+    
+    <!-- 任务管理器容器 -->
+    <div class="stand-container">
+      <TaskManager />
+    </div>
   </div>
 </template>
 
@@ -317,7 +334,7 @@
 .week-habit-item {
   display: flex;
   align-items: center;
-  padding: 6px;
+  padding: 4px;
 }
 
 .confirm-button {
@@ -566,9 +583,9 @@
 
 .emoji-section {
   text-align: center;
-  font-size: 36px;
-  width: 50px;
-  height: 50px;
+  font-size: 30px;
+  width: 40px;
+  height: 40px;
   border-radius: 10px;
   display: flex;
   justify-content: center;
@@ -582,7 +599,6 @@
 
 .habit-title {
   font-weight: bold;
-  margin-bottom: 6px;
   margin-left: 2px;
   span{
     font-weight: 500;
@@ -739,43 +755,23 @@ import StatisticsPanel from '@/components/StatisticsPanel.vue';
 import HabitStatsPanel from '@/components/HabitStatsPanel.vue';
 import MoodCalendarPanel from '@/components/MoodCalendarPanel.vue';
 import FocusTimer from '@/components/FocusTimer.vue';
+import TaskManager from '@/components/TaskManager.vue';
 import { getHabits, saveHabits, Habit, getEmojiConf, getMoodData, saveMoodData, MoodData } from '@/api';
+import { useHabitCache } from '@/composables/useHabitCache';
 
-// 日期格式化缓存 - 避免重复创建 Date 对象和字符串
-const dateCache = new Map<number, string>();
-const getCachedDate = (date: Date): string => {
-  const key = date.getTime();
-  if (!dateCache.has(key)) {
-    const formatted = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    dateCache.set(key, formatted);
-    // 限制缓存大小，避免内存泄漏
-    if (dateCache.size > 1000) {
-      const firstKey = dateCache.keys().next().value;
-      dateCache.delete(firstKey);
-    }
-  }
-  return dateCache.get(key)!;
+const { getCachedDate, getCachedDateParse, getToday } = useHabitCache();
+
+const formatDate = getCachedDate;
+const parseDate = (dateStr: string): Date => {
+  const date = getCachedDateParse(dateStr);
+  date.setHours(0, 0, 0, 0);
+  return date;
 };
 
-// 音频播放函数
 const playBubbleSound = () => {
   const audio = new Audio('/plugins/pinch/audio/correct.mp3');
   audio.volume = 0.1;
   audio.play().catch(() => {});
-};
-
-// 辅助函数：格式化日期为 YYYY-MM-DD 格式（使用缓存优化性能）
-const formatDate = getCachedDate;
-
-// 通用日期解析函数，缓存已解析的 Date 对象
-const dateParseCache = new Map<string, Date>();
-const parseDate = (dateStr: string): Date => {
-  if (!dateParseCache.has(dateStr)) {
-    const date = new Date(dateStr);
-    date.setHours(0, 0, 0, 0);
-    dateParseCache.set(dateStr, date);
-  }
-  return dateParseCache.get(dateStr)!;
 };
 
 const formatTimelineDate = (date: Date | null): string => {
@@ -967,23 +963,7 @@ const getMonthlyProgressData = (habit: Habit) => {
   
   return monthlyData;
 };
-
-// 缓存今天的日期，避免重复创建 Date 对象
-let cachedToday: string = '';
-let todayCacheTime: number = 0;
-
-// 获取今天日期的函数（带缓存优化）
-const getToday = () => {
-  const now = Date.now();
-  // 如果缓存超过1分钟，重新计算
-  if (now - todayCacheTime > 60000 || !cachedToday) {
-    const today = new Date();
-    cachedToday = formatDate(today);
-    todayCacheTime = now;
-  }
-  return cachedToday;
-};
-
+  
 // 检查是否为今天
 const isToday = (dateString: string) => {
   return dateString === getToday();
@@ -1227,6 +1207,11 @@ const showFocusTimer = ref(false);
 const moodCalendarCurrentMonth = ref(0);
 const showAnimation = ref(false);
 const animationHabitId = ref<string | null>(null);
+const isHabitListCollapsed = ref(false);
+
+const toggleHabitListCollapsed = () => {
+  isHabitListCollapsed.value = !isHabitListCollapsed.value;
+};
 
 // 存储动画期间的原始完成状态
 const animationOriginalStatus = ref<Record<string, boolean>>({});
@@ -3241,8 +3226,9 @@ const changeMoodCalendarMonth = (offset: number) => {
       width: 16px;
       height: 16px;
     }
-    
-    #add-habit-btn,#stats-btn,#mood-calendar-btn,#focus-timer-btn {
+
+  }
+      #add-habit-btn,#stats-btn,#mood-calendar-btn,#focus-timer-btn {
       background: none;
       border: none;
       padding: 0;
@@ -3257,19 +3243,62 @@ const changeMoodCalendarMonth = (offset: number) => {
         height: 26px;
       }
     }
+  .habit-manager-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
   }
-  
+
+  .habit-manager-header .header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .habit-manager-header .collapse-arrow {
+    cursor: pointer;
+    transition: transform 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    
+    &:hover {
+      background-color: var(--b3-list-hover);
+    }
+    
+    &.collapsed {
+      transform: rotate(-90deg);
+    }
+    
+    .icon {
+      color: var(--b3-theme-on-background);
+    }
+  }
+
+  .habit-manager-header .title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--b3-theme-on-background);
+  }
+
+  .habit-manager-header .header-actions {
+    display: flex;
+  }
+
   .habit-list {
     .empty-state {
       text-align: center;
-      padding: 40px 20px;
-      color: var(--b3-font-color1);
-      font-size: 16px;
+      padding: 20px;
+      color: var(--b3-theme-on-surface);
+      font-size: 14px;
     }
     
     .habits-grid {
       display: grid;
-      gap: 8px;
+      gap: 6px;
     }
     
     .habits-container {

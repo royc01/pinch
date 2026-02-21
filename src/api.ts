@@ -7,6 +7,7 @@
  */
 
 import { fetchSyncPost, IWebSocketData } from "siyuan";
+import { eventBus } from "@/utils/eventBus";
 
 async function request(url: string, data: any) {
   let response: IWebSocketData = await fetchSyncPost(url, data);
@@ -832,4 +833,1009 @@ export async function getMonthlyRecords(year: number, month: number): Promise<Da
     console.error('Error getting monthly records:', error);
     return [];
   }
+}
+
+// **************************************** Task Manager ****************************************
+
+export interface SiyuanBlock {
+  id: string;
+  content: string;
+  box: string;
+  hpath: string;
+  updated: string;
+  created: string;
+  markdown: string;
+  parent_id: string;
+  root_id: string;
+  type: string;
+  subtype: string;
+  memo?: string;
+}
+
+export interface SiyuanRequestPayload {
+  dataType?: string;
+  data?: string;
+  nextID?: string;
+  previousID?: string;
+  parentID?: string;
+  [key: string]: unknown;
+}
+
+export interface SiyuanRequestHeader {
+  name?: string;
+  value?: string;
+  [key: string]: unknown;
+}
+
+export interface BlockDOMResponse {
+  dom: string;
+  [key: string]: unknown;
+}
+
+const DEBUG = false;
+
+export const TASK_CONFIG = {
+  CACHE_VERSION: 3,
+  CACHE_DURATION: 10 * 60 * 1000,
+  BATCH_SIZE: 10,
+  SQL_LIMIT: 1000,
+  MAX_SUBTASK_DEPTH: 10,
+  DEBOUNCE_DELAY: 2000,
+  SKIP_DELAY: 500,
+  MUTATION_SKIP_DURATION: 1000,
+  RECENT_TASK_WINDOW: 5000
+} as const;
+
+export function unicodeToEmoji(icon: string | undefined): string {
+  if (!icon) return '📄';
+  
+  const hasEmoji = /^[\u{1F300}-\u{1F9FF}]/u.test(icon);
+  if (hasEmoji) return icon;
+  
+  const isUnicodeCodePoint = /^[0-9a-fA-F]{4,5}$/.test(icon);
+  if (isUnicodeCodePoint) {
+    try {
+      const codePoint = parseInt(icon, 16);
+      return String.fromCodePoint(codePoint);
+    } catch {
+      return '📄';
+    }
+  }
+  
+  return icon;
+}
+
+async function batchGetBlockAttrs(ids: string[]): Promise<Map<string, any>> {
+  if (ids.length === 0) return new Map();
+  
+  const result = new Map<string, any>();
+  const batchSize = TASK_CONFIG.BATCH_SIZE;
+  
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize);
+    const promises = batch.map(id => getBlockAttrs(id).catch((error) => {
+      log_debug('获取块属性失败', { id, error });
+      return {};
+    }));
+    const attrsArray = await Promise.all(promises);
+    
+    batch.forEach((id, index) => {
+      result.set(id, attrsArray[index]);
+    });
+  }
+  
+  return result;
+}
+
+function handleError(operation: string, error: unknown, context?: Record<string, unknown>): void {
+  const errorInfo = {
+    operation,
+    message: error instanceof Error ? error.message : String(error),
+    context,
+    timestamp: new Date().toISOString()
+  };
+  
+  console.error(`[TaskAPI Error] ${operation}:`, errorInfo);
+}
+
+function log_debug(msg: string, data?: any) {
+  if (DEBUG) {
+    console.log(`[TaskAPI Debug] ${msg}`, data || '');
+  }
+}
+
+export interface SubTask {
+  id: string;
+  title: string;
+  completed: boolean;
+  nodeId?: string;
+  subtasks?: SubTask[];
+}
+
+export interface EmojiConfig {
+  [key: string]: unknown;
+  [key: number]: unknown;
+}
+
+export type TaskStatus = 'pending' | 'in-progress' | 'completed' | 'cancelled';
+export type TaskPriority = 'none' | 'high' | 'medium' | 'low';
+export type TaskType = 'standalone' | 'block';
+
+export interface Task {
+  id: string;
+  type: TaskType;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate?: string;
+  startDate?: string;
+  dueTime?: string;
+  startTime?: string;
+  tags: string[];
+  description?: string;
+  subtasks?: SubTask[];
+  blockId?: string;
+  rootId?: string;
+  hPath?: string;
+  notebookId?: string;
+  icon?: string;
+  backgroundColor?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+function generateTaskId(): string {
+  return `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+export class TaskRepository {
+  private static memoryCache: {
+    tasks: Task[] | null;
+    timestamp: number;
+  } = { tasks: null, timestamp: 0 };
+  
+  private static readonly MEMORY_CACHE_DURATION = 5000; // 5秒内存缓存
+
+  static async getAllTasks(useCache: boolean = true): Promise<Task[]> {
+    const [standaloneTasks, blockTasks] = await Promise.all([
+      this.getStandaloneTasks(),
+      this.getBlockTasks(useCache)
+    ]);
+    
+    return [...standaloneTasks, ...blockTasks];
+  }
+  
+  static async getStandaloneTasks(): Promise<Task[]> {
+    const plugin = usePlugin();
+    const data = await plugin.loadData('Stand-tasks.json');
+    
+    if (!data) return [];
+    
+    const tasks = typeof data === 'string' ? JSON.parse(data) : data;
+    return tasks.map((t: Task) => ({ 
+      ...t, 
+      type: 'standalone' as const,
+      icon: unicodeToEmoji(t.icon)
+    }));
+  }
+  
+  static async getBlockTasks(useCache: boolean = true): Promise<Task[]> {
+    const now = Date.now();
+    
+    // 1. 检查内存缓存（最快）
+    if (useCache && this.memoryCache.tasks && 
+        now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION) {
+      return this.memoryCache.tasks;
+    }
+    
+    const plugin = usePlugin();
+
+    // 2. 检查文件缓存
+    if (useCache) {
+      const cachedData = await plugin.loadData('stand-block-tasks-cache.json');
+      if (cachedData) {
+        const data = typeof cachedData === 'string' ? JSON.parse(cachedData) : cachedData;
+        if (data.tasks && data.updatedAt) {
+          const cacheAge = now - new Date(data.updatedAt).getTime();
+          if (cacheAge < TASK_CONFIG.CACHE_DURATION && data.version === TASK_CONFIG.CACHE_VERSION) {
+            const tasks = data.tasks.map((t: Task) => ({
+              ...t,
+              icon: unicodeToEmoji(t.icon)
+            }));
+            // 更新内存缓存
+            this.memoryCache = { tasks, timestamp: now };
+            return tasks;
+          }
+        }
+      }
+    }
+
+    // 3. 重新获取
+    const tasks = await this.fetchBlockTasks();
+    await this.saveBlockTasksCache(tasks);
+    // 更新内存缓存
+    this.memoryCache = { tasks, timestamp: now };
+    return tasks;
+  }
+  
+  private static async fetchBlockTasks(): Promise<Task[]> {
+    const tasks: Task[] = [];
+    const BATCH_SIZE = TASK_CONFIG.BATCH_SIZE;
+    
+    try {
+      const [taskBlocks, nodeListBlocks] = await Promise.all([
+        sql(`
+          SELECT b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-id' THEN a.value END) as custom_task_id,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-priority' THEN a.value END) as custom_task_priority,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-status' THEN a.value END) as custom_task_status,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-due-date' THEN a.value END) as custom_task_due_date,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-due-time' THEN a.value END) as custom_task_due_time,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-date' THEN a.value END) as custom_task_start_date,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-time' THEN a.value END) as custom_task_start_time,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-tags' THEN a.value END) as custom_task_tags,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-description' THEN a.value END) as custom_task_description,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color
+          FROM blocks b
+          LEFT JOIN attributes a ON b.id = a.block_id 
+            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-background-color')
+          WHERE (b.type = 'i' OR b.type = 'p') AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%')
+          GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
+          ORDER BY b.root_id, b.box, b.path
+          LIMIT ${TASK_CONFIG.SQL_LIMIT}
+        `),
+        sql(`
+          SELECT id, parent_id, type
+          FROM blocks
+          WHERE type = 'l' AND subtype = 't'
+        `)
+      ]);
+      
+      const allBlocks = taskBlocks;
+      const nodeListMap = new Map<string, string>();
+      const paragraphMap = new Map<string, string>();
+      const rootIdSet = new Set<string>();
+      
+      nodeListBlocks.forEach((block: SiyuanBlock) => {
+        if (block.type === 'l') {
+          nodeListMap.set(block.id, block.parent_id);
+        } else if (block.type === 'p') {
+          paragraphMap.set(block.id, block.parent_id);
+        }
+      });
+      
+      allBlocks.forEach((block: SiyuanBlock) => {
+        if (block.root_id) {
+          rootIdSet.add(block.root_id);
+        }
+      });
+      
+      const processedIds = new Set<string>();
+      const allBlockIds = new Set(allBlocks.map(b => b.id));
+      
+      const subtaskIds = new Set<string>();
+      
+      for (const block of allBlocks) {
+        const currentParentId = block.parent_id;
+        if (!currentParentId || currentParentId === '') continue;
+        
+        const nodeListParentId = nodeListMap.get(currentParentId);
+        const paragraphParentId = paragraphMap.get(currentParentId);
+        
+        if (nodeListParentId && allBlockIds.has(nodeListParentId)) {
+          subtaskIds.add(block.id);
+          continue;
+        }
+        
+        let tempId = nodeListParentId;
+        let depth = 0;
+        const maxDepth = TASK_CONFIG.MAX_SUBTASK_DEPTH;
+        
+        while (tempId && depth < maxDepth) {
+          const nextNodeListParent = nodeListMap.get(tempId);
+          if (!nextNodeListParent) break;
+          
+          if (allBlockIds.has(nextNodeListParent)) {
+            subtaskIds.add(block.id);
+            break;
+          }
+          
+          tempId = nextNodeListParent;
+          depth++;
+        }
+        
+        if (!subtaskIds.has(block.id)) {
+          if (paragraphParentId && allBlockIds.has(paragraphParentId)) {
+            subtaskIds.add(block.id);
+          }
+        }
+      }
+      
+      const parentBlocks = allBlocks.filter(b => {
+        if (subtaskIds.has(b.id)) return false;
+        
+        if (b.type === 'p') return true;
+        
+        const hasNoParent = !b.parent_id || b.parent_id === '';
+        const parentNotFound = !allBlockIds.has(b.parent_id);
+        const isSelfParent = b.parent_id === b.id;
+        const isParent = hasNoParent || parentNotFound || isSelfParent;
+        
+        return isParent;
+      });
+      
+      const protyleElement = document.querySelector('.protyle');
+      
+      const blockAttrsMap = new Map<string, any>();
+      taskBlocks.forEach((block: any) => {
+        blockAttrsMap.set(block.id, {
+          'custom-task-id': block.custom_task_id,
+          'custom-task-priority': block.custom_task_priority,
+          'custom-task-status': block.custom_task_status,
+          'custom-task-due-date': block.custom_task_due_date,
+          'custom-task-due-time': block.custom_task_due_time,
+          'custom-task-start-date': block.custom_task_start_date,
+          'custom-task-start-time': block.custom_task_start_time,
+          'custom-task-tags': block.custom_task_tags,
+          'custom-task-description': block.custom_task_description,
+          'custom-task-background-color': block.custom_task_background_color
+        });
+      });
+      
+      const rootIds = Array.from(rootIdSet);
+      const rootIcons = new Map<string, string>();
+      
+      if (rootIds.length > 0) {
+        try {
+          const rootAttrsList = await batchGetBlockAttrs(rootIds);
+          rootAttrsList.forEach((attrs, rootId) => {
+            const icon = attrs['icon'];
+            if (icon) {
+              const convertedIcon = unicodeToEmoji(icon);
+              rootIcons.set(rootId, convertedIcon);
+            }
+          });
+        } catch (error) {
+          console.error('[TaskRepository] 获取文档图标失败:', error);
+        }
+      }
+      
+      const processBlock = async (
+        parentBlock: SiyuanBlock, 
+        domMap: Map<string, BlockDOMResponse>
+      ): Promise<Task | null> => {
+        if (processedIds.has(parentBlock.id)) return null;
+        
+        processedIds.add(parentBlock.id);
+        
+        const attrs = blockAttrsMap.get(parentBlock.id) || {};
+        const taskId = attrs['custom-task-id'] || `block_${parentBlock.id}`;
+        
+        try {
+          const dom = domMap.get(parentBlock.id);
+          if (!dom) {
+            log_debug('未找到DOM数据', { blockId: parentBlock.id });
+            return null;
+          }
+          
+          const currentDomElement = protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`) 
+            || protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"]`);
+          
+          // 如果在 protyleElement 中找不到，尝试在整个文档中查找
+          let fallbackElement = currentDomElement;
+          if (!fallbackElement) {
+            fallbackElement = document.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`) 
+              || document.querySelector(`[data-node-id="${parentBlock.id}"]`);
+          }
+          
+          // 使用找到的元素（优先使用 protyleElement 中的，否则使用 fallback）
+          const elementToUse = currentDomElement || fallbackElement;
+          
+          const currentParagraph = elementToUse?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
+          const currentTitle = currentParagraph?.innerHTML || '';
+          
+          let currentAction = elementToUse?.querySelector('.protyle-action--task');
+          
+          if (!currentAction) {
+            currentAction = elementToUse?.closest('.protyle-task')?.querySelector('.protyle-action--task');
+          }
+          
+          const currentSvg = currentAction?.querySelector('use');
+          
+          let isCurrentCompleted: boolean | undefined;
+          if (currentSvg) {
+            const currentHref = currentSvg.getAttribute('xlink:href') || currentSvg.getAttribute('href');
+            isCurrentCompleted = currentHref === '#iconCheck';
+          }
+          
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(dom.dom, 'text/html');
+          
+          let parentListItem = doc.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`);
+          if (!parentListItem) {
+            parentListItem = doc.querySelector(`[data-node-id="${parentBlock.id}"]`);
+          }
+          
+          const parentParagraph = parentListItem?.querySelector('[data-type="NodeParagraph"]');
+          
+          let parentAction = parentListItem?.querySelector('.protyle-action--task');
+          if (!parentAction) {
+            parentAction = parentListItem?.closest('.protyle-task')?.querySelector('.protyle-action--task');
+          }
+          
+          const svg = parentAction?.querySelector('use');
+          const apiHref = svg?.getAttribute('xlink:href') || svg?.getAttribute('href');
+          const isCompleted = apiHref === '#iconCheck';
+          
+          const parseDate = (dateValue: string | undefined): string => {
+            try {
+              if (!dateValue) return new Date().toISOString();
+              const date = new Date(dateValue);
+              if (isNaN(date.getTime())) return new Date().toISOString();
+              return date.toISOString();
+            } catch {
+              return new Date().toISOString();
+            }
+          };
+          
+          const cleanHtmlStyle = (html: string) => html.replace(/{: style="[^"]*"}/g, '');
+          
+          const parseSubtasksFromDOM = async (domString: string, parentId: string = parentBlock.id): Promise<SubTask[]> => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(domString, 'text/html');
+            
+            const parseListItem = async (listItem: Element, level: number = 0): Promise<SubTask | null> => {
+              const nodeId = listItem.getAttribute('data-node-id');
+              if (!nodeId) return null;
+              
+              const action = listItem.querySelector('.protyle-action--task');
+              if (!action) return null;
+              
+              const svg = action.querySelector('use');
+              let isCompleted = svg?.getAttribute('xlink:href') === '#iconCheck';
+              
+              const paragraph = listItem.querySelector('[data-type="NodeParagraph"]');
+              const editableDiv = paragraph?.querySelector('[contenteditable="true"]');
+              const paragraphHtml = editableDiv?.innerHTML || paragraph?.innerHTML || '';
+              const titleFromApi = cleanHtmlStyle(paragraphHtml);
+              
+              let title = titleFromApi;
+              let finalCompleted = isCompleted;
+              
+              if (protyleElement) {
+                const currentItemElement = protyleElement.querySelector(`[data-node-id="${nodeId}"][data-type="NodeListItem"]`);
+                const currentParagraph = currentItemElement?.querySelector('[data-type="NodeParagraph"]');
+                const currentEditableDiv = currentParagraph?.querySelector('[contenteditable="true"]');
+                const currentHtml = currentEditableDiv?.innerHTML || currentParagraph?.innerHTML || '';
+                const currentCleanHtml = cleanHtmlStyle(currentHtml);
+                
+                if (currentCleanHtml) {
+                  title = currentCleanHtml;
+                }
+                
+                const currentAction = currentItemElement?.querySelector('.protyle-action--task');
+                const currentSvg = currentAction?.querySelector('use');
+                const isCurrentCompleted = currentSvg?.getAttribute('xlink:href') === '#iconCheck';
+                
+                if (typeof isCurrentCompleted === 'boolean') {
+                  finalCompleted = isCurrentCompleted;
+                }
+              }
+              
+              processedIds.add(nodeId);
+              
+              const subList = listItem.querySelector('.list');
+              let subtasks: any[] = [];
+              if (subList) {
+                subtasks = await parseSubtasksList(subList, level + 1);
+              }
+              
+              return {
+                id: `sub_${nodeId}`,
+                title: title || 'Untitled',
+                completed: finalCompleted,
+                nodeId: nodeId,
+                subtasks: subtasks.length > 0 ? subtasks : undefined
+              };
+            };
+            
+            const parseSubtasksList = async (listElement: Element, level: number = 0): Promise<SubTask[]> => {
+              const listItems = Array.from(listElement.children).filter((child): child is Element => 
+                child instanceof Element && child.getAttribute('data-type') === 'NodeListItem'
+              );
+              
+              const subtasks: SubTask[] = [];
+              for (const listItem of listItems) {
+                const subtask = await parseListItem(listItem, level);
+                if (subtask) {
+                  subtasks.push(subtask);
+                }
+              }
+              return subtasks;
+            };
+            
+            const allListItems = doc.querySelectorAll('[data-type="NodeListItem"]');
+            const subtaskNodeIds: string[] = [];
+            const validSubtasks: Array<{ item: Element; nodeId: string }> = [];
+            
+            for (let i = 0; i < allListItems.length; i++) {
+              const item = allListItems[i];
+              const nodeId = item.getAttribute('data-node-id');
+              if (!nodeId || nodeId === parentId) continue;
+              
+              const action = item.querySelector('.protyle-action--task');
+              if (!action) continue;
+              
+              subtaskNodeIds.push(nodeId);
+              validSubtasks.push({ item, nodeId });
+            }
+            
+            let subtaskBlocksMap = new Map<string, any>();
+            if (subtaskNodeIds.length > 0) {
+              try {
+                const ids = subtaskNodeIds.map(id => `'${id}'`).join(',');
+                const blocks = await sql(`SELECT id, markdown FROM blocks WHERE id IN (${ids})`);
+                blocks.forEach((block: SiyuanBlock) => {
+                  subtaskBlocksMap.set(block.id, block);
+                });
+              } catch (error) {
+                handleError('获取子任务块', error, { parentId });
+              }
+            }
+            
+            const rootListElements = Array.from(doc.querySelectorAll('.list')).filter(list => {
+              const parent = list.parentElement;
+              return parent?.getAttribute('data-type') === 'NodeParagraph' || 
+                     parent?.classList?.contains('protyle-wysiwyg');
+            });
+            
+            let subtasks: SubTask[] = [];
+            if (rootListElements.length > 0) {
+              for (const rootList of rootListElements) {
+                const listSubtasks = await parseSubtasksList(rootList, 0);
+                subtasks = subtasks.concat(listSubtasks);
+              }
+            } else {
+              const fallbackList = doc.querySelector('.list');
+              if (fallbackList) {
+                subtasks = await parseSubtasksList(fallbackList, 0);
+              }
+            }
+            
+            return subtasks;
+          };
+          
+          const subtasks = await parseSubtasksFromDOM(dom.dom, parentBlock.id);
+          
+          const titleHtml = parentParagraph?.querySelector('[contenteditable="true"]')?.innerHTML || '';
+          const titleFromApi = cleanHtmlStyle(titleHtml);
+          const currentTitleClean = cleanHtmlStyle(currentTitle);
+          const title = currentTitleClean || titleFromApi;
+
+          let status: TaskStatus;
+
+          let markdownStatus: 'pending' | 'completed' | null = null;
+          if (parentBlock.markdown) {
+            const markdown = parentBlock.markdown.trim();
+            const taskRegex = /\[(x|X| )\]/;
+            const match = markdown.match(taskRegex);
+            if (match) {
+              const statusChar = match[1];
+              if (statusChar === 'x' || statusChar === 'X') {
+                markdownStatus = 'completed';
+              } else {
+                markdownStatus = 'pending';
+              }
+            }
+          }
+          
+          const validStatuses = ['pending', 'in-progress', 'completed', 'cancelled'];
+          
+          const attrStatus = attrs['custom-task-status'] as 'pending' | 'in-progress' | 'completed' | 'cancelled' | undefined;
+          const apiDomStatus = isCompleted ? 'completed' : 'pending';
+          
+          if (isCurrentCompleted === true) {
+            status = 'completed';
+          } else if (attrStatus && validStatuses.includes(attrStatus) && attrStatus !== 'completed' && attrStatus !== 'pending') {
+            status = attrStatus;
+          } else if (typeof isCurrentCompleted === 'boolean') {
+            status = isCurrentCompleted ? 'completed' : 'pending';
+          } else {
+            status = markdownStatus || apiDomStatus || 'pending';
+          }
+          
+          processedIds.add(parentBlock.id);
+          
+          const docIcon = parentBlock.root_id ? rootIcons.get(parentBlock.root_id) : undefined;
+          
+          return {
+            id: taskId,
+            type: 'block',
+            blockId: parentBlock.id,
+            rootId: parentBlock.root_id,
+            title: title,
+            status: status,
+            priority: attrs['custom-task-priority'] as any || 'none',
+            dueDate: attrs['custom-task-due-date'],
+            dueTime: attrs['custom-task-due-time'],
+            startDate: attrs['custom-task-start-date'],
+            startTime: attrs['custom-task-start-time'],
+            tags: attrs['custom-task-tags'] ? JSON.parse(attrs['custom-task-tags']) : [],
+            description: attrs['custom-task-description'] || '',
+            hPath: parentBlock.hpath,
+            notebookId: parentBlock.box,
+            icon: docIcon || '📄',
+            backgroundColor: attrs['custom-task-background-color'],
+            subtasks: subtasks.length > 0 ? subtasks : undefined,
+            createdAt: parseDate(parentBlock.created),
+            updatedAt: parseDate(parentBlock.updated)
+          };
+        } catch (error) {
+          handleError('处理任务块', error, { blockId: parentBlock.id });
+          return null;
+        }
+      };
+      
+      const chunks = [];
+      for (let i = 0; i < parentBlocks.length; i += BATCH_SIZE) {
+        chunks.push(parentBlocks.slice(i, i + BATCH_SIZE));
+      }
+    
+      for (const chunk of chunks) {
+        const blockIds = chunk.map(block => block.id);
+        const domMap = await batchGetBlockDOM(blockIds);
+        
+        const results = await Promise.all(chunk.map(block => processBlock(block, domMap)));
+        const validResults = results.filter((result): result is Task => result !== null);
+        tasks.push(...validResults);
+      }
+      } catch (error) {
+        handleError('获取块任务', error);
+      }
+      
+      return tasks;
+    }
+
+  public static async saveBlockTasksCache(tasks: Task[]): Promise<void> {
+    const plugin = usePlugin();
+    await plugin.saveData('stand-block-tasks-cache.json', {
+      version: TASK_CONFIG.CACHE_VERSION,
+      tasks,
+      updatedAt: new Date().toISOString()
+    });
+  }
+  
+  static async clearCache(): Promise<void> {
+    const plugin = usePlugin();
+    await plugin.saveData('stand-block-tasks-cache.json', {});
+    // 清除内存缓存
+    this.memoryCache = { tasks: null, timestamp: 0 };
+  }
+  
+  static async createStandaloneTask(task: Omit<Task, 'id' | 'type' | 'createdAt' | 'updatedAt'>): Promise<string> {
+    const plugin = usePlugin();
+    const tasks = await this.getStandaloneTasks();
+    
+    const newTask: Task = {
+      ...task,
+      id: generateTaskId(),
+      type: 'standalone',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    tasks.push(newTask);
+    await plugin.saveData('Stand-tasks.json', tasks);
+    
+    return newTask.id;
+  }
+
+  static async createBlockTask(
+    task: Omit<Task, 'id' | 'type' | 'createdAt' | 'updatedAt' | 'blockId' | 'hPath' | 'notebookId'>,
+    notebookId: string,
+    docPath: string
+  ): Promise<{ taskId: string; blockId: string }> {
+    const trimmedTitle = task.title?.trim();
+    if (!trimmedTitle) {
+      throw new Error('任务标题不能为空');
+    }
+
+    const attrs: { [key: string]: string } = {
+      'custom-task-id': generateTaskId(),
+      'custom-task-priority': task.priority
+    };
+
+    if (task.dueDate) {
+      attrs['custom-task-due-date'] = task.dueDate;
+    }
+
+    if (task.tags && task.tags.length > 0) {
+      attrs['custom-task-tags'] = JSON.stringify(task.tags);
+    }
+
+    if (task.description && task.description.trim()) {
+      attrs['custom-task-description'] = task.description.trim();
+    }
+
+    if (task.status && task.status !== 'pending') {
+      attrs['custom-task-status'] = task.status;
+    }
+
+    const taskMarkdown = task.status === 'completed' ? `- [x] ${trimmedTitle}` : `- [ ] ${trimmedTitle}`;
+
+    try {
+      log_debug('开始创建任务块', { notebookId, docPath, taskMarkdown });
+
+      const ids = await getIDsByHPath(notebookId, docPath);
+      log_debug('获取文档ID', ids);
+      
+      if (!ids || ids.length === 0) {
+        throw new Error('文档不存在');
+      }
+
+      const rootId = ids[0];
+      log_debug('文档根ID', rootId);
+      
+      const result = await appendBlock('markdown', taskMarkdown, rootId);
+      log_debug('appendBlock 返回结果', JSON.stringify(result, null, 2));
+
+      if (result && result.length > 0) {
+        let listItemBlockId = '';
+
+        log_debug('doOperations 数量', result[0].doOperations.length);
+        
+        for (let i = 0; i < result[0].doOperations.length; i++) {
+          const op = result[0].doOperations[i] as any;
+          log_debug(`操作 ${i}`, { id: op.id, objectType: op.objectType, type: op.type });
+          
+          if (op.objectType === 'NodeListItem') {
+            listItemBlockId = op.id;
+            log_debug('找到 NodeListItem', listItemBlockId);
+            break;
+          }
+          
+          if (op.data && typeof op.data === 'string') {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(op.data, 'text/html');
+            const listItem = doc.querySelector('[data-type="NodeListItem"]');
+            if (listItem) {
+              const nodeId = listItem.getAttribute('data-node-id');
+              if (nodeId) {
+                listItemBlockId = nodeId;
+                log_debug('从 data HTML 解析出 NodeListItem', listItemBlockId);
+                break;
+              }
+            }
+          }
+        }
+
+        if (!listItemBlockId) {
+          const parentBlockId = result[0].doOperations[result[0].doOperations.length - 1]?.id || result[0].doOperations[0].id;
+          log_debug('尝试从父块查找子项', parentBlockId);
+          
+          const childBlocks = await sql(`
+            SELECT id, type, subtype
+            FROM blocks
+            WHERE parent_id = '${parentBlockId}' 
+            AND type = 'l' 
+            AND subtype = 't'
+            ORDER BY created DESC
+            LIMIT 1
+          `);
+          log_debug('SQL查询结果1', childBlocks);
+
+          if (childBlocks && childBlocks.length > 0) {
+            listItemBlockId = childBlocks[0].id;
+            log_debug('从父块找到子项', listItemBlockId);
+          }
+        }
+
+        if (!listItemBlockId) {
+          log_debug('尝试从文档根查找最新任务项');
+          
+          const childBlocks = await sql(`
+            SELECT id, type, subtype
+            FROM blocks
+            WHERE root_id = '${rootId}' 
+            AND type = 'l' 
+            AND subtype = 't'
+            ORDER BY created DESC
+            LIMIT 3
+          `);
+          log_debug('SQL查询结果2', childBlocks);
+
+          if (childBlocks && childBlocks.length > 0) {
+            const now = Date.now();
+            for (const block of childBlocks) {
+              const blockTime = new Date(block.created || block.updated).getTime();
+              if (now - blockTime < TASK_CONFIG.RECENT_TASK_WINDOW) {
+                listItemBlockId = block.id;
+                log_debug('找到最近创建的任务项', listItemBlockId);
+                break;
+              }
+            }
+            
+            if (!listItemBlockId && childBlocks.length > 0) {
+              listItemBlockId = childBlocks[0].id;
+              log_debug('使用最新的任务项', listItemBlockId);
+            }
+          }
+        }
+
+        log_debug('最终找到的块ID', listItemBlockId);
+        log_debug('准备设置的属性', attrs);
+
+        if (listItemBlockId && Object.keys(attrs).length > 0) {
+          await setBlockAttrs(listItemBlockId, attrs);
+          log_debug('属性设置完成');
+          
+          const verifyAttrs = await getBlockAttrs(listItemBlockId);
+          log_debug('验证属性', verifyAttrs);
+        }
+
+        const createResult = {
+          taskId: attrs['custom-task-id'],
+          blockId: listItemBlockId || result[0].doOperations[0].id
+        };
+
+        eventBus.emit('task-added', createResult);
+
+        return createResult;
+      }
+
+      throw new Error('Failed to create block');
+    } catch (error) {
+      handleError('创建块任务', error, { notebookId, docPath, taskTitle: task.title });
+      throw error;
+    }
+  }
+  
+  static async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
+    const tasks = await this.getStandaloneTasks();
+    const task = tasks.find(t => t.id === taskId);
+    
+    if (task) {
+      Object.assign(task, updates, { updatedAt: new Date().toISOString() });
+      const plugin = usePlugin();
+      await plugin.saveData('Stand-tasks.json', tasks);
+      return;
+    }
+    
+    const blockTasks = await this.getBlockTasks(false);
+    const blockTask = blockTasks.find(t => t.id === taskId);
+    if (blockTask) {
+      const attrsToUpdate: { [key: string]: string } = {};
+      if (updates.status) {
+        attrsToUpdate['custom-task-status'] = updates.status;
+      }
+      if (updates.priority) {
+        attrsToUpdate['custom-task-priority'] = updates.priority;
+      }
+      if (updates.dueDate !== undefined) {
+        attrsToUpdate['custom-task-due-date'] = updates.dueDate || '';
+      }
+      if (updates.tags) {
+        attrsToUpdate['custom-task-tags'] = JSON.stringify(updates.tags);
+      }
+
+      await setBlockAttrs(blockTask.blockId!, attrsToUpdate);
+
+      Object.assign(blockTask, updates, { updatedAt: new Date().toISOString() });
+      await this.saveBlockTasksCache(blockTasks);
+    }
+  }
+  
+  static async deleteTask(taskId: string): Promise<void> {
+    const tasks = await this.getStandaloneTasks();
+    const index = tasks.findIndex(t => t.id === taskId);
+    
+    if (index >= 0) {
+      tasks.splice(index, 1);
+      const plugin = usePlugin();
+      await plugin.saveData('Stand-tasks.json', tasks);
+      return;
+    }
+    
+    const blockTasks = await this.getBlockTasks(false);
+    const blockTask = blockTasks.find(t => t.id === taskId);
+    if (blockTask) {
+      await deleteBlock(blockTask.blockId!);
+      
+      const newBlockTasks = blockTasks.filter(t => t.id !== taskId);
+      await this.saveBlockTasksCache(newBlockTasks);
+    }
+  }
+  
+  static async updateSubtaskInCache(parentTaskId: string, subtaskId: string, completed: boolean): Promise<void> {
+    const blockTasks = await this.getBlockTasks(false);
+    const parentTask = blockTasks.find(t => t.id === parentTaskId);
+    
+    if (parentTask && parentTask.subtasks) {
+      const subtask = parentTask.subtasks.find(st => st.id === subtaskId);
+      if (subtask) {
+        subtask.completed = completed;
+        await this.saveBlockTasksCache(blockTasks);
+      }
+    }
+  }
+  
+  static async getTaskByBlockId(blockId: string, useCache: boolean = false): Promise<Task | null> {
+    try {
+      const allTasks = await this.getBlockTasks(useCache);
+      return allTasks.find(t => t.blockId === blockId) || null;
+    } catch (error) {
+      handleError('获取单个任务', error, { blockId });
+      return null;
+    }
+  }
+  
+  static async getTasksByBlockIds(blockIds: string[], useCache: boolean = false): Promise<Map<string, Task>> {
+    try {
+      const allTasks = await this.getBlockTasks(useCache);
+      const taskMap = new Map<string, Task>();
+      
+      for (const blockId of blockIds) {
+        const task = allTasks.find(t => t.blockId === blockId);
+        if (task) {
+          taskMap.set(blockId, task);
+        }
+      }
+      
+      return taskMap;
+    } catch (error) {
+      handleError('批量获取任务', error, { blockIds });
+      return new Map();
+    }
+  }
+}
+
+// 还需要添加 getBlockDOM 函数，如果主项目没有的话
+export async function getBlockDOM(
+  id: BlockId
+): Promise<BlockDOMResponse> {
+  let data = {
+    id: id,
+  };
+  let url = "/api/block/getBlockDOM";
+  return request(url, data);
+}
+
+async function batchGetBlockDOM(ids: string[]): Promise<Map<string, BlockDOMResponse>> {
+  if (ids.length === 0) return new Map();
+  
+  const result = new Map<string, BlockDOMResponse>();
+  const batchSize = 20;
+  const maxConcurrent = 5;
+  
+  for (let i = 0; i < ids.length; i += batchSize * maxConcurrent) {
+    const batchPromises: Promise<void>[] = [];
+    
+    for (let j = 0; j < maxConcurrent && i + j * batchSize < ids.length; j++) {
+      const startIdx = i + j * batchSize;
+      const batch = ids.slice(startIdx, Math.min(startIdx + batchSize, ids.length));
+      
+      batchPromises.push(
+        (async () => {
+          const domPromises = batch.map(id => 
+            getBlockDOM(id).catch((error) => {
+              log_debug('获取块DOM失败', { id, error });
+              return null;
+            })
+          );
+          const domResults = await Promise.all(domPromises);
+          
+          batch.forEach((id, index) => {
+            if (domResults[index]) {
+              result.set(id, domResults[index]!);
+            }
+          });
+        })()
+      );
+    }
+    
+    await Promise.all(batchPromises);
+  }
+  
+  return result;
 }

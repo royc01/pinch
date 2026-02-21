@@ -85,7 +85,7 @@ const hideCustomTooltip = () => {
   flex-direction: column;
   align-items: center;
   width: 38px;
-  padding: 10px 6px;
+  padding: 6px;
   border-radius: 14px;
   background-color: var(--b3-theme-background);
   box-shadow: rgba(0, 0, 0, 0.03) 0px 1px 5px 0px;
@@ -139,7 +139,7 @@ const hideCustomTooltip = () => {
 
 .mood-svg-small {
   width: 50px;
-  height: 50px;
+  height: 46px;
 }
 
 .mood-svg-small svg {
@@ -149,7 +149,6 @@ const hideCustomTooltip = () => {
 
 .week-date-number {
   font-size: 14px;
-  font-weight: 600;
   z-index: 1;
   margin-top: 15px;
 }

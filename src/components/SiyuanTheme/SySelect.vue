@@ -3,7 +3,6 @@
     class="b3-select fn__flex-center"
     :value="modelValue"
     @input="$emit('update:modelValue', ($event.target as any).value)"
-    style="width: 100%;"
   >
     <option
       v-for="item of options"
