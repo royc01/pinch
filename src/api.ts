@@ -1,13 +1,22 @@
-/**
+﻿/**
  * Copyright (c) 2023 frostime. All rights reserved.
  * https://github.com/frostime/sy-plugin-template-vite
  *
  * See API Document in [API.md](https://github.com/siyuan-note/siyuan/blob/master/API.md)
- * API 文档见 [API_zh_CN.md](https://github.com/siyuan-note/siyuan/blob/master/API_zh_CN.md)
+ * API 譁・｡｣隗・[API_zh_CN.md](https://github.com/siyuan-note/siyuan/blob/master/API_zh_CN.md)
  */
 
 import { fetchSyncPost, IWebSocketData } from "siyuan";
 import { eventBus } from "@/utils/eventBus";
+import { usePlugin } from "@/main";
+import {
+  attachRepeatMetadataToTasks,
+  materializeRepeatTasks,
+  setTaskRepeatSeries,
+  getTaskRepeatFrequency,
+  setRepeatInstanceStatus,
+  type RepeatFrequency
+} from "@/repeatRepository";
 
 async function request(url: string, data: any) {
   let response: IWebSocketData = await fetchSyncPost(url, data);
@@ -354,7 +363,7 @@ export async function getFile(path: string): Promise<any> {
   }
 }
 
-// 检查当前文件状态的函数，用于调试同步问题
+// 检查习惯数据文件状态（调试辅助）
 export async function checkHabitFileStatus() {
   
   try {
@@ -364,14 +373,14 @@ export async function checkHabitFileStatus() {
     if (typeof fileData === 'object' && fileData !== null && Array.isArray(fileData)) {
 
       
-      // 特别检查特定习惯的数据
+      // 尝试定位指定测试习惯，便于本地排查
       const testHabit = fileData.find(h => h.name === '222');
       if (testHabit) {
 
       }
     }
   } catch (error) {
-    console.error('检查文件状态时出错:', error);
+    console.error('读取习惯文件状态失败:', error);
   }
 }
 export async function putFile(path: string, isDir: boolean, file: any) {
@@ -497,7 +506,7 @@ export async function currentTime(): Promise<number> {
   return request("/api/system/currentTime", {});
 }
 
-// 获取思源笔记内置 emoji 配置
+// 获取系统 emoji 配置
 export async function getEmojiConf(): Promise<any> {
   let url = "/api/system/getEmojiConf";
   return request(url, {});
@@ -505,114 +514,182 @@ export async function getEmojiConf(): Promise<any> {
 
 // **************************************** Habit Tracker ****************************************
 
-// 从main.ts导入插件实例
-import { usePlugin } from '@/main';
-
-// 定义习惯接口
 export interface Habit {
   id: string;
   name: string;
-  emoji?: string; // 习惯的emoji图标
+  emoji?: string;
   frequency: 'daily' | 'weekly' | 'custom' | 'weekly1' | 'weekly2' | 'weekly3' | 'weekly4' | 'weekly5' | 'weekly6';
-  timesPerDay?: number; // 每天需要完成的次数
+  timesPerDay?: number;
+  noteDocId?: string;
   completedToday: boolean;
   currentStreak: number;
   totalCompletions: number;
   calendar: HabitCalendarDay[];
   createdAt: string;
-  // 习惯项的视图模式（固定为周视图）
-  currentWeekOffset?: number; // 当前显示的周偏移量
-  // 统计页面的视图模式
-  statsViewMode?: 'month'; // 统计页面的视图模式（目前只支持月视图）
-  statsMonthOffset?: number; // 统计页面当前显示的月偏移量
-  usePomodoro?: boolean; // 是否使用番茄钟
-  pomodoroDuration?: number; // 番茄钟时长（分钟）
-  pomodoroTimer?: number; // 番茄钟计时器ID
-  pomodoroRemaining?: number; // 番茄钟剩余时间（秒）
-  pomodoroState?: 'work' | 'shortBreak' | 'longBreak'; // 番茄钟状态：工作/短休息/长休息
-  isPaused?: boolean; // 习惯是否暂停
-  isPomodoroPaused?: boolean; // 番茄钟是否暂停
+  currentWeekOffset?: number;
+  statsViewMode?: 'month';
+  statsMonthOffset?: number;
+  usePomodoro?: boolean;
+  pomodoroDuration?: number;
+  pomodoroTimer?: number;
+  pomodoroRemaining?: number;
+  pomodoroState?: 'work' | 'shortBreak' | 'longBreak';
+  isPaused?: boolean;
+  isPomodoroPaused?: boolean;
 }
 
 export interface HabitCalendarDay {
-  date: string; // YYYY-MM-DD
+  date: string;
   completed: boolean;
-  targetCount?: number; // 目标完成次数
-  completedCount?: number; // 实际完成次数
-  timestamp?: number; // 时间戳，用于精确判断日期
-  // 移除动态的isToday标志，改为基于当前日期计算
+  targetCount?: number;
+  completedCount?: number;
+  timestamp?: number;
+}
+
+const HABIT_FREQUENCIES: Habit['frequency'][] = [
+  'daily',
+  'weekly',
+  'custom',
+  'weekly1',
+  'weekly2',
+  'weekly3',
+  'weekly4',
+  'weekly5',
+  'weekly6'
+];
+
+function normalizeHabitFrequency(frequency: unknown): Habit['frequency'] {
+  if (typeof frequency === 'string' && HABIT_FREQUENCIES.includes(frequency as Habit['frequency'])) {
+    return frequency as Habit['frequency'];
+  }
+  return 'daily';
+}
+
+function normalizeHabitCalendar(calendar: unknown): HabitCalendarDay[] {
+  if (!Array.isArray(calendar)) return [];
+
+  const normalized: HabitCalendarDay[] = [];
+  for (const item of calendar) {
+    if (!item || typeof item !== 'object') continue;
+
+    const day = item as Partial<HabitCalendarDay>;
+    if (typeof day.date !== 'string' || !day.date) continue;
+
+    const normalizedDay: HabitCalendarDay = {
+      date: day.date,
+      completed: Boolean(day.completed)
+    };
+
+    if (typeof day.targetCount === 'number' && Number.isFinite(day.targetCount)) {
+      normalizedDay.targetCount = day.targetCount;
+    }
+    if (typeof day.completedCount === 'number' && Number.isFinite(day.completedCount)) {
+      normalizedDay.completedCount = day.completedCount;
+    }
+    if (typeof day.timestamp === 'number' && Number.isFinite(day.timestamp)) {
+      normalizedDay.timestamp = day.timestamp;
+    }
+
+    normalized.push(normalizedDay);
+  }
+
+  return normalized;
 }
 
 // 获取习惯数据
 export async function getHabits(): Promise<Habit[]> {
   try {
-    // 使用思源笔记插件的 loadData 方法来存储习惯数据
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件实例未初始化');
+      console.error('[Habits] plugin 未初始化');
       return [];
     }
-    
-    const data = await plugin.loadData('Pinch-habit.json');
 
-    
-    if (data) {
-      // 如果数据存在且有内容，解析并返回
-      let parsed: Habit[] = Array.isArray(data) ? data : JSON.parse(data);
-      
-      // 更新日历数据中的completedToday标志，因为存储的数据中的completedToday可能已过时
-      const today = new Date();
-      const todayStr = today.toISOString().split('T')[0];
-      
-      parsed = parsed.map((habit: Habit) => {
-        // 不再更新存储的isToday标志，而是保持原始数据
-        // 日期相关的判断将在组件中基于当前日期动态计算
-        
-        // 重新计算completedToday标志（基于当前日期）
-        const todayRecord = habit.calendar.find(day => day.date === todayStr);
-        habit.completedToday = todayRecord ? todayRecord.completed : false;
-        
-        return habit;
-      });
-      
-      return parsed;
-    } else {
+    const data = await plugin.loadData('Pinch-habit.json');
+    if (!data) return [];
+
+    const parsedRaw: unknown = typeof data === 'string' ? JSON.parse(data) : data;
+    if (!Array.isArray(parsedRaw)) {
+      console.error('[Habits] 数据格式错误，期望数组');
+      return [];
     }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const parsed: Habit[] = [];
+
+    for (const raw of parsedRaw) {
+      if (!raw || typeof raw !== 'object') continue;
+
+      const habit = raw as Partial<Habit> & Record<string, unknown>;
+      const calendar = normalizeHabitCalendar(habit.calendar);
+      const todayRecord = calendar.find(day => day.date === todayStr);
+      const completedToday = todayRecord ? Boolean(todayRecord.completed) : false;
+
+      parsed.push({
+        ...(habit as Habit),
+        id: typeof habit.id === 'string' ? habit.id : `habit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: typeof habit.name === 'string' ? habit.name : '',
+        frequency: normalizeHabitFrequency(habit.frequency),
+        calendar,
+        completedToday,
+        currentStreak:
+          typeof habit.currentStreak === 'number' && Number.isFinite(habit.currentStreak)
+            ? habit.currentStreak
+            : 0,
+        totalCompletions:
+          typeof habit.totalCompletions === 'number' && Number.isFinite(habit.totalCompletions)
+            ? habit.totalCompletions
+            : calendar.filter(day => day.completed).length,
+        createdAt: typeof habit.createdAt === 'string' ? habit.createdAt : new Date().toISOString()
+      });
+    }
+
+    return parsed;
   } catch (error) {
     console.error('Error reading habits:', error);
-    // 如果读取失败，返回空数组
     return [];
   }
-  
-  // 如果没有数据或出错，返回默认空数组
-  return [];
 }
 
 // 保存习惯数据
 export async function saveHabits(habits: Habit[]): Promise<void> {
   try {
-    // 使用思源笔记插件的 saveData 方法来存储习惯数据
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件实例未初始化');
-      throw new Error('插件实例未初始化');
+      console.error('[Habits] plugin 未初始化');
+      throw new Error('plugin 未初始化');
     }
-    
-    // 在保存前更新completedToday标志，确保保存的数据中的completedToday标志是正确的
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    
-    const habitsToSave = habits.map(habit => {
-      // 重新计算completedToday标志（基于当前日期）
-      const todayRecord = habit.calendar.find(day => day.date === todayStr);
-      
-      return {
-        ...habit,
-        completedToday: todayRecord ? todayRecord.completed : false
-      };
-    });
-    
-    // 保存到插件数据
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const source = Array.isArray(habits) ? habits : [];
+
+    const habitsToSave: Habit[] = source
+      .filter(item => Boolean(item) && typeof item === 'object')
+      .map((rawHabit: Habit) => {
+        const habit = rawHabit as Partial<Habit> & Record<string, unknown>;
+        const calendar = normalizeHabitCalendar(habit.calendar);
+        const todayRecord = calendar.find(day => day.date === todayStr);
+        const completedToday = todayRecord ? Boolean(todayRecord.completed) : false;
+
+        return {
+          ...(habit as Habit),
+          id: typeof habit.id === 'string' ? habit.id : `habit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          name: typeof habit.name === 'string' ? habit.name : '',
+          frequency: normalizeHabitFrequency(habit.frequency),
+          calendar,
+          completedToday,
+          currentStreak:
+            typeof habit.currentStreak === 'number' && Number.isFinite(habit.currentStreak)
+              ? habit.currentStreak
+              : 0,
+          totalCompletions:
+            typeof habit.totalCompletions === 'number' && Number.isFinite(habit.totalCompletions)
+              ? habit.totalCompletions
+              : calendar.filter(day => day.completed).length,
+          createdAt: typeof habit.createdAt === 'string' ? habit.createdAt : new Date().toISOString()
+        };
+      });
+
     await plugin.saveData('Pinch-habit.json', habitsToSave);
   } catch (error) {
     console.error('Error saving habits:', error);
@@ -620,7 +697,7 @@ export async function saveHabits(habits: Habit[]): Promise<void> {
   }
 }
 
-// 情绪数据接口
+// 情绪记录数据结构
 export interface MoodEntry {
   emoji: string;
   note: string;
@@ -636,7 +713,7 @@ export async function getMoodData(): Promise<MoodData> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件实例未初始化');
+      console.error('插件未初始化，无法读取数据');
       return {};
     }
     
@@ -659,11 +736,11 @@ export async function saveMoodData(moodData: MoodData): Promise<void> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件实例未初始化');
-      throw new Error('插件实例未初始化');
+      console.error('插件未初始化，无法保存数据');
+      throw new Error('插件未初始化，无法保存数据');
     }
     
-    // 保存到插件数据
+    // 直接保存对象，无需额外序列化
     await plugin.saveData('Pinch-mood.json', moodData);
   } catch (error) {
     console.error('Error saving mood data:', error);
@@ -673,34 +750,31 @@ export async function saveMoodData(moodData: MoodData): Promise<void> {
 
 // **************************************** Focus Timer ****************************************
 
-// 单日专注记录
 export interface DailyFocusRecord {
-  date: string; // YYYY-MM-DD 格式
-  sessions: number; // 当天专注次数
-  minutes: number; // 当天专注总时长（分钟）
-  timestamp: number; // 时间戳
+  date: string; // YYYY-MM-DD
+  sessions: number;
+  minutes: number;
+  timestamp: number;
 }
 
-// 专注计时器数据接口（按天存储）
 export interface FocusTimerData {
   dailyRecords: DailyFocusRecord[];
 }
 
-// 专注统计摘要（用于显示）
 export interface FocusStatsSummary {
   totalSessions: number;
   totalMinutes: number;
   todaySessions: number;
   todayMinutes: number;
-  recentDays: DailyFocusRecord[]; // 最近7天的数据
+  recentDays: DailyFocusRecord[]; // 最近 7 天记录
 }
 
-// 获取专注计时器数据
+// 获取专注计时数据
 export async function getFocusTimerData(): Promise<FocusTimerData> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件实例未初始化');
+      console.error('插件未初始化，无法读取数据');
       return { dailyRecords: [] };
     }
     
@@ -709,37 +783,31 @@ export async function getFocusTimerData(): Promise<FocusTimerData> {
     if (data) {
       const parsed: FocusTimerData = typeof data === 'string' ? JSON.parse(data) : data;
       
-      // 确保 dailyRecords 是数组
       if (!parsed.dailyRecords || !Array.isArray(parsed.dailyRecords)) {
         return { dailyRecords: [] };
       }
       
       return parsed;
     } else {
-      // 如果没有数据，返回默认值
+      // 文件不存在时返回空结构，避免首启报错
       return { dailyRecords: [] };
     }
   } catch (error) {
     console.error('Error reading focus timer data:', error);
-    // 如果读取失败，返回默认值
+    // 读取失败时返回空结构
     return { dailyRecords: [] };
   }
 }
 
-// 获取专注统计摘要
 export async function getFocusStatsSummary(): Promise<FocusStatsSummary> {
   try {
     const data = await getFocusTimerData();
     const today = new Date().toISOString().split('T')[0];
-    
-    // 计算总数
+
     const totalSessions = data.dailyRecords.reduce((sum, record) => sum + record.sessions, 0);
     const totalMinutes = data.dailyRecords.reduce((sum, record) => sum + record.minutes, 0);
-    
-    // 查找今天的记录
     const todayRecord = data.dailyRecords.find(record => record.date === today);
-    
-    // 获取最近7天的数据
+
     const recentDays = data.dailyRecords
       .filter(record => {
         const recordDate = new Date(record.date);
@@ -748,7 +816,7 @@ export async function getFocusStatsSummary(): Promise<FocusStatsSummary> {
         return recordDate >= sevenDaysAgo;
       })
       .sort((a, b) => b.timestamp - a.timestamp);
-    
+
     return {
       totalSessions,
       totalMinutes,
@@ -768,16 +836,16 @@ export async function getFocusStatsSummary(): Promise<FocusStatsSummary> {
   }
 }
 
-// 保存专注计时器数据
+// 保存专注计时数据
 export async function saveFocusTimerData(data: FocusTimerData): Promise<void> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件实例未初始化');
-      throw new Error('插件实例未初始化');
+      console.error('插件未初始化，无法保存数据');
+      throw new Error('插件未初始化，无法保存数据');
     }
     
-    // 保存到插件数据
+    // 直接保存对象，无需额外序列化
     await plugin.saveData('Pinch-focus-timer.json', data);
   } catch (error) {
     console.error('Error saving focus timer data:', error);
@@ -785,23 +853,18 @@ export async function saveFocusTimerData(data: FocusTimerData): Promise<void> {
   }
 }
 
-// 添加单次专注记录
 export async function addFocusSession(duration: number): Promise<void> {
   try {
     const data = await getFocusTimerData();
     const today = new Date().toISOString().split('T')[0];
     const now = Date.now();
-    
-    // 查找今天的记录
+
     let todayRecord = data.dailyRecords.find(record => record.date === today);
-    
     if (todayRecord) {
-      // 如果今天已有记录，更新它
       todayRecord.sessions += 1;
       todayRecord.minutes += duration;
       todayRecord.timestamp = now;
     } else {
-      // 如果今天没有记录，创建新记录
       data.dailyRecords.push({
         date: today,
         sessions: 1,
@@ -809,8 +872,7 @@ export async function addFocusSession(duration: number): Promise<void> {
         timestamp: now
       });
     }
-    
-    // 保存数据
+
     await saveFocusTimerData(data);
   } catch (error) {
     console.error('Error adding focus session:', error);
@@ -818,7 +880,6 @@ export async function addFocusSession(duration: number): Promise<void> {
   }
 }
 
-// 获取指定月份的记录
 export async function getMonthlyRecords(year: number, month: number): Promise<DailyFocusRecord[]> {
   try {
     const data = await getFocusTimerData();
@@ -983,6 +1044,10 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  repeatSeriesId?: string;
+  repeatFrequency?: RepeatFrequency;
+  repeatInstanceDate?: string;
+  isVirtual?: boolean;
 }
 
 function generateTaskId(): string {
@@ -995,15 +1060,182 @@ export class TaskRepository {
     timestamp: number;
   } = { tasks: null, timestamp: 0 };
   
-  private static readonly MEMORY_CACHE_DURATION = 5000; // 5秒内存缓存
+  private static readonly MEMORY_CACHE_DURATION = 5000; // 5 秒内存缓存
+  private static parseBlockDateTime(value: string | undefined): string {
+    try {
+      if (!value) return new Date().toISOString();
+      if (/^\d{14}$/.test(value)) {
+        const year = Number(value.slice(0, 4));
+        const month = Number(value.slice(4, 6)) - 1;
+        const day = Number(value.slice(6, 8));
+        const hour = Number(value.slice(8, 10));
+        const minute = Number(value.slice(10, 12));
+        const second = Number(value.slice(12, 14));
+        return new Date(year, month, day, hour, minute, second).toISOString();
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return new Date().toISOString();
+      return date.toISOString();
+    } catch {
+      return new Date().toISOString();
+    }
+  }
+
+  private static parseTaskStatus(
+    attrs: Record<string, string>,
+    markdown: string,
+    completedByDOM: boolean | null
+  ): TaskStatus {
+    const validStatuses: TaskStatus[] = ['pending', 'in-progress', 'completed', 'cancelled'];
+    const attrStatus = attrs['custom-task-status'] as TaskStatus | undefined;
+
+    if (attrStatus && validStatuses.includes(attrStatus) && attrStatus !== 'completed' && attrStatus !== 'pending') {
+      return attrStatus;
+    }
+
+    if (completedByDOM !== null) {
+      return completedByDOM ? 'completed' : 'pending';
+    }
+
+    const match = markdown?.match(/\[(x|X| )\]/);
+    if (match) {
+      return match[1] === 'x' || match[1] === 'X' ? 'completed' : 'pending';
+    }
+
+    if (attrStatus && validStatuses.includes(attrStatus)) {
+      return attrStatus;
+    }
+
+    return 'pending';
+  }
+
+  private static parseSubtasksFromDOM(domString: string, parentBlockId: string): SubTask[] {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(domString, 'text/html');
+    const cleanHtmlStyle = (html: string) => html.replace(/{: style="[^"]*"}/g, '');
+
+    const parseSubtaskList = (listElement: Element): SubTask[] => {
+      const listItems = Array.from(listElement.children).filter((child): child is Element =>
+        child instanceof Element && child.getAttribute('data-type') === 'NodeListItem'
+      );
+
+      const result: SubTask[] = [];
+      for (const item of listItems) {
+        const nodeId = item.getAttribute('data-node-id');
+        if (!nodeId || nodeId === parentBlockId) continue;
+
+        const action = item.querySelector('.protyle-action--task');
+        if (!action) continue;
+
+        const svg = action.querySelector('use');
+        const href = svg?.getAttribute('xlink:href') || svg?.getAttribute('href') || '';
+        const completed = href === '#iconCheck';
+
+        const paragraph = item.querySelector('[data-type="NodeParagraph"]');
+        const editable = paragraph?.querySelector('[contenteditable="true"]');
+        const titleHtml = editable?.innerHTML || paragraph?.innerHTML || '';
+        const title = cleanHtmlStyle(titleHtml) || 'Untitled';
+
+        const directList = item.querySelector(':scope > .list');
+        const nested = directList ? parseSubtaskList(directList) : [];
+
+        result.push({
+          id: `sub_${nodeId}`,
+          title,
+          completed,
+          nodeId,
+          subtasks: nested.length > 0 ? nested : undefined
+        });
+      }
+
+      return result;
+    };
+
+    const parentNode =
+      doc.querySelector(`[data-node-id="${parentBlockId}"][data-type="NodeListItem"]`) ||
+      doc.querySelector(`[data-node-id="${parentBlockId}"]`);
+    if (!parentNode) return [];
+    const rootList = parentNode.querySelector(':scope > .list') || parentNode.querySelector('.list');
+    if (!rootList) return [];
+    return parseSubtaskList(rootList);
+  }
+
+  private static escapeSqlLiteral(value: string): string {
+    return value.replace(/'/g, "''");
+  }
+
+  private static async resolveBlockIdByTaskId(taskId: string): Promise<string | null> {
+    const normalizedTaskId = typeof taskId === 'string' ? taskId.trim() : '';
+    if (!normalizedTaskId) return null;
+
+    if (normalizedTaskId.startsWith('block_') && normalizedTaskId.length > 6) {
+      return normalizedTaskId.slice(6);
+    }
+
+    const escapedTaskId = this.escapeSqlLiteral(normalizedTaskId);
+
+    try {
+      const attrRows = await sql(`
+        SELECT block_id
+        FROM attributes
+        WHERE name = 'custom-task-id'
+          AND value = '${escapedTaskId}'
+        LIMIT 1
+      `) as Array<{ block_id?: string }>;
+
+      const blockIdByAttr = attrRows?.[0]?.block_id;
+      if (typeof blockIdByAttr === 'string' && blockIdByAttr.length > 0) {
+        return blockIdByAttr;
+      }
+
+      const blockRows = await sql(`
+        SELECT id
+        FROM blocks
+        WHERE id = '${escapedTaskId}'
+        LIMIT 1
+      `) as Array<{ id?: string }>;
+
+      const blockIdById = blockRows?.[0]?.id;
+      if (typeof blockIdById === 'string' && blockIdById.length > 0) {
+        return blockIdById;
+      }
+    } catch (error) {
+      handleError('根据 taskId 解析 blockId 失败', error, { taskId: normalizedTaskId });
+    }
+
+    return null;
+  }
+
+  private static setSubtaskCompletion(subtasks: SubTask[] | undefined, subtaskId: string, completed: boolean): boolean {
+    if (!Array.isArray(subtasks) || subtasks.length === 0) return false;
+
+    for (const subtask of subtasks) {
+      if (subtask.id === subtaskId) {
+        if (subtask.completed !== completed) {
+          subtask.completed = completed;
+        }
+        return true;
+      }
+
+      if (this.setSubtaskCompletion(subtask.subtasks, subtaskId, completed)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
 
   static async getAllTasks(useCache: boolean = true): Promise<Task[]> {
     const [standaloneTasks, blockTasks] = await Promise.all([
       this.getStandaloneTasks(),
       this.getBlockTasks(useCache)
     ]);
-    
-    return [...standaloneTasks, ...blockTasks];
+
+    const mergedTasks = [...standaloneTasks, ...blockTasks];
+    return materializeRepeatTasks(mergedTasks, {
+      pastDays: 60,
+      futureDays: 120
+    });
   }
   
   static async getStandaloneTasks(): Promise<Task[]> {
@@ -1022,16 +1254,16 @@ export class TaskRepository {
   
   static async getBlockTasks(useCache: boolean = true): Promise<Task[]> {
     const now = Date.now();
-    
-    // 1. 检查内存缓存（最快）
-    if (useCache && this.memoryCache.tasks && 
-        now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION) {
+
+    // 1. 内存缓存
+    if (useCache && this.memoryCache.tasks &&
+      now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION) {
       return this.memoryCache.tasks;
     }
     
     const plugin = usePlugin();
 
-    // 2. 检查文件缓存
+    // 2. 磁盘缓存
     if (useCache) {
       const cachedData = await plugin.loadData('stand-block-tasks-cache.json');
       if (cachedData) {
@@ -1043,7 +1275,6 @@ export class TaskRepository {
               ...t,
               icon: unicodeToEmoji(t.icon)
             }));
-            // 更新内存缓存
             this.memoryCache = { tasks, timestamp: now };
             return tasks;
           }
@@ -1051,12 +1282,140 @@ export class TaskRepository {
       }
     }
 
-    // 3. 重新获取
+    // 3. 全量查询并回写缓存
     const tasks = await this.fetchBlockTasks();
     await this.saveBlockTasksCache(tasks);
-    // 更新内存缓存
     this.memoryCache = { tasks, timestamp: now };
     return tasks;
+  }
+
+  private static async fetchBlockTasksByIds(blockIds: string[]): Promise<Map<string, Task>> {
+    const uniqueIds = Array.from(new Set(blockIds.filter(id => typeof id === 'string' && id.length > 0)));
+    if (uniqueIds.length === 0) return new Map();
+
+    try {
+      const idsClause = uniqueIds.map(id => `'${id}'`).join(',');
+      const rows = await sql(`
+        SELECT b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-id' THEN a.value END) as custom_task_id,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-priority' THEN a.value END) as custom_task_priority,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-status' THEN a.value END) as custom_task_status,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-due-date' THEN a.value END) as custom_task_due_date,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-due-time' THEN a.value END) as custom_task_due_time,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-date' THEN a.value END) as custom_task_start_date,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-time' THEN a.value END) as custom_task_start_time,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-tags' THEN a.value END) as custom_task_tags,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-description' THEN a.value END) as custom_task_description,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color
+        FROM blocks b
+        LEFT JOIN attributes a ON b.id = a.block_id
+          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-background-color')
+        WHERE b.id IN (${idsClause})
+          AND (b.type = 'i' OR b.type = 'p')
+          AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%')
+        GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
+      `) as any[];
+
+      if (!rows || rows.length === 0) {
+        return new Map();
+      }
+
+      const rootIds = Array.from(new Set(rows.map(row => row.root_id).filter((id): id is string => !!id)));
+      const rootIcons = new Map<string, string>();
+      if (rootIds.length > 0) {
+        const rootAttrs = await batchGetBlockAttrs(rootIds);
+        rootAttrs.forEach((attrs, rootId) => {
+          if (attrs?.icon) {
+            rootIcons.set(rootId, unicodeToEmoji(attrs.icon));
+          }
+        });
+      }
+
+      const domMap = await batchGetBlockDOM(rows.map(row => row.id));
+      const protyleElement = document.querySelector('.protyle');
+      const result = new Map<string, Task>();
+
+      for (const row of rows) {
+        const attrs: Record<string, string> = {
+          'custom-task-id': row.custom_task_id,
+          'custom-task-priority': row.custom_task_priority,
+          'custom-task-status': row.custom_task_status,
+          'custom-task-due-date': row.custom_task_due_date,
+          'custom-task-due-time': row.custom_task_due_time,
+          'custom-task-start-date': row.custom_task_start_date,
+          'custom-task-start-time': row.custom_task_start_time,
+          'custom-task-tags': row.custom_task_tags,
+          'custom-task-description': row.custom_task_description,
+          'custom-task-background-color': row.custom_task_background_color
+        };
+
+        const dom = domMap.get(row.id);
+        if (!dom?.dom) continue;
+
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(dom.dom, 'text/html');
+        const parentListItem =
+          doc.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`) ||
+          doc.querySelector(`[data-node-id="${row.id}"]`);
+        const parentParagraph = parentListItem?.querySelector('[data-type="NodeParagraph"]');
+        const titleFromApi = parentParagraph?.querySelector('[contenteditable="true"]')?.innerHTML
+          || parentParagraph?.innerHTML
+          || '';
+
+        const currentElement =
+          protyleElement?.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`)
+          || protyleElement?.querySelector(`[data-node-id="${row.id}"]`)
+          || document.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`)
+          || document.querySelector(`[data-node-id="${row.id}"]`);
+        const currentParagraph = currentElement?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
+        const title = currentParagraph?.innerHTML || titleFromApi;
+
+        const currentAction = currentElement?.querySelector('.protyle-action--task');
+        const currentSvg = currentAction?.querySelector('use');
+        const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
+        const completedByDOM = currentHref ? currentHref === '#iconCheck' : null;
+        const status = this.parseTaskStatus(attrs, row.markdown || '', completedByDOM);
+
+        let tags: string[] = [];
+        if (attrs['custom-task-tags']) {
+          try {
+            tags = JSON.parse(attrs['custom-task-tags']);
+          } catch {
+            tags = [];
+          }
+        }
+
+        const subtasks = this.parseSubtasksFromDOM(dom.dom, row.id);
+
+        result.set(row.id, {
+          id: attrs['custom-task-id'] || `block_${row.id}`,
+          type: 'block',
+          blockId: row.id,
+          rootId: row.root_id,
+          title,
+          status,
+          priority: attrs['custom-task-priority'] as TaskPriority || 'none',
+          dueDate: attrs['custom-task-due-date'],
+          dueTime: attrs['custom-task-due-time'],
+          startDate: attrs['custom-task-start-date'],
+          startTime: attrs['custom-task-start-time'],
+          tags,
+          description: attrs['custom-task-description'] || '',
+          hPath: row.hpath,
+          notebookId: row.box,
+          icon: row.root_id ? (rootIcons.get(row.root_id) || '\uD83D\uDCC4') : '\uD83D\uDCC4',
+          backgroundColor: attrs['custom-task-background-color'],
+          subtasks: subtasks.length > 0 ? subtasks : undefined,
+          createdAt: this.parseBlockDateTime(row.created),
+          updatedAt: this.parseBlockDateTime(row.updated)
+        });
+      }
+
+      return result;
+    } catch (error) {
+      handleError('按 blockId 增量查询任务失败', error, { blockIds: uniqueIds });
+      return new Map();
+    }
   }
   
   private static async fetchBlockTasks(): Promise<Task[]> {
@@ -1215,21 +1574,21 @@ export class TaskRepository {
         try {
           const dom = domMap.get(parentBlock.id);
           if (!dom) {
-            log_debug('未找到DOM数据', { blockId: parentBlock.id });
+            log_debug('未获取到 DOM 数据', { blockId: parentBlock.id });
             return null;
           }
           
           const currentDomElement = protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`) 
             || protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"]`);
           
-          // 如果在 protyleElement 中找不到，尝试在整个文档中查找
+          // 如果当前编辑器未命中，则回退到全局查询
           let fallbackElement = currentDomElement;
           if (!fallbackElement) {
             fallbackElement = document.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`) 
               || document.querySelector(`[data-node-id="${parentBlock.id}"]`);
           }
           
-          // 使用找到的元素（优先使用 protyleElement 中的，否则使用 fallback）
+          // 使用当前编辑器里的元素；若拿不到则回退到全局查询结果
           const elementToUse = currentDomElement || fallbackElement;
           
           const currentParagraph = elementToUse?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
@@ -1380,7 +1739,7 @@ export class TaskRepository {
                   subtaskBlocksMap.set(block.id, block);
                 });
               } catch (error) {
-                handleError('获取子任务块', error, { parentId });
+                handleError('解析子任务块失败', error, { parentId });
               }
             }
             
@@ -1472,7 +1831,7 @@ export class TaskRepository {
             updatedAt: parseDate(parentBlock.updated)
           };
         } catch (error) {
-          handleError('处理任务块', error, { blockId: parentBlock.id });
+          handleError('处理任务块失败', error, { blockId: parentBlock.id });
           return null;
         }
       };
@@ -1491,7 +1850,7 @@ export class TaskRepository {
         tasks.push(...validResults);
       }
       } catch (error) {
-        handleError('获取块任务', error);
+        handleError('获取任务列表失败', error);
       }
       
       return tasks;
@@ -1504,12 +1863,12 @@ export class TaskRepository {
       tasks,
       updatedAt: new Date().toISOString()
     });
+    this.memoryCache = { tasks, timestamp: Date.now() };
   }
   
   static async clearCache(): Promise<void> {
     const plugin = usePlugin();
     await plugin.saveData('stand-block-tasks-cache.json', {});
-    // 清除内存缓存
     this.memoryCache = { tasks: null, timestamp: 0 };
   }
   
@@ -1565,20 +1924,20 @@ export class TaskRepository {
     const taskMarkdown = task.status === 'completed' ? `- [x] ${trimmedTitle}` : `- [ ] ${trimmedTitle}`;
 
     try {
-      log_debug('开始创建任务块', { notebookId, docPath, taskMarkdown });
+      log_debug('创建块任务', { notebookId, docPath, taskMarkdown });
 
       const ids = await getIDsByHPath(notebookId, docPath);
-      log_debug('获取文档ID', ids);
+      log_debug('获取文档 ID', ids);
       
       if (!ids || ids.length === 0) {
         throw new Error('文档不存在');
       }
 
       const rootId = ids[0];
-      log_debug('文档根ID', rootId);
+      log_debug('文档根 ID', rootId);
       
       const result = await appendBlock('markdown', taskMarkdown, rootId);
-      log_debug('appendBlock 返回结果', JSON.stringify(result, null, 2));
+      log_debug('appendBlock 霑泌屓扈捺棡', JSON.stringify(result, null, 2));
 
       if (result && result.length > 0) {
         let listItemBlockId = '';
@@ -1587,11 +1946,11 @@ export class TaskRepository {
         
         for (let i = 0; i < result[0].doOperations.length; i++) {
           const op = result[0].doOperations[i] as any;
-          log_debug(`操作 ${i}`, { id: op.id, objectType: op.objectType, type: op.type });
+          log_debug(`遍历 doOperation[${i}]`, { id: op.id, objectType: op.objectType, type: op.type });
           
           if (op.objectType === 'NodeListItem') {
             listItemBlockId = op.id;
-            log_debug('找到 NodeListItem', listItemBlockId);
+            log_debug('检测到 NodeListItem', listItemBlockId);
             break;
           }
           
@@ -1603,7 +1962,7 @@ export class TaskRepository {
               const nodeId = listItem.getAttribute('data-node-id');
               if (nodeId) {
                 listItemBlockId = nodeId;
-                log_debug('从 data HTML 解析出 NodeListItem', listItemBlockId);
+                log_debug('从 data HTML 解析到 NodeListItem', listItemBlockId);
                 break;
               }
             }
@@ -1612,7 +1971,7 @@ export class TaskRepository {
 
         if (!listItemBlockId) {
           const parentBlockId = result[0].doOperations[result[0].doOperations.length - 1]?.id || result[0].doOperations[0].id;
-          log_debug('尝试从父块查找子项', parentBlockId);
+          log_debug('回退到父块查询子任务块', parentBlockId);
           
           const childBlocks = await sql(`
             SELECT id, type, subtype
@@ -1623,16 +1982,16 @@ export class TaskRepository {
             ORDER BY created DESC
             LIMIT 1
           `);
-          log_debug('SQL查询结果1', childBlocks);
+          log_debug('SQL譟･隸｢扈捺棡1', childBlocks);
 
           if (childBlocks && childBlocks.length > 0) {
             listItemBlockId = childBlocks[0].id;
-            log_debug('从父块找到子项', listItemBlockId);
+            log_debug('从父块查询到任务块', listItemBlockId);
           }
         }
 
         if (!listItemBlockId) {
-          log_debug('尝试从文档根查找最新任务项');
+          log_debug('回退到 root 查询最近任务块');
           
           const childBlocks = await sql(`
             SELECT id, type, subtype
@@ -1643,7 +2002,7 @@ export class TaskRepository {
             ORDER BY created DESC
             LIMIT 3
           `);
-          log_debug('SQL查询结果2', childBlocks);
+          log_debug('SQL譟･隸｢扈捺棡2', childBlocks);
 
           if (childBlocks && childBlocks.length > 0) {
             const now = Date.now();
@@ -1651,27 +2010,27 @@ export class TaskRepository {
               const blockTime = new Date(block.created || block.updated).getTime();
               if (now - blockTime < TASK_CONFIG.RECENT_TASK_WINDOW) {
                 listItemBlockId = block.id;
-                log_debug('找到最近创建的任务项', listItemBlockId);
+                log_debug('命中最近创建的任务块', listItemBlockId);
                 break;
               }
             }
             
             if (!listItemBlockId && childBlocks.length > 0) {
               listItemBlockId = childBlocks[0].id;
-              log_debug('使用最新的任务项', listItemBlockId);
+              log_debug('使用最新任务块作为兜底', listItemBlockId);
             }
           }
         }
 
-        log_debug('最终找到的块ID', listItemBlockId);
-        log_debug('准备设置的属性', attrs);
+        log_debug('最终任务块 ID', listItemBlockId);
+        log_debug('准备写入属性', attrs);
 
         if (listItemBlockId && Object.keys(attrs).length > 0) {
           await setBlockAttrs(listItemBlockId, attrs);
-          log_debug('属性设置完成');
+          log_debug('任务属性写入成功');
           
           const verifyAttrs = await getBlockAttrs(listItemBlockId);
-          log_debug('验证属性', verifyAttrs);
+          log_debug('写入后属性校验', verifyAttrs);
         }
 
         const createResult = {
@@ -1686,7 +2045,7 @@ export class TaskRepository {
 
       throw new Error('Failed to create block');
     } catch (error) {
-      handleError('创建块任务', error, { notebookId, docPath, taskTitle: task.title });
+      handleError('创建块任务失败', error, { notebookId, docPath, taskTitle: task.title });
       throw error;
     }
   }
@@ -1701,29 +2060,68 @@ export class TaskRepository {
       await plugin.saveData('Stand-tasks.json', tasks);
       return;
     }
-    
-    const blockTasks = await this.getBlockTasks(false);
-    const blockTask = blockTasks.find(t => t.id === taskId);
-    if (blockTask) {
-      const attrsToUpdate: { [key: string]: string } = {};
-      if (updates.status) {
-        attrsToUpdate['custom-task-status'] = updates.status;
-      }
-      if (updates.priority) {
-        attrsToUpdate['custom-task-priority'] = updates.priority;
-      }
-      if (updates.dueDate !== undefined) {
-        attrsToUpdate['custom-task-due-date'] = updates.dueDate || '';
-      }
-      if (updates.tags) {
-        attrsToUpdate['custom-task-tags'] = JSON.stringify(updates.tags);
-      }
 
-      await setBlockAttrs(blockTask.blockId!, attrsToUpdate);
-
-      Object.assign(blockTask, updates, { updatedAt: new Date().toISOString() });
-      await this.saveBlockTasksCache(blockTasks);
+    const blockId = await this.resolveBlockIdByTaskId(taskId);
+    if (!blockId) {
+      return;
     }
+
+    const attrsToUpdate: { [key: string]: string } = {};
+    if (updates.status !== undefined) {
+      attrsToUpdate['custom-task-status'] = updates.status || '';
+    }
+    if (updates.priority !== undefined) {
+      attrsToUpdate['custom-task-priority'] = updates.priority || '';
+    }
+    if (updates.startDate !== undefined) {
+      attrsToUpdate['custom-task-start-date'] = updates.startDate || '';
+    }
+    if (updates.startTime !== undefined) {
+      attrsToUpdate['custom-task-start-time'] = updates.startTime || '';
+    }
+    if (updates.dueDate !== undefined) {
+      attrsToUpdate['custom-task-due-date'] = updates.dueDate || '';
+    }
+    if (updates.dueTime !== undefined) {
+      attrsToUpdate['custom-task-due-time'] = updates.dueTime || '';
+    }
+    if (updates.tags !== undefined) {
+      attrsToUpdate['custom-task-tags'] = JSON.stringify(updates.tags || []);
+    }
+    if (updates.description !== undefined) {
+      attrsToUpdate['custom-task-description'] = updates.description || '';
+    }
+    if (updates.backgroundColor !== undefined) {
+      attrsToUpdate['custom-task-background-color'] = updates.backgroundColor || '';
+    }
+
+    if (Object.keys(attrsToUpdate).length === 0) {
+      return;
+    }
+
+    await setBlockAttrs(blockId, attrsToUpdate);
+    await this.clearCache();
+  }
+
+  static async setTaskRepeatRule(task: Task, frequency: RepeatFrequency): Promise<void> {
+    if (task.type !== 'block') {
+      return;
+    }
+    await setTaskRepeatSeries(task, frequency);
+  }
+
+  static async getTaskRepeatRule(task: Task): Promise<RepeatFrequency> {
+    if (task.type !== 'block') {
+      return 'none';
+    }
+    return getTaskRepeatFrequency(task);
+  }
+
+  static async updateRepeatInstanceStatus(task: Task, status: TaskStatus): Promise<void> {
+    if (!task.repeatSeriesId || !task.repeatInstanceDate) {
+      return;
+    }
+    await setRepeatInstanceStatus(task.repeatSeriesId, task.repeatInstanceDate, status);
   }
   
   static async deleteTask(taskId: string): Promise<void> {
@@ -1736,61 +2134,112 @@ export class TaskRepository {
       await plugin.saveData('Stand-tasks.json', tasks);
       return;
     }
-    
-    const blockTasks = await this.getBlockTasks(false);
-    const blockTask = blockTasks.find(t => t.id === taskId);
-    if (blockTask) {
-      await deleteBlock(blockTask.blockId!);
-      
-      const newBlockTasks = blockTasks.filter(t => t.id !== taskId);
-      await this.saveBlockTasksCache(newBlockTasks);
+
+    const blockId = await this.resolveBlockIdByTaskId(taskId);
+    if (!blockId) {
+      return;
     }
+
+    await deleteBlock(blockId);
+    await this.clearCache();
   }
   
   static async updateSubtaskInCache(parentTaskId: string, subtaskId: string, completed: boolean): Promise<void> {
-    const blockTasks = await this.getBlockTasks(false);
-    const parentTask = blockTasks.find(t => t.id === parentTaskId);
-    
-    if (parentTask && parentTask.subtasks) {
-      const subtask = parentTask.subtasks.find(st => st.id === subtaskId);
-      if (subtask) {
-        subtask.completed = completed;
-        await this.saveBlockTasksCache(blockTasks);
+    let cachedTasks = this.memoryCache.tasks;
+
+    if (!cachedTasks) {
+      const plugin = usePlugin();
+      const cachedData = await plugin.loadData('stand-block-tasks-cache.json');
+      const parsed = typeof cachedData === 'string' ? JSON.parse(cachedData) : cachedData;
+      if (parsed && Array.isArray(parsed.tasks)) {
+        cachedTasks = parsed.tasks as Task[];
       }
+    }
+
+    if (!cachedTasks || cachedTasks.length === 0) {
+      return;
+    }
+
+    const parentTask = cachedTasks.find(
+      t => t.id === parentTaskId || (t.blockId && t.blockId === parentTaskId)
+    );
+    if (!parentTask) {
+      return;
+    }
+
+    const changed = this.setSubtaskCompletion(parentTask.subtasks, subtaskId, completed);
+    if (changed) {
+      parentTask.updatedAt = new Date().toISOString();
+      await this.saveBlockTasksCache(cachedTasks);
     }
   }
   
   static async getTaskByBlockId(blockId: string, useCache: boolean = false): Promise<Task | null> {
     try {
-      const allTasks = await this.getBlockTasks(useCache);
-      return allTasks.find(t => t.blockId === blockId) || null;
+      const taskMap = await this.getTasksByBlockIds([blockId], useCache);
+      return taskMap.get(blockId) || null;
     } catch (error) {
-      handleError('获取单个任务', error, { blockId });
+      handleError('按 blockId 获取任务失败', error, { blockId });
       return null;
     }
   }
   
   static async getTasksByBlockIds(blockIds: string[], useCache: boolean = false): Promise<Map<string, Task>> {
     try {
-      const allTasks = await this.getBlockTasks(useCache);
-      const taskMap = new Map<string, Task>();
-      
-      for (const blockId of blockIds) {
-        const task = allTasks.find(t => t.blockId === blockId);
-        if (task) {
-          taskMap.set(blockId, task);
+      const normalizedIds = Array.from(new Set(blockIds.filter(id => typeof id === 'string' && id.length > 0)));
+      if (normalizedIds.length === 0) {
+        return new Map();
+      }
+
+      if (useCache) {
+        const now = Date.now();
+        if (this.memoryCache.tasks && now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION) {
+          const fromMemory = new Map<string, Task>();
+          for (const blockId of normalizedIds) {
+            const task = this.memoryCache.tasks.find(t => t.blockId === blockId);
+            if (task) {
+              fromMemory.set(blockId, task);
+            }
+          }
+          if (fromMemory.size === normalizedIds.length) {
+            return fromMemory;
+          }
         }
       }
-      
-      return taskMap;
+
+      const taskMap = await this.fetchBlockTasksByIds(normalizedIds);
+      const enrichedTasks = await attachRepeatMetadataToTasks(Array.from(taskMap.values()));
+      const enrichedTaskMap = new Map<string, Task>();
+      enrichedTasks.forEach((task) => {
+        if (task.blockId) {
+          enrichedTaskMap.set(task.blockId, task);
+        }
+      });
+
+      if (enrichedTaskMap.size > 0 && this.memoryCache.tasks) {
+        const cachedMap = new Map(
+          this.memoryCache.tasks
+            .filter(task => task.type === 'block' && !!task.blockId)
+            .map(task => [task.blockId as string, task])
+        );
+        enrichedTaskMap.forEach((task, blockId) => {
+          cachedMap.set(blockId, task);
+        });
+        this.memoryCache = {
+          tasks: Array.from(cachedMap.values()),
+          timestamp: Date.now()
+        };
+      }
+
+      return enrichedTaskMap;
     } catch (error) {
-      handleError('批量获取任务', error, { blockIds });
+      handleError('批量获取任务失败', error, { blockIds });
       return new Map();
     }
   }
 }
 
-// 还需要添加 getBlockDOM 函数，如果主项目没有的话
+// 获取块 DOM 数据
 export async function getBlockDOM(
   id: BlockId
 ): Promise<BlockDOMResponse> {
@@ -1819,7 +2268,7 @@ async function batchGetBlockDOM(ids: string[]): Promise<Map<string, BlockDOMResp
         (async () => {
           const domPromises = batch.map(id => 
             getBlockDOM(id).catch((error) => {
-              log_debug('获取块DOM失败', { id, error });
+              log_debug('获取块 DOM 失败', { id, error });
               return null;
             })
           );
@@ -1839,3 +2288,4 @@ async function batchGetBlockDOM(ids: string[]): Promise<Map<string, BlockDOMResp
   
   return result;
 }
+

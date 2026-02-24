@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="kanban-view">
     <div class="kanban-header">
       <div class="header-left">
@@ -136,14 +136,14 @@
             v-for="task in getFilteredTasksForStatus(column.status)"
             :key="task.id"
             class="kanban-task-card protyle-wysiwyg"
-            :class="[
-              `priority-${task.priority}`,
-              { 
-                'task-completed': task.status === 'completed',
-                'dragging': draggedTask && draggedTask.id === task.id
-              }
-            ]"
-            draggable="true"
+              :class="[
+                `priority-${task.priority}`,
+                { 
+                  'task-completed': isTaskCompletedVisual(task),
+                  'dragging': draggedTask && draggedTask.id === task.id
+                }
+              ]"
+            :draggable="!isMobileFrontend"
             @dragstart="handleDragStart($event, task)"
             @dragend="handleDragEnd"
             @click="handleTaskClick(task)"
@@ -190,19 +190,57 @@
       :tasks="monthViewTasks"
       @task-click="handleTaskClick"
       @task-date-changed="handleTaskDateChanged"
+      @task-create-requested="handleTaskCreateRequested"
     />
     <WeekView
       v-if="currentView === 'week'"
       :tasks="weekViewTasks"
       @task-date-changed="handleTaskDateChanged"
       @task-click="handleTaskClick"
+      @task-create-requested="handleTaskCreateRequested"
     />
+
+    <div v-if="quickCreateDialog.show" class="quick-create-mask" @click="closeQuickCreateDialog">
+      <div class="quick-create-dialog" @click.stop>
+        <div class="quick-create-title">新建任务</div>
+        <div class="quick-create-row">
+          <label>笔记本</label>
+          <SySelect
+            :model-value="quickCreateNotebookId"
+            @update:model-value="quickCreateNotebookId = $event"
+            :options="notebookOptions"
+          />
+        </div>
+        <div class="quick-create-row">
+          <label>文档</label>
+          <SySelect
+            :model-value="quickCreateDocumentId"
+            @update:model-value="quickCreateDocumentId = $event"
+            :options="quickCreateDocumentOptions"
+          />
+        </div>
+        <input
+          ref="quickCreateInputRef"
+          v-model="quickCreateDialog.title"
+          class="quick-create-input"
+          type="text"
+          placeholder="请输入任务标题"
+          @keydown.enter.prevent="submitQuickCreateTask"
+          @keydown.esc.prevent="closeQuickCreateDialog"
+        />
+        <div class="quick-create-actions">
+          <button class="quick-create-btn cancel" @click="closeQuickCreateDialog">取消</button>
+          <button class="quick-create-btn confirm" @click="submitQuickCreateTask">创建</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
-import { TaskRepository, Task, SubTask, setBlockAttrs, getBlockAttrs } from '../api';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
+import { getFrontend } from 'siyuan';
+import { TaskRepository, Task, SubTask, setBlockAttrs, pushMsg } from '../api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -220,6 +258,13 @@ const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 
 const crdtRepo = getCrdtRepository();
 const { tasks, updateTasks, syncFromSQL } = useCrdtTasks();
+let isMobileFrontend = false;
+try {
+  const frontend = getFrontend();
+  isMobileFrontend = frontend === 'mobile' || frontend === 'browser-mobile';
+} catch {
+  isMobileFrontend = false;
+}
 const loading = ref(false);
 const skipSet = new Set<string>();
 
@@ -258,6 +303,7 @@ const weekFilterType = ref('all');
 const weekFilterDocument = ref('all');
 
 const isSettingsLoaded = ref(false);
+const isHydratingSettings = ref(false);
 
 const { notebooks, loadNotebooks } = useNotebooks();
 const draggedTask = ref<Task | null>(null);
@@ -272,6 +318,27 @@ const columns = [
   { status: 'cancelled', title: '已取消' }
 ];
 
+interface CreateTaskPayload {
+  startDate: string;
+  dueDate: string;
+  startTime?: string;
+  dueTime?: string;
+  allDay: boolean;
+}
+
+const quickCreateInputRef = ref<HTMLInputElement | null>(null);
+const quickCreateNotebookId = ref<string>('all');
+const quickCreateDocumentId = ref<string>('all');
+const quickCreateDialog = ref<{
+  show: boolean;
+  title: string;
+  payload: CreateTaskPayload | null;
+}>({
+  show: false,
+  title: '',
+  payload: null
+});
+
 const priorityOptions = [
   { value: 'all', text: '全部' },
   { value: 'high', text: '高' },
@@ -285,24 +352,36 @@ const notebookOptions = computed(() => [
 ]);
 
 let eventUnsubscribers: Array<() => void> = [];
+let saveSettingsTimer: number | null = null;
+let fallbackRefreshTimer: number | null = null;
+const dragStatusLocks = new Map<string, Task['status']>();
+const dragSyncSuppressUntil = new Map<string, number>();
+function getCurrentFilterNotebookId(): string {
+  switch (currentView.value) {
+    case 'kanban':
+      return kanbanFilterType.value;
+    case 'table':
+      return tableFilterType.value;
+    case 'month':
+      return monthFilterType.value;
+    case 'week':
+      return weekFilterType.value;
+    default:
+      return 'all';
+  }
+}
 
-const availableDocuments = computed(() => {
-  const currentFilterType = currentView.value === 'kanban' ? kanbanFilterType.value : 
-                           currentView.value === 'table' ? tableFilterType.value :
-                           currentView.value === 'month' ? monthFilterType.value :
-                           currentView.value === 'week' ? weekFilterType.value : 'all';
-  if (currentFilterType === 'all') return [];
-  
+function getDocumentEntriesByNotebook(notebookId: string): Array<{ id: string; name: string }> {
+  if (notebookId === 'all') return [];
+
   const docs = new Map<string, string>();
-  
   for (const task of tasks.value) {
-    if (task.type === 'block' &&
-        task.notebookId === currentFilterType &&
-        task.rootId) {
+    if (task.type !== 'block' || task.notebookId !== notebookId || !task.rootId) {
+      continue;
+    }
+    if (!docs.has(task.rootId)) {
       const hPath = task.hPath || task.rootId;
-      if (!docs.has(task.rootId)) {
-        docs.set(task.rootId, hPath);
-      }
+      docs.set(task.rootId, hPath);
     }
   }
 
@@ -310,73 +389,81 @@ const availableDocuments = computed(() => {
     id,
     name: path.split('/').pop() || path
   }));
-});
+}
 
-const documentOptions = computed(() => [
-  { value: 'all', text: '全部' },
-  ...availableDocuments.value.map(doc => ({ value: doc.id, text: doc.name }))
-]);
+function getDocumentIdsByNotebook(notebookId: string): string[] {
+  return getDocumentEntriesByNotebook(notebookId).map(doc => doc.id);
+}
 
-watch(kanbanFilterType, async (newType, oldType) => {
-  if (newType === 'all') {
-    kanbanFilterDocument.value = 'all';
-  } else if (oldType !== 'all' && kanbanFilterDocument.value !== 'all') {
-    kanbanFilterDocument.value = 'all';
+function toDocumentOptions(notebookId: string): Array<{ value: string; text: string }> {
+  if (notebookId === 'all') {
+    return [{ value: 'all', text: '全部' }];
   }
-  await saveUserSettings();
-});
 
-watch(kanbanFilterDocument, async () => {
-  await saveUserSettings();
-});
+  return [
+    { value: 'all', text: '全部' },
+    ...getDocumentEntriesByNotebook(notebookId).map(doc => ({
+      value: doc.id,
+      text: doc.name
+    }))
+  ];
+}
 
-watch(kanbanFilterPriority, async () => {
-  await saveUserSettings();
-});
+const documentOptions = computed(() => toDocumentOptions(getCurrentFilterNotebookId()));
+const quickCreateDocumentOptions = computed(() => toDocumentOptions(quickCreateNotebookId.value));
 
-watch(tableFilterType, async () => {
-  await saveUserSettings();
-});
+function setupFilterTypeWatcher(typeRef: Ref<string>, documentRef: Ref<string>): void {
+  watch(typeRef, (newType, oldType) => {
+    if (newType === 'all') {
+      documentRef.value = 'all';
+    } else if (oldType !== 'all' && documentRef.value !== 'all') {
+      documentRef.value = 'all';
+    }
+  });
+}
 
-watch(tableFilterDocument, async () => {
-  await saveUserSettings();
-});
+setupFilterTypeWatcher(kanbanFilterType, kanbanFilterDocument);
+setupFilterTypeWatcher(monthFilterType, monthFilterDocument);
+setupFilterTypeWatcher(weekFilterType, weekFilterDocument);
 
-watch(monthFilterType, async (newType, oldType) => {
-  if (newType === 'all') {
-    monthFilterDocument.value = 'all';
-  } else if (oldType !== 'all' && monthFilterDocument.value !== 'all') {
-    monthFilterDocument.value = 'all';
+watch(quickCreateNotebookId, (newType, oldType) => {
+  if (newType !== oldType && quickCreateDialog.value.show) {
+    const exists = quickCreateDocumentOptions.value.some(opt => opt.value === quickCreateDocumentId.value);
+    if (!exists) {
+      quickCreateDocumentId.value = 'all';
+    }
+  } else if (newType !== oldType) {
+    quickCreateDocumentId.value = 'all';
   }
-  await saveUserSettings();
 });
 
-watch(monthFilterDocument, async () => {
-  await saveUserSettings();
-});
-
-watch(weekFilterType, async (newType, oldType) => {
-  if (newType === 'all') {
-    weekFilterDocument.value = 'all';
-  } else if (oldType !== 'all' && weekFilterDocument.value !== 'all') {
-    weekFilterDocument.value = 'all';
+function scheduleSaveUserSettings() {
+  if (saveSettingsTimer !== null) {
+    clearTimeout(saveSettingsTimer);
   }
-  await saveUserSettings();
-});
 
-watch(weekFilterDocument, async () => {
-  await saveUserSettings();
-});
+  saveSettingsTimer = window.setTimeout(async () => {
+    await saveUserSettings();
+  }, 200);
+}
 
-watch(currentView, async () => {
-  await saveUserSettings();
+watch([
+  currentView,
+  kanbanFilterPriority,
+  kanbanFilterType,
+  kanbanFilterDocument,
+  tableFilterType,
+  tableFilterDocument,
+  monthFilterType,
+  monthFilterDocument,
+  weekFilterType,
+  weekFilterDocument
+], () => {
+  if (isHydratingSettings.value) {
+    return;
+  }
+  scheduleSaveUserSettings();
 });
-
-const kanbanFilters = {
-  priority: kanbanFilterPriority,
-  notebook: kanbanFilterType,
-  document: kanbanFilterDocument
-};
 
 const tableFilters = {
   priority: ref('all'),
@@ -384,7 +471,6 @@ const tableFilters = {
   document: tableFilterDocument
 };
 
-const { filteredByStatus, invalidateCache: invalidateKanbanFilters } = useTaskFilters(tasks, kanbanFilters);
 const { filtered: filteredTasks, invalidateCache: invalidateTableFilters } = useTaskFilters(tasks, tableFilters);
 
 const monthViewTasks = computed(() => {
@@ -420,12 +506,55 @@ const weekViewTasks = computed(() => {
 });
 
 watch(tasks, () => {
-  invalidateKanbanFilters();
   invalidateTableFilters();
 }, { immediate: true });
 
+function getTaskVisualStatus(task: Task): Task['status'] {
+  if (task.type === 'block' && task.blockId) {
+    const locked = getLockedDraggedTaskStatus(task.blockId);
+    if (locked) {
+      return locked;
+    }
+  }
+  return task.status;
+}
+
+function isTaskCompletedVisual(task: Task): boolean {
+  return getTaskVisualStatus(task) === 'completed';
+}
+
+function matchesKanbanFilters(task: Task): boolean {
+  if (!task.title || task.title.trim() === '') return false;
+  if (task.type !== 'block') return false;
+  if (kanbanFilterPriority.value !== 'all' && task.priority !== kanbanFilterPriority.value) return false;
+  if (kanbanFilterType.value !== 'all') {
+    if (task.notebookId !== kanbanFilterType.value) return false;
+    if (kanbanFilterDocument.value !== 'all' && task.rootId !== kanbanFilterDocument.value) return false;
+  }
+  return true;
+}
+
+const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
+  const grouped: Record<string, Task[]> = {
+    'pending': [],
+    'in-progress': [],
+    'completed': [],
+    'cancelled': []
+  };
+
+  for (const task of tasks.value) {
+    if (!matchesKanbanFilters(task)) continue;
+    const status = getTaskVisualStatus(task);
+    if (grouped[status]) {
+      grouped[status].push(task);
+    }
+  }
+
+  return grouped;
+});
+
 function getFilteredTasksForStatus(status: string): Task[] {
-  return filteredByStatus.value[status] || [];
+  return kanbanTasksByVisualStatus.value[status] || [];
 }
 
 function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: number } {
@@ -462,20 +591,26 @@ function getSubtaskStats(subtasks: Task['subtasks']): string {
   return `${stats.completed}/${stats.total}`;
 }
 
-async function loadTasks(forceRefresh: boolean = false) {
-  loading.value = true;
+async function loadTasks(forceRefresh: boolean = false, options: { silent?: boolean } = {}) {
+  const { silent = false } = options;
+  if (!silent) {
+    loading.value = true;
+  }
   try {
     if (forceRefresh) {
       await TaskRepository.clearCache();
     }
-    const sqlTasks = await TaskRepository.getAllTasks(forceRefresh);
+    const sqlTasks = await TaskRepository.getAllTasks(!forceRefresh);
     syncFromSQL(sqlTasks);
+    tasks.value = applyDraggedStatusLocks(tasks.value);
     await nextTick();
     validateDocumentSelection();
   } catch (error) {
     console.error('[KanbanView] 加载任务失败:', error);
   } finally {
-    loading.value = false;
+    if (!silent) {
+      loading.value = false;
+    }
   }
 }
 
@@ -484,7 +619,125 @@ async function refreshTasks() {
   await loadTasks(true);
 }
 
+function scheduleRefreshTasks(delay = 180, mode: 'full' | 'light' = 'full') {
+  if (fallbackRefreshTimer !== null) {
+    clearTimeout(fallbackRefreshTimer);
+  }
+  fallbackRefreshTimer = window.setTimeout(async () => {
+    fallbackRefreshTimer = null;
+    if (mode === 'light') {
+      await loadTasks(false, { silent: true });
+      return;
+    }
+    await refreshTasks();
+  }, delay);
+}
+
+function applyRepeatRuleOptimistic(payload: {
+  blockId?: string;
+  seriesId?: string;
+  frequency?: string;
+}) {
+  const { blockId, seriesId, frequency } = payload;
+  if (!frequency) return;
+
+  let touched = false;
+
+  if (blockId) {
+    const templateTask = tasks.value.find(
+      (task) => task.type === 'block' && !task.isVirtual && task.blockId === blockId
+    );
+    if (templateTask) {
+      templateTask.repeatFrequency = frequency as any;
+      if (frequency === 'none') {
+        templateTask.repeatSeriesId = undefined;
+        templateTask.repeatInstanceDate = undefined;
+        templateTask.isVirtual = false;
+      } else if (seriesId) {
+        templateTask.repeatSeriesId = seriesId;
+        templateTask.repeatInstanceDate = undefined;
+        templateTask.isVirtual = false;
+      }
+      touched = true;
+    }
+  }
+
+  if (frequency === 'none' && seriesId) {
+    const nextTasks = tasks.value.filter(
+      (task) => !(task.isVirtual && task.repeatSeriesId === seriesId)
+    );
+    if (nextTasks.length !== tasks.value.length) {
+      tasks.value = nextTasks;
+      touched = true;
+    }
+  }
+
+  if (touched) {
+    invalidateTableFilters();
+  }
+}
+
+function unlockDraggedTaskStatus(blockId: string): void {
+  dragStatusLocks.delete(blockId);
+}
+
+function lockDraggedTaskStatus(blockId: string, status: Task['status']): void {
+  dragStatusLocks.set(blockId, status);
+}
+
+function getLockedDraggedTaskStatus(blockId: string): Task['status'] | null {
+  return dragStatusLocks.get(blockId) || null;
+}
+
+function suppressDragTaskSync(blockId: string, ttlMs = 1400): void {
+  dragSyncSuppressUntil.set(blockId, Date.now() + ttlMs);
+}
+
+function isDragTaskSyncSuppressed(blockId: string): boolean {
+  const expiresAt = dragSyncSuppressUntil.get(blockId);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    dragSyncSuppressUntil.delete(blockId);
+    return false;
+  }
+  return true;
+}
+
+function filterSuppressedBlockIds(blockIds: string[]): string[] {
+  if (!blockIds.length) return [];
+  return blockIds.filter(id => typeof id === 'string' && id.length > 0 && !isDragTaskSyncSuppressed(id));
+}
+
+function hasSuppressedBlockId(blockIds: string[]): boolean {
+  if (!blockIds.length) return false;
+  return blockIds.some(id => typeof id === 'string' && id.length > 0 && isDragTaskSyncSuppressed(id));
+}
+
+function applyDraggedStatusLocks(taskList: Task[]): Task[] {
+  if (dragStatusLocks.size === 0 || taskList.length === 0) {
+    return taskList;
+  }
+
+  for (const task of taskList) {
+    if (task.type !== 'block' || !task.blockId) {
+      continue;
+    }
+    const lockedStatus = getLockedDraggedTaskStatus(task.blockId);
+    if (!lockedStatus) {
+      continue;
+    }
+    if (task.status === lockedStatus) {
+      unlockDraggedTaskStatus(task.blockId);
+      continue;
+    }
+    task.status = lockedStatus;
+  }
+
+  return taskList;
+}
+
 async function loadUserSettings() {
+  isHydratingSettings.value = true;
   try {
     const settings = userSettings.kanban;
     kanbanFilterPriority.value = settings.kanbanFilterPriority || 'all';
@@ -539,6 +792,7 @@ async function loadUserSettings() {
   } catch (error) {
     console.error('[KanbanView] 加载用户设置失败:', error);
   }
+  isHydratingSettings.value = false;
 }
 
 async function saveUserSettings() {
@@ -561,27 +815,55 @@ async function saveUserSettings() {
 }
 
 async function validateDocumentSelection() {
+  let hasChanges = false;
+
   if (kanbanFilterType.value !== 'all' && kanbanFilterDocument.value !== 'all') {
-    const availableDocs = availableDocuments.value.map(d => d.id);
-    if (!availableDocs.includes(kanbanFilterDocument.value)) {
+    const availableDocIds = getDocumentIdsByNotebook(kanbanFilterType.value);
+    if (!availableDocIds.includes(kanbanFilterDocument.value)) {
       kanbanFilterDocument.value = 'all';
-      await saveUserSettings();
+      hasChanges = true;
     }
   }
-  
+
   if (tableFilterType.value !== 'all' && tableFilterDocument.value !== 'all') {
-    const availableDocs = availableDocuments.value.map(d => d.id);
-    if (!availableDocs.includes(tableFilterDocument.value)) {
+    const availableDocIds = getDocumentIdsByNotebook(tableFilterType.value);
+    if (!availableDocIds.includes(tableFilterDocument.value)) {
       tableFilterDocument.value = 'all';
-      await saveUserSettings();
+      hasChanges = true;
     }
+  }
+
+  if (monthFilterType.value !== 'all' && monthFilterDocument.value !== 'all') {
+    const availableDocIds = getDocumentIdsByNotebook(monthFilterType.value);
+    if (!availableDocIds.includes(monthFilterDocument.value)) {
+      monthFilterDocument.value = 'all';
+      hasChanges = true;
+    }
+  }
+
+  if (weekFilterType.value !== 'all' && weekFilterDocument.value !== 'all') {
+    const availableDocIds = getDocumentIdsByNotebook(weekFilterType.value);
+    if (!availableDocIds.includes(weekFilterDocument.value)) {
+      weekFilterDocument.value = 'all';
+      hasChanges = true;
+    }
+  }
+
+  if (hasChanges) {
+    await saveUserSettings();
   }
 }
 
 function setupEventListeners() {
   const unsubscribeChanged = eventBus.on(Events.TASK_CHANGED, async (data?: { blockIds?: string[] }) => {
     if (data?.blockIds && data.blockIds.length > 0) {
-      await incrementalUpdateTasks(data.blockIds);
+      if (hasSuppressedBlockId(data.blockIds)) {
+        return;
+      }
+      const blockIds = filterSuppressedBlockIds(data.blockIds);
+      if (blockIds.length > 0) {
+        await incrementalUpdateTasks(blockIds);
+      }
     }
   });
 
@@ -589,17 +871,31 @@ function setupEventListeners() {
     const taskIndex = tasks.value.findIndex(t => t.blockId === blockId);
     if (taskIndex !== -1) {
       tasks.value = tasks.value.filter(t => t.blockId !== blockId);
-      invalidateKanbanFilters();
       invalidateTableFilters();
     }
   });
 
   const unsubscribeUpdated = eventBus.on(Events.TASK_UPDATED, async ({ blockId }: { blockId: string }) => {
+    if (isDragTaskSyncSuppressed(blockId)) {
+      return;
+    }
     await incrementalUpdateTasks([blockId]);
   });
 
-  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async () => {
-    await refreshTasks();
+  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string }) => {
+    if (payload?.reason === 'repeat-changed' && payload.frequency) {
+      applyRepeatRuleOptimistic(payload);
+      scheduleRefreshTasks(100, 'light');
+      return;
+    }
+    if (payload?.blockId) {
+      await incrementalUpdateTasks([payload.blockId], { allowUnknown: true });
+      if (!tasks.value.some(t => t.blockId === payload.blockId)) {
+        scheduleRefreshTasks();
+      }
+      return;
+    }
+    scheduleRefreshTasks();
   });
 
   eventUnsubscribers.push(
@@ -615,24 +911,46 @@ function cleanupEventListeners() {
   eventUnsubscribers = [];
 }
 
-async function incrementalUpdateTasks(blockIds: string[]) {
+async function incrementalUpdateTasks(
+  blockIds: string[],
+  options: { allowUnknown?: boolean } = {}
+) {
+  const { allowUnknown = false } = options;
   if (isDropping.value) {
     return;
   }
   
   try {
-    const taskIndexMap = new Map(tasks.value.map((t, i) => [t.blockId, i]));
+    const normalizedBlockIds = blockIds.filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (normalizedBlockIds.length === 0) {
+      return;
+    }
+
+    const taskIndexMap = new Map<string, number>();
+    tasks.value.forEach((task, index) => {
+      if (task && task.blockId) {
+        taskIndexMap.set(task.blockId, index);
+      }
+    });
     const parentBlockIds = new Set<string>();
     
-    for (const blockId of blockIds) {
+    for (const blockId of normalizedBlockIds) {
       if (taskIndexMap.has(blockId)) {
         parentBlockIds.add(blockId);
       } else {
+        let matchedSubtask = false;
         for (const task of tasks.value) {
-          if (task.subtasks && hasSubtaskWithId(task.subtasks, blockId)) {
-            parentBlockIds.add(task.blockId!);
+          if (!task || !task.blockId || !task.subtasks) {
+            continue;
+          }
+          if (hasSubtaskWithId(task.subtasks, blockId)) {
+            parentBlockIds.add(task.blockId);
+            matchedSubtask = true;
             break;
           }
+        }
+        if (!matchedSubtask && allowUnknown) {
+          parentBlockIds.add(blockId);
         }
       }
     }
@@ -641,42 +959,47 @@ async function incrementalUpdateTasks(blockIds: string[]) {
       return;
     }
     
-    await TaskRepository.clearCache();
-    
-    const updatedTasks = await Promise.all(
-      Array.from(parentBlockIds).map(blockId => 
-        TaskRepository.getTaskByBlockId(blockId, false)
-      )
+    const updatedTasksMap = await TaskRepository.getTasksByBlockIds(
+      Array.from(parentBlockIds),
+      false
     );
+    updatedTasksMap.forEach(task => {
+      const lockedStatus = task.blockId ? getLockedDraggedTaskStatus(task.blockId) : null;
+      if (lockedStatus) {
+        task.status = lockedStatus;
+      }
+    });
     
-    const updatedTasksMap = new Map(updatedTasks.filter(t => t !== undefined).map(t => [t.blockId!, t]));
-    
-    const newTasks = [...tasks.value];
-    
+    let touched = false;
+
     for (const blockId of parentBlockIds) {
       const updatedTask = updatedTasksMap.get(blockId);
       const oldIndex = taskIndexMap.get(blockId);
       
       if (updatedTask) {
         if (oldIndex !== undefined) {
-          newTasks[oldIndex] = updatedTask;
+          const currentTask = tasks.value[oldIndex];
+          if (currentTask) {
+            Object.assign(currentTask, updatedTask);
+          } else {
+            tasks.value[oldIndex] = updatedTask;
+          }
         } else {
-          newTasks.push(updatedTask);
+          tasks.value.push(updatedTask);
         }
-      } else if (oldIndex !== undefined) {
-        newTasks.splice(oldIndex, 1);
+        touched = true;
       }
     }
-    
-    tasks.value = newTasks;
-    
-    invalidateKanbanFilters();
-    invalidateTableFilters();
-    
-    await nextTick();
+
+    if (touched) {
+      applyDraggedStatusLocks(tasks.value);
+      invalidateTableFilters();
+      
+      await nextTick();
+    }
   } catch (error) {
-    console.error('[KanbanView] 增量更新失败:', error);
-    await refreshTasks();
+    console.error('[KanbanView] 增量更新任务失败:', error);
+    scheduleRefreshTasks();
   }
 }
 
@@ -726,16 +1049,151 @@ function handleTaskDateChanged(updatedTask: Task) {
   eventBus.emit('task-date-changed', updatedTask);
 }
 
+function normalizeDocPath(notebookName: string, hPath: string): string {
+  const prefix = `${notebookName}/`;
+  if (hPath.startsWith(prefix)) {
+    return hPath.slice(prefix.length);
+  }
+  return hPath;
+}
+
+function getCurrentSidebarFilterSelection(): { notebookId: string; documentId: string } {
+  switch (currentView.value) {
+    case 'kanban':
+      return {
+        notebookId: kanbanFilterType.value,
+        documentId: kanbanFilterDocument.value
+      };
+    case 'table':
+      return {
+        notebookId: tableFilterType.value,
+        documentId: tableFilterDocument.value
+      };
+    case 'month':
+      return {
+        notebookId: monthFilterType.value,
+        documentId: monthFilterDocument.value
+      };
+    case 'week':
+    default:
+      return {
+        notebookId: weekFilterType.value,
+        documentId: weekFilterDocument.value
+      };
+  }
+}
+
+function resolveCreateTarget(notebookId: string, documentId: string): { notebookId: string; documentId: string; docPath: string } | null {
+  if (notebookId === 'all' || documentId === 'all') {
+    return null;
+  }
+
+  const notebook = notebooks.value.find(nb => nb.id === notebookId);
+  if (!notebook) return null;
+
+  const taskInDoc = tasks.value.find(
+    t => t.type === 'block' && t.notebookId === notebookId && t.rootId === documentId && !!t.hPath
+  );
+  if (!taskInDoc?.hPath) return null;
+
+  return {
+    notebookId,
+    documentId,
+    docPath: normalizeDocPath(notebook.name, taskInDoc.hPath)
+  };
+}
+
+async function handleTaskCreateRequested(payload: CreateTaskPayload) {
+  const sidebarSelection = getCurrentSidebarFilterSelection();
+  quickCreateNotebookId.value = sidebarSelection.notebookId;
+  quickCreateDocumentId.value = sidebarSelection.documentId;
+  if (!quickCreateDocumentOptions.value.some(opt => opt.value === quickCreateDocumentId.value)) {
+    quickCreateDocumentId.value = 'all';
+  }
+
+  quickCreateDialog.value = {
+    show: true,
+    title: '新建任务',
+    payload
+  };
+  await nextTick();
+  quickCreateInputRef.value?.focus();
+  quickCreateInputRef.value?.select();
+}
+
+function closeQuickCreateDialog() {
+  quickCreateNotebookId.value = 'all';
+  quickCreateDocumentId.value = 'all';
+  quickCreateDialog.value = {
+    show: false,
+    title: '',
+    payload: null
+  };
+}
+
+async function submitQuickCreateTask() {
+  const payload = quickCreateDialog.value.payload;
+  const trimmedTitle = quickCreateDialog.value.title.trim();
+  if (!payload) return;
+  if (!trimmedTitle) {
+    await pushMsg('请输入任务标题', 2000);
+    return;
+  }
+
+  const target = resolveCreateTarget(quickCreateNotebookId.value, quickCreateDocumentId.value);
+  if (!target) {
+    await pushMsg('请先选择笔记本和文档', 3000);
+    return;
+  }
+
+  try {
+    const created = await TaskRepository.createBlockTask({
+      title: trimmedTitle,
+      description: '',
+      priority: 'none',
+      status: 'pending',
+      dueDate: payload.dueDate,
+      tags: []
+    }, target.notebookId, target.docPath);
+
+    if (created?.blockId) {
+      await setBlockAttrs(created.blockId, {
+        'custom-task-start-date': payload.startDate || '',
+        'custom-task-due-date': payload.dueDate || '',
+        'custom-task-start-time': payload.startTime || '',
+        'custom-task-due-time': payload.dueTime || ''
+      });
+    }
+
+    closeQuickCreateDialog();
+    if (created?.blockId) {
+      await incrementalUpdateTasks([created.blockId], { allowUnknown: true });
+      if (!tasks.value.some(t => t.blockId === created.blockId)) {
+        scheduleRefreshTasks();
+      }
+    } else {
+      scheduleRefreshTasks();
+    }
+  } catch (error) {
+    console.error('[KanbanView] 创建任务失败:', error);
+    await pushMsg('创建任务失败，请稍后重试', 3000);
+  }
+}
+
 async function toggleTaskStatus(task: Task) {
-  if (task.type === 'block' && task.blockId) {
-    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
-    
-    try {
+  const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+
+  try {
+    if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate) {
+      await TaskRepository.updateRepeatInstanceStatus(task, newStatus);
+      updateTaskLocalField(task.id, 'status', newStatus);
+      return;
+    }
+
+    if (task.type === 'block' && task.blockId) {
       await setBlockAttrs(task.blockId, {
         'custom-task-status': newStatus
       });
-      
-      await getBlockAttrs(task.blockId);
       
       await TaskRepository.clearCache();
       
@@ -751,9 +1209,9 @@ async function toggleTaskStatus(task: Task) {
       if (taskIndex !== -1) {
         tasks.value[taskIndex].status = newStatus;
       }
-    } catch (error) {
-      console.error('[KanbanView] 切换任务状态失败:', error);
     }
+  } catch (error) {
+    console.error('[KanbanView] 切换任务状态失败:', error);
   }
 }
 
@@ -795,112 +1253,102 @@ async function handleSubtaskToggle(parentTask: Task, subtask: Task['subtasks'][0
 }
 
 async function handleDescriptionUpdate(task: Task, description: string) {
-  if (task.type === 'block' && task.blockId) {
-    try {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-description': description || ''
-      });
-      
-      const taskIndex = tasks.value.findIndex(t => t.id === task.id);
-      if (taskIndex !== -1) {
-        tasks.value[taskIndex].description = description;
-        tasks.value[taskIndex].updatedAt = new Date().toISOString();
-      }
-      
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
-    } catch (error) {
-      console.error('[KanbanView] 更新任务描述失败:', error);
-    }
-  }
+  await applyBlockTaskFieldUpdate(
+    task,
+    { 'custom-task-description': description || '' },
+    'description',
+    description,
+    '更新任务描述失败'
+  );
 }
 
 async function handlePriorityUpdate(task: Task, priority: Task['priority']) {
-  if (task.type === 'block' && task.blockId) {
-    try {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-priority': priority
-      });
-      
-      const taskIndex = tasks.value.findIndex(t => t.id === task.id);
-      if (taskIndex !== -1) {
-        tasks.value[taskIndex].priority = priority;
-        tasks.value[taskIndex].updatedAt = new Date().toISOString();
-      }
-      
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
-    } catch (error) {
-      console.error('[KanbanView] 更新任务优先级失败:', error);
-    }
-  }
+  await applyBlockTaskFieldUpdate(
+    task,
+    { 'custom-task-priority': priority },
+    'priority',
+    priority,
+    '更新任务优先级失败'
+  );
 }
 
 async function handleStatusUpdate(task: Task, status: Task['status']) {
-  if (task.type === 'block' && task.blockId) {
-    try {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-status': status
-      });
-      
-      const taskIndex = tasks.value.findIndex(t => t.id === task.id);
-      if (taskIndex !== -1) {
-        tasks.value[taskIndex].status = status;
-        tasks.value[taskIndex].updatedAt = new Date().toISOString();
-      }
-      
-      if (status === 'completed') {
-        await updateTaskMarkdown(task.blockId, true);
-      } else {
-        await updateTaskMarkdown(task.blockId, false);
-      }
-      
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
-    } catch (error) {
-      console.error('[KanbanView] 更新任务状态失败:', error);
+  await applyBlockTaskFieldUpdate(
+    task,
+    { 'custom-task-status': status },
+    'status',
+    status,
+    '更新任务状态失败',
+    async (blockId) => {
+      await updateTaskMarkdown(blockId, status === 'completed');
     }
-  }
+  );
 }
 
 async function handleStartDateUpdate(task: Task, startDate: string) {
-  if (task.type === 'block' && task.blockId) {
-    try {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-start-date': startDate || ''
-      });
-      
-      const taskIndex = tasks.value.findIndex(t => t.id === task.id);
-      if (taskIndex !== -1) {
-        tasks.value[taskIndex].startDate = startDate;
-        tasks.value[taskIndex].updatedAt = new Date().toISOString();
-      }
-      
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
-    } catch (error) {
-      console.error('[KanbanView] 更新开始日期失败:', error);
-    }
-  }
+  await applyBlockTaskFieldUpdate(
+    task,
+    { 'custom-task-start-date': startDate || '' },
+    'startDate',
+    startDate,
+    '更新开始日期失败'
+  );
 }
 
 async function handleDueDateUpdate(task: Task, dueDate: string) {
+  await applyBlockTaskFieldUpdate(
+    task,
+    { 'custom-task-due-date': dueDate || '' },
+    'dueDate',
+    dueDate,
+    '更新截止日期失败'
+  );
+}
+
+function updateTaskLocalField<K extends keyof Task>(taskId: string, field: K, value: Task[K]): void {
+  const taskIndex = tasks.value.findIndex(t => t.id === taskId);
+  if (taskIndex === -1) {
+    return;
+  }
+  tasks.value[taskIndex][field] = value;
+  tasks.value[taskIndex].updatedAt = new Date().toISOString();
+}
+
+async function applyBlockTaskFieldUpdate<K extends keyof Task>(
+  task: Task,
+  attrs: Record<string, string>,
+  field: K,
+  value: Task[K],
+  errorMessage: string,
+  afterUpdate?: (blockId: string) => Promise<void> | void
+): Promise<void> {
+  if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate && field === 'status') {
+    try {
+      await TaskRepository.updateRepeatInstanceStatus(task, value as Task['status']);
+      updateTaskLocalField(task.id, field, value);
+    } catch (error) {
+      console.error(`[KanbanView] ${errorMessage}:`, error);
+    }
+    return;
+  }
+
   if (task.type === 'block' && task.blockId) {
     try {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-due-date': dueDate || ''
-      });
-      
-      const taskIndex = tasks.value.findIndex(t => t.id === task.id);
-      if (taskIndex !== -1) {
-        tasks.value[taskIndex].dueDate = dueDate;
-        tasks.value[taskIndex].updatedAt = new Date().toISOString();
+      await setBlockAttrs(task.blockId, attrs);
+      updateTaskLocalField(task.id, field, value);
+      if (afterUpdate) {
+        await afterUpdate(task.blockId);
       }
-      
       eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
     } catch (error) {
-      console.error('[KanbanView] 更新截止日期失败:', error);
+      console.error(`[KanbanView] ${errorMessage}:`, error);
     }
   }
 }
 
 function handleDragStart(event: DragEvent, task: Task) {
+  if (isMobileFrontend) return;
+
   draggedTask.value = task;
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
@@ -915,6 +1363,8 @@ function handleDragEnd() {
 }
 
 function handleDragOver(event: DragEvent, status: string) {
+  if (isMobileFrontend) return;
+
   event.preventDefault();
   if (draggedTask.value && draggedTask.value.status !== status) {
     dragOverStatus.value = status;
@@ -926,6 +1376,8 @@ function handleDragLeave() {
 }
 
 async function handleDrop(event: DragEvent, targetStatus: string) {
+  if (isMobileFrontend) return;
+
   event.preventDefault();
   
   if (!draggedTask.value) return;
@@ -950,19 +1402,29 @@ async function handleDrop(event: DragEvent, targetStatus: string) {
   }
   
   const updatedTask = { ...currentTask, status: targetStatus as Task['status'] };
+  const droppedBlockId = task.type === 'block' && task.blockId ? task.blockId : null;
+  if (droppedBlockId) {
+    lockDraggedTaskStatus(droppedBlockId, targetStatus as Task['status']);
+    suppressDragTaskSync(droppedBlockId, 1600);
+  }
   tasks.value = [
     ...tasks.value.slice(0, taskIndex),
     updatedTask,
     ...tasks.value.slice(taskIndex + 1)
   ];
+  invalidateTableFilters();
+
+  // End drag visual state immediately to avoid long "dragging" flicker while async sync is running.
+  draggedTask.value = null;
+  dragOverStatus.value = null;
   
   try {
-    if (task.type === 'block' && task.blockId) {
+    if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate) {
+      await TaskRepository.updateRepeatInstanceStatus(task, targetStatus as Task['status']);
+    } else if (task.type === 'block' && task.blockId) {
       await setBlockAttrs(task.blockId, {
         'custom-task-status': targetStatus
       });
-      
-      await TaskRepository.clearCache();
       
       if (targetStatus === 'completed') {
         await updateTaskMarkdown(task.blockId, true);
@@ -971,7 +1433,11 @@ async function handleDrop(event: DragEvent, targetStatus: string) {
       }
     }
   } catch (error) {
-    console.error('[KanbanView] 更新任务状态失败:', error);
+    console.error('[KanbanView] 拖拽更新任务状态失败:', error);
+    if (droppedBlockId) {
+      unlockDraggedTaskStatus(droppedBlockId);
+      dragSyncSuppressUntil.delete(droppedBlockId);
+    }
     const revertTaskIndex = tasks.value.findIndex(t => t.id === taskId);
     if (revertTaskIndex !== -1) {
       const revertedTask = { ...tasks.value[revertTaskIndex], status: oldStatus };
@@ -980,13 +1446,17 @@ async function handleDrop(event: DragEvent, targetStatus: string) {
         revertedTask,
         ...tasks.value.slice(revertTaskIndex + 1)
       ];
+      invalidateTableFilters();
     }
   } finally {
     isDropping.value = false;
   }
-  
-  draggedTask.value = null;
-  dragOverStatus.value = null;
+  if (droppedBlockId) {
+    // Keep optimistic result to avoid post-drop visual flicker; backend events have been suppressed.
+    window.setTimeout(() => {
+      dragSyncSuppressUntil.delete(droppedBlockId);
+    }, 500);
+  }
 }
 
 onMounted(async () => {
@@ -996,14 +1466,24 @@ onMounted(async () => {
     loadNotebooks(),
     loadTasks()
   ]);
-  loadUserSettings();
-  validateDocumentSelection();
+  await loadUserSettings();
+  await validateDocumentSelection();
   startSkipSetCleanup();
 });
 
 onUnmounted(() => {
   cleanupEventListeners();
   stopSkipSetCleanup();
+  if (saveSettingsTimer !== null) {
+    clearTimeout(saveSettingsTimer);
+    saveSettingsTimer = null;
+  }
+  if (fallbackRefreshTimer !== null) {
+    clearTimeout(fallbackRefreshTimer);
+    fallbackRefreshTimer = null;
+  }
+  dragStatusLocks.clear();
+  dragSyncSuppressUntil.clear();
 });
 </script>
 
@@ -1022,7 +1502,6 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
   flex-shrink: 0;
   margin: 10px;
 }
@@ -1138,6 +1617,91 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+.quick-create-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.quick-create-dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  background: var(--b3-theme-surface);
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+  padding: 14px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.quick-create-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+  margin-bottom: 10px;
+}
+
+.quick-create-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.quick-create-row label {
+  width: 48px;
+  flex-shrink: 0;
+  color: var(--b3-theme-on-surface);
+  font-size: 13px;
+}
+
+.quick-create-input {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
+  padding: 8px 10px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.quick-create-input:focus {
+  border-color: var(--b3-theme-primary);
+}
+
+.quick-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.quick-create-btn {
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+}
+
+.quick-create-btn.confirm {
+  border-color: var(--b3-theme-primary);
+  color: var(--b3-theme-primary);
+}
+
 .kanban-board {
   display: flex;
   gap: 10px;
@@ -1215,7 +1779,7 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 12px;
   cursor: move;
-  transition: all 0.2s;
+  transition: box-shadow 0.2s, transform 0.2s;
   box-shadow: #0000000f 0 1px 5px;
 }
 
@@ -1229,7 +1793,7 @@ onUnmounted(() => {
 }
 
 .kanban-task-card.dragging {
-  opacity: 0.5;
+  opacity: 0.85;
   transform: rotate(2deg);
 }
 
@@ -1363,3 +1927,4 @@ onUnmounted(() => {
   font-size: 14px;
 }
 </style>
+

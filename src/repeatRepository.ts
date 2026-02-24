@@ -1,0 +1,700 @@
+import { usePlugin } from '@/main';
+import { eventBus, Events } from '@/utils/eventBus';
+
+export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly';
+type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
+type RepeatTaskStatus = 'pending' | 'in-progress' | 'completed' | 'cancelled';
+
+const REPEAT_SERIES_FILE = 'Pinch-repeat-series.json';
+const REPEAT_RECORDS_FILE = 'Pinch-repeat-records.json';
+const DEFAULT_PAST_WINDOW_DAYS = 30;
+const DEFAULT_FUTURE_WINDOW_DAYS = 90;
+
+export interface RepeatSeries {
+  id: string;
+  templateTaskId: string;
+  templateBlockId?: string;
+  frequency: ActiveRepeatFrequency;
+  interval: number;
+  weekDays?: number[];
+  monthDay?: number;
+  startDate: string;
+  endDate?: string;
+  spanDays: number;
+  title: string;
+  description?: string;
+  priority: 'none' | 'high' | 'medium' | 'low';
+  tags: string[];
+  startTime?: string;
+  dueTime?: string;
+  notebookId?: string;
+  rootId?: string;
+  hPath?: string;
+  icon?: string;
+  backgroundColor?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RepeatRecord {
+  key: string;
+  seriesId: string;
+  date: string;
+  status: RepeatTaskStatus;
+  completedAt?: string;
+  updatedAt: string;
+}
+
+export interface RepeatTaskLike {
+  id: string;
+  type: 'standalone' | 'block';
+  title: string;
+  status: RepeatTaskStatus;
+  priority: 'none' | 'high' | 'medium' | 'low';
+  dueDate?: string;
+  startDate?: string;
+  dueTime?: string;
+  startTime?: string;
+  tags: string[];
+  description?: string;
+  blockId?: string;
+  rootId?: string;
+  hPath?: string;
+  notebookId?: string;
+  icon?: string;
+  backgroundColor?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  repeatSeriesId?: string;
+  repeatFrequency?: RepeatFrequency;
+  repeatInstanceDate?: string;
+  isVirtual?: boolean;
+}
+
+function formatDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function parseDate(dateStr: string | undefined): Date | null {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function daysBetween(startDate: Date, endDate: Date): number {
+  const ms = endDate.getTime() - startDate.getTime();
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
+}
+
+function nowDateString(): string {
+  return formatDate(new Date());
+}
+
+function toArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function normalizeFrequency(frequency: unknown): ActiveRepeatFrequency | null {
+  if (
+    frequency === 'daily'
+    || frequency === 'weekdays'
+    || frequency === 'weekend'
+    || frequency === 'weekly'
+    || frequency === 'monthly'
+  ) {
+    return frequency;
+  }
+  return null;
+}
+
+function normalizeInterval(interval: unknown): number {
+  const n = Number(interval);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return Math.max(1, Math.floor(n));
+}
+
+function normalizeWeekDays(days: unknown): number[] | undefined {
+  if (!Array.isArray(days)) return undefined;
+  const normalized = Array.from(
+    new Set(
+      days
+        .map((day) => Number(day))
+        .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+    )
+  ).sort((a, b) => a - b);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeMonthDay(day: unknown): number | undefined {
+  const monthDay = Number(day);
+  if (!Number.isInteger(monthDay)) return undefined;
+  if (monthDay < 1 || monthDay > 31) return undefined;
+  return monthDay;
+}
+
+function normalizeSpanDays(spanDays: unknown): number {
+  const n = Number(spanDays);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.floor(n));
+}
+
+function buildSeriesId(): string {
+  return `series_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function buildRecordKey(seriesId: string, date: string): string {
+  return `${seriesId}:${date}`;
+}
+
+function buildVirtualTaskId(seriesId: string, date: string): string {
+  return `repeat_${seriesId}_${date}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function getTaskBaseDate(task: RepeatTaskLike): string {
+  const fromTask = task.startDate || task.dueDate;
+  const parsed = parseDate(fromTask);
+  return parsed ? formatDate(parsed) : nowDateString();
+}
+
+function calculateSpanDays(task: RepeatTaskLike): number {
+  const start = parseDate(task.startDate || task.dueDate);
+  const due = parseDate(task.dueDate || task.startDate);
+  if (!start || !due) return 0;
+  const span = daysBetween(start, due);
+  return Math.max(0, span);
+}
+
+function matchesSeriesDate(series: RepeatSeries, date: Date): boolean {
+  const start = parseDate(series.startDate);
+  if (!start) return false;
+  if (date < start) return false;
+  const end = parseDate(series.endDate);
+  if (end && date > end) return false;
+
+  const diffDays = daysBetween(start, date);
+  if (diffDays < 0) return false;
+
+  if (series.frequency === 'daily') {
+    return diffDays % series.interval === 0;
+  }
+
+  if (series.frequency === 'weekdays') {
+    const day = date.getDay();
+    return day >= 1 && day <= 5;
+  }
+
+  if (series.frequency === 'weekend') {
+    const day = date.getDay();
+    return day === 0 || day === 6;
+  }
+
+  if (series.frequency === 'weekly') {
+    const allowedDays = series.weekDays?.length ? series.weekDays : [start.getDay()];
+    if (!allowedDays.includes(date.getDay())) return false;
+    const diffWeeks = Math.floor(diffDays / 7);
+    return diffWeeks % series.interval === 0;
+  }
+
+  const monthDay = series.monthDay || start.getDate();
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const expectedDay = Math.min(monthDay, lastDay);
+  if (date.getDate() !== expectedDay) return false;
+
+  const monthDiff = (date.getFullYear() - start.getFullYear()) * 12 + (date.getMonth() - start.getMonth());
+  return monthDiff >= 0 && monthDiff % series.interval === 0;
+}
+
+async function loadData<T>(file: string, fallback: T): Promise<T> {
+  const plugin = usePlugin();
+  if (!plugin) return fallback;
+  try {
+    const data = await plugin.loadData(file);
+    if (!data) return fallback;
+    return (typeof data === 'string' ? JSON.parse(data) : data) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+async function saveData(file: string, value: unknown): Promise<void> {
+  const plugin = usePlugin();
+  if (!plugin) return;
+  await plugin.saveData(file, value);
+}
+
+function normalizeSeries(raw: unknown): RepeatSeries | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = raw as Partial<RepeatSeries>;
+
+  const frequency = normalizeFrequency(item.frequency);
+  if (!frequency) return null;
+
+  const templateTaskId = typeof item.templateTaskId === 'string' ? item.templateTaskId.trim() : '';
+  if (!templateTaskId) return null;
+
+  const startDate = parseDate(item.startDate);
+  if (!startDate) return null;
+
+  const normalizedWeekDays = normalizeWeekDays(item.weekDays);
+  const normalizedSpanDays = normalizeSpanDays(item.spanDays);
+  const rawEndDate = typeof item.endDate === 'string' ? parseDate(item.endDate) : null;
+  let normalizedEndDate: string | undefined;
+  if (rawEndDate && rawEndDate.getTime() > startDate.getTime()) {
+    normalizedEndDate = formatDate(rawEndDate);
+  } else if (normalizedSpanDays > 0) {
+    const derivedEnd = new Date(startDate);
+    derivedEnd.setDate(derivedEnd.getDate() + normalizedSpanDays);
+    normalizedEndDate = formatDate(derivedEnd);
+  }
+
+  return {
+    id: typeof item.id === 'string' && item.id ? item.id : buildSeriesId(),
+    templateTaskId,
+    templateBlockId: typeof item.templateBlockId === 'string' ? item.templateBlockId : undefined,
+    frequency,
+    interval: frequency === 'monthly' ? normalizeInterval(item.interval) : 1,
+    weekDays: frequency === 'weekly'
+      ? normalizedWeekDays
+      : (frequency === 'weekdays'
+        ? [1, 2, 3, 4, 5]
+        : (frequency === 'weekend' ? [0, 6] : undefined)),
+    monthDay: frequency === 'monthly' ? normalizeMonthDay(item.monthDay) : undefined,
+    startDate: formatDate(startDate),
+    endDate: normalizedEndDate,
+    spanDays: normalizedSpanDays,
+    title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : '重复任务',
+    description: typeof item.description === 'string' ? item.description : '',
+    priority: item.priority === 'high' || item.priority === 'medium' || item.priority === 'low' ? item.priority : 'none',
+    tags: Array.isArray(item.tags) ? item.tags.filter((tag) => typeof tag === 'string') : [],
+    startTime: typeof item.startTime === 'string' ? item.startTime : undefined,
+    dueTime: typeof item.dueTime === 'string' ? item.dueTime : undefined,
+    notebookId: typeof item.notebookId === 'string' ? item.notebookId : undefined,
+    rootId: typeof item.rootId === 'string' ? item.rootId : undefined,
+    hPath: typeof item.hPath === 'string' ? item.hPath : undefined,
+    icon: typeof item.icon === 'string' ? item.icon : undefined,
+    backgroundColor: typeof item.backgroundColor === 'string' ? item.backgroundColor : undefined,
+    enabled: item.enabled !== false,
+    createdAt: typeof item.createdAt === 'string' ? item.createdAt : new Date().toISOString(),
+    updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date().toISOString()
+  };
+}
+
+function normalizeRecord(raw: unknown): RepeatRecord | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = raw as Partial<RepeatRecord>;
+  if (typeof item.seriesId !== 'string' || !item.seriesId) return null;
+  if (typeof item.date !== 'string' || !parseDate(item.date)) return null;
+  if (item.status !== 'pending' && item.status !== 'in-progress' && item.status !== 'completed' && item.status !== 'cancelled') {
+    return null;
+  }
+
+  return {
+    key: typeof item.key === 'string' && item.key ? item.key : buildRecordKey(item.seriesId, item.date),
+    seriesId: item.seriesId,
+    date: item.date,
+    status: item.status,
+    completedAt: typeof item.completedAt === 'string' ? item.completedAt : undefined,
+    updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date().toISOString()
+  };
+}
+
+export async function loadRepeatSeries(): Promise<RepeatSeries[]> {
+  const raw = await loadData<unknown>(REPEAT_SERIES_FILE, []);
+  return toArray<unknown>(raw).map(normalizeSeries).filter((item): item is RepeatSeries => !!item);
+}
+
+export async function saveRepeatSeries(series: RepeatSeries[]): Promise<void> {
+  await saveData(REPEAT_SERIES_FILE, series);
+}
+
+export async function getRepeatSeriesForTask(
+  task: Pick<RepeatTaskLike, 'id' | 'blockId' | 'repeatSeriesId'>
+): Promise<RepeatSeries | null> {
+  const seriesList = await loadRepeatSeries();
+  const series = findSeriesForTask(seriesList, task);
+  return series || null;
+}
+
+export async function updateRepeatSeriesDates(
+  task: Pick<RepeatTaskLike, 'id' | 'blockId' | 'repeatSeriesId'>,
+  startDate: string | null,
+  dueDate: string | null,
+  timePatch?: {
+    startTime?: string | null;
+    dueTime?: string | null;
+  }
+): Promise<RepeatSeries | null> {
+  const seriesList = await loadRepeatSeries();
+  const series = findSeriesForTask(seriesList, task);
+  if (!series) return null;
+
+  const baseStart = startDate ? parseDate(startDate) : parseDate(series.startDate);
+  if (!baseStart) return null;
+  const normalizedStart = formatDate(baseStart);
+
+  let normalizedEnd: string | undefined;
+  if (dueDate) {
+    const parsedDue = parseDate(dueDate);
+    if (parsedDue && parsedDue.getTime() >= baseStart.getTime()) {
+      normalizedEnd = formatDate(parsedDue);
+    }
+  }
+
+  const hasStartTimePatch = !!timePatch && Object.prototype.hasOwnProperty.call(timePatch, 'startTime');
+  const hasDueTimePatch = !!timePatch && Object.prototype.hasOwnProperty.call(timePatch, 'dueTime');
+  const normalizedStartTime = hasStartTimePatch
+    ? (typeof timePatch?.startTime === 'string' && timePatch.startTime.trim().length > 0
+      ? timePatch.startTime
+      : undefined)
+    : series.startTime;
+  const normalizedDueTime = hasDueTimePatch
+    ? (typeof timePatch?.dueTime === 'string' && timePatch.dueTime.trim().length > 0
+      ? timePatch.dueTime
+      : undefined)
+    : series.dueTime;
+
+  const updated: RepeatSeries = {
+    ...series,
+    startDate: normalizedStart,
+    endDate: normalizedEnd,
+    startTime: normalizedStartTime,
+    dueTime: normalizedDueTime,
+    spanDays: normalizedEnd ? daysBetween(baseStart, parseDate(normalizedEnd)!) : 0,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (updated.frequency === 'weekly') {
+    updated.weekDays = [baseStart.getDay()];
+  }
+
+  const idx = seriesList.findIndex(item => item.id === series.id);
+  if (idx >= 0) {
+    seriesList[idx] = updated;
+  } else {
+    seriesList.push(updated);
+  }
+
+  await saveRepeatSeries(seriesList);
+  emitRepeatChanged({
+    blockId: updated.templateBlockId,
+    seriesId: updated.id,
+    frequency: updated.frequency
+  });
+
+  return updated;
+}
+
+export async function loadRepeatRecords(): Promise<RepeatRecord[]> {
+  const raw = await loadData<unknown>(REPEAT_RECORDS_FILE, []);
+  return toArray<unknown>(raw).map(normalizeRecord).filter((item): item is RepeatRecord => !!item);
+}
+
+export async function saveRepeatRecords(records: RepeatRecord[]): Promise<void> {
+  await saveData(REPEAT_RECORDS_FILE, records);
+}
+
+function findSeriesForTask(seriesList: RepeatSeries[], task: Pick<RepeatTaskLike, 'id' | 'blockId' | 'repeatSeriesId'>): RepeatSeries | undefined {
+  if (task.repeatSeriesId) {
+    return seriesList.find((series) => series.id === task.repeatSeriesId);
+  }
+  return seriesList.find((series) =>
+    series.templateTaskId === task.id
+    || (!!task.blockId && series.templateBlockId === task.blockId)
+  );
+}
+
+export async function attachRepeatMetadataToTasks<T extends RepeatTaskLike>(
+  baseTasks: T[],
+  seriesListOverride?: RepeatSeries[]
+): Promise<T[]> {
+  if (!Array.isArray(baseTasks) || baseTasks.length === 0) {
+    return baseTasks;
+  }
+
+  const sourceSeries = seriesListOverride ?? (await loadRepeatSeries());
+  const seriesList = sourceSeries.filter((series) => series.enabled);
+  if (seriesList.length === 0) {
+    return baseTasks;
+  }
+
+  return baseTasks.map((task) => {
+    const series = findSeriesForTask(seriesList, task);
+    if (!series) return task;
+    return {
+      ...task,
+      repeatSeriesId: series.id,
+      repeatFrequency: series.frequency,
+      isVirtual: false
+    };
+  }) as T[];
+}
+
+function emitRepeatChanged(payload: {
+  blockId?: string;
+  seriesId?: string;
+  frequency?: RepeatFrequency;
+} = {}): void {
+  eventBus.emit(Events.TASK_ADDED, {
+    reason: 'repeat-changed',
+    blockId: payload.blockId,
+    seriesId: payload.seriesId,
+    frequency: payload.frequency
+  });
+}
+
+export async function setTaskRepeatSeries(task: RepeatTaskLike, frequency: RepeatFrequency): Promise<RepeatSeries | null> {
+  const seriesList = await loadRepeatSeries();
+  const existing = findSeriesForTask(seriesList, task);
+
+  if (frequency === 'none') {
+    const removedSeriesIds = seriesList
+      .filter((series) =>
+        series.id === task.repeatSeriesId
+        || series.templateTaskId === task.id
+        || (!!task.blockId && series.templateBlockId === task.blockId)
+      )
+      .map((series) => series.id);
+
+    if (removedSeriesIds.length === 0) {
+      return null;
+    }
+
+    const nextSeries = seriesList.filter((series) => !removedSeriesIds.includes(series.id));
+    const records = await loadRepeatRecords();
+    const nextRecords = records.filter((record) => !removedSeriesIds.includes(record.seriesId));
+    await Promise.all([
+      saveRepeatSeries(nextSeries),
+      saveRepeatRecords(nextRecords)
+    ]);
+    const fallbackBlockId =
+      task.blockId
+      || existing?.templateBlockId
+      || seriesList.find((series) => removedSeriesIds.includes(series.id))?.templateBlockId;
+    emitRepeatChanged({
+      blockId: fallbackBlockId,
+      seriesId: existing?.id || removedSeriesIds[0],
+      frequency: 'none'
+    });
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  const baseDate = getTaskBaseDate(task);
+  const baseDateObj = parseDate(baseDate)!;
+  const dueDateObj = parseDate(task.dueDate);
+  const normalizedEndDate = dueDateObj && dueDateObj.getTime() > baseDateObj.getTime()
+    ? formatDate(dueDateObj)
+    : undefined;
+  const nextSeries: RepeatSeries = {
+    id: existing?.id || buildSeriesId(),
+    templateTaskId: existing?.templateTaskId || task.id,
+    templateBlockId: task.blockId || existing?.templateBlockId,
+    frequency,
+    interval: frequency === 'monthly' ? (existing?.interval || 1) : 1,
+    weekDays: frequency === 'weekly'
+      ? [baseDateObj.getDay()]
+      : (frequency === 'weekdays'
+        ? [1, 2, 3, 4, 5]
+        : (frequency === 'weekend' ? [0, 6] : undefined)),
+    monthDay: frequency === 'monthly'
+      ? (existing?.monthDay || baseDateObj.getDate())
+      : undefined,
+    startDate: existing?.startDate || baseDate,
+    endDate: normalizedEndDate,
+    spanDays: calculateSpanDays(task),
+    title: task.title || existing?.title || '重复任务',
+    description: task.description || '',
+    priority: task.priority || existing?.priority || 'none',
+    tags: Array.isArray(task.tags) ? [...task.tags] : [],
+    startTime: task.startTime || existing?.startTime,
+    dueTime: task.dueTime || existing?.dueTime,
+    notebookId: task.notebookId || existing?.notebookId,
+    rootId: task.rootId || existing?.rootId,
+    hPath: task.hPath || existing?.hPath,
+    icon: task.icon || existing?.icon,
+    backgroundColor: task.backgroundColor || existing?.backgroundColor,
+    enabled: existing?.enabled ?? true,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+
+  const idx = existing ? seriesList.findIndex((series) => series.id === existing.id) : -1;
+  if (idx >= 0) {
+    seriesList[idx] = nextSeries;
+  } else {
+    seriesList.push(nextSeries);
+  }
+
+  await saveRepeatSeries(seriesList);
+  emitRepeatChanged({
+    blockId: task.blockId || existing?.templateBlockId,
+    seriesId: nextSeries.id,
+    frequency
+  });
+  return nextSeries;
+}
+
+export async function getTaskRepeatFrequency(task: RepeatTaskLike): Promise<RepeatFrequency> {
+  const seriesList = await loadRepeatSeries();
+  const found = findSeriesForTask(seriesList, task);
+  if (!found) return 'none';
+  if (found.frequency === 'weekly') {
+    const days = [...(found.weekDays || [])].sort((a, b) => a - b).join(',');
+    if (days === '1,2,3,4,5') return 'weekdays';
+    if (days === '0,6') return 'weekend';
+    return 'weekly';
+  }
+  if (found.frequency === 'monthly') {
+    // Monthly is kept for backward compatibility, but UI no longer exposes it.
+    return 'weekly';
+  }
+  return found.frequency;
+}
+
+export async function setRepeatInstanceStatus(seriesId: string, date: string, status: RepeatTaskStatus): Promise<void> {
+  const normalizedDate = parseDate(date);
+  if (!seriesId || !normalizedDate) return;
+
+  const seriesList = await loadRepeatSeries();
+  const series = seriesList.find((item) => item.id === seriesId);
+  const targetDate = formatDate(normalizedDate);
+  const key = buildRecordKey(seriesId, targetDate);
+  const records = await loadRepeatRecords();
+  const index = records.findIndex((record) => record.key === key);
+
+  if (status === 'pending') {
+    if (index >= 0) {
+      records.splice(index, 1);
+      await saveRepeatRecords(records);
+      emitRepeatChanged({
+        blockId: series?.templateBlockId,
+        seriesId: seriesId
+      });
+    }
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const next: RepeatRecord = {
+    key,
+    seriesId,
+    date: targetDate,
+    status,
+    completedAt: status === 'completed' ? now : undefined,
+    updatedAt: now
+  };
+
+  if (index >= 0) {
+    records[index] = next;
+  } else {
+    records.push(next);
+  }
+
+  await saveRepeatRecords(records);
+  emitRepeatChanged({
+    blockId: series?.templateBlockId,
+    seriesId: seriesId
+  });
+}
+
+export async function materializeRepeatTasks<T extends RepeatTaskLike>(
+  baseTasks: T[],
+  options: { pastDays?: number; futureDays?: number } = {}
+): Promise<T[]> {
+  if (!Array.isArray(baseTasks) || baseTasks.length === 0) {
+    return baseTasks;
+  }
+
+  const seriesList = (await loadRepeatSeries()).filter((series) => series.enabled);
+  if (seriesList.length === 0) {
+    return baseTasks;
+  }
+
+  const records = await loadRepeatRecords();
+  const recordMap = new Map(records.map((record) => [record.key, record]));
+  const taskMapById = new Map(baseTasks.map((task) => [task.id, task]));
+  const taskMapByBlockId = new Map(
+    baseTasks
+      .filter((task) => !!task.blockId)
+      .map((task) => [task.blockId as string, task])
+  );
+
+  const decoratedBaseTasks = await attachRepeatMetadataToTasks(baseTasks, seriesList);
+
+  const today = parseDate(nowDateString())!;
+  const rangeStart = new Date(today);
+  rangeStart.setDate(rangeStart.getDate() - (options.pastDays ?? DEFAULT_PAST_WINDOW_DAYS));
+  rangeStart.setHours(0, 0, 0, 0);
+  const rangeEnd = new Date(today);
+  rangeEnd.setDate(rangeEnd.getDate() + (options.futureDays ?? DEFAULT_FUTURE_WINDOW_DAYS));
+  rangeEnd.setHours(0, 0, 0, 0);
+
+  const virtualTasks: T[] = [];
+
+  for (const series of seriesList) {
+    const templateTask = taskMapById.get(series.templateTaskId)
+      || (series.templateBlockId ? taskMapByBlockId.get(series.templateBlockId) : undefined);
+    if (!templateTask) continue;
+
+    const seriesEndDate = parseDate(series.endDate);
+    const effectiveRangeEnd = seriesEndDate || rangeEnd;
+    if (effectiveRangeEnd.getTime() < rangeStart.getTime()) {
+      continue;
+    }
+
+    const cursor = new Date(rangeStart);
+    while (cursor <= effectiveRangeEnd) {
+      if (!matchesSeriesDate(series, cursor)) {
+        cursor.setDate(cursor.getDate() + 1);
+        continue;
+      }
+
+      const instanceDate = formatDate(cursor);
+      if (instanceDate === series.startDate) {
+        cursor.setDate(cursor.getDate() + 1);
+        continue;
+      }
+
+      const recordKey = buildRecordKey(series.id, instanceDate);
+      const record = recordMap.get(recordKey);
+      const status = record?.status || 'pending';
+      // Repeat instances are always materialized as single-day tasks.
+      const dueDate = instanceDate;
+
+      virtualTasks.push({
+        ...templateTask,
+        id: buildVirtualTaskId(series.id, instanceDate),
+        isVirtual: true,
+        repeatSeriesId: series.id,
+        repeatFrequency: series.frequency,
+        repeatInstanceDate: instanceDate,
+        status,
+        startDate: instanceDate,
+        dueDate,
+        startTime: series.startTime || templateTask.startTime,
+        dueTime: series.dueTime || templateTask.dueTime,
+        title: series.title || templateTask.title,
+        description: series.description || templateTask.description,
+        priority: series.priority || templateTask.priority,
+        tags: series.tags?.length ? [...series.tags] : [...(templateTask.tags || [])],
+        backgroundColor: series.backgroundColor || templateTask.backgroundColor,
+        blockId: undefined,
+        completedAt: record?.completedAt,
+        updatedAt: record?.updatedAt || series.updatedAt,
+        createdAt: series.createdAt
+      });
+
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+
+  return [...decoratedBaseTasks, ...virtualTasks] as T[];
+}

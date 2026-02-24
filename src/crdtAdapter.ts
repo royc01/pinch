@@ -34,7 +34,11 @@ export function taskToCRDT(task: Task, nodeId: string = 'db'): CRDTTask {
       rootId: task.rootId,
       notebookId: task.notebookId,
       hPath: task.hPath,
-      type: task.type
+      type: task.type,
+      repeatSeriesId: task.repeatSeriesId,
+      repeatFrequency: task.repeatFrequency,
+      repeatInstanceDate: task.repeatInstanceDate,
+      isVirtual: task.isVirtual
     }
   };
 }
@@ -57,6 +61,10 @@ export function crdtToTask(crdtTask: CRDTTask): Task {
     rootId: crdtTask.metadata.rootId,
     notebookId: crdtTask.metadata.notebookId,
     hPath: crdtTask.metadata.hPath,
+    repeatSeriesId: crdtTask.metadata.repeatSeriesId,
+    repeatFrequency: crdtTask.metadata.repeatFrequency as Task['repeatFrequency'],
+    repeatInstanceDate: crdtTask.metadata.repeatInstanceDate,
+    isVirtual: crdtTask.metadata.isVirtual,
     createdAt: new Date(crdtTask.updatedAt).toISOString(),
     updatedAt: new Date(crdtTask.updatedAt).toISOString()
   };
@@ -77,6 +85,17 @@ export class CRDTTaskRepository {
   }
 
   syncFromSQLTasks(tasks: Task[]): void {
+    const incomingIds = new Set(tasks.map(task => task.id));
+    const staleVirtualIds = this.engine
+      .getAll()
+      .filter(crdtTask => crdtTask.metadata.isVirtual && !incomingIds.has(crdtTask.id))
+      .map(crdtTask => crdtTask.id);
+
+    staleVirtualIds.forEach((taskId) => {
+      this.engine.removeTask(taskId);
+      this.subtasksMap.delete(taskId);
+    });
+
     tasks.forEach(task => {
       if (task.subtasks && task.subtasks.length > 0) {
         this.subtasksMap.set(task.id, task.subtasks);

@@ -27,6 +27,10 @@ export interface CRDTTask {
     notebookId?: string;
     hPath?: string;
     type: 'block' | 'standalone';
+    repeatSeriesId?: string;
+    repeatFrequency?: string;
+    repeatInstanceDate?: string;
+    isVirtual?: boolean;
   };
 }
 
@@ -64,7 +68,12 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
     rootId: b.metadata.rootId || a.metadata.rootId,
     notebookId: b.metadata.notebookId || a.metadata.notebookId,
     hPath: b.metadata.hPath || a.metadata.hPath,
-    type: b.metadata.blockId ? b.metadata.type : a.metadata.type
+    type: b.metadata.blockId ? b.metadata.type : a.metadata.type,
+    // repeat metadata must follow latest remote snapshot, including explicit clear (undefined)
+    repeatSeriesId: b.metadata.repeatSeriesId,
+    repeatFrequency: b.metadata.repeatFrequency,
+    repeatInstanceDate: b.metadata.repeatInstanceDate,
+    isVirtual: b.metadata.isVirtual
   };
 
   return {
@@ -198,6 +207,10 @@ export class TaskCRDTEngine {
 
   getTask(id: string): CRDTTask | undefined {
     return this.store.get(id);
+  }
+
+  removeTask(id: string): void {
+    this.store.delete(id);
   }
 
   createUpdateEvent(

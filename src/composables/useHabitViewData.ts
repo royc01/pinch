@@ -1,0 +1,274 @@
+﻿import { computed, type ShallowRef } from 'vue';
+import type { Habit } from '@/api';
+import { getTodayCompletionCount, getWeekCompletionData, getWeekStart } from '@/composables/useHabitUtils';
+
+interface HabitCacheData {
+  weeklyCompleted: boolean;
+  todayCompletionCount: number;
+  piePath: string;
+}
+
+interface UseHabitViewDataOptions {
+  habits: ShallowRef<Habit[]>;
+  formatDate: (date: Date) => string;
+  getToday: () => string;
+  getWeeklyCompletionStatus: (habit: Habit) => boolean;
+}
+
+const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const CALENDAR_WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
+const DATE_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+const DEFAULT_HABIT_CACHE: HabitCacheData = {
+  weeklyCompleted: false,
+  todayCompletionCount: 0,
+  piePath: ''
+};
+
+export const useHabitViewData = ({
+  habits,
+  formatDate,
+  getToday,
+  getWeeklyCompletionStatus
+}: UseHabitViewDataOptions) => {
+  const isToday = (dateString: string) => dateString === getToday();
+
+  const weekDates = computed(() => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+
+    const monday = new Date(today);
+    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    monday.setDate(today.getDate() - daysToMonday);
+
+    const dates: Array<{ date: string; dayName: string; isToday: boolean; fullDate: string }> = [];
+
+    for (let i = 0; i < 7; i++) {
+      const currentDate = new Date(monday);
+      currentDate.setDate(monday.getDate() + i);
+
+      dates.push({
+        date: `${currentDate.getDate()}`,
+        dayName: WEEKDAY_NAMES[i],
+        isToday: currentDate.toDateString() === today.toDateString(),
+        fullDate: formatDate(currentDate)
+      });
+    }
+
+    return dates;
+  });
+
+  const getLargePiePath = (habit: Habit) => {
+    const completedCount = getTodayCompletionCount(habit, getToday);
+    const targetCount = habit.timesPerDay || 1;
+    const progress = Math.min(1, Math.max(0, completedCount / targetCount));
+
+    const cx = 13;
+    const cy = 13;
+    const r = 16;
+
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + 2 * Math.PI * progress;
+
+    const startX = cx + r * Math.cos(startAngle);
+    const startY = cy + r * Math.sin(startAngle);
+    const endX = cx + r * Math.cos(endAngle);
+    const endY = cy + r * Math.sin(endAngle);
+
+    const largeArcFlag = progress > 0.5 ? 1 : 0;
+
+    if (progress === 0) {
+      return `M ${cx} ${cy}`;
+    }
+
+    if (progress === 1) {
+      return `M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx - 0.01} ${cy - r} Z`;
+    }
+
+    return `M ${cx} ${cy} L ${startX} ${startY} A ${r} ${r} 0 ${largeArcFlag} 1 ${endX} ${endY} Z`;
+  };
+
+  const initializeHabitViewMode = (habit: Habit) => {
+    habit.currentWeekOffset ??= 0;
+  };
+
+  const initializeStatsViewMode = (habit: Habit) => {
+    habit.statsViewMode ??= 'month';
+    habit.statsMonthOffset ??= 0;
+  };
+
+  const getWeekViewData = (habit: Habit) => {
+    const todayDate = new Date();
+    const targetDate = new Date(todayDate);
+    targetDate.setDate(todayDate.getDate() + (habit.currentWeekOffset || 0) * 7);
+
+    const startOfWeek = getWeekStart(targetDate);
+    const weekCompletionData = getWeekCompletionData(habit, startOfWeek);
+    const todayLocalDateStr = getToday();
+
+    const weekData: Array<{
+      date: string;
+      completed: boolean;
+      completedCount: number;
+      targetCount: number;
+      isPast: boolean;
+      isFuture: boolean;
+      isToday: boolean;
+      isCompletedByWeeklyRule: boolean;
+    }> = [];
+
+    for (let i = 0; i < 7; i++) {
+      const currentDate = new Date(startOfWeek);
+      currentDate.setDate(startOfWeek.getDate() + i);
+
+      const dateStr = formatDate(currentDate);
+      const calendarRecord = habit.calendar.find(day => day.date === dateStr);
+      const actualCompleted = calendarRecord ? calendarRecord.completed : false;
+
+      weekData.push({
+        date: dateStr,
+        completed: weekCompletionData.hasCompletedRequiredThisWeek ? true : actualCompleted,
+        completedCount: calendarRecord ? calendarRecord.completedCount || 0 : 0,
+        targetCount: calendarRecord ? calendarRecord.targetCount || 1 : 1,
+        isPast: dateStr < todayLocalDateStr,
+        isFuture: dateStr > todayLocalDateStr,
+        isToday: isToday(dateStr),
+        isCompletedByWeeklyRule: weekCompletionData.hasCompletedRequiredThisWeek && !actualCompleted
+      });
+    }
+
+    return weekData;
+  };
+
+  const getCalendarViewData = (habit: Habit) => {
+    initializeHabitViewMode(habit);
+    return getWeekViewData(habit);
+  };
+
+  const calculatePrevMonthDays = (firstDay: Date) => {
+    const dayOfWeek = firstDay.getDay();
+    return dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  };
+
+  const generateMonthViewData = (targetDate: Date, calendarData?: any[], moodData?: any) => {
+    const firstDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+    const lastDay = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+
+    const prevMonthDays = calculatePrevMonthDays(firstDay);
+    const daysInMonth = lastDay.getDate();
+    const daysNeeded = 35;
+
+    const monthData: Array<{
+      date: string;
+      data: any;
+      isCurrentMonth: boolean;
+      isToday: boolean;
+    }> = [];
+
+    const targetYear = targetDate.getFullYear();
+    const targetMonth = targetDate.getMonth();
+
+    const getDayData = (date: Date) => {
+      const dateStr = formatDate(date);
+      let dayData = null;
+
+      if (calendarData !== undefined) {
+        dayData = calendarData.find(day => day.date === dateStr);
+      } else if (moodData !== undefined) {
+        dayData = moodData[dateStr];
+      }
+
+      return {
+        date: dateStr,
+        data: dayData || null,
+        isCurrentMonth: date.getMonth() === targetDate.getMonth() && date.getFullYear() === targetDate.getFullYear(),
+        isToday: dateStr === getToday()
+      };
+    };
+
+    for (let i = prevMonthDays; i > 0; i--) {
+      const date = new Date(targetYear, targetMonth, -i + 1);
+      monthData.push(getDayData(date));
+    }
+
+    for (let i = 1; i <= daysInMonth; i++) {
+      const date = new Date(targetYear, targetMonth, i);
+      monthData.push(getDayData(date));
+    }
+
+    const remainingDays = daysNeeded - monthData.length;
+    for (let i = 1; i <= remainingDays; i++) {
+      const date = new Date(targetYear, targetMonth + 1, i);
+      monthData.push(getDayData(date));
+    }
+
+    return monthData;
+  };
+
+  const getStatsMonthViewData = (habit: Habit) => {
+    initializeStatsViewMode(habit);
+    const today = new Date();
+    const targetDate = new Date(today.getFullYear(), today.getMonth() + (habit.statsMonthOffset || 0), 1);
+
+    const rawData = generateMonthViewData(targetDate, habit.calendar);
+
+    return rawData.map(item => ({
+      date: item.date,
+      completed: item.data ? item.data.completed : false,
+      completedCount: item.data ? item.data.completedCount || 0 : 0,
+      targetCount: item.data ? item.data.targetCount || 1 : 1,
+      isCurrentMonth: item.isCurrentMonth
+    }));
+  };
+
+  const changeStatsCalendarPeriod = (habit: Habit, direction: number) => {
+    initializeStatsViewMode(habit);
+    habit.statsMonthOffset = (habit.statsMonthOffset || 0) + direction;
+  };
+
+  const getCurrentPeriodText = (habit: Habit) => {
+    initializeStatsViewMode(habit);
+    const today = new Date();
+    const targetDate = new Date(today.getFullYear(), today.getMonth() + (habit.statsMonthOffset || 0), 1);
+    return `${targetDate.getFullYear()}年${targetDate.getMonth() + 1}月`;
+  };
+
+  const habitsCache = computed(() => {
+    const cache = new Map<string, HabitCacheData>();
+
+    for (const habit of habits.value) {
+      const weeklyCompleted = habit.frequency && habit.frequency.startsWith('weekly')
+        ? getWeeklyCompletionStatus(habit)
+        : false;
+      const todayCompletionCount = getTodayCompletionCount(habit, getToday);
+      const piePath = getLargePiePath(habit);
+
+      cache.set(habit.id, { weeklyCompleted, todayCompletionCount, piePath });
+    }
+
+    return cache;
+  });
+
+  const getHabitCache = (habitId: string) => habitsCache.value.get(habitId) || DEFAULT_HABIT_CACHE;
+
+  const weekdaysForCalendar = computed(() => CALENDAR_WEEKDAYS);
+
+  const currentDateString = computed(() => {
+    const date = new Date();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${month}/${day}/周${DATE_WEEKDAYS[date.getDay()]}`;
+  });
+
+  return {
+    weekDates,
+    weekdaysForCalendar,
+    currentDateString,
+    getCalendarViewData,
+    generateMonthViewData,
+    getStatsMonthViewData,
+    changeStatsCalendarPeriod,
+    getCurrentPeriodText,
+    getHabitCache
+  };
+};

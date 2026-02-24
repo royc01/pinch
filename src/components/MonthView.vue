@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="month-view">
     <div class="calendar-container">
       <div class="calendar-header">
@@ -30,13 +30,16 @@
               <div 
                 v-for="day in week" 
                 :key="day.key"
-                class="day-cell"
+                class="day-cell all-day-column"
                 :data-day-key="day.key"
                 :class="{
                   'other-month': day.isOtherMonth,
                   'today': day.isToday,
-                  'drag-over': dragOverDay === day.key
+                  'drag-over': dragOverDay === day.key,
+                  'create-selecting': isDayInCreateSelection(day.key)
                 }"
+                @mousedown.left="handleDayCellMouseDown(day, $event)"
+                @mouseenter="handleDayCellMouseEnter(day)"
                 @dragover.prevent="handleDragOver(day)"
                 @dragleave="handleDragLeave"
                 @drop="handleDrop(day)"
@@ -65,7 +68,7 @@
             <div class="week-tasks-layer">
               <div 
                 v-for="task in getVisibleTasksForWeek(week)" 
-                :key="`${task.id}-${tasksVersion}`"
+                :key="task.id"
                 class="task-chip"
                 :class="{ 'task-completed': task.status === 'completed' }"
                 :style="getTaskStyle(task, week)"
@@ -81,6 +84,13 @@
                   :class="{ 'task-dragging': draggingTask?.task.id === task.id }"
                   @mousedown="handleTaskMouseDown($event, task)"
                 >
+                  <span
+                    class="task-checkbox-wrapper"
+                    @mousedown.stop
+                    @click.stop="toggleTaskStatus(task)"
+                  >
+                    <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
+                  </span>
                   <span class="task-title-text">{{ stripHtml(task.title) }}</span>
                   <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
                     <Icon name="flag" width="10" height="10" />
@@ -100,44 +110,41 @@
         </div>
       </div>
     </div>
-    
-    <div
-      v-if="contextMenu.show"
-      class="context-menu"
-      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-      @click.stop
-    >
-      <div class="context-menu-section">
-        <div class="context-menu-title">背景色</div>
-        <div class="task-color-picker">
-          <div
-            v-for="color in backgroundColors"
-            :key="color.value"
-            class="color-option"
-            :class="{ selected: contextMenu.task?.backgroundColor === color.value }"
-            :style="{ backgroundColor: color.css }"
-            @click="setTaskBackgroundColor(contextMenu.task!, color.value)"
-          ></div>
-        </div>
-      </div>
-      <div class="context-menu-divider"></div>
-      <div class="context-menu-item delete-item" @click="deleteTask(contextMenu.task!)">
-        <svg viewBox="0 0 24 24" width="16" height="16">
-          <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-        </svg>
-        <span>移除日期</span>
-      </div>
-    </div>
+
+    <TaskContextMenu
+      :show="contextMenu.show"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :task="contextMenu.task"
+      :background-colors="backgroundColors"
+      :start-date="contextMenuDateDraft.startDate"
+      :due-date="contextMenuDateDraft.dueDate"
+      :repeat-frequency="contextMenuRepeatFrequency"
+      @update:startDate="contextMenuDateDraft.startDate = $event"
+      @update:dueDate="contextMenuDateDraft.dueDate = $event"
+      @setColor="setTaskBackgroundColor(contextMenu.task!, $event)"
+      @saveDates="applyTaskDates(contextMenu.task!)"
+      @saveRepeatRule="saveTaskRepeatRule(contextMenu.task!, $event)"
+      @deleteTask="deleteTask(contextMenu.task!)"
+    />
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { Task } from '@/api';
-import { setBlockAttrs } from '@/api';
+import { setBlockAttrs, TaskRepository } from '@/api';
+import { updateTaskMarkdown } from '@/utils/taskHelpers';
 import { stripHtml } from '@/composables/useTaskCommon';
+import { useTaskDrag } from '@/composables/useTaskDrag';
+import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
+import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
+import { getRepeatSeriesForTask, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
+import TaskCheckbox from './TaskCheckbox.vue';
+import TaskContextMenu from './TaskContextMenu.vue';
 
 interface Props {
   tasks: Task[];
@@ -148,6 +155,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   taskDateChanged: [task: Task];
   taskClick: [task: Task];
+  taskCreateRequested: [payload: { startDate: string; dueDate: string; allDay: boolean }];
 }>();
 
 type EventListener = (...args: any[]) => void;
@@ -188,41 +196,73 @@ const eventManager = new EventManager();
 
 const baseDate = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 const dragOverDay = ref<string | null>(null);
-const draggingHandle = ref<{ 
-  task: Task; 
-  type: 'start' | 'end'; 
-  originalDate: string;
-  finalDate: string | null;
-} | null>(null);
-const draggingTask = ref<{
-  task: Task;
-  originalStart: string;
-  originalDue: string | null;
-  finalStartDate: string | null;
-  finalDueDate: string | null;
-} | null>(null);
-
-const dragLastUpdatedDate = ref('');
-const isDragging = ref(false);
 
 let dragOverDayUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingDragOverDay: string | null = null;
 
-let dragEndCooldownTimer: ReturnType<typeof setTimeout> | null = null;
-
 const localTasks = ref<Task[]>([]);
-const tasksVersion = ref(0);
-const pendingUpdates = ref<Map<string, Record<string, string>>>(new Map());
-const saveTimer = ref<ReturnType<typeof setTimeout> | null>(null);
 const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
   show: false,
   x: 0,
   y: 0,
   task: null
 });
+const contextMenuDateDraft = ref<{ startDate: string; dueDate: string }>({
+  startDate: '',
+  dueDate: ''
+});
+const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
+
+function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined): RepeatFrequency {
+  if (
+    frequency === 'none'
+    || frequency === 'daily'
+    || frequency === 'weekdays'
+    || frequency === 'weekend'
+    || frequency === 'weekly'
+  ) {
+    return frequency;
+  }
+  return 'weekly';
+}
 
 const pendingDeletion = ref(new Set<string>());
 const weekRowHeights = ref<Record<string, number>>({});
+const taskSyncGuard = useTaskSyncGuard(localTasks);
+const {
+  upsertTask: upsertLocalTask,
+  patchTask: patchLocalTask,
+  removeTask: removeLocalTask
+} = useTaskLocalMutations(localTasks);
+const CREATE_SELECTION_THRESHOLD_PX = 8;
+const createSelection = ref<{
+  active: boolean;
+  startDay: string;
+  endDay: string;
+  startX: number;
+  startY: number;
+  passedThreshold: boolean;
+} | null>(null);
+
+function emitTaskDateChanged(task: Task): void {
+  taskSyncGuard.emitTaskDateChanged(task, (nextTask) => {
+    emit('taskDateChanged', nextTask);
+  });
+}
+
+const {
+  draggingHandle,
+  draggingTask,
+  isDragging,
+  handleHandleMouseDown,
+  handleTaskMouseDown,
+  removeEventListeners
+} = useTaskDrag(localTasks, (task) => {
+  if (pendingDeletion.value.has(task.id)) {
+    pendingDeletion.value.delete(task.id);
+  }
+  emitTaskDateChanged(task);
+});
 
 interface LunarInfo {
   dayCn: string;
@@ -282,53 +322,105 @@ const backgroundColors = [
   { value: 'background13', css: 'var(--b3-font-background13)' }
 ];
 
-let lastTasksHash = '';
-
 function getTasksHash(tasks: Task[]): string {
   return tasks.map(t => 
     `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.title}`
   ).sort().join('|');
 }
 
+function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date } | null {
+  const startValue = task.startDate || task.dueDate;
+  if (!startValue) return null;
+
+  const taskStart = new Date(startValue);
+  taskStart.setHours(0, 0, 0, 0);
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const endValue = isRepeatTask ? startValue : (task.dueDate || startValue);
+  const taskEnd = new Date(endValue);
+  taskEnd.setHours(23, 59, 59, 999);
+
+  return { taskStart, taskEnd };
+}
+
+type TaskRenderRange = {
+  task: Task;
+  taskStart: Date;
+  taskEnd: Date;
+  displayStart: Date;
+  displayEnd: Date;
+  startMs: number;
+  endMs: number;
+  displayEndMs: number;
+};
+
 watch(() => props.tasks, (newTasks) => {
-  if (isDragging.value) return;
-  if (dragEndCooldownTimer !== null) return;
-  
-  const newHash = getTasksHash(newTasks);
-  if (newHash === lastTasksHash) return;
-  
-  lastTasksHash = newHash;
-  localTasks.value = [...newTasks];
+  taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
 }, { deep: true, immediate: true });
+
+const visibleCalendarRange = computed(() => {
+  const start = new Date(baseDate.value);
+  start.setHours(0, 0, 0, 0);
+  const dayOfWeek = start.getDay();
+  start.setDate(start.getDate() - dayOfWeek);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 41);
+  end.setHours(23, 59, 59, 999);
+
+  return { start, end };
+});
+
+const normalizedTaskRanges = computed<TaskRenderRange[]>(() => {
+  const { start: visibleStart, end: visibleEnd } = visibleCalendarRange.value;
+  const ranges: TaskRenderRange[] = [];
+
+  for (const task of localTasks.value) {
+    const range = getTaskDateRangeForRender(task);
+    if (!range) continue;
+
+    if (range.taskEnd < visibleStart || range.taskStart > visibleEnd) {
+      continue;
+    }
+
+    const displayStart = range.taskStart < visibleStart ? visibleStart : range.taskStart;
+    const displayEnd = range.taskEnd > visibleEnd ? visibleEnd : range.taskEnd;
+
+    ranges.push({
+      task,
+      taskStart: range.taskStart,
+      taskEnd: range.taskEnd,
+      displayStart: new Date(displayStart),
+      displayEnd: new Date(displayEnd),
+      startMs: range.taskStart.getTime(),
+      endMs: range.taskEnd.getTime(),
+      displayEndMs: displayEnd.getTime()
+    });
+  }
+
+  return ranges;
+});
 
 const taskPositionsMap = computed(() => {
   const positionMap = new Map<string, number>();
   const dailyPositionSlots = new Map<string, number[]>();
   
-  const sortedTasks = [...localTasks.value]
-    .filter(t => t.startDate || t.dueDate)
+  const sortedRanges = [...normalizedTaskRanges.value]
     .sort((a, b) => {
-      const aStart = new Date(a.startDate || a.dueDate!).getTime();
-      const bStart = new Date(b.startDate || b.dueDate!).getTime();
+      const aStart = a.startMs;
+      const bStart = b.startMs;
       if (aStart !== bStart) return aStart - bStart;
 
-      const aEnd = new Date(a.dueDate || a.startDate!).getTime();
-      const bEnd = new Date(b.dueDate || b.startDate!).getTime();
+      const aEnd = a.endMs;
+      const bEnd = b.endMs;
       return (bEnd - bStart) - (aEnd - aStart);
     });
   
-  for (const task of sortedTasks) {
-    if (!task.startDate && !task.dueDate) continue;
-    
-    const taskStart = new Date(task.startDate || task.dueDate!);
-    taskStart.setHours(0, 0, 0, 0);
-    const taskEnd = task.dueDate ? new Date(task.dueDate) : new Date(task.startDate || task.dueDate!);
-    taskEnd.setHours(23, 59, 59, 999);
-    
+  for (const range of sortedRanges) {
     const taskDays: string[] = [];
-    const currentDay = new Date(taskStart);
-    while (currentDay <= taskEnd) {
-      const dateKey = currentDay.toISOString().split('T')[0];
+    const currentDay = new Date(range.displayStart);
+    while (currentDay <= range.displayEnd) {
+      const dateKey = formatDate(currentDay);
       taskDays.push(dateKey);
       currentDay.setDate(currentDay.getDate() + 1);
     }
@@ -355,14 +447,14 @@ const taskPositionsMap = computed(() => {
         
         for (const dayKey of taskDays) {
           const daySlots = dailyPositionSlots.get(dayKey)!;
-          daySlots[pos] = taskEnd.getTime();
+          daySlots[pos] = range.displayEndMs;
         }
         
         break;
       }
     }
     
-    positionMap.set(task.id, assignedPosition);
+    positionMap.set(range.task.id, assignedPosition);
   }
   
   return positionMap;
@@ -443,6 +535,8 @@ const calendarDays = computed(() => {
     const year = dayDate.getFullYear();
     const month = dayDate.getMonth();
     const day = dayDate.getDate();
+    const monthKey = String(month + 1).padStart(2, '0');
+    const dayKey = String(day).padStart(2, '0');
     
     const isToday = (
       day === today.getDate() &&
@@ -455,7 +549,7 @@ const calendarDays = computed(() => {
     const lunarInfo = getLunarDate(year, month + 1, day);
     
     days.push({
-      key: `${year}-${month}-${day}`,
+      key: `${year}-${monthKey}-${dayKey}`,
       dayNumber: day,
       date: dayDate,
       isOtherMonth,
@@ -478,41 +572,46 @@ const calendarWeeks = computed(() => {
   return weeks;
 });
 
+type WeekTask = Task & {
+  startDayOfWeek: number;
+  endDayOfWeek: number;
+  spanDays: number;
+  position: number;
+};
+
+type WeekRenderData = {
+  tasks: WeekTask[];
+  visibleTasks: WeekTask[];
+  hiddenCount: number;
+  earliestHiddenDateMs: number | null;
+};
+
 const weeklyTasks = computed(() => {
-  const result = new Map<string, any[]>();
+  const result = new Map<string, WeekTask[]>();
   
   for (const week of calendarWeeks.value) {
     const weekKey = week.map(d => d.key).join('-');
-    const tasksForWeek: any[] = [];
+    const tasksForWeek: WeekTask[] = [];
+    const weekStart = new Date(week[0].date);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(week[6].date);
+    weekEnd.setHours(23, 59, 59, 999);
+    const weekStartMs = weekStart.getTime();
+    const weekEndMs = weekEnd.getTime();
     
-    for (const task of localTasks.value) {
-      if (!task.startDate && !task.dueDate) continue;
-      
-      const effectiveStartDate = task.startDate || task.dueDate!;
-      const taskStart = new Date(effectiveStartDate);
-      taskStart.setHours(0, 0, 0, 0);
-      
-      const weekStart = new Date(week[0].date);
-      weekStart.setHours(0, 0, 0, 0);
-      
-      const weekEnd = new Date(week[6].date);
-      weekEnd.setHours(23, 59, 59, 999);
-      
-      const taskEnd = task.dueDate ? new Date(task.dueDate) : new Date(effectiveStartDate);
-      taskEnd.setHours(23, 59, 59, 999);
-      
-      if (taskEnd < weekStart || taskStart > weekEnd) continue;
-      
-      const effectiveStart = taskStart < weekStart ? weekStart : taskStart;
-      const effectiveEnd = taskEnd > weekEnd ? weekEnd : taskEnd;
+    for (const range of normalizedTaskRanges.value) {
+      if (range.taskEnd < weekStart || range.taskStart > weekEnd) continue;
+
+      const effectiveStart = range.startMs < weekStartMs ? weekStart : range.taskStart;
+      const effectiveEnd = range.endMs > weekEndMs ? weekEnd : range.taskEnd;
       
       const startDayOfWeek = Math.floor((effectiveStart.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24));
       const endDayOfWeek = Math.floor((effectiveEnd.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24));
       
-      const position = taskPositionsMap.value.get(task.id) ?? 0;
+      const position = taskPositionsMap.value.get(range.task.id) ?? 0;
       
       tasksForWeek.push({
-        ...task,
+        ...range.task,
         startDayOfWeek,
         endDayOfWeek,
         spanDays: endDayOfWeek - startDayOfWeek + 1,
@@ -526,16 +625,15 @@ const weeklyTasks = computed(() => {
   return result;
 });
 
-function getTasksForWeek(week: any[]): any[] {
-  const weekKey = week.map((d: any) => d.key).join('-');
-  return weeklyTasks.value.get(weekKey) || [];
-}
-
 const TASK_CHIP_HEIGHT = 24;
 const TOP_OFFSET = 30;
 
+function getWeekKey(week: any[]): string {
+  return week.map((d: any) => d.key).join('-');
+}
+
 function getMaxVisibleTasksForWeek(week: any[]): number {
-  const weekKey = week.map((d: any) => d.key).join('-');
+  const weekKey = getWeekKey(week);
   const rowHeight = weekRowHeights.value[weekKey];
   if (!rowHeight) return 3;
 
@@ -548,53 +646,59 @@ function getMaxVisibleTasksForWeek(week: any[]): number {
   return Math.max(1, count);
 }
 
-function getVisibleTasksForWeek(week: any[]): any[] {
-  const tasks = getTasksForWeek(week);
-  const maxTasks = getMaxVisibleTasksForWeek(week);
+const weekRenderDataMap = computed(() => {
+  const map = new Map<string, WeekRenderData>();
 
-  return tasks.filter(task => task.position < maxTasks);
-}
+  for (const week of calendarWeeks.value) {
+    const weekKey = getWeekKey(week);
+    const tasks = weeklyTasks.value.get(weekKey) || [];
+    const maxTasks = getMaxVisibleTasksForWeek(week);
 
-function getHiddenTasksForWeek(week: any[]): any[] {
-  const tasks = getTasksForWeek(week);
-  const maxTasks = getMaxVisibleTasksForWeek(week);
-  
-  return tasks.filter(task => {
-    const position = taskPositionsMap.value.get(task.id) ?? 0;
-    return position >= maxTasks;
-  });
+    const visibleTasks = tasks.filter(task => task.position < maxTasks);
+    const hiddenTasks = tasks.filter(task => task.position >= maxTasks);
+
+    let earliestHiddenDateMs: number | null = null;
+    if (hiddenTasks.length > 0) {
+      for (const task of hiddenTasks) {
+        const time = new Date(task.startDate || task.dueDate!).setHours(0, 0, 0, 0);
+        if (earliestHiddenDateMs === null || time < earliestHiddenDateMs) {
+          earliestHiddenDateMs = time;
+        }
+      }
+    }
+
+    map.set(weekKey, {
+      tasks,
+      visibleTasks,
+      hiddenCount: hiddenTasks.length,
+      earliestHiddenDateMs
+    });
+  }
+
+  return map;
+});
+
+function getVisibleTasksForWeek(week: any[]): WeekTask[] {
+  const weekKey = getWeekKey(week);
+  return weekRenderDataMap.value.get(weekKey)?.visibleTasks || [];
 }
 
 function getTotalHiddenTaskCountForWeek(week: any[]): number {
-  return getHiddenTasksForWeek(week).length;
-}
-
-function getEarliestHiddenTaskDate(week: any[]): Date | null {
-  const hiddenTasks = getHiddenTasksForWeek(week);
-  
-  if (hiddenTasks.length === 0) return null;
-  
-  const earliestTask = hiddenTasks.reduce((earliest, task) => {
-    const taskDate = new Date(task.startDate || task.dueDate);
-    const earliestDate = new Date(earliest.startDate || earliest.dueDate);
-    return taskDate < earliestDate ? task : earliest;
-  });
-  
-  return new Date(earliestTask.startDate || earliestTask.dueDate);
+  const weekKey = getWeekKey(week);
+  return weekRenderDataMap.value.get(weekKey)?.hiddenCount || 0;
 }
 
 function shouldShowHiddenCountForDay(day: any, week: any[]): boolean {
-  const totalHidden = getTotalHiddenTaskCountForWeek(week);
+  const weekKey = getWeekKey(week);
+  const weekData = weekRenderDataMap.value.get(weekKey);
+  if (!weekData) return false;
+
+  const totalHidden = weekData.hiddenCount;
   if (totalHidden === 0) return false;
-  
-  const earliestDate = getEarliestHiddenTaskDate(week);
-  if (!earliestDate) return false;
-  
-  const currentDate = new Date(day.date);
-  currentDate.setHours(0, 0, 0, 0);
-  earliestDate.setHours(0, 0, 0, 0);
-  
-  return currentDate.getTime() === earliestDate.getTime();
+
+  if (weekData.earliestHiddenDateMs === null) return false;
+  const currentDateMs = new Date(day.date).setHours(0, 0, 0, 0);
+  return currentDateMs === weekData.earliestHiddenDateMs;
 }
 
 function getTaskStyle(task: any, week: any[]) {
@@ -607,7 +711,7 @@ function getTaskStyle(task: any, week: any[]) {
     ? `var(--b3-font-${task.backgroundColor})` 
     : 'var(--b3-font-background9)';
   
-  const position = taskPositionsMap.value.get(task.id) ?? 0;
+  const position = task.position ?? (taskPositionsMap.value.get(task.id) ?? 0);
   
   return {
     position: 'absolute' as const,
@@ -635,6 +739,15 @@ function handleDragOver(day: any) {
   }, 16);
 }
 
+function clearDragOverState() {
+  pendingDragOverDay = null;
+  if (dragOverDayUpdateTimer) {
+    clearTimeout(dragOverDayUpdateTimer);
+    dragOverDayUpdateTimer = null;
+  }
+  dragOverDay.value = null;
+}
+
 function handleDragLeave(event: DragEvent) {
   const relatedTarget = event.relatedTarget as HTMLElement;
   const currentTarget = event.currentTarget as HTMLElement;
@@ -642,18 +755,12 @@ function handleDragLeave(event: DragEvent) {
   if (relatedTarget && currentTarget.contains(relatedTarget)) {
     return;
   }
-  
-  pendingDragOverDay = null;
-  if (dragOverDayUpdateTimer) {
-    clearTimeout(dragOverDayUpdateTimer);
-    dragOverDayUpdateTimer = null;
-  }
-  
-  dragOverDay.value = null;
+
+  clearDragOverState();
 }
 
 function handleDrop(day: any) {
-  dragOverDay.value = null;
+  clearDragOverState();
   
   if (day.isOtherMonth) return;
   
@@ -670,13 +777,11 @@ function handleDrop(day: any) {
       pendingDeletion.value.delete(task.id);
     }
     
-    const updatedTask = {
-      ...task,
+    const updatedTask = upsertLocalTask(task, {
       startDate: dateStr,
       dueDate: dateStr
-    };
-    
-    emit('taskDateChanged', updatedTask);
+    });
+    emitTaskDateChanged(updatedTask);
     
     if (task.type === 'block' && task.blockId) {
       setBlockAttrs(task.blockId, {
@@ -696,43 +801,12 @@ function formatDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function findDayCellFromEvent(event: MouseEvent): { date: Date; element: HTMLElement } | null {
-  const elements = document.elementsFromPoint(event.clientX, event.clientY);
-  const dayCell = elements.find(el => el.classList.contains('day-cell'));
-  
-  if (!dayCell) return null;
-  
-  const cellElement = dayCell as HTMLElement;
-  const cellIndex = Array.from(document.querySelectorAll('.day-cell')).indexOf(cellElement);
-  if (cellIndex === -1) return null;
-  
-  const allDays = calendarDays.value;
-  if (cellIndex >= allDays.length) return null;
-  
-  const targetDate = new Date(allDays[cellIndex].date);
-  targetDate.setHours(0, 0, 0, 0);
-  
-  return { date: targetDate, element: cellElement };
-}
-
 function previousMonth() {
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() - 1, 1);
 }
 
 function nextMonth() {
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + 1, 1);
-}
-
-function nextWeek() {
-  const newDate = new Date(baseDate.value);
-  newDate.setDate(newDate.getDate() + 7);
-  baseDate.value = newDate;
-}
-
-function previousWeek() {
-  const newDate = new Date(baseDate.value);
-  newDate.setDate(newDate.getDate() - 7);
-  baseDate.value = newDate;
 }
 
 function handleWheel(event: WheelEvent) {
@@ -745,140 +819,6 @@ function handleWheel(event: WheelEvent) {
   baseDate.value = newDate;
 }
 
-function handleHandleMouseDown(event: MouseEvent, task: Task, handleType: 'start' | 'end') {
-  const effectiveStartDate = task.startDate || task.dueDate;
-  const originalDate = handleType === 'start' 
-    ? (effectiveStartDate || '') 
-    : (task.dueDate || effectiveStartDate || '');
-  
-  draggingHandle.value = { 
-    task, 
-    type: handleType,
-    originalDate,
-    finalDate: null
-  };
-  
-  dragLastUpdatedDate.value = '';
-  isDragging.value = true;
-  
-  event.preventDefault();
-  event.stopPropagation();
-
-  eventManager.add(document, 'mousemove', handleHandleMouseMove, 'handle');
-  eventManager.add(document, 'mouseup', handleHandleMouseUp, 'handle');
-}
-
-function handleTaskMouseDown(event: MouseEvent, task: Task) {
-  if (!task.startDate && !task.dueDate) return;
-  
-  const effectiveStartDate = task.startDate || task.dueDate!;
-  
-  draggingTask.value = {
-    task,
-    originalStart: effectiveStartDate,
-    originalDue: task.dueDate || null,
-    finalStartDate: null,
-    finalDueDate: null
-  };
-  
-  dragLastUpdatedDate.value = '';
-  isDragging.value = true;
-  
-  event.preventDefault();
-
-  eventManager.add(document, 'mousemove', handleTaskMouseMove, 'task');
-  eventManager.add(document, 'mouseup', handleTaskMouseUp, 'task');
-}
-
-function handleTaskMouseMove(event: MouseEvent) {
-  if (!draggingTask.value) return;
-  
-  const { task, originalStart, originalDue } = draggingTask.value;
-  
-  const targetData = findDayCellFromEvent(event);
-  if (!targetData) return;
-  
-  const targetDate = targetData.date;
-  
-  const originalStartDate = new Date(originalStart);
-  originalStartDate.setHours(0, 0, 0, 0);
-  
-  const daysDiff = Math.round((targetDate.getTime() - originalStartDate.getTime()) / (1000 * 60 * 60 * 24));
-  
-  const newStartDate = new Date(originalStart);
-  newStartDate.setDate(newStartDate.getDate() + daysDiff);
-  const newStartDateStr = formatDate(newStartDate);
-  
-  let newDueDateStr = null;
-  if (originalDue) {
-    const newDueDate = new Date(originalDue);
-    newDueDate.setDate(newDueDate.getDate() + daysDiff);
-    newDueDateStr = formatDate(newDueDate);
-  }
-  
-  if (dragLastUpdatedDate.value === newStartDateStr) {
-    return;
-  }
-  
-  if (pendingDeletion.value.has(task.id)) {
-    pendingDeletion.value.delete(task.id);
-  }
-  
-  const taskIndex = localTasks.value.findIndex(t => t.id === task.id);
-  if (taskIndex !== -1) {
-    const updatedTask = {
-      ...localTasks.value[taskIndex],
-      startDate: newStartDateStr,
-      dueDate: newDueDateStr
-    };
-    localTasks.value[taskIndex] = updatedTask;
-    tasksVersion.value++;
-  }
-  
-  draggingTask.value.finalStartDate = newStartDateStr;
-  draggingTask.value.finalDueDate = newDueDateStr;
-  
-  dragLastUpdatedDate.value = newStartDateStr;
-}
-
-function handleTaskMouseUp() {
-  eventManager.remove('task');
-
-  const { task, finalStartDate, finalDueDate } = draggingTask.value || {};
-  
-  if (task && finalStartDate) {
-    const updatedTask = {
-      ...task,
-      startDate: finalStartDate,
-      dueDate: finalDueDate
-    };
-    
-    emit('taskDateChanged', updatedTask);
-    
-    if (task.type === 'block' && task.blockId) {
-      const attrs: Record<string, string> = {
-        'custom-task-start-date': finalStartDate
-      };
-      if (finalDueDate) {
-        attrs['custom-task-due-date'] = finalDueDate;
-      }
-      pendingUpdates.value.set(task.blockId, attrs);
-      scheduleSave();
-    }
-  }
-
-  draggingTask.value = null;
-  dragLastUpdatedDate.value = '';
-  
-  if (dragEndCooldownTimer) {
-    clearTimeout(dragEndCooldownTimer);
-  }
-  
-  dragEndCooldownTimer = setTimeout(() => {
-    isDragging.value = false;
-    dragEndCooldownTimer = null;
-  }, 500);
-}
 
 function handleContextMenu(event: MouseEvent, task: Task) {
   event.preventDefault();
@@ -889,6 +829,33 @@ function handleContextMenu(event: MouseEvent, task: Task) {
     y: event.clientY,
     task
   };
+  contextMenuDateDraft.value = {
+    startDate: task.startDate || '',
+    dueDate: task.dueDate || ''
+  };
+  contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  if (isRepeatTask) {
+    getRepeatSeriesForTask(task)
+      .then((series) => {
+        if (!series) return;
+        if (contextMenu.value.task?.id !== task.id) return;
+        contextMenuDateDraft.value = {
+          startDate: series.startDate || '',
+          dueDate: series.endDate || ''
+        };
+      })
+      .catch(() => {});
+  }
+
+  TaskRepository.getTaskRepeatRule(task)
+    .then((frequency) => {
+      if (contextMenu.value.task?.id === task.id) {
+        contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(frequency);
+      }
+    })
+    .catch(() => {});
 }
 
 function handleGlobalClick(event: MouseEvent) {
@@ -905,39 +872,175 @@ function hideContextMenu() {
     y: 0,
     task: null
   };
+  contextMenuDateDraft.value = { startDate: '', dueDate: '' };
+  contextMenuRepeatFrequency.value = 'none';
 }
 
-function deleteTask(task: Task) {
+async function applyTaskDates(task: Task) {
+  if (!task) return;
+
+  const nextStartDate = contextMenuDateDraft.value.startDate || null;
+  let nextDueDate = contextMenuDateDraft.value.dueDate || null;
+  if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
+    nextDueDate = nextStartDate;
+  }
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  if (isRepeatTask) {
+    const updatedSeries = await updateRepeatSeriesDates(task, nextStartDate, nextDueDate);
+    if (updatedSeries) {
+      const seriesId = task.repeatSeriesId;
+      const templateTask = !task.isVirtual
+        ? task
+        : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
+      if (templateTask) {
+        const updatedTask = patchLocalTask(templateTask.id, {
+          startDate: updatedSeries.startDate || null,
+          dueDate: updatedSeries.endDate || null
+        });
+        if (updatedTask) {
+          emitTaskDateChanged(updatedTask);
+        }
+        if (templateTask.type === 'block' && templateTask.blockId) {
+          try {
+            await setBlockAttrs(templateTask.blockId, {
+              'custom-task-start-date': updatedSeries.startDate || '',
+              'custom-task-due-date': updatedSeries.endDate || ''
+            });
+          } catch (error) {
+          }
+        }
+      }
+      hideContextMenu();
+      return;
+    }
+  }
+
+  const updatedTask = patchLocalTask(task.id, {
+    startDate: nextStartDate,
+    dueDate: nextDueDate
+  });
+  if (updatedTask) {
+    emitTaskDateChanged(updatedTask);
+  }
+
+  if (task.type === 'block' && task.blockId) {
+    try {
+      await setBlockAttrs(task.blockId, {
+        'custom-task-start-date': nextStartDate || '',
+        'custom-task-due-date': nextDueDate || ''
+      });
+    } catch (error) {
+    }
+  }
+
+  hideContextMenu();
+}
+
+async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
+  if (!task) return;
+  contextMenuRepeatFrequency.value = frequency;
+  if (frequency === 'none') {
+    patchLocalTask(task.id, {
+      repeatFrequency: 'none',
+      repeatSeriesId: undefined,
+      repeatInstanceDate: undefined,
+      isVirtual: false
+    });
+  } else {
+    patchLocalTask(task.id, { repeatFrequency: frequency });
+  }
+  try {
+    await TaskRepository.setTaskRepeatRule(task, frequency);
+    hideContextMenu();
+  } catch (error) {
+  }
+}
+
+async function deleteTask(task: Task) {
+  const seriesId = task.repeatSeriesId;
+  const isRepeatTask = !!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+
+  if (isRepeatTask) {
+    const templateTask = !task.isVirtual
+      ? task
+      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
+
+    try {
+      await TaskRepository.setTaskRepeatRule(templateTask || task, 'none');
+    } catch (error) {
+    }
+
+    if (seriesId) {
+      const virtualTaskIds = localTasks.value
+        .filter(item => item.isVirtual && item.repeatSeriesId === seriesId)
+        .map(item => item.id);
+      virtualTaskIds.forEach((id) => {
+        pendingDeletion.value.add(id);
+        removeLocalTask(id);
+      });
+    }
+
+    const targetTask = templateTask || (!task.isVirtual ? task : null);
+    if (targetTask) {
+      pendingDeletion.value.add(targetTask.id);
+      removeLocalTask(targetTask.id);
+
+      const updatedTask = {
+        ...targetTask,
+        startDate: null,
+        dueDate: null,
+        startTime: undefined,
+        dueTime: undefined,
+        repeatFrequency: 'none',
+        repeatSeriesId: undefined,
+        repeatInstanceDate: undefined,
+        isVirtual: false
+      };
+      emitTaskDateChanged(updatedTask);
+
+      if (targetTask.type === 'block' && targetTask.blockId) {
+        setBlockAttrs(targetTask.blockId, {
+          'custom-task-start-date': '',
+          'custom-task-due-date': '',
+          'custom-task-start-time': '',
+          'custom-task-due-time': ''
+        }).catch(() => {});
+      }
+    }
+
+    hideContextMenu();
+    return;
+  }
+
   pendingDeletion.value.add(task.id);
   
-  localTasks.value = localTasks.value.filter(t => t.id !== task.id);
+  removeLocalTask(task.id);
   
   const updatedTask = {
     ...task,
     startDate: null,
-    dueDate: null
+    dueDate: null,
+    startTime: undefined,
+    dueTime: undefined
   };
   
-  emit('taskDateChanged', updatedTask);
+  emitTaskDateChanged(updatedTask);
   
   hideContextMenu();
   
   if (task.type === 'block' && task.blockId) {
     setBlockAttrs(task.blockId, {
       'custom-task-start-date': '',
-      'custom-task-due-date': ''
+      'custom-task-due-date': '',
+      'custom-task-start-time': '',
+      'custom-task-due-time': ''
     }).catch(() => {});
   }
 }
 
 async function setTaskBackgroundColor(task: Task, color: string) {
-  const taskIndex = localTasks.value.findIndex(t => t.id === task.id);
-  if (taskIndex !== -1) {
-    localTasks.value[taskIndex] = {
-      ...localTasks.value[taskIndex],
-      backgroundColor: color
-    };
-  }
+  patchLocalTask(task.id, { backgroundColor: color });
 
   if (task.type === 'block' && task.blockId) {
     try {
@@ -950,125 +1053,6 @@ async function setTaskBackgroundColor(task: Task, color: string) {
   }
 }
 
-async function handleHandleMouseMove(event: MouseEvent) {
-  if (!draggingHandle.value) return;
-  
-  const { task, type } = draggingHandle.value;
-  
-  const weeksContainer = document.querySelector('.weeks-container');
-  if (weeksContainer) {
-    const containerRect = weeksContainer.getBoundingClientRect();
-    const scrollThreshold = 50;
-    
-    if (event.clientY > containerRect.bottom - scrollThreshold && event.clientY < containerRect.bottom + scrollThreshold) {
-      nextWeek();
-    } else if (event.clientY < containerRect.top + scrollThreshold && event.clientY > containerRect.top - scrollThreshold) {
-      previousWeek();
-    }
-  }
-  
-  const targetData = findDayCellFromEvent(event);
-  if (!targetData) return;
-  
-  const targetDate = targetData.date;
-  const targetDateStr = formatDate(targetDate);
-  
-  if (dragLastUpdatedDate.value === targetDateStr) return;
-  
-  if (type === 'start' && (task.startDate || task.dueDate)) {
-    const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-    if (dueDate) {
-      dueDate.setHours(0, 0, 0, 0);
-      if (targetDate.getTime() > dueDate.getTime()) {
-        return;
-      }
-    }
-    
-    updateTaskDate(task, 'start', targetDateStr);
-  } else if (type === 'end') {
-    const cellRect = targetData.element.getBoundingClientRect();
-    const relativeX = event.clientX - cellRect.left;
-    const cellWidth = cellRect.width;
-    
-    if (relativeX < cellWidth * 0.1) {
-      return;
-    }
-    
-    const startDate = task.startDate || task.dueDate ? new Date(task.startDate || task.dueDate!) : null;
-    if (startDate) {
-      startDate.setHours(0, 0, 0, 0);
-      if (targetDate.getTime() < startDate.getTime()) {
-        return;
-      }
-    }
-    
-    updateTaskDate(task, 'end', targetDateStr);
-  }
-}
-
-function updateTaskDate(task: Task, dateType: 'start' | 'end', targetDateStr: string) {
-  const taskField = dateType === 'start' ? 'startDate' : 'dueDate';
-  
-  if (pendingDeletion.value.has(task.id)) {
-    pendingDeletion.value.delete(task.id);
-  }
-  
-  const taskIndex = localTasks.value.findIndex(t => t.id === task.id);
-  if (taskIndex !== -1) {
-    const updatedTask = {
-      ...localTasks.value[taskIndex],
-      [taskField]: targetDateStr
-    };
-    localTasks.value[taskIndex] = updatedTask;
-    tasksVersion.value++;
-  }
-  
-  if (draggingHandle.value) {
-    draggingHandle.value.finalDate = targetDateStr;
-  }
-  
-  dragLastUpdatedDate.value = targetDateStr;
-}
-
-async function handleHandleMouseUp() {
-  const { task, type, finalDate } = draggingHandle.value || {};
-  
-  if (task && finalDate && type) {
-    const attrKey = type === 'start' ? 'custom-task-start-date' : 'custom-task-due-date';
-    const taskField = type === 'start' ? 'startDate' : 'dueDate';
-    
-    const updatedTask = {
-      ...task,
-      [taskField]: finalDate
-    };
-    
-    emit('taskDateChanged', updatedTask);
-    
-    if (task.type === 'block' && task.blockId) {
-      pendingUpdates.value.set(task.blockId, {
-        [attrKey]: finalDate
-      });
-      scheduleSave();
-    }
-  }
-  
-  cleanupDragListeners();
-  flushSave();
-  
-  if (dragEndCooldownTimer) {
-    clearTimeout(dragEndCooldownTimer);
-  }
-  
-  dragEndCooldownTimer = setTimeout(() => {
-    isDragging.value = false;
-    dragEndCooldownTimer = null;
-  }, 500);
-}
-
-function cleanupDragListeners() {
-  draggingHandle.value = null;
-  eventManager.remove('handle');
-}
 
 function updateWeekRowHeights() {
   const weeksContainer = document.querySelector('.weeks-container');
@@ -1097,6 +1081,10 @@ onMounted(() => {
     eventManager.add(container as HTMLElement, 'wheel', handleWheel, 'wheel');
   }
   eventManager.add(document, 'click', handleGlobalClick, 'globalClick');
+  eventManager.add(document, 'mousemove', handleCreateSelectionMouseMove as EventListener, 'createSelectionMousemove');
+  eventManager.add(document, 'mouseup', finishCreateSelection as EventListener, 'createSelectionMouseup');
+  eventManager.add(document, 'dragend', clearDragOverState as EventListener, 'dragCleanup');
+  eventManager.add(document, 'drop', clearDragOverState as EventListener, 'dragCleanup');
 
   updateWeekRowHeights();
 
@@ -1109,51 +1097,97 @@ onMounted(() => {
   }
 });
 
-function scheduleSave() {
-  if (saveTimer.value !== null) return;
-  
-  saveTimer.value = setTimeout(async () => {
-    if (pendingUpdates.value.size === 0) return;
-    
-    const updates = Array.from(pendingUpdates.value.entries());
-    pendingUpdates.value.clear();
-    
-    try {
-      await Promise.all(updates.map(([blockId, attrs]) => 
-        setBlockAttrs(blockId, attrs)
-      ));
-    } catch (error) {
-      // scheduleSave error
+async function toggleTaskStatus(task: Task) {
+  const currentTask = localTasks.value.find(t => t.id === task.id);
+  if (!currentTask) return;
+  const previousStatus = currentTask.status;
+  const nextStatus = previousStatus === 'completed' ? 'pending' : 'completed';
+  const previousCompletedAt = currentTask.completedAt;
+
+  const updatedTask = patchLocalTask(task.id, {
+    status: nextStatus,
+    completedAt: nextStatus === 'completed' ? new Date().toISOString() : undefined
+  });
+  if (!updatedTask) return;
+
+  try {
+    if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate) {
+      await TaskRepository.updateRepeatInstanceStatus(task, nextStatus);
+    } else if (task.type === 'block' && task.blockId) {
+      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true);
     }
-    
-    saveTimer.value = null;
-  }, 300);
+  } catch (error) {
+    patchLocalTask(task.id, {
+      status: previousStatus,
+      completedAt: previousCompletedAt
+    });
+  }
+}
+
+function handleDayCellMouseDown(day: { key: string }, event: MouseEvent) {
+  if (event.button !== 0) return;
+  createSelection.value = {
+    active: true,
+    startDay: day.key,
+    endDay: day.key,
+    startX: event.clientX,
+    startY: event.clientY,
+    passedThreshold: false
+  };
+}
+
+function handleDayCellMouseEnter(day: { key: string }) {
+  if (!createSelection.value?.active) return;
+  createSelection.value.endDay = day.key;
+}
+
+function isDayInCreateSelection(dayKey: string): boolean {
+  if (!createSelection.value?.active || !createSelection.value.passedThreshold) return false;
+  const { startDay, endDay } = createSelection.value;
+  const from = startDay <= endDay ? startDay : endDay;
+  const to = startDay <= endDay ? endDay : startDay;
+  return dayKey >= from && dayKey <= to;
+}
+
+function handleCreateSelectionMouseMove(event: MouseEvent) {
+  const selection = createSelection.value;
+  if (!selection?.active || selection.passedThreshold) return;
+  const dx = event.clientX - selection.startX;
+  const dy = event.clientY - selection.startY;
+  if (Math.hypot(dx, dy) >= CREATE_SELECTION_THRESHOLD_PX) {
+    selection.passedThreshold = true;
+  }
+}
+
+function finishCreateSelection() {
+  const selection = createSelection.value;
+  if (!selection?.active) return;
+
+  const from = selection.startDay <= selection.endDay ? selection.startDay : selection.endDay;
+  const to = selection.startDay <= selection.endDay ? selection.endDay : selection.startDay;
+
+  createSelection.value = null;
+
+  if (!selection.passedThreshold) return;
+
+  emit('taskCreateRequested', {
+    startDate: from,
+    dueDate: to,
+    allDay: true
+  });
 }
 
 function handleTaskClick(task: Task) {
   emit('taskClick', task);
 }
 
-function flushSave() {
-  if (saveTimer.value !== null) {
-    clearTimeout(saveTimer.value);
-    saveTimer.value = null;
-  }
-  
-  if (pendingUpdates.value.size === 0) return;
-  
-  const updates = Array.from(pendingUpdates.value.entries());
-  pendingUpdates.value.clear();
-  
-  Promise.all(updates.map(([blockId, attrs]) => 
-    setBlockAttrs(blockId, attrs)
-  )).catch(() => {});
-}
-
 onUnmounted(() => {
-  flushSave();
+  taskSyncGuard.clearAllTaskSyncLocks();
+  removeEventListeners();
 
   eventManager.clear();
+
+  clearDragOverState();
 
   if (resizeObserver) {
     resizeObserver.disconnect();
@@ -1164,10 +1198,6 @@ onUnmounted(() => {
     dragOverDayUpdateTimer = null;
   }
   
-  if (dragEndCooldownTimer) {
-    clearTimeout(dragEndCooldownTimer);
-    dragEndCooldownTimer = null;
-  }
 });
 
 </script>
@@ -1331,6 +1361,10 @@ onUnmounted(() => {
   border: 2px dashed var(--b3-font-color2, #1976d2);
 }
 
+.day-cell.create-selecting {
+  background: var(--b3-theme-primary-lightest);
+}
+
 .day-cell.today .day-number {
   color: var(--b3-theme-background);
   background-color: #f98f7a;
@@ -1403,6 +1437,14 @@ onUnmounted(() => {
   cursor: grab;
   user-select: none;
   gap: 2px;
+}
+
+.task-checkbox-wrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
 }
 
 .task-chip-title:active {
@@ -1503,109 +1545,9 @@ onUnmounted(() => {
   padding: 2px 4px;
 }
 
-.context-menu {
-  position: fixed;
-  background: var(--b3-theme-surface);
-  border: 1px solid var(--b3-border-color);
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
-  min-width: 200px;
-  padding: 4px;
-  animation: contextMenuFadeIn 0.15s ease-out;
-}
-
-@keyframes contextMenuFadeIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.context-menu-section {
-  padding: 4px;
-  margin-bottom: 8px;
-}
-
-.context-menu-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.7;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-  padding: 0 4px;
-}
-
-.task-color-picker {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-  padding: 4px;
-}
-
-.color-option {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  border: 2px solid transparent;
-  position: relative;
-}
-
-.color-option:hover {
-  border-color: var(--b3-border-color);
-}
-
-.color-option.selected {
-  border-color: var(--b3-border-color);
-}
-
-.context-menu-divider {
-  height: 1px;
-  background: var(--b3-border-color);
-  margin: 8px 4px;
-}
-
-.context-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  cursor: pointer;
-  color: var(--b3-theme-on-background);
-  font-size: 13px;
-  border-radius: 6px;
-  transition: all 0.15s ease;
-  font-weight: 400;
-}
-
-.context-menu-item:hover {
-  background: var(--b3-list-hover);
-}
-
-.context-menu-item.delete-item {
-  color: #ef4444;
-}
-
-.context-menu-item.delete-item:hover {
-  background: #fef2f2;
-  color: #dc2626;
-}
-
-.context-menu-item svg {
-  flex-shrink: 0;
-  opacity: 0.8;
-  transition: opacity 0.15s;
-}
-
-.context-menu-item:hover svg {
-  opacity: 1;
-}
 </style>
+
+
+
+
+

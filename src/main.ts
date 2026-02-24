@@ -1,5 +1,7 @@
 import {
+  Dialog,
   Plugin,
+  getFrontend,
   openTab,
 } from "siyuan";
 import { createApp } from 'vue'
@@ -10,6 +12,10 @@ import KanbanView from './components/KanbanView.vue'
 import { ensureDataDir } from '@/utils';
 let plugin: Plugin | null = null;
 let kanbanApp = null;
+let mobileKanbanDialog: Dialog | null = null;
+let mobileKanbanApp: any = null;
+let pinchDockModel: any = null;
+const PINCH_DOCK_TYPE = 'Pinch-habit';
 export function usePlugin(pluginProps?: Plugin): Plugin | null {
   if (pluginProps) {
     plugin = pluginProps;
@@ -125,7 +131,7 @@ export function init(pluginInstance: Plugin) {
   });
 
   // 添加侧边栏面板
-  pluginInstance.addDock({
+  const dockHandle = pluginInstance.addDock({
     config: {
       position: "RightTop",  // 位置：右上角
       size: { width: 500, height: 400 },  // 初始大小
@@ -163,21 +169,105 @@ export function init(pluginInstance: Plugin) {
       }
     }
   });
+  pinchDockModel = dockHandle?.model || null;
 }
 
 export function destroy() {
   if (app) {
     app.unmount();
   }
+  if (mobileKanbanApp) {
+    mobileKanbanApp.unmount();
+    mobileKanbanApp = null;
+  }
+  if (mobileKanbanDialog) {
+    mobileKanbanDialog.destroy();
+    mobileKanbanDialog = null;
+  }
+  pinchDockModel = null;
   const container = document.getElementById('Pinch-habit-app');
   if (container) {
     container.remove();
   }
 }
 
+function openKanbanMobileDialog(): boolean {
+  try {
+    if (mobileKanbanApp) {
+      mobileKanbanApp.unmount();
+      mobileKanbanApp = null;
+    }
+    if (mobileKanbanDialog) {
+      mobileKanbanDialog.destroy();
+      mobileKanbanDialog = null;
+    }
+
+    const mountId = `pinch-mobile-kanban-${Date.now()}`;
+    const dialog = new Dialog({
+      title: 'Pinch Tasks',
+      content: `<div id="${mountId}" style="width:100%;height:100%;"></div>`,
+      width: '96vw',
+      height: '92vh',
+      destroyCallback: () => {
+        if (mobileKanbanApp) {
+          mobileKanbanApp.unmount();
+          mobileKanbanApp = null;
+        }
+        mobileKanbanDialog = null;
+      }
+    });
+
+    const mountElement = dialog.element.querySelector(`#${mountId}`) as HTMLElement | null;
+    if (!mountElement) {
+      dialog.destroy();
+      return false;
+    }
+
+    mobileKanbanApp = createApp(KanbanView);
+    mobileKanbanApp.mount(mountElement);
+    mobileKanbanDialog = dialog;
+    return true;
+  } catch (error) {
+    console.error('Failed to open mobile kanban dialog:', error);
+    return false;
+  }
+}
+
+function openPinchDockView(): boolean {
+  try {
+    pinchDockModel?.showDock?.(true);
+    pinchDockModel?.toggleModel?.(PINCH_DOCK_TYPE, true);
+    return true;
+  } catch {
+  }
+
+  const selectors = [
+    `[data-type="${PINCH_DOCK_TYPE}"]`,
+    `.dock__item[data-type="${PINCH_DOCK_TYPE}"]`
+  ];
+
+  for (const selector of selectors) {
+    const trigger = document.querySelector(selector) as HTMLElement | null;
+    if (!trigger) continue;
+    trigger.click();
+    return true;
+  }
+
+  return false;
+}
+
 export async function openKanbanView() {
   if (!plugin) {
     console.error('Plugin not initialized');
+    return;
+  }
+
+  const frontend = getFrontend();
+  const isMobile = frontend === 'mobile' || frontend === 'browser-mobile';
+  if (isMobile) {
+    if (!openKanbanMobileDialog() && !openPinchDockView()) {
+      console.warn('Pinch mobile view trigger not found on mobile frontend');
+    }
     return;
   }
 

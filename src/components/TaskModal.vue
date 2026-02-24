@@ -1,10 +1,10 @@
-<template>
+﻿<template>
   <Transition name="fade">
     <div v-show="show" class="modal-overlay" @click.self="emit('close')">
       <Transition name="slide">
         <div class="modal-content" @click.stop v-show="show">
           <div class="modal-header">
-            <h3>{{ t('taskManager.newTask') }}</h3>
+            <h3>{{ tt('taskManager.newTask', '新建任务') }}</h3>
             <button @click="emit('close')" class="icon-button">
               <svg viewBox="0 0 1024 1024" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
                 <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm165.4 618.2l-66-.3L512 563.4l-99.3 118.4-66.1.3c-4.4 0-8-3.6-8-8 0-1.9.7-3.7 1.9-5.2l130.1-155L340.5 359a8.32 8.32 0 01-1.9-5.2c0-4.4 3.6-8 8-8l66.1.3L512 464.6l99.3-118.4 66-.3c4.4 0 8 3.6 8 8 0 1.9-.7 3.7-1.9 5.2L553.5 514l130 155c1.2 1.5 1.9 3.3 1.9 5.2 0 4.4-3.6 8-8 8z" fill="currentColor"></path>
@@ -13,36 +13,36 @@
           </div>
           <div class="modal-body">
             <div class="form-group">
-              <label>{{ t('taskManager.notebook') }}</label>
+              <label>{{ tt('taskManager.notebook', '笔记本') }}</label>
               <SySelect v-model="selectedNotebook" :options="notebookOptions" @update:modelValue="handleNotebookChange" />
             </div>
             <div class="form-group" v-if="selectedNotebook">
-              <label>{{ t('taskManager.document') }}</label>
+              <label>{{ tt('taskManager.document', '文档') }}</label>
               <SySelect v-model="selectedDocument" :options="documentOptions" />
             </div>
             <div class="form-group">
-              <label>{{ t('taskManager.taskTitle') }}</label>
-              <SyInput v-model="localTask.title" :placeholder="t('taskManager.taskTitlePlaceholder')" />
+              <label>{{ tt('taskManager.taskTitle', '任务标题') }}</label>
+              <SyInput v-model="localTask.title" :placeholder="tt('taskManager.taskTitlePlaceholder', '请输入任务标题')" />
             </div>
             <div class="form-group">
-              <label>{{ t('taskManager.taskDescription') }}</label>
-              <SyInput v-model="localTask.description" :placeholder="t('taskManager.taskDescriptionPlaceholder')" />
+              <label>{{ tt('taskManager.taskDescription', '任务描述') }}</label>
+              <SyInput v-model="localTask.description" :placeholder="tt('taskManager.taskDescriptionPlaceholder', '请输入任务描述（可选）')" />
             </div>
             <div class="form-group">
-              <label>{{ t('taskManager.priority') }}</label>
+              <label>{{ tt('taskManager.priority', '优先级') }}</label>
               <SySelect v-model="localTask.priority" :options="priorityOptions" />
             </div>
             <div class="form-group">
-              <label>{{ t('taskManager.status') }}</label>
+              <label>{{ tt('taskManager.status', '状态') }}</label>
               <SySelect v-model="localTask.status" :options="statusOptions" />
             </div>
             <div class="form-group">
-              <label>{{ t('taskManager.dueDate') }}</label>
+              <label>{{ tt('taskManager.dueDate', '截止日期') }}</label>
               <input type="date" v-model="localTask.dueDate" class="date-input" />
             </div>
           </div>
           <div class="modal-footer">
-            <SyButton @click="handleSubmit" class="confirm-button">{{ t('taskManager.save') }}</SyButton>
+            <SyButton @click="handleSubmit" class="confirm-button">{{ tt('taskManager.save', '保存') }}</SyButton>
           </div>
         </div>
       </Transition>
@@ -55,7 +55,7 @@ import { ref, watch, computed } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
-import type { Task, TaskPriority, TaskStatus } from '@/api';
+import type { TaskPriority, TaskStatus } from '@/api';
 
 export interface Notebook {
   id: string;
@@ -131,6 +131,14 @@ const documentOptions = computed(() => {
   return docs.map(d => ({ value: d.id, text: d.name }));
 });
 
+function tt(key: string, fallback: string): string {
+  const translated = props.t?.(key);
+  if (!translated || translated === key) {
+    return fallback;
+  }
+  return translated;
+}
+
 function handleNotebookChange() {
   selectedDocument.value = '';
 }
@@ -139,15 +147,19 @@ watch(() => props.show, (show) => {
   if (show) {
     localTask.value = { ...defaultTask };
     updateOptionTexts();
-    
-    if (props.lastSelectedNotebook) {
-      selectedNotebook.value = props.lastSelectedNotebook;
-      if (props.lastSelectedDocument) {
-        selectedDocument.value = props.lastSelectedDocument;
-      }
-    } else if (props.notebooks.length > 0) {
-      selectedNotebook.value = props.notebooks[0].id;
-    }
+
+    const hasPreferredNotebook = !!props.lastSelectedNotebook &&
+      props.notebooks.some(nb => nb.id === props.lastSelectedNotebook);
+    selectedNotebook.value = hasPreferredNotebook
+      ? props.lastSelectedNotebook!
+      : (props.notebooks[0]?.id || '');
+
+    const docsForNotebook = props.documents.filter(d => d.notebookId === selectedNotebook.value);
+    const hasPreferredDocument = !!props.lastSelectedDocument &&
+      docsForNotebook.some(doc => doc.id === props.lastSelectedDocument);
+    selectedDocument.value = hasPreferredDocument
+      ? props.lastSelectedDocument!
+      : (docsForNotebook[0]?.id || '');
   }
 });
 
@@ -156,15 +168,15 @@ watch(() => props.t, () => {
 });
 
 function updateOptionTexts() {
-  priorityOptions[0].text = props.t('taskManager.priorityAll');
-  priorityOptions[1].text = props.t('taskManager.priorityHigh');
-  priorityOptions[2].text = props.t('taskManager.priorityMedium');
-  priorityOptions[3].text = props.t('taskManager.priorityLow');
-  
-  statusOptions[0].text = props.t('taskManager.statusPending');
-  statusOptions[1].text = props.t('taskManager.statusInProgress');
-  statusOptions[2].text = props.t('taskManager.statusCompleted');
-  statusOptions[3].text = props.t('taskManager.statusCancelled');
+  priorityOptions[0].text = tt('taskManager.priorityAll', '全部');
+  priorityOptions[1].text = tt('taskManager.priorityHigh', '高');
+  priorityOptions[2].text = tt('taskManager.priorityMedium', '中');
+  priorityOptions[3].text = tt('taskManager.priorityLow', '低');
+
+  statusOptions[0].text = tt('taskManager.statusPending', '待处理');
+  statusOptions[1].text = tt('taskManager.statusInProgress', '进行中');
+  statusOptions[2].text = tt('taskManager.statusCompleted', '已完成');
+  statusOptions[3].text = tt('taskManager.statusCancelled', '已取消');
 }
 
 updateOptionTexts();

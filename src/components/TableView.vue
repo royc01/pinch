@@ -459,10 +459,9 @@ function toggleExpand(taskId: string) {
 }
 
 .tasks-table td {
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--b3-border-color);
   border-right: 1px solid var(--b3-border-color);
-  vertical-align: top;
 }
 
 .tasks-table td:last-child {

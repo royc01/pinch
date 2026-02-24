@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="week-view">
     <div class="calendar-header">
       <button class="nav-btn" @click="previousWeek">
@@ -45,11 +45,15 @@
               v-for="(day, index) in weekDays" 
               :key="day.key"
               class="all-day-column"
+              :data-day-key="day.key"
               :class="{
                 today: day.isToday,
                 'drag-over': dragState.overDay === day.key || dragState.overAllDayColumn === day.key,
+                'create-selecting': isAllDayInCreateSelection(day.key),
                 'last-column': index === weekDays.length - 1
               }"
+              @mousedown.left="handleAllDayMouseDown(day, $event)"
+              @mouseenter="handleAllDayMouseEnter(day)"
               @dragover.prevent="handleDragOver(day)"
               @dragleave="handleDragLeave"
               @drop="handleDrop(day)"
@@ -78,6 +82,13 @@
                   :class="{ 'task-dragging': draggingTask?.task.id === task.id }"
                   @mousedown="handleTaskMouseDown($event, task)"
                 >
+                  <span
+                    class="task-checkbox-wrapper"
+                    @mousedown.stop
+                    @click.stop="toggleTaskStatus(task)"
+                  >
+                    <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
+                  </span>
                   <span class="task-title-text">{{ stripHtml(task.title) }}</span>
                   <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
                     <Icon name="flag" width="10" height="10" />
@@ -130,12 +141,21 @@
                 v-for="hour in 24"
                 :key="hour"
                 class="hour-cell"
-                :class="{ 'drag-over': dragState.overHourCell === `${day.key}-${hour}` }"
+                :class="{
+                  'drag-over': dragState.overHourCell === `${day.key}-${hour}`
+                }"
+                @mousedown.left="handleHourCellMouseDown(day, hour, $event)"
+                @mouseenter="handleHourCellMouseEnter(day, hour)"
                 @dragover.prevent="handleHourCellDragOver(day, hour)"
                 @dragleave="handleHourCellDragLeave"
                 @drop="handleDropOnHourCell(day, hour)"
               ></div>
-              
+              <div
+                v-if="getTimedCreateSelectionStyle(day.key)"
+                class="timed-create-selection"
+                :style="getTimedCreateSelectionStyle(day.key)!"
+              ></div>
+               
               <div class="timed-tasks-layer">
                 <div
                   v-for="item in (tasksByDay.get(day.key) || [])"
@@ -157,6 +177,13 @@
                   ></div>
                   <div class="timed-task-content">
                     <div class="timed-task-title">
+                      <span
+                        class="task-checkbox-wrapper"
+                        @mousedown.stop
+                        @click.stop="toggleTaskStatus(item.task)"
+                      >
+                        <TaskCheckbox :checked="item.task.status === 'completed'" :size="12" />
+                      </span>
                       <span class="task-title-text">{{ stripHtml(item.task.title) }}</span>
                       <span v-if="item.task.priority !== 'none'" class="task-priority-badge" :class="`priority-${item.task.priority}`">
                         <Icon name="flag" width="10" height="10" />
@@ -186,49 +213,71 @@
       </div>
     </div>
 
-    <div
-      v-if="contextMenu.show"
-      class="context-menu"
-      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-      @click.stop
-    >
-      <div class="context-menu-section">
-        <div class="context-menu-title">背景色</div>
-        <div class="task-color-picker">
-          <div
-            v-for="color in backgroundColors"
-            :key="color.value"
-            class="color-option"
-            :class="{ selected: contextMenu.task?.backgroundColor === color.value }"
-            :style="{ backgroundColor: color.css }"
-            @click="setTaskBackgroundColor(contextMenu.task!, color.value)"
-          ></div>
-        </div>
-      </div>
-      <div class="context-menu-divider"></div>
-      <div class="context-menu-item delete-item" @click="deleteTask(contextMenu.task!)">
-        <svg viewBox="0 0 24 24" width="16" height="16">
-          <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-        </svg>
-        <span>移除日期</span>
-      </div>
-    </div>
+    <TaskContextMenu
+      :show="contextMenu.show"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :task="contextMenu.task"
+      :background-colors="backgroundColors"
+      :start-date="contextMenuDateDraft.startDate"
+      :due-date="contextMenuDateDraft.dueDate"
+      :repeat-frequency="contextMenuRepeatFrequency"
+      @update:startDate="contextMenuDateDraft.startDate = $event"
+      @update:dueDate="contextMenuDateDraft.dueDate = $event"
+      @setColor="setTaskBackgroundColor(contextMenu.task!, $event)"
+      @saveDates="applyTaskDates(contextMenu.task!)"
+      @saveRepeatRule="saveTaskRepeatRule(contextMenu.task!, $event)"
+      @deleteTask="deleteTask(contextMenu.task!)"
+    />
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import type { Task } from '@/api';
-import { setBlockAttrs } from '@/api';
+import { setBlockAttrs, TaskRepository } from '@/api';
+import { updateTaskMarkdown } from '@/utils/taskHelpers';
 import { stripHtml } from '@/composables/useTaskCommon';
 import { formatDate, formatTime, formatHour, getWeekStart, formatChineseDate } from '@/composables/useDateUtils';
 import { CALENDAR_CONSTANTS } from '@/composables/useCalendarConstants';
 import { useDebouncedSave } from '@/composables/useDebouncedSave';
 import { useTaskDrag } from '@/composables/useTaskDrag';
+import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
+import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
+import { getRepeatSeriesForTask, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
 import Icon from './Icon.vue';
+import TaskCheckbox from './TaskCheckbox.vue';
+import TaskContextMenu from './TaskContextMenu.vue';
 
 interface Props {
   tasks: Task[];
+}
+
+interface WeekDay {
+  key: string;
+  date: Date;
+  weekdayName: string;
+  dayNumber: number;
+  isToday: boolean;
+}
+
+interface WeekAllDayTask extends Task {
+  startDayOfWeek: number;
+  spanDays: number;
+  rangeStart: Date;
+  rangeEnd: Date;
+}
+
+interface TimedTaskRenderItem {
+  task: Task;
+  renderDate: string;
+  renderStartDate: string;
+  renderStartTime: string;
+  renderDueDate: string;
+  renderDueTime: string;
+  laneIndex?: number;
+  laneCount?: number;
 }
 
 const props = defineProps<Props>();
@@ -236,6 +285,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   'taskDateChanged': [task: Task];
   'taskClick': [task: Task];
+  'taskCreateRequested': [payload: { startDate: string; dueDate: string; startTime?: string; dueTime?: string; allDay: boolean }];
 }>();
 
 const currentWeekStart = ref(getWeekStart(new Date()));
@@ -244,8 +294,40 @@ const isAllDaySectionCollapsed = ref(false);
 let timeUpdateInterval: ReturnType<typeof setInterval> | null = null;
 
 const localTasks = ref<Task[]>([]);
+const CREATE_SELECTION_THRESHOLD_PX = 8;
+const MINUTES_PER_QUARTER = 15;
+const QUARTERS_PER_HOUR = 4;
+const TOTAL_QUARTERS_PER_DAY = 24 * QUARTERS_PER_HOUR;
+const allDayCreateSelection = ref<{
+  active: boolean;
+  startDay: string;
+  endDay: string;
+  startX: number;
+  startY: number;
+  passedThreshold: boolean;
+} | null>(null);
+const timedCreateSelection = ref<{
+  active: boolean;
+  dayKey: string;
+  startQuarter: number;
+  endQuarter: number;
+  startX: number;
+  startY: number;
+  passedThreshold: boolean;
+} | null>(null);
 
 const { saveTaskAttrs } = useDebouncedSave(500);
+const taskSyncGuard = useTaskSyncGuard(localTasks);
+const {
+  upsertTask: upsertLocalTask,
+  patchTask: patchLocalTask
+} = useTaskLocalMutations(localTasks);
+
+function emitTaskDateChanged(task: Task): void {
+  taskSyncGuard.emitTaskDateChanged(task, (nextTask) => {
+    emit('taskDateChanged', nextTask);
+  });
+}
 
 const {
   dragState,
@@ -259,7 +341,7 @@ const {
   handleTimedTaskHandleMouseDown,
   handleTimedTaskMouseDown,
   removeEventListeners
-} = useTaskDrag(localTasks, emit);
+} = useTaskDrag(localTasks, emitTaskDateChanged);
 
 const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
   show: false,
@@ -267,6 +349,24 @@ const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null
   y: 0,
   task: null
 });
+const contextMenuDateDraft = ref<{ startDate: string; dueDate: string }>({
+  startDate: '',
+  dueDate: ''
+});
+const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
+
+function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined): RepeatFrequency {
+  if (
+    frequency === 'none'
+    || frequency === 'daily'
+    || frequency === 'weekdays'
+    || frequency === 'weekend'
+    || frequency === 'weekly'
+  ) {
+    return frequency;
+  }
+  return 'weekly';
+}
 
 const backgroundColors = [
   { value: 'background4', css: 'var(--b3-font-background4)' },
@@ -301,19 +401,80 @@ function getTasksHash(tasks: Task[]): string {
   ).sort().join('|');
 }
 
-let lastTasksHash = '';
-
 watch(() => props.tasks, (newTasks) => {
-  if (isDragging.value) return;
-  
-  const newHash = getTasksHash(newTasks);
-  if (newHash === lastTasksHash) return;
-  
-  lastTasksHash = newHash;
-  localTasks.value = [...newTasks];
+  taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
 }, { deep: true, immediate: true });
 
 const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+function timeToMinutes(time: string): number {
+  const [hour, min] = time.split(':').map(Number);
+  return hour * 60 + min;
+}
+
+function assignTimedTaskLanes(items: TimedTaskRenderItem[]): TimedTaskRenderItem[] {
+  if (items.length <= 1) {
+    return items.map(item => ({ ...item, laneIndex: 0, laneCount: 1 }));
+  }
+
+  const normalized = items
+    .map((item) => {
+      const start = timeToMinutes(item.renderStartTime);
+      const end = Math.max(start + 1, timeToMinutes(item.renderDueTime));
+      return { item, start, end };
+    })
+    .sort((a, b) => {
+      if (a.start !== b.start) return a.start - b.start;
+      return a.end - b.end;
+    });
+
+  const result: TimedTaskRenderItem[] = [];
+  let cluster: typeof normalized = [];
+  let clusterEnd = -1;
+
+  const flushCluster = () => {
+    if (cluster.length === 0) return;
+
+    const laneEnds: number[] = [];
+    const assigned: Array<{ item: TimedTaskRenderItem; laneIndex: number }> = [];
+
+    for (const entry of cluster) {
+      let laneIndex = laneEnds.findIndex(end => end <= entry.start);
+      if (laneIndex === -1) {
+        laneIndex = laneEnds.length;
+        laneEnds.push(entry.end);
+      } else {
+        laneEnds[laneIndex] = entry.end;
+      }
+
+      assigned.push({ item: entry.item, laneIndex });
+    }
+
+    const laneCount = Math.max(1, laneEnds.length);
+    for (const { item, laneIndex } of assigned) {
+      result.push({
+        ...item,
+        laneIndex,
+        laneCount
+      });
+    }
+  };
+
+  for (const entry of normalized) {
+    if (cluster.length === 0 || entry.start < clusterEnd) {
+      cluster.push(entry);
+      clusterEnd = Math.max(clusterEnd, entry.end);
+      continue;
+    }
+
+    flushCluster();
+    cluster = [entry];
+    clusterEnd = entry.end;
+  }
+
+  flushCluster();
+  return result;
+}
 
 const weekTitle = computed(() => {
   const start = new Date(currentWeekStart.value);
@@ -323,8 +484,8 @@ const weekTitle = computed(() => {
   return `${formatChineseDate(start)} - ${formatChineseDate(end)}`;
 });
 
-const weekDays = computed(() => {
-  const days = [];
+const weekDays = computed<WeekDay[]>(() => {
+  const days: WeekDay[] = [];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
@@ -360,63 +521,75 @@ function getWeekBounds() {
   return { weekStart, weekEnd };
 }
 
-const weekTasks = computed(() => {
-  const { weekStart, weekEnd } = getWeekBounds();
-  
-  return localTasks.value.filter(task => {
-    if (!task.startDate && !task.dueDate) return false;
-    
-    const taskStart = new Date(task.startDate || task.dueDate!);
-    taskStart.setHours(0, 0, 0, 0);
-    const taskEnd = task.dueDate ? new Date(task.dueDate) : new Date(task.startDate || task.dueDate!);
-    taskEnd.setHours(23, 59, 59, 999);
-    
-    return taskStart <= weekEnd && taskEnd >= weekStart;
-  }).filter(task => {
-    return !task.startTime && !task.dueTime;
-  }).map(task => {
-    const taskStart = new Date(task.startDate || task.dueDate!);
-    taskStart.setHours(0, 0, 0, 0);
-    const taskEnd = task.dueDate ? new Date(task.dueDate) : new Date(task.startDate || task.dueDate!);
-    taskEnd.setHours(23, 59, 59, 999);
-    
-    const weekStart = new Date(currentWeekStart.value);
-    weekStart.setHours(0, 0, 0, 0);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
-    
-    const displayStart = taskStart < weekStart ? weekStart : taskStart;
-    const displayEnd = taskEnd > weekEnd ? weekEnd : taskEnd;
-    
-    const startDayOffset = Math.floor((displayStart.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
-    const endDayOffset = Math.floor((displayEnd.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
-    
-    return {
-      ...task,
-      startDayOfWeek: Math.max(0, startDayOffset),
-      spanDays: Math.min(6, endDayOffset) - Math.max(0, startDayOffset) + 1
-    };
+const weekBounds = computed(() => getWeekBounds());
+
+function getTaskDateRangeForRender(task: Task): { startDate: Date; endDate: Date } | null {
+  const startValue = task.startDate || task.dueDate;
+  if (!startValue) return null;
+
+  const startDate = new Date(startValue);
+  startDate.setHours(0, 0, 0, 0);
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const endValue = isRepeatTask ? startValue : (task.dueDate || startValue);
+  const endDate = new Date(endValue);
+  endDate.setHours(23, 59, 59, 999);
+
+  return { startDate, endDate };
+}
+
+const normalizedTaskRanges = computed(() => {
+  const { weekStart, weekEnd } = weekBounds.value;
+  return localTasks.value.flatMap((task) => {
+    const range = getTaskDateRangeForRender(task);
+    if (!range) return [];
+    const { startDate, endDate } = range;
+
+    if (startDate > weekEnd || endDate < weekStart) {
+      return [];
+    }
+
+    return [{
+      task,
+      startDate,
+      endDate,
+      isTimed: Boolean(task.startTime || task.dueTime)
+    }];
   });
 });
 
-const timedTasks = computed(() => {
-  const { weekStart, weekEnd } = getWeekBounds();
-  
-  return localTasks.value.filter(task => {
-    if (!task.startDate && !task.dueDate) {
-      return false;
-    }
-    
-    const taskStart = new Date(task.startDate || task.dueDate!);
-    taskStart.setHours(0, 0, 0, 0);
-    const taskEnd = task.dueDate ? new Date(task.dueDate) : new Date(task.startDate || task.dueDate!);
-    taskEnd.setHours(23, 59, 59, 999);
-    
-    return taskStart <= weekEnd && taskEnd >= weekStart;
-  }).filter(task => {
-    return task.startTime || task.dueTime;
-  });
+const weekTasks = computed<WeekAllDayTask[]>(() => {
+  const { weekStart, weekEnd } = weekBounds.value;
+  return normalizedTaskRanges.value
+    .filter(range => !range.isTimed)
+    .map(({ task, startDate, endDate }) => {
+      const displayStart = startDate < weekStart ? weekStart : startDate;
+      const displayEnd = endDate > weekEnd ? weekEnd : endDate;
+
+      const startDayOffset = Math.floor((displayStart.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
+      const endDayOffset = Math.floor((displayEnd.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
+
+      return {
+        ...task,
+        startDayOfWeek: Math.max(0, startDayOffset),
+        spanDays: Math.min(daysCount.value - 1, endDayOffset) - Math.max(0, startDayOffset) + 1,
+        rangeStart: startDate,
+        rangeEnd: endDate
+      };
+    });
+});
+
+const timedTaskRanges = computed(() => {
+  return normalizedTaskRanges.value
+    .filter(range => range.isTimed)
+    .map(({ task, startDate, endDate }) => ({
+      task,
+      // Use normalized render range to avoid repeat templates leaking original multi-day dates.
+      taskStartDate: formatDate(startDate),
+      taskDueDate: formatDate(endDate),
+      startDate,
+      endDate
+    }));
 });
 
 const taskPositionsMap = computed(() => {
@@ -424,27 +597,20 @@ const taskPositionsMap = computed(() => {
   const dailyPositionSlots = new Map<string, number[]>();
   
   const sortedTasks = [...weekTasks.value].sort((a, b) => {
-    const aStart = new Date(a.startDate || a.dueDate!).getTime();
-    const bStart = new Date(b.startDate || b.dueDate!).getTime();
+    const aStart = a.rangeStart.getTime();
+    const bStart = b.rangeStart.getTime();
     if (aStart !== bStart) return aStart - bStart;
 
-    const aEnd = new Date(a.dueDate || a.startDate!).getTime();
-    const bEnd = new Date(b.dueDate || b.startDate!).getTime();
+    const aEnd = a.rangeEnd.getTime();
+    const bEnd = b.rangeEnd.getTime();
     return (bEnd - bStart) - (aEnd - aStart);
   });
   
   for (const task of sortedTasks) {
-    if (!task.startDate && !task.dueDate) continue;
-    
-    const taskStart = new Date(task.startDate || task.dueDate!);
-    taskStart.setHours(0, 0, 0, 0);
-    const taskEnd = task.dueDate ? new Date(task.dueDate) : new Date(task.startDate || task.dueDate!);
-    taskEnd.setHours(23, 59, 59, 999);
-    
     const taskDays: string[] = [];
-    const currentDay = new Date(taskStart);
-    while (currentDay <= taskEnd) {
-      const dateKey = currentDay.toISOString().split('T')[0];
+    const currentDay = new Date(task.rangeStart);
+    while (currentDay <= task.rangeEnd) {
+      const dateKey = formatDate(currentDay);
       taskDays.push(dateKey);
       currentDay.setDate(currentDay.getDate() + 1);
     }
@@ -471,7 +637,7 @@ const taskPositionsMap = computed(() => {
         
         for (const dayKey of taskDays) {
           const daySlots = dailyPositionSlots.get(dayKey)!;
-          daySlots[pos] = taskEnd.getTime();
+          daySlots[pos] = task.rangeEnd.getTime();
         }
         
         break;
@@ -524,12 +690,12 @@ const earliestHiddenTaskDate = computed(() => {
   if (hiddenTasks.length === 0) return null;
   
   const earliestTask = hiddenTasks.reduce((earliest, task) => {
-    const taskDate = new Date(task.startDate || task.dueDate);
-    const earliestDate = new Date(earliest.startDate || earliest.dueDate);
+    const taskDate = task.rangeStart;
+    const earliestDate = earliest.rangeStart;
     return taskDate < earliestDate ? task : earliest;
   });
   
-  return new Date(earliestTask.startDate || earliestTask.dueDate);
+  return new Date(earliestTask.rangeStart);
 });
 
 const moreButtonDayIndex = computed(() => {
@@ -543,14 +709,14 @@ const moreButtonDayIndex = computed(() => {
   
   const daysDiff = Math.round((taskDate.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24));
   
-  return Math.max(0, Math.min(6, daysDiff));
+  return Math.max(0, Math.min(daysCount.value - 1, daysDiff));
 });
 
-function getVisibleTaskPosition(task: any): number {
+function getVisibleTaskPosition(task: WeekAllDayTask): number {
   return taskPositionsMap.value.get(task.id) || 0;
 }
 
-function getAllDayTaskStyle(task: any) {
+function getAllDayTaskStyle(task: WeekAllDayTask) {
   const leftPercent = (task.startDayOfWeek / daysCount.value) * 100;
   const widthPercent = (task.spanDays / daysCount.value) * 100;
 
@@ -571,18 +737,8 @@ function getAllDayTaskStyle(task: any) {
 }
 
 const currentTimeStyle = computed(() => {
-  const now = currentTime.value;
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  const top = minutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const weekStart = new Date(currentWeekStart.value);
-  weekStart.setHours(0, 0, 0, 0);
-
-  const dayOffset = Math.floor((today.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
-
-  if (dayOffset < 0 || dayOffset >= daysCount.value) {
+  const { top, dayOffset, inRange } = currentTimePlacement.value;
+  if (!inRange) {
     return { display: 'none' };
   }
 
@@ -593,19 +749,25 @@ const currentTimeStyle = computed(() => {
   };
 });
 
-const currentTimeLabelStyle = computed(() => {
+const currentTimePlacement = computed(() => {
   const now = currentTime.value;
   const minutes = now.getHours() * 60 + now.getMinutes();
   const top = minutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
-  
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const weekStart = new Date(currentWeekStart.value);
   weekStart.setHours(0, 0, 0, 0);
-  
+
   const dayOffset = Math.floor((today.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
-  
-  if (dayOffset < 0 || dayOffset > 6) {
+  const inRange = dayOffset >= 0 && dayOffset < daysCount.value;
+
+  return { top, dayOffset, inRange };
+});
+
+const currentTimeLabelStyle = computed(() => {
+  const { top, inRange } = currentTimePlacement.value;
+  if (!inRange) {
     return { display: 'none' };
   }
   
@@ -648,49 +810,171 @@ function showAllTasks() {
   isAllDaySectionCollapsed.value = false;
 }
 
-function handleDragOver(day: any) {
+function clearWeekDragOverState() {
+  dragState.value.overDay = null;
+  dragState.value.overAllDayColumn = null;
+  dragState.value.overDayColumn = null;
+  dragState.value.overHourCell = null;
+}
+
+function handleDragOver(day: WeekDay) {
   dragState.value.overDay = day.key;
 }
 
 function handleDragLeave() {
-  dragState.value.overDay = null;
+  clearWeekDragOverState();
 }
 
-async function handleDrop(day: any) {
-  dragState.value.overDay = null;
-  
-  const event = window.event as DragEvent;
+function getDraggedTaskFromWindowEvent(): Task | null {
+  const event = window.event as DragEvent | undefined;
   const taskData = event?.dataTransfer?.getData('application/json');
-  
-  if (!taskData) return;
-  
+  if (!taskData) return null;
+
   try {
-    const task = JSON.parse(taskData) as Task;
-    const dateStr = formatDate(day.date);
-    
-    const taskIndex = localTasks.value.findIndex(t => t.id === task.id);
-    if (taskIndex !== -1) {
-      const updatedTask = {
-        ...localTasks.value[taskIndex],
-        startDate: dateStr,
-        dueDate: dateStr,
-        startTime: undefined,
-        dueTime: undefined
-      };
-      localTasks.value[taskIndex] = updatedTask;
-      emit('taskDateChanged', updatedTask);
-    } else {
-      const newTask = {
-        ...task,
-        startDate: dateStr,
-        dueDate: dateStr,
-        startTime: undefined,
-        dueTime: undefined
-      };
-      localTasks.value = [...localTasks.value, newTask];
-      emit('taskDateChanged', newTask);
+    return JSON.parse(taskData) as Task;
+  } catch {
+    return null;
+  }
+}
+
+function isRepeatTask(task: Task): boolean {
+  return !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+}
+
+function getDayDiff(fromDate: string, toDate: string): number {
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  from.setHours(0, 0, 0, 0);
+  to.setHours(0, 0, 0, 0);
+  return Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function shiftDate(dateStr: string, deltaDays: number): string {
+  const date = new Date(dateStr);
+  date.setDate(date.getDate() + deltaDays);
+  return formatDate(date);
+}
+
+async function applyRepeatSeriesDrop(
+  task: Task,
+  payload: { targetDate: string; startTime?: string; dueTime?: string; clearTime?: boolean }
+): Promise<boolean> {
+  if (!isRepeatTask(task)) return false;
+
+  const series = await getRepeatSeriesForTask(task);
+  if (!series) return false;
+
+  const deltaDays = getDayDiff(series.startDate, payload.targetDate);
+  const nextSeriesStart = shiftDate(series.startDate, deltaDays);
+  const nextSeriesEnd = series.endDate ? shiftDate(series.endDate, deltaDays) : null;
+
+  for (const candidate of localTasks.value) {
+    const belongsToSeries =
+      candidate.repeatSeriesId === series.id
+      || (
+        !candidate.isVirtual
+        && !!series.templateBlockId
+        && candidate.blockId === series.templateBlockId
+      );
+    if (!belongsToSeries) continue;
+
+    const baseStart = candidate.startDate || candidate.dueDate || series.startDate;
+    const baseDue = candidate.dueDate || candidate.startDate || baseStart;
+    const patch: Partial<Task> = {
+      startDate: shiftDate(baseStart, deltaDays),
+      dueDate: shiftDate(baseDue, deltaDays)
+    };
+
+    if (payload.clearTime) {
+      patch.startTime = undefined;
+      patch.dueTime = undefined;
+    } else if (payload.startTime && payload.dueTime) {
+      patch.startTime = payload.startTime;
+      patch.dueTime = payload.dueTime;
     }
-    
+
+    patchLocalTask(candidate.id, patch);
+  }
+
+  const seriesTasksForSync = localTasks.value.filter(item =>
+    item.repeatSeriesId === series.id
+    || (
+      !item.isVirtual
+      && !!series.templateBlockId
+      && item.blockId === series.templateBlockId
+    )
+  );
+  seriesTasksForSync.forEach((item) => {
+    emitTaskDateChanged(item);
+  });
+
+  const templateTask = seriesTasksForSync.find(item =>
+    !item.isVirtual && (
+      item.repeatSeriesId === series.id
+      || (!!series.templateBlockId && item.blockId === series.templateBlockId)
+    )
+  );
+  if (templateTask) {
+    emitTaskDateChanged(templateTask);
+  }
+
+  try {
+    await updateRepeatSeriesDates(
+      task,
+      nextSeriesStart,
+      nextSeriesEnd,
+      {
+        startTime: payload.clearTime ? null : (payload.startTime || null),
+        dueTime: payload.clearTime ? null : (payload.dueTime || null)
+      }
+    );
+  } catch (error) {
+  }
+
+  const templateBlockId = series.templateBlockId || templateTask?.blockId;
+  if (templateBlockId) {
+    const attrs: Record<string, string | null> = {
+      'custom-task-start-date': nextSeriesStart || '',
+      'custom-task-due-date': nextSeriesEnd || ''
+    };
+    if (payload.clearTime) {
+      attrs['custom-task-start-time'] = null;
+      attrs['custom-task-due-time'] = null;
+    } else if (payload.startTime && payload.dueTime) {
+      attrs['custom-task-start-time'] = payload.startTime;
+      attrs['custom-task-due-time'] = payload.dueTime;
+    }
+    try {
+      await setBlockAttrs(templateBlockId, attrs);
+    } catch (error) {
+    }
+  }
+
+  return true;
+}
+
+async function handleDrop(day: WeekDay) {
+  clearWeekDragOverState();
+
+  const task = getDraggedTaskFromWindowEvent();
+  if (!task) return;
+
+  try {
+    const dateStr = formatDate(day.date);
+    const handledBySeries = await applyRepeatSeriesDrop(task, {
+      targetDate: dateStr,
+      clearTime: true
+    });
+    if (handledBySeries) return;
+
+    const updatedTask = upsertLocalTask(task, {
+      startDate: dateStr,
+      dueDate: dateStr,
+      startTime: undefined,
+      dueTime: undefined
+    });
+    emitTaskDateChanged(updatedTask);
+
     if (task.type === 'block' && task.blockId) {
       await setBlockAttrs(task.blockId, {
         'custom-task-start-date': dateStr,
@@ -703,16 +987,13 @@ async function handleDrop(day: any) {
   }
 }
 
-async function handleDropOnHourCell(day: any, hour: number) {
-  dragState.value.overHourCell = null;
-  
-  const event = window.event as DragEvent;
-  const taskData = event?.dataTransfer?.getData('application/json');
-  
-  if (!taskData) return;
-  
+async function handleDropOnHourCell(day: WeekDay, hour: number) {
+  clearWeekDragOverState();
+
+  const task = getDraggedTaskFromWindowEvent();
+  if (!task) return;
+
   try {
-    const task = JSON.parse(taskData) as Task;
     const actualHour = hour - 1;
     const date = new Date(day.date);
     date.setHours(actualHour, 0, 0, 0);
@@ -721,68 +1002,217 @@ async function handleDropOnHourCell(day: any, hour: number) {
     const startTime = formatTime(date);
     const dueDate = formatDate(date);
     const dueTime = formatTime(new Date(date.getTime() + 60 * 60 * 1000));
-    
-    const taskIndex = localTasks.value.findIndex(t => t.id === task.id);
-    if (taskIndex !== -1) {
-      localTasks.value[taskIndex] = {
-        ...localTasks.value[taskIndex],
-        startDate: startDate,
-        dueDate: dueDate,
-        startTime: startTime,
-        dueTime: dueTime
-      };
-    } else {
-      const newTask = {
-        ...task,
-        startDate: startDate,
-        dueDate: dueDate,
-        startTime: startTime,
-        dueTime: dueTime
-      };
-      localTasks.value = [...localTasks.value, newTask];
-      emit('taskDateChanged', newTask);
-    }
-    
+
+    const handledBySeries = await applyRepeatSeriesDrop(task, {
+      targetDate: startDate,
+      startTime,
+      dueTime,
+      clearTime: false
+    });
+    if (handledBySeries) return;
+
+    const updatedTask = upsertLocalTask(task, {
+      startDate,
+      dueDate,
+      startTime,
+      dueTime
+    });
+    emitTaskDateChanged(updatedTask);
+
     await saveTaskAttrs(task, {
-      'custom-task-start-date': startDate,
-      'custom-task-start-time': startTime,
-      'custom-task-due-date': dueDate,
-      'custom-task-due-time': dueTime
+      'custom-task-start-date': updatedTask.startDate || '',
+      'custom-task-start-time': updatedTask.startTime || '',
+      'custom-task-due-date': updatedTask.dueDate || '',
+      'custom-task-due-time': updatedTask.dueTime || ''
     });
   } catch (error) {
   }
 }
 
-function handleHourCellDragOver(day: any, hour: number) {
+function handleHourCellDragOver(day: WeekDay, hour: number) {
   dragState.value.overHourCell = `${day.key}-${hour}`;
 }
 
 function handleHourCellDragLeave() {
-  dragState.value.overHourCell = null;
+  clearWeekDragOverState();
+}
+
+function handleAllDayMouseDown(day: WeekDay, event: MouseEvent) {
+  if (event.button !== 0) return;
+  allDayCreateSelection.value = {
+    active: true,
+    startDay: day.key,
+    endDay: day.key,
+    startX: event.clientX,
+    startY: event.clientY,
+    passedThreshold: false
+  };
+}
+
+function handleAllDayMouseEnter(day: WeekDay) {
+  if (!allDayCreateSelection.value?.active) return;
+  allDayCreateSelection.value.endDay = day.key;
+}
+
+function isAllDayInCreateSelection(dayKey: string): boolean {
+  if (!allDayCreateSelection.value?.active || !allDayCreateSelection.value.passedThreshold) return false;
+  const { startDay, endDay } = allDayCreateSelection.value;
+  const from = startDay <= endDay ? startDay : endDay;
+  const to = startDay <= endDay ? endDay : startDay;
+  return dayKey >= from && dayKey <= to;
+}
+
+function handleHourCellMouseDown(day: WeekDay, hour: number, event: MouseEvent) {
+  if (event.button !== 0) return;
+  const quarter = getQuarterFromClientY(day.key, event.clientY) ?? ((hour - 1) * QUARTERS_PER_HOUR);
+  timedCreateSelection.value = {
+    active: true,
+    dayKey: day.key,
+    startQuarter: quarter,
+    endQuarter: quarter,
+    startX: event.clientX,
+    startY: event.clientY,
+    passedThreshold: false
+  };
+}
+
+function handleHourCellMouseEnter(day: WeekDay, hour: number) {
+  if (!timedCreateSelection.value?.active) return;
+  if (timedCreateSelection.value.dayKey !== day.key) return;
+  timedCreateSelection.value.endQuarter = Math.min(TOTAL_QUARTERS_PER_DAY - 1, hour * QUARTERS_PER_HOUR - 1);
+}
+
+function getTimedCreateSelectionStyle(dayKey: string): Record<string, string> | null {
+  const selection = timedCreateSelection.value;
+  if (!selection?.active || !selection.passedThreshold) return null;
+  if (selection.dayKey !== dayKey) return null;
+
+  const fromQuarter = Math.min(selection.startQuarter, selection.endQuarter);
+  const toQuarter = Math.max(selection.startQuarter, selection.endQuarter);
+  const quarterHeight = CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / QUARTERS_PER_HOUR;
+
+  return {
+    top: `${fromQuarter * quarterHeight}px`,
+    height: `${(toQuarter - fromQuarter + 1) * quarterHeight}px`
+  };
+}
+
+function handleCreateSelectionMouseMove(event: MouseEvent) {
+  const timedSelection = timedCreateSelection.value;
+  if (timedSelection?.active && !timedSelection.passedThreshold) {
+    const dx = event.clientX - timedSelection.startX;
+    const dy = event.clientY - timedSelection.startY;
+    if (Math.hypot(dx, dy) >= CREATE_SELECTION_THRESHOLD_PX) {
+      timedSelection.passedThreshold = true;
+    }
+    const quarter = getQuarterFromClientY(timedSelection.dayKey, event.clientY);
+    if (quarter !== null) {
+      timedSelection.endQuarter = quarter;
+    }
+    return;
+  }
+
+  if (timedSelection?.active) {
+    const quarter = getQuarterFromClientY(timedSelection.dayKey, event.clientY);
+    if (quarter !== null) {
+      timedSelection.endQuarter = quarter;
+    }
+    return;
+  }
+
+  const allDaySelection = allDayCreateSelection.value;
+  if (allDaySelection?.active && !allDaySelection.passedThreshold) {
+    const dx = event.clientX - allDaySelection.startX;
+    const dy = event.clientY - allDaySelection.startY;
+    if (Math.hypot(dx, dy) >= CREATE_SELECTION_THRESHOLD_PX) {
+      allDaySelection.passedThreshold = true;
+    }
+  }
+}
+
+function getQuarterFromClientY(dayKey: string, clientY: number): number | null {
+  const dayColumn = document.querySelector(`.day-column[data-day-key="${dayKey}"]`) as HTMLElement | null;
+  if (!dayColumn) return null;
+  const rect = dayColumn.getBoundingClientRect();
+  const dayHeight = CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT * 24;
+  const offsetY = Math.max(0, Math.min(clientY - rect.top, dayHeight - 1));
+  return Math.floor(offsetY / (CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / QUARTERS_PER_HOUR));
+}
+
+function quarterToTime(quarter: number): string {
+  const clampedQuarter = Math.max(0, Math.min(TOTAL_QUARTERS_PER_DAY - 1, quarter));
+  const totalMinutes = clampedQuarter * MINUTES_PER_QUARTER;
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function quarterToEndTime(quarter: number): string {
+  const clampedQuarter = Math.max(0, Math.min(TOTAL_QUARTERS_PER_DAY - 1, quarter));
+  const endMinutes = (clampedQuarter + 1) * MINUTES_PER_QUARTER;
+  if (endMinutes >= 24 * 60) {
+    return '23:59';
+  }
+  const hour = Math.floor(endMinutes / 60);
+  const minute = endMinutes % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function finishCreateSelection() {
+  if (timedCreateSelection.value?.active) {
+    const selection = timedCreateSelection.value;
+    const passedThreshold = selection.passedThreshold;
+    const startQuarter = Math.min(selection.startQuarter, selection.endQuarter);
+    const endQuarter = Math.max(selection.startQuarter, selection.endQuarter);
+    const startTime = quarterToTime(startQuarter);
+    const dueTime = quarterToEndTime(endQuarter);
+    timedCreateSelection.value = null;
+    if (!passedThreshold) return;
+
+    emit('taskCreateRequested', {
+      startDate: selection.dayKey,
+      dueDate: selection.dayKey,
+      startTime,
+      dueTime,
+      allDay: false
+    });
+    return;
+  }
+
+  if (allDayCreateSelection.value?.active) {
+    const selection = allDayCreateSelection.value;
+    const passedThreshold = selection.passedThreshold;
+    const from = selection.startDay <= selection.endDay ? selection.startDay : selection.endDay;
+    const to = selection.startDay <= selection.endDay ? selection.endDay : selection.startDay;
+    allDayCreateSelection.value = null;
+    if (!passedThreshold) return;
+
+    emit('taskCreateRequested', {
+      startDate: from,
+      dueDate: to,
+      allDay: true
+    });
+  }
 }
 
 const tasksByDay = computed(() => {
-  const grouped = new Map<string, Array<{ task: Task; renderDate: string; renderStartDate: string; renderStartTime: string; renderDueDate: string; renderDueTime: string }>>();
+  const grouped = new Map<string, TimedTaskRenderItem[]>();
   
   for (const day of weekDays.value) {
     grouped.set(day.key, []);
   }
   
-  for (const task of timedTasks.value) {
-    const taskStartDate = task.startDate || task.dueDate;
-    const taskDueDate = task.dueDate || task.startDate;
-    
+  for (const timedRange of timedTaskRanges.value) {
+    const { task, taskStartDate, taskDueDate, startDate, endDate } = timedRange;
     if (!taskStartDate || !taskDueDate) continue;
     
-    const startDate = new Date(taskStartDate);
-    const dueDate = new Date(taskDueDate);
-    
     for (const day of weekDays.value) {
-      const dayDate = new Date(day.key);
+      const dayDate = new Date(day.date);
+      dayDate.setHours(0, 0, 0, 0);
       
-      if (dayDate >= startDate && dayDate <= dueDate) {
-        const isStartDay = dayDate.getTime() === startDate.getTime();
-        const isEndDay = dayDate.getTime() === dueDate.getTime();
+      if (dayDate >= startDate && dayDate <= endDate) {
+        const isStartDay = day.key === taskStartDate;
+        const isEndDay = day.key === taskDueDate;
         
         const renderStartDate = isStartDay ? taskStartDate : day.key;
         const renderDueDate = isEndDay ? taskDueDate : day.key;
@@ -800,11 +1230,16 @@ const tasksByDay = computed(() => {
       }
     }
   }
+
+  for (const day of weekDays.value) {
+    const dayItems = grouped.get(day.key) || [];
+    grouped.set(day.key, assignTimedTaskLanes(dayItems));
+  }
   
   return grouped;
 });
 
-function getTimedTaskStyle(item: { task: Task; renderDate: string; renderStartDate: string; renderStartTime: string; renderDueDate: string; renderDueTime: string }) {
+function getTimedTaskStyle(item: TimedTaskRenderItem) {
   const startTime = item.renderStartTime;
   const endTime = item.renderDueTime;
   
@@ -820,18 +1255,63 @@ function getTimedTaskStyle(item: { task: Task; renderDate: string; renderStartDa
   const bgColor = item.task.backgroundColor
     ? `var(--b3-font-${item.task.backgroundColor})`
     : 'var(--b3-font-background9)';
+
+  const laneCount = Math.max(1, item.laneCount || 1);
+  const laneIndex = Math.min(Math.max(0, item.laneIndex || 0), laneCount - 1);
+  const laneGap = 4;
+  const horizontalInset = 10;
+  const totalGap = (laneCount - 1) * laneGap;
   
-  return {
+  const style: Record<string, string> = {
     top: `${top}px`,
     height: `${height}px`,
     backgroundColor: bgColor
   };
+
+  if (laneCount === 1) {
+    style.left = '4px';
+    style.right = '4px';
+    return style;
+  }
+
+  const laneWidth = `calc((100% - ${horizontalInset}px - ${totalGap}px) / ${laneCount})`;
+  style.left = `calc(4px + ${laneIndex} * (${laneWidth} + ${laneGap}px))`;
+  style.width = laneWidth;
+  style.right = 'auto';
+  return style;
 }
 
-function getTaskTimeRange(item: { task: Task; renderDate: string; renderStartDate: string; renderStartTime: string; renderDueDate: string; renderDueTime: string }) {
+function getTaskTimeRange(item: TimedTaskRenderItem) {
   const startTime = item.renderStartTime;
   const endTime = item.renderDueTime;
   return `${startTime} - ${endTime}`;
+}
+
+async function toggleTaskStatus(task: Task) {
+  const currentTask = localTasks.value.find(t => t.id === task.id);
+  if (!currentTask) return;
+  const previousStatus = currentTask.status;
+  const nextStatus = previousStatus === 'completed' ? 'pending' : 'completed';
+  const previousCompletedAt = currentTask.completedAt;
+
+  const updatedTask = patchLocalTask(task.id, {
+    status: nextStatus,
+    completedAt: nextStatus === 'completed' ? new Date().toISOString() : undefined
+  });
+  if (!updatedTask) return;
+
+  try {
+    if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate) {
+      await TaskRepository.updateRepeatInstanceStatus(task, nextStatus);
+    } else if (task.type === 'block' && task.blockId) {
+      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true);
+    }
+  } catch (error) {
+    patchLocalTask(task.id, {
+      status: previousStatus,
+      completedAt: previousCompletedAt
+    });
+  }
 }
 
 function handleTaskClick(task: Task) {
@@ -848,6 +1328,33 @@ function handleContextMenu(event: MouseEvent, task: Task) {
     y: event.clientY,
     task
   };
+  contextMenuDateDraft.value = {
+    startDate: task.startDate || '',
+    dueDate: task.dueDate || ''
+  };
+  contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  if (isRepeatTask) {
+    getRepeatSeriesForTask(task)
+      .then((series) => {
+        if (!series) return;
+        if (contextMenu.value.task?.id !== task.id) return;
+        contextMenuDateDraft.value = {
+          startDate: series.startDate || '',
+          dueDate: series.endDate || ''
+        };
+      })
+      .catch(() => {});
+  }
+
+  TaskRepository.getTaskRepeatRule(task)
+    .then((frequency) => {
+      if (contextMenu.value.task?.id === task.id) {
+        contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(frequency);
+      }
+    })
+    .catch(() => {});
 
   document.addEventListener('click', hideContextMenu, { once: true });
 }
@@ -859,38 +1366,177 @@ function hideContextMenu() {
     y: 0,
     task: null
   };
+  contextMenuDateDraft.value = { startDate: '', dueDate: '' };
+  contextMenuRepeatFrequency.value = 'none';
+}
+
+async function applyTaskDates(task: Task) {
+  if (!task) return;
+
+  const nextStartDate = contextMenuDateDraft.value.startDate || null;
+  let nextDueDate = contextMenuDateDraft.value.dueDate || null;
+  if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
+    nextDueDate = nextStartDate;
+  }
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  if (isRepeatTask) {
+    const updatedSeries = await updateRepeatSeriesDates(task, nextStartDate, nextDueDate);
+    if (updatedSeries) {
+      const seriesId = task.repeatSeriesId;
+      const templateTask = !task.isVirtual
+        ? task
+        : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
+      if (templateTask) {
+        const updatedTask = patchLocalTask(templateTask.id, {
+          startDate: updatedSeries.startDate || null,
+          dueDate: updatedSeries.endDate || null
+        });
+        if (updatedTask) {
+          emitTaskDateChanged(updatedTask);
+        }
+        if (templateTask.type === 'block' && templateTask.blockId) {
+          try {
+            await setBlockAttrs(templateTask.blockId, {
+              'custom-task-start-date': updatedSeries.startDate || '',
+              'custom-task-due-date': updatedSeries.endDate || ''
+            });
+          } catch (error) {
+          }
+        }
+      }
+      hideContextMenu();
+      return;
+    }
+  }
+
+  const updatedTask = patchLocalTask(task.id, {
+    startDate: nextStartDate,
+    dueDate: nextDueDate
+  });
+  if (updatedTask) {
+    emitTaskDateChanged(updatedTask);
+  }
+
+  if (task.type === 'block' && task.blockId) {
+    try {
+      await setBlockAttrs(task.blockId, {
+        'custom-task-start-date': nextStartDate || '',
+        'custom-task-due-date': nextDueDate || ''
+      });
+    } catch (error) {
+    }
+  }
+
+  hideContextMenu();
+}
+
+async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
+  if (!task) return;
+  contextMenuRepeatFrequency.value = frequency;
+  if (frequency === 'none') {
+    patchLocalTask(task.id, {
+      repeatFrequency: 'none',
+      repeatSeriesId: undefined,
+      repeatInstanceDate: undefined,
+      isVirtual: false
+    });
+  } else {
+    patchLocalTask(task.id, { repeatFrequency: frequency });
+  }
+  try {
+    await TaskRepository.setTaskRepeatRule(task, frequency);
+    hideContextMenu();
+  } catch (error) {
+  }
 }
 
 async function setTaskBackgroundColor(task: Task, color: string) {
-  const index = localTasks.value.findIndex(t => t.id === task.id);
-  if (index !== -1) {
-    localTasks.value[index].backgroundColor = color;
-    emit('taskDateChanged', localTasks.value[index]);
+  const updatedTask = patchLocalTask(task.id, { backgroundColor: color });
+  if (updatedTask) {
+    emitTaskDateChanged(updatedTask);
+  }
 
-    if (task.type === 'block' && task.blockId) {
-      try {
-        await setBlockAttrs(task.blockId, {
-          'custom-task-background-color': color
-        });
-      } catch (error) {
-      }
+  if (updatedTask && task.type === 'block' && task.blockId) {
+    try {
+      await setBlockAttrs(task.blockId, {
+        'custom-task-background-color': color
+      });
+    } catch (error) {
     }
   }
   hideContextMenu();
 }
 
 async function deleteTask(task: Task) {
+  const seriesId = task.repeatSeriesId;
+  const isRepeatTask = !!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+
+  if (isRepeatTask) {
+    const templateTask = !task.isVirtual
+      ? task
+      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
+
+    try {
+      await TaskRepository.setTaskRepeatRule(templateTask || task, 'none');
+    } catch (error) {
+    }
+
+    if (seriesId) {
+      localTasks.value = localTasks.value.filter(
+        item => !(item.isVirtual && item.repeatSeriesId === seriesId)
+      );
+    }
+
+    const targetTask = templateTask || (!task.isVirtual ? task : null);
+    if (targetTask) {
+      if (targetTask.type === 'block' && targetTask.blockId) {
+        try {
+          await setBlockAttrs(targetTask.blockId, {
+            'custom-task-start-date': '',
+            'custom-task-due-date': '',
+            'custom-task-start-time': '',
+            'custom-task-due-time': ''
+          });
+        } catch (error) {
+        }
+      }
+
+      const updatedTask = patchLocalTask(targetTask.id, {
+        startDate: null,
+        dueDate: null,
+        startTime: undefined,
+        dueTime: undefined,
+        repeatFrequency: 'none',
+        repeatSeriesId: undefined,
+        repeatInstanceDate: undefined,
+        isVirtual: false
+      });
+      if (updatedTask) {
+        emitTaskDateChanged(updatedTask);
+      }
+    }
+
+    hideContextMenu();
+    return;
+  }
+
   if (task.type === 'block' && task.blockId) {
     try {
       await setBlockAttrs(task.blockId, {
         'custom-task-start-date': '',
-        'custom-task-due-date': ''
+        'custom-task-due-date': '',
+        'custom-task-start-time': '',
+        'custom-task-due-time': ''
       });
-      const index = localTasks.value.findIndex(t => t.id === task.id);
-      if (index !== -1) {
-        localTasks.value[index].startDate = null;
-        localTasks.value[index].dueDate = null;
-        emit('taskDateChanged', localTasks.value[index]);
+      const updatedTask = patchLocalTask(task.id, {
+        startDate: null,
+        dueDate: null,
+        startTime: undefined,
+        dueTime: undefined
+      });
+      if (updatedTask) {
+        emitTaskDateChanged(updatedTask);
       }
     } catch (error) {
     }
@@ -902,12 +1548,22 @@ onMounted(() => {
   timeUpdateInterval = setInterval(() => {
     currentTime.value = new Date();
   }, 60000);
+  document.addEventListener('mousemove', handleCreateSelectionMouseMove);
+  document.addEventListener('mouseup', finishCreateSelection);
+  document.addEventListener('dragend', clearWeekDragOverState, true);
+  document.addEventListener('drop', clearWeekDragOverState, true);
 });
 
 onUnmounted(() => {
   if (timeUpdateInterval) {
     clearInterval(timeUpdateInterval);
   }
+  document.removeEventListener('mousemove', handleCreateSelectionMouseMove);
+  document.removeEventListener('mouseup', finishCreateSelection);
+  document.removeEventListener('dragend', clearWeekDragOverState, true);
+  document.removeEventListener('drop', clearWeekDragOverState, true);
+  clearWeekDragOverState();
+  taskSyncGuard.clearAllTaskSyncLocks();
   removeEventListeners();
 });
 </script>
@@ -1135,6 +1791,10 @@ onUnmounted(() => {
   box-shadow: inset 0 0 0 2px #3b82f6;
 }
 
+.all-day-column.create-selecting {
+  background: var(--b3-theme-primary-lightest);
+}
+
 .all-day-tasks-layer {
   position: absolute;
   top: 0;
@@ -1195,6 +1855,14 @@ onUnmounted(() => {
   margin: 0 4px;
   cursor: grab;
   user-select: none;
+}
+
+.task-checkbox-wrapper {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
 }
 
 .task-title-text {
@@ -1339,6 +2007,16 @@ onUnmounted(() => {
   border-right: none;
 }
 
+.timed-create-selection {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--b3-theme-primary-lightest);
+  box-shadow: inset 0 0 0 2px var(--b3-theme-primary);
+  pointer-events: none;
+  z-index: 2;
+}
+
 .timed-tasks-layer {
   position: absolute;
   top: 0;
@@ -1480,109 +2158,4 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-.context-menu {
-  position: fixed;
-  background: var(--b3-theme-surface);
-  border: 1px solid var(--b3-border-color);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
-  min-width: 200px;
-  padding: 8px;
-  animation: contextMenuFadeIn 0.15s ease-out;
-}
-
-@keyframes contextMenuFadeIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.context-menu-section {
-  padding: 4px;
-  margin-bottom: 8px;
-}
-
-.context-menu-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.7;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-  padding: 0 4px;
-}
-
-.task-color-picker {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-  padding: 4px;
-}
-
-.color-option {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  border: 2px solid transparent;
-  position: relative;
-}
-
-.color-option:hover {
-  border-color: var(--b3-border-color);
-}
-
-.color-option.selected {
-  border-color: var(--b3-border-color);
-}
-
-.context-menu-divider {
-  height: 1px;
-  background: var(--b3-border-color);
-  margin: 8px 4px;
-}
-
-.context-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  cursor: pointer;
-  color: var(--b3-theme-on-background);
-  font-size: 13px;
-  border-radius: 6px;
-  transition: all 0.15s ease;
-  font-weight: 400;
-}
-
-.context-menu-item:hover {
-  background: var(--b3-list-hover);
-}
-
-.context-menu-item.delete-item {
-  color: #ef4444;
-}
-
-.context-menu-item.delete-item:hover {
-  background: #fef2f2;
-  color: #dc2626;
-}
-
-.context-menu-item svg {
-  flex-shrink: 0;
-  opacity: 0.8;
-  transition: opacity 0.15s;
-}
-
-.context-menu-item:hover svg {
-  opacity: 1;
-}
 </style>

@@ -17,7 +17,7 @@
         <SyButton size="small" class="view-all-button" @click="openKanbanView">
           查看所有
         </SyButton>
-      </div>
+    </div>
     </div>
     
     <div class="filters-bar" v-show="!isTaskListCollapsed">
@@ -53,7 +53,7 @@
           `priority-${task.priority}`,
           { 'task-completed': task.status === 'completed' }
         ]"
-        draggable="true"
+        :draggable="!isMobileFrontend"
         @dragstart="handleDragStart($event, task)"
         @contextmenu.prevent="handleTaskContextMenu($event, task)"
       >
@@ -62,7 +62,7 @@
             <div class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
               <TaskCheckbox :checked="task.status === 'completed'" :size="18" />
             </div>
-            <div class="task-title" v-html="task.title"></div>
+            <div class="task-title" v-html="sanitizeTaskTitleHtml(task.title)"></div>
             <div class="task-badges">
               <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
                 <Icon name="flag" width="12" height="12" />
@@ -82,7 +82,7 @@
             </div>
           </div>
           
-          <div v-if="!editingTasks.has(task.id) && task.description && (expandedDescriptions.has(task.id) || expandedSubtasks.has(task.id))" class="task-description" v-html="task.description">
+          <div v-if="!editingTasks.has(task.id) && task.description && (expandedDescriptions.has(task.id) || expandedSubtasks.has(task.id))" class="task-description" v-html="sanitizeTaskHtml(task.description)">
           </div>
           
           <div v-if="editingTasks.has(task.id)" class="task-edit-panel" @click.stop>
@@ -134,8 +134,8 @@
       :t="t"
       :notebooks="notebooks"
       :documents="allDocuments"
-      :lastSelectedNotebook="lastTaskNotebook"
-      :lastSelectedDocument="lastTaskDocument"
+      :lastSelectedNotebook="taskModalDefaultNotebook"
+      :lastSelectedDocument="taskModalDefaultDocument"
       @close="showTaskModal = false"
       @submit="handleCreateTask"
     />
@@ -144,14 +144,15 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { getFrontend } from 'siyuan';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubTaskItem from '@/components/SubtaskItem.vue';
 import TaskModal, { Notebook, Document } from '@/components/TaskModal.vue';
 import Icon from '@/components/Icon.vue';
-import { TaskRepository, Task, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs } from '@/api';
-import { updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
+import { TaskRepository, Task, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs, getBlockKramdown } from '@/api';
+import { updateTaskMarkdown, skipTaskTemporarily, cleanTaskTitle } from '@/utils/taskHelpers';
 import { openKanbanView } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useTaskFilters } from '@/composables/useTaskFilters';
@@ -163,7 +164,7 @@ const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 
 const t = (key: string) => {
   const lang = window.siyuan?.languages || {};
-  const defaultLang = {
+  const defaultLang: Record<string, string> = {
     'taskManager.title': '任务管理',
     'taskManager.status': '状态',
     'taskManager.statusAll': '全部',
@@ -182,7 +183,7 @@ const t = (key: string) => {
     'taskManager.document': '文档',
     'taskManager.filter': '筛选',
     'taskManager.refresh': '刷新',
-    'taskManager.addTask': '添加任务',
+    'taskManager.addTask': '新建任务',
     'taskManager.expandAll': '展开全部',
     'taskManager.collapseAll': '收起全部',
     'taskManager.taskList': '任务列表',
@@ -191,11 +192,18 @@ const t = (key: string) => {
     'taskManager.dueDate': '截止日期',
     'taskManager.save': '保存'
   };
-  return lang[key] || defaultLang[key] || key;
+  return (lang as Record<string, string>)[key] || defaultLang[key] || key;
 };
 
 const crdtRepo = getCrdtRepository();
-const { tasks, syncFromSQL } = useCrdtTasks();
+const { tasks } = useCrdtTasks();
+let isMobileFrontend = false;
+try {
+  const frontend = getFrontend();
+  isMobileFrontend = frontend === 'mobile' || frontend === 'browser-mobile';
+} catch {
+  isMobileFrontend = false;
+}
 const loading = ref(false);
 const showTaskModal = ref(false);
 const lastTaskNotebook = ref<string>('');
@@ -231,6 +239,21 @@ function stopSkipSetCleanup() {
 const filterNotebook = ref<string>('all');
 const filterDocument = ref<string>('all');
 
+const taskModalDefaultNotebook = computed(() => {
+  if (filterNotebook.value !== 'all') {
+    return filterNotebook.value;
+  }
+  return lastTaskNotebook.value || '';
+});
+
+const taskModalDefaultDocument = computed(() => {
+  if (filterNotebook.value !== 'all' && filterDocument.value !== 'all') {
+    return filterDocument.value;
+  }
+  return lastTaskDocument.value || '';
+});
+let filterSettingsUpdateTimer: number | null = null;
+
 const notebookOptions = computed(() => {
   return [
     { value: 'all', text: t('taskManager.all') },
@@ -246,12 +269,14 @@ let lastRefreshTime = 0;
 
 let eventUnsubscribers: Array<() => void> = [];
 const processingBlockIds = new Set<string>();
+let fallbackRefreshTimer: number | null = null;
+const FALLBACK_FAILURE_THRESHOLD = 2;
+let consecutiveFallbackFailures = 0;
 
-// 记录刚刚删除日期的任务，防止被后续的增量更新覆盖
+// 鬯ｮ・ｫ繝ｻ・ｶ郢晢ｽｻ繝ｻ・ｰ鬮ｯ貊・束隴ｯ竏壹・繝ｻ・ｿ郢晢ｽｻ繝ｻ・ｽE鬮ｯ蜈ｷ・ｽ・ｻ髯橸ｽ｢繝ｻ・ｼ髯ｷ螢ｼ・､諛ｶ・ｽ・ｫ繝ｻ・ｯ郢晢ｽｻ繝ｻ・､鬮ｫ・ｴ鬲・ｼ夲ｽｽ・ｽ繝ｻ・･鬮ｫ・ｴ陝ｶ・ｶ繝ｻ・ｺ繝ｻ・ｽ髯懆ｶ｣・ｽ・ｪ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽE驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｮ繝ｻ・ｦ郢晢ｽｻ繝ｻ・ｲ鬮ｮ蠑ｱ繝ｻ繝ｻ・ｽ繝ｻ・｢鬯ｮ・ｯ繝ｻ・ｲ郢晢ｽｻ繝ｻ・ｫ鬮ｯ・ｷ繝ｻ・ｷ髯橸ｽｳ髣鯉ｽｨ繝ｻ・ｽ繝ｻ・ｻ郢晢ｽｻ繝ｻ・ｭ鬯ｨ・ｾ繝ｻ・ｧ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｩ繝ｻ・･髣包ｽｵ隲､諛ｶ・ｽ・ｳ繝ｻ・ｩ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬯ｮ・ｫ髴域鱒繝ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ
 const recentlyDeletedDates = ref(new Map<string, { startDate: null; dueDate: null; timestamp: number }>());
 
-// 记录刚刚更新日期的任务，防止被后续的增量更新覆盖
-const recentlyUpdatedDates = ref(new Map<string, { startDate: string | null; dueDate: string | null; timestamp: number }>());
+// 鬯ｮ・ｫ繝ｻ・ｶ郢晢ｽｻ繝ｻ・ｰ鬮ｯ貊・束隴ｯ竏壹・繝ｻ・ｿ郢晢ｽｻ繝ｻ・ｽE鬮ｯ蜈ｷ・ｽ・ｻ髯橸ｽ｢繝ｻ・ｽ髯晢ｽｲ繝ｻ・ｩ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬮ｫ・ｴ鬲・ｼ夲ｽｽ・ｽ繝ｻ・･鬮ｫ・ｴ陝ｶ・ｶ繝ｻ・ｺ繝ｻ・ｽ髯懆ｶ｣・ｽ・ｪ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽE驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｮ繝ｻ・ｦ郢晢ｽｻ繝ｻ・ｲ鬮ｮ蠑ｱ繝ｻ繝ｻ・ｽ繝ｻ・｢鬯ｮ・ｯ繝ｻ・ｲ郢晢ｽｻ繝ｻ・ｫ鬮ｯ・ｷ繝ｻ・ｷ髯橸ｽｳ髣鯉ｽｨ繝ｻ・ｽ繝ｻ・ｻ郢晢ｽｻ繝ｻ・ｭ鬯ｨ・ｾ繝ｻ・ｧ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｩ繝ｻ・･髣包ｽｵ隲､諛ｶ・ｽ・ｳ繝ｻ・ｩ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬯ｮ・ｫ髴域鱒繝ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ
 
 interface TaskIndex {
   task: Task;
@@ -261,8 +286,9 @@ interface TaskIndex {
 
 const blockIdToTaskIndex = new Map<string, TaskIndex>();
 const subtaskToParentMap = new Map<string, string>();
+const sanitizedHtmlCache = new Map<string, string>();
 
-// === 优化的文档过滤逻辑：按笔记本分组，一次计算 ===
+// === 鬮｣雋ｻ・ｽ・ｨ髣費ｽｨ隲幢ｽｷ陝・・・ｨ・ｾ繝ｻ・ｧ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮ｫ・ｴ繝ｻ・ｯ郢晢ｽｻ繝ｻ・｣鬯ｮ・ｴ闔会ｽ｣郢晢ｽｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｨ繝ｻ・ｾ郢晢ｽｻ繝ｻ・ｻ鬯ｮ・ｴ陷ｿ蛹・ｽｱ螢ｹ繝ｻ繝ｻ・ｼ髯橸ｽ｢繝ｻ・ｽ髮句ｮ茨ｽｧ莨懈・鬩募争豎壹・・ｽ繝ｻ・ｮ郢晢ｽｻ繝ｻ・ｰ鬮ｫ・ｴ陝ｷ・｢繝ｻ・ｽ繝ｻ・ｬ鬮ｯ蜈ｷ・ｽ・ｻ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽE驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮｣蛹・ｽｽ・ｳ繝ｻ縺､ﾂ鬮ｫ・ｹ繝ｻ・ｺ郢晢ｽｻ繝ｻ・｡鬯ｮ・ｫ繝ｻ・ｶ郢晢ｽｻ繝ｻ・｡鬯ｩ髦ｪ・・ｹ晢ｽｻ===
 const docsMapByNotebook = computed(() => {
   const map = new Map<string, Document[]>();
   
@@ -305,26 +331,43 @@ const documentOptions = computed(() => {
   ];
 });
 
-watch(filterNotebook, async (newNotebook) => {
-  if (newNotebook === 'all') {
-    filterDocument.value = 'all';
-  } else {
+function normalizeDocumentSelection(notebookId: string): void {
+  if (notebookId === 'all') {
+    if (filterDocument.value !== 'all') {
+      filterDocument.value = 'all';
+    }
+    return;
+  }
+
+  if (filterDocument.value !== 'all') {
     const availableDocs = documentOptions.value.map(d => d.value);
-    if (filterDocument.value !== 'all' && !availableDocs.includes(filterDocument.value)) {
+    if (!availableDocs.includes(filterDocument.value)) {
       filterDocument.value = 'all';
     }
   }
-  
-  await updateSettings('taskManager', {
-    filterNotebook: filterNotebook.value,
-    filterDocument: filterDocument.value
-  });
-});
+}
 
-watch(filterDocument, async () => {
-  await updateSettings('taskManager', {
-    filterDocument: filterDocument.value
-  });
+function scheduleFilterSettingsUpdate() {
+  if (filterSettingsUpdateTimer !== null) {
+    clearTimeout(filterSettingsUpdateTimer);
+  }
+
+  filterSettingsUpdateTimer = window.setTimeout(async () => {
+    await updateSettings('taskManager', {
+      filterNotebook: filterNotebook.value,
+      filterDocument: filterDocument.value
+    });
+  }, 200);
+}
+
+watch([filterNotebook, filterDocument], ([newNotebook]) => {
+  const previousDocument = filterDocument.value;
+  normalizeDocumentSelection(newNotebook);
+  if (filterDocument.value !== previousDocument) {
+    return;
+  }
+
+  scheduleFilterSettingsUpdate();
 });
 
 const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
@@ -336,7 +379,7 @@ const taskFilters = {
   document: filterDocument
 };
 
-// === 通用递归更新函数 ===
+// === 鬯ｯ・ｨ繝ｻ・ｾ髯樊ｺ假ｽ蛾頼讓｣・ｬ・ｨ繝ｻ・ｾ鬮ｮ蛹ｺ・ｩ・ｸ繝ｻ・ｽ繝ｻ・ｽ髯ｷ・ｻ闔・･繝ｻ・ｳ繝ｻ・ｩ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬮ｯ・ｷ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｽ鬮ｫ・ｰ繝ｻ・ｨ郢晢ｽｻ繝ｻ・ｰ ===
 function patchTask(
   taskList: any[],
   targetId: string,
@@ -355,11 +398,10 @@ function patchTask(
   return false;
 }
 
-function refreshInternalState() {
+async function refreshInternalState() {
   invalidateCache();
   lastSortedHash = '';
   cachedSortedTasks = [];
-  TaskRepository.clearCache();
   updateTaskIndex();
 }
 
@@ -375,6 +417,9 @@ let cachedSortedTasks: Task[] = [];
 
 const filteredTasks = computed(() => {
   const baseFiltered = baseFilteredTasks.value.filter(task => {
+    if (task.isVirtual) {
+      return false;
+    }
     const title = task.title?.trim();
     return title && title !== '' && title !== '-';
   });
@@ -401,8 +446,7 @@ const filteredTasks = computed(() => {
       return priorityA - priorityB;
     }
     
-    // 使用 blockId 而不是 createdAt 排序，因为 blockId 包含时间戳且更稳定
-    // blockId 格式: "YYYYMMDDHHmmss-xxx"
+    // 鬮｣蜴・ｽｽ・ｴ郢晢ｽｻ繝ｻ・ｿ鬯ｨ・ｾ陋ｹ繝ｻ・ｽ・ｽ繝ｻ・ｨ blockId 鬯ｮ・｢繝ｻ・ｰ髯溷桁・ｽ・｡郢晢ｽｻ繝ｻ・ｸ鬮｢・ｧ繝ｻ・ｴ髯滉ｻ｣繝ｻcreatedAt 鬮ｫ・ｰ髣埼屮・ｽ・ｲ隶厄ｽｸ繝ｻ・ｽ繝ｻ・ｺ髫ｰ・ｫ繝ｻ・ｾ郢晢ｽｻ繝ｻ・ｼ髫ｰ逍ｲ・ｺ・ｷ繝ｻ・ｱ陷托ｽｰ陷ｿ蟲ｨ繝ｻ繝ｻ・ｺ blockId 鬮ｯ蜈ｷ・ｽ・ｹ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮ｫ・ｴ鬲・ｼ夲ｽｽ・ｽ繝ｻ・ｶ鬯ｯ・ｮ繝ｻ・｣郢晢ｽｻ繝ｻ・ｴ鬮ｫ・ｰ鬲・ｼ夲ｽｽ・ｽ繝ｻ・ｳ鬮｣蛹・ｽｽ・ｳ鬨ｾ謳ｾ・ｽ・ｲ髯晢ｽｲ繝ｻ・ｩ鬯ｩ蠅難ｽｩ・ｸ繝ｻ・ｽ繝ｻ・ｳ鬮ｯ讖ｸ・ｽ・ｳ驛｢譎｢・ｽ・ｻ    // blockId 鬮ｫ・ｴ繝ｻ・ｬ郢晢ｽｻ繝ｻ・ｼ鬮ｯ貊会ｽｻ・｣郢晢ｽｻ "YYYYMMDDHHmmss-xxx"
     const aSortKey = a.blockId || a.id || a.createdAt || '';
     const bSortKey = b.blockId || b.id || b.createdAt || '';
     return bSortKey.localeCompare(aSortKey);
@@ -413,6 +457,52 @@ const filteredTasks = computed(() => {
   
   return result;
 });
+
+function applyRepeatRuleOptimistic(payload: {
+  blockId?: string;
+  seriesId?: string;
+  frequency?: string;
+}) {
+  const { blockId, seriesId, frequency } = payload;
+  if (!frequency) return;
+
+  let touched = false;
+
+  if (blockId) {
+    const templateTask = tasks.value.find(
+      task => task.type === 'block' && !task.isVirtual && task.blockId === blockId
+    );
+    if (templateTask) {
+      templateTask.repeatFrequency = frequency as any;
+      if (frequency === 'none') {
+        templateTask.repeatSeriesId = undefined;
+        templateTask.repeatInstanceDate = undefined;
+        templateTask.isVirtual = false;
+      } else if (seriesId) {
+        templateTask.repeatSeriesId = seriesId;
+        templateTask.repeatInstanceDate = undefined;
+        templateTask.isVirtual = false;
+      }
+      touched = true;
+    }
+  }
+
+  if (frequency === 'none' && seriesId) {
+    const nextTasks = tasks.value.filter(
+      task => !(task.isVirtual && task.repeatSeriesId === seriesId)
+    );
+    if (nextTasks.length !== tasks.value.length) {
+      tasks.value = nextTasks;
+      touched = true;
+    }
+  }
+
+  if (touched) {
+    invalidateCache();
+    invalidateSortCache();
+    updateTaskIndex();
+  }
+}
 
 function toggleTaskExpand(taskId: string) {
   const task = tasks.value.find(t => t.id === taskId);
@@ -432,22 +522,6 @@ function toggleTaskExpand(taskId: string) {
     } else {
       expandedDescriptions.value.add(taskId);
     }
-  }
-}
-
-async function loadTasks(forceRefresh: boolean = false) {
-  loading.value = true;
-  try {
-    if (forceRefresh) {
-      await TaskRepository.clearCache();
-    }
-    const sqlTasks = await TaskRepository.getAllTasks(!forceRefresh);
-    syncFromSQL(sqlTasks);
-    updateTaskIndex();
-  } catch (error) {
-    // 加载任务失败
-  } finally {
-    loading.value = false;
   }
 }
 
@@ -500,7 +574,7 @@ async function loadNotebooks() {
         }));
     }
   } catch (error) {
-    // 加载笔记本失败
+    // 鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・｣繝ｻ・ｰ鬯ｮ・ｴ鬮ｮ・｣繝ｻ・ｽ繝ｻ・ｽ鬯ｮ・ｫ繝ｻ・ｨ鬩募争豎壹・・ｽ繝ｻ・ｮ郢晢ｽｻ繝ｻ・ｰ鬮ｫ・ｴ陝ｷ・｢繝ｻ・ｽ繝ｻ・ｬ鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
   }
 }
 
@@ -509,15 +583,14 @@ async function loadNotebooks() {
 
 
 function validateDocumentSelection() {
-  if (filterNotebook.value !== 'all' && filterDocument.value !== 'all') {
-    const availableDocs = documentOptions.value.map(d => d.value);
-    if (!availableDocs.includes(filterDocument.value)) {
-      filterDocument.value = 'all';
-    }
-  }
+  normalizeDocumentSelection(filterNotebook.value);
 }
 
-async function refreshTasks(force = false) {
+async function refreshTasks(
+  force = false,
+  options: { showLoading?: boolean; compareExisting?: boolean } = {}
+) {
+  const { showLoading = false, compareExisting = true } = options;
   const now = Date.now();
   const SKIP_DELAY = 500;
   if (!force && now - lastRefreshTime < SKIP_DELAY) {
@@ -526,15 +599,18 @@ async function refreshTasks(force = false) {
   lastRefreshTime = now;
 
   try {
+    if (showLoading) {
+      loading.value = true;
+    }
     if (notebooks.value.length === 0) {
       await loadNotebooks();
     }
     
-    const sqlTasks = await TaskRepository.getAllTasks(false);
+    const sqlTasks = await TaskRepository.getAllTasks(!force);
     crdtRepo.syncFromSQLTasks(sqlTasks);
     const newTasks = crdtRepo.getTasks();
     
-    if (force || hasTasksChanged(tasks.value, newTasks)) {
+    if (!compareExisting || force || hasTasksChanged(tasks.value, newTasks)) {
       invalidateCache();
       tasks.value = newTasks;
       invalidateSortCache();
@@ -542,9 +618,39 @@ async function refreshTasks(force = false) {
       await nextTick();
       updateTaskIndex();
     }
+    consecutiveFallbackFailures = 0;
   } catch (error) {
-    // 刷新任务失败
+    // 鬮ｯ蜈ｷ・ｽ・ｻ郢晢ｽｻ繝ｻ・ｷ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
+  } finally {
+    if (showLoading) {
+      loading.value = false;
+    }
   }
+}
+
+function scheduleFallbackRefresh(
+  force = true,
+  delay = 180,
+  strategy: 'threshold' | 'immediate' = 'threshold'
+) {
+  if (strategy === 'threshold') {
+    consecutiveFallbackFailures = Math.min(
+      consecutiveFallbackFailures + 1,
+      FALLBACK_FAILURE_THRESHOLD
+    );
+    if (consecutiveFallbackFailures < FALLBACK_FAILURE_THRESHOLD) {
+      return;
+    }
+  }
+
+  if (fallbackRefreshTimer !== null) {
+    clearTimeout(fallbackRefreshTimer);
+  }
+
+  fallbackRefreshTimer = window.setTimeout(async () => {
+    fallbackRefreshTimer = null;
+    await refreshTasks(force, { showLoading: false, compareExisting: true });
+  }, delay);
 }
 
 function isDeepEqual(oldItem: any, newItem: any, options: { checkUpdatedAt?: boolean } = {}): boolean {
@@ -587,7 +693,7 @@ function hasTasksChanged(oldTasks: Task[], newTasks: Task[]): boolean {
     
     if (!oldTask) return true;
     
-    // 使用统一的深度比对
+    // 鬮｣蜴・ｽｽ・ｴ郢晢ｽｻ繝ｻ・ｿ鬯ｨ・ｾ陋ｹ繝ｻ・ｽ・ｽ繝ｻ・ｨ髫ｰ繝ｻ豐ｺ繝ｻ・ｻ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・ｸ繝ｻ縺､ﾂ鬯ｨ・ｾ繝ｻ・ｧ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮ｯ貅ｯ・ｶ・｣繝ｻ・ｽ繝ｻ・ｦ鬮ｮ荳ｻ豐ｺ繝ｻ・ｳ鬲・ｼ夲ｽｽ・ｽ繝ｻ・ｯ郢晢ｽｻ繝ｻ・ｹ
     if (!isDeepEqual(oldTask, newTask, { checkUpdatedAt: true })) {
       return true;
     }
@@ -603,7 +709,7 @@ function setupEventListeners() {
     if (data?.blockIds && data.blockIds.length > 0) {
       await incrementalUpdateTasks(data.blockIds);
     } else {
-      await refreshTasks(true);
+      scheduleFallbackRefresh(true, 180, 'immediate');
     }
   });
 
@@ -621,8 +727,20 @@ function setupEventListeners() {
     await incrementalUpdateTasks([blockId]);
   });
 
-  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async () => {
-    await refreshTasks(true);
+  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string }) => {
+    if (payload?.reason === 'repeat-changed' && payload.frequency) {
+      applyRepeatRuleOptimistic(payload);
+      scheduleFallbackRefresh(false, 100, 'immediate');
+      return;
+    }
+    if (payload?.blockId) {
+      await incrementalUpdateTasks([payload.blockId]);
+      if (!blockIdToTaskIndex.has(payload.blockId)) {
+        scheduleFallbackRefresh(true, 180, 'immediate');
+      }
+      return;
+    }
+    scheduleFallbackRefresh(true, 180, 'immediate');
   });
   
   
@@ -644,16 +762,6 @@ function setupEventListeners() {
       if (recentlyDeletedDates.value.has(updatedTask.id)) {
         recentlyDeletedDates.value.delete(updatedTask.id);
       }
-      
-      recentlyUpdatedDates.value.set(updatedTask.id, {
-        startDate: updatedTask.startDate,
-        dueDate: updatedTask.dueDate,
-        timestamp: now
-      });
-      
-      setTimeout(() => {
-        recentlyUpdatedDates.value.delete(updatedTask.id);
-      }, 5000);
     }
     
     patchTask(tasks.value, updatedTask.id, (task) => {
@@ -686,7 +794,13 @@ function setupEventListeners() {
 }
 
 async function incrementalUpdateTasks(blockIds: string[]) { 
-  const parentBlockIds = blockIds.map(id => {
+  const unresolvedBlockIds = await fastSyncTaskFromMarkdown(blockIds);
+  if (unresolvedBlockIds.length === 0) {
+    consecutiveFallbackFailures = 0;
+    return;
+  }
+
+  const parentBlockIds = unresolvedBlockIds.map(id => {
     const parentTaskId = subtaskToParentMap.get(id);
     return parentTaskId || id;
   });
@@ -700,7 +814,6 @@ async function incrementalUpdateTasks(blockIds: string[]) {
   
   try { 
     invalidateCache(); 
-    await TaskRepository.clearCache(); 
     const taskMapBatch = await TaskRepository.getTasksByBlockIds(uniqueBlockIds, false);
     
     const updatedTasks: Task[] = [];
@@ -713,19 +826,196 @@ async function incrementalUpdateTasks(blockIds: string[]) {
     if (updatedTasks.length > 0) {
       tasks.value = crdtRepo.getTasks();
       await updateTaskIndex(); 
+      consecutiveFallbackFailures = 0;
     } else {
-      await refreshTasks(true);
+      scheduleFallbackRefresh(true);
     }
   } catch (error) {
-    await refreshTasks(true);
+    scheduleFallbackRefresh(true);
   } finally {
     uniqueBlockIds.forEach(id => processingBlockIds.delete(id));
   }
 }
 
+function parseTaskCompleted(markdown: string): boolean | null {
+  const match = markdown.match(/\[(x|X| )\]/);
+  if (!match) return null;
+  return match[1].toLowerCase() === 'x';
+}
+
+function parseTaskTitle(markdown: string): string | null {
+  const firstTaskLine = markdown.split('\n').find(line => /\[(x|X| )\]/.test(line));
+  if (!firstTaskLine) return null;
+
+  const rawTitle = stripTaskPrefix(firstTaskLine);
+  return cleanTaskTitle(rawTitle).trim();
+}
+
+async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<string[]> {
+  const unresolved: string[] = [];
+  let hasPatched = false;
+  const validBlockIds: string[] = [];
+  const taskIndexMap = new Map<string, TaskIndex>();
+
+  for (const blockId of blockIds) {
+    const taskIndex = blockIdToTaskIndex.get(blockId);
+    if (!taskIndex) {
+      unresolved.push(blockId);
+      continue;
+    }
+    validBlockIds.push(blockId);
+    taskIndexMap.set(blockId, taskIndex);
+  }
+
+  const blockSnapshots = await Promise.all(validBlockIds.map(async (blockId) => {
+    try {
+      const blockData = await getBlockKramdown(blockId);
+      const markdown = typeof blockData === 'string' ? blockData : blockData?.kramdown || '';
+      return { blockId, markdown, error: null as unknown };
+    } catch (error) {
+      return { blockId, markdown: '', error };
+    }
+  }));
+
+  for (const snapshot of blockSnapshots) {
+    const { blockId, markdown, error } = snapshot;
+    if (error) {
+      unresolved.push(blockId);
+      continue;
+    }
+
+    const taskIndex = taskIndexMap.get(blockId);
+    if (!taskIndex) {
+      unresolved.push(blockId);
+      continue;
+    }
+
+    try {
+      const completed = parseTaskCompleted(markdown);
+      const title = parseTaskTitle(markdown);
+      if (completed === null) {
+        unresolved.push(blockId);
+        continue;
+      }
+
+      if (taskIndex.isSubtask) {
+        let changed = false;
+        const patched = patchTask(tasks.value, blockId, (subtask) => {
+          if (subtask.completed !== completed) {
+            subtask.completed = completed;
+            changed = true;
+          }
+          if (title !== null && subtask.title !== title) {
+            subtask.title = title;
+            changed = true;
+          }
+        }, 'nodeId');
+        if (!patched) {
+          unresolved.push(blockId);
+          continue;
+        }
+        if (changed) {
+          hasPatched = true;
+        }
+      } else {
+        let changed = false;
+        const patched = patchTask(tasks.value, blockId, (task) => {
+          const nextStatus: Task['status'] = completed
+            ? 'completed'
+            : (task.status === 'completed' ? 'pending' : (task.status || 'pending'));
+          if (task.status !== nextStatus) {
+            task.status = nextStatus;
+            changed = true;
+          }
+          if (completed && !task.completedAt) {
+            task.completedAt = new Date().toISOString();
+            changed = true;
+          }
+          if (!completed && task.completedAt) {
+            delete task.completedAt;
+            changed = true;
+          }
+          if (title !== null && task.title !== title) {
+            task.title = title;
+            changed = true;
+          }
+        }, 'blockId');
+        if (!patched) {
+          unresolved.push(blockId);
+          continue;
+        }
+        if (changed) {
+          hasPatched = true;
+        }
+      }
+    } catch (_error) {
+      unresolved.push(blockId);
+    }
+  }
+
+  if (hasPatched) {
+    invalidateCache();
+    invalidateSortCache();
+    updateTaskIndex();
+  }
+
+  return unresolved;
+}
+
+function sanitizeTaskHtml(rawHtml?: string): string {
+  if (!rawHtml) return '';
+
+  const cached = sanitizedHtmlCache.get(rawHtml);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const container = document.createElement('div');
+  container.innerHTML = rawHtml;
+
+  container.querySelectorAll('script, iframe, object, embed, link, meta').forEach((el) => el.remove());
+
+  const allElements = container.querySelectorAll('*');
+  allElements.forEach((el) => {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim().toLowerCase();
+
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+
+      if ((name === 'href' || name === 'src') && (value.startsWith('javascript:') || value.startsWith('data:text/html'))) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+
+  const sanitized = container.innerHTML;
+  if (sanitizedHtmlCache.size > 500) {
+    sanitizedHtmlCache.clear();
+  }
+  sanitizedHtmlCache.set(rawHtml, sanitized);
+  return sanitized;
+}
+
+function sanitizeTaskTitleHtml(rawHtml?: string): string {
+  const sanitized = sanitizeTaskHtml(rawHtml);
+  return stripTaskPrefix(sanitized);
+}
+
+function stripTaskPrefix(text: string): string {
+  return text.replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| )\]\s*/i, '');
+}
+
 function cleanupEventListeners() {
   eventUnsubscribers.forEach(unsubscribe => unsubscribe());
   eventUnsubscribers = [];
+  if (fallbackRefreshTimer !== null) {
+    clearTimeout(fallbackRefreshTimer);
+    fallbackRefreshTimer = null;
+  }
 }
 
 async function toggleTaskStatus(task: Task) {
@@ -734,37 +1024,41 @@ async function toggleTaskStatus(task: Task) {
   }
   
   const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+  const isVirtualRepeatTask = !!task.isVirtual && !!task.repeatSeriesId && !!task.repeatInstanceDate;
   
   skipTaskTemporarily(skipSet, task.id);
   
   try {
-    if (task.type === 'block' && task.blockId) {
+    if (isVirtualRepeatTask) {
+      await TaskRepository.updateRepeatInstanceStatus(task, newStatus);
+    } else if (task.type === 'block' && task.blockId) {
       await updateTaskMarkdown(task.blockId, newStatus === 'completed', true);
     }
     
-    crdtRepo.updateTaskField(task.id, 'status', newStatus);
-    
-    const crdtTask = crdtRepo.getCRDTTask(task.id);
-    if (crdtTask) {
-      patchTask(tasks.value, task.id, (t) => {
-        t.status = newStatus;
-        if (newStatus === 'completed') {
-          t.completedAt = new Date().toISOString();
-        } else {
-          delete t.completedAt;
-        }
-      }, 'id');
+    if (!isVirtualRepeatTask) {
+      crdtRepo.updateTaskField(task.id, 'status', newStatus);
     }
     
-    refreshInternalState();
+    patchTask(tasks.value, task.id, (t) => {
+      t.status = newStatus;
+      if (newStatus === 'completed') {
+        t.completedAt = new Date().toISOString();
+      } else {
+        delete t.completedAt;
+      }
+    }, 'id');
     
-    eventBus.emit(Events.TASK_CHANGED, { blockIds: task.blockId ? [task.blockId] : [] });
+    await refreshInternalState();
+    
+    if (!isVirtualRepeatTask) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: task.blockId ? [task.blockId] : [] });
+    }
   } catch (error) {
-    // 切换任务状态失败
+    // 鬮ｯ蜈ｷ・ｽ・ｻ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡鬮ｴ謇假ｽｽ・･郢晢ｽｻ繝ｻ・ｶ鬮ｫ・ｲ繝ｻ・､驕ｶ荵怜款繝ｻ・ｽ繝ｻ・､郢晢ｽｻ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
   }
 }
 
-function handleSubtaskToggle(parentTaskId: string, subtask: any) {
+async function handleSubtaskToggle(parentTaskId: string, subtask: any) {
   if (skipSet.has(subtask.id)) {
     return;
   }
@@ -777,7 +1071,7 @@ function handleSubtaskToggle(parentTaskId: string, subtask: any) {
     st.completed = newCompleted;
   });
   
-  refreshInternalState();
+  await refreshInternalState();
   
   if (subtask.nodeId) {
     updateTaskMarkdown(subtask.nodeId, newCompleted).catch(() => {});
@@ -834,9 +1128,9 @@ async function saveTaskEdit(task: Task) {
     }, 'id');
     
     editingTasks.value.delete(task.id);
-    refreshInternalState();
+    await refreshInternalState();
   } catch (error) {
-    // 保存任务失败
+    // 鬮｣蜴・ｽｽ・ｫ髫ｴ蜿門ｾ励・・ｽ繝ｻ・ｭ髯区ｺ倥・繝ｻ・ｽ繝ｻ・ｻ郢晢ｽｻ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
   }
 }
 
@@ -845,6 +1139,7 @@ function cancelTaskEdit(taskId: string) {
 }
 
 function handleDragStart(event: DragEvent, task: Task) {
+  if (isMobileFrontend) return;
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/json', JSON.stringify(task));
@@ -853,7 +1148,7 @@ function handleDragStart(event: DragEvent, task: Task) {
 }
 
 async function ensureInboxDocument(notebookId: string): Promise<string> {
-  const inboxPath = '/pinch收集箱';
+  const inboxPath = '/pinch\\u6536\\u96c6\\u7bb1';
   
   try {
     const existingIds = await getIDsByHPath(notebookId, inboxPath);
@@ -909,17 +1204,18 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
       lastTaskDocument: documentId
     });
     
-    await loadTasks(true);
+    await refreshTasks(true, { showLoading: true, compareExisting: false });
     showTaskModal.value = false;
   } catch (error) {
-    // 创建任务失败
+    // 鬮ｯ蜈ｷ・ｽ・ｻ髯晢ｽｶ陝ｷ・｢繝ｻ・ｽ繝ｻ・ｻ郢晢ｽｻ繝ｻ・ｺ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
   }
 }
 
 onMounted(async () => {
   await loadSettings();
   await loadNotebooks();
-  await loadTasks();
+  await refreshTasks(false, { showLoading: true, compareExisting: false });
+  scheduleFallbackRefresh(true, 120, 'immediate');
   
   filterNotebook.value = userSettings.taskManager.filterNotebook || 'all';
   filterDocument.value = userSettings.taskManager.filterDocument || 'all';
@@ -932,6 +1228,14 @@ onMounted(async () => {
 onUnmounted(() => {
   cleanupEventListeners();
   stopSkipSetCleanup();
+  if (filterSettingsUpdateTimer !== null) {
+    clearTimeout(filterSettingsUpdateTimer);
+    filterSettingsUpdateTimer = null;
+  }
+  if (fallbackRefreshTimer !== null) {
+    clearTimeout(fallbackRefreshTimer);
+    fallbackRefreshTimer = null;
+  }
 });
 </script>
 
@@ -1308,3 +1612,4 @@ onUnmounted(() => {
   margin-top: 16px;
 }
 </style>
+
