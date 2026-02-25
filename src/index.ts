@@ -138,18 +138,43 @@ export default class HabitTrackerPlugin extends Plugin {
 
     const idList = Array.from(changedIds).map(id => `'${id}'`).join(",");
     
-    const sqlStmt = `
-      SELECT DISTINCT b.id FROM blocks b
-      WHERE b.subtype = 't' 
-        AND (
-          b.id IN (${idList})
-          OR b.parent_id IN (${idList})
-          OR b.id IN (SELECT parent_id FROM blocks WHERE id IN (${idList}) AND parent_id != '')
-        )
-    `;
-
     try {
-      const updatedTasks = await sql(sqlStmt);
+      const focusedSqlStmt = `
+        WITH RECURSIVE ancestors(id, parent_id, depth) AS (
+          SELECT id, parent_id, 0
+          FROM blocks
+          WHERE id IN (${idList})
+          UNION ALL
+          SELECT b.id, b.parent_id, ancestors.depth + 1
+          FROM blocks b
+          JOIN ancestors ON ancestors.parent_id = b.id
+          WHERE ancestors.parent_id != ''
+            AND ancestors.depth < 10
+        )
+        SELECT DISTINCT t.id
+        FROM blocks t
+        WHERE t.subtype = 't'
+          AND (
+            t.id IN (SELECT id FROM ancestors)
+            OR t.parent_id IN (SELECT id FROM ancestors)
+          )
+      `;
+
+      let updatedTasks = await sql(focusedSqlStmt);
+
+      if (!updatedTasks || updatedTasks.length === 0) {
+        const rootFallbackSqlStmt = `
+          SELECT DISTINCT t.id
+          FROM blocks t
+          WHERE t.subtype = 't'
+            AND t.root_id IN (
+              SELECT DISTINCT root_id
+              FROM blocks
+              WHERE id IN (${idList})
+            )
+        `;
+        updatedTasks = await sql(rootFallbackSqlStmt);
+      }
 
       if (updatedTasks && updatedTasks.length > 0) {
         const blockIds = updatedTasks.map((t: any) => t.id);

@@ -120,7 +120,7 @@ export class TaskCRDTEngine {
       deleted: this.baseField(false),
       updatedAt: Date.now(),
       metadata: {
-        type: 'standalone'
+        type: 'block'
       }
     };
   }

@@ -8,8 +8,13 @@
         <div class="title">{{ t('taskManager.title') }}</div>
       </div>
       <div class="header-actions">
-        <SyButton size="small" class="task-refresh" @click="refreshTasks(true)">
-          <Icon name="refresh" width="24" height="24" class="icon" />
+        <SyButton
+          size="small"
+          class="task-refresh"
+          :class="{ 'is-refreshing': isRefreshButtonSpinning }"
+          @click="handleRefreshClick"
+        >
+          <Icon name="refresh" width="24" height="24" class="icon refresh-icon" />
         </SyButton>
         <SyButton size="small" class="new-task-button" @click="showTaskModal = true">
           <Icon name="add" width="26" height="26" class="icon" />
@@ -41,11 +46,11 @@
     
     <div v-if="loading" class="loading" v-show="!isTaskListCollapsed">{{ t('taskManager.loading') }}</div>
     <div v-else class="tasks-list" v-show="!isTaskListCollapsed">
-      <div v-if="filteredTasks.length === 0" class="empty-state">
+      <div v-if="displayedTasks.length === 0" class="empty-state">
         {{ t('taskManager.noTasks') }}
       </div>
       <div 
-        v-for="task in filteredTasks" 
+        v-for="task in displayedTasks" 
         :key="task.id" 
         class="task-item" 
         :class="[
@@ -127,6 +132,14 @@
           </div>
         </div>
       </div>
+      <button
+        v-if="hasHiddenCompletedTasks"
+        class="more-completed-button"
+        type="button"
+        @click="showMoreCompletedTasks"
+      >
+        更多已完成
+      </button>
     </div>
     
     <TaskModal 
@@ -205,6 +218,7 @@ try {
   isMobileFrontend = false;
 }
 const loading = ref(false);
+const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
 const lastTaskNotebook = ref<string>('');
 const lastTaskDocument = ref<string>('');
@@ -414,6 +428,8 @@ const { filtered: baseFilteredTasks, invalidateCache } = useTaskFilters(tasks, t
 
 let lastSortedHash = '';
 let cachedSortedTasks: Task[] = [];
+const MAX_VISIBLE_COMPLETED_TASKS = 3;
+const showAllCompletedTasks = ref(false);
 
 const filteredTasks = computed(() => {
   const baseFiltered = baseFilteredTasks.value.filter(task => {
@@ -424,28 +440,48 @@ const filteredTasks = computed(() => {
     return title && title !== '' && title !== '-';
   });
   
-  const hash = baseFiltered.map(t => t.id).join(':') + 
-               baseFiltered.map(t => `${t.status}-${t.priority}-${t.blockId}`).join('|');
+  const hash = baseFiltered.map(t => t.id).join(':') +
+               baseFiltered.map(t => `${t.status}-${t.priority}-${t.updatedAt}-${t.blockId}`).join('|');
   
   if (hash === lastSortedHash && cachedSortedTasks.length > 0) {
     return cachedSortedTasks;
   }
   
   const result = [...baseFiltered].sort((a, b) => {
-    if (a.status === 'completed' && b.status !== 'completed') {
+    const isACompleted = a.status === 'completed';
+    const isBCompleted = b.status === 'completed';
+
+    if (isACompleted && !isBCompleted) {
       return 1;
     }
-    if (a.status !== 'completed' && b.status === 'completed') {
+    if (!isACompleted && isBCompleted) {
       return -1;
     }
-    
-    const priorityA = priorityOrder[a.priority] ?? 3;
-    const priorityB = priorityOrder[b.priority] ?? 3;
-    
-    if (priorityA !== priorityB) {
-      return priorityA - priorityB;
+
+    if (isACompleted && isBCompleted) {
+      const updatedA = Date.parse(a.updatedAt || '');
+      const updatedB = Date.parse(b.updatedAt || '');
+      const hasUpdatedA = Number.isFinite(updatedA);
+      const hasUpdatedB = Number.isFinite(updatedB);
+
+      if (hasUpdatedA && hasUpdatedB && updatedA !== updatedB) {
+        return updatedB - updatedA;
+      }
+      if (hasUpdatedA && !hasUpdatedB) {
+        return -1;
+      }
+      if (!hasUpdatedA && hasUpdatedB) {
+        return 1;
+      }
+    } else {
+      const priorityA = priorityOrder[a.priority] ?? 3;
+      const priorityB = priorityOrder[b.priority] ?? 3;
+
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
     }
-    
+
     // 鬮｣蜴・ｽｽ・ｴ郢晢ｽｻ繝ｻ・ｿ鬯ｨ・ｾ陋ｹ繝ｻ・ｽ・ｽ繝ｻ・ｨ blockId 鬯ｮ・｢繝ｻ・ｰ髯溷桁・ｽ・｡郢晢ｽｻ繝ｻ・ｸ鬮｢・ｧ繝ｻ・ｴ髯滉ｻ｣繝ｻcreatedAt 鬮ｫ・ｰ髣埼屮・ｽ・ｲ隶厄ｽｸ繝ｻ・ｽ繝ｻ・ｺ髫ｰ・ｫ繝ｻ・ｾ郢晢ｽｻ繝ｻ・ｼ髫ｰ逍ｲ・ｺ・ｷ繝ｻ・ｱ陷托ｽｰ陷ｿ蟲ｨ繝ｻ繝ｻ・ｺ blockId 鬮ｯ蜈ｷ・ｽ・ｹ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮ｫ・ｴ鬲・ｼ夲ｽｽ・ｽ繝ｻ・ｶ鬯ｯ・ｮ繝ｻ・｣郢晢ｽｻ繝ｻ・ｴ鬮ｫ・ｰ鬲・ｼ夲ｽｽ・ｽ繝ｻ・ｳ鬮｣蛹・ｽｽ・ｳ鬨ｾ謳ｾ・ｽ・ｲ髯晢ｽｲ繝ｻ・ｩ鬯ｩ蠅難ｽｩ・ｸ繝ｻ・ｽ繝ｻ・ｳ鬮ｯ讖ｸ・ｽ・ｳ驛｢譎｢・ｽ・ｻ    // blockId 鬮ｫ・ｴ繝ｻ・ｬ郢晢ｽｻ繝ｻ・ｼ鬮ｯ貊会ｽｻ・｣郢晢ｽｻ "YYYYMMDDHHmmss-xxx"
     const aSortKey = a.blockId || a.id || a.createdAt || '';
     const bSortKey = b.blockId || b.id || b.createdAt || '';
@@ -457,6 +493,44 @@ const filteredTasks = computed(() => {
   
   return result;
 });
+
+const hasHiddenCompletedTasks = computed(() => {
+  if (showAllCompletedTasks.value) {
+    return false;
+  }
+
+  let completedCount = 0;
+  for (const task of filteredTasks.value) {
+    if (task.status === 'completed') {
+      completedCount += 1;
+      if (completedCount > MAX_VISIBLE_COMPLETED_TASKS) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+});
+
+const displayedTasks = computed(() => {
+  if (showAllCompletedTasks.value) {
+    return filteredTasks.value;
+  }
+
+  let visibleCompletedCount = 0;
+  return filteredTasks.value.filter((task) => {
+    if (task.status !== 'completed') {
+      return true;
+    }
+
+    visibleCompletedCount += 1;
+    return visibleCompletedCount <= MAX_VISIBLE_COMPLETED_TASKS;
+  });
+});
+
+function showMoreCompletedTasks() {
+  showAllCompletedTasks.value = true;
+}
 
 function applyRepeatRuleOptimistic(payload: {
   blockId?: string;
@@ -584,6 +658,19 @@ async function loadNotebooks() {
 
 function validateDocumentSelection() {
   normalizeDocumentSelection(filterNotebook.value);
+}
+
+async function handleRefreshClick() {
+  if (isRefreshButtonSpinning.value) {
+    return;
+  }
+
+  isRefreshButtonSpinning.value = true;
+  try {
+    await refreshTasks(true);
+  } finally {
+    isRefreshButtonSpinning.value = false;
+  }
 }
 
 async function refreshTasks(
@@ -828,10 +915,10 @@ async function incrementalUpdateTasks(blockIds: string[]) {
       await updateTaskIndex(); 
       consecutiveFallbackFailures = 0;
     } else {
-      scheduleFallbackRefresh(true);
+      scheduleFallbackRefresh(true, 120, 'immediate');
     }
   } catch (error) {
-    scheduleFallbackRefresh(true);
+    scheduleFallbackRefresh(true, 120, 'immediate');
   } finally {
     uniqueBlockIds.forEach(id => processingBlockIds.delete(id));
   }
@@ -1213,9 +1300,17 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
 
 onMounted(async () => {
   await loadSettings();
+  loading.value = true;
+  try {
+    const cachedTasks = await TaskRepository.getCachedTasksOnly();
+    crdtRepo.syncFromSQLTasks(cachedTasks);
+    tasks.value = crdtRepo.getTasks();
+    await refreshInternalState();
+  } finally {
+    loading.value = false;
+  }
+
   await loadNotebooks();
-  await refreshTasks(false, { showLoading: true, compareExisting: false });
-  scheduleFallbackRefresh(true, 120, 'immediate');
   
   filterNotebook.value = userSettings.taskManager.filterNotebook || 'all';
   filterDocument.value = userSettings.taskManager.filterDocument || 'all';
@@ -1223,6 +1318,9 @@ onMounted(async () => {
   validateDocumentSelection();
   setupEventListeners();
   startSkipSetCleanup();
+
+  // First paint from cache, then silently reconcile with source of truth once.
+  void refreshTasks(true, { showLoading: false, compareExisting: true });
 });
 
 onUnmounted(() => {
@@ -1305,6 +1403,19 @@ onUnmounted(() => {
   }
 }
 
+.task-refresh.is-refreshing .refresh-icon {
+  animation: task-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes task-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .view-all-button {
   background: none;
   border: none;
@@ -1379,6 +1490,23 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.more-completed-button {
+  align-self: center;
+  margin-top: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 999px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.more-completed-button:hover {
+  background: var(--b3-list-hover);
 }
 
 .task-item {

@@ -936,10 +936,11 @@ export interface BlockDOMResponse {
 const DEBUG = false;
 
 export const TASK_CONFIG = {
-  CACHE_VERSION: 3,
+  CACHE_VERSION: 4,
   CACHE_DURATION: 10 * 60 * 1000,
   BATCH_SIZE: 10,
-  SQL_LIMIT: 1000,
+  SQL_PAGE_SIZE: 1000,
+  MAX_SQL_SCAN: 20000,
   MAX_SUBTASK_DEPTH: 10,
   DEBOUNCE_DELAY: 2000,
   SKIP_DELAY: 500,
@@ -1088,22 +1089,24 @@ export class TaskRepository {
   ): TaskStatus {
     const validStatuses: TaskStatus[] = ['pending', 'in-progress', 'completed', 'cancelled'];
     const attrStatus = attrs['custom-task-status'] as TaskStatus | undefined;
+    const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
+    const markdownMatch = markdown?.match(/\[(x|X| )\]/);
+    const markdownCompleted = markdownMatch ? (markdownMatch[1] === 'x' || markdownMatch[1] === 'X') : null;
 
-    if (attrStatus && validStatuses.includes(attrStatus) && attrStatus !== 'completed' && attrStatus !== 'pending') {
-      return attrStatus;
+    // Completed signals from DOM/Markdown are authoritative.
+    if (completedByDOM === true || markdownCompleted === true) {
+      return 'completed';
     }
 
-    if (completedByDOM !== null) {
-      return completedByDOM ? 'completed' : 'pending';
+    if (completedByDOM === false || markdownCompleted === false) {
+      if (hasValidAttrStatus && attrStatus !== 'completed') {
+        return attrStatus!;
+      }
+      return 'pending';
     }
 
-    const match = markdown?.match(/\[(x|X| )\]/);
-    if (match) {
-      return match[1] === 'x' || match[1] === 'X' ? 'completed' : 'pending';
-    }
-
-    if (attrStatus && validStatuses.includes(attrStatus)) {
-      return attrStatus;
+    if (hasValidAttrStatus) {
+      return attrStatus!;
     }
 
     return 'pending';
@@ -1226,30 +1229,58 @@ export class TaskRepository {
   }
 
   static async getAllTasks(useCache: boolean = true): Promise<Task[]> {
-    const [standaloneTasks, blockTasks] = await Promise.all([
-      this.getStandaloneTasks(),
-      this.getBlockTasks(useCache)
-    ]);
-
-    const mergedTasks = [...standaloneTasks, ...blockTasks];
-    return materializeRepeatTasks(mergedTasks, {
+    const blockTasks = await this.getBlockTasks(useCache);
+    return materializeRepeatTasks(blockTasks, {
       pastDays: 60,
       futureDays: 120
     });
   }
-  
-  static async getStandaloneTasks(): Promise<Task[]> {
+
+  private static async getCachedBlockTasks(): Promise<Task[] | null> {
+    const now = Date.now();
+
+    if (
+      this.memoryCache.tasks &&
+      now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION
+    ) {
+      return this.memoryCache.tasks;
+    }
+
     const plugin = usePlugin();
-    const data = await plugin.loadData('Stand-tasks.json');
-    
-    if (!data) return [];
-    
-    const tasks = typeof data === 'string' ? JSON.parse(data) : data;
-    return tasks.map((t: Task) => ({ 
-      ...t, 
-      type: 'standalone' as const,
+    const cachedData = await plugin.loadData('stand-block-tasks-cache.json');
+    if (!cachedData) {
+      return null;
+    }
+
+    const data = typeof cachedData === 'string' ? JSON.parse(cachedData) : cachedData;
+    if (!data?.tasks || !data?.updatedAt) {
+      return null;
+    }
+
+    const cacheAge = now - new Date(data.updatedAt).getTime();
+    if (cacheAge >= TASK_CONFIG.CACHE_DURATION || data.version !== TASK_CONFIG.CACHE_VERSION) {
+      return null;
+    }
+
+    const tasks = data.tasks.map((t: Task) => ({
+      ...t,
       icon: unicodeToEmoji(t.icon)
     }));
+
+    this.memoryCache = { tasks, timestamp: now };
+    return tasks;
+  }
+
+  static async getCachedTasksOnly(): Promise<Task[]> {
+    const cachedBlockTasks = await this.getCachedBlockTasks();
+    if (!cachedBlockTasks) {
+      return [];
+    }
+
+    return materializeRepeatTasks(cachedBlockTasks, {
+      pastDays: 60,
+      futureDays: 120
+    });
   }
   
   static async getBlockTasks(useCache: boolean = true): Promise<Task[]> {
@@ -1261,24 +1292,11 @@ export class TaskRepository {
       return this.memoryCache.tasks;
     }
     
-    const plugin = usePlugin();
-
     // 2. 磁盘缓存
     if (useCache) {
-      const cachedData = await plugin.loadData('stand-block-tasks-cache.json');
-      if (cachedData) {
-        const data = typeof cachedData === 'string' ? JSON.parse(cachedData) : cachedData;
-        if (data.tasks && data.updatedAt) {
-          const cacheAge = now - new Date(data.updatedAt).getTime();
-          if (cacheAge < TASK_CONFIG.CACHE_DURATION && data.version === TASK_CONFIG.CACHE_VERSION) {
-            const tasks = data.tasks.map((t: Task) => ({
-              ...t,
-              icon: unicodeToEmoji(t.icon)
-            }));
-            this.memoryCache = { tasks, timestamp: now };
-            return tasks;
-          }
-        }
+      const cachedTasks = await this.getCachedBlockTasks();
+      if (cachedTasks) {
+        return cachedTasks;
       }
     }
 
@@ -1423,8 +1441,18 @@ export class TaskRepository {
     const BATCH_SIZE = TASK_CONFIG.BATCH_SIZE;
     
     try {
-      const [taskBlocks, nodeListBlocks] = await Promise.all([
-        sql(`
+      const nodeListBlocksPromise = sql(`
+        SELECT id, parent_id, type
+        FROM blocks
+        WHERE type = 'l' AND subtype = 't'
+      `);
+
+      const taskBlocks: SiyuanBlock[] = [];
+      const pageSize = TASK_CONFIG.SQL_PAGE_SIZE;
+      const maxScan = TASK_CONFIG.MAX_SQL_SCAN;
+
+      for (let offset = 0; offset < maxScan; offset += pageSize) {
+        const page = await sql(`
           SELECT b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-id' THEN a.value END) as custom_task_id,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-priority' THEN a.value END) as custom_task_priority,
@@ -1437,20 +1465,33 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-description' THEN a.value END) as custom_task_description,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color
           FROM blocks b
-          LEFT JOIN attributes a ON b.id = a.block_id 
+          LEFT JOIN attributes a ON b.id = a.block_id
             AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-background-color')
           WHERE (b.type = 'i' OR b.type = 'p') AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%')
           GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
-          ORDER BY b.root_id, b.box, b.path
-          LIMIT ${TASK_CONFIG.SQL_LIMIT}
-        `),
-        sql(`
-          SELECT id, parent_id, type
-          FROM blocks
-          WHERE type = 'l' AND subtype = 't'
-        `)
-      ]);
-      
+          ORDER BY b.root_id, b.box, b.path, b.id
+          LIMIT ${pageSize} OFFSET ${offset}
+        `) as any[];
+
+        if (!Array.isArray(page) || page.length === 0) {
+          break;
+        }
+
+        taskBlocks.push(...(page as SiyuanBlock[]));
+
+        if (page.length < pageSize) {
+          break;
+        }
+      }
+
+      if (taskBlocks.length >= maxScan) {
+        console.warn('[TaskRepository] 已触发任务扫描上限，可能仍有部分任务未加载', {
+          scanned: taskBlocks.length,
+          maxScan
+        });
+      }
+
+      const nodeListBlocks = await nodeListBlocksPromise;
       const allBlocks = taskBlocks;
       const nodeListMap = new Map<string, string>();
       const paragraphMap = new Map<string, string>();
@@ -1625,7 +1666,9 @@ export class TaskRepository {
           
           const svg = parentAction?.querySelector('use');
           const apiHref = svg?.getAttribute('xlink:href') || svg?.getAttribute('href');
-          const isCompleted = apiHref === '#iconCheck';
+          const apiDomStatus: 'completed' | 'pending' | null = apiHref
+            ? (apiHref === '#iconCheck' ? 'completed' : 'pending')
+            : null;
           
           const parseDate = (dateValue: string | undefined): string => {
             try {
@@ -1792,16 +1835,28 @@ export class TaskRepository {
           const validStatuses = ['pending', 'in-progress', 'completed', 'cancelled'];
           
           const attrStatus = attrs['custom-task-status'] as 'pending' | 'in-progress' | 'completed' | 'cancelled' | undefined;
-          const apiDomStatus = isCompleted ? 'completed' : 'pending';
-          
-          if (isCurrentCompleted === true) {
+          const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
+          const isCompletedBySignals =
+            isCurrentCompleted === true ||
+            apiDomStatus === 'completed' ||
+            markdownStatus === 'completed';
+          const isUncheckedBySignals =
+            isCurrentCompleted === false ||
+            apiDomStatus === 'pending' ||
+            markdownStatus === 'pending';
+
+          if (isCompletedBySignals) {
             status = 'completed';
-          } else if (attrStatus && validStatuses.includes(attrStatus) && attrStatus !== 'completed' && attrStatus !== 'pending') {
-            status = attrStatus;
-          } else if (typeof isCurrentCompleted === 'boolean') {
-            status = isCurrentCompleted ? 'completed' : 'pending';
+          } else if (isUncheckedBySignals) {
+            if (hasValidAttrStatus && attrStatus !== 'completed') {
+              status = attrStatus!;
+            } else {
+              status = 'pending';
+            }
+          } else if (hasValidAttrStatus) {
+            status = attrStatus!;
           } else {
-            status = markdownStatus || apiDomStatus || 'pending';
+            status = 'pending';
           }
           
           processedIds.add(parentBlock.id);
@@ -1872,24 +1927,6 @@ export class TaskRepository {
     this.memoryCache = { tasks: null, timestamp: 0 };
   }
   
-  static async createStandaloneTask(task: Omit<Task, 'id' | 'type' | 'createdAt' | 'updatedAt'>): Promise<string> {
-    const plugin = usePlugin();
-    const tasks = await this.getStandaloneTasks();
-    
-    const newTask: Task = {
-      ...task,
-      id: generateTaskId(),
-      type: 'standalone',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    
-    tasks.push(newTask);
-    await plugin.saveData('Stand-tasks.json', tasks);
-    
-    return newTask.id;
-  }
-
   static async createBlockTask(
     task: Omit<Task, 'id' | 'type' | 'createdAt' | 'updatedAt' | 'blockId' | 'hPath' | 'notebookId'>,
     notebookId: string,
@@ -2051,16 +2088,6 @@ export class TaskRepository {
   }
   
   static async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
-    const tasks = await this.getStandaloneTasks();
-    const task = tasks.find(t => t.id === taskId);
-    
-    if (task) {
-      Object.assign(task, updates, { updatedAt: new Date().toISOString() });
-      const plugin = usePlugin();
-      await plugin.saveData('Stand-tasks.json', tasks);
-      return;
-    }
-
     const blockId = await this.resolveBlockIdByTaskId(taskId);
     if (!blockId) {
       return;
@@ -2125,16 +2152,6 @@ export class TaskRepository {
   }
   
   static async deleteTask(taskId: string): Promise<void> {
-    const tasks = await this.getStandaloneTasks();
-    const index = tasks.findIndex(t => t.id === taskId);
-    
-    if (index >= 0) {
-      tasks.splice(index, 1);
-      const plugin = usePlugin();
-      await plugin.saveData('Stand-tasks.json', tasks);
-      return;
-    }
-
     const blockId = await this.resolveBlockIdByTaskId(taskId);
     if (!blockId) {
       return;

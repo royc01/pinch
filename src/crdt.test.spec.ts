@@ -11,7 +11,7 @@ describe('CRDT Engine', () => {
     const task = engine.getTask('task1');
     expect(task?.title.value).toBe('Initial Title');
     expect(task?.status.value).toBe('pending');
-    expect(task?.metadata.type).toBe('standalone');
+    expect(task?.metadata.type).toBe('block');
   });
 
   it('应该正确合并远程任务（基于时间戳）', () => {
