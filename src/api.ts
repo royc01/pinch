@@ -1112,6 +1112,34 @@ export class TaskRepository {
     return 'pending';
   }
 
+  private static getTaskActionElement(root: Element | null, ownerId?: string): Element | null {
+    if (!root) return null;
+
+    const matchesOwner = (action: Element): boolean => {
+      if (!ownerId) return true;
+      const owner = action.closest('[data-node-id]');
+      return owner?.getAttribute('data-node-id') === ownerId;
+    };
+
+    if (root.classList.contains('protyle-action--task') && matchesOwner(root)) {
+      return root;
+    }
+
+    const actions = root.querySelectorAll('.protyle-action--task');
+    for (const action of actions) {
+      if (matchesOwner(action)) {
+        return action;
+      }
+    }
+
+    const fallback = root.closest('.protyle-task')?.querySelector('.protyle-action--task');
+    if (fallback && matchesOwner(fallback)) {
+      return fallback;
+    }
+
+    return null;
+  }
+
   private static parseSubtasksFromDOM(domString: string, parentBlockId: string): SubTask[] {
     const parser = new DOMParser();
     const doc = parser.parseFromString(domString, 'text/html');
@@ -1330,6 +1358,7 @@ export class TaskRepository {
           AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-background-color')
         WHERE b.id IN (${idsClause})
           AND (b.type = 'i' OR b.type = 'p')
+          AND b.subtype = 't'
           AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%')
         GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
       `) as any[];
@@ -1388,7 +1417,7 @@ export class TaskRepository {
         const currentParagraph = currentElement?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
         const title = currentParagraph?.innerHTML || titleFromApi;
 
-        const currentAction = currentElement?.querySelector('.protyle-action--task');
+        const currentAction = this.getTaskActionElement(currentElement, row.id);
         const currentSvg = currentAction?.querySelector('use');
         const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
         const completedByDOM = currentHref ? currentHref === '#iconCheck' : null;
@@ -1467,7 +1496,9 @@ export class TaskRepository {
           FROM blocks b
           LEFT JOIN attributes a ON b.id = a.block_id
             AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-background-color')
-          WHERE (b.type = 'i' OR b.type = 'p') AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%')
+          WHERE (b.type = 'i' OR b.type = 'p')
+            AND b.subtype = 't'
+            AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%')
           GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
           ORDER BY b.root_id, b.box, b.path, b.id
           LIMIT ${pageSize} OFFSET ${offset}
@@ -1635,11 +1666,7 @@ export class TaskRepository {
           const currentParagraph = elementToUse?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
           const currentTitle = currentParagraph?.innerHTML || '';
           
-          let currentAction = elementToUse?.querySelector('.protyle-action--task');
-          
-          if (!currentAction) {
-            currentAction = elementToUse?.closest('.protyle-task')?.querySelector('.protyle-action--task');
-          }
+          const currentAction = this.getTaskActionElement(elementToUse, parentBlock.id);
           
           const currentSvg = currentAction?.querySelector('use');
           
@@ -1659,10 +1686,7 @@ export class TaskRepository {
           
           const parentParagraph = parentListItem?.querySelector('[data-type="NodeParagraph"]');
           
-          let parentAction = parentListItem?.querySelector('.protyle-action--task');
-          if (!parentAction) {
-            parentAction = parentListItem?.closest('.protyle-task')?.querySelector('.protyle-action--task');
-          }
+          const parentAction = this.getTaskActionElement(parentListItem, parentBlock.id);
           
           const svg = parentAction?.querySelector('use');
           const apiHref = svg?.getAttribute('xlink:href') || svg?.getAttribute('href');
@@ -1756,35 +1780,6 @@ export class TaskRepository {
               }
               return subtasks;
             };
-            
-            const allListItems = doc.querySelectorAll('[data-type="NodeListItem"]');
-            const subtaskNodeIds: string[] = [];
-            const validSubtasks: Array<{ item: Element; nodeId: string }> = [];
-            
-            for (let i = 0; i < allListItems.length; i++) {
-              const item = allListItems[i];
-              const nodeId = item.getAttribute('data-node-id');
-              if (!nodeId || nodeId === parentId) continue;
-              
-              const action = item.querySelector('.protyle-action--task');
-              if (!action) continue;
-              
-              subtaskNodeIds.push(nodeId);
-              validSubtasks.push({ item, nodeId });
-            }
-            
-            let subtaskBlocksMap = new Map<string, any>();
-            if (subtaskNodeIds.length > 0) {
-              try {
-                const ids = subtaskNodeIds.map(id => `'${id}'`).join(',');
-                const blocks = await sql(`SELECT id, markdown FROM blocks WHERE id IN (${ids})`);
-                blocks.forEach((block: SiyuanBlock) => {
-                  subtaskBlocksMap.set(block.id, block);
-                });
-              } catch (error) {
-                handleError('解析子任务块失败', error, { parentId });
-              }
-            }
             
             const rootListElements = Array.from(doc.querySelectorAll('.list')).filter(list => {
               const parent = list.parentElement;

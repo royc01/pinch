@@ -84,14 +84,42 @@ export class CRDTTaskRepository {
     return this.engine;
   }
 
+  private ensureRemoteTaskTs(crdtTask: CRDTTask): CRDTTask {
+    const existing = this.engine.getTask(crdtTask.id);
+    if (!existing || crdtTask.updatedAt > existing.updatedAt) {
+      return crdtTask;
+    }
+
+    const nextTs = existing.updatedAt + 1;
+    const withTs = <T>(field: CRDTField<T>): CRDTField<T> => ({
+      ...field,
+      ts: nextTs
+    });
+
+    return {
+      ...crdtTask,
+      title: withTs(crdtTask.title),
+      status: withTs(crdtTask.status),
+      priority: withTs(crdtTask.priority),
+      dueDate: withTs(crdtTask.dueDate),
+      startDate: withTs(crdtTask.startDate),
+      startTime: withTs(crdtTask.startTime),
+      dueTime: withTs(crdtTask.dueTime),
+      description: withTs(crdtTask.description),
+      tags: withTs(crdtTask.tags),
+      backgroundColor: withTs(crdtTask.backgroundColor),
+      updatedAt: nextTs
+    };
+  }
+
   syncFromSQLTasks(tasks: Task[]): void {
     const incomingIds = new Set(tasks.map(task => task.id));
-    const staleVirtualIds = this.engine
+    const staleTaskIds = this.engine
       .getAll()
-      .filter(crdtTask => crdtTask.metadata.isVirtual && !incomingIds.has(crdtTask.id))
+      .filter(crdtTask => !incomingIds.has(crdtTask.id))
       .map(crdtTask => crdtTask.id);
 
-    staleVirtualIds.forEach((taskId) => {
+    staleTaskIds.forEach((taskId) => {
       this.engine.removeTask(taskId);
       this.subtasksMap.delete(taskId);
     });
@@ -99,8 +127,10 @@ export class CRDTTaskRepository {
     tasks.forEach(task => {
       if (task.subtasks && task.subtasks.length > 0) {
         this.subtasksMap.set(task.id, task.subtasks);
+      } else {
+        this.subtasksMap.delete(task.id);
       }
-      const crdtTask = taskToCRDT(task, 'db');
+      const crdtTask = this.ensureRemoteTaskTs(taskToCRDT(task, 'db'));
       this.engine.mergeRemote(crdtTask);
     });
   }
@@ -109,8 +139,10 @@ export class CRDTTaskRepository {
     tasks.forEach(task => {
       if (task.subtasks && task.subtasks.length > 0) {
         this.subtasksMap.set(task.id, task.subtasks);
+      } else {
+        this.subtasksMap.delete(task.id);
       }
-      const crdtTask = taskToCRDT(task, 'db');
+      const crdtTask = this.ensureRemoteTaskTs(taskToCRDT(task, 'db'));
       this.engine.mergeRemote(crdtTask);
     });
   }
@@ -137,6 +169,7 @@ export class CRDTTaskRepository {
   }
 
   deleteTask(taskId: string, ts?: number): TaskEvent {
+    this.subtasksMap.delete(taskId);
     return this.engine.applyLocalDelete(taskId, ts);
   }
 

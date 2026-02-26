@@ -6,7 +6,6 @@ import "@/index.scss";
 import PluginInfoString from '@/../plugin.json'
 import { destroy, init } from '@/main'
 import { eventBus } from '@/utils/eventBus'
-import { sql } from '@/api'
 
 let PluginInfo = {
   version: '',
@@ -126,63 +125,19 @@ export default class HabitTrackerPlugin extends Plugin {
     
     transactions.forEach((trans: any) => {
       trans.doOperations?.forEach((op: any) => {
-        if (op.id) {
-          changedIds.add(op.id);
-        }
+        const relatedIds = [op.id, op.parentID, op.parentId, op.previousID, op.nextID];
+        relatedIds.forEach((id) => {
+          if (typeof id === 'string' && id.length > 0) {
+            changedIds.add(id);
+          }
+        });
       });
     });
 
     if (changedIds.size === 0) {
       return;
     }
-
-    const idList = Array.from(changedIds).map(id => `'${id}'`).join(",");
-    
-    try {
-      const focusedSqlStmt = `
-        WITH RECURSIVE ancestors(id, parent_id, depth) AS (
-          SELECT id, parent_id, 0
-          FROM blocks
-          WHERE id IN (${idList})
-          UNION ALL
-          SELECT b.id, b.parent_id, ancestors.depth + 1
-          FROM blocks b
-          JOIN ancestors ON ancestors.parent_id = b.id
-          WHERE ancestors.parent_id != ''
-            AND ancestors.depth < 10
-        )
-        SELECT DISTINCT t.id
-        FROM blocks t
-        WHERE t.subtype = 't'
-          AND (
-            t.id IN (SELECT id FROM ancestors)
-            OR t.parent_id IN (SELECT id FROM ancestors)
-          )
-      `;
-
-      let updatedTasks = await sql(focusedSqlStmt);
-
-      if (!updatedTasks || updatedTasks.length === 0) {
-        const rootFallbackSqlStmt = `
-          SELECT DISTINCT t.id
-          FROM blocks t
-          WHERE t.subtype = 't'
-            AND t.root_id IN (
-              SELECT DISTINCT root_id
-              FROM blocks
-              WHERE id IN (${idList})
-            )
-        `;
-        updatedTasks = await sql(rootFallbackSqlStmt);
-      }
-
-      if (updatedTasks && updatedTasks.length > 0) {
-        const blockIds = updatedTasks.map((t: any) => t.id);
-        eventBus.emit('task-changed', { blockIds });
-      }
-    } catch (error) {
-      // Error handling - silently fail
-    }
+    eventBus.emit('task-changed', { blockIds: Array.from(changedIds) });
   }
 
   onunload() {

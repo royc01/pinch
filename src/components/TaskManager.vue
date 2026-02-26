@@ -164,7 +164,7 @@ import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubTaskItem from '@/components/SubtaskItem.vue';
 import TaskModal, { Notebook, Document } from '@/components/TaskModal.vue';
 import Icon from '@/components/Icon.vue';
-import { TaskRepository, Task, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs, getBlockKramdown } from '@/api';
+import { TaskRepository, Task, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs, getBlockKramdown, sql } from '@/api';
 import { updateTaskMarkdown, skipTaskTemporarily, cleanTaskTitle } from '@/utils/taskHelpers';
 import { openKanbanView } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -286,11 +286,13 @@ const processingBlockIds = new Set<string>();
 let fallbackRefreshTimer: number | null = null;
 const FALLBACK_FAILURE_THRESHOLD = 2;
 let consecutiveFallbackFailures = 0;
+let lastMismatchForceRefreshAt = 0;
+const MISMATCH_FORCE_REFRESH_COOLDOWN = 500;
 
-// 鬯ｮ・ｫ繝ｻ・ｶ郢晢ｽｻ繝ｻ・ｰ鬮ｯ貊・束隴ｯ竏壹・繝ｻ・ｿ郢晢ｽｻ繝ｻ・ｽE鬮ｯ蜈ｷ・ｽ・ｻ髯橸ｽ｢繝ｻ・ｼ髯ｷ螢ｼ・､諛ｶ・ｽ・ｫ繝ｻ・ｯ郢晢ｽｻ繝ｻ・､鬮ｫ・ｴ鬲・ｼ夲ｽｽ・ｽ繝ｻ・･鬮ｫ・ｴ陝ｶ・ｶ繝ｻ・ｺ繝ｻ・ｽ髯懆ｶ｣・ｽ・ｪ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽE驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｮ繝ｻ・ｦ郢晢ｽｻ繝ｻ・ｲ鬮ｮ蠑ｱ繝ｻ繝ｻ・ｽ繝ｻ・｢鬯ｮ・ｯ繝ｻ・ｲ郢晢ｽｻ繝ｻ・ｫ鬮ｯ・ｷ繝ｻ・ｷ髯橸ｽｳ髣鯉ｽｨ繝ｻ・ｽ繝ｻ・ｻ郢晢ｽｻ繝ｻ・ｭ鬯ｨ・ｾ繝ｻ・ｧ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｩ繝ｻ・･髣包ｽｵ隲､諛ｶ・ｽ・ｳ繝ｻ・ｩ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬯ｮ・ｫ髴域鱒繝ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ
+// Tracks tasks whose dates were just cleared, to prevent stale values from being written back by delayed events.
 const recentlyDeletedDates = ref(new Map<string, { startDate: null; dueDate: null; timestamp: number }>());
 
-// 鬯ｮ・ｫ繝ｻ・ｶ郢晢ｽｻ繝ｻ・ｰ鬮ｯ貊・束隴ｯ竏壹・繝ｻ・ｿ郢晢ｽｻ繝ｻ・ｽE鬮ｯ蜈ｷ・ｽ・ｻ髯橸ｽ｢繝ｻ・ｽ髯晢ｽｲ繝ｻ・ｩ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬮ｫ・ｴ鬲・ｼ夲ｽｽ・ｽ繝ｻ・･鬮ｫ・ｴ陝ｶ・ｶ繝ｻ・ｺ繝ｻ・ｽ髯懆ｶ｣・ｽ・ｪ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽE驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｮ繝ｻ・ｦ郢晢ｽｻ繝ｻ・ｲ鬮ｮ蠑ｱ繝ｻ繝ｻ・ｽ繝ｻ・｢鬯ｮ・ｯ繝ｻ・ｲ郢晢ｽｻ繝ｻ・ｫ鬮ｯ・ｷ繝ｻ・ｷ髯橸ｽｳ髣鯉ｽｨ繝ｻ・ｽ繝ｻ・ｻ郢晢ｽｻ繝ｻ・ｭ鬯ｨ・ｾ繝ｻ・ｧ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｩ繝ｻ・･髣包ｽｵ隲､諛ｶ・ｽ・ｳ繝ｻ・ｩ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬯ｮ・ｫ髴域鱒繝ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ
+// Short-lived guard map for date deletion reconciliation.
 
 interface TaskIndex {
   task: Task;
@@ -302,7 +304,7 @@ const blockIdToTaskIndex = new Map<string, TaskIndex>();
 const subtaskToParentMap = new Map<string, string>();
 const sanitizedHtmlCache = new Map<string, string>();
 
-// === 鬮｣雋ｻ・ｽ・ｨ髣費ｽｨ隲幢ｽｷ陝・・・ｨ・ｾ繝ｻ・ｧ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮ｫ・ｴ繝ｻ・ｯ郢晢ｽｻ繝ｻ・｣鬯ｮ・ｴ闔会ｽ｣郢晢ｽｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬯ｯ・ｨ繝ｻ・ｾ郢晢ｽｻ繝ｻ・ｻ鬯ｮ・ｴ陷ｿ蛹・ｽｱ螢ｹ繝ｻ繝ｻ・ｼ髯橸ｽ｢繝ｻ・ｽ髮句ｮ茨ｽｧ莨懈・鬩募争豎壹・・ｽ繝ｻ・ｮ郢晢ｽｻ繝ｻ・ｰ鬮ｫ・ｴ陝ｷ・｢繝ｻ・ｽ繝ｻ・ｬ鬮ｯ蜈ｷ・ｽ・ｻ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽE驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮｣蛹・ｽｽ・ｳ繝ｻ縺､ﾂ鬮ｫ・ｹ繝ｻ・ｺ郢晢ｽｻ繝ｻ・｡鬯ｮ・ｫ繝ｻ・ｶ郢晢ｽｻ繝ｻ・｡鬯ｩ髦ｪ・・ｹ晢ｽｻ===
+// === Notebook/document option derivation and persisted filter selection ===
 const docsMapByNotebook = computed(() => {
   const map = new Map<string, Document[]>();
   
@@ -393,7 +395,7 @@ const taskFilters = {
   document: filterDocument
 };
 
-// === 鬯ｯ・ｨ繝ｻ・ｾ髯樊ｺ假ｽ蛾頼讓｣・ｬ・ｨ繝ｻ・ｾ鬮ｮ蛹ｺ・ｩ・ｸ繝ｻ・ｽ繝ｻ・ｽ髯ｷ・ｻ闔・･繝ｻ・ｳ繝ｻ・ｩ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬮ｯ・ｷ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｽ鬮ｫ・ｰ繝ｻ・ｨ郢晢ｽｻ繝ｻ・ｰ ===
+// === Task patch helpers and filtered/sorted list derivation ===
 function patchTask(
   taskList: any[],
   targetId: string,
@@ -482,7 +484,7 @@ const filteredTasks = computed(() => {
       }
     }
 
-    // 鬮｣蜴・ｽｽ・ｴ郢晢ｽｻ繝ｻ・ｿ鬯ｨ・ｾ陋ｹ繝ｻ・ｽ・ｽ繝ｻ・ｨ blockId 鬯ｮ・｢繝ｻ・ｰ髯溷桁・ｽ・｡郢晢ｽｻ繝ｻ・ｸ鬮｢・ｧ繝ｻ・ｴ髯滉ｻ｣繝ｻcreatedAt 鬮ｫ・ｰ髣埼屮・ｽ・ｲ隶厄ｽｸ繝ｻ・ｽ繝ｻ・ｺ髫ｰ・ｫ繝ｻ・ｾ郢晢ｽｻ繝ｻ・ｼ髫ｰ逍ｲ・ｺ・ｷ繝ｻ・ｱ陷托ｽｰ陷ｿ蟲ｨ繝ｻ繝ｻ・ｺ blockId 鬮ｯ蜈ｷ・ｽ・ｹ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮ｫ・ｴ鬲・ｼ夲ｽｽ・ｽ繝ｻ・ｶ鬯ｯ・ｮ繝ｻ・｣郢晢ｽｻ繝ｻ・ｴ鬮ｫ・ｰ鬲・ｼ夲ｽｽ・ｽ繝ｻ・ｳ鬮｣蛹・ｽｽ・ｳ鬨ｾ謳ｾ・ｽ・ｲ髯晢ｽｲ繝ｻ・ｩ鬯ｩ蠅難ｽｩ・ｸ繝ｻ・ｽ繝ｻ・ｳ鬮ｯ讖ｸ・ｽ・ｳ驛｢譎｢・ｽ・ｻ    // blockId 鬮ｫ・ｴ繝ｻ・ｬ郢晢ｽｻ繝ｻ・ｼ鬮ｯ貊会ｽｻ・｣郢晢ｽｻ "YYYYMMDDHHmmss-xxx"
+    // Stable fallback ordering: prefer blockId, then id/createdAt (blockId is time-sortable: YYYYMMDDHHmmss-xxx).
     const aSortKey = a.blockId || a.id || a.createdAt || '';
     const bSortKey = b.blockId || b.id || b.createdAt || '';
     return bSortKey.localeCompare(aSortKey);
@@ -648,7 +650,7 @@ async function loadNotebooks() {
         }));
     }
   } catch (error) {
-    // 鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・｣繝ｻ・ｰ鬯ｮ・ｴ鬮ｮ・｣繝ｻ・ｽ繝ｻ・ｽ鬯ｮ・ｫ繝ｻ・ｨ鬩募争豎壹・・ｽ繝ｻ・ｮ郢晢ｽｻ繝ｻ・ｰ鬮ｫ・ｴ陝ｷ・｢繝ｻ・ｽ繝ｻ・ｬ鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
+    // Ignore notebook load errors; later refresh attempts will retry.
   }
 }
 
@@ -706,8 +708,8 @@ async function refreshTasks(
       updateTaskIndex();
     }
     consecutiveFallbackFailures = 0;
-  } catch (error) {
-    // 鬮ｯ蜈ｷ・ｽ・ｻ郢晢ｽｻ繝ｻ・ｷ鬮ｫ・ｴ郢晢ｽｻ繝ｻ・ｽ繝ｻ・ｰ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
+  } catch {
+    // Keep current UI state on refresh failure; the next cycle will reconcile.
   } finally {
     if (showLoading) {
       loading.value = false;
@@ -780,7 +782,7 @@ function hasTasksChanged(oldTasks: Task[], newTasks: Task[]): boolean {
     
     if (!oldTask) return true;
     
-    // 鬮｣蜴・ｽｽ・ｴ郢晢ｽｻ繝ｻ・ｿ鬯ｨ・ｾ陋ｹ繝ｻ・ｽ・ｽ繝ｻ・ｨ髫ｰ繝ｻ豐ｺ繝ｻ・ｻ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・ｸ繝ｻ縺､ﾂ鬯ｨ・ｾ繝ｻ・ｧ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮ｯ貅ｯ・ｶ・｣繝ｻ・ｽ繝ｻ・ｦ鬮ｮ荳ｻ豐ｺ繝ｻ・ｳ鬲・ｼ夲ｽｽ・ｽ繝ｻ・ｯ郢晢ｽｻ繝ｻ・ｹ
+    // Also compare updatedAt so in-place edits are detected even when ids are unchanged.
     if (!isDeepEqual(oldTask, newTask, { checkUpdatedAt: true })) {
       return true;
     }
@@ -881,18 +883,23 @@ function setupEventListeners() {
 }
 
 async function incrementalUpdateTasks(blockIds: string[]) { 
-  const unresolvedBlockIds = await fastSyncTaskFromMarkdown(blockIds);
+  const ancestorContextRows = await queryAncestorContextRows(blockIds);
+  await pruneInvalidParentsFromEvents(blockIds, ancestorContextRows);
+
+  const { unresolvedBlockIds, patchedParentStatuses } = await fastSyncTaskFromMarkdown(blockIds);
   if (unresolvedBlockIds.length === 0) {
     consecutiveFallbackFailures = 0;
     return;
   }
 
-  const parentBlockIds = unresolvedBlockIds.map(id => {
-    const parentTaskId = subtaskToParentMap.get(id);
-    return parentTaskId || id;
-  });
+  const parentBlockIds = await resolveParentTaskBlockIds(unresolvedBlockIds, ancestorContextRows);
+
+  if (parentBlockIds.size === 0) {
+    scheduleFallbackRefresh(true, 120, 'immediate');
+    return;
+  }
   
-  const uniqueBlockIds = [...new Set(parentBlockIds)].filter(id => !processingBlockIds.has(id)); 
+  const uniqueBlockIds = [...parentBlockIds].filter(id => !processingBlockIds.has(id)); 
   if (uniqueBlockIds.length === 0) { 
     return; 
   } 
@@ -904,42 +911,337 @@ async function incrementalUpdateTasks(blockIds: string[]) {
     const taskMapBatch = await TaskRepository.getTasksByBlockIds(uniqueBlockIds, false);
     
     const updatedTasks: Task[] = [];
+    let removedTasks = 0;
+    const removedBlockIds: string[] = [];
+    const missingRequestedIds: string[] = [];
   
-    for (const [_blockId, newTask] of taskMapBatch) {
+    for (const [blockId, newTask] of taskMapBatch) {
+      const forcedStatus = patchedParentStatuses.get(blockId);
+      if (forcedStatus) {
+        newTask.status = forcedStatus;
+        if (forcedStatus === 'completed') {
+          newTask.completedAt = newTask.completedAt || new Date().toISOString();
+        } else {
+          delete newTask.completedAt;
+        }
+      }
       crdtRepo.syncIncrementalTasks([newTask]);
       updatedTasks.push(newTask);
     }
+
+    for (const blockId of uniqueBlockIds) {
+      if (taskMapBatch.has(blockId)) {
+        continue;
+      }
+      missingRequestedIds.push(blockId);
+
+      const taskIndex = blockIdToTaskIndex.get(blockId);
+      if (!taskIndex || taskIndex.isSubtask) {
+        continue;
+      }
+
+      crdtRepo.deleteTask(taskIndex.task.id, Date.now());
+      removedTasks += 1;
+      removedBlockIds.push(blockId);
+    }
     
-    if (updatedTasks.length > 0) {
+    if (updatedTasks.length > 0 || removedTasks > 0) {
       tasks.value = crdtRepo.getTasks();
       await updateTaskIndex(); 
       consecutiveFallbackFailures = 0;
+
+      if (missingRequestedIds.length > 0) {
+        // When requested blockIds cannot be fully resolved, force an immediate full reconcile.
+        // Keep a small cooldown to avoid flooding during burst transactions.
+        const now = Date.now();
+        if (now - lastMismatchForceRefreshAt >= MISMATCH_FORCE_REFRESH_COOLDOWN) {
+          lastMismatchForceRefreshAt = now;
+          await refreshTasks(true, { showLoading: false, compareExisting: true });
+        }
+      }
     } else {
       scheduleFallbackRefresh(true, 120, 'immediate');
     }
-  } catch (error) {
+  } catch {
     scheduleFallbackRefresh(true, 120, 'immediate');
   } finally {
     uniqueBlockIds.forEach(id => processingBlockIds.delete(id));
   }
 }
 
-function parseTaskCompleted(markdown: string): boolean | null {
-  const match = markdown.match(/\[(x|X| )\]/);
+interface AncestorContextRow {
+  source_id: string;
+  id: string;
+  depth: number;
+  subtype: string;
+}
+
+function normalizeBlockIds(blockIds: string[]): string[] {
+  return [...new Set(blockIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+}
+
+async function queryAncestorContextRows(blockIds: string[]): Promise<AncestorContextRow[]> {
+  const normalizedBlockIds = normalizeBlockIds(blockIds);
+  if (normalizedBlockIds.length === 0) {
+    return [];
+  }
+
+  try {
+    const idsClause = normalizedBlockIds.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
+    const rows = await sql(`
+      WITH RECURSIVE ancestors(source_id, id, parent_id, depth) AS (
+        SELECT id AS source_id, id, parent_id, 0
+        FROM blocks
+        WHERE id IN (${idsClause})
+        UNION ALL
+        SELECT ancestors.source_id, b.id, b.parent_id, ancestors.depth + 1
+        FROM blocks b
+        JOIN ancestors ON ancestors.parent_id = b.id
+        WHERE ancestors.parent_id != ''
+          AND ancestors.depth < 10
+      )
+      SELECT ancestors.source_id, ancestors.id, ancestors.depth, b.subtype
+      FROM ancestors
+      JOIN blocks b ON b.id = ancestors.id
+    `) as any[];
+
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+
+    return rows
+      .map((row) => ({
+        source_id: typeof row?.source_id === 'string' ? row.source_id : '',
+        id: typeof row?.id === 'string' ? row.id : '',
+        depth: Number(row?.depth),
+        subtype: typeof row?.subtype === 'string' ? row.subtype : ''
+      }))
+      .filter((row) => row.source_id.length > 0 && row.id.length > 0 && Number.isFinite(row.depth));
+  } catch {
+    return [];
+  }
+}
+
+async function pruneInvalidParentsFromEvents(
+  blockIds: string[],
+  ancestorContextRows?: AncestorContextRow[]
+): Promise<number> {
+  const normalizedBlockIds = normalizeBlockIds(blockIds);
+  if (normalizedBlockIds.length === 0) {
+    return 0;
+  }
+
+  try {
+    const rows = ancestorContextRows ?? await queryAncestorContextRows(normalizedBlockIds);
+    const blockSubtypeMap = new Map<string, string>();
+    rows.forEach((row) => {
+      if (row?.id && row.subtype) {
+        blockSubtypeMap.set(row.id, row.subtype);
+      }
+    });
+
+    let removed = false;
+    const removedBlockIds: string[] = [];
+    for (const [blockId, taskIndex] of blockIdToTaskIndex.entries()) {
+      if (taskIndex.isSubtask) {
+        continue;
+      }
+
+      const subtype = blockSubtypeMap.get(blockId);
+      if (!subtype || subtype === 't') {
+        continue;
+      }
+
+      crdtRepo.deleteTask(taskIndex.task.id, Date.now());
+      removed = true;
+      removedBlockIds.push(blockId);
+    }
+
+    if (removed) {
+      invalidateCache();
+      invalidateSortCache();
+      tasks.value = crdtRepo.getTasks();
+      await updateTaskIndex();
+    }
+    return removedBlockIds.length;
+  } catch {
+    // Silent fallback: next refresh cycle will reconcile if SQL check fails.
+    return 0;
+  }
+}
+
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+async function resolveParentTaskBlockIds(
+  blockIds: string[],
+  ancestorContextRows?: AncestorContextRow[]
+): Promise<Set<string>> {
+  const resolvedParentBlockIds = new Set<string>();
+  const unknownBlockIds: string[] = [];
+  const normalizedBlockIds = normalizeBlockIds(blockIds);
+
+  for (const blockId of normalizedBlockIds) {
+    const taskIndex = blockIdToTaskIndex.get(blockId);
+    if (taskIndex) {
+      if (taskIndex.isSubtask) {
+        const parentBlockId = subtaskToParentMap.get(blockId);
+        if (parentBlockId) {
+          resolvedParentBlockIds.add(parentBlockId);
+        } else {
+          unknownBlockIds.push(blockId);
+        }
+      } else {
+        resolvedParentBlockIds.add(blockId);
+      }
+      continue;
+    }
+
+    const parentBlockId = subtaskToParentMap.get(blockId);
+    if (parentBlockId) {
+      resolvedParentBlockIds.add(parentBlockId);
+      continue;
+    }
+
+    unknownBlockIds.push(blockId);
+  }
+
+  if (unknownBlockIds.length === 0) {
+    return resolvedParentBlockIds;
+  }
+
+  try {
+    const rows = ancestorContextRows ?? await queryAncestorContextRows(unknownBlockIds);
+    const unknownIdSet = new Set(unknownBlockIds);
+    const candidatesBySource = new Map<string, Array<{ id: string; depth: number }>>();
+    rows.forEach((row) => {
+      const sourceId = row?.source_id;
+      const candidateId = row?.id;
+      const depth = Number(row?.depth);
+      if (!sourceId || !candidateId || !Number.isFinite(depth)) return;
+      if (!unknownIdSet.has(sourceId)) return;
+      if (row.subtype !== 't') return;
+      const list = candidatesBySource.get(sourceId) || [];
+      list.push({ id: candidateId, depth });
+      candidatesBySource.set(sourceId, list);
+    });
+
+    for (const sourceId of unknownBlockIds) {
+      const candidates = (candidatesBySource.get(sourceId) || []).sort((a, b) => a.depth - b.depth);
+      let mappedParentId = '';
+
+      for (const candidate of candidates) {
+        if (candidate.depth <= 0) continue;
+        const taskIndex = blockIdToTaskIndex.get(candidate.id);
+        if (taskIndex && !taskIndex.isSubtask) {
+          mappedParentId = candidate.id;
+          break;
+        }
+      }
+
+      if (!mappedParentId) {
+        const selfCandidate = candidates.find((candidate) => candidate.id === sourceId);
+        if (selfCandidate) {
+          mappedParentId = sourceId;
+        }
+      }
+
+      if (!mappedParentId) {
+        const fallbackAncestor = candidates.find((candidate) => candidate.depth > 0);
+        if (fallbackAncestor) {
+          mappedParentId = fallbackAncestor.id;
+        }
+      }
+
+      if (mappedParentId) {
+        resolvedParentBlockIds.add(mappedParentId);
+      }
+    }
+  } catch {
+    // Fallback refresh will handle transient SQL failures.
+  }
+
+  return resolvedParentBlockIds;
+}
+
+function parseTaskCompleted(markdown: string, blockId?: string): boolean | null {
+  const getTaskActionElement = (root: Element | null, ownerId?: string): Element | null => {
+    if (!root) return null;
+    const matchesOwner = (action: Element): boolean => {
+      if (!ownerId) return true;
+      const owner = action.closest('[data-node-id]');
+      return owner?.getAttribute('data-node-id') === ownerId;
+    };
+
+    if (root.classList.contains('protyle-action--task') && matchesOwner(root)) {
+      return root;
+    }
+
+    const actions = root.querySelectorAll('.protyle-action--task');
+    for (const action of actions) {
+      if (matchesOwner(action)) {
+        return action;
+      }
+    }
+
+    const fallback = root.closest('.protyle-task')?.querySelector('.protyle-action--task');
+    if (fallback && matchesOwner(fallback)) {
+      return fallback;
+    }
+
+    return null;
+  };
+
+  if (blockId) {
+    const currentElement =
+      document.querySelector(`.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`)
+      || document.querySelector(`.protyle [data-node-id="${blockId}"]`)
+      || document.querySelector(`[data-node-id="${blockId}"][data-type="NodeListItem"]`)
+      || document.querySelector(`[data-node-id="${blockId}"]`);
+    if (currentElement) {
+      const currentAction = getTaskActionElement(currentElement, blockId);
+      if (!currentAction) {
+        return null;
+      }
+      const currentSvg = currentAction.querySelector('use');
+      const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
+      if (currentHref) {
+        return currentHref === '#iconCheck';
+      }
+      return null;
+    }
+  }
+
+  const firstLine = markdown
+    .split('\n')
+    .map(line => line.trim())
+    .find(line => line.length > 0);
+  if (!firstLine) return null;
+
+  const match = firstLine.match(/\[(x|X| )\]/);
   if (!match) return null;
   return match[1].toLowerCase() === 'x';
 }
 
 function parseTaskTitle(markdown: string): string | null {
-  const firstTaskLine = markdown.split('\n').find(line => /\[(x|X| )\]/.test(line));
-  if (!firstTaskLine) return null;
+  const firstLine = markdown
+    .split('\n')
+    .map(line => line.trim())
+    .find(line => line.length > 0);
+  if (!firstLine) return null;
+  if (!/\[(x|X| )\]/.test(firstLine)) return null;
 
-  const rawTitle = stripTaskPrefix(firstTaskLine);
+  const rawTitle = stripTaskPrefix(firstLine);
   return cleanTaskTitle(rawTitle).trim();
 }
 
-async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<string[]> {
+async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
+  unresolvedBlockIds: string[];
+  patchedParentStatuses: Map<string, Task['status']>;
+}> {
   const unresolved: string[] = [];
+  const patchedParentStatuses = new Map<string, Task['status']>();
   let hasPatched = false;
   const validBlockIds: string[] = [];
   const taskIndexMap = new Map<string, TaskIndex>();
@@ -978,7 +1280,7 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<string[]> {
     }
 
     try {
-      const completed = parseTaskCompleted(markdown);
+      const completed = parseTaskCompleted(markdown, blockId);
       const title = parseTaskTitle(markdown);
       if (completed === null) {
         unresolved.push(blockId);
@@ -1006,10 +1308,12 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<string[]> {
         }
       } else {
         let changed = false;
+        let nextStatusForTask: Task['status'] | null = null;
         const patched = patchTask(tasks.value, blockId, (task) => {
           const nextStatus: Task['status'] = completed
             ? 'completed'
             : (task.status === 'completed' ? 'pending' : (task.status || 'pending'));
+          nextStatusForTask = nextStatus;
           if (task.status !== nextStatus) {
             task.status = nextStatus;
             changed = true;
@@ -1033,6 +1337,9 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<string[]> {
         }
         if (changed) {
           hasPatched = true;
+          if (nextStatusForTask) {
+            patchedParentStatuses.set(blockId, nextStatusForTask);
+          }
         }
       }
     } catch (_error) {
@@ -1046,7 +1353,10 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<string[]> {
     updateTaskIndex();
   }
 
-  return unresolved;
+  return {
+    unresolvedBlockIds: unresolved,
+    patchedParentStatuses
+  };
 }
 
 function sanitizeTaskHtml(rawHtml?: string): string {
@@ -1141,7 +1451,7 @@ async function toggleTaskStatus(task: Task) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: task.blockId ? [task.blockId] : [] });
     }
   } catch (error) {
-    // 鬮ｯ蜈ｷ・ｽ・ｻ驛｢譎｢・ｽ・ｻ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ驛｢譎｢・ｽ・ｻ郢晢ｽｻ繝ｻ・ｽ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡鬮ｴ謇假ｽｽ・･郢晢ｽｻ繝ｻ・ｶ鬮ｫ・ｲ繝ｻ・､驕ｶ荵怜款繝ｻ・ｽ繝ｻ・､郢晢ｽｻ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
+    // Swallow toggle errors to avoid breaking interaction flow.
   }
 }
 
@@ -1217,7 +1527,7 @@ async function saveTaskEdit(task: Task) {
     editingTasks.value.delete(task.id);
     await refreshInternalState();
   } catch (error) {
-    // 鬮｣蜴・ｽｽ・ｫ髫ｴ蜿門ｾ励・・ｽ繝ｻ・ｭ髯区ｺ倥・繝ｻ・ｽ繝ｻ・ｻ郢晢ｽｻ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
+    // Swallow edit-save errors here; user can retry from the panel.
   }
 }
 
@@ -1294,7 +1604,7 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
     await refreshTasks(true, { showLoading: true, compareExisting: false });
     showTaskModal.value = false;
   } catch (error) {
-    // 鬮ｯ蜈ｷ・ｽ・ｻ髯晢ｽｶ陝ｷ・｢繝ｻ・ｽ繝ｻ・ｻ郢晢ｽｻ繝ｻ・ｺ鬮｣豈費ｽｼ螟ｲ・ｽ・ｽ繝ｻ・ｻ鬮ｯ・ｷ闔ｨ螟ｲ・ｽ・ｽ繝ｻ・｡鬮ｯ讓奇ｽｻ繧托ｽｽ・ｽ繝ｻ・ｱ鬯ｮ・ｮ隰ｳ・ｾ繝ｻ・ｽ繝ｻ・･
+    // Swallow create-task errors here; later refresh/retry will reconcile state.
   }
 }
 
