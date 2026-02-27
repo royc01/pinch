@@ -1,5 +1,5 @@
 import { ref, type Ref } from 'vue';
-import type { Habit } from '@/api';
+import { openBlockById, type Habit } from '@/api';
 
 const DOC_ID_PATTERN = /^\d{14}-[a-z0-9]{7}$/i;
 
@@ -14,7 +14,7 @@ function defaultAlert(message: string): void {
 }
 
 function defaultOpenDocById(docId: string): void {
-  window.location.href = `siyuan://blocks/${docId}`;
+  void openBlockById(docId);
 }
 
 export function normalizeDocId(raw: string): string {

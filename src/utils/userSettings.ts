@@ -1,6 +1,6 @@
 import { usePlugin } from '../main';
 
-interface UserSettings {
+export interface UserSettings {
   kanban: {
     filterType: string;
     filterDocument: string;
@@ -18,6 +18,9 @@ interface UserSettings {
     filterNotebook: string;
     filterDocument: string;
     filterPriority: string;
+    excludedNotebookIds: string[];
+    showCompletedTasks?: boolean;
+    scopeInitialized?: boolean;
     lastTaskNotebook?: string;
     lastTaskDocument?: string;
   };
@@ -44,7 +47,10 @@ const DEFAULT_SETTINGS: UserSettings = {
     filterStatus: 'all',
     filterNotebook: 'all',
     filterDocument: 'all',
-    filterPriority: 'all'
+    filterPriority: 'all',
+    excludedNotebookIds: [],
+    showCompletedTasks: true,
+    scopeInitialized: false
   },
   sidebar: {
     selectedNotebook: 'all',
@@ -54,6 +60,40 @@ const DEFAULT_SETTINGS: UserSettings = {
 
 const STORAGE_KEY = 'Stand-settings';
 const LOCAL_STORAGE_KEY = 'siyuan-stand-settings';
+
+function normalizeNotebookIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map(id => id.trim())
+    )
+  );
+}
+
+function mergeWithDefaults(input: unknown): UserSettings {
+  const raw = input && typeof input === 'object' ? (input as Partial<UserSettings>) : {};
+  const rawKanban = raw.kanban && typeof raw.kanban === 'object' ? raw.kanban : {};
+  const rawTaskManager = raw.taskManager && typeof raw.taskManager === 'object' ? raw.taskManager : {};
+  const rawSidebar = raw.sidebar && typeof raw.sidebar === 'object' ? raw.sidebar : {};
+
+  return {
+    kanban: {
+      ...DEFAULT_SETTINGS.kanban,
+      ...rawKanban
+    },
+    taskManager: {
+      ...DEFAULT_SETTINGS.taskManager,
+      ...rawTaskManager,
+      excludedNotebookIds: normalizeNotebookIds((rawTaskManager as { excludedNotebookIds?: unknown }).excludedNotebookIds)
+    },
+    sidebar: {
+      ...DEFAULT_SETTINGS.sidebar,
+      ...rawSidebar
+    }
+  };
+}
 
 export class UserSettingsManager {
   private settings: UserSettings | null = null;
@@ -70,13 +110,13 @@ export class UserSettingsManager {
       
       if (data) {
         const settings = typeof data === 'string' ? JSON.parse(data) : data;
-        this.settings = { ...DEFAULT_SETTINGS, ...settings };
+        this.settings = mergeWithDefaults(settings);
       } else {
-        this.settings = { ...DEFAULT_SETTINGS };
+        this.settings = mergeWithDefaults(null);
       }
     } catch (error) {
       console.error('[UserSettings] 加载设置失败，使用默认设置:', error);
-      this.settings = { ...DEFAULT_SETTINGS };
+      this.settings = mergeWithDefaults(null);
     }
     
     this.syncToLocalStorage();
@@ -92,6 +132,7 @@ export class UserSettingsManager {
       ...this.settings!,
       ...settings
     };
+    this.settings = mergeWithDefaults(this.settings);
     
     try {
       const plugin = usePlugin();
@@ -115,6 +156,7 @@ export class UserSettingsManager {
       ...this.settings![section],
       ...value
     };
+    this.settings = mergeWithDefaults(this.settings);
     
     try {
       const plugin = usePlugin();

@@ -7,10 +7,10 @@
           <div class="date-display">{{ currentDateString.split('/')[0] }}<span>.</span>{{ currentDateString.split('/')[1] }}<span>.</span>{{ currentDateString.split('/')[2] }}</div>
           <div class="header-buttons">
             <SyButton @click="showFocusTimer = true" id="focus-timer-btn" class="focus-timer-btn">
-              <Icon name="timer" width="26" height="26" class="icon" />
+              <Icon name="timer" width="24" height="24" class="icon" />
             </SyButton>
             <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn">
-              <Icon name="smile" width="26" height="26" class="icon" />
+              <Icon name="smile" width="24" height="24" class="icon" />
             </SyButton>
           </div>
         </div>
@@ -35,10 +35,10 @@
           </div>
           <div class="header-actions">
             <SyButton @click="showTotalStatsPage = true" id="stats-btn" class="stats-btn">
-              <Icon name="stats" width="26" height="26" class="icon" />
+              <Icon name="stats" width="24" height="24" class="icon" />
             </SyButton>
             <SyButton @click="showAddHabitModal = true" id="add-habit-btn" class="add-habit-btn">
-              <Icon name="add" width="16" height="16" class="icon" />
+              <Icon name="add" width="24" height="24" class="icon" />
             </SyButton>
           </div>
         </div>
@@ -597,13 +597,29 @@ const closeHabitStats = () => {
       padding: 0;
       margin: 0 6px 0 0;
       cursor: pointer;
-      width: 26px;
-      height: 26px;
-      
+    }
+
+    #add-habit-btn,
+    #stats-btn {
+      width: 24px;
+      height: 24px;
+
       svg {
         color: var(--b3-theme-on-background);
-        width: 26px;
-        height: 26px;
+        width: 24px;
+        height: 24px;
+      }
+    }
+
+    #mood-calendar-btn,
+    #focus-timer-btn {
+      width: 24px;
+      height: 24px;
+
+      svg {
+        color: var(--b3-theme-on-background);
+        width: 24px;
+        height: 24px;
       }
     }
   .habit-manager-header {
@@ -611,6 +627,7 @@ const closeHabitStats = () => {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
+    margin-top: 16px;
   }
 
   .habit-manager-header .header-left {

@@ -9,6 +9,7 @@ const REPEAT_SERIES_FILE = 'Pinch-repeat-series.json';
 const REPEAT_RECORDS_FILE = 'Pinch-repeat-records.json';
 const DEFAULT_PAST_WINDOW_DAYS = 30;
 const DEFAULT_FUTURE_WINDOW_DAYS = 90;
+const REPEAT_CACHE_TTL_MS = 5000;
 
 export interface RepeatSeries {
   id: string;
@@ -71,6 +72,29 @@ export interface RepeatTaskLike {
   repeatFrequency?: RepeatFrequency;
   repeatInstanceDate?: string;
   isVirtual?: boolean;
+}
+
+let repeatSeriesCache: { value: RepeatSeries[]; timestamp: number } | null = null;
+let repeatRecordsCache: { value: RepeatRecord[]; timestamp: number } | null = null;
+
+function cloneRepeatSeries(series: RepeatSeries): RepeatSeries {
+  return {
+    ...series,
+    weekDays: series.weekDays ? [...series.weekDays] : undefined,
+    tags: Array.isArray(series.tags) ? [...series.tags] : []
+  };
+}
+
+function cloneRepeatSeriesList(seriesList: RepeatSeries[]): RepeatSeries[] {
+  return seriesList.map(cloneRepeatSeries);
+}
+
+function cloneRepeatRecords(records: RepeatRecord[]): RepeatRecord[] {
+  return records.map((record) => ({ ...record }));
+}
+
+function isRepeatCacheFresh(timestamp: number): boolean {
+  return Date.now() - timestamp < REPEAT_CACHE_TTL_MS;
 }
 
 function formatDate(date: Date): string {
@@ -307,12 +331,25 @@ function normalizeRecord(raw: unknown): RepeatRecord | null {
 }
 
 export async function loadRepeatSeries(): Promise<RepeatSeries[]> {
+  if (repeatSeriesCache && isRepeatCacheFresh(repeatSeriesCache.timestamp)) {
+    return cloneRepeatSeriesList(repeatSeriesCache.value);
+  }
+
   const raw = await loadData<unknown>(REPEAT_SERIES_FILE, []);
-  return toArray<unknown>(raw).map(normalizeSeries).filter((item): item is RepeatSeries => !!item);
+  const normalized = toArray<unknown>(raw).map(normalizeSeries).filter((item): item is RepeatSeries => !!item);
+  repeatSeriesCache = {
+    value: cloneRepeatSeriesList(normalized),
+    timestamp: Date.now()
+  };
+  return cloneRepeatSeriesList(normalized);
 }
 
 export async function saveRepeatSeries(series: RepeatSeries[]): Promise<void> {
   await saveData(REPEAT_SERIES_FILE, series);
+  repeatSeriesCache = {
+    value: cloneRepeatSeriesList(series),
+    timestamp: Date.now()
+  };
 }
 
 export async function getRepeatSeriesForTask(
@@ -393,12 +430,25 @@ export async function updateRepeatSeriesDates(
 }
 
 export async function loadRepeatRecords(): Promise<RepeatRecord[]> {
+  if (repeatRecordsCache && isRepeatCacheFresh(repeatRecordsCache.timestamp)) {
+    return cloneRepeatRecords(repeatRecordsCache.value);
+  }
+
   const raw = await loadData<unknown>(REPEAT_RECORDS_FILE, []);
-  return toArray<unknown>(raw).map(normalizeRecord).filter((item): item is RepeatRecord => !!item);
+  const normalized = toArray<unknown>(raw).map(normalizeRecord).filter((item): item is RepeatRecord => !!item);
+  repeatRecordsCache = {
+    value: cloneRepeatRecords(normalized),
+    timestamp: Date.now()
+  };
+  return cloneRepeatRecords(normalized);
 }
 
 export async function saveRepeatRecords(records: RepeatRecord[]): Promise<void> {
   await saveData(REPEAT_RECORDS_FILE, records);
+  repeatRecordsCache = {
+    value: cloneRepeatRecords(records),
+    timestamp: Date.now()
+  };
 }
 
 function findSeriesForTask(seriesList: RepeatSeries[], task: Pick<RepeatTaskLike, 'id' | 'blockId' | 'repeatSeriesId'>): RepeatSeries | undefined {

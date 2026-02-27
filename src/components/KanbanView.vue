@@ -107,6 +107,9 @@
       </div>
       
       <div class="header-actions">
+        <button @click="openTaskScopeDialog" class="scope-btn">
+          任务范围
+        </button>
         <button @click="refreshTasks" class="refresh-btn">
           <Icon name="refresh" width="24" height="24" />
         </button>
@@ -234,13 +237,20 @@
         </div>
       </div>
     </div>
+    <TaskScopeDialog
+      :show="showTaskScopeDialog"
+      :notebooks="notebooks"
+      :excluded-notebook-ids="excludedNotebookIds"
+      @close="showTaskScopeDialog = false"
+      @save="handleTaskScopeSave"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, setBlockAttrs, pushMsg } from '../api';
+import { TaskRepository, Task, SubTask, setBlockAttrs, pushMsg, openBlockById } from '../api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -253,6 +263,7 @@ import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TableView from '@/components/TableView.vue';
 import MonthView from '@/components/MonthView.vue';
 import WeekView from '@/components/WeekView.vue';
+import TaskScopeDialog from '@/components/TaskScopeDialog.vue';
 
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 
@@ -266,6 +277,8 @@ try {
   isMobileFrontend = false;
 }
 const loading = ref(false);
+const showTaskScopeDialog = ref(false);
+const excludedNotebookIds = ref<string[]>([]);
 const skipSet = new Set<string>();
 
 let skipCleanupTimer: number | null = null;
@@ -346,10 +359,99 @@ const priorityOptions = [
   { value: 'low', text: '低' }
 ];
 
+const enabledNotebooks = computed(() => {
+  const excludedNotebookIdSet = new Set(excludedNotebookIds.value);
+  return notebooks.value.filter(notebook => !excludedNotebookIdSet.has(notebook.id));
+});
+
 const notebookOptions = computed(() => [
   { value: 'all', text: '全部' },
-  ...notebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
+  ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
 ]);
+
+function normalizeNotebookIds(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return [];
+  return Array.from(
+    new Set(
+      ids
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map(id => id.trim())
+    )
+  );
+}
+
+function applyExcludedNotebookScope(ids: string[]): void {
+  const normalized = normalizeNotebookIds(ids);
+  excludedNotebookIds.value = normalized;
+  TaskRepository.setExcludedNotebookIds(normalized);
+}
+
+function resetFiltersForExcludedNotebooks(): boolean {
+  const excludedNotebookIdSet = new Set(excludedNotebookIds.value);
+  let changed = false;
+
+  if (kanbanFilterType.value !== 'all' && excludedNotebookIdSet.has(kanbanFilterType.value)) {
+    kanbanFilterType.value = 'all';
+    kanbanFilterDocument.value = 'all';
+    changed = true;
+  }
+
+  if (tableFilterType.value !== 'all' && excludedNotebookIdSet.has(tableFilterType.value)) {
+    tableFilterType.value = 'all';
+    tableFilterDocument.value = 'all';
+    changed = true;
+  }
+
+  if (monthFilterType.value !== 'all' && excludedNotebookIdSet.has(monthFilterType.value)) {
+    monthFilterType.value = 'all';
+    monthFilterDocument.value = 'all';
+    changed = true;
+  }
+
+  if (weekFilterType.value !== 'all' && excludedNotebookIdSet.has(weekFilterType.value)) {
+    weekFilterType.value = 'all';
+    weekFilterDocument.value = 'all';
+    changed = true;
+  }
+
+  if (quickCreateNotebookId.value !== 'all' && excludedNotebookIdSet.has(quickCreateNotebookId.value)) {
+    quickCreateNotebookId.value = 'all';
+    quickCreateDocumentId.value = 'all';
+    changed = true;
+  }
+
+  return changed;
+}
+
+async function openTaskScopeDialog() {
+  if (notebooks.value.length === 0) {
+    await loadNotebooks();
+  }
+  showTaskScopeDialog.value = true;
+}
+
+async function handleTaskScopeSave(selectedVisibleExcludedNotebookIds: string[]) {
+  const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
+  const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
+  const mergedExcludedNotebookIds = normalizeNotebookIds([
+    ...hiddenExcludedNotebookIds,
+    ...selectedVisibleExcludedNotebookIds
+  ]);
+
+  applyExcludedNotebookScope(mergedExcludedNotebookIds);
+  showTaskScopeDialog.value = false;
+  const hasFilterChanges = resetFiltersForExcludedNotebooks();
+
+  await updateSettings('taskManager', {
+    excludedNotebookIds: mergedExcludedNotebookIds
+  });
+  if (hasFilterChanges) {
+    await saveUserSettings();
+  }
+
+  await loadTasks(true);
+  await validateDocumentSelection();
+}
 
 let eventUnsubscribers: Array<() => void> = [];
 let saveSettingsTimer: number | null = null;
@@ -749,11 +851,12 @@ async function loadUserSettings() {
     monthFilterDocument.value = settings.monthFilterDocument || 'all';
     weekFilterType.value = settings.weekFilterType || 'all';
     weekFilterDocument.value = settings.weekFilterDocument || 'all';
+    const changedByScope = resetFiltersForExcludedNotebooks();
     
     isSettingsLoaded.value = true;
     
-    if (kanbanFilterType.value !== 'all' && notebooks.value.length > 0) {
-      const notebookExists = notebooks.value.some(nb => nb.id === kanbanFilterType.value);
+    if (kanbanFilterType.value !== 'all' && enabledNotebooks.value.length > 0) {
+      const notebookExists = enabledNotebooks.value.some(nb => nb.id === kanbanFilterType.value);
       if (!notebookExists) {
         kanbanFilterType.value = 'all';
         kanbanFilterDocument.value = 'all';
@@ -771,8 +874,8 @@ async function loadUserSettings() {
       }
     }
     
-    if (weekFilterType.value !== 'all' && notebooks.value.length > 0) {
-      const notebookExists = notebooks.value.some(nb => nb.id === weekFilterType.value);
+    if (weekFilterType.value !== 'all' && enabledNotebooks.value.length > 0) {
+      const notebookExists = enabledNotebooks.value.some(nb => nb.id === weekFilterType.value);
       if (!notebookExists) {
         weekFilterType.value = 'all';
         weekFilterDocument.value = 'all';
@@ -788,6 +891,10 @@ async function loadUserSettings() {
           weekFilterDocument: 'all'
         });
       }
+    }
+
+    if (changedByScope) {
+      await saveUserSettings();
     }
   } catch (error) {
     console.error('[KanbanView] 加载用户设置失败:', error);
@@ -889,7 +996,12 @@ function setupEventListeners() {
       return;
     }
     if (payload?.blockId) {
-      await incrementalUpdateTasks([payload.blockId], { allowUnknown: true });
+      const scopedBlockIds = await TaskRepository.filterIncludedBlockIds([payload.blockId]);
+      if (scopedBlockIds.length === 0) {
+        return;
+      }
+
+      await incrementalUpdateTasks(scopedBlockIds, { allowUnknown: true });
       if (!tasks.value.some(t => t.blockId === payload.blockId)) {
         scheduleRefreshTasks();
       }
@@ -926,6 +1038,11 @@ async function incrementalUpdateTasks(
       return;
     }
 
+    const scopedBlockIds = await TaskRepository.filterIncludedBlockIds(normalizedBlockIds);
+    if (scopedBlockIds.length === 0) {
+      return;
+    }
+
     const taskIndexMap = new Map<string, number>();
     tasks.value.forEach((task, index) => {
       if (task && task.blockId) {
@@ -934,7 +1051,7 @@ async function incrementalUpdateTasks(
     });
     const parentBlockIds = new Set<string>();
     
-    for (const blockId of normalizedBlockIds) {
+    for (const blockId of scopedBlockIds) {
       if (taskIndexMap.has(blockId)) {
         parentBlockIds.add(blockId);
       } else {
@@ -1021,7 +1138,7 @@ function getColumnTaskCount(status: string): number {
 
 function handleTaskClick(task: Task) {
   if (task.type === 'block' && task.blockId) {
-    window.location.href = `siyuan://blocks/${task.blockId}`;
+    void openBlockById(task.blockId);
   }
 }
 
@@ -1462,6 +1579,7 @@ async function handleDrop(event: DragEvent, targetStatus: string) {
 onMounted(async () => {
   setupEventListeners();
   await loadSettings();
+  applyExcludedNotebookScope(normalizeNotebookIds(userSettings.taskManager.excludedNotebookIds));
   await Promise.all([
     loadNotebooks(),
     loadTasks()
@@ -1569,6 +1687,18 @@ onUnmounted(() => {
   svg {
     color: var(--b3-theme-on-background);
   }
+}
+
+.scope-btn {
+  border: none;
+  margin: 0 6px 0 0;
+  cursor: pointer;
+  height: 26px;
+  font-size: 12px;
+  border-radius: 13px;
+  background-color: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  padding: 4px 10px;
 }
 
 .filter-bar {
@@ -1927,4 +2057,3 @@ onUnmounted(() => {
   font-size: 14px;
 }
 </style>
-

@@ -18,7 +18,10 @@ const DEFAULT_SETTINGS: UserSettings = {
     filterStatus: 'all',
     filterNotebook: 'all',
     filterDocument: 'all',
-    filterPriority: 'all'
+    filterPriority: 'all',
+    excludedNotebookIds: [],
+    showCompletedTasks: true,
+    scopeInitialized: false
   },
   sidebar: {
     selectedNotebook: 'all',

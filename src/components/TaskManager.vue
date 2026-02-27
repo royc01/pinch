@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="task-manager-container">
     <div class="task-manager-header">
       <div class="header-left">
@@ -10,14 +10,23 @@
       <div class="header-actions">
         <SyButton
           size="small"
+          class="task-scope-button"
+          title="任务范围"
+          aria-label="任务范围"
+          @click="openTaskScopeDialog"
+        >
+          <Icon name="taskScope" width="24" height="24" class="icon refresh-icon" />
+        </SyButton>
+        <SyButton
+          size="small"
           class="task-refresh"
           :class="{ 'is-refreshing': isRefreshButtonSpinning }"
           @click="handleRefreshClick"
         >
-          <Icon name="refresh" width="24" height="24" class="icon refresh-icon" />
+          <Icon name="refresh" width="22" height="22" class="icon refresh-icon" />
         </SyButton>
         <SyButton size="small" class="new-task-button" @click="showTaskModal = true">
-          <Icon name="add" width="26" height="26" class="icon" />
+          <Icon name="add" width="24" height="24" class="icon" />
         </SyButton>
         <SyButton size="small" class="view-all-button" @click="openKanbanView">
           查看所有
@@ -145,12 +154,26 @@
     <TaskModal 
       :show="showTaskModal" 
       :t="t"
-      :notebooks="notebooks"
+      :notebooks="enabledNotebooks"
       :documents="allDocuments"
       :lastSelectedNotebook="taskModalDefaultNotebook"
       :lastSelectedDocument="taskModalDefaultDocument"
       @close="showTaskModal = false"
       @submit="handleCreateTask"
+    />
+    <TaskScopeDialog
+      :show="showTaskScopeDialog"
+      :notebooks="notebooks"
+      :excluded-notebook-ids="excludedNotebookIds"
+      :show-completed-tasks="showCompletedTasks"
+      :lock-close="requiresScopeInitialization"
+      :title="requiresScopeInitialization ? '初始化任务范围' : '任务范围'"
+      :hint="requiresScopeInitialization
+        ? '首次使用请先设置任务抓取范围。开关关闭表示排除该笔记本，开关开启表示参与任务抓取。'
+        : '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。'"
+      :confirm-text="requiresScopeInitialization ? '开始使用' : '保存'"
+      @close="showTaskScopeDialog = false"
+      @save="handleTaskScopeSave"
     />
   </div>
 </template>
@@ -163,8 +186,9 @@ import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubTaskItem from '@/components/SubtaskItem.vue';
 import TaskModal, { Notebook, Document } from '@/components/TaskModal.vue';
+import TaskScopeDialog from '@/components/TaskScopeDialog.vue';
 import Icon from '@/components/Icon.vue';
-import { TaskRepository, Task, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs, getBlockKramdown, sql } from '@/api';
+import { TaskRepository, Task, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs, getBlockKramdown, sql, openBlockById, type TaskQueryScope } from '@/api';
 import { updateTaskMarkdown, skipTaskTemporarily, cleanTaskTitle } from '@/utils/taskHelpers';
 import { openKanbanView } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -220,6 +244,10 @@ try {
 const loading = ref(false);
 const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
+const showTaskScopeDialog = ref(false);
+const requiresScopeInitialization = ref(false);
+const excludedNotebookIds = ref<string[]>([]);
+const showCompletedTasks = ref(true);
 const lastTaskNotebook = ref<string>('');
 const lastTaskDocument = ref<string>('');
 const expandedSubtasks = ref(new Set<string>());
@@ -268,10 +296,15 @@ const taskModalDefaultDocument = computed(() => {
 });
 let filterSettingsUpdateTimer: number | null = null;
 
+const enabledNotebooks = computed(() => {
+  const excludedIdSet = new Set(excludedNotebookIds.value);
+  return notebooks.value.filter(notebook => !excludedIdSet.has(notebook.id));
+});
+
 const notebookOptions = computed(() => {
   return [
     { value: 'all', text: t('taskManager.all') },
-    ...notebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
+    ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
   ];
 });
 
@@ -288,6 +321,10 @@ const FALLBACK_FAILURE_THRESHOLD = 2;
 let consecutiveFallbackFailures = 0;
 let lastMismatchForceRefreshAt = 0;
 const MISMATCH_FORCE_REFRESH_COOLDOWN = 500;
+let taskScopeRefreshTimer: number | null = null;
+let isHydratingFilters = true;
+let lastTaskDocumentOptionsRefreshAt = 0;
+const TASK_DOCUMENT_OPTIONS_CACHE_TTL = 60000;
 
 // Tracks tasks whose dates were just cleared, to prevent stale values from being written back by delayed events.
 const recentlyDeletedDates = ref(new Map<string, { startDate: null; dueDate: null; timestamp: number }>());
@@ -303,34 +340,11 @@ interface TaskIndex {
 const blockIdToTaskIndex = new Map<string, TaskIndex>();
 const subtaskToParentMap = new Map<string, string>();
 const sanitizedHtmlCache = new Map<string, string>();
+const taskDocumentsByNotebook = ref<Map<string, Document[]>>(new Map());
 
 // === Notebook/document option derivation and persisted filter selection ===
 const docsMapByNotebook = computed(() => {
-  const map = new Map<string, Document[]>();
-  
-  for (const task of tasks.value) {
-    if (task.type === 'block' && task.notebookId && task.rootId) {
-      const hPath = task.hPath || task.rootId;
-      const notebookKey = task.notebookId;
-      
-      if (!map.has(notebookKey)) {
-        map.set(notebookKey, []);
-      }
-      
-      const docs = map.get(notebookKey)!;
-      const existingDoc = docs.find(d => d.id === task.rootId);
-      if (!existingDoc) {
-        docs.push({
-          id: task.rootId,
-          name: hPath.split('/').pop() || hPath,
-          notebookId: task.notebookId,
-          path: hPath
-        });
-      }
-    }
-  }
-  
-  return map;
+  return taskDocumentsByNotebook.value;
 });
 
 const allDocuments = computed(() => {
@@ -363,6 +377,86 @@ function normalizeDocumentSelection(notebookId: string): void {
   }
 }
 
+function buildTaskDocumentScopeSql(alias: string = 'b'): string {
+  const excluded = normalizeNotebookIds(excludedNotebookIds.value);
+  if (excluded.length === 0) {
+    return '';
+  }
+  const idsClause = excluded.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
+  return ` AND ${alias}.box NOT IN (${idsClause})`;
+}
+
+function buildTaskDocumentCompletionSql(alias: string = 'b'): string {
+  if (showCompletedTasks.value) {
+    return ` AND (${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[x]%' OR ${alias}.markdown LIKE '%[X]%')`;
+  }
+  return ` AND ${alias}.markdown LIKE '%[ ]%'`;
+}
+
+async function refreshTaskDocumentOptions(force = false): Promise<void> {
+  if (
+    !force &&
+    taskDocumentsByNotebook.value.size > 0 &&
+    Date.now() - lastTaskDocumentOptionsRefreshAt < TASK_DOCUMENT_OPTIONS_CACHE_TTL
+  ) {
+    return;
+  }
+
+  try {
+    const rows = await sql(`
+      SELECT b.box, b.root_id, MIN(b.hpath) as hpath
+      FROM blocks b
+      WHERE (b.type = 'i' OR b.type = 'p')
+        ${buildTaskDocumentScopeSql('b')}
+        AND b.subtype = 't'
+        ${buildTaskDocumentCompletionSql('b')}
+      GROUP BY b.box, b.root_id
+      ORDER BY b.box, b.root_id
+    `) as Array<{ box?: string; root_id?: string; hpath?: string }>;
+
+    const nextMap = new Map<string, Document[]>();
+    for (const row of rows || []) {
+      const notebookId = typeof row?.box === 'string' ? row.box : '';
+      const rootId = typeof row?.root_id === 'string' ? row.root_id : '';
+      if (!notebookId || !rootId) {
+        continue;
+      }
+
+      const rawPath = typeof row?.hpath === 'string' && row.hpath.trim().length > 0
+        ? row.hpath
+        : rootId;
+      const name = rawPath.split('/').pop() || rawPath;
+      const docs = nextMap.get(notebookId) || [];
+      docs.push({
+        id: rootId,
+        name,
+        notebookId,
+        path: rawPath
+      });
+      nextMap.set(notebookId, docs);
+    }
+
+    nextMap.forEach((docs, notebookId) => {
+      const dedupById = new Map<string, Document>();
+      for (const doc of docs) {
+        if (!dedupById.has(doc.id)) {
+          dedupById.set(doc.id, doc);
+        }
+      }
+      nextMap.set(
+        notebookId,
+        Array.from(dedupById.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+      );
+    });
+
+    taskDocumentsByNotebook.value = nextMap;
+    lastTaskDocumentOptionsRefreshAt = Date.now();
+  } catch {
+    taskDocumentsByNotebook.value = new Map();
+    lastTaskDocumentOptionsRefreshAt = 0;
+  }
+}
+
 function scheduleFilterSettingsUpdate() {
   if (filterSettingsUpdateTimer !== null) {
     clearTimeout(filterSettingsUpdateTimer);
@@ -379,6 +473,15 @@ function scheduleFilterSettingsUpdate() {
 watch([filterNotebook, filterDocument], ([newNotebook]) => {
   const previousDocument = filterDocument.value;
   normalizeDocumentSelection(newNotebook);
+  if (isHydratingFilters) {
+    return;
+  }
+  if (requiresScopeInitialization.value) {
+    return;
+  }
+
+  scheduleTaskScopeRefresh();
+
   if (filterDocument.value !== previousDocument) {
     return;
   }
@@ -394,6 +497,34 @@ const taskFilters = {
   notebook: filterNotebook,
   document: filterDocument
 };
+
+function getCurrentTaskQueryScope(): TaskQueryScope | undefined {
+  const includeCompleted = showCompletedTasks.value;
+  if (filterNotebook.value === 'all' && includeCompleted) {
+    return undefined;
+  }
+
+  const scope: TaskQueryScope = {
+    includeCompleted
+  };
+  if (filterNotebook.value !== 'all') {
+    scope.notebookId = filterNotebook.value;
+  }
+  if (filterNotebook.value !== 'all' && filterDocument.value !== 'all') {
+    scope.documentId = filterDocument.value;
+  }
+  return scope;
+}
+
+function scheduleTaskScopeRefresh(delay = 100): void {
+  if (taskScopeRefreshTimer !== null) {
+    clearTimeout(taskScopeRefreshTimer);
+  }
+  taskScopeRefreshTimer = window.setTimeout(async () => {
+    taskScopeRefreshTimer = null;
+    await refreshTasks(false, { showLoading: false, compareExisting: false, ignoreThrottle: true });
+  }, delay);
+}
 
 // === Task patch helpers and filtered/sorted list derivation ===
 function patchTask(
@@ -434,15 +565,20 @@ const MAX_VISIBLE_COMPLETED_TASKS = 3;
 const showAllCompletedTasks = ref(false);
 
 const filteredTasks = computed(() => {
+  const includeCompleted = showCompletedTasks.value;
   const baseFiltered = baseFilteredTasks.value.filter(task => {
     if (task.isVirtual) {
+      return false;
+    }
+    if (!includeCompleted && task.status === 'completed') {
       return false;
     }
     const title = task.title?.trim();
     return title && title !== '' && title !== '-';
   });
   
-  const hash = baseFiltered.map(t => t.id).join(':') +
+  const hash = `${includeCompleted ? '1' : '0'}:` +
+               baseFiltered.map(t => t.id).join(':') +
                baseFiltered.map(t => `${t.status}-${t.priority}-${t.updatedAt}-${t.blockId}`).join('|');
   
   if (hash === lastSortedHash && cachedSortedTasks.length > 0) {
@@ -497,6 +633,9 @@ const filteredTasks = computed(() => {
 });
 
 const hasHiddenCompletedTasks = computed(() => {
+  if (!showCompletedTasks.value) {
+    return false;
+  }
   if (showAllCompletedTasks.value) {
     return false;
   }
@@ -654,6 +793,65 @@ async function loadNotebooks() {
   }
 }
 
+function normalizeNotebookIds(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return [];
+  return Array.from(
+    new Set(
+      ids
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        .map(id => id.trim())
+    )
+  );
+}
+
+function applyExcludedNotebookScope(ids: string[]): void {
+  const normalized = normalizeNotebookIds(ids);
+  excludedNotebookIds.value = normalized;
+  TaskRepository.setExcludedNotebookIds(normalized);
+}
+
+function ensureActiveNotebookFilterInScope(): void {
+  if (filterNotebook.value !== 'all' && excludedNotebookIds.value.includes(filterNotebook.value)) {
+    filterNotebook.value = 'all';
+    filterDocument.value = 'all';
+  }
+}
+
+async function openTaskScopeDialog() {
+  if (notebooks.value.length === 0) {
+    await loadNotebooks();
+  }
+  showTaskScopeDialog.value = true;
+}
+
+async function handleTaskScopeSave(
+  selectedVisibleExcludedNotebookIds: string[],
+  nextShowCompletedTasks: boolean
+) {
+  const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
+  const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
+  const mergedExcludedNotebookIds = normalizeNotebookIds([
+    ...hiddenExcludedNotebookIds,
+    ...selectedVisibleExcludedNotebookIds
+  ]);
+
+  applyExcludedNotebookScope(mergedExcludedNotebookIds);
+  showCompletedTasks.value = nextShowCompletedTasks;
+  const shouldFinalizeInit = requiresScopeInitialization.value;
+  await updateSettings('taskManager', {
+    excludedNotebookIds: mergedExcludedNotebookIds,
+    showCompletedTasks: nextShowCompletedTasks,
+    ...(shouldFinalizeInit ? { scopeInitialized: true } : {})
+  });
+  if (shouldFinalizeInit) {
+    requiresScopeInitialization.value = false;
+  }
+  showTaskScopeDialog.value = false;
+  await refreshTaskDocumentOptions(true);
+  ensureActiveNotebookFilterInScope();
+  await refreshTasks(true, { showLoading: false, compareExisting: false });
+}
+
 
 
 
@@ -663,6 +861,11 @@ function validateDocumentSelection() {
 }
 
 async function handleRefreshClick() {
+  if (requiresScopeInitialization.value) {
+    showTaskScopeDialog.value = true;
+    return;
+  }
+
   if (isRefreshButtonSpinning.value) {
     return;
   }
@@ -677,12 +880,16 @@ async function handleRefreshClick() {
 
 async function refreshTasks(
   force = false,
-  options: { showLoading?: boolean; compareExisting?: boolean } = {}
+  options: { showLoading?: boolean; compareExisting?: boolean; ignoreThrottle?: boolean } = {}
 ) {
-  const { showLoading = false, compareExisting = true } = options;
+  if (requiresScopeInitialization.value) {
+    return;
+  }
+
+  const { showLoading = false, compareExisting = true, ignoreThrottle = false } = options;
   const now = Date.now();
   const SKIP_DELAY = 500;
-  if (!force && now - lastRefreshTime < SKIP_DELAY) {
+  if (!force && !ignoreThrottle && now - lastRefreshTime < SKIP_DELAY) {
     return;
   }
   lastRefreshTime = now;
@@ -694,8 +901,9 @@ async function refreshTasks(
     if (notebooks.value.length === 0) {
       await loadNotebooks();
     }
+    await refreshTaskDocumentOptions(force);
     
-    const sqlTasks = await TaskRepository.getAllTasks(!force);
+    const sqlTasks = await TaskRepository.getAllTasks(!force, getCurrentTaskQueryScope());
     crdtRepo.syncFromSQLTasks(sqlTasks);
     const newTasks = crdtRepo.getTasks();
     
@@ -823,7 +1031,12 @@ function setupEventListeners() {
       return;
     }
     if (payload?.blockId) {
-      await incrementalUpdateTasks([payload.blockId]);
+      const scopedBlockIds = await TaskRepository.filterIncludedBlockIds([payload.blockId]);
+      if (scopedBlockIds.length === 0) {
+        return;
+      }
+
+      await incrementalUpdateTasks(scopedBlockIds);
       if (!blockIdToTaskIndex.has(payload.blockId)) {
         scheduleFallbackRefresh(true, 180, 'immediate');
       }
@@ -860,18 +1073,19 @@ function setupEventListeners() {
     invalidateSortCache();
   });
   
-  watch(() => tasks.value.map(t => ({ id: t.id, startDate: t.startDate, dueDate: t.dueDate })), (newMappings) => {
-    for (const mapping of newMappings) {
-      const deletedRecord = recentlyDeletedDates.value.get(mapping.id);
-      if (deletedRecord && (mapping.startDate !== null || mapping.dueDate !== null)) {
-        const task = tasks.value.find(t => t.id === mapping.id);
-        if (task) {
+  watch(
+    () => tasks.value.map(t => `${t.id}:${t.startDate ?? ''}:${t.dueDate ?? ''}`),
+    () => {
+      for (const task of tasks.value) {
+        const deletedRecord = recentlyDeletedDates.value.get(task.id);
+        if (deletedRecord && (task.startDate !== null || task.dueDate !== null)) {
           task.startDate = null;
           task.dueDate = null;
         }
       }
-    }
-  }, { flush: 'post' });
+    },
+    { flush: 'post' }
+  );
 
   eventUnsubscribers.push(
     unsubscribe,
@@ -883,10 +1097,19 @@ function setupEventListeners() {
 }
 
 async function incrementalUpdateTasks(blockIds: string[]) { 
-  const ancestorContextRows = await queryAncestorContextRows(blockIds);
-  await pruneInvalidParentsFromEvents(blockIds, ancestorContextRows);
+  if (requiresScopeInitialization.value) {
+    return;
+  }
 
-  const { unresolvedBlockIds, patchedParentStatuses } = await fastSyncTaskFromMarkdown(blockIds);
+  const scopedBlockIds = await TaskRepository.filterIncludedBlockIds(blockIds);
+  if (scopedBlockIds.length === 0) {
+    return;
+  }
+
+  const ancestorContextRows = await queryAncestorContextRows(scopedBlockIds);
+  await pruneInvalidParentsFromEvents(scopedBlockIds, ancestorContextRows);
+
+  const { unresolvedBlockIds, patchedParentStatuses } = await fastSyncTaskFromMarkdown(scopedBlockIds);
   if (unresolvedBlockIds.length === 0) {
     consecutiveFallbackFailures = 0;
     return;
@@ -908,7 +1131,11 @@ async function incrementalUpdateTasks(blockIds: string[]) {
   
   try { 
     invalidateCache(); 
-    const taskMapBatch = await TaskRepository.getTasksByBlockIds(uniqueBlockIds, false);
+    const taskMapBatch = await TaskRepository.getTasksByBlockIds(
+      uniqueBlockIds,
+      false,
+      getCurrentTaskQueryScope()
+    );
     
     const updatedTasks: Task[] = [];
     let removedTasks = 0;
@@ -1479,7 +1706,7 @@ async function handleSubtaskToggle(parentTaskId: string, subtask: any) {
 
 function handleTaskClick(task: Task) {
   if (task.type === 'block' && task.blockId) {
-    window.location.href = `siyuan://blocks/${task.blockId}`;
+    void openBlockById(task.blockId);
   }
 }
 
@@ -1610,6 +1837,28 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
 
 onMounted(async () => {
   await loadSettings();
+  applyExcludedNotebookScope(normalizeNotebookIds(userSettings.taskManager.excludedNotebookIds));
+
+  await loadNotebooks();
+  await refreshTaskDocumentOptions(true);
+  
+  filterNotebook.value = userSettings.taskManager.filterNotebook || 'all';
+  filterDocument.value = userSettings.taskManager.filterDocument || 'all';
+  showCompletedTasks.value = userSettings.taskManager.showCompletedTasks !== false;
+  ensureActiveNotebookFilterInScope();
+  
+  validateDocumentSelection();
+  setupEventListeners();
+  startSkipSetCleanup();
+
+  const scopeInitialized = userSettings.taskManager.scopeInitialized === true;
+  if (!scopeInitialized) {
+    requiresScopeInitialization.value = true;
+    showTaskScopeDialog.value = true;
+    isHydratingFilters = false;
+    return;
+  }
+
   loading.value = true;
   try {
     const cachedTasks = await TaskRepository.getCachedTasksOnly();
@@ -1620,15 +1869,7 @@ onMounted(async () => {
     loading.value = false;
   }
 
-  await loadNotebooks();
-  
-  filterNotebook.value = userSettings.taskManager.filterNotebook || 'all';
-  filterDocument.value = userSettings.taskManager.filterDocument || 'all';
-  
-  validateDocumentSelection();
-  setupEventListeners();
-  startSkipSetCleanup();
-
+  isHydratingFilters = false;
   // First paint from cache, then silently reconcile with source of truth once.
   void refreshTasks(true, { showLoading: false, compareExisting: true });
 });
@@ -1643,6 +1884,10 @@ onUnmounted(() => {
   if (fallbackRefreshTimer !== null) {
     clearTimeout(fallbackRefreshTimer);
     fallbackRefreshTimer = null;
+  }
+  if (taskScopeRefreshTimer !== null) {
+    clearTimeout(taskScopeRefreshTimer);
+    taskScopeRefreshTimer = null;
   }
 });
 </script>
@@ -1699,14 +1944,15 @@ onUnmounted(() => {
 }
 
 .new-task-button,
-.task-refresh {
+.task-refresh,
+.task-scope-button {
   background: none;
   border: none;
   padding: 0;
   margin: 0 6px 0 0;
   cursor: pointer;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   
   svg {
     color: var(--b3-theme-on-background);
@@ -1732,11 +1978,11 @@ onUnmounted(() => {
   padding: 0;
   margin: 0 6px 0 0;
   cursor: pointer;
-  height: 26px;
+  height: 24px;
   border-radius: 13px;
   background-color: var(--b3-theme-on-background);
   color: var(--b3-theme-background);
-  padding: 4px 8px;
+  padding: 2px 10px;
 }
 
 .filters-bar {

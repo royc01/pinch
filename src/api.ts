@@ -6,7 +6,14 @@
  * API 譁・｡｣隗・[API_zh_CN.md](https://github.com/siyuan-note/siyuan/blob/master/API_zh_CN.md)
  */
 
-import { fetchSyncPost, IWebSocketData } from "siyuan";
+import {
+  fetchSyncPost,
+  getFrontend,
+  IWebSocketData,
+  openMobileFileById,
+  openTab,
+  type TProtyleAction
+} from "siyuan";
 import { eventBus } from "@/utils/eventBus";
 import { usePlugin } from "@/main";
 import {
@@ -22,6 +29,44 @@ async function request(url: string, data: any) {
   let response: IWebSocketData = await fetchSyncPost(url, data);
   let res = response.code === 0 ? response.data : null;
   return res;
+}
+
+export async function openBlockById(
+  blockId: string,
+  options: { focus?: boolean } = {}
+): Promise<boolean> {
+  const normalizedId = typeof blockId === "string" ? blockId.trim() : "";
+  if (!normalizedId) return false;
+
+  const plugin = usePlugin();
+  if (!plugin) {
+    console.error("[TaskAPI Error] openBlockById: plugin 未初始化");
+    return false;
+  }
+
+  const action: TProtyleAction[] = options.focus ? ["cb-get-focus"] : [];
+
+  try {
+    const frontend = getFrontend();
+    const isMobile = frontend === "mobile" || frontend === "browser-mobile";
+
+    if (isMobile) {
+      openMobileFileById(plugin.app, normalizedId, action);
+      return true;
+    }
+
+    await openTab({
+      app: plugin.app,
+      doc: {
+        id: normalizedId,
+        ...(action.length > 0 ? { action } : {})
+      }
+    });
+    return true;
+  } catch (error) {
+    console.error("[TaskAPI Error] openBlockById: 打开块失败", error);
+    return false;
+  }
 }
 
 // **************************************** Noteboook ****************************************
@@ -1051,6 +1096,12 @@ export interface Task {
   isVirtual?: boolean;
 }
 
+export interface TaskQueryScope {
+  notebookId?: string;
+  documentId?: string;
+  includeCompleted?: boolean;
+}
+
 function generateTaskId(): string {
   return `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
@@ -1060,8 +1111,183 @@ export class TaskRepository {
     tasks: Task[] | null;
     timestamp: number;
   } = { tasks: null, timestamp: 0 };
+  private static blockTasksFetchPromise: Promise<Task[]> | null = null;
+  private static scopedMemoryCache = new Map<string, { tasks: Task[]; timestamp: number }>();
+  private static scopedBlockTasksFetchPromises = new Map<string, Promise<Task[]>>();
+  private static excludedNotebookIds = new Set<string>();
   
   private static readonly MEMORY_CACHE_DURATION = 5000; // 5 秒内存缓存
+  private static readonly SCOPED_MEMORY_CACHE_DURATION = 60000; // 60 秒筛选范围缓存
+  private static readonly SCOPED_CACHE_MAX_ENTRIES = 30;
+  private static normalizeNotebookIds(notebookIds: string[]): string[] {
+    return Array.from(
+      new Set(
+        notebookIds
+          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+          .map(id => id.trim())
+      )
+    ).sort();
+  }
+
+  private static getExcludedNotebookIdsSorted(): string[] {
+    return Array.from(this.excludedNotebookIds).sort();
+  }
+
+  private static buildNotebookScopeSql(alias: string | null = 'b'): string {
+    const excludedNotebookIds = this.getExcludedNotebookIdsSorted();
+    if (excludedNotebookIds.length === 0) {
+      return '';
+    }
+
+    const escapedIds = excludedNotebookIds.map(id => `'${this.escapeSqlLiteral(id)}'`).join(',');
+    const target = alias ? `${alias}.box` : 'box';
+    return ` AND ${target} NOT IN (${escapedIds})`;
+  }
+
+  private static normalizeTaskQueryScope(scope?: TaskQueryScope): TaskQueryScope | null {
+    if (!scope) return null;
+    const notebookId = typeof scope.notebookId === 'string' && scope.notebookId.trim().length > 0
+      ? scope.notebookId.trim()
+      : undefined;
+    const documentId = typeof scope.documentId === 'string' && scope.documentId.trim().length > 0
+      ? scope.documentId.trim()
+      : undefined;
+    const includeCompleted = scope.includeCompleted !== false;
+    if (!notebookId && !documentId && includeCompleted) {
+      return null;
+    }
+    return { notebookId, documentId, includeCompleted };
+  }
+
+  private static buildTaskQueryScopeSql(scope: TaskQueryScope | null, alias: string | null = 'b'): string {
+    if (!scope) {
+      return '';
+    }
+
+    const prefix = alias ? `${alias}.` : '';
+    const clauses: string[] = [];
+    if (scope.notebookId) {
+      clauses.push(`${prefix}box = '${this.escapeSqlLiteral(scope.notebookId)}'`);
+    }
+    if (scope.documentId) {
+      clauses.push(`${prefix}root_id = '${this.escapeSqlLiteral(scope.documentId)}'`);
+    }
+
+    if (clauses.length === 0) {
+      return '';
+    }
+    return ` AND ${clauses.join(' AND ')}`;
+  }
+
+  private static buildTaskCompletionSql(includeCompleted: boolean | undefined, alias: string | null = 'b'): string {
+    const target = alias ? `${alias}.markdown` : 'markdown';
+    if (includeCompleted === false) {
+      return ` AND ${target} LIKE '%[ ]%'`;
+    }
+    return ` AND (${target} LIKE '%[ ]%' OR ${target} LIKE '%[x]%' OR ${target} LIKE '%[X]%')`;
+  }
+
+  private static buildScopeCacheKey(scope: TaskQueryScope | null): string {
+    const notebookKey = scope?.notebookId || '*';
+    const documentKey = scope?.documentId || '*';
+    const includeCompletedKey = scope?.includeCompleted === false ? 'open-only' : 'all-status';
+    const excludedKey = this.getExcludedNotebookIdsSorted().join(',');
+    return `${notebookKey}|${documentKey}|${includeCompletedKey}|${excludedKey}`;
+  }
+
+  private static setScopedMemoryCache(key: string, tasks: Task[]): void {
+    if (this.scopedMemoryCache.has(key)) {
+      this.scopedMemoryCache.delete(key);
+    }
+    this.scopedMemoryCache.set(key, {
+      tasks,
+      timestamp: Date.now()
+    });
+
+    while (this.scopedMemoryCache.size > this.SCOPED_CACHE_MAX_ENTRIES) {
+      const oldestKey = this.scopedMemoryCache.keys().next().value;
+      if (!oldestKey) break;
+      this.scopedMemoryCache.delete(oldestKey);
+    }
+  }
+
+  static setExcludedNotebookIds(notebookIds: string[] = []): void {
+    const normalized = this.normalizeNotebookIds(notebookIds);
+    const current = this.getExcludedNotebookIdsSorted();
+    if (normalized.length === current.length && normalized.every((id, index) => id === current[index])) {
+      return;
+    }
+
+    this.excludedNotebookIds = new Set(normalized);
+    this.memoryCache = { tasks: null, timestamp: 0 };
+    this.scopedMemoryCache.clear();
+    this.scopedBlockTasksFetchPromises.clear();
+  }
+
+  static getExcludedNotebookIds(): string[] {
+    return this.getExcludedNotebookIdsSorted();
+  }
+
+  static isNotebookExcluded(notebookId?: string): boolean {
+    if (!notebookId) return false;
+    return this.excludedNotebookIds.has(notebookId);
+  }
+
+  static async filterIncludedBlockIds(blockIds: string[]): Promise<string[]> {
+    const normalizedBlockIds = Array.from(
+      new Set(blockIds.filter((id): id is string => typeof id === 'string' && id.length > 0))
+    );
+    if (normalizedBlockIds.length === 0 || this.excludedNotebookIds.size === 0) {
+      return normalizedBlockIds;
+    }
+
+    try {
+      const idsClause = normalizedBlockIds.map(id => `'${this.escapeSqlLiteral(id)}'`).join(',');
+      const rows = await sql(`
+        SELECT id, box
+        FROM blocks
+        WHERE id IN (${idsClause})
+      `) as Array<{ id?: string; box?: string }>;
+
+      const notebookByBlockId = new Map<string, string>();
+      rows?.forEach((row) => {
+        if (typeof row?.id === 'string' && typeof row?.box === 'string') {
+          notebookByBlockId.set(row.id, row.box);
+        }
+      });
+
+      return normalizedBlockIds.filter((blockId) => {
+        const notebookId = notebookByBlockId.get(blockId);
+        if (!notebookId) return true;
+        return !this.excludedNotebookIds.has(notebookId);
+      });
+    } catch (error) {
+      handleError('过滤排除笔记本 blockId 失败', error, { blockIds: normalizedBlockIds });
+      return normalizedBlockIds;
+    }
+  }
+
+  static async isBlockInExcludedNotebook(blockId: string): Promise<boolean> {
+    if (typeof blockId !== 'string' || blockId.length === 0 || this.excludedNotebookIds.size === 0) {
+      return false;
+    }
+
+    try {
+      const escapedId = this.escapeSqlLiteral(blockId);
+      const rows = await sql(`
+        SELECT box
+        FROM blocks
+        WHERE id = '${escapedId}'
+        LIMIT 1
+      `) as Array<{ box?: string }>;
+      const notebookId = rows?.[0]?.box;
+      return typeof notebookId === 'string' && this.excludedNotebookIds.has(notebookId);
+    } catch (error) {
+      handleError('检查 blockId 是否属于排除笔记本失败', error, { blockId });
+      return false;
+    }
+  }
+
   private static parseBlockDateTime(value: string | undefined): string {
     try {
       if (!value) return new Date().toISOString();
@@ -1140,9 +1366,7 @@ export class TaskRepository {
     return null;
   }
 
-  private static parseSubtasksFromDOM(domString: string, parentBlockId: string): SubTask[] {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(domString, 'text/html');
+  private static parseSubtasksFromParsedDoc(doc: Document, parentBlockId: string): SubTask[] {
     const cleanHtmlStyle = (html: string) => html.replace(/{: style="[^"]*"}/g, '');
 
     const parseSubtaskList = (listElement: Element): SubTask[] => {
@@ -1256,8 +1480,8 @@ export class TaskRepository {
     return false;
   }
 
-  static async getAllTasks(useCache: boolean = true): Promise<Task[]> {
-    const blockTasks = await this.getBlockTasks(useCache);
+  static async getAllTasks(useCache: boolean = true, scope?: TaskQueryScope): Promise<Task[]> {
+    const blockTasks = await this.getBlockTasks(useCache, scope);
     return materializeRepeatTasks(blockTasks, {
       pastDays: 60,
       futureDays: 120
@@ -1290,6 +1514,17 @@ export class TaskRepository {
       return null;
     }
 
+    const cachedExcludedNotebookIds = this.normalizeNotebookIds(
+      Array.isArray(data.excludedNotebookIds) ? data.excludedNotebookIds : []
+    );
+    const currentExcludedNotebookIds = this.getExcludedNotebookIdsSorted();
+    const isScopeMatched =
+      cachedExcludedNotebookIds.length === currentExcludedNotebookIds.length &&
+      cachedExcludedNotebookIds.every((id, index) => id === currentExcludedNotebookIds[index]);
+    if (!isScopeMatched) {
+      return null;
+    }
+
     const tasks = data.tasks.map((t: Task) => ({
       ...t,
       icon: unicodeToEmoji(t.icon)
@@ -1311,31 +1546,78 @@ export class TaskRepository {
     });
   }
   
-  static async getBlockTasks(useCache: boolean = true): Promise<Task[]> {
+  static async getBlockTasks(useCache: boolean = true, scope?: TaskQueryScope): Promise<Task[]> {
+    const normalizedScope = this.normalizeTaskQueryScope(scope);
+    const isScopedQuery = !!normalizedScope;
     const now = Date.now();
 
     // 1. 内存缓存
-    if (useCache && this.memoryCache.tasks &&
+    if (!isScopedQuery && useCache && this.memoryCache.tasks &&
       now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION) {
       return this.memoryCache.tasks;
     }
     
     // 2. 磁盘缓存
-    if (useCache) {
+    if (!isScopedQuery && useCache) {
       const cachedTasks = await this.getCachedBlockTasks();
       if (cachedTasks) {
         return cachedTasks;
       }
     }
 
-    // 3. 全量查询并回写缓存
-    const tasks = await this.fetchBlockTasks();
-    await this.saveBlockTasksCache(tasks);
-    this.memoryCache = { tasks, timestamp: now };
-    return tasks;
+    if (isScopedQuery) {
+      const scopedCacheKey = this.buildScopeCacheKey(normalizedScope);
+      if (useCache) {
+        const scopedCached = this.scopedMemoryCache.get(scopedCacheKey);
+        if (scopedCached && now - scopedCached.timestamp < this.SCOPED_MEMORY_CACHE_DURATION) {
+          return scopedCached.tasks;
+        }
+      }
+
+      const scopedInFlight = this.scopedBlockTasksFetchPromises.get(scopedCacheKey);
+      if (scopedInFlight) {
+        return scopedInFlight;
+      }
+
+      const scopedFetchPromise = (async () => {
+        const tasks = await this.fetchBlockTasks(normalizedScope);
+        if (useCache) {
+          this.setScopedMemoryCache(scopedCacheKey, tasks);
+        }
+        return tasks;
+      })();
+      this.scopedBlockTasksFetchPromises.set(scopedCacheKey, scopedFetchPromise);
+
+      try {
+        return await scopedFetchPromise;
+      } finally {
+        this.scopedBlockTasksFetchPromises.delete(scopedCacheKey);
+      }
+    }
+
+    // 3. 全量查询并回写缓存（in-flight 去重，避免并发全量扫描）
+    if (this.blockTasksFetchPromise) {
+      return this.blockTasksFetchPromise;
+    }
+
+    this.blockTasksFetchPromise = (async () => {
+      const tasks = await this.fetchBlockTasks(null);
+      await this.saveBlockTasksCache(tasks);
+      this.memoryCache = { tasks, timestamp: Date.now() };
+      return tasks;
+    })();
+
+    try {
+      return await this.blockTasksFetchPromise;
+    } finally {
+      this.blockTasksFetchPromise = null;
+    }
   }
 
-  private static async fetchBlockTasksByIds(blockIds: string[]): Promise<Map<string, Task>> {
+  private static async fetchBlockTasksByIds(
+    blockIds: string[],
+    scope: TaskQueryScope | null = null
+  ): Promise<Map<string, Task>> {
     const uniqueIds = Array.from(new Set(blockIds.filter(id => typeof id === 'string' && id.length > 0)));
     if (uniqueIds.length === 0) return new Map();
 
@@ -1357,9 +1639,11 @@ export class TaskRepository {
         LEFT JOIN attributes a ON b.id = a.block_id
           AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-background-color')
         WHERE b.id IN (${idsClause})
+          ${this.buildNotebookScopeSql('b')}
+          ${this.buildTaskQueryScopeSql(scope, 'b')}
           AND (b.type = 'i' OR b.type = 'p')
           AND b.subtype = 't'
-          AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%')
+          ${this.buildTaskCompletionSql(scope?.includeCompleted, 'b')}
         GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
       `) as any[];
 
@@ -1432,7 +1716,7 @@ export class TaskRepository {
           }
         }
 
-        const subtasks = this.parseSubtasksFromDOM(dom.dom, row.id);
+        const subtasks = this.parseSubtasksFromParsedDoc(doc, row.id);
 
         result.set(row.id, {
           id: attrs['custom-task-id'] || `block_${row.id}`,
@@ -1465,22 +1749,35 @@ export class TaskRepository {
     }
   }
   
-  private static async fetchBlockTasks(): Promise<Task[]> {
+  private static async fetchBlockTasks(scope: TaskQueryScope | null = null): Promise<Task[]> {
     const tasks: Task[] = [];
     const BATCH_SIZE = TASK_CONFIG.BATCH_SIZE;
     
     try {
+      const notebookScopeSql = this.buildNotebookScopeSql(null);
+      const taskScopeSql = this.buildTaskQueryScopeSql(scope, null);
       const nodeListBlocksPromise = sql(`
         SELECT id, parent_id, type
         FROM blocks
         WHERE type = 'l' AND subtype = 't'
+        ${notebookScopeSql}
+        ${taskScopeSql}
+        ${this.buildTaskCompletionSql(scope?.includeCompleted, null)}
       `);
 
       const taskBlocks: SiyuanBlock[] = [];
       const pageSize = TASK_CONFIG.SQL_PAGE_SIZE;
       const maxScan = TASK_CONFIG.MAX_SQL_SCAN;
 
-      for (let offset = 0; offset < maxScan; offset += pageSize) {
+      let scanned = 0;
+      let cursorId: string | null = null;
+      while (scanned < maxScan) {
+        const remaining = maxScan - scanned;
+        const limit = Math.min(pageSize, remaining);
+        const cursorClause = cursorId
+          ? `AND b.id > '${this.escapeSqlLiteral(cursorId)}'`
+          : '';
+
         const page = await sql(`
           SELECT b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-id' THEN a.value END) as custom_task_id,
@@ -1497,11 +1794,14 @@ export class TaskRepository {
           LEFT JOIN attributes a ON b.id = a.block_id
             AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-background-color')
           WHERE (b.type = 'i' OR b.type = 'p')
+            ${this.buildNotebookScopeSql('b')}
+            ${this.buildTaskQueryScopeSql(scope, 'b')}
             AND b.subtype = 't'
-            AND (b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%')
+            ${this.buildTaskCompletionSql(scope?.includeCompleted, 'b')}
+            ${cursorClause}
           GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
-          ORDER BY b.root_id, b.box, b.path, b.id
-          LIMIT ${pageSize} OFFSET ${offset}
+          ORDER BY b.id
+          LIMIT ${limit}
         `) as any[];
 
         if (!Array.isArray(page) || page.length === 0) {
@@ -1509,8 +1809,15 @@ export class TaskRepository {
         }
 
         taskBlocks.push(...(page as SiyuanBlock[]));
+        scanned += page.length;
 
-        if (page.length < pageSize) {
+        const lastId = page[page.length - 1]?.id;
+        if (typeof lastId !== 'string' || lastId.length === 0) {
+          break;
+        }
+        cursorId = lastId;
+
+        if (page.length < limit) {
           break;
         }
       }
@@ -1694,116 +2001,21 @@ export class TaskRepository {
             ? (apiHref === '#iconCheck' ? 'completed' : 'pending')
             : null;
           
-          const parseDate = (dateValue: string | undefined): string => {
-            try {
-              if (!dateValue) return new Date().toISOString();
-              const date = new Date(dateValue);
-              if (isNaN(date.getTime())) return new Date().toISOString();
-              return date.toISOString();
-            } catch {
-              return new Date().toISOString();
-            }
-          };
-          
           const cleanHtmlStyle = (html: string) => html.replace(/{: style="[^"]*"}/g, '');
-          
-          const parseSubtasksFromDOM = async (domString: string, parentId: string = parentBlock.id): Promise<SubTask[]> => {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(domString, 'text/html');
-            
-            const parseListItem = async (listItem: Element, level: number = 0): Promise<SubTask | null> => {
-              const nodeId = listItem.getAttribute('data-node-id');
-              if (!nodeId) return null;
-              
-              const action = listItem.querySelector('.protyle-action--task');
-              if (!action) return null;
-              
-              const svg = action.querySelector('use');
-              let isCompleted = svg?.getAttribute('xlink:href') === '#iconCheck';
-              
-              const paragraph = listItem.querySelector('[data-type="NodeParagraph"]');
-              const editableDiv = paragraph?.querySelector('[contenteditable="true"]');
-              const paragraphHtml = editableDiv?.innerHTML || paragraph?.innerHTML || '';
-              const titleFromApi = cleanHtmlStyle(paragraphHtml);
-              
-              let title = titleFromApi;
-              let finalCompleted = isCompleted;
-              
-              if (protyleElement) {
-                const currentItemElement = protyleElement.querySelector(`[data-node-id="${nodeId}"][data-type="NodeListItem"]`);
-                const currentParagraph = currentItemElement?.querySelector('[data-type="NodeParagraph"]');
-                const currentEditableDiv = currentParagraph?.querySelector('[contenteditable="true"]');
-                const currentHtml = currentEditableDiv?.innerHTML || currentParagraph?.innerHTML || '';
-                const currentCleanHtml = cleanHtmlStyle(currentHtml);
-                
-                if (currentCleanHtml) {
-                  title = currentCleanHtml;
-                }
-                
-                const currentAction = currentItemElement?.querySelector('.protyle-action--task');
-                const currentSvg = currentAction?.querySelector('use');
-                const isCurrentCompleted = currentSvg?.getAttribute('xlink:href') === '#iconCheck';
-                
-                if (typeof isCurrentCompleted === 'boolean') {
-                  finalCompleted = isCurrentCompleted;
-                }
+          const collectSubtaskNodeIds = (subtasks: SubTask[] | undefined): void => {
+            if (!subtasks || subtasks.length === 0) return;
+            for (const subtask of subtasks) {
+              if (subtask.nodeId) {
+                processedIds.add(subtask.nodeId);
               }
-              
-              processedIds.add(nodeId);
-              
-              const subList = listItem.querySelector('.list');
-              let subtasks: any[] = [];
-              if (subList) {
-                subtasks = await parseSubtasksList(subList, level + 1);
-              }
-              
-              return {
-                id: `sub_${nodeId}`,
-                title: title || 'Untitled',
-                completed: finalCompleted,
-                nodeId: nodeId,
-                subtasks: subtasks.length > 0 ? subtasks : undefined
-              };
-            };
-            
-            const parseSubtasksList = async (listElement: Element, level: number = 0): Promise<SubTask[]> => {
-              const listItems = Array.from(listElement.children).filter((child): child is Element => 
-                child instanceof Element && child.getAttribute('data-type') === 'NodeListItem'
-              );
-              
-              const subtasks: SubTask[] = [];
-              for (const listItem of listItems) {
-                const subtask = await parseListItem(listItem, level);
-                if (subtask) {
-                  subtasks.push(subtask);
-                }
-              }
-              return subtasks;
-            };
-            
-            const rootListElements = Array.from(doc.querySelectorAll('.list')).filter(list => {
-              const parent = list.parentElement;
-              return parent?.getAttribute('data-type') === 'NodeParagraph' || 
-                     parent?.classList?.contains('protyle-wysiwyg');
-            });
-            
-            let subtasks: SubTask[] = [];
-            if (rootListElements.length > 0) {
-              for (const rootList of rootListElements) {
-                const listSubtasks = await parseSubtasksList(rootList, 0);
-                subtasks = subtasks.concat(listSubtasks);
-              }
-            } else {
-              const fallbackList = doc.querySelector('.list');
-              if (fallbackList) {
-                subtasks = await parseSubtasksList(fallbackList, 0);
+              if (subtask.subtasks) {
+                collectSubtaskNodeIds(subtask.subtasks);
               }
             }
-            
-            return subtasks;
           };
-          
-          const subtasks = await parseSubtasksFromDOM(dom.dom, parentBlock.id);
+
+          const subtasks = this.parseSubtasksFromParsedDoc(doc, parentBlock.id);
+          collectSubtaskNodeIds(subtasks);
           
           const titleHtml = parentParagraph?.querySelector('[contenteditable="true"]')?.innerHTML || '';
           const titleFromApi = cleanHtmlStyle(titleHtml);
@@ -1877,8 +2089,8 @@ export class TaskRepository {
             icon: docIcon || '📄',
             backgroundColor: attrs['custom-task-background-color'],
             subtasks: subtasks.length > 0 ? subtasks : undefined,
-            createdAt: parseDate(parentBlock.created),
-            updatedAt: parseDate(parentBlock.updated)
+            createdAt: this.parseBlockDateTime(parentBlock.created),
+            updatedAt: this.parseBlockDateTime(parentBlock.updated)
           };
         } catch (error) {
           handleError('处理任务块失败', error, { blockId: parentBlock.id });
@@ -1911,6 +2123,7 @@ export class TaskRepository {
     await plugin.saveData('stand-block-tasks-cache.json', {
       version: TASK_CONFIG.CACHE_VERSION,
       tasks,
+      excludedNotebookIds: this.getExcludedNotebookIdsSorted(),
       updatedAt: new Date().toISOString()
     });
     this.memoryCache = { tasks, timestamp: Date.now() };
@@ -1920,6 +2133,8 @@ export class TaskRepository {
     const plugin = usePlugin();
     await plugin.saveData('stand-block-tasks-cache.json', {});
     this.memoryCache = { tasks: null, timestamp: 0 };
+    this.scopedMemoryCache.clear();
+    this.scopedBlockTasksFetchPromises.clear();
   }
   
   static async createBlockTask(
@@ -2196,30 +2411,46 @@ export class TaskRepository {
     }
   }
   
-  static async getTasksByBlockIds(blockIds: string[], useCache: boolean = false): Promise<Map<string, Task>> {
+  static async getTasksByBlockIds(
+    blockIds: string[],
+    useCache: boolean = false,
+    scope?: TaskQueryScope
+  ): Promise<Map<string, Task>> {
     try {
+      const normalizedScope = this.normalizeTaskQueryScope(scope);
       const normalizedIds = Array.from(new Set(blockIds.filter(id => typeof id === 'string' && id.length > 0)));
       if (normalizedIds.length === 0) {
+        return new Map();
+      }
+      const scopedIds = await this.filterIncludedBlockIds(normalizedIds);
+      if (scopedIds.length === 0) {
         return new Map();
       }
 
       if (useCache) {
         const now = Date.now();
         if (this.memoryCache.tasks && now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION) {
+          const memoryTaskMap = new Map<string, Task>();
+          for (const task of this.memoryCache.tasks) {
+            if (task.type === 'block' && task.blockId) {
+              memoryTaskMap.set(task.blockId, task);
+            }
+          }
+
           const fromMemory = new Map<string, Task>();
-          for (const blockId of normalizedIds) {
-            const task = this.memoryCache.tasks.find(t => t.blockId === blockId);
+          for (const blockId of scopedIds) {
+            const task = memoryTaskMap.get(blockId);
             if (task) {
               fromMemory.set(blockId, task);
             }
           }
-          if (fromMemory.size === normalizedIds.length) {
+          if (fromMemory.size === scopedIds.length) {
             return fromMemory;
           }
         }
       }
 
-      const taskMap = await this.fetchBlockTasksByIds(normalizedIds);
+      const taskMap = await this.fetchBlockTasksByIds(scopedIds, normalizedScope);
       const enrichedTasks = await attachRepeatMetadataToTasks(Array.from(taskMap.values()));
       const enrichedTaskMap = new Map<string, Task>();
       enrichedTasks.forEach((task) => {
@@ -2229,11 +2460,12 @@ export class TaskRepository {
       });
 
       if (enrichedTaskMap.size > 0 && this.memoryCache.tasks) {
-        const cachedMap = new Map(
-          this.memoryCache.tasks
-            .filter(task => task.type === 'block' && !!task.blockId)
-            .map(task => [task.blockId as string, task])
-        );
+        const cachedMap = new Map<string, Task>();
+        for (const task of this.memoryCache.tasks) {
+          if (task.type === 'block' && task.blockId) {
+            cachedMap.set(task.blockId, task);
+          }
+        }
         enrichedTaskMap.forEach((task, blockId) => {
           cachedMap.set(blockId, task);
         });
@@ -2300,4 +2532,3 @@ async function batchGetBlockDOM(ids: string[]): Promise<Map<string, BlockDOMResp
   
   return result;
 }
-
