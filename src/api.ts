@@ -44,7 +44,9 @@ export async function openBlockById(
     return false;
   }
 
-  const action: TProtyleAction[] = options.focus ? ["cb-get-focus"] : [];
+  const action: TProtyleAction[] = options.focus
+    ? ["cb-get-focus"]
+    : ["cb-get-hl", "cb-get-context"];
 
   try {
     const frontend = getFrontend();
@@ -59,7 +61,7 @@ export async function openBlockById(
       app: plugin.app,
       doc: {
         id: normalizedId,
-        ...(action.length > 0 ? { action } : {})
+        action
       }
     });
     return true;
