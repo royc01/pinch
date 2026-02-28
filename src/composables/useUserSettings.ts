@@ -9,6 +9,8 @@ const DEFAULT_SETTINGS: UserSettings = {
     kanbanFilterType: 'all',
     kanbanFilterDocument: 'all',
     kanbanFilterPriority: 'all',
+    kanbanFilterUpdatedRange: 'all',
+    tableFilterUpdatedRange: 'all',
     tableFilterType: 'all',
     tableFilterDocument: 'all',
     monthFilterType: 'all',

@@ -69,6 +69,9 @@ export interface Document {
   path?: string;
 }
 
+const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
+const PINCH_INBOX_OPTION_NAME = 'pinch收集箱';
+
 interface NewTask {
   title: string;
   description: string;
@@ -128,7 +131,10 @@ const notebookOptions = computed(() => {
 const documentOptions = computed(() => {
   if (!selectedNotebook.value) return [];
   const docs = props.documents.filter(d => d.notebookId === selectedNotebook.value);
-  return docs.map(d => ({ value: d.id, text: d.name }));
+  return [
+    { value: PINCH_INBOX_OPTION_ID, text: PINCH_INBOX_OPTION_NAME },
+    ...docs.map(d => ({ value: d.id, text: d.name }))
+  ];
 });
 
 function tt(key: string, fallback: string): string {
@@ -140,7 +146,7 @@ function tt(key: string, fallback: string): string {
 }
 
 function handleNotebookChange() {
-  selectedDocument.value = '';
+  selectedDocument.value = PINCH_INBOX_OPTION_ID;
 }
 
 watch(() => props.show, (show) => {
@@ -155,11 +161,14 @@ watch(() => props.show, (show) => {
       : (props.notebooks[0]?.id || '');
 
     const docsForNotebook = props.documents.filter(d => d.notebookId === selectedNotebook.value);
-    const hasPreferredDocument = !!props.lastSelectedDocument &&
-      docsForNotebook.some(doc => doc.id === props.lastSelectedDocument);
+    const hasPreferredDocument = !!props.lastSelectedDocument && (
+      props.lastSelectedDocument === PINCH_INBOX_OPTION_ID
+      ||
+      docsForNotebook.some(doc => doc.id === props.lastSelectedDocument)
+    );
     selectedDocument.value = hasPreferredDocument
       ? props.lastSelectedDocument!
-      : (docsForNotebook[0]?.id || '');
+      : PINCH_INBOX_OPTION_ID;
   }
 });
 

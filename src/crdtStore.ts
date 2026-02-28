@@ -1,29 +1,57 @@
-import { ref, computed } from 'vue';
+import { ref, type Ref } from 'vue';
 import { CRDTTaskRepository } from './crdtAdapter';
 import type { Task } from './api';
 
-let globalCrdtRepo: CRDTTaskRepository | null = null;
-const tasks = ref<Task[]>([]);
+interface StoreState {
+  repo: CRDTTaskRepository;
+  tasks: Ref<Task[]>;
+}
 
-export function getCrdtRepository(): CRDTTaskRepository {
-  if (!globalCrdtRepo) {
-    globalCrdtRepo = new CRDTTaskRepository('local');
+const stores = new Map<string, StoreState>();
+
+function getDefaultNodeId(storeId: string): string {
+  return storeId === 'global' ? 'local' : storeId;
+}
+
+function ensureStore(storeId: string, nodeId?: string): StoreState {
+  const existing = stores.get(storeId);
+  if (existing) {
+    return existing;
   }
-  return globalCrdtRepo;
+
+  const created: StoreState = {
+    repo: new CRDTTaskRepository(nodeId || getDefaultNodeId(storeId)),
+    tasks: ref<Task[]>([])
+  };
+  stores.set(storeId, created);
+  return created;
 }
 
-export function resetCrdtRepository(): void {
-  globalCrdtRepo = null;
-  tasks.value = [];
+export function getCrdtRepository(storeId: string = 'global'): CRDTTaskRepository {
+  return ensureStore(storeId).repo;
 }
 
-export function initCrdtRepository(nodeId: string = 'local'): CRDTTaskRepository {
-  globalCrdtRepo = new CRDTTaskRepository(nodeId);
-  return globalCrdtRepo;
+export function resetCrdtRepository(storeId?: string): void {
+  if (typeof storeId === 'string' && storeId.length > 0) {
+    stores.delete(storeId);
+    return;
+  }
+  stores.clear();
 }
 
-export function useCrdtTasks() {
-  const crdtRepo = getCrdtRepository();
+export function initCrdtRepository(nodeId: string = 'local', storeId: string = 'global'): CRDTTaskRepository {
+  const created: StoreState = {
+    repo: new CRDTTaskRepository(nodeId),
+    tasks: ref<Task[]>([])
+  };
+  stores.set(storeId, created);
+  return created.repo;
+}
+
+export function useCrdtTasks(storeId: string = 'global') {
+  const state = ensureStore(storeId);
+  const crdtRepo = state.repo;
+  const tasks = state.tasks;
 
   const updateTasks = () => {
     tasks.value = crdtRepo.getTasks();

@@ -31,6 +31,14 @@
             />
           </div>
           <div class="filter-group">
+            <label>日期:</label>
+            <SySelect
+              :model-value="kanbanFilterUpdatedRange"
+              @update:model-value="kanbanFilterUpdatedRange = $event"
+              :options="updatedRangeOptions"
+            />
+          </div>
+          <div class="filter-group">
             <label>分类:</label>
             <SySelect
               :model-value="kanbanFilterType"
@@ -49,6 +57,14 @@
         </div>
         
         <div v-if="currentView === 'table'" class="filter-bar-inline">
+          <div class="filter-group">
+            <label>日期:</label>
+            <SySelect
+              :model-value="tableFilterUpdatedRange"
+              @update:model-value="tableFilterUpdatedRange = $event"
+              :options="updatedRangeOptions"
+            />
+          </div>
           <div class="filter-group">
             <label>分类:</label>
             <SySelect
@@ -178,7 +194,7 @@
     
     <TableView 
       v-if="currentView === 'table'"
-      :tasks="filteredTasks"
+      :tasks="tableViewTasks"
       @task-click="handleTaskClick"
       @status-toggle="toggleTaskStatus"
       @subtask-toggle="handleSubtaskToggle"
@@ -303,9 +319,11 @@ function stopSkipSetCleanup() {
 }
 
 const kanbanFilterPriority = ref('all');
+const kanbanFilterUpdatedRange = ref<'all' | 'today' | 'week' | 'month'>('all');
 const kanbanFilterType = ref('all');
 const kanbanFilterDocument = ref('all');
 
+const tableFilterUpdatedRange = ref<'all' | 'today' | 'week' | 'month'>('all');
 const tableFilterType = ref('all');
 const tableFilterDocument = ref('all');
 
@@ -357,6 +375,13 @@ const priorityOptions = [
   { value: 'high', text: '高' },
   { value: 'medium', text: '中' },
   { value: 'low', text: '低' }
+];
+
+const updatedRangeOptions = [
+  { value: 'all', text: '全部' },
+  { value: 'today', text: '今日' },
+  { value: 'week', text: '本周' },
+  { value: 'month', text: '本月' }
 ];
 
 const enabledNotebooks = computed(() => {
@@ -473,6 +498,12 @@ function getCurrentFilterNotebookId(): string {
   }
 }
 
+function getDocumentCreationSortKey(documentId: string): number {
+  if (typeof documentId !== 'string' || documentId.length === 0) return 0;
+  const match = documentId.match(/^(\d{14})/);
+  return match ? Number(match[1]) : 0;
+}
+
 function getDocumentEntriesByNotebook(notebookId: string): Array<{ id: string; name: string }> {
   if (notebookId === 'all') return [];
 
@@ -487,10 +518,16 @@ function getDocumentEntriesByNotebook(notebookId: string): Array<{ id: string; n
     }
   }
 
-  return Array.from(docs.entries()).map(([id, path]) => ({
-    id,
-    name: path.split('/').pop() || path
-  }));
+  return Array.from(docs.entries())
+    .map(([id, path]) => ({
+      id,
+      name: path.split('/').pop() || path
+    }))
+    .sort((a, b) => {
+      const timeDiff = getDocumentCreationSortKey(b.id) - getDocumentCreationSortKey(a.id);
+      if (timeDiff !== 0) return timeDiff;
+      return a.name.localeCompare(b.name, 'zh-CN');
+    });
 }
 
 function getDocumentIdsByNotebook(notebookId: string): string[] {
@@ -552,8 +589,10 @@ function scheduleSaveUserSettings() {
 watch([
   currentView,
   kanbanFilterPriority,
+  kanbanFilterUpdatedRange,
   kanbanFilterType,
   kanbanFilterDocument,
+  tableFilterUpdatedRange,
   tableFilterType,
   tableFilterDocument,
   monthFilterType,
@@ -574,6 +613,9 @@ const tableFilters = {
 };
 
 const { filtered: filteredTasks, invalidateCache: invalidateTableFilters } = useTaskFilters(tasks, tableFilters);
+const tableViewTasks = computed(() =>
+  filteredTasks.value.filter(task => isTaskUpdatedInRange(task, tableFilterUpdatedRange.value))
+);
 
 const monthViewTasks = computed(() => {
   return tasks.value.filter(task => {
@@ -625,9 +667,41 @@ function isTaskCompletedVisual(task: Task): boolean {
   return getTaskVisualStatus(task) === 'completed';
 }
 
+function getStartOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function getStartOfWeekMonday(date: Date): Date {
+  const startOfDay = getStartOfDay(date);
+  const day = startOfDay.getDay(); // 0 (Sun) - 6 (Sat)
+  const delta = day === 0 ? 6 : day - 1;
+  startOfDay.setDate(startOfDay.getDate() - delta);
+  return startOfDay;
+}
+
+function isTaskUpdatedInRange(task: Task, range: 'all' | 'today' | 'week' | 'month'): boolean {
+  if (range === 'all') return true;
+  const updatedTs = Date.parse(task.updatedAt || '');
+  if (!Number.isFinite(updatedTs)) return false;
+  const updatedDate = new Date(updatedTs);
+  const now = new Date();
+
+  if (range === 'today') {
+    return updatedDate >= getStartOfDay(now);
+  }
+  if (range === 'week') {
+    return updatedDate >= getStartOfWeekMonday(now);
+  }
+  return (
+    updatedDate.getFullYear() === now.getFullYear()
+    && updatedDate.getMonth() === now.getMonth()
+  );
+}
+
 function matchesKanbanFilters(task: Task): boolean {
   if (!task.title || task.title.trim() === '') return false;
   if (task.type !== 'block') return false;
+  if (!isTaskUpdatedInRange(task, kanbanFilterUpdatedRange.value)) return false;
   if (kanbanFilterPriority.value !== 'all' && task.priority !== kanbanFilterPriority.value) return false;
   if (kanbanFilterType.value !== 'all') {
     if (task.notebookId !== kanbanFilterType.value) return false;
@@ -843,8 +917,10 @@ async function loadUserSettings() {
   try {
     const settings = userSettings.kanban;
     kanbanFilterPriority.value = settings.kanbanFilterPriority || 'all';
+    kanbanFilterUpdatedRange.value = settings.kanbanFilterUpdatedRange || 'all';
     kanbanFilterType.value = settings.kanbanFilterType || 'all';
     kanbanFilterDocument.value = settings.kanbanFilterDocument || 'all';
+    tableFilterUpdatedRange.value = settings.tableFilterUpdatedRange || 'all';
     tableFilterType.value = settings.tableFilterType || 'all';
     tableFilterDocument.value = settings.tableFilterDocument || 'all';
     monthFilterType.value = settings.monthFilterType || 'all';
@@ -907,8 +983,10 @@ async function saveUserSettings() {
     await updateSettings('kanban', {
       currentView: currentView.value,
       kanbanFilterPriority: kanbanFilterPriority.value,
+      kanbanFilterUpdatedRange: kanbanFilterUpdatedRange.value,
       kanbanFilterType: kanbanFilterType.value,
       kanbanFilterDocument: kanbanFilterDocument.value,
+      tableFilterUpdatedRange: tableFilterUpdatedRange.value,
       tableFilterType: tableFilterType.value,
       tableFilterDocument: tableFilterDocument.value,
       monthFilterType: monthFilterType.value,

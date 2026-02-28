@@ -61,7 +61,7 @@
                   v-if="shouldShowHiddenCountForDay(day, week)"
                   class="more-tasks-placeholder day-more"
                 >
-                  +{{ getTotalHiddenTaskCountForWeek(week) }} 个任务
+                  +{{ getHiddenTaskCountForDay(day, week) }} 个任务
                 </div>
               </div>
             </div>
@@ -582,8 +582,7 @@ type WeekTask = Task & {
 type WeekRenderData = {
   tasks: WeekTask[];
   visibleTasks: WeekTask[];
-  hiddenCount: number;
-  earliestHiddenDateMs: number | null;
+  hiddenCountByDayKey: Record<string, number>;
 };
 
 const weeklyTasks = computed(() => {
@@ -656,22 +655,27 @@ const weekRenderDataMap = computed(() => {
 
     const visibleTasks = tasks.filter(task => task.position < maxTasks);
     const hiddenTasks = tasks.filter(task => task.position >= maxTasks);
+    const hiddenCountByDayKey: Record<string, number> = {};
+    const weekDayKeySet = new Set(week.map((day) => day.key));
 
-    let earliestHiddenDateMs: number | null = null;
-    if (hiddenTasks.length > 0) {
-      for (const task of hiddenTasks) {
-        const time = new Date(task.startDate || task.dueDate!).setHours(0, 0, 0, 0);
-        if (earliestHiddenDateMs === null || time < earliestHiddenDateMs) {
-          earliestHiddenDateMs = time;
-        }
-      }
+    for (const task of hiddenTasks) {
+      const startValue = task.startDate || task.dueDate;
+      if (!startValue) continue;
+
+      const taskStart = new Date(startValue);
+      if (Number.isNaN(taskStart.getTime())) continue;
+      taskStart.setHours(0, 0, 0, 0);
+
+      const startDayKey = formatDate(taskStart);
+      if (!weekDayKeySet.has(startDayKey)) continue;
+
+      hiddenCountByDayKey[startDayKey] = (hiddenCountByDayKey[startDayKey] || 0) + 1;
     }
 
     map.set(weekKey, {
       tasks,
       visibleTasks,
-      hiddenCount: hiddenTasks.length,
-      earliestHiddenDateMs
+      hiddenCountByDayKey
     });
   }
 
@@ -683,22 +687,15 @@ function getVisibleTasksForWeek(week: any[]): WeekTask[] {
   return weekRenderDataMap.value.get(weekKey)?.visibleTasks || [];
 }
 
-function getTotalHiddenTaskCountForWeek(week: any[]): number {
+function getHiddenTaskCountForDay(day: any, week: any[]): number {
   const weekKey = getWeekKey(week);
-  return weekRenderDataMap.value.get(weekKey)?.hiddenCount || 0;
+  const weekData = weekRenderDataMap.value.get(weekKey);
+  if (!weekData) return 0;
+  return weekData.hiddenCountByDayKey[day.key] || 0;
 }
 
 function shouldShowHiddenCountForDay(day: any, week: any[]): boolean {
-  const weekKey = getWeekKey(week);
-  const weekData = weekRenderDataMap.value.get(weekKey);
-  if (!weekData) return false;
-
-  const totalHidden = weekData.hiddenCount;
-  if (totalHidden === 0) return false;
-
-  if (weekData.earliestHiddenDateMs === null) return false;
-  const currentDateMs = new Date(day.date).setHours(0, 0, 0, 0);
-  return currentDateMs === weekData.earliestHiddenDateMs;
+  return getHiddenTaskCountForDay(day, week) > 0;
 }
 
 function getTaskStyle(task: any, week: any[]) {
@@ -1546,8 +1543,5 @@ onUnmounted(() => {
 }
 
 </style>
-
-
-
 
 

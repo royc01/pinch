@@ -34,22 +34,39 @@
     </div>
     </div>
     
-    <div class="filters-bar" v-show="!isTaskListCollapsed">
-      <div class="filter-group">
-        <label>{{ t('taskManager.notebook') }}:</label>
-        <SySelect
-          :model-value="filterNotebook"
-          @update:model-value="filterNotebook = $event"
-          :options="notebookOptions"
-        />
+    <div class="filters-row" v-show="!isTaskListCollapsed">
+      <div class="filters-bar">
+        <div class="filter-group">
+          <label>{{ t('taskManager.notebook') }}:</label>
+          <SySelect
+            :model-value="filterNotebook"
+            @update:model-value="filterNotebook = $event"
+            :options="notebookOptions"
+          />
+        </div>
+        <div v-if="filterNotebook !== 'all'" class="filter-group">
+          <label>{{ t('taskManager.document') }}:</label>
+          <SySelect
+            :model-value="filterDocument"
+            @update:model-value="filterDocument = $event"
+            :options="documentOptions"
+          />
+        </div>
       </div>
-      <div v-if="filterNotebook !== 'all'" class="filter-group">
-        <label>{{ t('taskManager.document') }}:</label>
-        <SySelect
-          :model-value="filterDocument"
-          @update:model-value="filterDocument = $event"
-          :options="documentOptions"
-        />
+      <div v-if="hasVisibleSubtasks" class="filters-actions">
+        <button
+          type="button"
+          class="subtasks-toggle-btn"
+          :class="{ expanded: areAllVisibleSubtasksExpanded }"
+          :title="areAllVisibleSubtasksExpanded ? '一键折叠子任务' : '一键展开子任务'"
+          :aria-label="areAllVisibleSubtasksExpanded ? '一键折叠子任务' : '一键展开子任务'"
+          @click="toggleAllVisibleSubtasks"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 8l5 5 5-5" />
+            <path d="M7 12l5 5 5-5" />
+          </svg>
+        </button>
       </div>
     </div>
     
@@ -232,8 +249,9 @@ const t = (key: string) => {
   return (lang as Record<string, string>)[key] || defaultLang[key] || key;
 };
 
-const crdtRepo = getCrdtRepository();
-const { tasks } = useCrdtTasks();
+const TASK_MANAGER_CRDT_STORE_ID = 'task-manager';
+const crdtRepo = getCrdtRepository(TASK_MANAGER_CRDT_STORE_ID);
+const { tasks } = useCrdtTasks(TASK_MANAGER_CRDT_STORE_ID);
 let isMobileFrontend = false;
 try {
   const frontend = getFrontend();
@@ -325,6 +343,7 @@ let taskScopeRefreshTimer: number | null = null;
 let isHydratingFilters = true;
 let lastTaskDocumentOptionsRefreshAt = 0;
 const TASK_DOCUMENT_OPTIONS_CACHE_TTL = 60000;
+const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
 
 // Tracks tasks whose dates were just cleared, to prevent stale values from being written back by delayed events.
 const recentlyDeletedDates = ref(new Map<string, { startDate: null; dueDate: null; timestamp: number }>());
@@ -393,6 +412,12 @@ function buildTaskDocumentCompletionSql(alias: string = 'b'): string {
   return ` AND ${alias}.markdown LIKE '%[ ]%'`;
 }
 
+function getDocumentCreationSortKey(documentId: string): number {
+  if (typeof documentId !== 'string' || documentId.length === 0) return 0;
+  const match = documentId.match(/^(\d{14})/);
+  return match ? Number(match[1]) : 0;
+}
+
 async function refreshTaskDocumentOptions(force = false): Promise<void> {
   if (
     !force &&
@@ -445,7 +470,11 @@ async function refreshTaskDocumentOptions(force = false): Promise<void> {
       }
       nextMap.set(
         notebookId,
-        Array.from(dedupById.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+        Array.from(dedupById.values()).sort((a, b) => {
+          const timeDiff = getDocumentCreationSortKey(b.id) - getDocumentCreationSortKey(a.id);
+          if (timeDiff !== 0) return timeDiff;
+          return a.name.localeCompare(b.name, 'zh-CN');
+        })
       );
     });
 
@@ -669,8 +698,37 @@ const displayedTasks = computed(() => {
   });
 });
 
+const visibleTaskIdsWithSubtasks = computed(() =>
+  displayedTasks.value
+    .filter(task => Array.isArray(task.subtasks) && task.subtasks.length > 0)
+    .map(task => task.id)
+);
+
+const hasVisibleSubtasks = computed(() => visibleTaskIdsWithSubtasks.value.length > 0);
+
+const areAllVisibleSubtasksExpanded = computed(() => {
+  const taskIds = visibleTaskIdsWithSubtasks.value;
+  return taskIds.length > 0 && taskIds.every(taskId => expandedSubtasks.value.has(taskId));
+});
+
 function showMoreCompletedTasks() {
   showAllCompletedTasks.value = true;
+}
+
+function toggleAllVisibleSubtasks() {
+  const taskIds = visibleTaskIdsWithSubtasks.value;
+  if (taskIds.length === 0) return;
+
+  const shouldCollapse = areAllVisibleSubtasksExpanded.value;
+  for (const taskId of taskIds) {
+    if (shouldCollapse) {
+      expandedSubtasks.value.delete(taskId);
+      expandedDescriptions.value.delete(taskId);
+      continue;
+    }
+    expandedSubtasks.value.add(taskId);
+    expandedDescriptions.value.add(taskId);
+  }
 }
 
 function applyRepeatRuleOptimistic(payload: {
@@ -1772,7 +1830,7 @@ function handleDragStart(event: DragEvent, task: Task) {
 }
 
 async function ensureInboxDocument(notebookId: string): Promise<string> {
-  const inboxPath = '/pinch\\u6536\\u96c6\\u7bb1';
+  const inboxPath = '/pinch收集箱';
   
   try {
     const existingIds = await getIDsByHPath(notebookId, inboxPath);
@@ -1795,7 +1853,7 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
   try {
     let docPath = '';
     
-    if (documentId) {
+    if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
       const selectedDoc = allDocuments.value.find(d => d.id === documentId && d.notebookId === notebookId);
       if (selectedDoc) {
         const notebook = notebooks.value.find(nb => nb.id === notebookId);
@@ -1985,13 +2043,60 @@ onUnmounted(() => {
   padding: 2px 10px;
 }
 
+.filters-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
 .filters-bar {
   display: flex;
   gap: 12px;
-  margin-bottom: 12px;
   flex-wrap: nowrap;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   box-sizing: border-box;
+}
+
+.filters-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.subtasks-toggle-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.subtasks-toggle-btn:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.subtasks-toggle-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.2s ease;
+}
+
+.subtasks-toggle-btn.expanded svg {
+  transform: rotate(180deg);
 }
 
 .tasks-list {
@@ -2135,18 +2240,36 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  width: 30px;
+  height: 30px;
+  margin: -6px;
+  border-radius: 6px;
+  position: relative;
   cursor: pointer;
-  transition: transform 0.2s, background-color 0.2s;
+  transition: transform 0.2s;
 }
 
-.task-expand-btn:hover {
+.task-expand-btn::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border-radius: 4px;
+  background: transparent;
+  pointer-events: none;
+  transition: background-color 0.2s;
+}
+
+.task-expand-btn:hover::before {
   background: var(--b3-list-hover);
 }
 
 .task-expand-btn svg {
+  position: relative;
+  z-index: 1;
   transition: transform 0.2s;
 }
 
@@ -2296,4 +2419,3 @@ onUnmounted(() => {
   margin-top: 16px;
 }
 </style>
-
