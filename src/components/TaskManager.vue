@@ -53,13 +53,13 @@
           />
         </div>
       </div>
-      <div v-if="hasVisibleSubtasks" class="filters-actions">
+      <div v-if="hasVisibleExpandableTasks" class="filters-actions">
         <button
           type="button"
           class="subtasks-toggle-btn"
           :class="{ expanded: areAllVisibleSubtasksExpanded }"
-          :title="areAllVisibleSubtasksExpanded ? '一键折叠子任务' : '一键展开子任务'"
-          :aria-label="areAllVisibleSubtasksExpanded ? '一键折叠子任务' : '一键展开子任务'"
+          :title="areAllVisibleSubtasksExpanded ? '一键折叠详情' : '一键展开详情'"
+          :aria-label="areAllVisibleSubtasksExpanded ? '一键折叠详情' : '一键展开详情'"
           @click="toggleAllVisibleSubtasks"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -213,6 +213,13 @@ import { useTaskFilters } from '@/composables/useTaskFilters';
 import { eventBus, Events } from '@/utils/eventBus';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { formatDate } from '@/utils/dateHelpers';
+import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
+import {
+  applyRepeatRuleOptimisticToTasks,
+  getDocumentCreationSortKey,
+  normalizeNotebookIds,
+  type RepeatRulePayload
+} from '@/utils/taskViewShared';
 
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 
@@ -335,6 +342,7 @@ let lastRefreshTime = 0;
 let eventUnsubscribers: Array<() => void> = [];
 const processingBlockIds = new Set<string>();
 let fallbackRefreshTimer: number | null = null;
+const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 80;
 const FALLBACK_FAILURE_THRESHOLD = 2;
 let consecutiveFallbackFailures = 0;
 let lastMismatchForceRefreshAt = 0;
@@ -362,18 +370,14 @@ const sanitizedHtmlCache = new Map<string, string>();
 const taskDocumentsByNotebook = ref<Map<string, Document[]>>(new Map());
 
 // === Notebook/document option derivation and persisted filter selection ===
-const docsMapByNotebook = computed(() => {
-  return taskDocumentsByNotebook.value;
-});
-
 const allDocuments = computed(() => {
-  return Array.from(docsMapByNotebook.value.values()).flat();
+  return Array.from(taskDocumentsByNotebook.value.values()).flat();
 });
 
 const documentOptions = computed(() => {
   if (filterNotebook.value === 'all') return [];
   
-  const docs = docsMapByNotebook.value.get(filterNotebook.value) || [];
+  const docs = taskDocumentsByNotebook.value.get(filterNotebook.value) || [];
   return [
     { value: 'all', text: t('taskManager.all') },
     ...docs.map(doc => ({ value: doc.id, text: doc.name }))
@@ -410,12 +414,6 @@ function buildTaskDocumentCompletionSql(alias: string = 'b'): string {
     return ` AND (${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[x]%' OR ${alias}.markdown LIKE '%[X]%')`;
   }
   return ` AND ${alias}.markdown LIKE '%[ ]%'`;
-}
-
-function getDocumentCreationSortKey(documentId: string): number {
-  if (typeof documentId !== 'string' || documentId.length === 0) return 0;
-  const match = documentId.match(/^(\d{14})/);
-  return match ? Number(match[1]) : 0;
 }
 
 async function refreshTaskDocumentOptions(force = false): Promise<void> {
@@ -509,7 +507,7 @@ watch([filterNotebook, filterDocument], ([newNotebook]) => {
     return;
   }
 
-  scheduleTaskScopeRefresh();
+  scheduleTaskScopeRefresh(100);
 
   if (filterDocument.value !== previousDocument) {
     return;
@@ -521,8 +519,6 @@ watch([filterNotebook, filterDocument], ([newNotebook]) => {
 const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
 
 const taskFilters = {
-  priority: ref('all'),
-  type: ref('all'),
   notebook: filterNotebook,
   document: filterDocument
 };
@@ -551,7 +547,12 @@ function scheduleTaskScopeRefresh(delay = 100): void {
   }
   taskScopeRefreshTimer = window.setTimeout(async () => {
     taskScopeRefreshTimer = null;
-    await refreshTasks(false, { showLoading: false, compareExisting: false, ignoreThrottle: true });
+    await refreshTasks(false, {
+      showLoading: false,
+      compareExisting: false,
+      ignoreThrottle: true,
+      source: 'filter-switch'
+    });
   }, delay);
 }
 
@@ -609,8 +610,10 @@ const filteredTasks = computed(() => {
   const hash = `${includeCompleted ? '1' : '0'}:` +
                baseFiltered.map(t => t.id).join(':') +
                baseFiltered.map(t => `${t.status}-${t.priority}-${t.updatedAt}-${t.blockId}`).join('|');
-  
-  if (hash === lastSortedHash && cachedSortedTasks.length > 0) {
+
+  const isSortedCacheHit = hash === lastSortedHash && cachedSortedTasks.length > 0;
+
+  if (isSortedCacheHit) {
     return cachedSortedTasks;
   }
   
@@ -698,17 +701,29 @@ const displayedTasks = computed(() => {
   });
 });
 
-const visibleTaskIdsWithSubtasks = computed(() =>
+const visibleExpandableTasks = computed(() =>
   displayedTasks.value
-    .filter(task => Array.isArray(task.subtasks) && task.subtasks.length > 0)
-    .map(task => task.id)
+    .map(task => {
+      const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
+      const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
+      return {
+        id: task.id,
+        hasSubtasks,
+        hasDescription
+      };
+    })
+    .filter(task => task.hasSubtasks || task.hasDescription)
 );
 
-const hasVisibleSubtasks = computed(() => visibleTaskIdsWithSubtasks.value.length > 0);
+const hasVisibleExpandableTasks = computed(() => visibleExpandableTasks.value.length > 0);
 
 const areAllVisibleSubtasksExpanded = computed(() => {
-  const taskIds = visibleTaskIdsWithSubtasks.value;
-  return taskIds.length > 0 && taskIds.every(taskId => expandedSubtasks.value.has(taskId));
+  const taskMetaList = visibleExpandableTasks.value;
+  return taskMetaList.length > 0 && taskMetaList.every(({ id, hasSubtasks, hasDescription }) => {
+    const subtasksExpanded = !hasSubtasks || expandedSubtasks.value.has(id);
+    const descriptionExpanded = !hasDescription || expandedDescriptions.value.has(id);
+    return subtasksExpanded && descriptionExpanded;
+  });
 });
 
 function showMoreCompletedTasks() {
@@ -716,60 +731,34 @@ function showMoreCompletedTasks() {
 }
 
 function toggleAllVisibleSubtasks() {
-  const taskIds = visibleTaskIdsWithSubtasks.value;
-  if (taskIds.length === 0) return;
+  const taskMetaList = visibleExpandableTasks.value;
+  if (taskMetaList.length === 0) return;
 
   const shouldCollapse = areAllVisibleSubtasksExpanded.value;
-  for (const taskId of taskIds) {
+  for (const { id, hasSubtasks, hasDescription } of taskMetaList) {
     if (shouldCollapse) {
-      expandedSubtasks.value.delete(taskId);
-      expandedDescriptions.value.delete(taskId);
+      if (hasSubtasks) {
+        expandedSubtasks.value.delete(id);
+      }
+      if (hasDescription) {
+        expandedDescriptions.value.delete(id);
+      }
       continue;
     }
-    expandedSubtasks.value.add(taskId);
-    expandedDescriptions.value.add(taskId);
+    if (hasSubtasks) {
+      expandedSubtasks.value.add(id);
+    }
+    if (hasDescription) {
+      expandedDescriptions.value.add(id);
+    }
   }
 }
 
-function applyRepeatRuleOptimistic(payload: {
-  blockId?: string;
-  seriesId?: string;
-  frequency?: string;
-}) {
-  const { blockId, seriesId, frequency } = payload;
-  if (!frequency) return;
-
-  let touched = false;
-
-  if (blockId) {
-    const templateTask = tasks.value.find(
-      task => task.type === 'block' && !task.isVirtual && task.blockId === blockId
-    );
-    if (templateTask) {
-      templateTask.repeatFrequency = frequency as any;
-      if (frequency === 'none') {
-        templateTask.repeatSeriesId = undefined;
-        templateTask.repeatInstanceDate = undefined;
-        templateTask.isVirtual = false;
-      } else if (seriesId) {
-        templateTask.repeatSeriesId = seriesId;
-        templateTask.repeatInstanceDate = undefined;
-        templateTask.isVirtual = false;
-      }
-      touched = true;
-    }
+function applyRepeatRuleOptimistic(payload: RepeatRulePayload) {
+  const { nextTasks, touched } = applyRepeatRuleOptimisticToTasks(tasks.value, payload);
+  if (nextTasks !== tasks.value) {
+    tasks.value = nextTasks;
   }
-
-  if (frequency === 'none' && seriesId) {
-    const nextTasks = tasks.value.filter(
-      task => !(task.isVirtual && task.repeatSeriesId === seriesId)
-    );
-    if (nextTasks.length !== tasks.value.length) {
-      tasks.value = nextTasks;
-      touched = true;
-    }
-  }
-
   if (touched) {
     invalidateCache();
     invalidateSortCache();
@@ -851,17 +840,6 @@ async function loadNotebooks() {
   }
 }
 
-function normalizeNotebookIds(ids: unknown): string[] {
-  if (!Array.isArray(ids)) return [];
-  return Array.from(
-    new Set(
-      ids
-        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-        .map(id => id.trim())
-    )
-  );
-}
-
 function applyExcludedNotebookScope(ids: string[]): void {
   const normalized = normalizeNotebookIds(ids);
   excludedNotebookIds.value = normalized;
@@ -907,17 +885,8 @@ async function handleTaskScopeSave(
   showTaskScopeDialog.value = false;
   await refreshTaskDocumentOptions(true);
   ensureActiveNotebookFilterInScope();
-  await refreshTasks(true, { showLoading: false, compareExisting: false });
+  await refreshTasks(true, { showLoading: false, compareExisting: false, source: 'scope-save' });
 }
-
-
-
-
-
-function validateDocumentSelection() {
-  normalizeDocumentSelection(filterNotebook.value);
-}
-
 async function handleRefreshClick() {
   if (requiresScopeInitialization.value) {
     showTaskScopeDialog.value = true;
@@ -930,7 +899,7 @@ async function handleRefreshClick() {
 
   isRefreshButtonSpinning.value = true;
   try {
-    await refreshTasks(true);
+    await refreshTasks(true, { source: 'manual-refresh' });
   } finally {
     isRefreshButtonSpinning.value = false;
   }
@@ -938,13 +907,23 @@ async function handleRefreshClick() {
 
 async function refreshTasks(
   force = false,
-  options: { showLoading?: boolean; compareExisting?: boolean; ignoreThrottle?: boolean } = {}
+  options: {
+    showLoading?: boolean;
+    compareExisting?: boolean;
+    ignoreThrottle?: boolean;
+    source?: string;
+  } = {}
 ) {
   if (requiresScopeInitialization.value) {
     return;
   }
 
-  const { showLoading = false, compareExisting = true, ignoreThrottle = false } = options;
+  const {
+    showLoading = false,
+    compareExisting = true,
+    ignoreThrottle = false,
+    source = 'general'
+  } = options;
   const now = Date.now();
   const SKIP_DELAY = 500;
   if (!force && !ignoreThrottle && now - lastRefreshTime < SKIP_DELAY) {
@@ -960,16 +939,22 @@ async function refreshTasks(
       await loadNotebooks();
     }
     await refreshTaskDocumentOptions(force);
-    
-    const sqlTasks = await TaskRepository.getAllTasks(!force, getCurrentTaskQueryScope());
+
+    const useLiveDom = source === 'manual-refresh' || source === 'create-task';
+    const sqlTasks = await TaskRepository.getAllTasks(
+      !force,
+      getCurrentTaskQueryScope(),
+      { useLiveDom }
+    );
+
     crdtRepo.syncFromSQLTasks(sqlTasks);
     const newTasks = crdtRepo.getTasks();
-    
+
     if (!compareExisting || force || hasTasksChanged(tasks.value, newTasks)) {
       invalidateCache();
       tasks.value = newTasks;
       invalidateSortCache();
-      
+
       await nextTick();
       updateTaskIndex();
     }
@@ -1004,7 +989,7 @@ function scheduleFallbackRefresh(
 
   fallbackRefreshTimer = window.setTimeout(async () => {
     fallbackRefreshTimer = null;
-    await refreshTasks(force, { showLoading: false, compareExisting: true });
+    await refreshTasks(force, { showLoading: false, compareExisting: true, source: 'fallback-refresh' });
   }, delay);
 }
 
@@ -1057,12 +1042,23 @@ function hasTasksChanged(oldTasks: Task[], newTasks: Task[]): boolean {
   return false;
 }
 
+const incrementalUpdateQueue = createBlockIdBatchQueue({
+  maxBatchSize: MAX_INCREMENTAL_BLOCKS_PER_FLUSH,
+  onFlushBatch: async (blockIds) => {
+    await incrementalUpdateTasks(blockIds);
+  }
+});
+
+function queueIncrementalUpdates(blockIds: string[], delay = 24): void {
+  incrementalUpdateQueue.enqueue(blockIds, delay);
+}
+
 
 
 function setupEventListeners() {
-  const unsubscribe = eventBus.on(Events.TASK_CHANGED, async (data?: { blockIds?: string[] }) => {
+  const unsubscribe = eventBus.on(Events.TASK_CHANGED, (data?: { blockIds?: string[] }) => {
     if (data?.blockIds && data.blockIds.length > 0) {
-      await incrementalUpdateTasks(data.blockIds);
+      queueIncrementalUpdates(data.blockIds);
     } else {
       scheduleFallbackRefresh(true, 180, 'immediate');
     }
@@ -1078,8 +1074,8 @@ function setupEventListeners() {
     }
   });
 
-  const unsubscribeUpdated = eventBus.on(Events.TASK_UPDATED, async ({ blockId }: { blockId: string }) => {
-    await incrementalUpdateTasks([blockId]);
+  const unsubscribeUpdated = eventBus.on(Events.TASK_UPDATED, ({ blockId }: { blockId: string }) => {
+    queueIncrementalUpdates([blockId]);
   });
 
   const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string }) => {
@@ -1089,15 +1085,18 @@ function setupEventListeners() {
       return;
     }
     if (payload?.blockId) {
+      const addedBlockId = payload.blockId;
       const scopedBlockIds = await TaskRepository.filterIncludedBlockIds([payload.blockId]);
       if (scopedBlockIds.length === 0) {
         return;
       }
 
-      await incrementalUpdateTasks(scopedBlockIds);
-      if (!blockIdToTaskIndex.has(payload.blockId)) {
-        scheduleFallbackRefresh(true, 180, 'immediate');
-      }
+      queueIncrementalUpdates(scopedBlockIds);
+      window.setTimeout(() => {
+        if (!blockIdToTaskIndex.has(addedBlockId)) {
+          scheduleFallbackRefresh(true, 180, 'immediate');
+        }
+      }, 220);
       return;
     }
     scheduleFallbackRefresh(true, 180, 'immediate');
@@ -1127,6 +1126,9 @@ function setupEventListeners() {
     patchTask(tasks.value, updatedTask.id, (task) => {
       task.startDate = updatedTask.startDate;
       task.dueDate = updatedTask.dueDate;
+      if (updatedTask.backgroundColor !== undefined) {
+        task.backgroundColor = updatedTask.backgroundColor;
+      }
     }, 'id');
     invalidateSortCache();
   });
@@ -1192,12 +1194,12 @@ async function incrementalUpdateTasks(blockIds: string[]) {
     const taskMapBatch = await TaskRepository.getTasksByBlockIds(
       uniqueBlockIds,
       false,
-      getCurrentTaskQueryScope()
+      getCurrentTaskQueryScope(),
+      { useLiveDom: false }
     );
     
     const updatedTasks: Task[] = [];
     let removedTasks = 0;
-    const removedBlockIds: string[] = [];
     const missingRequestedIds: string[] = [];
   
     for (const [blockId, newTask] of taskMapBatch) {
@@ -1227,7 +1229,6 @@ async function incrementalUpdateTasks(blockIds: string[]) {
 
       crdtRepo.deleteTask(taskIndex.task.id, Date.now());
       removedTasks += 1;
-      removedBlockIds.push(blockId);
     }
     
     if (updatedTasks.length > 0 || removedTasks > 0) {
@@ -1241,7 +1242,7 @@ async function incrementalUpdateTasks(blockIds: string[]) {
         const now = Date.now();
         if (now - lastMismatchForceRefreshAt >= MISMATCH_FORCE_REFRESH_COOLDOWN) {
           lastMismatchForceRefreshAt = now;
-          await refreshTasks(true, { showLoading: false, compareExisting: true });
+          await refreshTasks(true, { showLoading: false, compareExisting: true, source: 'mismatch-reconcile' });
         }
       }
     } else {
@@ -1450,7 +1451,18 @@ async function resolveParentTaskBlockIds(
   return resolvedParentBlockIds;
 }
 
-function parseTaskCompleted(markdown: string, blockId?: string): boolean | null {
+function parseTaskCompleted(markdown: string, blockId: string): boolean | null {
+  const firstLine = markdown
+    .split('\n')
+    .map(line => line.trim())
+    .find(line => line.length > 0);
+  if (firstLine) {
+    const match = firstLine.match(/\[(x|X| )\]/);
+    if (match) {
+      return match[1].toLowerCase() === 'x';
+    }
+  }
+
   const getTaskActionElement = (root: Element | null, ownerId?: string): Element | null => {
     if (!root) return null;
     const matchesOwner = (action: Element): boolean => {
@@ -1470,7 +1482,8 @@ function parseTaskCompleted(markdown: string, blockId?: string): boolean | null 
       }
     }
 
-    const fallback = root.closest('.protyle-task')?.querySelector('.protyle-action--task');
+    const fallbackRoot = root.closest('.protyle-task');
+    const fallback = fallbackRoot?.querySelector('.protyle-action--task');
     if (fallback && matchesOwner(fallback)) {
       return fallback;
     }
@@ -1478,38 +1491,43 @@ function parseTaskCompleted(markdown: string, blockId?: string): boolean | null 
     return null;
   };
 
-  if (blockId) {
-    const currentElement =
-      document.querySelector(`.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`)
-      || document.querySelector(`.protyle [data-node-id="${blockId}"]`)
-      || document.querySelector(`[data-node-id="${blockId}"][data-type="NodeListItem"]`)
-      || document.querySelector(`[data-node-id="${blockId}"]`);
+  const selectors = [
+    `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
+    `.protyle [data-node-id="${blockId}"]`,
+    `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
+    `[data-node-id="${blockId}"]`
+  ];
+  let currentElement: Element | null = null;
+  for (const selector of selectors) {
+    currentElement = document.querySelector(selector);
     if (currentElement) {
-      const currentAction = getTaskActionElement(currentElement, blockId);
-      if (!currentAction) {
-        return null;
-      }
-      const currentSvg = currentAction.querySelector('use');
-      const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
-      if (currentHref) {
-        return currentHref === '#iconCheck';
-      }
-      return null;
+      break;
     }
   }
-
-  const firstLine = markdown
-    .split('\n')
-    .map(line => line.trim())
-    .find(line => line.length > 0);
-  if (!firstLine) return null;
-
-  const match = firstLine.match(/\[(x|X| )\]/);
-  if (!match) return null;
-  return match[1].toLowerCase() === 'x';
+  if (currentElement) {
+    const currentAction = getTaskActionElement(currentElement, blockId);
+    if (!currentAction) {
+      return null;
+    }
+    const currentSvg = currentAction.querySelector('use');
+    const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
+    if (currentHref) {
+      return currentHref === '#iconCheck';
+    }
+    return null;
+  }
+  return null;
 }
 
 function parseTaskTitle(markdown: string): string | null {
+  const convertMarkdownStrong = (text: string): string => {
+    return text
+      .replace(/\*\*\*([^*]+)\*\*\*/g, '<span data-type="strong em">$1</span>')
+      .replace(/___([^_]+)___/g, '<span data-type="strong em">$1</span>')
+      .replace(/\*\*([^*]+)\*\*/g, '<span data-type="strong">$1</span>')
+      .replace(/__([^_]+)__/g, '<span data-type="strong">$1</span>');
+  };
+
   const firstLine = markdown
     .split('\n')
     .map(line => line.trim())
@@ -1518,7 +1536,7 @@ function parseTaskTitle(markdown: string): string | null {
   if (!/\[(x|X| )\]/.test(firstLine)) return null;
 
   const rawTitle = stripTaskPrefix(firstLine);
-  return cleanTaskTitle(rawTitle).trim();
+  return convertMarkdownStrong(cleanTaskTitle(rawTitle).trim());
 }
 
 async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
@@ -1550,7 +1568,6 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
       return { blockId, markdown: '', error };
     }
   }));
-
   for (const snapshot of blockSnapshots) {
     const { blockId, markdown, error } = snapshot;
     if (error) {
@@ -1631,7 +1648,6 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
       unresolved.push(blockId);
     }
   }
-
   if (hasPatched) {
     invalidateCache();
     invalidateSortCache();
@@ -1655,7 +1671,8 @@ function sanitizeTaskHtml(rawHtml?: string): string {
   const container = document.createElement('div');
   container.innerHTML = rawHtml;
 
-  container.querySelectorAll('script, iframe, object, embed, link, meta').forEach((el) => el.remove());
+  const dangerousNodes = container.querySelectorAll('script, iframe, object, embed, link, meta');
+  dangerousNodes.forEach((el) => el.remove());
 
   const allElements = container.querySelectorAll('*');
   allElements.forEach((el) => {
@@ -1688,7 +1705,10 @@ function sanitizeTaskTitleHtml(rawHtml?: string): string {
 }
 
 function stripTaskPrefix(text: string): string {
-  return text.replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| )\]\s*/i, '');
+  return text
+    .replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| )\]\s*/i, '')
+    .replace(/\s*\{:\s*style="[^"]*"\}\s*/g, ' ')
+    .trim();
 }
 
 function cleanupEventListeners() {
@@ -1698,6 +1718,7 @@ function cleanupEventListeners() {
     clearTimeout(fallbackRefreshTimer);
     fallbackRefreshTimer = null;
   }
+  incrementalUpdateQueue.clear();
 }
 
 async function toggleTaskStatus(task: Task) {
@@ -1886,7 +1907,7 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
       lastTaskDocument: documentId
     });
     
-    await refreshTasks(true, { showLoading: true, compareExisting: false });
+    await refreshTasks(true, { showLoading: true, compareExisting: false, source: 'create-task' });
     showTaskModal.value = false;
   } catch (error) {
     // Swallow create-task errors here; later refresh/retry will reconcile state.
@@ -1905,7 +1926,7 @@ onMounted(async () => {
   showCompletedTasks.value = userSettings.taskManager.showCompletedTasks !== false;
   ensureActiveNotebookFilterInScope();
   
-  validateDocumentSelection();
+  normalizeDocumentSelection(filterNotebook.value);
   setupEventListeners();
   startSkipSetCleanup();
 
@@ -1929,7 +1950,7 @@ onMounted(async () => {
 
   isHydratingFilters = false;
   // First paint from cache, then silently reconcile with source of truth once.
-  void refreshTasks(true, { showLoading: false, compareExisting: true });
+  void refreshTasks(true, { showLoading: false, compareExisting: true, source: 'mounted-reconcile' });
 });
 
 onUnmounted(() => {
@@ -2147,12 +2168,6 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
-.tasks-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .more-completed-button {
   align-self: center;
   margin-top: 4px;
@@ -2287,18 +2302,18 @@ onUnmounted(() => {
 }
 
 .task-priority-badge.priority-high {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--pinch-background10);
+  color: var(--pinch-font-color10);
 }
 
 .task-priority-badge.priority-medium {
-  background: #fef3c7;
-  color: #d97706;
+  background: var(--pinch-background3);
+  color: var(--pinch-font-color3);
 }
 
 .task-priority-badge.priority-low {
-  background: #dbeafe;
-  color: #2563eb;
+  background: var(--pinch-background7);
+  color: var(--pinch-font-color7);
 }
 
 .task-due-badge {
@@ -2309,27 +2324,12 @@ onUnmounted(() => {
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  background: #f3f4f6;
-  color: #6b7280;
-}
-
-.task-type-badge {
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 10px;
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-surface);
 }
 
 .subtasks-list {
   margin-top: 8px;
-}
-
-.task-due-date {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.7;
 }
 
 .task-edit-panel {
@@ -2415,7 +2415,4 @@ onUnmounted(() => {
   background: var(--b3-list-hover);
 }
 
-.stand-container {
-  margin-top: 16px;
-}
 </style>

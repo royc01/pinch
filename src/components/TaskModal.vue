@@ -6,19 +6,21 @@
           <div class="modal-header">
             <h3>{{ tt('taskManager.newTask', '新建任务') }}</h3>
             <button @click="emit('close')" class="icon-button">
-              <svg viewBox="0 0 1024 1024" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
-                <path d="M512 64C264.6 64 64 264.6 64 512s200.6 448 448 448 448-200.6 448-448S759.4 64 512 64zm165.4 618.2l-66-.3L512 563.4l-99.3 118.4-66.1.3c-4.4 0-8-3.6-8-8 0-1.9.7-3.7 1.9-5.2l130.1-155L340.5 359a8.32 8.32 0 01-1.9-5.2c0-4.4 3.6-8 8-8l66.1.3L512 464.6l99.3-118.4 66-.3c4.4 0 8 3.6 8 8 0 1.9-.7 3.7-1.9 5.2L553.5 514l130 155c1.2 1.5 1.9 3.3 1.9 5.2 0 4.4-3.6 8-8 8z" fill="currentColor"></path>
+              <svg viewBox="0 0 1026 1024" width="16" height="16" class="icon" xmlns="http://www.w3.org/2000/svg">
+                <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z"></path>
               </svg>
             </button>
           </div>
           <div class="modal-body">
-            <div class="form-group">
-              <label>{{ tt('taskManager.notebook', '笔记本') }}</label>
-              <SySelect v-model="selectedNotebook" :options="notebookOptions" @update:modelValue="handleNotebookChange" />
-            </div>
-            <div class="form-group" v-if="selectedNotebook">
-              <label>{{ tt('taskManager.document', '文档') }}</label>
-              <SySelect v-model="selectedDocument" :options="documentOptions" />
+            <div class="filters-row">
+              <div class="form-group filter-group">
+                <label>{{ tt('taskManager.notebook', '笔记本') }}</label>
+                <SySelect v-model="selectedNotebook" :options="notebookOptions" @update:modelValue="handleNotebookChange" />
+              </div>
+              <div class="form-group filter-group" v-if="selectedNotebook">
+                <label>{{ tt('taskManager.document', '文档') }}</label>
+                <SySelect v-model="selectedDocument" :options="documentOptions" />
+              </div>
             </div>
             <div class="form-group">
               <label>{{ tt('taskManager.taskTitle', '任务标题') }}</label>
@@ -26,17 +28,24 @@
             </div>
             <div class="form-group">
               <label>{{ tt('taskManager.taskDescription', '任务描述') }}</label>
-              <SyInput v-model="localTask.description" :placeholder="tt('taskManager.taskDescriptionPlaceholder', '请输入任务描述（可选）')" />
+              <textarea
+                v-model="localTask.description"
+                class="task-description-input b3-text-field"
+                rows="2"
+                :placeholder="tt('taskManager.taskDescriptionPlaceholder', '请输入任务描述（可选）')"
+              ></textarea>
             </div>
-            <div class="form-group">
-              <label>{{ tt('taskManager.priority', '优先级') }}</label>
-              <SySelect v-model="localTask.priority" :options="priorityOptions" />
+            <div class="meta-row">
+              <div class="form-group">
+                <label>{{ tt('taskManager.priority', '优先级') }}</label>
+                <SySelect v-model="localTask.priority" :options="priorityOptions" />
+              </div>
+              <div class="form-group">
+                <label>{{ tt('taskManager.status', '状态') }}</label>
+                <SySelect v-model="localTask.status" :options="statusOptions" />
+              </div>
             </div>
-            <div class="form-group">
-              <label>{{ tt('taskManager.status', '状态') }}</label>
-              <SySelect v-model="localTask.status" :options="statusOptions" />
-            </div>
-            <div class="form-group">
+            <div class="form-group due-date-row">
               <label>{{ tt('taskManager.dueDate', '截止日期') }}</label>
               <input type="date" v-model="localTask.dueDate" class="date-input" />
             </div>
@@ -128,13 +137,27 @@ const notebookOptions = computed(() => {
   return props.notebooks.map(nb => ({ value: nb.id, text: nb.name }));
 });
 
+function isInboxDocument(doc: Document): boolean {
+  const normalizedName = (doc.name || '').trim();
+  const normalizedPath = (doc.path || '').replace(/^\/+/, '').trim();
+  return normalizedName === PINCH_INBOX_OPTION_NAME || normalizedPath === PINCH_INBOX_OPTION_NAME;
+}
+
+function getInboxDocumentValue(notebookId: string): string {
+  const docsForNotebook = props.documents.filter(d => d.notebookId === notebookId);
+  const inboxDoc = docsForNotebook.find(isInboxDocument);
+  return inboxDoc?.id || PINCH_INBOX_OPTION_ID;
+}
+
 const documentOptions = computed(() => {
   if (!selectedNotebook.value) return [];
   const docs = props.documents.filter(d => d.notebookId === selectedNotebook.value);
-  return [
-    { value: PINCH_INBOX_OPTION_ID, text: PINCH_INBOX_OPTION_NAME },
-    ...docs.map(d => ({ value: d.id, text: d.name }))
-  ];
+  const hasInboxDoc = docs.some(isInboxDocument);
+  const docOptions = docs.map(d => ({ value: d.id, text: d.name }));
+  if (hasInboxDoc) {
+    return docOptions;
+  }
+  return [{ value: PINCH_INBOX_OPTION_ID, text: PINCH_INBOX_OPTION_NAME }, ...docOptions];
 });
 
 function tt(key: string, fallback: string): string {
@@ -146,7 +169,7 @@ function tt(key: string, fallback: string): string {
 }
 
 function handleNotebookChange() {
-  selectedDocument.value = PINCH_INBOX_OPTION_ID;
+  selectedDocument.value = getInboxDocumentValue(selectedNotebook.value);
 }
 
 watch(() => props.show, (show) => {
@@ -161,14 +184,13 @@ watch(() => props.show, (show) => {
       : (props.notebooks[0]?.id || '');
 
     const docsForNotebook = props.documents.filter(d => d.notebookId === selectedNotebook.value);
-    const hasPreferredDocument = !!props.lastSelectedDocument && (
-      props.lastSelectedDocument === PINCH_INBOX_OPTION_ID
-      ||
-      docsForNotebook.some(doc => doc.id === props.lastSelectedDocument)
-    );
+    const fallbackDocumentValue = getInboxDocumentValue(selectedNotebook.value);
+    const hasPreferredDocument = !!props.lastSelectedDocument
+      && props.lastSelectedDocument !== PINCH_INBOX_OPTION_ID
+      && docsForNotebook.some(doc => doc.id === props.lastSelectedDocument);
     selectedDocument.value = hasPreferredDocument
       ? props.lastSelectedDocument!
-      : PINCH_INBOX_OPTION_ID;
+      : fallbackDocumentValue;
   }
 });
 
@@ -286,6 +308,35 @@ const handleSubmit = () => {
   padding: 20px;
 }
 
+.filters-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filters-row .filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.filters-row .filter-group label {
+  margin-bottom: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.filters-row .filter-group .b3-select {
+  flex: 1;
+  min-width: 0;
+}
+
 .form-group {
   margin-bottom: 16px;
 }
@@ -297,14 +348,70 @@ const handleSubmit = () => {
   color: var(--b3-theme-on-background);
 }
 
+.due-date-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.due-date-row label {
+  margin-bottom: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.due-date-row .date-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.meta-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.meta-row .form-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.meta-row .form-group label {
+  margin-bottom: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.meta-row .form-group .b3-select {
+  flex: 1;
+  min-width: 0;
+}
+
 .date-input {
+  display: block;
   width: 100%;
-  padding: 8px;
-  background: var(--b3-theme-background);
-  border: 1px solid var(--b3-theme-border);
-  border-radius: 4px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  background: var(--b3-list-hover);
+  border: none;
+  border-radius: 6px;
   color: var(--b3-theme-on-background);
   font-size: 14px;
+}
+
+.task-description-input {
+  width: 100%;
+  min-height: 56px;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .modal-footer {

@@ -73,7 +73,6 @@ function handleInput(event: Event): void {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--b3-border-color);
 }
 
 .doc-bind-title {
@@ -112,16 +111,22 @@ function handleInput(event: Event): void {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  padding: 0 14px 14px 14px;
+  padding: 12px 14px;
 }
 
 .doc-bind-btn.plain {
   background: var(--b3-list-hover);
+  border: none;
+  border-radius: 20px;
+  padding: 4px 10px;
 }
 
 .doc-bind-btn.confirm {
   background: #f98f7a;
   color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 4px 10px;
 }
 
 .icon-button {

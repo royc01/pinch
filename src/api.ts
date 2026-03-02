@@ -950,6 +950,7 @@ export interface SiyuanBlock {
   content: string;
   box: string;
   hpath: string;
+  sort?: string | number;
   updated: string;
   created: string;
   markdown: string;
@@ -1104,6 +1105,10 @@ export interface TaskQueryScope {
   includeCompleted?: boolean;
 }
 
+export interface TaskFetchOptions {
+  useLiveDom?: boolean;
+}
+
 function generateTaskId(): string {
   return `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
@@ -1189,12 +1194,13 @@ export class TaskRepository {
     return ` AND (${target} LIKE '%[ ]%' OR ${target} LIKE '%[x]%' OR ${target} LIKE '%[X]%')`;
   }
 
-  private static buildScopeCacheKey(scope: TaskQueryScope | null): string {
+  private static buildScopeCacheKey(scope: TaskQueryScope | null, useLiveDom: boolean = true): string {
     const notebookKey = scope?.notebookId || '*';
     const documentKey = scope?.documentId || '*';
     const includeCompletedKey = scope?.includeCompleted === false ? 'open-only' : 'all-status';
     const excludedKey = this.getExcludedNotebookIdsSorted().join(',');
-    return `${notebookKey}|${documentKey}|${includeCompletedKey}|${excludedKey}`;
+    const domKey = useLiveDom ? 'live-dom' : 'api-dom-only';
+    return `${notebookKey}|${documentKey}|${includeCompletedKey}|${excludedKey}|${domKey}`;
   }
 
   private static setScopedMemoryCache(key: string, tasks: Task[]): void {
@@ -1369,7 +1375,7 @@ export class TaskRepository {
   }
 
   private static parseSubtasksFromParsedDoc(doc: Document, parentBlockId: string): SubTask[] {
-    const cleanHtmlStyle = (html: string) => html.replace(/{: style="[^"]*"}/g, '');
+    const cleanHtmlStyle = (html: string) => html.replace(/\{:\s*style="[^"]*"\}/g, '');
 
     const parseSubtaskList = (listElement: Element): SubTask[] => {
       const listItems = Array.from(listElement.children).filter((child): child is Element =>
@@ -1482,8 +1488,12 @@ export class TaskRepository {
     return false;
   }
 
-  static async getAllTasks(useCache: boolean = true, scope?: TaskQueryScope): Promise<Task[]> {
-    const blockTasks = await this.getBlockTasks(useCache, scope);
+  static async getAllTasks(
+    useCache: boolean = true,
+    scope?: TaskQueryScope,
+    options: TaskFetchOptions = {}
+  ): Promise<Task[]> {
+    const blockTasks = await this.getBlockTasks(useCache, scope, options);
     return materializeRepeatTasks(blockTasks, {
       pastDays: 60,
       futureDays: 120
@@ -1548,8 +1558,13 @@ export class TaskRepository {
     });
   }
   
-  static async getBlockTasks(useCache: boolean = true, scope?: TaskQueryScope): Promise<Task[]> {
+  static async getBlockTasks(
+    useCache: boolean = true,
+    scope?: TaskQueryScope,
+    options: TaskFetchOptions = {}
+  ): Promise<Task[]> {
     const normalizedScope = this.normalizeTaskQueryScope(scope);
+    const useLiveDom = options.useLiveDom !== false;
     const isScopedQuery = !!normalizedScope;
     const now = Date.now();
 
@@ -1568,7 +1583,7 @@ export class TaskRepository {
     }
 
     if (isScopedQuery) {
-      const scopedCacheKey = this.buildScopeCacheKey(normalizedScope);
+      const scopedCacheKey = this.buildScopeCacheKey(normalizedScope, useLiveDom);
       if (useCache) {
         const scopedCached = this.scopedMemoryCache.get(scopedCacheKey);
         if (scopedCached && now - scopedCached.timestamp < this.SCOPED_MEMORY_CACHE_DURATION) {
@@ -1582,7 +1597,7 @@ export class TaskRepository {
       }
 
       const scopedFetchPromise = (async () => {
-        const tasks = await this.fetchBlockTasks(normalizedScope);
+        const tasks = await this.fetchBlockTasks(normalizedScope, useLiveDom);
         if (useCache) {
           this.setScopedMemoryCache(scopedCacheKey, tasks);
         }
@@ -1603,7 +1618,7 @@ export class TaskRepository {
     }
 
     this.blockTasksFetchPromise = (async () => {
-      const tasks = await this.fetchBlockTasks(null);
+      const tasks = await this.fetchBlockTasks(null, useLiveDom);
       await this.saveBlockTasksCache(tasks);
       this.memoryCache = { tasks, timestamp: Date.now() };
       return tasks;
@@ -1618,7 +1633,8 @@ export class TaskRepository {
 
   private static async fetchBlockTasksByIds(
     blockIds: string[],
-    scope: TaskQueryScope | null = null
+    scope: TaskQueryScope | null = null,
+    useLiveDom: boolean = true
   ): Promise<Map<string, Task>> {
     const uniqueIds = Array.from(new Set(blockIds.filter(id => typeof id === 'string' && id.length > 0)));
     if (uniqueIds.length === 0) return new Map();
@@ -1665,7 +1681,7 @@ export class TaskRepository {
       }
 
       const domMap = await batchGetBlockDOM(rows.map(row => row.id));
-      const protyleElement = document.querySelector('.protyle');
+      const protyleElement = useLiveDom ? document.querySelector('.protyle') : null;
       const result = new Map<string, Task>();
 
       for (const row of rows) {
@@ -1695,18 +1711,22 @@ export class TaskRepository {
           || parentParagraph?.innerHTML
           || '';
 
-        const currentElement =
-          protyleElement?.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`)
-          || protyleElement?.querySelector(`[data-node-id="${row.id}"]`)
-          || document.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`)
-          || document.querySelector(`[data-node-id="${row.id}"]`);
-        const currentParagraph = currentElement?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
-        const title = currentParagraph?.innerHTML || titleFromApi;
+        let title = titleFromApi;
+        let completedByDOM: boolean | null = null;
+        if (useLiveDom) {
+          const currentElement =
+            protyleElement?.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`)
+            || protyleElement?.querySelector(`[data-node-id="${row.id}"]`)
+            || document.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`)
+            || document.querySelector(`[data-node-id="${row.id}"]`);
+          const currentParagraph = currentElement?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
+          title = currentParagraph?.innerHTML || titleFromApi;
 
-        const currentAction = this.getTaskActionElement(currentElement, row.id);
-        const currentSvg = currentAction?.querySelector('use');
-        const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
-        const completedByDOM = currentHref ? currentHref === '#iconCheck' : null;
+          const currentAction = this.getTaskActionElement(currentElement, row.id);
+          const currentSvg = currentAction?.querySelector('use');
+          const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
+          completedByDOM = currentHref ? currentHref === '#iconCheck' : null;
+        }
         const status = this.parseTaskStatus(attrs, row.markdown || '', completedByDOM);
 
         let tags: string[] = [];
@@ -1751,20 +1771,30 @@ export class TaskRepository {
     }
   }
   
-  private static async fetchBlockTasks(scope: TaskQueryScope | null = null): Promise<Task[]> {
+  private static async fetchBlockTasks(
+    scope: TaskQueryScope | null = null,
+    useLiveDom: boolean = true
+  ): Promise<Task[]> {
     const tasks: Task[] = [];
     const BATCH_SIZE = TASK_CONFIG.BATCH_SIZE;
+    const shouldFilterTopLevelCompleted = !useLiveDom && scope?.includeCompleted === false;
     
     try {
       const notebookScopeSql = this.buildNotebookScopeSql(null);
       const taskScopeSql = this.buildTaskQueryScopeSql(scope, null);
+      const completionSqlForNodeLists = useLiveDom
+        ? this.buildTaskCompletionSql(scope?.includeCompleted, null)
+        : '';
+      const completionSqlForTree = useLiveDom
+        ? this.buildTaskCompletionSql(scope?.includeCompleted, 'b')
+        : '';
       const nodeListBlocksPromise = sql(`
         SELECT id, parent_id, type
         FROM blocks
         WHERE type = 'l' AND subtype = 't'
         ${notebookScopeSql}
         ${taskScopeSql}
-        ${this.buildTaskCompletionSql(scope?.includeCompleted, null)}
+        ${completionSqlForNodeLists}
       `);
 
       const taskBlocks: SiyuanBlock[] = [];
@@ -1781,7 +1811,7 @@ export class TaskRepository {
           : '';
 
         const page = await sql(`
-          SELECT b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo,
+          SELECT b.id, b.content, b.box, b.hpath, b.sort, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-id' THEN a.value END) as custom_task_id,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-priority' THEN a.value END) as custom_task_priority,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-status' THEN a.value END) as custom_task_status,
@@ -1799,9 +1829,9 @@ export class TaskRepository {
             ${this.buildNotebookScopeSql('b')}
             ${this.buildTaskQueryScopeSql(scope, 'b')}
             AND b.subtype = 't'
-            ${this.buildTaskCompletionSql(scope?.includeCompleted, 'b')}
+            ${completionSqlForTree}
             ${cursorClause}
-          GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
+          GROUP BY b.id, b.content, b.box, b.hpath, b.sort, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
           ORDER BY b.id
           LIMIT ${limit}
         `) as any[];
@@ -1834,14 +1864,11 @@ export class TaskRepository {
       const nodeListBlocks = await nodeListBlocksPromise;
       const allBlocks = taskBlocks;
       const nodeListMap = new Map<string, string>();
-      const paragraphMap = new Map<string, string>();
       const rootIdSet = new Set<string>();
       
       nodeListBlocks.forEach((block: SiyuanBlock) => {
         if (block.type === 'l') {
           nodeListMap.set(block.id, block.parent_id);
-        } else if (block.type === 'p') {
-          paragraphMap.set(block.id, block.parent_id);
         }
       });
       
@@ -1861,7 +1888,6 @@ export class TaskRepository {
         if (!currentParentId || currentParentId === '') continue;
         
         const nodeListParentId = nodeListMap.get(currentParentId);
-        const paragraphParentId = paragraphMap.get(currentParentId);
         
         if (nodeListParentId && allBlockIds.has(nodeListParentId)) {
           subtaskIds.add(block.id);
@@ -1884,12 +1910,6 @@ export class TaskRepository {
           tempId = nextNodeListParent;
           depth++;
         }
-        
-        if (!subtaskIds.has(block.id)) {
-          if (paragraphParentId && allBlockIds.has(paragraphParentId)) {
-            subtaskIds.add(block.id);
-          }
-        }
       }
       
       const parentBlocks = allBlocks.filter(b => {
@@ -1905,7 +1925,7 @@ export class TaskRepository {
         return isParent;
       });
       
-      const protyleElement = document.querySelector('.protyle');
+      const protyleElement = useLiveDom ? document.querySelector('.protyle') : null;
       
       const blockAttrsMap = new Map<string, any>();
       taskBlocks.forEach((block: any) => {
@@ -1925,6 +1945,9 @@ export class TaskRepository {
       
       const rootIds = Array.from(rootIdSet);
       const rootIcons = new Map<string, string>();
+      const taskBlockById = new Map<string, SiyuanBlock>();
+      const subtaskChildIdsByParentTask = new Map<string, string[]>();
+      const sqlSubtasksMemo = new Map<string, SubTask[]>();
       
       if (rootIds.length > 0) {
         try {
@@ -1940,6 +1963,225 @@ export class TaskRepository {
           console.error('[TaskRepository] 获取文档图标失败:', error);
         }
       }
+
+      allBlocks.forEach((block) => {
+        taskBlockById.set(block.id, block);
+      });
+
+      const buildFastTitleFromBlock = (block: SiyuanBlock): string => {
+        const cleanInlineStyleMarker = (text: string) =>
+          text.replace(/\s*\{:\s*style="[^"]*"\}\s*/g, ' ').trim();
+        const convertMarkdownStrong = (text: string) =>
+          text
+            .replace(/\*\*\*([^*]+)\*\*\*/g, '<span data-type="strong em">$1</span>')
+            .replace(/___([^_]+)___/g, '<span data-type="strong em">$1</span>')
+            .replace(/\*\*([^*]+)\*\*/g, '<span data-type="strong">$1</span>')
+            .replace(/__([^_]+)__/g, '<span data-type="strong">$1</span>');
+
+        const markdown = typeof block.markdown === 'string' ? block.markdown : '';
+        const firstLine = markdown
+          .split('\n')
+          .map(line => line.trim())
+          .find(line => line.length > 0) || '';
+        const titleFromMarkdown = convertMarkdownStrong(cleanInlineStyleMarker(firstLine
+          .replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| )\]\s*/i, '')
+          .trim()));
+        if (titleFromMarkdown.length > 0) {
+          return titleFromMarkdown;
+        }
+
+        const contentTitle = typeof block.content === 'string' ? block.content.trim() : '';
+        return convertMarkdownStrong(cleanInlineStyleMarker(contentTitle));
+      };
+
+      const appendSubtaskChild = (parentTaskId: string, childTaskId: string): void => {
+        const existing = subtaskChildIdsByParentTask.get(parentTaskId) || [];
+        if (!existing.includes(childTaskId)) {
+          existing.push(childTaskId);
+          subtaskChildIdsByParentTask.set(parentTaskId, existing);
+        }
+      };
+
+      const compareBlockOrder = (leftId: string, rightId: string): number => {
+        const left = taskBlockById.get(leftId);
+        const right = taskBlockById.get(rightId);
+        if (!left && !right) return leftId.localeCompare(rightId);
+        if (!left) return 1;
+        if (!right) return -1;
+
+        const leftSortRaw = left.sort;
+        const rightSortRaw = right.sort;
+        const leftSort = leftSortRaw === undefined || leftSortRaw === null ? '' : String(leftSortRaw).trim();
+        const rightSort = rightSortRaw === undefined || rightSortRaw === null ? '' : String(rightSortRaw).trim();
+
+        if (leftSort && rightSort && leftSort !== rightSort) {
+          const leftDigits = /^\d+$/.test(leftSort);
+          const rightDigits = /^\d+$/.test(rightSort);
+          if (leftDigits && rightDigits) {
+            if (leftSort.length !== rightSort.length) {
+              return leftSort.length - rightSort.length;
+            }
+            return leftSort < rightSort ? -1 : 1;
+          }
+          return leftSort.localeCompare(rightSort);
+        }
+
+        if (left.created && right.created && left.created !== right.created) {
+          return left.created.localeCompare(right.created);
+        }
+        return left.id.localeCompare(right.id);
+      };
+
+      const resolveNearestTaskParentId = (block: SiyuanBlock): string | null => {
+        let currentParentId = block.parent_id || '';
+        const visited = new Set<string>();
+        while (currentParentId && !visited.has(currentParentId)) {
+          visited.add(currentParentId);
+          if (allBlockIds.has(currentParentId)) {
+            return currentParentId;
+          }
+
+          const nextParentId = nodeListMap.get(currentParentId) || '';
+          currentParentId = nextParentId;
+        }
+        return null;
+      };
+
+      if (!useLiveDom) {
+        for (const block of allBlocks) {
+          const parentTaskId = resolveNearestTaskParentId(block);
+          if (parentTaskId && parentTaskId !== block.id) {
+            appendSubtaskChild(parentTaskId, block.id);
+          }
+        }
+
+        const domChildOrderByParentTask = new Map<string, string[]>();
+        const parentTaskIdsNeedDomOrder = Array.from(subtaskChildIdsByParentTask.entries())
+          .filter(([, childIds]) => childIds.length > 1)
+          .map(([parentTaskId]) => parentTaskId);
+
+        if (parentTaskIdsNeedDomOrder.length > 0) {
+          try {
+            const domMap = await batchGetBlockDOM(parentTaskIdsNeedDomOrder);
+            for (const parentTaskId of parentTaskIdsNeedDomOrder) {
+              const dom = domMap.get(parentTaskId)?.dom;
+              if (!dom) continue;
+              const parser = new DOMParser();
+              const doc = parser.parseFromString(dom, 'text/html');
+              const directSubtasks = this.parseSubtasksFromParsedDoc(doc, parentTaskId);
+              const directChildIds = directSubtasks
+                .map(subtask => subtask.nodeId)
+                .filter((nodeId): nodeId is string => typeof nodeId === 'string' && nodeId.length > 0);
+              if (directChildIds.length > 0) {
+                domChildOrderByParentTask.set(parentTaskId, directChildIds);
+              }
+            }
+          } catch (error) {
+            console.warn('[TaskRepository] 快速路径子任务顺序 DOM 对齐失败，回退到 SQL 排序', error);
+          }
+        }
+
+        for (const [parentTaskId, childIds] of subtaskChildIdsByParentTask.entries()) {
+          const domChildOrder = domChildOrderByParentTask.get(parentTaskId) || [];
+          const domOrderIndex = new Map<string, number>();
+          domChildOrder.forEach((childId, index) => {
+            domOrderIndex.set(childId, index);
+          });
+
+          const parentMarkdown = taskBlockById.get(parentTaskId)?.markdown || '';
+          const markdownOrderIndex = new Map<string, number>();
+          if (parentMarkdown) {
+            for (const childId of childIds) {
+              const pos = parentMarkdown.indexOf(childId);
+              if (pos >= 0) {
+                markdownOrderIndex.set(childId, pos);
+              }
+            }
+          }
+
+          childIds.sort((leftId, rightId) => {
+            const leftDomPos = domOrderIndex.get(leftId);
+            const rightDomPos = domOrderIndex.get(rightId);
+            const leftHasDomPos = leftDomPos !== undefined;
+            const rightHasDomPos = rightDomPos !== undefined;
+
+            if (leftHasDomPos && rightHasDomPos && leftDomPos !== rightDomPos) {
+              return leftDomPos - rightDomPos;
+            }
+            if (leftHasDomPos && !rightHasDomPos) {
+              return -1;
+            }
+            if (!leftHasDomPos && rightHasDomPos) {
+              return 1;
+            }
+
+            const leftMarkdownPos = markdownOrderIndex.get(leftId);
+            const rightMarkdownPos = markdownOrderIndex.get(rightId);
+            const leftHasMarkdownPos = leftMarkdownPos !== undefined;
+            const rightHasMarkdownPos = rightMarkdownPos !== undefined;
+
+            if (leftHasMarkdownPos && rightHasMarkdownPos && leftMarkdownPos !== rightMarkdownPos) {
+              return leftMarkdownPos - rightMarkdownPos;
+            }
+            if (leftHasMarkdownPos && !rightHasMarkdownPos) {
+              return -1;
+            }
+            if (!leftHasMarkdownPos && rightHasMarkdownPos) {
+              return 1;
+            }
+
+            return compareBlockOrder(leftId, rightId);
+          });
+        }
+      }
+
+      const buildSqlSubtasksForParent = (parentTaskId: string, path = new Set<string>()): SubTask[] => {
+        if (path.has(parentTaskId)) {
+          return [];
+        }
+        if (sqlSubtasksMemo.has(parentTaskId)) {
+          return sqlSubtasksMemo.get(parentTaskId)!;
+        }
+
+        path.add(parentTaskId);
+        const childIds = subtaskChildIdsByParentTask.get(parentTaskId) || [];
+        const subtasks: SubTask[] = [];
+
+        for (const childId of childIds) {
+          const childBlock = taskBlockById.get(childId);
+          if (!childBlock) continue;
+
+          const markdown = typeof childBlock.markdown === 'string' ? childBlock.markdown : '';
+          const markdownMatch = markdown.match(/\[(x|X| )\]/);
+          const completed = !!markdownMatch && (markdownMatch[1] === 'x' || markdownMatch[1] === 'X');
+          const title = buildFastTitleFromBlock(childBlock) || 'Untitled';
+          const nestedSubtasks = buildSqlSubtasksForParent(childId, path);
+
+          subtasks.push({
+            id: `sub_${childId}`,
+            title,
+            completed,
+            nodeId: childId,
+            subtasks: nestedSubtasks.length > 0 ? nestedSubtasks : undefined
+          });
+        }
+
+        path.delete(parentTaskId);
+        sqlSubtasksMemo.set(parentTaskId, subtasks);
+        return subtasks;
+      };
+
+      const markSubtaskNodesProcessed = (subtasks: SubTask[] | undefined): void => {
+        if (!subtasks || subtasks.length === 0) return;
+        for (const subtask of subtasks) {
+          if (subtask.nodeId) {
+            processedIds.add(subtask.nodeId);
+          }
+          if (subtask.subtasks) {
+            markSubtaskNodesProcessed(subtask.subtasks);
+          }
+        }
+      };
       
       const processBlock = async (
         parentBlock: SiyuanBlock, 
@@ -1953,36 +2195,101 @@ export class TaskRepository {
         const taskId = attrs['custom-task-id'] || `block_${parentBlock.id}`;
         
         try {
+          if (!useLiveDom) {
+            let tags: string[] = [];
+            if (attrs['custom-task-tags']) {
+              try {
+                tags = JSON.parse(attrs['custom-task-tags']);
+              } catch {
+                tags = [];
+              }
+            }
+
+            let markdownStatus: 'pending' | 'completed' | null = null;
+            if (parentBlock.markdown) {
+              const markdown = parentBlock.markdown.trim();
+              const taskRegex = /\[(x|X| )\]/;
+              const match = markdown.match(taskRegex);
+              if (match) {
+                const statusChar = match[1];
+                markdownStatus = statusChar === 'x' || statusChar === 'X' ? 'completed' : 'pending';
+              }
+            }
+
+            const validStatuses = ['pending', 'in-progress', 'completed', 'cancelled'];
+            const attrStatus = attrs['custom-task-status'] as TaskStatus | undefined;
+            const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
+            let status: TaskStatus;
+            if (markdownStatus === 'completed') {
+              status = 'completed';
+            } else if (markdownStatus === 'pending') {
+              status = hasValidAttrStatus && attrStatus !== 'completed' ? attrStatus! : 'pending';
+            } else if (hasValidAttrStatus) {
+              status = attrStatus!;
+            } else {
+              status = 'pending';
+            }
+
+            const sqlSubtasks = buildSqlSubtasksForParent(parentBlock.id);
+            const subtasks = sqlSubtasks.length > 0 ? sqlSubtasks : undefined;
+            markSubtaskNodesProcessed(subtasks);
+            const docIcon = parentBlock.root_id ? rootIcons.get(parentBlock.root_id) : undefined;
+            return {
+              id: taskId,
+              type: 'block',
+              blockId: parentBlock.id,
+              rootId: parentBlock.root_id,
+              title: buildFastTitleFromBlock(parentBlock),
+              status,
+              priority: attrs['custom-task-priority'] as any || 'none',
+              dueDate: attrs['custom-task-due-date'],
+              dueTime: attrs['custom-task-due-time'],
+              startDate: attrs['custom-task-start-date'],
+              startTime: attrs['custom-task-start-time'],
+              tags,
+              description: attrs['custom-task-description'] || '',
+              hPath: parentBlock.hpath,
+              notebookId: parentBlock.box,
+              icon: docIcon || '📄',
+              backgroundColor: attrs['custom-task-background-color'],
+              subtasks,
+              createdAt: this.parseBlockDateTime(parentBlock.created),
+              updatedAt: this.parseBlockDateTime(parentBlock.updated)
+            };
+          }
+
           const dom = domMap.get(parentBlock.id);
           if (!dom) {
             log_debug('未获取到 DOM 数据', { blockId: parentBlock.id });
             return null;
           }
           
-          const currentDomElement = protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`) 
-            || protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"]`);
-          
-          // 如果当前编辑器未命中，则回退到全局查询
-          let fallbackElement = currentDomElement;
-          if (!fallbackElement) {
-            fallbackElement = document.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`) 
-              || document.querySelector(`[data-node-id="${parentBlock.id}"]`);
-          }
-          
-          // 使用当前编辑器里的元素；若拿不到则回退到全局查询结果
-          const elementToUse = currentDomElement || fallbackElement;
-          
-          const currentParagraph = elementToUse?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
-          const currentTitle = currentParagraph?.innerHTML || '';
-          
-          const currentAction = this.getTaskActionElement(elementToUse, parentBlock.id);
-          
-          const currentSvg = currentAction?.querySelector('use');
-          
+          let currentTitle = '';
           let isCurrentCompleted: boolean | undefined;
-          if (currentSvg) {
-            const currentHref = currentSvg.getAttribute('xlink:href') || currentSvg.getAttribute('href');
-            isCurrentCompleted = currentHref === '#iconCheck';
+          {
+            const currentDomElement = protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`) 
+              || protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"]`);
+            
+            // 如果当前编辑器未命中，则回退到全局查询
+            let fallbackElement = currentDomElement;
+            if (!fallbackElement) {
+              fallbackElement = document.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`) 
+                || document.querySelector(`[data-node-id="${parentBlock.id}"]`);
+            }
+            
+            // 使用当前编辑器里的元素；若拿不到则回退到全局查询结果
+            const elementToUse = currentDomElement || fallbackElement;
+            
+            const currentParagraph = elementToUse?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
+            currentTitle = currentParagraph?.innerHTML || '';
+            
+            const currentAction = this.getTaskActionElement(elementToUse, parentBlock.id);
+            const currentSvg = currentAction?.querySelector('use');
+            
+            if (currentSvg) {
+              const currentHref = currentSvg.getAttribute('xlink:href') || currentSvg.getAttribute('href');
+              isCurrentCompleted = currentHref === '#iconCheck';
+            }
           }
           
           const parser = new DOMParser();
@@ -2003,7 +2310,7 @@ export class TaskRepository {
             ? (apiHref === '#iconCheck' ? 'completed' : 'pending')
             : null;
           
-          const cleanHtmlStyle = (html: string) => html.replace(/{: style="[^"]*"}/g, '');
+          const cleanHtmlStyle = (html: string) => html.replace(/\{:\s*style="[^"]*"\}/g, '');
           const collectSubtaskNodeIds = (subtasks: SubTask[] | undefined): void => {
             if (!subtasks || subtasks.length === 0) return;
             for (const subtask of subtasks) {
@@ -2106,8 +2413,9 @@ export class TaskRepository {
       }
     
       for (const chunk of chunks) {
-        const blockIds = chunk.map(block => block.id);
-        const domMap = await batchGetBlockDOM(blockIds);
+        const domMap = useLiveDom
+          ? await batchGetBlockDOM(chunk.map(block => block.id))
+          : new Map<string, BlockDOMResponse>();
         
         const results = await Promise.all(chunk.map(block => processBlock(block, domMap)));
         const validResults = results.filter((result): result is Task => result !== null);
@@ -2117,6 +2425,9 @@ export class TaskRepository {
         handleError('获取任务列表失败', error);
       }
       
+      if (shouldFilterTopLevelCompleted) {
+        return tasks.filter(task => task.status !== 'completed');
+      }
       return tasks;
     }
 
@@ -2405,7 +2716,7 @@ export class TaskRepository {
   
   static async getTaskByBlockId(blockId: string, useCache: boolean = false): Promise<Task | null> {
     try {
-      const taskMap = await this.getTasksByBlockIds([blockId], useCache);
+      const taskMap = await this.getTasksByBlockIds([blockId], useCache, undefined, { useLiveDom: false });
       return taskMap.get(blockId) || null;
     } catch (error) {
       handleError('按 blockId 获取任务失败', error, { blockId });
@@ -2416,10 +2727,12 @@ export class TaskRepository {
   static async getTasksByBlockIds(
     blockIds: string[],
     useCache: boolean = false,
-    scope?: TaskQueryScope
+    scope?: TaskQueryScope,
+    options: TaskFetchOptions = {}
   ): Promise<Map<string, Task>> {
     try {
       const normalizedScope = this.normalizeTaskQueryScope(scope);
+      const useLiveDom = options.useLiveDom !== false;
       const normalizedIds = Array.from(new Set(blockIds.filter(id => typeof id === 'string' && id.length > 0)));
       if (normalizedIds.length === 0) {
         return new Map();
@@ -2452,7 +2765,7 @@ export class TaskRepository {
         }
       }
 
-      const taskMap = await this.fetchBlockTasksByIds(scopedIds, normalizedScope);
+      const taskMap = await this.fetchBlockTasksByIds(scopedIds, normalizedScope, useLiveDom);
       const enrichedTasks = await attachRepeatMetadataToTasks(Array.from(taskMap.values()));
       const enrichedTaskMap = new Map<string, Task>();
       enrichedTasks.forEach((task) => {

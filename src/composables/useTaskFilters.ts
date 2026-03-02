@@ -2,7 +2,7 @@ import { computed, type Ref } from 'vue';
 import type { Task } from '@/api';
 
 export interface TaskFilters {
-  priority: Ref<string>;
+  priority?: Ref<string>;
   notebook: Ref<string>;
   document: Ref<string>;
 }
@@ -10,13 +10,17 @@ export interface TaskFilters {
 const filterCache = new Map<string, Task[] | Record<string, Task[]>>();
 let cacheVersion = 0;
 
-function getCacheKey(prefix: string, priority: string, notebook: string, document: string, tasksLength: number): string {
-  return `${prefix}:${priority}:${notebook}:${document}:${tasksLength}:${cacheVersion}`;
+function getTableCacheKey(notebook: string, document: string, tasksLength: number): string {
+  return `table:${notebook}:${document}:${tasksLength}:${cacheVersion}`;
+}
+
+function getKanbanCacheKey(priority: string, notebook: string, document: string, tasksLength: number): string {
+  return `kanban:${priority}:${notebook}:${document}:${tasksLength}:${cacheVersion}`;
 }
 
 export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
   const filtered = computed(() => {
-    const key = getCacheKey('table', filters.priority.value, filters.notebook.value, filters.document.value, tasks.value.length);
+    const key = getTableCacheKey(filters.notebook.value, filters.document.value, tasks.value.length);
     
     const cached = filterCache.get(key);
     if (cached && Array.isArray(cached)) {
@@ -45,7 +49,8 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
   });
 
   const filteredByStatus = computed(() => {
-    const key = getCacheKey('kanban', filters.priority.value, filters.notebook.value, filters.document.value, tasks.value.length);
+    const priorityValue = filters.priority?.value ?? 'all';
+    const key = getKanbanCacheKey(priorityValue, filters.notebook.value, filters.document.value, tasks.value.length);
     
     const cached = filterCache.get(key);
     if (cached && !Array.isArray(cached)) {
@@ -62,7 +67,7 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
     for (const task of tasks.value) {
       if (!task.title || task.title.trim() === '') continue;
       if (task.type !== 'block') continue;
-      if (filters.priority.value !== 'all' && task.priority !== filters.priority.value) continue;
+      if (priorityValue !== 'all' && task.priority !== priorityValue) continue;
       if (filters.notebook.value !== 'all') {
         if (task.notebookId !== filters.notebook.value) continue;
         if (filters.document.value !== 'all' && task.rootId !== filters.document.value) continue;

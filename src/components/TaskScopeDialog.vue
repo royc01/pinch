@@ -55,6 +55,7 @@ import { computed, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
+import { normalizeNotebookIds } from '@/utils/taskViewShared';
 
 interface NotebookItem {
   id: string;
@@ -85,12 +86,6 @@ const lockClose = computed(() => props.lockClose === true);
 const dialogTitle = computed(() => props.title || '任务范围');
 const dialogHint = computed(() => props.hint || '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。');
 const confirmText = computed(() => props.confirmText || '保存');
-
-function normalizeNotebookIds(ids: string[]): string[] {
-  return Array.from(
-    new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map(id => id.trim()))
-  );
-}
 
 function syncLocalSelection(): void {
   const visibleNotebookIds = new Set(props.notebooks.map(notebook => notebook.id));
@@ -128,42 +123,13 @@ function save(): void {
 }
 
 watch(
-  () => props.show,
-  (show) => {
+  [() => props.show, () => props.excludedNotebookIds, () => props.notebooks, () => props.showCompletedTasks],
+  ([show]) => {
     if (show) {
       syncLocalSelection();
     }
   },
-  { immediate: true }
-);
-
-watch(
-  () => props.excludedNotebookIds,
-  () => {
-    if (props.show) {
-      syncLocalSelection();
-    }
-  },
-  { deep: true }
-);
-
-watch(
-  () => props.notebooks,
-  () => {
-    if (props.show) {
-      syncLocalSelection();
-    }
-  },
-  { deep: true }
-);
-
-watch(
-  () => props.showCompletedTasks,
-  () => {
-    if (props.show) {
-      syncLocalSelection();
-    }
-  }
+  { immediate: true, deep: true }
 );
 </script>
 
@@ -194,7 +160,6 @@ watch(
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--b3-border-color);
 }
 
 .task-scope-title {

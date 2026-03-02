@@ -516,7 +516,7 @@ export function useTaskDrag(
     }
 
     const targetDate = targetData.date;
-    const newStartDateStr = formatDate(targetDate);
+    const targetDateStr = formatDate(targetDate);
 
     if (targetData.isTimedArea) {
       const target = event.target as HTMLElement;
@@ -559,12 +559,14 @@ export function useTaskDrag(
       newDueDateStr = formatDate(newDueDate);
     }
 
-    if (dragLastUpdatedDate.value === newStartDateStr) {
+    const shiftedStartDateStr = formatDate(newStartDate);
+
+    if (dragLastUpdatedDate.value === shiftedStartDateStr) {
       return;
     }
 
     const updatedTask = patchLocalTask(task.id, {
-      startDate: newStartDateStr,
+      startDate: shiftedStartDateStr,
       dueDate: newDueDateStr
     });
     if (updatedTask) {
@@ -573,7 +575,7 @@ export function useTaskDrag(
 
     if (task.type === 'block' && task.blockId && !isRepeatTask(task)) {
       const attrs: Record<string, string> = {
-        'custom-task-start-date': newStartDateStr
+        'custom-task-start-date': shiftedStartDateStr
       };
       if (newDueDateStr) {
         attrs['custom-task-due-date'] = newDueDateStr;
@@ -581,7 +583,7 @@ export function useTaskDrag(
       scheduleSave(task.blockId, attrs);
     }
 
-    dragLastUpdatedDate.value = newStartDateStr;
+    dragLastUpdatedDate.value = shiftedStartDateStr;
   }
 
   async function handleTaskMouseUp(event: MouseEvent) {

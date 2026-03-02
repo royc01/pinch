@@ -274,6 +274,13 @@ import { useNotebooks } from '@/composables/useTaskCommon';
 import { eventBus, Events } from '../utils/eventBus';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { formatDate } from '@/utils/dateHelpers';
+import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
+import {
+  applyRepeatRuleOptimisticToTasks,
+  getDocumentCreationSortKey,
+  normalizeNotebookIds,
+  type RepeatRulePayload
+} from '@/utils/taskViewShared';
 import Icon from '@/components/Icon.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TableView from '@/components/TableView.vue';
@@ -394,17 +401,6 @@ const notebookOptions = computed(() => [
   ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
 ]);
 
-function normalizeNotebookIds(ids: unknown): string[] {
-  if (!Array.isArray(ids)) return [];
-  return Array.from(
-    new Set(
-      ids
-        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-        .map(id => id.trim())
-    )
-  );
-}
-
 function applyExcludedNotebookScope(ids: string[]): void {
   const normalized = normalizeNotebookIds(ids);
   excludedNotebookIds.value = normalized;
@@ -481,6 +477,8 @@ async function handleTaskScopeSave(selectedVisibleExcludedNotebookIds: string[])
 let eventUnsubscribers: Array<() => void> = [];
 let saveSettingsTimer: number | null = null;
 let fallbackRefreshTimer: number | null = null;
+let queuedIncrementalAllowUnknown = false;
+const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 80;
 const dragStatusLocks = new Map<string, Task['status']>();
 const dragSyncSuppressUntil = new Map<string, number>();
 function getCurrentFilterNotebookId(): string {
@@ -496,12 +494,6 @@ function getCurrentFilterNotebookId(): string {
     default:
       return 'all';
   }
-}
-
-function getDocumentCreationSortKey(documentId: string): number {
-  if (typeof documentId !== 'string' || documentId.length === 0) return 0;
-  const match = documentId.match(/^(\d{14})/);
-  return match ? Number(match[1]) : 0;
 }
 
 function getDocumentEntriesByNotebook(notebookId: string): Array<{ id: string; name: string }> {
@@ -607,7 +599,6 @@ watch([
 });
 
 const tableFilters = {
-  priority: ref('all'),
   notebook: tableFilterType,
   document: tableFilterDocument
 };
@@ -776,7 +767,11 @@ async function loadTasks(forceRefresh: boolean = false, options: { silent?: bool
     if (forceRefresh) {
       await TaskRepository.clearCache();
     }
-    const sqlTasks = await TaskRepository.getAllTasks(!forceRefresh);
+    const sqlTasks = await TaskRepository.getAllTasks(
+      !forceRefresh,
+      undefined,
+      { useLiveDom: false }
+    );
     syncFromSQL(sqlTasks);
     tasks.value = applyDraggedStatusLocks(tasks.value);
     await nextTick();
@@ -809,45 +804,11 @@ function scheduleRefreshTasks(delay = 180, mode: 'full' | 'light' = 'full') {
   }, delay);
 }
 
-function applyRepeatRuleOptimistic(payload: {
-  blockId?: string;
-  seriesId?: string;
-  frequency?: string;
-}) {
-  const { blockId, seriesId, frequency } = payload;
-  if (!frequency) return;
-
-  let touched = false;
-
-  if (blockId) {
-    const templateTask = tasks.value.find(
-      (task) => task.type === 'block' && !task.isVirtual && task.blockId === blockId
-    );
-    if (templateTask) {
-      templateTask.repeatFrequency = frequency as any;
-      if (frequency === 'none') {
-        templateTask.repeatSeriesId = undefined;
-        templateTask.repeatInstanceDate = undefined;
-        templateTask.isVirtual = false;
-      } else if (seriesId) {
-        templateTask.repeatSeriesId = seriesId;
-        templateTask.repeatInstanceDate = undefined;
-        templateTask.isVirtual = false;
-      }
-      touched = true;
-    }
+function applyRepeatRuleOptimistic(payload: RepeatRulePayload) {
+  const { nextTasks, touched } = applyRepeatRuleOptimisticToTasks(tasks.value, payload);
+  if (nextTasks !== tasks.value) {
+    tasks.value = nextTasks;
   }
-
-  if (frequency === 'none' && seriesId) {
-    const nextTasks = tasks.value.filter(
-      (task) => !(task.isVirtual && task.repeatSeriesId === seriesId)
-    );
-    if (nextTasks.length !== tasks.value.length) {
-      tasks.value = nextTasks;
-      touched = true;
-    }
-  }
-
   if (touched) {
     invalidateTableFilters();
   }
@@ -1039,15 +1000,37 @@ async function validateDocumentSelection() {
   }
 }
 
+function queueIncrementalUpdates(
+  blockIds: string[],
+  options: { allowUnknown?: boolean } = {},
+  delay = 24
+): void {
+  if (options.allowUnknown) {
+    queuedIncrementalAllowUnknown = true;
+  }
+  incrementalUpdateQueue.enqueue(blockIds, delay);
+}
+
+const incrementalUpdateQueue = createBlockIdBatchQueue({
+  maxBatchSize: MAX_INCREMENTAL_BLOCKS_PER_FLUSH,
+  onFlushBatch: async (blockIds, remainingCount) => {
+    const allowUnknown = queuedIncrementalAllowUnknown;
+    await incrementalUpdateTasks(blockIds, { allowUnknown });
+    if (remainingCount === 0) {
+      queuedIncrementalAllowUnknown = false;
+    }
+  }
+});
+
 function setupEventListeners() {
-  const unsubscribeChanged = eventBus.on(Events.TASK_CHANGED, async (data?: { blockIds?: string[] }) => {
+  const unsubscribeChanged = eventBus.on(Events.TASK_CHANGED, (data?: { blockIds?: string[] }) => {
     if (data?.blockIds && data.blockIds.length > 0) {
       if (hasSuppressedBlockId(data.blockIds)) {
         return;
       }
       const blockIds = filterSuppressedBlockIds(data.blockIds);
       if (blockIds.length > 0) {
-        await incrementalUpdateTasks(blockIds);
+        queueIncrementalUpdates(blockIds);
       }
     }
   });
@@ -1060,11 +1043,11 @@ function setupEventListeners() {
     }
   });
 
-  const unsubscribeUpdated = eventBus.on(Events.TASK_UPDATED, async ({ blockId }: { blockId: string }) => {
+  const unsubscribeUpdated = eventBus.on(Events.TASK_UPDATED, ({ blockId }: { blockId: string }) => {
     if (isDragTaskSyncSuppressed(blockId)) {
       return;
     }
-    await incrementalUpdateTasks([blockId]);
+    queueIncrementalUpdates([blockId]);
   });
 
   const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string }) => {
@@ -1074,15 +1057,18 @@ function setupEventListeners() {
       return;
     }
     if (payload?.blockId) {
+      const addedBlockId = payload.blockId;
       const scopedBlockIds = await TaskRepository.filterIncludedBlockIds([payload.blockId]);
       if (scopedBlockIds.length === 0) {
         return;
       }
 
-      await incrementalUpdateTasks(scopedBlockIds, { allowUnknown: true });
-      if (!tasks.value.some(t => t.blockId === payload.blockId)) {
-        scheduleRefreshTasks();
-      }
+      queueIncrementalUpdates(scopedBlockIds, { allowUnknown: true });
+      window.setTimeout(() => {
+        if (!tasks.value.some(t => t.blockId === addedBlockId)) {
+          scheduleRefreshTasks();
+        }
+      }, 220);
       return;
     }
     scheduleRefreshTasks();
@@ -1099,6 +1085,8 @@ function setupEventListeners() {
 function cleanupEventListeners() {
   eventUnsubscribers.forEach(unsubscribe => unsubscribe());
   eventUnsubscribers = [];
+  incrementalUpdateQueue.clear();
+  queuedIncrementalAllowUnknown = false;
 }
 
 async function incrementalUpdateTasks(
@@ -1156,7 +1144,9 @@ async function incrementalUpdateTasks(
     
     const updatedTasksMap = await TaskRepository.getTasksByBlockIds(
       Array.from(parentBlockIds),
-      false
+      false,
+      undefined,
+      { useLiveDom: false }
     );
     updatedTasksMap.forEach(task => {
       const lockedStatus = task.blockId ? getLockedDraggedTaskStatus(task.blockId) : null;
@@ -1238,6 +1228,11 @@ function handleTaskDateChanged(updatedTask: Task) {
   
   if (updatedTask.dueTime !== task.dueTime) {
     crdtRepo.updateTaskField(task.id, 'dueTime', updatedTask.dueTime);
+  }
+
+  if (updatedTask.backgroundColor !== undefined && updatedTask.backgroundColor !== task.backgroundColor) {
+    crdtRepo.updateTaskField(task.id, 'backgroundColor', updatedTask.backgroundColor);
+    task.backgroundColor = updatedTask.backgroundColor;
   }
   
   updateTasks();
@@ -2070,18 +2065,18 @@ onUnmounted(() => {
 }
 
 .task-priority-badge.priority-high {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--pinch-background10);
+  color: var(--pinch-font-color10);
 }
 
 .task-priority-badge.priority-medium {
-  background: #fef3c7;
-  color: #d97706;
+  background: var(--pinch-background3);
+  color: var(--pinch-font-color3);
 }
 
 .task-priority-badge.priority-low {
-  background: #dbeafe;
-  color: #2563eb;
+  background: var(--pinch-background7);
+  color: var(--pinch-font-color7);
 }
 
 .task-due-badge {

@@ -369,17 +369,56 @@ function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined)
 }
 
 const backgroundColors = [
-  { value: 'background4', css: 'var(--b3-font-background4)' },
-  { value: 'background5', css: 'var(--b3-font-background5)' },
-  { value: 'background6', css: 'var(--b3-font-background6)' },
-  { value: 'background7', css: 'var(--b3-font-background7)' },
-  { value: 'background8', css: 'var(--b3-font-background8)' },
-  { value: 'background9', css: 'var(--b3-font-background9)' },
-  { value: 'background10', css: 'var(--b3-font-background10)' },
-  { value: 'background11', css: 'var(--b3-font-background11)' },
-  { value: 'background12', css: 'var(--b3-font-background12)' },
-  { value: 'background13', css: 'var(--b3-font-background13)' }
+  { value: 'pinch-background1', css: 'var(--pinch-background1)' },
+  { value: 'pinch-background2', css: 'var(--pinch-background2)' },
+  { value: 'pinch-background3', css: 'var(--pinch-background3)' },
+  { value: 'pinch-background4', css: 'var(--pinch-background4)' },
+  { value: 'pinch-background5', css: 'var(--pinch-background5)' },
+  { value: 'pinch-background6', css: 'var(--pinch-background6)' },
+  { value: 'pinch-background7', css: 'var(--pinch-background7)' },
+  { value: 'pinch-background8', css: 'var(--pinch-background8)' },
+  { value: 'pinch-background9', css: 'var(--pinch-background9)' },
+  { value: 'pinch-background10', css: 'var(--pinch-background10)' }
 ];
+const weekDropColorValues = backgroundColors.map(color => color.value);
+
+function pickRandomTaskBackgroundColor(): string {
+  if (weekDropColorValues.length === 0) {
+    return 'pinch-background6';
+  }
+  const index = Math.floor(Math.random() * weekDropColorValues.length);
+  return weekDropColorValues[index];
+}
+
+function resolveTaskBackgroundColor(backgroundColor?: string): string {
+  if (!backgroundColor || typeof backgroundColor !== 'string') {
+    return 'var(--b3-font-background9)';
+  }
+  if (/^pinch-background(?:10|[1-9])$/.test(backgroundColor)) {
+    return `var(--${backgroundColor})`;
+  }
+  return `var(--b3-font-${backgroundColor})`;
+}
+
+function resolveTaskColorIndex(backgroundColor?: string): number | null {
+  if (!backgroundColor || typeof backgroundColor !== 'string') {
+    return null;
+  }
+  const pinchMatch = backgroundColor.match(/^pinch-background(10|[1-9])$/);
+  if (pinchMatch) {
+    return Number(pinchMatch[1]);
+  }
+  const legacyMatch = backgroundColor.match(/^background(1[0-3]|[4-9])$/);
+  if (legacyMatch) {
+    return Number(legacyMatch[1]) - 3;
+  }
+  return null;
+}
+
+function resolveTaskAccentColor(backgroundColor?: string): string {
+  const index = resolveTaskColorIndex(backgroundColor) ?? 6;
+  return `var(--pinch-color${index})`;
+}
 
 const daysCount = ref(7);
 
@@ -397,7 +436,7 @@ function increaseDays() {
 
 function getTasksHash(tasks: Task[]): string {
   return tasks.map(t => 
-    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime}:${t.dueTime}:${t.title}`
+    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime}:${t.dueTime}:${t.title}:${t.backgroundColor || ''}`
   ).sort().join('|');
 }
 
@@ -722,9 +761,7 @@ function getAllDayTaskStyle(task: WeekAllDayTask) {
 
   const position = getVisibleTaskPosition(task);
 
-  const bgColor = task.backgroundColor
-    ? `var(--b3-font-${task.backgroundColor})`
-    : 'var(--b3-font-background9)';
+  const bgColor = resolveTaskBackgroundColor(task.backgroundColor);
 
   return {
     position: 'absolute' as const,
@@ -732,7 +769,8 @@ function getAllDayTaskStyle(task: WeekAllDayTask) {
     width: `calc(${widthPercent}% - 30px)`,
     top: `${CALENDAR_CONSTANTS.LAYOUT.TASK_TOP_OFFSET + position * CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT}px`,
     height: '16px',
-    backgroundColor: bgColor
+    backgroundColor: bgColor,
+    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
   };
 }
 
@@ -961,6 +999,8 @@ async function handleDrop(day: WeekDay) {
 
   try {
     const dateStr = formatDate(day.date);
+    const hasBackgroundColor = typeof task.backgroundColor === 'string' && task.backgroundColor.trim().length > 0;
+    const assignedBackgroundColor = hasBackgroundColor ? undefined : pickRandomTaskBackgroundColor();
     const handledBySeries = await applyRepeatSeriesDrop(task, {
       targetDate: dateStr,
       clearTime: true
@@ -971,17 +1011,23 @@ async function handleDrop(day: WeekDay) {
       startDate: dateStr,
       dueDate: dateStr,
       startTime: undefined,
-      dueTime: undefined
+      dueTime: undefined,
+      ...(assignedBackgroundColor ? { backgroundColor: assignedBackgroundColor } : {})
     });
     emitTaskDateChanged(updatedTask);
 
     if (task.type === 'block' && task.blockId) {
-      await setBlockAttrs(task.blockId, {
+      const attrs: Record<string, string | null> = {
         'custom-task-start-date': dateStr,
         'custom-task-due-date': dateStr,
         'custom-task-start-time': null,
         'custom-task-due-time': null
-      });
+      };
+      if (assignedBackgroundColor) {
+        attrs['custom-task-background-color'] = assignedBackgroundColor;
+      }
+      await setBlockAttrs(task.blockId, attrs);
+      await TaskRepository.clearCache();
     }
   } catch (error) {
   }
@@ -1002,6 +1048,8 @@ async function handleDropOnHourCell(day: WeekDay, hour: number) {
     const startTime = formatTime(date);
     const dueDate = formatDate(date);
     const dueTime = formatTime(new Date(date.getTime() + 60 * 60 * 1000));
+    const hasBackgroundColor = typeof task.backgroundColor === 'string' && task.backgroundColor.trim().length > 0;
+    const assignedBackgroundColor = hasBackgroundColor ? undefined : pickRandomTaskBackgroundColor();
 
     const handledBySeries = await applyRepeatSeriesDrop(task, {
       targetDate: startDate,
@@ -1015,16 +1063,24 @@ async function handleDropOnHourCell(day: WeekDay, hour: number) {
       startDate,
       dueDate,
       startTime,
-      dueTime
+      dueTime,
+      ...(assignedBackgroundColor ? { backgroundColor: assignedBackgroundColor } : {})
     });
     emitTaskDateChanged(updatedTask);
 
-    await saveTaskAttrs(task, {
+    const attrs: Record<string, string> = {
       'custom-task-start-date': updatedTask.startDate || '',
       'custom-task-start-time': updatedTask.startTime || '',
       'custom-task-due-date': updatedTask.dueDate || '',
       'custom-task-due-time': updatedTask.dueTime || ''
-    });
+    };
+    if (assignedBackgroundColor) {
+      attrs['custom-task-background-color'] = assignedBackgroundColor;
+    }
+    const saved = await saveTaskAttrs(task, attrs);
+    if (saved) {
+      await TaskRepository.clearCache();
+    }
   } catch (error) {
   }
 }
@@ -1252,9 +1308,7 @@ function getTimedTaskStyle(item: TimedTaskRenderItem) {
   const top = startMinutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
   const height = Math.max(CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT, (endMinutes - startMinutes) * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60);
 
-  const bgColor = item.task.backgroundColor
-    ? `var(--b3-font-${item.task.backgroundColor})`
-    : 'var(--b3-font-background9)';
+  const bgColor = resolveTaskBackgroundColor(item.task.backgroundColor);
 
   const laneCount = Math.max(1, item.laneCount || 1);
   const laneIndex = Math.min(Math.max(0, item.laneIndex || 0), laneCount - 1);
@@ -1714,7 +1768,7 @@ onUnmounted(() => {
   color: var(--b3-theme-background);
   background-color: #f98f7a;
   border-radius: 6px;
-      padding: 2px 3px;
+  padding: 0;
 }
 
 .weekday-name {
@@ -1724,6 +1778,12 @@ onUnmounted(() => {
 }
 
 .day-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   font-size: 14px;
   font-weight: 600;
   color: var(--b3-theme-on-background);
@@ -1822,6 +1882,18 @@ onUnmounted(() => {
   margin-left: 5px;
 }
 
+.all-day-task::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  bottom: 3px;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  pointer-events: none;
+}
+
 .all-day-task:hover {
   background: var(--b3-list-hover);
 }
@@ -1884,18 +1956,18 @@ onUnmounted(() => {
 }
 
 .task-priority-badge.priority-high {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--pinch-background10);
+  color: var(--pinch-font-color10);
 }
 
 .task-priority-badge.priority-medium {
-  background: #fef3c7;
-  color: #d97706;
+  background: var(--pinch-background3);
+  color: var(--pinch-font-color3);
 }
 
 .task-priority-badge.priority-low {
-  background: #dbeafe;
-  color: #2563eb;
+  background: var(--pinch-background7);
+  color: var(--pinch-font-color7);
 }
 
 .task-jump-btn {

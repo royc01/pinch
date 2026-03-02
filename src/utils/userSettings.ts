@@ -1,4 +1,5 @@
 import { usePlugin } from '../main';
+import { normalizeNotebookIds } from './taskViewShared';
 
 export interface UserSettings {
   kanban: {
@@ -64,17 +65,6 @@ const DEFAULT_SETTINGS: UserSettings = {
 
 const STORAGE_KEY = 'Stand-settings';
 const LOCAL_STORAGE_KEY = 'siyuan-stand-settings';
-
-function normalizeNotebookIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return Array.from(
-    new Set(
-      value
-        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-        .map(id => id.trim())
-    )
-  );
-}
 
 function mergeWithDefaults(input: unknown): UserSettings {
   const raw = input && typeof input === 'object' ? (input as Partial<UserSettings>) : {};

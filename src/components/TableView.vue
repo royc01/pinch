@@ -1,5 +1,9 @@
 <template>
-  <div class="table-view">
+  <div
+    class="table-view"
+    ref="tableContainerRef"
+    @scroll.passive="handleTableScroll"
+  >
     <table class="tasks-table">
       <thead>
         <tr>
@@ -50,7 +54,7 @@
         </tr>
       </thead>
       <tbody>
-        <template v-for="task in sortedTasks" :key="task.id">
+        <template v-for="task in visibleTasks" :key="task.id">
           <tr 
               class="task-row" 
               :class="[
@@ -165,6 +169,13 @@
             </td>
           </tr>
         </template>
+        <tr v-if="hasMoreTasks" class="load-more-row">
+          <td colspan="8" class="load-more-cell">
+            <button type="button" class="load-more-btn" @click="loadMoreTasks">
+              加载更多（剩余 {{ sortedTasks.length - visibleTasks.length }} 项）
+            </button>
+          </td>
+        </tr>
       </tbody>
     </table>
     
@@ -191,7 +202,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch, onMounted } from 'vue';
 import { Task } from '@/api';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubtaskProgress from '@/components/SubtaskProgress.vue';
@@ -219,11 +230,14 @@ const emit = defineEmits<{
 
 const expandedTasks = ref<Set<string>>(new Set());
 const editingDescriptions = ref<Set<string>>(new Set());
-const editingPriorities = ref<Set<string>>(new Set());
 const priorityPopover = ref<{ taskId: string; position: { x: number; y: number } } | null>(null);
 const statusPopover = ref<{ taskId: string; position: { x: number; y: number } } | null>(null);
 const sortColumn = ref<'priority' | 'status' | 'startDate' | 'dueDate' | null>(null);
 const sortDirection = ref<'asc' | 'desc' >('asc');
+const tableContainerRef = ref<HTMLElement | null>(null);
+const INITIAL_VISIBLE_TASKS = 120;
+const TASKS_CHUNK_SIZE = 120;
+const visibleTaskCount = ref(INITIAL_VISIBLE_TASKS);
 
 const priorityOrder = { high: 0, medium: 1, low: 2, none: 3 };
 const statusOrder = { 'in-progress': 0, pending: 1, completed: 2, cancelled: 3 };
@@ -255,6 +269,50 @@ const sortedTasks = computed(() => {
   });
 
   return tasks;
+});
+
+const visibleTasks = computed(() => sortedTasks.value.slice(0, visibleTaskCount.value));
+const hasMoreTasks = computed(() => visibleTaskCount.value < sortedTasks.value.length);
+
+function resetVisibleTasks(): void {
+  visibleTaskCount.value = Math.min(INITIAL_VISIBLE_TASKS, sortedTasks.value.length);
+}
+
+function loadMoreTasks(): void {
+  if (!hasMoreTasks.value) {
+    return;
+  }
+  visibleTaskCount.value = Math.min(
+    visibleTaskCount.value + TASKS_CHUNK_SIZE,
+    sortedTasks.value.length
+  );
+}
+
+function handleTableScroll(): void {
+  const container = tableContainerRef.value;
+  if (!container || !hasMoreTasks.value) {
+    return;
+  }
+  if (container.scrollTop + container.clientHeight >= container.scrollHeight - 240) {
+    loadMoreTasks();
+  }
+}
+
+watch(
+  () => [props.tasks, sortColumn.value, sortDirection.value],
+  () => {
+    resetVisibleTasks();
+    if (tableContainerRef.value) {
+      tableContainerRef.value.scrollTop = 0;
+    }
+  },
+  { immediate: true }
+);
+
+onMounted(() => {
+  nextTick(() => {
+    handleTableScroll();
+  });
 });
 
 function toggleSort(column: 'priority' | 'status' | 'startDate' | 'dueDate') {
@@ -336,8 +394,6 @@ function selectPriority(task: Task, priority: string) {
   emit('priorityUpdate', task, priority as Task['priority']);
   
   priorityPopover.value = null;
-  editingPriorities.value.delete(task.id);
-  editingPriorities.value = new Set(editingPriorities.value);
 }
 
 function toggleStatusEdit(task: Task, event: MouseEvent) {
@@ -589,7 +645,7 @@ function toggleExpand(taskId: string) {
 
 
 .col-priority {
-  width: 80px;
+  width: 60px;
   text-align: center;
 }
 
@@ -603,20 +659,19 @@ function toggleExpand(taskId: string) {
 }
 
 .task-priority-badge.priority-high {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--pinch-background10);
+  color: var(--pinch-font-color10);
 }
 
 .task-priority-badge.priority-medium {
-  background: #fef3c7;
-  color: #d97706;
+  background: var(--pinch-background3);
+  color: var(--pinch-font-color3);
 }
 
 .task-priority-badge.priority-low {
-  background: #dbeafe;
-  color: #2563eb;
+  background: var(--pinch-background7);
+  color: var(--pinch-font-color7);
 }
-
 .priority-select {
   width: 100%;
   font-size: 12px;
@@ -634,7 +689,8 @@ function toggleExpand(taskId: string) {
 }
 
 .col-status-text {
-  width: 120px;
+  width: 60px;
+  text-align: center;
   cursor: pointer;
 }
 
@@ -647,32 +703,39 @@ function toggleExpand(taskId: string) {
 }
 
 .status-badge.status-pending {
-  background: #fef3c7;
-  color: #f59e0b;
+  background: var(--pinch-background4);
+  color: var(--pinch-font-color4);
 }
 
 .status-badge.status-in-progress {
-  background: #dbeafe;
-  color: #3b82f6;
+  background: var(--pinch-background7);
+  color: var(--pinch-font-color7);
 }
 
 .status-badge.status-completed {
-  background: #d1fae5;
-  color: #10b981;
+  background: var(--pinch-background5);
+  color: var(--pinch-font-color5);
 }
 
 .status-badge.status-cancelled {
-  background: #f3f4f6;
-  color: #9ca3af;
+  background: var(--pinch-background1);
+  color: var(--pinch-font-color1);
 }
 
 .col-start-date,
 .col-due-date {
-  width: 110px;
+  width: 80px;
+  text-align: center;
   white-space: nowrap;
   color: var(--b3-theme-on-surface);
   cursor: pointer;
   position: relative;
+}
+
+.col-status-text .th-content,
+.col-start-date .th-content,
+.col-due-date .th-content {
+  justify-content: center;
 }
 
 .date-input-hidden {
@@ -688,6 +751,7 @@ function toggleExpand(taskId: string) {
 .date-display {
   display: block;
   padding: 4px 8px;
+  text-align: center;
   transition: background-color 0.15s;
 }
 
@@ -760,6 +824,28 @@ function toggleExpand(taskId: string) {
 .subtask-completed .subtask-title {
   text-decoration: line-through;
   opacity: 0.6;
+}
+
+.load-more-row td {
+  border-right: none;
+}
+
+.load-more-cell {
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.load-more-btn {
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.load-more-btn:hover {
+  background: var(--b3-list-hover);
 }
 
 .empty-state {

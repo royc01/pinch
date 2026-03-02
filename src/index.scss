@@ -1,0 +1,68 @@
+:root {
+  --pinch-background1: #eae6e5;
+  --pinch-background2: #f9ecde;
+  --pinch-background3: #fcede2;
+  --pinch-background4: #f9f3de;
+  --pinch-background5: #eaf4e6;
+  --pinch-background6: #deedeb;
+  --pinch-background7: #deebf1;
+  --pinch-background8: #ebe5f2;
+  --pinch-background9: #f3dfec;
+  --pinch-background10: #fae5e5;
+  --pinch-color1: #b9ada8;
+  --pinch-color2: #e9bf95;
+  --pinch-color3: #f5c4a1;
+  --pinch-color4: #ead595;
+  --pinch-color5: #b8dbad;
+  --pinch-color6: #95c3bc;
+  --pinch-color7: #95bccf;
+  --pinch-color8: #bcaad4;
+  --pinch-color9: #d698bf;
+  --pinch-color10: #eda8aa;
+  --pinch-font-color1: #64473a;
+  --pinch-font-color2: #db7c1c;
+  --pinch-font-color3: #db7c1c;
+  --pinch-font-color4: #dfab01;
+  --pinch-font-color5: #65b84d;
+  --pinch-font-color6: #218577;
+  --pinch-font-color7: #0b6e99;
+  --pinch-font-color8: #6940a5;
+  --pinch-font-color9: #ad1a72;
+  --pinch-font-color10: #e03e3e;
+}
+
+html[data-theme-mode='dark'],
+body[data-theme-mode='dark'],
+body.b3-theme-dark,
+.b3-theme-dark {
+  --pinch-background1: #38383a;
+  --pinch-background2: #4e3f30;
+  --pinch-background3: #4e4730;
+  --pinch-background4: #4e4e30;
+  --pinch-background5: #284749;
+  --pinch-background6: #274752;
+  --pinch-background7: #274052;
+  --pinch-background8: #363353;
+  --pinch-background9: #4a3048;
+  --pinch-background10: #4d3336;
+  --pinch-color1: #645c5a;
+  --pinch-color2: #886b4a;
+  --pinch-color3: #88764a;
+  --pinch-color4: #88814a;
+  --pinch-color5: #457472;
+  --pinch-color6: #457582;
+  --pinch-color7: #456b82;
+  --pinch-color8: #456b82;
+  --pinch-color9: #804e73;
+  --pinch-color10: #885858;
+  --pinch-font-color1: #937264;
+  --pinch-font-color2: #ef9a42;
+  --pinch-font-color3: #ffb849;
+  --pinch-font-color4: #d0b643;
+  --pinch-font-color5: #4dab9a;
+  --pinch-font-color6: #52b2ca;
+  --pinch-font-color7: #529cca;
+  --pinch-font-color8: #9a6dd7;
+  --pinch-font-color9: #d15296;
+  --pinch-font-color10: #ff7369;
+}

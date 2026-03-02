@@ -36,10 +36,10 @@ const emit = defineEmits<{
 }>();
 
 const priorityOptions = [
-  { value: 'high', background: '#fee2e2', color: '#dc2626' },
-  { value: 'medium', background: '#fef3c7', color: '#d97706' },
-  { value: 'low', background: '#dbeafe', color: '#2563eb' },
-  { value: 'none', background: '#f3f4f6', color: '#9ca3af' }
+  { value: 'high', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
+  { value: 'medium', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
+  { value: 'low', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
+  { value: 'none', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
 ];
 
 const popoverStyle = computed(() => ({

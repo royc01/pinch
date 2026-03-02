@@ -310,21 +310,60 @@ function getLunarDate(year: number, month: number, day: number): LunarInfo | nul
 }
 
 const backgroundColors = [
-  { value: 'background4', css: 'var(--b3-font-background4)' },
-  { value: 'background5', css: 'var(--b3-font-background5)' },
-  { value: 'background6', css: 'var(--b3-font-background6)' },
-  { value: 'background7', css: 'var(--b3-font-background7)' },
-  { value: 'background8', css: 'var(--b3-font-background8)' },
-  { value: 'background9', css: 'var(--b3-font-background9)' },
-  { value: 'background10', css: 'var(--b3-font-background10)' },
-  { value: 'background11', css: 'var(--b3-font-background11)' },
-  { value: 'background12', css: 'var(--b3-font-background12)' },
-  { value: 'background13', css: 'var(--b3-font-background13)' }
+  { value: 'pinch-background1', css: 'var(--pinch-background1)' },
+  { value: 'pinch-background2', css: 'var(--pinch-background2)' },
+  { value: 'pinch-background3', css: 'var(--pinch-background3)' },
+  { value: 'pinch-background4', css: 'var(--pinch-background4)' },
+  { value: 'pinch-background5', css: 'var(--pinch-background5)' },
+  { value: 'pinch-background6', css: 'var(--pinch-background6)' },
+  { value: 'pinch-background7', css: 'var(--pinch-background7)' },
+  { value: 'pinch-background8', css: 'var(--pinch-background8)' },
+  { value: 'pinch-background9', css: 'var(--pinch-background9)' },
+  { value: 'pinch-background10', css: 'var(--pinch-background10)' }
 ];
+const monthDropColorValues = backgroundColors.map(color => color.value);
+
+function pickRandomTaskBackgroundColor(): string {
+  if (monthDropColorValues.length === 0) {
+    return 'pinch-background6';
+  }
+  const index = Math.floor(Math.random() * monthDropColorValues.length);
+  return monthDropColorValues[index];
+}
+
+function resolveTaskBackgroundColor(backgroundColor?: string): string {
+  if (!backgroundColor || typeof backgroundColor !== 'string') {
+    return 'var(--b3-font-background9)';
+  }
+  if (/^pinch-background(?:10|[1-9])$/.test(backgroundColor)) {
+    return `var(--${backgroundColor})`;
+  }
+  return `var(--b3-font-${backgroundColor})`;
+}
+
+function resolveTaskColorIndex(backgroundColor?: string): number | null {
+  if (!backgroundColor || typeof backgroundColor !== 'string') {
+    return null;
+  }
+  const pinchMatch = backgroundColor.match(/^pinch-background(10|[1-9])$/);
+  if (pinchMatch) {
+    return Number(pinchMatch[1]);
+  }
+  const legacyMatch = backgroundColor.match(/^background(1[0-3]|[4-9])$/);
+  if (legacyMatch) {
+    return Number(legacyMatch[1]) - 3;
+  }
+  return null;
+}
+
+function resolveTaskAccentColor(backgroundColor?: string): string {
+  const index = resolveTaskColorIndex(backgroundColor) ?? 6;
+  return `var(--pinch-color${index})`;
+}
 
 function getTasksHash(tasks: Task[]): string {
   return tasks.map(t => 
-    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.title}`
+    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.title}:${t.backgroundColor || ''}`
   ).sort().join('|');
 }
 
@@ -704,9 +743,7 @@ function getTaskStyle(task: any, week: any[]) {
   
   const leftPercent = (task.startDayOfWeek / 7) * 100;
   const widthPercent = (task.spanDays / 7) * 100;
-  const bgColor = task.backgroundColor 
-    ? `var(--b3-font-${task.backgroundColor})` 
-    : 'var(--b3-font-background9)';
+  const bgColor = resolveTaskBackgroundColor(task.backgroundColor);
   
   const position = task.position ?? (taskPositionsMap.value.get(task.id) ?? 0);
   
@@ -716,7 +753,8 @@ function getTaskStyle(task: any, week: any[]) {
     width: `calc(${widthPercent}% - 30px)`,
     top: `${TOP_OFFSET + position * TASK_CHIP_HEIGHT}px`,
     height: '16px',
-    backgroundColor: bgColor
+    backgroundColor: bgColor,
+    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
   };
 }
 
@@ -769,6 +807,8 @@ function handleDrop(day: any) {
   try {
     const task = JSON.parse(taskData) as Task;
     const dateStr = formatDate(day.date);
+    const hasBackgroundColor = typeof task.backgroundColor === 'string' && task.backgroundColor.trim().length > 0;
+    const assignedBackgroundColor = hasBackgroundColor ? undefined : pickRandomTaskBackgroundColor();
     
     if (pendingDeletion.value.has(task.id)) {
       pendingDeletion.value.delete(task.id);
@@ -776,15 +816,22 @@ function handleDrop(day: any) {
     
     const updatedTask = upsertLocalTask(task, {
       startDate: dateStr,
-      dueDate: dateStr
+      dueDate: dateStr,
+      ...(assignedBackgroundColor ? { backgroundColor: assignedBackgroundColor } : {})
     });
     emitTaskDateChanged(updatedTask);
     
     if (task.type === 'block' && task.blockId) {
-      setBlockAttrs(task.blockId, {
+      const attrs: Record<string, string> = {
         'custom-task-start-date': dateStr,
         'custom-task-due-date': dateStr
-      }).catch(() => {});
+      };
+      if (assignedBackgroundColor) {
+        attrs['custom-task-background-color'] = assignedBackgroundColor;
+      }
+      setBlockAttrs(task.blockId, attrs)
+        .then(() => TaskRepository.clearCache())
+        .catch(() => {});
     }
   } catch (error) {
     console.error('[MonthView] handleDrop error', error);
@@ -989,7 +1036,7 @@ async function deleteTask(task: Task) {
         dueDate: null,
         startTime: undefined,
         dueTime: undefined,
-        repeatFrequency: 'none',
+        repeatFrequency: 'none' as RepeatFrequency,
         repeatSeriesId: undefined,
         repeatInstanceDate: undefined,
         isVirtual: false
@@ -1396,6 +1443,18 @@ onUnmounted(() => {
   margin-left: 5px;
 }
 
+.task-chip::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  bottom: 3px;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  pointer-events: none;
+}
+
 .task-chip:hover {
   background: var(--b3-list-hover);
 }
@@ -1489,18 +1548,18 @@ onUnmounted(() => {
 }
 
 .task-priority-badge.priority-high {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--pinch-background10);
+  color: var(--pinch-font-color10);
 }
 
 .task-priority-badge.priority-medium {
-  background: #fef3c7;
-  color: #d97706;
+  background: var(--pinch-background3);
+  color: var(--pinch-font-color3);
 }
 
 .task-priority-badge.priority-low {
-  background: #dbeafe;
-  color: #2563eb;
+  background: var(--pinch-background7);
+  color: var(--pinch-font-color7);
 }
 
 .placeholder-text {
@@ -1543,5 +1602,3 @@ onUnmounted(() => {
 }
 
 </style>
-
-

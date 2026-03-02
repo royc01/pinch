@@ -19,12 +19,6 @@ const {
   version,
 } = PluginInfo
 
-interface DebounceState {
-  lastCallTime: number;
-  adaptiveDelay: number;
-  operationCount: number;
-}
-
 export default class HabitTrackerPlugin extends Plugin {
   public isMobile: boolean
   public isBrowser: boolean
@@ -35,13 +29,12 @@ export default class HabitTrackerPlugin extends Plugin {
   public readonly version = version
 
   private debounceTimer: any = null;
-  private debounceState: DebounceState = {
-    lastCallTime: 0,
-    adaptiveDelay: 150,
-    operationCount: 0
-  };
-  private readonly MAX_DEBOUNCE_DELAY = 200;
-  private readonly BASE_DEBOUNCE_DELAY = 50;
+  private pendingTransactionBatches: Array<{
+    transactions: any[];
+    transactionIndex: number;
+    operationIndex: number;
+  }> = [];
+  private readonly MAX_OPERATIONS_PER_FLUSH = 150;
 
   async onload() {
     const frontEnd = getFrontend();
@@ -79,68 +72,95 @@ export default class HabitTrackerPlugin extends Plugin {
   }
 
   private handleIncrementalUpdate = (transactions: any[]) => {
-    // 计算本次操作数量
-    const operationCount = transactions.reduce((count: number, trans: any) => {
-      return count + (trans.doOperations?.length || 0);
-    }, 0);
-    
-    this.debounceState.operationCount += operationCount;
-    const now = Date.now();
-    const timeSinceLastCall = now - this.debounceState.lastCallTime;
-    
-    // 动态调整防抖延迟：操作越频繁，延迟越长
-    if (timeSinceLastCall < 1000) { // 1秒内多次调用
-      this.debounceState.adaptiveDelay = Math.min(
-        this.debounceState.adaptiveDelay + 20,
-        this.MAX_DEBOUNCE_DELAY
-      );
-    } else if (timeSinceLastCall > 5000) { // 5秒无操作，重置
-      this.debounceState.adaptiveDelay = this.BASE_DEBOUNCE_DELAY;
-      this.debounceState.operationCount = 0;
-    }
-    
-    this.debounceState.lastCallTime = now;
-    
-    const isFirstCall = !this.debounceTimer;
-    
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
+    if (!Array.isArray(transactions) || transactions.length === 0) {
+      return;
     }
 
-    this.debounceTimer = setTimeout(async () => {
-      await this.queryAndUpdateTasks(transactions);
-      this.debounceTimer = null;
-    }, this.debounceState.adaptiveDelay);
-    
-    // Leading edge：第一次调用立即执行
-    if (isFirstCall || operationCount > 10) {
-      clearTimeout(this.debounceTimer!);
-      this.debounceTimer = null;
-      this.queryAndUpdateTasks(transactions);
+    // Keep websocket/input handler O(1): only enqueue batch and return.
+    this.pendingTransactionBatches.push({
+      transactions,
+      transactionIndex: 0,
+      operationIndex: 0
+    });
+
+    if (this.debounceTimer !== null) {
+      return;
     }
+
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
+      void this.flushPendingTransactions();
+    }, 24);
   }
 
-  private async queryAndUpdateTasks(transactions: any[]) {
+  private async flushPendingTransactions() {
+    if (this.pendingTransactionBatches.length === 0) {
+      return;
+    }
+
     const changedIds = new Set<string>();
-    
-    transactions.forEach((trans: any) => {
-      trans.doOperations?.forEach((op: any) => {
-        const relatedIds = [op.id, op.parentID, op.parentId, op.previousID, op.nextID];
+    let processedOperations = 0;
+
+    while (
+      this.pendingTransactionBatches.length > 0 &&
+      processedOperations < this.MAX_OPERATIONS_PER_FLUSH
+    ) {
+      const head = this.pendingTransactionBatches[0];
+      if (!head || head.transactionIndex >= head.transactions.length) {
+        this.pendingTransactionBatches.shift();
+        continue;
+      }
+
+      const trans = head.transactions[head.transactionIndex];
+      const ops = Array.isArray(trans?.doOperations) ? trans.doOperations : [];
+
+      if (ops.length === 0) {
+        head.transactionIndex += 1;
+        head.operationIndex = 0;
+        if (head.transactionIndex >= head.transactions.length) {
+          this.pendingTransactionBatches.shift();
+        }
+        continue;
+      }
+
+      while (
+        head.operationIndex < ops.length &&
+        processedOperations < this.MAX_OPERATIONS_PER_FLUSH
+      ) {
+        const op = ops[head.operationIndex++];
+        processedOperations += 1;
+        const relatedIds = [op?.id, op?.parentID, op?.parentId, op?.previousID, op?.nextID];
         relatedIds.forEach((id) => {
           if (typeof id === 'string' && id.length > 0) {
             changedIds.add(id);
           }
         });
-      });
-    });
+      }
 
-    if (changedIds.size === 0) {
-      return;
+      if (head.operationIndex >= ops.length) {
+        head.transactionIndex += 1;
+        head.operationIndex = 0;
+      }
+
+      if (head.transactionIndex >= head.transactions.length) {
+        this.pendingTransactionBatches.shift();
+      }
     }
-    eventBus.emit('task-changed', { blockIds: Array.from(changedIds) });
+
+    if (changedIds.size > 0) {
+      eventBus.emit('task-changed', { blockIds: Array.from(changedIds) });
+    }
+
+    if (this.pendingTransactionBatches.length > 0 && this.debounceTimer === null) {
+      this.debounceTimer = setTimeout(() => {
+        this.debounceTimer = null;
+        void this.flushPendingTransactions();
+      }, 16);
+    }
   }
 
   onunload() {
     destroy()
   }
 }
+
