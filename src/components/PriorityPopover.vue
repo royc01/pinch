@@ -4,6 +4,7 @@
       v-if="show"
       class="priority-popover"
       :style="popoverStyle"
+      @mousedown.stop
     >
       <div class="popover-content">
         <div
@@ -15,6 +16,7 @@
           <div class="priority-indicator" :style="{ background: option.background, color: option.color }">
             <Icon name="flag" width="14" height="14" />
           </div>
+          <span class="priority-label">{{ option.label }}</span>
         </div>
       </div>
     </div>
@@ -25,10 +27,13 @@
 import { computed } from 'vue';
 import Icon from './Icon.vue';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   show: boolean;
   position: { x: number; y: number };
-}>();
+  placement?: 'bottom' | 'top';
+}>(), {
+  placement: 'bottom'
+});
 
 const emit = defineEmits<{
   select: [value: string];
@@ -36,16 +41,18 @@ const emit = defineEmits<{
 }>();
 
 const priorityOptions = [
-  { value: 'high', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
-  { value: 'medium', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'low', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'none', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
+  { value: 'high', label: '高优先级', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
+  { value: 'medium', label: '中优先级', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
+  { value: 'low', label: '低优先级', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
+  { value: 'none', label: '无优先级', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
 ];
 
 const popoverStyle = computed(() => ({
   left: `${props.position.x}px`,
   top: `${props.position.y}px`,
-  transform: 'translateX(-50%)'
+  transform: props.placement === 'top'
+    ? 'translate(-50%, -100%)'
+    : 'translateX(-50%)'
 }));
 
 function handleSelect(value: string) {
@@ -67,26 +74,34 @@ function handleSelect(value: string) {
 
 .popover-content {
   display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
 .priority-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
   border-radius: 6px;
-  transition: transform 0.15s;
+  padding: 4px 6px;
 }
 
 .priority-option:hover {
-  transform: scale(1.1);
+  background: var(--b3-list-hover);
 }
 
 .priority-indicator {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.priority-label {
+  font-size: 12px;
+  color: var(--b3-theme-on-background);
 }
 </style>

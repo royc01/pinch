@@ -14,7 +14,7 @@
       <div class="task-scope-summary">
         已启用 {{ notebooks.length - localExcludedNotebookIds.length }} / {{ notebooks.length }}
       </div>
-      <div class="task-scope-extra">
+      <div v-if="showExtra" class="task-scope-extra">
         <span class="task-scope-extra-label">显示已完成任务</span>
         <SyCheckbox
           class="task-scope-toggle"
@@ -68,6 +68,7 @@ interface Props {
   excludedNotebookIds: string[];
   showCompletedTasks?: boolean;
   lockClose?: boolean;
+  showExtra?: boolean;
   title?: string;
   hint?: string;
   confirmText?: string;
@@ -83,6 +84,7 @@ const emit = defineEmits<{
 const localExcludedNotebookIds = ref<string[]>([]);
 const localShowCompletedTasks = ref(true);
 const lockClose = computed(() => props.lockClose === true);
+const showExtra = computed(() => props.showExtra !== false);
 const dialogTitle = computed(() => props.title || '任务范围');
 const dialogHint = computed(() => props.hint || '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。');
 const confirmText = computed(() => props.confirmText || '保存');

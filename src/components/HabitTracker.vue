@@ -6,10 +6,10 @@
         <div class="header-content">
           <div class="date-display">{{ currentDateString.split('/')[0] }}<span>.</span>{{ currentDateString.split('/')[1] }}<span>.</span>{{ currentDateString.split('/')[2] }}</div>
           <div class="header-buttons">
-            <SyButton @click="showFocusTimer = true" id="focus-timer-btn" class="focus-timer-btn">
+            <SyButton @click="showFocusTimer = true" id="focus-timer-btn" class="focus-timer-btn" title="专注倒计时">
               <Icon name="timer" width="24" height="24" class="icon" />
             </SyButton>
-            <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn">
+            <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn" title="情绪日历">
               <Icon name="smile" width="24" height="24" class="icon" />
             </SyButton>
           </div>
@@ -34,6 +34,15 @@
             <div class="title">{{ t('habitTracker.title') }}</div>
           </div>
           <div class="header-actions">
+            <SyButton
+              @click="showHabitManagerPage = true"
+              id="habit-manage-btn"
+              class="habit-manage-btn"
+              title="习惯管理"
+              aria-label="习惯管理"
+            >
+              <Icon name="taskScope" width="24" height="24" class="icon" />
+            </SyButton>
             <SyButton @click="showTotalStatsPage = true" id="stats-btn" class="stats-btn">
               <Icon name="stats" width="24" height="24" class="icon" />
             </SyButton>
@@ -44,7 +53,7 @@
         </div>
         
         <HabitCardList
-          :sorted-habits="sortedHabits"
+          :sorted-habits="visibleHabits"
           :is-habit-list-collapsed="isHabitListCollapsed"
           :show-animation="showAnimation"
           :animation-habit-id="animationHabitId"
@@ -60,6 +69,45 @@
           @doc-button="handleHabitDocButton"
           @open-bind-doc="openBindDocModal"
           @toggle-habit="toggleHabit"
+          @pomodoro-pause="togglePomodoroPause"
+          @pomodoro-resume="togglePomodoroResume"
+          @pomodoro-stop="stopCurrentPomodoro"
+        />
+      </div>
+    </div>
+
+    <div v-if="showHabitManagerPage" class="habit-manage-panel">
+      <div class="habit-manage-panel-header">
+        <div class="habit-manage-panel-title">习惯管理</div>
+        <button
+          type="button"
+          class="habit-manage-panel-close"
+          title="关闭"
+          aria-label="关闭"
+          @click="showHabitManagerPage = false"
+        >
+          <Icon name="close" width="16" height="16" class="icon" />
+        </button>
+      </div>
+      <div class="habit-manage-panel-body">
+        <HabitCardList
+          :sorted-habits="sortedHabits"
+          :is-habit-list-collapsed="false"
+          :show-animation="false"
+          :animation-habit-id="null"
+          :active-pomodoro-habit-id="activePomodoroHabit?.id || null"
+          :inline-circumference="inlineCircumference"
+          :inline-stroke-dashoffset="inlineStrokeDashoffset"
+          :t="t"
+          :get-habit-cache="getHabitCache"
+          :get-calendar-view-data="getCalendarViewData"
+          :pomodoro-state-class="pomodoroStateClass"
+          :format-pomodoro-time="formatPomodoroTime"
+          manage-mode
+          @show-stats="showHabitStats"
+          @doc-button="handleHabitDocButton"
+          @open-bind-doc="openBindDocModal"
+          @toggle-pause="togglePauseHabit"
           @pomodoro-pause="togglePomodoroPause"
           @pomodoro-resume="togglePomodoroResume"
           @pomodoro-stop="stopCurrentPomodoro"
@@ -115,8 +163,6 @@
       :show="showEditHabitModal"
       mode="edit"
       :habit="editedHabit"
-      :emoji-categories="emojiCategories"
-      :emojisLoading="emojisLoading"
       :frequency-options="frequencyOptions"
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
@@ -130,8 +176,6 @@
       :show="showAddHabitModal"
       mode="add"
       :habit="newHabit"
-      :emoji-categories="emojiCategories"
-      :emojisLoading="emojisLoading"
       :frequency-options="frequencyOptions"
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
@@ -174,7 +218,15 @@
     />
     
     <!-- 专注倒计时 -->
-    <FocusTimer :show="showFocusTimer" @close="showFocusTimer = false" />
+    <FocusTimer
+      :show="showFocusTimer"
+      :mini-enabled="floatingFocusEnabled"
+      @update:miniEnabled="floatingFocusEnabled = $event"
+      @close="showFocusTimer = false"
+    />
+
+    <!-- 悬浮专注胶囊 -->
+    <FloatingFocusCapsule :enabled="floatingFocusEnabled" />
     
     <!-- 任务管理器容器 -->
     <div class="stand-container">
@@ -203,10 +255,16 @@
 .date-display span {
   color: var(--b3-theme-on-background);
 }
+
+.header-buttons {
+  display: flex;
+  align-items: center;
+}
+
 </style>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, shallowRef, triggerRef } from 'vue';
+import { ref, onMounted, onUnmounted, computed, shallowRef, triggerRef, watch } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import Icon from '@/components/Icon.vue';
 import WeekDates from '@/components/WeekDates.vue';
@@ -217,6 +275,7 @@ import HabitStatsPanel from '@/components/HabitStatsPanel.vue';
 import HabitCardList from '@/components/HabitCardList.vue';
 import MoodCalendarPanel from '@/components/MoodCalendarPanel.vue';
 import FocusTimer from '@/components/FocusTimer.vue';
+import FloatingFocusCapsule from '@/components/FloatingFocusCapsule.vue';
 import TaskManager from '@/components/TaskManager.vue';
 import HabitDocBindDialog from '@/components/HabitDocBindDialog.vue';
 import { getHabits, saveHabits, Habit } from '@/api';
@@ -257,8 +316,6 @@ const playBubbleSound = () => {
 
 // 表情选择与情绪 SVG
 const {
-  emojisLoading,
-  emojiCategories,
   moodEmojis,
   getMoodSvg,
   getSmallMoodSvg
@@ -293,7 +350,10 @@ const immediateSaveHabits = async (habitsToSave: Habit[]) => {
 const habits = shallowRef<Habit[]>([]);
 const showAddHabitModal = ref(false);
 const showTotalStatsPage = ref(false);
+const showHabitManagerPage = ref(false);
 const showFocusTimer = ref(false);
+const floatingFocusEnabled = ref(false);
+const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 const {
   moodData,
   showMoodCalendar,
@@ -426,11 +486,21 @@ const { sortedHabits } = useHabitSorting({
   getHabitCache,
   animationOriginalStatus
 });
+const visibleHabits = computed(() => sortedHabits.value.filter(habit => !habit.isPaused));
 
 const { newHabit, frequencyOptions, timesPerDayOptions, pomodoroDurationOptions } = useHabitFormState(t);
 
 // 初始化数据
 onMounted(async () => {
+  try {
+    const savedState = localStorage.getItem(FLOATING_FOCUS_STORAGE_KEY);
+    if (savedState !== null) {
+      floatingFocusEnabled.value = savedState === 'true';
+    }
+  } catch {
+    // ignore storage errors
+  }
+
   try {
     const loadedHabits = await getHabits();
     habits.value = Array.isArray(loadedHabits) ? loadedHabits : [];
@@ -461,6 +531,14 @@ onMounted(async () => {
     console.error('Error initializing habits:', error);
     // 初始化失败时，使用空数组，确保界面仍能显示
     habits.value = [];
+  }
+});
+
+watch(floatingFocusEnabled, (value) => {
+  try {
+    localStorage.setItem(FLOATING_FOCUS_STORAGE_KEY, String(value));
+  } catch {
+    // ignore storage errors
   }
 });
 
@@ -591,7 +669,11 @@ const closeHabitStats = () => {
     }
 
   }
-      #add-habit-btn,#stats-btn,#mood-calendar-btn,#focus-timer-btn {
+      #add-habit-btn,
+      #stats-btn,
+      #habit-manage-btn,
+      #mood-calendar-btn,
+      #focus-timer-btn {
       background: none;
       border: none;
       padding: 0;
@@ -600,7 +682,8 @@ const closeHabitStats = () => {
     }
 
     #add-habit-btn,
-    #stats-btn {
+    #stats-btn,
+    #habit-manage-btn {
       width: 24px;
       height: 24px;
 
@@ -666,6 +749,56 @@ const closeHabitStats = () => {
 
   .habit-manager-header .header-actions {
     display: flex;
+  }
+
+  .habit-manage-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    background: var(--b3-theme-background);
+    box-sizing: border-box;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .habit-manage-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .habit-manage-panel-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--b3-theme-on-background);
+  }
+
+  .habit-manage-panel-close {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--b3-theme-on-background);
+  }
+
+  .habit-manage-panel-close:hover {
+    background: var(--b3-list-hover);
+  }
+
+  .habit-manage-panel-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
   }
 
 }
@@ -1038,11 +1171,3 @@ const closeHabitStats = () => {
 }
 
 </style>
-
-
-
-
-
-
-
-

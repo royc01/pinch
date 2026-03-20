@@ -3,6 +3,7 @@ import { normalizeNotebookIds } from './taskViewShared';
 
 export interface UserSettings {
   kanban: {
+    currentView?: 'kanban' | 'table' | 'month' | 'week';
     filterType: string;
     filterDocument: string;
     filterPriority: string;
@@ -10,11 +11,15 @@ export interface UserSettings {
     kanbanFilterDocument: string;
     kanbanFilterPriority: string;
     kanbanFilterUpdatedRange: string;
+    kanbanGroupMode?: boolean;
+    tableGroupMode?: boolean;
     tableFilterUpdatedRange: string;
     tableFilterType: string;
     tableFilterDocument: string;
     monthFilterType: string;
     monthFilterDocument: string;
+    weekFilterType?: string;
+    weekFilterDocument?: string;
   };
   taskManager: {
     filterStatus: string;
@@ -26,6 +31,7 @@ export interface UserSettings {
     scopeInitialized?: boolean;
     lastTaskNotebook?: string;
     lastTaskDocument?: string;
+    selectedGroupId?: string;
   };
   sidebar: {
     selectedNotebook: string;
@@ -33,8 +39,9 @@ export interface UserSettings {
   };
 }
 
-const DEFAULT_SETTINGS: UserSettings = {
+export const DEFAULT_SETTINGS: UserSettings = {
   kanban: {
+    currentView: 'table',
     filterType: 'all',
     filterDocument: 'all',
     filterPriority: 'all',
@@ -42,11 +49,15 @@ const DEFAULT_SETTINGS: UserSettings = {
     kanbanFilterDocument: 'all',
     kanbanFilterPriority: 'all',
     kanbanFilterUpdatedRange: 'all',
+    kanbanGroupMode: false,
+    tableGroupMode: false,
     tableFilterUpdatedRange: 'all',
     tableFilterType: 'all',
     tableFilterDocument: 'all',
     monthFilterType: 'all',
-    monthFilterDocument: 'all'
+    monthFilterDocument: 'all',
+    weekFilterType: 'all',
+    weekFilterDocument: 'all'
   },
   taskManager: {
     filterStatus: 'all',
@@ -55,7 +66,8 @@ const DEFAULT_SETTINGS: UserSettings = {
     filterPriority: 'all',
     excludedNotebookIds: [],
     showCompletedTasks: true,
-    scopeInitialized: false
+    scopeInitialized: false,
+    selectedGroupId: 'all'
   },
   sidebar: {
     selectedNotebook: 'all',

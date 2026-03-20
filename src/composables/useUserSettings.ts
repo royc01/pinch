@@ -1,35 +1,5 @@
-import { ref, reactive, watch } from 'vue';
-import { userSettings as userSettingsManager, UserSettings } from '@/utils/userSettings';
-
-const DEFAULT_SETTINGS: UserSettings = {
-  kanban: {
-    filterType: 'all',
-    filterDocument: 'all',
-    filterPriority: 'all',
-    kanbanFilterType: 'all',
-    kanbanFilterDocument: 'all',
-    kanbanFilterPriority: 'all',
-    kanbanFilterUpdatedRange: 'all',
-    tableFilterUpdatedRange: 'all',
-    tableFilterType: 'all',
-    tableFilterDocument: 'all',
-    monthFilterType: 'all',
-    monthFilterDocument: 'all'
-  },
-  taskManager: {
-    filterStatus: 'all',
-    filterNotebook: 'all',
-    filterDocument: 'all',
-    filterPriority: 'all',
-    excludedNotebookIds: [],
-    showCompletedTasks: true,
-    scopeInitialized: false
-  },
-  sidebar: {
-    selectedNotebook: 'all',
-    selectedDocument: 'all'
-  }
-};
+import { reactive } from 'vue';
+import { userSettings as userSettingsManager, UserSettings, DEFAULT_SETTINGS } from '@/utils/userSettings';
 
 const state = reactive<UserSettings>({
   kanban: { ...DEFAULT_SETTINGS.kanban },

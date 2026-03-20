@@ -1,5 +1,6 @@
 import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
+import { formatDate } from '@/composables/useDateUtils';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
@@ -95,13 +96,6 @@ function cloneRepeatRecords(records: RepeatRecord[]): RepeatRecord[] {
 
 function isRepeatCacheFresh(timestamp: number): boolean {
   return Date.now() - timestamp < REPEAT_CACHE_TTL_MS;
-}
-
-function formatDate(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
 }
 
 function parseDate(dateStr: string | undefined): Date | null {

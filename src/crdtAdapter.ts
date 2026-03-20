@@ -26,6 +26,7 @@ export function taskToCRDT(task: Task, nodeId: string = 'db'): CRDTTask {
     dueTime: baseField(task.dueTime, updatedAt),
     description: baseField(task.description, updatedAt),
     tags: baseField(task.tags || [], updatedAt),
+    groupId: baseField(task.groupId, updatedAt),
     backgroundColor: baseField(task.backgroundColor, updatedAt),
     deleted: baseField(false, 0),
     updatedAt,
@@ -38,7 +39,8 @@ export function taskToCRDT(task: Task, nodeId: string = 'db'): CRDTTask {
       repeatSeriesId: task.repeatSeriesId,
       repeatFrequency: task.repeatFrequency,
       repeatInstanceDate: task.repeatInstanceDate,
-      isVirtual: task.isVirtual
+      isVirtual: task.isVirtual,
+      createdAt: task.createdAt
     }
   };
 }
@@ -56,6 +58,7 @@ export function crdtToTask(crdtTask: CRDTTask): Task {
     dueTime: crdtTask.dueTime?.value,
     description: crdtTask.description.value,
     tags: crdtTask.tags.value,
+    groupId: crdtTask.groupId?.value,
     backgroundColor: crdtTask.backgroundColor?.value,
     blockId: crdtTask.metadata.blockId,
     rootId: crdtTask.metadata.rootId,
@@ -65,7 +68,7 @@ export function crdtToTask(crdtTask: CRDTTask): Task {
     repeatFrequency: crdtTask.metadata.repeatFrequency as Task['repeatFrequency'],
     repeatInstanceDate: crdtTask.metadata.repeatInstanceDate,
     isVirtual: crdtTask.metadata.isVirtual,
-    createdAt: new Date(crdtTask.updatedAt).toISOString(),
+    createdAt: crdtTask.metadata.createdAt || new Date(crdtTask.updatedAt).toISOString(),
     updatedAt: new Date(crdtTask.updatedAt).toISOString()
   };
 }
@@ -107,6 +110,7 @@ export class CRDTTaskRepository {
       dueTime: withTs(crdtTask.dueTime),
       description: withTs(crdtTask.description),
       tags: withTs(crdtTask.tags),
+      groupId: withTs(crdtTask.groupId),
       backgroundColor: withTs(crdtTask.backgroundColor),
       updatedAt: nextTs
     };

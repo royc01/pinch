@@ -12,6 +12,14 @@
             </button>
           </div>
           <div class="modal-body">
+            <div class="form-group task-title-group">
+              <textarea
+                v-model="localTask.title"
+                class="task-title-input b3-text-field fn__flex-center"
+                rows="3"
+                :placeholder="tt('taskManager.taskTitlePlaceholder', '请输入任务标题')"
+              ></textarea>
+            </div>
             <div class="filters-row">
               <div class="form-group filter-group">
                 <label>{{ tt('taskManager.notebook', '笔记本') }}</label>
@@ -22,32 +30,90 @@
                 <SySelect v-model="selectedDocument" :options="documentOptions" />
               </div>
             </div>
-            <div class="form-group">
-              <label>{{ tt('taskManager.taskTitle', '任务标题') }}</label>
-              <SyInput v-model="localTask.title" :placeholder="tt('taskManager.taskTitlePlaceholder', '请输入任务标题')" />
+            <div v-if="taskModalQuickPanel === 'group'" class="task-modal-group-panel">
+              <div class="task-modal-group-header">
+                <span class="task-modal-group-title">选择分组</span>
+                <button type="button" class="task-modal-group-manage" @click.stop="emit('manage-groups')">
+                  管理
+                </button>
+              </div>
+              <div class="task-modal-group-chip-list">
+                <button
+                  v-for="option in taskModalGroupOptions"
+                  :key="option.value"
+                  type="button"
+                  class="task-modal-group-chip"
+                  :class="{ active: taskModalSelectedGroupId === option.value, special: option.special }"
+                  :style="{
+                    '--group-chip-bg': option.colorCss || 'var(--b3-list-hover)',
+                    '--group-chip-color': option.textColor || 'var(--b3-theme-on-surface)'
+                  }"
+                  @click="selectTaskModalGroup(option.value)"
+                >
+                  <span class="task-modal-group-chip-label">{{ option.label }}</span>
+                </button>
+              </div>
             </div>
-            <div class="form-group">
-              <label>{{ tt('taskManager.taskDescription', '任务描述') }}</label>
+            <div v-if="showTaskModalDescriptionPanel" class="task-modal-quick-panel">
               <textarea
+                ref="taskModalDescriptionRef"
                 v-model="localTask.description"
                 class="task-description-input b3-text-field"
-                rows="2"
+                rows="3"
                 :placeholder="tt('taskManager.taskDescriptionPlaceholder', '请输入任务描述（可选）')"
+                @blur="handleTaskModalDescriptionCommit"
+                @keydown.ctrl.enter.prevent="handleTaskModalDescriptionCommit"
               ></textarea>
             </div>
-            <div class="meta-row">
-              <div class="form-group">
-                <label>{{ tt('taskManager.priority', '优先级') }}</label>
-                <SySelect v-model="localTask.priority" :options="priorityOptions" />
-              </div>
-              <div class="form-group">
-                <label>{{ tt('taskManager.status', '状态') }}</label>
-                <SySelect v-model="localTask.status" :options="statusOptions" />
-              </div>
-            </div>
-            <div class="form-group due-date-row">
-              <label>{{ tt('taskManager.dueDate', '截止日期') }}</label>
-              <input type="date" v-model="localTask.dueDate" class="date-input" />
+            <div class="task-modal-action-bar">
+              <button
+                type="button"
+                class="task-modal-action-btn task-modal-group-btn"
+                :class="{ 'is-active': taskModalQuickPanel === 'group' }"
+                :style="taskModalGroupButtonStyle"
+                title="分组"
+                aria-label="分组"
+                @click.stop="toggleTaskModalQuickPanel('group')"
+              >
+                <Icon name="group" width="14" height="14" />
+                <span v-if="taskModalSelectedGroupId !== TASK_GROUP_NONE_ID" class="task-modal-group-button-label">{{ taskModalGroupLabel }}</span>
+              </button>
+                <button
+                  type="button"
+                  class="task-modal-action-btn task-modal-priority-btn"
+                  title="优先级"
+                  aria-label="优先级"
+                  @click.stop="toggleTaskModalPriorityPopover($event)"
+                >
+                  <span
+                    class="task-modal-priority-indicator"
+                    :style="{ color: taskModalPriorityStyle.color }"
+                  >
+                    <Icon name="flag" width="14" height="14" />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  class="task-modal-action-btn"
+                  :class="{ 'is-active': taskModalQuickPanel === 'due' }"
+                  ref="taskModalDueButtonRef"
+                  title="截止日期"
+                  aria-label="截止日期"
+                  @click.stop="toggleTaskModalQuickPanel('due')"
+                >
+                <Icon name="calendar" width="14" height="14" />
+                <span v-if="taskModalHasDueDate" class="task-modal-action-value">{{ taskModalDueText }}</span>
+              </button>
+              <button
+                type="button"
+                class="task-modal-action-btn"
+                :class="{ 'is-active': taskModalQuickPanel === 'description' }"
+                title="描述"
+                aria-label="描述"
+                @click.stop="toggleTaskModalQuickPanel('description')"
+              >
+                <Icon name="edit" width="14" height="14" />
+              </button>
             </div>
           </div>
           <div class="modal-footer">
@@ -57,14 +123,34 @@
       </Transition>
     </div>
   </Transition>
+    <PriorityPopover
+      v-if="taskModalPriorityPopover"
+      :show="true"
+      :position="taskModalPriorityPopover.position"
+      :placement="taskModalPriorityPopover.placement"
+      @select="handleTaskModalPrioritySelect"
+      @close="taskModalPriorityPopover = null"
+    />
+    <TaskDatePopover
+      v-if="taskModalQuickPanel === 'due'"
+      :visible="true"
+      :anchor-el="taskModalDueButtonRef"
+      :model-value="localTask.dueDate || ''"
+      @update:modelValue="handleTaskModalDateSelect"
+      @close="taskModalQuickPanel = null"
+    />
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
-import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
-import type { TaskPriority, TaskStatus } from '@/api';
+import Icon from '@/components/Icon.vue';
+import PriorityPopover from '@/components/PriorityPopover.vue';
+import TaskDatePopover from '@/components/TaskDatePopover.vue';
+import type { TaskPriority, TaskStatus, TaskGroup } from '@/api';
+import { formatMonthDay } from '@/utils/dateHelpers';
+import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
 
 export interface Notebook {
   id: string;
@@ -80,7 +166,7 @@ export interface Document {
 
 const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
 const PINCH_INBOX_OPTION_NAME = 'pinch收集箱';
-
+const TASK_GROUP_NONE_ID = '__none__';
 interface NewTask {
   title: string;
   description: string;
@@ -88,6 +174,7 @@ interface NewTask {
   status: TaskStatus;
   dueDate: string;
   tags: string[];
+  groupId: string;
 }
 
 interface Props {
@@ -97,6 +184,8 @@ interface Props {
   documents: Document[];
   lastSelectedNotebook?: string;
   lastSelectedDocument?: string;
+  groups?: TaskGroup[];
+  defaultGroupId?: string;
 }
 
 const props = defineProps<Props>();
@@ -104,21 +193,8 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   close: [];
   submit: [task: NewTask, notebookId: string, documentId: string];
+  'manage-groups': [];
 }>();
-
-const priorityOptions = [
-  { value: 'none', text: '' },
-  { value: 'high', text: '' },
-  { value: 'medium', text: '' },
-  { value: 'low', text: '' }
-];
-
-const statusOptions = [
-  { value: 'pending', text: '' },
-  { value: 'in-progress', text: '' },
-  { value: 'completed', text: '' },
-  { value: 'cancelled', text: '' }
-];
 
 const defaultTask: NewTask = {
   title: '',
@@ -126,12 +202,103 @@ const defaultTask: NewTask = {
   priority: 'none',
   status: 'pending',
   dueDate: '',
-  tags: []
+  tags: [],
+  groupId: ''
 };
 
 const localTask = ref<NewTask>({ ...defaultTask });
 const selectedNotebook = ref<string>('');
 const selectedDocument = ref<string>('');
+const taskModalQuickPanel = ref<'due' | 'description' | 'group' | null>(null);
+const taskModalPriorityPopover = ref<{
+  position: { x: number; y: number };
+  placement: 'bottom' | 'top';
+} | null>(null);
+const taskModalDescriptionRef = ref<HTMLTextAreaElement | null>(null);
+const taskModalDueButtonRef = ref<HTMLButtonElement | null>(null);
+
+const taskModalPriorityStyle = computed(() => {
+  switch (localTask.value.priority) {
+    case 'high':
+      return { background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' };
+    case 'medium':
+      return { background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' };
+    case 'low':
+      return { background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' };
+    case 'none':
+    default:
+      return { background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' };
+  }
+});
+
+const taskModalHasDueDate = computed(() => {
+  return !!(localTask.value.dueDate || '').trim();
+});
+
+const taskModalDueText = computed(() => {
+  if (!taskModalHasDueDate.value) return '';
+  return formatMonthDay(localTask.value.dueDate);
+});
+
+const taskModalHasDescription = computed(() => {
+  return (localTask.value.description || '').trim().length > 0;
+});
+
+const showTaskModalDescriptionPanel = computed(() => {
+  return taskModalQuickPanel.value === 'description' || taskModalHasDescription.value;
+});
+
+const taskModalSelectedGroupId = computed(() => {
+  const groupId = (localTask.value.groupId || '').trim();
+  return groupId || TASK_GROUP_NONE_ID;
+});
+
+const taskModalGroupLabel = computed(() => {
+  const groupId = (localTask.value.groupId || '').trim();
+  if (!groupId) {
+    return '无分组';
+  }
+  const group = (props.groups || []).find(item => item.id === groupId);
+  return group?.name || '分组';
+});
+
+const taskModalGroupColorValue = computed(() => {
+  const groupId = (localTask.value.groupId || '').trim();
+  if (!groupId) {
+    return '';
+  }
+  return (props.groups || []).find(item => item.id === groupId)?.color || '';
+});
+
+const taskModalGroupButtonStyle = computed(() => {
+  const rawColor = taskModalGroupColorValue.value;
+  if (!rawColor) {
+    return {};
+  }
+  return {
+    backgroundColor: resolveGroupColorCss(rawColor),
+    borderColor: resolveGroupColorCss(rawColor),
+    color: resolveGroupTextColor(rawColor)
+  };
+});
+
+const taskModalGroupOptions = computed(() => {
+  const options = [
+    { value: TASK_GROUP_NONE_ID, label: '无分组', special: true, color: '', colorCss: '', textColor: '' }
+  ];
+  (props.groups || []).forEach(group => {
+    const rawColor = group.color || '';
+    options.push({
+      value: group.id,
+      label: group.name,
+      special: false,
+      color: rawColor,
+      colorCss: resolveGroupColorCss(rawColor),
+      textColor: resolveGroupTextColor(rawColor)
+    });
+  });
+  return options;
+});
 
 const notebookOptions = computed(() => {
   return props.notebooks.map(nb => ({ value: nb.id, text: nb.name }));
@@ -168,14 +335,91 @@ function tt(key: string, fallback: string): string {
   return translated;
 }
 
+function selectTaskModalGroup(value: string): void {
+  localTask.value.groupId = value === TASK_GROUP_NONE_ID ? '' : value;
+}
+
 function handleNotebookChange() {
   selectedDocument.value = getInboxDocumentValue(selectedNotebook.value);
+}
+
+function toggleTaskModalPriorityPopover(event: MouseEvent) {
+  if (taskModalPriorityPopover.value) {
+    taskModalPriorityPopover.value = null;
+    return;
+  }
+  taskModalQuickPanel.value = null;
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const estimatedHeight = 152;
+  const gap = 8;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const spaceBelow = viewportHeight - rect.bottom;
+  const placement = spaceBelow < estimatedHeight ? 'top' : 'bottom';
+  taskModalPriorityPopover.value = {
+    position: {
+      x: rect.left + rect.width / 2,
+      y: placement === 'top' ? rect.top - gap : rect.bottom + gap
+    },
+    placement
+  };
+}
+
+function handleTaskModalPrioritySelect(value: string) {
+  localTask.value.priority = value as TaskPriority;
+  taskModalPriorityPopover.value = null;
+}
+
+function toggleTaskModalQuickPanel(panel: 'due' | 'description' | 'group') {
+  if (taskModalQuickPanel.value === panel) {
+    taskModalQuickPanel.value = null;
+    return;
+  }
+  taskModalPriorityPopover.value = null;
+  taskModalQuickPanel.value = panel;
+  void nextTick(() => {
+    if (panel === 'description') {
+      taskModalDescriptionRef.value?.focus();
+    }
+  });
+}
+
+function handleTaskModalDateSelect(value: string) {
+  localTask.value.dueDate = value;
+}
+
+function handleTaskModalDescriptionCommit() {
+  taskModalQuickPanel.value = null;
+}
+
+function handleTaskModalOutsideClick(event: MouseEvent): void {
+  if (!props.show || !taskModalPriorityPopover.value) return;
+  const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+  const isInsidePopover = path.some(node =>
+    node instanceof HTMLElement && node.classList.contains('priority-popover')
+  );
+  const isInsideControl = path.some(node =>
+    node instanceof HTMLElement && node.classList.contains('task-modal-priority-btn')
+  );
+  if (!isInsidePopover && !isInsideControl) {
+    taskModalPriorityPopover.value = null;
+  }
+}
+
+function resolveDefaultGroupId(): string {
+  const candidate = (props.defaultGroupId || '').trim();
+  if (!candidate) return '';
+  const exists = (props.groups || []).some(group => group.id === candidate);
+  return exists ? candidate : '';
 }
 
 watch(() => props.show, (show) => {
   if (show) {
     localTask.value = { ...defaultTask };
-    updateOptionTexts();
+    localTask.value.groupId = resolveDefaultGroupId();
+    taskModalQuickPanel.value = null;
+    taskModalPriorityPopover.value = null;
 
     const hasPreferredNotebook = !!props.lastSelectedNotebook &&
       props.notebooks.some(nb => nb.id === props.lastSelectedNotebook);
@@ -194,28 +438,19 @@ watch(() => props.show, (show) => {
   }
 });
 
-watch(() => props.t, () => {
-  updateOptionTexts();
+onMounted(() => {
+  document.addEventListener('mousedown', handleTaskModalOutsideClick, true);
 });
 
-function updateOptionTexts() {
-  priorityOptions[0].text = tt('taskManager.priorityAll', '全部');
-  priorityOptions[1].text = tt('taskManager.priorityHigh', '高');
-  priorityOptions[2].text = tt('taskManager.priorityMedium', '中');
-  priorityOptions[3].text = tt('taskManager.priorityLow', '低');
-
-  statusOptions[0].text = tt('taskManager.statusPending', '待处理');
-  statusOptions[1].text = tt('taskManager.statusInProgress', '进行中');
-  statusOptions[2].text = tt('taskManager.statusCompleted', '已完成');
-  statusOptions[3].text = tt('taskManager.statusCancelled', '已取消');
-}
-
-updateOptionTexts();
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', handleTaskModalOutsideClick, true);
+});
 
 const handleSubmit = () => {
   const trimmedTitle = localTask.value.title.trim();
   if (trimmedTitle && selectedNotebook.value) {
-    emit('submit', { ...localTask.value, title: trimmedTitle }, selectedNotebook.value, selectedDocument.value);
+    const groupId = (localTask.value.groupId || '').trim();
+    emit('submit', { ...localTask.value, title: trimmedTitle, groupId }, selectedNotebook.value, selectedDocument.value);
   }
 };
 </script>
@@ -232,7 +467,7 @@ const handleSubmit = () => {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  z-index: 1000;
+  z-index: 2;
 }
 
 .modal-content {
@@ -348,6 +583,19 @@ const handleSubmit = () => {
   color: var(--b3-theme-on-background);
 }
 
+.task-title-group {
+  margin-bottom: 12px;
+}
+
+.task-title-input {
+  width: 100%;
+  min-height: 72px;
+  line-height: 1.45;
+  font-size: 15px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
 .due-date-row {
   display: flex;
   align-items: center;
@@ -412,6 +660,163 @@ const handleSubmit = () => {
   min-height: 56px;
   line-height: 1.45;
   resize: vertical;
+}
+
+.task-modal-quick-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--b3-theme-border);
+  margin-bottom: 12px;
+}
+
+.task-modal-quick-panel.is-date {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.task-modal-group-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--b3-theme-border);
+  background: var(--b3-list-hover);
+  margin-bottom: 12px;
+}
+
+.task-modal-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-modal-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.task-modal-group-manage {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.task-modal-group-manage:hover {
+  color: var(--b3-theme-on-background);
+}
+
+.task-modal-group-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.task-modal-group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: none;
+  background: var(--group-chip-bg, var(--b3-list-hover));
+  color: var(--group-chip-color, var(--b3-theme-on-surface));
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.task-modal-group-chip.active {
+  background: #f98f7a;
+  color: var(--b3-theme-background);
+  box-shadow: none;
+}
+
+.task-modal-group-chip:hover {
+  color: var(--group-chip-color, var(--b3-theme-on-background));
+}
+
+.task-modal-group-chip-label {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.task-modal-quick-panel textarea,
+.task-modal-quick-panel input[type="date"] {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 6px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.task-modal-quick-panel textarea:focus,
+.task-modal-quick-panel input[type="date"]:focus {
+  outline: none;
+  border-color: #f98f7a;
+}
+
+.task-modal-action-bar {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.task-modal-action-btn {
+  flex: 0 0 auto;
+  width: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--b3-theme-border);
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.task-modal-group-btn {
+  min-width: 0;
+}
+
+.task-modal-group-button-label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-modal-action-btn.is-active {
+  border-color: #f98f7a;
+  box-shadow: 0 0 0 1px #f98f7a inset;
+}
+
+.task-modal-action-value {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.task-modal-priority-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .modal-footer {

@@ -122,7 +122,7 @@ const handleDelete = () => {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  z-index: 1000;
+  z-index: 2;
 }
 
 .modal-content {

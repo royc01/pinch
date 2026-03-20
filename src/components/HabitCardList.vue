@@ -30,7 +30,12 @@
                   {{ pomodoroIcon }} {{ habit.pomodoroDuration ? `${habit.pomodoroDuration}min` : '25min' }}
                 </span>
               </div>
-              <div class="week-checkboxes">
+              <div v-if="manageMode" class="habit-status-text">
+                <span :class="['habit-status-badge', habit.isPaused ? 'paused' : 'active']">
+                  {{ habit.isPaused ? '已暂停' : '进行中' }}
+                </span>
+              </div>
+              <div v-else class="week-checkboxes">
                 <div
                   v-for="day in getCalendarViewData(habit)"
                   :key="day.date"
@@ -55,7 +60,14 @@
               </div>
             </div>
             <div class="habit-actions">
+              <SyCheckbox
+                v-if="manageMode"
+                class="habit-pause-switch"
+                :model-value="!habit.isPaused"
+                @update:model-value="emit('toggle-pause', habit)"
+              />
               <SyButton
+                v-else
                 @click="emit('toggle-habit', habit.id)"
                 :type="isHabitCompleted(habit) ? 'success' : 'default'"
                 size="small"
@@ -150,6 +162,7 @@ import { toRefs } from 'vue';
 import type { Habit } from '@/api';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
+import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 
 interface HabitCacheData {
   weeklyCompleted: boolean;
@@ -166,7 +179,7 @@ interface CalendarDayData {
   isCompletedByWeeklyRule: boolean;
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   sortedHabits: Habit[];
   isHabitListCollapsed: boolean;
   showAnimation: boolean;
@@ -179,13 +192,17 @@ const props = defineProps<{
   getCalendarViewData: (habit: Habit) => CalendarDayData[];
   pomodoroStateClass: (state: string | undefined) => string;
   formatPomodoroTime: (seconds: number) => string;
-}>();
+  manageMode?: boolean;
+}>(), {
+  manageMode: false
+});
 
 const emit = defineEmits<{
   (event: 'show-stats', habit: Habit): void;
   (event: 'doc-button', habit: Habit): void;
   (event: 'open-bind-doc', habit: Habit): void;
   (event: 'toggle-habit', habitId: string): void;
+  (event: 'toggle-pause', habit: Habit): void;
   (event: 'pomodoro-pause'): void;
   (event: 'pomodoro-resume'): void;
   (event: 'pomodoro-stop'): void;
@@ -218,7 +235,8 @@ const {
   getHabitCache,
   getCalendarViewData,
   pomodoroStateClass,
-  formatPomodoroTime
+  formatPomodoroTime,
+  manageMode
 } = toRefs(props);
 </script>
 
@@ -250,18 +268,6 @@ const {
 
 .habit-card.completed {
   box-shadow: inset 0 0 0 100px rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.06) 0 1px 5px 0;
-}
-
-.habit-card.paused {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    var(--b3-border-color),
-    var(--b3-border-color) 5px,
-    var(--b3-list-hover) 0,
-    var(--b3-list-hover) 10px
-  );
-  background-color: var(--b3-list-background);
-  opacity: 0.7;
 }
 
 .week-habit-item {
@@ -334,6 +340,31 @@ const {
   display: flex;
 }
 
+.habit-status-text {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+}
+
+.habit-status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+}
+
+.habit-status-badge.active {
+  background: rgba(67, 160, 71, 0.12);
+  color: #2e7d32;
+}
+
+.habit-status-badge.paused {
+  background: rgba(249, 143, 122, 0.16);
+  color: #cf5c4b;
+}
+
 .day-checkbox {
   display: flex;
   flex-direction: column;
@@ -370,6 +401,10 @@ const {
 .habit-actions {
   display: flex;
   align-items: center;
+}
+
+.habit-pause-switch {
+  margin-right: 8px;
 }
 
 .check-in-btn {

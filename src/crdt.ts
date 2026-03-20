@@ -18,6 +18,7 @@ export interface CRDTTask {
   dueTime: CRDTField<string | undefined>;
   description: CRDTField<string | undefined>;
   tags: CRDTField<string[]>;
+  groupId: CRDTField<string | undefined>;
   backgroundColor: CRDTField<string | undefined>;
   deleted: CRDTField<boolean>;
   updatedAt: Timestamp;
@@ -31,6 +32,7 @@ export interface CRDTTask {
     repeatFrequency?: string;
     repeatInstanceDate?: string;
     isVirtual?: boolean;
+    createdAt?: string;
   };
 }
 
@@ -63,6 +65,17 @@ function mergeField<T>(a: CRDTField<T>, b: CRDTField<T>): CRDTField<T> {
 }
 
 export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
+  const createdAtA = a.metadata.createdAt;
+  const createdAtB = b.metadata.createdAt;
+  let createdAt = createdAtA || createdAtB;
+  if (createdAtA && createdAtB) {
+    const timeA = Date.parse(createdAtA);
+    const timeB = Date.parse(createdAtB);
+    if (Number.isFinite(timeA) && Number.isFinite(timeB)) {
+      createdAt = timeA <= timeB ? createdAtA : createdAtB;
+    }
+  }
+
   const metadata = {
     blockId: b.metadata.blockId || a.metadata.blockId,
     rootId: b.metadata.rootId || a.metadata.rootId,
@@ -73,7 +86,8 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
     repeatSeriesId: b.metadata.repeatSeriesId,
     repeatFrequency: b.metadata.repeatFrequency,
     repeatInstanceDate: b.metadata.repeatInstanceDate,
-    isVirtual: b.metadata.isVirtual
+    isVirtual: b.metadata.isVirtual,
+    createdAt
   };
 
   return {
@@ -87,6 +101,7 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
     dueTime: mergeField(a.dueTime || b.dueTime, b.dueTime || a.dueTime),
     description: mergeField(a.description, b.description),
     tags: mergeField(a.tags, b.tags),
+    groupId: mergeField(a.groupId, b.groupId),
     backgroundColor: mergeField(a.backgroundColor || b.backgroundColor, b.backgroundColor || a.backgroundColor),
     deleted: mergeField(a.deleted, b.deleted),
     updatedAt: Math.max(a.updatedAt, b.updatedAt),
@@ -116,6 +131,7 @@ export class TaskCRDTEngine {
       dueTime: base,
       description: base,
       tags: this.baseField([]),
+      groupId: base,
       backgroundColor: base,
       deleted: this.baseField(false),
       updatedAt: Date.now(),

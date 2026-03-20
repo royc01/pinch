@@ -23,22 +23,6 @@
         
         <div v-if="currentView === 'kanban'" class="filter-bar-inline">
           <div class="filter-group">
-            <label>优先级:</label>
-            <SySelect
-              :model-value="kanbanFilterPriority"
-              @update:model-value="kanbanFilterPriority = $event"
-              :options="priorityOptions"
-            />
-          </div>
-          <div class="filter-group">
-            <label>日期:</label>
-            <SySelect
-              :model-value="kanbanFilterUpdatedRange"
-              @update:model-value="kanbanFilterUpdatedRange = $event"
-              :options="updatedRangeOptions"
-            />
-          </div>
-          <div class="filter-group">
             <label>分类:</label>
             <SySelect
               :model-value="kanbanFilterType"
@@ -46,39 +30,15 @@
               :options="notebookOptions"
             />
           </div>
-          <div v-if="kanbanFilterType !== 'all'" class="filter-group">
-            <label>文档:</label>
-            <SySelect
-              :model-value="kanbanFilterDocument"
-              @update:model-value="kanbanFilterDocument = $event"
-              :options="documentOptions"
-            />
-          </div>
         </div>
-        
+
         <div v-if="currentView === 'table'" class="filter-bar-inline">
-          <div class="filter-group">
-            <label>日期:</label>
-            <SySelect
-              :model-value="tableFilterUpdatedRange"
-              @update:model-value="tableFilterUpdatedRange = $event"
-              :options="updatedRangeOptions"
-            />
-          </div>
           <div class="filter-group">
             <label>分类:</label>
             <SySelect
               :model-value="tableFilterType"
               @update:model-value="tableFilterType = $event"
               :options="notebookOptions"
-            />
-          </div>
-          <div v-if="tableFilterType !== 'all'" class="filter-group">
-            <label>文档:</label>
-            <SySelect
-              :model-value="tableFilterDocument"
-              @update:model-value="tableFilterDocument = $event"
-              :options="documentOptions"
             />
           </div>
         </div>
@@ -92,14 +52,6 @@
               :options="notebookOptions"
             />
           </div>
-          <div v-if="monthFilterType !== 'all'" class="filter-group">
-            <label>文档:</label>
-            <SySelect
-              :model-value="monthFilterDocument"
-              @update:model-value="monthFilterDocument = $event"
-              :options="documentOptions"
-            />
-          </div>
         </div>
         
         <div v-if="currentView === 'week'" class="filter-bar-inline">
@@ -111,96 +63,220 @@
               :options="notebookOptions"
             />
           </div>
-          <div v-if="weekFilterType !== 'all'" class="filter-group">
-            <label>文档:</label>
-            <SySelect
-              :model-value="weekFilterDocument"
-              @update:model-value="weekFilterDocument = $event"
-              :options="documentOptions"
-            />
-          </div>
         </div>
       </div>
       
       <div class="header-actions">
-        <button @click="openTaskScopeDialog" class="scope-btn">
-          任务范围
+        <div v-if="currentView === 'kanban'" class="kanban-group-switch">
+          <span>分组模式</span>
+          <SyCheckbox v-model="kanbanGroupMode" />
+        </div>
+        <div v-if="currentView === 'table'" class="kanban-group-switch">
+          <span>分组模式</span>
+          <SyCheckbox v-model="tableGroupMode" />
+        </div>
+        <button
+          type="button"
+          class="scope-btn"
+          title="任务范围"
+          aria-label="任务范围"
+          @click="openTaskScopeDialog"
+        >
+          <Icon name="taskScope" width="24" height="24" />
         </button>
         <button @click="refreshTasks" class="refresh-btn">
           <Icon name="refresh" width="24" height="24" />
         </button>
       </div>
     </div>
+    <div v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table'" class="document-tabs-row">
+      <div v-if="showDocumentTabs" class="document-tabs">
+        <button
+          v-for="option in documentOptions"
+          :key="option.value"
+          type="button"
+          class="document-tab"
+          :class="{ active: currentDocumentFilter === option.value }"
+          @click="currentDocumentFilter = option.value"
+        >
+          {{ option.text }}
+        </button>
+      </div>
+      <div v-else class="document-tabs-placeholder"></div>
+      <div v-if="currentView === 'kanban'" class="document-tabs-actions">
+        <div ref="kanbanFilterControlRef" class="task-filter-control">
+          <button
+            type="button"
+            class="task-filter-btn"
+            :class="{ active: kanbanFilterPopoverVisible || hasActiveKanbanFilters }"
+            title="筛选任务"
+            aria-label="筛选任务"
+            @click.stop="toggleKanbanFilterPopover($event)"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 5h18" />
+              <path d="M7 12h10" />
+              <path d="M10 19h4" />
+            </svg>
+            <span v-if="activeKanbanFilterCount > 0" class="task-filter-count">
+              {{ activeKanbanFilterCount }}
+            </span>
+          </button>
+        </div>
+      </div>
+        <div v-else-if="currentView === 'table'" class="document-tabs-actions table-document-actions">
+          <div class="table-actions-row">
+            <div class="task-search">
+            <svg class="task-search-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10.5 3a7.5 7.5 0 1 0 4.83 13.24l3.46 3.46a1 1 0 0 0 1.42-1.42l-3.46-3.46A7.5 7.5 0 0 0 10.5 3zm0 2a5.5 5.5 0 1 1 0 11a5.5 5.5 0 0 1 0-11z"
+              />
+            </svg>
+            <input
+              v-model="tableSearchQuery"
+              type="search"
+              placeholder="搜索任务"
+              aria-label="搜索任务"
+              @keydown.esc.stop.prevent="tableSearchQuery = ''"
+            />
+            <button
+              v-if="tableSearchQuery"
+              type="button"
+              class="task-search-clear"
+              aria-label="清除搜索"
+              @click="tableSearchQuery = ''"
+            >
+              ×
+              </button>
+            </div>
+            <div ref="tableFilterControlRef" class="task-filter-control">
+              <button
+                type="button"
+              class="task-filter-btn"
+              :class="{ active: tableFilterPopoverVisible || hasActiveTableFilters }"
+              title="筛选任务"
+              aria-label="筛选任务"
+              @click.stop="toggleTableFilterPopover($event)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 5h18" />
+                <path d="M7 12h10" />
+                <path d="M10 19h4" />
+              </svg>
+              <span v-if="activeTableFilterCount > 0" class="task-filter-count">
+                {{ activeTableFilterCount }}
+              </span>
+              </button>
+            </div>
+          </div>
+      </div>
+    </div>
 
     <div v-if="loading" class="loading">加载中...</div>
     <div v-else-if="currentView === 'kanban' && isSettingsLoaded" class="kanban-board">
       <div 
-        v-for="column in columns" 
-        :key="column.status" 
+        v-for="column in kanbanColumns" 
+        :key="column.id" 
         class="kanban-column"
-        :class="`status-${column.status}`"
+        :class="[
+          column.type === 'status' ? `status-${column.status}` : '',
+          column.type === 'group' ? 'group-column' : '',
+          column.type === 'action' ? 'action-column' : ''
+        ]"
       >
-        <div class="column-header">
-          <div class="column-title">{{ column.title }}</div>
-          <div class="column-count">{{ getColumnTaskCount(column.status) }}</div>
-        </div>
-        <div 
-          class="column-tasks"
-          :class="{ 'drag-over': dragOverStatus === column.status }"
-          @dragover.prevent="handleDragOver($event, column.status)"
-          @dragleave="handleDragLeave"
-          @drop="handleDrop($event, column.status)"
-        >
-          <div
-            v-for="task in getFilteredTasksForStatus(column.status)"
-            :key="task.id"
-            class="kanban-task-card protyle-wysiwyg"
-              :class="[
-                `priority-${task.priority}`,
-                { 
-                  'task-completed': isTaskCompletedVisual(task),
-                  'dragging': draggedTask && draggedTask.id === task.id
-                }
-              ]"
-            :draggable="!isMobileFrontend"
-            @dragstart="handleDragStart($event, task)"
-            @dragend="handleDragEnd"
-            @click="handleTaskClick(task)"
+        <template v-if="column.type === 'action'">
+          <div class="column-tasks action-column-body">
+            <button
+              type="button"
+              class="kanban-add-group-btn"
+              title="新建分组"
+              aria-label="新建分组"
+              @click="openTaskGroupQuickCreate"
+            >
+              <Icon name="add" width="18" height="18" />
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <div class="column-header">
+            <button
+              v-if="column.type === 'group'"
+              type="button"
+              class="column-title column-title-button"
+              @click="openTaskGroupDialog"
+            >
+              <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
+              <span class="column-title-text">{{ column.title }}</span>
+            </button>
+            <div v-else class="column-title">
+              <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
+              <span class="column-title-text">{{ column.title }}</span>
+            </div>
+            <div class="column-count">{{ getColumnTaskCount(column) }}</div>
+          </div>
+          <div 
+            class="column-tasks"
+            :class="{ 'drag-over': dragOverColumnId === column.id }"
+            @dragover.prevent="handleDragOver($event, column)"
+            @dragleave="handleDragLeave"
+            @drop="handleDrop($event, column)"
+            @scroll="handleKanbanColumnScroll($event, column)"
+            :ref="(el) => setKanbanColumnTasksRef(column.id, el as HTMLElement | null)"
           >
-            <div class="task-title" v-html="task.title"></div>
-            <div v-if="task.description" class="task-description" v-html="task.description"></div>
-            <div class="task-meta">
-              <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
-                <Icon name="flag" width="12" height="12" />
-              </span>
-              <span v-if="task.dueDate" class="task-due-badge">
-                <Icon name="calendar" width="12" height="12" />
-                {{ formatDate(task.dueDate) }}
-              </span>
+            <div
+              v-if="getColumnTaskCount(column) > 0"
+              class="column-task-spacer"
+              :style="getKanbanSpacerStyle(column)"
+            >
+              <TaskCard
+                v-for="task in getVisibleTasksForColumn(column)"
+                :key="task.id"
+                :task="task"
+                variant="kanban"
+                :task-groups="taskGroups"
+                :completed="isTaskCompletedVisual(task)"
+                :draggable="!isMobileFrontend"
+                :dragging="!!(draggedTask && draggedTask.id === task.id)"
+                :expanded="isKanbanTaskExpanded(task.id)"
+                :description-editing="inlineEditingDescriptionTaskId === task.id"
+                :description-draft="getInlineDescriptionDraft(task)"
+                :show-description="inlineEditingDescriptionTaskId === task.id || isKanbanTaskExpanded(task.id)"
+                :show-subtasks="isKanbanTaskExpanded(task.id)"
+                @card-click="handleTaskClick"
+                @open-click="handleTaskEditClick"
+                @toggle-status="toggleTaskStatus"
+                @toggle-expand="toggleKanbanTaskExpand"
+                @description-start-edit="startInlineDescriptionEdit"
+                @description-input="handleInlineDescriptionInput"
+                @description-save="saveInlineDescriptionEdit"
+                @description-cancel="cancelInlineDescriptionEdit"
+                @subtask-toggle="handleSubtaskToggle"
+                @dragstart="handleDragStart"
+                @dragend="handleDragEnd"
+              />
             </div>
-            <div v-if="task.subtasks && task.subtasks.length > 0" class="task-progress">
-              <div class="task-progress-bar">
-                <div class="task-progress-fill" :style="{ width: getSubtaskProgress(task.subtasks) + '%' }"></div>
-              </div>
-              <div class="task-progress-text">{{ getSubtaskStats(task.subtasks) }}</div>
+            <div v-else class="empty-column">
+              暂无任务
             </div>
           </div>
-          <div v-if="getFilteredTasksForStatus(column.status).length === 0" class="empty-column">
-            暂无任务
-          </div>
-        </div>
+        </template>
       </div>
     </div>
     
     <TableView 
       v-if="currentView === 'table'"
       :tasks="tableViewTasks"
+      :task-groups="taskGroups"
+      :group-mode="tableGroupMode"
       @task-click="handleTaskClick"
+      @open-click="handleTaskEditClick"
       @status-toggle="toggleTaskStatus"
       @subtask-toggle="handleSubtaskToggle"
       @description-update="handleDescriptionUpdate"
       @priority-update="handlePriorityUpdate"
       @status-update="handleStatusUpdate"
+      @group-update="handleGroupUpdate"
+      @manage-groups="openTaskGroupDialog"
       @start-date-update="handleStartDateUpdate"
       @due-date-update="handleDueDateUpdate"
     />
@@ -218,6 +294,100 @@
       @task-click="handleTaskClick"
       @task-create-requested="handleTaskCreateRequested"
     />
+
+    <TaskFilterPopover
+      ref="kanbanFilterPopoverRef"
+      :visible="kanbanFilterPopoverVisible"
+      :popover-style="kanbanFilterPopoverStyle"
+      :has-active="hasActiveKanbanFilters"
+      :sections="kanbanFilterSections"
+      @clear="clearKanbanFilters"
+      @toggle="handleKanbanFilterToggle"
+    />
+
+    <TaskFilterPopover
+      ref="tableFilterPopoverRef"
+      :visible="tableFilterPopoverVisible"
+      :popover-style="tableFilterPopoverStyle"
+      :has-active="hasActiveTableFilters"
+      :sections="tableFilterSections"
+      @clear="clearTableFilters"
+      @toggle="handleTableFilterToggle"
+    />
+
+    <PriorityPopover
+      v-if="kanbanEditorPriorityPopover"
+      :show="true"
+      :position="kanbanEditorPriorityPopover.position"
+      @select="handleKanbanEditorPrioritySelect"
+      @close="kanbanEditorPriorityPopover = null"
+    />
+
+    <Teleport to="body">
+      <div
+        v-if="kanbanEditorVisible"
+        ref="kanbanEditorPanelRef"
+        class="kanban-editor-panel"
+        :style="kanbanEditorStyle"
+        @mousedown.stop
+      >
+        <div class="kanban-editor-header">
+          <span class="kanban-editor-title">编辑任务</span>
+          <div class="kanban-editor-actions">
+            <button
+              v-if="activeKanbanEditTask && activeKanbanEditDraft"
+              type="button"
+              class="kanban-editor-priority-btn"
+              title="优先级"
+              aria-label="优先级"
+              @click.stop="toggleKanbanEditorPriorityPopover($event)"
+            >
+              <span
+                class="kanban-editor-priority-indicator"
+                :style="{ background: kanbanEditorPriorityOption.background, color: kanbanEditorPriorityOption.color }"
+              >
+                <Icon name="flag" width="14" height="14" />
+              </span>
+            </button>
+            <button
+              type="button"
+              class="kanban-editor-close"
+              title="关闭"
+              aria-label="关闭"
+              @click="closeKanbanEditor"
+            >
+              <Icon name="close" width="14" height="14" />
+            </button>
+          </div>
+        </div>
+        <div ref="kanbanEditorMountRef" class="kanban-editor-body"></div>
+        <div
+          v-if="activeKanbanEditTask && activeKanbanEditDraft"
+          class="kanban-editor-meta"
+        >
+          <TaskEditorMetaPanel
+            :panel="kanbanEditorQuickPanel"
+            :due-date="activeKanbanEditDraft.dueDate || ''"
+            :due-text="kanbanEditorDueText"
+            :has-due-date="kanbanEditorHasDueDate"
+            :description="activeKanbanEditDraft.description || ''"
+            :has-description="kanbanEditorHasDescription"
+            :group-options="kanbanGroupPickerOptions"
+            :selected-group-id="kanbanEditorSelectedGroupId"
+            :group-label="kanbanEditorGroupLabel"
+            :group-button-style="kanbanEditorGroupButtonStyle"
+            :default-group-chip-color="defaultGroupChipColor"
+            description-placeholder="添加任务描述..."
+            @update:panel="kanbanEditorQuickPanel = $event"
+            @update:description="handleKanbanEditorDescriptionInput"
+            @select-due="handleKanbanEditorDateSelect"
+            @select-group="handleKanbanEditorGroupSelect"
+            @commit-description="handleKanbanEditorDescriptionCommit"
+            @manage-groups="openTaskGroupDialog"
+          />
+        </div>
+      </div>
+    </Teleport>
 
     <div v-if="quickCreateDialog.show" class="quick-create-mask" @click="closeQuickCreateDialog">
       <div class="quick-create-dialog" @click.stop>
@@ -257,23 +427,30 @@
       :show="showTaskScopeDialog"
       :notebooks="notebooks"
       :excluded-notebook-ids="excludedNotebookIds"
+      :show-extra="false"
       @close="showTaskScopeDialog = false"
       @save="handleTaskScopeSave"
+    />
+    <TaskGroupDialog
+      :show="showTaskGroupDialog"
+      :groups="taskGroups"
+      :auto-add="taskGroupDialogAutoAdd"
+      @close="closeTaskGroupDialog"
+      @save="handleTaskGroupSave"
     />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
-import { getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, setBlockAttrs, pushMsg, openBlockById } from '../api';
+import { Protyle, getFrontend } from 'siyuan';
+import { TaskRepository, Task, SubTask, TaskGroup, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, loadTaskGroups, saveTaskGroups } from '../api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
-import { useNotebooks } from '@/composables/useTaskCommon';
+import { useNotebooks, stripHtml } from '@/composables/useTaskCommon';
 import { eventBus, Events } from '../utils/eventBus';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
-import { formatDate } from '@/utils/dateHelpers';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
 import {
   applyRepeatRuleOptimisticToTasks,
@@ -282,11 +459,21 @@ import {
   type RepeatRulePayload
 } from '@/utils/taskViewShared';
 import Icon from '@/components/Icon.vue';
+import TaskCard from '@/components/TaskCard.vue';
+import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
+import { useTaskFilterState } from '@/composables/useTaskFilterState';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
+import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import TableView from '@/components/TableView.vue';
 import MonthView from '@/components/MonthView.vue';
 import WeekView from '@/components/WeekView.vue';
+import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
+import PriorityPopover from '@/components/PriorityPopover.vue';
 import TaskScopeDialog from '@/components/TaskScopeDialog.vue';
+import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
+import { usePlugin } from '@/main';
+import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
+import { formatMonthDay } from '@/utils/dateHelpers';
 
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 
@@ -301,6 +488,8 @@ try {
 }
 const loading = ref(false);
 const showTaskScopeDialog = ref(false);
+const showTaskGroupDialog = ref(false);
+const taskGroupDialogAutoAdd = ref(false);
 const excludedNotebookIds = ref<string[]>([]);
 const skipSet = new Set<string>();
 
@@ -325,14 +514,28 @@ function stopSkipSetCleanup() {
   }
 }
 
-const kanbanFilterPriority = ref('all');
-const kanbanFilterUpdatedRange = ref<'all' | 'today' | 'week' | 'month'>('all');
 const kanbanFilterType = ref('all');
 const kanbanFilterDocument = ref('all');
+const kanbanGroupMode = ref(false);
+const tableGroupMode = ref(false);
+const kanbanFilterPopoverVisible = ref(false);
+const kanbanFilterPopoverStyle = ref<Record<string, string>>({});
+const kanbanFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
+const kanbanFilterControlRef = ref<HTMLElement | null>(null);
+const kanbanFilterPopoverPoint = ref<{ x: number; y: number } | null>(null);
+const tableFilterPopoverVisible = ref(false);
+const tableFilterPopoverStyle = ref<Record<string, string>>({});
+const tableFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
+const tableFilterControlRef = ref<HTMLElement | null>(null);
+const tableFilterPopoverPoint = ref<{ x: number; y: number } | null>(null);
 
-const tableFilterUpdatedRange = ref<'all' | 'today' | 'week' | 'month'>('all');
+type KanbanTaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
+type KanbanTaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
+type KanbanTaskExtraFilterKey = 'hasDescription' | 'hasSubtasks';
 const tableFilterType = ref('all');
 const tableFilterDocument = ref('all');
+const tableSearchQuery = ref('');
+const normalizedTableSearch = computed(() => normalizeSearchText(tableSearchQuery.value));
 
 const monthFilterType = ref('all');
 const monthFilterDocument = ref('all');
@@ -344,17 +547,100 @@ const isSettingsLoaded = ref(false);
 const isHydratingSettings = ref(false);
 
 const { notebooks, loadNotebooks } = useNotebooks();
+const taskGroups = ref<TaskGroup[]>([]);
 const draggedTask = ref<Task | null>(null);
-const dragOverStatus = ref<string | null>(null);
+const dragOverColumnId = ref<string | null>(null);
+const kanbanColumnMetrics = ref<Record<string, { scrollTop: number; height: number }>>({});
 const isDropping = ref(false);
+const kanbanColumnElements = new Map<string, HTMLElement>();
+let kanbanMetricsRaf: number | null = null;
+const kanbanColumnEstimatedHeights = ref<Record<string, number>>({});
 const currentView = ref<'kanban' | 'table' | 'month' | 'week'>((userSettings.kanban?.currentView as 'kanban' | 'table' | 'month' | 'week') || 'table');
+const expandedKanbanTaskIds = ref(new Set<string>());
+const kanbanSubtaskHydratingIds = new Set<string>();
+const inlineEditingDescriptionTaskId = ref<string | null>(null);
+const inlineDescriptionDraftByTaskId = ref(new Map<string, string>());
+const inlineDescriptionSavingTaskIds = new Set<string>();
+const kanbanEditorVisible = ref(false);
+const kanbanEditorPosition = ref({ x: 0, y: 0 });
+const kanbanEditorPanelRef = ref<HTMLElement | null>(null);
+const kanbanEditorMountRef = ref<HTMLElement | null>(null);
+let kanbanEditorProtyle: Protyle | null = null;
+const kanbanEditorTaskId = ref<string | null>(null);
+const kanbanEditorDraft = ref<{
+  taskId: string;
+  dueDate: string;
+  description: string;
+  groupId: string;
+  priority: Task['priority'];
+} | null>(null);
+const kanbanEditorQuickPanel = ref<'due' | 'description' | 'group' | null>(null);
+const kanbanEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
+const openingKanbanEditorBlockIds = new Set<string>();
 
-const columns = [
-  { status: 'pending', title: '待处理' },
-  { status: 'in-progress', title: '进行中' },
-  { status: 'completed', title: '已完成' },
-  { status: 'cancelled', title: '已取消' }
+const activeKanbanEditTask = computed(() =>
+  kanbanEditorTaskId.value
+    ? (tasks.value.find(task => task.id === kanbanEditorTaskId.value) || null)
+    : null
+);
+const activeKanbanEditDraft = computed(() =>
+  kanbanEditorTaskId.value && kanbanEditorDraft.value?.taskId === kanbanEditorTaskId.value
+    ? kanbanEditorDraft.value
+    : null
+);
+
+const TASK_GROUP_NONE_ID = '__none__';
+const defaultGroupChipColor = '#9aa0a6';
+const ADD_GROUP_COLUMN_ID = '__add-group__';
+
+type KanbanColumn = {
+  id: string;
+  title: string;
+  type: 'status' | 'group' | 'action';
+  status?: Task['status'];
+  groupId?: string;
+};
+
+const statusColumns: KanbanColumn[] = [
+  { id: 'status-pending', status: 'pending', title: '待处理', type: 'status' },
+  { id: 'status-in-progress', status: 'in-progress', title: '进行中', type: 'status' },
+  { id: 'status-completed', status: 'completed', title: '已完成', type: 'status' },
+  { id: 'status-cancelled', status: 'cancelled', title: '已取消', type: 'status' }
 ];
+
+const KANBAN_VIRTUAL_CARD_HEIGHT = 110;
+const KANBAN_VIRTUAL_OVERSCAN = 6;
+const KANBAN_VIRTUAL_THRESHOLD = 120;
+const KANBAN_TITLE_HYDRATE_LIMIT = 120;
+const kanbanPriorityOrder = { high: 0, medium: 1, low: 2, none: 3 } as const;
+
+const taskGroupIdSet = computed(() => {
+  return new Set(taskGroups.value.map(group => group.id));
+});
+
+const groupColumns = computed<KanbanColumn[]>(() => {
+  const columns: KanbanColumn[] = [
+    { id: TASK_GROUP_NONE_ID, title: '未分组', type: 'group', groupId: '' }
+  ];
+  for (const group of taskGroups.value) {
+    if (!group || !group.id) continue;
+    columns.push({
+      id: group.id,
+      title: group.name?.trim() || '分组',
+      type: 'group',
+      groupId: group.id
+    });
+  }
+  return columns;
+});
+
+const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action' };
+
+const kanbanColumns = computed(() => (
+  kanbanGroupMode.value
+    ? [...groupColumns.value, addGroupColumn]
+    : statusColumns
+));
 
 interface CreateTaskPayload {
   startDate: string;
@@ -377,18 +663,32 @@ const quickCreateDialog = ref<{
   payload: null
 });
 
-const priorityOptions = [
-  { value: 'all', text: '全部' },
-  { value: 'high', text: '高' },
-  { value: 'medium', text: '中' },
-  { value: 'low', text: '低' }
+const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
+  { value: 'pending', label: '待处理' },
+  { value: 'in-progress', label: '进行中' },
+  { value: 'completed', label: '已完成' },
+  { value: 'cancelled', label: '已取消' }
 ];
-
-const updatedRangeOptions = [
-  { value: 'all', text: '全部' },
-  { value: 'today', text: '今日' },
-  { value: 'week', text: '本周' },
-  { value: 'month', text: '本月' }
+const kanbanPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = [
+  { value: 'high', label: '高优先级' },
+  { value: 'medium', label: '中优先级' },
+  { value: 'low', label: '低优先级' },
+  { value: 'none', label: '无优先级' }
+];
+const kanbanDueFilterOptions: Array<{ value: KanbanTaskDueFilterKey; label: string }> = [
+  { value: 'overdue', label: '已逾期' },
+  { value: 'today', label: '今天到期' },
+  { value: 'next7Days', label: '未来 7 天' },
+  { value: 'noDueDate', label: '无截止日期' }
+];
+const kanbanUpdatedFilterOptions: Array<{ value: KanbanTaskUpdateFilterKey; label: string }> = [
+  { value: 'today', label: '今日' },
+  { value: 'thisWeek', label: '本周' },
+  { value: 'thisMonth', label: '本月' }
+];
+const kanbanExtraFilterOptions: Array<{ value: KanbanTaskExtraFilterKey; label: string }> = [
+  { value: 'hasDescription', label: '有描述' },
+  { value: 'hasSubtasks', label: '有子任务' }
 ];
 
 const enabledNotebooks = computed(() => {
@@ -400,6 +700,207 @@ const notebookOptions = computed(() => [
   { value: 'all', text: '全部' },
   ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
 ]);
+
+const kanbanGroupPickerOptions = computed(() => {
+  const options = [
+    { value: TASK_GROUP_NONE_ID, label: '无分组', special: true, colorCss: '', textColor: '' }
+  ];
+  taskGroups.value.forEach(group => {
+    const rawColor = group.color || '';
+    options.push({
+      value: group.id,
+      label: group.name,
+      special: false,
+      colorCss: resolveGroupColorCss(rawColor),
+      textColor: resolveGroupTextColor(rawColor)
+    });
+  });
+  return options;
+});
+
+const kanbanGroupFilterOptions = computed(() => {
+  const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
+    { value: TASK_GROUP_NONE_ID, label: '无分组', style: {} }
+  ];
+  taskGroups.value.forEach(group => {
+    const rawColor = group.color || '';
+    const backgroundColor = resolveGroupColorCss(rawColor);
+    const textColor = resolveGroupTextColor(rawColor);
+    const style = backgroundColor ? {
+      '--task-filter-chip-bg': backgroundColor,
+      '--task-filter-chip-color': textColor,
+      '--task-filter-chip-hover-color': textColor,
+      '--task-filter-chip-active-bg': backgroundColor,
+      '--task-filter-chip-active-color': textColor,
+      '--task-filter-chip-active-border': textColor
+    } : {};
+    options.push({
+      value: group.id,
+      label: group.name,
+      style
+    });
+  });
+  return options;
+});
+
+function buildActiveKanbanGroupChipStyle(groupId: string): Record<string, string> | undefined {
+  if (!groupId || groupId === TASK_GROUP_NONE_ID) {
+    return undefined;
+  }
+  const group = taskGroups.value.find(item => item.id === groupId);
+  if (!group) return undefined;
+  const rawColor = group.color || '';
+  const backgroundColor = resolveGroupColorCss(rawColor);
+  if (!backgroundColor) return undefined;
+  const textColor = resolveGroupTextColor(rawColor);
+  return {
+    '--active-task-filter-chip-bg': backgroundColor,
+    '--active-task-filter-chip-color': textColor,
+    '--active-task-filter-chip-hover-color': textColor,
+    '--active-task-filter-chip-shadow': `inset 0 0 0 1px ${textColor}`
+  };
+}
+
+function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
+  if (column.type === 'status') {
+    if (column.status === 'pending') {
+      return { backgroundColor: '#f59e0b' };
+    }
+    if (column.status === 'in-progress') {
+      return { backgroundColor: '#3b82f6' };
+    }
+    if (column.status === 'completed') {
+      return { backgroundColor: '#10b981' };
+    }
+    if (column.status === 'cancelled') {
+      return { backgroundColor: '#9ca3af' };
+    }
+  }
+
+  if (column.type === 'group') {
+    const groupId = typeof column.groupId === 'string' ? column.groupId.trim() : '';
+    if (!groupId) {
+      return { backgroundColor: defaultGroupChipColor };
+    }
+    const group = taskGroups.value.find(item => item.id === groupId);
+    const backgroundColor = resolveGroupColorCss(group?.color || '');
+    return { backgroundColor: backgroundColor || defaultGroupChipColor };
+  }
+
+  return { backgroundColor: 'transparent' };
+}
+
+const kanbanEditorSelectedGroupId = computed(() => {
+  const groupId = (activeKanbanEditDraft.value?.groupId || '').trim();
+  return groupId || TASK_GROUP_NONE_ID;
+});
+
+const kanbanEditorGroupLabel = computed(() => {
+  const groupId = (activeKanbanEditDraft.value?.groupId || '').trim();
+  if (!groupId) {
+    return '无分组';
+  }
+  const group = taskGroups.value.find(item => item.id === groupId);
+  return group?.name || '分组';
+});
+
+const kanbanEditorGroupColorValue = computed(() => {
+  const groupId = (activeKanbanEditDraft.value?.groupId || '').trim();
+  if (!groupId) {
+    return '';
+  }
+  return taskGroups.value.find(item => item.id === groupId)?.color || '';
+});
+
+const kanbanEditorGroupButtonStyle = computed(() => {
+  const rawColor = kanbanEditorGroupColorValue.value;
+  if (!rawColor) {
+    return {};
+  }
+  return {
+    backgroundColor: resolveGroupColorCss(rawColor),
+    borderColor: resolveGroupColorCss(rawColor),
+    color: resolveGroupTextColor(rawColor)
+  };
+});
+
+const kanbanEditPriorityOptions: Array<{
+  value: Task['priority'];
+  label: string;
+  background: string;
+  color: string;
+}> = [
+  { value: 'high', label: '高优先级', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
+  { value: 'medium', label: '中优先级', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
+  { value: 'low', label: '低优先级', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
+  { value: 'none', label: '无优先级', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
+];
+
+const kanbanEditorPriorityOption = computed(() => {
+  const current = activeKanbanEditDraft.value?.priority || 'none';
+  return kanbanEditPriorityOptions.find(option => option.value === current) || kanbanEditPriorityOptions[3];
+});
+
+const kanbanEditorDueText = computed(() => {
+  const dueDate = activeKanbanEditDraft.value?.dueDate || '';
+  if (!dueDate) return '未设置';
+  return formatMonthDay(dueDate);
+});
+
+const kanbanEditorHasDueDate = computed(() => {
+  return !!(activeKanbanEditDraft.value?.dueDate || '').trim();
+});
+
+const kanbanEditorHasDescription = computed(() => {
+  const description = activeKanbanEditDraft.value?.description || '';
+  return description.trim().length > 0;
+});
+
+const {
+  activeStatusFilters: activeKanbanStatusFilters,
+  activePriorityFilters: activeKanbanPriorityFilters,
+  activeDueFilters: activeKanbanDueFilters,
+  activeUpdatedFilters: activeKanbanUpdatedFilters,
+  activeGroupFilters: activeKanbanGroupFilters,
+  activeExtraFilters: activeKanbanExtraFilters,
+  hasActive: hasActiveKanbanFilters,
+  count: activeKanbanFilterCount,
+  sections: kanbanFilterSections,
+  clear: clearKanbanFilters,
+  handleToggle: handleKanbanFilterToggle
+} = useTaskFilterState({
+  statusOptions: kanbanStatusFilterOptions,
+  priorityOptions: kanbanPriorityFilterOptions,
+  dueOptions: kanbanDueFilterOptions,
+  updatedOptions: kanbanUpdatedFilterOptions,
+  extraOptions: kanbanExtraFilterOptions,
+  groupOptions: kanbanGroupFilterOptions,
+  buildActiveGroupStyle: buildActiveKanbanGroupChipStyle,
+  updatedSingle: true
+});
+
+const {
+  activeStatusFilters: activeTableStatusFilters,
+  activePriorityFilters: activeTablePriorityFilters,
+  activeDueFilters: activeTableDueFilters,
+  activeUpdatedFilters: activeTableUpdatedFilters,
+  activeGroupFilters: activeTableGroupFilters,
+  activeExtraFilters: activeTableExtraFilters,
+  hasActive: hasActiveTableFilters,
+  count: activeTableFilterCount,
+  sections: tableFilterSections,
+  clear: clearTableFilters,
+  handleToggle: handleTableFilterToggle
+} = useTaskFilterState({
+  statusOptions: kanbanStatusFilterOptions,
+  priorityOptions: kanbanPriorityFilterOptions,
+  dueOptions: kanbanDueFilterOptions,
+  updatedOptions: kanbanUpdatedFilterOptions,
+  extraOptions: kanbanExtraFilterOptions,
+  groupOptions: kanbanGroupFilterOptions,
+  buildActiveGroupStyle: buildActiveKanbanGroupChipStyle,
+  updatedSingle: true
+});
 
 function applyExcludedNotebookScope(ids: string[]): void {
   const normalized = normalizeNotebookIds(ids);
@@ -451,6 +952,166 @@ async function openTaskScopeDialog() {
   showTaskScopeDialog.value = true;
 }
 
+async function openTaskGroupQuickCreate(): Promise<void> {
+  if (taskGroups.value.length === 0) {
+    taskGroups.value = await loadTaskGroups();
+  }
+  taskGroupDialogAutoAdd.value = true;
+  showTaskGroupDialog.value = true;
+}
+
+async function openTaskGroupDialog(): Promise<void> {
+  if (taskGroups.value.length === 0) {
+    taskGroups.value = await loadTaskGroups();
+  }
+  taskGroupDialogAutoAdd.value = false;
+  showTaskGroupDialog.value = true;
+}
+
+function closeTaskGroupDialog(): void {
+  showTaskGroupDialog.value = false;
+  taskGroupDialogAutoAdd.value = false;
+}
+
+function collectRemovedGroupIds(previous: TaskGroup[], next: TaskGroup[]): string[] {
+  const previousIds = new Set(
+    (previous || [])
+      .map(group => (typeof group?.id === 'string' ? group.id.trim() : ''))
+      .filter(id => id.length > 0)
+  );
+  const nextIds = new Set(
+    (next || [])
+      .map(group => (typeof group?.id === 'string' ? group.id.trim() : ''))
+      .filter(id => id.length > 0)
+  );
+  const removed: string[] = [];
+  previousIds.forEach((id) => {
+    if (!nextIds.has(id)) {
+      removed.push(id);
+    }
+  });
+  return removed;
+}
+
+async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<void> {
+  const normalizedIds = removedGroupIds
+    .map(id => (typeof id === 'string' ? id.trim() : ''))
+    .filter(id => id.length > 0);
+  if (normalizedIds.length === 0) {
+    return;
+  }
+
+  const removedSet = new Set(normalizedIds);
+  const localAffectedTasks = tasks.value.filter(task => {
+    const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+    return groupId.length > 0 && removedSet.has(groupId);
+  });
+
+  const localBlockIds = localAffectedTasks
+    .map(task => (task.type === 'block' ? task.blockId : null))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+  let blockIdsToClear: string[] = [];
+  try {
+    const idsClause = normalizedIds.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
+    const rows = await sql(`
+      SELECT DISTINCT a.block_id as id
+      FROM attributes a
+      JOIN blocks b ON b.id = a.block_id
+      WHERE a.name = 'custom-task-group'
+        AND a.value IN (${idsClause})
+        AND (b.type = 'i' OR b.type = 'p')
+        AND b.subtype = 't'
+    `) as Array<{ id?: string }>;
+    const sqlBlockIds = (rows || [])
+      .map(row => (typeof row?.id === 'string' ? row.id : ''))
+      .filter(id => id.length > 0);
+    blockIdsToClear = Array.from(new Set([...sqlBlockIds, ...localBlockIds]));
+  } catch (error) {
+    console.error('[KanbanView] 查询分组任务失败:', error);
+    blockIdsToClear = Array.from(new Set(localBlockIds));
+  }
+
+  const successBlockIds: string[] = [];
+  for (const blockId of blockIdsToClear) {
+    try {
+      await setBlockAttrs(blockId, { 'custom-task-group': '' });
+      successBlockIds.push(blockId);
+    } catch (error) {
+      console.error('[KanbanView] 清理任务分组属性失败:', error);
+    }
+  }
+
+  const successBlockIdSet = new Set(successBlockIds);
+  const tasksToUpdate = localAffectedTasks.filter(task => {
+    if (task.type !== 'block') return true;
+    if (!task.blockId) return true;
+    return successBlockIdSet.has(task.blockId);
+  });
+
+  if (tasksToUpdate.length > 0) {
+    const now = new Date().toISOString();
+    const idsToUpdate = new Set(tasksToUpdate.map(task => task.id));
+    tasks.value = tasks.value.map(task => {
+      if (!idsToUpdate.has(task.id)) {
+        return task;
+      }
+      return {
+        ...task,
+        groupId: undefined,
+        updatedAt: now
+      };
+    });
+    idsToUpdate.forEach(taskId => {
+      crdtRepo.updateTaskField(taskId, 'groupId', undefined);
+    });
+    invalidateTableFilters();
+  }
+
+  if (successBlockIds.length > 0) {
+    eventBus.emit(Events.TASK_CHANGED, { blockIds: successBlockIds });
+  }
+}
+
+async function handleTaskGroupSave(groups: TaskGroup[]): Promise<void> {
+  const removedGroupIds = collectRemovedGroupIds(taskGroups.value, groups);
+  // Optimistically update so UI reflects changes immediately
+  const nextGroups = (groups || []).map(group => ({ ...group }));
+  taskGroups.value = nextGroups;
+  eventBus.emit(Events.TASK_GROUPS_UPDATED, { groups: nextGroups });
+  try {
+    await saveTaskGroups(nextGroups);
+    const refreshedGroups = await loadTaskGroups();
+    taskGroups.value = refreshedGroups;
+    eventBus.emit(Events.TASK_GROUPS_UPDATED, { groups: refreshedGroups });
+    closeTaskGroupDialog();
+    if (removedGroupIds.length > 0) {
+      await clearRemovedGroupAssignments(removedGroupIds);
+      const removedSet = new Set(removedGroupIds);
+      activeKanbanGroupFilters.value = activeKanbanGroupFilters.value.filter(id => !removedSet.has(id));
+      activeTableGroupFilters.value = activeTableGroupFilters.value.filter(id => !removedSet.has(id));
+    }
+  } catch (error) {
+    console.error('[KanbanView] 保存分组失败:', error);
+  }
+}
+
+function applyExternalTaskGroups(groups: TaskGroup[]): void {
+  const nextGroups = (groups || []).map(group => ({ ...group }));
+  taskGroups.value = nextGroups;
+  const groupIdSet = new Set(nextGroups.map(group => group.id));
+  if (activeKanbanGroupFilters.value.length > 0) {
+    activeKanbanGroupFilters.value = activeKanbanGroupFilters.value.filter(
+      id => id === TASK_GROUP_NONE_ID || groupIdSet.has(id)
+    );
+  }
+  if (activeTableGroupFilters.value.length > 0) {
+    activeTableGroupFilters.value = activeTableGroupFilters.value.filter(
+      id => id === TASK_GROUP_NONE_ID || groupIdSet.has(id)
+    );
+  }
+}
+
 async function handleTaskScopeSave(selectedVisibleExcludedNotebookIds: string[]) {
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
@@ -477,6 +1138,8 @@ async function handleTaskScopeSave(selectedVisibleExcludedNotebookIds: string[])
 let eventUnsubscribers: Array<() => void> = [];
 let saveSettingsTimer: number | null = null;
 let fallbackRefreshTimer: number | null = null;
+let kanbanTitleHydrateTimer: number | null = null;
+let isKanbanTitleHydrating = false;
 let queuedIncrementalAllowUnknown = false;
 const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 80;
 const dragStatusLocks = new Map<string, Task['status']>();
@@ -543,6 +1206,63 @@ function toDocumentOptions(notebookId: string): Array<{ value: string; text: str
 const documentOptions = computed(() => toDocumentOptions(getCurrentFilterNotebookId()));
 const quickCreateDocumentOptions = computed(() => toDocumentOptions(quickCreateNotebookId.value));
 
+const currentFilterType = computed(() => {
+  switch (currentView.value) {
+    case 'kanban':
+      return kanbanFilterType.value;
+    case 'table':
+      return tableFilterType.value;
+    case 'month':
+      return monthFilterType.value;
+    case 'week':
+      return weekFilterType.value;
+    default:
+      return 'all';
+  }
+});
+
+const currentDocumentFilter = computed<string>({
+  get() {
+    switch (currentView.value) {
+      case 'kanban':
+        return kanbanFilterDocument.value;
+      case 'table':
+        return tableFilterDocument.value;
+      case 'month':
+        return monthFilterDocument.value;
+      case 'week':
+        return weekFilterDocument.value;
+      default:
+        return 'all';
+    }
+  },
+  set(value) {
+    switch (currentView.value) {
+      case 'kanban':
+        kanbanFilterDocument.value = value;
+        break;
+      case 'table':
+        tableFilterDocument.value = value;
+        break;
+      case 'month':
+        monthFilterDocument.value = value;
+        break;
+      case 'week':
+        weekFilterDocument.value = value;
+        break;
+      default:
+        break;
+    }
+  }
+});
+
+const showDocumentTabs = computed(() => {
+  if (currentFilterType.value === 'all') {
+    return false;
+  }
+  return documentOptions.value.length > 1;
+});
+
 function setupFilterTypeWatcher(typeRef: Ref<string>, documentRef: Ref<string>): void {
   watch(typeRef, (newType, oldType) => {
     if (newType === 'all') {
@@ -554,8 +1274,25 @@ function setupFilterTypeWatcher(typeRef: Ref<string>, documentRef: Ref<string>):
 }
 
 setupFilterTypeWatcher(kanbanFilterType, kanbanFilterDocument);
+setupFilterTypeWatcher(tableFilterType, tableFilterDocument);
 setupFilterTypeWatcher(monthFilterType, monthFilterDocument);
 setupFilterTypeWatcher(weekFilterType, weekFilterDocument);
+
+const ensureTableDocumentSelection = () => {
+  if (tableFilterType.value === 'all') {
+    tableFilterDocument.value = 'all';
+    return;
+  }
+  const options = toDocumentOptions(tableFilterType.value);
+  const optionValues = new Set(options.map(option => option.value));
+  if (!optionValues.has(tableFilterDocument.value)) {
+    tableFilterDocument.value = 'all';
+  }
+};
+
+watch(tableFilterType, () => {
+  ensureTableDocumentSelection();
+});
 
 watch(quickCreateNotebookId, (newType, oldType) => {
   if (newType !== oldType && quickCreateDialog.value.show) {
@@ -580,11 +1317,10 @@ function scheduleSaveUserSettings() {
 
 watch([
   currentView,
-  kanbanFilterPriority,
-  kanbanFilterUpdatedRange,
+  kanbanGroupMode,
+  tableGroupMode,
   kanbanFilterType,
   kanbanFilterDocument,
-  tableFilterUpdatedRange,
   tableFilterType,
   tableFilterDocument,
   monthFilterType,
@@ -598,6 +1334,30 @@ watch([
   scheduleSaveUserSettings();
 });
 
+watch(kanbanFilterPopoverVisible, (visible) => {
+  if (visible) {
+    void nextTick(updateKanbanFilterPopoverPosition);
+  }
+});
+watch(tableFilterPopoverVisible, (visible) => {
+  if (visible) {
+    void nextTick(updateTableFilterPopoverPosition);
+  }
+});
+
+watch(kanbanGroupMode, async (enabled) => {
+  if (!enabled) {
+    return;
+  }
+  taskGroups.value = await loadTaskGroups();
+});
+watch(tableGroupMode, async (enabled) => {
+  if (!enabled) {
+    return;
+  }
+  taskGroups.value = await loadTaskGroups();
+});
+
 const tableFilters = {
   notebook: tableFilterType,
   document: tableFilterDocument
@@ -605,14 +1365,13 @@ const tableFilters = {
 
 const { filtered: filteredTasks, invalidateCache: invalidateTableFilters } = useTaskFilters(tasks, tableFilters);
 const tableViewTasks = computed(() =>
-  filteredTasks.value.filter(task => isTaskUpdatedInRange(task, tableFilterUpdatedRange.value))
+  filteredTasks.value.filter(task => matchesTableFilters(task))
 );
 
 const monthViewTasks = computed(() => {
   return tasks.value.filter(task => {
     if (task.type !== 'block') return false;
     if (!task.startDate && !task.dueDate) return false;
-    
     if (monthFilterType.value !== 'all') {
       if (task.notebookId !== monthFilterType.value) return false;
       if (monthFilterDocument.value !== 'all' && task.rootId !== monthFilterDocument.value) {
@@ -628,7 +1387,6 @@ const weekViewTasks = computed(() => {
   return tasks.value.filter(task => {
     if (task.type !== 'block') return false;
     if (!task.startDate && !task.dueDate) return false;
-    
     if (weekFilterType.value !== 'all') {
       if (task.notebookId !== weekFilterType.value) return false;
       if (weekFilterDocument.value !== 'all' && task.rootId !== weekFilterDocument.value) {
@@ -658,6 +1416,56 @@ function isTaskCompletedVisual(task: Task): boolean {
   return getTaskVisualStatus(task) === 'completed';
 }
 
+function compareTasksLikeSidebar(a: Task, b: Task): number {
+  const isACompleted = getTaskVisualStatus(a) === 'completed';
+  const isBCompleted = getTaskVisualStatus(b) === 'completed';
+
+  if (isACompleted && !isBCompleted) {
+    return 1;
+  }
+  if (!isACompleted && isBCompleted) {
+    return -1;
+  }
+
+  if (isACompleted && isBCompleted) {
+    const updatedA = Date.parse(a.updatedAt || '');
+    const updatedB = Date.parse(b.updatedAt || '');
+    const hasUpdatedA = Number.isFinite(updatedA);
+    const hasUpdatedB = Number.isFinite(updatedB);
+
+    if (hasUpdatedA && hasUpdatedB && updatedA !== updatedB) {
+      return updatedB - updatedA;
+    }
+    if (hasUpdatedA && !hasUpdatedB) {
+      return -1;
+    }
+    if (!hasUpdatedA && hasUpdatedB) {
+      return 1;
+    }
+  } else {
+    const priorityA = kanbanPriorityOrder[a.priority] ?? 3;
+    const priorityB = kanbanPriorityOrder[b.priority] ?? 3;
+
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB;
+    }
+
+    const createdKeyA = a.createdAt || a.blockId || a.id || '';
+    const createdKeyB = b.createdAt || b.blockId || b.id || '';
+    if (createdKeyA !== createdKeyB) {
+      return createdKeyB.localeCompare(createdKeyA);
+    }
+  }
+
+  const aSortKey = a.blockId || a.id || a.createdAt || '';
+  const bSortKey = b.blockId || b.id || b.createdAt || '';
+  return bSortKey.localeCompare(aSortKey);
+}
+
+function sortTasksLikeSidebar(taskList: Task[]): Task[] {
+  return taskList.sort(compareTasksLikeSidebar);
+}
+
 function getStartOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -670,35 +1478,362 @@ function getStartOfWeekMonday(date: Date): Date {
   return startOfDay;
 }
 
-function isTaskUpdatedInRange(task: Task, range: 'all' | 'today' | 'week' | 'month'): boolean {
-  if (range === 'all') return true;
-  const updatedTs = Date.parse(task.updatedAt || '');
-  if (!Number.isFinite(updatedTs)) return false;
-  const updatedDate = new Date(updatedTs);
-  const now = new Date();
+function closeKanbanFilterPopover(): void {
+  kanbanFilterPopoverVisible.value = false;
+}
 
-  if (range === 'today') {
-    return updatedDate >= getStartOfDay(now);
+function updateKanbanFilterPopoverPosition(): void {
+  if (!kanbanFilterPopoverVisible.value) return;
+  const point = kanbanFilterPopoverPoint.value;
+  const controlRect = kanbanFilterControlRef.value?.getBoundingClientRect();
+  const x = point?.x ?? controlRect?.left ?? window.innerWidth / 2;
+  const y = point?.y ?? controlRect?.bottom ?? window.innerHeight / 2;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const horizontalMargin = 12;
+  const verticalMargin = 12;
+  const width = 300;
+  const maxHeight = Math.max(200, Math.min(420, viewportHeight - verticalMargin * 2));
+  let left = x;
+  let top = y + 8;
+  left = Math.max(horizontalMargin, Math.min(left, viewportWidth - horizontalMargin - width));
+  top = Math.max(verticalMargin, Math.min(top, viewportHeight - verticalMargin - maxHeight));
+
+  kanbanFilterPopoverStyle.value = {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+    width: `${Math.round(width)}px`,
+    maxHeight: `${Math.round(maxHeight)}px`
+  };
+}
+
+function toggleKanbanFilterPopover(event: MouseEvent): void {
+  if (kanbanFilterPopoverVisible.value) {
+    closeKanbanFilterPopover();
+    return;
   }
-  if (range === 'week') {
-    return updatedDate >= getStartOfWeekMonday(now);
+  if (tableFilterPopoverVisible.value) {
+    closeTableFilterPopover();
   }
-  return (
-    updatedDate.getFullYear() === now.getFullYear()
-    && updatedDate.getMonth() === now.getMonth()
-  );
+  kanbanFilterPopoverPoint.value = { x: event.clientX, y: event.clientY };
+  kanbanFilterPopoverVisible.value = true;
+  void nextTick(updateKanbanFilterPopoverPosition);
+}
+
+function closeTableFilterPopover(): void {
+  tableFilterPopoverVisible.value = false;
+}
+
+function updateTableFilterPopoverPosition(): void {
+  if (!tableFilterPopoverVisible.value) return;
+  const point = tableFilterPopoverPoint.value;
+  const controlRect = tableFilterControlRef.value?.getBoundingClientRect();
+  const x = point?.x ?? controlRect?.left ?? window.innerWidth / 2;
+  const y = point?.y ?? controlRect?.bottom ?? window.innerHeight / 2;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const horizontalMargin = 12;
+  const verticalMargin = 12;
+  const width = 300;
+  const maxHeight = Math.max(200, Math.min(420, viewportHeight - verticalMargin * 2));
+  let left = x;
+  let top = y + 8;
+  left = Math.max(horizontalMargin, Math.min(left, viewportWidth - horizontalMargin - width));
+  top = Math.max(verticalMargin, Math.min(top, viewportHeight - verticalMargin - maxHeight));
+
+  tableFilterPopoverStyle.value = {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+    width: `${Math.round(width)}px`,
+    maxHeight: `${Math.round(maxHeight)}px`
+  };
+}
+
+function toggleTableFilterPopover(event: MouseEvent): void {
+  if (tableFilterPopoverVisible.value) {
+    closeTableFilterPopover();
+    return;
+  }
+  if (kanbanFilterPopoverVisible.value) {
+    closeKanbanFilterPopover();
+  }
+  tableFilterPopoverPoint.value = { x: event.clientX, y: event.clientY };
+  tableFilterPopoverVisible.value = true;
+  void nextTick(updateTableFilterPopoverPosition);
+}
+
+function normalizeDateInputValue(value: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) {
+    return '';
+  }
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+}
+
+function getTaskDateTimestamp(value: unknown): number | null {
+  const rawValue = typeof value === 'string' ? value.trim() : '';
+  if (!rawValue) {
+    return null;
+  }
+
+  const normalizedDate = normalizeDateInputValue(rawValue);
+  if (normalizedDate) {
+    const [year, month, day] = normalizedDate.split('-').map(part => Number(part));
+    const parsedDate = new Date(year, month - 1, day);
+    parsedDate.setHours(0, 0, 0, 0);
+    return parsedDate.getTime();
+  }
+
+  const parsedTimestamp = Date.parse(rawValue);
+  if (!Number.isFinite(parsedTimestamp)) {
+    return null;
+  }
+
+  const parsedDate = new Date(parsedTimestamp);
+  parsedDate.setHours(0, 0, 0, 0);
+  return parsedDate.getTime();
+}
+
+function getTaskDueDateTimestamp(task: Task): number | null {
+  return getTaskDateTimestamp(task.dueDate);
+}
+
+function getTaskStartDateTimestamp(task: Task): number | null {
+  return getTaskDateTimestamp(task.startDate);
+}
+
+function matchesKanbanDueFilter(task: Task, filter: KanbanTaskDueFilterKey): boolean {
+  const dueTimestamp = getTaskDueDateTimestamp(task);
+  if (filter === 'noDueDate') {
+    return dueTimestamp === null;
+  }
+  if (dueTimestamp === null) {
+    return false;
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStart = today.getTime();
+  const tomorrowStart = todayStart + dayMs;
+
+  switch (filter) {
+    case 'overdue':
+      return dueTimestamp < todayStart;
+    case 'today':
+      return dueTimestamp >= todayStart && dueTimestamp < tomorrowStart;
+    case 'next7Days':
+      return dueTimestamp >= tomorrowStart && dueTimestamp < todayStart + dayMs * 8;
+  }
+}
+
+function getKanbanUpdatedFilterRange(
+  filter: KanbanTaskUpdateFilterKey
+): { start: number; end: number } {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStart = today.getTime();
+
+  switch (filter) {
+    case 'today':
+      return { start: todayStart, end: todayStart + dayMs };
+    case 'thisWeek': {
+      const weekStart = getStartOfWeekMonday(today);
+      weekStart.setHours(0, 0, 0, 0);
+      const start = weekStart.getTime();
+      return { start, end: start + dayMs * 7 };
+    }
+    case 'thisMonth': {
+      const start = new Date(today.getFullYear(), today.getMonth(), 1);
+      const end = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      return { start: start.getTime(), end: end.getTime() };
+    }
+  }
+}
+
+function matchesKanbanUpdatedFilter(task: Task, filter: KanbanTaskUpdateFilterKey): boolean {
+  const { start, end } = getKanbanUpdatedFilterRange(filter);
+  const startTimestamp = getTaskStartDateTimestamp(task);
+  const dueTimestamp = getTaskDueDateTimestamp(task);
+
+  if (startTimestamp !== null || dueTimestamp !== null) {
+    let rangeStart = startTimestamp ?? dueTimestamp ?? 0;
+    let rangeEnd = dueTimestamp ?? startTimestamp ?? 0;
+    if (rangeStart > rangeEnd) {
+      [rangeStart, rangeEnd] = [rangeEnd, rangeStart];
+    }
+    const dayMs = 24 * 60 * 60 * 1000;
+    const taskRangeEnd = rangeEnd + dayMs;
+    return rangeStart < end && taskRangeEnd > start;
+  }
+
+  const updatedTimestamp = getTaskDateTimestamp(task.updatedAt);
+  if (updatedTimestamp === null) {
+    return false;
+  }
+  return updatedTimestamp >= start && updatedTimestamp < end;
+}
+
+function normalizeSearchText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function collectSubtaskTitles(subtasks: SubTask[] | undefined, result: string[]): void {
+  if (!subtasks || subtasks.length === 0) return;
+  for (const subtask of subtasks) {
+    if (subtask.title) {
+      const text = normalizeSearchText(stripHtml(subtask.title));
+      if (text) {
+        result.push(text);
+      }
+    }
+    if (subtask.subtasks?.length) {
+      collectSubtaskTitles(subtask.subtasks, result);
+    }
+  }
+}
+
+function getTaskSearchText(task: Task): string {
+  const segments: string[] = [];
+  if (task.title) {
+    const titleText = normalizeSearchText(stripHtml(task.title));
+    if (titleText) {
+      segments.push(titleText);
+    }
+  }
+  if (task.description) {
+    const descriptionText = normalizeSearchText(stripHtml(task.description));
+    if (descriptionText) {
+      segments.push(descriptionText);
+    }
+  }
+  if (task.hPath) {
+    const locationText = normalizeSearchText(stripHtml(task.hPath));
+    if (locationText) {
+      segments.push(locationText);
+    }
+  }
+  if (task.subtasks?.length) {
+    const subtaskTexts: string[] = [];
+    collectSubtaskTitles(task.subtasks, subtaskTexts);
+    if (subtaskTexts.length > 0) {
+      segments.push(subtaskTexts.join(' '));
+    }
+  }
+  return segments.join(' ');
+}
+
+function matchesTableSearch(task: Task): boolean {
+  const needle = normalizedTableSearch.value;
+  if (!needle) return true;
+  const tokens = needle.split(' ').filter(Boolean);
+  if (tokens.length === 0) return true;
+  const haystack = getTaskSearchText(task);
+  if (!haystack) return false;
+  return tokens.every(token => haystack.includes(token));
 }
 
 function matchesKanbanFilters(task: Task): boolean {
   if (!task.title || task.title.trim() === '') return false;
   if (task.type !== 'block') return false;
-  if (!isTaskUpdatedInRange(task, kanbanFilterUpdatedRange.value)) return false;
-  if (kanbanFilterPriority.value !== 'all' && task.priority !== kanbanFilterPriority.value) return false;
   if (kanbanFilterType.value !== 'all') {
     if (task.notebookId !== kanbanFilterType.value) return false;
     if (kanbanFilterDocument.value !== 'all' && task.rootId !== kanbanFilterDocument.value) return false;
   }
+  if (activeKanbanStatusFilters.value.length > 0) {
+    const status = getTaskVisualStatus(task);
+    if (!activeKanbanStatusFilters.value.includes(status)) {
+      return false;
+    }
+  }
+  if (activeKanbanPriorityFilters.value.length > 0 && !activeKanbanPriorityFilters.value.includes(task.priority)) {
+    return false;
+  }
+  if (activeKanbanGroupFilters.value.length > 0) {
+    const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+    const resolvedGroupId = groupId || TASK_GROUP_NONE_ID;
+    if (!activeKanbanGroupFilters.value.includes(resolvedGroupId)) {
+      return false;
+    }
+  }
+  if (activeKanbanDueFilters.value.length > 0 && !activeKanbanDueFilters.value.some(filter => matchesKanbanDueFilter(task, filter))) {
+    return false;
+  }
+  if (activeKanbanUpdatedFilters.value.length > 0 && !activeKanbanUpdatedFilters.value.some(filter => matchesKanbanUpdatedFilter(task, filter))) {
+    return false;
+  }
+  if (activeKanbanExtraFilters.value.length > 0) {
+    const wantsDescription = activeKanbanExtraFilters.value.includes('hasDescription');
+    const wantsSubtasks = activeKanbanExtraFilters.value.includes('hasSubtasks');
+    const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
+    const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
+
+    if (wantsDescription && wantsSubtasks) {
+      if (!hasDescription && !hasSubtasks) {
+        return false;
+      }
+    } else if (wantsDescription && !hasDescription) {
+      return false;
+    } else if (wantsSubtasks && !hasSubtasks) {
+      return false;
+    }
+  }
   return true;
+}
+
+function matchesTableFilters(task: Task): boolean {
+  if (task.type !== 'block') return false;
+  if (!matchesTableSearch(task)) return false;
+  if (activeTableStatusFilters.value.length > 0) {
+    const status = getTaskVisualStatus(task);
+    if (!activeTableStatusFilters.value.includes(status)) {
+      return false;
+    }
+  }
+  if (activeTablePriorityFilters.value.length > 0 && !activeTablePriorityFilters.value.includes(task.priority)) {
+    return false;
+  }
+  if (activeTableGroupFilters.value.length > 0) {
+    const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+    const resolvedGroupId = groupId || TASK_GROUP_NONE_ID;
+    if (!activeTableGroupFilters.value.includes(resolvedGroupId)) {
+      return false;
+    }
+  }
+  if (activeTableDueFilters.value.length > 0 && !activeTableDueFilters.value.some(filter => matchesKanbanDueFilter(task, filter))) {
+    return false;
+  }
+  if (activeTableUpdatedFilters.value.length > 0 && !activeTableUpdatedFilters.value.some(filter => matchesKanbanUpdatedFilter(task, filter))) {
+    return false;
+  }
+  if (activeTableExtraFilters.value.length > 0) {
+    const wantsDescription = activeTableExtraFilters.value.includes('hasDescription');
+    const wantsSubtasks = activeTableExtraFilters.value.includes('hasSubtasks');
+    const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
+    const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
+
+    if (wantsDescription && wantsSubtasks) {
+      if (!hasDescription && !hasSubtasks) {
+        return false;
+      }
+    } else if (wantsDescription && !hasDescription) {
+      return false;
+    } else if (wantsSubtasks && !hasSubtasks) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function getGroupColumnIdForTask(task: Task): string {
+  const rawGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+  if (!rawGroupId) {
+    return TASK_GROUP_NONE_ID;
+  }
+  return taskGroupIdSet.value.has(rawGroupId) ? rawGroupId : TASK_GROUP_NONE_ID;
 }
 
 const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
@@ -717,45 +1852,245 @@ const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
     }
   }
 
+  for (const list of Object.values(grouped)) {
+    sortTasksLikeSidebar(list);
+  }
+
   return grouped;
 });
 
-function getFilteredTasksForStatus(status: string): Task[] {
-  return kanbanTasksByVisualStatus.value[status] || [];
-}
-
-function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: number } {
-  if (!subtasks || subtasks.length === 0) return { total: 0, completed: 0 };
-
-  let total = 0;
-  let completed = 0;
-  const stack: SubTask[][] = [subtasks];
-
-  while (stack.length > 0) {
-    const currentSubtasks = stack.pop()!;
-
-    for (const subtask of currentSubtasks) {
-      total++;
-      if (subtask.completed) completed++;
-
-      if (subtask.subtasks && subtask.subtasks.length > 0) {
-        stack.push(subtask.subtasks);
-      }
+const kanbanTasksByGroup = computed<Record<string, Task[]>>(() => {
+  const grouped: Record<string, Task[]> = {
+    [TASK_GROUP_NONE_ID]: []
+  };
+  for (const group of taskGroups.value) {
+    if (group && group.id) {
+      grouped[group.id] = [];
     }
   }
 
-  return { total, completed };
+  for (const task of tasks.value) {
+    if (!matchesKanbanFilters(task)) continue;
+    const groupId = getGroupColumnIdForTask(task);
+    if (!grouped[groupId]) {
+      grouped[groupId] = [];
+    }
+    grouped[groupId].push(task);
+  }
+
+  for (const list of Object.values(grouped)) {
+    sortTasksLikeSidebar(list);
+  }
+
+  return grouped;
+});
+
+function getFilteredTasksForStatus(status?: string): Task[] {
+  if (!status) return [];
+  return kanbanTasksByVisualStatus.value[status] || [];
 }
 
-function getSubtaskProgress(subtasks: Task['subtasks']): number {
-  const stats = countSubtasks(subtasks);
-  if (stats.total === 0) return 0;
-  return Math.round((stats.completed / stats.total) * 100);
+function getTasksForColumn(column: KanbanColumn): Task[] {
+  if (column.type === 'status') {
+    return getFilteredTasksForStatus(column.status);
+  }
+  return kanbanTasksByGroup.value[column.id] || [];
 }
 
-function getSubtaskStats(subtasks: Task['subtasks']): string {
-  const stats = countSubtasks(subtasks);
-  return `${stats.completed}/${stats.total}`;
+function shouldUseKanbanVirtualList(column: KanbanColumn, taskCount: number): boolean {
+  if (column.type !== 'status' && column.type !== 'group') {
+    return false;
+  }
+  if (taskCount <= KANBAN_VIRTUAL_THRESHOLD) {
+    return false;
+  }
+  return expandedKanbanTaskIds.value.size === 0;
+}
+
+function getKanbanVirtualRange(column: KanbanColumn, totalCount: number) {
+  if (!shouldUseKanbanVirtualList(column, totalCount)) {
+    return { start: 0, end: totalCount, top: 0, bottom: 0 };
+  }
+  const metrics = kanbanColumnMetrics.value[column.id];
+  const scrollTop = metrics?.scrollTop || 0;
+  const height = metrics?.height || 600;
+  const estimatedHeight = kanbanColumnEstimatedHeights.value[column.id] || KANBAN_VIRTUAL_CARD_HEIGHT;
+  const startIndex = Math.max(
+    0,
+    Math.floor(scrollTop / estimatedHeight) - KANBAN_VIRTUAL_OVERSCAN
+  );
+  const visibleCount = Math.ceil(height / estimatedHeight) + KANBAN_VIRTUAL_OVERSCAN * 2;
+  const endIndex = Math.min(totalCount, startIndex + visibleCount);
+  const topPadding = startIndex * estimatedHeight;
+  const totalHeight = totalCount * estimatedHeight;
+  const bottomPadding = Math.max(0, totalHeight - topPadding - (endIndex - startIndex) * KANBAN_VIRTUAL_CARD_HEIGHT);
+  return {
+    start: startIndex,
+    end: endIndex,
+    top: topPadding,
+    bottom: bottomPadding
+  };
+}
+
+function getVisibleTasksForColumn(column: KanbanColumn): Task[] {
+  const tasks = getTasksForColumn(column);
+  const range = getKanbanVirtualRange(column, tasks.length);
+  return tasks.slice(range.start, range.end);
+}
+
+function getKanbanSpacerStyle(column: KanbanColumn): Record<string, string> {
+  const tasks = getTasksForColumn(column);
+  if (!shouldUseKanbanVirtualList(column, tasks.length)) {
+    return {};
+  }
+  const range = getKanbanVirtualRange(column, tasks.length);
+  return {
+    paddingTop: `${range.top}px`,
+    paddingBottom: `${range.bottom}px`
+  };
+}
+
+function scheduleKanbanTitleHydration(delay = 120): void {
+  if (kanbanTitleHydrateTimer !== null) {
+    clearTimeout(kanbanTitleHydrateTimer);
+  }
+  kanbanTitleHydrateTimer = window.setTimeout(() => {
+    kanbanTitleHydrateTimer = null;
+    void hydrateVisibleKanbanTitles();
+  }, delay);
+}
+
+async function hydrateVisibleKanbanTitles(): Promise<void> {
+  if (isKanbanTitleHydrating || currentView.value !== 'kanban') {
+    return;
+  }
+  if (!isSettingsLoaded.value) {
+    return;
+  }
+  const blockIds: string[] = [];
+  const seen = new Set<string>();
+  for (const column of kanbanColumns.value) {
+    if (column.type === 'action') continue;
+    const visibleTasks = getVisibleTasksForColumn(column);
+    for (const task of visibleTasks) {
+      if (task.type !== 'block' || !task.blockId) continue;
+      if (seen.has(task.blockId)) continue;
+      const titleHtml = typeof task.title === 'string' ? task.title : '';
+      if (!titleHtml.includes('<sup')) {
+        continue;
+      }
+      seen.add(task.blockId);
+      blockIds.push(task.blockId);
+      if (blockIds.length >= KANBAN_TITLE_HYDRATE_LIMIT) break;
+    }
+    if (blockIds.length >= KANBAN_TITLE_HYDRATE_LIMIT) break;
+  }
+  if (blockIds.length === 0) {
+    return;
+  }
+
+  isKanbanTitleHydrating = true;
+  try {
+    const updatedTasksMap = await TaskRepository.getTasksByBlockIds(
+      blockIds,
+      false,
+      undefined,
+      { useLiveDom: true }
+    );
+    if (updatedTasksMap.size === 0) {
+      return;
+    }
+
+    const indexByBlockId = new Map<string, number>();
+    tasks.value.forEach((task, index) => {
+      if (task.type === 'block' && task.blockId) {
+        indexByBlockId.set(task.blockId, index);
+      }
+    });
+
+    let touched = false;
+    updatedTasksMap.forEach((updatedTask, blockId) => {
+      const index = indexByBlockId.get(blockId);
+      if (index === undefined) return;
+      const lockedStatus = getLockedDraggedTaskStatus(blockId);
+      if (lockedStatus) {
+        updatedTask.status = lockedStatus;
+      }
+      Object.assign(tasks.value[index], updatedTask);
+      touched = true;
+    });
+
+    if (touched) {
+      tasks.value = applyDraggedStatusLocks(tasks.value);
+      invalidateTableFilters();
+    }
+  } catch (error) {
+    console.error('[KanbanView] 任务标题同步失败:', error);
+  } finally {
+    isKanbanTitleHydrating = false;
+  }
+}
+
+function updateKanbanColumnMetrics(columnId: string, el: HTMLElement): void {
+  const next = {
+    scrollTop: el.scrollTop,
+    height: el.clientHeight
+  };
+  const prev = kanbanColumnMetrics.value[columnId];
+  if (prev && prev.scrollTop === next.scrollTop && prev.height === next.height) {
+    return;
+  }
+  kanbanColumnMetrics.value = {
+    ...kanbanColumnMetrics.value,
+    [columnId]: next
+  };
+}
+
+function updateKanbanColumnEstimate(columnId: string, el: HTMLElement): void {
+  const card = el.querySelector<HTMLElement>('.kanban-task-card');
+  if (!card) return;
+  const height = Math.round(card.getBoundingClientRect().height);
+  if (!height) return;
+  const prev = kanbanColumnEstimatedHeights.value[columnId] || KANBAN_VIRTUAL_CARD_HEIGHT;
+  if (Math.abs(prev - height) < 4) {
+    return;
+  }
+  kanbanColumnEstimatedHeights.value = {
+    ...kanbanColumnEstimatedHeights.value,
+    [columnId]: height
+  };
+}
+
+function setKanbanColumnTasksRef(columnId: string, el: HTMLElement | null): void {
+  if (!el) return;
+  const current = kanbanColumnElements.get(columnId);
+  if (current === el) {
+    return;
+  }
+  kanbanColumnElements.set(columnId, el);
+  scheduleKanbanMetricsUpdate(columnId);
+}
+
+function handleKanbanColumnScroll(event: Event, column: KanbanColumn): void {
+  if (column.type === 'action') return;
+  const target = event.target as HTMLElement | null;
+  if (!target) return;
+  kanbanColumnElements.set(column.id, target);
+  scheduleKanbanMetricsUpdate(column.id);
+  scheduleKanbanTitleHydration(160);
+}
+
+function scheduleKanbanMetricsUpdate(columnId: string): void {
+  if (kanbanMetricsRaf !== null) {
+    cancelAnimationFrame(kanbanMetricsRaf);
+  }
+  kanbanMetricsRaf = requestAnimationFrame(() => {
+    kanbanMetricsRaf = null;
+    const el = kanbanColumnElements.get(columnId);
+    if (!el) return;
+    updateKanbanColumnMetrics(columnId, el);
+    updateKanbanColumnEstimate(columnId, el);
+  });
 }
 
 async function loadTasks(forceRefresh: boolean = false, options: { silent?: boolean } = {}) {
@@ -776,6 +2111,7 @@ async function loadTasks(forceRefresh: boolean = false, options: { silent?: bool
     tasks.value = applyDraggedStatusLocks(tasks.value);
     await nextTick();
     validateDocumentSelection();
+    scheduleKanbanTitleHydration(120);
   } catch (error) {
     console.error('[KanbanView] 加载任务失败:', error);
   } finally {
@@ -790,7 +2126,10 @@ async function refreshTasks() {
   await loadTasks(true);
 }
 
-function scheduleRefreshTasks(delay = 180, mode: 'full' | 'light' = 'full') {
+function scheduleRefreshTasks(
+  delay = 180,
+  mode: 'full' | 'light' | 'silent-full' = 'full'
+) {
   if (fallbackRefreshTimer !== null) {
     clearTimeout(fallbackRefreshTimer);
   }
@@ -798,6 +2137,10 @@ function scheduleRefreshTasks(delay = 180, mode: 'full' | 'light' = 'full') {
     fallbackRefreshTimer = null;
     if (mode === 'light') {
       await loadTasks(false, { silent: true });
+      return;
+    }
+    if (mode === 'silent-full') {
+      await loadTasks(true, { silent: true });
       return;
     }
     await refreshTasks();
@@ -877,11 +2220,10 @@ async function loadUserSettings() {
   isHydratingSettings.value = true;
   try {
     const settings = userSettings.kanban;
-    kanbanFilterPriority.value = settings.kanbanFilterPriority || 'all';
-    kanbanFilterUpdatedRange.value = settings.kanbanFilterUpdatedRange || 'all';
     kanbanFilterType.value = settings.kanbanFilterType || 'all';
     kanbanFilterDocument.value = settings.kanbanFilterDocument || 'all';
-    tableFilterUpdatedRange.value = settings.tableFilterUpdatedRange || 'all';
+    kanbanGroupMode.value = settings.kanbanGroupMode ?? false;
+    tableGroupMode.value = settings.tableGroupMode ?? false;
     tableFilterType.value = settings.tableFilterType || 'all';
     tableFilterDocument.value = settings.tableFilterDocument || 'all';
     monthFilterType.value = settings.monthFilterType || 'all';
@@ -898,7 +2240,6 @@ async function loadUserSettings() {
         kanbanFilterType.value = 'all';
         kanbanFilterDocument.value = 'all';
         await updateSettings('kanban', {
-          kanbanFilterPriority: kanbanFilterPriority.value,
           kanbanFilterType: 'all',
           kanbanFilterDocument: 'all',
           tableFilterType: tableFilterType.value,
@@ -910,14 +2251,13 @@ async function loadUserSettings() {
         });
       }
     }
-    
+
     if (weekFilterType.value !== 'all' && enabledNotebooks.value.length > 0) {
       const notebookExists = enabledNotebooks.value.some(nb => nb.id === weekFilterType.value);
       if (!notebookExists) {
         weekFilterType.value = 'all';
         weekFilterDocument.value = 'all';
         await updateSettings('kanban', {
-          kanbanFilterPriority: kanbanFilterPriority.value,
           kanbanFilterType: kanbanFilterType.value,
           kanbanFilterDocument: kanbanFilterDocument.value,
           tableFilterType: tableFilterType.value,
@@ -943,11 +2283,10 @@ async function saveUserSettings() {
   try {
     await updateSettings('kanban', {
       currentView: currentView.value,
-      kanbanFilterPriority: kanbanFilterPriority.value,
-      kanbanFilterUpdatedRange: kanbanFilterUpdatedRange.value,
+      kanbanGroupMode: kanbanGroupMode.value,
+      tableGroupMode: tableGroupMode.value,
       kanbanFilterType: kanbanFilterType.value,
       kanbanFilterDocument: kanbanFilterDocument.value,
-      tableFilterUpdatedRange: tableFilterUpdatedRange.value,
       tableFilterType: tableFilterType.value,
       tableFilterDocument: tableFilterDocument.value,
       monthFilterType: monthFilterType.value,
@@ -1065,20 +2404,38 @@ function setupEventListeners() {
 
       queueIncrementalUpdates(scopedBlockIds, { allowUnknown: true });
       window.setTimeout(() => {
-        if (!tasks.value.some(t => t.blockId === addedBlockId)) {
-          scheduleRefreshTasks();
-        }
+        void (async () => {
+          if (hasTaskOrSubtask(addedBlockId)) {
+            return;
+          }
+          if (await isSubtaskBlockId(addedBlockId)) {
+            return;
+          }
+          scheduleRefreshTasks(180, 'full');
+        })();
       }, 220);
       return;
     }
-    scheduleRefreshTasks();
+    scheduleRefreshTasks(180, 'full');
+  });
+
+  const unsubscribeGroupsUpdated = eventBus.on(Events.TASK_GROUPS_UPDATED, (payload?: { groups?: TaskGroup[] }) => {
+    if (payload?.groups) {
+      applyExternalTaskGroups(payload.groups);
+      return;
+    }
+    void (async () => {
+      const nextGroups = await loadTaskGroups();
+      applyExternalTaskGroups(nextGroups);
+    })();
   });
 
   eventUnsubscribers.push(
     unsubscribeChanged,
     unsubscribeDeleted,
     unsubscribeUpdated,
-    unsubscribeAdded
+    unsubscribeAdded,
+    unsubscribeGroupsUpdated
   );
 }
 
@@ -1087,6 +2444,368 @@ function cleanupEventListeners() {
   eventUnsubscribers = [];
   incrementalUpdateQueue.clear();
   queuedIncrementalAllowUnknown = false;
+}
+
+interface AncestorContextRow {
+  source_id: string;
+  id: string;
+  depth: number;
+  subtype: string;
+}
+
+function normalizeBlockIds(blockIds: string[]): string[] {
+  return [...new Set(blockIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+}
+
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+async function queryAncestorContextRows(blockIds: string[]): Promise<AncestorContextRow[]> {
+  const normalizedBlockIds = normalizeBlockIds(blockIds);
+  if (normalizedBlockIds.length === 0) {
+    return [];
+  }
+
+  try {
+    const idsClause = normalizedBlockIds.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
+    const rows = await sql(`
+      WITH RECURSIVE ancestors(source_id, id, parent_id, depth) AS (
+        SELECT id AS source_id, id, parent_id, 0
+        FROM blocks
+        WHERE id IN (${idsClause})
+        UNION ALL
+        SELECT ancestors.source_id, b.id, b.parent_id, ancestors.depth + 1
+        FROM blocks b
+        JOIN ancestors ON ancestors.parent_id = b.id
+        WHERE ancestors.parent_id != ''
+          AND ancestors.depth < 10
+      )
+      SELECT ancestors.source_id, ancestors.id, ancestors.depth, b.subtype
+      FROM ancestors
+      JOIN blocks b ON b.id = ancestors.id
+    `) as any[];
+
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+
+    return rows
+      .map((row) => ({
+        source_id: typeof row?.source_id === 'string' ? row.source_id : '',
+        id: typeof row?.id === 'string' ? row.id : '',
+        depth: Number(row?.depth),
+        subtype: typeof row?.subtype === 'string' ? row.subtype : ''
+      }))
+      .filter((row) => row.source_id.length > 0 && row.id.length > 0 && Number.isFinite(row.depth));
+  } catch {
+    return [];
+  }
+}
+
+async function resolveParentTaskBlockIds(
+  blockIds: string[],
+  taskIndexMap?: Map<string, number>
+): Promise<Set<string>> {
+  const resolvedParentBlockIds = new Set<string>();
+  const unknownBlockIds: string[] = [];
+  const normalizedBlockIds = normalizeBlockIds(blockIds);
+
+  for (const blockId of normalizedBlockIds) {
+    unknownBlockIds.push(blockId);
+  }
+
+  if (unknownBlockIds.length === 0) {
+    return resolvedParentBlockIds;
+  }
+
+  try {
+    const rows = await queryAncestorContextRows(unknownBlockIds);
+    const unknownIdSet = new Set(unknownBlockIds);
+    const candidatesBySource = new Map<string, Array<{ id: string; depth: number }>>();
+    rows.forEach((row) => {
+      const sourceId = row?.source_id;
+      const candidateId = row?.id;
+      const depth = Number(row?.depth);
+      if (!sourceId || !candidateId || !Number.isFinite(depth)) return;
+      if (!unknownIdSet.has(sourceId)) return;
+      if (row.subtype !== 't') return;
+      const list = candidatesBySource.get(sourceId) || [];
+      list.push({ id: candidateId, depth });
+      candidatesBySource.set(sourceId, list);
+    });
+
+    for (const sourceId of unknownBlockIds) {
+      const candidates = (candidatesBySource.get(sourceId) || []).sort((a, b) => a.depth - b.depth);
+      let mappedParentId = '';
+
+      if (taskIndexMap) {
+        for (const candidate of candidates) {
+          if (candidate.depth <= 0) continue;
+          if (taskIndexMap.has(candidate.id)) {
+            mappedParentId = candidate.id;
+            break;
+          }
+        }
+      }
+
+      if (!mappedParentId) {
+        const fallbackAncestor = candidates.find((candidate) => candidate.depth > 0);
+        if (fallbackAncestor) {
+          mappedParentId = fallbackAncestor.id;
+        }
+      }
+
+      if (!mappedParentId) {
+        const selfCandidate = candidates.find((candidate) => candidate.id === sourceId);
+        if (selfCandidate) {
+          mappedParentId = sourceId;
+        }
+      }
+
+      if (mappedParentId) {
+        resolvedParentBlockIds.add(mappedParentId);
+      }
+    }
+  } catch {
+    // Fallback refresh will handle transient SQL failures.
+  }
+
+  return resolvedParentBlockIds;
+}
+
+interface SubtaskLookup {
+  subtask: SubTask;
+  parentBlockId: string;
+}
+
+function collectSubtaskLookup(
+  subtasks: SubTask[] | undefined,
+  parentBlockId: string,
+  map: Map<string, SubtaskLookup>
+): void {
+  if (!subtasks || subtasks.length === 0) {
+    return;
+  }
+
+  for (const subtask of subtasks) {
+    if (subtask?.nodeId) {
+      map.set(subtask.nodeId, { subtask, parentBlockId });
+    }
+    if (subtask?.subtasks && subtask.subtasks.length > 0) {
+      collectSubtaskLookup(subtask.subtasks, parentBlockId, map);
+    }
+  }
+}
+
+function buildTaskLookup(): {
+  taskIndexMap: Map<string, number>;
+  subtaskNodeMap: Map<string, SubtaskLookup>;
+} {
+  const taskIndexMap = new Map<string, number>();
+  const subtaskNodeMap = new Map<string, SubtaskLookup>();
+
+  tasks.value.forEach((task, index) => {
+    if (task?.blockId) {
+      taskIndexMap.set(task.blockId, index);
+    }
+    if (task?.subtasks && task.subtasks.length > 0) {
+      collectSubtaskLookup(task.subtasks, task.blockId || '', subtaskNodeMap);
+    }
+  });
+
+  return { taskIndexMap, subtaskNodeMap };
+}
+
+function hasTaskOrSubtask(blockId: string): boolean {
+  if (!blockId) return false;
+  if (tasks.value.some(task => task.blockId === blockId)) {
+    return true;
+  }
+  const { subtaskNodeMap } = buildTaskLookup();
+  return subtaskNodeMap.has(blockId);
+}
+
+async function isSubtaskBlockId(blockId: string): Promise<boolean> {
+  if (!blockId) return false;
+  try {
+    const rows = await queryAncestorContextRows([blockId]);
+    return rows.some(row =>
+      row.source_id === blockId
+      && row.subtype === 't'
+      && Number(row.depth) > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function parseTaskCompleted(markdown: string, blockId: string): boolean | null {
+  const firstLine = markdown
+    .split('\n')
+    .map(line => line.trim())
+    .find(line => line.length > 0);
+  if (firstLine) {
+    const match = firstLine.match(/\[(x|X| )\]/);
+    if (match) {
+      return match[1].toLowerCase() === 'x';
+    }
+  }
+
+  const getTaskActionElement = (root: Element | null, ownerId?: string): Element | null => {
+    if (!root) return null;
+    const matchesOwner = (action: Element): boolean => {
+      if (!ownerId) return true;
+      const owner = action.closest('[data-node-id]');
+      return owner?.getAttribute('data-node-id') === ownerId;
+    };
+
+    if (root.classList.contains('protyle-action--task') && matchesOwner(root)) {
+      return root;
+    }
+
+    const actions = root.querySelectorAll('.protyle-action--task');
+    for (const action of actions) {
+      if (matchesOwner(action)) {
+        return action;
+      }
+    }
+
+    const fallbackRoot = root.closest('.protyle-task');
+    const fallback = fallbackRoot?.querySelector('.protyle-action--task');
+    if (fallback && matchesOwner(fallback)) {
+      return fallback;
+    }
+
+    return null;
+  };
+
+  const selectors = [
+    `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
+    `.protyle [data-node-id="${blockId}"]`,
+    `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
+    `[data-node-id="${blockId}"]`
+  ];
+  let currentElement: Element | null = null;
+  for (const selector of selectors) {
+    currentElement = document.querySelector(selector);
+    if (currentElement) {
+      break;
+    }
+  }
+  if (currentElement) {
+    const currentAction = getTaskActionElement(currentElement, blockId);
+    if (!currentAction) {
+      return null;
+    }
+    const currentSvg = currentAction.querySelector('use');
+    const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
+    if (currentHref) {
+      return currentHref === '#iconCheck';
+    }
+    return null;
+  }
+  return null;
+}
+
+async function fastSyncTaskFromMarkdown(
+  blockIds: string[],
+  taskIndexMap: Map<string, number>,
+  subtaskNodeMap: Map<string, SubtaskLookup>
+): Promise<{
+  unresolvedBlockIds: string[];
+  patchedParentStatuses: Map<string, Task['status']>;
+  hasPatched: boolean;
+}> {
+  const unresolved: string[] = [];
+  const patchedParentStatuses = new Map<string, Task['status']>();
+  let hasPatched = false;
+  const validBlockIds: string[] = [];
+
+  for (const blockId of blockIds) {
+    if (taskIndexMap.has(blockId) || subtaskNodeMap.has(blockId)) {
+      validBlockIds.push(blockId);
+    } else {
+      unresolved.push(blockId);
+    }
+  }
+
+  if (validBlockIds.length === 0) {
+    return { unresolvedBlockIds: unresolved, patchedParentStatuses, hasPatched };
+  }
+
+  const blockSnapshots = await Promise.all(validBlockIds.map(async (blockId) => {
+    try {
+      const blockData = await getBlockKramdown(blockId);
+      const markdown = typeof blockData === 'string' ? blockData : blockData?.kramdown || '';
+      return { blockId, markdown, error: null as unknown };
+    } catch (error) {
+      return { blockId, markdown: '', error };
+    }
+  }));
+
+  for (const snapshot of blockSnapshots) {
+    const { blockId, markdown, error } = snapshot;
+    if (error) {
+      unresolved.push(blockId);
+      continue;
+    }
+
+    const completed = parseTaskCompleted(markdown, blockId);
+    if (completed === null) {
+      unresolved.push(blockId);
+      continue;
+    }
+
+    const taskIndex = taskIndexMap.get(blockId);
+    if (taskIndex !== undefined) {
+      const task = tasks.value[taskIndex];
+      if (!task) {
+        unresolved.push(blockId);
+        continue;
+      }
+
+      let changed = false;
+      const nextStatus: Task['status'] = completed
+        ? 'completed'
+        : (task.status === 'completed' ? 'pending' : (task.status || 'pending'));
+      if (task.status !== nextStatus) {
+        task.status = nextStatus;
+        changed = true;
+      }
+      if (completed && !task.completedAt) {
+        task.completedAt = new Date().toISOString();
+        changed = true;
+      }
+      if (!completed && task.completedAt) {
+        delete task.completedAt;
+        changed = true;
+      }
+      if (changed) {
+        task.updatedAt = new Date().toISOString();
+        patchedParentStatuses.set(blockId, nextStatus);
+        hasPatched = true;
+      }
+      continue;
+    }
+
+    const subtaskEntry = subtaskNodeMap.get(blockId);
+    if (subtaskEntry) {
+      if (subtaskEntry.subtask.completed !== completed) {
+        subtaskEntry.subtask.completed = completed;
+        hasPatched = true;
+      }
+      continue;
+    }
+
+    unresolved.push(blockId);
+  }
+
+  return {
+    unresolvedBlockIds: unresolved,
+    patchedParentStatuses,
+    hasPatched
+  };
 }
 
 async function incrementalUpdateTasks(
@@ -1109,36 +2828,45 @@ async function incrementalUpdateTasks(
       return;
     }
 
-    const taskIndexMap = new Map<string, number>();
-    tasks.value.forEach((task, index) => {
-      if (task && task.blockId) {
-        taskIndexMap.set(task.blockId, index);
+    const { taskIndexMap, subtaskNodeMap } = buildTaskLookup();
+    const {
+      unresolvedBlockIds,
+      patchedParentStatuses,
+      hasPatched
+    } = await fastSyncTaskFromMarkdown(scopedBlockIds, taskIndexMap, subtaskNodeMap);
+
+    if (unresolvedBlockIds.length === 0) {
+      if (hasPatched) {
+        applyDraggedStatusLocks(tasks.value);
+        invalidateTableFilters();
+        await nextTick();
       }
-    });
+      return;
+    }
+
     const parentBlockIds = new Set<string>();
-    
-    for (const blockId of scopedBlockIds) {
+    const stillUnresolved: string[] = [];
+
+    for (const blockId of unresolvedBlockIds) {
       if (taskIndexMap.has(blockId)) {
         parentBlockIds.add(blockId);
-      } else {
-        let matchedSubtask = false;
-        for (const task of tasks.value) {
-          if (!task || !task.blockId || !task.subtasks) {
-            continue;
-          }
-          if (hasSubtaskWithId(task.subtasks, blockId)) {
-            parentBlockIds.add(task.blockId);
-            matchedSubtask = true;
-            break;
-          }
-        }
-        if (!matchedSubtask && allowUnknown) {
-          parentBlockIds.add(blockId);
-        }
+        continue;
       }
+      const subtaskEntry = subtaskNodeMap.get(blockId);
+      if (subtaskEntry?.parentBlockId) {
+        parentBlockIds.add(subtaskEntry.parentBlockId);
+        continue;
+      }
+      stillUnresolved.push(blockId);
     }
-    
+
+    if (stillUnresolved.length > 0) {
+      const resolvedParentIds = await resolveParentTaskBlockIds(stillUnresolved, taskIndexMap);
+      resolvedParentIds.forEach((id) => parentBlockIds.add(id));
+    }
+
     if (parentBlockIds.size === 0) {
+      scheduleRefreshTasks(180, 'silent-full');
       return;
     }
     
@@ -1146,16 +2874,26 @@ async function incrementalUpdateTasks(
       Array.from(parentBlockIds),
       false,
       undefined,
-      { useLiveDom: false }
+      { useLiveDom: true }
     );
     updatedTasksMap.forEach(task => {
+      const forcedStatus = task.blockId ? patchedParentStatuses.get(task.blockId) : null;
+      if (forcedStatus) {
+        task.status = forcedStatus;
+        if (forcedStatus === 'completed') {
+          task.completedAt = task.completedAt || new Date().toISOString();
+        } else {
+          delete task.completedAt;
+        }
+        task.updatedAt = new Date().toISOString();
+      }
       const lockedStatus = task.blockId ? getLockedDraggedTaskStatus(task.blockId) : null;
       if (lockedStatus) {
         task.status = lockedStatus;
       }
     });
     
-    let touched = false;
+    let touched = hasPatched;
 
     for (const blockId of parentBlockIds) {
       const updatedTask = updatedTasksMap.get(blockId);
@@ -1184,29 +2922,435 @@ async function incrementalUpdateTasks(
     }
   } catch (error) {
     console.error('[KanbanView] 增量更新任务失败:', error);
-    scheduleRefreshTasks();
+    scheduleRefreshTasks(180, allowUnknown ? 'silent-full' : 'full');
   }
 }
 
-function hasSubtaskWithId(subtasks: any[], nodeId: string): boolean {
-  for (const subtask of subtasks) {
-    if (subtask.nodeId === nodeId) {
+function getColumnTaskCount(column: KanbanColumn): number {
+  return getTasksForColumn(column).length;
+}
+
+const kanbanEditorStyle = computed(() => ({
+  left: `${kanbanEditorPosition.value.x}px`,
+  top: `${kanbanEditorPosition.value.y}px`
+}));
+
+function clampKanbanEditorPosition(): void {
+  const panel = kanbanEditorPanelRef.value;
+  if (!panel) return;
+  const padding = 12;
+  const rect = panel.getBoundingClientRect();
+  const maxX = window.innerWidth - rect.width - padding;
+  const maxY = window.innerHeight - rect.height - padding;
+  const nextX = Math.min(Math.max(padding, kanbanEditorPosition.value.x), Math.max(padding, maxX));
+  const nextY = Math.min(Math.max(padding, kanbanEditorPosition.value.y), Math.max(padding, maxY));
+  kanbanEditorPosition.value = { x: nextX, y: nextY };
+}
+
+function setKanbanEditorPositionFromEvent(event: MouseEvent): void {
+  const offset = 12;
+  kanbanEditorPosition.value = {
+    x: event.clientX + offset,
+    y: event.clientY + offset
+  };
+}
+
+function isKanbanTaskExpanded(taskId: string): boolean {
+  return expandedKanbanTaskIds.value.has(taskId);
+}
+
+async function ensureKanbanTaskSubtasks(task: Task): Promise<void> {
+  if (!task.blockId) return;
+  if (task.subtasks && task.subtasks.length > 0) return;
+  if (kanbanSubtaskHydratingIds.has(task.blockId)) return;
+
+  kanbanSubtaskHydratingIds.add(task.blockId);
+  try {
+    const refreshedTasks = await TaskRepository.getAllTasks(false, undefined, { useLiveDom: false });
+    const refreshedTask = refreshedTasks.find(item => item.blockId === task.blockId);
+    if (!refreshedTask) return;
+    crdtRepo.syncIncrementalTasks([refreshedTask]);
+    updateTasks();
+  } catch (error) {
+    console.warn('[KanbanView] 获取子任务失败:', error);
+  } finally {
+    kanbanSubtaskHydratingIds.delete(task.blockId);
+  }
+}
+
+function toggleKanbanTaskExpand(task: Task): void {
+  const taskId = task.id;
+  const next = new Set(expandedKanbanTaskIds.value);
+  if (next.has(taskId)) {
+    next.delete(taskId);
+  } else {
+    next.add(taskId);
+    void ensureKanbanTaskSubtasks(task);
+  }
+  expandedKanbanTaskIds.value = next;
+}
+
+function getInlineDescriptionDraft(task: Task): string {
+  if (inlineDescriptionDraftByTaskId.value.has(task.id)) {
+    return inlineDescriptionDraftByTaskId.value.get(task.id) || '';
+  }
+  return task.description || '';
+}
+
+function handleInlineDescriptionInput(taskId: string, event: Event): void {
+  const target = event.target as HTMLTextAreaElement | null;
+  inlineDescriptionDraftByTaskId.value.set(taskId, target?.value || '');
+}
+
+function startInlineDescriptionEdit(task: Task): void {
+  if (inlineDescriptionSavingTaskIds.has(task.id)) {
+    return;
+  }
+  if (inlineEditingDescriptionTaskId.value === task.id) {
+    return;
+  }
+  inlineEditingDescriptionTaskId.value = task.id;
+  inlineDescriptionDraftByTaskId.value.set(task.id, task.description || '');
+}
+
+function clearInlineDescriptionEdit(taskId: string): void {
+  if (inlineEditingDescriptionTaskId.value === taskId) {
+    inlineEditingDescriptionTaskId.value = null;
+  }
+  inlineDescriptionDraftByTaskId.value.delete(taskId);
+}
+
+function cancelInlineDescriptionEdit(taskId: string): void {
+  clearInlineDescriptionEdit(taskId);
+}
+
+async function saveInlineDescriptionEdit(task: Task): Promise<void> {
+  const taskId = task.id;
+  if (inlineEditingDescriptionTaskId.value !== taskId) {
+    return;
+  }
+  if (inlineDescriptionSavingTaskIds.has(taskId)) {
+    return;
+  }
+
+  const description = inlineDescriptionDraftByTaskId.value.get(taskId) || '';
+  if (description === (task.description || '')) {
+    clearInlineDescriptionEdit(taskId);
+    return;
+  }
+
+  inlineDescriptionSavingTaskIds.add(taskId);
+  try {
+    await handleDescriptionUpdate(task, description);
+  } finally {
+    inlineDescriptionSavingTaskIds.delete(taskId);
+    clearInlineDescriptionEdit(taskId);
+  }
+}
+
+function handleTaskClick(task: Task, event?: MouseEvent) {
+  if (event && (currentView.value === 'kanban' || currentView.value === 'table')) {
+    void openKanbanEditor(task, event);
+    return;
+  }
+  if (task.type === 'block' && task.blockId) {
+    void openBlockById(task.blockId);
+  }
+}
+
+function toggleKanbanEditorPriorityPopover(event: MouseEvent): void {
+  if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) {
+    kanbanEditorPriorityPopover.value = null;
+    return;
+  }
+  if (kanbanEditorPriorityPopover.value) {
+    kanbanEditorPriorityPopover.value = null;
+    return;
+  }
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  kanbanEditorPriorityPopover.value = {
+    position: {
+      x: rect.left + rect.width / 2,
+      y: rect.bottom + 8
+    }
+  };
+}
+
+async function handleKanbanEditorPrioritySelect(value: string): Promise<void> {
+  if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) return;
+  const priority = value as Task['priority'];
+  activeKanbanEditDraft.value.priority = priority;
+  await handlePriorityUpdate(activeKanbanEditTask.value, priority);
+  invalidateTableFilters();
+}
+
+function handleKanbanEditorDescriptionInput(value: string): void {
+  if (!activeKanbanEditDraft.value) return;
+  activeKanbanEditDraft.value.description = value;
+}
+
+async function handleKanbanEditorDescriptionCommit(): Promise<void> {
+  if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) return;
+  const description = activeKanbanEditDraft.value.description || '';
+  await handleDescriptionUpdate(activeKanbanEditTask.value, description);
+  invalidateTableFilters();
+}
+
+function handleKanbanEditorDateSelect(value: string): void {
+  if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) return;
+  const normalized = normalizeDateInputValue(value || '');
+  activeKanbanEditDraft.value.dueDate = normalized;
+  void handleDueDateUpdate(activeKanbanEditTask.value, normalized);
+  invalidateTableFilters();
+}
+
+async function handleKanbanEditorGroupSelect(value: string): Promise<void> {
+  if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) return;
+  const groupId = value === TASK_GROUP_NONE_ID ? '' : value;
+  const normalized = typeof groupId === 'string' ? groupId.trim() : '';
+  activeKanbanEditDraft.value.groupId = normalized;
+  await applyBlockTaskFieldUpdate(
+    activeKanbanEditTask.value,
+    { 'custom-task-group': normalized || '' },
+    'groupId',
+    normalized || undefined,
+    '更新任务分组失败'
+  );
+  invalidateTableFilters();
+}
+
+function closeKanbanEditor(): void {
+  kanbanEditorVisible.value = false;
+  kanbanEditorTaskId.value = null;
+  kanbanEditorDraft.value = null;
+  kanbanEditorQuickPanel.value = null;
+  kanbanEditorPriorityPopover.value = null;
+  if (kanbanEditorProtyle) {
+    try {
+      kanbanEditorProtyle.destroy();
+    } catch {
+    }
+    kanbanEditorProtyle = null;
+  }
+  if (kanbanEditorMountRef.value) {
+    kanbanEditorMountRef.value.innerHTML = '';
+  }
+}
+
+function handleKanbanEditorOutsideClick(event: MouseEvent): void {
+  const target = event.target as Node | null;
+  if (!target) return;
+
+  const resolvePopoverElement = (refValue: InstanceType<typeof TaskFilterPopover> | null): HTMLElement | null => {
+    const exposed = refValue as { popoverEl?: HTMLElement | { value?: HTMLElement | null } } | null;
+    const popoverEl = exposed?.popoverEl;
+    if (!popoverEl) return null;
+    if (popoverEl instanceof HTMLElement) return popoverEl;
+    if (typeof popoverEl === 'object' && 'value' in popoverEl) {
+      return (popoverEl as { value?: HTMLElement | null }).value || null;
+    }
+    return null;
+  };
+
+  const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+  const isInsidePopover = path.some(node =>
+    node instanceof HTMLElement && node.classList.contains('task-filter-popover')
+  );
+  const isInsideControl = path.some(node =>
+    node instanceof HTMLElement && node.classList.contains('task-filter-control')
+  );
+  const isInsidePriority = path.some(node =>
+    node instanceof HTMLElement && node.classList.contains('priority-popover')
+  );
+  const isInsideDatePopover = path.some(node =>
+    node instanceof HTMLElement
+    && (node.classList.contains('date-popover') || node.classList.contains('date-popover-overlay'))
+  );
+  if (isInsidePopover || isInsideControl || isInsidePriority || isInsideDatePopover) {
+    return;
+  }
+
+  if (kanbanFilterPopoverVisible.value) {
+    const popoverEl = resolvePopoverElement(kanbanFilterPopoverRef.value);
+    if (popoverEl?.contains(target)) {
+      return;
+    }
+    if (kanbanFilterControlRef.value?.contains(target)) {
+      return;
+    }
+  }
+  if (tableFilterPopoverVisible.value) {
+    const popoverEl = resolvePopoverElement(tableFilterPopoverRef.value);
+    if (popoverEl?.contains(target)) {
+      return;
+    }
+    if (tableFilterControlRef.value?.contains(target)) {
+      return;
+    }
+  }
+  if (kanbanFilterPopoverVisible.value) {
+    closeKanbanFilterPopover();
+  }
+  if (tableFilterPopoverVisible.value) {
+    closeTableFilterPopover();
+  }
+
+  if (kanbanEditorVisible.value) {
+    if (kanbanEditorPanelRef.value?.contains(target)) {
+      return;
+    }
+    closeKanbanEditor();
+  }
+
+}
+
+function handleKanbanEditorKeydown(event: KeyboardEvent): void {
+  if (!kanbanEditorVisible.value) return;
+  if (event.key === 'Escape') {
+    closeKanbanEditor();
+  }
+}
+
+function handleKanbanEditorViewportChange(): void {
+  if (kanbanEditorVisible.value) {
+    clampKanbanEditorPosition();
+  }
+  if (kanbanFilterPopoverVisible.value) {
+    updateKanbanFilterPopoverPosition();
+  }
+  if (tableFilterPopoverVisible.value) {
+    updateTableFilterPopoverPosition();
+  }
+}
+
+async function focusKanbanEditorBlock(
+  blockId: string,
+  retries = 20,
+  intervalMs = 80
+): Promise<boolean> {
+  const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+  if (!normalizedBlockId || !kanbanEditorProtyle || !kanbanEditorMountRef.value) {
+    return false;
+  }
+
+  const tryFocus = (): boolean => {
+    const mountElement = kanbanEditorMountRef.value;
+    const target = mountElement?.querySelector(`[data-node-id="${normalizedBlockId}"]`) as Element | null;
+    if (target) {
+      try {
+        const targetElement = target as HTMLElement;
+        const protyleContent = mountElement?.querySelector('.protyle-content') as HTMLElement | null;
+        if (protyleContent) {
+          const targetRect = targetElement.getBoundingClientRect();
+          const containerRect = protyleContent.getBoundingClientRect();
+          const delta = targetRect.top - containerRect.top - (containerRect.height - targetRect.height) / 2;
+          if (Number.isFinite(delta)) {
+            protyleContent.scrollTop += delta;
+          }
+        }
+      } catch {
+      }
+      try {
+        kanbanEditorProtyle?.focusBlock(target, true);
+      } catch {
+      }
       return true;
     }
-    if (subtask.subtasks && hasSubtaskWithId(subtask.subtasks, nodeId)) {
+    return false;
+  };
+
+  if (tryFocus()) {
+    return true;
+  }
+
+  for (let i = 0; i < retries; i++) {
+    await new Promise(resolve => window.setTimeout(resolve, intervalMs));
+    if (tryFocus()) {
       return true;
     }
   }
   return false;
 }
 
-function getColumnTaskCount(status: string): number {
-  return getFilteredTasksForStatus(status).length;
+async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+  if (task.type !== 'block' || !blockId) {
+    await pushMsg('该任务无法编辑', 2000);
+    return;
+  }
+  if (openingKanbanEditorBlockIds.has(blockId)) {
+    return;
+  }
+  if (taskGroups.value.length === 0) {
+    taskGroups.value = await loadTaskGroups();
+  }
+  kanbanEditorTaskId.value = task.id;
+  kanbanEditorDraft.value = {
+    taskId: task.id,
+    dueDate: typeof task.dueDate === 'string' ? task.dueDate : '',
+    description: typeof task.description === 'string' ? task.description : '',
+    groupId: typeof task.groupId === 'string' ? task.groupId : '',
+    priority: task.priority || 'none'
+  };
+  kanbanEditorQuickPanel.value = null;
+  kanbanEditorPriorityPopover.value = null;
+  openingKanbanEditorBlockIds.add(blockId);
+  setKanbanEditorPositionFromEvent(event);
+  kanbanEditorVisible.value = true;
+  await nextTick();
+  clampKanbanEditorPosition();
+
+  const plugin = usePlugin();
+  const mountElement = kanbanEditorMountRef.value;
+  if (!plugin?.app || !mountElement) {
+    openingKanbanEditorBlockIds.delete(blockId);
+    closeKanbanEditor();
+    await pushMsg('编辑器初始化失败', 2000);
+    return;
+  }
+
+  if (kanbanEditorProtyle) {
+    try {
+      kanbanEditorProtyle.destroy();
+    } catch {
+    }
+    kanbanEditorProtyle = null;
+  }
+  mountElement.innerHTML = '';
+
+  try {
+    const options: Record<string, any> = {
+      blockId,
+      action: ['cb-get-focus'],
+      mode: 'wysiwyg',
+      render: {
+        title: false,
+        breadcrumb: false,
+        gutter: false,
+        scroll: false
+      }
+    };
+    const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+    if (rootId) {
+      options.rootId = rootId;
+    }
+    kanbanEditorProtyle = new Protyle(plugin.app, mountElement, options);
+    await focusKanbanEditorBlock(blockId);
+    clampKanbanEditorPosition();
+  } catch {
+    kanbanEditorProtyle = null;
+    closeKanbanEditor();
+    await pushMsg('编辑器打开失败', 2000);
+  } finally {
+    openingKanbanEditorBlockIds.delete(blockId);
+  }
 }
 
-function handleTaskClick(task: Task) {
+async function handleTaskEditClick(task: Task): Promise<void> {
   if (task.type === 'block' && task.blockId) {
-    void openBlockById(task.blockId);
+    await openBlockById(task.blockId);
   }
 }
 
@@ -1359,10 +3503,10 @@ async function submitQuickCreateTask() {
     if (created?.blockId) {
       await incrementalUpdateTasks([created.blockId], { allowUnknown: true });
       if (!tasks.value.some(t => t.blockId === created.blockId)) {
-        scheduleRefreshTasks();
+        scheduleRefreshTasks(180, 'full');
       }
     } else {
-      scheduleRefreshTasks();
+      scheduleRefreshTasks(180, 'full');
     }
   } catch (error) {
     console.error('[KanbanView] 创建任务失败:', error);
@@ -1475,6 +3619,18 @@ async function handleStatusUpdate(task: Task, status: Task['status']) {
   );
 }
 
+async function handleGroupUpdate(task: Task, groupId: string) {
+  const normalizedGroupId = typeof groupId === 'string' ? groupId.trim() : '';
+  await applyBlockTaskFieldUpdate(
+    task,
+    { 'custom-task-group': normalizedGroupId || '' },
+    'groupId',
+    normalizedGroupId || undefined,
+    '更新任务分组失败'
+  );
+  invalidateTableFilters();
+}
+
 async function handleStartDateUpdate(task: Task, startDate: string) {
   await applyBlockTaskFieldUpdate(
     task,
@@ -1549,27 +3705,131 @@ function handleDragStart(event: DragEvent, task: Task) {
 
 function handleDragEnd() {
   draggedTask.value = null;
-  dragOverStatus.value = null;
+  dragOverColumnId.value = null;
 }
 
-function handleDragOver(event: DragEvent, status: string) {
+function handleDragOver(event: DragEvent, column: KanbanColumn) {
   if (isMobileFrontend) return;
 
   event.preventDefault();
-  if (draggedTask.value && draggedTask.value.status !== status) {
-    dragOverStatus.value = status;
+  if (!draggedTask.value) {
+    return;
+  }
+
+  if (kanbanGroupMode.value) {
+    if (column.type !== 'group') {
+      return;
+    }
+    const currentGroupId = getGroupColumnIdForTask(draggedTask.value);
+    if (currentGroupId !== column.id) {
+      dragOverColumnId.value = column.id;
+    }
+    return;
+  }
+
+  if (column.type === 'status' && column.status && draggedTask.value.status !== column.status) {
+    dragOverColumnId.value = column.id;
   }
 }
 
 function handleDragLeave() {
-  dragOverStatus.value = null;
+  dragOverColumnId.value = null;
 }
 
-async function handleDrop(event: DragEvent, targetStatus: string) {
+async function handleDrop(event: DragEvent, column: KanbanColumn) {
   if (isMobileFrontend) return;
 
   event.preventDefault();
   
+  if (!draggedTask.value) return;
+
+  if (kanbanGroupMode.value) {
+    if (column.type !== 'group') {
+      return;
+    }
+    await handleGroupDrop(column);
+    return;
+  }
+
+  if (column.type === 'status' && column.status) {
+    await handleStatusDrop(column.status);
+  }
+}
+
+async function handleGroupDrop(column: KanbanColumn) {
+  if (!draggedTask.value) return;
+  
+  isDropping.value = true;
+  
+  const task = draggedTask.value;
+  const taskId = task.id;
+  
+  const taskIndex = tasks.value.findIndex(t => t.id === taskId);
+  if (taskIndex === -1) {
+    isDropping.value = false;
+    return;
+  }
+  
+  const currentTask = tasks.value[taskIndex];
+  const oldGroupId = typeof currentTask.groupId === 'string' ? currentTask.groupId.trim() : '';
+  const targetGroupId = column.id === TASK_GROUP_NONE_ID ? '' : (column.groupId || column.id);
+  const normalizedTargetGroupId = typeof targetGroupId === 'string' ? targetGroupId.trim() : '';
+  
+  if (oldGroupId === normalizedTargetGroupId) {
+    isDropping.value = false;
+    return;
+  }
+  
+  const updatedTask = { ...currentTask, groupId: normalizedTargetGroupId || undefined };
+  const droppedBlockId = task.type === 'block' && task.blockId ? task.blockId : null;
+  if (droppedBlockId) {
+    suppressDragTaskSync(droppedBlockId, 1600);
+  }
+  tasks.value = [
+    ...tasks.value.slice(0, taskIndex),
+    updatedTask,
+    ...tasks.value.slice(taskIndex + 1)
+  ];
+  invalidateTableFilters();
+
+  // End drag visual state immediately to avoid long "dragging" flicker while async sync is running.
+  draggedTask.value = null;
+  dragOverColumnId.value = null;
+  
+  try {
+    if (task.type === 'block' && task.blockId) {
+      await setBlockAttrs(task.blockId, {
+        'custom-task-group': normalizedTargetGroupId || ''
+      });
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
+    }
+  } catch (error) {
+    console.error('[KanbanView] 拖拽更新任务分组失败:', error);
+    if (droppedBlockId) {
+      dragSyncSuppressUntil.delete(droppedBlockId);
+    }
+    const revertTaskIndex = tasks.value.findIndex(t => t.id === taskId);
+    if (revertTaskIndex !== -1) {
+      const revertedTask = { ...tasks.value[revertTaskIndex], groupId: oldGroupId || undefined };
+      tasks.value = [
+        ...tasks.value.slice(0, revertTaskIndex),
+        revertedTask,
+        ...tasks.value.slice(revertTaskIndex + 1)
+      ];
+      invalidateTableFilters();
+    }
+  } finally {
+    isDropping.value = false;
+  }
+  if (droppedBlockId) {
+    // Keep optimistic result to avoid post-drop visual flicker; backend events have been suppressed.
+    window.setTimeout(() => {
+      dragSyncSuppressUntil.delete(droppedBlockId);
+    }, 500);
+  }
+}
+
+async function handleStatusDrop(targetStatus: Task['status']) {
   if (!draggedTask.value) return;
   
   isDropping.value = true;
@@ -1585,6 +3845,7 @@ async function handleDrop(event: DragEvent, targetStatus: string) {
   
   const currentTask = tasks.value[taskIndex];
   const oldStatus = currentTask.status;
+  const wasCompleted = oldStatus === 'completed';
   
   if (oldStatus === targetStatus) {
     isDropping.value = false;
@@ -1606,7 +3867,7 @@ async function handleDrop(event: DragEvent, targetStatus: string) {
 
   // End drag visual state immediately to avoid long "dragging" flicker while async sync is running.
   draggedTask.value = null;
-  dragOverStatus.value = null;
+  dragOverColumnId.value = null;
   
   try {
     if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate) {
@@ -1618,7 +3879,7 @@ async function handleDrop(event: DragEvent, targetStatus: string) {
       
       if (targetStatus === 'completed') {
         await updateTaskMarkdown(task.blockId, true);
-      } else if (oldStatus === 'completed' && targetStatus !== 'completed') {
+      } else if (wasCompleted) {
         await updateTaskMarkdown(task.blockId, false);
       }
     }
@@ -1655,11 +3916,17 @@ onMounted(async () => {
   applyExcludedNotebookScope(normalizeNotebookIds(userSettings.taskManager.excludedNotebookIds));
   await Promise.all([
     loadNotebooks(),
-    loadTasks()
+    loadTasks(),
+    loadTaskGroups().then(groups => {
+      taskGroups.value = groups;
+    })
   ]);
   await loadUserSettings();
   await validateDocumentSelection();
   startSkipSetCleanup();
+  document.addEventListener('mousedown', handleKanbanEditorOutsideClick);
+  window.addEventListener('keydown', handleKanbanEditorKeydown);
+  window.addEventListener('resize', handleKanbanEditorViewportChange);
 });
 
 onUnmounted(() => {
@@ -1673,8 +3940,48 @@ onUnmounted(() => {
     clearTimeout(fallbackRefreshTimer);
     fallbackRefreshTimer = null;
   }
+  if (kanbanTitleHydrateTimer !== null) {
+    clearTimeout(kanbanTitleHydrateTimer);
+    kanbanTitleHydrateTimer = null;
+  }
+  document.removeEventListener('mousedown', handleKanbanEditorOutsideClick);
+  window.removeEventListener('keydown', handleKanbanEditorKeydown);
+  window.removeEventListener('resize', handleKanbanEditorViewportChange);
+  closeKanbanEditor();
   dragStatusLocks.clear();
   dragSyncSuppressUntil.clear();
+  if (kanbanMetricsRaf !== null) {
+    cancelAnimationFrame(kanbanMetricsRaf);
+    kanbanMetricsRaf = null;
+  }
+  kanbanColumnElements.clear();
+});
+
+watch(currentView, (nextView) => {
+  if (nextView !== 'kanban') {
+    closeKanbanFilterPopover();
+  }
+  if (nextView !== 'table') {
+    closeTableFilterPopover();
+  }
+  if (nextView !== 'kanban' && kanbanEditorVisible.value) {
+    closeKanbanEditor();
+  }
+  if (nextView === 'kanban') {
+    scheduleKanbanTitleHydration(120);
+  }
+});
+
+watch(kanbanColumns, () => {
+  nextTick(() => {
+    for (const column of kanbanColumns.value) {
+      const el = kanbanColumnElements.get(column.id);
+      if (el) {
+        updateKanbanColumnMetrics(column.id, el);
+      }
+    }
+    scheduleKanbanTitleHydration(160);
+  });
 });
 </script>
 
@@ -1695,6 +4002,237 @@ onUnmounted(() => {
   align-items: center;
   flex-shrink: 0;
   margin: 10px;
+}
+
+.document-tabs-row {
+  margin: 0 10px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  flex-wrap: wrap;
+}
+
+.document-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+  flex: 1;
+  min-width: 0;
+}
+
+.document-tabs-placeholder {
+  flex: 1;
+  min-width: 0;
+}
+
+.document-tabs-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.table-document-actions {
+  align-items: center;
+}
+
+.table-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex: 0 0 auto;
+}
+
+.table-document-actions .active-task-filters {
+  flex: 1 1 100%;
+  justify-content: flex-end;
+}
+
+
+.task-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 999px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  min-height: 28px;
+  flex: 0 1 220px;
+  max-width: 280px;
+  box-sizing: border-box;
+}
+
+.task-search input {
+  border: none;
+  background: transparent;
+  outline: none;
+  color: inherit;
+  font-size: 12px;
+  width: 160px;
+  min-width: 90px;
+}
+
+.task-search input::placeholder {
+  color: var(--b3-theme-on-surface);
+  opacity: 0.5;
+}
+
+.task-search:focus-within {
+  border-color: var(--b3-theme-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+}
+
+.task-search-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.task-search-clear {
+  border: none;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0.6;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.task-search-clear:hover {
+  background: var(--b3-list-hover);
+  opacity: 1;
+}
+
+.document-tab {
+  border: 1px solid transparent;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.document-tab:hover {
+  background: var(--b3-theme-background);
+  border-color: var(--b3-border-color);
+}
+
+.document-tab.active {
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.task-filter-control {
+  position: relative;
+}
+
+.task-filter-btn {
+  border: none;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-filter-btn:hover,
+.task-filter-btn.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.task-filter-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.task-filter-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #f98f7a;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.active-task-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.active-task-filter-chip,
+.active-task-filters-clear {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.active-task-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--active-task-filter-chip-bg, var(--b3-list-hover));
+  color: var(--active-task-filter-chip-color, var(--b3-theme-on-surface));
+  box-shadow: var(--active-task-filter-chip-shadow, none);
+}
+
+.active-task-filter-chip-remove {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.active-task-filter-chip:hover,
+.active-task-filters-clear:hover {
+  color: var(--active-task-filter-chip-hover-color, var(--b3-theme-on-background));
+}
+
+.active-task-filters-clear {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--b3-theme-border);
 }
 
 .header-left {
@@ -1745,10 +4283,22 @@ onUnmounted(() => {
 
 .header-actions {
   display: flex;
-  gap: 8px;
+  align-items: center;
 }
 
-.refresh-btn {
+.kanban-group-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 0;
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.refresh-btn,
+.scope-btn {
   background: none;
   border: none;
   padding: 0;
@@ -1756,23 +4306,15 @@ onUnmounted(() => {
   cursor: pointer;
   width: 26px;
   height: 26px;
-  
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
   svg {
     color: var(--b3-theme-on-background);
   }
 }
 
-.scope-btn {
-  border: none;
-  margin: 0 6px 0 0;
-  cursor: pointer;
-  height: 26px;
-  font-size: 12px;
-  border-radius: 13px;
-  background-color: var(--b3-list-hover);
-  color: var(--b3-theme-on-background);
-  padding: 4px 10px;
-}
 
 .filter-bar {
   display: flex;
@@ -1928,6 +4470,39 @@ onUnmounted(() => {
   max-height: 100%;
 }
 
+.kanban-column.action-column {
+  min-width: 200px;
+  max-width: 240px;
+  background: transparent;
+  border: 1px dashed var(--b3-border-color);
+  box-shadow: none;
+}
+
+.action-column-body {
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+}
+
+.kanban-add-group-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kanban-add-group-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
 .column-header {
   display: flex;
   justify-content: space-between;
@@ -1944,28 +4519,34 @@ onUnmounted(() => {
   color: var(--b3-theme-on-background);
 }
 
-.column-title::before {
-  content: '';
+.column-title-button {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: opacity 0.2s ease;
+}
+
+.column-title-button:hover {
+  opacity: 0.8;
+}
+
+.column-title-button:focus-visible {
+  outline: 2px solid #f98f7a;
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.column-title-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.kanban-column.status-pending .column-title::before {
-  background: #f59e0b;
-}
-
-.kanban-column.status-in-progress .column-title::before {
-  background: #3b82f6;
-}
-
-.kanban-column.status-completed .column-title::before {
-  background: #10b981;
-}
-
-.kanban-column.status-cancelled .column-title::before {
-  background: #9ca3af;
+.column-title-text {
+  min-width: 0;
 }
 
 .column-tasks {
@@ -1977,27 +4558,124 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.kanban-task-card {
+.column-task-spacer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kanban-editor-panel {
+  position: fixed;
+  z-index: 2;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  max-height: min(70vh, 520px);
   background: var(--b3-theme-background);
-  border-radius: 8px;
-  padding: 12px;
-  cursor: move;
-  transition: box-shadow 0.2s, transform 0.2s;
-  box-shadow: #0000000f 0 1px 5px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.kanban-task-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
+.kanban-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--b3-theme-border);
 }
 
-.kanban-task-card[draggable="true"]:active {
-  cursor: grabbing;
+.kanban-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.kanban-task-card.dragging {
-  opacity: 0.85;
-  transform: rotate(2deg);
+.kanban-editor-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.kanban-editor-priority-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.kanban-editor-priority-indicator {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.kanban-editor-priority-btn:hover .kanban-editor-priority-indicator {
+  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+}
+
+.kanban-editor-close {
+  border: none;
+  background: transparent;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.kanban-editor-close:hover {
+  background: var(--b3-list-hover);
+}
+
+.kanban-editor-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 220px;
+  overflow: hidden;
+  padding: 6px;
+}
+
+.kanban-editor-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 14px;
+  border-top: 1px solid var(--b3-theme-border);
+}
+
+.kanban-editor-body :deep(.protyle-content) {
+  overflow: auto;
+  border-radius: 6px;
+}
+
+.kanban-editor-body :deep(.protyle-wysiwyg) {
+  padding: 10px !important;
+}
+
+.kanban-editor-body :deep(.protyle-toolbar),
+.kanban-editor-body :deep(.protyle-hint) {
+  z-index: 6;
 }
 
 .column-tasks.drag-over {
@@ -2008,119 +4686,6 @@ onUnmounted(() => {
   transition: all 0.2s ease;
 }
 
-
-.task-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.task-icon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.task-path {
-  font-size: 12px;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.7;
-}
-
-.task-title {
-  font-size: 14px;
-  color: var(--b3-theme-on-background);
-  line-height: 1.4;
-}
-
-.task-description {
-  font-size: 13px;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.8;
-  margin: 8px 0;
-  line-height: 1.5;
-  max-height: 4.5em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  word-break: break-word;
-}
-
-.task-meta {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-  align-items: center;
-}
-
-.task-priority-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-}
-
-.task-priority-badge.priority-high {
-  background: var(--pinch-background10);
-  color: var(--pinch-font-color10);
-}
-
-.task-priority-badge.priority-medium {
-  background: var(--pinch-background3);
-  color: var(--pinch-font-color3);
-}
-
-.task-priority-badge.priority-low {
-  background: var(--pinch-background7);
-  color: var(--pinch-font-color7);
-}
-
-.task-due-badge {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  background: #f3f4f6;
-  color: #6b7280;
-}
-
-.task-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.task-progress:empty {
-  display: none;
-}
-
-.task-progress-bar {
-  flex: 1;
-  height: 4px;
-  background: var(--b3-border-color);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.task-progress-fill {
-  height: 100%;
-  background: var(--b3-theme-primary);
-  transition: width 0.3s;
-}
-
-.task-progress-text {
-  font-size: 12px;
-  color: var(--b3-theme-on-surface);
-  min-width: 40px;
-  text-align: right;
-}
 
 .empty-column {
   text-align: center;

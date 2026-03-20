@@ -49,5 +49,6 @@ export const Events = {
   TASK_ADDED: 'task-added',
   TASK_DELETED: 'task-deleted',
   TASK_UPDATED: 'task-updated',
+  TASK_GROUPS_UPDATED: 'task-groups-updated',
   TASK_TOGGLED: 'task-toggled',
 };

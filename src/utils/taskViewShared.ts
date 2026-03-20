@@ -1,4 +1,5 @@
 import type { Task } from '@/api';
+import { normalizeNotebookIds } from './notebookIds';
 
 export interface RepeatRulePayload {
   blockId?: string;
@@ -6,16 +7,7 @@ export interface RepeatRulePayload {
   frequency?: string;
 }
 
-export function normalizeNotebookIds(ids: unknown): string[] {
-  if (!Array.isArray(ids)) return [];
-  return Array.from(
-    new Set(
-      ids
-        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-        .map(id => id.trim())
-    )
-  );
-}
+export { normalizeNotebookIds };
 
 export function getDocumentCreationSortKey(documentId: string): number {
   if (typeof documentId !== 'string' || documentId.length === 0) return 0;

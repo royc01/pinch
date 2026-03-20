@@ -24,6 +24,7 @@ export const useHabitPomodoro = ({
 }: UseHabitPomodoroOptions) => {
   const activePomodoroHabit = ref<Habit | null>(null);
   const activePomodoroRemaining = ref<number | undefined>(undefined);
+  const activePomodoroPaused = ref(false);
   const inlineRadius = ref(45);
   const inlineCircumference = computed(() => 2 * Math.PI * inlineRadius.value);
 
@@ -51,6 +52,7 @@ export const useHabitPomodoro = ({
     if (options.clearActive && activePomodoroHabit.value?.id === habit.id) {
       activePomodoroHabit.value = null;
       activePomodoroRemaining.value = undefined;
+      activePomodoroPaused.value = false;
     }
 
     refreshHabits();
@@ -75,6 +77,7 @@ export const useHabitPomodoro = ({
     habit.isPomodoroPaused = false;
 
     activePomodoroRemaining.value = remainingTime;
+    activePomodoroPaused.value = false;
     refreshHabits();
 
     pomodoroDeadlines[habit.id] = Date.now() + remainingTime * 1000;
@@ -95,6 +98,7 @@ export const useHabitPomodoro = ({
         if (activePomodoroHabit.value?.id === habit.id) {
           activePomodoroHabit.value = null;
           activePomodoroRemaining.value = undefined;
+          activePomodoroPaused.value = false;
         }
       } else {
         remainingTime = timeLeft;
@@ -110,6 +114,7 @@ export const useHabitPomodoro = ({
 
     habit.pomodoroRemaining = remainingTime;
     activePomodoroRemaining.value = remainingTime;
+    activePomodoroPaused.value = false;
     refreshHabits();
 
     pomodoroDeadlines[habit.id] = Date.now() + remainingTime * 1000;
@@ -129,6 +134,7 @@ export const useHabitPomodoro = ({
         if (activePomodoroHabit.value?.id === habit.id) {
           activePomodoroHabit.value = null;
           activePomodoroRemaining.value = undefined;
+          activePomodoroPaused.value = false;
         }
       } else {
         habit.pomodoroRemaining = timeLeft;
@@ -146,10 +152,12 @@ export const useHabitPomodoro = ({
       case 'pause':
         clearPomodoroTimer(targetHabit.id);
         targetHabit.isPomodoroPaused = true;
+        activePomodoroPaused.value = true;
         refreshHabits();
         break;
       case 'resume':
         targetHabit.isPomodoroPaused = false;
+        activePomodoroPaused.value = false;
         if (targetHabit.pomodoroRemaining !== undefined) {
           startPomodoroTimerWithRemainingTime(targetHabit, targetHabit.pomodoroRemaining);
         } else {
@@ -163,6 +171,7 @@ export const useHabitPomodoro = ({
       case 'stop':
         clearPomodoroForHabit(targetHabit);
         activePomodoroRemaining.value = undefined;
+        activePomodoroPaused.value = false;
         break;
       default:
         break;
@@ -177,6 +186,7 @@ export const useHabitPomodoro = ({
     await controlPomodoro('stop', activePomodoroHabit.value);
     activePomodoroHabit.value = null;
     activePomodoroRemaining.value = undefined;
+    activePomodoroPaused.value = false;
   };
 
   const togglePomodoroPause = async () => {
@@ -232,6 +242,8 @@ export const useHabitPomodoro = ({
 
   return {
     activePomodoroHabit,
+    activePomodoroRemaining,
+    activePomodoroPaused,
     inlineCircumference,
     inlineStrokeDashoffset,
     startPomodoroTimer,

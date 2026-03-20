@@ -49,36 +49,3 @@ export async function updateTaskMarkdown(
 export function cleanTaskTitle(title: string): string {
   return title.replace(/{: style="[^"]*"}/g, '').trim();
 }
-
-export function queryElementByNodeId(
-  nodeId: string,
-  nodeType: string
-): Element | null {
-  return document.querySelector(
-    `[data-node-id="${nodeId}"][data-type="${nodeType}"]`
-  );
-}
-
-export function findParentNodeInfo(
-  element: Element | null
-): { nodeId: string; nodeType: string } | null {
-  if (!element) return null;
-  
-  let current = element;
-  
-  while (current && current !== document.body) {
-    const nodeId = current.getAttribute?.('data-node-id');
-    const nodeType = current.getAttribute?.('data-type');
-    
-    if (nodeId && nodeType) return { nodeId, nodeType };
-    current = current.parentElement;
-  }
-  
-  return null;
-}
-
-export function getEditableContent(element: Element): string {
-  const editableElement = element.querySelector('[contenteditable="true"]');
-  const content = editableElement?.innerHTML || '';
-  return cleanTaskTitle(content);
-}

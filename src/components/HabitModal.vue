@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <Transition name="fade">
     <div v-show="show" class="modal-overlay" @click.self="emit('close')">
       <Transition name="slide">
@@ -11,41 +11,16 @@
       </div>
       <div class="modal-body" v-if="localHabit">
         <div class="form-group">
-          <div class="emoji-selector" @click.self="showEmojiPicker = false">
-            <SyInput v-model="localHabit.emoji" placeholder="选择或输入emoji" class="emoji-input-hidden" />
+          <div class="emoji-selector">
+            <SyInput v-model="localHabit.emoji" placeholder="选择或输入 Emoji" class="emoji-input-hidden" />
             <SyButton
-              @click.stop="showEmojiPicker = !showEmojiPicker"
+              @click.stop="openEmojiPicker"
               type="default"
               size="small"
               class="emoji-picker-btn">
               <span v-if="localHabit.emoji" class="emoji-display">{{ localHabit.emoji }}</span>
               <span v-else>选择图标</span>
             </SyButton>
-            <div class="emoji-picker" v-show="showEmojiPicker" @click.stop>
-              <div class="emoji-categories">
-                <div
-                  v-for="(emojis, category) in emojiCategories"
-                  :key="category"
-                  class="emoji-category"
-                  :id="getEmojiCategoryId(category)">
-                  <h4>{{ category }}</h4>
-                  <div class="emoji-options-grid">
-                    <div class="emoji-option" v-for="emoji in emojis" :key="emoji" @click="selectEmoji(emoji)">
-                      {{ emoji }}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="emoji-nav">
-                <div
-                  v-for="(_, category) in emojiCategories"
-                  :key="category"
-                  class="emoji-nav-item"
-                  @click="scrollToCategory(getEmojiCategoryId(category))">
-                  {{ getFixedEmojiForCategory(category) }}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
         <div class="form-group">
@@ -71,7 +46,7 @@
               v-model="localHabit.usePomodoro"
               class="pomodoro-checkbox"
             />
-            启用番茄钟功能
+            启用番茄钟
           </label>
         </div>
         
@@ -95,6 +70,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
+import { openEmoji } from 'siyuan';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
@@ -124,8 +100,6 @@ interface Props {
   show: boolean;
   mode: 'add' | 'edit';
   habit: Habit | NewHabit | null;
-  emojiCategories: Record<string, string[]>;
-  emojisLoading: boolean;
   frequencyOptions: Option[];
   timesPerDayOptions: Option[];
   pomodoroDurationOptions: Option[];
@@ -147,7 +121,6 @@ const buttonText = computed(() => {
   return props.mode === 'add' ? props.t('OK') : '保存';
 });
 
-const showEmojiPicker = ref(false);
 const localHabit = ref<Habit | NewHabit | null>(null);
 
 watch(() => props.habit, (newHabit) => {
@@ -156,40 +129,47 @@ watch(() => props.habit, (newHabit) => {
   }
 }, { immediate: true });
 
-const selectEmoji = (emoji: string) => {
-  if (localHabit.value) {
-    localHabit.value.emoji = emoji;
-    showEmojiPicker.value = false;
+const openEmojiPicker = (event: MouseEvent) => {
+  if (!localHabit.value) {
+    return;
   }
-};
-
-const getEmojiCategoryId = (category: string): string => {
-  const emojiCategoryIds: Record<string, string> = {};
-  Object.keys(props.emojiCategories).forEach((category, index) => {
-    emojiCategoryIds[category] = `emoji-category-${index}`;
+  const target = event.currentTarget as HTMLElement | null;
+  const rect = target ? target.getBoundingClientRect() : null;
+  const position = rect
+    ? { x: Math.round(rect.left), y: Math.round(rect.bottom) }
+    : { x: event.clientX, y: event.clientY };
+  openEmoji({
+    position,
+    selectedCB: (emoji: string) => {
+      if (localHabit.value) {
+        localHabit.value.emoji = normalizeEmojiValue(emoji);
+      }
+    },
+    hideDynamicIcon: true,
+    hideCustomIcon: true
   });
-  return emojiCategoryIds[category] || '';
 };
 
-const scrollToCategory = (categoryId: string) => {
-  const element = document.getElementById(categoryId);
-  if (element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+const normalizeEmojiValue = (value: string): string => {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    return '';
   }
-};
-
-const getFixedEmojiForCategory = (category: string): string => {
-  const emojiMap: Record<string, string> = {
-    '笑脸和人类': '😀',
-    '动物和自然': '🐷',
-    '食物和饮料': '🍎',
-    '活动': '⚽',
-    '旅行和地点': '✈️',
-    '物品': '🎁',
-    '符号': '❤️',
-    '旗帜': '🚩',
-  };
-  return emojiMap[category] || '😀';
+  if (raw.includes('.') || raw.includes('/')) {
+    return raw;
+  }
+  const hexPattern = /^[0-9a-fA-F]+(-[0-9a-fA-F]+)*$/;
+  if (hexPattern.test(raw)) {
+    const codePoints = raw.split('-').map(part => parseInt(part, 16));
+    if (codePoints.every(point => Number.isFinite(point))) {
+      try {
+        return String.fromCodePoint(...codePoints);
+      } catch {
+        return raw;
+      }
+    }
+  }
+  return raw;
 };
 
 const onTimesPerDayChange = (value: string | number) => {
@@ -223,7 +203,7 @@ const handleSubmit = () => {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  z-index: 1000;
+  z-index: 2;
 }
 
 .modal-content {
@@ -443,3 +423,5 @@ const handleSubmit = () => {
   display: none;
 }
 </style>
+
+

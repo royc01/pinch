@@ -36,16 +36,20 @@ defineEmits<{
 
 <style scoped>
 .task-checkbox {
-  fill: var(--b3-list-hover);
-  transition: all 0.2s;
+  fill: var(--task-checkbox-fill, var(--b3-list-hover));
+  stroke: var(--task-checkbox-border, transparent);
+  stroke-width: 24px;
+  paint-order: fill stroke;
+  transition: fill 0.2s, stroke 0.2s, filter 0.2s;
   cursor: pointer;
 }
 
 .task-checkbox:hover {
-  fill: var(--b3-theme-on-surface);
+  filter: brightness(0.95);
 }
 
 .task-checkbox.checked {
   fill: #f98f7a;
+  stroke: none;
 }
 </style>

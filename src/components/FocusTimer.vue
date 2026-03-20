@@ -3,9 +3,18 @@
     <div class="timer-header">
       <div class="stats-header-content">
         <div class="stats-title">专注倒计时</div>
-        <button @click="handleClose" class="icon-button">
-          <Icon name="close" width="16" height="16" class="icon" />
-        </button>
+        <div class="stats-header-actions">
+          <div class="mini-focus-toggle">
+            <span class="mini-focus-label">开启迷你茄</span>
+            <SyCheckbox
+              :model-value="miniEnabled"
+              @update:model-value="emit('update:miniEnabled', $event)"
+            />
+          </div>
+          <button @click="handleClose" class="icon-button">
+            <Icon name="close" width="16" height="16" class="icon" />
+          </button>
+        </div>
       </div>
     </div>
     
@@ -188,17 +197,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, toRefs } from 'vue';
 import Icon from './Icon.vue';
+import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import { addFocusSession, getFocusStatsSummary, getMonthlyRecords, DailyFocusRecord, FocusStatsSummary } from '@/api';
 
 interface Props {
   show: boolean;
+  miniEnabled?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), {
+  miniEnabled: false
+});
+const { miniEnabled } = toRefs(props);
 const emit = defineEmits<{
-  close: []
+  close: [];
+  'update:miniEnabled': [value: boolean];
 }>();
 
 interface Sound {
@@ -210,6 +225,7 @@ interface Sound {
 const durationMarks = [5, 10, 15, 25, 30, 45, 60];
 const shortBreakMarks = [1, 3, 5, 10, 15];
 const pomodoroSetMarks = [1, 2, 3, 4, 5, 6, 7, 8];
+const FOCUS_SESSION_EVENT = 'pinch-focus-session';
 
 const soundOptions: Sound[] = [
   { id: 'none', name: '无音效', emoji: '🔇', icon: 'soundOff' },
@@ -636,6 +652,11 @@ const loadMonthlyRecords = async () => {
   }
 };
 
+const handleExternalFocusSession = () => {
+  void loadStats();
+  void loadMonthlyRecords();
+};
+
 const changeMonth = (offset: number) => {
   currentMonthOffset.value += offset;
   loadMonthlyRecords();
@@ -657,10 +678,12 @@ onUnmounted(() => {
     clearInterval(timerInterval.value);
   }
   stopAudio();
+  window.removeEventListener('pinch-focus-session', handleExternalFocusSession);
 });
 
 onMounted(async () => {
   try {
+    window.addEventListener('pinch-focus-session', handleExternalFocusSession);
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       try {
         await Notification.requestPermission();
@@ -720,6 +743,24 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
+}
+
+.stats-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mini-focus-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.mini-focus-label {
+  white-space: nowrap;
 }
 
 .stats-title {

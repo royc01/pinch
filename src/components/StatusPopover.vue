@@ -4,6 +4,7 @@
       v-if="show"
       class="status-popover"
       :style="popoverStyle"
+      @mousedown.stop
     >
       <div class="popover-content">
         <div
@@ -12,9 +13,10 @@
           class="status-option"
           @click="handleSelect(option.value)"
         >
-          <div class="status-indicator" :style="{ background: option.background, color: option.color }">
+          <div class="status-indicator" :style="{ color: option.color }">
             <span class="status-dot"></span>
           </div>
+          <span class="status-label">{{ option.label }}</span>
         </div>
       </div>
     </div>
@@ -35,10 +37,10 @@ const emit = defineEmits<{
 }>();
 
 const statusOptions = [
-  { value: 'pending', background: '#fef3c7', color: '#f59e0b' },
-  { value: 'in-progress', background: '#dbeafe', color: '#3b82f6' },
-  { value: 'completed', background: '#d1fae5', color: '#10b981' },
-  { value: 'cancelled', background: '#f3f4f6', color: '#9ca3af' }
+  { value: 'pending', label: '待办', background: '#fef3c7', color: '#f59e0b' },
+  { value: 'in-progress', label: '进行中', background: '#dbeafe', color: '#3b82f6' },
+  { value: 'completed', label: '已完成', background: '#d1fae5', color: '#10b981' },
+  { value: 'cancelled', label: '已取消', background: '#f3f4f6', color: '#9ca3af' }
 ];
 
 const popoverStyle = computed(() => ({
@@ -66,27 +68,30 @@ function handleSelect(value: string) {
 
 .popover-content {
   display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
 .status-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
   border-radius: 6px;
-  transition: transform 0.15s;
+  padding: 4px 6px;
 }
 
 .status-option:hover {
-  transform: scale(1.1);
+  background: var(--b3-list-hover);
 }
 
 .status-indicator {
-  width: 32px;
-  height: 32px;
+  width: 10px;
+  height: 20px;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .status-dot {
@@ -94,5 +99,10 @@ function handleSelect(value: string) {
   height: 10px;
   border-radius: 50%;
   background: currentColor;
+}
+
+.status-label {
+  font-size: 12px;
+  color: var(--b3-theme-on-background);
 }
 </style>

@@ -15,6 +15,8 @@ import {
   type TProtyleAction
 } from "siyuan";
 import { eventBus } from "@/utils/eventBus";
+import { normalizeNotebookIds } from "@/utils/notebookIds";
+import { formatTaskTitleHtml } from "@/utils/taskTitleFormat";
 import { usePlugin } from "@/main";
 import {
   attachRepeatMetadataToTasks,
@@ -984,12 +986,13 @@ export interface BlockDOMResponse {
 const DEBUG = false;
 
 export const TASK_CONFIG = {
-  CACHE_VERSION: 4,
+  CACHE_VERSION: 5,
   CACHE_DURATION: 10 * 60 * 1000,
   BATCH_SIZE: 10,
   SQL_PAGE_SIZE: 1000,
   MAX_SQL_SCAN: 20000,
   MAX_SUBTASK_DEPTH: 10,
+  MAX_DOM_ORDER_SYNC: 120,
   DEBOUNCE_DELAY: 2000,
   SKIP_DELAY: 500,
   MUTATION_SKIP_DURATION: 1000,
@@ -1082,6 +1085,7 @@ export interface Task {
   dueTime?: string;
   startTime?: string;
   tags: string[];
+  groupId?: string;
   description?: string;
   subtasks?: SubTask[];
   blockId?: string;
@@ -1097,6 +1101,101 @@ export interface Task {
   repeatFrequency?: RepeatFrequency;
   repeatInstanceDate?: string;
   isVirtual?: boolean;
+}
+
+export interface TaskGroup {
+  id: string;
+  name: string;
+  color?: string;
+  order?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface TaskGroupStorage {
+  version: number;
+  groups: TaskGroup[];
+  updatedAt: string;
+}
+
+const TASK_GROUPS_STORAGE_KEY = 'Pinch-task-groups.json';
+const TASK_GROUPS_STORAGE_VERSION = 1;
+
+function normalizeTaskGroups(input: unknown): TaskGroup[] {
+  if (!Array.isArray(input)) return [];
+  const normalized: TaskGroup[] = [];
+
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+    const group = raw as Record<string, unknown>;
+    const id = typeof group.id === 'string' ? group.id.trim() : '';
+    const name = typeof group.name === 'string' ? group.name.trim() : '';
+    if (!id || !name) continue;
+
+    const color = typeof group.color === 'string' ? group.color : undefined;
+    const order = typeof group.order === 'number' && Number.isFinite(group.order) ? group.order : undefined;
+    const createdAt = typeof group.createdAt === 'string' ? group.createdAt : undefined;
+    const updatedAt = typeof group.updatedAt === 'string' ? group.updatedAt : undefined;
+
+    normalized.push({
+      id,
+      name,
+      color,
+      order,
+      createdAt,
+      updatedAt
+    });
+  }
+
+  return normalized;
+}
+
+export async function loadTaskGroups(): Promise<TaskGroup[]> {
+  const plugin = usePlugin();
+  if (!plugin) {
+    console.error('[TaskGroups] loadTaskGroups: plugin 未初始化');
+    return [];
+  }
+
+  try {
+    const raw = await plugin.loadData(TASK_GROUPS_STORAGE_KEY);
+    if (!raw) return [];
+
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (Array.isArray(parsed)) {
+      return normalizeTaskGroups(parsed);
+    }
+
+    const storage = parsed as Partial<TaskGroupStorage> | null;
+    if (storage && Array.isArray(storage.groups)) {
+      return normalizeTaskGroups(storage.groups);
+    }
+  } catch (error) {
+    console.error('[TaskGroups] loadTaskGroups: 读取失败', error);
+  }
+
+  return [];
+}
+
+export async function saveTaskGroups(groups: TaskGroup[]): Promise<void> {
+  const plugin = usePlugin();
+  if (!plugin) {
+    console.error('[TaskGroups] saveTaskGroups: plugin 未初始化');
+    return;
+  }
+
+  const normalizedGroups = normalizeTaskGroups(groups);
+  const payload: TaskGroupStorage = {
+    version: TASK_GROUPS_STORAGE_VERSION,
+    groups: normalizedGroups,
+    updatedAt: new Date().toISOString()
+  };
+
+  try {
+    await plugin.saveData(TASK_GROUPS_STORAGE_KEY, payload);
+  } catch (error) {
+    console.error('[TaskGroups] saveTaskGroups: 写入失败', error);
+  }
 }
 
 export interface TaskQueryScope {
@@ -1126,15 +1225,7 @@ export class TaskRepository {
   private static readonly MEMORY_CACHE_DURATION = 5000; // 5 秒内存缓存
   private static readonly SCOPED_MEMORY_CACHE_DURATION = 60000; // 60 秒筛选范围缓存
   private static readonly SCOPED_CACHE_MAX_ENTRIES = 30;
-  private static normalizeNotebookIds(notebookIds: string[]): string[] {
-    return Array.from(
-      new Set(
-        notebookIds
-          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-          .map(id => id.trim())
-      )
-    ).sort();
-  }
+  private static readonly TASK_CONTAINER_ATTR = 'custom-task-container';
 
   private static getExcludedNotebookIdsSorted(): string[] {
     return Array.from(this.excludedNotebookIds).sort();
@@ -1220,7 +1311,7 @@ export class TaskRepository {
   }
 
   static setExcludedNotebookIds(notebookIds: string[] = []): void {
-    const normalized = this.normalizeNotebookIds(notebookIds);
+    const normalized = normalizeNotebookIds(notebookIds, { sort: true });
     const current = this.getExcludedNotebookIdsSorted();
     if (normalized.length === current.length && normalized.every((id, index) => id === current[index])) {
       return;
@@ -1296,23 +1387,24 @@ export class TaskRepository {
     }
   }
 
-  private static parseBlockDateTime(value: string | undefined): string {
+  private static parseBlockDateTime(value: string | number | undefined): string {
     try {
-      if (!value) return new Date().toISOString();
-      if (/^\d{14}$/.test(value)) {
-        const year = Number(value.slice(0, 4));
-        const month = Number(value.slice(4, 6)) - 1;
-        const day = Number(value.slice(6, 8));
-        const hour = Number(value.slice(8, 10));
-        const minute = Number(value.slice(10, 12));
-        const second = Number(value.slice(12, 14));
+      if (value === null || value === undefined || value === '') return '';
+      const raw = String(value);
+      if (/^\d{14}$/.test(raw)) {
+        const year = Number(raw.slice(0, 4));
+        const month = Number(raw.slice(4, 6)) - 1;
+        const day = Number(raw.slice(6, 8));
+        const hour = Number(raw.slice(8, 10));
+        const minute = Number(raw.slice(10, 12));
+        const second = Number(raw.slice(12, 14));
         return new Date(year, month, day, hour, minute, second).toISOString();
       }
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return new Date().toISOString();
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) return '';
       return date.toISOString();
     } catch {
-      return new Date().toISOString();
+      return '';
     }
   }
 
@@ -1427,6 +1519,78 @@ export class TaskRepository {
     return value.replace(/'/g, "''");
   }
 
+  private static async resolveTaskContainerListId(rootId: string): Promise<string | null> {
+    const escapedRootId = this.escapeSqlLiteral(rootId);
+    try {
+      const rows = await sql(`
+        SELECT b.id
+        FROM blocks b
+        LEFT JOIN attributes a ON b.id = a.block_id
+        WHERE b.root_id = '${escapedRootId}'
+          AND b.parent_id = '${escapedRootId}'
+          AND b.type = 'l'
+          AND b.subtype = 't'
+          AND a.name = '${this.TASK_CONTAINER_ATTR}'
+          AND a.value = '1'
+        ORDER BY b.created ASC
+        LIMIT 1
+      `);
+      if (rows && rows.length > 0) {
+        return rows[0].id as string;
+      }
+    } catch {
+    }
+
+    try {
+      const rows = await sql(`
+        SELECT l.id
+        FROM blocks i
+        JOIN blocks l ON i.parent_id = l.id
+        WHERE i.root_id = '${escapedRootId}'
+          AND i.type IN ('i', 'p')
+          AND i.subtype = 't'
+          AND l.type = 'l'
+          AND l.subtype = 't'
+          AND l.parent_id = '${escapedRootId}'
+        ORDER BY i.created DESC
+        LIMIT 1
+      `);
+      if (rows && rows.length > 0) {
+        return rows[0].id as string;
+      }
+    } catch {
+    }
+
+    return null;
+  }
+
+  private static async markTaskContainerList(listId: string, rootId: string): Promise<void> {
+    const normalized = typeof listId === 'string' ? listId.trim() : '';
+    if (!normalized) return;
+    const escapedRootId = this.escapeSqlLiteral(rootId);
+    const escapedListId = this.escapeSqlLiteral(normalized);
+    try {
+      const rows = await sql(`
+        SELECT id
+        FROM blocks
+        WHERE id = '${escapedListId}'
+          AND parent_id = '${escapedRootId}'
+          AND type = 'l'
+          AND subtype = 't'
+        LIMIT 1
+      `);
+      if (!rows || rows.length === 0) {
+        return;
+      }
+    } catch {
+      return;
+    }
+    try {
+      await setBlockAttrs(normalized, { [this.TASK_CONTAINER_ATTR]: '1' });
+    } catch {
+    }
+  }
+
   private static async resolveBlockIdByTaskId(taskId: string): Promise<string | null> {
     const normalizedTaskId = typeof taskId === 'string' ? taskId.trim() : '';
     if (!normalizedTaskId) return null;
@@ -1526,8 +1690,9 @@ export class TaskRepository {
       return null;
     }
 
-    const cachedExcludedNotebookIds = this.normalizeNotebookIds(
-      Array.isArray(data.excludedNotebookIds) ? data.excludedNotebookIds : []
+    const cachedExcludedNotebookIds = normalizeNotebookIds(
+      Array.isArray(data.excludedNotebookIds) ? data.excludedNotebookIds : [],
+      { sort: true }
     );
     const currentExcludedNotebookIds = this.getExcludedNotebookIdsSorted();
     const isScopeMatched =
@@ -1652,10 +1817,11 @@ export class TaskRepository {
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-time' THEN a.value END) as custom_task_start_time,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-tags' THEN a.value END) as custom_task_tags,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-description' THEN a.value END) as custom_task_description,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color
         FROM blocks b
         LEFT JOIN attributes a ON b.id = a.block_id
-          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-background-color')
+          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-group', 'custom-task-background-color')
         WHERE b.id IN (${idsClause})
           ${this.buildNotebookScopeSql('b')}
           ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -1695,6 +1861,7 @@ export class TaskRepository {
           'custom-task-start-time': row.custom_task_start_time,
           'custom-task-tags': row.custom_task_tags,
           'custom-task-description': row.custom_task_description,
+          'custom-task-group': row.custom_task_group,
           'custom-task-background-color': row.custom_task_background_color
         };
 
@@ -1754,6 +1921,7 @@ export class TaskRepository {
           startTime: attrs['custom-task-start-time'],
           tags,
           description: attrs['custom-task-description'] || '',
+          groupId: attrs['custom-task-group'] || undefined,
           hPath: row.hpath,
           notebookId: row.box,
           icon: row.root_id ? (rootIcons.get(row.root_id) || '\uD83D\uDCC4') : '\uD83D\uDCC4',
@@ -1821,10 +1989,11 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-time' THEN a.value END) as custom_task_start_time,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-tags' THEN a.value END) as custom_task_tags,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-description' THEN a.value END) as custom_task_description,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color
           FROM blocks b
           LEFT JOIN attributes a ON b.id = a.block_id
-            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-background-color')
+            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-group', 'custom-task-background-color')
           WHERE (b.type = 'i' OR b.type = 'p')
             ${this.buildNotebookScopeSql('b')}
             ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -1939,6 +2108,7 @@ export class TaskRepository {
           'custom-task-start-time': block.custom_task_start_time,
           'custom-task-tags': block.custom_task_tags,
           'custom-task-description': block.custom_task_description,
+          'custom-task-group': block.custom_task_group,
           'custom-task-background-color': block.custom_task_background_color
         });
       });
@@ -1969,29 +2139,20 @@ export class TaskRepository {
       });
 
       const buildFastTitleFromBlock = (block: SiyuanBlock): string => {
-        const cleanInlineStyleMarker = (text: string) =>
-          text.replace(/\s*\{:\s*style="[^"]*"\}\s*/g, ' ').trim();
-        const convertMarkdownStrong = (text: string) =>
-          text
-            .replace(/\*\*\*([^*]+)\*\*\*/g, '<span data-type="strong em">$1</span>')
-            .replace(/___([^_]+)___/g, '<span data-type="strong em">$1</span>')
-            .replace(/\*\*([^*]+)\*\*/g, '<span data-type="strong">$1</span>')
-            .replace(/__([^_]+)__/g, '<span data-type="strong">$1</span>');
-
         const markdown = typeof block.markdown === 'string' ? block.markdown : '';
         const firstLine = markdown
           .split('\n')
           .map(line => line.trim())
           .find(line => line.length > 0) || '';
-        const titleFromMarkdown = convertMarkdownStrong(cleanInlineStyleMarker(firstLine
+        const titleFromMarkdown = formatTaskTitleHtml(firstLine
           .replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| )\]\s*/i, '')
-          .trim()));
+          .trim());
         if (titleFromMarkdown.length > 0) {
           return titleFromMarkdown;
         }
 
         const contentTitle = typeof block.content === 'string' ? block.content.trim() : '';
-        return convertMarkdownStrong(cleanInlineStyleMarker(contentTitle));
+        return formatTaskTitleHtml(contentTitle);
       };
 
       const appendSubtaskChild = (parentTaskId: string, childTaskId: string): void => {
@@ -2060,7 +2221,10 @@ export class TaskRepository {
           .filter(([, childIds]) => childIds.length > 1)
           .map(([parentTaskId]) => parentTaskId);
 
-        if (parentTaskIdsNeedDomOrder.length > 0) {
+        const shouldAlignSubtaskOrder = parentTaskIdsNeedDomOrder.length > 0
+          && parentTaskIdsNeedDomOrder.length <= TASK_CONFIG.MAX_DOM_ORDER_SYNC;
+
+        if (shouldAlignSubtaskOrder) {
           try {
             const domMap = await batchGetBlockDOM(parentTaskIdsNeedDomOrder);
             for (const parentTaskId of parentTaskIdsNeedDomOrder) {
@@ -2247,6 +2411,7 @@ export class TaskRepository {
               startDate: attrs['custom-task-start-date'],
               startTime: attrs['custom-task-start-time'],
               tags,
+              groupId: attrs['custom-task-group'] || undefined,
               description: attrs['custom-task-description'] || '',
               hPath: parentBlock.hpath,
               notebookId: parentBlock.box,
@@ -2392,6 +2557,7 @@ export class TaskRepository {
             startDate: attrs['custom-task-start-date'],
             startTime: attrs['custom-task-start-time'],
             tags: attrs['custom-task-tags'] ? JSON.parse(attrs['custom-task-tags']) : [],
+            groupId: attrs['custom-task-group'] || undefined,
             description: attrs['custom-task-description'] || '',
             hPath: parentBlock.hpath,
             notebookId: parentBlock.box,
@@ -2425,10 +2591,9 @@ export class TaskRepository {
         handleError('获取任务列表失败', error);
       }
       
-      if (shouldFilterTopLevelCompleted) {
-        return tasks.filter(task => task.status !== 'completed');
-      }
-      return tasks;
+      return shouldFilterTopLevelCompleted
+        ? tasks.filter(task => task.status !== 'completed')
+        : tasks;
     }
 
   public static async saveBlockTasksCache(tasks: Task[]): Promise<void> {
@@ -2469,6 +2634,10 @@ export class TaskRepository {
       attrs['custom-task-due-date'] = task.dueDate;
     }
 
+    if (task.groupId) {
+      attrs['custom-task-group'] = task.groupId;
+    }
+
     if (task.tags && task.tags.length > 0) {
       attrs['custom-task-tags'] = JSON.stringify(task.tags);
     }
@@ -2495,8 +2664,10 @@ export class TaskRepository {
 
       const rootId = ids[0];
       log_debug('文档根 ID', rootId);
-      
-      const result = await appendBlock('markdown', taskMarkdown, rootId);
+
+      const containerListId = await this.resolveTaskContainerListId(rootId);
+      const insertParentId = containerListId || rootId;
+      const result = await appendBlock('markdown', taskMarkdown, insertParentId);
       log_debug('appendBlock 霑泌屓扈捺棡', JSON.stringify(result, null, 2));
 
       if (result && result.length > 0) {
@@ -2529,6 +2700,24 @@ export class TaskRepository {
           }
         }
 
+        if (!listItemBlockId && insertParentId !== rootId) {
+          log_debug('回退到列表容器查询任务块', insertParentId);
+          const childBlocks = await sql(`
+            SELECT id, type, subtype
+            FROM blocks
+            WHERE parent_id = '${this.escapeSqlLiteral(insertParentId)}'
+            AND type IN ('i', 'p')
+            AND subtype = 't'
+            ORDER BY created DESC
+            LIMIT 1
+          `);
+          log_debug('SQL譟･隸｢扈捺棡1', childBlocks);
+          if (childBlocks && childBlocks.length > 0) {
+            listItemBlockId = childBlocks[0].id;
+            log_debug('从列表容器查询到任务块', listItemBlockId);
+          }
+        }
+
         if (!listItemBlockId) {
           const parentBlockId = result[0].doOperations[result[0].doOperations.length - 1]?.id || result[0].doOperations[0].id;
           log_debug('回退到父块查询子任务块', parentBlockId);
@@ -2536,7 +2725,7 @@ export class TaskRepository {
           const childBlocks = await sql(`
             SELECT id, type, subtype
             FROM blocks
-            WHERE parent_id = '${parentBlockId}' 
+            WHERE parent_id = '${this.escapeSqlLiteral(parentBlockId)}' 
             AND type = 'l' 
             AND subtype = 't'
             ORDER BY created DESC
@@ -2556,7 +2745,7 @@ export class TaskRepository {
           const childBlocks = await sql(`
             SELECT id, type, subtype
             FROM blocks
-            WHERE root_id = '${rootId}' 
+            WHERE root_id = '${this.escapeSqlLiteral(rootId)}' 
             AND type = 'l' 
             AND subtype = 't'
             ORDER BY created DESC
@@ -2591,6 +2780,36 @@ export class TaskRepository {
           
           const verifyAttrs = await getBlockAttrs(listItemBlockId);
           log_debug('写入后属性校验', verifyAttrs);
+        }
+
+        let resolvedListId = containerListId || '';
+        if (!resolvedListId && listItemBlockId) {
+          try {
+            const listRows = await sql(`
+              SELECT parent_id, type, subtype
+              FROM blocks
+              WHERE id = '${this.escapeSqlLiteral(listItemBlockId)}'
+              LIMIT 1
+            `);
+            const parentId = listRows?.[0]?.parent_id as string | undefined;
+            if (parentId) {
+              const parentRows = await sql(`
+                SELECT id, type, subtype
+                FROM blocks
+                WHERE id = '${this.escapeSqlLiteral(parentId)}'
+                LIMIT 1
+              `);
+              const parentBlock = parentRows?.[0];
+              if (parentBlock && parentBlock.type === 'l' && parentBlock.subtype === 't') {
+                resolvedListId = parentId;
+              }
+            }
+          } catch {
+          }
+        }
+
+        if (resolvedListId) {
+          await this.markTaskContainerList(resolvedListId, rootId);
         }
 
         const createResult = {
@@ -2637,6 +2856,9 @@ export class TaskRepository {
     }
     if (updates.tags !== undefined) {
       attrsToUpdate['custom-task-tags'] = JSON.stringify(updates.tags || []);
+    }
+    if (updates.groupId !== undefined) {
+      attrsToUpdate['custom-task-group'] = updates.groupId || '';
     }
     if (updates.description !== undefined) {
       attrsToUpdate['custom-task-description'] = updates.description || '';
