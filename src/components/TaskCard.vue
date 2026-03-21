@@ -5,11 +5,13 @@
     @dragstart="handleDragStart"
     @dragend="handleDragEnd"
     @click="handleCardClick"
+    @contextmenu="handleContextMenu"
   >
     <div class="task-card-content">
       <div class="task-card-header">
         <div
           class="task-checkbox-wrapper"
+          data-disable-description-contextmenu
           @click.stop="handleToggleStatus"
           @mousedown.stop
         >
@@ -20,6 +22,7 @@
           <button
             type="button"
             class="task-card-action-btn task-card-open-btn"
+            data-disable-description-contextmenu
             title="跳转正文"
             aria-label="跳转正文"
             @mousedown.stop
@@ -31,6 +34,7 @@
             v-if="canExpand"
             type="button"
             class="task-card-action-btn task-card-expand-btn"
+            data-disable-description-contextmenu
             :class="{ expanded: isExpanded }"
             title="折叠/展开详情"
             aria-label="折叠/展开详情"
@@ -72,10 +76,12 @@
           v-if="descriptionEditing"
           ref="descriptionTextareaRef"
           class="task-description-inline-edit"
+          data-disable-description-contextmenu
           rows="3"
           :value="descriptionDraftValue"
           placeholder="添加任务描述..."
           @click.stop
+          @contextmenu.stop
           @input="handleDescriptionInput"
           @blur="handleDescriptionSave"
           @keydown.ctrl.enter.prevent="handleDescriptionSave"
@@ -89,6 +95,7 @@
       <div
         v-if="showSubtasks"
         class="task-subtasks"
+        data-disable-description-contextmenu
         :class="{ collapsed: isCollapsed }"
       >
         <SubtaskItem
@@ -155,7 +162,12 @@ const isCompleted = computed(() => props.completed ?? task.value.status === 'com
 const isExpanded = computed(() => !!props.expanded);
 const isDragging = computed(() => !!props.dragging);
 const hasSubtasks = computed(() => (task.value.subtasks?.length ?? 0) > 0);
-const canExpand = computed(() => !!task.value.description || hasSubtasks.value);
+const canExpand = computed(() => {
+  if (isKanban.value) {
+    return hasSubtasks.value;
+  }
+  return !!task.value.description || hasSubtasks.value;
+});
 const showDescription = computed(() => {
   const hasDescription = typeof task.value.description === 'string' && task.value.description.trim().length > 0;
   if (props.descriptionEditing) return true;
@@ -172,7 +184,9 @@ const showSubtasks = computed(() => {
   if (variant.value === 'kanban') return true;
   return !!props.expanded;
 });
-const isCollapsed = computed(() => isKanban.value && !isExpanded.value && !props.descriptionEditing);
+const isCollapsed = computed(() =>
+  isKanban.value && hasSubtasks.value && !isExpanded.value && !props.descriptionEditing
+);
 
 const titleTooltip = computed(() => props.titleTooltip || '');
 const titleHtml = computed(() => sanitizeTaskTitleHtml(task.value.title));
@@ -277,6 +291,18 @@ function handleDescriptionSave() {
 
 function handleDescriptionCancel() {
   emit('descriptionCancel', task.value.id);
+}
+
+function handleContextMenu(event: MouseEvent) {
+  if (variant.value !== 'sidebar') {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('[data-disable-description-contextmenu]')) {
+    return;
+  }
+  event.preventDefault();
+  emit('descriptionStartEdit', task.value);
 }
 
 function handleSubtaskToggle(subtask: SubTask) {

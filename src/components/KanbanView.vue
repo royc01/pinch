@@ -1,95 +1,97 @@
 ﻿<template>
-  <div class="kanban-view">
-    <div class="kanban-header">
-      <div class="header-left">
-        <div class="view-switcher">
-          <button :class="['view-btn', { active: currentView === 'kanban' }]" @click="currentView = 'kanban'">
-            <Icon name="kanban" width="16" height="16" />
-            <span>看板</span>
-          </button>
-          <button :class="['view-btn', { active: currentView === 'table' }]" @click="currentView = 'table'">
-            <Icon name="table" width="16" height="16" />
-            <span>表格</span>
-          </button>
-          <button :class="['view-btn', { active: currentView === 'month' }]" @click="currentView = 'month'">
-            <Icon name="month" width="16" height="16" />
-            <span>月视图</span>
-          </button>
-          <button :class="['view-btn', { active: currentView === 'week' }]" @click="currentView = 'week'">
-            <Icon name="week" width="16" height="16" />
-            <span>周视图</span>
-          </button>
-        </div>
-        
-        <div v-if="currentView === 'kanban'" class="filter-bar-inline">
-          <div class="filter-group">
-            <label>分类:</label>
-            <SySelect
-              :model-value="kanbanFilterType"
-              @update:model-value="kanbanFilterType = $event"
-              :options="notebookOptions"
-            />
+    <div class="kanban-view">
+      <div class="kanban-header">
+        <div class="kanban-header-view-module">
+          <div class="view-switcher">
+            <button :class="['view-btn', { active: currentView === 'kanban' }]" @click="currentView = 'kanban'">
+              <Icon name="kanban" width="16" height="16" />
+              <span>看板</span>
+            </button>
+            <button :class="['view-btn', { active: currentView === 'table' }]" @click="currentView = 'table'">
+              <Icon name="table" width="16" height="16" />
+              <span>表格</span>
+            </button>
+            <button :class="['view-btn', { active: currentView === 'month' }]" @click="currentView = 'month'">
+              <Icon name="month" width="16" height="16" />
+              <span>月视图</span>
+            </button>
+            <button :class="['view-btn', { active: currentView === 'week' }]" @click="currentView = 'week'">
+              <Icon name="week" width="16" height="16" />
+              <span>周视图</span>
+            </button>
           </div>
         </div>
 
-        <div v-if="currentView === 'table'" class="filter-bar-inline">
-          <div class="filter-group">
-            <label>分类:</label>
-            <SySelect
-              :model-value="tableFilterType"
-              @update:model-value="tableFilterType = $event"
-              :options="notebookOptions"
-            />
+        <div class="kanban-header-tools-module">
+          <div v-if="currentView === 'kanban'" class="filter-bar-inline">
+            <div class="filter-group">
+              <label>笔记本:</label>
+              <SySelect
+                :model-value="kanbanFilterType"
+                @update:model-value="kanbanFilterType = $event"
+                :options="notebookOptions"
+              />
+            </div>
           </div>
-        </div>
 
-        <div v-if="currentView === 'month'" class="filter-bar-inline">
-          <div class="filter-group">
-            <label>分类:</label>
-            <SySelect
-              :model-value="monthFilterType"
-              @update:model-value="monthFilterType = $event"
-              :options="notebookOptions"
-            />
+          <div v-if="currentView === 'table'" class="filter-bar-inline">
+            <div class="filter-group">
+              <label>笔记本:</label>
+              <SySelect
+                :model-value="tableFilterType"
+                @update:model-value="tableFilterType = $event"
+                :options="notebookOptions"
+              />
+            </div>
           </div>
-        </div>
-        
-        <div v-if="currentView === 'week'" class="filter-bar-inline">
-          <div class="filter-group">
-            <label>分类:</label>
-            <SySelect
-              :model-value="weekFilterType"
-              @update:model-value="weekFilterType = $event"
-              :options="notebookOptions"
-            />
+
+          <div v-if="currentView === 'month'" class="filter-bar-inline">
+            <div class="filter-group">
+              <label>笔记本:</label>
+              <SySelect
+                :model-value="monthFilterType"
+                @update:model-value="monthFilterType = $event"
+                :options="notebookOptions"
+              />
+            </div>
+          </div>
+
+          <div v-if="currentView === 'week'" class="filter-bar-inline">
+            <div class="filter-group">
+              <label>笔记本:</label>
+              <SySelect
+                :model-value="weekFilterType"
+                @update:model-value="weekFilterType = $event"
+                :options="notebookOptions"
+              />
+            </div>
+          </div>
+
+          <div class="header-actions">
+            <div v-if="currentView === 'kanban'" class="kanban-group-switch">
+              <span>分组模式</span>
+              <SyCheckbox v-model="kanbanGroupMode" />
+            </div>
+            <div v-if="currentView === 'table'" class="kanban-group-switch">
+              <span>分组模式</span>
+              <SyCheckbox v-model="tableGroupMode" />
+            </div>
+            <button
+              type="button"
+              class="scope-btn"
+              title="任务范围"
+              aria-label="任务范围"
+              @click="openTaskScopeDialog"
+            >
+              <Icon name="taskScope" width="24" height="24" />
+            </button>
+            <button @click="refreshTasks" class="refresh-btn">
+              <Icon name="refresh" width="24" height="24" />
+            </button>
           </div>
         </div>
       </div>
-      
-      <div class="header-actions">
-        <div v-if="currentView === 'kanban'" class="kanban-group-switch">
-          <span>分组模式</span>
-          <SyCheckbox v-model="kanbanGroupMode" />
-        </div>
-        <div v-if="currentView === 'table'" class="kanban-group-switch">
-          <span>分组模式</span>
-          <SyCheckbox v-model="tableGroupMode" />
-        </div>
-        <button
-          type="button"
-          class="scope-btn"
-          title="任务范围"
-          aria-label="任务范围"
-          @click="openTaskScopeDialog"
-        >
-          <Icon name="taskScope" width="24" height="24" />
-        </button>
-        <button @click="refreshTasks" class="refresh-btn">
-          <Icon name="refresh" width="24" height="24" />
-        </button>
-      </div>
-    </div>
-    <div v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table'" class="document-tabs-row">
+      <div v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table'" class="document-tabs-row">
       <div v-if="showDocumentTabs" class="document-tabs">
         <button
           v-for="option in documentOptions"
@@ -240,7 +242,7 @@
                 :expanded="isKanbanTaskExpanded(task.id)"
                 :description-editing="inlineEditingDescriptionTaskId === task.id"
                 :description-draft="getInlineDescriptionDraft(task)"
-                :show-description="inlineEditingDescriptionTaskId === task.id || isKanbanTaskExpanded(task.id)"
+                :show-description="true"
                 :show-subtasks="isKanbanTaskExpanded(task.id)"
                 @card-click="handleTaskClick"
                 @open-click="handleTaskEditClick"
@@ -4000,8 +4002,25 @@ watch(kanbanColumns, () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
   flex-shrink: 0;
   margin: 10px;
+}
+
+.kanban-header-view-module {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.kanban-header-tools-module {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .document-tabs-row {
@@ -4235,14 +4254,6 @@ watch(kanbanColumns, () => {
   box-shadow: inset 0 0 0 1px var(--b3-theme-border);
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex: 1;
-  min-width: 0;
-}
-
 .kanban-header h1 {
   margin: 0;
   font-size: 24px;
@@ -4255,6 +4266,7 @@ watch(kanbanColumns, () => {
   background: var(--b3-list-hover);
   padding: 4px;
   border-radius: 6px;
+  min-width: 0;
 }
 
 .view-btn {
@@ -4284,6 +4296,9 @@ watch(kanbanColumns, () => {
 .header-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .kanban-group-switch {
@@ -4328,6 +4343,8 @@ watch(kanbanColumns, () => {
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+  min-width: 0;
+  justify-content: flex-start;
 }
 
 .filter-group {
@@ -4347,6 +4364,54 @@ watch(kanbanColumns, () => {
   border-radius: 6px;
   color: var(--b3-theme-on-background);
   font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .kanban-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .kanban-header-view-module,
+  .kanban-header-tools-module {
+    width: 100%;
+  }
+
+  .kanban-header-tools-module {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    overflow-x: auto;
+  }
+
+  .view-switcher {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .filter-bar-inline {
+    min-width: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow: hidden;
+  }
+
+  .header-actions {
+    flex: 0 0 auto;
+    margin-left: 0;
+  }
+
+  .filter-group {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .filter-group :deep(.b3-select) {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 
 .filter-info {
@@ -4566,7 +4631,7 @@ watch(kanbanColumns, () => {
 
 .kanban-editor-panel {
   position: fixed;
-  z-index: 2;
+  z-index: 50;
   width: 360px;
   max-width: calc(100vw - 24px);
   max-height: min(70vh, 520px);

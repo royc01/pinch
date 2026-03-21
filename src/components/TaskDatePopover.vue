@@ -267,9 +267,9 @@ function handleResize(): void {
 
 watch(
   () => [props.visible, props.modelValue, props.floating, props.anchorEl],
-  ([visible, value]) => {
+  ([visible]) => {
     if (!visible) return;
-    const base = value ? new Date(value) : new Date();
+    const base = props.modelValue ? new Date(props.modelValue) : new Date();
     if (!Number.isNaN(base.getTime())) {
       monthCursor.value = new Date(base.getFullYear(), base.getMonth(), 1);
     }
@@ -295,7 +295,7 @@ onUnmounted(() => {
 .date-popover-overlay {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 60;
   background: transparent;
 }
 

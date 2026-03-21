@@ -36,7 +36,7 @@
       </div>
 
       <div class="timer-controls">
-        <button v-if="!isRunning" @click="startTimer" class="control-btn start-btn">
+        <button v-if="!isRunning" @click="startTimer" class="control-btn start-btn" :disabled="isStartBlockedByOther" :title="isStartBlockedByOther ? '悬浮专注进行中' : undefined">
           <Icon name="play" width="20" height="20" />
           <span>开始专注</span>
         </button>
@@ -201,6 +201,7 @@ import { ref, computed, onMounted, onUnmounted, toRefs } from 'vue';
 import Icon from './Icon.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import { addFocusSession, getFocusStatsSummary, getMonthlyRecords, DailyFocusRecord, FocusStatsSummary } from '@/api';
+import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 
 interface Props {
   show: boolean;
@@ -282,6 +283,11 @@ const stats = ref<FocusStatsSummary>({
 
 const currentMonthOffset = ref<number>(0);
 const monthlyRecords = ref<DailyFocusRecord[]>([]);
+const {
+  isLockedByOther: isStartBlockedByOther,
+  claimFocusSession,
+  releaseFocusSession
+} = useFocusSessionLock('panel');
 
 const currentMonth = computed(() => {
   const now = new Date();
@@ -535,6 +541,10 @@ const playCompleteSound = async () => {
 };
 
 const startTimer = () => {
+  if (!claimFocusSession()) {
+    return;
+  }
+
   if (timerInterval.value) {
     clearInterval(timerInterval.value);
     timerInterval.value = null;
@@ -568,6 +578,7 @@ const stopTimer = () => {
   isBreakMode.value = false;
   currentSet.value = 1;
   remainingTime.value = selectedDuration.value * 60;
+  releaseFocusSession();
   
   stopAudio();
   
@@ -678,6 +689,7 @@ onUnmounted(() => {
     clearInterval(timerInterval.value);
   }
   stopAudio();
+  releaseFocusSession();
   window.removeEventListener('pinch-focus-session', handleExternalFocusSession);
 });
 
@@ -862,6 +874,13 @@ onMounted(async () => {
 
   &:active {
     transform: translateY(0);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    transform: none;
+    box-shadow: none;
   }
 }
 

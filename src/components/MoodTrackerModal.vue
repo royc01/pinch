@@ -86,7 +86,7 @@ watch(() => props.moodEntry, (newMoodEntry) => {
   setDefaultEmoji();
 }, { immediate: true, deep: true });
 
-watch(() => props.show, (newShow) => {
+watch(() => props.show, () => {
   setDefaultEmoji();
 }, { immediate: true });
 
@@ -122,7 +122,7 @@ const handleDelete = () => {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  z-index: 2;
+  z-index: 8;
 }
 
 .modal-content {
@@ -219,12 +219,16 @@ const handleDelete = () => {
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .mood-emoji-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: clamp(4px, 1vw, 4px);
 }
 
 .mood-emoji-option {
@@ -232,7 +236,9 @@ const handleDelete = () => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  padding: 8px;
+  min-width: 0;
+  aspect-ratio: 1;
+  padding: clamp(4px, 1vw, 4px);
   border-radius: 8px;
   transition: all 0.2s;
 }
@@ -252,9 +258,17 @@ const handleDelete = () => {
 }
 
 .mood-svg {
-  width: 40px;
-  height: 40px;
+  width: 100%;
+  height: 100%;
+  max-width: 40px;
+  max-height: 40px;
   transition: opacity 0.2s;
+}
+
+.mood-svg :deep(svg) {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .mood-input {

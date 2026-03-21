@@ -37,8 +37,9 @@
             type="button"
             class="floating-focus__action"
             data-no-drag
-            :title="actionTitle"
-            :aria-label="actionTitle"
+            :title="isStartBlockedByOther && !isActive ? '面板专注进行中' : actionTitle"
+            :aria-label="isStartBlockedByOther && !isActive ? '面板专注进行中' : actionTitle"
+            :disabled="isStartBlockedByOther && !isActive"
             @click.stop="toggleStartPause"
           >
             <Icon :name="actionIcon" width="12" height="12" class="icon" />
@@ -163,6 +164,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import { addFocusSession } from '@/api';
+import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 
 const props = withDefaults(defineProps<{
   enabled: boolean;
@@ -195,6 +197,11 @@ const shortBreakDurationIndex = ref(2);
 const selectedDuration = ref(durationMarks[durationIndex.value]);
 const shortBreakDuration = ref(shortBreakMarks[shortBreakDurationIndex.value]);
 const pomodoroSets = ref(1);
+const {
+  isLockedByOther: isStartBlockedByOther,
+  claimFocusSession,
+  releaseFocusSession
+} = useFocusSessionLock('capsule');
 
 const remainingSeconds = ref(selectedDuration.value * 60);
 const isRunning = ref(false);
@@ -415,6 +422,10 @@ const startCountdown = () => {
 };
 
 const startTimer = () => {
+  if (!claimFocusSession()) {
+    return;
+  }
+
   currentSet.value = 1;
   isBreakMode.value = false;
   if (remainingSeconds.value <= 0) {
@@ -447,6 +458,7 @@ const stopTimer = () => {
   isBreakMode.value = false;
   currentSet.value = 1;
   resetRemaining();
+  releaseFocusSession();
 };
 
 const toggleStartPause = () => {
@@ -589,6 +601,7 @@ onBeforeUnmount(() => {
   }
   document.removeEventListener('mousedown', handleDocumentClick);
   clearTimer();
+  releaseFocusSession();
 });
 </script>
 
@@ -701,6 +714,12 @@ onBeforeUnmount(() => {
 
 .floating-focus__action:hover {
   filter: brightness(0.98);
+}
+
+.floating-focus__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  filter: none;
 }
 
 .floating-focus__popover {

@@ -111,7 +111,7 @@
           class="task-editor-sidebar-overlay"
           @click.self="closeTaskEditorSidebar"
         >
-            <div class="task-editor-sidebar-panel" @click.stop>
+            <div class="task-editor-sidebar-panel" @mousedown.capture="handleTaskEditorSidebarPanelMouseDown" @click.stop>
               <div class="task-editor-sidebar-header">
                 <span class="task-editor-sidebar-title">{{ taskEditorSidebarTitle }}</span>
                 <div class="task-editor-sidebar-actions">
@@ -724,6 +724,30 @@ function applyExternalTaskGroups(groups: TaskGroup[]): void {
 function closeTaskEditMenu(): void {
   taskEditDraft.value = null;
   taskEditMenuTaskId.value = null;
+}
+
+function closeSiyuanCommonMenu(): void {
+  const menu = window.siyuan?.menus?.menu as {
+    close?: () => void;
+  } | null | undefined;
+
+  try {
+    menu?.close?.();
+  } catch {
+  }
+
+  const commonMenu = document.querySelector<HTMLElement>('#commonMenu[data-name="inline-context"]')
+    || document.querySelector<HTMLElement>('#commonMenu.b3-menu');
+  if (!commonMenu) {
+    return;
+  }
+
+  commonMenu.classList.add('fn__none');
+  commonMenu.style.display = 'none';
+}
+
+function handleTaskEditorSidebarPanelMouseDown(): void {
+  closeSiyuanCommonMenu();
 }
 
 function closeTaskFilterPopover(): void {
