@@ -86,3 +86,7 @@ body.b3-theme-dark,
   --pinch-group-color9: #ff95e0;
   --pinch-group-color10: #ffbaac;
 }
+
+.pinch-mobile-task-create-dialog .b3-dialog__container {
+  background-color: transparent !important;
+}
