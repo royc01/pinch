@@ -69,12 +69,22 @@
 
           <div class="header-actions">
             <div v-if="currentView === 'kanban'" class="kanban-group-switch">
-              <span>分组模式</span>
-              <SyCheckbox v-model="kanbanGroupMode" />
+              <span>归类方式</span>
+              <SySelect
+                class="group-mode-select"
+                :model-value="kanbanGroupBy"
+                @update:model-value="kanbanGroupBy = normalizeTaskViewGroupMode($event)"
+                :options="kanbanGroupModeOptions"
+              />
             </div>
             <div v-if="currentView === 'table'" class="kanban-group-switch">
-              <span>分组模式</span>
-              <SyCheckbox v-model="tableGroupMode" />
+              <span>归类方式</span>
+              <SySelect
+                class="group-mode-select"
+                :model-value="tableGroupBy"
+                @update:model-value="tableGroupBy = normalizeTaskViewGroupMode($event)"
+                :options="tableGroupModeOptions"
+              />
             </div>
             <button
               type="button"
@@ -183,6 +193,7 @@
         :class="[
           column.type === 'status' ? `status-${column.status}` : '',
           column.type === 'group' ? 'group-column' : '',
+          column.type === 'heading' ? 'heading-column' : '',
           column.type === 'action' ? 'action-column' : ''
         ]"
       >
@@ -191,8 +202,8 @@
             <button
               type="button"
               class="kanban-add-group-btn"
-              title="新建分组"
-              aria-label="新建分组"
+              title="新建标签"
+              aria-label="新建标签"
               @click="openTaskGroupQuickCreate"
             >
               <Icon name="add" width="18" height="18" />
@@ -237,7 +248,7 @@
                 variant="kanban"
                 :task-groups="taskGroups"
                 :completed="isTaskCompletedVisual(task)"
-                :draggable="!isMobileFrontend"
+                :draggable="!isMobileFrontend && kanbanSupportsDrag"
                 :dragging="!!(draggedTask && draggedTask.id === task.id)"
                 :expanded="isKanbanTaskExpanded(task.id)"
                 :description-editing="inlineEditingDescriptionTaskId === task.id"
@@ -269,7 +280,8 @@
       v-if="currentView === 'table'"
       :tasks="tableViewTasks"
       :task-groups="taskGroups"
-      :group-mode="tableGroupMode"
+      :group-mode="tableGroupBy"
+      :heading-groups="taskHeadingGroups"
       @task-click="handleTaskClick"
       @open-click="handleTaskEditClick"
       @status-toggle="toggleTaskStatus"
@@ -377,6 +389,10 @@
             :group-options="kanbanGroupPickerOptions"
             :selected-group-id="kanbanEditorSelectedGroupId"
             :group-label="kanbanEditorGroupLabel"
+            :reminder-type="activeKanbanEditDraft.reminderType"
+            :reminder-custom-time="activeKanbanEditDraft.reminderCustomTime || ''"
+            :reminder-text="kanbanEditorReminderText"
+            :has-reminder="kanbanEditorHasReminder"
             :group-button-style="kanbanEditorGroupButtonStyle"
             :default-group-chip-color="defaultGroupChipColor"
             description-placeholder="添加任务描述..."
@@ -384,6 +400,7 @@
             @update:description="handleKanbanEditorDescriptionInput"
             @select-due="handleKanbanEditorDateSelect"
             @select-group="handleKanbanEditorGroupSelect"
+            @select-reminder="handleKanbanEditorReminderSelect"
             @commit-description="handleKanbanEditorDescriptionCommit"
             @manage-groups="openTaskGroupDialog"
           />
@@ -446,7 +463,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { Protyle, getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, TaskGroup, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, loadTaskGroups, saveTaskGroups } from '../api';
+import { TaskRepository, Task, SubTask, TaskGroup, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, loadTaskGroups, saveTaskGroups, moveBlock } from '../api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -460,12 +477,21 @@ import {
   normalizeNotebookIds,
   type RepeatRulePayload
 } from '@/utils/taskViewShared';
+import { rebuildAffectedRepeatTasks } from '@/repeatRepository';
+import {
+  getTaskHeadingGroupMeta,
+  normalizeTaskViewGroupMode,
+  resolveTaskHeadingDropTarget,
+  resolveStoredTaskViewGroupMode,
+  resolveTaskHeadingGroups,
+  type TaskHeadingGroupMeta,
+  type TaskViewGroupMode
+} from '@/utils/taskGrouping';
 import Icon from '@/components/Icon.vue';
 import TaskCard from '@/components/TaskCard.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import { useTaskFilterState } from '@/composables/useTaskFilterState';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
-import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import TableView from '@/components/TableView.vue';
 import MonthView from '@/components/MonthView.vue';
 import WeekView from '@/components/WeekView.vue';
@@ -476,6 +502,13 @@ import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import { usePlugin } from '@/main';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { formatMonthDay } from '@/utils/dateHelpers';
+import {
+  buildTaskReminderAttrs,
+  getTaskReminderLabel,
+  normalizeTaskReminderSelection,
+  type TaskReminderSelection,
+  type TaskReminderType
+} from '@/utils/taskReminder';
 
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 
@@ -494,6 +527,16 @@ const showTaskGroupDialog = ref(false);
 const taskGroupDialogAutoAdd = ref(false);
 const excludedNotebookIds = ref<string[]>([]);
 const skipSet = new Set<string>();
+const kanbanGroupModeOptions = [
+  { value: 'status', text: '按状态' },
+  { value: 'group', text: '按标签' },
+  { value: 'heading', text: '按标题' }
+] as const;
+const tableGroupModeOptions = [
+  { value: 'status', text: '不分类' },
+  { value: 'group', text: '按标签' },
+  { value: 'heading', text: '按标题' }
+] as const;
 
 let skipCleanupTimer: number | null = null;
 
@@ -518,8 +561,8 @@ function stopSkipSetCleanup() {
 
 const kanbanFilterType = ref('all');
 const kanbanFilterDocument = ref('all');
-const kanbanGroupMode = ref(false);
-const tableGroupMode = ref(false);
+const kanbanGroupBy = ref<TaskViewGroupMode>('status');
+const tableGroupBy = ref<TaskViewGroupMode>('status');
 const kanbanFilterPopoverVisible = ref(false);
 const kanbanFilterPopoverStyle = ref<Record<string, string>>({});
 const kanbanFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
@@ -550,6 +593,7 @@ const isHydratingSettings = ref(false);
 
 const { notebooks, loadNotebooks } = useNotebooks();
 const taskGroups = ref<TaskGroup[]>([]);
+const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
 const draggedTask = ref<Task | null>(null);
 const dragOverColumnId = ref<string | null>(null);
 const kanbanColumnMetrics = ref<Record<string, { scrollTop: number; height: number }>>({});
@@ -573,10 +617,12 @@ const kanbanEditorDraft = ref<{
   taskId: string;
   dueDate: string;
   description: string;
+  reminderType?: TaskReminderType;
+  reminderCustomTime: string;
   groupId: string;
   priority: Task['priority'];
 } | null>(null);
-const kanbanEditorQuickPanel = ref<'due' | 'description' | 'group' | null>(null);
+const kanbanEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
 const kanbanEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
 const openingKanbanEditorBlockIds = new Set<string>();
 
@@ -598,9 +644,11 @@ const ADD_GROUP_COLUMN_ID = '__add-group__';
 type KanbanColumn = {
   id: string;
   title: string;
-  type: 'status' | 'group' | 'action';
+  type: 'status' | 'group' | 'heading' | 'action';
   status?: Task['status'];
   groupId?: string;
+  headingKey?: string;
+  headingMeta?: TaskHeadingGroupMeta;
 };
 
 const statusColumns: KanbanColumn[] = [
@@ -622,13 +670,13 @@ const taskGroupIdSet = computed(() => {
 
 const groupColumns = computed<KanbanColumn[]>(() => {
   const columns: KanbanColumn[] = [
-    { id: TASK_GROUP_NONE_ID, title: '未分组', type: 'group', groupId: '' }
+    { id: TASK_GROUP_NONE_ID, title: '无标签', type: 'group', groupId: '' }
   ];
   for (const group of taskGroups.value) {
     if (!group || !group.id) continue;
     columns.push({
       id: group.id,
-      title: group.name?.trim() || '分组',
+      title: group.name?.trim() || '标签',
       type: 'group',
       groupId: group.id
     });
@@ -636,13 +684,50 @@ const groupColumns = computed<KanbanColumn[]>(() => {
   return columns;
 });
 
-const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action' };
+const headingColumns = computed<KanbanColumn[]>(() => {
+  const columnsByKey = new Map<string, KanbanColumn>();
 
-const kanbanColumns = computed(() => (
-  kanbanGroupMode.value
-    ? [...groupColumns.value, addGroupColumn]
-    : statusColumns
-));
+  for (const task of tasks.value) {
+    if (!matchesKanbanFilters(task)) continue;
+    const meta = getTaskHeadingGroupMeta(task, taskHeadingGroups.value);
+    if (columnsByKey.has(meta.key)) {
+      continue;
+    }
+    columnsByKey.set(meta.key, {
+      id: meta.key,
+      title: meta.label,
+      type: 'heading',
+      headingKey: meta.key,
+      headingMeta: meta
+    });
+  }
+
+  if (columnsByKey.size === 0) {
+    return [
+      { id: '__heading-empty__', title: '标题归类', type: 'heading', headingKey: '__heading-empty__' }
+    ];
+  }
+
+  return Array.from(columnsByKey.values()).sort((a, b) => {
+    const orderDelta = (a.headingMeta?.order ?? Number.MAX_SAFE_INTEGER) - (b.headingMeta?.order ?? Number.MAX_SAFE_INTEGER);
+    if (orderDelta !== 0) {
+      return orderDelta;
+    }
+    return a.title.localeCompare(b.title, 'zh-CN');
+  });
+});
+
+const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action' };
+const kanbanSupportsDrag = computed(() => true);
+const kanbanColumns = computed<KanbanColumn[]>(() => {
+  if (kanbanGroupBy.value === 'group') {
+    return [...groupColumns.value, addGroupColumn];
+  }
+  if (kanbanGroupBy.value === 'heading') {
+    return headingColumns.value;
+  }
+  return statusColumns;
+});
 
 interface CreateTaskPayload {
   startDate: string;
@@ -705,7 +790,7 @@ const notebookOptions = computed(() => [
 
 const kanbanGroupPickerOptions = computed(() => {
   const options = [
-    { value: TASK_GROUP_NONE_ID, label: '无分组', special: true, colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, colorCss: '', textColor: '' }
   ];
   taskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -722,7 +807,7 @@ const kanbanGroupPickerOptions = computed(() => {
 
 const kanbanGroupFilterOptions = computed(() => {
   const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
-    { value: TASK_GROUP_NONE_ID, label: '无分组', style: {} }
+    { value: TASK_GROUP_NONE_ID, label: '无标签', style: {} }
   ];
   taskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -789,6 +874,10 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
     return { backgroundColor: backgroundColor || defaultGroupChipColor };
   }
 
+  if (column.type === 'heading') {
+    return { backgroundColor: 'var(--b3-theme-primary)' };
+  }
+
   return { backgroundColor: 'transparent' };
 }
 
@@ -800,10 +889,10 @@ const kanbanEditorSelectedGroupId = computed(() => {
 const kanbanEditorGroupLabel = computed(() => {
   const groupId = (activeKanbanEditDraft.value?.groupId || '').trim();
   if (!groupId) {
-    return '无分组';
+    return '无标签';
   }
   const group = taskGroups.value.find(item => item.id === groupId);
-  return group?.name || '分组';
+  return group?.name || '标签';
 });
 
 const kanbanEditorGroupColorValue = computed(() => {
@@ -856,6 +945,15 @@ const kanbanEditorHasDueDate = computed(() => {
 const kanbanEditorHasDescription = computed(() => {
   const description = activeKanbanEditDraft.value?.description || '';
   return description.trim().length > 0;
+});
+const kanbanEditorReminderText = computed(() => {
+  return getTaskReminderLabel(
+    activeKanbanEditDraft.value?.reminderType,
+    activeKanbanEditDraft.value?.reminderCustomTime
+  );
+});
+const kanbanEditorHasReminder = computed(() => {
+  return !!(activeKanbanEditDraft.value?.reminderType || '').trim();
 });
 
 const {
@@ -1030,7 +1128,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       .filter(id => id.length > 0);
     blockIdsToClear = Array.from(new Set([...sqlBlockIds, ...localBlockIds]));
   } catch (error) {
-    console.error('[KanbanView] 查询分组任务失败:', error);
+    console.error('[KanbanView] 查询标签任务失败:', error);
     blockIdsToClear = Array.from(new Set(localBlockIds));
   }
 
@@ -1040,7 +1138,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       await setBlockAttrs(blockId, { 'custom-task-group': '' });
       successBlockIds.push(blockId);
     } catch (error) {
-      console.error('[KanbanView] 清理任务分组属性失败:', error);
+      console.error('[KanbanView] 清理任务标签属性失败:', error);
     }
   }
 
@@ -1094,7 +1192,7 @@ async function handleTaskGroupSave(groups: TaskGroup[]): Promise<void> {
       activeTableGroupFilters.value = activeTableGroupFilters.value.filter(id => !removedSet.has(id));
     }
   } catch (error) {
-    console.error('[KanbanView] 保存分组失败:', error);
+    console.error('[KanbanView] 保存标签失败:', error);
   }
 }
 
@@ -1146,6 +1244,7 @@ let queuedIncrementalAllowUnknown = false;
 const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 80;
 const dragStatusLocks = new Map<string, Task['status']>();
 const dragSyncSuppressUntil = new Map<string, number>();
+let repeatReconcileRequestId = 0;
 function getCurrentFilterNotebookId(): string {
   switch (currentView.value) {
     case 'kanban':
@@ -1317,10 +1416,25 @@ function scheduleSaveUserSettings() {
   }, 200);
 }
 
+const shouldLoadHeadingGroups = computed(() =>
+  kanbanGroupBy.value === 'heading' || tableGroupBy.value === 'heading'
+);
+
+let taskHeadingGroupRequestId = 0;
+
+async function refreshTaskHeadingGroups(): Promise<void> {
+  const requestId = ++taskHeadingGroupRequestId;
+  const resolvedGroups = await resolveTaskHeadingGroups(tasks.value);
+  if (requestId !== taskHeadingGroupRequestId) {
+    return;
+  }
+  taskHeadingGroups.value = resolvedGroups;
+}
+
 watch([
   currentView,
-  kanbanGroupMode,
-  tableGroupMode,
+  kanbanGroupBy,
+  tableGroupBy,
   kanbanFilterType,
   kanbanFilterDocument,
   tableFilterType,
@@ -1335,6 +1449,12 @@ watch([
   }
   scheduleSaveUserSettings();
 });
+watch([shouldLoadHeadingGroups, () => tasks.value], ([enabled]) => {
+  if (!enabled) {
+    return;
+  }
+  void refreshTaskHeadingGroups();
+}, { immediate: true });
 
 watch(kanbanFilterPopoverVisible, (visible) => {
   if (visible) {
@@ -1347,14 +1467,14 @@ watch(tableFilterPopoverVisible, (visible) => {
   }
 });
 
-watch(kanbanGroupMode, async (enabled) => {
-  if (!enabled) {
+watch(kanbanGroupBy, async (mode) => {
+  if (mode !== 'group') {
     return;
   }
   taskGroups.value = await loadTaskGroups();
 });
-watch(tableGroupMode, async (enabled) => {
-  if (!enabled) {
+watch(tableGroupBy, async (mode) => {
+  if (mode !== 'group') {
     return;
   }
   taskGroups.value = await loadTaskGroups();
@@ -1741,6 +1861,7 @@ function matchesTableSearch(task: Task): boolean {
 function matchesKanbanFilters(task: Task): boolean {
   if (!task.title || task.title.trim() === '') return false;
   if (task.type !== 'block') return false;
+  if (task.isVirtual) return false;
   if (kanbanFilterType.value !== 'all') {
     if (task.notebookId !== kanbanFilterType.value) return false;
     if (kanbanFilterDocument.value !== 'all' && task.rootId !== kanbanFilterDocument.value) return false;
@@ -1788,6 +1909,7 @@ function matchesKanbanFilters(task: Task): boolean {
 
 function matchesTableFilters(task: Task): boolean {
   if (task.type !== 'block') return false;
+  if (task.isVirtual) return false;
   if (!matchesTableSearch(task)) return false;
   if (activeTableStatusFilters.value.length > 0) {
     const status = getTaskVisualStatus(task);
@@ -1836,6 +1958,10 @@ function getGroupColumnIdForTask(task: Task): string {
     return TASK_GROUP_NONE_ID;
   }
   return taskGroupIdSet.value.has(rawGroupId) ? rawGroupId : TASK_GROUP_NONE_ID;
+}
+
+function getHeadingColumnIdForTask(task: Task): string {
+  return getTaskHeadingGroupMeta(task, taskHeadingGroups.value).key;
 }
 
 const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
@@ -1887,6 +2013,25 @@ const kanbanTasksByGroup = computed<Record<string, Task[]>>(() => {
   return grouped;
 });
 
+const kanbanTasksByHeading = computed<Record<string, Task[]>>(() => {
+  const grouped: Record<string, Task[]> = {};
+
+  for (const task of tasks.value) {
+    if (!matchesKanbanFilters(task)) continue;
+    const headingKey = getHeadingColumnIdForTask(task);
+    if (!grouped[headingKey]) {
+      grouped[headingKey] = [];
+    }
+    grouped[headingKey].push(task);
+  }
+
+  for (const list of Object.values(grouped)) {
+    sortTasksLikeSidebar(list);
+  }
+
+  return grouped;
+});
+
 function getFilteredTasksForStatus(status?: string): Task[] {
   if (!status) return [];
   return kanbanTasksByVisualStatus.value[status] || [];
@@ -1896,11 +2041,14 @@ function getTasksForColumn(column: KanbanColumn): Task[] {
   if (column.type === 'status') {
     return getFilteredTasksForStatus(column.status);
   }
+  if (column.type === 'heading') {
+    return kanbanTasksByHeading.value[column.id] || [];
+  }
   return kanbanTasksByGroup.value[column.id] || [];
 }
 
 function shouldUseKanbanVirtualList(column: KanbanColumn, taskCount: number): boolean {
-  if (column.type !== 'status' && column.type !== 'group') {
+  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading') {
     return false;
   }
   if (taskCount <= KANBAN_VIRTUAL_THRESHOLD) {
@@ -2149,13 +2297,41 @@ function scheduleRefreshTasks(
   }, delay);
 }
 
-function applyRepeatRuleOptimistic(payload: RepeatRulePayload) {
+function applyRepeatRuleOptimistic(payload: RepeatRulePayload): boolean {
   const { nextTasks, touched } = applyRepeatRuleOptimisticToTasks(tasks.value, payload);
   if (nextTasks !== tasks.value) {
     tasks.value = nextTasks;
   }
   if (touched) {
     invalidateTableFilters();
+  }
+  return touched;
+}
+
+async function applyRepeatRuleIncremental(payload: RepeatRulePayload, requestId: number): Promise<boolean> {
+  applyRepeatRuleOptimistic(payload);
+  try {
+    const { nextTasks, touched, handled } = await rebuildAffectedRepeatTasks(
+      tasks.value,
+      payload,
+      { pastDays: 60, futureDays: 120 }
+    );
+    if (requestId !== repeatReconcileRequestId) {
+      return true;
+    }
+    if (!handled) {
+      return false;
+    }
+    if (!touched) {
+      return true;
+    }
+
+    crdtRepo.syncFromSQLTasks(nextTasks);
+    tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
+    invalidateTableFilters();
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -2224,8 +2400,8 @@ async function loadUserSettings() {
     const settings = userSettings.kanban;
     kanbanFilterType.value = settings.kanbanFilterType || 'all';
     kanbanFilterDocument.value = settings.kanbanFilterDocument || 'all';
-    kanbanGroupMode.value = settings.kanbanGroupMode ?? false;
-    tableGroupMode.value = settings.tableGroupMode ?? false;
+    kanbanGroupBy.value = resolveStoredTaskViewGroupMode(settings.kanbanGroupBy, settings.kanbanGroupMode, 'status');
+    tableGroupBy.value = resolveStoredTaskViewGroupMode(settings.tableGroupBy, settings.tableGroupMode, 'status');
     tableFilterType.value = settings.tableFilterType || 'all';
     tableFilterDocument.value = settings.tableFilterDocument || 'all';
     monthFilterType.value = settings.monthFilterType || 'all';
@@ -2285,8 +2461,10 @@ async function saveUserSettings() {
   try {
     await updateSettings('kanban', {
       currentView: currentView.value,
-      kanbanGroupMode: kanbanGroupMode.value,
-      tableGroupMode: tableGroupMode.value,
+      kanbanGroupMode: kanbanGroupBy.value === 'group',
+      tableGroupMode: tableGroupBy.value === 'group',
+      kanbanGroupBy: kanbanGroupBy.value,
+      tableGroupBy: tableGroupBy.value,
       kanbanFilterType: kanbanFilterType.value,
       kanbanFilterDocument: kanbanFilterDocument.value,
       tableFilterType: tableFilterType.value,
@@ -2393,8 +2571,14 @@ function setupEventListeners() {
 
   const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string }) => {
     if (payload?.reason === 'repeat-changed' && payload.frequency) {
-      applyRepeatRuleOptimistic(payload);
-      scheduleRefreshTasks(100, 'light');
+      const requestId = ++repeatReconcileRequestId;
+      const fastPathApplied = await applyRepeatRuleIncremental(payload, requestId);
+      if (requestId !== repeatReconcileRequestId) {
+        return;
+      }
+      if (!fastPathApplied) {
+        scheduleRefreshTasks(100, 'silent-full');
+      }
       return;
     }
     if (payload?.blockId) {
@@ -3118,9 +3302,33 @@ async function handleKanbanEditorGroupSelect(value: string): Promise<void> {
     { 'custom-task-group': normalized || '' },
     'groupId',
     normalized || undefined,
-    '更新任务分组失败'
+    '更新任务标签失败'
   );
   invalidateTableFilters();
+}
+
+async function handleKanbanEditorReminderSelect(value: TaskReminderSelection): Promise<void> {
+  if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) return;
+
+  const normalizedReminder = normalizeTaskReminderSelection(value);
+
+  activeKanbanEditDraft.value.reminderType = normalizedReminder.reminderType;
+  activeKanbanEditDraft.value.reminderCustomTime = normalizedReminder.reminderCustomTime;
+
+  await applyBlockTaskFieldUpdate(
+    activeKanbanEditTask.value,
+    buildTaskReminderAttrs(normalizedReminder),
+    'reminderType',
+    normalizedReminder.reminderType,
+    '更新任务提醒失败',
+    () => {
+      updateTaskLocalField(
+        activeKanbanEditTask.value!.id,
+        'reminderCustomTime',
+        normalizedReminder.reminderCustomTimeValue
+      );
+    }
+  );
 }
 
 function closeKanbanEditor(): void {
@@ -3289,10 +3497,13 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
     taskGroups.value = await loadTaskGroups();
   }
   kanbanEditorTaskId.value = task.id;
+  const normalizedReminder = normalizeTaskReminderSelection(task);
   kanbanEditorDraft.value = {
     taskId: task.id,
     dueDate: typeof task.dueDate === 'string' ? task.dueDate : '',
     description: typeof task.description === 'string' ? task.description : '',
+    reminderType: normalizedReminder.reminderType,
+    reminderCustomTime: normalizedReminder.reminderCustomTime,
     groupId: typeof task.groupId === 'string' ? task.groupId : '',
     priority: task.priority || 'none'
   };
@@ -3628,7 +3839,7 @@ async function handleGroupUpdate(task: Task, groupId: string) {
     { 'custom-task-group': normalizedGroupId || '' },
     'groupId',
     normalizedGroupId || undefined,
-    '更新任务分组失败'
+    '更新任务标签失败'
   );
   invalidateTableFilters();
 }
@@ -3695,7 +3906,7 @@ async function applyBlockTaskFieldUpdate<K extends keyof Task>(
 }
 
 function handleDragStart(event: DragEvent, task: Task) {
-  if (isMobileFrontend) return;
+  if (isMobileFrontend || !kanbanSupportsDrag.value) return;
 
   draggedTask.value = task;
   if (event.dataTransfer) {
@@ -3718,12 +3929,26 @@ function handleDragOver(event: DragEvent, column: KanbanColumn) {
     return;
   }
 
-  if (kanbanGroupMode.value) {
+  if (kanbanGroupBy.value === 'group') {
     if (column.type !== 'group') {
       return;
     }
     const currentGroupId = getGroupColumnIdForTask(draggedTask.value);
     if (currentGroupId !== column.id) {
+      dragOverColumnId.value = column.id;
+    }
+    return;
+  }
+
+  if (kanbanGroupBy.value === 'heading') {
+    if (column.type !== 'heading' || !column.headingMeta) {
+      return;
+    }
+    if (!(draggedTask.value.type === 'block' && draggedTask.value.blockId)) {
+      return;
+    }
+    const currentHeadingKey = getHeadingColumnIdForTask(draggedTask.value);
+    if (currentHeadingKey !== column.id) {
       dragOverColumnId.value = column.id;
     }
     return;
@@ -3745,11 +3970,19 @@ async function handleDrop(event: DragEvent, column: KanbanColumn) {
   
   if (!draggedTask.value) return;
 
-  if (kanbanGroupMode.value) {
+  if (kanbanGroupBy.value === 'group') {
     if (column.type !== 'group') {
       return;
     }
     await handleGroupDrop(column);
+    return;
+  }
+
+  if (kanbanGroupBy.value === 'heading') {
+    if (column.type !== 'heading') {
+      return;
+    }
+    await handleHeadingDrop(column);
     return;
   }
 
@@ -3806,7 +4039,7 @@ async function handleGroupDrop(column: KanbanColumn) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
     }
   } catch (error) {
-    console.error('[KanbanView] 拖拽更新任务分组失败:', error);
+    console.error('[KanbanView] 拖拽更新任务标签失败:', error);
     if (droppedBlockId) {
       dragSyncSuppressUntil.delete(droppedBlockId);
     }
@@ -3828,6 +4061,72 @@ async function handleGroupDrop(column: KanbanColumn) {
     window.setTimeout(() => {
       dragSyncSuppressUntil.delete(droppedBlockId);
     }, 500);
+  }
+}
+
+async function handleHeadingDrop(column: KanbanColumn) {
+  if (!draggedTask.value || column.type !== 'heading' || !column.headingMeta) return;
+
+  const task = draggedTask.value;
+  if (!(task.type === 'block' && task.blockId)) {
+    pushMsg('只有块任务支持按标题拖动');
+    draggedTask.value = null;
+    dragOverColumnId.value = null;
+    return;
+  }
+
+  isDropping.value = true;
+
+  const taskId = task.id;
+  const taskIndex = tasks.value.findIndex(t => t.id === taskId);
+  if (taskIndex === -1) {
+    isDropping.value = false;
+    return;
+  }
+
+  const currentTask = tasks.value[taskIndex];
+  const currentHeadingKey = getHeadingColumnIdForTask(currentTask);
+  if (currentHeadingKey === column.id) {
+    isDropping.value = false;
+    return;
+  }
+
+  const droppedBlockId = task.blockId;
+  const previousMeta = taskHeadingGroups.value.get(taskId);
+  const nextMeta = column.headingMeta;
+
+  suppressDragTaskSync(droppedBlockId, 2200);
+  taskHeadingGroups.value = new Map(taskHeadingGroups.value).set(taskId, { ...nextMeta });
+
+  // End drag visual state immediately to avoid long "dragging" flicker while async sync is running.
+  draggedTask.value = null;
+  dragOverColumnId.value = null;
+
+  try {
+    const dropTarget = await resolveTaskHeadingDropTarget(nextMeta);
+    if (!dropTarget) {
+      throw new Error('无法解析目标标题位置');
+    }
+
+    await moveBlock(droppedBlockId, dropTarget.previousId, dropTarget.parentId);
+
+    window.setTimeout(() => {
+      dragSyncSuppressUntil.delete(droppedBlockId);
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: [droppedBlockId] });
+    }, 500);
+  } catch (error) {
+    console.error('[KanbanView] 拖拽移动任务到标题失败:', error);
+    dragSyncSuppressUntil.delete(droppedBlockId);
+    const nextGroupMap = new Map(taskHeadingGroups.value);
+    if (previousMeta) {
+      nextGroupMap.set(taskId, previousMeta);
+    } else {
+      nextGroupMap.delete(taskId);
+    }
+    taskHeadingGroups.value = nextGroupMap;
+    pushMsg('移动到标题失败');
+  } finally {
+    isDropping.value = false;
   }
 }
 
@@ -4310,6 +4609,10 @@ watch(kanbanColumns, () => {
   color: var(--b3-theme-on-background);
   font-size: 14px;
   white-space: nowrap;
+}
+
+.group-mode-select {
+  min-width: 108px;
 }
 
 .refresh-btn,

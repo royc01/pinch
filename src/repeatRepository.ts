@@ -1,6 +1,7 @@
 import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
 import { formatDate } from '@/composables/useDateUtils';
+import { repeatDragDebug } from '@/utils/repeatDragDebug';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
@@ -176,6 +177,23 @@ function buildVirtualTaskId(seriesId: string, date: string): string {
   return `repeat_${seriesId}_${date}`.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+function buildRepeatRecordMap(records: RepeatRecord[]): Map<string, RepeatRecord> {
+  return new Map(records.map((record) => [record.key, record]));
+}
+
+function getMaterializeRange(options: { pastDays?: number; futureDays?: number } = {}): { start: Date; end: Date } {
+  const today = parseDate(nowDateString())!;
+  const start = new Date(today);
+  start.setDate(start.getDate() - (options.pastDays ?? DEFAULT_PAST_WINDOW_DAYS));
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(today);
+  end.setDate(end.getDate() + (options.futureDays ?? DEFAULT_FUTURE_WINDOW_DAYS));
+  end.setHours(0, 0, 0, 0);
+
+  return { start, end };
+}
+
 function getTaskBaseDate(task: RepeatTaskLike): string {
   const fromTask = task.startDate || task.dueDate;
   const parsed = parseDate(fromTask);
@@ -188,6 +206,72 @@ function calculateSpanDays(task: RepeatTaskLike): number {
   if (!start || !due) return 0;
   const span = daysBetween(start, due);
   return Math.max(0, span);
+}
+
+function findTemplateTaskForSeries<T extends RepeatTaskLike>(baseTasks: T[], series: RepeatSeries): T | undefined {
+  return baseTasks.find((task) => task.id === series.templateTaskId)
+    || (series.templateBlockId
+      ? baseTasks.find((task) => task.blockId === series.templateBlockId)
+      : undefined);
+}
+
+function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
+  series: RepeatSeries,
+  templateTask: T,
+  recordMap: Map<string, RepeatRecord>,
+  range: { start: Date; end: Date }
+): T[] {
+  const seriesEndDate = parseDate(series.endDate);
+  const effectiveRangeEnd = seriesEndDate || range.end;
+  if (effectiveRangeEnd.getTime() < range.start.getTime()) {
+    return [];
+  }
+
+  const virtualTasks: T[] = [];
+  const cursor = new Date(range.start);
+  while (cursor <= effectiveRangeEnd) {
+    if (!matchesSeriesDate(series, cursor)) {
+      cursor.setDate(cursor.getDate() + 1);
+      continue;
+    }
+
+    const instanceDate = formatDate(cursor);
+    if (instanceDate === series.startDate) {
+      cursor.setDate(cursor.getDate() + 1);
+      continue;
+    }
+
+    const recordKey = buildRecordKey(series.id, instanceDate);
+    const record = recordMap.get(recordKey);
+    const status = record?.status || 'pending';
+
+    virtualTasks.push({
+      ...templateTask,
+      id: buildVirtualTaskId(series.id, instanceDate),
+      isVirtual: true,
+      repeatSeriesId: series.id,
+      repeatFrequency: series.frequency,
+      repeatInstanceDate: instanceDate,
+      status,
+      startDate: instanceDate,
+      dueDate: instanceDate,
+      startTime: series.startTime || templateTask.startTime,
+      dueTime: series.dueTime || templateTask.dueTime,
+      title: series.title || templateTask.title,
+      description: series.description || templateTask.description,
+      priority: series.priority || templateTask.priority,
+      tags: series.tags?.length ? [...series.tags] : [...(templateTask.tags || [])],
+      backgroundColor: series.backgroundColor || templateTask.backgroundColor,
+      blockId: undefined,
+      completedAt: record?.completedAt,
+      updatedAt: record?.updatedAt || series.updatedAt,
+      createdAt: series.createdAt
+    });
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return virtualTasks;
 }
 
 function matchesSeriesDate(series: RepeatSeries, date: Date): boolean {
@@ -361,7 +445,10 @@ export async function updateRepeatSeriesDates(
   timePatch?: {
     startTime?: string | null;
     dueTime?: string | null;
-  }
+  },
+  options: {
+    emitChange?: boolean;
+  } = {}
 ): Promise<RepeatSeries | null> {
   const seriesList = await loadRepeatSeries();
   const series = findSeriesForTask(seriesList, task);
@@ -414,11 +501,23 @@ export async function updateRepeatSeriesDates(
   }
 
   await saveRepeatSeries(seriesList);
-  emitRepeatChanged({
-    blockId: updated.templateBlockId,
+  repeatDragDebug('repeatRepository', 'updateRepeatSeriesDates saved series', {
+    taskId: task.id,
+    blockId: task.blockId,
     seriesId: updated.id,
-    frequency: updated.frequency
+    startDate: updated.startDate,
+    endDate: updated.endDate,
+    startTime: updated.startTime,
+    dueTime: updated.dueTime,
+    emitChange: options.emitChange !== false
   });
+  if (options.emitChange !== false) {
+    emitRepeatChanged({
+      blockId: updated.templateBlockId,
+      seriesId: updated.id,
+      frequency: updated.frequency
+    });
+  }
 
   return updated;
 }
@@ -492,6 +591,15 @@ function emitRepeatChanged(payload: {
     seriesId: payload.seriesId,
     frequency: payload.frequency
   });
+}
+
+export function notifyRepeatChanged(payload: {
+  blockId?: string;
+  seriesId?: string;
+  frequency?: RepeatFrequency;
+} = {}): void {
+  repeatDragDebug('repeatRepository', 'notifyRepeatChanged', payload);
+  emitRepeatChanged(payload);
 }
 
 export async function setTaskRepeatSeries(task: RepeatTaskLike, frequency: RepeatFrequency): Promise<RepeatSeries | null> {
@@ -663,7 +771,7 @@ export async function materializeRepeatTasks<T extends RepeatTaskLike>(
   }
 
   const records = await loadRepeatRecords();
-  const recordMap = new Map(records.map((record) => [record.key, record]));
+  const recordMap = buildRepeatRecordMap(records);
   const taskMapById = new Map(baseTasks.map((task) => [task.id, task]));
   const taskMapByBlockId = new Map(
     baseTasks
@@ -672,14 +780,7 @@ export async function materializeRepeatTasks<T extends RepeatTaskLike>(
   );
 
   const decoratedBaseTasks = await attachRepeatMetadataToTasks(baseTasks, seriesList);
-
-  const today = parseDate(nowDateString())!;
-  const rangeStart = new Date(today);
-  rangeStart.setDate(rangeStart.getDate() - (options.pastDays ?? DEFAULT_PAST_WINDOW_DAYS));
-  rangeStart.setHours(0, 0, 0, 0);
-  const rangeEnd = new Date(today);
-  rangeEnd.setDate(rangeEnd.getDate() + (options.futureDays ?? DEFAULT_FUTURE_WINDOW_DAYS));
-  rangeEnd.setHours(0, 0, 0, 0);
+  const range = getMaterializeRange(options);
 
   const virtualTasks: T[] = [];
 
@@ -687,58 +788,95 @@ export async function materializeRepeatTasks<T extends RepeatTaskLike>(
     const templateTask = taskMapById.get(series.templateTaskId)
       || (series.templateBlockId ? taskMapByBlockId.get(series.templateBlockId) : undefined);
     if (!templateTask) continue;
-
-    const seriesEndDate = parseDate(series.endDate);
-    const effectiveRangeEnd = seriesEndDate || rangeEnd;
-    if (effectiveRangeEnd.getTime() < rangeStart.getTime()) {
-      continue;
-    }
-
-    const cursor = new Date(rangeStart);
-    while (cursor <= effectiveRangeEnd) {
-      if (!matchesSeriesDate(series, cursor)) {
-        cursor.setDate(cursor.getDate() + 1);
-        continue;
-      }
-
-      const instanceDate = formatDate(cursor);
-      if (instanceDate === series.startDate) {
-        cursor.setDate(cursor.getDate() + 1);
-        continue;
-      }
-
-      const recordKey = buildRecordKey(series.id, instanceDate);
-      const record = recordMap.get(recordKey);
-      const status = record?.status || 'pending';
-      // Repeat instances are always materialized as single-day tasks.
-      const dueDate = instanceDate;
-
-      virtualTasks.push({
-        ...templateTask,
-        id: buildVirtualTaskId(series.id, instanceDate),
-        isVirtual: true,
-        repeatSeriesId: series.id,
-        repeatFrequency: series.frequency,
-        repeatInstanceDate: instanceDate,
-        status,
-        startDate: instanceDate,
-        dueDate,
-        startTime: series.startTime || templateTask.startTime,
-        dueTime: series.dueTime || templateTask.dueTime,
-        title: series.title || templateTask.title,
-        description: series.description || templateTask.description,
-        priority: series.priority || templateTask.priority,
-        tags: series.tags?.length ? [...series.tags] : [...(templateTask.tags || [])],
-        backgroundColor: series.backgroundColor || templateTask.backgroundColor,
-        blockId: undefined,
-        completedAt: record?.completedAt,
-        updatedAt: record?.updatedAt || series.updatedAt,
-        createdAt: series.createdAt
-      });
-
-      cursor.setDate(cursor.getDate() + 1);
-    }
+    virtualTasks.push(...buildVirtualTasksForSeries(series, templateTask, recordMap, range));
   }
 
   return [...decoratedBaseTasks, ...virtualTasks] as T[];
+}
+
+export async function rebuildAffectedRepeatTasks<T extends RepeatTaskLike>(
+  taskList: T[],
+  payload: {
+    blockId?: string;
+    seriesId?: string;
+    frequency?: string;
+  },
+  options: { pastDays?: number; futureDays?: number } = {}
+): Promise<{ nextTasks: T[]; touched: boolean; handled: boolean }> {
+  const { seriesId, frequency } = payload;
+  if (!Array.isArray(taskList)) {
+    return { nextTasks: taskList, touched: false, handled: false };
+  }
+
+  if (!frequency) {
+    return { nextTasks: taskList, touched: false, handled: false };
+  }
+
+  if (frequency === 'none') {
+    if (!seriesId) {
+      return { nextTasks: taskList, touched: false, handled: false };
+    }
+    return { nextTasks: taskList, touched: false, handled: true };
+  }
+
+  if (!seriesId) {
+    return { nextTasks: taskList, touched: false, handled: false };
+  }
+
+  const seriesList = (await loadRepeatSeries()).filter((series) => series.enabled);
+  const targetSeries = seriesList.find((series) => series.id === seriesId);
+  if (!targetSeries) {
+    return { nextTasks: taskList, touched: false, handled: false };
+  }
+
+  const baseTasks = taskList.filter((task) => !task.isVirtual) as T[];
+  const templateTask = findTemplateTaskForSeries(baseTasks, targetSeries);
+  if (!templateTask) {
+    return { nextTasks: taskList, touched: false, handled: false };
+  }
+
+  const records = await loadRepeatRecords();
+  const recordMap = buildRepeatRecordMap(records);
+  const range = getMaterializeRange(options);
+  const alignedTemplateTask = {
+    ...templateTask,
+    isVirtual: false,
+    repeatSeriesId: targetSeries.id,
+    repeatFrequency: targetSeries.frequency,
+    repeatInstanceDate: undefined,
+    startDate: targetSeries.startDate,
+    dueDate: targetSeries.endDate,
+    startTime: targetSeries.startTime,
+    dueTime: targetSeries.dueTime
+  } as T;
+  const templateChanged = (
+    templateTask.repeatSeriesId !== alignedTemplateTask.repeatSeriesId
+    || templateTask.repeatFrequency !== alignedTemplateTask.repeatFrequency
+    || !!templateTask.isVirtual
+    || templateTask.repeatInstanceDate !== alignedTemplateTask.repeatInstanceDate
+    || templateTask.startDate !== alignedTemplateTask.startDate
+    || templateTask.dueDate !== alignedTemplateTask.dueDate
+    || templateTask.startTime !== alignedTemplateTask.startTime
+    || templateTask.dueTime !== alignedTemplateTask.dueTime
+  );
+  const rebuiltVirtualTasks = buildVirtualTasksForSeries(targetSeries, alignedTemplateTask, recordMap, range);
+
+  let touched = templateChanged || rebuiltVirtualTasks.length > 0;
+  const retainedTasks = taskList.filter((task) => {
+    const shouldDrop = !!task.isVirtual && task.repeatSeriesId === seriesId;
+    if (shouldDrop) {
+      touched = true;
+    }
+    return !shouldDrop;
+  }).map((task) => (
+    task.id === templateTask.id
+      ? alignedTemplateTask
+      : task
+  )) as T[];
+
+  return {
+    nextTasks: [...retainedTasks, ...rebuiltVirtualTasks],
+    touched,
+    handled: true
+  };
 }

@@ -116,6 +116,30 @@
                 <span class="task-editor-sidebar-title">{{ taskEditorSidebarTitle }}</span>
                 <div class="task-editor-sidebar-actions">
                   <button
+                    v-if="activeTaskEditTask"
+                    type="button"
+                    class="task-editor-sidebar-move"
+                    title="移动任务"
+                    aria-label="移动任务"
+                    @click.stop="openTaskMoveDialog"
+                  >
+                    <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                      <path d="M904.448 625.728 119.616 625.728c-23.68 0-44.736 14.656-52.48 36.48C65.024 668.032 64 674.048 64 680c0 16.32 7.616 32.192 21.184 42.688l293.248 225.728c24.128 18.56 59.008 14.464 78.016-9.088 18.944-23.552 14.848-57.664-9.28-76.224L288 739.456l616 0c30.72 0 56-29.44 56-59.456C960 649.984 935.168 625.728 904.448 625.728zM119.552 398.272l784.832 0c23.68 0 44.736-14.656 52.48-36.48C958.976 355.968 960 349.952 960 344c0-16.32-7.616-32.192-21.184-42.688l-293.248-225.728c-24.128-18.56-59.008-14.464-78.016 9.088C548.608 108.224 552.64 142.4 576.832 160.96L736 284.544 120 284.544C89.28 284.544 64 313.984 64 344 64 374.016 88.832 398.272 119.552 398.272z"></path>
+                    </svg>
+                  </button>
+                  <button
+                    v-if="activeTaskEditTask"
+                    type="button"
+                    class="task-editor-sidebar-delete"
+                    title="删除任务"
+                    aria-label="删除任务"
+                    @click.stop="handleTaskEditorDelete"
+                  >
+                    <svg viewBox="0 0 1225 1024" width="16" height="16" aria-hidden="true">
+                      <path d="M1034.570239 270.996844V841.152359a182.847641 182.847641 0 0 1-182.847641 182.847641H391.641363a182.847641 182.847641 0 0 1-182.847641-182.847641V270.996844a45.090228 45.090228 0 0 1 0-90.162172v-0.091424h196.561214a219.837719 219.837719 0 0 1 432.672374 0h196.542929v0.109708a45.090228 45.090228 0 0 1 0 90.143888zM621.68198 90.398228a132.546255 132.546255 0 0 0-124.610667 90.34502h249.221335A132.546255 132.546255 0 0 0 621.68198 90.398228z m324.408286 180.690039H297.273695v552.858129a109.708585 109.708585 0 0 0 109.708585 109.708584h429.399401a109.708585 109.708585 0 0 0 109.708585-109.708584V271.106552z m-221.245646 481.85839a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z m-206.434987 0a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z" fill="#333333"></path>
+                    </svg>
+                  </button>
+                  <button
                     v-if="activeTaskEditTask && activeTaskEditDraft"
                     type="button"
                     class="task-editor-priority-btn"
@@ -159,6 +183,10 @@
                 :group-options="taskGroupPickerOptions"
                 :selected-group-id="taskEditorSelectedGroupId"
                 :group-label="taskEditorGroupLabel"
+                :reminder-type="activeTaskEditDraft.reminderType"
+                :reminder-custom-time="activeTaskEditDraft.reminderCustomTime || ''"
+                :reminder-text="taskEditorReminderText"
+                :has-reminder="taskEditorHasReminder"
                 :group-button-style="taskEditorGroupButtonStyle"
                 :default-group-chip-color="defaultGroupChipColor"
                 description-placeholder="添加任务描述..."
@@ -166,9 +194,71 @@
                 @update:description="handleTaskEditorDescriptionInput"
                 @select-due="handleTaskEditorDateSelect"
                 @select-group="selectTaskEditorGroup"
+                @select-reminder="handleTaskEditorReminderSelect"
                 @commit-description="handleTaskEditorDescriptionCommit"
                 @manage-groups="openTaskGroupDialog"
               />
+            </div>
+            <div
+              v-if="showTaskMoveDialog"
+              class="task-move-dialog-overlay"
+              @click.self="closeTaskMoveDialog"
+            >
+              <div class="task-move-dialog" @click.stop>
+                <div class="task-move-dialog-header">
+                  <span class="task-move-dialog-title">移动任务</span>
+                  <button
+                    type="button"
+                    class="task-move-dialog-close"
+                    title="关闭"
+                    aria-label="关闭"
+                    @click.stop="closeTaskMoveDialog"
+                  >
+                    <Icon name="close" width="16" height="16" />
+                  </button>
+                </div>
+                <div class="task-move-dialog-body">
+                  <div class="task-move-dialog-field">
+                    <label>笔记本</label>
+                    <SySelect
+                      :model-value="taskMoveSelectedNotebook"
+                      :options="taskMoveNotebookOptions"
+                      @update:model-value="handleTaskMoveNotebookChange"
+                    />
+                  </div>
+                  <div class="task-move-dialog-field">
+                    <label>文档</label>
+                    <SySelect
+                      :model-value="taskMoveSelectedDocument"
+                      :options="taskMoveDocumentOptions"
+                      @update:model-value="taskMoveSelectedDocument = String($event || '')"
+                    />
+                  </div>
+                  <div v-if="taskMoveTargetUnchanged" class="task-move-dialog-hint">
+                    当前已经在这个文档中
+                  </div>
+                  <div v-else-if="taskMoveDocumentOptions.length === 0" class="task-move-dialog-hint">
+                    当前笔记本下暂无可选文档
+                  </div>
+                </div>
+                <div class="task-move-dialog-actions">
+                  <button
+                    type="button"
+                    class="task-move-dialog-btn"
+                    @click.stop="closeTaskMoveDialog"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    class="task-move-dialog-btn primary"
+                    :disabled="!canSubmitTaskMove"
+                    @click.stop="handleTaskEditorMove"
+                  >
+                    {{ isTaskMoveSubmitting ? '移动中...' : '移动' }}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -205,10 +295,7 @@
           :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
           :description-editing="inlineEditingDescriptionTaskId === task.id"
           :description-draft="getInlineDescriptionDraft(task)"
-          :show-description="
-            inlineEditingDescriptionTaskId === task.id
-            || (task.description && (expandedDescriptions.has(task.id) || expandedSubtasks.has(task.id)))
-          "
+          :show-description="true"
           :show-subtasks="expandedSubtasks.has(task.id)"
           title-tooltip="点击编辑任务"
           :ref="(el) => setTaskRowRef(task.id, el)"
@@ -299,13 +386,63 @@ import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
 import {
+  buildTaskReminderAttrs,
+  getTaskReminderLabel,
+  isSameTaskReminderSelection,
+  normalizeTaskReminderSelection,
+  type TaskReminderSelection,
+  type TaskReminderType
+} from '@/utils/taskReminder';
+import {
   applyRepeatRuleOptimisticToTasks,
   getDocumentCreationSortKey,
   normalizeNotebookIds,
   type RepeatRulePayload
 } from '@/utils/taskViewShared';
+import { repeatDragDebug } from '@/utils/repeatDragDebug';
+import { rebuildAffectedRepeatTasks } from '@/repeatRepository';
 
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
+const REPEAT_DEBUG_WINDOW_MS = 5000;
+let lastRepeatDebugPayload: {
+  blockId?: string;
+  seriesId?: string;
+  frequency?: string;
+  ts: number;
+} | null = null;
+let repeatReconcileRequestId = 0;
+
+function summarizeTaskForRepeatDebug(task: Task | null | undefined) {
+  if (!task) return null;
+  return {
+    id: task.id,
+    blockId: task.blockId,
+    repeatSeriesId: task.repeatSeriesId,
+    repeatFrequency: task.repeatFrequency,
+    repeatInstanceDate: task.repeatInstanceDate,
+    isVirtual: task.isVirtual,
+    startDate: task.startDate,
+    dueDate: task.dueDate,
+    startTime: task.startTime,
+    dueTime: task.dueTime
+  };
+}
+
+function getActiveRepeatDebugContext() {
+  if (!lastRepeatDebugPayload) return null;
+  if (Date.now() - lastRepeatDebugPayload.ts > REPEAT_DEBUG_WINDOW_MS) return null;
+  return lastRepeatDebugPayload;
+}
+
+function collectRepeatDebugTasks(taskList: Task[], context?: { blockId?: string; seriesId?: string } | null) {
+  if (!context) return [];
+  return taskList
+    .filter((task) =>
+      (!!context.blockId && task.blockId === context.blockId)
+      || (!!context.seriesId && task.repeatSeriesId === context.seriesId)
+    )
+    .map((task) => summarizeTaskForRepeatDebug(task));
+}
 
 const t = (key: string) => {
   const lang = window.siyuan?.languages || {};
@@ -367,6 +504,8 @@ interface TaskEditDraft {
   priority: Task['priority'];
   dueDate: string;
   description: string;
+  reminderType?: TaskReminderType;
+  reminderCustomTime: string;
   groupId: string;
 }
 type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
@@ -391,7 +530,11 @@ const taskEditorSidebarVisible = ref(false);
 const taskEditorSidebarTitle = ref('编辑任务');
 const taskEditorSidebarMountRef = ref<HTMLElement | null>(null);
 const taskEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
-const taskEditorQuickPanel = ref<'due' | 'description' | 'group' | null>(null);
+const taskEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
+const showTaskMoveDialog = ref(false);
+const isTaskMoveSubmitting = ref(false);
+const taskMoveSelectedNotebook = ref('');
+const taskMoveSelectedDocument = ref('');
 const taskFilterPopoverVisible = ref(false);
 const taskGroups = ref<TaskGroup[]>([]);
 const lastSelectedTaskGroupId = ref<string>('');
@@ -631,7 +774,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       .filter(id => id.length > 0);
     blockIdsToClear = Array.from(new Set([...sqlBlockIds, ...localBlockIds]));
   } catch (error) {
-    console.error('[TaskManager] 查询分组任务失败:', error);
+    console.error('[TaskManager] 查询标签任务失败:', error);
     blockIdsToClear = Array.from(new Set(localBlockIds));
   }
 
@@ -641,7 +784,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       await setBlockAttrs(blockId, { 'custom-task-group': '' });
       successBlockIds.push(blockId);
     } catch (error) {
-      console.error('[TaskManager] 清理任务分组属性失败:', error);
+      console.error('[TaskManager] 清理任务标签属性失败:', error);
     }
   }
 
@@ -818,9 +961,62 @@ const notebookOptions = computed(() => {
   ];
 });
 
+const taskMoveNotebookOptions = computed(() => {
+  return notebooks.value.map(nb => ({ value: nb.id, text: nb.name }));
+});
+
+const taskMoveDocuments = computed(() => {
+  const notebookId = taskMoveSelectedNotebook.value;
+  if (!notebookId) {
+    return [] as Document[];
+  }
+
+  const docs = [...(taskDocumentsByNotebook.value.get(notebookId) || [])];
+  const activeTask = activeTaskEditTask.value;
+  const activeRootId = typeof activeTask?.rootId === 'string' ? activeTask.rootId.trim() : '';
+  if (
+    activeTask
+    && activeTask.notebookId === notebookId
+    && activeRootId
+    && !docs.some(doc => doc.id === activeRootId)
+  ) {
+    const fallbackPath = typeof activeTask.hPath === 'string' ? activeTask.hPath : '';
+    docs.unshift({
+      id: activeRootId,
+      name: fallbackPath.split('/').pop() || fallbackPath || activeRootId,
+      notebookId,
+      path: fallbackPath || undefined
+    });
+  }
+
+  return docs;
+});
+
+const taskMoveDocumentOptions = computed(() => {
+  return taskMoveDocuments.value.map(doc => ({ value: doc.id, text: doc.name }));
+});
+
+const taskMoveTargetUnchanged = computed(() => {
+  const activeTask = activeTaskEditTask.value;
+  if (!activeTask) {
+    return false;
+  }
+  return taskMoveSelectedNotebook.value === (activeTask.notebookId || '')
+    && taskMoveSelectedDocument.value === (activeTask.rootId || '');
+});
+
+const canSubmitTaskMove = computed(() => {
+  const activeTask = activeTaskEditTask.value;
+  return !!activeTask?.blockId
+    && !!taskMoveSelectedNotebook.value
+    && !!taskMoveSelectedDocument.value
+    && !taskMoveTargetUnchanged.value
+    && !isTaskMoveSubmitting.value;
+});
+
 const taskGroupPickerOptions = computed(() => {
   const options = [
-    { value: TASK_GROUP_NONE_ID, label: '无分组', special: true, color: '', colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, color: '', colorCss: '', textColor: '' }
   ];
   taskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -844,10 +1040,10 @@ const taskEditorSelectedGroupId = computed(() => {
 const taskEditorGroupLabel = computed(() => {
   const groupId = (activeTaskEditDraft.value?.groupId || '').trim();
   if (!groupId) {
-    return '无分组';
+    return '无标签';
   }
   const group = taskGroups.value.find(item => item.id === groupId);
-  return group?.name || '分组';
+  return group?.name || '标签';
 });
 
 const taskEditorGroupColorValue = computed(() => {
@@ -1114,7 +1310,7 @@ const taskExtraFilterOptions: Array<{ value: TaskExtraFilterKey; label: string }
 ];
 const taskGroupFilterOptions = computed(() => {
   const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
-    { value: TASK_GROUP_NONE_ID, label: '无分组', style: {} }
+    { value: TASK_GROUP_NONE_ID, label: '无标签', style: {} }
   ];
   taskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -1204,6 +1400,15 @@ const taskEditorHasDueDate = computed(() => {
 const taskEditorHasDescription = computed(() => {
   const description = activeTaskEditDraft.value?.description || '';
   return description.trim().length > 0;
+});
+const taskEditorReminderText = computed(() => {
+  return getTaskReminderLabel(
+    activeTaskEditDraft.value?.reminderType,
+    activeTaskEditDraft.value?.reminderCustomTime
+  );
+});
+const taskEditorHasReminder = computed(() => {
+  return !!(activeTaskEditDraft.value?.reminderType || '').trim();
 });
 
 const taskFilters = {
@@ -1885,7 +2090,7 @@ function toggleAllVisibleSubtasks() {
   scheduleTaskTitleHydration(160);
 }
 
-function applyRepeatRuleOptimistic(payload: RepeatRulePayload) {
+function applyRepeatRuleOptimistic(payload: RepeatRulePayload): boolean {
   const { nextTasks, touched } = applyRepeatRuleOptimisticToTasks(tasks.value, payload);
   if (nextTasks !== tasks.value) {
     tasks.value = nextTasks;
@@ -1894,6 +2099,36 @@ function applyRepeatRuleOptimistic(payload: RepeatRulePayload) {
     invalidateCache();
     invalidateSortCache();
     updateTaskIndex();
+  }
+  return touched;
+}
+
+async function applyRepeatRuleIncremental(payload: RepeatRulePayload, requestId: number): Promise<boolean> {
+  applyRepeatRuleOptimistic(payload);
+  try {
+    const { nextTasks, touched, handled } = await rebuildAffectedRepeatTasks(
+      tasks.value,
+      payload,
+      { pastDays: 60, futureDays: 120 }
+    );
+    if (requestId !== repeatReconcileRequestId) {
+      return true;
+    }
+    if (!handled) {
+      return false;
+    }
+    if (!touched) {
+      return true;
+    }
+
+    crdtRepo.syncFromSQLTasks(nextTasks);
+    tasks.value = crdtRepo.getTasks();
+    invalidateCache();
+    invalidateSortCache();
+    updateTaskIndex();
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -2078,12 +2313,32 @@ async function refreshTasks(
     : requestedScope;
   const now = Date.now();
   const SKIP_DELAY = 500;
+  const repeatDebugContext = getActiveRepeatDebugContext();
   if (!force && !ignoreThrottle && now - lastRefreshTime < SKIP_DELAY) {
+    if (repeatDebugContext) {
+      repeatDragDebug('TaskManager', 'refreshTasks skipped by throttle', {
+        source,
+        force,
+        ignoreThrottle,
+        repeatDebugContext
+      });
+    }
     return;
   }
   lastRefreshTime = now;
 
    try {
+    if (repeatDebugContext || source === 'fallback-refresh') {
+      repeatDragDebug('TaskManager', 'refreshTasks start', {
+        source,
+        force,
+        compareExisting,
+        requestedScope,
+        loadScope,
+        repeatDebugContext,
+        currentMatches: collectRepeatDebugTasks(tasks.value, repeatDebugContext)
+      });
+    }
     if (showLoading) {
       loading.value = true;
     }
@@ -2105,11 +2360,27 @@ async function refreshTasks(
 
     crdtRepo.syncFromSQLTasks(sqlTasks);
     const newTasks = crdtRepo.getTasks();
+    if (repeatDebugContext || source === 'fallback-refresh') {
+      repeatDragDebug('TaskManager', 'refreshTasks fetched tasks', {
+        source,
+        sqlCount: sqlTasks.length,
+        newCount: newTasks.length,
+        repeatDebugContext,
+        newMatches: collectRepeatDebugTasks(newTasks, repeatDebugContext)
+      });
+    }
 
     if (!compareExisting || force || hasTasksChanged(tasks.value, newTasks)) {
       invalidateCache();
       tasks.value = newTasks;
       invalidateSortCache();
+      if (repeatDebugContext || source === 'fallback-refresh') {
+        repeatDragDebug('TaskManager', 'refreshTasks applied new tasks', {
+          source,
+          repeatDebugContext,
+          appliedMatches: collectRepeatDebugTasks(tasks.value, repeatDebugContext)
+        });
+      }
 
       await nextTick();
       updateTaskIndex();
@@ -2142,6 +2413,16 @@ function scheduleFallbackRefresh(
 
   if (fallbackRefreshTimer !== null) {
     clearTimeout(fallbackRefreshTimer);
+  }
+
+  const repeatDebugContext = getActiveRepeatDebugContext();
+  if (repeatDebugContext) {
+    repeatDragDebug('TaskManager', 'scheduleFallbackRefresh', {
+      force,
+      delay,
+      strategy,
+      repeatDebugContext
+    });
   }
 
   fallbackRefreshTimer = window.setTimeout(async () => {
@@ -2237,8 +2518,29 @@ function setupEventListeners() {
 
   const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string }) => {
     if (payload?.reason === 'repeat-changed' && payload.frequency) {
-      applyRepeatRuleOptimistic(payload);
-      scheduleFallbackRefresh(false, 100, 'immediate');
+      lastRepeatDebugPayload = {
+        blockId: payload.blockId,
+        seriesId: payload.seriesId,
+        frequency: payload.frequency,
+        ts: Date.now()
+      };
+      repeatDragDebug('TaskManager', 'received repeat-changed event', {
+        payload,
+        currentMatches: collectRepeatDebugTasks(tasks.value, lastRepeatDebugPayload)
+      });
+      const requestId = ++repeatReconcileRequestId;
+      const fastPathApplied = await applyRepeatRuleIncremental(payload, requestId);
+      if (requestId !== repeatReconcileRequestId) {
+        return;
+      }
+      repeatDragDebug('TaskManager', 'after repeat-changed local reconcile', {
+        payload,
+        fastPathApplied,
+        nextMatches: collectRepeatDebugTasks(tasks.value, lastRepeatDebugPayload)
+      });
+      if (!fastPathApplied) {
+        scheduleFallbackRefresh(true, 100, 'immediate');
+      }
       return;
     }
     if (payload?.blockId) {
@@ -2262,6 +2564,9 @@ function setupEventListeners() {
   
 
   const unsubscribeDateChanged = eventBus.on('task-date-changed', (updatedTask: Task) => {
+    if (updatedTask.repeatSeriesId || (updatedTask.repeatFrequency && updatedTask.repeatFrequency !== 'none')) {
+      repeatDragDebug('TaskManager', 'received task-date-changed', summarizeTaskForRepeatDebug(updatedTask));
+    }
     const now = Date.now();
     
     if (updatedTask.startDate === null && updatedTask.dueDate === null) {
@@ -2829,11 +3134,14 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
 }
 
 function createTaskEditDraft(task: Task): TaskEditDraft {
+  const normalizedReminder = normalizeTaskReminderSelection(task);
   return {
     taskId: task.id,
     priority: task.priority,
     dueDate: normalizeDateInputValue((task.dueDate || '').toString()),
     description: task.description || '',
+    reminderType: normalizedReminder.reminderType,
+    reminderCustomTime: normalizedReminder.reminderCustomTime,
     groupId: task.groupId || ''
   };
 }
@@ -3005,6 +3313,8 @@ function closeTaskEditorSidebar(): void {
   taskEditorSidebarVisible.value = false;
   taskEditorPriorityPopover.value = null;
   taskEditorQuickPanel.value = null;
+  showTaskMoveDialog.value = false;
+  isTaskMoveSubmitting.value = false;
   if (taskEditorProtyle) {
     try {
       taskEditorProtyle.destroy();
@@ -3016,6 +3326,47 @@ function closeTaskEditorSidebar(): void {
     taskEditorSidebarMountRef.value.innerHTML = '';
   }
   closeTaskEditMenu();
+}
+
+function syncTaskMoveSelectedDocument(preferredDocumentId?: string): void {
+  const preferredId = typeof preferredDocumentId === 'string' ? preferredDocumentId.trim() : '';
+  if (preferredId && taskMoveDocuments.value.some(doc => doc.id === preferredId)) {
+    taskMoveSelectedDocument.value = preferredId;
+    return;
+  }
+  taskMoveSelectedDocument.value = taskMoveDocuments.value[0]?.id || '';
+}
+
+async function openTaskMoveDialog(): Promise<void> {
+  const task = activeTaskEditTask.value;
+  if (!task) {
+    return;
+  }
+
+  if (notebooks.value.length === 0) {
+    await loadNotebooks();
+  }
+  await refreshTaskDocumentOptions(true);
+
+  taskEditorPriorityPopover.value = null;
+  taskEditorQuickPanel.value = null;
+
+  const currentNotebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+  taskMoveSelectedNotebook.value = notebooks.value.some(notebook => notebook.id === currentNotebookId)
+    ? currentNotebookId
+    : (notebooks.value[0]?.id || '');
+  syncTaskMoveSelectedDocument(task.rootId);
+  showTaskMoveDialog.value = true;
+}
+
+function closeTaskMoveDialog(): void {
+  showTaskMoveDialog.value = false;
+  isTaskMoveSubmitting.value = false;
+}
+
+function handleTaskMoveNotebookChange(value: string): void {
+  taskMoveSelectedNotebook.value = typeof value === 'string' ? value : '';
+  syncTaskMoveSelectedDocument();
 }
 
 function toggleTaskEditorPriorityPopover(event: MouseEvent): void {
@@ -3054,10 +3405,63 @@ function handleTaskEditorDateSelect(value: string): void {
   void quickSaveTaskDueDate(activeTaskEditTask.value, value || '');
 }
 
+function handleTaskEditorReminderSelect(value: TaskReminderSelection): void {
+  if (!activeTaskEditTask.value || !activeTaskEditDraft.value) return;
+  activeTaskEditDraft.value.reminderType = value.reminderType;
+  activeTaskEditDraft.value.reminderCustomTime = value.reminderCustomTime || '';
+  void quickSaveTaskReminder(activeTaskEditTask.value, value);
+}
+
 function handleTaskEditorDescriptionCommit(): void {
   if (!activeTaskEditTask.value || !activeTaskEditDraft.value) return;
   void quickSaveTaskDescription(activeTaskEditTask.value, activeTaskEditDraft.value.description || '');
   taskEditorQuickPanel.value = null;
+}
+
+async function handleTaskEditorDelete(): Promise<void> {
+  const task = activeTaskEditTask.value;
+  if (!task) {
+    return;
+  }
+
+  if (!confirm('确认删除该任务？')) {
+    return;
+  }
+
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+
+  try {
+    await TaskRepository.deleteTask(task.id);
+    if (task.id) {
+      crdtRepo.deleteTask(task.id, Date.now());
+      tasks.value = crdtRepo.getTasks();
+      await updateTaskIndex();
+    }
+    closeTaskEditorSidebar();
+    if (blockId) {
+      eventBus.emit(Events.TASK_DELETED, { blockId });
+    } else {
+      await refreshInternalState();
+    }
+  } catch {
+  }
+}
+
+async function handleTaskEditorMove(): Promise<void> {
+  const task = activeTaskEditTask.value;
+  if (!task || !canSubmitTaskMove.value) {
+    return;
+  }
+
+  isTaskMoveSubmitting.value = true;
+  try {
+    await TaskRepository.moveTask(task.id, taskMoveSelectedDocument.value);
+    closeTaskMoveDialog();
+    closeTaskEditorSidebar();
+    await refreshTasks(true, { showLoading: false, compareExisting: false, source: 'task-move' });
+  } catch {
+    isTaskMoveSubmitting.value = false;
+  }
 }
 
 function handleTaskFilterPopoverViewportChange(): void {
@@ -3267,122 +3671,145 @@ async function saveInlineDescriptionEdit(task: Task): Promise<void> {
   }
 }
 
-async function quickSaveTaskPriority(task: Task, priority: Task['priority']): Promise<void> {
+interface TaskEditorFieldUpdateOptions {
+  attrs: Record<string, string>;
+  isUnchanged: (draft: TaskEditDraft) => boolean;
+  syncDraft: (draft: TaskEditDraft) => void;
+  syncTask: (task: Task) => void;
+  syncCrdt: () => void;
+  emitTaskChanged?: boolean;
+}
+
+async function applyTaskEditorFieldUpdate(
+  task: Task,
+  options: TaskEditorFieldUpdateOptions
+): Promise<void> {
   const editedTask = activeTaskEditDraft.value;
-  if (!editedTask || editedTask.taskId !== task.id) {
+  if (!editedTask || editedTask.taskId !== task.id || options.isUnchanged(editedTask)) {
     return;
   }
 
-  if (editedTask.priority === priority && task.priority === priority) {
-    return;
-  }
+  options.syncDraft(editedTask);
 
-  editedTask.priority = priority;
   try {
     if (task.type === 'block' && task.blockId) {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-priority': priority
-      });
+      await setBlockAttrs(task.blockId, options.attrs);
     }
 
-    crdtRepo.updateTaskField(task.id, 'priority', priority);
+    options.syncCrdt();
     patchTask(tasks.value, task.id, (targetTask) => {
-      targetTask.priority = priority;
+      options.syncTask(targetTask);
       targetTask.updatedAt = new Date().toISOString();
     }, 'id');
     await refreshInternalState();
+    if (options.emitTaskChanged && task.blockId) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
+    }
   } catch {
   }
+}
+
+async function quickSaveTaskPriority(task: Task, priority: Task['priority']): Promise<void> {
+  await applyTaskEditorFieldUpdate(task, {
+    attrs: {
+      'custom-task-priority': priority
+    },
+    isUnchanged: draft => draft.priority === priority && task.priority === priority,
+    syncDraft: draft => {
+      draft.priority = priority;
+    },
+    syncTask: targetTask => {
+      targetTask.priority = priority;
+    },
+    syncCrdt: () => {
+      crdtRepo.updateTaskField(task.id, 'priority', priority);
+    }
+  });
 }
 
 async function quickSaveTaskDueDate(task: Task, dueDate: string): Promise<void> {
-  const editedTask = activeTaskEditDraft.value;
-  if (!editedTask || editedTask.taskId !== task.id) {
-    return;
-  }
-
   const normalizedDueDate = normalizeDateInputValue(dueDate || '');
   const currentDueDate = normalizeDateInputValue((task.dueDate || '').toString());
-  if (editedTask.dueDate === normalizedDueDate && currentDueDate === normalizedDueDate) {
-    return;
-  }
-
-  editedTask.dueDate = normalizedDueDate;
-  try {
-    if (task.type === 'block' && task.blockId) {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-due-date': normalizedDueDate
-      });
-    }
-
-    crdtRepo.updateTaskField(task.id, 'dueDate', normalizedDueDate);
-    patchTask(tasks.value, task.id, (targetTask) => {
+  await applyTaskEditorFieldUpdate(task, {
+    attrs: {
+      'custom-task-due-date': normalizedDueDate
+    },
+    isUnchanged: draft => draft.dueDate === normalizedDueDate && currentDueDate === normalizedDueDate,
+    syncDraft: draft => {
+      draft.dueDate = normalizedDueDate;
+    },
+    syncTask: targetTask => {
       targetTask.dueDate = normalizedDueDate;
-      targetTask.updatedAt = new Date().toISOString();
-    }, 'id');
-    await refreshInternalState();
-  } catch {
-  }
+    },
+    syncCrdt: () => {
+      crdtRepo.updateTaskField(task.id, 'dueDate', normalizedDueDate);
+    },
+    emitTaskChanged: true
+  });
 }
 
 async function quickSaveTaskDescription(task: Task, description: string): Promise<void> {
-  const editedTask = activeTaskEditDraft.value;
-  if (!editedTask || editedTask.taskId !== task.id) {
-    return;
-  }
-
   const normalizedDescription = typeof description === 'string' ? description : '';
   const currentDescription = typeof task.description === 'string' ? task.description : '';
-  if (editedTask.description === normalizedDescription && currentDescription === normalizedDescription) {
-    return;
-  }
-
-  editedTask.description = normalizedDescription;
-  try {
-    if (task.type === 'block' && task.blockId) {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-description': normalizedDescription || ''
-      });
-    }
-
-    crdtRepo.updateTaskField(task.id, 'description', normalizedDescription);
-    patchTask(tasks.value, task.id, (targetTask) => {
+  await applyTaskEditorFieldUpdate(task, {
+    attrs: {
+      'custom-task-description': normalizedDescription || ''
+    },
+    isUnchanged: draft => draft.description === normalizedDescription && currentDescription === normalizedDescription,
+    syncDraft: draft => {
+      draft.description = normalizedDescription;
+    },
+    syncTask: targetTask => {
       targetTask.description = normalizedDescription;
-      targetTask.updatedAt = new Date().toISOString();
-    }, 'id');
-    await refreshInternalState();
-  } catch {
-  }
+    },
+    syncCrdt: () => {
+      crdtRepo.updateTaskField(task.id, 'description', normalizedDescription);
+    }
+  });
+}
+
+async function quickSaveTaskReminder(task: Task, value: TaskReminderSelection): Promise<void> {
+  const normalizedReminder = normalizeTaskReminderSelection(value);
+  await applyTaskEditorFieldUpdate(task, {
+    attrs: buildTaskReminderAttrs(normalizedReminder),
+    isUnchanged: draft => (
+      isSameTaskReminderSelection(draft, normalizedReminder)
+      && isSameTaskReminderSelection(task, normalizedReminder)
+    ),
+    syncDraft: draft => {
+      draft.reminderType = normalizedReminder.reminderType;
+      draft.reminderCustomTime = normalizedReminder.reminderCustomTime;
+    },
+    syncTask: targetTask => {
+      targetTask.reminderType = normalizedReminder.reminderType;
+      targetTask.reminderCustomTime = normalizedReminder.reminderCustomTimeValue;
+    },
+    syncCrdt: () => {
+      crdtRepo.updateTaskField(task.id, 'reminderType', normalizedReminder.reminderType);
+      crdtRepo.updateTaskField(task.id, 'reminderCustomTime', normalizedReminder.reminderCustomTimeValue);
+    },
+    emitTaskChanged: true
+  });
 }
 
 async function quickSaveTaskGroup(task: Task, groupId: string): Promise<void> {
-  const editedTask = activeTaskEditDraft.value;
-  if (!editedTask || editedTask.taskId !== task.id) {
-    return;
-  }
-
   const normalizedGroupId = typeof groupId === 'string' ? groupId.trim() : '';
   const currentGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-  if (editedTask.groupId === normalizedGroupId && currentGroupId === normalizedGroupId) {
-    return;
-  }
-
-  editedTask.groupId = normalizedGroupId;
-  try {
-    if (task.type === 'block' && task.blockId) {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-group': normalizedGroupId || ''
-      });
-    }
-
-    crdtRepo.updateTaskField(task.id, 'groupId', normalizedGroupId || undefined);
-    patchTask(tasks.value, task.id, (targetTask) => {
+  await applyTaskEditorFieldUpdate(task, {
+    attrs: {
+      'custom-task-group': normalizedGroupId || ''
+    },
+    isUnchanged: draft => draft.groupId === normalizedGroupId && currentGroupId === normalizedGroupId,
+    syncDraft: draft => {
+      draft.groupId = normalizedGroupId;
+    },
+    syncTask: targetTask => {
       targetTask.groupId = normalizedGroupId || undefined;
-      targetTask.updatedAt = new Date().toISOString();
-    }, 'id');
-    await refreshInternalState();
-  } catch {
-  }
+    },
+    syncCrdt: () => {
+      crdtRepo.updateTaskField(task.id, 'groupId', normalizedGroupId || undefined);
+    }
+  });
 }
 
 function handleDragStart(event: DragEvent, task: Task) {
@@ -3441,6 +3868,8 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
       priority: taskData.priority,
       status: taskData.status,
       dueDate: taskData.dueDate || undefined,
+      reminderType: taskData.reminderType,
+      reminderCustomTime: taskData.reminderCustomTime || undefined,
       tags: taskData.tags || [],
       groupId: taskData.groupId || undefined
     }, notebookId, docPath);
@@ -3685,6 +4114,7 @@ onUnmounted(() => {
 }
 
 .task-editor-sidebar-panel {
+  position: relative;
   min-width: 100%;
   width: 100%;
   border-radius: 24px 24px 0 0;
@@ -3744,6 +4174,8 @@ onUnmounted(() => {
   background-color: var(--b3-list-hover);
 }
 
+.task-editor-sidebar-move,
+.task-editor-sidebar-delete,
 .task-editor-sidebar-close {
   width: 28px;
   height: 28px;
@@ -3755,6 +4187,16 @@ onUnmounted(() => {
   justify-content: center;
   color: var(--b3-theme-on-background);
   background: transparent;
+}
+
+.task-editor-sidebar-move:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-primary);
+}
+
+.task-editor-sidebar-delete:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-error);
 }
 
 .task-editor-sidebar-close:hover {
@@ -3775,6 +4217,113 @@ onUnmounted(() => {
   gap: 10px;
   padding: 10px 20px 16px;
   border-top: 1px solid var(--b3-theme-border);
+}
+
+.task-move-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.task-move-dialog {
+  width: min(100%, 360px);
+  border-radius: 16px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.task-move-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+}
+
+.task-move-dialog-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--b3-theme-on-background);
+}
+
+.task-move-dialog-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.task-move-dialog-close:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-move-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+
+.task-move-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-move-dialog-field label {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.82;
+  font-weight: 500;
+}
+
+.task-move-dialog-hint {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.72;
+}
+
+.task-move-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 18px 18px;
+}
+
+.task-move-dialog-btn {
+  min-width: 72px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.task-move-dialog-btn.primary {
+  background: var(--b3-theme-primary);
+  color: var(--b3-theme-background);
+}
+
+.task-move-dialog-btn:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
 }
 
 

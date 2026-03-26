@@ -32,7 +32,7 @@
               <span>状态</span>
             </div>
           </th>
-          <th class="col-group">分组</th>
+          <th class="col-group">标签</th>
           <th class="col-start-date sortable" :class="{ active: sortColumn === 'startDate' }" @click="toggleSort('startDate')">
             <div class="th-content">
               <span class="sort-indicator" :class="getSortIndicatorClass('startDate')">
@@ -361,7 +361,8 @@
         <tr v-if="hasMoreTasks" class="load-more-row">
           <td colspan="11" class="load-more-cell">
             <button type="button" class="load-more-btn" @click="loadMoreTasks">
-              蜉霓ｽ譖ｴ螟夲ｼ亥黄菴・{{ sortedTasks.length - visibleTasks.length }} 鬘ｹ・・            </button>
+              显示更多（剩余 {{ sortedTasks.length - visibleTasks.length }} 项）
+            </button>
           </td>
         </tr>
       </tbody>
@@ -392,7 +393,7 @@
         @mousedown.stop
       >
         <div class="group-popover-header">
-          <span class="group-popover-title">选择分组</span>
+          <span class="group-popover-title">选择标签</span>
           <button type="button" class="group-popover-manage" @click.stop="handleGroupManage">
             管理
           </button>
@@ -440,13 +441,20 @@ import PriorityPopover from '@/components/PriorityPopover.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import { getStatusLabel, formatLocaleDate } from '@/composables/useTaskCommon';
+import {
+  getTaskHeadingGroupMeta,
+  normalizeTaskViewGroupMode,
+  type TaskHeadingGroupMeta,
+  type TaskViewGroupMode
+} from '@/utils/taskGrouping';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 
 interface Props {
   tasks: Task[];
   taskGroups?: TaskGroup[];
-  groupMode?: boolean;
+  groupMode?: TaskViewGroupMode;
+  headingGroups?: Map<string, TaskHeadingGroupMeta>;
 }
 
 const props = defineProps<Props>();
@@ -543,7 +551,7 @@ const groupLookup = computed(() => {
   const map = new Map<string, { name: string; background: string; color: string }>();
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
-    const name = group.name?.trim() || '分组';
+    const name = group.name?.trim() || '标签';
     const background = resolveGroupColorCss(group.color || '');
     const color = resolveGroupTextColor(group.color || '');
     map.set(group.id, { name, background, color });
@@ -553,14 +561,14 @@ const groupLookup = computed(() => {
 
 const groupPopoverOptions = computed(() => {
   const options: Array<{ value: string; label: string; special?: boolean; colorCss?: string; textColor?: string }> = [
-    { value: TASK_GROUP_NONE_ID, label: '无分组', special: true, colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, colorCss: '', textColor: '' }
   ];
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
     const rawColor = group.color || '';
     options.push({
       value: group.id,
-      label: group.name?.trim() || '分组',
+      label: group.name?.trim() || '标签',
       special: false,
       colorCss: resolveGroupColorCss(rawColor),
       textColor: resolveGroupTextColor(rawColor)
@@ -568,10 +576,11 @@ const groupPopoverOptions = computed(() => {
   }
   return options;
 });
-const isGroupMode = computed(() => props.groupMode === true);
-const groupOrder = computed(() => {
+const resolvedGroupMode = computed(() => normalizeTaskViewGroupMode(props.groupMode, 'status'));
+const isGroupMode = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
+const customGroupOrder = computed(() => {
   const order: Array<{ id: string; label: string; style?: Record<string, string> }> = [
-    { id: '', label: '未分组' }
+    { id: '', label: '无标签' }
   ];
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
@@ -583,12 +592,34 @@ const groupOrder = computed(() => {
     } : undefined;
     order.push({
       id: group.id,
-      label: group.name?.trim() || '分组',
+      label: group.name?.trim() || '标签',
       style
     });
   }
   return order;
 });
+const statusGroupOrder: Array<{ id: Task['status']; label: string; style: Record<string, string> }> = [
+  {
+    id: 'pending',
+    label: getStatusLabel('pending'),
+    style: { '--group-badge-bg': 'rgba(245, 158, 11, 0.14)', '--group-badge-color': '#b45309' }
+  },
+  {
+    id: 'in-progress',
+    label: getStatusLabel('in-progress'),
+    style: { '--group-badge-bg': 'rgba(59, 130, 246, 0.14)', '--group-badge-color': '#1d4ed8' }
+  },
+  {
+    id: 'completed',
+    label: getStatusLabel('completed'),
+    style: { '--group-badge-bg': 'rgba(16, 185, 129, 0.14)', '--group-badge-color': '#047857' }
+  },
+  {
+    id: 'cancelled',
+    label: getStatusLabel('cancelled'),
+    style: { '--group-badge-bg': 'rgba(156, 163, 175, 0.16)', '--group-badge-color': '#4b5563' }
+  }
+];
 
 const sortedTasks = computed(() => {
   if (!sortColumn.value) {
@@ -631,22 +662,65 @@ const visibleTasks = computed(() => sortedTasks.value.slice(0, visibleTaskCount.
 const hasMoreTasks = computed(() => visibleTaskCount.value < sortedTasks.value.length);
 const groupedVisibleTasks = computed(() => {
   if (!isGroupMode.value) return [];
-  const buckets = new Map<string, Task[]>();
-  for (const task of visibleTasks.value) {
-    const rawGroupId = getTaskGroupId(task);
-    const resolvedGroupId = rawGroupId && groupLookup.value.has(rawGroupId) ? rawGroupId : '';
-    if (!buckets.has(resolvedGroupId)) {
-      buckets.set(resolvedGroupId, []);
+  if (resolvedGroupMode.value === 'group') {
+    const buckets = new Map<string, Task[]>();
+    for (const task of visibleTasks.value) {
+      const rawGroupId = getTaskGroupId(task);
+      const resolvedGroupId = rawGroupId && groupLookup.value.has(rawGroupId) ? rawGroupId : '';
+      if (!buckets.has(resolvedGroupId)) {
+        buckets.set(resolvedGroupId, []);
+      }
+      buckets.get(resolvedGroupId)!.push(task);
     }
-    buckets.get(resolvedGroupId)!.push(task);
+
+    return customGroupOrder.value
+      .map(group => ({
+        key: group.id || '__none__',
+        id: group.id,
+        label: group.label,
+        style: group.style,
+        tasks: buckets.get(group.id) || []
+      }))
+      .filter(group => group.tasks.length > 0);
   }
-  return groupOrder.value
+
+  if (resolvedGroupMode.value === 'heading') {
+    const buckets = new Map<string, { label: string; tasks: Task[] }>();
+    for (const task of visibleTasks.value) {
+      const meta = getTaskHeadingGroupMeta(task, props.headingGroups);
+      if (!buckets.has(meta.key)) {
+        buckets.set(meta.key, {
+          label: meta.label,
+          tasks: []
+        });
+      }
+      buckets.get(meta.key)!.tasks.push(task);
+    }
+
+    return Array.from(buckets.entries())
+      .map(([key, group]) => ({
+        key,
+        id: key,
+        label: group.label,
+        tasks: group.tasks
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+  }
+
+  const statusBuckets = new Map<Task['status'], Task[]>();
+  for (const task of visibleTasks.value) {
+    const list = statusBuckets.get(task.status) || [];
+    list.push(task);
+    statusBuckets.set(task.status, list);
+  }
+
+  return statusGroupOrder
     .map(group => ({
-      key: group.id || '__none__',
+      key: group.id,
       id: group.id,
       label: group.label,
       style: group.style,
-      tasks: buckets.get(group.id) || []
+      tasks: statusBuckets.get(group.id) || []
     }))
     .filter(group => group.tasks.length > 0);
 });

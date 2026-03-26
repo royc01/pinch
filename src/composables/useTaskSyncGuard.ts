@@ -1,5 +1,6 @@
 import { type Ref } from 'vue';
 import type { Task } from '@/api';
+import { repeatDragDebug } from '@/utils/repeatDragDebug';
 
 interface TaskSyncGuardOptions {
   lockMs?: number;
@@ -19,10 +20,48 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
       task.dueDate || '',
       task.startTime || '',
       task.dueTime || '',
+      task.reminderType || '',
+      task.reminderCustomTime || '',
       task.backgroundColor || '',
       task.status || '',
       task.priority || '',
       task.title || ''
+    ].join('|');
+  }
+
+  function summarizeTask(task: Task | null | undefined) {
+    if (!task) return null;
+    return {
+      id: task.id,
+      blockId: task.blockId,
+      repeatSeriesId: task.repeatSeriesId,
+      repeatFrequency: task.repeatFrequency,
+      repeatInstanceDate: task.repeatInstanceDate,
+      isVirtual: task.isVirtual,
+      startDate: task.startDate,
+      dueDate: task.dueDate,
+      startTime: task.startTime,
+      dueTime: task.dueTime
+    };
+  }
+
+  function isRepeatTask(task: Task | null | undefined): boolean {
+    return !!task && (!!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none'));
+  }
+
+  function getRepeatSyncSlotKey(task: Task | null | undefined): string | null {
+    if (!isRepeatTask(task) || !task?.repeatSeriesId) return null;
+
+    const startDate = task.startDate || task.repeatInstanceDate || task.dueDate || '';
+    const dueDate = task.dueDate || task.startDate || startDate;
+    if (!startDate || !dueDate) return null;
+
+    return [
+      task.repeatSeriesId,
+      startDate,
+      dueDate,
+      task.startTime || '',
+      task.dueTime || ''
     ].join('|');
   }
 
@@ -44,6 +83,9 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
   function lockTaskSync(task: Task): void {
     clearTaskSyncLock(task.id);
     taskSyncLocks.set(task.id, getTaskSyncFingerprint(task));
+    if (isRepeatTask(task)) {
+      repeatDragDebug('useTaskSyncGuard', 'lockTaskSync', summarizeTask(task));
+    }
     taskSyncLockTimers.set(task.id, setTimeout(() => {
       clearTaskSyncLock(task.id);
     }, lockMs));
@@ -58,6 +100,14 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
     const merged: Task[] = [];
     const localTaskMap = new Map(localTasks.value.map(task => [task.id, task]));
     const incomingTaskIds = new Set<string>();
+    const incomingRepeatSlotKeys = new Set<string>();
+
+    for (const incomingTask of newTasks) {
+      const slotKey = getRepeatSyncSlotKey(incomingTask);
+      if (slotKey) {
+        incomingRepeatSlotKeys.add(slotKey);
+      }
+    }
 
     for (const incomingTask of newTasks) {
       incomingTaskIds.add(incomingTask.id);
@@ -75,11 +125,28 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
       }
 
       const localTask = localTaskMap.get(incomingTask.id);
+      if (isRepeatTask(incomingTask) || isRepeatTask(localTask)) {
+        repeatDragDebug('useTaskSyncGuard', 'mergeIncomingTasks kept local task over incoming', {
+          expectedFingerprint,
+          incomingFingerprint,
+          incomingTask: summarizeTask(incomingTask),
+          localTask: summarizeTask(localTask)
+        });
+      }
       merged.push(localTask ? { ...localTask } : { ...incomingTask });
     }
 
     for (const localTask of localTasks.value) {
       if (!incomingTaskIds.has(localTask.id) && taskSyncLocks.has(localTask.id)) {
+        const localSlotKey = getRepeatSyncSlotKey(localTask);
+        if (localTask.isVirtual && localSlotKey && incomingRepeatSlotKeys.has(localSlotKey)) {
+          repeatDragDebug('useTaskSyncGuard', 'mergeIncomingTasks dropped stale local repeat task replaced by incoming slot', {
+            localTask: summarizeTask(localTask),
+            slotKey: localSlotKey
+          });
+          clearTaskSyncLock(localTask.id);
+          continue;
+        }
         merged.push({ ...localTask });
       }
     }
@@ -92,7 +159,16 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
     isDragging: boolean,
     getTasksHash: (tasks: Task[]) => string
   ): void {
-    if (isDragging) return;
+    if (isDragging) {
+      const repeatCount = incomingTasks.filter(task => isRepeatTask(task)).length;
+      if (repeatCount > 0) {
+        repeatDragDebug('useTaskSyncGuard', 'syncTasks skipped while dragging', {
+          repeatCount,
+          total: incomingTasks.length
+        });
+      }
+      return;
+    }
 
     const requestId = ++tasksSyncRequestId;
     const taskSnapshot = [...incomingTasks];
@@ -109,6 +185,13 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
       }
 
       lastTasksHash = newHash;
+      const repeatTasks = taskSnapshot.filter(task => isRepeatTask(task));
+      if (repeatTasks.length > 0) {
+        repeatDragDebug('useTaskSyncGuard', 'syncTasks applying incoming snapshot', {
+          requestId,
+          repeatTasks: repeatTasks.map(task => summarizeTask(task))
+        });
+      }
       localTasks.value = mergeIncomingTasks(taskSnapshot);
       tasksSyncAppliedId = requestId;
     });

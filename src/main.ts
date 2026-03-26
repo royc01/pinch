@@ -9,6 +9,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import MobileTaskCreateDialog from './components/MobileTaskCreateDialog.vue'
 import KanbanView from './components/KanbanView.vue'
+import { startTaskReminderScheduler, stopTaskReminderScheduler } from '@/taskReminderScheduler';
 
 // 确保数据目录存在
 import { ensureDataDir } from '@/utils';
@@ -378,6 +379,7 @@ export function init(pluginInstance: Plugin) {
   usePlugin(pluginInstance);
   registerIcons(pluginInstance);
   startMobileBreadcrumbButtonObserver();
+  startTaskReminderScheduler();
 
   // 注入自定义SVG图标到DOM
   if (false) {
@@ -516,6 +518,7 @@ export function init(pluginInstance: Plugin) {
 }
 
 export function destroy() {
+  stopTaskReminderScheduler();
   stopMobileBreadcrumbButtonObserver();
   closeMobileTaskCreateDialog();
   closeMobilePinchDialog();

@@ -41,6 +41,7 @@ import {
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import TaskModal, { type Document, type Notebook } from '@/components/TaskModal.vue';
 import { useUserSettings } from '@/composables/useUserSettings';
+import type { TaskReminderType } from '@/utils/taskReminder';
 import { getDocumentCreationSortKey, normalizeNotebookIds } from '@/utils/taskViewShared';
 
 interface NewTaskPayload {
@@ -49,6 +50,8 @@ interface NewTaskPayload {
   priority: TaskPriority;
   status: TaskStatus;
   dueDate: string;
+  reminderType?: TaskReminderType;
+  reminderCustomTime?: string;
   tags: string[];
   groupId: string;
 }
@@ -239,6 +242,8 @@ async function handleCreateTask(taskData: NewTaskPayload, notebookId: string, do
       priority: taskData.priority,
       status: taskData.status,
       dueDate: taskData.dueDate || undefined,
+      reminderType: taskData.reminderType,
+      reminderCustomTime: taskData.reminderCustomTime || undefined,
       tags: taskData.tags || [],
       groupId: taskData.groupId || undefined,
     }, notebookId, docPath);

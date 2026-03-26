@@ -2,14 +2,14 @@
   <div v-if="show" class="task-group-overlay" @click.self="emit('close')">
     <div class="task-group-dialog" @click.stop>
       <div class="task-group-header">
-        <div class="task-group-title">分组管理</div>
+        <div class="task-group-title">标签管理</div>
         <button type="button" class="icon-button" @click="emit('close')">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
-      <div class="task-group-hint">选择分组名称与颜色，颜色会应用在分组标签与表格分组标题上。</div>
+      <div class="task-group-hint">选择标签名称与颜色，颜色会应用在标签徽标与表格标签标题上。</div>
       <div class="task-group-list">
-        <div v-if="localGroups.length === 0" class="task-group-empty">暂无分组</div>
+        <div v-if="localGroups.length === 0" class="task-group-empty">暂无标签</div>
         <div v-else class="task-group-grid">
           <div v-for="(group, index) in localGroups" :key="group.id" class="task-group-card">
             <div class="task-group-card-body">
@@ -18,14 +18,14 @@
                   v-model="group.name"
                   class="task-group-name"
                   :style="getGroupInputStyle(group)"
-                  placeholder="分组名称"
+                  placeholder="标签名称"
                 />
                 <svg
                   class="task-group-color-button"
                   :style="getGroupSwatchStyle(group)"
                   role="button"
                   tabindex="0"
-                  aria-label="Pick group color"
+                  aria-label="Pick tag color"
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 24 24"
                   @click="openColorPicker(index)"
@@ -37,7 +37,7 @@
                 <button
                   type="button"
                   class="task-group-delete"
-                  aria-label="Delete group"
+                  aria-label="Delete tag"
                   @click="removeGroup(index)"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -52,7 +52,7 @@
         </div>
       </div>
       <div class="task-group-actions">
-        <SyButton class="task-group-btn plain" @click="addGroup">新增分组</SyButton>
+        <SyButton class="task-group-btn plain" @click="addGroup">新增标签</SyButton>
         <SyButton class="task-group-btn confirm" @click="save">保存</SyButton>
       </div>
     </div>
@@ -182,7 +182,7 @@ function addGroup(): void {
 }
 
 function removeGroup(index: number): void {
-  if (!confirm('确认删除该分组？')) return;
+  if (!confirm('确认删除该标签？')) return;
   localGroups.value.splice(index, 1);
 }
 

@@ -16,6 +16,11 @@ import {
 } from "siyuan";
 import { eventBus } from "@/utils/eventBus";
 import { normalizeNotebookIds } from "@/utils/notebookIds";
+import {
+  normalizeTaskReminderCustomTime,
+  normalizeTaskReminderType,
+  type TaskReminderType
+} from "@/utils/taskReminder";
 import { formatTaskTitleHtml } from "@/utils/taskTitleFormat";
 import { usePlugin } from "@/main";
 import {
@@ -1087,6 +1092,8 @@ export interface Task {
   tags: string[];
   groupId?: string;
   description?: string;
+  reminderType?: TaskReminderType;
+  reminderCustomTime?: string;
   subtasks?: SubTask[];
   blockId?: string;
   rootId?: string;
@@ -1817,11 +1824,13 @@ export class TaskRepository {
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-time' THEN a.value END) as custom_task_start_time,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-tags' THEN a.value END) as custom_task_tags,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-description' THEN a.value END) as custom_task_description,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) as custom_task_reminder_type,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) as custom_task_reminder_custom_time,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color
         FROM blocks b
         LEFT JOIN attributes a ON b.id = a.block_id
-          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-group', 'custom-task-background-color')
+          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-background-color')
         WHERE b.id IN (${idsClause})
           ${this.buildNotebookScopeSql('b')}
           ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -1861,6 +1870,8 @@ export class TaskRepository {
           'custom-task-start-time': row.custom_task_start_time,
           'custom-task-tags': row.custom_task_tags,
           'custom-task-description': row.custom_task_description,
+          'custom-task-reminder-type': row.custom_task_reminder_type,
+          'custom-task-reminder-custom-time': row.custom_task_reminder_custom_time,
           'custom-task-group': row.custom_task_group,
           'custom-task-background-color': row.custom_task_background_color
         };
@@ -1921,6 +1932,8 @@ export class TaskRepository {
           startTime: attrs['custom-task-start-time'],
           tags,
           description: attrs['custom-task-description'] || '',
+          reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
+          reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
           groupId: attrs['custom-task-group'] || undefined,
           hPath: row.hpath,
           notebookId: row.box,
@@ -1989,11 +2002,13 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-time' THEN a.value END) as custom_task_start_time,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-tags' THEN a.value END) as custom_task_tags,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-description' THEN a.value END) as custom_task_description,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) as custom_task_reminder_type,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) as custom_task_reminder_custom_time,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color
           FROM blocks b
           LEFT JOIN attributes a ON b.id = a.block_id
-            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-group', 'custom-task-background-color')
+            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-background-color')
           WHERE (b.type = 'i' OR b.type = 'p')
             ${this.buildNotebookScopeSql('b')}
             ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -2108,6 +2123,8 @@ export class TaskRepository {
           'custom-task-start-time': block.custom_task_start_time,
           'custom-task-tags': block.custom_task_tags,
           'custom-task-description': block.custom_task_description,
+          'custom-task-reminder-type': block.custom_task_reminder_type,
+          'custom-task-reminder-custom-time': block.custom_task_reminder_custom_time,
           'custom-task-group': block.custom_task_group,
           'custom-task-background-color': block.custom_task_background_color
         });
@@ -2413,6 +2430,8 @@ export class TaskRepository {
               tags,
               groupId: attrs['custom-task-group'] || undefined,
               description: attrs['custom-task-description'] || '',
+              reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
+              reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
               hPath: parentBlock.hpath,
               notebookId: parentBlock.box,
               icon: docIcon || '📄',
@@ -2559,6 +2578,8 @@ export class TaskRepository {
             tags: attrs['custom-task-tags'] ? JSON.parse(attrs['custom-task-tags']) : [],
             groupId: attrs['custom-task-group'] || undefined,
             description: attrs['custom-task-description'] || '',
+            reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
+            reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
             hPath: parentBlock.hpath,
             notebookId: parentBlock.box,
             icon: docIcon || '📄',
@@ -2644,6 +2665,15 @@ export class TaskRepository {
 
     if (task.description && task.description.trim()) {
       attrs['custom-task-description'] = task.description.trim();
+    }
+
+    const reminderType = normalizeTaskReminderType(task.reminderType);
+    const reminderCustomTime = normalizeTaskReminderCustomTime(task.reminderCustomTime);
+    if (reminderType) {
+      attrs['custom-task-reminder-type'] = reminderType;
+    }
+    if (reminderType === 'custom' && reminderCustomTime) {
+      attrs['custom-task-reminder-custom-time'] = reminderCustomTime;
     }
 
     if (task.status && task.status !== 'pending') {
@@ -2863,6 +2893,16 @@ export class TaskRepository {
     if (updates.description !== undefined) {
       attrsToUpdate['custom-task-description'] = updates.description || '';
     }
+    if (updates.reminderType !== undefined) {
+      const reminderType = normalizeTaskReminderType(updates.reminderType);
+      attrsToUpdate['custom-task-reminder-type'] = reminderType || '';
+      if (reminderType !== 'custom') {
+        attrsToUpdate['custom-task-reminder-custom-time'] = '';
+      }
+    }
+    if (updates.reminderCustomTime !== undefined) {
+      attrsToUpdate['custom-task-reminder-custom-time'] = normalizeTaskReminderCustomTime(updates.reminderCustomTime) || '';
+    }
     if (updates.backgroundColor !== undefined) {
       attrsToUpdate['custom-task-background-color'] = updates.backgroundColor || '';
     }
@@ -2894,6 +2934,30 @@ export class TaskRepository {
       return;
     }
     await setRepeatInstanceStatus(task.repeatSeriesId, task.repeatInstanceDate, status);
+  }
+
+  static async moveTask(taskId: string, targetRootId: string): Promise<{ blockId: string; parentId: string }> {
+    const normalizedTaskId = typeof taskId === 'string' ? taskId.trim() : '';
+    const normalizedRootId = typeof targetRootId === 'string' ? targetRootId.trim() : '';
+    if (!normalizedTaskId || !normalizedRootId) {
+      throw new Error('缺少移动任务所需的目标信息');
+    }
+
+    const blockId = await this.resolveBlockIdByTaskId(normalizedTaskId);
+    if (!blockId) {
+      throw new Error('未找到要移动的任务块');
+    }
+
+    const containerListId = await this.resolveTaskContainerListId(normalizedRootId);
+    const parentId = containerListId || normalizedRootId;
+
+    await moveBlock(blockId, undefined, parentId);
+    if (containerListId) {
+      await this.markTaskContainerList(containerListId, normalizedRootId);
+    }
+    await this.clearCache();
+
+    return { blockId, parentId };
   }
   
   static async deleteTask(taskId: string): Promise<void> {

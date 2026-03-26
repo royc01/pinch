@@ -32,7 +32,7 @@
             </div>
             <div v-if="taskModalQuickPanel === 'group'" class="task-modal-group-panel">
               <div class="task-modal-group-header">
-                <span class="task-modal-group-title">选择分组</span>
+                <span class="task-modal-group-title">选择标签</span>
                 <button type="button" class="task-modal-group-manage" @click.stop="emit('manage-groups')">
                   管理
                 </button>
@@ -71,8 +71,8 @@
                 class="task-modal-action-btn task-modal-group-btn"
                 :class="{ 'is-active': taskModalQuickPanel === 'group' }"
                 :style="taskModalGroupButtonStyle"
-                title="分组"
-                aria-label="分组"
+                title="标签"
+                aria-label="标签"
                 @click.stop="toggleTaskModalQuickPanel('group')"
               >
                 <Icon name="group" width="14" height="14" />
@@ -103,6 +103,18 @@
                 >
                 <Icon name="calendar" width="14" height="14" />
                 <span v-if="taskModalHasDueDate" class="task-modal-action-value">{{ taskModalDueText }}</span>
+              </button>
+              <button
+                type="button"
+                class="task-modal-action-btn"
+                :class="{ 'is-active': taskModalQuickPanel === 'reminder' }"
+                ref="taskModalReminderButtonRef"
+                title="提醒"
+                aria-label="提醒"
+                @click.stop="toggleTaskModalQuickPanel('reminder')"
+              >
+                <Icon name="bell" width="14" height="14" />
+                <span v-if="taskModalHasReminder" class="task-modal-action-value">{{ taskModalReminderText }}</span>
               </button>
               <button
                 type="button"
@@ -139,6 +151,16 @@
       @update:modelValue="handleTaskModalDateSelect"
       @close="taskModalQuickPanel = null"
     />
+    <TaskReminderPopover
+      v-if="taskModalQuickPanel === 'reminder'"
+      :visible="true"
+      :anchor-el="taskModalReminderButtonRef"
+      :model-value="localTask.reminderType"
+      :custom-time="localTask.reminderCustomTime || ''"
+      :due-date="localTask.dueDate || ''"
+      @select="handleTaskModalReminderSelect"
+      @close="taskModalQuickPanel = null"
+    />
 </template>
 
 <script setup lang="ts">
@@ -148,9 +170,15 @@ import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import Icon from '@/components/Icon.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
+import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
 import type { TaskPriority, TaskStatus, TaskGroup } from '@/api';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
+import {
+  getTaskReminderLabel,
+  type TaskReminderSelection,
+  type TaskReminderType
+} from '@/utils/taskReminder';
 
 export interface Notebook {
   id: string;
@@ -173,6 +201,8 @@ interface NewTask {
   priority: TaskPriority;
   status: TaskStatus;
   dueDate: string;
+  reminderType?: TaskReminderType;
+  reminderCustomTime?: string;
   tags: string[];
   groupId: string;
 }
@@ -202,6 +232,8 @@ const defaultTask: NewTask = {
   priority: 'none',
   status: 'pending',
   dueDate: '',
+  reminderType: undefined,
+  reminderCustomTime: '',
   tags: [],
   groupId: ''
 };
@@ -209,13 +241,14 @@ const defaultTask: NewTask = {
 const localTask = ref<NewTask>({ ...defaultTask });
 const selectedNotebook = ref<string>('');
 const selectedDocument = ref<string>('');
-const taskModalQuickPanel = ref<'due' | 'description' | 'group' | null>(null);
+const taskModalQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
 const taskModalPriorityPopover = ref<{
   position: { x: number; y: number };
   placement: 'bottom' | 'top';
 } | null>(null);
 const taskModalDescriptionRef = ref<HTMLTextAreaElement | null>(null);
 const taskModalDueButtonRef = ref<HTMLButtonElement | null>(null);
+const taskModalReminderButtonRef = ref<HTMLButtonElement | null>(null);
 
 const taskModalPriorityStyle = computed(() => {
   switch (localTask.value.priority) {
@@ -244,6 +277,14 @@ const taskModalHasDescription = computed(() => {
   return (localTask.value.description || '').trim().length > 0;
 });
 
+const taskModalHasReminder = computed(() => {
+  return !!(localTask.value.reminderType || '').trim();
+});
+
+const taskModalReminderText = computed(() => {
+  return getTaskReminderLabel(localTask.value.reminderType, localTask.value.reminderCustomTime);
+});
+
 const showTaskModalDescriptionPanel = computed(() => {
   return taskModalQuickPanel.value === 'description' || taskModalHasDescription.value;
 });
@@ -256,10 +297,10 @@ const taskModalSelectedGroupId = computed(() => {
 const taskModalGroupLabel = computed(() => {
   const groupId = (localTask.value.groupId || '').trim();
   if (!groupId) {
-    return '无分组';
+    return '无标签';
   }
   const group = (props.groups || []).find(item => item.id === groupId);
-  return group?.name || '分组';
+  return group?.name || '标签';
 });
 
 const taskModalGroupColorValue = computed(() => {
@@ -284,7 +325,7 @@ const taskModalGroupButtonStyle = computed(() => {
 
 const taskModalGroupOptions = computed(() => {
   const options = [
-    { value: TASK_GROUP_NONE_ID, label: '无分组', special: true, color: '', colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, color: '', colorCss: '', textColor: '' }
   ];
   (props.groups || []).forEach(group => {
     const rawColor = group.color || '';
@@ -371,7 +412,7 @@ function handleTaskModalPrioritySelect(value: string) {
   taskModalPriorityPopover.value = null;
 }
 
-function toggleTaskModalQuickPanel(panel: 'due' | 'description' | 'group') {
+function toggleTaskModalQuickPanel(panel: 'due' | 'description' | 'group' | 'reminder') {
   if (taskModalQuickPanel.value === panel) {
     taskModalQuickPanel.value = null;
     return;
@@ -387,6 +428,11 @@ function toggleTaskModalQuickPanel(panel: 'due' | 'description' | 'group') {
 
 function handleTaskModalDateSelect(value: string) {
   localTask.value.dueDate = value;
+}
+
+function handleTaskModalReminderSelect(value: TaskReminderSelection) {
+  localTask.value.reminderType = value.reminderType;
+  localTask.value.reminderCustomTime = value.reminderCustomTime || '';
 }
 
 function handleTaskModalDescriptionCommit() {
@@ -772,6 +818,7 @@ const handleSubmit = () => {
 
 .task-modal-action-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-start;
 }

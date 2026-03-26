@@ -1,5 +1,6 @@
 import { usePlugin } from '../main';
 import { normalizeNotebookIds } from './taskViewShared';
+import type { TaskViewGroupMode } from './taskGrouping';
 
 export interface UserSettings {
   kanban: {
@@ -13,6 +14,8 @@ export interface UserSettings {
     kanbanFilterUpdatedRange: string;
     kanbanGroupMode?: boolean;
     tableGroupMode?: boolean;
+    kanbanGroupBy?: TaskViewGroupMode;
+    tableGroupBy?: TaskViewGroupMode;
     tableFilterUpdatedRange: string;
     tableFilterType: string;
     tableFilterDocument: string;
@@ -51,6 +54,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     kanbanFilterUpdatedRange: 'all',
     kanbanGroupMode: false,
     tableGroupMode: false,
+    kanbanGroupBy: 'status',
+    tableGroupBy: 'status',
     tableFilterUpdatedRange: 'all',
     tableFilterType: 'all',
     tableFilterDocument: 'all',

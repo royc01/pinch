@@ -141,7 +141,8 @@ import { formatDate } from '@/composables/useDateUtils';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
-import { getRepeatSeriesForTask, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
+import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
@@ -759,6 +760,71 @@ function getTaskStyle(task: any, week: any[]) {
   };
 }
 
+async function applyRepeatSeriesDrop(task: Task, targetDate: string): Promise<boolean> {
+  if (!isRepeatTaskEntity(task)) return false;
+
+  const series = await getRepeatSeriesForTask(task);
+  if (!series) return false;
+
+  const deltaDays = getDayDiff(series.startDate, targetDate);
+  const nextSeriesStart = shiftDate(series.startDate, deltaDays);
+  const nextSeriesEnd = series.endDate ? shiftDate(series.endDate, deltaDays) : null;
+
+  const seriesTasksForSync: Task[] = [];
+  let templateTask: Task | null = null;
+
+  for (const item of localTasks.value) {
+    if (!belongsToRepeatSeries(item, series.id, series.templateBlockId)) continue;
+
+    const baseStart = item.startDate || item.dueDate || series.startDate;
+    const baseDue = item.dueDate || item.startDate || baseStart;
+    const updatedTask = patchLocalTask(item.id, {
+      startDate: shiftDate(baseStart, deltaDays),
+      dueDate: shiftDate(baseDue, deltaDays)
+    });
+    if (!updatedTask) continue;
+
+    seriesTasksForSync.push(updatedTask);
+    if (!templateTask && !updatedTask.isVirtual) {
+      templateTask = updatedTask;
+    }
+  }
+
+  seriesTasksForSync.forEach((updatedTask) => {
+    emitTaskDateChanged(updatedTask);
+  });
+
+  try {
+    await updateRepeatSeriesDates(
+      task,
+      nextSeriesStart,
+      nextSeriesEnd,
+      undefined,
+      { emitChange: false }
+    );
+  } catch (error) {
+  }
+
+  const templateBlockId = series.templateBlockId || templateTask?.blockId;
+  if (templateBlockId) {
+    try {
+      await setBlockAttrs(templateBlockId, {
+        'custom-task-start-date': nextSeriesStart || '',
+        'custom-task-due-date': nextSeriesEnd || ''
+      });
+    } catch (error) {
+    }
+  }
+
+  notifyRepeatChanged({
+    blockId: templateBlockId,
+    seriesId: series.id,
+    frequency: series.frequency
+  });
+
+  return true;
+}
+
 function handleDragOver(day: any) {
   if (day.isOtherMonth) return;
   
@@ -795,7 +861,7 @@ function handleDragLeave(event: DragEvent) {
   clearDragOverState();
 }
 
-function handleDrop(day: any) {
+async function handleDrop(day: any) {
   clearDragOverState();
   
   if (day.isOtherMonth) return;
@@ -814,6 +880,9 @@ function handleDrop(day: any) {
     if (pendingDeletion.value.has(task.id)) {
       pendingDeletion.value.delete(task.id);
     }
+
+    const handledBySeries = await applyRepeatSeriesDrop(task, dateStr);
+    if (handledBySeries) return;
     
     const updatedTask = upsertLocalTask(task, {
       startDate: dateStr,
@@ -925,7 +994,13 @@ async function applyTaskDates(task: Task) {
 
   const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
   if (isRepeatTask) {
-    const updatedSeries = await updateRepeatSeriesDates(task, nextStartDate, nextDueDate);
+    const updatedSeries = await updateRepeatSeriesDates(
+      task,
+      nextStartDate,
+      nextDueDate,
+      undefined,
+      { emitChange: false }
+    );
     if (updatedSeries) {
       const seriesId = task.repeatSeriesId;
       const templateTask = !task.isVirtual
@@ -948,6 +1023,11 @@ async function applyTaskDates(task: Task) {
           } catch (error) {
           }
         }
+        notifyRepeatChanged({
+          blockId: templateTask.blockId,
+          seriesId: updatedSeries.id,
+          frequency: updatedSeries.frequency
+        });
       }
       hideContextMenu();
       return;

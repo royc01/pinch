@@ -28,8 +28,15 @@
             @mousedown.stop
             @click.stop.prevent="handleOpenClick"
           >
-            <Icon name="open" width="14" height="14" />
+            <svg viewBox="0 0 1024 1024" aria-hidden="true">
+              <path
+                d="M512 426.666667a85.333333 85.333333 0 1 1 0 170.666666 85.333333 85.333333 0 0 1 0-170.666666z m341.333333 0a85.333333 85.333333 0 1 1 0 170.666666 85.333333 85.333333 0 0 1 0-170.666666zM170.666667 426.666667a85.333333 85.333333 0 1 1 0 170.666666 85.333333 85.333333 0 0 1 0-170.666666z"
+                fill="#000000"
+                fill-opacity=".45"
+              />
+            </svg>
           </button>
+          <span v-if="showProgressText" class="task-progress-text">{{ progressText }}</span>
           <button
             v-if="canExpand"
             type="button"
@@ -44,23 +51,6 @@
             <Icon name="chevronRight" width="14" height="14" />
           </button>
         </div>
-      </div>
-
-      <div v-if="showBadges" class="task-badges">
-        <span v-if="task.dueDate" class="task-due-badge">
-          <Icon name="calendar" width="12" height="12" />
-          {{ dueText }}
-        </span>
-        <span
-          v-if="groupLabel"
-          class="task-group-badge"
-          :style="groupStyle"
-          :title="groupLabel"
-        >
-          <Icon name="group" width="12" height="12" />
-          {{ groupLabel }}
-        </span>
-        <span v-if="showProgressText" class="task-progress-text">{{ progressText }}</span>
       </div>
 
       <div
@@ -92,6 +82,30 @@
         </template>
       </div>
 
+      <div v-if="showBadges" class="task-badges">
+        <span
+          v-if="groupLabel"
+          class="task-group-badge"
+          :style="groupStyle"
+          :title="groupLabel"
+        >
+          <Icon name="group" width="12" height="12" />
+          {{ groupLabel }}
+        </span>
+        <span v-if="task.dueDate" class="task-due-badge">
+          <Icon name="calendar" width="12" height="12" />
+          {{ dueText }}
+        </span>
+        <span
+          v-if="reminderText"
+          class="task-reminder-badge"
+          :title="reminderText"
+        >
+          <Icon name="bell" width="12" height="12" />
+          {{ reminderText }}
+        </span>
+      </div>
+
       <div
         v-if="showSubtasks"
         class="task-subtasks"
@@ -121,6 +135,7 @@ import SubtaskItem from '@/components/SubtaskItem.vue';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { sanitizeTaskHtml, sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
+import { getTaskReminderLabel } from '@/utils/taskReminder';
 
 defineOptions({
   name: 'TaskCard'
@@ -184,15 +199,22 @@ const showSubtasks = computed(() => {
   if (variant.value === 'kanban') return true;
   return !!props.expanded;
 });
-const isCollapsed = computed(() =>
-  isKanban.value && hasSubtasks.value && !isExpanded.value && !props.descriptionEditing
-);
+const isCollapsed = computed(() => {
+  if (props.descriptionEditing) {
+    return false;
+  }
+  if (isKanban.value) {
+    return hasSubtasks.value && !isExpanded.value;
+  }
+  return !isExpanded.value;
+});
 
 const titleTooltip = computed(() => props.titleTooltip || '');
 const titleHtml = computed(() => sanitizeTaskTitleHtml(task.value.title));
 const descriptionHtml = computed(() => sanitizeTaskHtml(task.value.description || ''));
 const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.value.description ?? '');
 const dueText = computed(() => (task.value.dueDate ? formatMonthDay(task.value.dueDate) : ''));
+const reminderText = computed(() => getTaskReminderLabel(task.value.reminderType, task.value.reminderCustomTime));
 
 const groupLabel = computed(() => {
   const groupId = typeof task.value.groupId === 'string' ? task.value.groupId.trim() : '';
@@ -200,7 +222,7 @@ const groupLabel = computed(() => {
     return '';
   }
   const group = (props.taskGroups || []).find(item => item.id === groupId);
-  return group?.name || '分组';
+  return group?.name || '标签';
 });
 const groupStyle = computed<Record<string, string>>(() => {
   if (!groupLabel.value) {
@@ -223,7 +245,7 @@ const groupStyle = computed<Record<string, string>>(() => {
 const showProgressText = computed(() => hasSubtasks.value);
 const showBadges = computed(() => {
   const due = !!task.value.dueDate;
-  return due || !!groupLabel.value || showProgressText.value;
+  return due || !!reminderText.value || !!groupLabel.value;
 });
 
 const subtaskStats = computed(() => countSubtasks(task.value.subtasks));
@@ -485,38 +507,41 @@ function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: 
   align-items: center;
   flex-wrap: wrap;
   margin-top: 6px;
+  margin-left: 26px;
 }
 
 .task-description {
   font-size: 13px;
   line-height: 1.5;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.8;
   word-break: break-word;
-  margin-top: 8px;
-  padding: 6px 10px;
-  background: var(--b3-list-hover);
-  border-radius: 6px;
-  border-left: 3px solid var(--b3-theme-border);
+  margin-left: 26px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  border-left: none;
   cursor: text;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: box-shadow 0.2s;
 }
 
 .task-description:hover {
-  border-left-color: var(--b3-theme-primary);
+  box-shadow: none;
 }
 
 .task-description.is-editing {
   opacity: 1;
   padding: 0;
-  border-left-color: var(--b3-theme-primary);
+  box-shadow: none;
 }
 
 .task-description-inline-edit {
   width: 100%;
   min-height: 72px;
   margin: 0;
-  padding: 8px 10px;
+  padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   background: transparent;
   color: var(--b3-theme-on-surface);
   font-size: 13px;
@@ -527,7 +552,7 @@ function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: 
 }
 
 .task-description-inline-edit:focus {
-  background: var(--b3-theme-background);
+  background: transparent;
   box-shadow: inset 0 0 0 1px var(--b3-theme-primary);
 }
 
@@ -538,6 +563,11 @@ function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: 
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+}
+
+.task-card.variant-sidebar .task-description.collapsed {
+  max-height: 1.5em;
+  -webkit-line-clamp: 1;
 }
 
 .task-subtasks {
@@ -552,7 +582,8 @@ function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: 
 }
 
 
-.task-due-badge {
+.task-due-badge,
+.task-reminder-badge {
   display: flex;
   align-items: center;
   border-radius: 4px;
@@ -581,7 +612,6 @@ function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: 
 .task-progress-text {
   font-size: 10px;
   color: var(--b3-theme-on-surface);
-  margin-left: auto;
   margin-right: 2px;
   white-space: nowrap;
 }

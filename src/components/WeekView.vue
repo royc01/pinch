@@ -245,7 +245,8 @@ import { useDebouncedSave } from '@/composables/useDebouncedSave';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
-import { getRepeatSeriesForTask, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
+import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
@@ -875,29 +876,11 @@ function getDraggedTaskFromWindowEvent(): Task | null {
   }
 }
 
-function isRepeatTask(task: Task): boolean {
-  return !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-}
-
-function getDayDiff(fromDate: string, toDate: string): number {
-  const from = new Date(fromDate);
-  const to = new Date(toDate);
-  from.setHours(0, 0, 0, 0);
-  to.setHours(0, 0, 0, 0);
-  return Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
-}
-
-function shiftDate(dateStr: string, deltaDays: number): string {
-  const date = new Date(dateStr);
-  date.setDate(date.getDate() + deltaDays);
-  return formatDate(date);
-}
-
 async function applyRepeatSeriesDrop(
   task: Task,
   payload: { targetDate: string; startTime?: string; dueTime?: string; clearTime?: boolean }
 ): Promise<boolean> {
-  if (!isRepeatTask(task)) return false;
+  if (!isRepeatTaskEntity(task)) return false;
 
   const series = await getRepeatSeriesForTask(task);
   if (!series) return false;
@@ -906,15 +889,11 @@ async function applyRepeatSeriesDrop(
   const nextSeriesStart = shiftDate(series.startDate, deltaDays);
   const nextSeriesEnd = series.endDate ? shiftDate(series.endDate, deltaDays) : null;
 
+  const seriesTasksForSync: Task[] = [];
+  let templateTask: Task | null = null;
+
   for (const candidate of localTasks.value) {
-    const belongsToSeries =
-      candidate.repeatSeriesId === series.id
-      || (
-        !candidate.isVirtual
-        && !!series.templateBlockId
-        && candidate.blockId === series.templateBlockId
-      );
-    if (!belongsToSeries) continue;
+    if (!belongsToRepeatSeries(candidate, series.id, series.templateBlockId)) continue;
 
     const baseStart = candidate.startDate || candidate.dueDate || series.startDate;
     const baseDue = candidate.dueDate || candidate.startDate || baseStart;
@@ -931,30 +910,18 @@ async function applyRepeatSeriesDrop(
       patch.dueTime = payload.dueTime;
     }
 
-    patchLocalTask(candidate.id, patch);
+    const updatedTask = patchLocalTask(candidate.id, patch);
+    if (!updatedTask) continue;
+
+    seriesTasksForSync.push(updatedTask);
+    if (!templateTask && !updatedTask.isVirtual) {
+      templateTask = updatedTask;
+    }
   }
 
-  const seriesTasksForSync = localTasks.value.filter(item =>
-    item.repeatSeriesId === series.id
-    || (
-      !item.isVirtual
-      && !!series.templateBlockId
-      && item.blockId === series.templateBlockId
-    )
-  );
   seriesTasksForSync.forEach((item) => {
     emitTaskDateChanged(item);
   });
-
-  const templateTask = seriesTasksForSync.find(item =>
-    !item.isVirtual && (
-      item.repeatSeriesId === series.id
-      || (!!series.templateBlockId && item.blockId === series.templateBlockId)
-    )
-  );
-  if (templateTask) {
-    emitTaskDateChanged(templateTask);
-  }
 
   try {
     await updateRepeatSeriesDates(
@@ -964,7 +931,8 @@ async function applyRepeatSeriesDrop(
       {
         startTime: payload.clearTime ? null : (payload.startTime || null),
         dueTime: payload.clearTime ? null : (payload.dueTime || null)
-      }
+      },
+      { emitChange: false }
     );
   } catch (error) {
   }
@@ -987,6 +955,12 @@ async function applyRepeatSeriesDrop(
     } catch (error) {
     }
   }
+
+  notifyRepeatChanged({
+    blockId: templateBlockId,
+    seriesId: series.id,
+    frequency: series.frequency
+  });
 
   return true;
 }
@@ -1435,7 +1409,13 @@ async function applyTaskDates(task: Task) {
 
   const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
   if (isRepeatTask) {
-    const updatedSeries = await updateRepeatSeriesDates(task, nextStartDate, nextDueDate);
+    const updatedSeries = await updateRepeatSeriesDates(
+      task,
+      nextStartDate,
+      nextDueDate,
+      undefined,
+      { emitChange: false }
+    );
     if (updatedSeries) {
       const seriesId = task.repeatSeriesId;
       const templateTask = !task.isVirtual
@@ -1458,6 +1438,11 @@ async function applyTaskDates(task: Task) {
           } catch (error) {
           }
         }
+        notifyRepeatChanged({
+          blockId: templateTask.blockId,
+          seriesId: updatedSeries.id,
+          frequency: updatedSeries.frequency
+        });
       }
       hideContextMenu();
       return;

@@ -5,6 +5,7 @@ import { formatDate, formatTime } from './useDateUtils';
 import { CALENDAR_CONSTANTS } from './useCalendarConstants';
 import { useDebouncedSave } from './useDebouncedSave';
 import { useTaskLocalMutations } from './useTaskLocalMutations';
+import { repeatDragDebug } from '@/utils/repeatDragDebug';
 
 interface EventListener {
   element: Document;
@@ -29,8 +30,11 @@ interface UseTaskDragOptions {
 
 interface RepeatSeriesDragSnapshotEntry {
   id: string;
+  isVirtual: boolean;
+  repeatInstanceDate?: string;
   startDate: string;
   dueDate: string;
+  hasExplicitDueDate: boolean;
   startTime?: string;
   dueTime?: string;
 }
@@ -38,6 +42,14 @@ interface RepeatSeriesDragSnapshotEntry {
 interface RepeatSeriesDragSnapshot {
   seriesId: string;
   entries: RepeatSeriesDragSnapshotEntry[];
+}
+
+interface TimedTaskDropResolution {
+  kind: 'all-day' | 'timed';
+  dayKey: string;
+  startTime?: string;
+  dueTime?: string;
+  dueDate?: string;
 }
 
 function parseLocalDayKey(dayKey: string): Date | null {
@@ -78,7 +90,13 @@ export function useTaskDrag(
   });
 
   const draggingHandle = ref<{ task: Task; type: 'start' | 'end'; originalDate: string } | null>(null);
-  const draggingTask = ref<{ task: Task; originalStart: string; originalDue: string | null; pointerOffsetDays: number } | null>(null);
+  const draggingTask = ref<{
+    task: Task;
+    originalStart: string;
+    originalDue: string | null;
+    pointerOffsetDays: number;
+    repeatSeriesSnapshot?: RepeatSeriesDragSnapshot | null;
+  } | null>(null);
   const dragLastUpdatedDate = ref('');
   const isDragging = ref(false);
 
@@ -106,6 +124,38 @@ export function useTaskDrag(
     return !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
   }
 
+  function summarizeTask(task: Task | null | undefined) {
+    if (!task) return null;
+    return {
+      id: task.id,
+      blockId: task.blockId,
+      isVirtual: task.isVirtual,
+      repeatSeriesId: task.repeatSeriesId,
+      repeatFrequency: task.repeatFrequency,
+      repeatInstanceDate: task.repeatInstanceDate,
+      startDate: task.startDate,
+      dueDate: task.dueDate,
+      startTime: task.startTime,
+      dueTime: task.dueTime
+    };
+  }
+
+  function preventConcurrentDragStart(event: MouseEvent, task: Task, kind: string): boolean {
+    if (!isDragging.value) return false;
+
+    event.preventDefault();
+    event.stopPropagation();
+    repeatDragDebug('useTaskDrag', 'blocked drag start while previous drag is still settling', {
+      kind,
+      task: summarizeTask(task),
+      hasDraggingHandle: !!draggingHandle.value,
+      hasDraggingTask: !!draggingTask.value,
+      hasDraggingTimedHandle: !!draggingTimedTaskHandle.value,
+      hasDraggingTimedTask: !!draggingTimedTask.value
+    });
+    return true;
+  }
+
   function buildRepeatSeriesDragSnapshot(task: Task): RepeatSeriesDragSnapshot | null {
     if (!task.repeatSeriesId) return null;
     const seriesId = task.repeatSeriesId;
@@ -114,11 +164,15 @@ export function useTaskDrag(
       .map((candidate) => {
         const startDate = candidate.startDate || candidate.dueDate || '';
         const dueDate = candidate.dueDate || candidate.startDate || startDate;
+        const hasExplicitDueDate = typeof candidate.dueDate === 'string' && candidate.dueDate.trim().length > 0;
         if (!startDate || !dueDate) return null;
         return {
           id: candidate.id,
+          isVirtual: !!candidate.isVirtual,
+          repeatInstanceDate: candidate.repeatInstanceDate,
           startDate,
           dueDate,
+          hasExplicitDueDate,
           startTime: candidate.startTime,
           dueTime: candidate.dueTime
         } as RepeatSeriesDragSnapshotEntry;
@@ -133,8 +187,9 @@ export function useTaskDrag(
       snapshot.entries.map(entry => ({
         id: entry.id,
         patch: {
+          repeatInstanceDate: entry.isVirtual ? entry.repeatInstanceDate : undefined,
           startDate: entry.startDate,
-          dueDate: entry.dueDate,
+          dueDate: entry.hasExplicitDueDate ? entry.dueDate : undefined,
           startTime: entry.startTime,
           dueTime: entry.dueTime
         }
@@ -156,11 +211,13 @@ export function useTaskDrag(
       const shiftedDueDate = shiftDate(entry.dueDate, deltaDays);
 
       if (clearTime) {
+        const nextDueDate = entry.hasExplicitDueDate ? shiftedDueDate : undefined;
         updates.push({
           id: entry.id,
           patch: {
+            repeatInstanceDate: entry.isVirtual ? shiftedStartDate : undefined,
             startDate: shiftedStartDate,
-            dueDate: shiftedDueDate,
+            dueDate: nextDueDate,
             startTime: undefined,
             dueTime: undefined
           }
@@ -174,12 +231,18 @@ export function useTaskDrag(
       const targetStartTime = nextStartTime || entry.startTime || '00:00';
       const shiftedStartDateTime = new Date(`${shiftedStartDate}T${targetStartTime}`);
       const shiftedDueDateTime = new Date(shiftedStartDateTime.getTime() + durationMs);
+      const shiftedStartDateStr = formatDate(shiftedStartDateTime);
+      const shiftedDueDateStr = formatDate(shiftedDueDateTime);
+      const nextDueDate = entry.hasExplicitDueDate || shiftedDueDateStr !== shiftedStartDateStr
+        ? shiftedDueDateStr
+        : undefined;
 
       updates.push({
         id: entry.id,
         patch: {
-          startDate: formatDate(shiftedStartDateTime),
-          dueDate: formatDate(shiftedDueDateTime),
+          repeatInstanceDate: entry.isVirtual ? shiftedStartDateStr : undefined,
+          startDate: shiftedStartDateStr,
+          dueDate: nextDueDate,
           startTime: targetStartTime,
           dueTime: formatTime(shiftedDueDateTime)
         }
@@ -187,6 +250,31 @@ export function useTaskDrag(
     }
 
     patchLocalTasksBatch(updates, { emit: false });
+  }
+
+  function applyRepeatSeriesAllDayMove(
+    snapshot: RepeatSeriesDragSnapshot,
+    deltaDays: number
+  ): void {
+    const updates = snapshot.entries.map(entry => ({
+      id: entry.id,
+      patch: {
+        repeatInstanceDate: entry.isVirtual ? shiftDate(entry.startDate, deltaDays) : undefined,
+        startDate: shiftDate(entry.startDate, deltaDays),
+        dueDate: entry.hasExplicitDueDate ? shiftDate(entry.dueDate, deltaDays) : undefined
+      }
+    }));
+
+    patchLocalTasksBatch(updates, { emit: false });
+  }
+
+  function emitRepeatSeriesSnapshotTasks(snapshot: RepeatSeriesDragSnapshot): void {
+    for (const entry of snapshot.entries) {
+      const syncedTask = getLocalTask(entry.id);
+      if (syncedTask) {
+        emitTaskDateChanged(syncedTask);
+      }
+    }
   }
 
   function applyRepeatSeriesTimedHandleMove(
@@ -223,6 +311,7 @@ export function useTaskDrag(
         updates.push({
           id: entry.id,
           patch: {
+            repeatInstanceDate: entry.isVirtual ? formatDate(nextStartDateTime) : undefined,
             startDate: formatDate(nextStartDateTime),
             startTime: formatTime(nextStartDateTime)
           }
@@ -231,10 +320,14 @@ export function useTaskDrag(
         const candidateDueMs = entryDueDateTime.getTime() + deltaMs;
         const minDueMs = entryStartDateTime.getTime() + minDurationMs;
         const nextDueDateTime = new Date(Math.max(candidateDueMs, minDueMs));
+        const nextDueDateStr = formatDate(nextDueDateTime);
+        const currentStartDateStr = formatDate(entryStartDateTime);
         updates.push({
           id: entry.id,
           patch: {
-            dueDate: formatDate(nextDueDateTime),
+            dueDate: entry.hasExplicitDueDate || nextDueDateStr !== currentStartDateStr
+              ? nextDueDateStr
+              : undefined,
             dueTime: formatTime(nextDueDateTime)
           }
         });
@@ -376,8 +469,69 @@ export function useTaskDrag(
     return { date: targetDate, element: columnElement, isTimedArea };
   }
 
+  function resolveTimedTaskDropFromEvent(
+    event: MouseEvent,
+    payload: {
+      originalStartDate: string;
+      clickOffsetY?: number;
+      durationMs?: number;
+    }
+  ): TimedTaskDropResolution | null {
+    const { originalStartDate, clickOffsetY = 0, durationMs } = payload;
+    const elements = document.elementsFromPoint(event.clientX, event.clientY);
+    const target = event.target as HTMLElement | null;
+
+    const allDayColumn = (elements.find(el => el.classList.contains('all-day-column')) as HTMLElement | undefined)
+      || (target?.closest('.all-day-column') as HTMLElement | null);
+    if (allDayColumn) {
+      const dayKey = allDayColumn.getAttribute('data-day-key') || originalStartDate;
+      return {
+        kind: 'all-day',
+        dayKey
+      };
+    }
+
+    const dayColumn = (elements.find(el => el.classList.contains('day-column')) as HTMLElement | undefined)
+      || (target?.closest('.day-column') as HTMLElement | null);
+    if (!dayColumn) return null;
+
+    const dayKey = dayColumn.getAttribute('data-day-key') || originalStartDate;
+    const daysScrollElement = (elements.find(el => el.classList.contains('days-scroll')) as HTMLElement | undefined)
+      || (dayColumn.closest('.days-scroll') as HTMLElement | null)
+      || (target?.closest('.days-scroll') as HTMLElement | null);
+    if (!daysScrollElement) return null;
+
+    const scrollRect = daysScrollElement.getBoundingClientRect();
+    const scrollTop = daysScrollElement.scrollTop;
+    const offsetY = event.clientY - scrollRect.top + scrollTop - clickOffsetY;
+    const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+    const snapMinutes = CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES;
+    const snappedMinutes = Math.round(totalMinutes / snapMinutes) * snapMinutes;
+    const maxStartMinutes = Math.max(0, 24 * 60 - snapMinutes);
+    const clampedMinutes = Math.max(0, Math.min(maxStartMinutes, snappedMinutes));
+
+    const hours = Math.floor(clampedMinutes / 60);
+    const minutes = clampedMinutes % 60;
+    const startTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+    const safeDurationMs = Number.isFinite(durationMs)
+      ? Math.max(15 * 60 * 1000, Number(durationMs))
+      : 60 * 60 * 1000;
+    const startDateTime = new Date(`${dayKey}T${startTime}`);
+    const dueDateTime = new Date(startDateTime.getTime() + safeDurationMs);
+
+    return {
+      kind: 'timed',
+      dayKey,
+      startTime,
+      dueTime: formatTime(dueDateTime),
+      dueDate: formatDate(dueDateTime)
+    };
+  }
+
   function handleHandleMouseDown(event: MouseEvent, task: Task, handleType: 'start' | 'end') {
     if (isMobileFrontend) return;
+    if (preventConcurrentDragStart(event, task, `all-day-handle:${handleType}`)) return;
 
     const effectiveStartDate = task.startDate || task.dueDate;
     const originalDate = handleType === 'start'
@@ -478,6 +632,7 @@ export function useTaskDrag(
 
   function handleTaskMouseDown(event: MouseEvent, task: Task) {
     if (isMobileFrontend) return;
+    if (preventConcurrentDragStart(event, task, 'all-day-task')) return;
     if (!task.startDate && !task.dueDate) return;
 
     const effectiveStartDate = task.startDate || task.dueDate!;
@@ -491,7 +646,10 @@ export function useTaskDrag(
       task,
       originalStart: effectiveStartDate,
       originalDue: task.dueDate || null,
-      pointerOffsetDays
+      pointerOffsetDays,
+      repeatSeriesSnapshot: isRepeatTask(task)
+        ? buildRepeatSeriesDragSnapshot(task)
+        : null
     };
 
     dragLastUpdatedDate.value = '';
@@ -506,7 +664,7 @@ export function useTaskDrag(
   function handleTaskMouseMove(event: MouseEvent) {
     if (!draggingTask.value) return;
 
-    const { task, originalStart, originalDue, pointerOffsetDays } = draggingTask.value;
+    const { task, originalStart, originalDue, pointerOffsetDays, repeatSeriesSnapshot } = draggingTask.value;
 
     const targetData = findDayColumnFromEvent(event);
     if (!targetData) {
@@ -517,6 +675,8 @@ export function useTaskDrag(
 
     const targetDate = targetData.date;
     const targetDateStr = formatDate(targetDate);
+    let timedStartTime = '09:00';
+    let timedDueTime = '10:00';
 
     if (targetData.isTimedArea) {
       const target = event.target as HTMLElement;
@@ -530,6 +690,9 @@ export function useTaskDrag(
           const hourIndex = hourCells.indexOf(hourCell);
           if (hourIndex !== -1) {
             dragState.value.overHourCell = `${dayKey}-${hourIndex + 1}`;
+            timedStartTime = `${String(hourIndex).padStart(2, '0')}:00`;
+            const dueHour = (hourIndex + 1) % 24;
+            timedDueTime = `${String(dueHour).padStart(2, '0')}:00`;
           }
         }
       }
@@ -560,8 +723,23 @@ export function useTaskDrag(
     }
 
     const shiftedStartDateStr = formatDate(newStartDate);
+    const dragSignature = targetData.isTimedArea
+      ? `timed:${targetDateStr}:${timedStartTime}:${timedDueTime}`
+      : `all-day:${shiftedStartDateStr}:${newDueDateStr || ''}`;
 
-    if (dragLastUpdatedDate.value === shiftedStartDateStr) {
+    if (dragLastUpdatedDate.value === dragSignature) {
+      return;
+    }
+
+    if (repeatSeriesSnapshot) {
+      if (targetData.isTimedArea) {
+        const deltaDays = getDayDelta(originalStart, targetDateStr);
+        applyRepeatSeriesTimedMove(repeatSeriesSnapshot, deltaDays, timedStartTime, false);
+      } else {
+        applyRepeatSeriesAllDayMove(repeatSeriesSnapshot, daysDiff);
+      }
+
+      dragLastUpdatedDate.value = dragSignature;
       return;
     }
 
@@ -583,217 +761,409 @@ export function useTaskDrag(
       scheduleSave(task.blockId, attrs);
     }
 
-    dragLastUpdatedDate.value = shiftedStartDateStr;
+    dragLastUpdatedDate.value = dragSignature;
   }
 
   async function handleTaskMouseUp(event: MouseEvent) {
     if (!draggingTask.value) return;
 
-    const { task, originalStart, originalDue } = draggingTask.value;
+    const { task, originalStart, originalDue, repeatSeriesSnapshot } = draggingTask.value;
     const currentTask = getLocalTask(task.id);
 
     const targetData = findDayColumnFromEvent(event);
     const dropHourCell = dragState.value.overHourCell;
 
-    // End drag visual/listener state before any async confirmation flow.
+    // End drag visuals/listeners immediately, but keep sync suppression active until
+    // repeat-series persistence finishes so stale external snapshots cannot briefly
+    // restore the template task to its old slot.
     dragState.value.overDayColumn = null;
     dragState.value.overAllDayColumn = null;
     dragState.value.overHourCell = null;
     removeEventListeners('mousemove');
     removeEventListeners('mouseup');
-    isDragging.value = false;
     draggingTask.value = null;
     dragLastUpdatedDate.value = '';
 
-    if (currentTask && targetData && targetData.isTimedArea) {
-      const newDayKey = formatDate(targetData.date);
+    try {
+      if (currentTask && targetData && targetData.isTimedArea) {
+        const newDayKey = formatDate(targetData.date);
 
-      let startTime = '09:00';
-      let dueTime = '10:00';
+        let startTime = '09:00';
+        let dueTime = '10:00';
 
-      if (dropHourCell) {
-        const match = dropHourCell.match(/-(\d+)$/);
-        if (match) {
-          const hour = parseInt(match[1]);
-          startTime = `${String(hour).padStart(2, '0')}:00`;
-          const dueHour = (hour + 1) % 24;
-          dueTime = `${String(dueHour).padStart(2, '0')}:00`;
-        }
-      }
-
-      const targetDate = currentTask.isVirtual && currentTask.repeatInstanceDate
-        ? currentTask.repeatInstanceDate
-        : newDayKey;
-
-      const scope = await resolveRepeatMoveScope({
-        task: currentTask,
-        mode: 'timed',
-        fromStartDate: originalStart || null,
-        fromDueDate: originalDue || null,
-        toStartDate: targetDate,
-        toDueDate: targetDate
-      });
-
-      if (scope !== 'cancel') {
-        const updatedTask = patchLocalTask(task.id, {
-          startDate: targetDate,
-          dueDate: targetDate,
-          startTime,
-          dueTime
-        });
-        if (updatedTask) {
-          emitTaskDateChanged(updatedTask);
-        }
-
-        if (scope === 'series' && currentTask.repeatSeriesId) {
-          for (const candidate of localTasks.value) {
-            if (candidate.id === task.id) continue;
-            if (candidate.repeatSeriesId !== currentTask.repeatSeriesId) continue;
-            const syncedTask = patchLocalTask(candidate.id, {
-              startTime,
-              dueTime
-            });
-            if (syncedTask) {
-              emitTaskDateChanged(syncedTask);
-            }
-          }
-          try {
-            const { getRepeatSeriesForTask, updateRepeatSeriesDates } = await import('@/repeatRepository');
-            const series = await getRepeatSeriesForTask(currentTask);
-            if (series) {
-              await updateRepeatSeriesDates(
-                currentTask,
-                series.startDate,
-                series.endDate || null,
-                {
-                  startTime,
-                  dueTime
-                }
-              );
-            }
-          } catch (_error) {
+        if (dropHourCell) {
+          const match = dropHourCell.match(/-(\d+)$/);
+          if (match) {
+            const hour = parseInt(match[1]);
+            startTime = `${String(hour).padStart(2, '0')}:00`;
+            const dueHour = (hour + 1) % 24;
+            dueTime = `${String(dueHour).padStart(2, '0')}:00`;
           }
         }
 
-        const persistTarget = (task.type === 'block' && task.blockId)
-          ? task
-          : localTasks.value.find(
-            candidate => !candidate.isVirtual
-              && !!candidate.blockId
-              && !!currentTask.repeatSeriesId
-              && candidate.repeatSeriesId === currentTask.repeatSeriesId
-          );
+        const targetDate = repeatSeriesSnapshot
+          ? newDayKey
+          : (currentTask.isVirtual && currentTask.repeatInstanceDate
+          ? currentTask.repeatInstanceDate
+          : newDayKey);
 
-        if (persistTarget?.blockId) {
-          try {
-            const { setBlockAttrs } = await import('@/api');
-            const attrs: Record<string, string> = {
-              'custom-task-start-time': startTime,
-              'custom-task-due-time': dueTime
-            };
-            if (persistTarget.id === task.id) {
-              attrs['custom-task-start-date'] = targetDate;
-              attrs['custom-task-due-date'] = targetDate;
-            }
-            await setBlockAttrs(persistTarget.blockId, attrs);
-          } catch (error) {
-          }
-        }
-      } else {
-        patchLocalTask(task.id, {
-          startDate: originalStart,
-          dueDate: originalDue,
-          startTime: task.startTime,
-          dueTime: task.dueTime
-        });
-      }
-    } else if (currentTask && isRepeatTask(currentTask)) {
-      const currentStart = currentTask.startDate || currentTask.dueDate || null;
-      const currentDue = currentTask.dueDate || currentTask.startDate || null;
-      const originalStartDate = originalStart || null;
-      const originalDueDate = originalDue || originalStart || null;
-      const moved = currentStart !== originalStartDate || currentDue !== originalDueDate;
-      if (moved && currentStart) {
         const scope = await resolveRepeatMoveScope({
           task: currentTask,
-          mode: 'all-day',
-          fromStartDate: originalStartDate,
-          fromDueDate: originalDueDate,
-          toStartDate: currentStart,
-          toDueDate: currentDue
+          mode: 'timed',
+          fromStartDate: originalStart || null,
+          fromDueDate: originalDue || null,
+          toStartDate: targetDate,
+          toDueDate: targetDate
+        });
+        repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed resolved scope', {
+          scope,
+          targetDate,
+          startTime,
+          dueTime,
+          currentTask: summarizeTask(currentTask),
+          hasRepeatSnapshot: !!repeatSeriesSnapshot
         });
 
-        if (scope === 'cancel') {
-          patchLocalTask(task.id, {
-            startDate: originalStartDate,
-            dueDate: originalDueDate
+        if (scope !== 'cancel') {
+          if (repeatSeriesSnapshot && scope === 'series' && isRepeatTask(currentTask)) {
+            const deltaDays = getDayDelta(originalStart, targetDate);
+
+            try {
+              const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
+              const series = await getRepeatSeriesForTask(currentTask);
+              if (series) {
+                const nextSeriesStart = shiftDate(series.startDate, deltaDays);
+                const nextSeriesEnd = series.endDate ? shiftDate(series.endDate, deltaDays) : null;
+                await updateRepeatSeriesDates(
+                  currentTask,
+                  nextSeriesStart,
+                  nextSeriesEnd,
+                  {
+                    startTime,
+                    dueTime
+                  },
+                  { emitChange: false }
+                );
+
+                const templateBlockId = series.templateBlockId
+                  || localTasks.value.find(item => !item.isVirtual && item.repeatSeriesId === series.id)?.blockId;
+                if (templateBlockId) {
+                  const { setBlockAttrs } = await import('@/api');
+                  await setBlockAttrs(templateBlockId, {
+                    'custom-task-start-date': nextSeriesStart || '',
+                    'custom-task-due-date': nextSeriesEnd || '',
+                    'custom-task-start-time': startTime,
+                    'custom-task-due-time': dueTime
+                  });
+                }
+                repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed series persisted', {
+                  templateBlockId,
+                  seriesId: series.id,
+                  nextSeriesStart,
+                  nextSeriesEnd,
+                  startTime,
+                  dueTime,
+                  currentTask: summarizeTask(currentTask)
+                });
+                notifyRepeatChanged({
+                  blockId: templateBlockId,
+                  seriesId: series.id,
+                  frequency: series.frequency
+                });
+              }
+
+              emitRepeatSeriesSnapshotTasks(repeatSeriesSnapshot);
+            } catch (_error) {
+              restoreRepeatSeriesDragSnapshot(repeatSeriesSnapshot);
+            }
+            return;
+          }
+
+          if (repeatSeriesSnapshot && scope === 'single') {
+            restoreRepeatSeriesDragSnapshot(repeatSeriesSnapshot);
+          }
+
+          const updatedTask = patchLocalTask(task.id, {
+            startDate: targetDate,
+            dueDate: targetDate,
+            startTime,
+            dueTime
           });
-          if (task.type === 'block' && task.blockId) {
+          if (updatedTask) {
+            emitTaskDateChanged(updatedTask);
+          }
+
+          if (scope === 'series' && currentTask.repeatSeriesId) {
+            for (const candidate of localTasks.value) {
+              if (candidate.id === task.id) continue;
+              if (candidate.repeatSeriesId !== currentTask.repeatSeriesId) continue;
+              const syncedTask = patchLocalTask(candidate.id, {
+                startTime,
+                dueTime
+              });
+              if (syncedTask) {
+                emitTaskDateChanged(syncedTask);
+              }
+            }
+            try {
+              const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
+              const series = await getRepeatSeriesForTask(currentTask);
+              if (series) {
+                await updateRepeatSeriesDates(
+                  currentTask,
+                  series.startDate,
+                  series.endDate || null,
+                  {
+                    startTime,
+                    dueTime
+                  },
+                  { emitChange: false }
+                );
+                repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed single-template series metadata persisted', {
+                  seriesId: series.id,
+                  templateBlockId: series.templateBlockId,
+                  currentTask: summarizeTask(currentTask),
+                  startTime,
+                  dueTime
+                });
+              }
+            } catch (_error) {
+            }
+          }
+
+          const persistTarget = (task.type === 'block' && task.blockId)
+            ? task
+            : localTasks.value.find(
+              candidate => !candidate.isVirtual
+                && !!candidate.blockId
+                && !!currentTask.repeatSeriesId
+                && candidate.repeatSeriesId === currentTask.repeatSeriesId
+            );
+
+          if (persistTarget?.blockId) {
+            try {
+              const { setBlockAttrs } = await import('@/api');
+              const attrs: Record<string, string> = {
+                'custom-task-start-time': startTime,
+                'custom-task-due-time': dueTime
+              };
+              if (persistTarget.id === task.id) {
+                attrs['custom-task-start-date'] = targetDate;
+                attrs['custom-task-due-date'] = targetDate;
+              }
+              await setBlockAttrs(persistTarget.blockId, attrs);
+              repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed persistTarget attrs saved', {
+                persistTarget: summarizeTask(persistTarget),
+                attrs
+              });
+            } catch (error) {
+            }
+          }
+
+          if (scope === 'series' && currentTask.repeatSeriesId) {
+            try {
+              const { getRepeatSeriesForTask, notifyRepeatChanged } = await import('@/repeatRepository');
+              const series = await getRepeatSeriesForTask(currentTask);
+              if (series) {
+                notifyRepeatChanged({
+                  blockId: series.templateBlockId || persistTarget?.blockId,
+                  seriesId: series.id,
+                  frequency: series.frequency
+                });
+                repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed series notify sent', {
+                  seriesId: series.id,
+                  blockId: series.templateBlockId || persistTarget?.blockId
+                });
+              }
+            } catch (_error) {
+            }
+          }
+        } else {
+          if (repeatSeriesSnapshot) {
+            restoreRepeatSeriesDragSnapshot(repeatSeriesSnapshot);
+          } else {
+            patchLocalTask(task.id, {
+              startDate: originalStart,
+              dueDate: originalDue,
+              startTime: task.startTime,
+              dueTime: task.dueTime
+            });
+          }
+        }
+      } else if (currentTask && isRepeatTask(currentTask)) {
+        const currentStart = currentTask.startDate || currentTask.dueDate || null;
+        const currentDue = currentTask.dueDate || currentTask.startDate || null;
+        const originalStartDate = originalStart || null;
+        const originalDueDate = originalDue || originalStart || null;
+        const moved = currentStart !== originalStartDate || currentDue !== originalDueDate;
+        if (moved && currentStart) {
+          const scope = await resolveRepeatMoveScope({
+            task: currentTask,
+            mode: 'all-day',
+            fromStartDate: originalStartDate,
+            fromDueDate: originalDueDate,
+            toStartDate: currentStart,
+            toDueDate: currentDue
+          });
+          repeatDragDebug('useTaskDrag', 'handleTaskMouseUp all-day resolved scope', {
+            scope,
+            currentTask: summarizeTask(currentTask),
+            originalStartDate,
+            originalDueDate,
+            currentStart,
+            currentDue,
+            hasRepeatSnapshot: !!repeatSeriesSnapshot
+          });
+
+          if (scope === 'cancel') {
+            if (repeatSeriesSnapshot) {
+              restoreRepeatSeriesDragSnapshot(repeatSeriesSnapshot);
+            } else {
+              patchLocalTask(task.id, {
+                startDate: originalStartDate,
+                dueDate: originalDueDate
+              });
+            }
+            if (task.type === 'block' && task.blockId) {
+              try {
+                const { setBlockAttrs } = await import('@/api');
+                await setBlockAttrs(task.blockId, {
+                  'custom-task-start-date': originalStartDate || '',
+                  'custom-task-due-date': originalDueDate || ''
+                });
+              } catch (_error) {
+              }
+            }
+          } else if (scope === 'series') {
+            const from = new Date(originalStartDate || currentStart);
+            const to = new Date(currentStart);
+            from.setHours(0, 0, 0, 0);
+            to.setHours(0, 0, 0, 0);
+            const deltaDays = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
+
+            if (repeatSeriesSnapshot) {
+              try {
+                const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
+                const series = await getRepeatSeriesForTask(currentTask);
+                if (series) {
+                  const nextSeriesStart = shiftDate(series.startDate, deltaDays);
+                  const nextSeriesEnd = series.endDate ? shiftDate(series.endDate, deltaDays) : null;
+                  await updateRepeatSeriesDates(
+                    currentTask,
+                    nextSeriesStart,
+                    nextSeriesEnd,
+                    undefined,
+                    { emitChange: false }
+                  );
+                  if (series.templateBlockId) {
+                    const { setBlockAttrs } = await import('@/api');
+                    await setBlockAttrs(series.templateBlockId, {
+                      'custom-task-start-date': nextSeriesStart || '',
+                      'custom-task-due-date': nextSeriesEnd || ''
+                    });
+                  }
+                  repeatDragDebug('useTaskDrag', 'handleTaskMouseUp all-day series persisted', {
+                    seriesId: series.id,
+                    templateBlockId: series.templateBlockId,
+                    nextSeriesStart,
+                    nextSeriesEnd,
+                    currentTask: summarizeTask(currentTask)
+                  });
+                  notifyRepeatChanged({
+                    blockId: series.templateBlockId,
+                    seriesId: series.id,
+                    frequency: series.frequency
+                  });
+                }
+
+                emitRepeatSeriesSnapshotTasks(repeatSeriesSnapshot);
+              } catch (_error) {
+                restoreRepeatSeriesDragSnapshot(repeatSeriesSnapshot);
+              }
+            } else {
+              if (deltaDays !== 0 && currentTask.repeatSeriesId) {
+                for (const candidate of localTasks.value) {
+                  if (candidate.id === task.id) continue;
+                  if (candidate.repeatSeriesId !== currentTask.repeatSeriesId) continue;
+                  const baseStart = candidate.startDate || candidate.dueDate;
+                  const baseDue = candidate.dueDate || candidate.startDate;
+                  if (!baseStart || !baseDue) continue;
+                  const shiftedTask = patchLocalTask(candidate.id, {
+                    startDate: shiftDate(baseStart, deltaDays),
+                    dueDate: shiftDate(baseDue, deltaDays)
+                  });
+                  if (shiftedTask) {
+                    emitTaskDateChanged(shiftedTask);
+                  }
+                }
+              }
+              try {
+                const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
+                const series = await getRepeatSeriesForTask(currentTask);
+                if (series) {
+                  const nextSeriesStart = shiftDate(series.startDate, deltaDays);
+                  const nextSeriesEnd = series.endDate ? shiftDate(series.endDate, deltaDays) : null;
+                  await updateRepeatSeriesDates(
+                    currentTask,
+                    nextSeriesStart,
+                    nextSeriesEnd,
+                    undefined,
+                    { emitChange: false }
+                  );
+                  if (series.templateBlockId) {
+                    const { setBlockAttrs } = await import('@/api');
+                    await setBlockAttrs(series.templateBlockId, {
+                      'custom-task-start-date': nextSeriesStart || '',
+                      'custom-task-due-date': nextSeriesEnd || ''
+                    });
+                  }
+                  repeatDragDebug('useTaskDrag', 'handleTaskMouseUp all-day non-snapshot series persisted', {
+                    seriesId: series.id,
+                    templateBlockId: series.templateBlockId,
+                    nextSeriesStart,
+                    nextSeriesEnd,
+                    currentTask: summarizeTask(currentTask)
+                  });
+                  notifyRepeatChanged({
+                    blockId: series.templateBlockId,
+                    seriesId: series.id,
+                    frequency: series.frequency
+                  });
+                }
+              } catch (_error) {
+              }
+            }
+          } else if (scope === 'single' && task.type === 'block' && task.blockId) {
+            if (repeatSeriesSnapshot) {
+              restoreRepeatSeriesDragSnapshot(repeatSeriesSnapshot);
+              const updatedTask = patchLocalTask(task.id, {
+                startDate: currentStart,
+                dueDate: currentDue
+              });
+              if (updatedTask) {
+                emitTaskDateChanged(updatedTask);
+              }
+            }
             try {
               const { setBlockAttrs } = await import('@/api');
               await setBlockAttrs(task.blockId, {
-                'custom-task-start-date': originalStartDate || '',
-                'custom-task-due-date': originalDueDate || ''
+                'custom-task-start-date': currentStart || '',
+                'custom-task-due-date': currentDue || ''
               });
             } catch (_error) {
             }
           }
-        } else if (scope === 'series') {
-          const from = new Date(originalStartDate || currentStart);
-          const to = new Date(currentStart);
-          from.setHours(0, 0, 0, 0);
-          to.setHours(0, 0, 0, 0);
-          const deltaDays = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
-          if (deltaDays !== 0 && currentTask.repeatSeriesId) {
-            for (const candidate of localTasks.value) {
-              if (candidate.id === task.id) continue;
-              if (candidate.repeatSeriesId !== currentTask.repeatSeriesId) continue;
-              const baseStart = candidate.startDate || candidate.dueDate;
-              const baseDue = candidate.dueDate || candidate.startDate;
-              if (!baseStart || !baseDue) continue;
-              const shiftedTask = patchLocalTask(candidate.id, {
-                startDate: shiftDate(baseStart, deltaDays),
-                dueDate: shiftDate(baseDue, deltaDays)
-              });
-              if (shiftedTask) {
-                emitTaskDateChanged(shiftedTask);
-              }
-            }
-          }
-          try {
-            const { getRepeatSeriesForTask, updateRepeatSeriesDates } = await import('@/repeatRepository');
-            const series = await getRepeatSeriesForTask(currentTask);
-            if (series) {
-              const nextSeriesStart = shiftDate(series.startDate, deltaDays);
-              const nextSeriesEnd = series.endDate ? shiftDate(series.endDate, deltaDays) : null;
-              await updateRepeatSeriesDates(currentTask, nextSeriesStart, nextSeriesEnd);
-              if (series.templateBlockId) {
-                const { setBlockAttrs } = await import('@/api');
-                await setBlockAttrs(series.templateBlockId, {
-                  'custom-task-start-date': nextSeriesStart || '',
-                  'custom-task-due-date': nextSeriesEnd || ''
-                });
-              }
-            }
-          } catch (_error) {
-          }
-        } else if (scope === 'single' && task.type === 'block' && task.blockId) {
-          try {
-            const { setBlockAttrs } = await import('@/api');
-            await setBlockAttrs(task.blockId, {
-              'custom-task-start-date': currentStart || '',
-              'custom-task-due-date': currentDue || ''
-            });
-          } catch (_error) {
-          }
         }
       }
+    } finally {
+      isDragging.value = false;
     }
 
   }
 
   function handleTimedTaskHandleMouseDown(event: MouseEvent, task: Task, handleType: 'start' | 'end') {
     if (isMobileFrontend) return;
+    if (preventConcurrentDragStart(event, task, `timed-handle:${handleType}`)) return;
 
     const repeatSeriesSnapshot = isRepeatTask(task)
       ? buildRepeatSeriesDragSnapshot(task)
@@ -920,7 +1290,7 @@ export function useTaskDrag(
       if (timeChanged || dateChanged) {
         if (repeatSeriesSnapshot && isRepeatTask(currentTask)) {
           try {
-            const { getRepeatSeriesForTask, updateRepeatSeriesDates } = await import('@/repeatRepository');
+            const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
             const series = await getRepeatSeriesForTask(currentTask);
 
             if (series) {
@@ -936,7 +1306,8 @@ export function useTaskDrag(
                 {
                   startTime: newStartTime,
                   dueTime: newEndTime
-                }
+                },
+                { emitChange: false }
               );
 
               const templateBlockId = series.templateBlockId
@@ -953,6 +1324,20 @@ export function useTaskDrag(
                 } catch (_error) {
                 }
               }
+              repeatDragDebug('useTaskDrag', 'handleTimedTaskHandleMouseUp series persisted', {
+                seriesId: series.id,
+                templateBlockId,
+                nextSeriesStart,
+                nextSeriesEnd,
+                newStartTime,
+                newEndTime,
+                currentTask: summarizeTask(currentTask)
+              });
+              notifyRepeatChanged({
+                blockId: templateBlockId,
+                seriesId: series.id,
+                frequency: series.frequency
+              });
 
               for (const entry of repeatSeriesSnapshot.entries) {
                 const syncedTask = getLocalTask(entry.id);
@@ -999,6 +1384,7 @@ export function useTaskDrag(
 
   function handleTimedTaskMouseDown(event: MouseEvent, task: Task, dayKey: string) {
     if (isMobileFrontend) return;
+    if (preventConcurrentDragStart(event, task, 'timed-task')) return;
 
     clearTimedRepeatPreview();
     const target = event.target as HTMLElement;
@@ -1093,15 +1479,21 @@ export function useTaskDrag(
     const scrollTop = daysScrollElement.scrollTop;
     const offsetY = event.clientY - scrollRect.top + scrollTop - (clickOffsetY || 0);
 
-    const totalMinutes = Math.round(offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT);
-    const snappedMinutes = Math.round(totalMinutes / CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES) * CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES;
+    const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+    const snapMinutes = CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES;
+    const snappedMinutes = Math.round(totalMinutes / snapMinutes) * snapMinutes;
+    const maxStartMinutes = Math.max(0, 24 * 60 - snapMinutes);
+    const clampedMinutes = Math.max(0, Math.min(maxStartMinutes, snappedMinutes));
 
-    const hours = Math.floor(snappedMinutes / 60);
-    const minutes = snappedMinutes % 60;
+    const hours = Math.floor(clampedMinutes / 60);
+    const minutes = clampedMinutes % 60;
     const newStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
     const newStartDateTime = new Date(newDayKey + 'T' + newStartTime);
-    const newDueDateTime = new Date(newStartDateTime.getTime() + durationMs);
+    const safeDurationMs = Number.isFinite(durationMs)
+      ? Math.max(15 * 60 * 1000, Number(durationMs))
+      : 60 * 60 * 1000;
+    const newDueDateTime = new Date(newStartDateTime.getTime() + safeDurationMs);
     if (repeatSeriesSnapshot) {
       const from = new Date(originalStartDate);
       const to = new Date(newDayKey);
@@ -1123,26 +1515,66 @@ export function useTaskDrag(
   async function handleTimedTaskMouseUp(event: MouseEvent) {
     if (!draggingTimedTask.value) return;
 
-    flushTimedRepeatPreview();
-    const { task, originalStartTime, originalEndTime, originalStartDate, originalDueDate, repeatSeriesSnapshot } = draggingTimedTask.value;
+    const {
+      task,
+      originalStartTime,
+      originalEndTime,
+      originalStartDate,
+      originalDueDate,
+      clickOffsetY,
+      durationMs,
+      repeatSeriesSnapshot
+    } = draggingTimedTask.value;
+    const finalDrop = resolveTimedTaskDropFromEvent(event, {
+      originalStartDate,
+      clickOffsetY,
+      durationMs
+    });
+
+    if (repeatSeriesSnapshot) {
+      if (finalDrop) {
+        clearTimedRepeatPreview();
+        const deltaDays = getDayDelta(originalStartDate, finalDrop.dayKey);
+        if (finalDrop.kind === 'all-day') {
+          applyRepeatSeriesTimedMove(repeatSeriesSnapshot, deltaDays, undefined, true);
+        } else {
+          applyRepeatSeriesTimedMove(repeatSeriesSnapshot, deltaDays, finalDrop.startTime, false);
+        }
+      } else {
+        flushTimedRepeatPreview();
+      }
+    } else {
+      clearTimedRepeatPreview();
+    }
+
     const currentTask = getLocalTask(task.id);
 
     if (currentTask) {
-      const newStartTime = currentTask.startTime || originalStartTime;
-      const newEndTime = currentTask.dueTime || originalEndTime;
-      const newStartDate = currentTask.startDate || originalStartDate;
-      const newDueDate = currentTask.dueDate || originalDueDate;
-
-      const target = event.target as HTMLElement;
-      const allDaySection = target.closest('.all-day-section') as HTMLElement;
+      const target = event.target as HTMLElement | null;
+      const allDaySection = target?.closest('.all-day-section') as HTMLElement | null;
+      const isAllDayDrop = finalDrop ? finalDrop.kind === 'all-day' : !!allDaySection;
+      const resolvedStartDate = finalDrop?.dayKey || currentTask.startDate || originalStartDate;
+      const resolvedDueDate = (
+        finalDrop?.kind === 'timed'
+          ? finalDrop.dueDate
+          : finalDrop?.kind === 'all-day'
+            ? finalDrop.dayKey
+            : undefined
+      ) || currentTask.dueDate || originalDueDate;
+      const resolvedStartTime = finalDrop?.kind === 'timed'
+        ? (finalDrop.startTime || currentTask.startTime || originalStartTime)
+        : (currentTask.startTime || originalStartTime);
+      const resolvedEndTime = finalDrop?.kind === 'timed'
+        ? (finalDrop.dueTime || currentTask.dueTime || originalEndTime)
+        : (currentTask.dueTime || originalEndTime);
 
       if (repeatSeriesSnapshot && isRepeatTask(currentTask)) {
         try {
-          const { getRepeatSeriesForTask, updateRepeatSeriesDates } = await import('@/repeatRepository');
+          const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
           const series = await getRepeatSeriesForTask(currentTask);
           if (series) {
             const from = new Date(originalStartDate);
-            const to = new Date(newStartDate);
+            const to = new Date(resolvedStartDate);
             from.setHours(0, 0, 0, 0);
             to.setHours(0, 0, 0, 0);
             const deltaDays = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
@@ -1153,9 +1585,10 @@ export function useTaskDrag(
               nextSeriesStart,
               nextSeriesEnd,
               {
-                startTime: allDaySection ? null : newStartTime,
-                dueTime: allDaySection ? null : newEndTime
-              }
+                startTime: isAllDayDrop ? null : resolvedStartTime,
+                dueTime: isAllDayDrop ? null : resolvedEndTime
+              },
+              { emitChange: false }
             );
 
             const templateBlockId = series.templateBlockId
@@ -1165,10 +1598,25 @@ export function useTaskDrag(
               await setBlockAttrs(templateBlockId, {
                 'custom-task-start-date': nextSeriesStart || '',
                 'custom-task-due-date': nextSeriesEnd || '',
-                'custom-task-start-time': allDaySection ? null : newStartTime,
-                'custom-task-due-time': allDaySection ? null : newEndTime
+                'custom-task-start-time': isAllDayDrop ? null : resolvedStartTime,
+                'custom-task-due-time': isAllDayDrop ? null : resolvedEndTime
               });
             }
+            repeatDragDebug('useTaskDrag', 'handleTimedTaskMouseUp series persisted', {
+              seriesId: series.id,
+              templateBlockId,
+              nextSeriesStart,
+              nextSeriesEnd,
+              newStartTime: resolvedStartTime,
+              newEndTime: resolvedEndTime,
+              allDayDrop: isAllDayDrop,
+              currentTask: summarizeTask(currentTask)
+            });
+            notifyRepeatChanged({
+              blockId: templateBlockId,
+              seriesId: series.id,
+              frequency: series.frequency
+            });
 
             for (const entry of repeatSeriesSnapshot.entries) {
               const synced = getLocalTask(entry.id);
@@ -1185,10 +1633,10 @@ export function useTaskDrag(
         } catch (error) {
           restoreRepeatSeriesDragSnapshot(repeatSeriesSnapshot);
         }
-      } else if (allDaySection) {
+      } else if (isAllDayDrop) {
         const updatedTask = patchLocalTask(task.id, {
-          startDate: newStartDate,
-          dueDate: newDueDate,
+          startDate: resolvedStartDate,
+          dueDate: resolvedDueDate,
           startTime: undefined,
           dueTime: undefined
         });
@@ -1207,8 +1655,8 @@ export function useTaskDrag(
           try {
             const { setBlockAttrs } = await import('@/api');
             await setBlockAttrs(task.blockId, {
-              'custom-task-start-date': newStartDate,
-              'custom-task-due-date': newDueDate,
+              'custom-task-start-date': resolvedStartDate,
+              'custom-task-due-date': resolvedDueDate,
               'custom-task-start-time': null,
               'custom-task-due-time': null
             });
@@ -1224,12 +1672,17 @@ export function useTaskDrag(
 
         emitTaskDateChanged(updatedTask);
       } else {
-        if (newStartTime !== originalStartTime || newEndTime !== originalEndTime || newStartDate !== originalStartDate || newDueDate !== originalDueDate) {
+        if (
+          resolvedStartTime !== originalStartTime
+          || resolvedEndTime !== originalEndTime
+          || resolvedStartDate !== originalStartDate
+          || resolvedDueDate !== originalDueDate
+        ) {
           const updatedTask = patchLocalTask(task.id, {
-            startTime: newStartTime,
-            dueTime: newEndTime,
-            startDate: newStartDate,
-            dueDate: newDueDate
+            startTime: resolvedStartTime,
+            dueTime: resolvedEndTime,
+            startDate: resolvedStartDate,
+            dueDate: resolvedDueDate
           });
           if (!updatedTask) {
             draggingTimedTask.value = null;
@@ -1246,10 +1699,10 @@ export function useTaskDrag(
             try {
               const { setBlockAttrs } = await import('@/api');
               await setBlockAttrs(task.blockId, {
-                'custom-task-start-time': newStartTime,
-                'custom-task-due-time': newEndTime,
-                'custom-task-start-date': newStartDate,
-                'custom-task-due-date': newDueDate
+                'custom-task-start-time': resolvedStartTime,
+                'custom-task-due-time': resolvedEndTime,
+                'custom-task-start-date': resolvedStartDate,
+                'custom-task-due-date': resolvedDueDate
               });
             } catch (error) {
               patchLocalTask(task.id, {

@@ -61,7 +61,7 @@ export function useTaskFilterState<
   const sectionTitles: Record<TaskFilterSectionKey, string> = {
     status: '状态',
     priority: '优先级',
-    group: '分组',
+    group: '标签',
     due: '截止日期',
     updated: '日期更新',
     extra: '其他',

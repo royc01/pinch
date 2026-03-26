@@ -8,9 +8,19 @@
       @update:modelValue="handleDueSelect"
       @close="emitPanelUpdate(null)"
     />
+    <TaskReminderPopover
+      v-if="panel === 'reminder'"
+      :visible="true"
+      :anchor-el="reminderButtonRef"
+      :model-value="reminderType"
+      :custom-time="reminderCustomTime"
+      :due-date="dueDate"
+      @select="handleReminderSelect"
+      @close="emitPanelUpdate(null)"
+    />
     <div v-if="panel === 'group'" class="task-editor-group-panel">
       <div class="task-editor-group-header">
-        <span class="task-editor-group-title">选择分组</span>
+        <span class="task-editor-group-title">选择标签</span>
         <button
           v-if="showGroupManage"
           type="button"
@@ -55,32 +65,44 @@
         class="task-editor-action-btn task-editor-group-btn"
         :class="{ 'is-active': panel === 'group' }"
         :style="groupButtonStyle"
+        title="标签"
+        aria-label="标签"
         @click.stop="togglePanel('group')"
-        title="分组"
-        aria-label="分组"
       >
         <Icon name="group" width="14" height="14" />
         <span v-if="selectedGroupId !== TASK_GROUP_NONE_ID" class="task-editor-group-button-label">{{ groupLabel }}</span>
       </button>
       <button
+        ref="dueButtonRef"
         type="button"
         class="task-editor-action-btn"
         :class="{ 'is-active': panel === 'due' }"
-        ref="dueButtonRef"
-        @click.stop="togglePanel('due')"
         title="截止日期"
         aria-label="截止日期"
+        @click.stop="togglePanel('due')"
       >
         <Icon name="calendar" width="14" height="14" />
         <span v-if="hasDueDate" class="task-editor-action-value">{{ dueText }}</span>
       </button>
       <button
+        ref="reminderButtonRef"
+        type="button"
+        class="task-editor-action-btn"
+        :class="{ 'is-active': panel === 'reminder' }"
+        title="提醒"
+        aria-label="提醒"
+        @click.stop="togglePanel('reminder')"
+      >
+        <Icon name="bell" width="14" height="14" />
+        <span v-if="hasReminder" class="task-editor-action-value">{{ reminderText }}</span>
+      </button>
+      <button
         type="button"
         class="task-editor-action-btn"
         :class="{ 'is-active': panel === 'description' }"
-        @click.stop="togglePanel('description')"
         title="描述"
         aria-label="描述"
+        @click.stop="togglePanel('description')"
       >
         <Icon name="edit" width="14" height="14" />
       </button>
@@ -89,11 +111,14 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch, computed } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
+import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
+import type { TaskReminderSelection, TaskReminderType } from '@/utils/taskReminder';
 
-type TaskEditorPanel = 'due' | 'description' | 'group' | null;
+type TaskEditorPanel = 'due' | 'description' | 'group' | 'reminder' | null;
+
 type TaskGroupOption = {
   value: string;
   label: string;
@@ -114,11 +139,19 @@ const props = withDefaults(defineProps<{
   groupOptions: TaskGroupOption[];
   selectedGroupId: string;
   groupLabel: string;
+  reminderType?: TaskReminderType;
+  reminderCustomTime?: string;
+  reminderText?: string;
+  hasReminder?: boolean;
   groupButtonStyle?: Record<string, string>;
   defaultGroupChipColor?: string;
   descriptionPlaceholder?: string;
   showGroupManage?: boolean;
 }>(), {
+  reminderType: undefined,
+  reminderCustomTime: '',
+  reminderText: '',
+  hasReminder: false,
   groupButtonStyle: () => ({}),
   defaultGroupChipColor: '#9aa0a6',
   descriptionPlaceholder: '添加任务描述...',
@@ -130,12 +163,15 @@ const emit = defineEmits<{
   'update:description': [value: string];
   'select-due': [value: string];
   'select-group': [value: string];
+  'select-reminder': [value: TaskReminderSelection];
   'commit-description': [];
   'manage-groups': [];
 }>();
 
 const dueButtonRef = ref<HTMLElement | null>(null);
+const reminderButtonRef = ref<HTMLElement | null>(null);
 const descriptionRef = ref<HTMLTextAreaElement | null>(null);
+
 const showDescriptionPanel = computed(() => props.panel === 'description' || props.hasDescription);
 
 function emitPanelUpdate(value: TaskEditorPanel): void {
@@ -148,6 +184,10 @@ function togglePanel(panel: Exclude<TaskEditorPanel, null>): void {
 
 function handleDueSelect(value: string): void {
   emit('select-due', value);
+}
+
+function handleReminderSelect(value: TaskReminderSelection): void {
+  emit('select-reminder', value);
 }
 
 function handleDescriptionInput(event: Event): void {
@@ -217,6 +257,7 @@ watch(
 
 .task-editor-action-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-start;
 }

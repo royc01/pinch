@@ -17,6 +17,8 @@ export interface CRDTTask {
   startTime: CRDTField<string | undefined>;
   dueTime: CRDTField<string | undefined>;
   description: CRDTField<string | undefined>;
+  reminderType: CRDTField<string | undefined>;
+  reminderCustomTime: CRDTField<string | undefined>;
   tags: CRDTField<string[]>;
   groupId: CRDTField<string | undefined>;
   backgroundColor: CRDTField<string | undefined>;
@@ -100,6 +102,8 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
     startTime: mergeField(a.startTime || b.startTime, b.startTime || a.startTime),
     dueTime: mergeField(a.dueTime || b.dueTime, b.dueTime || a.dueTime),
     description: mergeField(a.description, b.description),
+    reminderType: mergeField(a.reminderType || b.reminderType, b.reminderType || a.reminderType),
+    reminderCustomTime: mergeField(a.reminderCustomTime || b.reminderCustomTime, b.reminderCustomTime || a.reminderCustomTime),
     tags: mergeField(a.tags, b.tags),
     groupId: mergeField(a.groupId, b.groupId),
     backgroundColor: mergeField(a.backgroundColor || b.backgroundColor, b.backgroundColor || a.backgroundColor),
@@ -130,6 +134,8 @@ export class TaskCRDTEngine {
       startTime: base,
       dueTime: base,
       description: base,
+      reminderType: base,
+      reminderCustomTime: base,
       tags: this.baseField([]),
       groupId: base,
       backgroundColor: base,
