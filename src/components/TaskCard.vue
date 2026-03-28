@@ -4,7 +4,6 @@
     :draggable="draggable"
     @dragstart="handleDragStart"
     @dragend="handleDragEnd"
-    @click="handleCardClick"
     @contextmenu="handleContextMenu"
   >
     <div class="task-card-content">
@@ -17,7 +16,12 @@
         >
           <TaskCheckbox :checked="isCompleted" :size="18" />
         </div>
-        <div class="task-title" :title="titleTooltip" v-html="titleHtml"></div>
+        <div
+          class="task-title"
+          :title="titleTooltip"
+          v-html="titleHtml"
+          @click="handleCardClick"
+        ></div>
         <div class="task-card-actions">
           <button
             type="button"
@@ -82,7 +86,7 @@
         </template>
       </div>
 
-      <div v-if="showBadges" class="task-badges">
+      <div v-if="showBadges" class="task-badges" @click="handleCardClick">
         <span
           v-if="groupLabel"
           class="task-group-badge"
@@ -514,7 +518,7 @@ function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: 
   font-size: 13px;
   line-height: 1.5;
   color: var(--b3-theme-on-surface);
-  opacity: 0.8;
+  opacity: 0.6;
   word-break: break-word;
   margin-left: 26px;
   padding: 0;

@@ -16,7 +16,7 @@
 
 <script setup lang="ts">
 defineProps<{
-  options: Array<{
+  options: ReadonlyArray<{
     value: string
     text: string
   }>

@@ -4,7 +4,7 @@ import type { TaskViewGroupMode } from './taskGrouping';
 
 export interface UserSettings {
   kanban: {
-    currentView?: 'kanban' | 'table' | 'month' | 'week';
+    currentView?: 'kanban' | 'table' | 'month' | 'week' | 'day';
     filterType: string;
     filterDocument: string;
     filterPriority: string;
@@ -23,6 +23,9 @@ export interface UserSettings {
     monthFilterDocument: string;
     weekFilterType?: string;
     weekFilterDocument?: string;
+    dayFilterType?: string;
+    dayFilterDocument?: string;
+    hiddenDocumentTabIds: string[];
   };
   taskManager: {
     filterStatus: string;
@@ -62,7 +65,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
     monthFilterType: 'all',
     monthFilterDocument: 'all',
     weekFilterType: 'all',
-    weekFilterDocument: 'all'
+    weekFilterDocument: 'all',
+    dayFilterType: 'all',
+    dayFilterDocument: 'all',
+    hiddenDocumentTabIds: []
   },
   taskManager: {
     filterStatus: 'all',
@@ -92,7 +98,8 @@ function mergeWithDefaults(input: unknown): UserSettings {
   return {
     kanban: {
       ...DEFAULT_SETTINGS.kanban,
-      ...rawKanban
+      ...rawKanban,
+      hiddenDocumentTabIds: normalizeNotebookIds((rawKanban as { hiddenDocumentTabIds?: unknown }).hiddenDocumentTabIds)
     },
     taskManager: {
       ...DEFAULT_SETTINGS.taskManager,

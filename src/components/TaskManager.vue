@@ -37,20 +37,42 @@
     <div class="filters-row" v-show="!isTaskListCollapsed">
       <div class="filters-bar">
         <div class="filter-group">
-          <label>{{ t('taskManager.notebook') }}:</label>
-          <SySelect
-            :model-value="filterNotebook"
-            @update:model-value="filterNotebook = $event"
-            :options="notebookOptions"
-          />
+          <label
+            class="task-manager-notebook-label"
+            :title="t('taskManager.notebook')"
+            :aria-label="t('taskManager.notebook')"
+          >
+            <svg
+              t="1774574520545"
+              class="task-manager-notebook-icon"
+              viewBox="0 0 1026 1024"
+              version="1.1"
+              xmlns="http://www.w3.org/2000/svg"
+              p-id="11770"
+              width="16"
+              height="16"
+              aria-hidden="true"
+            >
+              <path d="M950.857143 394.971429l-124.342857 438.857142c-7.314286 21.942857-36.571429 43.885714-58.514286 43.885715h-658.285714c-7.314286 0-14.628571 0-21.942857-7.314286 0-7.314286-7.314286-14.628571 0-21.942857l124.342857-438.857143c7.314286-21.942857 36.571429-43.885714 58.514285-43.885714h658.285715c7.314286 0 14.628571 0 14.628571 7.314285 7.314286 0 7.314286 7.314286 7.314286 21.942858zM73.142857 109.714286c0-21.942857 14.628571-36.571429 36.571429-36.571429h234.057143l65.828571 124.342857c0 14.628571 14.628571 21.942857 29.257143 21.942857h402.285714c21.942857 0 36.571429 14.628571 36.571429 36.571429V292.571429H270.628571C219.428571 292.571429 160.914286 336.457143 146.285714 394.971429L73.142857 643.657143V109.714286z m936.228572 219.428571c-14.628571-21.942857-36.571429-29.257143-58.514286-36.571428v-36.571429c0-58.514286-51.2-109.714286-109.714286-109.714286H460.8L394.971429 21.942857C394.971429 7.314286 380.342857 0 365.714286 0H109.714286C51.2 0 0 51.2 0 109.714286v731.428571c0 36.571429 21.942857 73.142857 43.885714 87.771429h7.314286c14.628571 14.628571 36.571429 21.942857 58.514286 21.942857h658.285714c58.514286 0 109.714286-43.885714 131.657143-102.4l124.342857-438.857143c7.314286-29.257143 0-58.514286-14.628571-80.457143z" p-id="11771"></path>
+            </svg>
+          </label>
+          <div class="filter-select-wrap">
+            <SySelect
+              :model-value="filterNotebook"
+              @update:model-value="filterNotebook = $event"
+              :options="notebookOptions"
+            />
+          </div>
         </div>
         <div v-if="filterNotebook !== 'all'" class="filter-group">
-          <label>{{ t('taskManager.document') }}:</label>
-          <SySelect
-            :model-value="filterDocument"
-            @update:model-value="filterDocument = $event"
-            :options="documentOptions"
-          />
+          <label>/</label>
+          <div class="filter-select-wrap">
+            <SySelect
+              :model-value="filterDocument"
+              @update:model-value="filterDocument = $event"
+              :options="documentOptions"
+            />
+          </div>
         </div>
       </div>
       <div class="filters-actions">
@@ -1284,6 +1306,7 @@ const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
 const taskStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
   { value: 'pending', label: '待处理' },
   { value: 'in-progress', label: '进行中' },
+  { value: 'delayed', label: '延迟' },
   { value: 'completed', label: '已完成' },
   { value: 'cancelled', label: '已取消' }
 ];
@@ -2357,6 +2380,10 @@ async function refreshTasks(
       loadScope,
       { useLiveDom }
     );
+    if (!useLiveDom) {
+      preserveInlineMemoTitles(sqlTasks, tasks.value);
+      hydrateMemoTitlesFromLiveDom(sqlTasks, TASK_TITLE_HYDRATE_LIMIT);
+    }
 
     crdtRepo.syncFromSQLTasks(sqlTasks);
     const newTasks = crdtRepo.getTasks();
@@ -3000,7 +3027,90 @@ function stripTaskPrefix(text: string): string {
     .trim();
 }
 
-function parseTaskTitle(markdown: string): string | null {
+function cleanTaskTitleHtml(html: string): string {
+  return html.replace(/\{:\s*style="[^"]*"\}/g, '').trim();
+}
+
+function getLiveTaskTitle(blockId: string): string | null {
+  if (!blockId) return null;
+  const selectors = [
+    `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
+    `.protyle [data-node-id="${blockId}"]`,
+    `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
+    `[data-node-id="${blockId}"]`
+  ];
+  for (const selector of selectors) {
+    const currentElement = document.querySelector(selector);
+    if (!currentElement) continue;
+    const currentParagraph = currentElement.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
+    const liveTitle = cleanTaskTitleHtml(currentParagraph?.innerHTML || '');
+    if (liveTitle.length > 0) {
+      return liveTitle;
+    }
+  }
+  return null;
+}
+
+function hasInlineMemoTitle(title: string): boolean {
+  return title.includes('data-type="inline-memo"') || title.includes('data-inline-memo-content');
+}
+
+function shouldSkipMemoTitleDowngrade(currentTitle: string, nextTitle: string): boolean {
+  return hasInlineMemoTitle(currentTitle) && !hasInlineMemoTitle(nextTitle) && nextTitle.includes('<sup');
+}
+
+function preserveInlineMemoTitles(nextTasks: Task[], currentTasks: Task[]): void {
+  const stableTitlesByBlockId = new Map<string, string>();
+  for (const task of currentTasks) {
+    if (task.type !== 'block' || !task.blockId) continue;
+    const title = typeof task.title === 'string' ? task.title : '';
+    if (!hasInlineMemoTitle(title)) continue;
+    stableTitlesByBlockId.set(task.blockId, title);
+  }
+
+  if (stableTitlesByBlockId.size === 0) {
+    return;
+  }
+
+  for (const task of nextTasks) {
+    if (task.type !== 'block' || !task.blockId) continue;
+    const stableTitle = stableTitlesByBlockId.get(task.blockId);
+    if (!stableTitle) continue;
+    const nextTitle = typeof task.title === 'string' ? task.title : '';
+    if (shouldSkipMemoTitleDowngrade(stableTitle, nextTitle)) {
+      task.title = stableTitle;
+    }
+  }
+}
+
+function hydrateMemoTitlesFromLiveDom(taskList: Task[], limit = TASK_TITLE_HYDRATE_LIMIT): void {
+  let handled = 0;
+  for (const task of taskList) {
+    if (handled >= limit) {
+      break;
+    }
+    if (task.type !== 'block' || !task.blockId) {
+      continue;
+    }
+    const currentTitle = typeof task.title === 'string' ? task.title : '';
+    if (!currentTitle.includes('<sup')) {
+      continue;
+    }
+    const liveTitle = getLiveTaskTitle(task.blockId);
+    if (!liveTitle || liveTitle === currentTitle) {
+      continue;
+    }
+    task.title = liveTitle;
+    handled += 1;
+  }
+}
+
+function parseTaskTitle(markdown: string, blockId: string): string | null {
+  const liveTitle = getLiveTaskTitle(blockId);
+  if (liveTitle !== null) {
+    return liveTitle;
+  }
+
   const firstLine = markdown
     .split('\n')
     .map(line => line.trim())
@@ -3056,7 +3166,7 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
 
     try {
       const completed = parseTaskCompleted(markdown, blockId);
-      const title = parseTaskTitle(markdown);
+      const title = parseTaskTitle(markdown, blockId);
       if (completed === null) {
         unresolved.push(blockId);
         continue;
@@ -3070,8 +3180,11 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
             changed = true;
           }
           if (title !== null && subtask.title !== title) {
-            subtask.title = title;
-            changed = true;
+            const currentTitle = typeof subtask.title === 'string' ? subtask.title : '';
+            if (!shouldSkipMemoTitleDowngrade(currentTitle, title)) {
+              subtask.title = title;
+              changed = true;
+            }
           }
         }, 'nodeId');
         if (!patched) {
@@ -3102,8 +3215,11 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
             changed = true;
           }
           if (title !== null && task.title !== title) {
-            task.title = title;
-            changed = true;
+            const currentTitle = typeof task.title === 'string' ? task.title : '';
+            if (!shouldSkipMemoTitleDowngrade(currentTitle, title)) {
+              task.title = title;
+              changed = true;
+            }
           }
         }, 'blockId');
         if (!patched) {
@@ -3934,8 +4050,10 @@ onMounted(async () => {
   loading.value = true;
   try {
     const cachedTasks = await TaskRepository.getCachedTasksOnly();
+    hydrateMemoTitlesFromLiveDom(cachedTasks, TASK_TITLE_HYDRATE_LIMIT);
     crdtRepo.syncFromSQLTasks(cachedTasks);
     tasks.value = crdtRepo.getTasks();
+    hydrateMemoTitlesFromLiveDom(tasks.value, TASK_TITLE_HYDRATE_LIMIT);
     await refreshInternalState();
     if (tasks.value.length > 0 && tasks.value.length <= FILTER_SWITCH_BROAD_LOAD_THRESHOLD) {
       lastLoadedScope = { includeCompleted: showCompletedTasks.value };
@@ -4362,11 +4480,12 @@ onUnmounted(() => {
 
 .filters-bar {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: nowrap;
   flex: 1;
   min-width: 0;
   box-sizing: border-box;
+  margin-left: 6px;
 }
 
 .filters-actions {
@@ -4537,16 +4656,34 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.filter-group select {
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 6px;
+.filter-group .task-manager-notebook-label {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+.filter-group .task-manager-notebook-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.filter-group .filter-select-wrap {
+  position: relative;
   flex: 1;
   min-width: 0;
+}
+
+.filter-group :deep(.b3-select) {
+  font-size: 12px;
+  padding: 4px 24px 4px 8px;
+  border-radius: 6px;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
-  &:hover {
-    background-color: var(--b3-list-hover) !important;
-  }
+}
+
+.filter-group :deep(.b3-select:hover) {
+  background-color: var(--b3-list-hover) !important;
 }
 
 .loading {

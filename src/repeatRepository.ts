@@ -5,7 +5,7 @@ import { repeatDragDebug } from '@/utils/repeatDragDebug';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
-type RepeatTaskStatus = 'pending' | 'in-progress' | 'completed' | 'cancelled';
+type RepeatTaskStatus = 'pending' | 'in-progress' | 'delayed' | 'completed' | 'cancelled';
 
 const REPEAT_SERIES_FILE = 'Pinch-repeat-series.json';
 const REPEAT_RECORDS_FILE = 'Pinch-repeat-records.json';
@@ -394,7 +394,13 @@ function normalizeRecord(raw: unknown): RepeatRecord | null {
   const item = raw as Partial<RepeatRecord>;
   if (typeof item.seriesId !== 'string' || !item.seriesId) return null;
   if (typeof item.date !== 'string' || !parseDate(item.date)) return null;
-  if (item.status !== 'pending' && item.status !== 'in-progress' && item.status !== 'completed' && item.status !== 'cancelled') {
+  if (
+    item.status !== 'pending'
+    && item.status !== 'in-progress'
+    && item.status !== 'delayed'
+    && item.status !== 'completed'
+    && item.status !== 'cancelled'
+  ) {
     return null;
   }
 
@@ -511,6 +517,54 @@ export async function updateRepeatSeriesDates(
     dueTime: updated.dueTime,
     emitChange: options.emitChange !== false
   });
+  if (options.emitChange !== false) {
+    emitRepeatChanged({
+      blockId: updated.templateBlockId,
+      seriesId: updated.id,
+      frequency: updated.frequency
+    });
+  }
+
+  return updated;
+}
+
+export async function updateRepeatSeriesBackgroundColor(
+  task: Pick<RepeatTaskLike, 'id' | 'blockId' | 'repeatSeriesId'>,
+  backgroundColor?: string,
+  options: {
+    emitChange?: boolean;
+  } = {}
+): Promise<RepeatSeries | null> {
+  const seriesList = await loadRepeatSeries();
+  const series = findSeriesForTask(seriesList, task);
+  if (!series) return null;
+
+  const normalizedBackgroundColor = typeof backgroundColor === 'string' && backgroundColor.trim().length > 0
+    ? backgroundColor.trim()
+    : undefined;
+
+  const updated: RepeatSeries = {
+    ...series,
+    backgroundColor: normalizedBackgroundColor,
+    updatedAt: new Date().toISOString()
+  };
+
+  const idx = seriesList.findIndex(item => item.id === series.id);
+  if (idx >= 0) {
+    seriesList[idx] = updated;
+  } else {
+    seriesList.push(updated);
+  }
+
+  await saveRepeatSeries(seriesList);
+  repeatDragDebug('repeatRepository', 'updateRepeatSeriesBackgroundColor saved series', {
+    taskId: task.id,
+    blockId: task.blockId,
+    seriesId: updated.id,
+    backgroundColor: updated.backgroundColor,
+    emitChange: options.emitChange !== false
+  });
+
   if (options.emitChange !== false) {
     emitRepeatChanged({
       blockId: updated.templateBlockId,

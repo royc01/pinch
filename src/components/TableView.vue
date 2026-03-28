@@ -457,6 +457,14 @@ interface Props {
   headingGroups?: Map<string, TaskHeadingGroupMeta>;
 }
 
+type TableTaskGroupSection = {
+  key: string;
+  id: string;
+  label: string;
+  tasks: Task[];
+  style?: Record<string, string>;
+};
+
 const props = defineProps<Props>();
 
 const TASK_GROUP_NONE_ID = '__none__';
@@ -499,7 +507,7 @@ const datePopoverField = ref<DateField>('dueDate');
 const datePopoverAnchorRef = ref<HTMLElement | null>(null);
 
 const priorityOrder = { high: 0, medium: 1, low: 2, none: 3 };
-const statusOrder = { 'in-progress': 0, pending: 1, completed: 2, cancelled: 3 };
+const statusOrder = { 'in-progress': 0, delayed: 1, pending: 2, completed: 3, cancelled: 4 };
 
 function compareTasksDefault(a: Task, b: Task): number {
   const isACompleted = a.status === 'completed';
@@ -610,6 +618,11 @@ const statusGroupOrder: Array<{ id: Task['status']; label: string; style: Record
     style: { '--group-badge-bg': 'rgba(59, 130, 246, 0.14)', '--group-badge-color': '#1d4ed8' }
   },
   {
+    id: 'delayed',
+    label: getStatusLabel('delayed'),
+    style: { '--group-badge-bg': 'rgba(249, 115, 22, 0.14)', '--group-badge-color': '#c2410c' }
+  },
+  {
     id: 'completed',
     label: getStatusLabel('completed'),
     style: { '--group-badge-bg': 'rgba(16, 185, 129, 0.14)', '--group-badge-color': '#047857' }
@@ -660,7 +673,7 @@ const sortedTasks = computed(() => {
 
 const visibleTasks = computed(() => sortedTasks.value.slice(0, visibleTaskCount.value));
 const hasMoreTasks = computed(() => visibleTaskCount.value < sortedTasks.value.length);
-const groupedVisibleTasks = computed(() => {
+const groupedVisibleTasks = computed<TableTaskGroupSection[]>(() => {
   if (!isGroupMode.value) return [];
   if (resolvedGroupMode.value === 'group') {
     const buckets = new Map<string, Task[]>();
@@ -1512,6 +1525,11 @@ function toggleExpand(taskId: string) {
 .status-badge.status-in-progress {
   background: var(--pinch-background7);
   color: var(--pinch-group-color7);
+}
+
+.status-badge.status-delayed {
+  background: var(--pinch-background8);
+  color: var(--pinch-group-color8);
 }
 
 .status-badge.status-completed {

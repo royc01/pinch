@@ -19,8 +19,6 @@ let mobileKanbanDialog: Dialog | null = null;
 let mobileKanbanApp: any = null;
 let mobileTaskCreateDialog: Dialog | null = null;
 let mobileTaskCreateApp: any = null;
-let mobilePinchDialog: Dialog | null = null;
-let mobilePinchApp: any = null;
 let pinchDockModel: any = null;
 const PINCH_DOCK_TYPE = 'Pinch-habit';
 const MOBILE_BREADCRUMB_LONG_PRESS_MS = 480;
@@ -97,8 +95,9 @@ function createMobileBreadcrumbTaskButton() {
       handledLongPress = true;
       clearLongPressTimer();
       closeMobileTaskCreateDialog();
-      showMessage('\u6B63\u5728\u6253\u5F00 Pinch \u9875\u9762', 1500, 'info');
-      void openPinchViewFromMobileBreadcrumb();
+      if (!openKanbanMobileDialog()) {
+        showMessage('\u65E0\u6CD5\u6253\u5F00 Pinch \u4EFB\u52A1\u770B\u677F', 3000, 'error');
+      }
     }, MOBILE_BREADCRUMB_LONG_PRESS_MS);
   };
 
@@ -110,7 +109,7 @@ function createMobileBreadcrumbTaskButton() {
   button.setAttribute('title', '新建任务');
   button.innerHTML = '<svg style="width:18px;height:18px;"><use xlink:href="#ht-custom-icon"></use></svg>';
   button.setAttribute('aria-label', '\u65B0\u5EFA\u4EFB\u52A1');
-  button.setAttribute('title', '\u65B0\u5EFA\u4EFB\u52A1\uff08\u957F\u6309\u6253\u5F00 Pinch-habit-app\uff09');
+  button.setAttribute('title', '\u65B0\u5EFA\u4EFB\u52A1\uff08\u957F\u6309\u6253\u5F00 Pinch \u770B\u677F\uff09');
   button.addEventListener('pointerdown', (event) => {
     event.stopPropagation();
     startLongPress();
@@ -285,94 +284,6 @@ async function openTaskCreateFromMobileBreadcrumb() {
   }
 }
 
-function cleanupMobilePinchApp() {
-  if (mobilePinchApp) {
-    mobilePinchApp.unmount();
-    mobilePinchApp = null;
-  }
-}
-
-function handleMobilePinchDialogDestroyed() {
-  cleanupMobilePinchApp();
-  mobilePinchDialog = null;
-}
-
-function closeMobilePinchDialog() {
-  if (!mobilePinchDialog) {
-    cleanupMobilePinchApp();
-    return;
-  }
-
-  const dialog = mobilePinchDialog;
-  mobilePinchDialog = null;
-  dialog.destroy();
-}
-
-function openPinchMobileDialog(): boolean {
-  if (mobilePinchDialog) {
-    return true;
-  }
-
-  let dialog: Dialog | null = null;
-  try {
-    const mountId = `pinch-mobile-app-${Date.now()}`;
-    dialog = new Dialog({
-      title: 'Pinch',
-      content: `<div id="${mountId}" style="width:100%;height:100%;"></div>`,
-      width: '100vw',
-      height: '100vh',
-      destroyCallback: () => {
-        handleMobilePinchDialogDestroyed();
-      }
-    });
-
-    const mountElement = dialog.element.querySelector(`#${mountId}`) as HTMLElement | null;
-    if (!mountElement) {
-      dialog.destroy();
-      return false;
-    }
-
-    mobilePinchDialog = dialog;
-    mobilePinchApp = createApp(App);
-    mobilePinchApp.mount(mountElement);
-    return true;
-  } catch (error) {
-    console.error('Failed to open mobile Pinch dialog:', error);
-    if (dialog) {
-      dialog.destroy();
-    } else {
-      handleMobilePinchDialogDestroyed();
-    }
-    return false;
-  }
-}
-
-async function waitForPinchDockViewVisible(timeoutMs = 320): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (isPinchDockViewVisible()) {
-      return true;
-    }
-    await new Promise<void>((resolve) => {
-      window.requestAnimationFrame(() => resolve());
-    });
-  }
-  return isPinchDockViewVisible();
-}
-
-async function openPinchViewFromMobileBreadcrumb() {
-  if (openPinchMobileDialog()) {
-    return true;
-  }
-
-  if (openPinchDockView() && await waitForPinchDockViewVisible()) {
-    return true;
-  }
-
-  showMessage('\u65E0\u6CD5\u6253\u5F00 Pinch \u9875\u9762', 3000, 'error');
-  return false;
-}
-
 let app = null;
 export function init(pluginInstance: Plugin) {
   // bind plugin hook
@@ -521,18 +432,10 @@ export function destroy() {
   stopTaskReminderScheduler();
   stopMobileBreadcrumbButtonObserver();
   closeMobileTaskCreateDialog();
-  closeMobilePinchDialog();
   if (app) {
     app.unmount();
   }
-  if (mobileKanbanApp) {
-    mobileKanbanApp.unmount();
-    mobileKanbanApp = null;
-  }
-  if (mobileKanbanDialog) {
-    mobileKanbanDialog.destroy();
-    mobileKanbanDialog = null;
-  }
+  closeMobileKanbanDialog();
   pinchDockModel = null;
   const container = document.getElementById('Pinch-habit-app');
   if (container) {
@@ -540,31 +443,86 @@ export function destroy() {
   }
 }
 
+function cleanupMobileKanbanApp() {
+  if (mobileKanbanApp) {
+    mobileKanbanApp.unmount();
+    mobileKanbanApp = null;
+  }
+}
+
+function closeMobileKanbanDialog() {
+  if (!mobileKanbanDialog) {
+    cleanupMobileKanbanApp();
+    return;
+  }
+
+  const dialog = mobileKanbanDialog;
+  mobileKanbanDialog = null;
+  dialog.destroy();
+}
+
+function relocateMobileKanbanDialogCloseButton(dialog: Dialog, retryCount = 0) {
+  const dialogRoot = dialog.element as HTMLElement | null;
+  if (!dialogRoot) {
+    return;
+  }
+
+  const targetHeaderActions = dialogRoot.querySelector('.kanban-view .header-actions') as HTMLElement | null;
+  const refreshButton = targetHeaderActions?.querySelector('.refresh-btn') as HTMLElement | null;
+  const header = dialogRoot.querySelector('.resize__move.b3-dialog__header') as HTMLElement | null;
+  const closeButton = (header?.querySelector('.b3-dialog__close') as HTMLButtonElement | null)
+    || (dialogRoot.querySelector('.b3-dialog__close') as HTMLButtonElement | null);
+
+  if (!targetHeaderActions || !closeButton) {
+    if (retryCount < 20 && mobileKanbanDialog === dialog) {
+      window.setTimeout(() => {
+        relocateMobileKanbanDialogCloseButton(dialog, retryCount + 1);
+      }, 50);
+    }
+    return;
+  }
+
+  if (!closeButton.dataset.pinchMobileKanbanCloseBound) {
+    closeButton.dataset.pinchMobileKanbanCloseBound = 'true';
+    closeButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMobileKanbanDialog();
+    });
+  }
+
+  closeButton.setAttribute('aria-label', 'close');
+  closeButton.setAttribute('title', 'close');
+  closeButton.classList.add('pinch-mobile-kanban-dialog-close-button');
+
+  if (refreshButton && refreshButton.parentElement === targetHeaderActions) {
+    refreshButton.insertAdjacentElement('afterend', closeButton);
+  } else {
+    targetHeaderActions.append(closeButton);
+  }
+
+  if (header) {
+    header.remove();
+  }
+}
+
 function openKanbanMobileDialog(): boolean {
+  let dialog: Dialog | null = null;
   try {
-    if (mobileKanbanApp) {
-      mobileKanbanApp.unmount();
-      mobileKanbanApp = null;
-    }
-    if (mobileKanbanDialog) {
-      mobileKanbanDialog.destroy();
-      mobileKanbanDialog = null;
-    }
+    closeMobileKanbanDialog();
 
     const mountId = `pinch-mobile-kanban-${Date.now()}`;
-    const dialog = new Dialog({
+    dialog = new Dialog({
       title: 'Pinch Tasks',
       content: `<div id="${mountId}" style="width:100%;height:100%;"></div>`,
       width: '100vw',
       height: '100vh',
       destroyCallback: () => {
-        if (mobileKanbanApp) {
-          mobileKanbanApp.unmount();
-          mobileKanbanApp = null;
-        }
+        cleanupMobileKanbanApp();
         mobileKanbanDialog = null;
       }
     });
+    dialog.element.classList.add('pinch-mobile-kanban-dialog');
 
     const mountElement = dialog.element.querySelector(`#${mountId}`) as HTMLElement | null;
     if (!mountElement) {
@@ -575,9 +533,16 @@ function openKanbanMobileDialog(): boolean {
     mobileKanbanApp = createApp(KanbanView);
     mobileKanbanApp.mount(mountElement);
     mobileKanbanDialog = dialog;
+    relocateMobileKanbanDialogCloseButton(dialog);
     return true;
   } catch (error) {
     console.error('Failed to open mobile kanban dialog:', error);
+    if (dialog) {
+      dialog.destroy();
+    } else {
+      cleanupMobileKanbanApp();
+      mobileKanbanDialog = null;
+    }
     return false;
   }
 }

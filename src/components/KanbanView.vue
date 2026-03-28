@@ -2,23 +2,61 @@
     <div class="kanban-view">
       <div class="kanban-header">
         <div class="kanban-header-view-module">
-          <div class="view-switcher">
-            <button :class="['view-btn', { active: currentView === 'kanban' }]" @click="currentView = 'kanban'">
-              <Icon name="kanban" width="16" height="16" />
-              <span>看板</span>
-            </button>
-            <button :class="['view-btn', { active: currentView === 'table' }]" @click="currentView = 'table'">
-              <Icon name="table" width="16" height="16" />
-              <span>表格</span>
-            </button>
-            <button :class="['view-btn', { active: currentView === 'month' }]" @click="currentView = 'month'">
-              <Icon name="month" width="16" height="16" />
-              <span>月视图</span>
-            </button>
-            <button :class="['view-btn', { active: currentView === 'week' }]" @click="currentView = 'week'">
-              <Icon name="week" width="16" height="16" />
-              <span>周视图</span>
-            </button>
+          <div class="view-switcher" :class="{ 'mobile-view-switcher-only': isMobileFrontend }">
+            <template v-if="isMobileFrontend">
+              <div ref="mobileViewSwitcherControlRef" class="mobile-view-switcher">
+                <button
+                  type="button"
+                  class="mobile-view-switcher-btn"
+                  :class="{ active: mobileViewSwitcherVisible }"
+                  :title="`切换视图（当前：${currentViewOption.text}）`"
+                  :aria-label="`切换视图（当前：${currentViewOption.text}）`"
+                  @click.stop="toggleMobileViewSwitcher"
+                >
+                  <Icon :name="currentViewOption.icon" width="16" height="16" />
+                </button>
+                <div
+                  v-if="mobileViewSwitcherVisible"
+                  ref="mobileViewSwitcherPopoverRef"
+                  class="mobile-view-switcher-popover"
+                  @click.stop
+                >
+                  <button
+                    v-for="option in viewSwitcherOptions"
+                    :key="option.value"
+                    type="button"
+                    class="mobile-view-switcher-item"
+                    :class="{ active: currentView === option.value }"
+                    @click="selectMobileView(option.value)"
+                  >
+                    <Icon :name="option.icon" width="16" height="16" />
+                    <span>{{ option.text }}</span>
+                  </button>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <button :class="['view-btn', { active: currentView === 'kanban' }]" @click="currentView = 'kanban'">
+                <Icon name="kanban" width="16" height="16" />
+                <span>看板</span>
+              </button>
+              <button :class="['view-btn', { active: currentView === 'table' }]" @click="currentView = 'table'">
+                <Icon name="table" width="16" height="16" />
+                <span>表格</span>
+              </button>
+              <button :class="['view-btn', { active: currentView === 'month' }]" @click="currentView = 'month'">
+                <Icon name="month" width="16" height="16" />
+                <span>月视图</span>
+              </button>
+              <button :class="['view-btn', { active: currentView === 'week' }]" @click="currentView = 'week'">
+                <Icon name="week" width="16" height="16" />
+                <span>周视图</span>
+              </button>
+              <button :class="['view-btn', { active: currentView === 'day' }]" @click="currentView = 'day'">
+                <Icon name="day" width="16" height="16" />
+                <span>日视图</span>
+              </button>
+            </template>
           </div>
         </div>
 
@@ -67,9 +105,20 @@
             </div>
           </div>
 
+          <div v-if="currentView === 'day'" class="filter-bar-inline">
+            <div class="filter-group">
+              <label>笔记本:</label>
+              <SySelect
+                :model-value="dayFilterType"
+                @update:model-value="dayFilterType = $event"
+                :options="notebookOptions"
+              />
+            </div>
+          </div>
+
           <div class="header-actions">
             <div v-if="currentView === 'kanban'" class="kanban-group-switch">
-              <span>归类方式</span>
+              <span>分组</span>
               <SySelect
                 class="group-mode-select"
                 :model-value="kanbanGroupBy"
@@ -78,7 +127,7 @@
               />
             </div>
             <div v-if="currentView === 'table'" class="kanban-group-switch">
-              <span>归类方式</span>
+              <span>分组</span>
               <SySelect
                 class="group-mode-select"
                 :model-value="tableGroupBy"
@@ -101,10 +150,18 @@
           </div>
         </div>
       </div>
-      <div v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table'" class="document-tabs-row">
-      <div v-if="showDocumentTabs" class="document-tabs">
+      <div
+        v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table' || currentView === 'month' || currentView === 'week' || currentView === 'day'"
+        class="document-tabs-row"
+      >
+      <div
+        v-if="showDocumentTabs"
+        ref="documentTabsRef"
+        class="document-tabs"
+        @wheel="handleDocumentTabsWheel"
+      >
         <button
-          v-for="option in documentOptions"
+          v-for="option in visibleDocumentOptions"
           :key="option.value"
           type="button"
           class="document-tab"
@@ -115,6 +172,63 @@
         </button>
       </div>
       <div v-else class="document-tabs-placeholder"></div>
+      <div
+        v-if="currentView === 'kanban' || currentView === 'table' || currentView === 'month' || currentView === 'week' || currentView === 'day'"
+        ref="documentTabsDropdownControlRef"
+        class="document-tabs-dropdown"
+      >
+        <button
+          type="button"
+          class="document-tabs-dropdown-btn"
+          :class="{ active: documentTabsDropdownVisible }"
+          title="文档标签列表"
+          aria-label="文档标签列表"
+          @click.stop="toggleDocumentTabsDropdown"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 10l5 5 5-5" />
+          </svg>
+        </button>
+        <div
+          v-if="documentTabsDropdownVisible"
+          ref="documentTabsDropdownPopoverRef"
+          class="document-tabs-dropdown-popover"
+          @click.stop
+        >
+          <div
+            v-for="option in documentTabPopoverOptions"
+            :key="option.value"
+            class="document-tabs-dropdown-item"
+            :class="{ active: currentDocumentFilter === option.value, hidden: option.hidden }"
+            @click.stop="selectDocumentTabFromPopover(option.value)"
+          >
+            <span class="document-tabs-dropdown-item-text">{{ option.text }}</span>
+            <button
+              type="button"
+              class="document-tabs-visibility-btn"
+              :title="option.hidden ? '显示标签页' : '隐藏标签页'"
+              :aria-label="option.hidden ? '显示标签页' : '隐藏标签页'"
+              @click.stop="toggleDocumentTabVisibility(option.value)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  v-if="option.hidden"
+                  fill="currentColor"
+                  d="M10.94,6.08A6.93,6.93,0,0,1,12,6c3.18,0,6.17,2.29,7.91,6a15.23,15.23,0,0,1-.9,1.64,1,1,0,0,0-.16.55,1,1,0,0,0,1.86.5,15.77,15.77,0,0,0,1.21-2.3,1,1,0,0,0,0-.79C19.9,6.91,16.1,4,12,4a7.77,7.77,0,0,0-1.4.12,1,1,0,1,0,.34,2ZM3.71,2.29A1,1,0,0,0,2.29,3.71L5.39,6.8a14.62,14.62,0,0,0-3.31,4.8,1,1,0,0,0,0,.8C4.1,17.09,7.9,20,12,20a9.26,9.26,0,0,0,5.05-1.54l3.24,3.25a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42Zm6.36,9.19,2.45,2.45A1.81,1.81,0,0,1,12,14a2,2,0,0,1-2-2A1.81,1.81,0,0,1,10.07,11.48ZM12,18c-3.18,0-6.17-2.29-7.9-6A12.09,12.09,0,0,1,6.8,8.21L8.57,10A4,4,0,0,0,14,15.43L15.59,17A7.24,7.24,0,0,1,12,18Z"
+                />
+                <path
+                  v-else
+                  fill="currentColor"
+                  d="M21.92,11.6C19.9,6.91,16.1,4,12,4S4.1,6.91,2.08,11.6a1,1,0,0,0,0,.8C4.1,17.09,7.9,20,12,20s7.9-2.91,9.92-7.6A1,1,0,0,0,21.92,11.6ZM12,18c-3.17,0-6.17-2.29-7.9-6C5.83,8.29,8.83,6,12,6s6.17,2.29,7.9,6C18.17,15.71,15.17,18,12,18ZM12,8a4,4,0,1,0,4,4A4,4,0,0,0,12,8Zm0,6a2,2,0,1,1,2-2A2,2,0,0,1,12,14Z"
+                />
+              </svg>
+            </button>
+          </div>
+          <div v-if="documentTabPopoverOptions.length === 0" class="document-tabs-dropdown-empty">
+            暂无文档标签
+          </div>
+        </div>
+      </div>
       <div v-if="currentView === 'kanban'" class="document-tabs-actions">
         <div ref="kanbanFilterControlRef" class="task-filter-control">
           <button
@@ -304,6 +418,14 @@
     <WeekView
       v-if="currentView === 'week'"
       :tasks="weekViewTasks"
+      @task-date-changed="handleTaskDateChanged"
+      @task-click="handleTaskClick"
+      @task-create-requested="handleTaskCreateRequested"
+    />
+    <WeekView
+      v-if="currentView === 'day'"
+      :tasks="dayViewTasks"
+      :fixed-days-count="1"
       @task-date-changed="handleTaskDateChanged"
       @task-click="handleTaskClick"
       @task-create-requested="handleTaskCreateRequested"
@@ -537,6 +659,14 @@ const tableGroupModeOptions = [
   { value: 'group', text: '按标签' },
   { value: 'heading', text: '按标题' }
 ] as const;
+type TaskViewMode = 'kanban' | 'table' | 'month' | 'week' | 'day';
+const viewSwitcherOptions: Array<{ value: TaskViewMode; text: string; icon: string }> = [
+  { value: 'kanban', text: '看板', icon: 'kanban' },
+  { value: 'table', text: '表格', icon: 'table' },
+  { value: 'month', text: '月视图', icon: 'month' },
+  { value: 'week', text: '周视图', icon: 'week' },
+  { value: 'day', text: '日视图', icon: 'day' }
+];
 
 let skipCleanupTimer: number | null = null;
 
@@ -573,6 +703,14 @@ const tableFilterPopoverStyle = ref<Record<string, string>>({});
 const tableFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
 const tableFilterControlRef = ref<HTMLElement | null>(null);
 const tableFilterPopoverPoint = ref<{ x: number; y: number } | null>(null);
+const documentTabsDropdownVisible = ref(false);
+const documentTabsRef = ref<HTMLElement | null>(null);
+const documentTabsDropdownControlRef = ref<HTMLElement | null>(null);
+const documentTabsDropdownPopoverRef = ref<HTMLElement | null>(null);
+const hiddenDocumentTabIds = ref(new Set<string>());
+const mobileViewSwitcherVisible = ref(false);
+const mobileViewSwitcherControlRef = ref<HTMLElement | null>(null);
+const mobileViewSwitcherPopoverRef = ref<HTMLElement | null>(null);
 
 type KanbanTaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
 type KanbanTaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
@@ -587,6 +725,8 @@ const monthFilterDocument = ref('all');
 
 const weekFilterType = ref('all');
 const weekFilterDocument = ref('all');
+const dayFilterType = ref('all');
+const dayFilterDocument = ref('all');
 
 const isSettingsLoaded = ref(false);
 const isHydratingSettings = ref(false);
@@ -601,7 +741,10 @@ const isDropping = ref(false);
 const kanbanColumnElements = new Map<string, HTMLElement>();
 let kanbanMetricsRaf: number | null = null;
 const kanbanColumnEstimatedHeights = ref<Record<string, number>>({});
-const currentView = ref<'kanban' | 'table' | 'month' | 'week'>((userSettings.kanban?.currentView as 'kanban' | 'table' | 'month' | 'week') || 'table');
+const currentView = ref<TaskViewMode>((userSettings.kanban?.currentView as TaskViewMode) || 'table');
+const currentViewOption = computed(() =>
+  viewSwitcherOptions.find(option => option.value === currentView.value) || viewSwitcherOptions[0]
+);
 const expandedKanbanTaskIds = ref(new Set<string>());
 const kanbanSubtaskHydratingIds = new Set<string>();
 const inlineEditingDescriptionTaskId = ref<string | null>(null);
@@ -655,6 +798,7 @@ const statusColumns: KanbanColumn[] = [
   { id: 'status-pending', status: 'pending', title: '待处理', type: 'status' },
   { id: 'status-in-progress', status: 'in-progress', title: '进行中', type: 'status' },
   { id: 'status-completed', status: 'completed', title: '已完成', type: 'status' },
+  { id: 'status-delayed', status: 'delayed', title: '延迟', type: 'status' },
   { id: 'status-cancelled', status: 'cancelled', title: '已取消', type: 'status' }
 ];
 
@@ -753,6 +897,7 @@ const quickCreateDialog = ref<{
 const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
   { value: 'pending', label: '待处理' },
   { value: 'in-progress', label: '进行中' },
+  { value: 'delayed', label: '延迟' },
   { value: 'completed', label: '已完成' },
   { value: 'cancelled', label: '已取消' }
 ];
@@ -855,6 +1000,9 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
     }
     if (column.status === 'in-progress') {
       return { backgroundColor: '#3b82f6' };
+    }
+    if (column.status === 'delayed') {
+      return { backgroundColor: '#f97316' };
     }
     if (column.status === 'completed') {
       return { backgroundColor: '#10b981' };
@@ -1033,6 +1181,12 @@ function resetFiltersForExcludedNotebooks(): boolean {
   if (weekFilterType.value !== 'all' && excludedNotebookIdSet.has(weekFilterType.value)) {
     weekFilterType.value = 'all';
     weekFilterDocument.value = 'all';
+    changed = true;
+  }
+
+  if (dayFilterType.value !== 'all' && excludedNotebookIdSet.has(dayFilterType.value)) {
+    dayFilterType.value = 'all';
+    dayFilterDocument.value = 'all';
     changed = true;
   }
 
@@ -1255,6 +1409,8 @@ function getCurrentFilterNotebookId(): string {
       return monthFilterType.value;
     case 'week':
       return weekFilterType.value;
+    case 'day':
+      return dayFilterType.value;
     default:
       return 'all';
   }
@@ -1306,6 +1462,17 @@ function toDocumentOptions(notebookId: string): Array<{ value: string; text: str
 
 const documentOptions = computed(() => toDocumentOptions(getCurrentFilterNotebookId()));
 const quickCreateDocumentOptions = computed(() => toDocumentOptions(quickCreateNotebookId.value));
+const visibleDocumentOptions = computed(() =>
+  documentOptions.value.filter(option => option.value === 'all' || !hiddenDocumentTabIds.value.has(option.value))
+);
+const documentTabPopoverOptions = computed(() =>
+  documentOptions.value
+    .filter(option => option.value !== 'all')
+    .map(option => ({
+      ...option,
+      hidden: hiddenDocumentTabIds.value.has(option.value)
+    }))
+);
 
 const currentFilterType = computed(() => {
   switch (currentView.value) {
@@ -1317,6 +1484,8 @@ const currentFilterType = computed(() => {
       return monthFilterType.value;
     case 'week':
       return weekFilterType.value;
+    case 'day':
+      return dayFilterType.value;
     default:
       return 'all';
   }
@@ -1333,6 +1502,8 @@ const currentDocumentFilter = computed<string>({
         return monthFilterDocument.value;
       case 'week':
         return weekFilterDocument.value;
+      case 'day':
+        return dayFilterDocument.value;
       default:
         return 'all';
     }
@@ -1351,6 +1522,9 @@ const currentDocumentFilter = computed<string>({
       case 'week':
         weekFilterDocument.value = value;
         break;
+      case 'day':
+        dayFilterDocument.value = value;
+        break;
       default:
         break;
     }
@@ -1361,8 +1535,83 @@ const showDocumentTabs = computed(() => {
   if (currentFilterType.value === 'all') {
     return false;
   }
-  return documentOptions.value.length > 1;
+  return visibleDocumentOptions.value.length > 1;
 });
+
+function toggleDocumentTabsDropdown(): void {
+  const nextVisible = !documentTabsDropdownVisible.value;
+  documentTabsDropdownVisible.value = nextVisible;
+  if (nextVisible) {
+    closeMobileViewSwitcher();
+  }
+}
+
+function closeDocumentTabsDropdown(): void {
+  documentTabsDropdownVisible.value = false;
+}
+
+function toggleMobileViewSwitcher(): void {
+  const nextVisible = !mobileViewSwitcherVisible.value;
+  mobileViewSwitcherVisible.value = nextVisible;
+  if (nextVisible) {
+    closeDocumentTabsDropdown();
+    closeKanbanFilterPopover();
+    closeTableFilterPopover();
+  }
+}
+
+function closeMobileViewSwitcher(): void {
+  mobileViewSwitcherVisible.value = false;
+}
+
+function selectMobileView(view: TaskViewMode): void {
+  currentView.value = view;
+  closeMobileViewSwitcher();
+}
+
+function handleDocumentTabsWheel(event: WheelEvent): void {
+  const tabs = documentTabsRef.value;
+  if (!tabs || tabs.scrollWidth <= tabs.clientWidth) {
+    return;
+  }
+
+  const delta = event.deltaX !== 0 ? event.deltaX : event.deltaY;
+  if (delta === 0) {
+    return;
+  }
+
+  tabs.scrollLeft += delta;
+  event.preventDefault();
+}
+
+function selectDocumentTabFromPopover(value: string): void {
+  if (!value || value === 'all') return;
+  if (hiddenDocumentTabIds.value.has(value)) return;
+  currentDocumentFilter.value = value;
+  closeDocumentTabsDropdown();
+}
+
+function toggleDocumentTabVisibility(value: string): void {
+  if (!value || value === 'all') return;
+  const nextHidden = new Set(hiddenDocumentTabIds.value);
+  const shouldHide = !nextHidden.has(value);
+  if (shouldHide) {
+    nextHidden.add(value);
+  } else {
+    nextHidden.delete(value);
+  }
+  hiddenDocumentTabIds.value = nextHidden;
+  if (shouldHide && currentDocumentFilter.value === value) {
+    currentDocumentFilter.value = 'all';
+  }
+
+  const remainingVisibleTabs = documentOptions.value.filter(
+    option => option.value !== 'all' && !nextHidden.has(option.value)
+  );
+  if (remainingVisibleTabs.length === 0) {
+    closeDocumentTabsDropdown();
+  }
+}
 
 function setupFilterTypeWatcher(typeRef: Ref<string>, documentRef: Ref<string>): void {
   watch(typeRef, (newType, oldType) => {
@@ -1378,6 +1627,7 @@ setupFilterTypeWatcher(kanbanFilterType, kanbanFilterDocument);
 setupFilterTypeWatcher(tableFilterType, tableFilterDocument);
 setupFilterTypeWatcher(monthFilterType, monthFilterDocument);
 setupFilterTypeWatcher(weekFilterType, weekFilterDocument);
+setupFilterTypeWatcher(dayFilterType, dayFilterDocument);
 
 const ensureTableDocumentSelection = () => {
   if (tableFilterType.value === 'all') {
@@ -1393,6 +1643,16 @@ const ensureTableDocumentSelection = () => {
 
 watch(tableFilterType, () => {
   ensureTableDocumentSelection();
+});
+
+watch(visibleDocumentOptions, (options) => {
+  const allowedValues = new Set(options.map(option => option.value));
+  if (!allowedValues.has(currentDocumentFilter.value)) {
+    currentDocumentFilter.value = 'all';
+  }
+});
+watch(currentDocumentFilter, () => {
+  closeDocumentTabsDropdown();
 });
 
 watch(quickCreateNotebookId, (newType, oldType) => {
@@ -1442,8 +1702,16 @@ watch([
   monthFilterType,
   monthFilterDocument,
   weekFilterType,
-  weekFilterDocument
+  weekFilterDocument,
+  dayFilterType,
+  dayFilterDocument
 ], () => {
+  if (isHydratingSettings.value) {
+    return;
+  }
+  scheduleSaveUserSettings();
+});
+watch(hiddenDocumentTabIds, () => {
   if (isHydratingSettings.value) {
     return;
   }
@@ -1458,13 +1726,21 @@ watch([shouldLoadHeadingGroups, () => tasks.value], ([enabled]) => {
 
 watch(kanbanFilterPopoverVisible, (visible) => {
   if (visible) {
+    closeDocumentTabsDropdown();
+    closeMobileViewSwitcher();
     void nextTick(updateKanbanFilterPopoverPosition);
   }
 });
 watch(tableFilterPopoverVisible, (visible) => {
   if (visible) {
+    closeDocumentTabsDropdown();
+    closeMobileViewSwitcher();
     void nextTick(updateTableFilterPopoverPosition);
   }
+});
+watch(currentView, () => {
+  closeDocumentTabsDropdown();
+  closeMobileViewSwitcher();
 });
 
 watch(kanbanGroupBy, async (mode) => {
@@ -1516,6 +1792,21 @@ const weekViewTasks = computed(() => {
       }
     }
     
+    return true;
+  });
+});
+
+const dayViewTasks = computed(() => {
+  return tasks.value.filter(task => {
+    if (task.type !== 'block') return false;
+    if (!task.startDate && !task.dueDate) return false;
+    if (dayFilterType.value !== 'all') {
+      if (task.notebookId !== dayFilterType.value) return false;
+      if (dayFilterDocument.value !== 'all' && task.rootId !== dayFilterDocument.value) {
+        return false;
+      }
+    }
+
     return true;
   });
 });
@@ -1968,6 +2259,7 @@ const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
   const grouped: Record<string, Task[]> = {
     'pending': [],
     'in-progress': [],
+    'delayed': [],
     'completed': [],
     'cancelled': []
   };
@@ -2408,6 +2700,9 @@ async function loadUserSettings() {
     monthFilterDocument.value = settings.monthFilterDocument || 'all';
     weekFilterType.value = settings.weekFilterType || 'all';
     weekFilterDocument.value = settings.weekFilterDocument || 'all';
+    dayFilterType.value = settings.dayFilterType || settings.weekFilterType || 'all';
+    dayFilterDocument.value = settings.dayFilterDocument || 'all';
+    hiddenDocumentTabIds.value = new Set(normalizeNotebookIds(settings.hiddenDocumentTabIds));
     const changedByScope = resetFiltersForExcludedNotebooks();
     
     isSettingsLoaded.value = true;
@@ -2425,7 +2720,9 @@ async function loadUserSettings() {
           monthFilterType: monthFilterType.value,
           monthFilterDocument: monthFilterDocument.value,
           weekFilterType: weekFilterType.value,
-          weekFilterDocument: weekFilterDocument.value
+          weekFilterDocument: weekFilterDocument.value,
+          dayFilterType: dayFilterType.value,
+          dayFilterDocument: dayFilterDocument.value
         });
       }
     }
@@ -2443,7 +2740,9 @@ async function loadUserSettings() {
           monthFilterType: monthFilterType.value,
           monthFilterDocument: monthFilterDocument.value,
           weekFilterType: 'all',
-          weekFilterDocument: 'all'
+          weekFilterDocument: 'all',
+          dayFilterType: dayFilterType.value,
+          dayFilterDocument: dayFilterDocument.value
         });
       }
     }
@@ -2472,7 +2771,10 @@ async function saveUserSettings() {
       monthFilterType: monthFilterType.value,
       monthFilterDocument: monthFilterDocument.value,
       weekFilterType: weekFilterType.value,
-      weekFilterDocument: weekFilterDocument.value
+      weekFilterDocument: weekFilterDocument.value,
+      dayFilterType: dayFilterType.value,
+      dayFilterDocument: dayFilterDocument.value,
+      hiddenDocumentTabIds: normalizeNotebookIds(Array.from(hiddenDocumentTabIds.value), { sort: true })
     });
   } catch (error) {
     console.error('[KanbanView] 保存用户设置失败:', error);
@@ -2510,6 +2812,14 @@ async function validateDocumentSelection() {
     const availableDocIds = getDocumentIdsByNotebook(weekFilterType.value);
     if (!availableDocIds.includes(weekFilterDocument.value)) {
       weekFilterDocument.value = 'all';
+      hasChanges = true;
+    }
+  }
+
+  if (dayFilterType.value !== 'all' && dayFilterDocument.value !== 'all') {
+    const availableDocIds = getDocumentIdsByNotebook(dayFilterType.value);
+    if (!availableDocIds.includes(dayFilterDocument.value)) {
+      dayFilterDocument.value = 'all';
       hasChanges = true;
     }
   }
@@ -3400,6 +3710,24 @@ function handleKanbanEditorOutsideClick(event: MouseEvent): void {
       return;
     }
   }
+  if (mobileViewSwitcherVisible.value) {
+    if (mobileViewSwitcherControlRef.value?.contains(target)) {
+      return;
+    }
+    if (mobileViewSwitcherPopoverRef.value?.contains(target)) {
+      return;
+    }
+    closeMobileViewSwitcher();
+  }
+  if (documentTabsDropdownVisible.value) {
+    if (documentTabsDropdownControlRef.value?.contains(target)) {
+      return;
+    }
+    if (documentTabsDropdownPopoverRef.value?.contains(target)) {
+      return;
+    }
+    closeDocumentTabsDropdown();
+  }
   if (kanbanFilterPopoverVisible.value) {
     closeKanbanFilterPopover();
   }
@@ -3417,8 +3745,16 @@ function handleKanbanEditorOutsideClick(event: MouseEvent): void {
 }
 
 function handleKanbanEditorKeydown(event: KeyboardEvent): void {
-  if (!kanbanEditorVisible.value) return;
-  if (event.key === 'Escape') {
+  if (event.key !== 'Escape') return;
+  if (mobileViewSwitcherVisible.value) {
+    closeMobileViewSwitcher();
+    return;
+  }
+  if (documentTabsDropdownVisible.value) {
+    closeDocumentTabsDropdown();
+    return;
+  }
+  if (kanbanEditorVisible.value) {
     closeKanbanEditor();
   }
 }
@@ -3620,6 +3956,11 @@ function getCurrentSidebarFilterSelection(): { notebookId: string; documentId: s
       return {
         notebookId: monthFilterType.value,
         documentId: monthFilterDocument.value
+      };
+    case 'day':
+      return {
+        notebookId: dayFilterType.value,
+        documentId: dayFilterDocument.value
       };
     case 'week':
     default:
@@ -4301,7 +4642,7 @@ watch(kanbanColumns, () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  gap: 6px;
   flex-shrink: 0;
   margin: 10px;
 }
@@ -4317,7 +4658,7 @@ watch(kanbanColumns, () => {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 16px;
+  gap: 6px;
   min-width: 0;
   flex: 1 1 auto;
 }
@@ -4337,10 +4678,18 @@ watch(kanbanColumns, () => {
   gap: 6px;
   flex-wrap: nowrap;
   overflow-x: auto;
+  overflow-y: hidden;
   padding-bottom: 4px;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   flex: 1;
   min-width: 0;
+}
+
+.document-tabs::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .document-tabs-placeholder {
@@ -4354,6 +4703,135 @@ watch(kanbanColumns, () => {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.document-tabs-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.document-tabs-dropdown-btn {
+  width: 24px;
+  height: 24px;
+  padding: 1px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.document-tabs-dropdown-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.document-tabs-dropdown-btn:hover {
+  background: var(--b3-theme-background);
+  border-color: var(--b3-border-color);
+}
+
+.document-tabs-dropdown-btn.active {
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+  border-color: var(--b3-theme-on-background);
+}
+
+.document-tabs-dropdown-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  z-index: 60;
+}
+
+.document-tabs-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.document-tabs-dropdown-item:hover {
+  background: var(--b3-list-hover);
+}
+
+.document-tabs-dropdown-item.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-primary);
+}
+
+.document-tabs-dropdown-item.hidden {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.document-tabs-dropdown-item.hidden:hover {
+  background: transparent;
+}
+
+.document-tabs-dropdown-item-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.document-tabs-visibility-btn {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 1px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.document-tabs-visibility-btn:hover {
+  background: var(--b3-theme-background-light);
+  color: var(--b3-theme-primary);
+}
+
+.document-tabs-visibility-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.document-tabs-dropdown-empty {
+  padding: 8px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.7;
+  font-size: 12px;
 }
 
 .table-document-actions {
@@ -4561,10 +5039,89 @@ watch(kanbanColumns, () => {
 
 .view-switcher {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   background: var(--b3-list-hover);
-  padding: 4px;
+  padding: 2px;
   border-radius: 6px;
+  min-width: 0;
+}
+
+.view-switcher.mobile-view-switcher-only {
+  background: transparent;
+  padding: 0;
+}
+
+.mobile-view-switcher {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.mobile-view-switcher-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mobile-view-switcher-btn:hover {
+  background: var(--b3-theme-background);
+  border-color: var(--b3-border-color);
+}
+
+.mobile-view-switcher-btn.active {
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+  border-color: var(--b3-theme-on-background);
+}
+
+.mobile-view-switcher-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 136px;
+  padding: 6px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+  z-index: 70;
+}
+
+.mobile-view-switcher-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-view-switcher-item:hover {
+  background: var(--b3-list-hover);
+}
+
+.mobile-view-switcher-item.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-primary);
+}
+
+.mobile-view-switcher-item span {
+  flex: 1;
   min-width: 0;
 }
 
@@ -4612,7 +5169,8 @@ watch(kanbanColumns, () => {
 }
 
 .group-mode-select {
-  min-width: 108px;
+  width: calc(3em + 32px);
+  min-width: calc(3em + 32px);
 }
 
 .refresh-btn,
@@ -4671,26 +5229,40 @@ watch(kanbanColumns, () => {
 
 @media (max-width: 768px) {
   .kanban-header {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
   }
 
   .kanban-header-view-module,
   .kanban-header-tools-module {
-    width: 100%;
+    width: auto;
+  }
+
+  .kanban-header-view-module {
+    flex: 0 0 auto;
+  }
+
+  .kanban-header-tools-module {
+    flex: 1 1 auto;
   }
 
   .kanban-header-tools-module {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 12px;
+    gap: 6px;
     overflow-x: auto;
   }
 
   .view-switcher {
     width: 100%;
     overflow-x: auto;
+  }
+
+  .view-switcher.mobile-view-switcher-only {
+    width: auto;
+    overflow: visible;
   }
 
   .filter-bar-inline {
@@ -4703,6 +5275,16 @@ watch(kanbanColumns, () => {
   .header-actions {
     flex: 0 0 auto;
     margin-left: 0;
+  }
+
+  .table-document-actions .task-search {
+    flex: 0 1 110px;
+    max-width: 140px;
+  }
+
+  .table-document-actions .task-search input {
+    width: 80px;
+    min-width: 48px;
   }
 
   .filter-group {

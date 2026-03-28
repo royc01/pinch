@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="week-view">
+  <div class="week-view" :class="{ 'mobile-day-view-mode': isMobileDayViewMode }">
     <div class="calendar-header">
       <button class="nav-btn" @click="previousWeek">
         <svg viewBox="0 0 24 24" width="20" height="20">
@@ -7,7 +7,7 @@
         </svg>
       </button>
       <div class="header-center">
-        <div class="header-title">{{ weekTitle }}</div>
+        <div class="header-title">{{ displayWeekTitle }}</div>
         <button class="today-btn" @click="goToToday">今天</button>
       </div>
       <button class="nav-btn" @click="nextWeek">
@@ -18,12 +18,97 @@
     </div>
     
     <div class="week-body">
-      <div class="week-grid">
-        <div class="weekday-header">
+      <div v-if="isMobileWeekGridMode" class="mobile-week-grid">
+        <div class="mobile-week-cell mobile-month-cell">
+          <div class="mobile-cell-header mobile-month-header">
+            <span class="mobile-cell-title">月历</span>
+            <span class="mobile-cell-date">{{ mobileCalendarTitle }}</span>
+          </div>
+          <div class="mobile-mini-calendar">
+            <div class="mobile-mini-weekdays">
+              <span v-for="label in mobileMiniWeekdayLabels" :key="label" class="mobile-mini-weekday">{{ label }}</span>
+            </div>
+            <div class="mobile-mini-days">
+              <button
+                v-for="day in mobileMiniCalendarDays"
+                :key="day.key"
+                type="button"
+                class="mobile-mini-day"
+                :class="{
+                  'is-other-month': !day.isCurrentMonth,
+                  'is-today': day.isToday,
+                  'is-in-week': day.isInCurrentWeek
+                }"
+                @click="focusMobileWeek(day.date)"
+              >
+                {{ day.dayNumber }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div
+          v-for="day in mobileWeekDays"
+          :key="day.key"
+          class="mobile-week-cell mobile-day-cell"
+          :class="{ today: day.isToday }"
+        >
+          <div class="mobile-cell-header">
+            <span class="mobile-cell-title">{{ day.weekdayName }}</span>
+            <span class="mobile-cell-date">{{ day.dayNumber }}</span>
+          </div>
+          <div class="mobile-chip-list">
+            <div
+              v-for="task in getMobileDayTasks(day.key)"
+              :key="task.id"
+              class="mobile-task-chip"
+              :class="[
+                `priority-${task.priority}`,
+                { 'task-completed': task.status === 'completed' }
+              ]"
+              :style="getMobileTaskChipStyle(task)"
+              @click="handleTaskClick(task)"
+              @contextmenu="handleContextMenu($event, task)"
+            >
+              <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
+                <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
+              </span>
+              <span class="mobile-task-chip-title">{{ stripHtml(task.title) }}</span>
+              <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
+                <Icon name="flag" width="10" height="10" />
+              </span>
+              <span class="task-jump-btn" @click.stop="handleTaskClick(task)">
+                <Icon name="open" width="14" height="14" />
+              </span>
+            </div>
+            <div v-if="getMobileDayTasks(day.key).length === 0" class="mobile-empty-tip">暂无任务</div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="week-grid">
+        <div v-if="isMobileDayViewMode" class="mobile-day-weekdates">
+          <button
+            v-for="day in mobileDayWeekDates"
+            :key="day.key"
+            type="button"
+            class="mobile-day-weekdate-item"
+            :class="{
+              'is-today': day.isToday,
+              'is-active': day.isActive
+            }"
+            @click="focusMobileDay(day.date)"
+          >
+            <span class="mobile-day-weekdate-name">{{ day.weekdayName }}</span>
+            <span class="mobile-day-weekdate-number">{{ day.dayNumber }}</span>
+          </button>
+        </div>
+        <div v-else class="weekday-header">
           <div class="all-day-label-cell">
-            <button class="days-control-btn" @click="decreaseDays" :disabled="daysCount <= CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS">-</button>
-            <span class="days-count">{{ daysCount }}</span>
-            <button class="days-control-btn" @click="increaseDays" :disabled="daysCount >= CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS">+</button>
+            <template v-if="!isDaysCountLocked">
+              <button class="days-control-btn" @click="decreaseDays" :disabled="daysCount <= CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS">-</button>
+              <span class="days-count">{{ daysCount }}</span>
+              <button class="days-control-btn" @click="increaseDays" :disabled="daysCount >= CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS">+</button>
+            </template>
+            <span v-else class="all-day-label-text">全天</span>
           </div>
           <div v-for="day in weekDays" :key="day.key" class="weekday-cell" :class="{ today: day.isToday }">
             <div class="weekday-name">{{ day.weekdayName }}</div>
@@ -120,7 +205,7 @@
           </div>
         </div>
         
-        <div class="days-scroll">
+        <div ref="daysScrollRef" class="days-scroll">
           <div class="days-grid">
             <div class="time-labels-column">
               <div v-for="hour in 23" :key="hour" class="time-label" :style="{ top: (hour * 48) + 'px' }">
@@ -245,7 +330,7 @@ import { useDebouncedSave } from '@/composables/useDebouncedSave';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
-import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
@@ -253,6 +338,7 @@ import TaskContextMenu from './TaskContextMenu.vue';
 
 interface Props {
   tasks: Task[];
+  fixedDaysCount?: number;
 }
 
 interface WeekDay {
@@ -281,6 +367,15 @@ interface TimedTaskRenderItem {
   laneCount?: number;
 }
 
+interface MobileMiniCalendarDay {
+  key: string;
+  date: Date;
+  dayNumber: number;
+  isCurrentMonth: boolean;
+  isInCurrentWeek: boolean;
+  isToday: boolean;
+}
+
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
@@ -289,10 +384,21 @@ const emit = defineEmits<{
   'taskCreateRequested': [payload: { startDate: string; dueDate: string; startTime?: string; dueTime?: string; allDay: boolean }];
 }>();
 
-const currentWeekStart = ref(getWeekStart(new Date()));
+function getTodayStart(): Date {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+const currentWeekStart = ref(props.fixedDaysCount === 1 ? getTodayStart() : getWeekStart(new Date()));
 const currentTime = ref(new Date());
 const isAllDaySectionCollapsed = ref(false);
 let timeUpdateInterval: ReturnType<typeof setInterval> | null = null;
+const MOBILE_WEEK_BREAKPOINT = 768;
+const mobileMiniWeekdayLabels = ['一', '二', '三', '四', '五', '六', '日'];
+const mobileWeekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const viewportWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth);
+const daysScrollRef = ref<HTMLElement | null>(null);
 
 const localTasks = ref<Task[]>([]);
 const CREATE_SELECTION_THRESHOLD_PX = 8;
@@ -422,14 +528,41 @@ function resolveTaskAccentColor(backgroundColor?: string): string {
 }
 
 const daysCount = ref(7);
+const isDaysCountLocked = computed(() => typeof props.fixedDaysCount === 'number' && Number.isFinite(props.fixedDaysCount));
+const isMobileWeekGridMode = computed(() => viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && daysCount.value === 7);
+const isMobileDayViewMode = computed(() => viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && daysCount.value === 1);
+
+function handleViewportResize(): void {
+  viewportWidth.value = window.innerWidth;
+  if (viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && !isDaysCountLocked.value && daysCount.value !== 7) {
+    daysCount.value = 7;
+  }
+}
+
+watch(
+  () => props.fixedDaysCount,
+  (nextCount) => {
+    if (typeof nextCount !== 'number' || !Number.isFinite(nextCount)) {
+      return;
+    }
+    const normalized = Math.max(
+      CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS,
+      Math.min(CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS, Math.round(nextCount))
+    );
+    daysCount.value = normalized;
+  },
+  { immediate: true }
+);
 
 function decreaseDays() {
+  if (isDaysCountLocked.value) return;
   if (daysCount.value > CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS) {
     daysCount.value--;
   }
 }
 
 function increaseDays() {
+  if (isDaysCountLocked.value) return;
   if (daysCount.value < CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS) {
     daysCount.value++;
   }
@@ -519,8 +652,11 @@ function assignTimedTaskLanes(items: TimedTaskRenderItem[]): TimedTaskRenderItem
 const weekTitle = computed(() => {
   const start = new Date(currentWeekStart.value);
   const end = new Date(start);
-  end.setDate(start.getDate() + 6);
+  end.setDate(start.getDate() + daysCount.value - 1);
 
+  if (daysCount.value === 1) {
+    return formatChineseDate(start);
+  }
   return `${formatChineseDate(start)} - ${formatChineseDate(end)}`;
 });
 
@@ -551,6 +687,210 @@ const weekDays = computed<WeekDay[]>(() => {
   
   return days;
 });
+
+function getMondayStart(date: Date): Date {
+  const monday = new Date(date);
+  monday.setHours(0, 0, 0, 0);
+  const day = monday.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  monday.setDate(monday.getDate() + diff);
+  return monday;
+}
+
+const mobileDayWeekDates = computed(() => {
+  const selectedDate = new Date(currentWeekStart.value);
+  selectedDate.setHours(0, 0, 0, 0);
+  const mondayStart = getMondayStart(selectedDate);
+  const today = getTodayStart().getTime();
+
+  return mobileMiniWeekdayLabels.map((label, index) => {
+    const date = new Date(mondayStart);
+    date.setDate(mondayStart.getDate() + index);
+    date.setHours(0, 0, 0, 0);
+    const timestamp = date.getTime();
+    return {
+      key: formatDate(date),
+      date,
+      weekdayName: label,
+      dayNumber: date.getDate(),
+      isToday: timestamp === today,
+      isActive: timestamp === selectedDate.getTime()
+    };
+  });
+});
+
+function focusMobileDay(date: Date): void {
+  const nextDate = new Date(date);
+  nextDate.setHours(0, 0, 0, 0);
+  currentWeekStart.value = nextDate;
+  isAllDaySectionCollapsed.value = false;
+  window.requestAnimationFrame(() => {
+    daysScrollRef.value?.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
+
+const mobileWeekStartDate = computed(() => {
+  const mondayStart = new Date(currentWeekStart.value);
+  mondayStart.setHours(0, 0, 0, 0);
+  mondayStart.setDate(mondayStart.getDate() + 1);
+  return mondayStart;
+});
+
+const mobileWeekBounds = computed(() => {
+  const start = new Date(mobileWeekStartDate.value);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+});
+
+const mobileWeekDays = computed<WeekDay[]>(() => {
+  const days: WeekDay[] = [];
+  const today = getTodayStart().getTime();
+  const start = mobileWeekStartDate.value;
+
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + i);
+    date.setHours(0, 0, 0, 0);
+    const key = formatDate(date);
+    days.push({
+      key,
+      date,
+      weekdayName: mobileWeekdayNames[i],
+      dayNumber: date.getDate(),
+      isToday: date.getTime() === today
+    });
+  }
+
+  return days;
+});
+
+const mobileWeekDayKeySet = computed(() => new Set(mobileWeekDays.value.map(day => day.key)));
+
+const displayWeekTitle = computed(() => {
+  if (!isMobileWeekGridMode.value) {
+    return weekTitle.value;
+  }
+  const start = new Date(mobileWeekStartDate.value);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return `${formatChineseDate(start)} - ${formatChineseDate(end)}`;
+});
+
+const mobileCalendarTitle = computed(() => {
+  const date = mobileWeekStartDate.value;
+  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+});
+
+const mobileMiniCalendarDays = computed<MobileMiniCalendarDay[]>(() => {
+  const baseDate = mobileWeekStartDate.value;
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const monthStart = new Date(year, month, 1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  const mondayOffset = (monthStart.getDay() + 6) % 7;
+  const gridStart = new Date(monthStart);
+  gridStart.setDate(gridStart.getDate() - mondayOffset);
+
+  const todayKey = formatDate(getTodayStart());
+  const currentWeekKeys = mobileWeekDayKeySet.value;
+  const days: MobileMiniCalendarDay[] = [];
+
+  for (let i = 0; i < 42; i++) {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + i);
+    date.setHours(0, 0, 0, 0);
+    const key = formatDate(date);
+
+    days.push({
+      key,
+      date,
+      dayNumber: date.getDate(),
+      isCurrentMonth: date.getMonth() === month,
+      isInCurrentWeek: currentWeekKeys.has(key),
+      isToday: key === todayKey
+    });
+  }
+
+  return days;
+});
+
+function focusMobileWeek(date: Date): void {
+  const monday = getMondayStart(date);
+  const anchor = new Date(monday);
+  anchor.setDate(anchor.getDate() - 1);
+  currentWeekStart.value = anchor;
+}
+
+function compareTasksForMobileDay(a: Task, b: Task): number {
+  const aIsTimed = Boolean(a.startTime || a.dueTime);
+  const bIsTimed = Boolean(b.startTime || b.dueTime);
+  if (aIsTimed !== bIsTimed) {
+    return aIsTimed ? 1 : -1;
+  }
+
+  const aStart = a.startTime || '00:00';
+  const bStart = b.startTime || '00:00';
+  if (aStart !== bStart) {
+    return aStart.localeCompare(bStart);
+  }
+
+  const aDue = a.dueTime || '23:59';
+  const bDue = b.dueTime || '23:59';
+  if (aDue !== bDue) {
+    return aDue.localeCompare(bDue);
+  }
+
+  return stripHtml(a.title).localeCompare(stripHtml(b.title), 'zh-Hans-CN');
+}
+
+const mobileTasksByDay = computed(() => {
+  const grouped = new Map<string, Task[]>();
+  const seenByDay = new Map<string, Set<string>>();
+  const { start, end } = mobileWeekBounds.value;
+
+  for (const day of mobileWeekDays.value) {
+    grouped.set(day.key, []);
+    seenByDay.set(day.key, new Set());
+  }
+
+  for (const task of localTasks.value) {
+    const range = getTaskDateRangeForRender(task);
+    if (!range) continue;
+    if (range.startDate > end || range.endDate < start) continue;
+
+    for (const day of mobileWeekDays.value) {
+      const dayTimestamp = day.date.getTime();
+      if (dayTimestamp < range.startDate.getTime() || dayTimestamp > range.endDate.getTime()) continue;
+
+      const seen = seenByDay.get(day.key);
+      if (!seen || seen.has(task.id)) continue;
+      seen.add(task.id);
+      grouped.get(day.key)?.push(task);
+    }
+  }
+
+  for (const day of mobileWeekDays.value) {
+    const tasks = grouped.get(day.key) || [];
+    grouped.set(day.key, tasks.sort(compareTasksForMobileDay));
+  }
+
+  return grouped;
+});
+
+function getMobileDayTasks(dayKey: string): Task[] {
+  return mobileTasksByDay.value.get(dayKey) || [];
+}
+
+function getMobileTaskChipStyle(task: Task): Record<string, string> {
+  return {
+    backgroundColor: resolveTaskBackgroundColor(task.backgroundColor),
+    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
+  };
+}
 
 function getWeekBounds() {
   const weekStart = new Date(currentWeekStart.value);
@@ -826,19 +1166,25 @@ const currentTimeText = computed(() => {
 });
 
 function previousWeek() {
+  const offsetDays = isDaysCountLocked.value && daysCount.value === 1 ? 1 : 7;
   const newDate = new Date(currentWeekStart.value);
-  newDate.setDate(newDate.getDate() - 7);
+  newDate.setDate(newDate.getDate() - offsetDays);
   currentWeekStart.value = newDate;
 }
 
 function nextWeek() {
+  const offsetDays = isDaysCountLocked.value && daysCount.value === 1 ? 1 : 7;
   const newDate = new Date(currentWeekStart.value);
-  newDate.setDate(newDate.getDate() + 7);
+  newDate.setDate(newDate.getDate() + offsetDays);
   currentWeekStart.value = newDate;
 }
 
 function goToToday() {
-  currentWeekStart.value = getWeekStart(new Date());
+  if (isMobileWeekGridMode.value && daysCount.value === 7) {
+    focusMobileWeek(getTodayStart());
+    return;
+  }
+  currentWeekStart.value = isDaysCountLocked.value && daysCount.value === 1 ? getTodayStart() : getWeekStart(new Date());
 }
 
 function toggleAllDaySection() {
@@ -1491,19 +1837,49 @@ async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
 }
 
 async function setTaskBackgroundColor(task: Task, color: string) {
-  const updatedTask = patchLocalTask(task.id, { backgroundColor: color });
+  const seriesId = task.repeatSeriesId;
+  const isRepeatTask = !!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const templateTask = isRepeatTask
+    ? (!task.isVirtual
+      ? task
+      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId))
+    : undefined;
+
+  let updatedTask: Task | null = null;
+  if (isRepeatTask && seriesId) {
+    localTasks.value = localTasks.value.map((item) => (
+      item.repeatSeriesId === seriesId
+        ? { ...item, backgroundColor: color }
+        : item
+    ));
+    updatedTask = (templateTask && localTasks.value.find(item => item.id === templateTask.id))
+      || localTasks.value.find(item => item.id === task.id)
+      || null;
+  } else {
+    updatedTask = patchLocalTask(task.id, { backgroundColor: color });
+  }
+
   if (updatedTask) {
     emitTaskDateChanged(updatedTask);
   }
 
-  if (updatedTask && task.type === 'block' && task.blockId) {
+  const persistenceTarget = templateTask || task;
+  if (persistenceTarget.type === 'block' && persistenceTarget.blockId) {
     try {
-      await setBlockAttrs(task.blockId, {
+      await setBlockAttrs(persistenceTarget.blockId, {
         'custom-task-background-color': color
       });
     } catch (error) {
     }
   }
+
+  if (isRepeatTask) {
+    try {
+      await updateRepeatSeriesBackgroundColor(persistenceTarget, color);
+    } catch (error) {
+    }
+  }
+
   hideContextMenu();
 }
 
@@ -1584,9 +1960,11 @@ async function deleteTask(task: Task) {
 }
 
 onMounted(() => {
+  handleViewportResize();
   timeUpdateInterval = setInterval(() => {
     currentTime.value = new Date();
   }, 60000);
+  window.addEventListener('resize', handleViewportResize);
   document.addEventListener('mousemove', handleCreateSelectionMouseMove);
   document.addEventListener('mouseup', finishCreateSelection);
   document.addEventListener('dragend', clearWeekDragOverState, true);
@@ -1597,6 +1975,7 @@ onUnmounted(() => {
   if (timeUpdateInterval) {
     clearInterval(timeUpdateInterval);
   }
+  window.removeEventListener('resize', handleViewportResize);
   document.removeEventListener('mousemove', handleCreateSelectionMouseMove);
   document.removeEventListener('mouseup', finishCreateSelection);
   document.removeEventListener('dragend', clearWeekDragOverState, true);
@@ -1620,7 +1999,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding:14px 10px;
+  padding:4px 10px;
   background: var(--b3-theme-surface);
   border-bottom: 1px solid var(--b3-theme-border);
 }
@@ -1656,19 +2035,20 @@ onUnmounted(() => {
 }
 
 .today-btn {
-  padding: 4px 12px;
-  border: 1px solid var(--b3-theme-primary);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--b3-theme-primary);
-  font-size: 13px;
+  border: 1px solid transparent;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
   cursor: pointer;
-  transition: all 0.15s;
+  white-space: nowrap;
+  transition: all 0.15s ease;
 }
 
 .today-btn:hover {
-  background: var(--b3-theme-primary);
-  color: white;
+  background: var(--b3-theme-background);
+  border-color: var(--b3-border-color);
 }
 
 .week-body {
@@ -1685,6 +2065,231 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.mobile-week-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+  background: var(--Sv-theme-surface, var(--b3-theme-surface));
+}
+
+.mobile-week-cell {
+  min-height: 0;
+  border-radius: 10px;
+  background: var(--b3-theme-surface);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mobile-week-cell.mobile-month-cell {
+  box-shadow: #0000000f 0 1px 5px;
+}
+
+.mobile-week-cell.today {
+  border-color: #f98f7a;
+}
+
+.mobile-cell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--b3-theme-background);
+}
+
+.mobile-cell-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.mobile-cell-date {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.mobile-mini-calendar {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mobile-mini-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.mobile-mini-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+  flex: 1;
+  min-height: 0;
+  gap: 2px;
+}
+
+.mobile-mini-weekday {
+  text-align: center;
+  font-size: 10px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.7;
+}
+
+.mobile-mini-day {
+  border: none;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  border-radius: 6px;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.mobile-mini-day.is-other-month {
+  opacity: 0.35;
+}
+
+.mobile-mini-day.is-in-week {
+  background: var(--b3-theme-primary-lightest);
+  font-weight: 600;
+}
+
+.mobile-mini-day.is-today {
+  background: #f98f7a;
+  color: #fff;
+  font-weight: 700;
+}
+
+.mobile-chip-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+}
+
+.mobile-task-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 8px;
+  border-radius: 8px;
+  background: var(--b3-font-background9);
+  cursor: pointer;
+}
+
+.mobile-task-chip::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+}
+
+.mobile-task-chip-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--b3-theme-on-background);
+}
+
+.mobile-task-chip.task-completed .mobile-task-chip-title {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+.mobile-empty-tip {
+  margin: auto 0;
+  text-align: center;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.65;
+  font-size: 11px;
+  padding: 8px 0;
+}
+
+.mobile-day-weekdates {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--Sv-theme-surface, var(--b3-theme-surface));
+}
+
+.mobile-day-weekdate-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  flex: 1 1 0;
+  min-width: 38px;
+  max-width: 50px;
+  min-height: 0;
+  border: none;
+  border-radius: 14px;
+  background-color: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  padding: 6px;
+  box-shadow: rgba(0, 0, 0, 0.03) 0px 1px 5px 0px;
+  cursor: pointer;
+  overflow: hidden;
+  position: relative;
+}
+
+.mobile-day-weekdate-name {
+  font-size: 10px;
+  position: relative;
+}
+
+.mobile-day-weekdate-name::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: var(--b3-border-color);
+}
+
+.mobile-day-weekdate-number {
+  font-size: 14px;
+  z-index: 1;
+  margin-top: 15px;
+}
+
+.mobile-day-weekdate-item.is-active {
+  background-color: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.mobile-day-weekdate-item.is-active .mobile-day-weekdate-name {
+  color: inherit;
+}
+
+.mobile-day-weekdate-item.is-today .mobile-day-weekdate-name {
+  color: #f98f7a;
+}
+
 .weekday-header {
   display: flex;
   height: 30px;
@@ -1699,6 +2304,12 @@ onUnmounted(() => {
   justify-content: center;
   gap: 4px;
   flex-shrink: 0;
+}
+
+.all-day-label-text {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--b3-theme-on-surface-light);
 }
 
 .days-control-btn {
@@ -2213,6 +2824,75 @@ onUnmounted(() => {
   opacity: 0.3;
   z-index: 9;
   pointer-events: none;
+}
+
+@media (max-width: 768px) {
+  .header-title {
+    font-size: 15px;
+  }
+
+  .today-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .weekday-header {
+    height: 26px;
+  }
+
+  .weekday-name {
+    font-size: 11px;
+  }
+
+  .day-number {
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+  }
+
+  .all-day-label-text,
+  .all-day-label-in-section,
+  .days-count {
+    font-size: 10px;
+  }
+
+  .all-day-task,
+  .task-title-text {
+    font-size: 9px;
+  }
+
+  .time-label {
+    font-size: 9px;
+  }
+
+  .timed-task {
+    font-size: 9px;
+  }
+
+  .timed-task-content {
+    padding: 3px 4px;
+  }
+
+  .timed-task-time {
+    font-size: 8px;
+  }
+
+  .week-view.mobile-day-view-mode .timed-task {
+    font-size: 14px;
+  }
+
+  .week-view.mobile-day-view-mode .timed-task .task-title-text {
+    font-size: inherit;
+  }
+
+  .week-view.mobile-day-view-mode .timed-task-time {
+    font-size: 13px;
+  }
+
+  .current-time-label {
+    font-size: 9px;
+    padding: 1px 4px;
+  }
 }
 
 </style>

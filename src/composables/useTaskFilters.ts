@@ -60,6 +60,7 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
     const result: Record<string, Task[]> = {
       'pending': [],
       'in-progress': [],
+      'delayed': [],
       'completed': [],
       'cancelled': []
     };

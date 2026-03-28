@@ -90,3 +90,31 @@ body.b3-theme-dark,
 .pinch-mobile-task-create-dialog .b3-dialog__container {
   background-color: transparent !important;
 }
+
+.pinch-mobile-kanban-dialog .resize__move.b3-dialog__header {
+  display: none !important;
+}
+
+.pinch-mobile-kanban-dialog .header-actions .pinch-mobile-kanban-dialog-close-button {
+  position: static !important;
+  inset: auto !important;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.pinch-mobile-kanban-dialog .header-actions .pinch-mobile-kanban-dialog-close-button svg {
+  width: 24px;
+  height: 24px;
+}

@@ -4,6 +4,7 @@ import { lsNotebooks, type Notebook } from '@/api';
 export const STATUS_LABELS: Record<string, string> = {
   'pending': '待办',
   'in-progress': '进行中',
+  'delayed': '延迟',
   'completed': '已完成',
   'cancelled': '已取消'
 };

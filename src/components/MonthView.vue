@@ -141,7 +141,7 @@ import { formatDate } from '@/composables/useDateUtils';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
-import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
@@ -198,11 +198,39 @@ const eventManager = new EventManager();
 
 const baseDate = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 const dragOverDay = ref<string | null>(null);
+const MOBILE_BREAKPOINT = 768;
+const isCompactMobileLayout = ref(false);
 
 let dragOverDayUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingDragOverDay: string | null = null;
 
 const localTasks = ref<Task[]>([]);
+
+function syncCompactMobileLayout() {
+  isCompactMobileLayout.value = window.innerWidth <= MOBILE_BREAKPOINT;
+}
+
+const monthTaskLayout = computed(() => {
+  if (isCompactMobileLayout.value) {
+    return {
+      slotHeight: 18,
+      positionStep: 16,
+      chipHeight: 12,
+      topOffset: 24,
+      dateNumberHeight: 24,
+      moreLabelHeight: 16
+    };
+  }
+
+  return {
+    slotHeight: 24,
+    positionStep: 24,
+    chipHeight: 16,
+    topOffset: 30,
+    dateNumberHeight: 30,
+    moreLabelHeight: 20
+  };
+});
 const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
   show: false,
   x: 0,
@@ -665,9 +693,6 @@ const weeklyTasks = computed(() => {
   return result;
 });
 
-const TASK_CHIP_HEIGHT = 24;
-const TOP_OFFSET = 30;
-
 function getWeekKey(week: any[]): string {
   return week.map((d: any) => d.key).join('-');
 }
@@ -677,9 +702,11 @@ function getMaxVisibleTasksForWeek(week: any[]): number {
   const rowHeight = weekRowHeights.value[weekKey];
   if (!rowHeight) return 3;
 
-  const DATE_NUMBER_HEIGHT = 30;
-  const MORE_LABEL_HEIGHT = 20;
-  const SLOT_HEIGHT = 24;
+  const {
+    dateNumberHeight: DATE_NUMBER_HEIGHT,
+    moreLabelHeight: MORE_LABEL_HEIGHT,
+    slotHeight: SLOT_HEIGHT
+  } = monthTaskLayout.value;
 
   const count = Math.floor((rowHeight - DATE_NUMBER_HEIGHT - MORE_LABEL_HEIGHT) / SLOT_HEIGHT);
   
@@ -740,22 +767,28 @@ function shouldShowHiddenCountForDay(day: any, week: any[]): boolean {
 }
 
 function getTaskStyle(task: any, week: any[]) {
+  const {
+    positionStep: TASK_POSITION_STEP,
+    chipHeight: TASK_CHIP_HEIGHT,
+    topOffset: TOP_OFFSET
+  } = monthTaskLayout.value;
   const weekStart = new Date(week[0].date);
   weekStart.setHours(0, 0, 0, 0);
   
   const leftPercent = (task.startDayOfWeek / 7) * 100;
   const widthPercent = (task.spanDays / 7) * 100;
+  const widthOffset = isCompactMobileLayout.value ? 6 : 30;
   const bgColor = resolveTaskBackgroundColor(task.backgroundColor);
   
   const position = task.position ?? (taskPositionsMap.value.get(task.id) ?? 0);
   
-  return {
-    position: 'absolute' as const,
-    left: `${leftPercent}%`,
-    width: `calc(${widthPercent}% - 30px)`,
-    top: `${TOP_OFFSET + position * TASK_CHIP_HEIGHT}px`,
-    height: '16px',
-    backgroundColor: bgColor,
+    return {
+      position: 'absolute' as const,
+      left: `${leftPercent}%`,
+      width: `calc(${widthPercent}% - ${widthOffset}px)`,
+      top: `${TOP_OFFSET + position * TASK_POSITION_STEP}px`,
+      height: `${TASK_CHIP_HEIGHT}px`,
+      backgroundColor: bgColor,
     '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
   };
 }
@@ -1158,15 +1191,48 @@ async function deleteTask(task: Task) {
 }
 
 async function setTaskBackgroundColor(task: Task, color: string) {
-  patchLocalTask(task.id, { backgroundColor: color });
+  const seriesId = task.repeatSeriesId;
+  const isRepeatTask = !!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const templateTask = isRepeatTask
+    ? (!task.isVirtual
+      ? task
+      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId))
+    : undefined;
 
-  if (task.type === 'block' && task.blockId) {
+  let updatedTask: Task | null = null;
+  if (isRepeatTask && seriesId) {
+    localTasks.value = localTasks.value.map((item) => (
+      item.repeatSeriesId === seriesId
+        ? { ...item, backgroundColor: color }
+        : item
+    ));
+    updatedTask = (templateTask && localTasks.value.find(item => item.id === templateTask.id))
+      || localTasks.value.find(item => item.id === task.id)
+      || null;
+  } else {
+    updatedTask = patchLocalTask(task.id, { backgroundColor: color });
+  }
+
+  if (updatedTask) {
+    emitTaskDateChanged(updatedTask);
+  }
+
+  const persistenceTarget = templateTask || task;
+  if (persistenceTarget.type === 'block' && persistenceTarget.blockId) {
     try {
-      await setBlockAttrs(task.blockId, {
+      await setBlockAttrs(persistenceTarget.blockId, {
         'custom-task-background-color': color
       });
     } catch (error) {
       // setTaskBackgroundColor error
+    }
+  }
+
+  if (isRepeatTask) {
+    try {
+      await updateRepeatSeriesBackgroundColor(persistenceTarget, color);
+    } catch (error) {
+      // updateRepeatSeriesBackgroundColor error
     }
   }
 }
@@ -1194,6 +1260,9 @@ function updateWeekRowHeights() {
 let resizeObserver: ResizeObserver | null = null;
 
 onMounted(() => {
+  syncCompactMobileLayout();
+  window.addEventListener('resize', syncCompactMobileLayout);
+
   const container = document.querySelector('.month-view');
   if (container) {
     eventManager.add(container as HTMLElement, 'wheel', handleWheel, 'wheel');
@@ -1300,6 +1369,7 @@ function handleTaskClick(task: Task) {
 }
 
 onUnmounted(() => {
+  window.removeEventListener('resize', syncCompactMobileLayout);
   taskSyncGuard.clearAllTaskSyncLocks();
   removeEventListeners();
 
@@ -1341,7 +1411,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 10px;
+  padding: 4px 10px;
   background: var(--b3-theme-surface);
   border-bottom: 1px solid var(--b3-theme-border);
 }
@@ -1673,6 +1743,84 @@ onUnmounted(() => {
   top: auto;
   font-size: 10px;
   padding: 2px 4px;
+}
+
+@media (max-width: 768px) {
+  .calendar-header {
+    padding: 4px 8px;
+  }
+
+  .month-title {
+    font-size: 15px;
+  }
+
+  .weekday {
+    font-size: 10px;
+    padding: 6px 4px;
+  }
+
+  .day-cell {
+    padding: 4px;
+    gap: 1px;
+  }
+
+  .day-number {
+    font-size: 11px;
+    width: 18px;
+    height: 18px;
+  }
+
+  .day-lunar {
+    font-size: 8px;
+    line-height: 1.3;
+  }
+
+  .week-tasks-layer {
+    padding: 4px;
+    padding-left: 24px;
+  }
+
+  .task-chip {
+    height: 12px !important;
+    min-height: 12px;
+    padding: 1px 4px;
+    border-radius: 4px;
+    box-sizing: border-box;
+    margin-left: 3px;
+  }
+
+  .task-chip::before {
+    display: none;
+  }
+
+  .task-handle,
+  .task-checkbox-wrapper,
+  .task-priority-badge,
+  .task-jump-btn {
+    display: none !important;
+  }
+
+  .task-chip-title {
+    margin: 0;
+    gap: 0;
+    width: 100%;
+  }
+
+  .task-title-text {
+    font-size: 9px;
+    line-height: 1.1;
+    width: 100%;
+    display: block;
+  }
+
+  .placeholder-text,
+  .more-tasks-placeholder {
+    font-size: 9px;
+  }
+
+  .more-tasks-placeholder.day-more {
+    font-size: 8px;
+  }
 }
 
 </style>

@@ -39,6 +39,7 @@ const emit = defineEmits<{
 const statusOptions = [
   { value: 'pending', label: '待办', background: '#fef3c7', color: '#f59e0b' },
   { value: 'in-progress', label: '进行中', background: '#dbeafe', color: '#3b82f6' },
+  { value: 'delayed', label: '延迟', background: '#ffedd5', color: '#f97316' },
   { value: 'completed', label: '已完成', background: '#d1fae5', color: '#10b981' },
   { value: 'cancelled', label: '已取消', background: '#f3f4f6', color: '#9ca3af' }
 ];

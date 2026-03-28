@@ -1075,7 +1075,7 @@ export interface EmojiConfig {
   [key: number]: unknown;
 }
 
-export type TaskStatus = 'pending' | 'in-progress' | 'completed' | 'cancelled';
+export type TaskStatus = 'pending' | 'in-progress' | 'delayed' | 'completed' | 'cancelled';
 export type TaskPriority = 'none' | 'high' | 'medium' | 'low';
 export type TaskType = 'standalone' | 'block';
 
@@ -1420,7 +1420,7 @@ export class TaskRepository {
     markdown: string,
     completedByDOM: boolean | null
   ): TaskStatus {
-    const validStatuses: TaskStatus[] = ['pending', 'in-progress', 'completed', 'cancelled'];
+    const validStatuses: TaskStatus[] = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
     const attrStatus = attrs['custom-task-status'] as TaskStatus | undefined;
     const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
     const markdownMatch = markdown?.match(/\[(x|X| )\]/);
@@ -2397,7 +2397,7 @@ export class TaskRepository {
               }
             }
 
-            const validStatuses = ['pending', 'in-progress', 'completed', 'cancelled'];
+            const validStatuses = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
             const attrStatus = attrs['custom-task-status'] as TaskStatus | undefined;
             const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
             let status: TaskStatus;
@@ -2532,9 +2532,9 @@ export class TaskRepository {
             }
           }
           
-          const validStatuses = ['pending', 'in-progress', 'completed', 'cancelled'];
+          const validStatuses = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
           
-          const attrStatus = attrs['custom-task-status'] as 'pending' | 'in-progress' | 'completed' | 'cancelled' | undefined;
+          const attrStatus = attrs['custom-task-status'] as 'pending' | 'in-progress' | 'delayed' | 'completed' | 'cancelled' | undefined;
           const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
           const isCompletedBySignals =
             isCurrentCompleted === true ||
