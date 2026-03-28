@@ -970,6 +970,7 @@ const taskModalDefaultDocument = computed(() => {
   return lastTaskDocument.value || '';
 });
 let filterSettingsUpdateTimer: number | null = null;
+let taskPopoverFilterSettingsUpdateTimer: number | null = null;
 
 const enabledNotebooks = computed(() => {
   const excludedIdSet = new Set(excludedNotebookIds.value);
@@ -1331,6 +1332,58 @@ const taskExtraFilterOptions: Array<{ value: TaskExtraFilterKey; label: string }
   { value: 'hasDescription', label: '有描述' },
   { value: 'hasSubtasks', label: '有子任务' }
 ];
+const taskStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(taskStatusFilterOptions.map(option => option.value));
+const taskPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(taskPriorityFilterOptions.map(option => option.value));
+const taskDueFilterValueSet: ReadonlySet<TaskDueFilterKey> = new Set(taskDueFilterOptions.map(option => option.value));
+const taskUpdatedFilterValueSet: ReadonlySet<TaskUpdateFilterKey> = new Set(taskUpdatedFilterOptions.map(option => option.value));
+const taskExtraFilterValueSet: ReadonlySet<TaskExtraFilterKey> = new Set(taskExtraFilterOptions.map(option => option.value));
+
+function normalizeStoredFilterValues<T extends string>(
+  values: unknown,
+  allowedValues: ReadonlySet<T>
+): T[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: T[] = [];
+  for (const item of values) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const value = item.trim() as T;
+    if (!value || !allowedValues.has(value) || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function normalizeStoredGroupFilters(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const validGroupIds = new Set(taskGroups.value.map(group => group.id));
+  const normalized: string[] = [];
+  for (const item of values) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const value = item.trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    if (value !== TASK_GROUP_NONE_ID && !validGroupIds.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
 const taskGroupFilterOptions = computed(() => {
   const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
     { value: TASK_GROUP_NONE_ID, label: '无标签', style: {} }
@@ -1396,6 +1449,49 @@ const {
   buildActiveGroupStyle: buildActiveGroupChipStyle,
   updatedSingle: true
 });
+
+function restoreTaskPopoverFiltersFromSettings(): void {
+  const settings = userSettings.taskManager;
+  activeTaskStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.taskStatusFilters, taskStatusFilterValueSet);
+  activeTaskPriorityFilters.value = normalizeStoredFilterValues<Task['priority']>(settings.taskPriorityFilters, taskPriorityFilterValueSet);
+  activeTaskDueFilters.value = normalizeStoredFilterValues<TaskDueFilterKey>(settings.taskDueFilters, taskDueFilterValueSet);
+  activeTaskUpdatedFilters.value = normalizeStoredFilterValues<TaskUpdateFilterKey>(settings.taskUpdatedFilters, taskUpdatedFilterValueSet);
+  activeTaskGroupFilters.value = normalizeStoredGroupFilters(settings.taskGroupFilters);
+  activeTaskExtraFilters.value = normalizeStoredFilterValues<TaskExtraFilterKey>(settings.taskExtraFilters, taskExtraFilterValueSet);
+}
+
+function scheduleTaskPopoverFilterSettingsUpdate(): void {
+  if (taskPopoverFilterSettingsUpdateTimer !== null) {
+    clearTimeout(taskPopoverFilterSettingsUpdateTimer);
+  }
+  taskPopoverFilterSettingsUpdateTimer = window.setTimeout(async () => {
+    await updateSettings('taskManager', {
+      taskStatusFilters: [...activeTaskStatusFilters.value],
+      taskPriorityFilters: [...activeTaskPriorityFilters.value],
+      taskDueFilters: [...activeTaskDueFilters.value],
+      taskUpdatedFilters: [...activeTaskUpdatedFilters.value],
+      taskGroupFilters: [...activeTaskGroupFilters.value],
+      taskExtraFilters: [...activeTaskExtraFilters.value]
+    });
+  }, 200);
+}
+
+watch(
+  [
+    activeTaskStatusFilters,
+    activeTaskPriorityFilters,
+    activeTaskDueFilters,
+    activeTaskUpdatedFilters,
+    activeTaskGroupFilters,
+    activeTaskExtraFilters
+  ],
+  () => {
+    if (isHydratingFilters) {
+      return;
+    }
+    scheduleTaskPopoverFilterSettingsUpdate();
+  }
+);
 
 const taskEditPriorityOptions: Array<{
   value: Task['priority'];
@@ -4033,6 +4129,7 @@ onMounted(async () => {
   filterNotebook.value = userSettings.taskManager.filterNotebook || 'all';
   filterDocument.value = userSettings.taskManager.filterDocument || 'all';
   showCompletedTasks.value = userSettings.taskManager.showCompletedTasks !== false;
+  restoreTaskPopoverFiltersFromSettings();
   ensureActiveNotebookFilterInScope();
   
   normalizeDocumentSelection(filterNotebook.value);
@@ -4096,6 +4193,10 @@ onUnmounted(() => {
   if (filterSettingsUpdateTimer !== null) {
     clearTimeout(filterSettingsUpdateTimer);
     filterSettingsUpdateTimer = null;
+  }
+  if (taskPopoverFilterSettingsUpdateTimer !== null) {
+    clearTimeout(taskPopoverFilterSettingsUpdateTimer);
+    taskPopoverFilterSettingsUpdateTimer = null;
   }
   if (fallbackRefreshTimer !== null) {
     clearTimeout(fallbackRefreshTimer);

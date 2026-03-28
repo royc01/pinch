@@ -922,6 +922,58 @@ const kanbanExtraFilterOptions: Array<{ value: KanbanTaskExtraFilterKey; label: 
   { value: 'hasDescription', label: '有描述' },
   { value: 'hasSubtasks', label: '有子任务' }
 ];
+const kanbanStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(kanbanStatusFilterOptions.map(option => option.value));
+const kanbanPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(kanbanPriorityFilterOptions.map(option => option.value));
+const kanbanDueFilterValueSet: ReadonlySet<KanbanTaskDueFilterKey> = new Set(kanbanDueFilterOptions.map(option => option.value));
+const kanbanUpdatedFilterValueSet: ReadonlySet<KanbanTaskUpdateFilterKey> = new Set(kanbanUpdatedFilterOptions.map(option => option.value));
+const kanbanExtraFilterValueSet: ReadonlySet<KanbanTaskExtraFilterKey> = new Set(kanbanExtraFilterOptions.map(option => option.value));
+
+function normalizeStoredFilterValues<T extends string>(
+  values: unknown,
+  allowedValues: ReadonlySet<T>
+): T[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: T[] = [];
+  for (const item of values) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const value = item.trim() as T;
+    if (!value || !allowedValues.has(value) || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+function normalizeStoredGroupFilters(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const validGroupIds = new Set(taskGroups.value.map(group => group.id));
+  const normalized: string[] = [];
+  for (const item of values) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const value = item.trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    if (value !== TASK_GROUP_NONE_ID && !validGroupIds.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
 
 const enabledNotebooks = computed(() => {
   const excludedNotebookIdSet = new Set(excludedNotebookIds.value);
@@ -1126,6 +1178,23 @@ const {
   buildActiveGroupStyle: buildActiveKanbanGroupChipStyle,
   updatedSingle: true
 });
+
+function restoreTaskFilterPopoverSettings(): void {
+  const settings = userSettings.kanban;
+  activeKanbanStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.kanbanStatusFilters, kanbanStatusFilterValueSet);
+  activeKanbanPriorityFilters.value = normalizeStoredFilterValues<Task['priority']>(settings.kanbanPriorityFilters, kanbanPriorityFilterValueSet);
+  activeKanbanDueFilters.value = normalizeStoredFilterValues<KanbanTaskDueFilterKey>(settings.kanbanDueFilters, kanbanDueFilterValueSet);
+  activeKanbanUpdatedFilters.value = normalizeStoredFilterValues<KanbanTaskUpdateFilterKey>(settings.kanbanUpdatedFilters, kanbanUpdatedFilterValueSet);
+  activeKanbanGroupFilters.value = normalizeStoredGroupFilters(settings.kanbanGroupFilters);
+  activeKanbanExtraFilters.value = normalizeStoredFilterValues<KanbanTaskExtraFilterKey>(settings.kanbanExtraFilters, kanbanExtraFilterValueSet);
+
+  activeTableStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.tableStatusFilters, kanbanStatusFilterValueSet);
+  activeTablePriorityFilters.value = normalizeStoredFilterValues<Task['priority']>(settings.tablePriorityFilters, kanbanPriorityFilterValueSet);
+  activeTableDueFilters.value = normalizeStoredFilterValues<KanbanTaskDueFilterKey>(settings.tableDueFilters, kanbanDueFilterValueSet);
+  activeTableUpdatedFilters.value = normalizeStoredFilterValues<KanbanTaskUpdateFilterKey>(settings.tableUpdatedFilters, kanbanUpdatedFilterValueSet);
+  activeTableGroupFilters.value = normalizeStoredGroupFilters(settings.tableGroupFilters);
+  activeTableExtraFilters.value = normalizeStoredFilterValues<KanbanTaskExtraFilterKey>(settings.tableExtraFilters, kanbanExtraFilterValueSet);
+}
 
 const {
   activeStatusFilters: activeTableStatusFilters,
@@ -1704,7 +1773,19 @@ watch([
   weekFilterType,
   weekFilterDocument,
   dayFilterType,
-  dayFilterDocument
+  dayFilterDocument,
+  activeKanbanStatusFilters,
+  activeKanbanPriorityFilters,
+  activeKanbanDueFilters,
+  activeKanbanUpdatedFilters,
+  activeKanbanGroupFilters,
+  activeKanbanExtraFilters,
+  activeTableStatusFilters,
+  activeTablePriorityFilters,
+  activeTableDueFilters,
+  activeTableUpdatedFilters,
+  activeTableGroupFilters,
+  activeTableExtraFilters
 ], () => {
   if (isHydratingSettings.value) {
     return;
@@ -2702,6 +2783,7 @@ async function loadUserSettings() {
     weekFilterDocument.value = settings.weekFilterDocument || 'all';
     dayFilterType.value = settings.dayFilterType || settings.weekFilterType || 'all';
     dayFilterDocument.value = settings.dayFilterDocument || 'all';
+    restoreTaskFilterPopoverSettings();
     hiddenDocumentTabIds.value = new Set(normalizeNotebookIds(settings.hiddenDocumentTabIds));
     const changedByScope = resetFiltersForExcludedNotebooks();
     
@@ -2774,6 +2856,18 @@ async function saveUserSettings() {
       weekFilterDocument: weekFilterDocument.value,
       dayFilterType: dayFilterType.value,
       dayFilterDocument: dayFilterDocument.value,
+      kanbanStatusFilters: [...activeKanbanStatusFilters.value],
+      kanbanPriorityFilters: [...activeKanbanPriorityFilters.value],
+      kanbanDueFilters: [...activeKanbanDueFilters.value],
+      kanbanUpdatedFilters: [...activeKanbanUpdatedFilters.value],
+      kanbanGroupFilters: [...activeKanbanGroupFilters.value],
+      kanbanExtraFilters: [...activeKanbanExtraFilters.value],
+      tableStatusFilters: [...activeTableStatusFilters.value],
+      tablePriorityFilters: [...activeTablePriorityFilters.value],
+      tableDueFilters: [...activeTableDueFilters.value],
+      tableUpdatedFilters: [...activeTableUpdatedFilters.value],
+      tableGroupFilters: [...activeTableGroupFilters.value],
+      tableExtraFilters: [...activeTableExtraFilters.value],
       hiddenDocumentTabIds: normalizeNotebookIds(Array.from(hiddenDocumentTabIds.value), { sort: true })
     });
   } catch (error) {

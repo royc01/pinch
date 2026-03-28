@@ -26,6 +26,18 @@ export interface UserSettings {
     dayFilterType?: string;
     dayFilterDocument?: string;
     hiddenDocumentTabIds: string[];
+    kanbanStatusFilters?: string[];
+    kanbanPriorityFilters?: string[];
+    kanbanDueFilters?: string[];
+    kanbanUpdatedFilters?: string[];
+    kanbanGroupFilters?: string[];
+    kanbanExtraFilters?: string[];
+    tableStatusFilters?: string[];
+    tablePriorityFilters?: string[];
+    tableDueFilters?: string[];
+    tableUpdatedFilters?: string[];
+    tableGroupFilters?: string[];
+    tableExtraFilters?: string[];
   };
   taskManager: {
     filterStatus: string;
@@ -38,6 +50,12 @@ export interface UserSettings {
     lastTaskNotebook?: string;
     lastTaskDocument?: string;
     selectedGroupId?: string;
+    taskStatusFilters?: string[];
+    taskPriorityFilters?: string[];
+    taskDueFilters?: string[];
+    taskUpdatedFilters?: string[];
+    taskGroupFilters?: string[];
+    taskExtraFilters?: string[];
   };
   sidebar: {
     selectedNotebook: string;
@@ -68,7 +86,19 @@ export const DEFAULT_SETTINGS: UserSettings = {
     weekFilterDocument: 'all',
     dayFilterType: 'all',
     dayFilterDocument: 'all',
-    hiddenDocumentTabIds: []
+    hiddenDocumentTabIds: [],
+    kanbanStatusFilters: [],
+    kanbanPriorityFilters: [],
+    kanbanDueFilters: [],
+    kanbanUpdatedFilters: [],
+    kanbanGroupFilters: [],
+    kanbanExtraFilters: [],
+    tableStatusFilters: [],
+    tablePriorityFilters: [],
+    tableDueFilters: [],
+    tableUpdatedFilters: [],
+    tableGroupFilters: [],
+    tableExtraFilters: []
   },
   taskManager: {
     filterStatus: 'all',
@@ -78,7 +108,13 @@ export const DEFAULT_SETTINGS: UserSettings = {
     excludedNotebookIds: [],
     showCompletedTasks: true,
     scopeInitialized: false,
-    selectedGroupId: 'all'
+    selectedGroupId: 'all',
+    taskStatusFilters: [],
+    taskPriorityFilters: [],
+    taskDueFilters: [],
+    taskUpdatedFilters: [],
+    taskGroupFilters: [],
+    taskExtraFilters: []
   },
   sidebar: {
     selectedNotebook: 'all',
@@ -88,6 +124,26 @@ export const DEFAULT_SETTINGS: UserSettings = {
 
 const STORAGE_KEY = 'Stand-settings';
 const LOCAL_STORAGE_KEY = 'siyuan-stand-settings';
+
+function normalizeStringArray(input: unknown): string[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const item of input) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const value = item.trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
 
 function mergeWithDefaults(input: unknown): UserSettings {
   const raw = input && typeof input === 'object' ? (input as Partial<UserSettings>) : {};
@@ -99,12 +155,30 @@ function mergeWithDefaults(input: unknown): UserSettings {
     kanban: {
       ...DEFAULT_SETTINGS.kanban,
       ...rawKanban,
-      hiddenDocumentTabIds: normalizeNotebookIds((rawKanban as { hiddenDocumentTabIds?: unknown }).hiddenDocumentTabIds)
+      hiddenDocumentTabIds: normalizeNotebookIds((rawKanban as { hiddenDocumentTabIds?: unknown }).hiddenDocumentTabIds),
+      kanbanStatusFilters: normalizeStringArray((rawKanban as { kanbanStatusFilters?: unknown }).kanbanStatusFilters),
+      kanbanPriorityFilters: normalizeStringArray((rawKanban as { kanbanPriorityFilters?: unknown }).kanbanPriorityFilters),
+      kanbanDueFilters: normalizeStringArray((rawKanban as { kanbanDueFilters?: unknown }).kanbanDueFilters),
+      kanbanUpdatedFilters: normalizeStringArray((rawKanban as { kanbanUpdatedFilters?: unknown }).kanbanUpdatedFilters),
+      kanbanGroupFilters: normalizeStringArray((rawKanban as { kanbanGroupFilters?: unknown }).kanbanGroupFilters),
+      kanbanExtraFilters: normalizeStringArray((rawKanban as { kanbanExtraFilters?: unknown }).kanbanExtraFilters),
+      tableStatusFilters: normalizeStringArray((rawKanban as { tableStatusFilters?: unknown }).tableStatusFilters),
+      tablePriorityFilters: normalizeStringArray((rawKanban as { tablePriorityFilters?: unknown }).tablePriorityFilters),
+      tableDueFilters: normalizeStringArray((rawKanban as { tableDueFilters?: unknown }).tableDueFilters),
+      tableUpdatedFilters: normalizeStringArray((rawKanban as { tableUpdatedFilters?: unknown }).tableUpdatedFilters),
+      tableGroupFilters: normalizeStringArray((rawKanban as { tableGroupFilters?: unknown }).tableGroupFilters),
+      tableExtraFilters: normalizeStringArray((rawKanban as { tableExtraFilters?: unknown }).tableExtraFilters)
     },
     taskManager: {
       ...DEFAULT_SETTINGS.taskManager,
       ...rawTaskManager,
-      excludedNotebookIds: normalizeNotebookIds((rawTaskManager as { excludedNotebookIds?: unknown }).excludedNotebookIds)
+      excludedNotebookIds: normalizeNotebookIds((rawTaskManager as { excludedNotebookIds?: unknown }).excludedNotebookIds),
+      taskStatusFilters: normalizeStringArray((rawTaskManager as { taskStatusFilters?: unknown }).taskStatusFilters),
+      taskPriorityFilters: normalizeStringArray((rawTaskManager as { taskPriorityFilters?: unknown }).taskPriorityFilters),
+      taskDueFilters: normalizeStringArray((rawTaskManager as { taskDueFilters?: unknown }).taskDueFilters),
+      taskUpdatedFilters: normalizeStringArray((rawTaskManager as { taskUpdatedFilters?: unknown }).taskUpdatedFilters),
+      taskGroupFilters: normalizeStringArray((rawTaskManager as { taskGroupFilters?: unknown }).taskGroupFilters),
+      taskExtraFilters: normalizeStringArray((rawTaskManager as { taskExtraFilters?: unknown }).taskExtraFilters)
     },
     sidebar: {
       ...DEFAULT_SETTINGS.sidebar,
