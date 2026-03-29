@@ -58,10 +58,49 @@
                   </div>
                 </div>
                 <div 
-                  v-if="shouldShowHiddenCountForDay(day, week)"
+                  v-if="shouldShowHiddenCountForDay(day, week) && !isDayExpanded(day.key)"
                   class="more-tasks-placeholder day-more"
+                  @mousedown.stop
+                  @click.stop="expandDayTasks(day.key)"
                 >
                   +{{ getHiddenTaskCountForDay(day, week) }} 个任务
+                </div>
+                <div
+                  v-if="isDayExpanded(day.key)"
+                  class="day-expanded-panel"
+                  @mousedown.stop
+                  @click.stop
+                >
+                  <div class="day-expanded-header">
+                    <span class="day-expanded-title">当天任务</span>
+                    <button
+                      type="button"
+                      class="day-expanded-close"
+                      @click.stop="collapseDayTasks(day.key)"
+                    >
+                      收起
+                    </button>
+                  </div>
+                  <div class="day-expanded-list">
+                    <div
+                      v-for="task in getExpandedTasksForDay(day, week)"
+                      :key="`expanded-${day.key}-${task.id}`"
+                      class="day-expanded-chip"
+                      :style="getExpandedTaskChipStyle(task)"
+                      :class="{ 'task-completed': task.status === 'completed' }"
+                      @contextmenu="handleContextMenu($event, task)"
+                    >
+                      <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
+                        <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
+                      </span>
+                      <span class="day-expanded-chip-title" @click.stop="handleTaskClick(task)">
+                        {{ stripHtml(task.title) }}
+                      </span>
+                    </div>
+                    <div v-if="getExpandedTasksForDay(day, week).length === 0" class="day-expanded-empty">
+                      暂无任务
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -118,13 +157,18 @@
       :task="contextMenu.task"
       :background-colors="backgroundColors"
       :start-date="contextMenuDateDraft.startDate"
+      :start-time="contextMenuDateDraft.startTime"
       :due-date="contextMenuDateDraft.dueDate"
+      :due-time="contextMenuDateDraft.dueTime"
       :repeat-frequency="contextMenuRepeatFrequency"
       @update:startDate="contextMenuDateDraft.startDate = $event"
+      @update:startTime="contextMenuDateDraft.startTime = $event"
       @update:dueDate="contextMenuDateDraft.dueDate = $event"
+      @update:dueTime="contextMenuDateDraft.dueTime = $event"
       @setColor="setTaskBackgroundColor(contextMenu.task!, $event)"
       @saveDates="applyTaskDates(contextMenu.task!)"
       @saveRepeatRule="saveTaskRepeatRule(contextMenu.task!, $event)"
+      @archiveTask="toggleTaskArchive(contextMenu.task!)"
       @deleteTask="deleteTask(contextMenu.task!)"
     />
 
@@ -143,6 +187,7 @@ import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
 import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
+import { eventBus, Events } from '@/utils/eventBus';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
@@ -237,9 +282,11 @@ const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null
   y: 0,
   task: null
 });
-const contextMenuDateDraft = ref<{ startDate: string; dueDate: string }>({
+const contextMenuDateDraft = ref<{ startDate: string; startTime: string; dueDate: string; dueTime: string }>({
   startDate: '',
-  dueDate: ''
+  startTime: '',
+  dueDate: '',
+  dueTime: ''
 });
 const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
 
@@ -258,6 +305,7 @@ function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined)
 
 const pendingDeletion = ref(new Set<string>());
 const weekRowHeights = ref<Record<string, number>>({});
+const expandedDayKeys = ref<Set<string>>(new Set());
 const taskSyncGuard = useTaskSyncGuard(localTasks);
 const {
   upsertTask: upsertLocalTask,
@@ -630,6 +678,25 @@ const calendarDays = computed(() => {
   return days;
 });
 
+watch(calendarDays, (days) => {
+  if (expandedDayKeys.value.size === 0) {
+    return;
+  }
+  const validDayKeys = new Set(days.map(day => day.key));
+  let changed = false;
+  const next = new Set<string>();
+  expandedDayKeys.value.forEach((dayKey) => {
+    if (validDayKeys.has(dayKey)) {
+      next.add(dayKey);
+    } else {
+      changed = true;
+    }
+  });
+  if (changed || next.size !== expandedDayKeys.value.size) {
+    expandedDayKeys.value = next;
+  }
+});
+
 const calendarWeeks = computed(() => {
   const weeks = [];
   const days = calendarDays.value;
@@ -766,6 +833,45 @@ function shouldShowHiddenCountForDay(day: any, week: any[]): boolean {
   return getHiddenTaskCountForDay(day, week) > 0;
 }
 
+function isDayExpanded(dayKey: string): boolean {
+  return expandedDayKeys.value.has(dayKey);
+}
+
+function expandDayTasks(dayKey: string): void {
+  if (!dayKey) return;
+  expandedDayKeys.value = new Set([dayKey]);
+}
+
+function collapseDayTasks(dayKey: string): void {
+  if (!dayKey || !expandedDayKeys.value.has(dayKey)) return;
+  const next = new Set(expandedDayKeys.value);
+  next.delete(dayKey);
+  expandedDayKeys.value = next;
+}
+
+function getExpandedTasksForDay(day: any, week: any[]): WeekTask[] {
+  const weekKey = getWeekKey(week);
+  const weekData = weekRenderDataMap.value.get(weekKey);
+  if (!weekData) return [];
+
+  const dayIndex = week.findIndex(item => item.key === day.key);
+  if (dayIndex < 0) return [];
+
+  return weekData.tasks
+    .filter(task => task.startDayOfWeek <= dayIndex && task.endDayOfWeek >= dayIndex)
+    .sort((a, b) => {
+      const positionDelta = (a.position ?? 0) - (b.position ?? 0);
+      if (positionDelta !== 0) {
+        return positionDelta;
+      }
+      const startDelta = a.startDayOfWeek - b.startDayOfWeek;
+      if (startDelta !== 0) {
+        return startDelta;
+      }
+      return (a.title || '').localeCompare(b.title || '', 'zh-CN');
+    });
+}
+
 function getTaskStyle(task: any, week: any[]) {
   const {
     positionStep: TASK_POSITION_STEP,
@@ -789,6 +895,13 @@ function getTaskStyle(task: any, week: any[]) {
       top: `${TOP_OFFSET + position * TASK_POSITION_STEP}px`,
       height: `${TASK_CHIP_HEIGHT}px`,
       backgroundColor: bgColor,
+    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
+  };
+}
+
+function getExpandedTaskChipStyle(task: WeekTask): Record<string, string> {
+  return {
+    backgroundColor: resolveTaskBackgroundColor(task.backgroundColor),
     '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
   };
 }
@@ -942,15 +1055,18 @@ async function handleDrop(day: any) {
 }
 
 function previousMonth() {
+  expandedDayKeys.value = new Set();
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() - 1, 1);
 }
 
 function nextMonth() {
+  expandedDayKeys.value = new Set();
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + 1, 1);
 }
 
 function handleWheel(event: WheelEvent) {
   event.preventDefault();
+  expandedDayKeys.value = new Set();
   
   const daysToScroll = event.deltaY > 0 ? 7 : -7;
   const newDate = new Date(baseDate.value);
@@ -971,7 +1087,9 @@ function handleContextMenu(event: MouseEvent, task: Task) {
   };
   contextMenuDateDraft.value = {
     startDate: task.startDate || '',
-    dueDate: task.dueDate || ''
+    startTime: task.startTime || '',
+    dueDate: task.dueDate || '',
+    dueTime: task.dueTime || ''
   };
   contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
 
@@ -983,7 +1101,9 @@ function handleContextMenu(event: MouseEvent, task: Task) {
         if (contextMenu.value.task?.id !== task.id) return;
         contextMenuDateDraft.value = {
           startDate: series.startDate || '',
-          dueDate: series.endDate || ''
+          startTime: series.startTime || '',
+          dueDate: series.endDate || '',
+          dueTime: series.dueTime || ''
         };
       })
       .catch(() => {});
@@ -999,8 +1119,20 @@ function handleContextMenu(event: MouseEvent, task: Task) {
 }
 
 function handleGlobalClick(event: MouseEvent) {
+  const target = event.target;
+  const targetElement = target instanceof Element ? target : null;
+
+  if (expandedDayKeys.value.size > 0) {
+    const clickedInsideExpandedPanel = !!targetElement?.closest('.day-expanded-panel');
+    const clickedExpandTrigger = !!targetElement?.closest('.more-tasks-placeholder.day-more');
+    const clickedInsideContextMenu = !!targetElement?.closest('.context-menu');
+    if (!clickedInsideExpandedPanel && !clickedExpandTrigger && !clickedInsideContextMenu) {
+      expandedDayKeys.value = new Set();
+    }
+  }
+
   const menu = document.querySelector('.context-menu');
-  if (menu && !menu.contains(event.target as Node)) {
+  if (menu && !(target instanceof Node && menu.contains(target))) {
     hideContextMenu();
   }
 }
@@ -1012,7 +1144,7 @@ function hideContextMenu() {
     y: 0,
     task: null
   };
-  contextMenuDateDraft.value = { startDate: '', dueDate: '' };
+  contextMenuDateDraft.value = { startDate: '', startTime: '', dueDate: '', dueTime: '' };
   contextMenuRepeatFrequency.value = 'none';
 }
 
@@ -1021,6 +1153,8 @@ async function applyTaskDates(task: Task) {
 
   const nextStartDate = contextMenuDateDraft.value.startDate || null;
   let nextDueDate = contextMenuDateDraft.value.dueDate || null;
+  const nextStartTime = contextMenuDateDraft.value.startTime || null;
+  const nextDueTime = contextMenuDateDraft.value.dueTime || null;
   if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
     nextDueDate = nextStartDate;
   }
@@ -1031,7 +1165,10 @@ async function applyTaskDates(task: Task) {
       task,
       nextStartDate,
       nextDueDate,
-      undefined,
+      {
+        startTime: nextStartTime,
+        dueTime: nextDueTime
+      },
       { emitChange: false }
     );
     if (updatedSeries) {
@@ -1042,7 +1179,9 @@ async function applyTaskDates(task: Task) {
       if (templateTask) {
         const updatedTask = patchLocalTask(templateTask.id, {
           startDate: updatedSeries.startDate || null,
-          dueDate: updatedSeries.endDate || null
+          dueDate: updatedSeries.endDate || null,
+          startTime: updatedSeries.startTime || undefined,
+          dueTime: updatedSeries.dueTime || undefined
         });
         if (updatedTask) {
           emitTaskDateChanged(updatedTask);
@@ -1051,7 +1190,9 @@ async function applyTaskDates(task: Task) {
           try {
             await setBlockAttrs(templateTask.blockId, {
               'custom-task-start-date': updatedSeries.startDate || '',
-              'custom-task-due-date': updatedSeries.endDate || ''
+              'custom-task-due-date': updatedSeries.endDate || '',
+              'custom-task-start-time': updatedSeries.startTime || '',
+              'custom-task-due-time': updatedSeries.dueTime || ''
             });
           } catch (error) {
           }
@@ -1069,7 +1210,9 @@ async function applyTaskDates(task: Task) {
 
   const updatedTask = patchLocalTask(task.id, {
     startDate: nextStartDate,
-    dueDate: nextDueDate
+    dueDate: nextDueDate,
+    startTime: nextStartTime || undefined,
+    dueTime: nextDueTime || undefined
   });
   if (updatedTask) {
     emitTaskDateChanged(updatedTask);
@@ -1079,7 +1222,9 @@ async function applyTaskDates(task: Task) {
     try {
       await setBlockAttrs(task.blockId, {
         'custom-task-start-date': nextStartDate || '',
-        'custom-task-due-date': nextDueDate || ''
+        'custom-task-due-date': nextDueDate || '',
+        'custom-task-start-time': nextStartTime || '',
+        'custom-task-due-time': nextDueTime || ''
       });
     } catch (error) {
     }
@@ -1106,6 +1251,49 @@ async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
     hideContextMenu();
   } catch (error) {
   }
+}
+
+async function toggleTaskArchive(task: Task): Promise<void> {
+  if (!task || task.isVirtual) {
+    hideContextMenu();
+    return;
+  }
+
+  const isArchived = task.archived === true;
+  const repeatSeriesId = task.repeatSeriesId;
+
+  try {
+    if (isArchived) {
+      await TaskRepository.unarchiveTask(task.id);
+      if (task.blockId) {
+        eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
+      }
+      patchLocalTask(task.id, {
+        archived: false,
+        archivedAt: undefined,
+        archiveReason: undefined
+      });
+    } else {
+      await TaskRepository.archiveTask(task.id, 'manual');
+      if (task.blockId) {
+        eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
+      }
+      pendingDeletion.value.add(task.id);
+      removeLocalTask(task.id);
+      if (repeatSeriesId) {
+        const virtualTaskIds = localTasks.value
+          .filter(item => item.isVirtual && item.repeatSeriesId === repeatSeriesId)
+          .map(item => item.id);
+        virtualTaskIds.forEach((id) => {
+          pendingDeletion.value.add(id);
+          removeLocalTask(id);
+        });
+      }
+    }
+  } catch {
+  }
+
+  hideContextMenu();
 }
 
 async function deleteTask(task: Task) {
@@ -1498,6 +1686,7 @@ onUnmounted(() => {
   transition: background-color 0.2s;
   box-sizing: border-box;
   position: relative;
+  overflow: visible;
 }
 
 .day-cell.other-month .day-number {
@@ -1745,6 +1934,101 @@ onUnmounted(() => {
   padding: 2px 4px;
 }
 
+.day-expanded-panel {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 28px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.day-expanded-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+}
+
+.day-expanded-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
+.day-expanded-close {
+  border: none;
+  border-radius: 999px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.day-expanded-list {
+  overflow: visible;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.day-expanded-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  border-radius: 6px;
+  padding: 2px 6px;
+  border-left: 2px solid transparent;
+  position: relative;
+  background: var(--b3-theme-surface);
+}
+
+.day-expanded-chip::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  bottom: 3px;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  pointer-events: none;
+}
+
+.day-expanded-chip.task-completed {
+  opacity: 0.6;
+}
+
+.day-expanded-chip-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--b3-theme-on-background);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.day-expanded-empty {
+  padding: 8px 4px;
+  font-size: 10px;
+  text-align: center;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.6;
+}
+
 @media (max-width: 768px) {
   .calendar-header {
     padding: 4px 8px;
@@ -1820,6 +2104,30 @@ onUnmounted(() => {
 
   .more-tasks-placeholder.day-more {
     font-size: 8px;
+  }
+
+  .day-expanded-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    border-radius: 12px 12px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.16);
+    z-index: 1200;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .day-expanded-title,
+  .day-expanded-close,
+  .day-expanded-chip-title,
+  .day-expanded-empty {
+    font-size: 9px;
   }
 }
 

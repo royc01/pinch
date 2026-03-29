@@ -10,11 +10,18 @@
         <div class="header-title">{{ displayWeekTitle }}</div>
         <button class="today-btn" @click="goToToday">今天</button>
       </div>
-      <button class="nav-btn" @click="nextWeek">
-        <svg viewBox="0 0 24 24" width="20" height="20">
-          <path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
-        </svg>
-      </button>
+      <div class="header-right">
+        <button class="nav-btn" @click="nextWeek">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+          </svg>
+        </button>
+        <div v-if="showHeaderDaysSwitcher" class="all-day-label-cell header-days-switcher">
+          <button class="days-control-btn" @click="decreaseDays" :disabled="daysCount <= CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS">-</button>
+          <span class="days-count">{{ daysCount }}</span>
+          <button class="days-control-btn" @click="increaseDays" :disabled="daysCount >= CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS">+</button>
+        </div>
+      </div>
     </div>
     
     <div class="week-body">
@@ -103,7 +110,7 @@
         </div>
         <div v-else class="weekday-header">
           <div class="all-day-label-cell">
-            <template v-if="!isDaysCountLocked">
+            <template v-if="!isDaysCountLocked && !showHeaderDaysSwitcher">
               <button class="days-control-btn" @click="decreaseDays" :disabled="daysCount <= CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS">-</button>
               <span class="days-count">{{ daysCount }}</span>
               <button class="days-control-btn" @click="increaseDays" :disabled="daysCount >= CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS">+</button>
@@ -199,9 +206,48 @@
               left: isAllDaySectionCollapsed ? '64px' : `calc(60px + (100% - 60px) / ${daysCount} * ${moreButtonDayIndex} + 4px)`,
               width: isAllDaySectionCollapsed ? 'calc(100% - 8px)' : `calc((100% - 60px) / ${daysCount} - 16px)`
             }"
+            @mousedown.stop
             @click="showAllTasks"
           >
             +{{ hiddenTasksCount }} 个任务
+          </div>
+          <div
+            v-if="allDayExpandedPanelVisible"
+            class="day-expanded-panel all-day-expanded-panel"
+            :style="allDayExpandedPanelStyle"
+            @mousedown.stop
+            @click.stop
+          >
+            <div class="day-expanded-header">
+              <span class="day-expanded-title">全天任务</span>
+              <button
+                type="button"
+                class="day-expanded-close"
+                @click.stop="hideAllDayExpandedPanel"
+              >
+                收起
+              </button>
+            </div>
+            <div class="day-expanded-list">
+              <div
+                v-for="task in allDayExpandedTasks"
+                :key="`expanded-all-day-${task.id}`"
+                class="day-expanded-chip"
+                :style="getExpandedAllDayChipStyle(task)"
+                :class="{ 'task-completed': task.status === 'completed' }"
+                @contextmenu="handleContextMenu($event, task)"
+              >
+                <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
+                  <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
+                </span>
+                <span class="day-expanded-chip-title" @click.stop="handleTaskClick(task)">
+                  {{ stripHtml(task.title) }}
+                </span>
+              </div>
+              <div v-if="allDayExpandedTasks.length === 0" class="day-expanded-empty">
+                暂无任务
+              </div>
+            </div>
           </div>
         </div>
         
@@ -305,13 +351,18 @@
       :task="contextMenu.task"
       :background-colors="backgroundColors"
       :start-date="contextMenuDateDraft.startDate"
+      :start-time="contextMenuDateDraft.startTime"
       :due-date="contextMenuDateDraft.dueDate"
+      :due-time="contextMenuDateDraft.dueTime"
       :repeat-frequency="contextMenuRepeatFrequency"
       @update:startDate="contextMenuDateDraft.startDate = $event"
+      @update:startTime="contextMenuDateDraft.startTime = $event"
       @update:dueDate="contextMenuDateDraft.dueDate = $event"
+      @update:dueTime="contextMenuDateDraft.dueTime = $event"
       @setColor="setTaskBackgroundColor(contextMenu.task!, $event)"
       @saveDates="applyTaskDates(contextMenu.task!)"
       @saveRepeatRule="saveTaskRepeatRule(contextMenu.task!, $event)"
+      @archiveTask="toggleTaskArchive(contextMenu.task!)"
       @deleteTask="deleteTask(contextMenu.task!)"
     />
 
@@ -332,6 +383,7 @@ import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
 import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
+import { eventBus, Events } from '@/utils/eventBus';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
@@ -393,6 +445,9 @@ function getTodayStart(): Date {
 const currentWeekStart = ref(props.fixedDaysCount === 1 ? getTodayStart() : getWeekStart(new Date()));
 const currentTime = ref(new Date());
 const isAllDaySectionCollapsed = ref(false);
+const allDayExpandedPanelVisible = ref(false);
+const allDayExpandedDayKey = ref<string | null>(null);
+const MAX_VISIBLE_ALL_DAY_ROWS = 3;
 let timeUpdateInterval: ReturnType<typeof setInterval> | null = null;
 const MOBILE_WEEK_BREAKPOINT = 768;
 const mobileMiniWeekdayLabels = ['一', '二', '三', '四', '五', '六', '日'];
@@ -427,7 +482,8 @@ const { saveTaskAttrs } = useDebouncedSave(500);
 const taskSyncGuard = useTaskSyncGuard(localTasks);
 const {
   upsertTask: upsertLocalTask,
-  patchTask: patchLocalTask
+  patchTask: patchLocalTask,
+  removeTask: removeLocalTask
 } = useTaskLocalMutations(localTasks);
 
 function emitTaskDateChanged(task: Task): void {
@@ -456,9 +512,11 @@ const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null
   y: 0,
   task: null
 });
-const contextMenuDateDraft = ref<{ startDate: string; dueDate: string }>({
+const contextMenuDateDraft = ref<{ startDate: string; startTime: string; dueDate: string; dueTime: string }>({
   startDate: '',
-  dueDate: ''
+  startTime: '',
+  dueDate: '',
+  dueTime: ''
 });
 const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
 
@@ -528,13 +586,29 @@ function resolveTaskAccentColor(backgroundColor?: string): string {
 }
 
 const daysCount = ref(7);
-const isDaysCountLocked = computed(() => typeof props.fixedDaysCount === 'number' && Number.isFinite(props.fixedDaysCount));
+const isDayViewContext = computed(() => {
+  if (typeof props.fixedDaysCount !== 'number' || !Number.isFinite(props.fixedDaysCount)) {
+    return false;
+  }
+  return Math.round(props.fixedDaysCount) === 1;
+});
+const isDaysCountLocked = computed(() =>
+  typeof props.fixedDaysCount === 'number'
+  && Number.isFinite(props.fixedDaysCount)
+  && !isDayViewContext.value
+);
+const showHeaderDaysSwitcher = computed(() => isDayViewContext.value);
 const isMobileWeekGridMode = computed(() => viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && daysCount.value === 7);
 const isMobileDayViewMode = computed(() => viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && daysCount.value === 1);
 
 function handleViewportResize(): void {
   viewportWidth.value = window.innerWidth;
-  if (viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && !isDaysCountLocked.value && daysCount.value !== 7) {
+  if (
+    viewportWidth.value <= MOBILE_WEEK_BREAKPOINT
+    && !isDaysCountLocked.value
+    && !isDayViewContext.value
+    && daysCount.value !== 7
+  ) {
     daysCount.value = 7;
   }
 }
@@ -566,6 +640,13 @@ function increaseDays() {
   if (daysCount.value < CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS) {
     daysCount.value++;
   }
+}
+
+function resolveNavigationOffsetDays(): number {
+  if (isDayViewContext.value) {
+    return Math.max(1, Math.round(daysCount.value));
+  }
+  return 7;
 }
 
 function getTasksHash(tasks: Task[]): string {
@@ -720,6 +801,7 @@ const mobileDayWeekDates = computed(() => {
 });
 
 function focusMobileDay(date: Date): void {
+  hideAllDayExpandedPanel();
   const nextDate = new Date(date);
   nextDate.setHours(0, 0, 0, 0);
   currentWeekStart.value = nextDate;
@@ -769,7 +851,20 @@ const mobileWeekDays = computed<WeekDay[]>(() => {
 
 const mobileWeekDayKeySet = computed(() => new Set(mobileWeekDays.value.map(day => day.key)));
 
+function formatMonthDayWithoutYear(date: Date): string {
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
 const displayWeekTitle = computed(() => {
+  if (isDayViewContext.value) {
+    const start = new Date(currentWeekStart.value);
+    const end = new Date(start);
+    end.setDate(start.getDate() + daysCount.value - 1);
+    if (daysCount.value === 1) {
+      return formatMonthDayWithoutYear(start);
+    }
+    return `${formatMonthDayWithoutYear(start)} - ${formatMonthDayWithoutYear(end)}`;
+  }
   if (!isMobileWeekGridMode.value) {
     return weekTitle.value;
   }
@@ -819,6 +914,7 @@ const mobileMiniCalendarDays = computed<MobileMiniCalendarDay[]>(() => {
 });
 
 function focusMobileWeek(date: Date): void {
+  hideAllDayExpandedPanel();
   const monday = getMondayStart(date);
   const anchor = new Date(monday);
   anchor.setDate(anchor.getDate() - 1);
@@ -1030,9 +1126,7 @@ const taskPositionsMap = computed(() => {
   return positionMap;
 });
 
-const maxVisibleTasks = computed(() => {
-  return 3;
-});
+const maxVisibleTasks = computed(() => MAX_VISIBLE_ALL_DAY_ROWS);
 
 const allDaySectionHeight = computed(() => {
   const maxPosition = Math.max(0, ...Array.from(taskPositionsMap.value.values()));
@@ -1059,6 +1153,29 @@ const hiddenTasksCount = computed(() => {
     const position = taskPositionsMap.value.get(task.id) || 0;
     return position >= maxVisibleTasks.value;
   }).length;
+});
+
+const allDayExpandedTasks = computed<WeekAllDayTask[]>(() => {
+  const dayIndex = expandedAllDayDayIndex.value;
+  if (dayIndex < 0) {
+    return [];
+  }
+  return weekTasks.value
+    .filter((task) => {
+      const endDay = task.startDayOfWeek + task.spanDays - 1;
+      return task.startDayOfWeek <= dayIndex && dayIndex <= endDay;
+    })
+    .sort((a, b) => {
+      const positionDelta = (taskPositionsMap.value.get(a.id) ?? 0) - (taskPositionsMap.value.get(b.id) ?? 0);
+      if (positionDelta !== 0) {
+        return positionDelta;
+      }
+      const startDelta = a.startDayOfWeek - b.startDayOfWeek;
+      if (startDelta !== 0) {
+        return startDelta;
+      }
+      return stripHtml(a.title).localeCompare(stripHtml(b.title), 'zh-Hans-CN');
+    });
 });
 
 const earliestHiddenTaskDate = computed(() => {
@@ -1092,6 +1209,39 @@ const moreButtonDayIndex = computed(() => {
   return Math.max(0, Math.min(daysCount.value - 1, daysDiff));
 });
 
+const expandedAllDayDayIndex = computed(() => {
+  if (weekDays.value.length === 0) {
+    return -1;
+  }
+  const fallbackKey = weekDays.value[moreButtonDayIndex.value]?.key ?? weekDays.value[0]?.key ?? null;
+  const targetDayKey = allDayExpandedDayKey.value || fallbackKey;
+  if (!targetDayKey) {
+    return -1;
+  }
+  return weekDays.value.findIndex((day) => day.key === targetDayKey);
+});
+
+const allDayExpandedPanelStyle = computed<Record<string, string>>(() => {
+  const panelDayIndex = expandedAllDayDayIndex.value >= 0
+    ? expandedAllDayDayIndex.value
+    : moreButtonDayIndex.value;
+  if (viewportWidth.value <= MOBILE_WEEK_BREAKPOINT) {
+    return {};
+  }
+  if (isAllDaySectionCollapsed.value) {
+    return {
+      left: '64px',
+      width: 'calc(100% - 8px)',
+      right: 'auto'
+    };
+  }
+  return {
+    left: `calc(60px + (100% - 60px) / ${daysCount.value} * ${panelDayIndex} + 4px)`,
+    width: `calc((100% - 60px) / ${daysCount.value} - 16px)`,
+    right: 'auto'
+  };
+});
+
 function getVisibleTaskPosition(task: WeekAllDayTask): number {
   return taskPositionsMap.value.get(task.id) || 0;
 }
@@ -1111,6 +1261,13 @@ function getAllDayTaskStyle(task: WeekAllDayTask) {
     top: `${CALENDAR_CONSTANTS.LAYOUT.TASK_TOP_OFFSET + position * CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT}px`,
     height: '16px',
     backgroundColor: bgColor,
+    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
+  };
+}
+
+function getExpandedAllDayChipStyle(task: WeekAllDayTask): Record<string, string> {
+  return {
+    backgroundColor: resolveTaskBackgroundColor(task.backgroundColor),
     '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
   };
 }
@@ -1166,33 +1323,61 @@ const currentTimeText = computed(() => {
 });
 
 function previousWeek() {
-  const offsetDays = isDaysCountLocked.value && daysCount.value === 1 ? 1 : 7;
+  hideAllDayExpandedPanel();
+  const offsetDays = resolveNavigationOffsetDays();
   const newDate = new Date(currentWeekStart.value);
   newDate.setDate(newDate.getDate() - offsetDays);
   currentWeekStart.value = newDate;
 }
 
 function nextWeek() {
-  const offsetDays = isDaysCountLocked.value && daysCount.value === 1 ? 1 : 7;
+  hideAllDayExpandedPanel();
+  const offsetDays = resolveNavigationOffsetDays();
   const newDate = new Date(currentWeekStart.value);
   newDate.setDate(newDate.getDate() + offsetDays);
   currentWeekStart.value = newDate;
 }
 
 function goToToday() {
+  hideAllDayExpandedPanel();
   if (isMobileWeekGridMode.value && daysCount.value === 7) {
     focusMobileWeek(getTodayStart());
     return;
   }
-  currentWeekStart.value = isDaysCountLocked.value && daysCount.value === 1 ? getTodayStart() : getWeekStart(new Date());
+  currentWeekStart.value = isDayViewContext.value ? getTodayStart() : getWeekStart(new Date());
 }
 
 function toggleAllDaySection() {
-  isAllDaySectionCollapsed.value = !isAllDaySectionCollapsed.value;
+  const willCollapse = !isAllDaySectionCollapsed.value;
+  isAllDaySectionCollapsed.value = willCollapse;
+  if (willCollapse) {
+    hideAllDayExpandedPanel();
+  }
 }
 
 function showAllTasks() {
   isAllDaySectionCollapsed.value = false;
+  allDayExpandedDayKey.value = weekDays.value[moreButtonDayIndex.value]?.key ?? weekDays.value[0]?.key ?? null;
+  allDayExpandedPanelVisible.value = allDayExpandedDayKey.value !== null;
+}
+
+function hideAllDayExpandedPanel() {
+  allDayExpandedPanelVisible.value = false;
+  allDayExpandedDayKey.value = null;
+}
+
+function handleGlobalPointerDown(event: MouseEvent): void {
+  if (!allDayExpandedPanelVisible.value) {
+    return;
+  }
+  const targetElement = event.target as HTMLElement | null;
+  const clickedInsidePanel = !!targetElement?.closest('.all-day-expanded-panel');
+  const clickedExpandTrigger = !!targetElement?.closest('.more-all-day');
+  const clickedInsideContextMenu = !!targetElement?.closest('.context-menu');
+  if (clickedInsidePanel || clickedExpandTrigger || clickedInsideContextMenu) {
+    return;
+  }
+  hideAllDayExpandedPanel();
 }
 
 function clearWeekDragOverState() {
@@ -1704,7 +1889,9 @@ function handleContextMenu(event: MouseEvent, task: Task) {
   };
   contextMenuDateDraft.value = {
     startDate: task.startDate || '',
-    dueDate: task.dueDate || ''
+    startTime: task.startTime || '',
+    dueDate: task.dueDate || '',
+    dueTime: task.dueTime || ''
   };
   contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
 
@@ -1716,7 +1903,9 @@ function handleContextMenu(event: MouseEvent, task: Task) {
         if (contextMenu.value.task?.id !== task.id) return;
         contextMenuDateDraft.value = {
           startDate: series.startDate || '',
-          dueDate: series.endDate || ''
+          startTime: series.startTime || '',
+          dueDate: series.endDate || '',
+          dueTime: series.dueTime || ''
         };
       })
       .catch(() => {});
@@ -1740,7 +1929,7 @@ function hideContextMenu() {
     y: 0,
     task: null
   };
-  contextMenuDateDraft.value = { startDate: '', dueDate: '' };
+  contextMenuDateDraft.value = { startDate: '', startTime: '', dueDate: '', dueTime: '' };
   contextMenuRepeatFrequency.value = 'none';
 }
 
@@ -1749,6 +1938,8 @@ async function applyTaskDates(task: Task) {
 
   const nextStartDate = contextMenuDateDraft.value.startDate || null;
   let nextDueDate = contextMenuDateDraft.value.dueDate || null;
+  const nextStartTime = contextMenuDateDraft.value.startTime || null;
+  const nextDueTime = contextMenuDateDraft.value.dueTime || null;
   if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
     nextDueDate = nextStartDate;
   }
@@ -1759,7 +1950,10 @@ async function applyTaskDates(task: Task) {
       task,
       nextStartDate,
       nextDueDate,
-      undefined,
+      {
+        startTime: nextStartTime,
+        dueTime: nextDueTime
+      },
       { emitChange: false }
     );
     if (updatedSeries) {
@@ -1770,7 +1964,9 @@ async function applyTaskDates(task: Task) {
       if (templateTask) {
         const updatedTask = patchLocalTask(templateTask.id, {
           startDate: updatedSeries.startDate || null,
-          dueDate: updatedSeries.endDate || null
+          dueDate: updatedSeries.endDate || null,
+          startTime: updatedSeries.startTime || undefined,
+          dueTime: updatedSeries.dueTime || undefined
         });
         if (updatedTask) {
           emitTaskDateChanged(updatedTask);
@@ -1779,7 +1975,9 @@ async function applyTaskDates(task: Task) {
           try {
             await setBlockAttrs(templateTask.blockId, {
               'custom-task-start-date': updatedSeries.startDate || '',
-              'custom-task-due-date': updatedSeries.endDate || ''
+              'custom-task-due-date': updatedSeries.endDate || '',
+              'custom-task-start-time': updatedSeries.startTime || '',
+              'custom-task-due-time': updatedSeries.dueTime || ''
             });
           } catch (error) {
           }
@@ -1797,7 +1995,9 @@ async function applyTaskDates(task: Task) {
 
   const updatedTask = patchLocalTask(task.id, {
     startDate: nextStartDate,
-    dueDate: nextDueDate
+    dueDate: nextDueDate,
+    startTime: nextStartTime || undefined,
+    dueTime: nextDueTime || undefined
   });
   if (updatedTask) {
     emitTaskDateChanged(updatedTask);
@@ -1807,7 +2007,9 @@ async function applyTaskDates(task: Task) {
     try {
       await setBlockAttrs(task.blockId, {
         'custom-task-start-date': nextStartDate || '',
-        'custom-task-due-date': nextDueDate || ''
+        'custom-task-due-date': nextDueDate || '',
+        'custom-task-start-time': nextStartTime || '',
+        'custom-task-due-time': nextDueTime || ''
       });
     } catch (error) {
     }
@@ -1878,6 +2080,44 @@ async function setTaskBackgroundColor(task: Task, color: string) {
       await updateRepeatSeriesBackgroundColor(persistenceTarget, color);
     } catch (error) {
     }
+  }
+
+  hideContextMenu();
+}
+
+async function toggleTaskArchive(task: Task): Promise<void> {
+  if (!task || task.isVirtual) {
+    hideContextMenu();
+    return;
+  }
+
+  const isArchived = task.archived === true;
+  const repeatSeriesId = task.repeatSeriesId;
+
+  try {
+    if (isArchived) {
+      await TaskRepository.unarchiveTask(task.id);
+      if (task.blockId) {
+        eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
+      }
+      patchLocalTask(task.id, {
+        archived: false,
+        archivedAt: undefined,
+        archiveReason: undefined
+      });
+    } else {
+      await TaskRepository.archiveTask(task.id, 'manual');
+      if (task.blockId) {
+        eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
+      }
+      removeLocalTask(task.id);
+      if (repeatSeriesId) {
+        localTasks.value = localTasks.value.filter(
+          item => !(item.isVirtual && item.repeatSeriesId === repeatSeriesId)
+        );
+      }
+    }
+  } catch {
   }
 
   hideContextMenu();
@@ -1965,6 +2205,7 @@ onMounted(() => {
     currentTime.value = new Date();
   }, 60000);
   window.addEventListener('resize', handleViewportResize);
+  document.addEventListener('mousedown', handleGlobalPointerDown);
   document.addEventListener('mousemove', handleCreateSelectionMouseMove);
   document.addEventListener('mouseup', finishCreateSelection);
   document.addEventListener('dragend', clearWeekDragOverState, true);
@@ -1976,6 +2217,7 @@ onUnmounted(() => {
     clearInterval(timeUpdateInterval);
   }
   window.removeEventListener('resize', handleViewportResize);
+  document.removeEventListener('mousedown', handleGlobalPointerDown);
   document.removeEventListener('mousemove', handleCreateSelectionMouseMove);
   document.removeEventListener('mouseup', finishCreateSelection);
   document.removeEventListener('dragend', clearWeekDragOverState, true);
@@ -2032,6 +2274,21 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-days-switcher {
+  width: auto;
+  padding: 2px 4px;
+  border-radius: 6px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  height: 24px;
 }
 
 .today-btn {
@@ -2232,7 +2489,6 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 6px;
   padding: 8px;
-  border-bottom: 1px solid var(--b3-border-color);
   background: var(--Sv-theme-surface, var(--b3-theme-surface));
 }
 
@@ -2319,7 +2575,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   border: none;
-  background: var(--b3-theme-background);
   border-radius: 4px;
   cursor: pointer;
   color: var(--b3-theme-on-background);
@@ -2624,6 +2879,102 @@ onUnmounted(() => {
   background: var(--b3-font-background2);
 }
 
+.day-expanded-panel {
+  position: absolute;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.all-day-expanded-panel {
+  top: 4px;
+}
+
+.day-expanded-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+}
+
+.day-expanded-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
+.day-expanded-close {
+  border: none;
+  border-radius: 999px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.day-expanded-list {
+  overflow: visible;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.day-expanded-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 18px;
+  border-radius: 6px;
+  padding: 2px 6px;
+  border-left: 2px solid transparent;
+  position: relative;
+  background: var(--b3-theme-surface);
+}
+
+.day-expanded-chip::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  bottom: 3px;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  pointer-events: none;
+}
+
+.day-expanded-chip.task-completed {
+  opacity: 0.6;
+}
+
+.day-expanded-chip-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--b3-theme-on-background);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.day-expanded-empty {
+  padding: 8px 4px;
+  font-size: 10px;
+  text-align: center;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.6;
+}
+
 .days-scroll {
   flex: 1;
   overflow-y: auto;
@@ -2892,6 +3243,30 @@ onUnmounted(() => {
   .current-time-label {
     font-size: 9px;
     padding: 1px 4px;
+  }
+
+  .all-day-expanded-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    border-radius: 12px 12px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.16);
+    z-index: 1200;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .day-expanded-title,
+  .day-expanded-close,
+  .day-expanded-chip-title,
+  .day-expanded-empty {
+    font-size: 9px;
   }
 }
 

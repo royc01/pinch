@@ -152,6 +152,18 @@
                   <button
                     v-if="activeTaskEditTask"
                     type="button"
+                    class="task-editor-sidebar-archive"
+                    :title="isActiveTaskArchived ? '取消归档' : '归档任务'"
+                    :aria-label="isActiveTaskArchived ? '取消归档' : '归档任务'"
+                    @click.stop="handleTaskEditorArchiveToggle"
+                  >
+                    <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                      <path fill="currentColor" d="M273.066667 68.266667a102.4 102.4 0 0 0-102.4 102.4v74.069333A102.434133 102.434133 0 0 0 102.4 341.333333v74.069334A102.434133 102.434133 0 0 0 34.133333 512v273.066667a170.666667 170.666667 0 0 0 170.666667 170.666666h614.4a170.666667 170.666667 0 0 0 170.666667-170.666666v-273.066667a102.434133 102.434133 0 0 0-68.266667-96.597333V341.333333a102.434133 102.434133 0 0 0-68.266667-96.597333V170.666667a102.4 102.4 0 0 0-102.4-102.4H273.066667z m580.266666 341.333333h-204.8a34.133333 34.133333 0 0 0-34.133333 34.133333 102.4 102.4 0 1 1-204.8 0 34.133333 34.133333 0 0 0-34.133333-34.133333H170.666667v-68.266667a34.133333 34.133333 0 0 1 34.133333-34.133333h614.4a34.133333 34.133333 0 0 1 34.133333 34.133333v68.266667zM136.533333 477.866667h208.213334a170.734933 170.734933 0 0 0 334.506666 0H887.466667a34.133333 34.133333 0 0 1 34.133333 34.133333v273.066667a102.4 102.4 0 0 1-102.4 102.4H204.8a102.4 102.4 0 0 1-102.4-102.4v-273.066667a34.133333 34.133333 0 0 1 34.133333-34.133333z m648.533334-238.933334H238.933333V170.666667a34.133333 34.133333 0 0 1 34.133334-34.133334h477.866666a34.133333 34.133333 0 0 1 34.133334 34.133334v68.266666zM375.466667 750.933333a34.133333 34.133333 0 0 1 34.133333-34.133333h204.8a34.133333 34.133333 0 1 1 0 68.266667h-204.8a34.133333 34.133333 0 0 1-34.133333-34.133334z"></path>
+                    </svg>
+                  </button>
+                  <button
+                    v-if="activeTaskEditTask"
+                    type="button"
                     class="task-editor-sidebar-delete"
                     title="删除任务"
                     aria-label="删除任务"
@@ -586,6 +598,7 @@ const activeTaskEditTask = computed(() =>
     ? (tasks.value.find(task => task.id === taskEditMenuTaskId.value) || null)
     : null
 );
+const isActiveTaskArchived = computed(() => activeTaskEditTask.value?.archived === true);
 const activeTaskEditDraft = computed(() =>
   taskEditMenuTaskId.value && taskEditDraft.value?.taskId === taskEditMenuTaskId.value
     ? taskEditDraft.value
@@ -953,8 +966,16 @@ function stopSkipSetCleanup() {
   }
 }
 
+type TaskArchiveViewMode = 'active' | 'archived' | 'all';
+
+function normalizeTaskArchiveViewMode(value: unknown): TaskArchiveViewMode {
+  void value;
+  return 'active';
+}
+
 const filterNotebook = ref<string>('all');
 const filterDocument = ref<string>('all');
+const archiveViewMode = ref<TaskArchiveViewMode>('active');
 
 const taskModalDefaultNotebook = computed(() => {
   if (filterNotebook.value !== 'all') {
@@ -1257,9 +1278,17 @@ function scheduleFilterSettingsUpdate() {
   filterSettingsUpdateTimer = window.setTimeout(async () => {
     await updateSettings('taskManager', {
       filterNotebook: filterNotebook.value,
-      filterDocument: filterDocument.value
+      filterDocument: filterDocument.value,
+      archiveViewMode: archiveViewMode.value
     });
   }, 200);
+}
+
+function setArchiveViewMode(mode: TaskArchiveViewMode): void {
+  if (archiveViewMode.value === mode) {
+    return;
+  }
+  archiveViewMode.value = mode;
 }
 
 watch([filterNotebook, filterDocument], ([newNotebook]) => {
@@ -1278,6 +1307,17 @@ watch([filterNotebook, filterDocument], ([newNotebook]) => {
     return;
   }
 
+  scheduleFilterSettingsUpdate();
+});
+
+watch(archiveViewMode, () => {
+  if (isHydratingFilters) {
+    return;
+  }
+  if (requiresScopeInitialization.value) {
+    return;
+  }
+  scheduleTaskScopeRefresh(100);
   scheduleFilterSettingsUpdate();
 });
 
@@ -1532,7 +1572,8 @@ const taskEditorHasReminder = computed(() => {
 
 const taskFilters = {
   notebook: filterNotebook,
-  document: filterDocument
+  document: filterDocument,
+  archiveMode: archiveViewMode
 };
 
 let lastLoadedScope: TaskQueryScope | null = null;
@@ -1540,6 +1581,8 @@ let lastLoadedScope: TaskQueryScope | null = null;
 function normalizeScope(scope?: TaskQueryScope) {
   return {
     includeCompleted: scope?.includeCompleted !== false,
+    includeArchived: scope?.archivedOnly ? true : scope?.includeArchived === true,
+    archivedOnly: scope?.archivedOnly === true,
     notebookId: scope?.notebookId || undefined,
     documentId: scope?.documentId || undefined
   };
@@ -1553,6 +1596,15 @@ function isScopeCoveredByDataset(target?: TaskQueryScope): boolean {
   const datasetScope = normalizeScope(lastLoadedScope);
 
   if (!datasetScope.includeCompleted && targetScope.includeCompleted) {
+    return false;
+  }
+  if (datasetScope.archivedOnly && !targetScope.archivedOnly) {
+    return false;
+  }
+  if (!datasetScope.archivedOnly && !datasetScope.includeArchived && targetScope.archivedOnly) {
+    return false;
+  }
+  if (!datasetScope.archivedOnly && !datasetScope.includeArchived && targetScope.includeArchived) {
     return false;
   }
 
@@ -1575,14 +1627,23 @@ function isScopeCoveredByDataset(target?: TaskQueryScope): boolean {
 }
 
 function getCurrentTaskQueryScope(): TaskQueryScope | undefined {
-  const includeCompleted = showCompletedTasks.value;
-  if (filterNotebook.value === 'all' && includeCompleted) {
+  const mode = archiveViewMode.value;
+  const includeArchived = mode === 'all';
+  const archivedOnly = mode === 'archived';
+  const includeCompleted = mode === 'active' ? showCompletedTasks.value : true;
+  if (filterNotebook.value === 'all' && includeCompleted && !includeArchived && !archivedOnly) {
     return undefined;
   }
 
   const scope: TaskQueryScope = {
     includeCompleted
   };
+  if (includeArchived) {
+    scope.includeArchived = true;
+  }
+  if (archivedOnly) {
+    scope.archivedOnly = true;
+  }
   if (filterNotebook.value !== 'all') {
     scope.notebookId = filterNotebook.value;
   }
@@ -1861,9 +1922,16 @@ const MAX_VISIBLE_COMPLETED_TASKS = 3;
 const showAllCompletedTasks = ref(false);
 
 const filteredTasks = computed(() => {
-  const includeCompleted = showCompletedTasks.value;
+  const mode = archiveViewMode.value;
+  const includeCompleted = mode === 'active' ? showCompletedTasks.value : true;
   const baseFiltered = baseFilteredTasks.value.filter(task => {
     if (task.isVirtual) {
+      return false;
+    }
+    if (mode === 'active' && task.archived) {
+      return false;
+    }
+    if (mode === 'archived' && !task.archived) {
       return false;
     }
     if (!includeCompleted && task.status === 'completed') {
@@ -1876,7 +1944,7 @@ const filteredTasks = computed(() => {
     return matchesTaskFilterChips(task);
   });
   
-  const hash = `${includeCompleted ? '1' : '0'}:` +
+  const hash = `${mode}:${includeCompleted ? '1' : '0'}:` +
                baseFiltered.map(t => t.id).join(':') +
                baseFiltered.map(t => `${t.status}-${t.priority}-${t.updatedAt}-${t.blockId}`).join('|');
 
@@ -1940,6 +2008,9 @@ const filteredTasks = computed(() => {
 });
 
 const hasHiddenCompletedTasks = computed(() => {
+  if (archiveViewMode.value !== 'active') {
+    return false;
+  }
   if (!showCompletedTasks.value) {
     return false;
   }
@@ -1961,6 +2032,9 @@ const hasHiddenCompletedTasks = computed(() => {
 });
 
 const displayedTasks = computed(() => {
+  if (archiveViewMode.value !== 'active') {
+    return filteredTasks.value;
+  }
   if (showAllCompletedTasks.value) {
     return filteredTasks.value;
   }
@@ -2428,7 +2502,11 @@ async function refreshTasks(
     && tasks.value.length > 0
     && tasks.value.length <= FILTER_SWITCH_BROAD_LOAD_THRESHOLD;
   const loadScope = shouldBroadenScope
-    ? { includeCompleted: requestedScope.includeCompleted }
+    ? {
+      includeCompleted: requestedScope.includeCompleted,
+      includeArchived: requestedScope.includeArchived,
+      archivedOnly: requestedScope.archivedOnly
+    }
     : requestedScope;
   const now = Date.now();
   const SKIP_DELAY = 500;
@@ -2767,15 +2845,15 @@ async function incrementalUpdateTasks(blockIds: string[]) {
   await pruneInvalidParentsFromEvents(scopedBlockIds, ancestorContextRows);
 
   const { unresolvedBlockIds, patchedParentStatuses } = await fastSyncTaskFromMarkdown(scopedBlockIds);
-  if (unresolvedBlockIds.length === 0) {
-    consecutiveFallbackFailures = 0;
-    return;
-  }
-
-  const parentBlockIds = await resolveParentTaskBlockIds(unresolvedBlockIds, ancestorContextRows);
+  const blockIdsForFullSync = unresolvedBlockIds.length > 0 ? unresolvedBlockIds : scopedBlockIds;
+  const parentBlockIds = await resolveParentTaskBlockIds(blockIdsForFullSync, ancestorContextRows);
 
   if (parentBlockIds.size === 0) {
-    scheduleFallbackRefresh(true, 120, 'immediate');
+    if (unresolvedBlockIds.length > 0) {
+      scheduleFallbackRefresh(true, 120, 'immediate');
+    } else {
+      consecutiveFallbackFailures = 0;
+    }
     return;
   }
   
@@ -2798,6 +2876,7 @@ async function incrementalUpdateTasks(blockIds: string[]) {
     const updatedTasks: Task[] = [];
     let removedTasks = 0;
     const missingRequestedIds: string[] = [];
+    const removedTaskIds = new Set<string>();
   
     for (const [blockId, newTask] of taskMapBatch) {
       const forcedStatus = patchedParentStatuses.get(blockId);
@@ -2824,12 +2903,19 @@ async function incrementalUpdateTasks(blockIds: string[]) {
         continue;
       }
 
-      crdtRepo.deleteTask(taskIndex.task.id, Date.now());
+      removedTaskIds.add(taskIndex.task.id);
       removedTasks += 1;
     }
     
     if (updatedTasks.length > 0 || removedTasks > 0) {
-      tasks.value = crdtRepo.getTasks();
+      let nextTasks = crdtRepo.getTasks();
+      if (removedTaskIds.size > 0) {
+        nextTasks = nextTasks.filter(task => !removedTaskIds.has(task.id));
+        // Keep CRDT store aligned with scoped list without writing tombstones.
+        crdtRepo.syncFromSQLTasks(nextTasks);
+        nextTasks = crdtRepo.getTasks();
+      }
+      tasks.value = nextTasks;
       await updateTaskIndex(); 
       consecutiveFallbackFailures = 0;
 
@@ -3630,6 +3716,48 @@ function handleTaskEditorDescriptionCommit(): void {
   taskEditorQuickPanel.value = null;
 }
 
+async function handleTaskEditorArchiveToggle(): Promise<void> {
+  const task = activeTaskEditTask.value;
+  if (!task) {
+    return;
+  }
+
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+  const shouldUnarchive = task.archived === true;
+  const nowIso = new Date().toISOString();
+
+  try {
+    if (shouldUnarchive) {
+      await TaskRepository.unarchiveTask(task.id);
+      patchTask(tasks.value, task.id, (currentTask) => {
+        currentTask.archived = false;
+        currentTask.archivedAt = undefined;
+        currentTask.archiveReason = undefined;
+        currentTask.updatedAt = nowIso;
+      }, 'id');
+      await refreshInternalState();
+      if (blockId) {
+        eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
+      }
+      return;
+    }
+
+    await TaskRepository.archiveTask(task.id, 'manual');
+    patchTask(tasks.value, task.id, (currentTask) => {
+      currentTask.archived = true;
+      currentTask.archivedAt = nowIso;
+      currentTask.archiveReason = 'manual';
+      currentTask.updatedAt = nowIso;
+    }, 'id');
+    await refreshInternalState();
+    closeTaskEditorSidebar();
+    if (blockId) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
+    }
+  } catch {
+  }
+}
+
 async function handleTaskEditorDelete(): Promise<void> {
   const task = activeTaskEditTask.value;
   if (!task) {
@@ -4128,6 +4256,7 @@ onMounted(async () => {
   
   filterNotebook.value = userSettings.taskManager.filterNotebook || 'all';
   filterDocument.value = userSettings.taskManager.filterDocument || 'all';
+  archiveViewMode.value = 'active';
   showCompletedTasks.value = userSettings.taskManager.showCompletedTasks !== false;
   restoreTaskPopoverFiltersFromSettings();
   ensureActiveNotebookFilterInScope();
@@ -4153,7 +4282,7 @@ onMounted(async () => {
     hydrateMemoTitlesFromLiveDom(tasks.value, TASK_TITLE_HYDRATE_LIMIT);
     await refreshInternalState();
     if (tasks.value.length > 0 && tasks.value.length <= FILTER_SWITCH_BROAD_LOAD_THRESHOLD) {
-      lastLoadedScope = { includeCompleted: showCompletedTasks.value };
+      lastLoadedScope = { includeCompleted: showCompletedTasks.value, includeArchived: false };
     }
   } finally {
     loading.value = false;
@@ -4394,6 +4523,7 @@ onUnmounted(() => {
 }
 
 .task-editor-sidebar-move,
+.task-editor-sidebar-archive,
 .task-editor-sidebar-delete,
 .task-editor-sidebar-close {
   width: 28px;
@@ -4409,6 +4539,11 @@ onUnmounted(() => {
 }
 
 .task-editor-sidebar-move:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-primary);
+}
+
+.task-editor-sidebar-archive:hover {
   background: var(--b3-list-hover);
   color: var(--b3-theme-primary);
 }
@@ -4592,8 +4727,41 @@ onUnmounted(() => {
 .filters-actions {
   display: flex;
   align-items: center;
+  gap: 6px;
   flex-shrink: 0;
   position: relative;
+}
+
+.archive-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
+}
+
+.archive-mode-btn {
+  border: none;
+  height: 24px;
+  min-width: 44px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.archive-mode-btn:hover {
+  color: var(--b3-theme-on-background);
+}
+
+.archive-mode-btn.active {
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
 }
 
 .task-filter-control {

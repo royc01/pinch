@@ -4,7 +4,7 @@ import type { TaskViewGroupMode } from './taskGrouping';
 
 export interface UserSettings {
   kanban: {
-    currentView?: 'kanban' | 'table' | 'month' | 'week' | 'day';
+    currentView?: 'kanban' | 'table' | 'archive-table' | 'month' | 'week' | 'day';
     filterType: string;
     filterDocument: string;
     filterPriority: string;
@@ -44,6 +44,7 @@ export interface UserSettings {
     filterNotebook: string;
     filterDocument: string;
     filterPriority: string;
+    archiveViewMode?: 'active' | 'archived' | 'all';
     excludedNotebookIds: string[];
     showCompletedTasks?: boolean;
     scopeInitialized?: boolean;
@@ -105,6 +106,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     filterNotebook: 'all',
     filterDocument: 'all',
     filterPriority: 'all',
+    archiveViewMode: 'active',
     excludedNotebookIds: [],
     showCompletedTasks: true,
     scopeInitialized: false,

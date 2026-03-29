@@ -92,9 +92,45 @@
                   :aria-expanded="!isGroupCollapsed(group.id)"
                   @click="toggleGroupCollapse(group.id)"
                 >
-                  <span class="group-row-arrow" :class="{ collapsed: isGroupCollapsed(group.id) }"></span>
+                  <span class="group-row-arrow" :class="{ collapsed: isGroupCollapsed(group.id) }" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M7 10l5 5 5-5" />
+                    </svg>
+                  </span>
                   <span class="group-row-label">{{ group.label }}</span>
-                  <span class="group-row-count">{{ group.tasks.length }} 项</span>
+                  <span class="group-row-right">
+                    <span class="group-row-count">{{ group.tasks.length }} 项</span>
+                    <button
+                      v-if="canCreateTaskForGroup(group)"
+                      type="button"
+                      class="column-add-task-btn"
+                      :title="getGroupCreateTaskLabel(group)"
+                      :aria-label="getGroupCreateTaskLabel(group)"
+                      @click.stop="emitGroupCreateTask(group)"
+                    >
+                      <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                        <path
+                          fill="currentColor"
+                          d="M836 476H548V188c0-19.8-16.2-36-36-36s-36 16.2-36 36v288H188c-19.8 0-36 16.2-36 36s16.2 36 36 36h288v288c0 19.8 16.2 36 36 36s36-16.2 36-36V548h288c19.8 0 36-16.2 36-36s-16.2-36-36-36z"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="column-archive-tasks-btn"
+                      :title="getGroupArchiveTasksLabel(group)"
+                      :aria-label="getGroupArchiveTasksLabel(group)"
+                      :disabled="getGroupArchivableTaskCount(group) === 0"
+                      @click.stop="emitGroupArchiveTasks(group)"
+                    >
+                      <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                        <path
+                          fill="currentColor"
+                          d="M273.066667 68.266667a102.4 102.4 0 0 0-102.4 102.4v74.069333A102.434133 102.434133 0 0 0 102.4 341.333333v74.069334A102.434133 102.434133 0 0 0 34.133333 512v273.066667a170.666667 170.666667 0 0 0 170.666667 170.666666h614.4a170.666667 170.666667 0 0 0 170.666667-170.666666v-273.066667a102.434133 102.434133 0 0 0-68.266667-96.597333V341.333333a102.434133 102.434133 0 0 0-68.266667-96.597333V170.666667a102.4 102.4 0 0 0-102.4-102.4H273.066667z m580.266666 341.333333h-204.8a34.133333 34.133333 0 0 0-34.133333 34.133333 102.4 102.4 0 1 1-204.8 0 34.133333 34.133333 0 0 0-34.133333-34.133333H170.666667v-68.266667a34.133333 34.133333 0 0 1 34.133333-34.133333h614.4a34.133333 34.133333 0 0 1 34.133333 34.133333v68.266667zM136.533333 477.866667h208.213334a170.734933 170.734933 0 0 0 334.506666 0H887.466667a34.133333 34.133333 0 0 1 34.133333 34.133333v273.066667a102.4 102.4 0 0 1-102.4 102.4H204.8a102.4 102.4 0 0 1-102.4-102.4v-273.066667a34.133333 34.133333 0 0 1 34.133333-34.133333z m648.533334-238.933334H238.933333V170.666667a34.133333 34.133333 0 0 1 34.133334-34.133334h477.866666a34.133333 34.133333 0 0 1 34.133334 34.133334v68.266666zM375.466667 750.933333a34.133333 34.133333 0 0 1 34.133333-34.133333h204.8a34.133333 34.133333 0 1 1 0 68.266667h-204.8a34.133333 34.133333 0 0 1-34.133333-34.133334z"
+                        />
+                      </svg>
+                    </button>
+                  </span>
                 </button>
               </td>
             </tr>
@@ -460,6 +496,7 @@ interface Props {
 type TableTaskGroupSection = {
   key: string;
   id: string;
+  mode: 'group' | 'heading';
   label: string;
   tasks: Task[];
   style?: Record<string, string>;
@@ -479,6 +516,8 @@ const emit = defineEmits<{
   statusUpdate: [task: Task, status: Task['status']];
   groupUpdate: [task: Task, groupId: string];
   'manage-groups': [];
+  groupCreateTask: [payload: { mode: 'group' | 'heading'; groupId: string; groupLabel: string; sampleTaskId?: string }];
+  groupArchiveTasks: [payload: { mode: 'group' | 'heading'; groupId: string; groupLabel: string; taskIds: string[] }];
   startDateUpdate: [task: Task, startDate: string];
   dueDateUpdate: [task: Task, dueDate: string];
 }>();
@@ -690,6 +729,7 @@ const groupedVisibleTasks = computed<TableTaskGroupSection[]>(() => {
       .map(group => ({
         key: group.id || '__none__',
         id: group.id,
+        mode: 'group' as const,
         label: group.label,
         style: group.style,
         tasks: buckets.get(group.id) || []
@@ -714,6 +754,7 @@ const groupedVisibleTasks = computed<TableTaskGroupSection[]>(() => {
       .map(([key, group]) => ({
         key,
         id: key,
+        mode: 'heading' as const,
         label: group.label,
         tasks: group.tasks
       }))
@@ -908,6 +949,68 @@ function toggleGroupCollapse(groupId: string): void {
     next.add(key);
   }
   collapsedGroups.value = next;
+}
+
+function getGroupSampleBlockTask(group: TableTaskGroupSection): Task | null {
+  return group.tasks.find(task => task.type === 'block' && task.isVirtual !== true) || null;
+}
+
+function canCreateTaskForGroup(group: TableTaskGroupSection): boolean {
+  if (group.mode === 'group') {
+    return true;
+  }
+  const sampleTask = getGroupSampleBlockTask(group);
+  const rootId = typeof sampleTask?.rootId === 'string' ? sampleTask.rootId.trim() : '';
+  return !!rootId;
+}
+
+function getGroupArchivableTaskIds(group: TableTaskGroupSection): string[] {
+  return group.tasks
+    .filter(task =>
+      task.type === 'block'
+      && task.isVirtual !== true
+      && task.archived !== true
+      && typeof task.id === 'string'
+      && task.id.length > 0
+    )
+    .map(task => task.id);
+}
+
+function getGroupArchivableTaskCount(group: TableTaskGroupSection): number {
+  return getGroupArchivableTaskIds(group).length;
+}
+
+function getGroupCreateTaskLabel(group: TableTaskGroupSection): string {
+  const title = (group.label || '当前分组').trim() || '当前分组';
+  return `在“${title}”分组新建任务`;
+}
+
+function getGroupArchiveTasksLabel(group: TableTaskGroupSection): string {
+  const title = (group.label || '当前分组').trim() || '当前分组';
+  const count = getGroupArchivableTaskCount(group);
+  if (count > 0) {
+    return `归档“${title}”分组全部 ${count} 个任务`;
+  }
+  return `归档“${title}”分组全部任务`;
+}
+
+function emitGroupCreateTask(group: TableTaskGroupSection): void {
+  const sampleTask = getGroupSampleBlockTask(group);
+  emit('groupCreateTask', {
+    mode: group.mode,
+    groupId: group.id,
+    groupLabel: group.label,
+    sampleTaskId: sampleTask?.id
+  });
+}
+
+function emitGroupArchiveTasks(group: TableTaskGroupSection): void {
+  emit('groupArchiveTasks', {
+    mode: group.mode,
+    groupId: group.id,
+    groupLabel: group.label,
+    taskIds: getGroupArchivableTaskIds(group)
+  });
 }
 
 function handleTaskClick(task: Task, event?: MouseEvent) {
@@ -1256,18 +1359,37 @@ function toggleExpand(taskId: string) {
   outline-offset: -2px;
 }
 
+.group-row-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .group-row-arrow {
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg);
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(0deg);
+  transform-origin: center;
   transition: transform 0.15s ease;
   flex-shrink: 0;
 }
 
 .group-row-arrow.collapsed {
-  transform: rotate(-45deg);
+  transform: rotate(-90deg);
+}
+
+.group-row-arrow svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .group-row-label {
@@ -1278,7 +1400,38 @@ function toggleExpand(taskId: string) {
   font-size: 11px;
   color: currentColor;
   opacity: 0.7;
-  margin-left: auto;
+}
+
+.column-add-task-btn,
+.column-archive-tasks-btn {
+  border: none;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.column-add-task-btn:hover,
+.column-archive-tasks-btn:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.column-add-task-btn:focus-visible,
+.column-archive-tasks-btn:focus-visible {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  outline: none;
+}
+
+.column-archive-tasks-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .col-status {

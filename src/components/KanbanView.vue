@@ -56,6 +56,10 @@
                 <Icon name="day" width="16" height="16" />
                 <span>日视图</span>
               </button>
+              <button :class="['view-btn', { active: currentView === 'archive-table' }]" @click="currentView = 'archive-table'">
+                <Icon name="table" width="16" height="16" />
+                <span>归档</span>
+              </button>
             </template>
           </div>
         </div>
@@ -72,7 +76,7 @@
             </div>
           </div>
 
-          <div v-if="currentView === 'table'" class="filter-bar-inline">
+          <div v-if="currentView === 'table' || currentView === 'archive-table'" class="filter-bar-inline">
             <div class="filter-group">
               <label>笔记本:</label>
               <SySelect
@@ -126,7 +130,7 @@
                 :options="kanbanGroupModeOptions"
               />
             </div>
-            <div v-if="currentView === 'table'" class="kanban-group-switch">
+            <div v-if="currentView === 'table' || currentView === 'archive-table'" class="kanban-group-switch">
               <span>分组</span>
               <SySelect
                 class="group-mode-select"
@@ -151,7 +155,7 @@
         </div>
       </div>
       <div
-        v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table' || currentView === 'month' || currentView === 'week' || currentView === 'day'"
+        v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table' || currentView === 'archive-table' || currentView === 'month' || currentView === 'week' || currentView === 'day'"
         class="document-tabs-row"
       >
       <div
@@ -173,7 +177,7 @@
       </div>
       <div v-else class="document-tabs-placeholder"></div>
       <div
-        v-if="currentView === 'kanban' || currentView === 'table' || currentView === 'month' || currentView === 'week' || currentView === 'day'"
+        v-if="currentView === 'kanban' || currentView === 'table' || currentView === 'archive-table' || currentView === 'month' || currentView === 'week' || currentView === 'day'"
         ref="documentTabsDropdownControlRef"
         class="document-tabs-dropdown"
       >
@@ -250,7 +254,7 @@
           </button>
         </div>
       </div>
-        <div v-else-if="currentView === 'table'" class="document-tabs-actions table-document-actions">
+        <div v-else-if="currentView === 'table' || currentView === 'archive-table'" class="document-tabs-actions table-document-actions">
           <div class="table-actions-row">
             <div class="task-search">
             <svg class="task-search-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -316,9 +320,9 @@
             <button
               type="button"
               class="kanban-add-group-btn"
-              title="新建标签"
-              aria-label="新建标签"
-              @click="openTaskGroupQuickCreate"
+              :title="getActionColumnButtonLabel(column)"
+              :aria-label="getActionColumnButtonLabel(column)"
+              @click="handleActionColumnClick(column)"
             >
               <Icon name="add" width="18" height="18" />
             </button>
@@ -326,11 +330,30 @@
         </template>
         <template v-else>
           <div class="column-header">
+            <div
+              v-if="isColumnTitleEditing(column)"
+              class="column-title column-title-editing"
+              @click.stop
+            >
+              <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
+              <input
+                ref="columnTitleInputRef"
+                v-model="columnTitleDraft"
+                class="column-title-input"
+                type="text"
+                :placeholder="column.type === 'group' ? '请输入标签名称' : '请输入标题名称'"
+                :disabled="isSavingColumnTitle"
+                @keydown.enter.prevent.stop="submitColumnTitleEdit(column)"
+                @keydown.esc.prevent.stop="cancelColumnTitleEdit()"
+                @blur="submitColumnTitleEdit(column)"
+              />
+            </div>
             <button
-              v-if="column.type === 'group'"
+              v-else-if="canEditColumnTitle(column)"
               type="button"
               class="column-title column-title-button"
-              @click="openTaskGroupDialog"
+              :title="column.type === 'group' ? '编辑标签名称' : '编辑标题名称'"
+              @click.stop="startColumnTitleEdit(column)"
             >
               <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
               <span class="column-title-text">{{ column.title }}</span>
@@ -339,7 +362,40 @@
               <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
               <span class="column-title-text">{{ column.title }}</span>
             </div>
-            <div class="column-count">{{ getColumnTaskCount(column) }}</div>
+            <div class="column-header-actions">
+              <div class="column-count">{{ getColumnTaskCount(column) }}</div>
+              <button
+                v-if="canCreateTaskInColumn(column)"
+                type="button"
+                class="column-add-task-btn"
+                :title="getColumnCreateTaskLabel(column)"
+                :aria-label="getColumnCreateTaskLabel(column)"
+                @click.stop="openQuickCreateForKanbanColumn(column)"
+              >
+                <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M836 476H548V188c0-19.8-16.2-36-36-36s-36 16.2-36 36v288H188c-19.8 0-36 16.2-36 36s16.2 36 36 36h288v288c0 19.8 16.2 36 36 36s36-16.2 36-36V548h288c19.8 0 36-16.2 36-36s-16.2-36-36-36z"
+                  />
+                </svg>
+              </button>
+              <button
+                v-if="canCreateTaskInColumn(column)"
+                type="button"
+                class="column-archive-tasks-btn"
+                :title="getColumnArchiveTasksLabel(column)"
+                :aria-label="getColumnArchiveTasksLabel(column)"
+                :disabled="isKanbanColumnArchiving(column.id) || !canArchiveTasksInColumn(column)"
+                @click.stop="archiveColumnTasks(column)"
+              >
+                <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M273.066667 68.266667a102.4 102.4 0 0 0-102.4 102.4v74.069333A102.434133 102.434133 0 0 0 102.4 341.333333v74.069334A102.434133 102.434133 0 0 0 34.133333 512v273.066667a170.666667 170.666667 0 0 0 170.666667 170.666666h614.4a170.666667 170.666667 0 0 0 170.666667-170.666666v-273.066667a102.434133 102.434133 0 0 0-68.266667-96.597333V341.333333a102.434133 102.434133 0 0 0-68.266667-96.597333V170.666667a102.4 102.4 0 0 0-102.4-102.4H273.066667z m580.266666 341.333333h-204.8a34.133333 34.133333 0 0 0-34.133333 34.133333 102.4 102.4 0 1 1-204.8 0 34.133333 34.133333 0 0 0-34.133333-34.133333H170.666667v-68.266667a34.133333 34.133333 0 0 1 34.133333-34.133333h614.4a34.133333 34.133333 0 0 1 34.133333 34.133333v68.266667zM136.533333 477.866667h208.213334a170.734933 170.734933 0 0 0 334.506666 0H887.466667a34.133333 34.133333 0 0 1 34.133333 34.133333v273.066667a102.4 102.4 0 0 1-102.4 102.4H204.8a102.4 102.4 0 0 1-102.4-102.4v-273.066667a34.133333 34.133333 0 0 1 34.133333-34.133333z m648.533334-238.933334H238.933333V170.666667a34.133333 34.133333 0 0 1 34.133334-34.133334h477.866666a34.133333 34.133333 0 0 1 34.133334 34.133334v68.266666zM375.466667 750.933333a34.133333 34.133333 0 0 1 34.133333-34.133333h204.8a34.133333 34.133333 0 1 1 0 68.266667h-204.8a34.133333 34.133333 0 0 1-34.133333-34.133334z"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
           <div 
             class="column-tasks"
@@ -391,8 +447,8 @@
     </div>
     
     <TableView 
-      v-if="currentView === 'table'"
-      :tasks="tableViewTasks"
+      v-if="currentView === 'table' || currentView === 'archive-table'"
+      :tasks="activeOrArchiveTableViewTasks"
       :task-groups="taskGroups"
       :group-mode="tableGroupBy"
       :heading-groups="taskHeadingGroups"
@@ -404,6 +460,8 @@
       @priority-update="handlePriorityUpdate"
       @status-update="handleStatusUpdate"
       @group-update="handleGroupUpdate"
+      @group-create-task="handleTableGroupCreateTask"
+      @group-archive-tasks="handleTableGroupArchiveTasks"
       @manage-groups="openTaskGroupDialog"
       @start-date-update="handleStartDateUpdate"
       @due-date-update="handleDueDateUpdate"
@@ -471,6 +529,45 @@
           <span class="kanban-editor-title">编辑任务</span>
           <div class="kanban-editor-actions">
             <button
+              v-if="activeKanbanEditTask"
+              type="button"
+              class="kanban-editor-move"
+              title="移动任务"
+              aria-label="移动任务"
+              @click.stop="openKanbanTaskMoveDialog"
+            >
+              <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                <path d="M904.448 625.728 119.616 625.728c-23.68 0-44.736 14.656-52.48 36.48C65.024 668.032 64 674.048 64 680c0 16.32 7.616 32.192 21.184 42.688l293.248 225.728c24.128 18.56 59.008 14.464 78.016-9.088 18.944-23.552 14.848-57.664-9.28-76.224L288 739.456l616 0c30.72 0 56-29.44 56-59.456C960 649.984 935.168 625.728 904.448 625.728zM119.552 398.272l784.832 0c23.68 0 44.736-14.656 52.48-36.48C958.976 355.968 960 349.952 960 344c0-16.32-7.616-32.192-21.184-42.688l-293.248-225.728c-24.128-18.56-59.008-14.464-78.016 9.088C548.608 108.224 552.64 142.4 576.832 160.96L736 284.544 120 284.544C89.28 284.544 64 313.984 64 344 64 374.016 88.832 398.272 119.552 398.272z"></path>
+              </svg>
+            </button>
+            <button
+              v-if="activeKanbanEditTask"
+              type="button"
+              class="kanban-editor-archive"
+              :title="isActiveKanbanTaskArchived ? '取消归档' : '归档任务'"
+              :aria-label="isActiveKanbanTaskArchived ? '取消归档' : '归档任务'"
+              @click.stop="handleKanbanEditorArchiveToggle"
+            >
+              <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M273.066667 68.266667a102.4 102.4 0 0 0-102.4 102.4v74.069333A102.434133 102.434133 0 0 0 102.4 341.333333v74.069334A102.434133 102.434133 0 0 0 34.133333 512v273.066667a170.666667 170.666667 0 0 0 170.666667 170.666666h614.4a170.666667 170.666667 0 0 0 170.666667-170.666666v-273.066667a102.434133 102.434133 0 0 0-68.266667-96.597333V341.333333a102.434133 102.434133 0 0 0-68.266667-96.597333V170.666667a102.4 102.4 0 0 0-102.4-102.4H273.066667z m580.266666 341.333333h-204.8a34.133333 34.133333 0 0 0-34.133333 34.133333 102.4 102.4 0 1 1-204.8 0 34.133333 34.133333 0 0 0-34.133333-34.133333H170.666667v-68.266667a34.133333 34.133333 0 0 1 34.133333-34.133333h614.4a34.133333 34.133333 0 0 1 34.133333 34.133333v68.266667zM136.533333 477.866667h208.213334a170.734933 170.734933 0 0 0 334.506666 0H887.466667a34.133333 34.133333 0 0 1 34.133333 34.133333v273.066667a102.4 102.4 0 0 1-102.4 102.4H204.8a102.4 102.4 0 0 1-102.4-102.4v-273.066667a34.133333 34.133333 0 0 1 34.133333-34.133333z m648.533334-238.933334H238.933333V170.666667a34.133333 34.133333 0 0 1 34.133334-34.133334h477.866666a34.133333 34.133333 0 0 1 34.133334 34.133334v68.266666zM375.466667 750.933333a34.133333 34.133333 0 0 1 34.133333-34.133333h204.8a34.133333 34.133333 0 1 1 0 68.266667h-204.8a34.133333 34.133333 0 0 1-34.133333-34.133334z"
+                ></path>
+              </svg>
+            </button>
+            <button
+              v-if="activeKanbanEditTask"
+              type="button"
+              class="kanban-editor-delete"
+              title="删除任务"
+              aria-label="删除任务"
+              @click.stop="handleKanbanEditorDelete"
+            >
+              <svg viewBox="0 0 1225 1024" width="16" height="16" aria-hidden="true">
+                <path d="M1034.570239 270.996844V841.152359a182.847641 182.847641 0 0 1-182.847641 182.847641H391.641363a182.847641 182.847641 0 0 1-182.847641-182.847641V270.996844a45.090228 45.090228 0 0 1 0-90.162172v-0.091424h196.561214a219.837719 219.837719 0 0 1 432.672374 0h196.542929v0.109708a45.090228 45.090228 0 0 1 0 90.143888zM621.68198 90.398228a132.546255 132.546255 0 0 0-124.610667 90.34502h249.221335A132.546255 132.546255 0 0 0 621.68198 90.398228z m324.408286 180.690039H297.273695v552.858129a109.708585 109.708585 0 0 0 109.708585 109.708584h429.399401a109.708585 109.708585 0 0 0 109.708585-109.708584V271.106552z m-221.245646 481.85839a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z m-206.434987 0a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z"></path>
+              </svg>
+            </button>
+            <button
               v-if="activeKanbanEditTask && activeKanbanEditDraft"
               type="button"
               class="kanban-editor-priority-btn"
@@ -527,12 +624,75 @@
             @manage-groups="openTaskGroupDialog"
           />
         </div>
+        <div
+          v-if="showKanbanTaskMoveDialog"
+          class="kanban-task-move-dialog-overlay"
+          @click.self="closeKanbanTaskMoveDialog"
+        >
+          <div class="kanban-task-move-dialog" @click.stop>
+            <div class="kanban-task-move-dialog-header">
+              <span class="kanban-task-move-dialog-title">移动任务</span>
+              <button
+                type="button"
+                class="kanban-task-move-dialog-close"
+                title="关闭"
+                aria-label="关闭"
+                @click.stop="closeKanbanTaskMoveDialog"
+              >
+                <Icon name="close" width="16" height="16" />
+              </button>
+            </div>
+            <div class="kanban-task-move-dialog-body">
+              <div class="kanban-task-move-dialog-field">
+                <label>笔记本</label>
+                <SySelect
+                  :model-value="kanbanMoveSelectedNotebook"
+                  :options="kanbanMoveNotebookOptions"
+                  @update:model-value="handleKanbanMoveNotebookChange(String($event || ''))"
+                />
+              </div>
+              <div class="kanban-task-move-dialog-field">
+                <label>文档</label>
+                <SySelect
+                  :model-value="kanbanMoveSelectedDocument"
+                  :options="kanbanMoveDocumentOptions"
+                  @update:model-value="kanbanMoveSelectedDocument = String($event || '')"
+                />
+              </div>
+              <div v-if="kanbanMoveTargetUnchanged" class="kanban-task-move-dialog-hint">
+                任务已位于当前文档。
+              </div>
+              <div v-else-if="kanbanMoveDocumentOptions.length === 0" class="kanban-task-move-dialog-hint">
+                当前笔记本暂无可选文档，请先在目标笔记本创建文档。
+              </div>
+            </div>
+            <div class="kanban-task-move-dialog-footer">
+              <button
+                type="button"
+                class="kanban-task-move-dialog-btn cancel"
+                @click.stop="closeKanbanTaskMoveDialog"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                class="kanban-task-move-dialog-btn confirm"
+                :disabled="!canSubmitKanbanMove"
+                @click.stop="handleKanbanEditorMove"
+              >
+                {{ isKanbanTaskMoveSubmitting ? '移动中...' : '确认移动' }}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </Teleport>
 
     <div v-if="quickCreateDialog.show" class="quick-create-mask" @click="closeQuickCreateDialog">
       <div class="quick-create-dialog" @click.stop>
-        <div class="quick-create-title">新建任务</div>
+        <div class="quick-create-title">
+          {{ quickCreateDialog.mode === 'heading-task' ? '新建标题和任务' : '新建任务' }}
+        </div>
         <div class="quick-create-row">
           <label>笔记本</label>
           <SySelect
@@ -550,11 +710,21 @@
           />
         </div>
         <input
+          v-if="quickCreateDialog.mode === 'heading-task'"
+          ref="quickCreateHeadingInputRef"
+          v-model="quickCreateDialog.headingTitle"
+          class="quick-create-input"
+          type="text"
+          placeholder="请输入标题名称"
+          @keydown.enter.prevent="submitQuickCreateTask"
+          @keydown.esc.prevent="closeQuickCreateDialog"
+        />
+        <input
           ref="quickCreateInputRef"
           v-model="quickCreateDialog.title"
           class="quick-create-input"
           type="text"
-          placeholder="请输入任务标题"
+          :placeholder="quickCreateDialog.mode === 'heading-task' ? '请输入首个任务标题' : '请输入任务标题'"
           @keydown.enter.prevent="submitQuickCreateTask"
           @keydown.esc.prevent="closeQuickCreateDialog"
         />
@@ -585,7 +755,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { Protyle, getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, TaskGroup, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, loadTaskGroups, saveTaskGroups, moveBlock } from '../api';
+import { TaskRepository, Task, SubTask, TaskGroup, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock } from '../api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -659,14 +829,29 @@ const tableGroupModeOptions = [
   { value: 'group', text: '按标签' },
   { value: 'heading', text: '按标题' }
 ] as const;
-type TaskViewMode = 'kanban' | 'table' | 'month' | 'week' | 'day';
+type TaskViewMode = 'kanban' | 'table' | 'archive-table' | 'month' | 'week' | 'day';
 const viewSwitcherOptions: Array<{ value: TaskViewMode; text: string; icon: string }> = [
   { value: 'kanban', text: '看板', icon: 'kanban' },
   { value: 'table', text: '表格', icon: 'table' },
   { value: 'month', text: '月视图', icon: 'month' },
   { value: 'week', text: '周视图', icon: 'week' },
-  { value: 'day', text: '日视图', icon: 'day' }
+  { value: 'day', text: '日视图', icon: 'day' },
+  { value: 'archive-table', text: '归档', icon: 'table' }
 ];
+
+function normalizeTaskViewMode(value: unknown): TaskViewMode {
+  if (
+    value === 'kanban'
+    || value === 'table'
+    || value === 'archive-table'
+    || value === 'month'
+    || value === 'week'
+    || value === 'day'
+  ) {
+    return value;
+  }
+  return 'table';
+}
 
 let skipCleanupTimer: number | null = null;
 
@@ -736,12 +921,13 @@ const taskGroups = ref<TaskGroup[]>([]);
 const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
 const draggedTask = ref<Task | null>(null);
 const dragOverColumnId = ref<string | null>(null);
+const archivingKanbanColumnIds = ref<Set<string>>(new Set());
 const kanbanColumnMetrics = ref<Record<string, { scrollTop: number; height: number }>>({});
 const isDropping = ref(false);
 const kanbanColumnElements = new Map<string, HTMLElement>();
 let kanbanMetricsRaf: number | null = null;
 const kanbanColumnEstimatedHeights = ref<Record<string, number>>({});
-const currentView = ref<TaskViewMode>((userSettings.kanban?.currentView as TaskViewMode) || 'table');
+const currentView = ref<TaskViewMode>(normalizeTaskViewMode(userSettings.kanban?.currentView));
 const currentViewOption = computed(() =>
   viewSwitcherOptions.find(option => option.value === currentView.value) || viewSwitcherOptions[0]
 );
@@ -767,6 +953,10 @@ const kanbanEditorDraft = ref<{
 } | null>(null);
 const kanbanEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
 const kanbanEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
+const showKanbanTaskMoveDialog = ref(false);
+const isKanbanTaskMoveSubmitting = ref(false);
+const kanbanMoveSelectedNotebook = ref('');
+const kanbanMoveSelectedDocument = ref('');
 const openingKanbanEditorBlockIds = new Set<string>();
 
 const activeKanbanEditTask = computed(() =>
@@ -774,6 +964,7 @@ const activeKanbanEditTask = computed(() =>
     ? (tasks.value.find(task => task.id === kanbanEditorTaskId.value) || null)
     : null
 );
+const isActiveKanbanTaskArchived = computed(() => activeKanbanEditTask.value?.archived === true);
 const activeKanbanEditDraft = computed(() =>
   kanbanEditorTaskId.value && kanbanEditorDraft.value?.taskId === kanbanEditorTaskId.value
     ? kanbanEditorDraft.value
@@ -783,11 +974,13 @@ const activeKanbanEditDraft = computed(() =>
 const TASK_GROUP_NONE_ID = '__none__';
 const defaultGroupChipColor = '#9aa0a6';
 const ADD_GROUP_COLUMN_ID = '__add-group__';
+const ADD_HEADING_COLUMN_ID = '__add-heading__';
 
 type KanbanColumn = {
   id: string;
   title: string;
   type: 'status' | 'group' | 'heading' | 'action';
+  actionKind?: 'group-add' | 'heading-add';
   status?: Task['status'];
   groupId?: string;
   headingKey?: string;
@@ -861,14 +1054,15 @@ const headingColumns = computed<KanbanColumn[]>(() => {
   });
 });
 
-const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action' };
+const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action', actionKind: 'group-add' };
+const addHeadingColumn: KanbanColumn = { id: ADD_HEADING_COLUMN_ID, title: '', type: 'action', actionKind: 'heading-add' };
 const kanbanSupportsDrag = computed(() => true);
 const kanbanColumns = computed<KanbanColumn[]>(() => {
   if (kanbanGroupBy.value === 'group') {
     return [...groupColumns.value, addGroupColumn];
   }
   if (kanbanGroupBy.value === 'heading') {
-    return headingColumns.value;
+    return [...headingColumns.value, addHeadingColumn];
   }
   return statusColumns;
 });
@@ -881,17 +1075,58 @@ interface CreateTaskPayload {
   allDay: boolean;
 }
 
+interface QuickCreateTarget {
+  notebookId: string;
+  documentId: string;
+  docPath: string;
+}
+
+interface QuickCreateContext {
+  columnType: 'status' | 'group' | 'heading';
+  status?: Task['status'];
+  groupId?: string;
+  headingMeta?: TaskHeadingGroupMeta;
+  fixedTarget?: QuickCreateTarget;
+}
+
+interface OpenQuickCreateOptions {
+  context?: QuickCreateContext;
+  preferredNotebookId?: string;
+  preferredDocumentId?: string;
+  mode?: 'task' | 'heading-task';
+}
+
+interface TableGroupActionPayload {
+  mode: 'group' | 'heading';
+  groupId: string;
+  groupLabel: string;
+  sampleTaskId?: string;
+  taskIds?: string[];
+}
+
+const quickCreateHeadingInputRef = ref<HTMLInputElement | null>(null);
 const quickCreateInputRef = ref<HTMLInputElement | null>(null);
+const columnTitleInputRef = ref<HTMLInputElement | null>(null);
+const editingColumnTitleId = ref<string>('');
+const columnTitleDraft = ref<string>('');
+const editingColumnOriginalTitle = ref<string>('');
+const isSavingColumnTitle = ref(false);
 const quickCreateNotebookId = ref<string>('all');
 const quickCreateDocumentId = ref<string>('all');
 const quickCreateDialog = ref<{
   show: boolean;
+  mode: 'task' | 'heading-task';
+  headingTitle: string;
   title: string;
   payload: CreateTaskPayload | null;
+  context: QuickCreateContext | null;
 }>({
   show: false,
+  mode: 'task',
+  headingTitle: '',
   title: '',
-  payload: null
+  payload: null,
+  context: null
 });
 
 const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
@@ -984,6 +1219,63 @@ const notebookOptions = computed(() => [
   { value: 'all', text: '全部' },
   ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
 ]);
+
+const kanbanMoveNotebookOptions = computed(() =>
+  notebooks.value.map(notebook => ({
+    value: notebook.id,
+    text: notebook.name
+  }))
+);
+
+const kanbanMoveDocuments = computed(() => {
+  const notebookId = kanbanMoveSelectedNotebook.value;
+  if (!notebookId) {
+    return [] as Array<{ id: string; name: string }>;
+  }
+
+  const docs = [...getDocumentEntriesByNotebook(notebookId)];
+  const activeTask = activeKanbanEditTask.value;
+  const activeRootId = typeof activeTask?.rootId === 'string' ? activeTask.rootId.trim() : '';
+  if (
+    activeTask
+    && activeTask.notebookId === notebookId
+    && activeRootId
+    && !docs.some(doc => doc.id === activeRootId)
+  ) {
+    const fallbackPath = typeof activeTask.hPath === 'string' ? activeTask.hPath : '';
+    docs.unshift({
+      id: activeRootId,
+      name: fallbackPath.split('/').pop() || fallbackPath || activeRootId
+    });
+  }
+
+  return docs;
+});
+
+const kanbanMoveDocumentOptions = computed(() =>
+  kanbanMoveDocuments.value.map(doc => ({
+    value: doc.id,
+    text: doc.name
+  }))
+);
+
+const kanbanMoveTargetUnchanged = computed(() => {
+  const activeTask = activeKanbanEditTask.value;
+  if (!activeTask) {
+    return false;
+  }
+  return kanbanMoveSelectedNotebook.value === (activeTask.notebookId || '')
+    && kanbanMoveSelectedDocument.value === (activeTask.rootId || '');
+});
+
+const canSubmitKanbanMove = computed(() => {
+  const activeTask = activeKanbanEditTask.value;
+  return !!activeTask?.blockId
+    && !!kanbanMoveSelectedNotebook.value
+    && !!kanbanMoveSelectedDocument.value
+    && !kanbanMoveTargetUnchanged.value
+    && !isKanbanTaskMoveSubmitting.value;
+});
 
 const kanbanGroupPickerOptions = computed(() => {
   const options = [
@@ -1079,6 +1371,588 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
   }
 
   return { backgroundColor: 'transparent' };
+}
+
+function normalizeColumnTitleDraft(value: string): string {
+  return value
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractHeadingLeafTitleFromChainLabel(label: string): string {
+  const normalized = normalizeColumnTitleDraft(label || '');
+  const delimiter = ' / ';
+  const delimiterIndex = normalized.lastIndexOf(delimiter);
+  if (delimiterIndex === -1) {
+    return normalized;
+  }
+  return normalized.slice(delimiterIndex + delimiter.length).trim();
+}
+
+function parseHeadingTitleFromKramdown(markdown: string): string {
+  const firstLine = markdown
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .find(line => line.length > 0) || '';
+  if (!firstLine) {
+    return '';
+  }
+  return normalizeColumnTitleDraft(firstLine.replace(/^#{1,6}\s*/, ''));
+}
+
+async function resolveEditableColumnTitle(column: KanbanColumn): Promise<string> {
+  if (column.type === 'group') {
+    return normalizeColumnTitleDraft(column.title || '');
+  }
+
+  if (column.type === 'heading') {
+    const headingBlockId = typeof column.headingMeta?.headingBlockId === 'string'
+      ? column.headingMeta.headingBlockId.trim()
+      : '';
+    if (headingBlockId) {
+      try {
+        const blockData = await getBlockKramdown(headingBlockId);
+        const markdown = typeof blockData === 'string' ? blockData : blockData?.kramdown || '';
+        const parsedTitle = parseHeadingTitleFromKramdown(markdown);
+        if (parsedTitle) {
+          return parsedTitle;
+        }
+      } catch {
+      }
+    }
+    return extractHeadingLeafTitleFromChainLabel(column.title || '');
+  }
+
+  return normalizeColumnTitleDraft(column.title || '');
+}
+
+function getEditableColumnTitleKey(column: KanbanColumn): string {
+  if (column.type === 'group') {
+    const groupId = typeof column.groupId === 'string' ? column.groupId.trim() : '';
+    return groupId ? `group:${groupId}` : '';
+  }
+
+  if (column.type === 'heading') {
+    const headingBlockId = typeof column.headingMeta?.headingBlockId === 'string'
+      ? column.headingMeta.headingBlockId.trim()
+      : '';
+    return headingBlockId ? `heading:${headingBlockId}` : '';
+  }
+
+  return '';
+}
+
+function canEditColumnTitle(column: KanbanColumn): boolean {
+  if (column.type === 'group') {
+    const groupId = typeof column.groupId === 'string' ? column.groupId.trim() : '';
+    return groupId.length > 0;
+  }
+
+  if (column.type === 'heading') {
+    const headingMeta = column.headingMeta;
+    const headingBlockId = typeof headingMeta?.headingBlockId === 'string'
+      ? headingMeta.headingBlockId.trim()
+      : '';
+    return !!(headingMeta && headingMeta.kind === 'heading' && headingMeta.rootId && headingBlockId);
+  }
+
+  return false;
+}
+
+function isColumnTitleEditing(column: KanbanColumn): boolean {
+  const key = getEditableColumnTitleKey(column);
+  return !!key && key === editingColumnTitleId.value;
+}
+
+async function startColumnTitleEdit(column: KanbanColumn): Promise<void> {
+  if (!canEditColumnTitle(column) || isSavingColumnTitle.value) {
+    return;
+  }
+  const key = getEditableColumnTitleKey(column);
+  if (!key) {
+    return;
+  }
+  editingColumnTitleId.value = key;
+  const fallbackTitle = column.type === 'heading'
+    ? extractHeadingLeafTitleFromChainLabel(column.title || '')
+    : normalizeColumnTitleDraft(column.title || '');
+  columnTitleDraft.value = fallbackTitle;
+  editingColumnOriginalTitle.value = fallbackTitle;
+  await nextTick();
+  columnTitleInputRef.value?.focus();
+  columnTitleInputRef.value?.select();
+
+  if (column.type === 'heading') {
+    const resolvedTitle = await resolveEditableColumnTitle(column);
+    if (
+      editingColumnTitleId.value === key
+      && normalizeColumnTitleDraft(columnTitleDraft.value) === fallbackTitle
+      && resolvedTitle
+    ) {
+      columnTitleDraft.value = resolvedTitle;
+      editingColumnOriginalTitle.value = resolvedTitle;
+      await nextTick();
+      columnTitleInputRef.value?.focus();
+      columnTitleInputRef.value?.select();
+    }
+  }
+}
+
+function cancelColumnTitleEdit(force = false): void {
+  if (!force && isSavingColumnTitle.value) {
+    return;
+  }
+  editingColumnTitleId.value = '';
+  columnTitleDraft.value = '';
+  editingColumnOriginalTitle.value = '';
+}
+
+async function submitColumnTitleEdit(column: KanbanColumn): Promise<void> {
+  if (!isColumnTitleEditing(column) || isSavingColumnTitle.value) {
+    return;
+  }
+
+  const nextTitle = normalizeColumnTitleDraft(columnTitleDraft.value);
+  const currentTitle = normalizeColumnTitleDraft(
+    editingColumnOriginalTitle.value || column.title || ''
+  );
+
+  if (!nextTitle) {
+    await pushMsg(column.type === 'group' ? '标签名称不能为空' : '标题名称不能为空', 2000);
+    await nextTick();
+    columnTitleInputRef.value?.focus();
+    return;
+  }
+
+  if (nextTitle === currentTitle) {
+    cancelColumnTitleEdit(true);
+    return;
+  }
+
+  isSavingColumnTitle.value = true;
+  try {
+    if (column.type === 'group') {
+      const groupId = typeof column.groupId === 'string' ? column.groupId.trim() : '';
+      if (!groupId) {
+        cancelColumnTitleEdit(true);
+        return;
+      }
+      const nextGroups = taskGroups.value.map(group => (
+        group.id === groupId
+          ? { ...group, name: nextTitle }
+          : { ...group }
+      ));
+      await saveTaskGroups(nextGroups);
+      const refreshedGroups = await loadTaskGroups();
+      taskGroups.value = refreshedGroups;
+      eventBus.emit(Events.TASK_GROUPS_UPDATED, { groups: refreshedGroups });
+      cancelColumnTitleEdit(true);
+      return;
+    }
+
+    if (column.type === 'heading') {
+      const headingMeta = column.headingMeta;
+      const headingBlockId = typeof headingMeta?.headingBlockId === 'string'
+        ? headingMeta.headingBlockId.trim()
+        : '';
+      if (!headingMeta || headingMeta.kind !== 'heading' || !headingBlockId) {
+        await pushMsg('当前分组不支持重命名', 2000);
+        cancelColumnTitleEdit(true);
+        return;
+      }
+      const headingLevel = Math.max(1, Math.min(6, Number(headingMeta.headingLevel) || 2));
+      const markdown = `${'#'.repeat(headingLevel)} ${nextTitle}`;
+      await updateBlock('markdown', markdown, headingBlockId);
+      cancelColumnTitleEdit(true);
+      scheduleRefreshTasks(120, 'full');
+    }
+  } catch (error) {
+    console.error('[KanbanView] 分组标题编辑失败:', error);
+    await pushMsg('保存失败，请稍后重试', 2600);
+  } finally {
+    isSavingColumnTitle.value = false;
+  }
+}
+
+function canCreateTaskInColumn(column: KanbanColumn): boolean {
+  if (column.type === 'status' || column.type === 'group') {
+    return true;
+  }
+  if (column.type === 'heading') {
+    return !!(column.headingMeta && column.headingMeta.kind !== 'standalone' && column.headingMeta.rootId);
+  }
+  return false;
+}
+
+function getColumnCreateTaskLabel(column: KanbanColumn): string {
+  if (column.type === 'status') {
+    return `在“${column.title}”列新建任务`;
+  }
+  if (column.type === 'group') {
+    return `在“${column.title}”列新建任务`;
+  }
+  if (column.type === 'heading') {
+    return `在“${column.title}”列新建任务`;
+  }
+  return '新建任务';
+}
+
+function getDefaultCreateTaskPayload(): CreateTaskPayload {
+  return {
+    startDate: '',
+    dueDate: '',
+    allDay: true
+  };
+}
+
+function resolveTaskCreateTargetFromTask(task: Task): QuickCreateTarget | null {
+  if (task.type !== 'block') {
+    return null;
+  }
+  const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+  const documentId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  const hPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
+  if (!notebookId || !documentId || !hPath) {
+    return null;
+  }
+  const notebook = notebooks.value.find(nb => nb.id === notebookId);
+  if (!notebook) {
+    return null;
+  }
+  return {
+    notebookId,
+    documentId,
+    docPath: normalizeDocPath(notebook.name, hPath)
+  };
+}
+
+function resolveColumnSampleTarget(column: KanbanColumn): QuickCreateTarget | null {
+  const task = getTasksForColumn(column).find(item =>
+    item.type === 'block'
+    && typeof item.notebookId === 'string'
+    && item.notebookId.trim().length > 0
+    && typeof item.rootId === 'string'
+    && item.rootId.trim().length > 0
+    && typeof item.hPath === 'string'
+    && item.hPath.trim().length > 0
+  );
+  if (!task) {
+    return null;
+  }
+  return resolveTaskCreateTargetFromTask(task);
+}
+
+function buildQuickCreateOptionsForColumn(column: KanbanColumn): OpenQuickCreateOptions {
+  const options: OpenQuickCreateOptions = {};
+  const sampleTarget = resolveColumnSampleTarget(column);
+  if (sampleTarget) {
+    options.preferredNotebookId = sampleTarget.notebookId;
+    options.preferredDocumentId = sampleTarget.documentId;
+  }
+
+  if (column.type === 'status') {
+    options.context = {
+      columnType: 'status',
+      status: column.status || 'pending'
+    };
+    return options;
+  }
+
+  if (column.type === 'group') {
+    const rawGroupId = column.id === TASK_GROUP_NONE_ID
+      ? ''
+      : (typeof column.groupId === 'string' ? column.groupId.trim() : column.id);
+    options.context = {
+      columnType: 'group',
+      groupId: rawGroupId
+    };
+    return options;
+  }
+
+  if (column.type === 'heading' && column.headingMeta) {
+    let fixedTarget = sampleTarget;
+    if (!fixedTarget && column.headingMeta.rootId) {
+      const rootTask = tasks.value.find(item =>
+        item.type === 'block'
+        && item.rootId === column.headingMeta?.rootId
+        && typeof item.hPath === 'string'
+        && item.hPath.trim().length > 0
+      );
+      if (rootTask) {
+        fixedTarget = resolveTaskCreateTargetFromTask(rootTask);
+      }
+    }
+    options.context = {
+      columnType: 'heading',
+      headingMeta: { ...column.headingMeta },
+      fixedTarget: fixedTarget || undefined
+    };
+    if (fixedTarget) {
+      options.preferredNotebookId = fixedTarget.notebookId;
+      options.preferredDocumentId = fixedTarget.documentId;
+    }
+  }
+
+  return options;
+}
+
+function openQuickCreateForKanbanColumn(column: KanbanColumn): void {
+  if (!canCreateTaskInColumn(column)) {
+    return;
+  }
+  void handleTaskCreateRequested(getDefaultCreateTaskPayload(), buildQuickCreateOptionsForColumn(column));
+}
+
+function resolveTableGroupSampleTask(payload: TableGroupActionPayload): Task | null {
+  const sampleTaskId = typeof payload.sampleTaskId === 'string' ? payload.sampleTaskId.trim() : '';
+  if (sampleTaskId) {
+    const sampleTask = tasks.value.find(task => task.id === sampleTaskId);
+    if (sampleTask) {
+      return sampleTask;
+    }
+  }
+
+  if (payload.mode === 'group') {
+    const normalizedGroupId = payload.groupId === TASK_GROUP_NONE_ID
+      ? ''
+      : (typeof payload.groupId === 'string' ? payload.groupId.trim() : '');
+    return tasks.value.find(task => {
+      if (task.type !== 'block' || task.isVirtual || task.archived) return false;
+      const taskGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+      return taskGroupId === normalizedGroupId;
+    }) || null;
+  }
+
+  if (payload.mode === 'heading') {
+    const headingKey = typeof payload.groupId === 'string' ? payload.groupId.trim() : '';
+    if (!headingKey) {
+      return null;
+    }
+    return tasks.value.find(task =>
+      task.type === 'block'
+      && !task.isVirtual
+      && !task.archived
+      && getHeadingColumnIdForTask(task) === headingKey
+    ) || null;
+  }
+
+  return null;
+}
+
+function buildQuickCreateOptionsForTableGroup(payload: TableGroupActionPayload): OpenQuickCreateOptions | null {
+  const options: OpenQuickCreateOptions = {};
+  const sampleTask = resolveTableGroupSampleTask(payload);
+  const sampleTarget = sampleTask ? resolveTaskCreateTargetFromTask(sampleTask) : null;
+  if (sampleTarget) {
+    options.preferredNotebookId = sampleTarget.notebookId;
+    options.preferredDocumentId = sampleTarget.documentId;
+  }
+
+  if (payload.mode === 'group') {
+    const normalizedGroupId = payload.groupId === TASK_GROUP_NONE_ID
+      ? ''
+      : (typeof payload.groupId === 'string' ? payload.groupId.trim() : '');
+    options.context = {
+      columnType: 'group',
+      groupId: normalizedGroupId
+    };
+    return options;
+  }
+
+  if (payload.mode === 'heading') {
+    if (!sampleTask) {
+      return null;
+    }
+    const headingMeta = getTaskHeadingGroupMeta(sampleTask, taskHeadingGroups.value);
+    if (!headingMeta || headingMeta.kind === 'standalone' || !headingMeta.rootId) {
+      return null;
+    }
+    options.context = {
+      columnType: 'heading',
+      headingMeta: { ...headingMeta },
+      fixedTarget: sampleTarget || undefined
+    };
+    return options;
+  }
+
+  return null;
+}
+
+async function handleTableGroupCreateTask(payload: TableGroupActionPayload): Promise<void> {
+  const options = buildQuickCreateOptionsForTableGroup(payload);
+  if (!options) {
+    await pushMsg('当前分组暂不支持新建任务', 2200);
+    return;
+  }
+  await handleTaskCreateRequested(getDefaultCreateTaskPayload(), options);
+}
+
+async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): Promise<void> {
+  const label = (payload.groupLabel || '当前分组').trim() || '当前分组';
+  const taskIds = Array.isArray(payload.taskIds) ? payload.taskIds : [];
+  const tasksToArchive = taskIds
+    .map(taskId => tasks.value.find(task => task.id === taskId))
+    .filter((task): task is Task => !!task)
+    .filter(task => task.type === 'block' && task.isVirtual !== true && task.archived !== true);
+  const totalCount = tasksToArchive.length;
+
+  if (totalCount === 0) {
+    await pushMsg('该分组暂无可归档任务', 2000);
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `确认归档“${label}”分组的全部 ${totalCount} 个任务吗？\n归档后可在「归档」视图查看。`
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  let successCount = 0;
+  const changedBlockIdSet = new Set<string>();
+
+  for (const task of tasksToArchive) {
+    try {
+      await TaskRepository.archiveTask(task.id, 'manual');
+      const taskIndex = tasks.value.findIndex(item => item.id === task.id);
+      if (taskIndex !== -1) {
+        const nowIso = new Date().toISOString();
+        const target = tasks.value[taskIndex];
+        target.archived = true;
+        target.archivedAt = nowIso;
+        target.archiveReason = 'manual';
+        target.updatedAt = nowIso;
+      }
+      if (task.blockId) {
+        changedBlockIdSet.add(task.blockId);
+      }
+      successCount += 1;
+    } catch (error) {
+      console.error('[KanbanView] 分组批量归档任务失败:', error);
+    }
+  }
+
+  if (changedBlockIdSet.size > 0) {
+    eventBus.emit(Events.TASK_CHANGED, { blockIds: Array.from(changedBlockIdSet) });
+  }
+  invalidateTableFilters();
+
+  if (successCount === totalCount) {
+    await pushMsg(`已归档“${label}”分组全部 ${totalCount} 个任务`, 2400);
+    return;
+  }
+  if (successCount > 0) {
+    await pushMsg(`已归档 ${successCount}/${totalCount} 个任务，部分归档失败`, 3000);
+    return;
+  }
+  await pushMsg('归档失败，请稍后重试', 3000);
+}
+
+function getArchivableTasksForColumn(column: KanbanColumn): Task[] {
+  if (column.type === 'action') {
+    return [];
+  }
+  return getTasksForColumn(column).filter(task =>
+    task.type === 'block'
+    && task.isVirtual !== true
+    && task.archived !== true
+  );
+}
+
+function canArchiveTasksInColumn(column: KanbanColumn): boolean {
+  return getArchivableTasksForColumn(column).length > 0;
+}
+
+function getColumnArchiveTasksLabel(column: KanbanColumn): string {
+  const title = (column.title || '当前').trim() || '当前';
+  const taskCount = getArchivableTasksForColumn(column).length;
+  if (taskCount > 0) {
+    return `归档“${title}”列全部 ${taskCount} 个任务`;
+  }
+  return `归档“${title}”列全部任务`;
+}
+
+function isKanbanColumnArchiving(columnId: string): boolean {
+  return archivingKanbanColumnIds.value.has(columnId);
+}
+
+function setKanbanColumnArchiving(columnId: string, archiving: boolean): void {
+  const next = new Set(archivingKanbanColumnIds.value);
+  if (archiving) {
+    next.add(columnId);
+  } else {
+    next.delete(columnId);
+  }
+  archivingKanbanColumnIds.value = next;
+}
+
+async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
+  if (column.type === 'action') {
+    return;
+  }
+  if (isKanbanColumnArchiving(column.id)) {
+    return;
+  }
+
+  const tasksToArchive = getArchivableTasksForColumn(column);
+  const totalCount = tasksToArchive.length;
+  if (totalCount === 0) {
+    await pushMsg('该列暂无可归档任务', 2000);
+    return;
+  }
+
+  const title = (column.title || '当前').trim() || '当前';
+  const confirmed = window.confirm(
+    `确认归档“${title}”列的全部 ${totalCount} 个任务吗？\n归档后可在「归档」视图查看。`
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  setKanbanColumnArchiving(column.id, true);
+  let successCount = 0;
+  const changedBlockIdSet = new Set<string>();
+
+  try {
+    for (const task of tasksToArchive) {
+      try {
+        await TaskRepository.archiveTask(task.id, 'manual');
+        const taskIndex = tasks.value.findIndex(item => item.id === task.id);
+        if (taskIndex !== -1) {
+          const nowIso = new Date().toISOString();
+          const target = tasks.value[taskIndex];
+          target.archived = true;
+          target.archivedAt = nowIso;
+          target.archiveReason = 'manual';
+          target.updatedAt = nowIso;
+        }
+        if (task.blockId) {
+          changedBlockIdSet.add(task.blockId);
+        }
+        successCount += 1;
+      } catch (error) {
+        console.error('[KanbanView] 列批量归档任务失败:', error);
+      }
+    }
+
+    if (changedBlockIdSet.size > 0) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: Array.from(changedBlockIdSet) });
+    }
+    invalidateTableFilters();
+
+    if (successCount === totalCount) {
+      await pushMsg(`已归档“${title}”列全部 ${totalCount} 个任务`, 2400);
+      return;
+    }
+    if (successCount > 0) {
+      await pushMsg(`已归档 ${successCount}/${totalCount} 个任务，部分归档失败`, 3000);
+      return;
+    }
+    await pushMsg('归档失败，请稍后重试', 3000);
+  } finally {
+    setKanbanColumnArchiving(column.id, false);
+  }
 }
 
 const kanbanEditorSelectedGroupId = computed(() => {
@@ -1283,6 +2157,22 @@ async function openTaskGroupQuickCreate(): Promise<void> {
   showTaskGroupDialog.value = true;
 }
 
+async function openHeadingAndTaskQuickCreate(): Promise<void> {
+  await handleTaskCreateRequested(getDefaultCreateTaskPayload(), { mode: 'heading-task' });
+}
+
+function getActionColumnButtonLabel(column: KanbanColumn): string {
+  return column.actionKind === 'heading-add' ? '新建标题' : '新建标签';
+}
+
+function handleActionColumnClick(column: KanbanColumn): void {
+  if (column.actionKind === 'heading-add') {
+    void openHeadingAndTaskQuickCreate();
+    return;
+  }
+  void openTaskGroupQuickCreate();
+}
+
 async function openTaskGroupDialog(): Promise<void> {
   if (taskGroups.value.length === 0) {
     taskGroups.value = await loadTaskGroups();
@@ -1473,6 +2363,7 @@ function getCurrentFilterNotebookId(): string {
     case 'kanban':
       return kanbanFilterType.value;
     case 'table':
+    case 'archive-table':
       return tableFilterType.value;
     case 'month':
       return monthFilterType.value;
@@ -1548,6 +2439,7 @@ const currentFilterType = computed(() => {
     case 'kanban':
       return kanbanFilterType.value;
     case 'table':
+    case 'archive-table':
       return tableFilterType.value;
     case 'month':
       return monthFilterType.value;
@@ -1566,6 +2458,7 @@ const currentDocumentFilter = computed<string>({
       case 'kanban':
         return kanbanFilterDocument.value;
       case 'table':
+      case 'archive-table':
         return tableFilterDocument.value;
       case 'month':
         return monthFilterDocument.value;
@@ -1583,6 +2476,7 @@ const currentDocumentFilter = computed<string>({
         kanbanFilterDocument.value = value;
         break;
       case 'table':
+      case 'archive-table':
         tableFilterDocument.value = value;
         break;
       case 'month':
@@ -1822,6 +2716,7 @@ watch(tableFilterPopoverVisible, (visible) => {
 watch(currentView, () => {
   closeDocumentTabsDropdown();
   closeMobileViewSwitcher();
+  cancelColumnTitleEdit();
 });
 
 watch(kanbanGroupBy, async (mode) => {
@@ -1837,19 +2732,31 @@ watch(tableGroupBy, async (mode) => {
   taskGroups.value = await loadTaskGroups();
 });
 
+const tableArchiveMode = computed<'active' | 'archived'>(() =>
+  currentView.value === 'archive-table' ? 'archived' : 'active'
+);
+
 const tableFilters = {
   notebook: tableFilterType,
-  document: tableFilterDocument
+  document: tableFilterDocument,
+  archiveMode: tableArchiveMode
 };
 
 const { filtered: filteredTasks, invalidateCache: invalidateTableFilters } = useTaskFilters(tasks, tableFilters);
 const tableViewTasks = computed(() =>
   filteredTasks.value.filter(task => matchesTableFilters(task))
 );
+const archivedTableViewTasks = computed(() =>
+  filteredTasks.value.filter(task => matchesArchivedTableFilters(task))
+);
+const activeOrArchiveTableViewTasks = computed(() =>
+  currentView.value === 'archive-table' ? archivedTableViewTasks.value : tableViewTasks.value
+);
 
 const monthViewTasks = computed(() => {
   return tasks.value.filter(task => {
     if (task.type !== 'block') return false;
+    if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
     if (monthFilterType.value !== 'all') {
       if (task.notebookId !== monthFilterType.value) return false;
@@ -1865,6 +2772,7 @@ const monthViewTasks = computed(() => {
 const weekViewTasks = computed(() => {
   return tasks.value.filter(task => {
     if (task.type !== 'block') return false;
+    if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
     if (weekFilterType.value !== 'all') {
       if (task.notebookId !== weekFilterType.value) return false;
@@ -1880,6 +2788,7 @@ const weekViewTasks = computed(() => {
 const dayViewTasks = computed(() => {
   return tasks.value.filter(task => {
     if (task.type !== 'block') return false;
+    if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
     if (dayFilterType.value !== 'all') {
       if (task.notebookId !== dayFilterType.value) return false;
@@ -2233,6 +3142,7 @@ function matchesTableSearch(task: Task): boolean {
 function matchesKanbanFilters(task: Task): boolean {
   if (!task.title || task.title.trim() === '') return false;
   if (task.type !== 'block') return false;
+  if (task.archived) return false;
   if (task.isVirtual) return false;
   if (kanbanFilterType.value !== 'all') {
     if (task.notebookId !== kanbanFilterType.value) return false;
@@ -2279,8 +3189,9 @@ function matchesKanbanFilters(task: Task): boolean {
   return true;
 }
 
-function matchesTableFilters(task: Task): boolean {
+function matchesTableFiltersByArchivedState(task: Task, archivedOnly: boolean): boolean {
   if (task.type !== 'block') return false;
+  if (archivedOnly ? !task.archived : task.archived) return false;
   if (task.isVirtual) return false;
   if (!matchesTableSearch(task)) return false;
   if (activeTableStatusFilters.value.length > 0) {
@@ -2322,6 +3233,14 @@ function matchesTableFilters(task: Task): boolean {
     }
   }
   return true;
+}
+
+function matchesTableFilters(task: Task): boolean {
+  return matchesTableFiltersByArchivedState(task, false);
+}
+
+function matchesArchivedTableFilters(task: Task): boolean {
+  return matchesTableFiltersByArchivedState(task, true);
 }
 
 function getGroupColumnIdForTask(task: Task): string {
@@ -2627,7 +3546,7 @@ async function loadTasks(forceRefresh: boolean = false, options: { silent?: bool
     }
     const sqlTasks = await TaskRepository.getAllTasks(
       !forceRefresh,
-      undefined,
+      { includeArchived: true },
       { useLiveDom: false }
     );
     syncFromSQL(sqlTasks);
@@ -3639,7 +4558,7 @@ async function saveInlineDescriptionEdit(task: Task): Promise<void> {
 }
 
 function handleTaskClick(task: Task, event?: MouseEvent) {
-  if (event && (currentView.value === 'kanban' || currentView.value === 'table')) {
+  if (event && (currentView.value === 'kanban' || currentView.value === 'table' || currentView.value === 'archive-table')) {
     void openKanbanEditor(task, event);
     return;
   }
@@ -3735,12 +4654,166 @@ async function handleKanbanEditorReminderSelect(value: TaskReminderSelection): P
   );
 }
 
+function syncKanbanMoveSelectedDocument(preferredDocumentId?: string): void {
+  const preferredId = typeof preferredDocumentId === 'string' ? preferredDocumentId.trim() : '';
+  if (preferredId && kanbanMoveDocuments.value.some(doc => doc.id === preferredId)) {
+    kanbanMoveSelectedDocument.value = preferredId;
+    return;
+  }
+  kanbanMoveSelectedDocument.value = kanbanMoveDocuments.value[0]?.id || '';
+}
+
+async function openKanbanTaskMoveDialog(): Promise<void> {
+  const task = activeKanbanEditTask.value;
+  if (!task) {
+    return;
+  }
+
+  if (task.type !== 'block' || !task.blockId) {
+    await pushMsg('该任务无法移动', 2000);
+    return;
+  }
+
+  if (notebooks.value.length === 0) {
+    await loadNotebooks();
+  }
+
+  kanbanEditorPriorityPopover.value = null;
+  kanbanEditorQuickPanel.value = null;
+
+  const currentNotebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+  kanbanMoveSelectedNotebook.value = notebooks.value.some(notebook => notebook.id === currentNotebookId)
+    ? currentNotebookId
+    : (notebooks.value[0]?.id || '');
+  syncKanbanMoveSelectedDocument(task.rootId);
+  showKanbanTaskMoveDialog.value = true;
+}
+
+function closeKanbanTaskMoveDialog(): void {
+  showKanbanTaskMoveDialog.value = false;
+  isKanbanTaskMoveSubmitting.value = false;
+}
+
+function handleKanbanMoveNotebookChange(value: string): void {
+  kanbanMoveSelectedNotebook.value = typeof value === 'string' ? value : '';
+  syncKanbanMoveSelectedDocument();
+}
+
+async function handleKanbanEditorMove(): Promise<void> {
+  const task = activeKanbanEditTask.value;
+  if (!task || !canSubmitKanbanMove.value) {
+    return;
+  }
+
+  isKanbanTaskMoveSubmitting.value = true;
+  try {
+    const moveResult = await TaskRepository.moveTask(task.id, kanbanMoveSelectedDocument.value);
+    closeKanbanTaskMoveDialog();
+    closeKanbanEditor();
+    if (moveResult.blockId) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: [moveResult.blockId] });
+    }
+    scheduleRefreshTasks(120, 'silent-full');
+  } catch (error) {
+    console.error('[KanbanView] 移动任务失败:', error);
+    isKanbanTaskMoveSubmitting.value = false;
+    await pushMsg('移动任务失败，请稍后重试', 3000);
+  }
+}
+
+async function handleKanbanEditorArchiveToggle(): Promise<void> {
+  const task = activeKanbanEditTask.value;
+  if (!task) {
+    return;
+  }
+
+  const shouldUnarchive = task.archived === true;
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+  const nowIso = new Date().toISOString();
+
+  try {
+    if (shouldUnarchive) {
+      await TaskRepository.unarchiveTask(task.id);
+      const taskIndex = tasks.value.findIndex(item => item.id === task.id);
+      if (taskIndex !== -1) {
+        const currentTask = tasks.value[taskIndex];
+        currentTask.archived = false;
+        currentTask.archivedAt = undefined;
+        currentTask.archiveReason = undefined;
+        currentTask.updatedAt = nowIso;
+      }
+      invalidateTableFilters();
+      if (blockId) {
+        eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
+      } else {
+        scheduleRefreshTasks(120, 'silent-full');
+      }
+      return;
+    }
+
+    await TaskRepository.archiveTask(task.id, 'manual');
+    const taskIndex = tasks.value.findIndex(item => item.id === task.id);
+    if (taskIndex !== -1) {
+      const currentTask = tasks.value[taskIndex];
+      currentTask.archived = true;
+      currentTask.archivedAt = nowIso;
+      currentTask.archiveReason = 'manual';
+      currentTask.updatedAt = nowIso;
+    }
+    invalidateTableFilters();
+    closeKanbanEditor();
+    if (blockId) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
+    } else {
+      scheduleRefreshTasks(120, 'silent-full');
+    }
+  } catch (error) {
+    console.error('[KanbanView] 切换任务归档失败:', error);
+    await pushMsg('归档操作失败，请稍后重试', 3000);
+  }
+}
+
+async function handleKanbanEditorDelete(): Promise<void> {
+  const task = activeKanbanEditTask.value;
+  if (!task) {
+    return;
+  }
+
+  if (!window.confirm('确认删除该任务？')) {
+    return;
+  }
+
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+
+  try {
+    await TaskRepository.deleteTask(task.id);
+    if (task.id) {
+      crdtRepo.deleteTask(task.id, Date.now());
+      tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
+    }
+    invalidateTableFilters();
+    closeKanbanEditor();
+    if (blockId) {
+      eventBus.emit(Events.TASK_DELETED, { blockId });
+    } else {
+      scheduleRefreshTasks(120, 'silent-full');
+    }
+  } catch (error) {
+    console.error('[KanbanView] 删除任务失败:', error);
+    await pushMsg('删除任务失败，请稍后重试', 3000);
+  }
+}
+
 function closeKanbanEditor(): void {
   kanbanEditorVisible.value = false;
   kanbanEditorTaskId.value = null;
   kanbanEditorDraft.value = null;
   kanbanEditorQuickPanel.value = null;
   kanbanEditorPriorityPopover.value = null;
+  showKanbanTaskMoveDialog.value = false;
+  isKanbanTaskMoveSubmitting.value = false;
+  kanbanMoveSelectedNotebook.value = '';
+  kanbanMoveSelectedDocument.value = '';
   if (kanbanEditorProtyle) {
     try {
       kanbanEditorProtyle.destroy();
@@ -3846,6 +4919,10 @@ function handleKanbanEditorKeydown(event: KeyboardEvent): void {
   }
   if (documentTabsDropdownVisible.value) {
     closeDocumentTabsDropdown();
+    return;
+  }
+  if (showKanbanTaskMoveDialog.value) {
+    closeKanbanTaskMoveDialog();
     return;
   }
   if (kanbanEditorVisible.value) {
@@ -4042,6 +5119,7 @@ function getCurrentSidebarFilterSelection(): { notebookId: string; documentId: s
         documentId: kanbanFilterDocument.value
       };
     case 'table':
+    case 'archive-table':
       return {
         notebookId: tableFilterType.value,
         documentId: tableFilterDocument.value
@@ -4085,20 +5163,84 @@ function resolveCreateTarget(notebookId: string, documentId: string): { notebook
   };
 }
 
-async function handleTaskCreateRequested(payload: CreateTaskPayload) {
+function normalizeQuickCreateHeadingTitle(rawTitle: string): string {
+  return rawTitle
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^#+\s*/, '')
+    .trim();
+}
+
+function extractCreatedBlockIdFromOperations(result: unknown): string {
+  if (!Array.isArray(result) || result.length === 0) {
+    return '';
+  }
+  const firstItem = result[0] as { doOperations?: unknown };
+  const operations = Array.isArray(firstItem?.doOperations)
+    ? firstItem.doOperations as Array<Record<string, unknown>>
+    : [];
+  for (const operation of operations) {
+    const id = typeof operation.id === 'string' ? operation.id.trim() : '';
+    const objectType = typeof operation.objectType === 'string' ? operation.objectType : '';
+    const type = typeof operation.type === 'string' ? operation.type : '';
+    if (!id) {
+      continue;
+    }
+    if (objectType === 'NodeHeading' || type === 'h') {
+      return id;
+    }
+  }
+  for (const operation of operations) {
+    const id = typeof operation.id === 'string' ? operation.id.trim() : '';
+    if (id) {
+      return id;
+    }
+  }
+  return '';
+}
+
+async function createQuickCreateHeading(rootId: string, headingTitle: string): Promise<string> {
+  const headingMarkdown = `## ${headingTitle}`;
+  const result = await appendBlock('markdown', headingMarkdown, rootId);
+  return extractCreatedBlockIdFromOperations(result);
+}
+
+async function handleTaskCreateRequested(payload: CreateTaskPayload, options: OpenQuickCreateOptions = {}) {
   const sidebarSelection = getCurrentSidebarFilterSelection();
-  quickCreateNotebookId.value = sidebarSelection.notebookId;
-  quickCreateDocumentId.value = sidebarSelection.documentId;
+  const preferredNotebookId = options.preferredNotebookId || sidebarSelection.notebookId;
+  quickCreateNotebookId.value = notebookOptions.value.some(option => option.value === preferredNotebookId)
+    ? preferredNotebookId
+    : 'all';
+
+  const preferredDocumentId = options.preferredDocumentId || sidebarSelection.documentId;
+  quickCreateDocumentId.value = preferredDocumentId;
   if (!quickCreateDocumentOptions.value.some(opt => opt.value === quickCreateDocumentId.value)) {
     quickCreateDocumentId.value = 'all';
   }
 
+  if (options.context?.fixedTarget) {
+    quickCreateNotebookId.value = options.context.fixedTarget.notebookId;
+    quickCreateDocumentId.value = options.context.fixedTarget.documentId;
+  }
+  if (!quickCreateDocumentOptions.value.some(opt => opt.value === quickCreateDocumentId.value)) {
+    quickCreateDocumentId.value = 'all';
+  }
+
+  const mode = options.mode === 'heading-task' ? 'heading-task' : 'task';
   quickCreateDialog.value = {
     show: true,
-    title: '新建任务',
-    payload
+    mode,
+    headingTitle: '',
+    title: mode === 'heading-task' ? '' : '新建任务',
+    payload,
+    context: options.context || null
   };
   await nextTick();
+  if (mode === 'heading-task') {
+    quickCreateHeadingInputRef.value?.focus();
+    quickCreateHeadingInputRef.value?.select();
+    return;
+  }
   quickCreateInputRef.value?.focus();
   quickCreateInputRef.value?.select();
 }
@@ -4108,34 +5250,71 @@ function closeQuickCreateDialog() {
   quickCreateDocumentId.value = 'all';
   quickCreateDialog.value = {
     show: false,
+    mode: 'task',
+    headingTitle: '',
     title: '',
-    payload: null
+    payload: null,
+    context: null
   };
 }
 
 async function submitQuickCreateTask() {
   const payload = quickCreateDialog.value.payload;
+  const context = quickCreateDialog.value.context;
+  const isHeadingTaskMode = quickCreateDialog.value.mode === 'heading-task';
+  const headingTitle = isHeadingTaskMode
+    ? normalizeQuickCreateHeadingTitle(quickCreateDialog.value.headingTitle)
+    : '';
   const trimmedTitle = quickCreateDialog.value.title.trim();
   if (!payload) return;
+  if (isHeadingTaskMode && !headingTitle) {
+    await pushMsg('请输入标题名称', 2000);
+    return;
+  }
   if (!trimmedTitle) {
     await pushMsg('请输入任务标题', 2000);
     return;
   }
 
-  const target = resolveCreateTarget(quickCreateNotebookId.value, quickCreateDocumentId.value);
+  const target = context?.fixedTarget || resolveCreateTarget(quickCreateNotebookId.value, quickCreateDocumentId.value);
   if (!target) {
     await pushMsg('请先选择笔记本和文档', 3000);
     return;
   }
 
   try {
+    let headingMetaForNewTask: TaskHeadingGroupMeta | null = null;
+    if (isHeadingTaskMode) {
+      const headingBlockId = await createQuickCreateHeading(target.documentId, headingTitle);
+      if (!headingBlockId) {
+        await pushMsg('创建标题失败，请稍后重试', 3000);
+        return;
+      }
+      headingMetaForNewTask = {
+        key: `heading:${target.documentId}:${headingBlockId}`,
+        label: headingTitle,
+        kind: 'heading',
+        rootId: target.documentId,
+        headingBlockId,
+        headingLevel: 2
+      };
+    }
+
+    const normalizedGroupId = context?.columnType === 'group'
+      ? (typeof context.groupId === 'string' ? context.groupId.trim() : '')
+      : '';
+    const createStatus = context?.columnType === 'status' && context.status
+      ? context.status
+      : 'pending';
+
     const created = await TaskRepository.createBlockTask({
       title: trimmedTitle,
       description: '',
       priority: 'none',
-      status: 'pending',
+      status: createStatus,
       dueDate: payload.dueDate,
-      tags: []
+      tags: [],
+      groupId: normalizedGroupId || undefined
     }, target.notebookId, target.docPath);
 
     if (created?.blockId) {
@@ -4145,6 +5324,22 @@ async function submitQuickCreateTask() {
         'custom-task-start-time': payload.startTime || '',
         'custom-task-due-time': payload.dueTime || ''
       });
+
+      const targetHeadingMeta = headingMetaForNewTask
+        || (context?.columnType === 'heading' && context.headingMeta ? context.headingMeta : null);
+      if (targetHeadingMeta) {
+        try {
+          const dropTarget = await resolveTaskHeadingDropTarget(targetHeadingMeta);
+          if (dropTarget) {
+            await moveBlock(created.blockId, dropTarget.previousId, dropTarget.parentId);
+          } else {
+            await pushMsg('未能定位标题区，任务已创建到文档默认位置', 3000);
+          }
+        } catch (error) {
+          console.error('[KanbanView] 新建任务后移动到标题失败:', error);
+          await pushMsg('任务已创建，但移动到标题失败', 3000);
+        }
+      }
     }
 
     closeQuickCreateDialog();
@@ -4697,7 +5892,7 @@ watch(currentView, (nextView) => {
   if (nextView !== 'kanban') {
     closeKanbanFilterPopover();
   }
-  if (nextView !== 'table') {
+  if (nextView !== 'table' && nextView !== 'archive-table') {
     closeTableFilterPopover();
   }
   if (nextView !== 'kanban' && kanbanEditorVisible.value) {
@@ -5455,9 +6650,10 @@ watch(kanbanColumns, () => {
   max-width: 100%;
   min-width: 0;
   margin-top: 4px;
-  border: 1px solid var(--b3-border-color);
+  border: none;
   border-radius: 8px;
-  background: var(--b3-theme-background);
+  background-color: var(--Sv-select-field);
+  box-shadow: none;
   color: var(--b3-theme-on-background);
   font-size: 14px;
   padding: 8px 10px;
@@ -5466,7 +6662,8 @@ watch(kanbanColumns, () => {
 }
 
 .quick-create-input:focus {
-  border-color: var(--b3-theme-primary);
+  border: none;
+  box-shadow: none;
 }
 
 .quick-create-actions {
@@ -5477,18 +6674,21 @@ watch(kanbanColumns, () => {
 }
 
 .quick-create-btn {
-  border: 1px solid var(--b3-border-color);
-  border-radius: 8px;
-  padding: 6px 12px;
+  border: none;
+  border-radius: 20px;
+  padding: 4px 10px;
   font-size: 13px;
   cursor: pointer;
-  background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
 }
 
+.quick-create-btn.cancel {
+  background: var(--b3-list-hover);
+}
+
 .quick-create-btn.confirm {
-  border-color: var(--b3-theme-primary);
-  color: var(--b3-theme-primary);
+  background: #f98f7a;
+  color: #fff;
 }
 
 .kanban-board {
@@ -5518,14 +6718,14 @@ watch(kanbanColumns, () => {
   min-width: 200px;
   max-width: 240px;
   background: transparent;
-  border: 1px dashed var(--b3-border-color);
   box-shadow: none;
 }
 
 .action-column-body {
-  min-height: 180px;
+  min-height: 107px;
   align-items: center;
   justify-content: center;
+  background: var(--b3-list-hover);
 }
 
 .kanban-add-group-btn {
@@ -5554,6 +6754,50 @@ watch(kanbanColumns, () => {
   padding: 12px 16px;
 }
 
+.column-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.column-count {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.72;
+}
+
+.column-add-task-btn,
+.column-archive-tasks-btn {
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.column-add-task-btn:hover,
+.column-archive-tasks-btn:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.column-add-task-btn:focus-visible,
+.column-archive-tasks-btn:focus-visible {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  outline: none;
+}
+
+.column-archive-tasks-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .column-title {
   display: flex;
   align-items: center;
@@ -5561,6 +6805,35 @@ watch(kanbanColumns, () => {
   font-weight: 600;
   font-size: 16px;
   color: var(--b3-theme-on-background);
+  min-width: 0;
+}
+
+.column-title-editing {
+  flex: 1;
+}
+
+.column-title-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  border-radius: 8px;
+  background-color: var(--Sv-select-field);
+  box-shadow: none;
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.column-title-input:focus {
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--b3-theme-primary);
+}
+
+.column-title-input:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .column-title-button {
@@ -5675,21 +6948,142 @@ watch(kanbanColumns, () => {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
 }
 
+.kanban-editor-move,
+.kanban-editor-archive,
+.kanban-editor-delete,
 .kanban-editor-close {
+  width: 28px;
+  height: 28px;
   border: none;
-  background: transparent;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  display: inline-flex;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
   align-items: center;
   justify-content: center;
   color: var(--b3-theme-on-background);
-  cursor: pointer;
+  background: transparent;
+}
+
+.kanban-editor-move:hover,
+.kanban-editor-archive:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-primary);
+}
+
+.kanban-editor-delete:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-error);
 }
 
 .kanban-editor-close:hover {
   background: var(--b3-list-hover);
+}
+
+.kanban-task-move-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.kanban-task-move-dialog {
+  width: min(340px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  background: var(--b3-theme-surface);
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.kanban-task-move-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--b3-border-color);
+}
+
+.kanban-task-move-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--b3-theme-on-background);
+}
+
+.kanban-task-move-dialog-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.kanban-task-move-dialog-close:hover {
+  background: var(--b3-list-hover);
+}
+
+.kanban-task-move-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.kanban-task-move-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kanban-task-move-dialog-field label {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.8;
+}
+
+.kanban-task-move-dialog-hint {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.75;
+  line-height: 1.5;
+}
+
+.kanban-task-move-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.kanban-task-move-dialog-btn {
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+}
+
+.kanban-task-move-dialog-btn.confirm {
+  border-color: var(--b3-theme-primary);
+  color: var(--b3-theme-primary);
+}
+
+.kanban-task-move-dialog-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .kanban-editor-body {

@@ -1104,6 +1104,9 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  archived?: boolean;
+  archivedAt?: string;
+  archiveReason?: 'manual' | 'auto';
   repeatSeriesId?: string;
   repeatFrequency?: RepeatFrequency;
   repeatInstanceDate?: string;
@@ -1209,6 +1212,8 @@ export interface TaskQueryScope {
   notebookId?: string;
   documentId?: string;
   includeCompleted?: boolean;
+  includeArchived?: boolean;
+  archivedOnly?: boolean;
 }
 
 export interface TaskFetchOptions {
@@ -1258,10 +1263,12 @@ export class TaskRepository {
       ? scope.documentId.trim()
       : undefined;
     const includeCompleted = scope.includeCompleted !== false;
-    if (!notebookId && !documentId && includeCompleted) {
+    const archivedOnly = scope.archivedOnly === true;
+    const includeArchived = archivedOnly || scope.includeArchived === true;
+    if (!notebookId && !documentId && includeCompleted && !includeArchived && !archivedOnly) {
       return null;
     }
-    return { notebookId, documentId, includeCompleted };
+    return { notebookId, documentId, includeCompleted, includeArchived, archivedOnly };
   }
 
   private static buildTaskQueryScopeSql(scope: TaskQueryScope | null, alias: string | null = 'b'): string {
@@ -1292,13 +1299,40 @@ export class TaskRepository {
     return ` AND (${target} LIKE '%[ ]%' OR ${target} LIKE '%[x]%' OR ${target} LIKE '%[X]%')`;
   }
 
+  private static buildTaskArchiveSql(scope: TaskQueryScope | null, alias: string | null = 'b'): string {
+    const target = alias ? `${alias}.id` : 'id';
+    const archivedValueSql = "('1', 'true', 'TRUE', 'yes', 'YES')";
+    if (scope?.archivedOnly) {
+      return ` AND EXISTS (
+        SELECT 1
+        FROM attributes archived_attr
+        WHERE archived_attr.block_id = ${target}
+          AND archived_attr.name = 'custom-task-archived'
+          AND archived_attr.value IN ${archivedValueSql}
+      )`;
+    }
+    if (scope?.includeArchived === true) {
+      return '';
+    }
+    return ` AND NOT EXISTS (
+      SELECT 1
+      FROM attributes archived_attr
+      WHERE archived_attr.block_id = ${target}
+        AND archived_attr.name = 'custom-task-archived'
+        AND archived_attr.value IN ${archivedValueSql}
+    )`;
+  }
+
   private static buildScopeCacheKey(scope: TaskQueryScope | null, useLiveDom: boolean = true): string {
     const notebookKey = scope?.notebookId || '*';
     const documentKey = scope?.documentId || '*';
     const includeCompletedKey = scope?.includeCompleted === false ? 'open-only' : 'all-status';
+    const archiveKey = scope?.archivedOnly
+      ? 'archived-only'
+      : (scope?.includeArchived === true ? 'include-archived' : 'active-only');
     const excludedKey = this.getExcludedNotebookIdsSorted().join(',');
     const domKey = useLiveDom ? 'live-dom' : 'api-dom-only';
-    return `${notebookKey}|${documentKey}|${includeCompletedKey}|${excludedKey}|${domKey}`;
+    return `${notebookKey}|${documentKey}|${includeCompletedKey}|${archiveKey}|${excludedKey}|${domKey}`;
   }
 
   private static setScopedMemoryCache(key: string, tasks: Task[]): void {
@@ -1443,6 +1477,40 @@ export class TaskRepository {
     }
 
     return 'pending';
+  }
+
+  private static parseTaskArchivedFlag(value: string | undefined): boolean {
+    if (typeof value !== 'string' || value.length === 0) {
+      return false;
+    }
+    const tokens = value
+      .split(',')
+      .map(item => item.trim().toLowerCase())
+      .filter(item => item.length > 0);
+    if (tokens.length === 0) {
+      return false;
+    }
+    return tokens.some(token => token === '1' || token === 'true' || token === 'yes');
+  }
+
+  private static normalizeTaskArchiveReason(value: string | undefined): 'manual' | 'auto' | undefined {
+    if (typeof value !== 'string' || value.length === 0) {
+      return undefined;
+    }
+    const normalized = value
+      .split(',')
+      .map(item => item.trim().toLowerCase())
+      .filter(item => item.length > 0);
+    if (normalized.length === 0) {
+      return undefined;
+    }
+    for (let i = normalized.length - 1; i >= 0; i -= 1) {
+      const item = normalized[i];
+      if (item === 'manual' || item === 'auto') {
+        return item;
+      }
+    }
+    return undefined;
   }
 
   private static getTaskActionElement(root: Element | null, ownerId?: string): Element | null {
@@ -1827,16 +1895,20 @@ export class TaskRepository {
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) as custom_task_reminder_type,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) as custom_task_reminder_custom_time,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
-               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) as custom_task_archived,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) as custom_task_archived_at,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
         FROM blocks b
         LEFT JOIN attributes a ON b.id = a.block_id
-          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-background-color')
+          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-background-color', 'custom-task-archived', 'custom-task-archived-at', 'custom-task-archive-reason')
         WHERE b.id IN (${idsClause})
           ${this.buildNotebookScopeSql('b')}
           ${this.buildTaskQueryScopeSql(scope, 'b')}
           AND (b.type = 'i' OR b.type = 'p')
           AND b.subtype = 't'
           ${this.buildTaskCompletionSql(scope?.includeCompleted, 'b')}
+          ${this.buildTaskArchiveSql(scope, 'b')}
         GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
       `) as any[];
 
@@ -1873,7 +1945,10 @@ export class TaskRepository {
           'custom-task-reminder-type': row.custom_task_reminder_type,
           'custom-task-reminder-custom-time': row.custom_task_reminder_custom_time,
           'custom-task-group': row.custom_task_group,
-          'custom-task-background-color': row.custom_task_background_color
+          'custom-task-background-color': row.custom_task_background_color,
+          'custom-task-archived': row.custom_task_archived,
+          'custom-task-archived-at': row.custom_task_archived_at,
+          'custom-task-archive-reason': row.custom_task_archive_reason
         };
 
         const dom = domMap.get(row.id);
@@ -1906,6 +1981,13 @@ export class TaskRepository {
           completedByDOM = currentHref ? currentHref === '#iconCheck' : null;
         }
         const status = this.parseTaskStatus(attrs, row.markdown || '', completedByDOM);
+        const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
+        const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
+          .split(',')
+          .map(item => item.trim())
+          .filter(item => item.length > 0)
+          .pop() || '';
+        const archiveReason = this.normalizeTaskArchiveReason(attrs['custom-task-archive-reason']);
 
         let tags: string[] = [];
         if (attrs['custom-task-tags']) {
@@ -1940,6 +2022,9 @@ export class TaskRepository {
           icon: row.root_id ? (rootIcons.get(row.root_id) || '\uD83D\uDCC4') : '\uD83D\uDCC4',
           backgroundColor: attrs['custom-task-background-color'],
           subtasks: subtasks.length > 0 ? subtasks : undefined,
+          archived,
+          archivedAt: archived && archivedAtRaw ? archivedAtRaw : undefined,
+          archiveReason: archived ? archiveReason : undefined,
           createdAt: this.parseBlockDateTime(row.created),
           updatedAt: this.parseBlockDateTime(row.updated)
         });
@@ -2005,15 +2090,19 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) as custom_task_reminder_type,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) as custom_task_reminder_custom_time,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
-                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) as custom_task_archived,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) as custom_task_archived_at,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
           FROM blocks b
           LEFT JOIN attributes a ON b.id = a.block_id
-            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-background-color')
+            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-background-color', 'custom-task-archived', 'custom-task-archived-at', 'custom-task-archive-reason')
           WHERE (b.type = 'i' OR b.type = 'p')
             ${this.buildNotebookScopeSql('b')}
             ${this.buildTaskQueryScopeSql(scope, 'b')}
             AND b.subtype = 't'
             ${completionSqlForTree}
+            ${this.buildTaskArchiveSql(scope, 'b')}
             ${cursorClause}
           GROUP BY b.id, b.content, b.box, b.hpath, b.sort, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
           ORDER BY b.id
@@ -2126,7 +2215,10 @@ export class TaskRepository {
           'custom-task-reminder-type': block.custom_task_reminder_type,
           'custom-task-reminder-custom-time': block.custom_task_reminder_custom_time,
           'custom-task-group': block.custom_task_group,
-          'custom-task-background-color': block.custom_task_background_color
+          'custom-task-background-color': block.custom_task_background_color,
+          'custom-task-archived': block.custom_task_archived,
+          'custom-task-archived-at': block.custom_task_archived_at,
+          'custom-task-archive-reason': block.custom_task_archive_reason
         });
       });
       
@@ -2415,6 +2507,13 @@ export class TaskRepository {
             const subtasks = sqlSubtasks.length > 0 ? sqlSubtasks : undefined;
             markSubtaskNodesProcessed(subtasks);
             const docIcon = parentBlock.root_id ? rootIcons.get(parentBlock.root_id) : undefined;
+            const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
+            const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
+              .split(',')
+              .map(item => item.trim())
+              .filter(item => item.length > 0)
+              .pop() || '';
+            const archiveReason = this.normalizeTaskArchiveReason(attrs['custom-task-archive-reason']);
             return {
               id: taskId,
               type: 'block',
@@ -2437,6 +2536,9 @@ export class TaskRepository {
               icon: docIcon || '📄',
               backgroundColor: attrs['custom-task-background-color'],
               subtasks,
+              archived,
+              archivedAt: archived && archivedAtRaw ? archivedAtRaw : undefined,
+              archiveReason: archived ? archiveReason : undefined,
               createdAt: this.parseBlockDateTime(parentBlock.created),
               updatedAt: this.parseBlockDateTime(parentBlock.updated)
             };
@@ -2562,6 +2664,13 @@ export class TaskRepository {
           processedIds.add(parentBlock.id);
           
           const docIcon = parentBlock.root_id ? rootIcons.get(parentBlock.root_id) : undefined;
+          const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
+          const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
+            .split(',')
+            .map(item => item.trim())
+            .filter(item => item.length > 0)
+            .pop() || '';
+          const archiveReason = this.normalizeTaskArchiveReason(attrs['custom-task-archive-reason']);
           
           return {
             id: taskId,
@@ -2585,6 +2694,9 @@ export class TaskRepository {
             icon: docIcon || '📄',
             backgroundColor: attrs['custom-task-background-color'],
             subtasks: subtasks.length > 0 ? subtasks : undefined,
+            archived,
+            archivedAt: archived && archivedAtRaw ? archivedAtRaw : undefined,
+            archiveReason: archived ? archiveReason : undefined,
             createdAt: this.parseBlockDateTime(parentBlock.created),
             updatedAt: this.parseBlockDateTime(parentBlock.updated)
           };
@@ -2906,12 +3018,50 @@ export class TaskRepository {
     if (updates.backgroundColor !== undefined) {
       attrsToUpdate['custom-task-background-color'] = updates.backgroundColor || '';
     }
+    if (updates.archived !== undefined) {
+      attrsToUpdate['custom-task-archived'] = updates.archived ? '1' : '';
+    }
+    if (updates.archivedAt !== undefined) {
+      attrsToUpdate['custom-task-archived-at'] = updates.archivedAt || '';
+    }
+    if (updates.archiveReason !== undefined) {
+      attrsToUpdate['custom-task-archive-reason'] = updates.archiveReason || '';
+    }
 
     if (Object.keys(attrsToUpdate).length === 0) {
       return;
     }
 
     await setBlockAttrs(blockId, attrsToUpdate);
+    await this.clearCache();
+  }
+
+  static async archiveTask(taskId: string, reason: 'manual' | 'auto' = 'manual'): Promise<void> {
+    const blockId = await this.resolveBlockIdByTaskId(taskId);
+    if (!blockId) {
+      return;
+    }
+
+    const normalizedReason = reason === 'auto' ? 'auto' : 'manual';
+    await setBlockAttrs(blockId, {
+      'custom-task-archived': '1',
+      'custom-task-archived-at': new Date().toISOString(),
+      'custom-task-archive-reason': normalizedReason
+    });
+    await this.clearCache();
+  }
+
+  static async unarchiveTask(taskId: string): Promise<void> {
+    const blockId = await this.resolveBlockIdByTaskId(taskId);
+    if (!blockId) {
+      return;
+    }
+
+    await setBlockAttrs(blockId, {
+      'custom-task-archived': '',
+      'custom-task-archived-at': '',
+      'custom-task-archive-reason': ''
+    });
     await this.clearCache();
   }
 

@@ -30,6 +30,9 @@ export function taskToCRDT(task: Task, nodeId: string = 'db'): CRDTTask {
     tags: baseField(task.tags || [], updatedAt),
     groupId: baseField(task.groupId, updatedAt),
     backgroundColor: baseField(task.backgroundColor, updatedAt),
+    archived: baseField(task.archived === true, updatedAt),
+    archivedAt: baseField(task.archivedAt, updatedAt),
+    archiveReason: baseField(task.archiveReason, updatedAt),
     deleted: baseField(false, 0),
     updatedAt,
     metadata: {
@@ -64,6 +67,9 @@ export function crdtToTask(crdtTask: CRDTTask): Task {
     tags: crdtTask.tags.value,
     groupId: crdtTask.groupId?.value,
     backgroundColor: crdtTask.backgroundColor?.value,
+    archived: crdtTask.archived?.value === true,
+    archivedAt: crdtTask.archivedAt?.value,
+    archiveReason: crdtTask.archiveReason?.value as Task['archiveReason'],
     blockId: crdtTask.metadata.blockId,
     rootId: crdtTask.metadata.rootId,
     notebookId: crdtTask.metadata.notebookId,
@@ -118,6 +124,9 @@ export class CRDTTaskRepository {
       tags: withTs(crdtTask.tags),
       groupId: withTs(crdtTask.groupId),
       backgroundColor: withTs(crdtTask.backgroundColor),
+      archived: withTs(crdtTask.archived),
+      archivedAt: withTs(crdtTask.archivedAt),
+      archiveReason: withTs(crdtTask.archiveReason),
       updatedAt: nextTs
     };
   }
@@ -140,6 +149,11 @@ export class CRDTTaskRepository {
       } else {
         this.subtasksMap.delete(task.id);
       }
+      const existing = this.engine.getTask(task.id);
+      if (existing?.deleted.value === true) {
+        // SQL still returns this task, so local tombstone should not hide it.
+        this.engine.removeTask(task.id);
+      }
       const crdtTask = this.ensureRemoteTaskTs(taskToCRDT(task, 'db'));
       this.engine.mergeRemote(crdtTask);
     });
@@ -151,6 +165,10 @@ export class CRDTTaskRepository {
         this.subtasksMap.set(task.id, task.subtasks);
       } else {
         this.subtasksMap.delete(task.id);
+      }
+      const existing = this.engine.getTask(task.id);
+      if (existing?.deleted.value === true) {
+        this.engine.removeTask(task.id);
       }
       const crdtTask = this.ensureRemoteTaskTs(taskToCRDT(task, 'db'));
       this.engine.mergeRemote(crdtTask);

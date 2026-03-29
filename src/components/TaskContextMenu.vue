@@ -1,8 +1,8 @@
 <template>
   <div
     v-if="show"
-    class="context-menu"
-    :style="{ left: x + 'px', top: y + 'px' }"
+    :class="['context-menu', { 'context-menu-mobile-sheet': isMobileSheet }]"
+    :style="menuStyle"
     @click.stop
   >
     <div class="context-menu-section">
@@ -26,8 +26,16 @@
         <input :value="startDate" type="date" @input="$emit('update:startDate', ($event.target as HTMLInputElement).value)" />
       </div>
       <div class="date-edit-row">
+        <label>开始时</label>
+        <input :value="startTime" type="time" @input="$emit('update:startTime', ($event.target as HTMLInputElement).value)" />
+      </div>
+      <div class="date-edit-row">
         <label>截止</label>
         <input :value="dueDate" type="date" @input="$emit('update:dueDate', ($event.target as HTMLInputElement).value)" />
+      </div>
+      <div class="date-edit-row">
+        <label>结束时</label>
+        <input :value="dueTime" type="time" @input="$emit('update:dueTime', ($event.target as HTMLInputElement).value)" />
       </div>
       <button class="context-menu-date-save" @click="$emit('saveDates')">保存日期</button>
     </div>
@@ -47,6 +55,12 @@
     </div>
 
     <div class="context-menu-divider"></div>
+    <div class="context-menu-item archive-item" @click="$emit('archiveTask')">
+      <svg viewBox="0 0 1024 1024" width="16" height="16">
+        <path fill="currentColor" d="M273.066667 68.266667a102.4 102.4 0 0 0-102.4 102.4v74.069333A102.434133 102.434133 0 0 0 102.4 341.333333v74.069334A102.434133 102.434133 0 0 0 34.133333 512v273.066667a170.666667 170.666667 0 0 0 170.666667 170.666666h614.4a170.666667 170.666667 0 0 0 170.666667-170.666666v-273.066667a102.434133 102.434133 0 0 0-68.266667-96.597333V341.333333a102.434133 102.434133 0 0 0-68.266667-96.597333V170.666667a102.4 102.4 0 0 0-102.4-102.4H273.066667z m580.266666 341.333333h-204.8a34.133333 34.133333 0 0 0-34.133333 34.133333 102.4 102.4 0 1 1-204.8 0 34.133333 34.133333 0 0 0-34.133333-34.133333H170.666667v-68.266667a34.133333 34.133333 0 0 1 34.133333-34.133333h614.4a34.133333 34.133333 0 0 1 34.133333 34.133333v68.266667zM136.533333 477.866667h208.213334a170.734933 170.734933 0 0 0 334.506666 0H887.466667a34.133333 34.133333 0 0 1 34.133333 34.133333v273.066667a102.4 102.4 0 0 1-102.4 102.4H204.8a102.4 102.4 0 0 1-102.4-102.4v-273.066667a34.133333 34.133333 0 0 1 34.133333-34.133333z m648.533334-238.933334H238.933333V170.666667a34.133333 34.133333 0 0 1 34.133334-34.133334h477.866666a34.133333 34.133333 0 0 1 34.133334 34.133334v68.266666zM375.466667 750.933333a34.133333 34.133333 0 0 1 34.133333-34.133333h204.8a34.133333 34.133333 0 1 1 0 68.266667h-204.8a34.133333 34.133333 0 0 1-34.133333-34.133334z"/>
+      </svg>
+      <span>{{ task?.archived ? '取消归档' : '归档任务' }}</span>
+    </div>
     <div class="context-menu-item delete-item" @click="$emit('deleteTask')">
       <svg viewBox="0 0 24 24" width="16" height="16">
         <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
@@ -57,6 +71,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { Task } from '@/api';
 import type { RepeatFrequency } from '@/repeatRepository';
 
@@ -72,18 +87,56 @@ const props = defineProps<{
   task: Task | null;
   backgroundColors: BackgroundColorOption[];
   startDate: string;
+  startTime: string;
   dueDate: string;
+  dueTime: string;
   repeatFrequency: RepeatFrequency;
 }>();
 
 const emit = defineEmits<{
   (event: 'setColor', color: string): void;
   (event: 'saveDates'): void;
+  (event: 'archiveTask'): void;
   (event: 'deleteTask'): void;
   (event: 'update:startDate', value: string): void;
+  (event: 'update:startTime', value: string): void;
   (event: 'update:dueDate', value: string): void;
+  (event: 'update:dueTime', value: string): void;
   (event: 'saveRepeatRule', value: RepeatFrequency): void;
 }>();
+
+const isMobileSheet = ref(false);
+
+const menuStyle = computed<Record<string, string>>(() => {
+  if (isMobileSheet.value) {
+    return {};
+  }
+  return {
+    left: `${props.x}px`,
+    top: `${props.y}px`
+  };
+});
+
+function updateMobileSheetState(): void {
+  if (typeof window === 'undefined') {
+    isMobileSheet.value = false;
+    return;
+  }
+  const isNarrowScreen = window.innerWidth <= 768;
+  const isCoarsePointer = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(pointer: coarse)').matches
+    : false;
+  isMobileSheet.value = isNarrowScreen || (isCoarsePointer && window.innerWidth <= 1024);
+}
+
+onMounted(() => {
+  updateMobileSheetState();
+  window.addEventListener('resize', updateMobileSheetState);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateMobileSheetState);
+});
 
 function onRepeatChange(event: Event): void {
   const value = (event.target as HTMLSelectElement).value as RepeatFrequency;
@@ -123,6 +176,31 @@ function onRepeatChange(event: Event): void {
     opacity: 1;
     transform: scale(1) translateY(0);
   }
+}
+
+@keyframes contextMenuSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.context-menu-mobile-sheet {
+  left: 8px !important;
+  right: 8px;
+  top: auto !important;
+  bottom: calc(env(safe-area-inset-bottom) + 8px);
+  width: auto;
+  min-width: 0;
+  max-height: min(75vh, 560px);
+  overflow-y: auto;
+  border-radius: 14px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  animation: contextMenuSlideUp 0.2s ease-out;
 }
 
 .context-menu-section {
@@ -181,6 +259,7 @@ function onRepeatChange(event: Event): void {
 }
 
 .date-edit-row input[type="date"],
+.date-edit-row input[type="time"],
 .repeat-edit-row select {
   flex: 1;
   min-width: 0;
@@ -194,9 +273,9 @@ function onRepeatChange(event: Event): void {
 
 .context-menu-date-save {
   width: 100%;
-  border: 1px solid var(--b3-theme-primary);
-  background: transparent;
-  color: var(--b3-theme-primary);
+  border: none;
+  background-color: #f98f7a;
+  color: var(--b3-theme-background);
   border-radius: 6px;
   font-size: 12px;
   padding: 6px 8px;
@@ -204,8 +283,8 @@ function onRepeatChange(event: Event): void {
 }
 
 .context-menu-date-save:hover {
-  background: var(--b3-theme-primary);
-  color: #fff;
+  background-color: #f98f7a;
+  color: var(--b3-theme-background);
 }
 
 .context-menu-divider {
@@ -229,6 +308,10 @@ function onRepeatChange(event: Event): void {
 
 .context-menu-item:hover {
   background: var(--b3-list-hover);
+}
+
+.context-menu-item.archive-item:hover {
+  color: var(--b3-theme-primary);
 }
 
 .context-menu-item.delete-item {

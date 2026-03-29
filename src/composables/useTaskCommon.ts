@@ -21,6 +21,13 @@ export function formatLocaleDate(dateStr: string): string {
 export function stripHtml(html: string): string {
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
+  const inlineMemoSupNodes = tmp.querySelectorAll('sup');
+  inlineMemoSupNodes.forEach((sup) => {
+    const text = (sup.textContent || '').trim();
+    if (/^\([^()]+\)$/.test(text)) {
+      sup.remove();
+    }
+  });
   return tmp.textContent || tmp.innerText || '';
 }
 
