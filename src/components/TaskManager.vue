@@ -2789,6 +2789,8 @@ function setupEventListeners() {
     patchTask(tasks.value, updatedTask.id, (task) => {
       task.startDate = updatedTask.startDate;
       task.dueDate = updatedTask.dueDate;
+      task.startTime = updatedTask.startTime;
+      task.dueTime = updatedTask.dueTime;
       if (updatedTask.backgroundColor !== undefined) {
         task.backgroundColor = updatedTask.backgroundColor;
       }

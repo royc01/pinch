@@ -44,11 +44,11 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
       if (task.type !== 'block') return false;
       if (archiveMode === 'active' && task.archived) return false;
       if (archiveMode === 'archived' && !task.archived) return false;
-      if (filters.notebook.value !== 'all') {
-        if (task.notebookId !== filters.notebook.value) return false;
-        if (filters.document.value !== 'all' && task.rootId !== filters.document.value) {
-          return false;
-        }
+      if (filters.notebook.value !== 'all' && task.notebookId !== filters.notebook.value) {
+        return false;
+      }
+      if (filters.document.value !== 'all' && task.rootId !== filters.document.value) {
+        return false;
       }
       return true;
     });
@@ -93,10 +93,8 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
       if (archiveMode === 'active' && task.archived) continue;
       if (archiveMode === 'archived' && !task.archived) continue;
       if (priorityValue !== 'all' && task.priority !== priorityValue) continue;
-      if (filters.notebook.value !== 'all') {
-        if (task.notebookId !== filters.notebook.value) continue;
-        if (filters.document.value !== 'all' && task.rootId !== filters.document.value) continue;
-      }
+      if (filters.notebook.value !== 'all' && task.notebookId !== filters.notebook.value) continue;
+      if (filters.document.value !== 'all' && task.rootId !== filters.document.value) continue;
       
       if (result[task.status]) {
         result[task.status].push(task);

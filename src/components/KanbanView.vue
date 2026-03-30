@@ -356,11 +356,11 @@
               @click.stop="startColumnTitleEdit(column)"
             >
               <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
-              <span class="column-title-text">{{ column.title }}</span>
+              <span class="column-title-text">{{ getKanbanColumnTitleText(column) }}</span>
             </button>
             <div v-else class="column-title">
               <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
-              <span class="column-title-text">{{ column.title }}</span>
+              <span class="column-title-text">{{ getKanbanColumnTitleText(column) }}</span>
             </div>
             <div class="column-header-actions">
               <div class="column-count">{{ getColumnTaskCount(column) }}</div>
@@ -1390,6 +1390,17 @@ function extractHeadingLeafTitleFromChainLabel(label: string): string {
   return normalized.slice(delimiterIndex + delimiter.length).trim();
 }
 
+function getKanbanColumnTitleText(column: KanbanColumn): string {
+  if (
+    column.type === 'heading'
+    && kanbanGroupBy.value === 'heading'
+    && kanbanFilterDocument.value !== 'all'
+  ) {
+    return extractHeadingLeafTitleFromChainLabel(column.title || '');
+  }
+  return column.title;
+}
+
 function parseHeadingTitleFromKramdown(markdown: string): string {
   const firstLine = markdown
     .split(/\r?\n/)
@@ -2376,25 +2387,45 @@ function getCurrentFilterNotebookId(): string {
   }
 }
 
-function getDocumentEntriesByNotebook(notebookId: string): Array<{ id: string; name: string }> {
-  if (notebookId === 'all') return [];
-
-  const docs = new Map<string, string>();
+function getDocumentEntriesByNotebook(
+  notebookId: string,
+  options: { includeNotebookName?: boolean } = {}
+): Array<{ id: string; name: string; notebookId: string }> {
+  const includeNotebookName = options.includeNotebookName === true;
+  const notebookNameById = includeNotebookName
+    ? new Map(notebooks.value.map(notebook => [notebook.id, notebook.name]))
+    : null;
+  const docs = new Map<string, { hPath: string; notebookId: string }>();
   for (const task of tasks.value) {
-    if (task.type !== 'block' || task.notebookId !== notebookId || !task.rootId) {
+    if (task.type !== 'block' || !task.rootId) {
+      continue;
+    }
+    const taskNotebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+    if (!taskNotebookId) {
+      continue;
+    }
+    if (notebookId !== 'all' && taskNotebookId !== notebookId) {
       continue;
     }
     if (!docs.has(task.rootId)) {
       const hPath = task.hPath || task.rootId;
-      docs.set(task.rootId, hPath);
+      docs.set(task.rootId, { hPath, notebookId: taskNotebookId });
     }
   }
 
   return Array.from(docs.entries())
-    .map(([id, path]) => ({
-      id,
-      name: path.split('/').pop() || path
-    }))
+    .map(([id, meta]) => {
+      const documentName = meta.hPath.split('/').pop() || meta.hPath;
+      const notebookName = notebookNameById?.get(meta.notebookId) || '';
+      const name = includeNotebookName && notebookName
+        ? `${notebookName} / ${documentName}`
+        : documentName;
+      return {
+        id,
+        name,
+        notebookId: meta.notebookId
+      };
+    })
     .sort((a, b) => {
       const timeDiff = getDocumentCreationSortKey(b.id) - getDocumentCreationSortKey(a.id);
       if (timeDiff !== 0) return timeDiff;
@@ -2406,22 +2437,25 @@ function getDocumentIdsByNotebook(notebookId: string): string[] {
   return getDocumentEntriesByNotebook(notebookId).map(doc => doc.id);
 }
 
-function toDocumentOptions(notebookId: string): Array<{ value: string; text: string }> {
-  if (notebookId === 'all') {
-    return [{ value: 'all', text: '全部' }];
-  }
-
+function toFilterDocumentOptions(notebookId: string): Array<{ value: string; text: string }> {
   return [
     { value: 'all', text: '全部' },
-    ...getDocumentEntriesByNotebook(notebookId).map(doc => ({
+    ...getDocumentEntriesByNotebook(notebookId, { includeNotebookName: notebookId === 'all' }).map(doc => ({
       value: doc.id,
       text: doc.name
     }))
   ];
 }
 
-const documentOptions = computed(() => toDocumentOptions(getCurrentFilterNotebookId()));
-const quickCreateDocumentOptions = computed(() => toDocumentOptions(quickCreateNotebookId.value));
+function toQuickCreateDocumentOptions(notebookId: string): Array<{ value: string; text: string }> {
+  if (notebookId === 'all') {
+    return [{ value: 'all', text: '全部' }];
+  }
+  return toFilterDocumentOptions(notebookId);
+}
+
+const documentOptions = computed(() => toFilterDocumentOptions(getCurrentFilterNotebookId()));
+const quickCreateDocumentOptions = computed(() => toQuickCreateDocumentOptions(quickCreateNotebookId.value));
 const visibleDocumentOptions = computed(() =>
   documentOptions.value.filter(option => option.value === 'all' || !hiddenDocumentTabIds.value.has(option.value))
 );
@@ -2494,12 +2528,7 @@ const currentDocumentFilter = computed<string>({
   }
 });
 
-const showDocumentTabs = computed(() => {
-  if (currentFilterType.value === 'all') {
-    return false;
-  }
-  return visibleDocumentOptions.value.length > 1;
-});
+const showDocumentTabs = computed(() => visibleDocumentOptions.value.length > 1);
 
 function toggleDocumentTabsDropdown(): void {
   const nextVisible = !documentTabsDropdownVisible.value;
@@ -2577,10 +2606,10 @@ function toggleDocumentTabVisibility(value: string): void {
 }
 
 function setupFilterTypeWatcher(typeRef: Ref<string>, documentRef: Ref<string>): void {
-  watch(typeRef, (newType, oldType) => {
-    if (newType === 'all') {
-      documentRef.value = 'all';
-    } else if (oldType !== 'all' && documentRef.value !== 'all') {
+  watch(typeRef, (newType) => {
+    const options = toFilterDocumentOptions(newType);
+    const allowedValues = new Set(options.map(option => option.value));
+    if (!allowedValues.has(documentRef.value)) {
       documentRef.value = 'all';
     }
   });
@@ -2593,11 +2622,7 @@ setupFilterTypeWatcher(weekFilterType, weekFilterDocument);
 setupFilterTypeWatcher(dayFilterType, dayFilterDocument);
 
 const ensureTableDocumentSelection = () => {
-  if (tableFilterType.value === 'all') {
-    tableFilterDocument.value = 'all';
-    return;
-  }
-  const options = toDocumentOptions(tableFilterType.value);
+  const options = toFilterDocumentOptions(tableFilterType.value);
   const optionValues = new Set(options.map(option => option.value));
   if (!optionValues.has(tableFilterDocument.value)) {
     tableFilterDocument.value = 'all';
@@ -2758,11 +2783,11 @@ const monthViewTasks = computed(() => {
     if (task.type !== 'block') return false;
     if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
-    if (monthFilterType.value !== 'all') {
-      if (task.notebookId !== monthFilterType.value) return false;
-      if (monthFilterDocument.value !== 'all' && task.rootId !== monthFilterDocument.value) {
-        return false;
-      }
+    if (monthFilterType.value !== 'all' && task.notebookId !== monthFilterType.value) {
+      return false;
+    }
+    if (monthFilterDocument.value !== 'all' && task.rootId !== monthFilterDocument.value) {
+      return false;
     }
     
     return true;
@@ -2774,11 +2799,11 @@ const weekViewTasks = computed(() => {
     if (task.type !== 'block') return false;
     if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
-    if (weekFilterType.value !== 'all') {
-      if (task.notebookId !== weekFilterType.value) return false;
-      if (weekFilterDocument.value !== 'all' && task.rootId !== weekFilterDocument.value) {
-        return false;
-      }
+    if (weekFilterType.value !== 'all' && task.notebookId !== weekFilterType.value) {
+      return false;
+    }
+    if (weekFilterDocument.value !== 'all' && task.rootId !== weekFilterDocument.value) {
+      return false;
     }
     
     return true;
@@ -2790,11 +2815,11 @@ const dayViewTasks = computed(() => {
     if (task.type !== 'block') return false;
     if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
-    if (dayFilterType.value !== 'all') {
-      if (task.notebookId !== dayFilterType.value) return false;
-      if (dayFilterDocument.value !== 'all' && task.rootId !== dayFilterDocument.value) {
-        return false;
-      }
+    if (dayFilterType.value !== 'all' && task.notebookId !== dayFilterType.value) {
+      return false;
+    }
+    if (dayFilterDocument.value !== 'all' && task.rootId !== dayFilterDocument.value) {
+      return false;
     }
 
     return true;
@@ -3144,9 +3169,11 @@ function matchesKanbanFilters(task: Task): boolean {
   if (task.type !== 'block') return false;
   if (task.archived) return false;
   if (task.isVirtual) return false;
-  if (kanbanFilterType.value !== 'all') {
-    if (task.notebookId !== kanbanFilterType.value) return false;
-    if (kanbanFilterDocument.value !== 'all' && task.rootId !== kanbanFilterDocument.value) return false;
+  if (kanbanFilterType.value !== 'all' && task.notebookId !== kanbanFilterType.value) {
+    return false;
+  }
+  if (kanbanFilterDocument.value !== 'all' && task.rootId !== kanbanFilterDocument.value) {
+    return false;
   }
   if (activeKanbanStatusFilters.value.length > 0) {
     const status = getTaskVisualStatus(task);
@@ -3797,7 +3824,7 @@ async function saveUserSettings() {
 async function validateDocumentSelection() {
   let hasChanges = false;
 
-  if (kanbanFilterType.value !== 'all' && kanbanFilterDocument.value !== 'all') {
+  if (kanbanFilterDocument.value !== 'all') {
     const availableDocIds = getDocumentIdsByNotebook(kanbanFilterType.value);
     if (!availableDocIds.includes(kanbanFilterDocument.value)) {
       kanbanFilterDocument.value = 'all';
@@ -3805,7 +3832,7 @@ async function validateDocumentSelection() {
     }
   }
 
-  if (tableFilterType.value !== 'all' && tableFilterDocument.value !== 'all') {
+  if (tableFilterDocument.value !== 'all') {
     const availableDocIds = getDocumentIdsByNotebook(tableFilterType.value);
     if (!availableDocIds.includes(tableFilterDocument.value)) {
       tableFilterDocument.value = 'all';
@@ -3813,7 +3840,7 @@ async function validateDocumentSelection() {
     }
   }
 
-  if (monthFilterType.value !== 'all' && monthFilterDocument.value !== 'all') {
+  if (monthFilterDocument.value !== 'all') {
     const availableDocIds = getDocumentIdsByNotebook(monthFilterType.value);
     if (!availableDocIds.includes(monthFilterDocument.value)) {
       monthFilterDocument.value = 'all';
@@ -3821,7 +3848,7 @@ async function validateDocumentSelection() {
     }
   }
 
-  if (weekFilterType.value !== 'all' && weekFilterDocument.value !== 'all') {
+  if (weekFilterDocument.value !== 'all') {
     const availableDocIds = getDocumentIdsByNotebook(weekFilterType.value);
     if (!availableDocIds.includes(weekFilterDocument.value)) {
       weekFilterDocument.value = 'all';
@@ -3829,7 +3856,7 @@ async function validateDocumentSelection() {
     }
   }
 
-  if (dayFilterType.value !== 'all' && dayFilterDocument.value !== 'all') {
+  if (dayFilterDocument.value !== 'all') {
     const availableDocIds = getDocumentIdsByNotebook(dayFilterType.value);
     if (!availableDocIds.includes(dayFilterDocument.value)) {
       dayFilterDocument.value = 'all';

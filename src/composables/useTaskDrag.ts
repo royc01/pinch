@@ -1363,6 +1363,10 @@ export function useTaskDrag(
             }
 
             await setBlockAttrs(task.blockId, attrs);
+            const syncedTask = getLocalTask(task.id);
+            if (syncedTask) {
+              emitTaskDateChanged(syncedTask);
+            }
           } catch (error) {
             patchLocalTask(task.id, {
               startDate: originalStartDate,
@@ -1371,6 +1375,8 @@ export function useTaskDrag(
               dueTime: originalEndTime
             });
           }
+        } else {
+          emitTaskDateChanged(currentTask);
         }
       }
     }
