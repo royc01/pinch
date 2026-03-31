@@ -23,6 +23,7 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
       task.reminderType || '',
       task.reminderCustomTime || '',
       task.backgroundColor || '',
+      task.pinned === true ? '1' : '0',
       task.status || '',
       task.priority || '',
       task.title || ''

@@ -23,6 +23,12 @@
           @click="handleCardClick"
         ></div>
         <div class="task-card-actions">
+          <span v-if="isPinned" class="task-pinned-indicator" title="已置顶" aria-label="已置顶">
+            <svg viewBox="0 0 1024 1024" aria-hidden="true">
+              <path d="M896.149659 67.771523 126.54051 67.771523c-34.758642 0-62.935378 28.176736-62.935378 62.935378 0 34.757618 28.176736 62.934355 62.935378 62.934355l769.610172 0c34.758642 0 62.935378-28.176736 62.935378-62.934355C959.085036 95.948259 930.9083 67.771523 896.149659 67.771523zM557.654294 258.83814c-1.471514-1.470491-3.016707-2.862187-4.625344-4.181229-0.713244-0.586354-1.469468-1.095961-2.202155-1.6465-0.906649-0.681522-1.797949-1.384533-2.743484-2.01796-0.884137-0.591471-1.805112-1.105171-2.713808-1.648546-0.853437-0.509606-1.689479-1.044796-2.568499-1.515516-0.928139-0.496304-1.883907-0.917906-2.832512-1.364067-0.913812-0.431835-1.811252-0.886183-2.746554-1.27504-0.924045-0.382717-1.864464-0.689708-2.800789-1.02433-1.000793-0.36225-1.989307-0.744967-3.012613-1.054005-0.938372-0.283456-1.892093-0.491187-2.837628-0.729617-1.043772-0.264013-2.071172-0.554632-3.133364-0.766456-1.094938-0.215918-2.201132-0.344854-3.305279-0.503467-0.927115-0.13303-1.840928-0.309038-2.78237-0.402159-2.059915-0.201591-4.124947-0.311085-6.192026-0.312108-0.005117 0-0.011256 0-0.016373 0l0 0c-0.299829 0-0.599657 0.037862-0.898463 0.041956-16.406668-0.231267-32.884968 5.874801-45.402049 18.391882L148.569222 577.09967c-24.576745 24.578792-24.576745 64.425312 0 89.005127 12.288884 12.289907 28.396747 18.434861 44.502563 18.434861 16.105816 0 32.213679-6.144954 44.502563-18.434861l212.633818-212.634842L450.208167 893.124254c0 34.757618 28.176736 62.934355 62.934355 62.934355 34.758642 0 62.935378-28.176736 62.935378-62.934355L576.077899 455.269951l210.836893 210.834846c12.288884 12.289907 28.395724 18.434861 44.500517 18.434861 16.10684 0 32.212656-6.144954 44.500517-18.434861 24.580838-24.579815 24.580838-64.426335 0-89.005127L557.654294 258.83814z"></path>
+            </svg>
+          </span>
+          <span v-if="isOverdue" class="task-overdue-indicator" title="已逾期" aria-label="已逾期">已逾期</span>
           <button
             type="button"
             class="task-card-action-btn task-card-open-btn"
@@ -219,6 +225,15 @@ const descriptionHtml = computed(() => sanitizeTaskHtml(task.value.description |
 const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.value.description ?? '');
 const dueText = computed(() => (task.value.dueDate ? formatMonthDay(task.value.dueDate) : ''));
 const reminderText = computed(() => getTaskReminderLabel(task.value.reminderType, task.value.reminderCustomTime));
+const isPinned = computed(() => task.value.pinned === true);
+const isOverdue = computed(() => {
+  if (isCompleted.value) return false;
+  const dueTimestamp = getTaskDateTimestamp(task.value.dueDate);
+  if (dueTimestamp === null) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return dueTimestamp < today.getTime();
+});
 
 const groupLabel = computed(() => {
   const groupId = typeof task.value.groupId === 'string' ? task.value.groupId.trim() : '';
@@ -367,6 +382,28 @@ function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: 
   return { total, completed };
 }
 
+function getTaskDateTimestamp(value: unknown): number | null {
+  const rawValue = typeof value === 'string' ? value.trim() : '';
+  if (!rawValue) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawValue)) {
+    const [year, month, day] = rawValue.split('-').map(part => Number(part));
+    const parsedDate = new Date(year, month - 1, day);
+    parsedDate.setHours(0, 0, 0, 0);
+    return parsedDate.getTime();
+  }
+
+  const parsedTimestamp = Date.parse(rawValue);
+  if (!Number.isFinite(parsedTimestamp)) {
+    return null;
+  }
+  const parsedDate = new Date(parsedTimestamp);
+  parsedDate.setHours(0, 0, 0, 0);
+  return parsedDate.getTime();
+}
+
 </script>
 
 <style scoped>
@@ -444,6 +481,39 @@ function countSubtasks(subtasks: Task['subtasks']): { total: number; completed: 
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+}
+
+.task-overdue-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f98f7a;
+  color: var(--b3-theme-background);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.task-pinned-indicator {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f98f7a;
+  background: var(--b3-list-hover);
+  flex-shrink: 0;
+}
+
+.task-pinned-indicator svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
 }
 
 .task-card-action-btn {

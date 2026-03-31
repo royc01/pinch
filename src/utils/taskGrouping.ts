@@ -63,7 +63,7 @@ function getNodeId(element: Element | null | undefined): string {
 function stripMarkup(value: string): string {
   return value
     .replace(/<[^>]+>/g, ' ')
-    .replace(/\{:\s*style="[^"]*"\}/g, ' ')
+    .replace(/\{:\s*[^}]*\}/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();

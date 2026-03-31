@@ -991,7 +991,7 @@ export interface BlockDOMResponse {
 const DEBUG = false;
 
 export const TASK_CONFIG = {
-  CACHE_VERSION: 5,
+  CACHE_VERSION: 7,
   CACHE_DURATION: 10 * 60 * 1000,
   BATCH_SIZE: 10,
   SQL_PAGE_SIZE: 1000,
@@ -1085,6 +1085,7 @@ export interface Task {
   title: string;
   status: TaskStatus;
   priority: TaskPriority;
+  pinned?: boolean;
   dueDate?: string;
   startDate?: string;
   dueTime?: string;
@@ -1096,6 +1097,8 @@ export interface Task {
   reminderCustomTime?: string;
   subtasks?: SubTask[];
   blockId?: string;
+  blockSort?: string;
+  documentOrder?: number;
   rootId?: string;
   hPath?: string;
   notebookId?: string;
@@ -1233,6 +1236,7 @@ export class TaskRepository {
   private static scopedMemoryCache = new Map<string, { tasks: Task[]; timestamp: number }>();
   private static scopedBlockTasksFetchPromises = new Map<string, Promise<Task[]>>();
   private static excludedNotebookIds = new Set<string>();
+  private static inferredDatePersistingBlockIds = new Set<string>();
   
   private static readonly MEMORY_CACHE_DURATION = 5000; // 5 秒内存缓存
   private static readonly SCOPED_MEMORY_CACHE_DURATION = 60000; // 60 秒筛选范围缓存
@@ -1449,6 +1453,198 @@ export class TaskRepository {
     }
   }
 
+  private static formatDateString(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private static buildValidDateString(year: number, month: number, day: number): string | null {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+      return null;
+    }
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+      return null;
+    }
+    const candidate = new Date(year, month - 1, day);
+    if (
+      candidate.getFullYear() !== year
+      || candidate.getMonth() !== month - 1
+      || candidate.getDate() !== day
+    ) {
+      return null;
+    }
+    return this.formatDateString(candidate);
+  }
+
+  private static extractDateFromTaskTitle(title: string, now: Date = new Date()): string | null {
+    const normalizedTitle = (title || '')
+      .trim()
+      .replace(/\s+/g, '')
+      .replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
+      .replace(/／/g, '/')
+      .replace(/[－—–]/g, '-')
+      .replace(/．/g, '.');
+    if (!normalizedTitle) {
+      return null;
+    }
+
+    const buildRelativeDate = (days: number): string => {
+      const date = new Date(now);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() + days);
+      return this.formatDateString(date);
+    };
+
+    if (normalizedTitle.includes('大后天')) return buildRelativeDate(3);
+    if (normalizedTitle.includes('后天')) return buildRelativeDate(2);
+    if (normalizedTitle.includes('明天')) return buildRelativeDate(1);
+    if (normalizedTitle.includes('今天')) return buildRelativeDate(0);
+
+    const weekdayMatch = normalizedTitle.match(
+      /(?:^|[^\d])(下下|下|本|这)?(?:周|星期|礼拜)(末|天|日|[1-7]|一|二|三|四|五|六)(?![一二三四五六日天末\d])/
+    );
+    if (weekdayMatch) {
+      const prefix = weekdayMatch[1] || '';
+      const weekdayToken = weekdayMatch[2];
+      const weekdayMap: Record<string, number> = {
+        '1': 1,
+        '2': 2,
+        '3': 3,
+        '4': 4,
+        '5': 5,
+        '6': 6,
+        '7': 0,
+        '一': 1,
+        '二': 2,
+        '三': 3,
+        '四': 4,
+        '五': 5,
+        '六': 6,
+        '日': 0,
+        '天': 0,
+        '末': 6
+      };
+      const targetWeekday = weekdayMap[weekdayToken];
+      if (typeof targetWeekday === 'number') {
+        const currentWeekday = now.getDay();
+        let daysUntil = (targetWeekday - currentWeekday + 7) % 7;
+        if (daysUntil === 0) {
+          daysUntil = 7;
+        }
+        if (prefix === '下') {
+          daysUntil += 7;
+        } else if (prefix === '下下') {
+          daysUntil += 14;
+        }
+        return buildRelativeDate(daysUntil);
+      }
+    }
+
+    const fullDateMatch = normalizedTitle.match(
+      /(?:^|[^\d])((?:19|20)\d{2})[年\-/.](1[0-2]|0?[1-9])[月\-/.](3[01]|[12]\d|0?[1-9])(?:日|号)?(?!\d)/
+    );
+    if (fullDateMatch) {
+      const year = Number(fullDateMatch[1]);
+      const month = Number(fullDateMatch[2]);
+      const day = Number(fullDateMatch[3]);
+      const parsed = this.buildValidDateString(year, month, day);
+      if (parsed) return parsed;
+    }
+
+    const monthDayChineseMatch = normalizedTitle.match(
+      /(?:^|[^\d])(1[0-2]|0?[1-9])月(3[01]|[12]\d|0?[1-9])(?:日|号)(?!\d)/
+    );
+    if (monthDayChineseMatch) {
+      const year = now.getFullYear();
+      const month = Number(monthDayChineseMatch[1]);
+      const day = Number(monthDayChineseMatch[2]);
+      const parsed = this.buildValidDateString(year, month, day);
+      if (parsed) return parsed;
+    }
+
+    const monthDaySlashMatch = normalizedTitle.match(
+      /(?:^|[^\d])(1[0-2]|0?[1-9])[\/.-](3[01]|[12]\d|0?[1-9])(?!\d)/
+    );
+    if (monthDaySlashMatch) {
+      const year = now.getFullYear();
+      const month = Number(monthDaySlashMatch[1]);
+      const day = Number(monthDaySlashMatch[2]);
+      const parsed = this.buildValidDateString(year, month, day);
+      if (parsed) return parsed;
+    }
+
+    return null;
+  }
+
+  private static extractDateFromTaskText(title: string): string | null {
+    if (!title) return null;
+    const plainTitle = title
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&#(\d+);/g, (_, code) => {
+        const parsed = Number(code);
+        return Number.isNaN(parsed) ? '' : String.fromCharCode(parsed);
+      })
+      .trim();
+    return this.extractDateFromTaskTitle(plainTitle);
+  }
+
+  private static resolveTaskDateRange(
+    attrs: Record<string, string>,
+    title: string
+  ): { startDate?: string; dueDate?: string; inferredFromTitle: boolean } {
+    const startDate = (attrs['custom-task-start-date'] || '').trim();
+    const dueDate = (attrs['custom-task-due-date'] || '').trim();
+    if (startDate || dueDate) {
+      return {
+        startDate: startDate || undefined,
+        dueDate: dueDate || undefined,
+        inferredFromTitle: false
+      };
+    }
+
+    const inferredDate = this.extractDateFromTaskText(title);
+    if (!inferredDate) {
+      return { inferredFromTitle: false };
+    }
+
+    return {
+      startDate: inferredDate,
+      dueDate: inferredDate,
+      inferredFromTitle: true
+    };
+  }
+
+  private static queuePersistInferredTaskDate(
+    blockId: string,
+    dateRange: { startDate?: string; dueDate?: string; inferredFromTitle: boolean }
+  ): void {
+    if (!dateRange.inferredFromTitle) return;
+    const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+    if (!normalizedBlockId) return;
+
+    const attrsToPersist: Record<string, string> = {};
+    if (dateRange.startDate) {
+      attrsToPersist['custom-task-start-date'] = dateRange.startDate;
+    }
+    if (dateRange.dueDate) {
+      attrsToPersist['custom-task-due-date'] = dateRange.dueDate;
+    }
+    if (Object.keys(attrsToPersist).length === 0) return;
+    if (this.inferredDatePersistingBlockIds.has(normalizedBlockId)) return;
+
+    this.inferredDatePersistingBlockIds.add(normalizedBlockId);
+    void setBlockAttrs(normalizedBlockId, attrsToPersist)
+      .catch((error) => {
+        handleError('回写推断任务日期失败', error, { blockId: normalizedBlockId, attrs: attrsToPersist });
+      })
+      .finally(() => {
+        this.inferredDatePersistingBlockIds.delete(normalizedBlockId);
+      });
+  }
+
   private static parseTaskStatus(
     attrs: Record<string, string>,
     markdown: string,
@@ -1479,7 +1675,7 @@ export class TaskRepository {
     return 'pending';
   }
 
-  private static parseTaskArchivedFlag(value: string | undefined): boolean {
+  private static parseTaskBooleanFlag(value: string | undefined): boolean {
     if (typeof value !== 'string' || value.length === 0) {
       return false;
     }
@@ -1491,6 +1687,60 @@ export class TaskRepository {
       return false;
     }
     return tokens.some(token => token === '1' || token === 'true' || token === 'yes');
+  }
+
+  private static parseTaskPinnedFlag(value: string | undefined): boolean {
+    return this.parseTaskBooleanFlag(value);
+  }
+
+  private static parseTaskArchivedFlag(value: string | undefined): boolean {
+    return this.parseTaskBooleanFlag(value);
+  }
+
+  private static normalizeTaskBlockSort(value: unknown): string | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    const normalized = String(value).trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private static async buildTaskDocumentOrderByRoots(rootIds: string[]): Promise<Map<string, number>> {
+    const orderMap = new Map<string, number>();
+    const uniqueRootIds = Array.from(new Set(rootIds.filter(id => typeof id === 'string' && id.length > 0)));
+    if (uniqueRootIds.length === 0) {
+      return orderMap;
+    }
+
+    try {
+      const domMap = await batchGetBlockDOM(uniqueRootIds);
+      const parser = new DOMParser();
+      for (const rootId of uniqueRootIds) {
+        const dom = domMap.get(rootId)?.dom;
+        if (!dom) {
+          continue;
+        }
+        const doc = parser.parseFromString(dom, 'text/html');
+        let order = 0;
+        const taskItems = doc.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"][data-node-id]');
+        taskItems.forEach((item) => {
+          const blockId = item.getAttribute('data-node-id');
+          if (!blockId || orderMap.has(blockId)) {
+            return;
+          }
+          const hasTaskAction = item.querySelector('.protyle-action--task');
+          if (!hasTaskAction) {
+            return;
+          }
+          orderMap.set(blockId, order);
+          order += 1;
+        });
+      }
+    } catch (error) {
+      console.warn('[TaskRepository] 解析文档任务顺序失败，回退至默认排序', error);
+    }
+
+    return orderMap;
   }
 
   private static normalizeTaskArchiveReason(value: string | undefined): 'manual' | 'auto' | undefined {
@@ -1542,7 +1792,7 @@ export class TaskRepository {
   }
 
   private static parseSubtasksFromParsedDoc(doc: Document, parentBlockId: string): SubTask[] {
-    const cleanHtmlStyle = (html: string) => html.replace(/\{:\s*style="[^"]*"\}/g, '');
+    const cleanHtmlStyle = (html: string) => html.replace(/\{:\s*[^}]*\}/g, '');
 
     const parseSubtaskList = (listElement: Element): SubTask[] => {
       const listItems = Array.from(listElement.children).filter((child): child is Element =>
@@ -1882,7 +2132,7 @@ export class TaskRepository {
     try {
       const idsClause = uniqueIds.map(id => `'${id}'`).join(',');
       const rows = await sql(`
-        SELECT b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo,
+        SELECT b.id, b.content, b.box, b.hpath, b.sort, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-id' THEN a.value END) as custom_task_id,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-priority' THEN a.value END) as custom_task_priority,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-status' THEN a.value END) as custom_task_status,
@@ -1895,13 +2145,14 @@ export class TaskRepository {
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) as custom_task_reminder_type,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) as custom_task_reminder_custom_time,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) as custom_task_pinned,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) as custom_task_archived,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) as custom_task_archived_at,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
         FROM blocks b
         LEFT JOIN attributes a ON b.id = a.block_id
-          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-background-color', 'custom-task-archived', 'custom-task-archived-at', 'custom-task-archive-reason')
+          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-archived-at', 'custom-task-archive-reason')
         WHERE b.id IN (${idsClause})
           ${this.buildNotebookScopeSql('b')}
           ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -1909,7 +2160,7 @@ export class TaskRepository {
           AND b.subtype = 't'
           ${this.buildTaskCompletionSql(scope?.includeCompleted, 'b')}
           ${this.buildTaskArchiveSql(scope, 'b')}
-        GROUP BY b.id, b.content, b.box, b.hpath, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
+        GROUP BY b.id, b.content, b.box, b.hpath, b.sort, b.updated, b.created, b.markdown, b.parent_id, b.root_id, b.type, b.subtype, b.memo
       `) as any[];
 
       if (!rows || rows.length === 0) {
@@ -1917,6 +2168,7 @@ export class TaskRepository {
       }
 
       const rootIds = Array.from(new Set(rows.map(row => row.root_id).filter((id): id is string => !!id)));
+      const documentOrderByBlockId = await this.buildTaskDocumentOrderByRoots(rootIds);
       const rootIcons = new Map<string, string>();
       if (rootIds.length > 0) {
         const rootAttrs = await batchGetBlockAttrs(rootIds);
@@ -1945,6 +2197,7 @@ export class TaskRepository {
           'custom-task-reminder-type': row.custom_task_reminder_type,
           'custom-task-reminder-custom-time': row.custom_task_reminder_custom_time,
           'custom-task-group': row.custom_task_group,
+          'custom-task-pinned': row.custom_task_pinned,
           'custom-task-background-color': row.custom_task_background_color,
           'custom-task-archived': row.custom_task_archived,
           'custom-task-archived-at': row.custom_task_archived_at,
@@ -1981,6 +2234,7 @@ export class TaskRepository {
           completedByDOM = currentHref ? currentHref === '#iconCheck' : null;
         }
         const status = this.parseTaskStatus(attrs, row.markdown || '', completedByDOM);
+        const pinned = this.parseTaskPinnedFlag(attrs['custom-task-pinned']);
         const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
         const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
           .split(',')
@@ -1999,18 +2253,23 @@ export class TaskRepository {
         }
 
         const subtasks = this.parseSubtasksFromParsedDoc(doc, row.id);
+        const dateRange = this.resolveTaskDateRange(attrs, title);
+        this.queuePersistInferredTaskDate(row.id, dateRange);
 
         result.set(row.id, {
           id: attrs['custom-task-id'] || `block_${row.id}`,
           type: 'block',
           blockId: row.id,
+          blockSort: this.normalizeTaskBlockSort(row.sort),
+          documentOrder: documentOrderByBlockId.get(row.id),
           rootId: row.root_id,
           title,
           status,
           priority: attrs['custom-task-priority'] as TaskPriority || 'none',
-          dueDate: attrs['custom-task-due-date'],
+          pinned,
+          dueDate: dateRange.dueDate,
           dueTime: attrs['custom-task-due-time'],
-          startDate: attrs['custom-task-start-date'],
+          startDate: dateRange.startDate,
           startTime: attrs['custom-task-start-time'],
           tags,
           description: attrs['custom-task-description'] || '',
@@ -2090,13 +2349,14 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) as custom_task_reminder_type,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) as custom_task_reminder_custom_time,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) as custom_task_pinned,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) as custom_task_archived,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) as custom_task_archived_at,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
           FROM blocks b
           LEFT JOIN attributes a ON b.id = a.block_id
-            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-background-color', 'custom-task-archived', 'custom-task-archived-at', 'custom-task-archive-reason')
+            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-archived-at', 'custom-task-archive-reason')
           WHERE (b.type = 'i' OR b.type = 'p')
             ${this.buildNotebookScopeSql('b')}
             ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -2215,6 +2475,7 @@ export class TaskRepository {
           'custom-task-reminder-type': block.custom_task_reminder_type,
           'custom-task-reminder-custom-time': block.custom_task_reminder_custom_time,
           'custom-task-group': block.custom_task_group,
+          'custom-task-pinned': block.custom_task_pinned,
           'custom-task-background-color': block.custom_task_background_color,
           'custom-task-archived': block.custom_task_archived,
           'custom-task-archived-at': block.custom_task_archived_at,
@@ -2223,6 +2484,7 @@ export class TaskRepository {
       });
       
       const rootIds = Array.from(rootIdSet);
+      const documentOrderByBlockId = await this.buildTaskDocumentOrderByRoots(rootIds);
       const rootIcons = new Map<string, string>();
       const taskBlockById = new Map<string, SiyuanBlock>();
       const subtaskChildIdsByParentTask = new Map<string, string[]>();
@@ -2507,6 +2769,10 @@ export class TaskRepository {
             const subtasks = sqlSubtasks.length > 0 ? sqlSubtasks : undefined;
             markSubtaskNodesProcessed(subtasks);
             const docIcon = parentBlock.root_id ? rootIcons.get(parentBlock.root_id) : undefined;
+            const title = buildFastTitleFromBlock(parentBlock);
+            const dateRange = this.resolveTaskDateRange(attrs, title);
+            this.queuePersistInferredTaskDate(parentBlock.id, dateRange);
+            const pinned = this.parseTaskPinnedFlag(attrs['custom-task-pinned']);
             const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
             const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
               .split(',')
@@ -2518,13 +2784,16 @@ export class TaskRepository {
               id: taskId,
               type: 'block',
               blockId: parentBlock.id,
+              blockSort: this.normalizeTaskBlockSort(parentBlock.sort),
+              documentOrder: documentOrderByBlockId.get(parentBlock.id),
               rootId: parentBlock.root_id,
-              title: buildFastTitleFromBlock(parentBlock),
+              title,
               status,
               priority: attrs['custom-task-priority'] as any || 'none',
-              dueDate: attrs['custom-task-due-date'],
+              pinned,
+              dueDate: dateRange.dueDate,
               dueTime: attrs['custom-task-due-time'],
-              startDate: attrs['custom-task-start-date'],
+              startDate: dateRange.startDate,
               startTime: attrs['custom-task-start-time'],
               tags,
               groupId: attrs['custom-task-group'] || undefined,
@@ -2596,7 +2865,7 @@ export class TaskRepository {
             ? (apiHref === '#iconCheck' ? 'completed' : 'pending')
             : null;
           
-          const cleanHtmlStyle = (html: string) => html.replace(/\{:\s*style="[^"]*"\}/g, '');
+          const cleanHtmlStyle = (html: string) => html.replace(/\{:\s*[^}]*\}/g, '');
           const collectSubtaskNodeIds = (subtasks: SubTask[] | undefined): void => {
             if (!subtasks || subtasks.length === 0) return;
             for (const subtask of subtasks) {
@@ -2616,6 +2885,8 @@ export class TaskRepository {
           const titleFromApi = cleanHtmlStyle(titleHtml);
           const currentTitleClean = cleanHtmlStyle(currentTitle);
           const title = currentTitleClean || titleFromApi;
+          const dateRange = this.resolveTaskDateRange(attrs, title);
+          this.queuePersistInferredTaskDate(parentBlock.id, dateRange);
 
           let status: TaskStatus;
 
@@ -2664,6 +2935,7 @@ export class TaskRepository {
           processedIds.add(parentBlock.id);
           
           const docIcon = parentBlock.root_id ? rootIcons.get(parentBlock.root_id) : undefined;
+          const pinned = this.parseTaskPinnedFlag(attrs['custom-task-pinned']);
           const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
           const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
             .split(',')
@@ -2676,13 +2948,16 @@ export class TaskRepository {
             id: taskId,
             type: 'block',
             blockId: parentBlock.id,
+            blockSort: this.normalizeTaskBlockSort(parentBlock.sort),
+            documentOrder: documentOrderByBlockId.get(parentBlock.id),
             rootId: parentBlock.root_id,
             title: title,
             status: status,
             priority: attrs['custom-task-priority'] as any || 'none',
-            dueDate: attrs['custom-task-due-date'],
+            pinned,
+            dueDate: dateRange.dueDate,
             dueTime: attrs['custom-task-due-time'],
-            startDate: attrs['custom-task-start-date'],
+            startDate: dateRange.startDate,
             startTime: attrs['custom-task-start-time'],
             tags: attrs['custom-task-tags'] ? JSON.parse(attrs['custom-task-tags']) : [],
             groupId: attrs['custom-task-group'] || undefined,
@@ -2763,12 +3038,44 @@ export class TaskRepository {
       'custom-task-priority': task.priority
     };
 
-    if (task.dueDate) {
-      attrs['custom-task-due-date'] = task.dueDate;
+    const normalizedStartDate = typeof task.startDate === 'string' ? task.startDate.trim() : '';
+    const normalizedDueDate = typeof task.dueDate === 'string' ? task.dueDate.trim() : '';
+    const normalizedStartTime = typeof task.startTime === 'string' ? task.startTime.trim() : '';
+    const normalizedDueTime = typeof task.dueTime === 'string' ? task.dueTime.trim() : '';
+
+    let resolvedStartDate = normalizedStartDate;
+    let resolvedDueDate = normalizedDueDate;
+
+    if (!resolvedStartDate && !resolvedDueDate) {
+      const inferredDate = this.extractDateFromTaskTitle(trimmedTitle);
+      if (inferredDate) {
+        resolvedStartDate = inferredDate;
+        resolvedDueDate = inferredDate;
+      }
+    }
+
+    if (resolvedStartDate) {
+      attrs['custom-task-start-date'] = resolvedStartDate;
+    }
+
+    if (resolvedDueDate) {
+      attrs['custom-task-due-date'] = resolvedDueDate;
+    }
+
+    if (normalizedStartTime) {
+      attrs['custom-task-start-time'] = normalizedStartTime;
+    }
+
+    if (normalizedDueTime) {
+      attrs['custom-task-due-time'] = normalizedDueTime;
     }
 
     if (task.groupId) {
       attrs['custom-task-group'] = task.groupId;
+    }
+
+    if (task.pinned) {
+      attrs['custom-task-pinned'] = '1';
     }
 
     if (task.tags && task.tags.length > 0) {
@@ -3001,6 +3308,9 @@ export class TaskRepository {
     }
     if (updates.groupId !== undefined) {
       attrsToUpdate['custom-task-group'] = updates.groupId || '';
+    }
+    if (updates.pinned !== undefined) {
+      attrsToUpdate['custom-task-pinned'] = updates.pinned ? '1' : '';
     }
     if (updates.description !== undefined) {
       attrsToUpdate['custom-task-description'] = updates.description || '';

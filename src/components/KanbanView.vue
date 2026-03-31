@@ -2844,7 +2844,117 @@ function isTaskCompletedVisual(task: Task): boolean {
   return getTaskVisualStatus(task) === 'completed';
 }
 
-function compareTasksLikeSidebar(a: Task, b: Task): number {
+function buildLiveTaskDomOrderMap(): Map<string, number> {
+  const orderMap = new Map<string, number>();
+  if (typeof document === 'undefined') {
+    return orderMap;
+  }
+
+  const domRoots = Array.from(document.querySelectorAll('.protyle-wysiwyg'));
+  const roots: ParentNode[] = domRoots.length > 0 ? domRoots : [document];
+  let order = 0;
+
+  for (const root of roots) {
+    const items = root.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"][data-node-id]');
+    items.forEach((item) => {
+      const blockId = item.getAttribute('data-node-id');
+      if (!blockId || orderMap.has(blockId)) {
+        return;
+      }
+      const hasTaskAction = item.querySelector('.protyle-action--task');
+      if (!hasTaskAction) {
+        return;
+      }
+      orderMap.set(blockId, order);
+      order += 1;
+    });
+  }
+
+  return orderMap;
+}
+
+function compareTaskDocumentSortKey(a: Task, b: Task, domOrderMap?: Map<string, number>): number {
+  if (!a.rootId || !b.rootId || a.rootId !== b.rootId) {
+    return 0;
+  }
+
+  if (domOrderMap) {
+    const blockIdA = typeof a.blockId === 'string' ? a.blockId : '';
+    const blockIdB = typeof b.blockId === 'string' ? b.blockId : '';
+    if (blockIdA && blockIdB) {
+      const orderA = domOrderMap.get(blockIdA);
+      const orderB = domOrderMap.get(blockIdB);
+      if (orderA !== undefined && orderB !== undefined && orderA !== orderB) {
+        return orderA - orderB;
+      }
+    }
+  }
+
+  const documentOrderA = typeof a.documentOrder === 'number' ? a.documentOrder : null;
+  const documentOrderB = typeof b.documentOrder === 'number' ? b.documentOrder : null;
+  if (documentOrderA !== null && documentOrderB !== null && documentOrderA !== documentOrderB) {
+    return documentOrderA - documentOrderB;
+  }
+  if (documentOrderA !== null && documentOrderB === null) {
+    return -1;
+  }
+  if (documentOrderA === null && documentOrderB !== null) {
+    return 1;
+  }
+
+  const sortA = typeof a.blockSort === 'string' ? a.blockSort.trim() : '';
+  const sortB = typeof b.blockSort === 'string' ? b.blockSort.trim() : '';
+  if (!sortA || !sortB || sortA === sortB) {
+    return 0;
+  }
+  const sortANumeric = /^\d+$/.test(sortA);
+  const sortBNumeric = /^\d+$/.test(sortB);
+  if (sortANumeric && sortBNumeric) {
+    if (sortA.length !== sortB.length) {
+      return sortA.length - sortB.length;
+    }
+    return sortA < sortB ? -1 : 1;
+  }
+  return sortA.localeCompare(sortB);
+}
+
+function compareTaskCreatedAtDesc(a: Task, b: Task): number {
+  const createdA = Date.parse(a.createdAt || '');
+  const createdB = Date.parse(b.createdAt || '');
+  const hasCreatedA = Number.isFinite(createdA);
+  const hasCreatedB = Number.isFinite(createdB);
+
+  if (hasCreatedA && hasCreatedB) {
+    if (createdA !== createdB) {
+      return createdB - createdA;
+    }
+    return 0;
+  }
+  if (hasCreatedA && !hasCreatedB) {
+    return -1;
+  }
+  if (!hasCreatedA && hasCreatedB) {
+    return 1;
+  }
+
+  const createdKeyA = a.createdAt || a.blockId || a.id || '';
+  const createdKeyB = b.createdAt || b.blockId || b.id || '';
+  if (createdKeyA === createdKeyB) {
+    return 0;
+  }
+  return createdKeyB.localeCompare(createdKeyA);
+}
+
+function compareTasksLikeSidebar(a: Task, b: Task, todayStart: number, domOrderMap?: Map<string, number>): number {
+  const isAPinned = a.pinned === true;
+  const isBPinned = b.pinned === true;
+  if (isAPinned && !isBPinned) {
+    return -1;
+  }
+  if (!isAPinned && isBPinned) {
+    return 1;
+  }
+
   const isACompleted = getTaskVisualStatus(a) === 'completed';
   const isBCompleted = getTaskVisualStatus(b) === 'completed';
 
@@ -2871,6 +2981,20 @@ function compareTasksLikeSidebar(a: Task, b: Task): number {
       return 1;
     }
   } else {
+    const dueA = getTaskDueDateTimestamp(a);
+    const dueB = getTaskDueDateTimestamp(b);
+    const isAOverdue = dueA !== null && dueA < todayStart;
+    const isBOverdue = dueB !== null && dueB < todayStart;
+    if (isAOverdue && !isBOverdue) {
+      return -1;
+    }
+    if (!isAOverdue && isBOverdue) {
+      return 1;
+    }
+    if (isAOverdue && isBOverdue && dueA !== null && dueB !== null && dueA !== dueB) {
+      return dueA - dueB;
+    }
+
     const priorityA = kanbanPriorityOrder[a.priority] ?? 3;
     const priorityB = kanbanPriorityOrder[b.priority] ?? 3;
 
@@ -2878,10 +3002,14 @@ function compareTasksLikeSidebar(a: Task, b: Task): number {
       return priorityA - priorityB;
     }
 
-    const createdKeyA = a.createdAt || a.blockId || a.id || '';
-    const createdKeyB = b.createdAt || b.blockId || b.id || '';
-    if (createdKeyA !== createdKeyB) {
-      return createdKeyB.localeCompare(createdKeyA);
+    const createdSortResult = compareTaskCreatedAtDesc(a, b);
+    if (createdSortResult !== 0) {
+      return createdSortResult;
+    }
+
+    const documentSortResult = compareTaskDocumentSortKey(a, b, domOrderMap);
+    if (documentSortResult !== 0) {
+      return documentSortResult;
     }
   }
 
@@ -2891,7 +3019,9 @@ function compareTasksLikeSidebar(a: Task, b: Task): number {
 }
 
 function sortTasksLikeSidebar(taskList: Task[]): Task[] {
-  return taskList.sort(compareTasksLikeSidebar);
+  const todayStart = getStartOfDay(new Date()).getTime();
+  const domOrderMap = buildLiveTaskDomOrderMap();
+  return taskList.sort((a, b) => compareTasksLikeSidebar(a, b, todayStart, domOrderMap));
 }
 
 function getStartOfDay(date: Date): Date {
@@ -5371,12 +5501,18 @@ async function submitQuickCreateTask() {
 
     closeQuickCreateDialog();
     if (created?.blockId) {
-      await incrementalUpdateTasks([created.blockId], { allowUnknown: true });
-      if (!tasks.value.some(t => t.blockId === created.blockId)) {
-        scheduleRefreshTasks(180, 'full');
+      const createdBlockId = created.blockId;
+      await incrementalUpdateTasks([createdBlockId], { allowUnknown: true });
+      if (!tasks.value.some(t => t.blockId === createdBlockId)) {
+        queueIncrementalUpdates([createdBlockId], { allowUnknown: true }, 120);
+        window.setTimeout(() => {
+          if (!tasks.value.some(t => t.blockId === createdBlockId)) {
+            scheduleRefreshTasks(180, 'silent-full');
+          }
+        }, 420);
       }
     } else {
-      scheduleRefreshTasks(180, 'full');
+      scheduleRefreshTasks(180, 'silent-full');
     }
   } catch (error) {
     console.error('[KanbanView] 创建任务失败:', error);

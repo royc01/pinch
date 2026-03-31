@@ -140,6 +140,19 @@
                   <button
                     v-if="activeTaskEditTask"
                     type="button"
+                    class="task-editor-sidebar-pin"
+                    :class="{ 'is-active': isActiveTaskPinned }"
+                    :title="isActiveTaskPinned ? '取消置顶' : '置顶任务'"
+                    :aria-label="isActiveTaskPinned ? '取消置顶' : '置顶任务'"
+                    @click.stop="handleTaskEditorPinToggle"
+                  >
+                    <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                      <path fill="currentColor" d="M896.149659 67.771523 126.54051 67.771523c-34.758642 0-62.935378 28.176736-62.935378 62.935378 0 34.757618 28.176736 62.934355 62.935378 62.934355l769.610172 0c34.758642 0 62.935378-28.176736 62.935378-62.934355C959.085036 95.948259 930.9083 67.771523 896.149659 67.771523zM557.654294 258.83814c-1.471514-1.470491-3.016707-2.862187-4.625344-4.181229-0.713244-0.586354-1.469468-1.095961-2.202155-1.6465-0.906649-0.681522-1.797949-1.384533-2.743484-2.01796-0.884137-0.591471-1.805112-1.105171-2.713808-1.648546-0.853437-0.509606-1.689479-1.044796-2.568499-1.515516-0.928139-0.496304-1.883907-0.917906-2.832512-1.364067-0.913812-0.431835-1.811252-0.886183-2.746554-1.27504-0.924045-0.382717-1.864464-0.689708-2.800789-1.02433-1.000793-0.36225-1.989307-0.744967-3.012613-1.054005-0.938372-0.283456-1.892093-0.491187-2.837628-0.729617-1.043772-0.264013-2.071172-0.554632-3.133364-0.766456-1.094938-0.215918-2.201132-0.344854-3.305279-0.503467-0.927115-0.13303-1.840928-0.309038-2.78237-0.402159-2.059915-0.201591-4.124947-0.311085-6.192026-0.312108-0.005117 0-0.011256 0-0.016373 0l0 0c-0.299829 0-0.599657 0.037862-0.898463 0.041956-16.406668-0.231267-32.884968 5.874801-45.402049 18.391882L148.569222 577.09967c-24.576745 24.578792-24.576745 64.425312 0 89.005127 12.288884 12.289907 28.396747 18.434861 44.502563 18.434861 16.105816 0 32.213679-6.144954 44.502563-18.434861l212.633818-212.634842L450.208167 893.124254c0 34.757618 28.176736 62.934355 62.934355 62.934355 34.758642 0 62.935378-28.176736 62.935378-62.934355L576.077899 455.269951l210.836893 210.834846c12.288884 12.289907 28.395724 18.434861 44.500517 18.434861 16.10684 0 32.212656-6.144954 44.500517-18.434861 24.580838-24.579815 24.580838-64.426335 0-89.005127L557.654294 258.83814z"></path>
+                    </svg>
+                  </button>
+                  <button
+                    v-if="activeTaskEditTask"
+                    type="button"
                     class="task-editor-sidebar-move"
                     title="移动任务"
                     aria-label="移动任务"
@@ -536,6 +549,7 @@ const expandedDescriptions = ref(new Set<string>());
 interface TaskEditDraft {
   taskId: string;
   priority: Task['priority'];
+  pinned: boolean;
   dueDate: string;
   description: string;
   reminderType?: TaskReminderType;
@@ -598,6 +612,7 @@ const activeTaskEditTask = computed(() =>
     ? (tasks.value.find(task => task.id === taskEditMenuTaskId.value) || null)
     : null
 );
+const isActiveTaskPinned = computed(() => activeTaskEditTask.value?.pinned === true);
 const isActiveTaskArchived = computed(() => activeTaskEditTask.value?.archived === true);
 const activeTaskEditDraft = computed(() =>
   taskEditMenuTaskId.value && taskEditDraft.value?.taskId === taskEditMenuTaskId.value
@@ -1758,8 +1773,123 @@ function getTaskDueDateTimestamp(task: Task): number | null {
   return getTaskDateTimestamp(task.dueDate);
 }
 
+function buildLiveTaskDomOrderMap(): Map<string, number> {
+  const orderMap = new Map<string, number>();
+  if (typeof document === 'undefined') {
+    return orderMap;
+  }
+
+  const domRoots = Array.from(document.querySelectorAll('.protyle-wysiwyg'));
+  const roots: ParentNode[] = domRoots.length > 0 ? domRoots : [document];
+  let order = 0;
+
+  for (const root of roots) {
+    const items = root.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"][data-node-id]');
+    items.forEach((item) => {
+      const blockId = item.getAttribute('data-node-id');
+      if (!blockId || orderMap.has(blockId)) {
+        return;
+      }
+      const hasTaskAction = item.querySelector('.protyle-action--task');
+      if (!hasTaskAction) {
+        return;
+      }
+      orderMap.set(blockId, order);
+      order += 1;
+    });
+  }
+
+  return orderMap;
+}
+
+function compareTaskDocumentSortKey(a: Task, b: Task, domOrderMap?: Map<string, number>): number {
+  if (!a.rootId || !b.rootId || a.rootId !== b.rootId) {
+    return 0;
+  }
+
+  if (domOrderMap) {
+    const blockIdA = typeof a.blockId === 'string' ? a.blockId : '';
+    const blockIdB = typeof b.blockId === 'string' ? b.blockId : '';
+    if (blockIdA && blockIdB) {
+      const orderA = domOrderMap.get(blockIdA);
+      const orderB = domOrderMap.get(blockIdB);
+      if (orderA !== undefined && orderB !== undefined && orderA !== orderB) {
+        return orderA - orderB;
+      }
+    }
+  }
+
+  const orderA = typeof a.documentOrder === 'number' ? a.documentOrder : null;
+  const orderB = typeof b.documentOrder === 'number' ? b.documentOrder : null;
+  if (orderA !== null && orderB !== null && orderA !== orderB) {
+    return orderA - orderB;
+  }
+  if (orderA !== null && orderB === null) {
+    return -1;
+  }
+  if (orderA === null && orderB !== null) {
+    return 1;
+  }
+
+  const sortA = typeof a.blockSort === 'string' ? a.blockSort.trim() : '';
+  const sortB = typeof b.blockSort === 'string' ? b.blockSort.trim() : '';
+  if (!sortA || !sortB || sortA === sortB) {
+    return 0;
+  }
+  const sortANumeric = /^\d+$/.test(sortA);
+  const sortBNumeric = /^\d+$/.test(sortB);
+  if (sortANumeric && sortBNumeric) {
+    if (sortA.length !== sortB.length) {
+      return sortA.length - sortB.length;
+    }
+    return sortA < sortB ? -1 : 1;
+  }
+  return sortA.localeCompare(sortB);
+}
+
+function compareTaskCreatedAtDesc(a: Task, b: Task): number {
+  const createdA = Date.parse(a.createdAt || '');
+  const createdB = Date.parse(b.createdAt || '');
+  const hasCreatedA = Number.isFinite(createdA);
+  const hasCreatedB = Number.isFinite(createdB);
+
+  if (hasCreatedA && hasCreatedB) {
+    if (createdA !== createdB) {
+      return createdB - createdA;
+    }
+    return 0;
+  }
+  if (hasCreatedA && !hasCreatedB) {
+    return -1;
+  }
+  if (!hasCreatedA && hasCreatedB) {
+    return 1;
+  }
+
+  const createdKeyA = a.createdAt || a.blockId || a.id || '';
+  const createdKeyB = b.createdAt || b.blockId || b.id || '';
+  if (createdKeyA === createdKeyB) {
+    return 0;
+  }
+  return createdKeyB.localeCompare(createdKeyA);
+}
+
 function getTaskStartDateTimestamp(task: Task): number | null {
   return getTaskDateTimestamp(task.startDate);
+}
+
+function getTodayStartTimestamp(): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today.getTime();
+}
+
+function getTodayDateKey(): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function matchesTaskDueFilter(task: Task, filter: TaskDueFilterKey): boolean {
@@ -1924,6 +2054,9 @@ const showAllCompletedTasks = ref(false);
 const filteredTasks = computed(() => {
   const mode = archiveViewMode.value;
   const includeCompleted = mode === 'active' ? showCompletedTasks.value : true;
+  const todayStart = getTodayStartTimestamp();
+  const todayDateKey = getTodayDateKey();
+  const domOrderMap = buildLiveTaskDomOrderMap();
   const baseFiltered = baseFilteredTasks.value.filter(task => {
     if (task.isVirtual) {
       return false;
@@ -1944,9 +2077,10 @@ const filteredTasks = computed(() => {
     return matchesTaskFilterChips(task);
   });
   
-  const hash = `${mode}:${includeCompleted ? '1' : '0'}:` +
+  const hash = `${todayDateKey}:${mode}:${includeCompleted ? '1' : '0'}:` +
                baseFiltered.map(t => t.id).join(':') +
-               baseFiltered.map(t => `${t.status}-${t.priority}-${t.updatedAt}-${t.blockId}`).join('|');
+               baseFiltered.map(t => `${t.rootId || ''}-${t.blockId || ''}-${t.blockId ? (domOrderMap.get(t.blockId) ?? '') : ''}`).join('|') +
+               baseFiltered.map(t => `${t.status}-${t.priority}-${t.pinned === true ? 1 : 0}-${t.updatedAt}-${t.createdAt || ''}-${t.blockId}-${t.blockSort || ''}-${t.documentOrder ?? ''}-${t.dueDate || ''}`).join('|');
 
   const isSortedCacheHit = hash === lastSortedHash && cachedSortedTasks.length > 0;
 
@@ -1955,6 +2089,15 @@ const filteredTasks = computed(() => {
   }
   
   const result = [...baseFiltered].sort((a, b) => {
+    const isAPinned = a.pinned === true;
+    const isBPinned = b.pinned === true;
+    if (isAPinned && !isBPinned) {
+      return -1;
+    }
+    if (!isAPinned && isBPinned) {
+      return 1;
+    }
+
     const isACompleted = a.status === 'completed';
     const isBCompleted = b.status === 'completed';
 
@@ -1981,6 +2124,20 @@ const filteredTasks = computed(() => {
         return 1;
       }
     } else {
+      const dueTimestampA = getTaskDueDateTimestamp(a);
+      const dueTimestampB = getTaskDueDateTimestamp(b);
+      const isAOverdue = dueTimestampA !== null && dueTimestampA < todayStart;
+      const isBOverdue = dueTimestampB !== null && dueTimestampB < todayStart;
+      if (isAOverdue && !isBOverdue) {
+        return -1;
+      }
+      if (!isAOverdue && isBOverdue) {
+        return 1;
+      }
+      if (isAOverdue && isBOverdue && dueTimestampA !== null && dueTimestampB !== null && dueTimestampA !== dueTimestampB) {
+        return dueTimestampA - dueTimestampB;
+      }
+
       const priorityA = priorityOrder[a.priority] ?? 3;
       const priorityB = priorityOrder[b.priority] ?? 3;
 
@@ -1988,10 +2145,14 @@ const filteredTasks = computed(() => {
         return priorityA - priorityB;
       }
 
-      const createdKeyA = a.createdAt || a.blockId || a.id || '';
-      const createdKeyB = b.createdAt || b.blockId || b.id || '';
-      if (createdKeyA !== createdKeyB) {
-        return createdKeyB.localeCompare(createdKeyA);
+      const createdSortResult = compareTaskCreatedAtDesc(a, b);
+      if (createdSortResult !== 0) {
+        return createdSortResult;
+      }
+
+      const documentSortResult = compareTaskDocumentSortKey(a, b, domOrderMap);
+      if (documentSortResult !== 0) {
+        return documentSortResult;
       }
     }
 
@@ -2637,7 +2798,7 @@ function isDeepEqual(oldItem: any, newItem: any, options: { checkUpdatedAt?: boo
     return false;
   }
   
-  const parentFields = ['title', 'status', 'priority', 'description', 'type', 'completedAt'];
+  const parentFields = ['title', 'status', 'priority', 'pinned', 'description', 'type', 'completedAt', 'blockSort', 'documentOrder'];
   if (parentFields.some(f => oldItem[f] !== newItem[f])) {
     return false;
   }
@@ -3207,12 +3368,12 @@ function parseTaskCompleted(markdown: string, blockId: string): boolean | null {
 function stripTaskPrefix(text: string): string {
   return text
     .replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| )\]\s*/i, '')
-    .replace(/\s*\{:\s*style="[^"]*"\}\s*/g, ' ')
+    .replace(/\s*\{:\s*[^}]*\}\s*/g, ' ')
     .trim();
 }
 
 function cleanTaskTitleHtml(html: string): string {
-  return html.replace(/\{:\s*style="[^"]*"\}/g, '').trim();
+  return html.replace(/\{:\s*[^}]*\}/g, '').trim();
 }
 
 function getLiveTaskTitle(blockId: string): string | null {
@@ -3438,6 +3599,7 @@ function createTaskEditDraft(task: Task): TaskEditDraft {
   return {
     taskId: task.id,
     priority: task.priority,
+    pinned: task.pinned === true,
     dueDate: normalizeDateInputValue((task.dueDate || '').toString()),
     description: task.description || '',
     reminderType: normalizedReminder.reminderType,
@@ -3692,6 +3854,12 @@ function toggleTaskEditorPriorityPopover(event: MouseEvent): void {
 function handleTaskEditorPrioritySelect(value: string): void {
   if (!activeTaskEditTask.value) return;
   void quickSaveTaskPriority(activeTaskEditTask.value, value as Task['priority']);
+}
+
+function handleTaskEditorPinToggle(): void {
+  const task = activeTaskEditTask.value;
+  if (!task) return;
+  void quickSaveTaskPinned(task, !(task.pinned === true));
 }
 
 function handleTaskEditorDescriptionInput(value: string): void {
@@ -4066,6 +4234,25 @@ async function quickSaveTaskPriority(task: Task, priority: Task['priority']): Pr
     syncCrdt: () => {
       crdtRepo.updateTaskField(task.id, 'priority', priority);
     }
+  });
+}
+
+async function quickSaveTaskPinned(task: Task, pinned: boolean): Promise<void> {
+  await applyTaskEditorFieldUpdate(task, {
+    attrs: {
+      'custom-task-pinned': pinned ? '1' : ''
+    },
+    isUnchanged: draft => draft.pinned === pinned && (task.pinned === true) === pinned,
+    syncDraft: draft => {
+      draft.pinned = pinned;
+    },
+    syncTask: targetTask => {
+      targetTask.pinned = pinned;
+    },
+    syncCrdt: () => {
+      crdtRepo.updateTaskField(task.id, 'pinned', pinned);
+    },
+    emitTaskChanged: true
   });
 }
 
@@ -4525,6 +4712,7 @@ onUnmounted(() => {
 }
 
 .task-editor-sidebar-move,
+.task-editor-sidebar-pin,
 .task-editor-sidebar-archive,
 .task-editor-sidebar-delete,
 .task-editor-sidebar-close {
@@ -4542,12 +4730,18 @@ onUnmounted(() => {
 
 .task-editor-sidebar-move:hover {
   background: var(--b3-list-hover);
-  color: var(--b3-theme-primary);
+  color: #f98f7a;
+}
+
+.task-editor-sidebar-pin:hover,
+.task-editor-sidebar-pin.is-active {
+  background: var(--b3-list-hover);
+  color: #f98f7a;
 }
 
 .task-editor-sidebar-archive:hover {
   background: var(--b3-list-hover);
-  color: var(--b3-theme-primary);
+  color: #f98f7a;
 }
 
 .task-editor-sidebar-delete:hover {

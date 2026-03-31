@@ -47,5 +47,5 @@ export async function updateTaskMarkdown(
 }
 
 export function cleanTaskTitle(title: string): string {
-  return title.replace(/{: style="[^"]*"}/g, '').trim();
+  return title.replace(/\{:\s*[^}]*\}/g, '').trim();
 }

@@ -12,6 +12,7 @@ export interface CRDTTask {
   title: CRDTField<string>;
   status: CRDTField<string>;
   priority: CRDTField<string>;
+  pinned: CRDTField<boolean>;
   dueDate: CRDTField<string | undefined>;
   startDate: CRDTField<string | undefined>;
   startTime: CRDTField<string | undefined>;
@@ -29,6 +30,8 @@ export interface CRDTTask {
   updatedAt: Timestamp;
   metadata: {
     blockId?: string;
+    blockSort?: string;
+    documentOrder?: number;
     rootId?: string;
     notebookId?: string;
     hPath?: string;
@@ -83,6 +86,8 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
 
   const metadata = {
     blockId: b.metadata.blockId || a.metadata.blockId,
+    blockSort: b.metadata.blockSort || a.metadata.blockSort,
+    documentOrder: typeof b.metadata.documentOrder === 'number' ? b.metadata.documentOrder : a.metadata.documentOrder,
     rootId: b.metadata.rootId || a.metadata.rootId,
     notebookId: b.metadata.notebookId || a.metadata.notebookId,
     hPath: b.metadata.hPath || a.metadata.hPath,
@@ -100,6 +105,7 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
     title: mergeField(a.title, b.title),
     status: mergeField(a.status, b.status),
     priority: mergeField(a.priority, b.priority),
+    pinned: mergeField(a.pinned, b.pinned),
     dueDate: mergeField(a.dueDate, b.dueDate),
     startDate: mergeField(a.startDate, b.startDate),
     startTime: mergeField(a.startTime || b.startTime, b.startTime || a.startTime),
@@ -135,6 +141,7 @@ export class TaskCRDTEngine {
       title: this.baseField(''),
       status: this.baseField('pending'),
       priority: this.baseField('none'),
+      pinned: this.baseField(false),
       dueDate: base,
       startDate: base,
       startTime: base,
