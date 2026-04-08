@@ -1,6 +1,8 @@
 <template>
+  <Teleport to="body">
   <div
     v-if="show"
+    ref="menuRef"
     :class="['context-menu', { 'context-menu-mobile-sheet': isMobileSheet }]"
     :style="menuStyle"
     @click.stop
@@ -68,10 +70,11 @@
       <span>删除任务</span>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { Task } from '@/api';
 import type { RepeatFrequency } from '@/repeatRepository';
 
@@ -106,16 +109,53 @@ const emit = defineEmits<{
 }>();
 
 const isMobileSheet = ref(false);
+const menuRef = ref<HTMLElement | null>(null);
+const menuPosition = ref<{ x: number; y: number }>({ x: 0, y: 0 });
 
 const menuStyle = computed<Record<string, string>>(() => {
   if (isMobileSheet.value) {
     return {};
   }
   return {
-    left: `${props.x}px`,
-    top: `${props.y}px`
+    left: `${Math.round(menuPosition.value.x)}px`,
+    top: `${Math.round(menuPosition.value.y)}px`
   };
 });
+
+function clampMenuPosition(): void {
+  if (isMobileSheet.value || !props.show) {
+    return;
+  }
+  const menu = menuRef.value;
+  if (!menu) {
+    return;
+  }
+  const padding = 12;
+  const rect = menu.getBoundingClientRect();
+  const maxX = window.innerWidth - rect.width - padding;
+  const maxY = window.innerHeight - rect.height - padding;
+  const nextX = Math.min(Math.max(padding, menuPosition.value.x), Math.max(padding, maxX));
+  const nextY = Math.min(Math.max(padding, menuPosition.value.y), Math.max(padding, maxY));
+  if (nextX !== menuPosition.value.x || nextY !== menuPosition.value.y) {
+    menuPosition.value = { x: nextX, y: nextY };
+  }
+}
+
+function syncMenuPosition(): void {
+  if (isMobileSheet.value || !props.show) {
+    return;
+  }
+  menuPosition.value = {
+    x: Number.isFinite(props.x) ? props.x : 0,
+    y: Number.isFinite(props.y) ? props.y : 0
+  };
+  void nextTick(() => {
+    clampMenuPosition();
+    window.requestAnimationFrame(() => {
+      clampMenuPosition();
+    });
+  });
+}
 
 function updateMobileSheetState(): void {
   if (typeof window === 'undefined') {
@@ -127,6 +167,9 @@ function updateMobileSheetState(): void {
     ? window.matchMedia('(pointer: coarse)').matches
     : false;
   isMobileSheet.value = isNarrowScreen || (isCoarsePointer && window.innerWidth <= 1024);
+  if (!isMobileSheet.value) {
+    syncMenuPosition();
+  }
 }
 
 onMounted(() => {
@@ -137,6 +180,16 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', updateMobileSheetState);
 });
+
+watch(
+  () => [props.show, props.x, props.y, isMobileSheet.value] as const,
+  ([show]) => {
+    if (!show) {
+      return;
+    }
+    syncMenuPosition();
+  }
+);
 
 function onRepeatChange(event: Event): void {
   const value = (event.target as HTMLSelectElement).value as RepeatFrequency;

@@ -162,6 +162,7 @@ const props = defineProps<{
   descriptionEditing?: boolean;
   descriptionDraft?: string;
   showDescription?: boolean;
+  showBadges?: boolean;
   showSubtasks?: boolean;
   titleTooltip?: string;
 }>();
@@ -195,6 +196,7 @@ const canExpand = computed(() => {
 });
 const showDescription = computed(() => {
   const hasDescription = typeof task.value.description === 'string' && task.value.description.trim().length > 0;
+  if (props.showDescription === false) return false;
   if (props.descriptionEditing) return true;
   if (props.showDescription !== undefined) {
     return props.showDescription && hasDescription;
@@ -263,6 +265,9 @@ const groupStyle = computed<Record<string, string>>(() => {
 
 const showProgressText = computed(() => hasSubtasks.value);
 const showBadges = computed(() => {
+  if (props.showBadges === false) {
+    return false;
+  }
   const due = !!task.value.dueDate;
   return due || !!reminderText.value || !!groupLabel.value;
 });
@@ -674,6 +679,7 @@ function getTaskDateTimestamp(value: unknown): number | null {
   align-items: center;
   border-radius: 4px;
   font-weight: 500;
+  background: var(--b3-list-hover);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

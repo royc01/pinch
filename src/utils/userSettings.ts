@@ -51,6 +51,9 @@ export interface UserSettings {
     lastTaskNotebook?: string;
     lastTaskDocument?: string;
     selectedGroupId?: string;
+    taskListGroupBy?: 'none' | TaskViewGroupMode;
+    taskListViewMode?: 'kanban' | 'list';
+    showTaskCardDetails?: boolean;
     taskStatusFilters?: string[];
     taskPriorityFilters?: string[];
     taskDueFilters?: string[];
@@ -111,6 +114,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     showCompletedTasks: true,
     scopeInitialized: false,
     selectedGroupId: 'all',
+    taskListGroupBy: 'none',
+    taskListViewMode: 'kanban',
+    showTaskCardDetails: true,
     taskStatusFilters: [],
     taskPriorityFilters: [],
     taskDueFilters: [],

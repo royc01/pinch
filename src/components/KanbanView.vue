@@ -253,6 +253,18 @@
             </span>
           </button>
         </div>
+        <div class="kanban-batch-entry-control">
+          <button
+            type="button"
+            class="task-filter-btn kanban-batch-entry-btn"
+            :class="{ active: isKanbanBatchEditMode }"
+            :title="isKanbanBatchEditMode ? '退出批量编辑' : '进入批量编辑'"
+            :aria-label="isKanbanBatchEditMode ? '退出批量编辑' : '进入批量编辑'"
+            @click.stop="toggleKanbanBatchEditMode"
+          >
+            <span>{{ isKanbanBatchEditMode ? '退出批量' : '批量' }}</span>
+          </button>
+        </div>
       </div>
         <div v-else-if="currentView === 'table' || currentView === 'archive-table'" class="document-tabs-actions table-document-actions">
           <div class="table-actions-row">
@@ -302,8 +314,69 @@
       </div>
     </div>
 
+    <div
+      v-if="currentView === 'kanban' && isKanbanBatchEditMode"
+      class="kanban-batch-toolbar"
+    >
+      <div class="kanban-batch-toolbar-header">
+        <span class="kanban-batch-selected-count">已选 {{ kanbanBatchSelectedCount }} 项</span>
+        <div class="kanban-batch-toolbar-actions">
+          <button type="button" class="kanban-batch-tool-btn" @click="toggleSelectAllVisibleKanbanTasks">
+            {{ allVisibleKanbanTasksSelected ? '取消全选' : '全选当前视图' }}
+          </button>
+          <button
+            type="button"
+            class="kanban-batch-tool-btn"
+            :disabled="kanbanBatchSelectedCount === 0"
+            @click="clearKanbanBatchSelection"
+          >
+            清空选择
+          </button>
+        </div>
+      </div>
+      <div class="kanban-batch-edit-grid">
+        <label class="kanban-batch-field">
+          <span>状态</span>
+          <SySelect
+            :model-value="kanbanBatchEditStatus"
+            :options="kanbanBatchStatusOptions"
+            @update:model-value="kanbanBatchEditStatus = String($event || '')"
+          />
+        </label>
+        <label class="kanban-batch-field">
+          <span>优先级</span>
+          <SySelect
+            :model-value="kanbanBatchEditPriority"
+            :options="kanbanBatchPriorityOptions"
+            @update:model-value="kanbanBatchEditPriority = String($event || '')"
+          />
+        </label>
+        <label class="kanban-batch-field">
+          <span>标签</span>
+          <SySelect
+            :model-value="kanbanBatchEditGroupId"
+            :options="kanbanBatchGroupOptions"
+            @update:model-value="kanbanBatchEditGroupId = String($event || '')"
+          />
+        </label>
+        <button
+          type="button"
+          class="kanban-batch-apply-btn"
+          :disabled="!canApplyKanbanBatchEdit"
+          @click="applyKanbanBatchEdit"
+        >
+          {{ isKanbanBatchApplying ? '应用中...' : '应用到已选' }}
+        </button>
+      </div>
+    </div>
     <div v-if="loading" class="loading">加载中...</div>
-    <div v-else-if="currentView === 'kanban' && isSettingsLoaded" class="kanban-board">
+    <div
+      v-else-if="currentView === 'kanban' && isSettingsLoaded"
+      ref="kanbanBoardRef"
+      class="kanban-board"
+      :class="{ 'is-batch-mode': isKanbanBatchEditMode }"
+      @mousedown.capture="handleKanbanBatchLassoMouseDown"
+    >
       <div 
         v-for="column in kanbanColumns" 
         :key="column.id" 
@@ -329,38 +402,106 @@
           </div>
         </template>
         <template v-else>
-          <div class="column-header">
-            <div
-              v-if="isColumnTitleEditing(column)"
-              class="column-title column-title-editing"
-              @click.stop
-            >
-              <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
-              <input
-                ref="columnTitleInputRef"
-                v-model="columnTitleDraft"
-                class="column-title-input"
-                type="text"
-                :placeholder="column.type === 'group' ? '请输入标签名称' : '请输入标题名称'"
-                :disabled="isSavingColumnTitle"
-                @keydown.enter.prevent.stop="submitColumnTitleEdit(column)"
-                @keydown.esc.prevent.stop="cancelColumnTitleEdit()"
-                @blur="submitColumnTitleEdit(column)"
-              />
-            </div>
-            <button
-              v-else-if="canEditColumnTitle(column)"
-              type="button"
-              class="column-title column-title-button"
-              :title="column.type === 'group' ? '编辑标签名称' : '编辑标题名称'"
-              @click.stop="startColumnTitleEdit(column)"
-            >
-              <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
-              <span class="column-title-text">{{ getKanbanColumnTitleText(column) }}</span>
-            </button>
-            <div v-else class="column-title">
-              <span class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
-              <span class="column-title-text">{{ getKanbanColumnTitleText(column) }}</span>
+          <div
+            class="column-header"
+            :class="{
+              'group-column-reorder-header': canReorderGroupColumn(column),
+              'group-column-reorder-target': isGroupColumnReorderTarget(column),
+              'group-column-reorder-before': isGroupColumnReorderBefore(column),
+              'group-column-reorder-after': isGroupColumnReorderAfter(column),
+              'group-column-reorder-dragging': isGroupColumnBeingDragged(column)
+            }"
+            :draggable="canReorderGroupColumn(column)"
+            @dragstart="handleGroupColumnReorderDragStart($event, column)"
+            @dragover.prevent="handleGroupColumnReorderDragOver($event, column)"
+            @dragleave="handleGroupColumnReorderDragLeave($event, column)"
+            @drop.prevent="handleGroupColumnReorderDrop($event, column)"
+            @dragend="handleGroupColumnReorderDragEnd"
+          >
+            <div class="column-header-main">
+              <div
+                v-if="isColumnTitleEditing(column)"
+                class="column-title column-title-editing"
+                @click.stop
+              >
+                <span
+                  v-if="isKanbanBatchEditMode"
+                  class="column-batch-checkbox-btn"
+                  :class="{
+                    partial: isKanbanColumnBatchPartiallySelected(column),
+                    'is-disabled': getColumnTaskCount(column) === 0
+                  }"
+                  :title="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :aria-label="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :aria-disabled="getColumnTaskCount(column) === 0"
+                  @click.stop="toggleKanbanColumnBatchSelection(column)"
+                >
+                  <TaskCheckbox
+                    :checked="isKanbanColumnBatchAllSelected(column)"
+                    :size="18"
+                  />
+                </span>
+                <span v-else class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
+                <input
+                  ref="columnTitleInputRef"
+                  v-model="columnTitleDraft"
+                  class="column-title-input"
+                  type="text"
+                  :placeholder="column.type === 'group' ? '请输入标签名称' : '请输入标题名称'"
+                  :disabled="isSavingColumnTitle"
+                  @keydown.enter.prevent.stop="submitColumnTitleEdit(column)"
+                  @keydown.esc.prevent.stop="cancelColumnTitleEdit()"
+                  @blur="submitColumnTitleEdit(column)"
+                />
+              </div>
+              <button
+                v-else-if="canEditColumnTitle(column)"
+                type="button"
+                class="column-title column-title-button"
+                :title="column.type === 'group' ? '编辑标签名称' : '编辑标题名称'"
+                @click.stop="startColumnTitleEdit(column)"
+              >
+                <span
+                  v-if="isKanbanBatchEditMode"
+                  class="column-batch-checkbox-btn"
+                  :class="{
+                    partial: isKanbanColumnBatchPartiallySelected(column),
+                    'is-disabled': getColumnTaskCount(column) === 0
+                  }"
+                  :title="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :aria-label="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :aria-disabled="getColumnTaskCount(column) === 0"
+                  @click.stop="toggleKanbanColumnBatchSelection(column)"
+                >
+                  <TaskCheckbox
+                    :checked="isKanbanColumnBatchAllSelected(column)"
+                    :size="18"
+                  />
+                </span>
+                <span v-else class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
+                <span class="column-title-text">{{ getKanbanColumnTitleText(column) }}</span>
+              </button>
+              <div v-else class="column-title">
+                <span
+                  v-if="isKanbanBatchEditMode"
+                  class="column-batch-checkbox-btn"
+                  :class="{
+                    partial: isKanbanColumnBatchPartiallySelected(column),
+                    'is-disabled': getColumnTaskCount(column) === 0
+                  }"
+                  :title="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :aria-label="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :aria-disabled="getColumnTaskCount(column) === 0"
+                  @click.stop="toggleKanbanColumnBatchSelection(column)"
+                >
+                  <TaskCheckbox
+                    :checked="isKanbanColumnBatchAllSelected(column)"
+                    :size="18"
+                  />
+                </span>
+                <span v-else class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
+                <span class="column-title-text">{{ getKanbanColumnTitleText(column) }}</span>
+              </div>
             </div>
             <div class="column-header-actions">
               <div class="column-count">{{ getColumnTaskCount(column) }}</div>
@@ -388,12 +529,7 @@
                 :disabled="isKanbanColumnArchiving(column.id) || !canArchiveTasksInColumn(column)"
                 @click.stop="archiveColumnTasks(column)"
               >
-                <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M273.066667 68.266667a102.4 102.4 0 0 0-102.4 102.4v74.069333A102.434133 102.434133 0 0 0 102.4 341.333333v74.069334A102.434133 102.434133 0 0 0 34.133333 512v273.066667a170.666667 170.666667 0 0 0 170.666667 170.666666h614.4a170.666667 170.666667 0 0 0 170.666667-170.666666v-273.066667a102.434133 102.434133 0 0 0-68.266667-96.597333V341.333333a102.434133 102.434133 0 0 0-68.266667-96.597333V170.666667a102.4 102.4 0 0 0-102.4-102.4H273.066667z m580.266666 341.333333h-204.8a34.133333 34.133333 0 0 0-34.133333 34.133333 102.4 102.4 0 1 1-204.8 0 34.133333 34.133333 0 0 0-34.133333-34.133333H170.666667v-68.266667a34.133333 34.133333 0 0 1 34.133333-34.133333h614.4a34.133333 34.133333 0 0 1 34.133333 34.133333v68.266667zM136.533333 477.866667h208.213334a170.734933 170.734933 0 0 0 334.506666 0H887.466667a34.133333 34.133333 0 0 1 34.133333 34.133333v273.066667a102.4 102.4 0 0 1-102.4 102.4H204.8a102.4 102.4 0 0 1-102.4-102.4v-273.066667a34.133333 34.133333 0 0 1 34.133333-34.133333z m648.533334-238.933334H238.933333V170.666667a34.133333 34.133333 0 0 1 34.133334-34.133334h477.866666a34.133333 34.133333 0 0 1 34.133334 34.133334v68.266666zM375.466667 750.933333a34.133333 34.133333 0 0 1 34.133333-34.133333h204.8a34.133333 34.133333 0 1 1 0 68.266667h-204.8a34.133333 34.133333 0 0 1-34.133333-34.133334z"
-                  />
-                </svg>
+                <Icon name="archive" width="16" height="16" />
               </button>
             </div>
           </div>
@@ -411,32 +547,40 @@
               class="column-task-spacer"
               :style="getKanbanSpacerStyle(column)"
             >
-              <TaskCard
+              <div
                 v-for="task in getVisibleTasksForColumn(column)"
                 :key="task.id"
-                :task="task"
-                variant="kanban"
-                :task-groups="taskGroups"
-                :completed="isTaskCompletedVisual(task)"
-                :draggable="!isMobileFrontend && kanbanSupportsDrag"
-                :dragging="!!(draggedTask && draggedTask.id === task.id)"
-                :expanded="isKanbanTaskExpanded(task.id)"
-                :description-editing="inlineEditingDescriptionTaskId === task.id"
-                :description-draft="getInlineDescriptionDraft(task)"
-                :show-description="true"
-                :show-subtasks="isKanbanTaskExpanded(task.id)"
-                @card-click="handleTaskClick"
-                @open-click="handleTaskEditClick"
-                @toggle-status="toggleTaskStatus"
-                @toggle-expand="toggleKanbanTaskExpand"
-                @description-start-edit="startInlineDescriptionEdit"
-                @description-input="handleInlineDescriptionInput"
-                @description-save="saveInlineDescriptionEdit"
-                @description-cancel="cancelInlineDescriptionEdit"
-                @subtask-toggle="handleSubtaskToggle"
-                @dragstart="handleDragStart"
-                @dragend="handleDragEnd"
-              />
+                class="kanban-batch-item"
+                :data-task-id="task.id"
+                :class="{ selected: isKanbanTaskBatchSelected(task.id), 'is-batch-mode': isKanbanBatchEditMode }"
+              >
+                <TaskCard
+                  :task="task"
+                  variant="kanban"
+                  :task-groups="taskGroups"
+                  :completed="isTaskCompletedVisual(task)"
+                  :draggable="!isMobileFrontend && kanbanSupportsDrag && !isKanbanBatchEditMode"
+                  :dragging="!!(draggedTask && draggedTask.id === task.id)"
+                  :expanded="isKanbanTaskExpanded(task.id)"
+                  :description-editing="inlineEditingDescriptionTaskId === task.id"
+                  :description-draft="getInlineDescriptionDraft(task)"
+                  :show-description="true"
+                  :show-badges="true"
+                  :show-subtasks="isKanbanTaskExpanded(task.id)"
+                  :title-tooltip="isKanbanBatchEditMode ? '点击选择任务' : ''"
+                  @card-click="handleKanbanTaskCardClick"
+                  @open-click="handleKanbanTaskOpenClick"
+                  @toggle-status="handleKanbanTaskToggleStatus"
+                  @toggle-expand="toggleKanbanTaskExpand"
+                  @description-start-edit="startInlineDescriptionEdit"
+                  @description-input="handleInlineDescriptionInput"
+                  @description-save="saveInlineDescriptionEdit"
+                  @description-cancel="cancelInlineDescriptionEdit"
+                  @subtask-toggle="handleSubtaskToggle"
+                  @dragstart="handleDragStart"
+                  @dragend="handleDragEnd"
+                />
+              </div>
             </div>
             <div v-else class="empty-column">
               暂无任务
@@ -444,6 +588,11 @@
           </div>
         </template>
       </div>
+      <div
+        v-if="kanbanBatchLassoBox.active"
+        class="kanban-batch-lasso"
+        :style="kanbanBatchLassoStyle"
+      ></div>
     </div>
     
     <TableView 
@@ -518,81 +667,27 @@
     />
 
     <Teleport to="body">
-      <div
+      <TaskEditorPanelShell
         v-if="kanbanEditorVisible"
         ref="kanbanEditorPanelRef"
-        class="kanban-editor-panel"
-        :style="kanbanEditorStyle"
-        @mousedown.stop
+        mode="floating"
+        :panel-style="kanbanEditorStyle"
+        title="编辑任务"
+        :show-pin="!!activeKanbanEditTask"
+        :pin-active="isActiveKanbanTaskPinned"
+        :show-move="!!activeKanbanEditTask"
+        :show-archive="!!activeKanbanEditTask"
+        :is-archived="isActiveKanbanTaskArchived"
+        :show-delete="!!activeKanbanEditTask"
+        :show-priority="!!(activeKanbanEditTask && activeKanbanEditDraft)"
+        :priority-style="{ background: kanbanEditorPriorityOption.background, color: kanbanEditorPriorityOption.color }"
+        @pin="handleKanbanEditorPinToggle"
+        @move="openKanbanTaskMoveDialog"
+        @archive="handleKanbanEditorArchiveToggle"
+        @delete="handleKanbanEditorDelete"
+        @priority="toggleKanbanEditorPriorityPopover"
+        @close="closeKanbanEditor"
       >
-        <div class="kanban-editor-header">
-          <span class="kanban-editor-title">编辑任务</span>
-          <div class="kanban-editor-actions">
-            <button
-              v-if="activeKanbanEditTask"
-              type="button"
-              class="kanban-editor-move"
-              title="移动任务"
-              aria-label="移动任务"
-              @click.stop="openKanbanTaskMoveDialog"
-            >
-              <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
-                <path d="M904.448 625.728 119.616 625.728c-23.68 0-44.736 14.656-52.48 36.48C65.024 668.032 64 674.048 64 680c0 16.32 7.616 32.192 21.184 42.688l293.248 225.728c24.128 18.56 59.008 14.464 78.016-9.088 18.944-23.552 14.848-57.664-9.28-76.224L288 739.456l616 0c30.72 0 56-29.44 56-59.456C960 649.984 935.168 625.728 904.448 625.728zM119.552 398.272l784.832 0c23.68 0 44.736-14.656 52.48-36.48C958.976 355.968 960 349.952 960 344c0-16.32-7.616-32.192-21.184-42.688l-293.248-225.728c-24.128-18.56-59.008-14.464-78.016 9.088C548.608 108.224 552.64 142.4 576.832 160.96L736 284.544 120 284.544C89.28 284.544 64 313.984 64 344 64 374.016 88.832 398.272 119.552 398.272z"></path>
-              </svg>
-            </button>
-            <button
-              v-if="activeKanbanEditTask"
-              type="button"
-              class="kanban-editor-archive"
-              :title="isActiveKanbanTaskArchived ? '取消归档' : '归档任务'"
-              :aria-label="isActiveKanbanTaskArchived ? '取消归档' : '归档任务'"
-              @click.stop="handleKanbanEditorArchiveToggle"
-            >
-              <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  d="M273.066667 68.266667a102.4 102.4 0 0 0-102.4 102.4v74.069333A102.434133 102.434133 0 0 0 102.4 341.333333v74.069334A102.434133 102.434133 0 0 0 34.133333 512v273.066667a170.666667 170.666667 0 0 0 170.666667 170.666666h614.4a170.666667 170.666667 0 0 0 170.666667-170.666666v-273.066667a102.434133 102.434133 0 0 0-68.266667-96.597333V341.333333a102.434133 102.434133 0 0 0-68.266667-96.597333V170.666667a102.4 102.4 0 0 0-102.4-102.4H273.066667z m580.266666 341.333333h-204.8a34.133333 34.133333 0 0 0-34.133333 34.133333 102.4 102.4 0 1 1-204.8 0 34.133333 34.133333 0 0 0-34.133333-34.133333H170.666667v-68.266667a34.133333 34.133333 0 0 1 34.133333-34.133333h614.4a34.133333 34.133333 0 0 1 34.133333 34.133333v68.266667zM136.533333 477.866667h208.213334a170.734933 170.734933 0 0 0 334.506666 0H887.466667a34.133333 34.133333 0 0 1 34.133333 34.133333v273.066667a102.4 102.4 0 0 1-102.4 102.4H204.8a102.4 102.4 0 0 1-102.4-102.4v-273.066667a34.133333 34.133333 0 0 1 34.133333-34.133333z m648.533334-238.933334H238.933333V170.666667a34.133333 34.133333 0 0 1 34.133334-34.133334h477.866666a34.133333 34.133333 0 0 1 34.133334 34.133334v68.266666zM375.466667 750.933333a34.133333 34.133333 0 0 1 34.133333-34.133333h204.8a34.133333 34.133333 0 1 1 0 68.266667h-204.8a34.133333 34.133333 0 0 1-34.133333-34.133334z"
-                ></path>
-              </svg>
-            </button>
-            <button
-              v-if="activeKanbanEditTask"
-              type="button"
-              class="kanban-editor-delete"
-              title="删除任务"
-              aria-label="删除任务"
-              @click.stop="handleKanbanEditorDelete"
-            >
-              <svg viewBox="0 0 1225 1024" width="16" height="16" aria-hidden="true">
-                <path d="M1034.570239 270.996844V841.152359a182.847641 182.847641 0 0 1-182.847641 182.847641H391.641363a182.847641 182.847641 0 0 1-182.847641-182.847641V270.996844a45.090228 45.090228 0 0 1 0-90.162172v-0.091424h196.561214a219.837719 219.837719 0 0 1 432.672374 0h196.542929v0.109708a45.090228 45.090228 0 0 1 0 90.143888zM621.68198 90.398228a132.546255 132.546255 0 0 0-124.610667 90.34502h249.221335A132.546255 132.546255 0 0 0 621.68198 90.398228z m324.408286 180.690039H297.273695v552.858129a109.708585 109.708585 0 0 0 109.708585 109.708584h429.399401a109.708585 109.708585 0 0 0 109.708585-109.708584V271.106552z m-221.245646 481.85839a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z m-206.434987 0a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z"></path>
-              </svg>
-            </button>
-            <button
-              v-if="activeKanbanEditTask && activeKanbanEditDraft"
-              type="button"
-              class="kanban-editor-priority-btn"
-              title="优先级"
-              aria-label="优先级"
-              @click.stop="toggleKanbanEditorPriorityPopover($event)"
-            >
-              <span
-                class="kanban-editor-priority-indicator"
-                :style="{ background: kanbanEditorPriorityOption.background, color: kanbanEditorPriorityOption.color }"
-              >
-                <Icon name="flag" width="14" height="14" />
-              </span>
-            </button>
-            <button
-              type="button"
-              class="kanban-editor-close"
-              title="关闭"
-              aria-label="关闭"
-              @click="closeKanbanEditor"
-            >
-              <Icon name="close" width="14" height="14" />
-            </button>
-          </div>
-        </div>
         <div ref="kanbanEditorMountRef" class="kanban-editor-body"></div>
         <div
           v-if="activeKanbanEditTask && activeKanbanEditDraft"
@@ -685,7 +780,7 @@
             </div>
           </div>
         </div>
-      </div>
+      </TaskEditorPanelShell>
     </Teleport>
 
     <div v-if="quickCreateDialog.show" class="quick-create-mask" @click="closeQuickCreateDialog">
@@ -755,7 +850,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { Protyle, getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, TaskGroup, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock } from '../api';
+import { TaskRepository, Task, SubTask, TaskGroup, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock } from '../api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -776,12 +871,15 @@ import {
   resolveTaskHeadingDropTarget,
   resolveStoredTaskViewGroupMode,
   resolveTaskHeadingGroups,
+  type TaskHeadingDropTarget,
   type TaskHeadingGroupMeta,
   type TaskViewGroupMode
 } from '@/utils/taskGrouping';
 import Icon from '@/components/Icon.vue';
 import TaskCard from '@/components/TaskCard.vue';
+import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
+import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import { useTaskFilterState } from '@/composables/useTaskFilterState';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TableView from '@/components/TableView.vue';
@@ -888,6 +986,26 @@ const tableFilterPopoverStyle = ref<Record<string, string>>({});
 const tableFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
 const tableFilterControlRef = ref<HTMLElement | null>(null);
 const tableFilterPopoverPoint = ref<{ x: number; y: number } | null>(null);
+const kanbanBoardRef = ref<HTMLElement | null>(null);
+const isKanbanBatchEditMode = ref(false);
+const kanbanBatchSelectedTaskIds = ref<Set<string>>(new Set());
+const kanbanBatchEditStatus = ref<string>('');
+const kanbanBatchEditPriority = ref<string>('');
+const kanbanBatchEditGroupId = ref<string>('');
+const isKanbanBatchApplying = ref(false);
+const kanbanBatchLassoBox = ref<{ active: boolean; left: number; top: number; width: number; height: number }>({
+  active: false,
+  left: 0,
+  top: 0,
+  width: 0,
+  height: 0
+});
+const kanbanBatchLassoStart = ref<{ x: number; y: number } | null>(null);
+const isKanbanBatchLassoSelecting = ref(false);
+let kanbanBatchLassoSuppressCardClickUntil = 0;
+let kanbanBatchLassoBaseSelection = new Set<string>();
+let kanbanBatchLassoMoveHandler: ((event: MouseEvent) => void) | null = null;
+let kanbanBatchLassoUpHandler: ((event: MouseEvent) => void) | null = null;
 const documentTabsDropdownVisible = ref(false);
 const documentTabsRef = ref<HTMLElement | null>(null);
 const documentTabsDropdownControlRef = ref<HTMLElement | null>(null);
@@ -921,6 +1039,9 @@ const taskGroups = ref<TaskGroup[]>([]);
 const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
 const draggedTask = ref<Task | null>(null);
 const dragOverColumnId = ref<string | null>(null);
+const draggedGroupColumnId = ref<string | null>(null);
+const dragOverGroupColumnId = ref<string | null>(null);
+const dragOverGroupColumnPosition = ref<'before' | 'after' | null>(null);
 const archivingKanbanColumnIds = ref<Set<string>>(new Set());
 const kanbanColumnMetrics = ref<Record<string, { scrollTop: number; height: number }>>({});
 const isDropping = ref(false);
@@ -938,7 +1059,7 @@ const inlineDescriptionDraftByTaskId = ref(new Map<string, string>());
 const inlineDescriptionSavingTaskIds = new Set<string>();
 const kanbanEditorVisible = ref(false);
 const kanbanEditorPosition = ref({ x: 0, y: 0 });
-const kanbanEditorPanelRef = ref<HTMLElement | null>(null);
+const kanbanEditorPanelRef = ref<InstanceType<typeof TaskEditorPanelShell> | null>(null);
 const kanbanEditorMountRef = ref<HTMLElement | null>(null);
 let kanbanEditorProtyle: Protyle | null = null;
 const kanbanEditorTaskId = ref<string | null>(null);
@@ -964,12 +1085,55 @@ const activeKanbanEditTask = computed(() =>
     ? (tasks.value.find(task => task.id === kanbanEditorTaskId.value) || null)
     : null
 );
+const isActiveKanbanTaskPinned = computed(() => activeKanbanEditTask.value?.pinned === true);
 const isActiveKanbanTaskArchived = computed(() => activeKanbanEditTask.value?.archived === true);
 const activeKanbanEditDraft = computed(() =>
   kanbanEditorTaskId.value && kanbanEditorDraft.value?.taskId === kanbanEditorTaskId.value
     ? kanbanEditorDraft.value
     : null
 );
+const visibleKanbanTasks = computed(() =>
+  tasks.value.filter(task => matchesKanbanFilters(task))
+);
+const kanbanBatchSelectedCount = computed(() => kanbanBatchSelectedTaskIds.value.size);
+const allVisibleKanbanTasksSelected = computed(() => {
+  const currentTasks = visibleKanbanTasks.value;
+  if (currentTasks.length === 0) {
+    return false;
+  }
+  return currentTasks.every(task => kanbanBatchSelectedTaskIds.value.has(task.id));
+});
+const kanbanBatchGroupOptions = computed(() => [
+  { value: '', text: '标签（不修改）' },
+  { value: TASK_GROUP_NONE_ID, text: '无标签' },
+  ...taskGroups.value.map(group => ({
+    value: group.id,
+    text: group.name || '未命名标签'
+  }))
+]);
+const canApplyKanbanBatchEdit = computed(() => {
+  if (isKanbanBatchApplying.value || kanbanBatchSelectedCount.value === 0) {
+    return false;
+  }
+  if (kanbanBatchEditStatus.value) {
+    return true;
+  }
+  if (kanbanBatchEditPriority.value) {
+    return true;
+  }
+  return kanbanBatchEditGroupId.value.trim().length > 0;
+});
+const kanbanBatchLassoStyle = computed<Record<string, string>>(() => {
+  if (!kanbanBatchLassoBox.value.active) {
+    return {};
+  }
+  return {
+    left: `${Math.round(kanbanBatchLassoBox.value.left)}px`,
+    top: `${Math.round(kanbanBatchLassoBox.value.top)}px`,
+    width: `${Math.round(kanbanBatchLassoBox.value.width)}px`,
+    height: `${Math.round(kanbanBatchLassoBox.value.height)}px`
+  };
+});
 
 const TASK_GROUP_NONE_ID = '__none__';
 const defaultGroupChipColor = '#9aa0a6';
@@ -1157,6 +1321,21 @@ const kanbanExtraFilterOptions: Array<{ value: KanbanTaskExtraFilterKey; label: 
   { value: 'hasDescription', label: '有描述' },
   { value: 'hasSubtasks', label: '有子任务' }
 ];
+const kanbanBatchStatusOptions: Array<{ value: string; text: string }> = [
+  { value: '', text: '状态（不修改）' },
+  { value: 'pending', text: '待处理' },
+  { value: 'in-progress', text: '进行中' },
+  { value: 'delayed', text: '延迟' },
+  { value: 'completed', text: '已完成' },
+  { value: 'cancelled', text: '已取消' }
+];
+const kanbanBatchPriorityOptions: Array<{ value: string; text: string }> = [
+  { value: '', text: '优先级（不修改）' },
+  { value: 'none', text: '无' },
+  { value: 'low', text: '低' },
+  { value: 'medium', text: '中' },
+  { value: 'high', text: '高' }
+];
 const kanbanStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(kanbanStatusFilterOptions.map(option => option.value));
 const kanbanPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(kanbanPriorityFilterOptions.map(option => option.value));
 const kanbanDueFilterValueSet: ReadonlySet<KanbanTaskDueFilterKey> = new Set(kanbanDueFilterOptions.map(option => option.value));
@@ -1245,7 +1424,8 @@ const kanbanMoveDocuments = computed(() => {
     const fallbackPath = typeof activeTask.hPath === 'string' ? activeTask.hPath : '';
     docs.unshift({
       id: activeRootId,
-      name: fallbackPath.split('/').pop() || fallbackPath || activeRootId
+      name: fallbackPath.split('/').pop() || fallbackPath || activeRootId,
+      notebookId
     });
   }
 
@@ -1455,6 +1635,9 @@ function getEditableColumnTitleKey(column: KanbanColumn): string {
 }
 
 function canEditColumnTitle(column: KanbanColumn): boolean {
+  if (isKanbanBatchEditMode.value) {
+    return false;
+  }
   if (column.type === 'group') {
     const groupId = typeof column.groupId === 'string' ? column.groupId.trim() : '';
     return groupId.length > 0;
@@ -2468,24 +2651,6 @@ const documentTabPopoverOptions = computed(() =>
     }))
 );
 
-const currentFilterType = computed(() => {
-  switch (currentView.value) {
-    case 'kanban':
-      return kanbanFilterType.value;
-    case 'table':
-    case 'archive-table':
-      return tableFilterType.value;
-    case 'month':
-      return monthFilterType.value;
-    case 'week':
-      return weekFilterType.value;
-    case 'day':
-      return dayFilterType.value;
-    default:
-      return 'all';
-  }
-});
-
 const currentDocumentFilter = computed<string>({
   get() {
     switch (currentView.value) {
@@ -2742,12 +2907,18 @@ watch(currentView, () => {
   closeDocumentTabsDropdown();
   closeMobileViewSwitcher();
   cancelColumnTitleEdit();
+  clearGroupColumnReorderDragState();
+  if (currentView.value !== 'kanban' && isKanbanBatchEditMode.value) {
+    exitKanbanBatchEditMode();
+  }
 });
 
 watch(kanbanGroupBy, async (mode) => {
   if (mode !== 'group') {
+    clearGroupColumnReorderDragState();
     return;
   }
+  clearGroupColumnReorderDragState();
   taskGroups.value = await loadTaskGroups();
 });
 watch(tableGroupBy, async (mode) => {
@@ -2829,6 +3000,22 @@ const dayViewTasks = computed(() => {
 watch(tasks, () => {
   invalidateTableFilters();
 }, { immediate: true });
+
+watch(visibleKanbanTasks, (nextTasks) => {
+  if (kanbanBatchSelectedTaskIds.value.size === 0) {
+    return;
+  }
+  const idSet = new Set(nextTasks.map(task => task.id));
+  const nextSelected = new Set<string>();
+  kanbanBatchSelectedTaskIds.value.forEach(taskId => {
+    if (idSet.has(taskId)) {
+      nextSelected.add(taskId);
+    }
+  });
+  if (nextSelected.size !== kanbanBatchSelectedTaskIds.value.size) {
+    kanbanBatchSelectedTaskIds.value = nextSelected;
+  }
+});
 
 function getTaskVisualStatus(task: Task): Task['status'] {
   if (task.type === 'block' && task.blockId) {
@@ -3051,7 +3238,7 @@ function updateKanbanFilterPopoverPosition(): void {
   const horizontalMargin = 12;
   const verticalMargin = 12;
   const width = 300;
-  const maxHeight = Math.max(200, Math.min(420, viewportHeight - verticalMargin * 2));
+  const maxHeight = Math.max(200, Math.min(500, viewportHeight - verticalMargin * 2));
   let left = x;
   let top = y + 8;
   left = Math.max(horizontalMargin, Math.min(left, viewportWidth - horizontalMargin - width));
@@ -3093,7 +3280,7 @@ function updateTableFilterPopoverPosition(): void {
   const horizontalMargin = 12;
   const verticalMargin = 12;
   const width = 300;
-  const maxHeight = Math.max(200, Math.min(420, viewportHeight - verticalMargin * 2));
+  const maxHeight = Math.max(200, Math.min(500, viewportHeight - verticalMargin * 2));
   let left = x;
   let top = y + 8;
   left = Math.max(horizontalMargin, Math.min(left, viewportWidth - horizontalMargin - width));
@@ -3118,6 +3305,480 @@ function toggleTableFilterPopover(event: MouseEvent): void {
   tableFilterPopoverPoint.value = { x: event.clientX, y: event.clientY };
   tableFilterPopoverVisible.value = true;
   void nextTick(updateTableFilterPopoverPosition);
+}
+
+function isKanbanBatchStatus(value: string): value is Task['status'] {
+  return value === 'pending'
+    || value === 'in-progress'
+    || value === 'delayed'
+    || value === 'completed'
+    || value === 'cancelled';
+}
+
+function isKanbanBatchPriority(value: string): value is Task['priority'] {
+  return value === 'none'
+    || value === 'low'
+    || value === 'medium'
+    || value === 'high';
+}
+
+function resetKanbanBatchEditInputs(): void {
+  kanbanBatchEditStatus.value = '';
+  kanbanBatchEditPriority.value = '';
+  kanbanBatchEditGroupId.value = '';
+}
+
+function clearKanbanBatchSelection(): void {
+  kanbanBatchSelectedTaskIds.value = new Set();
+}
+
+function exitKanbanBatchEditMode(): void {
+  finishKanbanBatchLassoSelection();
+  isKanbanBatchEditMode.value = false;
+  clearKanbanBatchSelection();
+  resetKanbanBatchEditInputs();
+}
+
+function toggleKanbanBatchEditMode(): void {
+  if (isKanbanBatchEditMode.value) {
+    exitKanbanBatchEditMode();
+    return;
+  }
+  cancelColumnTitleEdit();
+  clearGroupColumnReorderDragState();
+  closeKanbanFilterPopover();
+  closeTableFilterPopover();
+  closeKanbanEditor();
+  isKanbanBatchEditMode.value = true;
+}
+
+function resetKanbanBatchLasso(): void {
+  kanbanBatchLassoBox.value = {
+    active: false,
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0
+  };
+  kanbanBatchLassoStart.value = null;
+  isKanbanBatchLassoSelecting.value = false;
+  kanbanBatchLassoBaseSelection = new Set();
+}
+
+function removeKanbanBatchLassoListeners(): void {
+  if (kanbanBatchLassoMoveHandler) {
+    window.removeEventListener('mousemove', kanbanBatchLassoMoveHandler);
+    kanbanBatchLassoMoveHandler = null;
+  }
+  if (kanbanBatchLassoUpHandler) {
+    window.removeEventListener('mouseup', kanbanBatchLassoUpHandler);
+    kanbanBatchLassoUpHandler = null;
+  }
+}
+
+function isKanbanBatchCardClickSuppressed(): boolean {
+  return Date.now() < kanbanBatchLassoSuppressCardClickUntil;
+}
+
+function shouldIgnoreKanbanBatchLassoTarget(target: EventTarget | null): boolean {
+  const targetElement = target instanceof Element
+    ? target
+    : (target instanceof Node ? target.parentElement : null);
+  if (!targetElement) {
+    return true;
+  }
+  if (!kanbanBoardRef.value?.contains(targetElement)) {
+    return true;
+  }
+  return !!targetElement.closest(
+    'button, input, textarea, select, a, [contenteditable="true"], .task-checkbox-wrapper, .task-card-action-btn, .column-header-actions'
+  );
+}
+
+function buildKanbanBatchLassoRect(startX: number, startY: number, endX: number, endY: number) {
+  const left = Math.min(startX, endX);
+  const top = Math.min(startY, endY);
+  const width = Math.abs(endX - startX);
+  const height = Math.abs(endY - startY);
+  return {
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height
+  };
+}
+
+function collectKanbanBatchLassoTaskIds(rect: { left: number; top: number; right: number; bottom: number }): Set<string> {
+  const taskIds = new Set<string>();
+  if (!kanbanBoardRef.value) {
+    return taskIds;
+  }
+  const taskNodes = kanbanBoardRef.value.querySelectorAll<HTMLElement>('.kanban-batch-item[data-task-id]');
+  taskNodes.forEach((node) => {
+    const taskId = node.dataset.taskId || '';
+    if (!taskId) {
+      return;
+    }
+    const nodeRect = node.getBoundingClientRect();
+    const intersects = rect.left < nodeRect.right
+      && rect.right > nodeRect.left
+      && rect.top < nodeRect.bottom
+      && rect.bottom > nodeRect.top;
+    if (intersects) {
+      taskIds.add(taskId);
+    }
+  });
+  return taskIds;
+}
+
+function finishKanbanBatchLassoSelection(): void {
+  if (isKanbanBatchLassoSelecting.value) {
+    kanbanBatchLassoSuppressCardClickUntil = Date.now() + 240;
+  }
+  removeKanbanBatchLassoListeners();
+  resetKanbanBatchLasso();
+}
+
+function handleKanbanBatchLassoMouseMove(event: MouseEvent): void {
+  if (!isKanbanBatchEditMode.value || !kanbanBatchLassoStart.value) {
+    return;
+  }
+  const start = kanbanBatchLassoStart.value;
+  const rect = buildKanbanBatchLassoRect(start.x, start.y, event.clientX, event.clientY);
+  const passedThreshold = rect.width > 4 || rect.height > 4;
+  if (!passedThreshold) {
+    return;
+  }
+  if (!isKanbanBatchLassoSelecting.value) {
+    isKanbanBatchLassoSelecting.value = true;
+  }
+  event.preventDefault();
+  kanbanBatchLassoBox.value = {
+    active: true,
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height
+  };
+  const intersectedTaskIds = collectKanbanBatchLassoTaskIds(rect);
+  const next = new Set(kanbanBatchLassoBaseSelection);
+  // Toggle selection for tasks inside lasso area:
+  // selected -> unselected, unselected -> selected.
+  intersectedTaskIds.forEach((taskId) => {
+    if (next.has(taskId)) {
+      next.delete(taskId);
+    } else {
+      next.add(taskId);
+    }
+  });
+  kanbanBatchSelectedTaskIds.value = next;
+}
+
+function handleKanbanBatchLassoMouseUp(_event: MouseEvent): void {
+  finishKanbanBatchLassoSelection();
+}
+
+function handleKanbanBatchLassoMouseDown(event: MouseEvent): void {
+  if (!isKanbanBatchEditMode.value || event.button !== 0) {
+    return;
+  }
+  if (shouldIgnoreKanbanBatchLassoTarget(event.target)) {
+    return;
+  }
+  removeKanbanBatchLassoListeners();
+  resetKanbanBatchLasso();
+  kanbanBatchLassoBaseSelection = new Set(kanbanBatchSelectedTaskIds.value);
+  kanbanBatchLassoStart.value = { x: event.clientX, y: event.clientY };
+  kanbanBatchLassoMoveHandler = handleKanbanBatchLassoMouseMove;
+  kanbanBatchLassoUpHandler = handleKanbanBatchLassoMouseUp;
+  window.addEventListener('mousemove', kanbanBatchLassoMoveHandler);
+  window.addEventListener('mouseup', kanbanBatchLassoUpHandler);
+}
+
+function isKanbanTaskBatchSelected(taskId: string): boolean {
+  return kanbanBatchSelectedTaskIds.value.has(taskId);
+}
+
+function toggleKanbanTaskBatchSelection(taskId: string): void {
+  if (!isKanbanBatchEditMode.value) {
+    return;
+  }
+  const normalizedTaskId = typeof taskId === 'string' ? taskId : '';
+  if (!normalizedTaskId) {
+    return;
+  }
+  const next = new Set(kanbanBatchSelectedTaskIds.value);
+  if (next.has(normalizedTaskId)) {
+    next.delete(normalizedTaskId);
+  } else {
+    next.add(normalizedTaskId);
+  }
+  kanbanBatchSelectedTaskIds.value = next;
+}
+
+function toggleSelectAllVisibleKanbanTasks(): void {
+  if (!isKanbanBatchEditMode.value) {
+    return;
+  }
+  const visibleIds = visibleKanbanTasks.value.map(task => task.id);
+  if (visibleIds.length === 0) {
+    return;
+  }
+  if (allVisibleKanbanTasksSelected.value) {
+    const visibleIdSet = new Set(visibleIds);
+    const next = new Set(
+      Array.from(kanbanBatchSelectedTaskIds.value).filter(taskId => !visibleIdSet.has(taskId))
+    );
+    kanbanBatchSelectedTaskIds.value = next;
+    return;
+  }
+  const next = new Set(kanbanBatchSelectedTaskIds.value);
+  visibleIds.forEach(taskId => next.add(taskId));
+  kanbanBatchSelectedTaskIds.value = next;
+}
+
+function getKanbanColumnSelectableTaskIds(column: KanbanColumn): string[] {
+  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading') {
+    return [];
+  }
+  return getTasksForColumn(column).map(task => task.id);
+}
+
+function isKanbanColumnBatchAllSelected(column: KanbanColumn): boolean {
+  const taskIds = getKanbanColumnSelectableTaskIds(column);
+  if (taskIds.length === 0) {
+    return false;
+  }
+  return taskIds.every(taskId => kanbanBatchSelectedTaskIds.value.has(taskId));
+}
+
+function isKanbanColumnBatchPartiallySelected(column: KanbanColumn): boolean {
+  const taskIds = getKanbanColumnSelectableTaskIds(column);
+  if (taskIds.length === 0) {
+    return false;
+  }
+  let selectedCount = 0;
+  taskIds.forEach(taskId => {
+    if (kanbanBatchSelectedTaskIds.value.has(taskId)) {
+      selectedCount += 1;
+    }
+  });
+  return selectedCount > 0 && selectedCount < taskIds.length;
+}
+
+function toggleKanbanColumnBatchSelection(column: KanbanColumn): void {
+  if (!isKanbanBatchEditMode.value) {
+    return;
+  }
+  const taskIds = getKanbanColumnSelectableTaskIds(column);
+  if (taskIds.length === 0) {
+    return;
+  }
+  const next = new Set(kanbanBatchSelectedTaskIds.value);
+  const allSelected = taskIds.every(taskId => next.has(taskId));
+  if (allSelected) {
+    taskIds.forEach(taskId => next.delete(taskId));
+  } else {
+    taskIds.forEach(taskId => next.add(taskId));
+  }
+  kanbanBatchSelectedTaskIds.value = next;
+}
+
+function handleKanbanTaskCardClick(task: Task, event?: MouseEvent): void {
+  if (isKanbanBatchEditMode.value) {
+    if (isKanbanBatchCardClickSuppressed()) {
+      return;
+    }
+    toggleKanbanTaskBatchSelection(task.id);
+    return;
+  }
+  handleTaskClick(task, event);
+}
+
+function handleKanbanTaskOpenClick(task: Task): void {
+  if (isKanbanBatchEditMode.value) {
+    if (isKanbanBatchCardClickSuppressed()) {
+      return;
+    }
+    toggleKanbanTaskBatchSelection(task.id);
+    return;
+  }
+  void handleTaskEditClick(task);
+}
+
+function handleKanbanTaskToggleStatus(task: Task): void {
+  if (isKanbanBatchEditMode.value) {
+    if (isKanbanBatchCardClickSuppressed()) {
+      return;
+    }
+    toggleKanbanTaskBatchSelection(task.id);
+    return;
+  }
+  void toggleTaskStatus(task);
+}
+
+async function applyKanbanBatchEdit(): Promise<void> {
+  if (isKanbanBatchApplying.value) {
+    return;
+  }
+  const selectedIds = Array.from(kanbanBatchSelectedTaskIds.value);
+  if (selectedIds.length === 0) {
+    await pushMsg('请先选择任务', 2200);
+    return;
+  }
+
+  const nextStatus = isKanbanBatchStatus(kanbanBatchEditStatus.value) ? kanbanBatchEditStatus.value : null;
+  const nextPriority = isKanbanBatchPriority(kanbanBatchEditPriority.value) ? kanbanBatchEditPriority.value : null;
+  const rawGroupSelection = typeof kanbanBatchEditGroupId.value === 'string' ? kanbanBatchEditGroupId.value.trim() : '';
+  const validGroupIds = new Set(taskGroups.value.map(group => group.id));
+  let nextGroupId: string | null = null;
+  if (rawGroupSelection) {
+    if (rawGroupSelection === TASK_GROUP_NONE_ID) {
+      nextGroupId = '';
+    } else if (validGroupIds.has(rawGroupSelection)) {
+      nextGroupId = rawGroupSelection;
+    } else {
+      await pushMsg('请选择有效标签', 2200);
+      return;
+    }
+  }
+
+  if (!nextStatus && !nextPriority && nextGroupId === null) {
+    await pushMsg('请选择要批量修改的字段', 2200);
+    return;
+  }
+
+  type BatchTaskUpdate = {
+    task: Task;
+    blockId: string;
+    attrs: Record<string, string>;
+    nextStatus: Task['status'] | null;
+    nextPriority: Task['priority'] | null;
+    nextGroupId: string | undefined | null;
+  };
+  const updates: BatchTaskUpdate[] = [];
+
+  for (const taskId of selectedIds) {
+    const task = tasks.value.find(item => item.id === taskId);
+    if (!task || task.type !== 'block') {
+      continue;
+    }
+    const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+    if (!blockId) {
+      continue;
+    }
+
+    const attrs: Record<string, string> = {};
+    let changedStatus: Task['status'] | null = null;
+    let changedPriority: Task['priority'] | null = null;
+    let changedGroupId: string | undefined | null = null;
+
+    if (nextStatus && task.status !== nextStatus) {
+      attrs['custom-task-status'] = nextStatus;
+      changedStatus = nextStatus;
+    }
+
+    if (nextPriority && task.priority !== nextPriority) {
+      attrs['custom-task-priority'] = nextPriority;
+      changedPriority = nextPriority;
+    }
+
+    if (nextGroupId !== null) {
+      const currentGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+      if (currentGroupId !== nextGroupId) {
+        attrs['custom-task-group'] = nextGroupId;
+        changedGroupId = nextGroupId || undefined;
+      }
+    }
+
+    if (Object.keys(attrs).length === 0) {
+      continue;
+    }
+
+    updates.push({
+      task,
+      blockId,
+      attrs,
+      nextStatus: changedStatus,
+      nextPriority: changedPriority,
+      nextGroupId: changedGroupId
+    });
+  }
+
+  if (updates.length === 0) {
+    await pushMsg('未检测到可更新的任务', 2200);
+    return;
+  }
+
+  isKanbanBatchApplying.value = true;
+  try {
+    const results = await Promise.allSettled(
+      updates.map(async (item) => {
+        await setBlockAttrs(item.blockId, item.attrs);
+        if (item.nextStatus) {
+          await updateTaskMarkdown(item.blockId, item.nextStatus === 'completed');
+        }
+      })
+    );
+
+    const nowIso = new Date().toISOString();
+    const changedBlockIds: string[] = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    results.forEach((result, index) => {
+      const update = updates[index];
+      if (!update) {
+        return;
+      }
+      if (result.status !== 'fulfilled') {
+        failedCount += 1;
+        return;
+      }
+
+      successCount += 1;
+      changedBlockIds.push(update.blockId);
+
+      const taskIndex = tasks.value.findIndex(item => item.id === update.task.id);
+      if (taskIndex !== -1) {
+        const targetTask = tasks.value[taskIndex];
+        if (update.nextStatus) {
+          targetTask.status = update.nextStatus;
+          if (update.nextStatus === 'completed') {
+            targetTask.completedAt = targetTask.completedAt || nowIso;
+          } else {
+            delete targetTask.completedAt;
+          }
+          crdtRepo.updateTaskField(update.task.id, 'status', update.nextStatus);
+        }
+        if (update.nextPriority) {
+          targetTask.priority = update.nextPriority;
+          crdtRepo.updateTaskField(update.task.id, 'priority', update.nextPriority);
+        }
+        if (update.nextGroupId !== null) {
+          targetTask.groupId = update.nextGroupId;
+          crdtRepo.updateTaskField(update.task.id, 'groupId', update.nextGroupId);
+        }
+        targetTask.updatedAt = nowIso;
+      }
+    });
+
+    invalidateTableFilters();
+    if (changedBlockIds.length > 0) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: changedBlockIds });
+    }
+
+    if (successCount > 0) {
+      await pushMsg(`已批量更新 ${successCount} 项任务`, 2200);
+    }
+    if (failedCount > 0) {
+      await pushMsg(`有 ${failedCount} 项任务更新失败`, 3000);
+    }
+  } finally {
+    isKanbanBatchApplying.value = false;
+  }
 }
 
 function normalizeDateInputValue(value: string): string {
@@ -4095,13 +4756,23 @@ function setupEventListeners() {
       applyExternalTaskGroups(nextGroups);
     })();
   });
+  const unsubscribeViewSwitchRequested = eventBus.on(
+    Events.KANBAN_VIEW_SWITCH_REQUEST,
+    (payload?: { view?: unknown }) => {
+      const nextView = normalizeTaskViewMode(payload?.view);
+      if (currentView.value !== nextView) {
+        currentView.value = nextView;
+      }
+    }
+  );
 
   eventUnsubscribers.push(
     unsubscribeChanged,
     unsubscribeDeleted,
     unsubscribeUpdated,
     unsubscribeAdded,
-    unsubscribeGroupsUpdated
+    unsubscribeGroupsUpdated,
+    unsubscribeViewSwitchRequested
   );
 }
 
@@ -4601,8 +5272,23 @@ const kanbanEditorStyle = computed(() => ({
   top: `${kanbanEditorPosition.value.y}px`
 }));
 
+function resolveKanbanEditorPanelElement(): HTMLElement | null {
+  const exposed = kanbanEditorPanelRef.value as { panelEl?: HTMLElement | { value?: HTMLElement | null } } | null;
+  const panelEl = exposed?.panelEl;
+  if (!panelEl) {
+    return null;
+  }
+  if (panelEl instanceof HTMLElement) {
+    return panelEl;
+  }
+  if (typeof panelEl === 'object' && 'value' in panelEl) {
+    return (panelEl as { value?: HTMLElement | null }).value || null;
+  }
+  return null;
+}
+
 function clampKanbanEditorPosition(): void {
-  const panel = kanbanEditorPanelRef.value;
+  const panel = resolveKanbanEditorPanelElement();
   if (!panel) return;
   const padding = 12;
   const rect = panel.getBoundingClientRect();
@@ -4669,6 +5355,13 @@ function handleInlineDescriptionInput(taskId: string, event: Event): void {
 }
 
 function startInlineDescriptionEdit(task: Task): void {
+  if (isKanbanBatchEditMode.value) {
+    if (isKanbanBatchCardClickSuppressed()) {
+      return;
+    }
+    toggleKanbanTaskBatchSelection(task.id);
+    return;
+  }
   if (inlineDescriptionSavingTaskIds.has(task.id)) {
     return;
   }
@@ -4749,6 +5442,20 @@ async function handleKanbanEditorPrioritySelect(value: string): Promise<void> {
   const priority = value as Task['priority'];
   activeKanbanEditDraft.value.priority = priority;
   await handlePriorityUpdate(activeKanbanEditTask.value, priority);
+  invalidateTableFilters();
+}
+
+async function handleKanbanEditorPinToggle(): Promise<void> {
+  const task = activeKanbanEditTask.value;
+  if (!task) return;
+  const nextPinned = !(task.pinned === true);
+  await applyBlockTaskFieldUpdate(
+    task,
+    { 'custom-task-pinned': nextPinned ? '1' : '' },
+    'pinned',
+    nextPinned,
+    '更新任务置顶失败'
+  );
   invalidateTableFilters();
 }
 
@@ -5060,7 +5767,8 @@ function handleKanbanEditorOutsideClick(event: MouseEvent): void {
   }
 
   if (kanbanEditorVisible.value) {
-    if (kanbanEditorPanelRef.value?.contains(target)) {
+    const panelEl = resolveKanbanEditorPanelElement();
+    if (panelEl?.contains(target)) {
       return;
     }
     closeKanbanEditor();
@@ -5362,6 +6070,188 @@ async function createQuickCreateHeading(rootId: string, headingTitle: string): P
   return extractCreatedBlockIdFromOperations(result);
 }
 
+interface BlockTypeMeta {
+  id: string;
+  parentId: string;
+  type: string;
+  subtype: string;
+}
+
+interface TaskListInsertMeta {
+  listId: string;
+  listItemId: string;
+}
+
+interface EnsuredTaskHeadingDropTarget {
+  parentId: string;
+  previousId?: string;
+  placeholderTaskItemId?: string;
+}
+
+function isTaskListBlockMeta(meta: BlockTypeMeta | null | undefined): boolean {
+  if (!meta) {
+    return false;
+  }
+  return meta.type === 'l' && meta.subtype.trim().toLowerCase() === 't';
+}
+
+async function queryBlockTypeMeta(blockId: string): Promise<BlockTypeMeta | null> {
+  const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+  if (!normalizedBlockId) {
+    return null;
+  }
+  try {
+    const rows = await sql(`
+      SELECT id, parent_id, type, subtype
+      FROM blocks
+      WHERE id = '${escapeSqlLiteral(normalizedBlockId)}'
+      LIMIT 1
+    `) as Array<{ id?: string; parent_id?: string; type?: string; subtype?: string }>;
+    const row = rows?.[0];
+    if (!row?.id) {
+      return null;
+    }
+    return {
+      id: typeof row.id === 'string' ? row.id : '',
+      parentId: typeof row.parent_id === 'string' ? row.parent_id : '',
+      type: typeof row.type === 'string' ? row.type : '',
+      subtype: typeof row.subtype === 'string' ? row.subtype : ''
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractTaskListInsertMeta(result: unknown): TaskListInsertMeta {
+  const meta: TaskListInsertMeta = { listId: '', listItemId: '' };
+  if (!Array.isArray(result) || result.length === 0) {
+    return meta;
+  }
+
+  const firstItem = result[0] as { doOperations?: unknown };
+  const operations = Array.isArray(firstItem?.doOperations)
+    ? firstItem.doOperations as Array<Record<string, unknown>>
+    : [];
+
+  const updateMetaFromDataHtml = (rawData: string): void => {
+    if (!rawData) {
+      return;
+    }
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(rawData, 'text/html');
+    if (!meta.listId) {
+      const listEl = doc.querySelector('[data-type="NodeList"][data-subtype="t"]');
+      const listId = listEl?.getAttribute('data-node-id') || '';
+      if (listId) {
+        meta.listId = listId;
+      }
+    }
+    if (!meta.listItemId) {
+      const itemEl = doc.querySelector('[data-type="NodeListItem"][data-subtype="t"]');
+      const itemId = itemEl?.getAttribute('data-node-id') || '';
+      if (itemId) {
+        meta.listItemId = itemId;
+      }
+    }
+  };
+
+  for (const operation of operations) {
+    const id = typeof operation.id === 'string' ? operation.id.trim() : '';
+    const objectType = typeof operation.objectType === 'string' ? operation.objectType : '';
+    if (id && objectType === 'NodeList' && !meta.listId) {
+      meta.listId = id;
+    }
+    if (id && objectType === 'NodeListItem' && !meta.listItemId) {
+      meta.listItemId = id;
+    }
+    const rawData = typeof operation.data === 'string' ? operation.data : '';
+    if (rawData) {
+      updateMetaFromDataHtml(rawData);
+    }
+  }
+
+  return meta;
+}
+
+async function resolveParentTaskListIdFromTaskItem(listItemId: string): Promise<string> {
+  const listItemMeta = await queryBlockTypeMeta(listItemId);
+  if (!listItemMeta?.parentId) {
+    return '';
+  }
+  const parentMeta = await queryBlockTypeMeta(listItemMeta.parentId);
+  return isTaskListBlockMeta(parentMeta) ? parentMeta!.id : '';
+}
+
+async function ensureTaskListDropTarget(
+  dropTarget: TaskHeadingDropTarget
+): Promise<EnsuredTaskHeadingDropTarget> {
+  const parentMeta = await queryBlockTypeMeta(dropTarget.parentId);
+  if (isTaskListBlockMeta(parentMeta)) {
+    return {
+      parentId: parentMeta!.id,
+      previousId: dropTarget.previousId
+    };
+  }
+
+  const placeholderInsertResult = await insertBlock(
+    'markdown',
+    '- [ ] ',
+    undefined,
+    dropTarget.previousId,
+    dropTarget.parentId
+  );
+  const insertMeta = extractTaskListInsertMeta(placeholderInsertResult);
+  let taskListId = insertMeta.listId;
+  if (!taskListId && insertMeta.listItemId) {
+    taskListId = await resolveParentTaskListIdFromTaskItem(insertMeta.listItemId);
+  }
+  if (!taskListId) {
+    const refreshedParentMeta = await queryBlockTypeMeta(dropTarget.parentId);
+    if (isTaskListBlockMeta(refreshedParentMeta)) {
+      taskListId = refreshedParentMeta!.id;
+    }
+  }
+  if (!taskListId) {
+    if (insertMeta.listItemId) {
+      await deleteBlock(insertMeta.listItemId).catch(() => undefined);
+    }
+    throw new Error('创建标题任务列表容器失败');
+  }
+
+  return {
+    parentId: taskListId,
+    previousId: insertMeta.listItemId || undefined,
+    placeholderTaskItemId: insertMeta.listItemId || undefined
+  };
+}
+
+async function moveTaskBlockToHeadingMeta(blockId: string, headingMeta: TaskHeadingGroupMeta): Promise<void> {
+  const dropTarget = await resolveTaskHeadingDropTarget(headingMeta);
+  if (!dropTarget) {
+    throw new Error('无法解析目标标题位置');
+  }
+
+  let moveParentId = dropTarget.parentId;
+  let movePreviousId = dropTarget.previousId;
+  let placeholderTaskItemId = '';
+  const parentMeta = await queryBlockTypeMeta(dropTarget.parentId);
+
+  if (!isTaskListBlockMeta(parentMeta)) {
+    const ensuredTarget = await ensureTaskListDropTarget(dropTarget);
+    moveParentId = ensuredTarget.parentId;
+    movePreviousId = ensuredTarget.previousId;
+    placeholderTaskItemId = ensuredTarget.placeholderTaskItemId || '';
+  }
+
+  try {
+    await moveBlock(blockId, movePreviousId, moveParentId);
+  } finally {
+    if (placeholderTaskItemId) {
+      await deleteBlock(placeholderTaskItemId).catch(() => undefined);
+    }
+  }
+}
+
 async function handleTaskCreateRequested(payload: CreateTaskPayload, options: OpenQuickCreateOptions = {}) {
   const sidebarSelection = getCurrentSidebarFilterSelection();
   const preferredNotebookId = options.preferredNotebookId || sidebarSelection.notebookId;
@@ -5486,12 +6376,7 @@ async function submitQuickCreateTask() {
         || (context?.columnType === 'heading' && context.headingMeta ? context.headingMeta : null);
       if (targetHeadingMeta) {
         try {
-          const dropTarget = await resolveTaskHeadingDropTarget(targetHeadingMeta);
-          if (dropTarget) {
-            await moveBlock(created.blockId, dropTarget.previousId, dropTarget.parentId);
-          } else {
-            await pushMsg('未能定位标题区，任务已创建到文档默认位置', 3000);
-          }
+          await moveTaskBlockToHeadingMeta(created.blockId, targetHeadingMeta);
         } catch (error) {
           console.error('[KanbanView] 新建任务后移动到标题失败:', error);
           await pushMsg('任务已创建，但移动到标题失败', 3000);
@@ -5698,6 +6583,198 @@ async function applyBlockTaskFieldUpdate<K extends keyof Task>(
   }
 }
 
+function resolveGroupColumnDragId(column: KanbanColumn): string {
+  if (column.type !== 'group') {
+    return '';
+  }
+  return typeof column.groupId === 'string' ? column.groupId.trim() : '';
+}
+
+function canReorderGroupColumn(column: KanbanColumn): boolean {
+  if (isMobileFrontend || kanbanGroupBy.value !== 'group' || isKanbanBatchEditMode.value) {
+    return false;
+  }
+  if (column.type !== 'group' || isColumnTitleEditing(column)) {
+    return false;
+  }
+  return resolveGroupColumnDragId(column).length > 0;
+}
+
+function isGroupColumnReorderTarget(column: KanbanColumn): boolean {
+  const groupId = resolveGroupColumnDragId(column);
+  return !!groupId && dragOverGroupColumnId.value === groupId;
+}
+
+function isGroupColumnReorderBefore(column: KanbanColumn): boolean {
+  return isGroupColumnReorderTarget(column) && dragOverGroupColumnPosition.value === 'before';
+}
+
+function isGroupColumnReorderAfter(column: KanbanColumn): boolean {
+  return isGroupColumnReorderTarget(column) && dragOverGroupColumnPosition.value === 'after';
+}
+
+function isGroupColumnBeingDragged(column: KanbanColumn): boolean {
+  const groupId = resolveGroupColumnDragId(column);
+  return !!groupId && draggedGroupColumnId.value === groupId;
+}
+
+function clearGroupColumnReorderDragState(): void {
+  draggedGroupColumnId.value = null;
+  dragOverGroupColumnId.value = null;
+  dragOverGroupColumnPosition.value = null;
+}
+
+function resolveGroupColumnDropPosition(event: DragEvent): 'before' | 'after' {
+  const currentTarget = event.currentTarget;
+  if (!(currentTarget instanceof HTMLElement)) {
+    return 'after';
+  }
+  const rect = currentTarget.getBoundingClientRect();
+  const midpoint = rect.left + rect.width / 2;
+  return event.clientX < midpoint ? 'before' : 'after';
+}
+
+function moveTaskGroupsByPosition(
+  groups: TaskGroup[],
+  sourceId: string,
+  targetId: string,
+  position: 'before' | 'after'
+): TaskGroup[] {
+  const sourceIndex = groups.findIndex(group => group.id === sourceId);
+  const targetIndex = groups.findIndex(group => group.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+    return groups;
+  }
+
+  const next = groups.map(group => ({ ...group }));
+  const [moved] = next.splice(sourceIndex, 1);
+  const targetIndexAfterRemoval = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+  const insertionIndex = position === 'before'
+    ? targetIndexAfterRemoval
+    : targetIndexAfterRemoval + 1;
+  next.splice(Math.max(0, Math.min(insertionIndex, next.length)), 0, moved);
+  return next;
+}
+
+async function reorderTaskGroupsByColumnDrag(
+  sourceGroupId: string,
+  targetGroupId: string,
+  position: 'before' | 'after'
+): Promise<void> {
+  const sourceId = sourceGroupId.trim();
+  const targetId = targetGroupId.trim();
+  if (!sourceId || !targetId || sourceId === targetId) {
+    return;
+  }
+
+  const currentGroups = taskGroups.value.map(group => ({ ...group }));
+  const reorderedGroups = moveTaskGroupsByPosition(currentGroups, sourceId, targetId, position);
+  if (reorderedGroups.length !== currentGroups.length) {
+    return;
+  }
+  const currentOrder = currentGroups.map(group => group.id).join('|');
+  const nextOrder = reorderedGroups.map(group => group.id).join('|');
+  if (currentOrder === nextOrder) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const nextGroups = reorderedGroups.map((group, index) => ({
+    ...group,
+    order: index,
+    updatedAt: now
+  }));
+
+  taskGroups.value = nextGroups;
+  eventBus.emit(Events.TASK_GROUPS_UPDATED, { groups: nextGroups });
+
+  try {
+    await saveTaskGroups(nextGroups);
+    const refreshedGroups = await loadTaskGroups();
+    taskGroups.value = refreshedGroups;
+    eventBus.emit(Events.TASK_GROUPS_UPDATED, { groups: refreshedGroups });
+  } catch (error) {
+    console.error('[KanbanView] 标签列排序保存失败:', error);
+    await pushMsg('标签列排序保存失败，请稍后重试', 2600);
+  }
+}
+
+function handleGroupColumnReorderDragStart(event: DragEvent, column: KanbanColumn): void {
+  if (!canReorderGroupColumn(column)) {
+    return;
+  }
+  const groupId = resolveGroupColumnDragId(column);
+  if (!groupId) {
+    return;
+  }
+
+  draggedGroupColumnId.value = groupId;
+  dragOverGroupColumnId.value = null;
+  dragOverGroupColumnPosition.value = null;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', groupId);
+  }
+}
+
+function handleGroupColumnReorderDragOver(event: DragEvent, column: KanbanColumn): void {
+  if (!draggedGroupColumnId.value || !canReorderGroupColumn(column)) {
+    return;
+  }
+  const targetGroupId = resolveGroupColumnDragId(column);
+  if (!targetGroupId || targetGroupId === draggedGroupColumnId.value) {
+    dragOverGroupColumnId.value = null;
+    dragOverGroupColumnPosition.value = null;
+    return;
+  }
+
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move';
+  }
+  dragOverGroupColumnId.value = targetGroupId;
+  dragOverGroupColumnPosition.value = resolveGroupColumnDropPosition(event);
+}
+
+function handleGroupColumnReorderDragLeave(event: DragEvent, column: KanbanColumn): void {
+  const targetGroupId = resolveGroupColumnDragId(column);
+  if (!targetGroupId || dragOverGroupColumnId.value !== targetGroupId) {
+    return;
+  }
+  const currentTarget = event.currentTarget;
+  const relatedTarget = event.relatedTarget;
+  if (
+    currentTarget instanceof Node
+    && relatedTarget instanceof Node
+    && currentTarget.contains(relatedTarget)
+  ) {
+    return;
+  }
+  dragOverGroupColumnId.value = null;
+  dragOverGroupColumnPosition.value = null;
+}
+
+async function handleGroupColumnReorderDrop(event: DragEvent, column: KanbanColumn): Promise<void> {
+  event.preventDefault();
+  const sourceGroupId = draggedGroupColumnId.value;
+  if (!sourceGroupId || !canReorderGroupColumn(column)) {
+    clearGroupColumnReorderDragState();
+    return;
+  }
+
+  const targetGroupId = resolveGroupColumnDragId(column);
+  const dropPosition = resolveGroupColumnDropPosition(event);
+  clearGroupColumnReorderDragState();
+  if (!targetGroupId || sourceGroupId === targetGroupId) {
+    return;
+  }
+  await reorderTaskGroupsByColumnDrag(sourceGroupId, targetGroupId, dropPosition);
+}
+
+function handleGroupColumnReorderDragEnd(): void {
+  clearGroupColumnReorderDragState();
+}
+
 function handleDragStart(event: DragEvent, task: Task) {
   if (isMobileFrontend || !kanbanSupportsDrag.value) return;
 
@@ -5896,12 +6973,7 @@ async function handleHeadingDrop(column: KanbanColumn) {
   dragOverColumnId.value = null;
 
   try {
-    const dropTarget = await resolveTaskHeadingDropTarget(nextMeta);
-    if (!dropTarget) {
-      throw new Error('无法解析目标标题位置');
-    }
-
-    await moveBlock(droppedBlockId, dropTarget.previousId, dropTarget.parentId);
+    await moveTaskBlockToHeadingMeta(droppedBlockId, nextMeta);
 
     window.setTimeout(() => {
       dragSyncSuppressUntil.delete(droppedBlockId);
@@ -6042,6 +7114,8 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKanbanEditorKeydown);
   window.removeEventListener('resize', handleKanbanEditorViewportChange);
   closeKanbanEditor();
+  removeKanbanBatchLassoListeners();
+  resetKanbanBatchLasso();
   dragStatusLocks.clear();
   dragSyncSuppressUntil.clear();
   if (kanbanMetricsRaf !== null) {
@@ -6054,6 +7128,9 @@ onUnmounted(() => {
 watch(currentView, (nextView) => {
   if (nextView !== 'kanban') {
     closeKanbanFilterPopover();
+    if (isKanbanBatchEditMode.value) {
+      exitKanbanBatchEditMode();
+    }
   }
   if (nextView !== 'table' && nextView !== 'archive-table') {
     closeTableFilterPopover();
@@ -6423,6 +7500,125 @@ watch(kanbanColumns, () => {
   stroke-linejoin: round;
 }
 
+.kanban-batch-entry-btn {
+  min-height: 24px;
+  padding: 4px 10px;
+  line-height: 1;
+  font-size: 12px;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+}
+
+.kanban-batch-entry-btn span {
+  white-space: nowrap;
+}
+
+.kanban-batch-entry-btn.active,
+.kanban-batch-entry-btn.active:hover {
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.kanban-batch-toolbar {
+  margin:0 10px 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--b3-list-hover);
+  box-shadow: #0000000a 0 1px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kanban-batch-toolbar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kanban-batch-selected-count {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  font-weight: 600;
+}
+
+.kanban-batch-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kanban-batch-tool-btn {
+  border: none;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.kanban-batch-tool-btn:hover {
+  color: var(--b3-theme-on-background);
+}
+
+.kanban-batch-tool-btn:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.kanban-batch-edit-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.kanban-batch-field {
+  min-width: 0;
+  flex: 1 1 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kanban-batch-field > span {
+  font-size: 11px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.76;
+}
+
+.kanban-batch-field :deep(.b3-select) {
+  width: 100%;
+}
+
+.kanban-batch-apply-btn {
+  border: none;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: #f98f7a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.kanban-batch-apply-btn:hover {
+  transform: translateY(-1px);
+}
+
+.kanban-batch-apply-btn:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .task-filter-count {
   position: absolute;
   top: -4px;
@@ -6749,6 +7945,15 @@ watch(kanbanColumns, () => {
     min-width: 0;
     max-width: 100%;
   }
+
+  .kanban-batch-edit-grid {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .kanban-batch-apply-btn {
+    width: 100%;
+  }
 }
 
 .filter-info {
@@ -6911,10 +8116,56 @@ watch(kanbanColumns, () => {
 }
 
 .column-header {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
+}
+
+.column-header-main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.group-column-reorder-header {
+  user-select: none;
+  cursor: grab;
+}
+
+.group-column-reorder-header:active {
+  cursor: grabbing;
+}
+
+.group-column-reorder-dragging {
+  opacity: 0.58;
+}
+
+.group-column-reorder-target {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.group-column-reorder-before::before,
+.group-column-reorder-after::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 999px;
+  background: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  pointer-events: none;
+}
+
+.group-column-reorder-before::before {
+  left: 2px;
+}
+
+.group-column-reorder-after::after {
+  right: 2px;
 }
 
 .column-header-actions {
@@ -7025,6 +8276,39 @@ watch(kanbanColumns, () => {
   flex-shrink: 0;
 }
 
+.column-batch-checkbox-btn {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.column-batch-checkbox-btn:hover {
+  background: var(--b3-list-hover);
+}
+
+.column-batch-checkbox-btn :deep(.task-checkbox) {
+  --task-checkbox-fill: var(--b3-list-hover);
+  --task-checkbox-border: var(--b3-border-color);
+}
+
+.column-batch-checkbox-btn.partial :deep(.task-checkbox) {
+  fill: #f98f7a;
+  stroke: none;
+  opacity: 0.45;
+}
+
+.column-batch-checkbox-btn.is-disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .column-title-text {
   min-width: 0;
 }
@@ -7044,102 +8328,31 @@ watch(kanbanColumns, () => {
   gap: 8px;
 }
 
-.kanban-editor-panel {
+.kanban-batch-item.is-batch-mode :deep(.task-card.variant-kanban) {
+  cursor: pointer;
+}
+
+.kanban-batch-item.is-batch-mode :deep(.task-card.variant-kanban .task-card-content) {
+  cursor: pointer;
+}
+
+.kanban-batch-item.is-batch-mode:hover :deep(.task-card.variant-kanban) {
+  box-shadow: 0 0 0 1px rgba(249, 143, 122, 0.35), 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.kanban-batch-item.selected :deep(.task-card.variant-kanban) {
+  background: var(--b3-list-hover);
+  box-shadow: 0 0 0 1px rgba(249, 143, 122, 0.78), 0 4px 12px rgba(249, 143, 122, 0.18);
+}
+
+.kanban-batch-lasso {
   position: fixed;
-  z-index: 50;
-  width: 360px;
-  max-width: calc(100vw - 24px);
-  max-height: min(70vh, 520px);
-  background: var(--b3-theme-background);
-  border: 1px solid var(--b3-border-color);
-  border-radius: 10px;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.kanban-editor-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--b3-theme-border);
-}
-
-.kanban-editor-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.kanban-editor-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--b3-theme-on-background);
-}
-
-.kanban-editor-priority-btn {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  padding: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-
-.kanban-editor-priority-indicator {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-
-.kanban-editor-priority-btn:hover .kanban-editor-priority-indicator {
-  transform: scale(1.05);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
-}
-
-.kanban-editor-move,
-.kanban-editor-archive,
-.kanban-editor-delete,
-.kanban-editor-close {
-  width: 28px;
-  height: 28px;
-  border: none;
+  z-index: 80;
+  border: 1px solid rgba(249, 143, 122, 0.95);
+  background: rgba(249, 143, 122, 0.16);
   border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--b3-theme-on-background);
-  background: transparent;
-}
-
-.kanban-editor-move:hover,
-.kanban-editor-archive:hover {
-  background: var(--b3-list-hover);
-  color: var(--b3-theme-primary);
-}
-
-.kanban-editor-delete:hover {
-  background: var(--b3-list-hover);
-  color: var(--b3-theme-error);
-}
-
-.kanban-editor-close:hover {
-  background: var(--b3-list-hover);
+  pointer-events: none;
+  box-sizing: border-box;
 }
 
 .kanban-task-move-dialog-overlay {

@@ -11,9 +11,37 @@
       <div class="task-group-list">
         <div v-if="localGroups.length === 0" class="task-group-empty">暂无标签</div>
         <div v-else class="task-group-grid">
-          <div v-for="(group, index) in localGroups" :key="group.id" class="task-group-card">
+          <div
+            v-for="(group, index) in localGroups"
+            :key="group.id"
+            class="task-group-card"
+            :class="{
+              'is-dragging': isGroupCardDragging(group),
+              'is-drag-over': isGroupCardDragOver(group),
+              'is-drag-over-before': isGroupCardDragOverBefore(group),
+              'is-drag-over-after': isGroupCardDragOverAfter(group)
+            }"
+            @dragover.prevent="handleGroupCardDragOver($event, group)"
+            @dragleave="handleGroupCardDragLeave($event, group)"
+            @drop.prevent="handleGroupCardDrop($event, group)"
+          >
             <div class="task-group-card-body">
               <div class="task-group-card-row">
+                <button
+                  type="button"
+                  class="task-group-drag-handle"
+                  draggable="true"
+                  title="拖动排序"
+                  aria-label="Drag to reorder tags"
+                  @dragstart="handleGroupCardDragStart($event, group)"
+                  @dragend="handleGroupCardDragEnd"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <path
+                      d="M8.5,10a2,2,0,1,0,2,2A2,2,0,0,0,8.5,10Zm0,7a2,2,0,1,0,2,2A2,2,0,0,0,8.5,17Zm7-10a2,2,0,1,0-2-2A2,2,0,0,0,15.5,7Zm-7-4a2,2,0,1,0,2,2A2,2,0,0,0,8.5,3Zm7,14a2,2,0,1,0,2,2A2,2,0,0,0,15.5,17Zm0-7a2,2,0,1,0,2,2A2,2,0,0,0,15.5,10Z"
+                    />
+                  </svg>
+                </button>
                 <SyInput
                   v-model="group.name"
                   class="task-group-name"
@@ -135,6 +163,9 @@ const groupColorOptions = [
 ];
 const localGroups = ref<TaskGroup[]>([]);
 const colorPickerIndex = ref<number | null>(null);
+const draggedGroupId = ref<string | null>(null);
+const dragOverGroupId = ref<string | null>(null);
+const dragOverGroupPosition = ref<'before' | 'after' | null>(null);
 
 function generateGroupId(): string {
   return `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -162,8 +193,144 @@ function normalizeGroup(group: TaskGroup, index: number, now: string): TaskGroup
   };
 }
 
+function resolveGroupId(group: TaskGroup): string {
+  return typeof group.id === 'string' ? group.id.trim() : '';
+}
+
+function clearGroupDragState(): void {
+  draggedGroupId.value = null;
+  dragOverGroupId.value = null;
+  dragOverGroupPosition.value = null;
+}
+
 function syncLocalGroups(): void {
   localGroups.value = (props.groups || []).map(group => ({ ...group }));
+  clearGroupDragState();
+}
+
+function moveLocalGroupOrder(sourceId: string, targetId: string, position: 'before' | 'after'): void {
+  if (!sourceId || !targetId || sourceId === targetId) {
+    return;
+  }
+
+  const nextGroups = localGroups.value.map(group => ({ ...group }));
+  const sourceIndex = nextGroups.findIndex(group => resolveGroupId(group) === sourceId);
+  const targetIndex = nextGroups.findIndex(group => resolveGroupId(group) === targetId);
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return;
+  }
+
+  const [moved] = nextGroups.splice(sourceIndex, 1);
+  const targetIndexAfterRemoval = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+  const insertionIndex = position === 'before'
+    ? targetIndexAfterRemoval
+    : targetIndexAfterRemoval + 1;
+  nextGroups.splice(Math.max(0, Math.min(insertionIndex, nextGroups.length)), 0, moved);
+
+  const currentOrder = localGroups.value.map(group => resolveGroupId(group)).join('|');
+  const nextOrder = nextGroups.map(group => resolveGroupId(group)).join('|');
+  if (currentOrder === nextOrder) {
+    return;
+  }
+
+  localGroups.value = nextGroups;
+}
+
+function isGroupCardDragging(group: TaskGroup): boolean {
+  const groupId = resolveGroupId(group);
+  return !!groupId && draggedGroupId.value === groupId;
+}
+
+function isGroupCardDragOver(group: TaskGroup): boolean {
+  const groupId = resolveGroupId(group);
+  return !!groupId && dragOverGroupId.value === groupId && draggedGroupId.value !== groupId;
+}
+
+function isGroupCardDragOverBefore(group: TaskGroup): boolean {
+  return isGroupCardDragOver(group) && dragOverGroupPosition.value === 'before';
+}
+
+function isGroupCardDragOverAfter(group: TaskGroup): boolean {
+  return isGroupCardDragOver(group) && dragOverGroupPosition.value === 'after';
+}
+
+function resolveGroupCardDropPosition(event: DragEvent): 'before' | 'after' {
+  const currentTarget = event.currentTarget;
+  if (!(currentTarget instanceof HTMLElement)) {
+    return 'after';
+  }
+  const rect = currentTarget.getBoundingClientRect();
+  const midpoint = rect.top + rect.height / 2;
+  return event.clientY < midpoint ? 'before' : 'after';
+}
+
+function handleGroupCardDragStart(event: DragEvent, group: TaskGroup): void {
+  const groupId = resolveGroupId(group);
+  if (!groupId) {
+    return;
+  }
+
+  draggedGroupId.value = groupId;
+  dragOverGroupId.value = null;
+  dragOverGroupPosition.value = null;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', groupId);
+  }
+}
+
+function handleGroupCardDragOver(event: DragEvent, group: TaskGroup): void {
+  const sourceId = draggedGroupId.value;
+  if (!sourceId) {
+    return;
+  }
+  const targetId = resolveGroupId(group);
+  if (!targetId || targetId === sourceId) {
+    dragOverGroupId.value = null;
+    dragOverGroupPosition.value = null;
+    return;
+  }
+
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move';
+  }
+  dragOverGroupId.value = targetId;
+  dragOverGroupPosition.value = resolveGroupCardDropPosition(event);
+}
+
+function handleGroupCardDragLeave(event: DragEvent, group: TaskGroup): void {
+  const targetId = resolveGroupId(group);
+  if (!targetId || dragOverGroupId.value !== targetId) {
+    return;
+  }
+  const currentTarget = event.currentTarget;
+  const relatedTarget = event.relatedTarget;
+  if (
+    currentTarget instanceof Node
+    && relatedTarget instanceof Node
+    && currentTarget.contains(relatedTarget)
+  ) {
+    return;
+  }
+  dragOverGroupId.value = null;
+  dragOverGroupPosition.value = null;
+}
+
+function handleGroupCardDrop(event: DragEvent, group: TaskGroup): void {
+  event.preventDefault();
+  const sourceId = draggedGroupId.value;
+  const targetId = resolveGroupId(group);
+  const dropPosition = resolveGroupCardDropPosition(event);
+  clearGroupDragState();
+  if (!sourceId || !targetId || sourceId === targetId) {
+    return;
+  }
+  moveLocalGroupOrder(sourceId, targetId, dropPosition);
+}
+
+function handleGroupCardDragEnd(): void {
+  clearGroupDragState();
 }
 
 function addGroup(): void {
@@ -183,7 +350,15 @@ function addGroup(): void {
 
 function removeGroup(index: number): void {
   if (!confirm('确认删除该标签？')) return;
+  const removedGroup = localGroups.value[index];
   localGroups.value.splice(index, 1);
+  const removedId = removedGroup ? resolveGroupId(removedGroup) : '';
+  if (!removedId) {
+    return;
+  }
+  if (draggedGroupId.value === removedId || dragOverGroupId.value === removedId) {
+    clearGroupDragState();
+  }
 }
 
 function setGroupColor(index: number, value: string): void {
@@ -273,6 +448,7 @@ watch(
       }
     } else {
       closeColorPicker();
+      clearGroupDragState();
     }
   },
   { immediate: true }
@@ -350,9 +526,43 @@ watch(
 }
 
 .task-group-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition: border-color 0.12s ease, background-color 0.12s ease, opacity 0.12s ease;
+}
+
+.task-group-card.is-drag-over {
+  border-color: var(--b3-theme-primary);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.task-group-card.is-drag-over-before::before,
+.task-group-card.is-drag-over-after::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 999px;
+  background: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  pointer-events: none;
+}
+
+.task-group-card.is-drag-over-before::before {
+  top: 2px;
+}
+
+.task-group-card.is-drag-over-after::after {
+  bottom: 2px;
+}
+
+.task-group-card.is-dragging {
+  opacity: 0.56;
 }
 
 .task-group-card-body {
@@ -365,6 +575,35 @@ watch(
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.task-group-drag-handle {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: grab;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.task-group-drag-handle:active {
+  cursor: grabbing;
+}
+
+.task-group-drag-handle:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-group-drag-handle svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
 }
 
 .task-group-name {

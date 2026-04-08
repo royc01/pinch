@@ -1075,8 +1075,6 @@ const closeHabitStats = () => {
 
 
 
-
-
 .stats-panel{
   background-color: var(--Sv-theme-surface);
 }

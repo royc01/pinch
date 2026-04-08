@@ -5,11 +5,14 @@
   openTab,
   showMessage,
 } from "siyuan";
+import type { IProtyle } from "siyuan";
 import { createApp } from 'vue'
 import App from './App.vue'
 import MobileTaskCreateDialog from './components/MobileTaskCreateDialog.vue'
 import KanbanView from './components/KanbanView.vue'
 import { startTaskReminderScheduler, stopTaskReminderScheduler } from '@/taskReminderScheduler';
+import { TaskRepository, sql } from '@/api';
+import { eventBus, Events } from '@/utils/eventBus';
 
 // 确保数据目录存在
 import { ensureDataDir } from '@/utils';
@@ -68,8 +71,6 @@ function registerIcons(pluginInstance: Plugin) {
 
 let mobileBreadcrumbObserver: MutationObserver | null = null;
 let mobileBreadcrumbRefreshRaf = 0;
-const MOBILE_TOOLBAR_BUTTON_TYPE = 'sidebar-pinch-tab';
-const MOBILE_TOOLBAR_BUTTON_ATTR = 'data-pinch-mobile-toolbar-button';
 const MOBILE_PINCH_PANEL_TYPE = 'sidebar-pinch';
 const MOBILE_PINCH_PANEL_ATTR = 'data-pinch-mobile-sidebar-panel';
 const MOBILE_PINCH_APP_ID = 'Pinch-habit-app';
@@ -81,6 +82,335 @@ function isMobileFrontend() {
   } catch {
     return false;
   }
+}
+
+// SiYuan command hotkey prefers symbol format, which is adapted per platform.
+const OPEN_TASK_EDITOR_HOTKEY = '⌥Q';
+type QuickTaskViewMode = 'kanban' | 'table' | 'day' | 'week' | 'month' | 'archive-table';
+const QUICK_TASK_VIEW_COMMANDS: Array<{ langKey: string; langText: string; view: QuickTaskViewMode }> = [
+  { langKey: 'pinchOpenKanbanView', langText: '快速打开看板视图', view: 'kanban' },
+  { langKey: 'pinchOpenTableView', langText: '快速打开表格视图', view: 'table' },
+  { langKey: 'pinchOpenDayView', langText: '快速打开日视图', view: 'day' },
+  { langKey: 'pinchOpenWeekView', langText: '快速打开周视图', view: 'week' },
+  { langKey: 'pinchOpenMonthView', langText: '快速打开月视图', view: 'month' },
+  { langKey: 'pinchOpenArchiveView', langText: '快速打开归档视图', view: 'archive-table' }
+];
+
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+function getClosestBlockIdFromElement(element: Element | null, editorRoot?: HTMLElement | null): string {
+  if (!element) {
+    return '';
+  }
+  const blockEl = element.closest('[data-node-id]') as HTMLElement | null;
+  if (!blockEl) {
+    return '';
+  }
+  if (editorRoot && !editorRoot.contains(blockEl)) {
+    return '';
+  }
+  const blockId = blockEl.getAttribute('data-node-id');
+  return typeof blockId === 'string' ? blockId.trim() : '';
+}
+
+function getTaskBlockIdFromElement(element: Element | null): string {
+  if (!element) {
+    return '';
+  }
+  const taskEl = element.closest('[data-node-id][data-subtype="t"]') as HTMLElement | null;
+  if (!taskEl) {
+    return '';
+  }
+  const blockId = taskEl.getAttribute('data-node-id');
+  return typeof blockId === 'string' ? blockId.trim() : '';
+}
+
+function getMenuAnchorFromBlockElement(blockElement: HTMLElement | null): { x: number; y: number } | null {
+  if (!blockElement) {
+    return null;
+  }
+  const rect = blockElement.getBoundingClientRect();
+  const left = Number(rect.left);
+  const top = Number(rect.top);
+  const width = Number(rect.width);
+  const height = Number(rect.height);
+  if (!Number.isFinite(left) || !Number.isFinite(top)) {
+    return null;
+  }
+  const safeWidth = Number.isFinite(width) ? Math.max(0, width) : 0;
+  const safeHeight = Number.isFinite(height) ? Math.max(0, height) : 0;
+  return {
+    x: Math.round(left + (safeWidth > 0 ? safeWidth / 2 : 0)),
+    y: Math.round(top + (safeHeight > 0 ? safeHeight / 2 : 0))
+  };
+}
+
+function getCurrentContextBlockId(protyle?: IProtyle): string {
+  const editorRoot = protyle?.element instanceof HTMLElement ? protyle.element : null;
+  const selection = window.getSelection();
+  if (selection && selection.rangeCount > 0) {
+    const anchorNode = selection.anchorNode || selection.getRangeAt(0).startContainer;
+    const anchorElement = anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement || null;
+    const fromSelection = getClosestBlockIdFromElement(anchorElement, editorRoot);
+    if (fromSelection) {
+      return fromSelection;
+    }
+  }
+
+  const activeElement = document.activeElement;
+  if (activeElement instanceof Element) {
+    const fromActive = getClosestBlockIdFromElement(activeElement, editorRoot);
+    if (fromActive) {
+      return fromActive;
+    }
+  }
+
+  const fallbackBlockId = typeof protyle?.block?.id === 'string' ? protyle.block.id.trim() : '';
+  return fallbackBlockId;
+}
+
+function buildMenuAnchorFromRect(rect: DOMRect | null | undefined): { x: number; y: number } | null {
+  if (!rect) {
+    return null;
+  }
+  const left = Number(rect.left);
+  const top = Number(rect.top);
+  const width = Number(rect.width);
+  const height = Number(rect.height);
+  if (!Number.isFinite(left) || !Number.isFinite(top)) {
+    return null;
+  }
+  const safeWidth = Number.isFinite(width) ? Math.max(0, width) : 0;
+  const safeHeight = Number.isFinite(height) ? Math.max(0, height) : 0;
+  return {
+    x: Math.round(left + (safeWidth > 0 ? safeWidth / 2 : 0)),
+    y: Math.round(top + (safeHeight > 0 ? safeHeight : 18))
+  };
+}
+
+function getCurrentContextMenuAnchor(protyle?: IProtyle): { x: number; y: number } | null {
+  const editorRoot = protyle?.element instanceof HTMLElement ? protyle.element : null;
+  const selection = window.getSelection();
+
+  if (selection && selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    const anchorNode = selection.anchorNode || range.startContainer;
+    const anchorElement = anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement || null;
+    if (!editorRoot || (anchorElement && editorRoot.contains(anchorElement))) {
+      const rect = range.getClientRects().length > 0 ? range.getClientRects()[0] : range.getBoundingClientRect();
+      const fromRange = buildMenuAnchorFromRect(rect);
+      if (fromRange) {
+        return fromRange;
+      }
+      if (anchorElement instanceof HTMLElement) {
+        const fromElement = buildMenuAnchorFromRect(anchorElement.getBoundingClientRect());
+        if (fromElement) {
+          return fromElement;
+        }
+      }
+    }
+  }
+
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLElement) {
+    if (!editorRoot || editorRoot.contains(activeElement)) {
+      return buildMenuAnchorFromRect(activeElement.getBoundingClientRect());
+    }
+  }
+
+  return null;
+}
+
+async function resolveNearestTaskBlockId(blockId: string): Promise<string | null> {
+  const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+  if (!normalizedBlockId) {
+    return null;
+  }
+
+  try {
+    const escapedBlockId = escapeSqlLiteral(normalizedBlockId);
+    const rows = await sql(`
+      WITH RECURSIVE ancestors(id, parent_id, depth, subtype) AS (
+        SELECT id, parent_id, 0 AS depth, subtype
+        FROM blocks
+        WHERE id = '${escapedBlockId}'
+        UNION ALL
+        SELECT b.id, b.parent_id, ancestors.depth + 1, b.subtype
+        FROM blocks b
+        JOIN ancestors ON ancestors.parent_id = b.id
+        WHERE ancestors.parent_id != ''
+          AND ancestors.depth < 20
+      )
+      SELECT id
+      FROM ancestors
+      WHERE subtype = 't'
+      ORDER BY depth ASC
+      LIMIT 1
+    `) as Array<{ id?: string }>;
+
+    const taskBlockId = rows?.[0]?.id;
+    if (typeof taskBlockId !== 'string') {
+      return null;
+    }
+    const normalizedTaskBlockId = taskBlockId.trim();
+    return normalizedTaskBlockId.length > 0 ? normalizedTaskBlockId : null;
+  } catch {
+    return null;
+  }
+}
+
+async function openTaskEditorFromCurrentContext(protyle?: IProtyle): Promise<void> {
+  const contextBlockId = getCurrentContextBlockId(protyle);
+  if (!contextBlockId) {
+    showMessage('未定位到当前块', 2000, 'error');
+    return;
+  }
+
+  const taskBlockId = await resolveNearestTaskBlockId(contextBlockId);
+  if (!taskBlockId) {
+    showMessage('当前块不是任务块', 2000, 'error');
+    return;
+  }
+
+  const menuAnchor = getCurrentContextMenuAnchor(protyle);
+
+  if (!isMobileFrontend()) {
+    openPinchDockView();
+  }
+
+  const task = await TaskRepository.getTaskByBlockId(taskBlockId, true).catch(() => null);
+  const rootId = typeof task?.rootId === 'string' ? task.rootId.trim() : '';
+  eventBus.emit(Events.TASK_EDITOR_OPEN_REQUEST, {
+    blockId: taskBlockId,
+    rootId,
+    anchorX: menuAnchor?.x,
+    anchorY: menuAnchor?.y,
+    task: task || undefined
+  });
+}
+
+async function openTaskDateMenuByBlockId(
+  blockId: string,
+  anchor?: { x: number; y: number } | null
+): Promise<void> {
+  const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+  if (!normalizedBlockId) {
+    return;
+  }
+
+  const taskBlockId = await resolveNearestTaskBlockId(normalizedBlockId);
+  if (!taskBlockId) {
+    showMessage('当前块不是任务块', 2000, 'error');
+    return;
+  }
+
+  if (!isMobileFrontend()) {
+    openPinchDockView();
+  }
+
+  const task = await TaskRepository.getTaskByBlockId(taskBlockId, true).catch(() => null);
+  const rootId = typeof task?.rootId === 'string' ? task.rootId.trim() : '';
+  eventBus.emit(Events.TASK_EDITOR_OPEN_REQUEST, {
+    blockId: taskBlockId,
+    rootId,
+    anchorX: anchor?.x,
+    anchorY: anchor?.y,
+    task: task || undefined
+  });
+}
+
+let taskBlockIconMenuListener: ((event: CustomEvent<{
+  menu: { addItem: (item: {
+    icon?: string;
+    label?: string;
+    click?: () => void | Promise<void>;
+  }) => void };
+  blockElements: HTMLElement[];
+}>) => void | Promise<void>) | null = null;
+
+function registerTaskBlockIconMenu(pluginInstance: Plugin): void {
+  if (taskBlockIconMenuListener) {
+    pluginInstance.eventBus.off('click-blockicon', taskBlockIconMenuListener as any);
+    taskBlockIconMenuListener = null;
+  }
+
+  taskBlockIconMenuListener = (event) => {
+    const detail = event.detail;
+    const blockElements = Array.isArray(detail?.blockElements) ? detail.blockElements : [];
+    const primaryBlockElement = blockElements[0] || null;
+    const sourceBlockId = getClosestBlockIdFromElement(primaryBlockElement);
+    const domTaskBlockId = getTaskBlockIdFromElement(primaryBlockElement);
+    const targetBlockId = domTaskBlockId || sourceBlockId;
+    if (!targetBlockId) {
+      return;
+    }
+
+    const anchor = getMenuAnchorFromBlockElement(primaryBlockElement);
+    detail.menu.addItem({
+      icon: 'iconCalendar',
+      label: '编辑任务日期',
+      click: () => {
+        void openTaskDateMenuByBlockId(targetBlockId, anchor);
+      }
+    });
+  };
+
+  pluginInstance.eventBus.on('click-blockicon', taskBlockIconMenuListener as any);
+}
+
+function unregisterTaskBlockIconMenu(): void {
+  if (!plugin || !taskBlockIconMenuListener) {
+    return;
+  }
+  plugin.eventBus.off('click-blockicon', taskBlockIconMenuListener as any);
+  taskBlockIconMenuListener = null;
+}
+
+function registerTaskEditorHotkeyCommand(pluginInstance: Plugin): void {
+  pluginInstance.addCommand({
+    langKey: 'pinchOpenTaskEditor',
+    langText: '打开当前任务日期弹窗',
+    hotkey: OPEN_TASK_EDITOR_HOTKEY,
+    editorCallback: (protyle) => {
+      void openTaskEditorFromCurrentContext(protyle as IProtyle);
+    },
+    globalCallback: () => {
+      void openTaskEditorFromCurrentContext();
+    }
+  });
+}
+
+function emitTaskViewSwitchRequest(view: QuickTaskViewMode): void {
+  const payload = { view };
+  eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
+  window.setTimeout(() => {
+    eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
+  }, 220);
+  window.setTimeout(() => {
+    eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
+  }, 480);
+}
+
+async function openTaskViewByMode(view: QuickTaskViewMode): Promise<void> {
+  await openKanbanView();
+  emitTaskViewSwitchRequest(view);
+}
+
+function registerTaskViewHotkeyCommands(pluginInstance: Plugin): void {
+  QUICK_TASK_VIEW_COMMANDS.forEach((command) => {
+    pluginInstance.addCommand({
+      langKey: command.langKey,
+      langText: command.langText,
+      editorCallback: () => {
+        void openTaskViewByMode(command.view);
+      },
+      globalCallback: () => {
+        void openTaskViewByMode(command.view);
+      }
+    });
+  });
 }
 
 function createMobileBreadcrumbTaskButton() {
@@ -184,107 +514,6 @@ function ensureMobileBreadcrumbTaskButtons() {
   });
 }
 
-function createMobileToolbarKanbanButton() {
-  const button = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  button.classList.add('toolbar__icon');
-  button.setAttribute('data-type', MOBILE_TOOLBAR_BUTTON_TYPE);
-  button.setAttribute(MOBILE_TOOLBAR_BUTTON_ATTR, 'true');
-  button.setAttribute('aria-label', 'Pinch-habit-app');
-  button.setAttribute('title', 'Pinch-habit-app');
-  button.innerHTML = '<use xlink:href="#ht-custom-icon"></use>';
-  button.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!openPinchMobileSidebarView() && !openPinchDockView()) {
-      showMessage('Failed to open Pinch-habit-app', 3000, 'error');
-    }
-  });
-  return button;
-}
-
-function findMobileSidebarRoot(): HTMLElement | null {
-  return document.querySelector<HTMLElement>('.fn__flex-1.b3-list--mobile')
-    || document.querySelector<HTMLElement>('.b3-list--mobile');
-}
-
-function ensureMobilePinchSidebarPanel(sidebarRoot: HTMLElement): HTMLElement {
-  const panelSelector = `[data-type="${MOBILE_PINCH_PANEL_TYPE}"][${MOBILE_PINCH_PANEL_ATTR}="true"]`;
-  let panel = sidebarRoot.querySelector<HTMLElement>(panelSelector);
-  if (!panel) {
-    panel = document.createElement('div');
-    panel.className = 'fn__flex-column fn__none';
-    panel.setAttribute('data-type', MOBILE_PINCH_PANEL_TYPE);
-    panel.setAttribute(MOBILE_PINCH_PANEL_ATTR, 'true');
-    panel.style.height = '100%';
-    sidebarRoot.appendChild(panel);
-  }
-
-  let container = panel.querySelector<HTMLElement>(`#${MOBILE_PINCH_APP_ID}`);
-  if (!container) {
-    container = document.createElement('div');
-    container.id = MOBILE_PINCH_APP_ID;
-    container.style.width = '100%';
-    container.style.height = '100%';
-    panel.appendChild(container);
-  }
-
-  return panel;
-}
-
-function setMobileSidebarToolbarActive(toolbar: HTMLElement | null, activeButton: HTMLElement | null) {
-  if (!toolbar) {
-    return;
-  }
-  toolbar.querySelectorAll<HTMLElement>('.toolbar__icon.toolbar__icon--active').forEach((icon) => {
-    if (icon === activeButton) {
-      return;
-    }
-    icon.classList.remove('toolbar__icon--active');
-  });
-  activeButton?.classList.add('toolbar__icon--active');
-}
-
-function openPinchMobileSidebarView(): boolean {
-  const sidebarRoot = findMobileSidebarRoot();
-  if (!sidebarRoot) {
-    return false;
-  }
-
-  const panel = ensureMobilePinchSidebarPanel(sidebarRoot);
-  Array.from(sidebarRoot.children).forEach((child) => {
-    if (!(child instanceof HTMLElement)) {
-      return;
-    }
-    const type = child.getAttribute('data-type') || '';
-    if (!type.startsWith('sidebar-')) {
-      return;
-    }
-    if (child === panel) {
-      child.classList.remove('fn__none');
-    } else {
-      child.classList.add('fn__none');
-    }
-  });
-
-  const mountElement = panel.querySelector<HTMLElement>(`#${MOBILE_PINCH_APP_ID}`);
-  if (!mountElement) {
-    return false;
-  }
-
-  if (!mobileSidebarPinchApp) {
-    panel.innerHTML = '';
-    mountElement.removeAttribute('data-v-app');
-    panel.appendChild(mountElement);
-    mobileSidebarPinchApp = createApp(App);
-    mobileSidebarPinchApp.mount(mountElement);
-  }
-
-  const toolbar = findMobileSidebarToolbarHost();
-  const button = toolbar?.querySelector<HTMLElement>(`[${MOBILE_TOOLBAR_BUTTON_ATTR}="true"]`) || null;
-  setMobileSidebarToolbarActive(toolbar, button);
-  return true;
-}
-
 function cleanupMobileSidebarPinchView() {
   if (mobileSidebarPinchApp) {
     mobileSidebarPinchApp.unmount();
@@ -295,70 +524,12 @@ function cleanupMobileSidebarPinchView() {
     .forEach((panel) => panel.remove());
 }
 
-function findMobileSidebarToolbarHost(): HTMLElement | null {
-  const switchToolbar = Array.from(
-    document.querySelectorAll<HTMLElement>('.toolbar.toolbar--border:not(.toolbar--dark)')
-  ).find((toolbar) => {
-    return !!toolbar.querySelector('[data-type="sidebar-plugin-tab"]');
-  });
-  if (switchToolbar) {
-    return switchToolbar;
-  }
-
-  const panelToolbars = Array.from(
-    document.querySelectorAll<HTMLElement>('.b3-list--mobile .toolbar.toolbar--border.toolbar--dark')
-  );
-  if (panelToolbars.length === 0) {
-    return null;
-  }
-
-  const visiblePanelToolbar = panelToolbars.find((toolbar) => {
-    const sidebarPanel = toolbar.closest<HTMLElement>('[data-type^="sidebar-"]');
-    return !!sidebarPanel && !sidebarPanel.classList.contains('fn__none');
-  });
-  return visiblePanelToolbar || panelToolbars[0];
-}
-
-function cleanupMobileToolbarKanbanButtons(except?: HTMLElement | null) {
+function cleanupLegacyMobileToolbarEntry() {
   document
-    .querySelectorAll<HTMLElement>(`[${MOBILE_TOOLBAR_BUTTON_ATTR}="true"]`)
-    .forEach((button) => {
-      if (except && button === except) {
-        return;
-      }
-      button.remove();
-    });
-}
-
-function ensureMobileToolbarKanbanButtons() {
-  if (!isMobileFrontend()) {
-    return;
-  }
-
-  const toolbar = findMobileSidebarToolbarHost();
-  if (!toolbar) {
-    cleanupMobileToolbarKanbanButtons();
-    return;
-  }
-
-  const currentButton = toolbar.querySelector<HTMLElement>(`[${MOBILE_TOOLBAR_BUTTON_ATTR}="true"]`);
-  cleanupMobileToolbarKanbanButtons(currentButton);
-  if (currentButton) {
-    return;
-  }
-
-  const button = createMobileToolbarKanbanButton();
-  const pluginTab = toolbar.querySelector<HTMLElement>('[data-type="sidebar-plugin-tab"]');
-  if (pluginTab && pluginTab.parentElement === toolbar) {
-    toolbar.insertBefore(button, pluginTab);
-    return;
-  }
-  const spacer = toolbar.querySelector('.fn__flex-1');
-  if (spacer) {
-    toolbar.insertBefore(button, spacer);
-    return;
-  }
-  toolbar.appendChild(button);
+    .querySelectorAll<HTMLElement>(
+      '[data-pinch-mobile-toolbar-button="true"], .toolbar__icon[data-type="sidebar-pinch-tab"]'
+    )
+    .forEach((button) => button.remove());
 }
 
 function scheduleMobileBreadcrumbButtonRefresh() {
@@ -368,7 +539,6 @@ function scheduleMobileBreadcrumbButtonRefresh() {
   mobileBreadcrumbRefreshRaf = window.requestAnimationFrame(() => {
     mobileBreadcrumbRefreshRaf = 0;
     ensureMobileBreadcrumbTaskButtons();
-    ensureMobileToolbarKanbanButtons();
   });
 }
 
@@ -378,7 +548,7 @@ function startMobileBreadcrumbButtonObserver() {
   }
 
   ensureMobileBreadcrumbTaskButtons();
-  ensureMobileToolbarKanbanButtons();
+  cleanupLegacyMobileToolbarEntry();
   mobileBreadcrumbObserver?.disconnect();
   mobileBreadcrumbObserver = new MutationObserver(() => {
     scheduleMobileBreadcrumbButtonRefresh();
@@ -399,9 +569,7 @@ function stopMobileBreadcrumbButtonObserver() {
   document
     .querySelectorAll('[data-pinch-mobile-task-create="true"]')
     .forEach((button) => button.remove());
-  document
-    .querySelectorAll(`[${MOBILE_TOOLBAR_BUTTON_ATTR}="true"]`)
-    .forEach((button) => button.remove());
+  cleanupLegacyMobileToolbarEntry();
   cleanupMobileSidebarPinchView();
 }
 
@@ -478,6 +646,9 @@ export function init(pluginInstance: Plugin) {
   // bind plugin hook
   usePlugin(pluginInstance);
   registerIcons(pluginInstance);
+  registerTaskEditorHotkeyCommand(pluginInstance);
+  registerTaskViewHotkeyCommands(pluginInstance);
+  registerTaskBlockIconMenu(pluginInstance);
   startMobileBreadcrumbButtonObserver();
   startTaskReminderScheduler();
 
@@ -540,6 +711,7 @@ export function init(pluginInstance: Plugin) {
 export function destroy() {
   stopTaskReminderScheduler();
   stopMobileBreadcrumbButtonObserver();
+  unregisterTaskBlockIconMenu();
   closeMobileTaskCreateDialog();
   cleanupMobileSidebarPinchView();
   if (app) {

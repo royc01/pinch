@@ -97,20 +97,136 @@
             </span>
           </button>
         </div>
+        <div ref="taskGroupMenuControlRef" class="task-group-menu-control">
+          <button
+            type="button"
+            class="task-group-menu-btn"
+            :class="{
+              active: taskGroupMenuVisible || taskListGroupBy !== 'none' || taskListViewMode !== 'kanban',
+              'is-batch-active': isBatchEditMode
+            }"
+            title="任务分组"
+            aria-label="任务分组"
+            @click.stop="toggleTaskGroupMenu"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12,7a2,2,0,1,0-2-2A2,2,0,0,0,12,7Zm0,10a2,2,0,1,0,2,2A2,2,0,0,0,12,17Zm0-7a2,2,0,1,0,2,2A2,2,0,0,0,12,10Z" />
+            </svg>
+          </button>
+          <div
+            v-if="taskGroupMenuVisible"
+            class="task-group-menu-popover"
+            @click.stop
+          >
+            <button
+              v-for="option in taskListViewOptions"
+              :key="`view:${option.value}`"
+              type="button"
+              class="task-group-menu-item"
+              :class="{ active: taskListViewMode === option.value }"
+              @click.stop="selectTaskListViewMode(option.value)"
+            >
+              <span>{{ option.label }}</span>
+              <span v-if="taskListViewMode === option.value" class="task-group-menu-check">
+                <Icon name="taskCheckboxChecked" width="12" height="12" />
+              </span>
+            </button>
+            <div class="task-group-menu-divider"></div>
+            <button
+              v-for="option in taskListGroupOptions"
+              :key="option.value"
+              type="button"
+              class="task-group-menu-item"
+              :class="{ active: taskListGroupBy === option.value }"
+              @click.stop="selectTaskListGroup(option.value)"
+            >
+              <span>{{ option.label }}</span>
+              <span v-if="taskListGroupBy === option.value" class="task-group-menu-check">
+                <Icon name="taskCheckboxChecked" width="12" height="12" />
+              </span>
+            </button>
+            <div class="task-group-menu-divider"></div>
+            <button
+              type="button"
+              class="task-group-menu-item"
+              :class="{ active: isBatchEditMode }"
+              @click.stop="toggleBatchEditModeFromMenu"
+            >
+              <span>{{ isBatchEditMode ? '退出批量编辑' : '进入批量编辑' }}</span>
+              <span v-if="isBatchEditMode" class="task-group-menu-check">
+                <Icon name="taskCheckboxChecked" width="12" height="12" />
+              </span>
+            </button>
+            <div class="task-group-menu-divider"></div>
+            <button
+              type="button"
+              class="task-group-menu-item"
+              @click.stop="toggleTaskCardDetailsFromMenu"
+            >
+              <span>{{ showTaskCardDetails ? '隐藏详细' : '显示详细' }}</span>
+            </button>
+            <button
+              v-if="hasVisibleExpandableTasks"
+              type="button"
+              class="task-group-menu-item"
+              @click.stop="toggleAllVisibleSubtasksFromMenu"
+            >
+              <span>{{ areAllVisibleSubtasksExpanded ? '一键折叠详情' : '一键展开详情' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
+    <div v-if="isBatchEditMode && !isTaskListCollapsed" class="task-batch-toolbar">
+      <div class="task-batch-toolbar-header">
+        <span class="task-batch-selected-count">已选 {{ batchSelectedCount }} 项</span>
+        <div class="task-batch-toolbar-actions">
+          <button type="button" class="task-batch-tool-btn" @click="toggleSelectAllVisibleTasks">
+            {{ allVisibleTasksSelected ? '取消全选' : '全选当前列表' }}
+          </button>
+          <button
+            type="button"
+            class="task-batch-tool-btn"
+            :disabled="batchSelectedCount === 0"
+            @click="clearBatchSelection"
+          >
+            清空选择
+          </button>
+        </div>
+      </div>
+      <div class="task-batch-edit-grid">
+        <label class="task-batch-field">
+          <span>状态</span>
+          <SySelect
+            :model-value="batchEditStatus"
+            :options="batchEditStatusOptions"
+            @update:model-value="batchEditStatus = String($event || '')"
+          />
+        </label>
+        <label class="task-batch-field">
+          <span>优先级</span>
+          <SySelect
+            :model-value="batchEditPriority"
+            :options="batchEditPriorityOptions"
+            @update:model-value="batchEditPriority = String($event || '')"
+          />
+        </label>
+        <label class="task-batch-field">
+          <span>标签</span>
+          <SySelect
+            :model-value="batchEditGroupId"
+            :options="batchEditGroupOptions"
+            @update:model-value="batchEditGroupId = String($event || '')"
+          />
+        </label>
         <button
-          v-if="hasVisibleExpandableTasks"
           type="button"
-          class="subtasks-toggle-btn"
-          :class="{ expanded: areAllVisibleSubtasksExpanded }"
-          :title="areAllVisibleSubtasksExpanded ? '一键折叠详情' : '一键展开详情'"
-          :aria-label="areAllVisibleSubtasksExpanded ? '一键折叠详情' : '一键展开详情'"
-          @click="toggleAllVisibleSubtasks"
+          class="task-batch-apply-btn"
+          :disabled="!canApplyBatchEdit"
+          @click="applyBatchEdit"
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 8l5 5 5-5" />
-            <path d="M7 12l5 5 5-5" />
-          </svg>
+          {{ isBatchApplying ? '应用中...' : '应用到已选' }}
         </button>
       </div>
     </div>
@@ -128,187 +244,123 @@
 
     <Teleport :to="taskModalTeleportTo" :disabled="!taskModalTeleportTarget">
       <Transition name="task-editor-overlay">
-        <div
+        <TaskEditorPanelShell
           v-show="!isTaskListCollapsed && taskEditorSidebarVisible"
-          class="task-editor-sidebar-overlay"
-          @click.self="closeTaskEditorSidebar"
+          mode="sidebar"
+          :title="taskEditorSidebarTitle"
+          :show-pin="!!activeTaskEditTask"
+          :pin-active="isActiveTaskPinned"
+          :show-move="!!activeTaskEditTask"
+          :show-archive="!!activeTaskEditTask"
+          :is-archived="isActiveTaskArchived"
+          :show-delete="!!activeTaskEditTask"
+          :show-priority="!!(activeTaskEditTask && activeTaskEditDraft)"
+          :priority-style="{ background: taskEditorPriorityOption.background, color: taskEditorPriorityOption.color }"
+          @backdrop-click="closeTaskEditorSidebar"
+          @panel-mousedown="handleTaskEditorSidebarPanelMouseDown"
+          @pin="handleTaskEditorPinToggle"
+          @move="openTaskMoveDialog"
+          @archive="handleTaskEditorArchiveToggle"
+          @delete="handleTaskEditorDelete"
+          @priority="toggleTaskEditorPriorityPopover"
+          @close="closeTaskEditorSidebar"
         >
-            <div class="task-editor-sidebar-panel" @mousedown.capture="handleTaskEditorSidebarPanelMouseDown" @click.stop>
-              <div class="task-editor-sidebar-header">
-                <span class="task-editor-sidebar-title">{{ taskEditorSidebarTitle }}</span>
-                <div class="task-editor-sidebar-actions">
-                  <button
-                    v-if="activeTaskEditTask"
-                    type="button"
-                    class="task-editor-sidebar-pin"
-                    :class="{ 'is-active': isActiveTaskPinned }"
-                    :title="isActiveTaskPinned ? '取消置顶' : '置顶任务'"
-                    :aria-label="isActiveTaskPinned ? '取消置顶' : '置顶任务'"
-                    @click.stop="handleTaskEditorPinToggle"
-                  >
-                    <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
-                      <path fill="currentColor" d="M896.149659 67.771523 126.54051 67.771523c-34.758642 0-62.935378 28.176736-62.935378 62.935378 0 34.757618 28.176736 62.934355 62.935378 62.934355l769.610172 0c34.758642 0 62.935378-28.176736 62.935378-62.934355C959.085036 95.948259 930.9083 67.771523 896.149659 67.771523zM557.654294 258.83814c-1.471514-1.470491-3.016707-2.862187-4.625344-4.181229-0.713244-0.586354-1.469468-1.095961-2.202155-1.6465-0.906649-0.681522-1.797949-1.384533-2.743484-2.01796-0.884137-0.591471-1.805112-1.105171-2.713808-1.648546-0.853437-0.509606-1.689479-1.044796-2.568499-1.515516-0.928139-0.496304-1.883907-0.917906-2.832512-1.364067-0.913812-0.431835-1.811252-0.886183-2.746554-1.27504-0.924045-0.382717-1.864464-0.689708-2.800789-1.02433-1.000793-0.36225-1.989307-0.744967-3.012613-1.054005-0.938372-0.283456-1.892093-0.491187-2.837628-0.729617-1.043772-0.264013-2.071172-0.554632-3.133364-0.766456-1.094938-0.215918-2.201132-0.344854-3.305279-0.503467-0.927115-0.13303-1.840928-0.309038-2.78237-0.402159-2.059915-0.201591-4.124947-0.311085-6.192026-0.312108-0.005117 0-0.011256 0-0.016373 0l0 0c-0.299829 0-0.599657 0.037862-0.898463 0.041956-16.406668-0.231267-32.884968 5.874801-45.402049 18.391882L148.569222 577.09967c-24.576745 24.578792-24.576745 64.425312 0 89.005127 12.288884 12.289907 28.396747 18.434861 44.502563 18.434861 16.105816 0 32.213679-6.144954 44.502563-18.434861l212.633818-212.634842L450.208167 893.124254c0 34.757618 28.176736 62.934355 62.934355 62.934355 34.758642 0 62.935378-28.176736 62.935378-62.934355L576.077899 455.269951l210.836893 210.834846c12.288884 12.289907 28.395724 18.434861 44.500517 18.434861 16.10684 0 32.212656-6.144954 44.500517-18.434861 24.580838-24.579815 24.580838-64.426335 0-89.005127L557.654294 258.83814z"></path>
-                    </svg>
-                  </button>
-                  <button
-                    v-if="activeTaskEditTask"
-                    type="button"
-                    class="task-editor-sidebar-move"
-                    title="移动任务"
-                    aria-label="移动任务"
-                    @click.stop="openTaskMoveDialog"
-                  >
-                    <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
-                      <path d="M904.448 625.728 119.616 625.728c-23.68 0-44.736 14.656-52.48 36.48C65.024 668.032 64 674.048 64 680c0 16.32 7.616 32.192 21.184 42.688l293.248 225.728c24.128 18.56 59.008 14.464 78.016-9.088 18.944-23.552 14.848-57.664-9.28-76.224L288 739.456l616 0c30.72 0 56-29.44 56-59.456C960 649.984 935.168 625.728 904.448 625.728zM119.552 398.272l784.832 0c23.68 0 44.736-14.656 52.48-36.48C958.976 355.968 960 349.952 960 344c0-16.32-7.616-32.192-21.184-42.688l-293.248-225.728c-24.128-18.56-59.008-14.464-78.016 9.088C548.608 108.224 552.64 142.4 576.832 160.96L736 284.544 120 284.544C89.28 284.544 64 313.984 64 344 64 374.016 88.832 398.272 119.552 398.272z"></path>
-                    </svg>
-                  </button>
-                  <button
-                    v-if="activeTaskEditTask"
-                    type="button"
-                    class="task-editor-sidebar-archive"
-                    :title="isActiveTaskArchived ? '取消归档' : '归档任务'"
-                    :aria-label="isActiveTaskArchived ? '取消归档' : '归档任务'"
-                    @click.stop="handleTaskEditorArchiveToggle"
-                  >
-                    <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
-                      <path fill="currentColor" d="M273.066667 68.266667a102.4 102.4 0 0 0-102.4 102.4v74.069333A102.434133 102.434133 0 0 0 102.4 341.333333v74.069334A102.434133 102.434133 0 0 0 34.133333 512v273.066667a170.666667 170.666667 0 0 0 170.666667 170.666666h614.4a170.666667 170.666667 0 0 0 170.666667-170.666666v-273.066667a102.434133 102.434133 0 0 0-68.266667-96.597333V341.333333a102.434133 102.434133 0 0 0-68.266667-96.597333V170.666667a102.4 102.4 0 0 0-102.4-102.4H273.066667z m580.266666 341.333333h-204.8a34.133333 34.133333 0 0 0-34.133333 34.133333 102.4 102.4 0 1 1-204.8 0 34.133333 34.133333 0 0 0-34.133333-34.133333H170.666667v-68.266667a34.133333 34.133333 0 0 1 34.133333-34.133333h614.4a34.133333 34.133333 0 0 1 34.133333 34.133333v68.266667zM136.533333 477.866667h208.213334a170.734933 170.734933 0 0 0 334.506666 0H887.466667a34.133333 34.133333 0 0 1 34.133333 34.133333v273.066667a102.4 102.4 0 0 1-102.4 102.4H204.8a102.4 102.4 0 0 1-102.4-102.4v-273.066667a34.133333 34.133333 0 0 1 34.133333-34.133333z m648.533334-238.933334H238.933333V170.666667a34.133333 34.133333 0 0 1 34.133334-34.133334h477.866666a34.133333 34.133333 0 0 1 34.133334 34.133334v68.266666zM375.466667 750.933333a34.133333 34.133333 0 0 1 34.133333-34.133333h204.8a34.133333 34.133333 0 1 1 0 68.266667h-204.8a34.133333 34.133333 0 0 1-34.133333-34.133334z"></path>
-                    </svg>
-                  </button>
-                  <button
-                    v-if="activeTaskEditTask"
-                    type="button"
-                    class="task-editor-sidebar-delete"
-                    title="删除任务"
-                    aria-label="删除任务"
-                    @click.stop="handleTaskEditorDelete"
-                  >
-                    <svg viewBox="0 0 1225 1024" width="16" height="16" aria-hidden="true">
-                      <path d="M1034.570239 270.996844V841.152359a182.847641 182.847641 0 0 1-182.847641 182.847641H391.641363a182.847641 182.847641 0 0 1-182.847641-182.847641V270.996844a45.090228 45.090228 0 0 1 0-90.162172v-0.091424h196.561214a219.837719 219.837719 0 0 1 432.672374 0h196.542929v0.109708a45.090228 45.090228 0 0 1 0 90.143888zM621.68198 90.398228a132.546255 132.546255 0 0 0-124.610667 90.34502h249.221335A132.546255 132.546255 0 0 0 621.68198 90.398228z m324.408286 180.690039H297.273695v552.858129a109.708585 109.708585 0 0 0 109.708585 109.708584h429.399401a109.708585 109.708585 0 0 0 109.708585-109.708584V271.106552z m-221.245646 481.85839a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z m-206.434987 0a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z" fill="#333333"></path>
-                    </svg>
-                  </button>
-                  <button
-                    v-if="activeTaskEditTask && activeTaskEditDraft"
-                    type="button"
-                    class="task-editor-priority-btn"
-                    title="优先级"
-                    aria-label="优先级"
-                    @click.stop="toggleTaskEditorPriorityPopover($event)"
-                  >
-                    <span
-                      class="task-editor-priority-indicator"
-                      :style="{ background: taskEditorPriorityOption.background, color: taskEditorPriorityOption.color }"
-                    >
-                      <Icon name="flag" width="14" height="14" />
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    class="task-editor-sidebar-close"
-                    title="关闭编辑器"
-                    aria-label="关闭编辑器"
-                    @click.stop="closeTaskEditorSidebar"
-                  >
-                    <Icon name="close" width="16" height="16" />
-                  </button>
+          <div
+            ref="taskEditorSidebarMountRef"
+            class="task-editor-sidebar-body"
+          ></div>
+          <div
+            v-if="activeTaskEditTask && activeTaskEditDraft"
+            class="task-editor-sidebar-meta"
+          >
+            <TaskEditorMetaPanel
+              :panel="taskEditorQuickPanel"
+              :due-date="activeTaskEditDraft.dueDate || ''"
+              :due-text="taskEditorDueText"
+              :has-due-date="taskEditorHasDueDate"
+              :description="activeTaskEditDraft.description || ''"
+              :has-description="taskEditorHasDescription"
+              :group-options="taskGroupPickerOptions"
+              :selected-group-id="taskEditorSelectedGroupId"
+              :group-label="taskEditorGroupLabel"
+              :reminder-type="activeTaskEditDraft.reminderType"
+              :reminder-custom-time="activeTaskEditDraft.reminderCustomTime || ''"
+              :reminder-text="taskEditorReminderText"
+              :has-reminder="taskEditorHasReminder"
+              :group-button-style="taskEditorGroupButtonStyle"
+              :default-group-chip-color="defaultGroupChipColor"
+              description-placeholder="添加任务描述..."
+              @update:panel="taskEditorQuickPanel = $event"
+              @update:description="handleTaskEditorDescriptionInput"
+              @select-due="handleTaskEditorDateSelect"
+              @select-group="selectTaskEditorGroup"
+              @select-reminder="handleTaskEditorReminderSelect"
+              @commit-description="handleTaskEditorDescriptionCommit"
+              @manage-groups="openTaskGroupDialog"
+            />
+          </div>
+          <div
+            v-if="showTaskMoveDialog"
+            class="task-move-dialog-overlay"
+            @click.self="closeTaskMoveDialog"
+          >
+            <div class="task-move-dialog" @click.stop>
+              <div class="task-move-dialog-header">
+                <span class="task-move-dialog-title">移动任务</span>
+                <button
+                  type="button"
+                  class="task-move-dialog-close"
+                  title="关闭"
+                  aria-label="关闭"
+                  @click.stop="closeTaskMoveDialog"
+                >
+                  <Icon name="close" width="16" height="16" />
+                </button>
+              </div>
+              <div class="task-move-dialog-body">
+                <div class="task-move-dialog-field">
+                  <label>笔记本</label>
+                  <SySelect
+                    :model-value="taskMoveSelectedNotebook"
+                    :options="taskMoveNotebookOptions"
+                    @update:model-value="handleTaskMoveNotebookChange"
+                  />
+                </div>
+                <div class="task-move-dialog-field">
+                  <label>文档</label>
+                  <SySelect
+                    :model-value="taskMoveSelectedDocument"
+                    :options="taskMoveDocumentOptions"
+                    @update:model-value="taskMoveSelectedDocument = String($event || '')"
+                  />
+                </div>
+                <div v-if="taskMoveTargetUnchanged" class="task-move-dialog-hint">
+                  当前已经在这个文档中
+                </div>
+                <div v-else-if="taskMoveDocumentOptions.length === 0" class="task-move-dialog-hint">
+                  当前笔记本下暂无可选文档
                 </div>
               </div>
-              <div
-                ref="taskEditorSidebarMountRef"
-                class="task-editor-sidebar-body"
-              ></div>
-            <div
-              v-if="activeTaskEditTask && activeTaskEditDraft"
-              class="task-editor-sidebar-meta"
-            >
-              <TaskEditorMetaPanel
-                :panel="taskEditorQuickPanel"
-                :due-date="activeTaskEditDraft.dueDate || ''"
-                :due-text="taskEditorDueText"
-                :has-due-date="taskEditorHasDueDate"
-                :description="activeTaskEditDraft.description || ''"
-                :has-description="taskEditorHasDescription"
-                :group-options="taskGroupPickerOptions"
-                :selected-group-id="taskEditorSelectedGroupId"
-                :group-label="taskEditorGroupLabel"
-                :reminder-type="activeTaskEditDraft.reminderType"
-                :reminder-custom-time="activeTaskEditDraft.reminderCustomTime || ''"
-                :reminder-text="taskEditorReminderText"
-                :has-reminder="taskEditorHasReminder"
-                :group-button-style="taskEditorGroupButtonStyle"
-                :default-group-chip-color="defaultGroupChipColor"
-                description-placeholder="添加任务描述..."
-                @update:panel="taskEditorQuickPanel = $event"
-                @update:description="handleTaskEditorDescriptionInput"
-                @select-due="handleTaskEditorDateSelect"
-                @select-group="selectTaskEditorGroup"
-                @select-reminder="handleTaskEditorReminderSelect"
-                @commit-description="handleTaskEditorDescriptionCommit"
-                @manage-groups="openTaskGroupDialog"
-              />
-            </div>
-            <div
-              v-if="showTaskMoveDialog"
-              class="task-move-dialog-overlay"
-              @click.self="closeTaskMoveDialog"
-            >
-              <div class="task-move-dialog" @click.stop>
-                <div class="task-move-dialog-header">
-                  <span class="task-move-dialog-title">移动任务</span>
-                  <button
-                    type="button"
-                    class="task-move-dialog-close"
-                    title="关闭"
-                    aria-label="关闭"
-                    @click.stop="closeTaskMoveDialog"
-                  >
-                    <Icon name="close" width="16" height="16" />
-                  </button>
-                </div>
-                <div class="task-move-dialog-body">
-                  <div class="task-move-dialog-field">
-                    <label>笔记本</label>
-                    <SySelect
-                      :model-value="taskMoveSelectedNotebook"
-                      :options="taskMoveNotebookOptions"
-                      @update:model-value="handleTaskMoveNotebookChange"
-                    />
-                  </div>
-                  <div class="task-move-dialog-field">
-                    <label>文档</label>
-                    <SySelect
-                      :model-value="taskMoveSelectedDocument"
-                      :options="taskMoveDocumentOptions"
-                      @update:model-value="taskMoveSelectedDocument = String($event || '')"
-                    />
-                  </div>
-                  <div v-if="taskMoveTargetUnchanged" class="task-move-dialog-hint">
-                    当前已经在这个文档中
-                  </div>
-                  <div v-else-if="taskMoveDocumentOptions.length === 0" class="task-move-dialog-hint">
-                    当前笔记本下暂无可选文档
-                  </div>
-                </div>
-                <div class="task-move-dialog-actions">
-                  <button
-                    type="button"
-                    class="task-move-dialog-btn"
-                    @click.stop="closeTaskMoveDialog"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="button"
-                    class="task-move-dialog-btn primary"
-                    :disabled="!canSubmitTaskMove"
-                    @click.stop="handleTaskEditorMove"
-                  >
-                    {{ isTaskMoveSubmitting ? '移动中...' : '移动' }}
-                  </button>
-                </div>
+              <div class="task-move-dialog-actions">
+                <button
+                  type="button"
+                  class="task-move-dialog-btn"
+                  @click.stop="closeTaskMoveDialog"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  class="task-move-dialog-btn primary"
+                  :disabled="!canSubmitTaskMove"
+                  @click.stop="handleTaskEditorMove"
+                >
+                  {{ isTaskMoveSubmitting ? '移动中...' : '移动' }}
+                </button>
               </div>
             </div>
           </div>
-        </div>
+        </TaskEditorPanelShell>
       </Transition>
     </Teleport>
 
@@ -321,42 +373,142 @@
     />
     
     <div v-if="loading" class="loading" v-show="!isTaskListCollapsed">{{ t('taskManager.loading') }}</div>
-    <div v-else ref="tasksListRef" class="tasks-list b3-typography" v-show="!isTaskListCollapsed">
+    <div
+      v-else
+      ref="tasksListRef"
+      class="tasks-list b3-typography"
+      :class="{ 'is-list-view': taskListViewMode === 'list' }"
+      v-show="!isTaskListCollapsed"
+    >
       <div v-if="displayedTasks.length === 0" class="empty-state">
         {{ t('taskManager.noTasks') }}
+      </div>
+      <div
+        v-else-if="shouldRenderGroupedList"
+        class="task-grouped-list"
+        :class="{ 'is-list-view': taskListViewMode === 'list' }"
+      >
+        <section
+          v-for="section in taskGroupedSections"
+          :key="section.key"
+          class="task-group-section"
+        >
+          <header class="task-group-section-header">
+            <span class="task-group-section-title">
+              <span
+                v-if="isBatchEditMode"
+                class="task-group-section-batch-checkbox"
+                :class="{
+                  partial: isTaskGroupSectionBatchPartiallySelected(section),
+                  'is-disabled': section.tasks.length === 0
+                }"
+                :title="isTaskGroupSectionBatchAllSelected(section) ? '取消全选该分组' : '全选该分组'"
+                :aria-label="isTaskGroupSectionBatchAllSelected(section) ? '取消全选该分组' : '全选该分组'"
+                :aria-disabled="section.tasks.length === 0"
+                @click.stop="toggleTaskGroupSectionBatchSelection(section)"
+              >
+                <TaskCheckbox
+                  :checked="isTaskGroupSectionBatchAllSelected(section)"
+                  :size="16"
+                />
+              </span>
+              <span>{{ section.label }}</span>
+            </span>
+            <div class="task-group-section-header-actions">
+              <span class="task-group-section-count">{{ section.tasks.length }}</span>
+              <button
+                type="button"
+                class="task-group-section-toggle"
+                :class="{ collapsed: isTaskGroupSectionCollapsed(section.key) }"
+                :title="isTaskGroupSectionCollapsed(section.key) ? '展开分组' : '折叠分组'"
+                :aria-label="isTaskGroupSectionCollapsed(section.key) ? '展开分组' : '折叠分组'"
+                @click.stop="toggleTaskGroupSectionCollapse(section.key)"
+              >
+                <Icon name="chevronRight" width="14" height="14" />
+              </button>
+            </div>
+          </header>
+          <div v-if="!isTaskGroupSectionCollapsed(section.key)" class="task-group-section-body">
+            <div
+              v-for="task in section.tasks"
+              :key="task.id"
+              class="task-batch-item"
+              :class="{
+                selected: isTaskBatchSelected(task.id),
+                'is-batch-mode': isBatchEditMode
+              }"
+            >
+              <TaskCard
+                :data-task-id="task.id"
+                :task="task"
+                :completed="task.status === 'completed'"
+                variant="sidebar"
+                :task-groups="taskGroups"
+                :draggable="!isMobileFrontend && !isBatchEditMode"
+                :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
+                :description-editing="inlineEditingDescriptionTaskId === task.id"
+                :description-draft="getInlineDescriptionDraft(task)"
+                :show-description="shouldShowTaskCardDetails"
+                :show-badges="shouldShowTaskCardDetails"
+                :show-subtasks="expandedSubtasks.has(task.id)"
+                :title-tooltip="isBatchEditMode ? '点击选择任务' : '点击编辑任务'"
+                :ref="(el) => setTaskRowRef(task.id, el)"
+                @card-click="handleTaskCardClick"
+                @open-click="handleTaskCardOpenClick"
+                @toggle-status="handleTaskCardToggleStatus"
+                @toggle-expand="handleCardToggleExpand"
+                @description-start-edit="startInlineDescriptionEdit"
+                @description-input="handleInlineDescriptionInput"
+                @description-save="saveInlineDescriptionEdit"
+                @description-cancel="cancelInlineDescriptionEdit"
+                @subtask-toggle="handleCardSubtaskToggle"
+                @dragstart="handleDragStart"
+              />
+            </div>
+          </div>
+        </section>
       </div>
       <div
         v-else
         class="task-virtual-spacer"
         :style="taskVirtualSpacerStyle"
       >
-        <TaskCard
+        <div
           v-for="task in virtualDisplayedTasks"
           :key="task.id"
-          :data-task-id="task.id"
-          :task="task"
-          :completed="task.status === 'completed'"
-          variant="sidebar"
-          :task-groups="taskGroups"
-          :draggable="!isMobileFrontend"
-          :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
-          :description-editing="inlineEditingDescriptionTaskId === task.id"
-          :description-draft="getInlineDescriptionDraft(task)"
-          :show-description="true"
-          :show-subtasks="expandedSubtasks.has(task.id)"
-          title-tooltip="点击编辑任务"
-          :ref="(el) => setTaskRowRef(task.id, el)"
-          @card-click="openTaskEditorFromMenu"
-          @open-click="handleTaskClick"
-          @toggle-status="toggleTaskStatus"
-          @toggle-expand="handleCardToggleExpand"
-          @description-start-edit="startInlineDescriptionEdit"
-          @description-input="handleInlineDescriptionInput"
-          @description-save="saveInlineDescriptionEdit"
-          @description-cancel="cancelInlineDescriptionEdit"
-          @subtask-toggle="handleCardSubtaskToggle"
-          @dragstart="handleDragStart"
-        />
+          class="task-batch-item"
+          :class="{
+            selected: isTaskBatchSelected(task.id),
+            'is-batch-mode': isBatchEditMode
+          }"
+        >
+          <TaskCard
+            :data-task-id="task.id"
+            :task="task"
+            :completed="task.status === 'completed'"
+            variant="sidebar"
+            :task-groups="taskGroups"
+            :draggable="!isMobileFrontend && !isBatchEditMode"
+            :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
+            :description-editing="inlineEditingDescriptionTaskId === task.id"
+            :description-draft="getInlineDescriptionDraft(task)"
+            :show-description="shouldShowTaskCardDetails"
+            :show-badges="shouldShowTaskCardDetails"
+            :show-subtasks="expandedSubtasks.has(task.id)"
+            :title-tooltip="isBatchEditMode ? '点击选择任务' : '点击编辑任务'"
+            :ref="(el) => setTaskRowRef(task.id, el)"
+            @card-click="handleTaskCardClick"
+            @open-click="handleTaskCardOpenClick"
+            @toggle-status="handleTaskCardToggleStatus"
+            @toggle-expand="handleCardToggleExpand"
+            @description-start-edit="startInlineDescriptionEdit"
+            @description-input="handleInlineDescriptionInput"
+            @description-save="saveInlineDescriptionEdit"
+            @description-cancel="cancelInlineDescriptionEdit"
+            @subtask-toggle="handleCardSubtaskToggle"
+            @dragstart="handleDragStart"
+          />
+        </div>
       </div>
       <button
         v-if="hasHiddenCompletedTasks"
@@ -398,6 +550,22 @@
       @close="showTaskScopeDialog = false"
       @save="handleTaskScopeSave"
     />
+    <TaskDateQuickMenu
+      :show="taskQuickDateMenu.show"
+      :x="taskQuickDateMenu.x"
+      :y="taskQuickDateMenu.y"
+      :start-date="taskQuickDateDraft.startDate"
+      :start-time="taskQuickDateDraft.startTime"
+      :due-date="taskQuickDateDraft.dueDate"
+      :due-time="taskQuickDateDraft.dueTime"
+      title="日期"
+      save-label="保存日期"
+      @update:startDate="taskQuickDateDraft.startDate = $event"
+      @update:startTime="taskQuickDateDraft.startTime = $event"
+      @update:dueDate="taskQuickDateDraft.dueDate = $event"
+      @update:dueTime="taskQuickDateDraft.dueTime = $event"
+      @save="handleTaskQuickDateSave"
+    />
     <TaskGroupDialog
       :show="showTaskGroupDialog"
       :groups="taskGroups"
@@ -409,17 +577,20 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import { Protyle, getFrontend } from 'siyuan';
+import { Protyle, getFrontend, showMessage } from 'siyuan';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TaskCard from '@/components/TaskCard.vue';
+import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import TaskModal, { Notebook, Document } from '@/components/TaskModal.vue';
 import TaskScopeDialog from '@/components/TaskScopeDialog.vue';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
 import Icon from '@/components/Icon.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
+import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
+import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
 import { TaskRepository, Task, TaskGroup, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs, getBlockKramdown, sql, openBlockById, loadTaskGroups, saveTaskGroups, type TaskQueryScope } from '@/api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { formatTaskTitleHtml } from '@/utils/taskTitleFormat';
@@ -448,6 +619,11 @@ import {
 } from '@/utils/taskViewShared';
 import { repeatDragDebug } from '@/utils/repeatDragDebug';
 import { rebuildAffectedRepeatTasks } from '@/repeatRepository';
+import {
+  getTaskHeadingGroupMeta,
+  resolveTaskHeadingGroups,
+  type TaskHeadingGroupMeta
+} from '@/utils/taskGrouping';
 
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const REPEAT_DEBUG_WINDOW_MS = 5000;
@@ -550,7 +726,10 @@ interface TaskEditDraft {
   taskId: string;
   priority: Task['priority'];
   pinned: boolean;
+  startDate: string;
+  startTime: string;
   dueDate: string;
+  dueTime: string;
   description: string;
   reminderType?: TaskReminderType;
   reminderCustomTime: string;
@@ -559,6 +738,14 @@ interface TaskEditDraft {
 type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
 type TaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
 type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks';
+type TaskListViewMode = 'kanban' | 'list';
+type TaskListGroupMode = 'none' | 'status' | 'group' | 'heading';
+interface TaskGroupedSection {
+  key: string;
+  label: string;
+  tasks: Task[];
+  order: number;
+}
 const taskEditDraft = ref<TaskEditDraft | null>(null);
 const inlineEditingDescriptionTaskId = ref<string | null>(null);
 const inlineDescriptionDraftByTaskId = ref(new Map<string, string>());
@@ -570,8 +757,13 @@ const taskManagerContainerRef = ref<HTMLElement | null>(null);
 const taskModalTeleportTarget = ref<HTMLElement | null>(null);
 const taskEditMenuTaskId = ref<string | null>(null);
 const taskFilterControlRef = ref<HTMLElement | null>(null);
+const taskGroupMenuControlRef = ref<HTMLElement | null>(null);
 const taskFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
 const taskFilterPopoverStyle = ref<Record<string, string>>({});
+const taskGroupMenuVisible = ref(false);
+const taskListViewMode = ref<TaskListViewMode>('kanban');
+const taskListGroupBy = ref<TaskListGroupMode>('none');
+const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
 let taskEditorProtyle: Protyle | null = null;
 const openingTaskPopoverBlockIds = new Set<string>();
 const taskEditorSidebarVisible = ref(false);
@@ -586,6 +778,26 @@ const taskMoveSelectedDocument = ref('');
 const taskFilterPopoverVisible = ref(false);
 const taskGroups = ref<TaskGroup[]>([]);
 const lastSelectedTaskGroupId = ref<string>('');
+const showTaskCardDetails = ref(true);
+const collapsedTaskGroupSectionKeys = ref<Set<string>>(new Set());
+const isBatchEditMode = ref(false);
+const batchSelectedTaskIds = ref<Set<string>>(new Set());
+const batchEditStatus = ref<string>('');
+const batchEditPriority = ref<string>('');
+const batchEditGroupId = ref<string>('');
+const isBatchApplying = ref(false);
+const taskQuickDateMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
+  show: false,
+  x: 0,
+  y: 0,
+  task: null
+});
+const taskQuickDateDraft = ref<{ startDate: string; startTime: string; dueDate: string; dueTime: string }>({
+  startDate: '',
+  startTime: '',
+  dueDate: '',
+  dueTime: ''
+});
 const tasksListRef = ref<HTMLElement | null>(null);
 const taskScrollContainerRef = ref<HTMLElement | null>(null);
 
@@ -601,10 +813,44 @@ const taskHeightVersion = ref(0);
 let taskRowMeasureRaf: number | null = null;
 let taskTitleHydrateTimer: number | null = null;
 let isTaskTitleHydrating = false;
+let taskHeadingGroupRequestId = 0;
 
 const TASK_GROUP_NONE_ID = '__none__';
 const defaultGroupChipColor = '#9aa0a6';
 let skipCleanupTimer: number | null = null;
+const taskListViewOptions: Array<{ value: TaskListViewMode; label: string }> = [
+  { value: 'kanban', label: '看板视图' },
+  { value: 'list', label: '列表视图' }
+];
+const taskListGroupOptions: Array<{ value: TaskListGroupMode; label: string }> = [
+  { value: 'none', label: '不分组' },
+  { value: 'status', label: '按状态分组' },
+  { value: 'group', label: '按标签分组' },
+  { value: 'heading', label: '按标题分组' }
+];
+const batchEditStatusOptions: Array<{ value: string; text: string }> = [
+  { value: '', text: '状态（不修改）' },
+  { value: 'pending', text: '待处理' },
+  { value: 'in-progress', text: '进行中' },
+  { value: 'delayed', text: '延迟' },
+  { value: 'completed', text: '已完成' },
+  { value: 'cancelled', text: '已取消' }
+];
+const batchEditPriorityOptions: Array<{ value: string; text: string }> = [
+  { value: '', text: '优先级（不修改）' },
+  { value: 'none', text: '无' },
+  { value: 'low', text: '低' },
+  { value: 'medium', text: '中' },
+  { value: 'high', text: '高' }
+];
+const taskGroupStatusOrder: Task['status'][] = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
+const taskGroupStatusLabel: Record<Task['status'], string> = {
+  'pending': '待处理',
+  'in-progress': '进行中',
+  'delayed': '延迟',
+  'completed': '已完成',
+  'cancelled': '已取消'
+};
 
 const taskModalTeleportTo = computed(() => taskModalTeleportTarget.value || 'body');
 const activeTaskEditTask = computed(() =>
@@ -619,6 +865,168 @@ const activeTaskEditDraft = computed(() =>
     ? taskEditDraft.value
     : null
 );
+const batchSelectedCount = computed(() => batchSelectedTaskIds.value.size);
+const allVisibleTasksSelected = computed(() => {
+  const currentTasks = displayedTasks.value;
+  if (currentTasks.length === 0) {
+    return false;
+  }
+  return currentTasks.every(task => batchSelectedTaskIds.value.has(task.id));
+});
+const batchEditGroupOptions = computed(() => [
+  { value: '', text: '标签（不修改）' },
+  { value: TASK_GROUP_NONE_ID, text: '无标签' },
+  ...taskGroups.value.map(group => ({
+    value: group.id,
+    text: group.name || '未命名标签'
+  }))
+]);
+const canApplyBatchEdit = computed(() => {
+  if (isBatchApplying.value || batchSelectedCount.value === 0) {
+    return false;
+  }
+  if (batchEditStatus.value) {
+    return true;
+  }
+  if (batchEditPriority.value) {
+    return true;
+  }
+  return batchEditGroupId.value.trim().length > 0;
+});
+
+function isBatchStatus(value: string): value is Task['status'] {
+  return value === 'pending'
+    || value === 'in-progress'
+    || value === 'delayed'
+    || value === 'completed'
+    || value === 'cancelled';
+}
+
+function isBatchPriority(value: string): value is Task['priority'] {
+  return value === 'none'
+    || value === 'low'
+    || value === 'medium'
+    || value === 'high';
+}
+
+function resetBatchEditInputs(): void {
+  batchEditStatus.value = '';
+  batchEditPriority.value = '';
+  batchEditGroupId.value = '';
+}
+
+function clearBatchSelection(): void {
+  batchSelectedTaskIds.value = new Set();
+}
+
+function exitBatchEditMode(): void {
+  isBatchEditMode.value = false;
+  clearBatchSelection();
+  resetBatchEditInputs();
+}
+
+function toggleBatchEditMode(): void {
+  if (isBatchEditMode.value) {
+    exitBatchEditMode();
+    return;
+  }
+  closeTaskEditMenu();
+  closeTaskEditorSidebar();
+  taskEditorPriorityPopover.value = null;
+  taskEditorQuickPanel.value = null;
+  isBatchEditMode.value = true;
+}
+
+function isTaskBatchSelected(taskId: string): boolean {
+  return batchSelectedTaskIds.value.has(taskId);
+}
+
+function toggleTaskBatchSelection(taskId: string): void {
+  if (!isBatchEditMode.value) {
+    return;
+  }
+  const normalizedTaskId = typeof taskId === 'string' ? taskId : '';
+  if (!normalizedTaskId) {
+    return;
+  }
+  const next = new Set(batchSelectedTaskIds.value);
+  if (next.has(normalizedTaskId)) {
+    next.delete(normalizedTaskId);
+  } else {
+    next.add(normalizedTaskId);
+  }
+  batchSelectedTaskIds.value = next;
+}
+
+function toggleSelectAllVisibleTasks(): void {
+  if (!isBatchEditMode.value) {
+    return;
+  }
+  const visibleIds = displayedTasks.value.map(task => task.id);
+  if (visibleIds.length === 0) {
+    return;
+  }
+  if (allVisibleTasksSelected.value) {
+    const visibleIdSet = new Set(visibleIds);
+    const next = new Set(
+      Array.from(batchSelectedTaskIds.value).filter(taskId => !visibleIdSet.has(taskId))
+    );
+    batchSelectedTaskIds.value = next;
+    return;
+  }
+  const next = new Set(batchSelectedTaskIds.value);
+  visibleIds.forEach(taskId => next.add(taskId));
+  batchSelectedTaskIds.value = next;
+}
+
+function getTaskGroupSectionTaskIds(section: TaskGroupedSection): string[] {
+  if (!section || !Array.isArray(section.tasks)) {
+    return [];
+  }
+  return section.tasks
+    .map(task => (typeof task.id === 'string' ? task.id : ''))
+    .filter(Boolean);
+}
+
+function isTaskGroupSectionBatchAllSelected(section: TaskGroupedSection): boolean {
+  const taskIds = getTaskGroupSectionTaskIds(section);
+  if (taskIds.length === 0) {
+    return false;
+  }
+  return taskIds.every(taskId => batchSelectedTaskIds.value.has(taskId));
+}
+
+function isTaskGroupSectionBatchPartiallySelected(section: TaskGroupedSection): boolean {
+  const taskIds = getTaskGroupSectionTaskIds(section);
+  if (taskIds.length === 0) {
+    return false;
+  }
+  let selectedCount = 0;
+  taskIds.forEach(taskId => {
+    if (batchSelectedTaskIds.value.has(taskId)) {
+      selectedCount += 1;
+    }
+  });
+  return selectedCount > 0 && selectedCount < taskIds.length;
+}
+
+function toggleTaskGroupSectionBatchSelection(section: TaskGroupedSection): void {
+  if (!isBatchEditMode.value) {
+    return;
+  }
+  const taskIds = getTaskGroupSectionTaskIds(section);
+  if (taskIds.length === 0) {
+    return;
+  }
+  const next = new Set(batchSelectedTaskIds.value);
+  const allSelected = taskIds.every(taskId => next.has(taskId));
+  if (allSelected) {
+    taskIds.forEach(taskId => next.delete(taskId));
+  } else {
+    taskIds.forEach(taskId => next.add(taskId));
+  }
+  batchSelectedTaskIds.value = next;
+}
 
 function resolveTaskModalTeleportTarget(): void {
   const localHost = taskManagerContainerRef.value;
@@ -947,11 +1355,44 @@ function closeTaskFilterPopover(): void {
   taskFilterPopoverVisible.value = false;
 }
 
+function closeTaskGroupMenu(): void {
+  taskGroupMenuVisible.value = false;
+}
+
 function toggleTaskFilterPopover(): void {
+  closeTaskGroupMenu();
   taskFilterPopoverVisible.value = !taskFilterPopoverVisible.value;
   if (taskFilterPopoverVisible.value) {
     void nextTick(updateTaskFilterPopoverPosition);
   }
+}
+
+function toggleTaskGroupMenu(): void {
+  closeTaskFilterPopover();
+  taskGroupMenuVisible.value = !taskGroupMenuVisible.value;
+}
+
+function selectTaskListViewMode(mode: TaskListViewMode): void {
+  if (taskListViewMode.value === mode) {
+    closeTaskGroupMenu();
+    return;
+  }
+  taskListViewMode.value = mode;
+  closeTaskGroupMenu();
+}
+
+function selectTaskListGroup(mode: TaskListGroupMode): void {
+  if (taskListGroupBy.value === mode) {
+    closeTaskGroupMenu();
+    return;
+  }
+  taskListGroupBy.value = mode;
+  closeTaskGroupMenu();
+}
+
+function toggleBatchEditModeFromMenu(): void {
+  toggleBatchEditMode();
+  closeTaskGroupMenu();
 }
 
 function selectTaskEditorGroup(value: string): void {
@@ -983,9 +1424,19 @@ function stopSkipSetCleanup() {
 
 type TaskArchiveViewMode = 'active' | 'archived' | 'all';
 
-function normalizeTaskArchiveViewMode(value: unknown): TaskArchiveViewMode {
-  void value;
-  return 'active';
+function normalizeTaskListGroupMode(value: unknown): TaskListGroupMode {
+  if (value === 'status' || value === 'group' || value === 'heading' || value === 'none') {
+    return value;
+  }
+  return 'none';
+}
+
+function normalizeTaskListViewMode(value: unknown): TaskListViewMode {
+  return value === 'list' ? 'list' : 'kanban';
+}
+
+function normalizeTaskCardDetailsVisible(value: unknown): boolean {
+  return value !== false;
 }
 
 const filterNotebook = ref<string>('all');
@@ -1007,6 +1458,7 @@ const taskModalDefaultDocument = computed(() => {
 });
 let filterSettingsUpdateTimer: number | null = null;
 let taskPopoverFilterSettingsUpdateTimer: number | null = null;
+let taskListGroupSettingsUpdateTimer: number | null = null;
 
 const enabledNotebooks = computed(() => {
   const excludedIdSet = new Set(excludedNotebookIds.value);
@@ -1299,13 +1751,6 @@ function scheduleFilterSettingsUpdate() {
   }, 200);
 }
 
-function setArchiveViewMode(mode: TaskArchiveViewMode): void {
-  if (archiveViewMode.value === mode) {
-    return;
-  }
-  archiveViewMode.value = mode;
-}
-
 watch([filterNotebook, filterDocument], ([newNotebook]) => {
   const previousDocument = filterDocument.value;
   normalizeDocumentSelection(newNotebook);
@@ -1355,7 +1800,25 @@ watch(taskFilterPopoverVisible, (visible) => {
 watch(isTaskListCollapsed, (collapsed) => {
   if (collapsed) {
     closeTaskFilterPopover();
+    closeTaskGroupMenu();
   }
+});
+
+watch(taskListGroupBy, (mode) => {
+  if (isHydratingFilters) {
+    return;
+  }
+  scheduleTaskListGroupSettingsUpdate();
+  if (mode !== 'heading') {
+    taskHeadingGroups.value = new Map();
+  }
+});
+
+watch([taskListViewMode, showTaskCardDetails], () => {
+  if (isHydratingFilters) {
+    return;
+  }
+  scheduleTaskListGroupSettingsUpdate();
 });
 
 const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
@@ -1531,6 +1994,28 @@ function scheduleTaskPopoverFilterSettingsUpdate(): void {
   }, 200);
 }
 
+function scheduleTaskListGroupSettingsUpdate(): void {
+  if (taskListGroupSettingsUpdateTimer !== null) {
+    clearTimeout(taskListGroupSettingsUpdateTimer);
+  }
+  taskListGroupSettingsUpdateTimer = window.setTimeout(async () => {
+    await updateSettings('taskManager', {
+      taskListGroupBy: taskListGroupBy.value,
+      taskListViewMode: taskListViewMode.value,
+      showTaskCardDetails: showTaskCardDetails.value
+    });
+  }, 200);
+}
+
+async function refreshTaskHeadingGroups(): Promise<void> {
+  const requestId = ++taskHeadingGroupRequestId;
+  const resolvedGroups = await resolveTaskHeadingGroups(displayedTasks.value);
+  if (requestId !== taskHeadingGroupRequestId) {
+    return;
+  }
+  taskHeadingGroups.value = resolvedGroups;
+}
+
 watch(
   [
     activeTaskStatusFilters,
@@ -1696,6 +2181,141 @@ function normalizeDateInputValue(value: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
 }
 
+function normalizeTimeInputValue(value: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) {
+    return '';
+  }
+  return /^\d{2}:\d{2}$/.test(text) ? text : '';
+}
+
+function closeTaskQuickDateMenu(): void {
+  taskQuickDateMenu.value = {
+    show: false,
+    x: 0,
+    y: 0,
+    task: null
+  };
+  taskQuickDateDraft.value = {
+    startDate: '',
+    startTime: '',
+    dueDate: '',
+    dueTime: ''
+  };
+}
+
+function seedTaskQuickDateDraft(task: Task): void {
+  taskQuickDateDraft.value = {
+    startDate: normalizeDateInputValue((task.startDate || '').toString()),
+    startTime: normalizeTimeInputValue((task.startTime || '').toString()),
+    dueDate: normalizeDateInputValue((task.dueDate || '').toString()),
+    dueTime: normalizeTimeInputValue((task.dueTime || '').toString())
+  };
+}
+
+function buildTaskQuickMenuAnchorFromRect(rect: DOMRect | null | undefined): { x: number; y: number } | null {
+  if (!rect) {
+    return null;
+  }
+  const left = Number(rect.left);
+  const top = Number(rect.top);
+  const width = Number(rect.width);
+  const height = Number(rect.height);
+  if (!Number.isFinite(left) || !Number.isFinite(top)) {
+    return null;
+  }
+  const safeWidth = Number.isFinite(width) ? Math.max(0, width) : 0;
+  const safeHeight = Number.isFinite(height) ? Math.max(0, height) : 0;
+  return {
+    x: Math.round(left + (safeWidth > 0 ? safeWidth / 2 : 0)),
+    y: Math.round(top + (safeHeight > 0 ? safeHeight : 18))
+  };
+}
+
+function getSelectionTaskQuickMenuAnchor(): { x: number; y: number } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) {
+    return null;
+  }
+  const range = selection.getRangeAt(0);
+  const rect = range.getClientRects().length > 0 ? range.getClientRects()[0] : range.getBoundingClientRect();
+  const fromRange = buildTaskQuickMenuAnchorFromRect(rect);
+  if (fromRange) {
+    return fromRange;
+  }
+  const anchorNode = selection.anchorNode || range.startContainer;
+  const anchorElement = anchorNode instanceof Element ? anchorNode : anchorNode?.parentElement || null;
+  if (anchorElement instanceof HTMLElement) {
+    return buildTaskQuickMenuAnchorFromRect(anchorElement.getBoundingClientRect());
+  }
+  return null;
+}
+
+function getTaskBlockQuickMenuAnchor(blockId: string): { x: number; y: number } | null {
+  const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+  if (!normalizedBlockId) {
+    return null;
+  }
+  const escapedBlockId = normalizedBlockId.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const blockEl = document.querySelector(`[data-node-id="${escapedBlockId}"]`) as HTMLElement | null;
+  if (!blockEl) {
+    return null;
+  }
+  return buildTaskQuickMenuAnchorFromRect(blockEl.getBoundingClientRect());
+}
+
+function resolveTaskQuickMenuAnchor(blockId: string, anchorX?: unknown, anchorY?: unknown): { x: number; y: number } | null {
+  const normalizedAnchorX = typeof anchorX === 'number' && Number.isFinite(anchorX) ? Math.round(anchorX) : null;
+  const normalizedAnchorY = typeof anchorY === 'number' && Number.isFinite(anchorY) ? Math.round(anchorY) : null;
+  if (normalizedAnchorX !== null && normalizedAnchorY !== null) {
+    return {
+      x: normalizedAnchorX,
+      y: normalizedAnchorY
+    };
+  }
+  const selectionAnchor = getSelectionTaskQuickMenuAnchor();
+  if (selectionAnchor) {
+    return selectionAnchor;
+  }
+  return getTaskBlockQuickMenuAnchor(blockId);
+}
+
+function openTaskQuickDateMenu(task: Task, anchorPosition?: { x: number; y: number } | null): void {
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const menuWidth = 280;
+  const estimatedHeight = 236;
+  const margin = 12;
+  const belowGap = 8;
+  const aboveGap = 4;
+  let x = Math.round((viewportWidth - menuWidth) / 2);
+  let y = Math.round(viewportHeight * 0.18);
+
+  if (anchorPosition) {
+    x = Math.round(anchorPosition.x - menuWidth / 2);
+    const belowY = Math.round(anchorPosition.y + belowGap);
+    const aboveY = Math.round(anchorPosition.y - estimatedHeight - aboveGap);
+    if (belowY + estimatedHeight <= viewportHeight - margin) {
+      y = belowY;
+    } else if (aboveY >= margin) {
+      y = aboveY;
+    } else {
+      y = Math.max(margin, Math.min(belowY, viewportHeight - estimatedHeight - margin));
+    }
+  }
+
+  x = Math.max(margin, Math.min(x, Math.max(margin, viewportWidth - menuWidth - margin)));
+  y = Math.max(margin, Math.min(y, Math.max(margin, viewportHeight - estimatedHeight - margin)));
+
+  taskQuickDateMenu.value = {
+    show: true,
+    x,
+    y,
+    task
+  };
+  seedTaskQuickDateDraft(task);
+}
+
 function updateTaskFilterPopoverPosition(): void {
   if (!taskFilterPopoverVisible.value) {
     return;
@@ -1726,7 +2346,7 @@ function updateTaskFilterPopoverPosition(): void {
   left = Math.max(horizontalMargin, Math.min(left, viewportWidth - horizontalMargin - width));
   left = Math.max(containerRect.left + 4, Math.min(left, containerRect.right - width - 4));
 
-  const maxHeight = Math.max(160, Math.min(420, viewportHeight - verticalMargin * 2));
+  const maxHeight = Math.max(160, Math.min(500, viewportHeight - verticalMargin * 2));
   let top = triggerRect.bottom + verticalGap;
   if (top + maxHeight > viewportHeight - verticalMargin) {
     const aboveTop = triggerRect.top - verticalGap - maxHeight;
@@ -2211,6 +2831,184 @@ const displayedTasks = computed(() => {
   });
 });
 
+const taskGroupIdSet = computed(() => new Set(taskGroups.value.map(group => group.id)));
+const shouldRenderGroupedList = computed(() =>
+  taskListViewMode.value === 'list' || taskListGroupBy.value !== 'none'
+);
+const shouldShowTaskCardDetails = computed(() => showTaskCardDetails.value);
+
+const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
+  const tasks = displayedTasks.value;
+  const mode = taskListGroupBy.value;
+  const isListView = taskListViewMode.value === 'list';
+  if (tasks.length === 0) {
+    return [];
+  }
+  if (mode === 'none') {
+    if (!isListView) {
+      return [];
+    }
+    const pendingTasks = tasks.filter(task => task.status !== 'completed');
+    const completedTasks = tasks.filter(task => task.status === 'completed');
+    const sections: TaskGroupedSection[] = [];
+    if (pendingTasks.length > 0) {
+      sections.push({
+        key: 'list:pending',
+        label: '待处理',
+        tasks: pendingTasks,
+        order: 0
+      });
+    }
+    if (completedTasks.length > 0) {
+      sections.push({
+        key: 'list:completed',
+        label: '已完成',
+        tasks: completedTasks,
+        order: 1
+      });
+    }
+    return sections;
+  }
+
+  if (mode === 'status') {
+    const grouped = new Map<Task['status'], Task[]>();
+    taskGroupStatusOrder.forEach(status => grouped.set(status, []));
+    tasks.forEach((task) => {
+      const status = grouped.has(task.status) ? task.status : 'pending';
+      grouped.get(status)?.push(task);
+    });
+    return taskGroupStatusOrder
+      .map((status, index) => ({
+        key: `status:${status}`,
+        label: taskGroupStatusLabel[status],
+        tasks: grouped.get(status) || [],
+        order: index
+      }))
+      .filter(section => section.tasks.length > 0);
+  }
+
+  if (mode === 'group') {
+    const grouped = new Map<string, Task[]>();
+    const completedTasks: Task[] = [];
+    tasks.forEach((task) => {
+      if (task.status === 'completed') {
+        completedTasks.push(task);
+        return;
+      }
+      const rawGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+      const groupId = rawGroupId && taskGroupIdSet.value.has(rawGroupId) ? rawGroupId : TASK_GROUP_NONE_ID;
+      const list = grouped.get(groupId) || [];
+      list.push(task);
+      grouped.set(groupId, list);
+    });
+
+    const sections: TaskGroupedSection[] = [];
+    taskGroups.value.forEach((group, index) => {
+      const sectionTasks = grouped.get(group.id);
+      if (!sectionTasks || sectionTasks.length === 0) {
+        return;
+      }
+      sections.push({
+        key: `group:${group.id}`,
+        label: group.name,
+        tasks: sectionTasks,
+        order: index
+      });
+      grouped.delete(group.id);
+    });
+
+    const noneTasks = grouped.get(TASK_GROUP_NONE_ID) || [];
+    if (noneTasks.length > 0) {
+      sections.push({
+        key: `group:${TASK_GROUP_NONE_ID}`,
+        label: '无标签',
+        tasks: noneTasks,
+        order: Number.MAX_SAFE_INTEGER
+      });
+    }
+    if (completedTasks.length > 0) {
+      sections.push({
+        key: 'completed:all',
+        label: '已完成',
+        tasks: completedTasks,
+        order: Number.MAX_SAFE_INTEGER
+      });
+    }
+    return sections;
+  }
+
+  const headingSections = new Map<string, TaskGroupedSection>();
+  const completedTasks: Task[] = [];
+  tasks.forEach((task) => {
+    if (task.status === 'completed') {
+      completedTasks.push(task);
+      return;
+    }
+    const meta = getTaskHeadingGroupMeta(task, taskHeadingGroups.value);
+    const headingKey = meta.key || `heading:${task.id}`;
+    const sectionKey = `heading:${headingKey}`;
+    const label = (meta.label || '').trim() || '未命名标题';
+    const order = typeof meta.order === 'number' ? meta.order : Number.MAX_SAFE_INTEGER;
+    const existing = headingSections.get(sectionKey);
+    if (existing) {
+      existing.tasks.push(task);
+      return;
+    }
+    headingSections.set(sectionKey, {
+      key: sectionKey,
+      label,
+      tasks: [task],
+      order
+    });
+  });
+
+  const sections = Array.from(headingSections.values())
+    .sort((a, b) => {
+      if (a.order !== b.order) {
+        return a.order - b.order;
+      }
+      const labelDiff = a.label.localeCompare(b.label, 'zh-CN');
+      if (labelDiff !== 0) {
+        return labelDiff;
+      }
+      return a.key.localeCompare(b.key);
+    });
+  if (completedTasks.length > 0) {
+    sections.push({
+      key: 'completed:all',
+      label: '已完成',
+      tasks: completedTasks,
+      order: Number.MAX_SAFE_INTEGER
+    });
+  }
+  return sections;
+});
+
+function isTaskGroupSectionCollapsed(sectionKey: string): boolean {
+  const key = typeof sectionKey === 'string' ? sectionKey.trim() : '';
+  if (!key) {
+    return false;
+  }
+  return collapsedTaskGroupSectionKeys.value.has(key);
+}
+
+function toggleTaskGroupSectionCollapse(sectionKey: string): void {
+  const key = typeof sectionKey === 'string' ? sectionKey.trim() : '';
+  if (!key) {
+    return;
+  }
+  const next = new Set(collapsedTaskGroupSectionKeys.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  collapsedTaskGroupSectionKeys.value = next;
+  nextTick(() => {
+    scheduleTaskTitleHydration(120);
+  });
+}
+
 const hasExpandedTaskDetails = computed(() =>
   expandedSubtasks.value.size > 0
   || expandedDescriptions.value.size > 0
@@ -2218,9 +3016,28 @@ const hasExpandedTaskDetails = computed(() =>
 );
 
 const shouldUseTaskVirtualList = computed(() =>
-  displayedTasks.value.length > TASK_VIRTUAL_THRESHOLD
+  taskListViewMode.value === 'kanban'
+  && taskListGroupBy.value === 'none'
+  && displayedTasks.value.length > TASK_VIRTUAL_THRESHOLD
   && !hasExpandedTaskDetails.value
 );
+
+watch([taskListGroupBy, displayedTasks], ([mode]) => {
+  if (mode !== 'heading') {
+    return;
+  }
+  void refreshTaskHeadingGroups();
+}, { immediate: true });
+
+watch(taskGroupedSections, (sections) => {
+  const validKeys = new Set(sections.map(section => section.key));
+  const next = new Set(
+    Array.from(collapsedTaskGroupSectionKeys.value).filter(key => validKeys.has(key))
+  );
+  if (next.size !== collapsedTaskGroupSectionKeys.value.size) {
+    collapsedTaskGroupSectionKeys.value = next;
+  }
+});
 
 const taskHeightOffsets = computed(() => {
   taskHeightVersion.value;
@@ -2397,6 +3214,17 @@ watch(displayedTasks, (nextTasks) => {
       taskRowElements.delete(key);
     }
   }
+  if (batchSelectedTaskIds.value.size > 0) {
+    const nextSelected = new Set<string>();
+    batchSelectedTaskIds.value.forEach(taskId => {
+      if (ids.has(taskId)) {
+        nextSelected.add(taskId);
+      }
+    });
+    if (nextSelected.size !== batchSelectedTaskIds.value.size) {
+      batchSelectedTaskIds.value = nextSelected;
+    }
+  }
   taskHeightVersion.value += 1;
 });
 
@@ -2442,6 +3270,25 @@ function toggleAllVisibleSubtasks() {
     }
   }
   scheduleTaskTitleHydration(160);
+}
+
+function toggleAllVisibleSubtasksFromMenu() {
+  toggleAllVisibleSubtasks();
+  closeTaskGroupMenu();
+}
+
+function toggleTaskCardDetailsFromMenu() {
+  showTaskCardDetails.value = !showTaskCardDetails.value;
+  if (!showTaskCardDetails.value && inlineEditingDescriptionTaskId.value) {
+    inlineEditingDescriptionTaskId.value = null;
+  }
+  closeTaskGroupMenu();
+  nextTick(() => {
+    taskHeightVersion.value += 1;
+    scheduleTaskRowMeasure();
+    scheduleTaskVirtualUpdate();
+    scheduleTaskTitleHydration(120);
+  });
 }
 
 function applyRepeatRuleOptimistic(payload: RepeatRulePayload): boolean {
@@ -2984,13 +3831,21 @@ function setupEventListeners() {
     })();
   });
 
+  const unsubscribeTaskEditorOpenRequested = eventBus.on(
+    Events.TASK_EDITOR_OPEN_REQUEST,
+    (payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null }) => {
+      void openTaskDateMenuFromExternalRequest(payload);
+    }
+  );
+
   eventUnsubscribers.push(
     unsubscribe,
     unsubscribeDeleted,
     unsubscribeUpdated,
     unsubscribeAdded,
     unsubscribeDateChanged,
-    unsubscribeGroupsUpdated
+    unsubscribeGroupsUpdated,
+    unsubscribeTaskEditorOpenRequested
   );
 }
 
@@ -3600,7 +4455,10 @@ function createTaskEditDraft(task: Task): TaskEditDraft {
     taskId: task.id,
     priority: task.priority,
     pinned: task.pinned === true,
+    startDate: normalizeDateInputValue((task.startDate || '').toString()),
+    startTime: normalizeTimeInputValue((task.startTime || '').toString()),
     dueDate: normalizeDateInputValue((task.dueDate || '').toString()),
+    dueTime: normalizeTimeInputValue((task.dueTime || '').toString()),
     description: task.description || '',
     reminderType: normalizedReminder.reminderType,
     reminderCustomTime: normalizedReminder.reminderCustomTime,
@@ -4022,6 +4880,27 @@ function handleTaskFilterOutsideClick(event: MouseEvent): void {
     }
   }
 
+  if (taskGroupMenuVisible.value) {
+    const isInsideGroupMenu = path.some(node =>
+      node instanceof HTMLElement && (
+        node.classList.contains('task-group-menu-control')
+        || node.classList.contains('task-group-menu-popover')
+      )
+    );
+    if (!isInsideGroupMenu && !taskGroupMenuControlRef.value?.contains(target)) {
+      closeTaskGroupMenu();
+    }
+  }
+
+  if (taskQuickDateMenu.value.show) {
+    const isInsideQuickDateMenu = path.some(node =>
+      node instanceof HTMLElement && node.classList.contains('task-quick-date-menu')
+    );
+    if (!isInsideQuickDateMenu) {
+      closeTaskQuickDateMenu();
+    }
+  }
+
 }
 
 async function openTaskEditorInSidebar(blockId: string, preferredRootId?: string): Promise<boolean> {
@@ -4102,6 +4981,28 @@ async function openTaskEditorPopover(task: Task): Promise<void> {
   }
 }
 
+async function openTaskDateMenuFromExternalRequest(
+  payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null }
+): Promise<void> {
+  const normalizedBlockId = typeof payload?.blockId === 'string' ? payload.blockId.trim() : '';
+  if (!normalizedBlockId) {
+    return;
+  }
+
+  const payloadTask = payload?.task && typeof payload.task.id === 'string' ? payload.task : null;
+  const localTask = tasks.value.find(item => item.blockId === normalizedBlockId) || null;
+  const loadedTask = payloadTask || localTask || await TaskRepository.getTaskByBlockId(normalizedBlockId, true).catch(() => null);
+  if (!loadedTask) {
+    return;
+  }
+
+  closeTaskEditorSidebar();
+  closeTaskEditMenu();
+  taskEditDraft.value = null;
+  const anchorPosition = resolveTaskQuickMenuAnchor(normalizedBlockId, payload?.anchorX, payload?.anchorY);
+  openTaskQuickDateMenu(loadedTask, anchorPosition);
+}
+
 function openTaskEditorFromMenu(task: Task): void {
   const taskId = typeof task.id === 'string' ? task.id : '';
   if (!taskId) {
@@ -4112,6 +5013,30 @@ function openTaskEditorFromMenu(task: Task): void {
   }
   taskEditMenuTaskId.value = taskId;
   void openTaskEditorPopover(task);
+}
+
+function handleTaskCardClick(task: Task): void {
+  if (isBatchEditMode.value) {
+    toggleTaskBatchSelection(task.id);
+    return;
+  }
+  openTaskEditorFromMenu(task);
+}
+
+function handleTaskCardOpenClick(task: Task): void {
+  if (isBatchEditMode.value) {
+    toggleTaskBatchSelection(task.id);
+    return;
+  }
+  handleTaskClick(task);
+}
+
+function handleTaskCardToggleStatus(task: Task): void {
+  if (isBatchEditMode.value) {
+    toggleTaskBatchSelection(task.id);
+    return;
+  }
+  void toggleTaskStatus(task);
 }
 
 function getInlineDescriptionDraft(task: Task): string {
@@ -4127,6 +5052,10 @@ function handleInlineDescriptionInput(taskId: string, event: Event): void {
 }
 
 function startInlineDescriptionEdit(task: Task): void {
+  if (isBatchEditMode.value) {
+    toggleTaskBatchSelection(task.id);
+    return;
+  }
   if (inlineDescriptionSavingTaskIds.has(task.id)) {
     return;
   }
@@ -4216,6 +5145,263 @@ async function applyTaskEditorFieldUpdate(
       eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
     }
   } catch {
+  }
+}
+
+async function handleTaskQuickDateSave(): Promise<void> {
+  const menuTask = taskQuickDateMenu.value.task;
+  if (!menuTask) {
+    closeTaskQuickDateMenu();
+    return;
+  }
+
+  const task = tasks.value.find(item => item.id === menuTask.id)
+    || tasks.value.find(item => item.blockId && item.blockId === menuTask.blockId)
+    || menuTask;
+
+  const currentStartDate = normalizeDateInputValue((task.startDate || '').toString());
+  const currentDueDate = normalizeDateInputValue((task.dueDate || '').toString());
+  const currentStartTime = normalizeTimeInputValue((task.startTime || '').toString());
+  const currentDueTime = normalizeTimeInputValue((task.dueTime || '').toString());
+
+  const nextStartDate = normalizeDateInputValue(taskQuickDateDraft.value.startDate || '');
+  let nextDueDate = normalizeDateInputValue(taskQuickDateDraft.value.dueDate || '');
+  if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
+    nextDueDate = nextStartDate;
+  }
+  const nextStartTime = nextStartDate ? normalizeTimeInputValue(taskQuickDateDraft.value.startTime || '') : '';
+  const nextDueTime = nextDueDate ? normalizeTimeInputValue(taskQuickDateDraft.value.dueTime || '') : '';
+
+  if (
+    currentStartDate === nextStartDate
+    && currentDueDate === nextDueDate
+    && currentStartTime === nextStartTime
+    && currentDueTime === nextDueTime
+  ) {
+    closeTaskQuickDateMenu();
+    return;
+  }
+
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+  try {
+    if (task.type === 'block' && blockId) {
+      await setBlockAttrs(blockId, {
+        'custom-task-start-date': nextStartDate || '',
+        'custom-task-due-date': nextDueDate || '',
+        'custom-task-start-time': nextStartTime || '',
+        'custom-task-due-time': nextDueTime || ''
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+    patchTask(tasks.value, task.id, (targetTask) => {
+      targetTask.startDate = nextStartDate || '';
+      targetTask.dueDate = nextDueDate || '';
+      targetTask.startTime = nextStartTime || '';
+      targetTask.dueTime = nextDueTime || '';
+      targetTask.updatedAt = nowIso;
+    }, 'id');
+
+    const activeDraft = activeTaskEditDraft.value;
+    if (activeDraft && activeDraft.taskId === task.id) {
+      activeDraft.startDate = nextStartDate || '';
+      activeDraft.dueDate = nextDueDate || '';
+      activeDraft.startTime = nextStartTime || '';
+      activeDraft.dueTime = nextDueTime || '';
+    }
+
+    crdtRepo.updateTaskField(task.id, 'startDate', nextStartDate || '');
+    crdtRepo.updateTaskField(task.id, 'dueDate', nextDueDate || '');
+    crdtRepo.updateTaskField(task.id, 'startTime', nextStartTime || '');
+    crdtRepo.updateTaskField(task.id, 'dueTime', nextDueTime || '');
+
+    const updatedTask = tasks.value.find(item => item.id === task.id) || {
+      ...task,
+      startDate: nextStartDate || '',
+      dueDate: nextDueDate || '',
+      startTime: nextStartTime || '',
+      dueTime: nextDueTime || '',
+      updatedAt: nowIso
+    };
+    eventBus.emit('task-date-changed', updatedTask);
+    if (blockId) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
+    }
+    await refreshInternalState();
+    closeTaskQuickDateMenu();
+  } catch {
+  }
+}
+
+async function applyBatchEdit(): Promise<void> {
+  if (isBatchApplying.value) {
+    return;
+  }
+  const selectedIds = Array.from(batchSelectedTaskIds.value);
+  if (selectedIds.length === 0) {
+    showMessage('请先选择任务', 2200, 'error');
+    return;
+  }
+
+  const nextStatus = isBatchStatus(batchEditStatus.value) ? batchEditStatus.value : null;
+  const nextPriority = isBatchPriority(batchEditPriority.value) ? batchEditPriority.value : null;
+  const rawGroupSelection = typeof batchEditGroupId.value === 'string' ? batchEditGroupId.value.trim() : '';
+  const validGroupIds = new Set(taskGroups.value.map(group => group.id));
+  let nextGroupId: string | null = null;
+  if (rawGroupSelection) {
+    if (rawGroupSelection === TASK_GROUP_NONE_ID) {
+      nextGroupId = '';
+    } else if (validGroupIds.has(rawGroupSelection)) {
+      nextGroupId = rawGroupSelection;
+    } else {
+      showMessage('请选择有效标签', 2200, 'error');
+      return;
+    }
+  }
+
+  if (!nextStatus && !nextPriority && nextGroupId === null) {
+    showMessage('请选择要批量修改的字段', 2200, 'error');
+    return;
+  }
+
+  type BatchTaskUpdate = {
+    task: Task;
+    blockId: string;
+    attrs: Record<string, string>;
+    nextStatus: Task['status'] | null;
+    nextPriority: Task['priority'] | null;
+    nextGroupId: string | undefined | null;
+  };
+  const updates: BatchTaskUpdate[] = [];
+
+  for (const taskId of selectedIds) {
+    const task = tasks.value.find(item => item.id === taskId);
+    if (!task || task.type !== 'block') {
+      continue;
+    }
+    const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+    if (!blockId) {
+      continue;
+    }
+
+    const attrs: Record<string, string> = {};
+    let changedStatus: Task['status'] | null = null;
+    let changedPriority: Task['priority'] | null = null;
+    let changedGroupId: string | undefined | null = null;
+
+    if (nextStatus && task.status !== nextStatus) {
+      attrs['custom-task-status'] = nextStatus;
+      changedStatus = nextStatus;
+    }
+
+    if (nextPriority && task.priority !== nextPriority) {
+      attrs['custom-task-priority'] = nextPriority;
+      changedPriority = nextPriority;
+    }
+
+    if (nextGroupId !== null) {
+      const currentGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+      if (currentGroupId !== nextGroupId) {
+        attrs['custom-task-group'] = nextGroupId;
+        changedGroupId = nextGroupId || undefined;
+      }
+    }
+
+    if (Object.keys(attrs).length === 0) {
+      continue;
+    }
+
+    updates.push({
+      task,
+      blockId,
+      attrs,
+      nextStatus: changedStatus,
+      nextPriority: changedPriority,
+      nextGroupId: changedGroupId
+    });
+  }
+
+  if (updates.length === 0) {
+    showMessage('未检测到可更新的任务', 2200, 'info');
+    return;
+  }
+
+  isBatchApplying.value = true;
+  try {
+    const results = await Promise.allSettled(
+      updates.map(item => setBlockAttrs(item.blockId, item.attrs))
+    );
+
+    const nowIso = new Date().toISOString();
+    const changedBlockIds: string[] = [];
+    let successCount = 0;
+    let failedCount = 0;
+
+    results.forEach((result, index) => {
+      const update = updates[index];
+      if (!update) {
+        return;
+      }
+      if (result.status !== 'fulfilled') {
+        failedCount += 1;
+        return;
+      }
+
+      successCount += 1;
+      changedBlockIds.push(update.blockId);
+
+      patchTask(tasks.value, update.task.id, (targetTask) => {
+        if (update.nextStatus) {
+          targetTask.status = update.nextStatus;
+          if (update.nextStatus === 'completed') {
+            targetTask.completedAt = targetTask.completedAt || nowIso;
+          } else {
+            delete targetTask.completedAt;
+          }
+        }
+        if (update.nextPriority) {
+          targetTask.priority = update.nextPriority;
+        }
+        if (update.nextGroupId !== null) {
+          targetTask.groupId = update.nextGroupId;
+        }
+        targetTask.updatedAt = nowIso;
+      }, 'id');
+
+      if (update.nextStatus) {
+        crdtRepo.updateTaskField(update.task.id, 'status', update.nextStatus);
+      }
+      if (update.nextPriority) {
+        crdtRepo.updateTaskField(update.task.id, 'priority', update.nextPriority);
+      }
+      if (update.nextGroupId !== null) {
+        crdtRepo.updateTaskField(update.task.id, 'groupId', update.nextGroupId);
+      }
+
+      const editedTask = taskEditDraft.value;
+      if (editedTask && editedTask.taskId === update.task.id) {
+        if (update.nextPriority) {
+          editedTask.priority = update.nextPriority;
+        }
+        if (update.nextGroupId !== null) {
+          editedTask.groupId = update.nextGroupId || '';
+        }
+      }
+    });
+
+    await refreshInternalState();
+    if (changedBlockIds.length > 0) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: changedBlockIds });
+    }
+
+    if (successCount > 0) {
+      showMessage(`已批量更新 ${successCount} 项任务`, 2200, 'info');
+    }
+    if (failedCount > 0) {
+      showMessage(`有 ${failedCount} 项任务更新失败`, 3000, 'error');
+    }
+  } finally {
+    isBatchApplying.value = false;
   }
 }
 
@@ -4447,6 +5633,9 @@ onMounted(async () => {
   filterDocument.value = userSettings.taskManager.filterDocument || 'all';
   archiveViewMode.value = 'active';
   showCompletedTasks.value = userSettings.taskManager.showCompletedTasks !== false;
+  taskListGroupBy.value = normalizeTaskListGroupMode(userSettings.taskManager.taskListGroupBy);
+  taskListViewMode.value = normalizeTaskListViewMode(userSettings.taskManager.taskListViewMode);
+  showTaskCardDetails.value = normalizeTaskCardDetailsVisible(userSettings.taskManager.showTaskCardDetails);
   restoreTaskPopoverFiltersFromSettings();
   ensureActiveNotebookFilterInScope();
   
@@ -4485,6 +5674,8 @@ onMounted(async () => {
 onUnmounted(() => {
   closeTaskEditMenu();
   closeTaskFilterPopover();
+  closeTaskGroupMenu();
+  closeTaskQuickDateMenu();
   cleanupEventListeners();
   stopSkipSetCleanup();
   closeTaskEditorSidebar();
@@ -4515,6 +5706,10 @@ onUnmounted(() => {
   if (taskPopoverFilterSettingsUpdateTimer !== null) {
     clearTimeout(taskPopoverFilterSettingsUpdateTimer);
     taskPopoverFilterSettingsUpdateTimer = null;
+  }
+  if (taskListGroupSettingsUpdateTimer !== null) {
+    clearTimeout(taskListGroupSettingsUpdateTimer);
+    taskListGroupSettingsUpdateTimer = null;
   }
   if (fallbackRefreshTimer !== null) {
     clearTimeout(fallbackRefreshTimer);
@@ -4637,120 +5832,105 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 
-.task-editor-sidebar-overlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  z-index: 3;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  background-color: rgba(0, 0, 0, 0.5);
-}
-
-.task-editor-sidebar-panel {
-  position: relative;
-  min-width: 100%;
-  width: 100%;
-  border-radius: 24px 24px 0 0;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
-  max-height: 85vh;
-  overflow: hidden;
+.task-batch-toolbar {
+  margin: -2px 2px 12px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--b3-theme-border);
   background: var(--b3-theme-background);
+  box-shadow: #0000000a 0 1px 4px;
   display: flex;
   flex-direction: column;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  gap: 8px;
 }
 
-.task-editor-sidebar-header {
+.task-batch-toolbar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 16px 20px;
+  flex-wrap: wrap;
 }
 
-.task-editor-sidebar-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--b3-theme-on-background);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.task-batch-selected-count {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  font-weight: 600;
 }
 
-.task-editor-sidebar-actions {
-  display: flex;
+.task-batch-toolbar-actions {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
-.task-editor-priority-btn {
+.task-batch-tool-btn {
   border: none;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.task-editor-priority-indicator {
-  width: 28px;
-  height: 28px;
+  height: 24px;
+  padding: 0 8px;
   border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.task-editor-priority-btn:hover .task-editor-priority-indicator {
-  background-color: var(--b3-list-hover);
-}
-
-.task-editor-sidebar-move,
-.task-editor-sidebar-pin,
-.task-editor-sidebar-archive,
-.task-editor-sidebar-delete,
-.task-editor-sidebar-close {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 4px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.task-batch-tool-btn:hover {
   color: var(--b3-theme-on-background);
-  background: transparent;
 }
 
-.task-editor-sidebar-move:hover {
-  background: var(--b3-list-hover);
-  color: #f98f7a;
+.task-batch-tool-btn:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
 }
 
-.task-editor-sidebar-pin:hover,
-.task-editor-sidebar-pin.is-active {
-  background: var(--b3-list-hover);
-  color: #f98f7a;
+.task-batch-edit-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
 }
 
-.task-editor-sidebar-archive:hover {
-  background: var(--b3-list-hover);
-  color: #f98f7a;
+.task-batch-field {
+  min-width: 0;
+  flex: 1 1 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.task-editor-sidebar-delete:hover {
-  background: var(--b3-list-hover);
-  color: var(--b3-theme-error);
+.task-batch-field > span {
+  font-size: 11px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.76;
 }
 
-.task-editor-sidebar-close:hover {
-  background: var(--b3-list-hover);
+.task-batch-field :deep(.b3-select) {
+  width: 100%;
+}
+
+.task-batch-apply-btn {
+  border: none;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  background: #f98f7a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.task-batch-apply-btn:hover {
+  transform: translateY(-1px);
+}
+
+.task-batch-apply-btn:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .task-editor-sidebar-body {
@@ -4764,8 +5944,8 @@ onUnmounted(() => {
 .task-editor-sidebar-meta {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px 20px 16px;
+  gap: 4px;
+  padding: 12px;
   border-top: 1px solid var(--b3-theme-border);
 }
 
@@ -4905,11 +6085,6 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-.task-editor-overlay-enter-from .task-editor-sidebar-panel,
-.task-editor-overlay-leave-to .task-editor-sidebar-panel {
-  transform: translateY(35%);
-}
-
 .filters-bar {
   display: flex;
   gap: 8px;
@@ -4923,7 +6098,7 @@ onUnmounted(() => {
 .filters-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   flex-shrink: 0;
   position: relative;
 }
@@ -4962,6 +6137,100 @@ onUnmounted(() => {
 
 .task-filter-control {
   position: relative;
+}
+
+.task-group-menu-control {
+  position: relative;
+}
+
+.task-group-menu-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.task-group-menu-btn:hover,
+.task-group-menu-btn.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.task-group-menu-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.task-group-menu-btn.is-batch-active,
+.task-group-menu-btn.is-batch-active:hover {
+  background-color: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.task-group-menu-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 152px;
+  border-radius: 10px;
+  border: 1px solid var(--b3-theme-border);
+  background: var(--b3-theme-background);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-group-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.task-group-menu-item:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.task-group-menu-item.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-weight: 600;
+}
+
+.task-group-menu-check {
+  color: #f98f7a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.task-group-menu-divider {
+  height: 1px;
+  margin: 2px 4px;
+  background: var(--b3-border-color);
+  opacity: 0.7;
 }
 
 .task-filter-btn {
@@ -5060,50 +6329,215 @@ onUnmounted(() => {
   box-shadow: inset 0 0 0 1px var(--b3-theme-border);
 }
 
-.subtasks-toggle-btn {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  color: var(--b3-theme-on-surface);
-  cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.subtasks-toggle-btn:hover {
-  background: var(--b3-list-hover);
-  color: var(--b3-theme-on-background);
-}
-
-.subtasks-toggle-btn svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: transform 0.2s ease;
-}
-
-.subtasks-toggle-btn.expanded svg {
-  transform: rotate(180deg);
-}
-
 .tasks-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
+.task-batch-item {
+  border-radius: 10px;
+}
+
+.task-batch-item.is-batch-mode :deep(.task-card.variant-sidebar) {
+  cursor: pointer;
+}
+
+.task-batch-item.is-batch-mode :deep(.task-card.variant-sidebar .task-card-content) {
+  cursor: pointer;
+}
+
+.task-batch-item.is-batch-mode:hover :deep(.task-card.variant-sidebar) {
+  box-shadow: 0 0 0 1px rgba(249, 143, 122, 0.35), 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.task-batch-item.selected :deep(.task-card.variant-sidebar) {
+  background: var(--b3-list-hover);
+  box-shadow: 0 0 0 1px rgba(249, 143, 122, 0.78), 0 4px 12px rgba(249, 143, 122, 0.18);
+}
+
+.tasks-list:not(.is-list-view) .task-group-section-body,
+.tasks-list:not(.is-list-view) .task-virtual-spacer {
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.task-grouped-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-grouped-list.is-list-view {
+  gap: 8px;
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.task-group-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-group-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.task-group-section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-group-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  font-weight: 600;
+}
+
+.task-group-section-batch-checkbox {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.task-group-section-batch-checkbox:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-group-section-batch-checkbox :deep(.task-checkbox) {
+  --task-checkbox-fill: var(--b3-list-hover);
+  --task-checkbox-border: var(--b3-theme-border);
+}
+
+.task-group-section-batch-checkbox.partial :deep(.task-checkbox) {
+  fill: #f98f7a;
+  stroke: none;
+  opacity: 0.45;
+}
+
+.task-group-section-batch-checkbox.is-disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.task-group-section-count {
+  min-width: 22px;
+  height: 18px;
+  padding: 0 2px;
+  color: var(--b3-theme-on-surface);
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+}
+
+.task-group-section-toggle {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  padding: 0;
+}
+
+.task-group-section-toggle:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.task-group-section-toggle svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s ease;
+  transform: rotate(90deg);
+}
+
+.task-group-section-toggle.collapsed svg {
+  transform: rotate(0deg);
+}
+
+.task-group-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tasks-list.is-list-view .task-group-section {
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: #0000000f 0 1px 5px;
+  padding: 8px;
+  gap: 8px;
+}
+
+.tasks-list.is-list-view .task-group-section-header {
+  padding: 0;
+}
+
+.tasks-list.is-list-view .task-group-section-body {
+  gap: 0;
+}
+
+.tasks-list.is-list-view .task-group-section-body :deep(.task-card.variant-sidebar) {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--b3-theme-border);
+}
+
+.tasks-list.is-list-view .task-group-section-body :deep(.task-card.variant-sidebar:hover) {
+  box-shadow: none;
+}
+
+.tasks-list.is-list-view .task-group-section-body :deep(.task-card.variant-sidebar:last-child) {
+  border-bottom: none;
+}
+
+.tasks-list.is-list-view .task-batch-item.selected :deep(.task-card.variant-sidebar) {
+  background: var(--b3-list-hover);
+  box-shadow: none;
+}
+
 .task-virtual-spacer {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+@media (max-width: 560px) {
+  .task-batch-edit-grid {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .task-batch-apply-btn {
+    width: 100%;
+  }
 }
 
 .filter-group {
