@@ -17,9 +17,9 @@
           </svg>
         </button>
         <div v-if="showHeaderDaysSwitcher" class="all-day-label-cell header-days-switcher">
-          <button class="days-control-btn" @click="decreaseDays" :disabled="daysCount <= CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS">-</button>
+          <button class="days-control-btn" @click="decreaseDays" :disabled="isDaysCountLocked || daysCount <= minimumDaysCount">-</button>
           <span class="days-count">{{ daysCount }}</span>
-          <button class="days-control-btn" @click="increaseDays" :disabled="daysCount >= CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS">+</button>
+          <button class="days-control-btn" @click="increaseDays" :disabled="isDaysCountLocked || daysCount >= CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS">+</button>
         </div>
       </div>
     </div>
@@ -391,6 +391,7 @@ import TaskContextMenu from './TaskContextMenu.vue';
 interface Props {
   tasks: Task[];
   fixedDaysCount?: number;
+  fixedCenterToday?: boolean;
 }
 
 interface WeekDay {
@@ -442,7 +443,35 @@ function getTodayStart(): Date {
   return today;
 }
 
-const currentWeekStart = ref(props.fixedDaysCount === 1 ? getTodayStart() : getWeekStart(new Date()));
+function resolveFixedDaysCount(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return Math.max(
+    CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS,
+    Math.min(CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS, Math.round(value))
+  );
+}
+
+function resolveCenteredStartDateFromToday(days: number): Date {
+  const start = getTodayStart();
+  const centerOffset = Math.floor(days / 2);
+  start.setDate(start.getDate() - centerOffset);
+  return start;
+}
+
+function resolveInitialWeekStart(): Date {
+  const fixedDays = resolveFixedDaysCount(props.fixedDaysCount);
+  if (!fixedDays) {
+    return getWeekStart(new Date());
+  }
+  if (props.fixedCenterToday) {
+    return resolveCenteredStartDateFromToday(fixedDays);
+  }
+  return getTodayStart();
+}
+
+const currentWeekStart = ref(resolveInitialWeekStart());
 const currentTime = ref(new Date());
 const isAllDaySectionCollapsed = ref(false);
 const allDayExpandedPanelVisible = ref(false);
@@ -586,18 +615,33 @@ function resolveTaskAccentColor(backgroundColor?: string): string {
 }
 
 const daysCount = ref(7);
+const hasFixedDaysCount = computed(() => resolveFixedDaysCount(props.fixedDaysCount) !== null);
 const isDayViewContext = computed(() => {
-  if (typeof props.fixedDaysCount !== 'number' || !Number.isFinite(props.fixedDaysCount)) {
+  const fixedDays = resolveFixedDaysCount(props.fixedDaysCount);
+  if (!fixedDays) {
     return false;
   }
-  return Math.round(props.fixedDaysCount) === 1;
+  return fixedDays === 1;
 });
-const isDaysCountLocked = computed(() =>
-  typeof props.fixedDaysCount === 'number'
-  && Number.isFinite(props.fixedDaysCount)
-  && !isDayViewContext.value
+const isThreeDayViewContext = computed(() => {
+  const fixedDays = resolveFixedDaysCount(props.fixedDaysCount);
+  if (!fixedDays) {
+    return false;
+  }
+  return fixedDays === 3;
+});
+const minimumDaysCount = computed(() =>
+  isThreeDayViewContext.value ? 3 : CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS
 );
-const showHeaderDaysSwitcher = computed(() => isDayViewContext.value);
+const isDaysCountLocked = computed(() =>
+  hasFixedDaysCount.value
+  && !isDayViewContext.value
+  && !isThreeDayViewContext.value
+);
+const showHeaderDaysSwitcher = computed(() =>
+  isDayViewContext.value
+  || isThreeDayViewContext.value
+);
 const isMobileWeekGridMode = computed(() => viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && daysCount.value === 7);
 const isMobileDayViewMode = computed(() => viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && daysCount.value === 1);
 
@@ -607,6 +651,7 @@ function handleViewportResize(): void {
     viewportWidth.value <= MOBILE_WEEK_BREAKPOINT
     && !isDaysCountLocked.value
     && !isDayViewContext.value
+    && !isThreeDayViewContext.value
     && daysCount.value !== 7
   ) {
     daysCount.value = 7;
@@ -630,7 +675,7 @@ watch(
 
 function decreaseDays() {
   if (isDaysCountLocked.value) return;
-  if (daysCount.value > CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS) {
+  if (daysCount.value > minimumDaysCount.value) {
     daysCount.value--;
   }
 }
@@ -643,7 +688,10 @@ function increaseDays() {
 }
 
 function resolveNavigationOffsetDays(): number {
-  if (isDayViewContext.value) {
+  if (hasFixedDaysCount.value) {
+    if (props.fixedCenterToday) {
+      return 1;
+    }
     return Math.max(1, Math.round(daysCount.value));
   }
   return 7;
@@ -856,7 +904,7 @@ function formatMonthDayWithoutYear(date: Date): string {
 }
 
 const displayWeekTitle = computed(() => {
-  if (isDayViewContext.value) {
+  if (hasFixedDaysCount.value) {
     const start = new Date(currentWeekStart.value);
     const end = new Date(start);
     end.setDate(start.getDate() + daysCount.value - 1);
@@ -1344,7 +1392,14 @@ function goToToday() {
     focusMobileWeek(getTodayStart());
     return;
   }
-  currentWeekStart.value = isDayViewContext.value ? getTodayStart() : getWeekStart(new Date());
+  if (hasFixedDaysCount.value) {
+    const fixedDays = resolveFixedDaysCount(daysCount.value) || 1;
+    currentWeekStart.value = props.fixedCenterToday
+      ? resolveCenteredStartDateFromToday(fixedDays)
+      : getTodayStart();
+    return;
+  }
+  currentWeekStart.value = getWeekStart(new Date());
 }
 
 function toggleAllDaySection() {

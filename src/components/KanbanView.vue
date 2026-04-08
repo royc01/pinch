@@ -52,6 +52,10 @@
                 <Icon name="week" width="16" height="16" />
                 <span>周视图</span>
               </button>
+              <button :class="['view-btn', { active: currentView === 'three-day' }]" @click="currentView = 'three-day'">
+                <Icon name="threeDay" width="16" height="16" />
+                <span>三日图</span>
+              </button>
               <button :class="['view-btn', { active: currentView === 'day' }]" @click="currentView = 'day'">
                 <Icon name="day" width="16" height="16" />
                 <span>日视图</span>
@@ -109,7 +113,7 @@
             </div>
           </div>
 
-          <div v-if="currentView === 'day'" class="filter-bar-inline">
+          <div v-if="currentView === 'day' || currentView === 'three-day'" class="filter-bar-inline">
             <div class="filter-group">
               <label>笔记本:</label>
               <SySelect
@@ -155,7 +159,7 @@
         </div>
       </div>
       <div
-        v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table' || currentView === 'archive-table' || currentView === 'month' || currentView === 'week' || currentView === 'day'"
+        v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table' || currentView === 'archive-table' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
         class="document-tabs-row"
       >
       <div
@@ -177,7 +181,7 @@
       </div>
       <div v-else class="document-tabs-placeholder"></div>
       <div
-        v-if="currentView === 'kanban' || currentView === 'table' || currentView === 'archive-table' || currentView === 'month' || currentView === 'week' || currentView === 'day'"
+        v-if="currentView === 'kanban' || currentView === 'table' || currentView === 'archive-table' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
         ref="documentTabsDropdownControlRef"
         class="document-tabs-dropdown"
       >
@@ -637,6 +641,15 @@
       @task-click="handleTaskClick"
       @task-create-requested="handleTaskCreateRequested"
     />
+    <WeekView
+      v-if="currentView === 'three-day'"
+      :tasks="dayViewTasks"
+      :fixed-days-count="3"
+      :fixed-center-today="true"
+      @task-date-changed="handleTaskDateChanged"
+      @task-click="handleTaskClick"
+      @task-create-requested="handleTaskCreateRequested"
+    />
 
     <TaskFilterPopover
       ref="kanbanFilterPopoverRef"
@@ -927,12 +940,13 @@ const tableGroupModeOptions = [
   { value: 'group', text: '按标签' },
   { value: 'heading', text: '按标题' }
 ] as const;
-type TaskViewMode = 'kanban' | 'table' | 'archive-table' | 'month' | 'week' | 'day';
+type TaskViewMode = 'kanban' | 'table' | 'archive-table' | 'month' | 'week' | 'three-day' | 'day';
 const viewSwitcherOptions: Array<{ value: TaskViewMode; text: string; icon: string }> = [
   { value: 'kanban', text: '看板', icon: 'kanban' },
   { value: 'table', text: '表格', icon: 'table' },
   { value: 'month', text: '月视图', icon: 'month' },
   { value: 'week', text: '周视图', icon: 'week' },
+  { value: 'three-day', text: '三日图', icon: 'threeDay' },
   { value: 'day', text: '日视图', icon: 'day' },
   { value: 'archive-table', text: '归档', icon: 'table' }
 ];
@@ -944,6 +958,7 @@ function normalizeTaskViewMode(value: unknown): TaskViewMode {
     || value === 'archive-table'
     || value === 'month'
     || value === 'week'
+    || value === 'three-day'
     || value === 'day'
   ) {
     return value;
@@ -2563,6 +2578,7 @@ function getCurrentFilterNotebookId(): string {
       return monthFilterType.value;
     case 'week':
       return weekFilterType.value;
+    case 'three-day':
     case 'day':
       return dayFilterType.value;
     default:
@@ -2663,6 +2679,7 @@ const currentDocumentFilter = computed<string>({
         return monthFilterDocument.value;
       case 'week':
         return weekFilterDocument.value;
+      case 'three-day':
       case 'day':
         return dayFilterDocument.value;
       default:
@@ -2684,6 +2701,7 @@ const currentDocumentFilter = computed<string>({
       case 'week':
         weekFilterDocument.value = value;
         break;
+      case 'three-day':
       case 'day':
         dayFilterDocument.value = value;
         break;
@@ -5994,6 +6012,7 @@ function getCurrentSidebarFilterSelection(): { notebookId: string; documentId: s
         notebookId: monthFilterType.value,
         documentId: monthFilterDocument.value
       };
+    case 'three-day':
     case 'day':
       return {
         notebookId: dayFilterType.value,
@@ -7687,10 +7706,10 @@ watch(kanbanColumns, () => {
 
 .view-switcher {
   display: flex;
-  gap: 2px;
+  gap: 4px;
   background: var(--b3-list-hover);
-  padding: 2px;
-  border-radius: 6px;
+  padding: 3px;
+  border-radius: 9px;
   min-width: 0;
 }
 
@@ -7774,14 +7793,14 @@ watch(kanbanColumns, () => {
 }
 
 .view-btn {
-  padding: 6px 12px;
+  padding: 4px 8px;
   border: none;
   background: transparent;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   color: var(--b3-theme-on-surface);
   transition: all 0.2s;
   font-size: 13px;
