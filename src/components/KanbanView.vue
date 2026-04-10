@@ -5487,25 +5487,18 @@ async function incrementalUpdateTasks(
     }
 
     const { taskIndexMap, subtaskNodeMap } = buildTaskLookup();
-    const {
-      unresolvedBlockIds,
-      patchedParentStatuses,
-      hasPatched
-    } = await fastSyncTaskFromMarkdown(scopedBlockIds, taskIndexMap, subtaskNodeMap);
-
-    if (unresolvedBlockIds.length === 0) {
-      if (hasPatched) {
-        applyDraggedStatusLocks(tasks.value);
-        invalidateTableFilters();
-        await nextTick();
-      }
-      return;
-    }
+    const { patchedParentStatuses, hasPatched } = await fastSyncTaskFromMarkdown(
+      scopedBlockIds,
+      taskIndexMap,
+      subtaskNodeMap
+    );
 
     const parentBlockIds = new Set<string>();
     const stillUnresolved: string[] = [];
 
-    for (const blockId of unresolvedBlockIds) {
+    // Always resolve affected parent tasks so attribute updates (date/time/group/etc.)
+    // from outside kanban can be merged, not only checkbox status changes.
+    for (const blockId of scopedBlockIds) {
       if (taskIndexMap.has(blockId)) {
         parentBlockIds.add(blockId);
         continue;
@@ -5524,6 +5517,12 @@ async function incrementalUpdateTasks(
     }
 
     if (parentBlockIds.size === 0) {
+      if (hasPatched) {
+        applyDraggedStatusLocks(tasks.value);
+        invalidateTableFilters();
+        await nextTick();
+        return;
+      }
       scheduleRefreshTasks(180, 'silent-full');
       return;
     }

@@ -571,6 +571,7 @@ export function useTaskDrag(
   }
 
   function handleHandleMouseDown(event: MouseEvent, task: Task, handleType: 'start' | 'end') {
+    if (event.button !== 0) return;
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event, task, `all-day-handle:${handleType}`)) return;
     resetMonthDayCellHitRects();
@@ -674,6 +675,7 @@ export function useTaskDrag(
   }
 
   function handleTaskMouseDown(event: MouseEvent, task: Task) {
+    if (event.button !== 0) return;
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event, task, 'all-day-task')) return;
     if (!task.startDate && !task.dueDate) return;
@@ -839,9 +841,10 @@ export function useTaskDrag(
         if (dropHourCell) {
           const match = dropHourCell.match(/-(\d+)$/);
           if (match) {
-            const hour = parseInt(match[1]);
-            startTime = `${String(hour).padStart(2, '0')}:00`;
-            const dueHour = (hour + 1) % 24;
+            // dragState.overHourCell stores display hour index (1-24), convert to 0-23.
+            const hourIndex = Math.max(0, Math.min(23, parseInt(match[1], 10) - 1));
+            startTime = `${String(hourIndex).padStart(2, '0')}:00`;
+            const dueHour = (hourIndex + 1) % 24;
             dueTime = `${String(dueHour).padStart(2, '0')}:00`;
           }
         }
@@ -1207,6 +1210,7 @@ export function useTaskDrag(
   }
 
   function handleTimedTaskHandleMouseDown(event: MouseEvent, task: Task, handleType: 'start' | 'end') {
+    if (event.button !== 0) return;
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event, task, `timed-handle:${handleType}`)) return;
 
@@ -1434,6 +1438,7 @@ export function useTaskDrag(
   }
 
   function handleTimedTaskMouseDown(event: MouseEvent, task: Task, dayKey: string) {
+    if (event.button !== 0) return;
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event, task, 'timed-task')) return;
 
@@ -1687,21 +1692,17 @@ export function useTaskDrag(
           startTime: undefined,
           dueTime: undefined
         });
-        if (!updatedTask) {
-          draggingTimedTask.value = null;
-          dragState.value.overDayColumn = null;
-          dragState.value.overAllDayColumn = null;
-          isDragging.value = false;
-          clearTimedRepeatPreview();
-          removeEventListeners('mousemove');
-          removeEventListeners('mouseup');
-          return;
-        }
+        const syncedTask = updatedTask || getLocalTask(task.id) || currentTask;
+        const persistBlockId = (
+          (typeof currentTask.blockId === 'string' && currentTask.blockId.trim())
+          || (typeof task.blockId === 'string' && task.blockId.trim())
+          || (typeof task.id === 'string' && task.id.startsWith('block_') ? task.id.slice(6) : '')
+        );
 
-        if (task.type === 'block' && task.blockId) {
+        if (persistBlockId) {
           try {
             const { setBlockAttrs } = await import('@/api');
-            await setBlockAttrs(task.blockId, {
+            await setBlockAttrs(persistBlockId, {
               'custom-task-start-date': resolvedStartDate,
               'custom-task-due-date': resolvedDueDate,
               'custom-task-start-time': null,
@@ -1717,7 +1718,9 @@ export function useTaskDrag(
           }
         }
 
-        emitTaskDateChanged(updatedTask);
+        if (syncedTask) {
+          emitTaskDateChanged(syncedTask);
+        }
       } else {
         if (
           resolvedStartTime !== originalStartTime
@@ -1731,21 +1734,17 @@ export function useTaskDrag(
             startDate: resolvedStartDate,
             dueDate: resolvedDueDate
           });
-          if (!updatedTask) {
-            draggingTimedTask.value = null;
-            dragState.value.overDayColumn = null;
-            dragState.value.overAllDayColumn = null;
-            isDragging.value = false;
-            clearTimedRepeatPreview();
-            removeEventListeners('mousemove');
-            removeEventListeners('mouseup');
-            return;
-          }
+          const syncedTask = updatedTask || getLocalTask(task.id) || currentTask;
+          const persistBlockId = (
+            (typeof currentTask.blockId === 'string' && currentTask.blockId.trim())
+            || (typeof task.blockId === 'string' && task.blockId.trim())
+            || (typeof task.id === 'string' && task.id.startsWith('block_') ? task.id.slice(6) : '')
+          );
 
-          if (task.type === 'block' && task.blockId) {
+          if (persistBlockId) {
             try {
               const { setBlockAttrs } = await import('@/api');
-              await setBlockAttrs(task.blockId, {
+              await setBlockAttrs(persistBlockId, {
                 'custom-task-start-time': resolvedStartTime,
                 'custom-task-due-time': resolvedEndTime,
                 'custom-task-start-date': resolvedStartDate,
@@ -1761,7 +1760,9 @@ export function useTaskDrag(
             }
           }
 
-          emitTaskDateChanged(updatedTask);
+          if (syncedTask) {
+            emitTaskDateChanged(syncedTask);
+          }
         }
       }
     }
