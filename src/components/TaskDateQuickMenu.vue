@@ -9,43 +9,130 @@
       <div class="context-menu-title">{{ title }}</div>
       <div class="date-edit-row">
         <label>开始</label>
-        <input
-          :value="startDate"
-          type="date"
-          @input="$emit('update:startDate', ($event.target as HTMLInputElement).value)"
-        />
+        <div class="context-menu-date-input-group">
+          <input
+            :value="startDate"
+            type="date"
+            @input="$emit('update:startDate', ($event.target as HTMLInputElement).value)"
+          />
+          <button
+            ref="startDateTriggerRef"
+            type="button"
+            class="context-menu-date-trigger"
+            :class="{ active: activeDatePopoverField === 'startDate' }"
+            @click="toggleDatePopover('startDate')"
+          >
+            <Icon name="calendar" width="14" height="14" />
+          </button>
+        </div>
       </div>
       <div class="date-edit-row">
         <label>开始时间</label>
-        <input
-          :value="startTime"
-          type="time"
-          @input="$emit('update:startTime', ($event.target as HTMLInputElement).value)"
-        />
+        <div class="context-menu-date-input-group">
+          <input
+            :value="startTime"
+            type="time"
+            @input="$emit('update:startTime', ($event.target as HTMLInputElement).value)"
+          />
+          <button
+            ref="startTimeTriggerRef"
+            type="button"
+            class="context-menu-date-trigger"
+            :class="{ active: activeTimePopoverField === 'startTime' }"
+            @click="toggleTimePopover('startTime')"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="date-edit-row">
         <label>截止</label>
-        <input
-          :value="dueDate"
-          type="date"
-          @input="$emit('update:dueDate', ($event.target as HTMLInputElement).value)"
-        />
+        <div class="context-menu-date-input-group">
+          <input
+            :value="dueDate"
+            type="date"
+            @input="$emit('update:dueDate', ($event.target as HTMLInputElement).value)"
+          />
+          <button
+            ref="dueDateTriggerRef"
+            type="button"
+            class="context-menu-date-trigger"
+            :class="{ active: activeDatePopoverField === 'dueDate' }"
+            @click="toggleDatePopover('dueDate')"
+          >
+            <Icon name="calendar" width="14" height="14" />
+          </button>
+        </div>
       </div>
       <div class="date-edit-row">
         <label>截止时间</label>
-        <input
-          :value="dueTime"
-          type="time"
-          @input="$emit('update:dueTime', ($event.target as HTMLInputElement).value)"
-        />
+        <div class="context-menu-date-input-group">
+          <input
+            :value="dueTime"
+            type="time"
+            @input="$emit('update:dueTime', ($event.target as HTMLInputElement).value)"
+          />
+          <button
+            ref="dueTimeTriggerRef"
+            type="button"
+            class="context-menu-date-trigger"
+            :class="{ active: activeTimePopoverField === 'dueTime' }"
+            @click="toggleTimePopover('dueTime')"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <button class="context-menu-date-save" @click="$emit('save')">{{ saveLabel }}</button>
     </div>
+
+    <TaskDatePopover
+      v-if="activeDatePopoverField === 'startDate'"
+      :visible="true"
+      :model-value="startDate"
+      :anchor-el="startDateTriggerRef"
+      @update:modelValue="$emit('update:startDate', $event)"
+      @close="activeDatePopoverField = null"
+    />
+
+    <TaskDatePopover
+      v-if="activeDatePopoverField === 'dueDate'"
+      :visible="true"
+      :model-value="dueDate"
+      :anchor-el="dueDateTriggerRef"
+      @update:modelValue="$emit('update:dueDate', $event)"
+      @close="activeDatePopoverField = null"
+    />
+
+    <TaskTimePopover
+      v-if="activeTimePopoverField === 'startTime'"
+      :visible="true"
+      :model-value="startTime"
+      :anchor-el="startTimeTriggerRef"
+      @update:modelValue="$emit('update:startTime', $event)"
+      @close="activeTimePopoverField = null"
+    />
+
+    <TaskTimePopover
+      v-if="activeTimePopoverField === 'dueTime'"
+      :visible="true"
+      :model-value="dueTime"
+      :anchor-el="dueTimeTriggerRef"
+      @update:modelValue="$emit('update:dueTime', $event)"
+      @close="activeTimePopoverField = null"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import Icon from '@/components/Icon.vue';
+import TaskDatePopover from '@/components/TaskDatePopover.vue';
+import TaskTimePopover from '@/components/TaskTimePopover.vue';
 
 const props = withDefaults(defineProps<{
   show: boolean;
@@ -71,6 +158,12 @@ defineEmits<{
 }>();
 
 const isMobileSheet = ref(false);
+const activeDatePopoverField = ref<'startDate' | 'dueDate' | null>(null);
+const activeTimePopoverField = ref<'startTime' | 'dueTime' | null>(null);
+const startDateTriggerRef = ref<HTMLElement | null>(null);
+const dueDateTriggerRef = ref<HTMLElement | null>(null);
+const startTimeTriggerRef = ref<HTMLElement | null>(null);
+const dueTimeTriggerRef = ref<HTMLElement | null>(null);
 
 const menuStyle = computed<Record<string, string>>(() => {
   if (isMobileSheet.value) {
@@ -102,6 +195,23 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', updateMobileSheetState);
 });
+
+watch(() => props.show, (show) => {
+  if (!show) {
+    activeDatePopoverField.value = null;
+    activeTimePopoverField.value = null;
+  }
+});
+
+function toggleDatePopover(field: 'startDate' | 'dueDate'): void {
+  activeTimePopoverField.value = null;
+  activeDatePopoverField.value = activeDatePopoverField.value === field ? null : field;
+}
+
+function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
+  activeDatePopoverField.value = null;
+  activeTimePopoverField.value = activeTimePopoverField.value === field ? null : field;
+}
 </script>
 
 <style scoped>
@@ -110,8 +220,8 @@ onUnmounted(() => {
   background: var(--b3-theme-surface);
   border: 1px solid var(--b3-border-color);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
+  box-shadow: 0 12px 28px #0000002e;
+  z-index: 10;
   min-width: 260px;
   padding: 8px;
   animation: contextMenuFadeIn 0.15s ease-out;
@@ -184,7 +294,8 @@ onUnmounted(() => {
 }
 
 .date-edit-row input[type="date"],
-.date-edit-row input[type="time"] {
+.date-edit-row input[type="time"],
+.repeat-edit-row select {
   flex: 1;
   min-width: 0;
   padding: 4px 6px;
@@ -193,6 +304,61 @@ onUnmounted(() => {
   background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
   font-size: 12px;
+}
+
+.context-menu-date-input-group {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.context-menu-date-input-group input[type="date"],
+.context-menu-date-input-group input[type="time"] {
+  flex: 1;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.context-menu-date-input-group input[type="date"]::-webkit-calendar-picker-indicator,
+.context-menu-date-input-group input[type="time"]::-webkit-calendar-picker-indicator,
+.context-menu-date-input-group input[type="date"]::-webkit-clear-button,
+.context-menu-date-input-group input[type="date"]::-webkit-inner-spin-button,
+.context-menu-date-input-group input[type="time"]::-webkit-clear-button,
+.context-menu-date-input-group input[type="time"]::-webkit-inner-spin-button {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  margin: 0;
+  display: none;
+}
+
+.context-menu-date-trigger {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.context-menu-date-trigger svg {
+  flex: 0 0 auto;
+  fill: currentColor;
+}
+
+.context-menu-date-trigger:hover,
+.context-menu-date-trigger.active {
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-list-hover);
 }
 
 .context-menu-date-save {

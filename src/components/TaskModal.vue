@@ -1,8 +1,18 @@
 ﻿<template>
   <Transition name="fade">
-    <div v-show="show" class="modal-overlay" @click.self="emit('close')">
+    <div
+      v-show="show"
+      class="modal-overlay"
+      :class="{ 'is-centered': isCenteredPresentation }"
+      @click.self="emit('close')"
+    >
       <Transition name="slide">
-        <div class="modal-content" @click.stop v-show="show">
+        <div
+          class="modal-content"
+          :class="{ 'is-centered': isCenteredPresentation }"
+          @click.stop
+          v-show="show"
+        >
           <div class="modal-header">
             <h3>{{ tt('taskManager.newTask', '新建任务') }}</h3>
             <button @click="emit('close')" class="icon-button">
@@ -216,6 +226,7 @@ interface Props {
   lastSelectedDocument?: string;
   groups?: TaskGroup[];
   defaultGroupId?: string;
+  presentation?: 'sheet' | 'center';
 }
 
 const props = defineProps<Props>();
@@ -328,6 +339,9 @@ const taskModalGroupOptions = computed(() => {
     { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, color: '', colorCss: '', textColor: '' }
   ];
   (props.groups || []).forEach(group => {
+    if (group.hidden === true) {
+      return;
+    }
     const rawColor = group.color || '';
     options.push({
       value: group.id,
@@ -340,6 +354,8 @@ const taskModalGroupOptions = computed(() => {
   });
   return options;
 });
+
+const isCenteredPresentation = computed(() => props.presentation === 'center');
 
 const notebookOptions = computed(() => {
   return props.notebooks.map(nb => ({ value: nb.id, text: nb.name }));
@@ -456,7 +472,7 @@ function handleTaskModalOutsideClick(event: MouseEvent): void {
 function resolveDefaultGroupId(): string {
   const candidate = (props.defaultGroupId || '').trim();
   if (!candidate) return '';
-  const exists = (props.groups || []).some(group => group.id === candidate);
+  const exists = (props.groups || []).some(group => group.id === candidate && group.hidden !== true);
   return exists ? candidate : '';
 }
 
@@ -516,6 +532,12 @@ const handleSubmit = () => {
   z-index: 2;
 }
 
+.modal-overlay.is-centered {
+  align-items: center;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
 .modal-content {
   background: var(--b3-theme-background);
   border-radius: 24px 24px 0 0;
@@ -523,6 +545,14 @@ const handleSubmit = () => {
   max-height: 85vh;
   overflow-y: auto;
   min-width: 100%;
+}
+
+.modal-content.is-centered {
+  border-radius: 14px;
+  width: min(560px, 100%);
+  min-width: 0;
+  max-height: calc(100vh - 40px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
 }
 
 .fade-enter-active,

@@ -25,19 +25,83 @@
       <div class="context-menu-title">日期</div>
       <div class="date-edit-row">
         <label>开始</label>
-        <input :value="startDate" type="date" @input="$emit('update:startDate', ($event.target as HTMLInputElement).value)" />
+        <div class="context-menu-date-input-group">
+          <input
+            :value="startDate"
+            type="date"
+            @input="$emit('update:startDate', ($event.target as HTMLInputElement).value)"
+          />
+          <button
+            ref="startDateTriggerRef"
+            type="button"
+            class="context-menu-date-trigger"
+            :class="{ active: activeDatePopoverField === 'startDate' }"
+            @click="toggleDatePopover('startDate')"
+          >
+            <Icon name="calendar" width="14" height="14" />
+          </button>
+        </div>
       </div>
       <div class="date-edit-row">
         <label>开始时</label>
-        <input :value="startTime" type="time" @input="$emit('update:startTime', ($event.target as HTMLInputElement).value)" />
+        <div class="context-menu-date-input-group">
+          <input
+            :value="startTime"
+            type="time"
+            @input="$emit('update:startTime', ($event.target as HTMLInputElement).value)"
+          />
+          <button
+            ref="startTimeTriggerRef"
+            type="button"
+            class="context-menu-date-trigger"
+            :class="{ active: activeTimePopoverField === 'startTime' }"
+            @click="toggleTimePopover('startTime')"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="date-edit-row">
         <label>截止</label>
-        <input :value="dueDate" type="date" @input="$emit('update:dueDate', ($event.target as HTMLInputElement).value)" />
+        <div class="context-menu-date-input-group">
+          <input
+            :value="dueDate"
+            type="date"
+            @input="$emit('update:dueDate', ($event.target as HTMLInputElement).value)"
+          />
+          <button
+            ref="dueDateTriggerRef"
+            type="button"
+            class="context-menu-date-trigger"
+            :class="{ active: activeDatePopoverField === 'dueDate' }"
+            @click="toggleDatePopover('dueDate')"
+          >
+            <Icon name="calendar" width="14" height="14" />
+          </button>
+        </div>
       </div>
       <div class="date-edit-row">
         <label>结束时</label>
-        <input :value="dueTime" type="time" @input="$emit('update:dueTime', ($event.target as HTMLInputElement).value)" />
+        <div class="context-menu-date-input-group">
+          <input
+            :value="dueTime"
+            type="time"
+            @input="$emit('update:dueTime', ($event.target as HTMLInputElement).value)"
+          />
+          <button
+            ref="dueTimeTriggerRef"
+            type="button"
+            class="context-menu-date-trigger"
+            :class="{ active: activeTimePopoverField === 'dueTime' }"
+            @click="toggleTimePopover('dueTime')"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <button class="context-menu-date-save" @click="$emit('saveDates')">保存日期</button>
     </div>
@@ -58,17 +122,49 @@
 
     <div class="context-menu-divider"></div>
     <div class="context-menu-item archive-item" @click="$emit('archiveTask')">
-      <svg viewBox="0 0 1024 1024" width="16" height="16">
-        <path fill="currentColor" d="M273.066667 68.266667a102.4 102.4 0 0 0-102.4 102.4v74.069333A102.434133 102.434133 0 0 0 102.4 341.333333v74.069334A102.434133 102.434133 0 0 0 34.133333 512v273.066667a170.666667 170.666667 0 0 0 170.666667 170.666666h614.4a170.666667 170.666667 0 0 0 170.666667-170.666666v-273.066667a102.434133 102.434133 0 0 0-68.266667-96.597333V341.333333a102.434133 102.434133 0 0 0-68.266667-96.597333V170.666667a102.4 102.4 0 0 0-102.4-102.4H273.066667z m580.266666 341.333333h-204.8a34.133333 34.133333 0 0 0-34.133333 34.133333 102.4 102.4 0 1 1-204.8 0 34.133333 34.133333 0 0 0-34.133333-34.133333H170.666667v-68.266667a34.133333 34.133333 0 0 1 34.133333-34.133333h614.4a34.133333 34.133333 0 0 1 34.133333 34.133333v68.266667zM136.533333 477.866667h208.213334a170.734933 170.734933 0 0 0 334.506666 0H887.466667a34.133333 34.133333 0 0 1 34.133333 34.133333v273.066667a102.4 102.4 0 0 1-102.4 102.4H204.8a102.4 102.4 0 0 1-102.4-102.4v-273.066667a34.133333 34.133333 0 0 1 34.133333-34.133333z m648.533334-238.933334H238.933333V170.666667a34.133333 34.133333 0 0 1 34.133334-34.133334h477.866666a34.133333 34.133333 0 0 1 34.133334 34.133334v68.266666zM375.466667 750.933333a34.133333 34.133333 0 0 1 34.133333-34.133333h204.8a34.133333 34.133333 0 1 1 0 68.266667h-204.8a34.133333 34.133333 0 0 1-34.133333-34.133334z"/>
-      </svg>
+      <Icon name="archive" width="16" height="16" />
       <span>{{ task?.archived ? '取消归档' : '归档任务' }}</span>
     </div>
     <div class="context-menu-item delete-item" @click="$emit('deleteTask')">
-      <svg viewBox="0 0 24 24" width="16" height="16">
-        <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-      </svg>
+      <Icon name="trash" width="16" height="16" />
       <span>删除任务</span>
     </div>
+
+    <TaskDatePopover
+      v-if="activeDatePopoverField === 'startDate'"
+      :visible="true"
+      :model-value="startDate"
+      :anchor-el="startDateTriggerRef"
+      @update:modelValue="$emit('update:startDate', $event)"
+      @close="activeDatePopoverField = null"
+    />
+
+    <TaskDatePopover
+      v-if="activeDatePopoverField === 'dueDate'"
+      :visible="true"
+      :model-value="dueDate"
+      :anchor-el="dueDateTriggerRef"
+      @update:modelValue="$emit('update:dueDate', $event)"
+      @close="activeDatePopoverField = null"
+    />
+
+    <TaskTimePopover
+      v-if="activeTimePopoverField === 'startTime'"
+      :visible="true"
+      :model-value="startTime"
+      :anchor-el="startTimeTriggerRef"
+      @update:modelValue="$emit('update:startTime', $event)"
+      @close="activeTimePopoverField = null"
+    />
+
+    <TaskTimePopover
+      v-if="activeTimePopoverField === 'dueTime'"
+      :visible="true"
+      :model-value="dueTime"
+      :anchor-el="dueTimeTriggerRef"
+      @update:modelValue="$emit('update:dueTime', $event)"
+      @close="activeTimePopoverField = null"
+    />
   </div>
   </Teleport>
 </template>
@@ -77,6 +173,9 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { Task } from '@/api';
 import type { RepeatFrequency } from '@/repeatRepository';
+import Icon from '@/components/Icon.vue';
+import TaskDatePopover from '@/components/TaskDatePopover.vue';
+import TaskTimePopover from '@/components/TaskTimePopover.vue';
 
 interface BackgroundColorOption {
   value: string;
@@ -111,6 +210,12 @@ const emit = defineEmits<{
 const isMobileSheet = ref(false);
 const menuRef = ref<HTMLElement | null>(null);
 const menuPosition = ref<{ x: number; y: number }>({ x: 0, y: 0 });
+const activeDatePopoverField = ref<'startDate' | 'dueDate' | null>(null);
+const activeTimePopoverField = ref<'startTime' | 'dueTime' | null>(null);
+const startDateTriggerRef = ref<HTMLElement | null>(null);
+const dueDateTriggerRef = ref<HTMLElement | null>(null);
+const startTimeTriggerRef = ref<HTMLElement | null>(null);
+const dueTimeTriggerRef = ref<HTMLElement | null>(null);
 
 const menuStyle = computed<Record<string, string>>(() => {
   if (isMobileSheet.value) {
@@ -185,11 +290,23 @@ watch(
   () => [props.show, props.x, props.y, isMobileSheet.value] as const,
   ([show]) => {
     if (!show) {
+      activeDatePopoverField.value = null;
+      activeTimePopoverField.value = null;
       return;
     }
     syncMenuPosition();
   }
 );
+
+function toggleDatePopover(field: 'startDate' | 'dueDate'): void {
+  activeTimePopoverField.value = null;
+  activeDatePopoverField.value = activeDatePopoverField.value === field ? null : field;
+}
+
+function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
+  activeDatePopoverField.value = null;
+  activeTimePopoverField.value = activeTimePopoverField.value === field ? null : field;
+}
 
 function onRepeatChange(event: Event): void {
   const value = (event.target as HTMLSelectElement).value as RepeatFrequency;
@@ -213,8 +330,8 @@ function onRepeatChange(event: Event): void {
   background: var(--b3-theme-surface);
   border: 1px solid var(--b3-border-color);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 1000;
+  box-shadow: 0 12px 28px #0000002e;
+  z-index: 10;
   min-width: 240px;
   padding: 8px;
   animation: contextMenuFadeIn 0.15s ease-out;
@@ -274,19 +391,20 @@ function onRepeatChange(event: Event): void {
 
 .task-color-picker {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: 6px;
   padding: 4px;
 }
 
 .color-option {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 100%;
+  max-width: 22px;
+  aspect-ratio: 1 / 1;
+  border-radius: 999px;
   cursor: pointer;
   transition: all 0.2s ease;
-  border: 2px solid transparent;
   position: relative;
+  justify-self: center;
 }
 
 .color-option:hover,
@@ -322,6 +440,61 @@ function onRepeatChange(event: Event): void {
   background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
   font-size: 12px;
+}
+
+.context-menu-date-input-group {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.context-menu-date-input-group input[type="date"],
+.context-menu-date-input-group input[type="time"] {
+  flex: 1;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.context-menu-date-input-group input[type="date"]::-webkit-calendar-picker-indicator,
+.context-menu-date-input-group input[type="time"]::-webkit-calendar-picker-indicator,
+.context-menu-date-input-group input[type="date"]::-webkit-clear-button,
+.context-menu-date-input-group input[type="date"]::-webkit-inner-spin-button,
+.context-menu-date-input-group input[type="time"]::-webkit-clear-button,
+.context-menu-date-input-group input[type="time"]::-webkit-inner-spin-button {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  margin: 0;
+  display: none;
+}
+
+.context-menu-date-trigger {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.context-menu-date-trigger svg {
+  flex: 0 0 auto;
+  fill: currentColor;
+}
+
+.context-menu-date-trigger:hover,
+.context-menu-date-trigger.active {
+  border-color: var(--b3-theme-primary);
+  background: var(--b3-list-hover);
 }
 
 .context-menu-date-save {

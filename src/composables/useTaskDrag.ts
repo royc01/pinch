@@ -52,6 +52,14 @@ interface TimedTaskDropResolution {
   dueDate?: string;
 }
 
+interface MonthDayCellHitRect {
+  element: HTMLElement;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
 function parseLocalDayKey(dayKey: string): Date | null {
   const match = dayKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
@@ -119,6 +127,45 @@ export function useTaskDrag(
   let timedRepeatPreviewRafId: number | null = null;
 
   const eventListeners = ref<EventListener[]>([]);
+  let monthDayCellHitRects: MonthDayCellHitRect[] | null = null;
+
+  function resetMonthDayCellHitRects(): void {
+    monthDayCellHitRects = null;
+  }
+
+  function getMonthDayCellHitRects(): MonthDayCellHitRect[] {
+    if (monthDayCellHitRects) {
+      return monthDayCellHitRects;
+    }
+
+    monthDayCellHitRects = Array.from(document.querySelectorAll('.day-cell[data-day-key]'))
+      .map((cell) => {
+        const element = cell as HTMLElement;
+        const rect = element.getBoundingClientRect();
+        return {
+          element,
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom
+        };
+      });
+    return monthDayCellHitRects;
+  }
+
+  function findMonthDayCellByPoint(clientX: number, clientY: number): HTMLElement | null {
+    for (const cellRect of getMonthDayCellHitRects()) {
+      if (
+        clientX >= cellRect.left &&
+        clientX <= cellRect.right &&
+        clientY >= cellRect.top &&
+        clientY <= cellRect.bottom
+      ) {
+        return cellRect.element;
+      }
+    }
+    return null;
+  }
 
   function isRepeatTask(task: Task): boolean {
     return !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
@@ -429,6 +476,7 @@ export function useTaskDrag(
 
   function findDayColumnFromEvent(event: MouseEvent): { date: Date; element: HTMLElement; isTimedArea: boolean } | null {
     const elements = document.elementsFromPoint(event.clientX, event.clientY);
+    const target = event.target as HTMLElement | null;
 
     const allDayColumn = elements.find(el =>
       el.classList.contains('all-day-column') || el.classList.contains('day-cell')
@@ -445,15 +493,8 @@ export function useTaskDrag(
       columnElement = dayColumn as HTMLElement;
       isTimedArea = true;
     } else {
-      // Fallback for MonthView: resolve day cell by pointer position.
-      const dayCells = Array.from(document.querySelectorAll('.day-cell[data-day-key]')) as HTMLElement[];
-      const hitCell = dayCells.find((cell) => {
-        const rect = cell.getBoundingClientRect();
-        return event.clientX >= rect.left &&
-          event.clientX <= rect.right &&
-          event.clientY >= rect.top &&
-          event.clientY <= rect.bottom;
-      });
+      const fromTarget = target?.closest('.day-cell[data-day-key]') as HTMLElement | null;
+      const hitCell = fromTarget || findMonthDayCellByPoint(event.clientX, event.clientY);
       if (!hitCell) {
         return null;
       }
@@ -532,6 +573,7 @@ export function useTaskDrag(
   function handleHandleMouseDown(event: MouseEvent, task: Task, handleType: 'start' | 'end') {
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event, task, `all-day-handle:${handleType}`)) return;
+    resetMonthDayCellHitRects();
 
     const effectiveStartDate = task.startDate || task.dueDate;
     const originalDate = handleType === 'start'
@@ -626,6 +668,7 @@ export function useTaskDrag(
 
   function cleanupDragListeners() {
     draggingHandle.value = null;
+    resetMonthDayCellHitRects();
     removeEventListeners('mousemove');
     removeEventListeners('mouseup');
   }
@@ -634,6 +677,7 @@ export function useTaskDrag(
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event, task, 'all-day-task')) return;
     if (!task.startDate && !task.dueDate) return;
+    resetMonthDayCellHitRects();
 
     const effectiveStartDate = task.startDate || task.dueDate!;
     const pointerDay = findDayColumnFromEvent(event)?.date || new Date(effectiveStartDate);
@@ -783,6 +827,7 @@ export function useTaskDrag(
     removeEventListeners('mouseup');
     draggingTask.value = null;
     dragLastUpdatedDate.value = '';
+    resetMonthDayCellHitRects();
 
     try {
       if (currentTask && targetData && targetData.isTimedArea) {
@@ -1446,29 +1491,25 @@ export function useTaskDrag(
     if (allDaySection) {
       const allDayColumn = target.closest('.all-day-column') as HTMLElement;
       if (allDayColumn) {
-        const allDayColumns = Array.from(document.querySelectorAll('.all-day-column'));
-        const columnIndex = allDayColumns.indexOf(allDayColumn);
-        if (columnIndex !== -1) {
-          dragState.value.overAllDayColumn = `day-${columnIndex}`;
-          dragState.value.overDayColumn = null;
+        const newDayKey = allDayColumn.getAttribute('data-day-key') || originalStartDate;
+        dragState.value.overAllDayColumn = newDayKey;
+        dragState.value.overDayColumn = null;
 
-          const newDayKey = allDayColumn.getAttribute('data-day-key') || originalStartDate;
-          const from = new Date(originalStartDate);
-          const to = new Date(newDayKey);
-          from.setHours(0, 0, 0, 0);
-          to.setHours(0, 0, 0, 0);
-          const deltaDays = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
+        const from = new Date(originalStartDate);
+        const to = new Date(newDayKey);
+        from.setHours(0, 0, 0, 0);
+        to.setHours(0, 0, 0, 0);
+        const deltaDays = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
 
-          if (repeatSeriesSnapshot) {
-            scheduleTimedRepeatPreview(repeatSeriesSnapshot, deltaDays, undefined, true);
-          } else {
-            patchLocalTask(task.id, {
-              startDate: newDayKey,
-              dueDate: newDayKey,
-              startTime: undefined,
-              dueTime: undefined
-            });
-          }
+        if (repeatSeriesSnapshot) {
+          scheduleTimedRepeatPreview(repeatSeriesSnapshot, deltaDays, undefined, true);
+        } else {
+          patchLocalTask(task.id, {
+            startDate: newDayKey,
+            dueDate: newDayKey,
+            startTime: undefined,
+            dueTime: undefined
+          });
         }
       }
       return;

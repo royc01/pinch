@@ -1120,6 +1120,7 @@ export interface TaskGroup {
   id: string;
   name: string;
   color?: string;
+  hidden?: boolean;
   order?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -1146,6 +1147,7 @@ function normalizeTaskGroups(input: unknown): TaskGroup[] {
     if (!id || !name) continue;
 
     const color = typeof group.color === 'string' ? group.color : undefined;
+    const hidden = group.hidden === true;
     const order = typeof group.order === 'number' && Number.isFinite(group.order) ? group.order : undefined;
     const createdAt = typeof group.createdAt === 'string' ? group.createdAt : undefined;
     const updatedAt = typeof group.updatedAt === 'string' ? group.updatedAt : undefined;
@@ -1154,6 +1156,7 @@ function normalizeTaskGroups(input: unknown): TaskGroup[] {
       id,
       name,
       color,
+      hidden,
       order,
       createdAt,
       updatedAt
@@ -1237,11 +1240,58 @@ export class TaskRepository {
   private static scopedBlockTasksFetchPromises = new Map<string, Promise<Task[]>>();
   private static excludedNotebookIds = new Set<string>();
   private static inferredDatePersistingBlockIds = new Set<string>();
+  private static autoRecognizeTaskDateEnabled: boolean | null = null;
+  private static readonly TASK_DATE_INFER_SESSION_STARTED_AT = Date.now();
+  private static readonly TASK_DATE_INFER_SESSION_SKEW_MS = 5000;
   
   private static readonly MEMORY_CACHE_DURATION = 5000; // 5 秒内存缓存
   private static readonly SCOPED_MEMORY_CACHE_DURATION = 60000; // 60 秒筛选范围缓存
   private static readonly SCOPED_CACHE_MAX_ENTRIES = 30;
   private static readonly TASK_CONTAINER_ATTR = 'custom-task-container';
+  private static readonly SETTINGS_LOCAL_STORAGE_KEY = 'siyuan-stand-settings';
+
+  private static resolveAutoRecognizeTaskDateEnabled(): boolean {
+    let enabledFromStorage: boolean | null = null;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(this.SETTINGS_LOCAL_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const taskManager = parsed && typeof parsed === 'object'
+            ? (parsed as { taskManager?: unknown }).taskManager
+            : null;
+          if (taskManager && typeof taskManager === 'object') {
+            const autoRecognizeTaskDate = (taskManager as { autoRecognizeTaskDate?: unknown }).autoRecognizeTaskDate;
+            if (typeof autoRecognizeTaskDate === 'boolean') {
+              enabledFromStorage = autoRecognizeTaskDate;
+            }
+          }
+        }
+      }
+    } catch {
+      enabledFromStorage = null;
+    }
+
+    if (enabledFromStorage !== null) {
+      this.autoRecognizeTaskDateEnabled = enabledFromStorage;
+      return enabledFromStorage;
+    }
+
+    if (typeof this.autoRecognizeTaskDateEnabled === 'boolean') {
+      return this.autoRecognizeTaskDateEnabled;
+    }
+
+    this.autoRecognizeTaskDateEnabled = false;
+    return false;
+  }
+
+  static isAutoRecognizeTaskDateEnabled(): boolean {
+    return this.resolveAutoRecognizeTaskDateEnabled();
+  }
+
+  static setAutoRecognizeTaskDateEnabled(enabled: boolean): void {
+    this.autoRecognizeTaskDateEnabled = enabled === true;
+  }
 
   private static getExcludedNotebookIdsSorted(): string[] {
     return Array.from(this.excludedNotebookIds).sort();
@@ -1591,9 +1641,17 @@ export class TaskRepository {
     return this.extractDateFromTaskTitle(plainTitle);
   }
 
+  static inferTaskDateFromText(title: string): string | null {
+    return this.extractDateFromTaskText(title);
+  }
+
   private static resolveTaskDateRange(
     attrs: Record<string, string>,
-    title: string
+    title: string,
+    options: {
+      allowInferFromTitle?: boolean;
+      createdAtRaw?: string | number;
+    } = {}
   ): { startDate?: string; dueDate?: string; inferredFromTitle: boolean } {
     const startDate = (attrs['custom-task-start-date'] || '').trim();
     const dueDate = (attrs['custom-task-due-date'] || '').trim();
@@ -1603,6 +1661,13 @@ export class TaskRepository {
         dueDate: dueDate || undefined,
         inferredFromTitle: false
       };
+    }
+
+    const shouldInferFromTitle = options.allowInferFromTitle === true
+      && this.isAutoRecognizeTaskDateEnabled()
+      && this.isNewlyCreatedTaskBlock(options.createdAtRaw);
+    if (!shouldInferFromTitle) {
+      return { inferredFromTitle: false };
     }
 
     const inferredDate = this.extractDateFromTaskText(title);
@@ -1615,6 +1680,21 @@ export class TaskRepository {
       dueDate: inferredDate,
       inferredFromTitle: true
     };
+  }
+
+  private static isNewlyCreatedTaskBlock(createdAtRaw?: string | number): boolean {
+    if (createdAtRaw === null || createdAtRaw === undefined || createdAtRaw === '') {
+      return false;
+    }
+    const createdAtIso = this.parseBlockDateTime(createdAtRaw);
+    if (!createdAtIso) {
+      return false;
+    }
+    const createdAtTs = new Date(createdAtIso).getTime();
+    if (Number.isNaN(createdAtTs)) {
+      return false;
+    }
+    return createdAtTs >= (this.TASK_DATE_INFER_SESSION_STARTED_AT - this.TASK_DATE_INFER_SESSION_SKEW_MS);
   }
 
   private static queuePersistInferredTaskDate(
@@ -2253,7 +2333,10 @@ export class TaskRepository {
         }
 
         const subtasks = this.parseSubtasksFromParsedDoc(doc, row.id);
-        const dateRange = this.resolveTaskDateRange(attrs, title);
+        const dateRange = this.resolveTaskDateRange(attrs, title, {
+          allowInferFromTitle: true,
+          createdAtRaw: row.created
+        });
         this.queuePersistInferredTaskDate(row.id, dateRange);
 
         result.set(row.id, {
@@ -2770,7 +2853,10 @@ export class TaskRepository {
             markSubtaskNodesProcessed(subtasks);
             const docIcon = parentBlock.root_id ? rootIcons.get(parentBlock.root_id) : undefined;
             const title = buildFastTitleFromBlock(parentBlock);
-            const dateRange = this.resolveTaskDateRange(attrs, title);
+            const dateRange = this.resolveTaskDateRange(attrs, title, {
+              allowInferFromTitle: true,
+              createdAtRaw: parentBlock.created
+            });
             this.queuePersistInferredTaskDate(parentBlock.id, dateRange);
             const pinned = this.parseTaskPinnedFlag(attrs['custom-task-pinned']);
             const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
@@ -2885,7 +2971,10 @@ export class TaskRepository {
           const titleFromApi = cleanHtmlStyle(titleHtml);
           const currentTitleClean = cleanHtmlStyle(currentTitle);
           const title = currentTitleClean || titleFromApi;
-          const dateRange = this.resolveTaskDateRange(attrs, title);
+          const dateRange = this.resolveTaskDateRange(attrs, title, {
+            allowInferFromTitle: true,
+            createdAtRaw: parentBlock.created
+          });
           this.queuePersistInferredTaskDate(parentBlock.id, dateRange);
 
           let status: TaskStatus;
@@ -3046,7 +3135,7 @@ export class TaskRepository {
     let resolvedStartDate = normalizedStartDate;
     let resolvedDueDate = normalizedDueDate;
 
-    if (!resolvedStartDate && !resolvedDueDate) {
+    if (!resolvedStartDate && !resolvedDueDate && this.isAutoRecognizeTaskDateEnabled()) {
       const inferredDate = this.extractDateFromTaskTitle(trimmedTitle);
       if (inferredDate) {
         resolvedStartDate = inferredDate;

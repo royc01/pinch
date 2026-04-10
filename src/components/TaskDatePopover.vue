@@ -10,6 +10,7 @@
         :class="['date-popover', { 'date-popover-inline': !floating }]"
         :style="floating ? popoverStyle : undefined"
         @mousedown.stop
+        @click.stop
       >
         <div class="date-popover-header">
           <button type="button" class="date-nav-btn" @click="shiftMonth(-1)">

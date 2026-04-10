@@ -782,7 +782,8 @@ export async function setRepeatInstanceStatus(seriesId: string, date: string, st
       await saveRepeatRecords(records);
       emitRepeatChanged({
         blockId: series?.templateBlockId,
-        seriesId: seriesId
+        seriesId: seriesId,
+        frequency: series?.frequency
       });
     }
     return;
@@ -807,7 +808,8 @@ export async function setRepeatInstanceStatus(seriesId: string, date: string, st
   await saveRepeatRecords(records);
   emitRepeatChanged({
     blockId: series?.templateBlockId,
-    seriesId: seriesId
+    seriesId: seriesId,
+    frequency: series?.frequency
   });
 }
 

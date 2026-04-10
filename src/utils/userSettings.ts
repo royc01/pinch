@@ -16,6 +16,7 @@ export interface UserSettings {
     tableGroupMode?: boolean;
     kanbanGroupBy?: TaskViewGroupMode;
     tableGroupBy?: TaskViewGroupMode;
+    showKanbanTaskCardDetails?: boolean;
     tableFilterUpdatedRange: string;
     tableFilterType: string;
     tableFilterDocument: string;
@@ -47,6 +48,7 @@ export interface UserSettings {
     archiveViewMode?: 'active' | 'archived' | 'all';
     excludedNotebookIds: string[];
     showCompletedTasks?: boolean;
+    autoRecognizeTaskDate?: boolean;
     scopeInitialized?: boolean;
     lastTaskNotebook?: string;
     lastTaskDocument?: string;
@@ -81,6 +83,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     tableGroupMode: false,
     kanbanGroupBy: 'status',
     tableGroupBy: 'status',
+    showKanbanTaskCardDetails: true,
     tableFilterUpdatedRange: 'all',
     tableFilterType: 'all',
     tableFilterDocument: 'all',
@@ -112,6 +115,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     archiveViewMode: 'active',
     excludedNotebookIds: [],
     showCompletedTasks: true,
+    autoRecognizeTaskDate: false,
     scopeInitialized: false,
     selectedGroupId: 'all',
     taskListGroupBy: 'none',

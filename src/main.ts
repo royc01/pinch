@@ -86,11 +86,12 @@ function isMobileFrontend() {
 
 // SiYuan command hotkey prefers symbol format, which is adapted per platform.
 const OPEN_TASK_EDITOR_HOTKEY = '⌥Q';
-type QuickTaskViewMode = 'kanban' | 'table' | 'day' | 'week' | 'month' | 'archive-table';
+type QuickTaskViewMode = 'kanban' | 'table' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table';
 const QUICK_TASK_VIEW_COMMANDS: Array<{ langKey: string; langText: string; view: QuickTaskViewMode }> = [
   { langKey: 'pinchOpenKanbanView', langText: '快速打开看板视图', view: 'kanban' },
   { langKey: 'pinchOpenTableView', langText: '快速打开表格视图', view: 'table' },
   { langKey: 'pinchOpenDayView', langText: '快速打开日视图', view: 'day' },
+  { langKey: 'pinchOpenThreeDayView', langText: '快速打开三日图', view: 'three-day' },
   { langKey: 'pinchOpenWeekView', langText: '快速打开周视图', view: 'week' },
   { langKey: 'pinchOpenMonthView', langText: '快速打开月视图', view: 'month' },
   { langKey: 'pinchOpenArchiveView', langText: '快速打开归档视图', view: 'archive-table' }

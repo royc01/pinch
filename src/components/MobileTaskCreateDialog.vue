@@ -271,6 +271,7 @@ async function handleTaskGroupSave(groups: TaskGroup[]): Promise<void> {
 onMounted(async () => {
   try {
     await loadSettings();
+    TaskRepository.setAutoRecognizeTaskDateEnabled(userSettings.taskManager.autoRecognizeTaskDate === true);
     await Promise.all([
       loadNotebookOptions(),
       loadDocumentOptions(),

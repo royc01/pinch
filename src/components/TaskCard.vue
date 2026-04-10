@@ -114,6 +114,13 @@
           <Icon name="bell" width="12" height="12" />
           {{ reminderText }}
         </span>
+        <span
+          v-if="isRepeatBadgeVisible"
+          class="task-repeat-badge"
+          :title="repeatBadgeTitle"
+        >
+          重复
+        </span>
       </div>
 
       <div
@@ -228,6 +235,12 @@ const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.valu
 const dueText = computed(() => (task.value.dueDate ? formatMonthDay(task.value.dueDate) : ''));
 const reminderText = computed(() => getTaskReminderLabel(task.value.reminderType, task.value.reminderCustomTime));
 const isPinned = computed(() => task.value.pinned === true);
+const isRepeatBadgeVisible = computed(() => (
+  !!task.value.repeatSeriesId
+  || (!!task.value.repeatFrequency && task.value.repeatFrequency !== 'none')
+  || !!task.value.isVirtual
+));
+const repeatBadgeTitle = computed(() => (task.value.isVirtual ? '重复实例' : '重复任务'));
 const isOverdue = computed(() => {
   if (isCompleted.value) return false;
   const dueTimestamp = getTaskDateTimestamp(task.value.dueDate);
@@ -670,6 +683,17 @@ function getTaskDateTimestamp(value: unknown): number | null {
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-surface);
   gap: 2px;
+  padding: 2px 4px;
+  font-size: 10px;
+}
+
+.task-repeat-badge {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  font-weight: 500;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
   padding: 2px 4px;
   font-size: 10px;
 }

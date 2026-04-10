@@ -157,6 +157,13 @@
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
             </button>
+            <button
+              type="button"
+              class="task-group-menu-item"
+              @click.stop="openTaskGroupDialogFromMenu"
+            >
+              <span>标签管理</span>
+            </button>
             <div class="task-group-menu-divider"></div>
             <button
               type="button"
@@ -164,6 +171,17 @@
               @click.stop="toggleTaskCardDetailsFromMenu"
             >
               <span>{{ showTaskCardDetails ? '隐藏详细' : '显示详细' }}</span>
+            </button>
+            <button
+              type="button"
+              class="task-group-menu-item"
+              :class="{ active: !showCompletedTasks }"
+              @click.stop="toggleHideCompletedTasksFromMenu"
+            >
+              <span>隐藏已完成任务</span>
+              <span v-if="!showCompletedTasks" class="task-group-menu-check">
+                <Icon name="taskCheckboxChecked" width="12" height="12" />
+              </span>
             </button>
             <button
               v-if="hasVisibleExpandableTasks"
@@ -540,7 +558,8 @@
       :notebooks="notebooks"
       :excluded-notebook-ids="excludedNotebookIds"
       :show-completed-tasks="showCompletedTasks"
-      :show-extra="true"
+      :auto-recognize-task-date="autoRecognizeTaskDate"
+      :show-extra="false"
       :lock-close="requiresScopeInitialization"
       :title="requiresScopeInitialization ? '初始化任务范围' : '任务范围'"
       :hint="requiresScopeInitialization
@@ -617,6 +636,11 @@ import {
   normalizeNotebookIds,
   type RepeatRulePayload
 } from '@/utils/taskViewShared';
+import {
+  buildLiveTaskDomOrderMap,
+  compareTaskCreatedAtDesc,
+  compareTaskDocumentSortKey
+} from '@/utils/taskSortShared';
 import { repeatDragDebug } from '@/utils/repeatDragDebug';
 import { rebuildAffectedRepeatTasks } from '@/repeatRepository';
 import {
@@ -626,6 +650,7 @@ import {
 } from '@/utils/taskGrouping';
 
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
+const autoRecognizeTaskDate = computed(() => userSettings.taskManager.autoRecognizeTaskDate === true);
 const REPEAT_DEBUG_WINDOW_MS = 5000;
 let lastRepeatDebugPayload: {
   blockId?: string;
@@ -777,6 +802,10 @@ const taskMoveSelectedNotebook = ref('');
 const taskMoveSelectedDocument = ref('');
 const taskFilterPopoverVisible = ref(false);
 const taskGroups = ref<TaskGroup[]>([]);
+const visibleTaskGroups = computed(() =>
+  taskGroups.value.filter(group => group.hidden !== true)
+);
+const visibleTaskGroupIdSet = computed(() => new Set(visibleTaskGroups.value.map(group => group.id)));
 const lastSelectedTaskGroupId = ref<string>('');
 const showTaskCardDetails = ref(true);
 const collapsedTaskGroupSectionKeys = ref<Set<string>>(new Set());
@@ -876,7 +905,7 @@ const allVisibleTasksSelected = computed(() => {
 const batchEditGroupOptions = computed(() => [
   { value: '', text: '标签（不修改）' },
   { value: TASK_GROUP_NONE_ID, text: '无标签' },
-  ...taskGroups.value.map(group => ({
+  ...visibleTaskGroups.value.map(group => ({
     value: group.id,
     text: group.name || '未命名标签'
   }))
@@ -1295,8 +1324,14 @@ async function handleTaskGroupSave(groups: TaskGroup[]): Promise<void> {
     const removedSet = new Set(removedGroupIds);
     activeTaskGroupFilters.value = activeTaskGroupFilters.value.filter(id => !removedSet.has(id));
   }
+  if (activeTaskGroupFilters.value.length > 0) {
+    const visibleGroupIdSet = new Set(taskGroups.value.filter(group => group.hidden !== true).map(group => group.id));
+    activeTaskGroupFilters.value = activeTaskGroupFilters.value.filter(
+      id => id === TASK_GROUP_NONE_ID || visibleGroupIdSet.has(id)
+    );
+  }
   if (lastSelectedTaskGroupId.value) {
-    const exists = taskGroups.value.some(group => group.id === lastSelectedTaskGroupId.value);
+    const exists = visibleTaskGroupIdSet.value.has(lastSelectedTaskGroupId.value);
     if (!exists) {
       lastSelectedTaskGroupId.value = '';
       void updateSettings('taskManager', { selectedGroupId: '' });
@@ -1308,13 +1343,13 @@ function applyExternalTaskGroups(groups: TaskGroup[]): void {
   const nextGroups = (groups || []).map(group => ({ ...group }));
   taskGroups.value = nextGroups;
   if (activeTaskGroupFilters.value.length > 0) {
-    const groupIdSet = new Set(nextGroups.map(group => group.id));
+    const groupIdSet = new Set(nextGroups.filter(group => group.hidden !== true).map(group => group.id));
     activeTaskGroupFilters.value = activeTaskGroupFilters.value.filter(
       id => id === TASK_GROUP_NONE_ID || groupIdSet.has(id)
     );
   }
   if (lastSelectedTaskGroupId.value) {
-    const exists = nextGroups.some(group => group.id === lastSelectedTaskGroupId.value);
+    const exists = nextGroups.some(group => group.id === lastSelectedTaskGroupId.value && group.hidden !== true);
     if (!exists) {
       lastSelectedTaskGroupId.value = '';
       void updateSettings('taskManager', { selectedGroupId: '' });
@@ -1393,6 +1428,28 @@ function selectTaskListGroup(mode: TaskListGroupMode): void {
 function toggleBatchEditModeFromMenu(): void {
   toggleBatchEditMode();
   closeTaskGroupMenu();
+}
+
+function openTaskGroupDialogFromMenu(): void {
+  closeTaskGroupMenu();
+  openTaskGroupDialog();
+}
+
+async function toggleHideCompletedTasksFromMenu(): Promise<void> {
+  const nextShowCompletedTasks = !showCompletedTasks.value;
+  showCompletedTasks.value = nextShowCompletedTasks;
+  if (!nextShowCompletedTasks) {
+    showAllCompletedTasks.value = false;
+  }
+  closeTaskGroupMenu();
+  await updateSettings('taskManager', {
+    showCompletedTasks: nextShowCompletedTasks
+  });
+  await refreshTasks(true, {
+    showLoading: false,
+    compareExisting: false,
+    source: 'toggle-hide-completed'
+  });
 }
 
 function selectTaskEditorGroup(value: string): void {
@@ -1529,7 +1586,7 @@ const taskGroupPickerOptions = computed(() => {
   const options = [
     { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, color: '', colorCss: '', textColor: '' }
   ];
-  taskGroups.value.forEach(group => {
+  visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
     options.push({
       value: group.id,
@@ -1582,7 +1639,7 @@ const taskModalDefaultGroupId = computed(() => {
   if (!candidate) {
     return '';
   }
-  const exists = taskGroups.value.some(group => group.id === candidate);
+  const exists = visibleTaskGroupIdSet.value.has(candidate);
   return exists ? candidate : '';
 });
 
@@ -1884,7 +1941,7 @@ function normalizeStoredGroupFilters(values: unknown): string[] {
     return [];
   }
   const seen = new Set<string>();
-  const validGroupIds = new Set(taskGroups.value.map(group => group.id));
+  const validGroupIds = visibleTaskGroupIdSet.value;
   const normalized: string[] = [];
   for (const item of values) {
     if (typeof item !== 'string') {
@@ -1906,7 +1963,7 @@ const taskGroupFilterOptions = computed(() => {
   const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
     { value: TASK_GROUP_NONE_ID, label: '无标签', style: {} }
   ];
-  taskGroups.value.forEach(group => {
+  visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
     const backgroundColor = resolveGroupColorCss(rawColor);
     const textColor = resolveGroupTextColor(rawColor);
@@ -2205,11 +2262,28 @@ function closeTaskQuickDateMenu(): void {
 }
 
 function seedTaskQuickDateDraft(task: Task): void {
+  const normalizedStartDate = normalizeDateInputValue((task.startDate || '').toString());
+  const normalizedDueDate = normalizeDateInputValue((task.dueDate || '').toString());
+  const normalizedStartTime = normalizeTimeInputValue((task.startTime || '').toString());
+  const normalizedDueTime = normalizeTimeInputValue((task.dueTime || '').toString());
+
+  let resolvedStartDate = normalizedStartDate;
+  let resolvedDueDate = normalizedDueDate;
+  if (!resolvedStartDate && !resolvedDueDate) {
+    const inferredDate = normalizeDateInputValue(
+      TaskRepository.inferTaskDateFromText(typeof task.title === 'string' ? task.title : '') || ''
+    );
+    if (inferredDate) {
+      resolvedStartDate = inferredDate;
+      resolvedDueDate = inferredDate;
+    }
+  }
+
   taskQuickDateDraft.value = {
-    startDate: normalizeDateInputValue((task.startDate || '').toString()),
-    startTime: normalizeTimeInputValue((task.startTime || '').toString()),
-    dueDate: normalizeDateInputValue((task.dueDate || '').toString()),
-    dueTime: normalizeTimeInputValue((task.dueTime || '').toString())
+    startDate: resolvedStartDate,
+    startTime: normalizedStartTime,
+    dueDate: resolvedDueDate,
+    dueTime: normalizedDueTime
   };
 }
 
@@ -2393,107 +2467,6 @@ function getTaskDueDateTimestamp(task: Task): number | null {
   return getTaskDateTimestamp(task.dueDate);
 }
 
-function buildLiveTaskDomOrderMap(): Map<string, number> {
-  const orderMap = new Map<string, number>();
-  if (typeof document === 'undefined') {
-    return orderMap;
-  }
-
-  const domRoots = Array.from(document.querySelectorAll('.protyle-wysiwyg'));
-  const roots: ParentNode[] = domRoots.length > 0 ? domRoots : [document];
-  let order = 0;
-
-  for (const root of roots) {
-    const items = root.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"][data-node-id]');
-    items.forEach((item) => {
-      const blockId = item.getAttribute('data-node-id');
-      if (!blockId || orderMap.has(blockId)) {
-        return;
-      }
-      const hasTaskAction = item.querySelector('.protyle-action--task');
-      if (!hasTaskAction) {
-        return;
-      }
-      orderMap.set(blockId, order);
-      order += 1;
-    });
-  }
-
-  return orderMap;
-}
-
-function compareTaskDocumentSortKey(a: Task, b: Task, domOrderMap?: Map<string, number>): number {
-  if (!a.rootId || !b.rootId || a.rootId !== b.rootId) {
-    return 0;
-  }
-
-  if (domOrderMap) {
-    const blockIdA = typeof a.blockId === 'string' ? a.blockId : '';
-    const blockIdB = typeof b.blockId === 'string' ? b.blockId : '';
-    if (blockIdA && blockIdB) {
-      const orderA = domOrderMap.get(blockIdA);
-      const orderB = domOrderMap.get(blockIdB);
-      if (orderA !== undefined && orderB !== undefined && orderA !== orderB) {
-        return orderA - orderB;
-      }
-    }
-  }
-
-  const orderA = typeof a.documentOrder === 'number' ? a.documentOrder : null;
-  const orderB = typeof b.documentOrder === 'number' ? b.documentOrder : null;
-  if (orderA !== null && orderB !== null && orderA !== orderB) {
-    return orderA - orderB;
-  }
-  if (orderA !== null && orderB === null) {
-    return -1;
-  }
-  if (orderA === null && orderB !== null) {
-    return 1;
-  }
-
-  const sortA = typeof a.blockSort === 'string' ? a.blockSort.trim() : '';
-  const sortB = typeof b.blockSort === 'string' ? b.blockSort.trim() : '';
-  if (!sortA || !sortB || sortA === sortB) {
-    return 0;
-  }
-  const sortANumeric = /^\d+$/.test(sortA);
-  const sortBNumeric = /^\d+$/.test(sortB);
-  if (sortANumeric && sortBNumeric) {
-    if (sortA.length !== sortB.length) {
-      return sortA.length - sortB.length;
-    }
-    return sortA < sortB ? -1 : 1;
-  }
-  return sortA.localeCompare(sortB);
-}
-
-function compareTaskCreatedAtDesc(a: Task, b: Task): number {
-  const createdA = Date.parse(a.createdAt || '');
-  const createdB = Date.parse(b.createdAt || '');
-  const hasCreatedA = Number.isFinite(createdA);
-  const hasCreatedB = Number.isFinite(createdB);
-
-  if (hasCreatedA && hasCreatedB) {
-    if (createdA !== createdB) {
-      return createdB - createdA;
-    }
-    return 0;
-  }
-  if (hasCreatedA && !hasCreatedB) {
-    return -1;
-  }
-  if (!hasCreatedA && hasCreatedB) {
-    return 1;
-  }
-
-  const createdKeyA = a.createdAt || a.blockId || a.id || '';
-  const createdKeyB = b.createdAt || b.blockId || b.id || '';
-  if (createdKeyA === createdKeyB) {
-    return 0;
-  }
-  return createdKeyB.localeCompare(createdKeyA);
-}
-
 function getTaskStartDateTimestamp(task: Task): number | null {
   return getTaskDateTimestamp(task.startDate);
 }
@@ -2504,12 +2477,23 @@ function getTodayStartTimestamp(): number {
   return today.getTime();
 }
 
-function getTodayDateKey(): string {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function isVirtualTaskForToday(task: Task): boolean {
+  if (!task.isVirtual) return false;
+  const todayStart = getTodayStartTimestamp();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const todayEnd = todayStart + dayMs;
+  const startTimestamp = getTaskStartDateTimestamp(task);
+  const dueTimestamp = getTaskDueDateTimestamp(task);
+  if (startTimestamp !== null || dueTimestamp !== null) {
+    let rangeStart = startTimestamp ?? dueTimestamp ?? 0;
+    let rangeEnd = dueTimestamp ?? startTimestamp ?? 0;
+    if (rangeStart > rangeEnd) {
+      [rangeStart, rangeEnd] = [rangeEnd, rangeStart];
+    }
+    const taskRangeEnd = rangeEnd + dayMs;
+    return rangeStart < todayEnd && taskRangeEnd > todayStart;
+  }
+  return false;
 }
 
 function matchesTaskDueFilter(task: Task, filter: TaskDueFilterKey): boolean {
@@ -2654,31 +2638,44 @@ function patchTask(
 
 async function refreshInternalState() {
   invalidateCache();
-  lastSortedHash = '';
-  cachedSortedTasks = [];
+  invalidateSortCache();
   updateTaskIndex();
 }
 
 function invalidateSortCache() {
-  lastSortedHash = '';
-  cachedSortedTasks = [];
+  taskSortVersion.value += 1;
 }
 
 const { filtered: baseFilteredTasks, invalidateCache } = useTaskFilters(tasks, taskFilters);
 
-let lastSortedHash = '';
-let cachedSortedTasks: Task[] = [];
+const taskSortVersion = ref(0);
 const MAX_VISIBLE_COMPLETED_TASKS = 3;
 const showAllCompletedTasks = ref(false);
 
 const filteredTasks = computed(() => {
+  // Manual invalidation hook for mutation paths that should force re-sorting.
+  void taskSortVersion.value;
   const mode = archiveViewMode.value;
   const includeCompleted = mode === 'active' ? showCompletedTasks.value : true;
   const todayStart = getTodayStartTimestamp();
-  const todayDateKey = getTodayDateKey();
-  const domOrderMap = buildLiveTaskDomOrderMap();
+  const todayVirtualSeriesIds = new Set<string>();
+  for (const task of baseFilteredTasks.value) {
+    if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
+      todayVirtualSeriesIds.add(task.repeatSeriesId);
+    }
+  }
+  let domOrderMap: Map<string, number> | undefined;
+  const resolveDomOrderMap = () => {
+    if (!domOrderMap) {
+      domOrderMap = buildLiveTaskDomOrderMap();
+    }
+    return domOrderMap;
+  };
   const baseFiltered = baseFilteredTasks.value.filter(task => {
-    if (task.isVirtual) {
+    if (!task.isVirtual && task.repeatSeriesId && todayVirtualSeriesIds.has(task.repeatSeriesId)) {
+      return false;
+    }
+    if (task.isVirtual && !isVirtualTaskForToday(task)) {
       return false;
     }
     if (mode === 'active' && task.archived) {
@@ -2696,18 +2693,7 @@ const filteredTasks = computed(() => {
     }
     return matchesTaskFilterChips(task);
   });
-  
-  const hash = `${todayDateKey}:${mode}:${includeCompleted ? '1' : '0'}:` +
-               baseFiltered.map(t => t.id).join(':') +
-               baseFiltered.map(t => `${t.rootId || ''}-${t.blockId || ''}-${t.blockId ? (domOrderMap.get(t.blockId) ?? '') : ''}`).join('|') +
-               baseFiltered.map(t => `${t.status}-${t.priority}-${t.pinned === true ? 1 : 0}-${t.updatedAt}-${t.createdAt || ''}-${t.blockId}-${t.blockSort || ''}-${t.documentOrder ?? ''}-${t.dueDate || ''}`).join('|');
 
-  const isSortedCacheHit = hash === lastSortedHash && cachedSortedTasks.length > 0;
-
-  if (isSortedCacheHit) {
-    return cachedSortedTasks;
-  }
-  
   const result = [...baseFiltered].sort((a, b) => {
     const isAPinned = a.pinned === true;
     const isBPinned = b.pinned === true;
@@ -2770,7 +2756,7 @@ const filteredTasks = computed(() => {
         return createdSortResult;
       }
 
-      const documentSortResult = compareTaskDocumentSortKey(a, b, domOrderMap);
+      const documentSortResult = compareTaskDocumentSortKey(a, b, resolveDomOrderMap());
       if (documentSortResult !== 0) {
         return documentSortResult;
       }
@@ -2781,10 +2767,7 @@ const filteredTasks = computed(() => {
     const bSortKey = b.blockId || b.id || b.createdAt || '';
     return bSortKey.localeCompare(aSortKey);
   });
-  
-  lastSortedHash = hash;
-  cachedSortedTasks = result;
-  
+
   return result;
 });
 
@@ -3438,7 +3421,8 @@ async function openTaskScopeDialog() {
 
 async function handleTaskScopeSave(
   selectedVisibleExcludedNotebookIds: string[],
-  nextShowCompletedTasks: boolean
+  nextShowCompletedTasks: boolean,
+  nextAutoRecognizeTaskDate: boolean
 ) {
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
@@ -3449,10 +3433,12 @@ async function handleTaskScopeSave(
 
   applyExcludedNotebookScope(mergedExcludedNotebookIds);
   showCompletedTasks.value = nextShowCompletedTasks;
+  TaskRepository.setAutoRecognizeTaskDateEnabled(nextAutoRecognizeTaskDate);
   const shouldFinalizeInit = requiresScopeInitialization.value;
   await updateSettings('taskManager', {
     excludedNotebookIds: mergedExcludedNotebookIds,
     showCompletedTasks: nextShowCompletedTasks,
+    autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
     ...(shouldFinalizeInit ? { scopeInitialized: true } : {})
   });
   if (shouldFinalizeInit) {
@@ -5246,7 +5232,7 @@ async function applyBatchEdit(): Promise<void> {
   const nextStatus = isBatchStatus(batchEditStatus.value) ? batchEditStatus.value : null;
   const nextPriority = isBatchPriority(batchEditPriority.value) ? batchEditPriority.value : null;
   const rawGroupSelection = typeof batchEditGroupId.value === 'string' ? batchEditGroupId.value.trim() : '';
-  const validGroupIds = new Set(taskGroups.value.map(group => group.id));
+  const validGroupIds = visibleTaskGroupIdSet.value;
   let nextGroupId: string | null = null;
   if (rawGroupSelection) {
     if (rawGroupSelection === TASK_GROUP_NONE_ID) {
@@ -5615,11 +5601,12 @@ onMounted(async () => {
   window.addEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
   taskModalTeleportTarget.value?.addEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
   await loadSettings();
+  TaskRepository.setAutoRecognizeTaskDateEnabled(userSettings.taskManager.autoRecognizeTaskDate === true);
   taskGroups.value = await loadTaskGroups();
   const storedGroupId = typeof userSettings.taskManager.selectedGroupId === 'string'
     ? userSettings.taskManager.selectedGroupId
     : '';
-  if (storedGroupId && taskGroups.value.some(group => group.id === storedGroupId)) {
+  if (storedGroupId && taskGroups.value.some(group => group.id === storedGroupId && group.hidden !== true)) {
     lastSelectedTaskGroupId.value = storedGroupId;
   } else {
     lastSelectedTaskGroupId.value = '';
@@ -6002,6 +5989,8 @@ onUnmounted(() => {
 }
 
 .task-move-dialog-body {
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -6009,9 +5998,17 @@ onUnmounted(() => {
 }
 
 .task-move-dialog-field {
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.task-move-dialog-field :deep(.b3-select.fn__flex-center) {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .task-move-dialog-field label {

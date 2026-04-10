@@ -125,24 +125,6 @@
           </div>
 
           <div class="header-actions">
-            <div v-if="currentView === 'kanban'" class="kanban-group-switch">
-              <span>分组</span>
-              <SySelect
-                class="group-mode-select"
-                :model-value="kanbanGroupBy"
-                @update:model-value="kanbanGroupBy = normalizeTaskViewGroupMode($event)"
-                :options="kanbanGroupModeOptions"
-              />
-            </div>
-            <div v-if="currentView === 'table' || currentView === 'archive-table'" class="kanban-group-switch">
-              <span>分组</span>
-              <SySelect
-                class="group-mode-select"
-                :model-value="tableGroupBy"
-                @update:model-value="tableGroupBy = normalizeTaskViewGroupMode($event)"
-                :options="tableGroupModeOptions"
-              />
-            </div>
             <button
               type="button"
               class="scope-btn"
@@ -154,6 +136,16 @@
             </button>
             <button @click="refreshTasks" class="refresh-btn">
               <Icon name="refresh" width="24" height="24" />
+            </button>
+            <button
+              v-if="currentView === 'kanban' || currentView === 'table'"
+              type="button"
+              class="new-task-btn"
+              title="新建任务"
+              aria-label="新建任务"
+              @click="openHeaderTaskModal"
+            >
+              <Icon name="add" width="24" height="24" />
             </button>
           </div>
         </div>
@@ -257,17 +249,88 @@
             </span>
           </button>
         </div>
-        <div class="kanban-batch-entry-control">
+        <div ref="taskViewGroupMenuControlRef" class="task-group-menu-control">
           <button
             type="button"
-            class="task-filter-btn kanban-batch-entry-btn"
-            :class="{ active: isKanbanBatchEditMode }"
-            :title="isKanbanBatchEditMode ? '退出批量编辑' : '进入批量编辑'"
-            :aria-label="isKanbanBatchEditMode ? '退出批量编辑' : '进入批量编辑'"
-            @click.stop="toggleKanbanBatchEditMode"
+            class="task-group-menu-btn"
+            :class="{
+              active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks,
+              'is-batch-active': currentView === 'kanban' && isKanbanBatchEditMode
+            }"
+            title="视图设置"
+            aria-label="视图设置"
+            @click.stop="toggleTaskViewGroupMenu"
           >
-            <span>{{ isKanbanBatchEditMode ? '退出批量' : '批量' }}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12,7a2,2,0,1,0-2-2A2,2,0,0,0,12,7Zm0,10a2,2,0,1,0,2,2A2,2,0,0,0,12,17Zm0-7a2,2,0,1,0,2,2A2,2,0,0,0,12,10Z" />
+            </svg>
           </button>
+          <div
+            v-if="taskViewGroupMenuVisible"
+            ref="taskViewGroupMenuPopoverRef"
+            class="task-group-menu-popover"
+            @click.stop
+          >
+            <button
+              v-for="option in currentTaskViewGroupOptions"
+              :key="`kanban-group:${option.value}`"
+              type="button"
+              class="task-group-menu-item"
+              :class="{ active: activeTaskViewGroupMode === option.value }"
+              @click.stop="selectTaskViewGroupMode(option.value)"
+            >
+              <span>{{ option.text }}</span>
+              <span v-if="activeTaskViewGroupMode === option.value" class="task-group-menu-check">
+                <Icon name="taskCheckboxChecked" width="12" height="12" />
+              </span>
+            </button>
+            <div class="task-group-menu-divider"></div>
+            <button
+              type="button"
+              class="task-group-menu-item"
+              :class="{ active: isKanbanBatchEditMode }"
+              @click.stop="toggleKanbanBatchEditModeFromMenu"
+            >
+              <span>{{ isKanbanBatchEditMode ? '退出批量编辑' : '进入批量编辑' }}</span>
+              <span v-if="isKanbanBatchEditMode" class="task-group-menu-check">
+                <Icon name="taskCheckboxChecked" width="12" height="12" />
+              </span>
+            </button>
+            <button
+              type="button"
+              class="task-group-menu-item"
+              @click.stop="openTaskGroupDialogFromMenu"
+            >
+              <span>标签管理</span>
+            </button>
+            <div class="task-group-menu-divider"></div>
+            <button
+              type="button"
+              class="task-group-menu-item"
+              @click.stop="toggleKanbanTaskCardDetailsFromMenu"
+            >
+              <span>{{ showKanbanTaskCardDetails ? '隐藏详细' : '显示详细' }}</span>
+            </button>
+            <button
+              type="button"
+              class="task-group-menu-item"
+              :class="{ active: !showCompletedTasks }"
+              @click.stop="toggleHideCompletedTasksFromMenu"
+            >
+              <span>隐藏已完成任务</span>
+              <span v-if="!showCompletedTasks" class="task-group-menu-check">
+                <Icon name="taskCheckboxChecked" width="12" height="12" />
+              </span>
+            </button>
+            <button
+              v-if="hasVisibleExpandableKanbanTasks"
+              type="button"
+              class="task-group-menu-item"
+              @click.stop="toggleAllVisibleKanbanDetailsFromMenu"
+            >
+              <span>{{ areAllVisibleKanbanDetailsExpanded ? '一键折叠详情' : '一键展开详情' }}</span>
+            </button>
+          </div>
         </div>
       </div>
         <div v-else-if="currentView === 'table' || currentView === 'archive-table'" class="document-tabs-actions table-document-actions">
@@ -292,27 +355,73 @@
               aria-label="清除搜索"
               @click="tableSearchQuery = ''"
             >
-              ×
+                ×
               </button>
             </div>
             <div ref="tableFilterControlRef" class="task-filter-control">
               <button
                 type="button"
-              class="task-filter-btn"
-              :class="{ active: tableFilterPopoverVisible || hasActiveTableFilters }"
-              title="筛选任务"
-              aria-label="筛选任务"
-              @click.stop="toggleTableFilterPopover($event)"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M3 5h18" />
-                <path d="M7 12h10" />
-                <path d="M10 19h4" />
-              </svg>
-              <span v-if="activeTableFilterCount > 0" class="task-filter-count">
-                {{ activeTableFilterCount }}
-              </span>
+                class="task-filter-btn"
+                :class="{ active: tableFilterPopoverVisible || hasActiveTableFilters }"
+                title="筛选任务"
+                aria-label="筛选任务"
+                @click.stop="toggleTableFilterPopover($event)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 5h18" />
+                  <path d="M7 12h10" />
+                  <path d="M10 19h4" />
+                </svg>
+                <span v-if="activeTableFilterCount > 0" class="task-filter-count">
+                  {{ activeTableFilterCount }}
+                </span>
               </button>
+            </div>
+            <div ref="taskViewGroupMenuControlRef" class="task-group-menu-control">
+              <button
+                type="button"
+                class="task-group-menu-btn"
+                :class="{ active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks }"
+                title="视图设置"
+                aria-label="视图设置"
+                @click.stop="toggleTaskViewGroupMenu"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12,7a2,2,0,1,0-2-2A2,2,0,0,0,12,7Zm0,10a2,2,0,1,0,2,2A2,2,0,0,0,12,17Zm0-7a2,2,0,1,0,2,2A2,2,0,0,0,12,10Z" />
+                </svg>
+              </button>
+              <div
+                v-if="taskViewGroupMenuVisible"
+                ref="taskViewGroupMenuPopoverRef"
+                class="task-group-menu-popover"
+                @click.stop
+              >
+                <button
+                  v-for="option in currentTaskViewGroupOptions"
+                  :key="`table-group:${option.value}`"
+                  type="button"
+                  class="task-group-menu-item"
+                  :class="{ active: activeTaskViewGroupMode === option.value }"
+                  @click.stop="selectTaskViewGroupMode(option.value)"
+                >
+                  <span>{{ option.text }}</span>
+                  <span v-if="activeTaskViewGroupMode === option.value" class="task-group-menu-check">
+                    <Icon name="taskCheckboxChecked" width="12" height="12" />
+                  </span>
+                </button>
+                <div class="task-group-menu-divider"></div>
+                <button
+                  type="button"
+                  class="task-group-menu-item"
+                  :class="{ active: !showCompletedTasks }"
+                  @click.stop="toggleHideCompletedTasksFromMenu"
+                >
+                  <span>隐藏已完成任务</span>
+                  <span v-if="!showCompletedTasks" class="task-group-menu-check">
+                    <Icon name="taskCheckboxChecked" width="12" height="12" />
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
       </div>
@@ -568,8 +677,8 @@
                   :expanded="isKanbanTaskExpanded(task.id)"
                   :description-editing="inlineEditingDescriptionTaskId === task.id"
                   :description-draft="getInlineDescriptionDraft(task)"
-                  :show-description="true"
-                  :show-badges="true"
+                  :show-description="showKanbanTaskCardDetails"
+                  :show-badges="showKanbanTaskCardDetails"
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
                   :title-tooltip="isKanbanBatchEditMode ? '点击选择任务' : ''"
                   @card-click="handleKanbanTaskCardClick"
@@ -649,6 +758,21 @@
       @task-date-changed="handleTaskDateChanged"
       @task-click="handleTaskClick"
       @task-create-requested="handleTaskCreateRequested"
+    />
+
+    <TaskModal
+      :show="showTaskModal"
+      :t="taskModalTranslate"
+      :notebooks="taskModalNotebooks"
+      :documents="taskModalDocuments"
+      :groups="taskGroups"
+      :default-group-id="taskModalDefaultGroupId"
+      :lastSelectedNotebook="taskModalDefaultNotebook"
+      :lastSelectedDocument="taskModalDefaultDocument"
+      presentation="center"
+      @close="showTaskModal = false"
+      @manage-groups="openTaskGroupDialog"
+      @submit="handleTaskModalCreate"
     />
 
     <TaskFilterPopover
@@ -846,6 +970,7 @@
       :show="showTaskScopeDialog"
       :notebooks="notebooks"
       :excluded-notebook-ids="excludedNotebookIds"
+      :auto-recognize-task-date="autoRecognizeTaskDate"
       :show-extra="false"
       @close="showTaskScopeDialog = false"
       @save="handleTaskScopeSave"
@@ -863,7 +988,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { Protyle, getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, TaskGroup, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock } from '../api';
+import { TaskRepository, Task, SubTask, TaskGroup, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, getIDsByHPath } from '../api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -877,10 +1002,14 @@ import {
   normalizeNotebookIds,
   type RepeatRulePayload
 } from '@/utils/taskViewShared';
+import {
+  buildLiveTaskDomOrderMap,
+  compareTaskCreatedAtDesc,
+  compareTaskDocumentSortKey
+} from '@/utils/taskSortShared';
 import { rebuildAffectedRepeatTasks } from '@/repeatRepository';
 import {
   getTaskHeadingGroupMeta,
-  normalizeTaskViewGroupMode,
   resolveTaskHeadingDropTarget,
   resolveStoredTaskViewGroupMode,
   resolveTaskHeadingGroups,
@@ -891,6 +1020,7 @@ import {
 import Icon from '@/components/Icon.vue';
 import TaskCard from '@/components/TaskCard.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
+import TaskModal, { type Notebook as TaskModalNotebook, type Document as TaskModalDocument } from '@/components/TaskModal.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import { useTaskFilterState } from '@/composables/useTaskFilterState';
@@ -1025,6 +1155,9 @@ const documentTabsDropdownVisible = ref(false);
 const documentTabsRef = ref<HTMLElement | null>(null);
 const documentTabsDropdownControlRef = ref<HTMLElement | null>(null);
 const documentTabsDropdownPopoverRef = ref<HTMLElement | null>(null);
+const taskViewGroupMenuVisible = ref(false);
+const taskViewGroupMenuControlRef = ref<HTMLElement | null>(null);
+const taskViewGroupMenuPopoverRef = ref<HTMLElement | null>(null);
 const hiddenDocumentTabIds = ref(new Set<string>());
 const mobileViewSwitcherVisible = ref(false);
 const mobileViewSwitcherControlRef = ref<HTMLElement | null>(null);
@@ -1051,6 +1184,28 @@ const isHydratingSettings = ref(false);
 
 const { notebooks, loadNotebooks } = useNotebooks();
 const taskGroups = ref<TaskGroup[]>([]);
+const visibleTaskGroups = computed(() =>
+  taskGroups.value.filter(group => group.hidden !== true)
+);
+const visibleTaskGroupIdSet = computed(() => new Set(visibleTaskGroups.value.map(group => group.id)));
+let taskGroupsLoadingPromise: Promise<TaskGroup[]> | null = null;
+async function ensureTaskGroupsLoaded(): Promise<TaskGroup[]> {
+  if (taskGroups.value.length > 0) {
+    return taskGroups.value;
+  }
+  if (taskGroupsLoadingPromise) {
+    return taskGroupsLoadingPromise;
+  }
+  taskGroupsLoadingPromise = loadTaskGroups()
+    .then((groups) => {
+      taskGroups.value = groups;
+      return groups;
+    })
+    .finally(() => {
+      taskGroupsLoadingPromise = null;
+    });
+  return taskGroupsLoadingPromise;
+}
 const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
 const draggedTask = ref<Task | null>(null);
 const dragOverColumnId = ref<string | null>(null);
@@ -1068,6 +1223,9 @@ const currentViewOption = computed(() =>
   viewSwitcherOptions.find(option => option.value === currentView.value) || viewSwitcherOptions[0]
 );
 const expandedKanbanTaskIds = ref(new Set<string>());
+const showKanbanTaskCardDetails = ref(userSettings.kanban?.showKanbanTaskCardDetails !== false);
+const showCompletedTasks = computed(() => userSettings.taskManager.showCompletedTasks !== false);
+const autoRecognizeTaskDate = computed(() => userSettings.taskManager.autoRecognizeTaskDate === true);
 const kanbanSubtaskHydratingIds = new Set<string>();
 const inlineEditingDescriptionTaskId = ref<string | null>(null);
 const inlineDescriptionDraftByTaskId = ref(new Map<string, string>());
@@ -1110,6 +1268,16 @@ const activeKanbanEditDraft = computed(() =>
 const visibleKanbanTasks = computed(() =>
   tasks.value.filter(task => matchesKanbanFilters(task))
 );
+const visibleKanbanExpandableTaskIds = computed(() =>
+  visibleKanbanTasks.value
+    .filter(task => Array.isArray(task.subtasks) && task.subtasks.length > 0)
+    .map(task => task.id)
+);
+const hasVisibleExpandableKanbanTasks = computed(() => visibleKanbanExpandableTaskIds.value.length > 0);
+const areAllVisibleKanbanDetailsExpanded = computed(() => {
+  const taskIds = visibleKanbanExpandableTaskIds.value;
+  return taskIds.length > 0 && taskIds.every(taskId => expandedKanbanTaskIds.value.has(taskId));
+});
 const kanbanBatchSelectedCount = computed(() => kanbanBatchSelectedTaskIds.value.size);
 const allVisibleKanbanTasksSelected = computed(() => {
   const currentTasks = visibleKanbanTasks.value;
@@ -1121,7 +1289,7 @@ const allVisibleKanbanTasksSelected = computed(() => {
 const kanbanBatchGroupOptions = computed(() => [
   { value: '', text: '标签（不修改）' },
   { value: TASK_GROUP_NONE_ID, text: '无标签' },
-  ...taskGroups.value.map(group => ({
+  ...visibleTaskGroups.value.map(group => ({
     value: group.id,
     text: group.name || '未命名标签'
   }))
@@ -1188,7 +1356,7 @@ const groupColumns = computed<KanbanColumn[]>(() => {
   const columns: KanbanColumn[] = [
     { id: TASK_GROUP_NONE_ID, title: '无标签', type: 'group', groupId: '' }
   ];
-  for (const group of taskGroups.value) {
+  for (const group of visibleTaskGroups.value) {
     if (!group || !group.id) continue;
     columns.push({
       id: group.id,
@@ -1243,7 +1411,9 @@ const kanbanColumns = computed<KanbanColumn[]>(() => {
   if (kanbanGroupBy.value === 'heading') {
     return [...headingColumns.value, addHeadingColumn];
   }
-  return statusColumns;
+  return showCompletedTasks.value
+    ? statusColumns
+    : statusColumns.filter(column => column.status !== 'completed');
 });
 
 interface CreateTaskPayload {
@@ -1307,6 +1477,24 @@ const quickCreateDialog = ref<{
   payload: null,
   context: null
 });
+const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
+const PINCH_INBOX_PATH = '/pinch收集箱';
+const showTaskModal = ref(false);
+const taskModalDefaultNotebook = ref('');
+const taskModalDefaultDocument = ref(PINCH_INBOX_OPTION_ID);
+const taskModalDefaultGroupId = ref('');
+
+interface TaskModalCreateTaskPayload {
+  title: string;
+  description?: string;
+  priority?: Task['priority'];
+  status?: Task['status'];
+  dueDate?: string;
+  reminderType?: TaskReminderType;
+  reminderCustomTime?: string;
+  tags?: string[];
+  groupId?: string;
+}
 
 const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
   { value: 'pending', label: '待处理' },
@@ -1385,7 +1573,8 @@ function normalizeStoredGroupFilters(values: unknown): string[] {
     return [];
   }
   const seen = new Set<string>();
-  const validGroupIds = new Set(taskGroups.value.map(group => group.id));
+  const validGroupIds = visibleTaskGroupIdSet.value;
+  const shouldValidateGroupId = taskGroups.value.length > 0;
   const normalized: string[] = [];
   for (const item of values) {
     if (typeof item !== 'string') {
@@ -1395,7 +1584,7 @@ function normalizeStoredGroupFilters(values: unknown): string[] {
     if (!value || seen.has(value)) {
       continue;
     }
-    if (value !== TASK_GROUP_NONE_ID && !validGroupIds.has(value)) {
+    if (value !== TASK_GROUP_NONE_ID && shouldValidateGroupId && !validGroupIds.has(value)) {
       continue;
     }
     seen.add(value);
@@ -1413,6 +1602,19 @@ const notebookOptions = computed(() => [
   { value: 'all', text: '全部' },
   ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
 ]);
+const taskModalNotebooks = computed<TaskModalNotebook[]>(() =>
+  enabledNotebooks.value.map(notebook => ({
+    id: notebook.id,
+    name: notebook.name
+  }))
+);
+const taskModalDocuments = computed<TaskModalDocument[]>(() =>
+  getDocumentEntriesByNotebook('all').map(doc => ({
+    id: doc.id,
+    name: doc.name,
+    notebookId: doc.notebookId
+  }))
+);
 
 const kanbanMoveNotebookOptions = computed(() =>
   notebooks.value.map(notebook => ({
@@ -1476,7 +1678,7 @@ const kanbanGroupPickerOptions = computed(() => {
   const options = [
     { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, colorCss: '', textColor: '' }
   ];
-  taskGroups.value.forEach(group => {
+  visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
     options.push({
       value: group.id,
@@ -1493,7 +1695,7 @@ const kanbanGroupFilterOptions = computed(() => {
   const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
     { value: TASK_GROUP_NONE_ID, label: '无标签', style: {} }
   ];
-  taskGroups.value.forEach(group => {
+  visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
     const backgroundColor = resolveGroupColorCss(rawColor);
     const textColor = resolveGroupTextColor(rawColor);
@@ -2359,9 +2561,7 @@ async function openTaskScopeDialog() {
 }
 
 async function openTaskGroupQuickCreate(): Promise<void> {
-  if (taskGroups.value.length === 0) {
-    taskGroups.value = await loadTaskGroups();
-  }
+  await ensureTaskGroupsLoaded();
   taskGroupDialogAutoAdd.value = true;
   showTaskGroupDialog.value = true;
 }
@@ -2383,9 +2583,7 @@ function handleActionColumnClick(column: KanbanColumn): void {
 }
 
 async function openTaskGroupDialog(): Promise<void> {
-  if (taskGroups.value.length === 0) {
-    taskGroups.value = await loadTaskGroups();
-  }
+  await ensureTaskGroupsLoaded();
   taskGroupDialogAutoAdd.value = false;
   showTaskGroupDialog.value = true;
 }
@@ -2513,6 +2711,15 @@ async function handleTaskGroupSave(groups: TaskGroup[]): Promise<void> {
       activeKanbanGroupFilters.value = activeKanbanGroupFilters.value.filter(id => !removedSet.has(id));
       activeTableGroupFilters.value = activeTableGroupFilters.value.filter(id => !removedSet.has(id));
     }
+    if (activeKanbanGroupFilters.value.length > 0 || activeTableGroupFilters.value.length > 0) {
+      const visibleGroupIdSet = new Set(taskGroups.value.filter(group => group.hidden !== true).map(group => group.id));
+      activeKanbanGroupFilters.value = activeKanbanGroupFilters.value.filter(
+        id => id === TASK_GROUP_NONE_ID || visibleGroupIdSet.has(id)
+      );
+      activeTableGroupFilters.value = activeTableGroupFilters.value.filter(
+        id => id === TASK_GROUP_NONE_ID || visibleGroupIdSet.has(id)
+      );
+    }
   } catch (error) {
     console.error('[KanbanView] 保存标签失败:', error);
   }
@@ -2521,7 +2728,7 @@ async function handleTaskGroupSave(groups: TaskGroup[]): Promise<void> {
 function applyExternalTaskGroups(groups: TaskGroup[]): void {
   const nextGroups = (groups || []).map(group => ({ ...group }));
   taskGroups.value = nextGroups;
-  const groupIdSet = new Set(nextGroups.map(group => group.id));
+  const groupIdSet = new Set(nextGroups.filter(group => group.hidden !== true).map(group => group.id));
   if (activeKanbanGroupFilters.value.length > 0) {
     activeKanbanGroupFilters.value = activeKanbanGroupFilters.value.filter(
       id => id === TASK_GROUP_NONE_ID || groupIdSet.has(id)
@@ -2534,7 +2741,11 @@ function applyExternalTaskGroups(groups: TaskGroup[]): void {
   }
 }
 
-async function handleTaskScopeSave(selectedVisibleExcludedNotebookIds: string[]) {
+async function handleTaskScopeSave(
+  selectedVisibleExcludedNotebookIds: string[],
+  _nextShowCompletedTasks: boolean,
+  nextAutoRecognizeTaskDate: boolean
+) {
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
   const mergedExcludedNotebookIds = normalizeNotebookIds([
@@ -2543,11 +2754,13 @@ async function handleTaskScopeSave(selectedVisibleExcludedNotebookIds: string[])
   ]);
 
   applyExcludedNotebookScope(mergedExcludedNotebookIds);
+  TaskRepository.setAutoRecognizeTaskDateEnabled(nextAutoRecognizeTaskDate);
   showTaskScopeDialog.value = false;
   const hasFilterChanges = resetFiltersForExcludedNotebooks();
 
   await updateSettings('taskManager', {
-    excludedNotebookIds: mergedExcludedNotebookIds
+    excludedNotebookIds: mergedExcludedNotebookIds,
+    autoRecognizeTaskDate: nextAutoRecognizeTaskDate
   });
   if (hasFilterChanges) {
     await saveUserSettings();
@@ -2586,15 +2799,20 @@ function getCurrentFilterNotebookId(): string {
   }
 }
 
+function shouldHideCompletedOnlyDocumentTabs(view: TaskViewMode): boolean {
+  return !showCompletedTasks.value && (view === 'kanban' || view === 'table');
+}
+
 function getDocumentEntriesByNotebook(
   notebookId: string,
-  options: { includeNotebookName?: boolean } = {}
+  options: { includeNotebookName?: boolean; excludeCompletedOnlyDocs?: boolean } = {}
 ): Array<{ id: string; name: string; notebookId: string }> {
   const includeNotebookName = options.includeNotebookName === true;
+  const excludeCompletedOnlyDocs = options.excludeCompletedOnlyDocs === true;
   const notebookNameById = includeNotebookName
     ? new Map(notebooks.value.map(notebook => [notebook.id, notebook.name]))
     : null;
-  const docs = new Map<string, { hPath: string; notebookId: string }>();
+  const docs = new Map<string, { hPath: string; notebookId: string; hasVisibleActiveTask: boolean }>();
   for (const task of tasks.value) {
     if (task.type !== 'block' || !task.rootId) {
       continue;
@@ -2606,13 +2824,24 @@ function getDocumentEntriesByNotebook(
     if (notebookId !== 'all' && taskNotebookId !== notebookId) {
       continue;
     }
-    if (!docs.has(task.rootId)) {
+
+    let documentMeta = docs.get(task.rootId);
+    if (!documentMeta) {
       const hPath = task.hPath || task.rootId;
-      docs.set(task.rootId, { hPath, notebookId: taskNotebookId });
+      documentMeta = { hPath, notebookId: taskNotebookId, hasVisibleActiveTask: false };
+      docs.set(task.rootId, documentMeta);
+    }
+
+    if (task.archived) {
+      continue;
+    }
+    if (!excludeCompletedOnlyDocs || !isTaskCompletedVisual(task)) {
+      documentMeta.hasVisibleActiveTask = true;
     }
   }
 
   return Array.from(docs.entries())
+    .filter(([, meta]) => !excludeCompletedOnlyDocs || meta.hasVisibleActiveTask)
     .map(([id, meta]) => {
       const documentName = meta.hPath.split('/').pop() || meta.hPath;
       const notebookName = notebookNameById?.get(meta.notebookId) || '';
@@ -2632,14 +2861,25 @@ function getDocumentEntriesByNotebook(
     });
 }
 
-function getDocumentIdsByNotebook(notebookId: string): string[] {
-  return getDocumentEntriesByNotebook(notebookId).map(doc => doc.id);
+function getDocumentIdsByNotebook(
+  notebookId: string,
+  options: { excludeCompletedOnlyDocs?: boolean } = {}
+): string[] {
+  return getDocumentEntriesByNotebook(notebookId, {
+    excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs
+  }).map(doc => doc.id);
 }
 
-function toFilterDocumentOptions(notebookId: string): Array<{ value: string; text: string }> {
+function toFilterDocumentOptions(
+  notebookId: string,
+  options: { excludeCompletedOnlyDocs?: boolean } = {}
+): Array<{ value: string; text: string }> {
   return [
     { value: 'all', text: '全部' },
-    ...getDocumentEntriesByNotebook(notebookId, { includeNotebookName: notebookId === 'all' }).map(doc => ({
+    ...getDocumentEntriesByNotebook(notebookId, {
+      includeNotebookName: notebookId === 'all',
+      excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs
+    }).map(doc => ({
       value: doc.id,
       text: doc.name
     }))
@@ -2653,7 +2893,9 @@ function toQuickCreateDocumentOptions(notebookId: string): Array<{ value: string
   return toFilterDocumentOptions(notebookId);
 }
 
-const documentOptions = computed(() => toFilterDocumentOptions(getCurrentFilterNotebookId()));
+const documentOptions = computed(() => toFilterDocumentOptions(getCurrentFilterNotebookId(), {
+  excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs(currentView.value)
+}));
 const quickCreateDocumentOptions = computed(() => toQuickCreateDocumentOptions(quickCreateNotebookId.value));
 const visibleDocumentOptions = computed(() =>
   documentOptions.value.filter(option => option.value === 'all' || !hiddenDocumentTabIds.value.has(option.value))
@@ -2712,11 +2954,100 @@ const currentDocumentFilter = computed<string>({
 });
 
 const showDocumentTabs = computed(() => visibleDocumentOptions.value.length > 1);
+const activeTaskViewGroupMode = computed<TaskViewGroupMode>(() =>
+  currentView.value === 'kanban' ? kanbanGroupBy.value : tableGroupBy.value
+);
+const currentTaskViewGroupOptions = computed(() =>
+  currentView.value === 'kanban' ? kanbanGroupModeOptions : tableGroupModeOptions
+);
+
+function closeTaskViewGroupMenu(): void {
+  taskViewGroupMenuVisible.value = false;
+}
+
+function toggleTaskViewGroupMenu(): void {
+  const nextVisible = !taskViewGroupMenuVisible.value;
+  taskViewGroupMenuVisible.value = nextVisible;
+  if (!nextVisible) {
+    return;
+  }
+  closeDocumentTabsDropdown();
+  closeMobileViewSwitcher();
+  closeKanbanFilterPopover();
+  closeTableFilterPopover();
+}
+
+function selectTaskViewGroupMode(mode: TaskViewGroupMode): void {
+  if (currentView.value === 'kanban') {
+    kanbanGroupBy.value = mode;
+  } else if (currentView.value === 'table' || currentView.value === 'archive-table') {
+    tableGroupBy.value = mode;
+  }
+  closeTaskViewGroupMenu();
+}
+
+function toggleKanbanBatchEditModeFromMenu(): void {
+  if (currentView.value !== 'kanban') {
+    return;
+  }
+  toggleKanbanBatchEditMode();
+  closeTaskViewGroupMenu();
+}
+
+async function openTaskGroupDialogFromMenu(): Promise<void> {
+  closeTaskViewGroupMenu();
+  await openTaskGroupDialog();
+}
+
+async function toggleHideCompletedTasksFromMenu(): Promise<void> {
+  closeTaskViewGroupMenu();
+  await updateSettings('taskManager', {
+    showCompletedTasks: !showCompletedTasks.value
+  });
+  await validateDocumentSelection();
+}
+
+function toggleKanbanTaskCardDetailsFromMenu(): void {
+  if (currentView.value !== 'kanban') {
+    return;
+  }
+  showKanbanTaskCardDetails.value = !showKanbanTaskCardDetails.value;
+  if (!showKanbanTaskCardDetails.value && inlineEditingDescriptionTaskId.value) {
+    inlineEditingDescriptionTaskId.value = null;
+  }
+  closeTaskViewGroupMenu();
+}
+
+function toggleAllVisibleKanbanDetails(): void {
+  const taskIds = visibleKanbanExpandableTaskIds.value;
+  if (taskIds.length === 0) {
+    return;
+  }
+  const shouldCollapse = areAllVisibleKanbanDetailsExpanded.value;
+  const next = new Set(expandedKanbanTaskIds.value);
+  for (const taskId of taskIds) {
+    if (shouldCollapse) {
+      next.delete(taskId);
+    } else {
+      next.add(taskId);
+    }
+  }
+  expandedKanbanTaskIds.value = next;
+}
+
+function toggleAllVisibleKanbanDetailsFromMenu(): void {
+  if (currentView.value !== 'kanban') {
+    return;
+  }
+  toggleAllVisibleKanbanDetails();
+  closeTaskViewGroupMenu();
+}
 
 function toggleDocumentTabsDropdown(): void {
   const nextVisible = !documentTabsDropdownVisible.value;
   documentTabsDropdownVisible.value = nextVisible;
   if (nextVisible) {
+    closeTaskViewGroupMenu();
     closeMobileViewSwitcher();
   }
 }
@@ -2730,6 +3061,7 @@ function toggleMobileViewSwitcher(): void {
   mobileViewSwitcherVisible.value = nextVisible;
   if (nextVisible) {
     closeDocumentTabsDropdown();
+    closeTaskViewGroupMenu();
     closeKanbanFilterPopover();
     closeTableFilterPopover();
   }
@@ -2805,7 +3137,9 @@ setupFilterTypeWatcher(weekFilterType, weekFilterDocument);
 setupFilterTypeWatcher(dayFilterType, dayFilterDocument);
 
 const ensureTableDocumentSelection = () => {
-  const options = toFilterDocumentOptions(tableFilterType.value);
+  const options = toFilterDocumentOptions(tableFilterType.value, {
+    excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('table')
+  });
   const optionValues = new Set(options.map(option => option.value));
   if (!optionValues.has(tableFilterDocument.value)) {
     tableFilterDocument.value = 'all';
@@ -2866,6 +3200,7 @@ watch([
   currentView,
   kanbanGroupBy,
   tableGroupBy,
+  showKanbanTaskCardDetails,
   kanbanFilterType,
   kanbanFilterDocument,
   tableFilterType,
@@ -2901,6 +3236,9 @@ watch(hiddenDocumentTabIds, () => {
   scheduleSaveUserSettings();
 });
 watch([shouldLoadHeadingGroups, () => tasks.value], ([enabled]) => {
+  if (isHydratingSettings.value) {
+    return;
+  }
   if (!enabled) {
     return;
   }
@@ -2911,6 +3249,7 @@ watch(kanbanFilterPopoverVisible, (visible) => {
   if (visible) {
     closeDocumentTabsDropdown();
     closeMobileViewSwitcher();
+    closeTaskViewGroupMenu();
     void nextTick(updateKanbanFilterPopoverPosition);
   }
 });
@@ -2918,12 +3257,14 @@ watch(tableFilterPopoverVisible, (visible) => {
   if (visible) {
     closeDocumentTabsDropdown();
     closeMobileViewSwitcher();
+    closeTaskViewGroupMenu();
     void nextTick(updateTableFilterPopoverPosition);
   }
 });
 watch(currentView, () => {
   closeDocumentTabsDropdown();
   closeMobileViewSwitcher();
+  closeTaskViewGroupMenu();
   cancelColumnTitleEdit();
   clearGroupColumnReorderDragState();
   if (currentView.value !== 'kanban' && isKanbanBatchEditMode.value) {
@@ -2937,13 +3278,13 @@ watch(kanbanGroupBy, async (mode) => {
     return;
   }
   clearGroupColumnReorderDragState();
-  taskGroups.value = await loadTaskGroups();
+  await ensureTaskGroupsLoaded();
 });
 watch(tableGroupBy, async (mode) => {
   if (mode !== 'group') {
     return;
   }
-  taskGroups.value = await loadTaskGroups();
+  await ensureTaskGroupsLoaded();
 });
 
 const tableArchiveMode = computed<'active' | 'archived'>(() =>
@@ -3049,107 +3390,6 @@ function isTaskCompletedVisual(task: Task): boolean {
   return getTaskVisualStatus(task) === 'completed';
 }
 
-function buildLiveTaskDomOrderMap(): Map<string, number> {
-  const orderMap = new Map<string, number>();
-  if (typeof document === 'undefined') {
-    return orderMap;
-  }
-
-  const domRoots = Array.from(document.querySelectorAll('.protyle-wysiwyg'));
-  const roots: ParentNode[] = domRoots.length > 0 ? domRoots : [document];
-  let order = 0;
-
-  for (const root of roots) {
-    const items = root.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"][data-node-id]');
-    items.forEach((item) => {
-      const blockId = item.getAttribute('data-node-id');
-      if (!blockId || orderMap.has(blockId)) {
-        return;
-      }
-      const hasTaskAction = item.querySelector('.protyle-action--task');
-      if (!hasTaskAction) {
-        return;
-      }
-      orderMap.set(blockId, order);
-      order += 1;
-    });
-  }
-
-  return orderMap;
-}
-
-function compareTaskDocumentSortKey(a: Task, b: Task, domOrderMap?: Map<string, number>): number {
-  if (!a.rootId || !b.rootId || a.rootId !== b.rootId) {
-    return 0;
-  }
-
-  if (domOrderMap) {
-    const blockIdA = typeof a.blockId === 'string' ? a.blockId : '';
-    const blockIdB = typeof b.blockId === 'string' ? b.blockId : '';
-    if (blockIdA && blockIdB) {
-      const orderA = domOrderMap.get(blockIdA);
-      const orderB = domOrderMap.get(blockIdB);
-      if (orderA !== undefined && orderB !== undefined && orderA !== orderB) {
-        return orderA - orderB;
-      }
-    }
-  }
-
-  const documentOrderA = typeof a.documentOrder === 'number' ? a.documentOrder : null;
-  const documentOrderB = typeof b.documentOrder === 'number' ? b.documentOrder : null;
-  if (documentOrderA !== null && documentOrderB !== null && documentOrderA !== documentOrderB) {
-    return documentOrderA - documentOrderB;
-  }
-  if (documentOrderA !== null && documentOrderB === null) {
-    return -1;
-  }
-  if (documentOrderA === null && documentOrderB !== null) {
-    return 1;
-  }
-
-  const sortA = typeof a.blockSort === 'string' ? a.blockSort.trim() : '';
-  const sortB = typeof b.blockSort === 'string' ? b.blockSort.trim() : '';
-  if (!sortA || !sortB || sortA === sortB) {
-    return 0;
-  }
-  const sortANumeric = /^\d+$/.test(sortA);
-  const sortBNumeric = /^\d+$/.test(sortB);
-  if (sortANumeric && sortBNumeric) {
-    if (sortA.length !== sortB.length) {
-      return sortA.length - sortB.length;
-    }
-    return sortA < sortB ? -1 : 1;
-  }
-  return sortA.localeCompare(sortB);
-}
-
-function compareTaskCreatedAtDesc(a: Task, b: Task): number {
-  const createdA = Date.parse(a.createdAt || '');
-  const createdB = Date.parse(b.createdAt || '');
-  const hasCreatedA = Number.isFinite(createdA);
-  const hasCreatedB = Number.isFinite(createdB);
-
-  if (hasCreatedA && hasCreatedB) {
-    if (createdA !== createdB) {
-      return createdB - createdA;
-    }
-    return 0;
-  }
-  if (hasCreatedA && !hasCreatedB) {
-    return -1;
-  }
-  if (!hasCreatedA && hasCreatedB) {
-    return 1;
-  }
-
-  const createdKeyA = a.createdAt || a.blockId || a.id || '';
-  const createdKeyB = b.createdAt || b.blockId || b.id || '';
-  if (createdKeyA === createdKeyB) {
-    return 0;
-  }
-  return createdKeyB.localeCompare(createdKeyA);
-}
-
 function compareTasksLikeSidebar(a: Task, b: Task, todayStart: number, domOrderMap?: Map<string, number>): number {
   const isAPinned = a.pinned === true;
   const isBPinned = b.pinned === true;
@@ -3223,9 +3463,21 @@ function compareTasksLikeSidebar(a: Task, b: Task, todayStart: number, domOrderM
   return bSortKey.localeCompare(aSortKey);
 }
 
-function sortTasksLikeSidebar(taskList: Task[]): Task[] {
-  const todayStart = getStartOfDay(new Date()).getTime();
-  const domOrderMap = buildLiveTaskDomOrderMap();
+interface SidebarSortContext {
+  todayStart: number;
+  domOrderMap: Map<string, number>;
+}
+
+function createSidebarSortContext(): SidebarSortContext {
+  return {
+    todayStart: getStartOfDay(new Date()).getTime(),
+    domOrderMap: buildLiveTaskDomOrderMap()
+  };
+}
+
+function sortTasksLikeSidebar(taskList: Task[], context?: SidebarSortContext): Task[] {
+  const resolvedContext = context || createSidebarSortContext();
+  const { todayStart, domOrderMap } = resolvedContext;
   return taskList.sort((a, b) => compareTasksLikeSidebar(a, b, todayStart, domOrderMap));
 }
 
@@ -3650,7 +3902,7 @@ async function applyKanbanBatchEdit(): Promise<void> {
   const nextStatus = isKanbanBatchStatus(kanbanBatchEditStatus.value) ? kanbanBatchEditStatus.value : null;
   const nextPriority = isKanbanBatchPriority(kanbanBatchEditPriority.value) ? kanbanBatchEditPriority.value : null;
   const rawGroupSelection = typeof kanbanBatchEditGroupId.value === 'string' ? kanbanBatchEditGroupId.value.trim() : '';
-  const validGroupIds = new Set(taskGroups.value.map(group => group.id));
+  const validGroupIds = visibleTaskGroupIdSet.value;
   let nextGroupId: string | null = null;
   if (rawGroupSelection) {
     if (rawGroupSelection === TASK_GROUP_NONE_ID) {
@@ -3839,6 +4091,37 @@ function getTaskStartDateTimestamp(task: Task): number | null {
   return getTaskDateTimestamp(task.startDate);
 }
 
+function isVirtualTaskForToday(task: Task): boolean {
+  if (!task.isVirtual) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStart = today.getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const todayEnd = todayStart + dayMs;
+  const startTimestamp = getTaskStartDateTimestamp(task);
+  const dueTimestamp = getTaskDueDateTimestamp(task);
+  if (startTimestamp !== null || dueTimestamp !== null) {
+    let rangeStart = startTimestamp ?? dueTimestamp ?? 0;
+    let rangeEnd = dueTimestamp ?? startTimestamp ?? 0;
+    if (rangeStart > rangeEnd) {
+      [rangeStart, rangeEnd] = [rangeEnd, rangeStart];
+    }
+    const taskRangeEnd = rangeEnd + dayMs;
+    return rangeStart < todayEnd && taskRangeEnd > todayStart;
+  }
+  return false;
+}
+
+const todayVirtualSeriesIds = computed(() => {
+  const set = new Set<string>();
+  for (const task of tasks.value) {
+    if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
+      set.add(task.repeatSeriesId);
+    }
+  }
+  return set;
+});
+
 function matchesKanbanDueFilter(task: Task, filter: KanbanTaskDueFilterKey): boolean {
   const dueTimestamp = getTaskDueDateTimestamp(task);
   if (filter === 'noDueDate') {
@@ -3977,11 +4260,17 @@ function matchesKanbanFilters(task: Task): boolean {
   if (!task.title || task.title.trim() === '') return false;
   if (task.type !== 'block') return false;
   if (task.archived) return false;
-  if (task.isVirtual) return false;
+  if (!task.isVirtual && task.repeatSeriesId && todayVirtualSeriesIds.value.has(task.repeatSeriesId)) {
+    return false;
+  }
+  if (task.isVirtual && !isVirtualTaskForToday(task)) return false;
   if (kanbanFilterType.value !== 'all' && task.notebookId !== kanbanFilterType.value) {
     return false;
   }
   if (kanbanFilterDocument.value !== 'all' && task.rootId !== kanbanFilterDocument.value) {
+    return false;
+  }
+  if (!showCompletedTasks.value && isTaskCompletedVisual(task)) {
     return false;
   }
   if (activeKanbanStatusFilters.value.length > 0) {
@@ -4029,6 +4318,7 @@ function matchesTableFiltersByArchivedState(task: Task, archivedOnly: boolean): 
   if (task.type !== 'block') return false;
   if (archivedOnly ? !task.archived : task.archived) return false;
   if (task.isVirtual) return false;
+  if (!archivedOnly && !showCompletedTasks.value && isTaskCompletedVisual(task)) return false;
   if (!matchesTableSearch(task)) return false;
   if (activeTableStatusFilters.value.length > 0) {
     const status = getTaskVisualStatus(task);
@@ -4108,8 +4398,9 @@ const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
     }
   }
 
+  const sortContext = createSidebarSortContext();
   for (const list of Object.values(grouped)) {
-    sortTasksLikeSidebar(list);
+    sortTasksLikeSidebar(list, sortContext);
   }
 
   return grouped;
@@ -4134,8 +4425,9 @@ const kanbanTasksByGroup = computed<Record<string, Task[]>>(() => {
     grouped[groupId].push(task);
   }
 
+  const sortContext = createSidebarSortContext();
   for (const list of Object.values(grouped)) {
-    sortTasksLikeSidebar(list);
+    sortTasksLikeSidebar(list, sortContext);
   }
 
   return grouped;
@@ -4153,8 +4445,9 @@ const kanbanTasksByHeading = computed<Record<string, Task[]>>(() => {
     grouped[headingKey].push(task);
   }
 
+  const sortContext = createSidebarSortContext();
   for (const list of Object.values(grouped)) {
-    sortTasksLikeSidebar(list);
+    sortTasksLikeSidebar(list, sortContext);
   }
 
   return grouped;
@@ -4371,8 +4664,11 @@ function scheduleKanbanMetricsUpdate(columnId: string): void {
   });
 }
 
-async function loadTasks(forceRefresh: boolean = false, options: { silent?: boolean } = {}) {
-  const { silent = false } = options;
+async function loadTasks(
+  forceRefresh: boolean = false,
+  options: { silent?: boolean; validateSelection?: boolean } = {}
+) {
+  const { silent = false, validateSelection = true } = options;
   if (!silent) {
     loading.value = true;
   }
@@ -4387,8 +4683,9 @@ async function loadTasks(forceRefresh: boolean = false, options: { silent?: bool
     );
     syncFromSQL(sqlTasks);
     tasks.value = applyDraggedStatusLocks(tasks.value);
-    await nextTick();
-    validateDocumentSelection();
+    if (validateSelection) {
+      validateDocumentSelection();
+    }
     scheduleKanbanTitleHydration(120);
   } catch (error) {
     console.error('[KanbanView] 加载任务失败:', error);
@@ -4522,6 +4819,28 @@ function applyDraggedStatusLocks(taskList: Task[]): Task[] {
   return taskList;
 }
 
+function normalizeInvalidNotebookFilters(): boolean {
+  if (enabledNotebooks.value.length === 0) {
+    return false;
+  }
+  const enabledNotebookIds = new Set(enabledNotebooks.value.map(notebook => notebook.id));
+  let changed = false;
+
+  if (kanbanFilterType.value !== 'all' && !enabledNotebookIds.has(kanbanFilterType.value)) {
+    kanbanFilterType.value = 'all';
+    kanbanFilterDocument.value = 'all';
+    changed = true;
+  }
+
+  if (weekFilterType.value !== 'all' && !enabledNotebookIds.has(weekFilterType.value)) {
+    weekFilterType.value = 'all';
+    weekFilterDocument.value = 'all';
+    changed = true;
+  }
+
+  return changed;
+}
+
 async function loadUserSettings() {
   isHydratingSettings.value = true;
   try {
@@ -4530,6 +4849,7 @@ async function loadUserSettings() {
     kanbanFilterDocument.value = settings.kanbanFilterDocument || 'all';
     kanbanGroupBy.value = resolveStoredTaskViewGroupMode(settings.kanbanGroupBy, settings.kanbanGroupMode, 'status');
     tableGroupBy.value = resolveStoredTaskViewGroupMode(settings.tableGroupBy, settings.tableGroupMode, 'status');
+    showKanbanTaskCardDetails.value = settings.showKanbanTaskCardDetails !== false;
     tableFilterType.value = settings.tableFilterType || 'all';
     tableFilterDocument.value = settings.tableFilterDocument || 'all';
     monthFilterType.value = settings.monthFilterType || 'all';
@@ -4540,52 +4860,30 @@ async function loadUserSettings() {
     dayFilterDocument.value = settings.dayFilterDocument || 'all';
     restoreTaskFilterPopoverSettings();
     hiddenDocumentTabIds.value = new Set(normalizeNotebookIds(settings.hiddenDocumentTabIds));
-    const changedByScope = resetFiltersForExcludedNotebooks();
-    
+
+    let shouldPersistSettings = resetFiltersForExcludedNotebooks();
+    if (normalizeInvalidNotebookFilters()) {
+      shouldPersistSettings = true;
+    }
+
+    const shouldPrimeHeadingGroups =
+      tasks.value.length > 0
+      && (
+        (currentView.value === 'kanban' && kanbanGroupBy.value === 'heading')
+        || (
+          (currentView.value === 'table' || currentView.value === 'archive-table')
+          && tableGroupBy.value === 'heading'
+        )
+      );
+    if (shouldPrimeHeadingGroups) {
+      // Prime heading metadata only when initial active view needs it.
+      await refreshTaskHeadingGroups();
+    }
+
     isSettingsLoaded.value = true;
-    
-    if (kanbanFilterType.value !== 'all' && enabledNotebooks.value.length > 0) {
-      const notebookExists = enabledNotebooks.value.some(nb => nb.id === kanbanFilterType.value);
-      if (!notebookExists) {
-        kanbanFilterType.value = 'all';
-        kanbanFilterDocument.value = 'all';
-        await updateSettings('kanban', {
-          kanbanFilterType: 'all',
-          kanbanFilterDocument: 'all',
-          tableFilterType: tableFilterType.value,
-          tableFilterDocument: tableFilterDocument.value,
-          monthFilterType: monthFilterType.value,
-          monthFilterDocument: monthFilterDocument.value,
-          weekFilterType: weekFilterType.value,
-          weekFilterDocument: weekFilterDocument.value,
-          dayFilterType: dayFilterType.value,
-          dayFilterDocument: dayFilterDocument.value
-        });
-      }
-    }
 
-    if (weekFilterType.value !== 'all' && enabledNotebooks.value.length > 0) {
-      const notebookExists = enabledNotebooks.value.some(nb => nb.id === weekFilterType.value);
-      if (!notebookExists) {
-        weekFilterType.value = 'all';
-        weekFilterDocument.value = 'all';
-        await updateSettings('kanban', {
-          kanbanFilterType: kanbanFilterType.value,
-          kanbanFilterDocument: kanbanFilterDocument.value,
-          tableFilterType: tableFilterType.value,
-          tableFilterDocument: tableFilterDocument.value,
-          monthFilterType: monthFilterType.value,
-          monthFilterDocument: monthFilterDocument.value,
-          weekFilterType: 'all',
-          weekFilterDocument: 'all',
-          dayFilterType: dayFilterType.value,
-          dayFilterDocument: dayFilterDocument.value
-        });
-      }
-    }
-
-    if (changedByScope) {
-      await saveUserSettings();
+    if (shouldPersistSettings) {
+      void saveUserSettings();
     }
   } catch (error) {
     console.error('[KanbanView] 加载用户设置失败:', error);
@@ -4601,6 +4899,7 @@ async function saveUserSettings() {
       tableGroupMode: tableGroupBy.value === 'group',
       kanbanGroupBy: kanbanGroupBy.value,
       tableGroupBy: tableGroupBy.value,
+      showKanbanTaskCardDetails: showKanbanTaskCardDetails.value,
       kanbanFilterType: kanbanFilterType.value,
       kanbanFilterDocument: kanbanFilterDocument.value,
       tableFilterType: tableFilterType.value,
@@ -4634,7 +4933,9 @@ async function validateDocumentSelection() {
   let hasChanges = false;
 
   if (kanbanFilterDocument.value !== 'all') {
-    const availableDocIds = getDocumentIdsByNotebook(kanbanFilterType.value);
+    const availableDocIds = getDocumentIdsByNotebook(kanbanFilterType.value, {
+      excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('kanban')
+    });
     if (!availableDocIds.includes(kanbanFilterDocument.value)) {
       kanbanFilterDocument.value = 'all';
       hasChanges = true;
@@ -4642,7 +4943,9 @@ async function validateDocumentSelection() {
   }
 
   if (tableFilterDocument.value !== 'all') {
-    const availableDocIds = getDocumentIdsByNotebook(tableFilterType.value);
+    const availableDocIds = getDocumentIdsByNotebook(tableFilterType.value, {
+      excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('table')
+    });
     if (!availableDocIds.includes(tableFilterDocument.value)) {
       tableFilterDocument.value = 'all';
       hasChanges = true;
@@ -5777,6 +6080,15 @@ function handleKanbanEditorOutsideClick(event: MouseEvent): void {
     }
     closeDocumentTabsDropdown();
   }
+  if (taskViewGroupMenuVisible.value) {
+    if (taskViewGroupMenuControlRef.value?.contains(target)) {
+      return;
+    }
+    if (taskViewGroupMenuPopoverRef.value?.contains(target)) {
+      return;
+    }
+    closeTaskViewGroupMenu();
+  }
   if (kanbanFilterPopoverVisible.value) {
     closeKanbanFilterPopover();
   }
@@ -5802,6 +6114,10 @@ function handleKanbanEditorKeydown(event: KeyboardEvent): void {
   }
   if (documentTabsDropdownVisible.value) {
     closeDocumentTabsDropdown();
+    return;
+  }
+  if (taskViewGroupMenuVisible.value) {
+    closeTaskViewGroupMenu();
     return;
   }
   if (showKanbanTaskMoveDialog.value) {
@@ -5883,9 +6199,7 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
   if (openingKanbanEditorBlockIds.has(blockId)) {
     return;
   }
-  if (taskGroups.value.length === 0) {
-    taskGroups.value = await loadTaskGroups();
-  }
+  await ensureTaskGroupsLoaded();
   kanbanEditorTaskId.value = task.id;
   const normalizedReminder = normalizeTaskReminderSelection(task);
   kanbanEditorDraft.value = {
@@ -6024,6 +6338,146 @@ function getCurrentSidebarFilterSelection(): { notebookId: string; documentId: s
         notebookId: weekFilterType.value,
         documentId: weekFilterDocument.value
       };
+  }
+}
+
+function taskModalTranslate(key: string): string {
+  return key;
+}
+
+function resolvePreferredTaskModalGroupId(): string {
+  const activeGroupFilters =
+    currentView.value === 'kanban'
+      ? activeKanbanGroupFilters.value
+      : (currentView.value === 'table' || currentView.value === 'archive-table'
+        ? activeTableGroupFilters.value
+        : []);
+  if (activeGroupFilters.length !== 1) {
+    return '';
+  }
+  const candidate = typeof activeGroupFilters[0] === 'string' ? activeGroupFilters[0].trim() : '';
+  if (!candidate || candidate === TASK_GROUP_NONE_ID) {
+    return '';
+  }
+  return taskGroups.value.some(group => group.id === candidate && group.hidden !== true) ? candidate : '';
+}
+
+function resolveTaskModalDefaults(): { notebookId: string; documentId: string; groupId: string } {
+  const enabledNotebookIdSet = new Set(enabledNotebooks.value.map(notebook => notebook.id));
+  const sidebarSelection = getCurrentSidebarFilterSelection();
+  const firstNotebookId = enabledNotebooks.value[0]?.id || '';
+
+  let notebookId = '';
+  if (sidebarSelection.notebookId !== 'all' && enabledNotebookIdSet.has(sidebarSelection.notebookId)) {
+    notebookId = sidebarSelection.notebookId;
+  } else if (taskModalDefaultNotebook.value && enabledNotebookIdSet.has(taskModalDefaultNotebook.value)) {
+    notebookId = taskModalDefaultNotebook.value;
+  } else {
+    notebookId = firstNotebookId;
+  }
+
+  const documentIdSet = new Set(getDocumentEntriesByNotebook(notebookId).map(doc => doc.id));
+  let documentId = PINCH_INBOX_OPTION_ID;
+  if (sidebarSelection.documentId !== 'all' && documentIdSet.has(sidebarSelection.documentId)) {
+    documentId = sidebarSelection.documentId;
+  } else if (
+    taskModalDefaultDocument.value
+    && taskModalDefaultDocument.value !== PINCH_INBOX_OPTION_ID
+    && documentIdSet.has(taskModalDefaultDocument.value)
+  ) {
+    documentId = taskModalDefaultDocument.value;
+  }
+
+  const preferredGroupId = resolvePreferredTaskModalGroupId();
+  const fallbackGroupId = (taskModalDefaultGroupId.value || '').trim();
+  const hasFallbackGroup = fallbackGroupId
+    && taskGroups.value.some(group => group.id === fallbackGroupId && group.hidden !== true);
+  const groupId = preferredGroupId || (hasFallbackGroup ? fallbackGroupId : '');
+
+  return {
+    notebookId,
+    documentId,
+    groupId
+  };
+}
+
+async function openHeaderTaskModal(): Promise<void> {
+  if (enabledNotebooks.value.length === 0) {
+    await pushMsg('暂无可用笔记本，请先在任务范围中启用笔记本', 3000);
+    return;
+  }
+  await ensureTaskGroupsLoaded();
+  const defaults = resolveTaskModalDefaults();
+  taskModalDefaultNotebook.value = defaults.notebookId;
+  taskModalDefaultDocument.value = defaults.documentId;
+  taskModalDefaultGroupId.value = defaults.groupId;
+  showTaskModal.value = true;
+}
+
+async function ensureInboxDocument(notebookId: string): Promise<string> {
+  try {
+    const existingIds = await getIDsByHPath(notebookId, PINCH_INBOX_PATH);
+    if (existingIds && existingIds.length > 0) {
+      return PINCH_INBOX_PATH;
+    }
+  } catch {
+    // Fallback to create when read-by-path fails.
+  }
+
+  await createDocWithMd(notebookId, PINCH_INBOX_PATH, '');
+  return PINCH_INBOX_PATH;
+}
+
+async function handleTaskModalCreate(
+  taskData: TaskModalCreateTaskPayload,
+  notebookId: string,
+  documentId: string
+): Promise<void> {
+  try {
+    let docPath = '';
+    if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
+      const target = resolveCreateTarget(notebookId, documentId);
+      docPath = target?.docPath || '';
+    }
+    if (!docPath) {
+      docPath = await ensureInboxDocument(notebookId);
+    }
+
+    const normalizedGroupId = typeof taskData.groupId === 'string' ? taskData.groupId.trim() : '';
+    const created = await TaskRepository.createBlockTask({
+      title: taskData.title,
+      description: taskData.description || '',
+      priority: taskData.priority || 'none',
+      status: taskData.status || 'pending',
+      dueDate: taskData.dueDate || undefined,
+      reminderType: taskData.reminderType,
+      reminderCustomTime: taskData.reminderCustomTime || undefined,
+      tags: Array.isArray(taskData.tags) ? taskData.tags : [],
+      groupId: normalizedGroupId || undefined
+    }, notebookId, docPath);
+
+    taskModalDefaultNotebook.value = notebookId;
+    taskModalDefaultDocument.value = documentId;
+    taskModalDefaultGroupId.value = normalizedGroupId;
+    showTaskModal.value = false;
+
+    if (created?.blockId) {
+      const createdBlockId = created.blockId;
+      await incrementalUpdateTasks([createdBlockId], { allowUnknown: true });
+      if (!tasks.value.some(task => task.blockId === createdBlockId)) {
+        queueIncrementalUpdates([createdBlockId], { allowUnknown: true }, 120);
+        window.setTimeout(() => {
+          if (!tasks.value.some(task => task.blockId === createdBlockId)) {
+            scheduleRefreshTasks(180, 'silent-full');
+          }
+        }, 420);
+      }
+    } else {
+      scheduleRefreshTasks(180, 'silent-full');
+    }
+  } catch (error) {
+    console.error('[KanbanView] 通过弹窗创建任务失败:', error);
+    await pushMsg('创建任务失败，请稍后重试', 3000);
   }
 }
 
@@ -6384,12 +6838,22 @@ async function submitQuickCreateTask() {
     }, target.notebookId, target.docPath);
 
     if (created?.blockId) {
-      await setBlockAttrs(created.blockId, {
-        'custom-task-start-date': payload.startDate || '',
-        'custom-task-due-date': payload.dueDate || '',
-        'custom-task-start-time': payload.startTime || '',
-        'custom-task-due-time': payload.dueTime || ''
-      });
+      const createDateAttrs: Record<string, string> = {};
+      if (payload.startDate) {
+        createDateAttrs['custom-task-start-date'] = payload.startDate;
+      }
+      if (payload.dueDate) {
+        createDateAttrs['custom-task-due-date'] = payload.dueDate;
+      }
+      if (payload.startTime) {
+        createDateAttrs['custom-task-start-time'] = payload.startTime;
+      }
+      if (payload.dueTime) {
+        createDateAttrs['custom-task-due-time'] = payload.dueTime;
+      }
+      if (Object.keys(createDateAttrs).length > 0) {
+        await setBlockAttrs(created.blockId, createDateAttrs);
+      }
 
       const targetHeadingMeta = headingMetaForNewTask
         || (context?.columnType === 'heading' && context.headingMeta ? context.headingMeta : null);
@@ -7098,16 +7562,70 @@ async function handleStatusDrop(targetStatus: Task['status']) {
 onMounted(async () => {
   setupEventListeners();
   await loadSettings();
+  TaskRepository.setAutoRecognizeTaskDateEnabled(userSettings.taskManager.autoRecognizeTaskDate === true);
   applyExcludedNotebookScope(normalizeNotebookIds(userSettings.taskManager.excludedNotebookIds));
-  await Promise.all([
-    loadNotebooks(),
-    loadTasks(),
-    loadTaskGroups().then(groups => {
-      taskGroups.value = groups;
-    })
-  ]);
+  const initialView = normalizeTaskViewMode(userSettings.kanban?.currentView);
+  currentView.value = initialView;
+  const initialKanbanGroupMode = resolveStoredTaskViewGroupMode(
+    userSettings.kanban?.kanbanGroupBy,
+    userSettings.kanban?.kanbanGroupMode,
+    'status'
+  );
+  const initialTableGroupMode = resolveStoredTaskViewGroupMode(
+    userSettings.kanban?.tableGroupBy,
+    userSettings.kanban?.tableGroupMode,
+    'status'
+  );
+  const shouldWarmTaskGroups = initialKanbanGroupMode === 'group' || initialTableGroupMode === 'group';
+  const shouldAwaitTaskGroups =
+    (initialView === 'kanban' && initialKanbanGroupMode === 'group')
+    || (
+      (initialView === 'table' || initialView === 'archive-table')
+      && initialTableGroupMode === 'group'
+    );
+  const notebooksLoadPromise = loadNotebooks();
+  const taskGroupsLoadPromise = shouldWarmTaskGroups ? ensureTaskGroupsLoaded() : Promise.resolve([]);
+
+  let shouldRunMountedReconcile = false;
+  try {
+    const cachedTasks = await TaskRepository.getCachedTasksOnly();
+    if (cachedTasks.length > 0) {
+      syncFromSQL(cachedTasks);
+      tasks.value = applyDraggedStatusLocks(tasks.value);
+      scheduleKanbanTitleHydration(120);
+      shouldRunMountedReconcile = true;
+    }
+  } catch {
+    // Ignore cache read failures and fallback to full load.
+  }
+
+  if (!shouldRunMountedReconcile) {
+    await loadTasks(false, { validateSelection: false });
+  }
   await loadUserSettings();
-  await validateDocumentSelection();
+  if (shouldAwaitTaskGroups) {
+    await taskGroupsLoadPromise;
+  } else if (kanbanGroupBy.value === 'group' || tableGroupBy.value === 'group') {
+    void ensureTaskGroupsLoaded();
+  }
+  if (shouldRunMountedReconcile) {
+    void loadTasks(false, {
+      silent: true,
+      validateSelection: false
+    });
+  }
+  void notebooksLoadPromise.then(async () => {
+    let shouldPersistSettings = false;
+    if (normalizeInvalidNotebookFilters()) {
+      shouldPersistSettings = true;
+    }
+    if (shouldPersistSettings) {
+      await saveUserSettings();
+    }
+    await validateDocumentSelection();
+  }).catch(() => {
+    // Ignore notebook preload failures; filters will reconcile on next refresh.
+  });
   startSkipSetCleanup();
   document.addEventListener('mousedown', handleKanbanEditorOutsideClick);
   window.addEventListener('keydown', handleKanbanEditorKeydown);
@@ -7145,6 +7663,7 @@ onUnmounted(() => {
 });
 
 watch(currentView, (nextView) => {
+  closeTaskViewGroupMenu();
   if (nextView !== 'kanban') {
     closeKanbanFilterPopover();
     if (isKanbanBatchEditMode.value) {
@@ -7397,6 +7916,100 @@ watch(kanbanColumns, () => {
 .table-document-actions .active-task-filters {
   flex: 1 1 100%;
   justify-content: flex-end;
+}
+
+.task-group-menu-control {
+  position: relative;
+}
+
+.task-group-menu-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  padding: 0;
+}
+
+.task-group-menu-btn:hover,
+.task-group-menu-btn.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.task-group-menu-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.task-group-menu-btn.is-batch-active,
+.task-group-menu-btn.is-batch-active:hover {
+  background-color: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.task-group-menu-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 152px;
+  border-radius: 10px;
+  border: 1px solid var(--b3-theme-border);
+  background: var(--b3-theme-background);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-group-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.task-group-menu-item:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.task-group-menu-item.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-weight: 600;
+}
+
+.task-group-menu-check {
+  color: #f98f7a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.task-group-menu-divider {
+  height: 1px;
+  margin: 2px 4px;
+  background: var(--b3-border-color);
 }
 
 
@@ -7822,6 +8435,7 @@ watch(kanbanColumns, () => {
   justify-content: flex-end;
   flex-shrink: 0;
   margin-left: auto;
+  gap: 7px;
 }
 
 .kanban-group-switch {
@@ -7841,11 +8455,11 @@ watch(kanbanColumns, () => {
 }
 
 .refresh-btn,
-.scope-btn {
+.scope-btn,
+.new-task-btn {
   background: none;
   border: none;
   padding: 0;
-  margin: 0 6px 0 0;
   cursor: pointer;
   width: 26px;
   height: 26px;
@@ -8429,6 +9043,8 @@ watch(kanbanColumns, () => {
 }
 
 .kanban-task-move-dialog-body {
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -8436,9 +9052,17 @@ watch(kanbanColumns, () => {
 }
 
 .kanban-task-move-dialog-field {
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.kanban-task-move-dialog-field :deep(.b3-select.fn__flex-center) {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .kanban-task-move-dialog-field label {

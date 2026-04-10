@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div v-if="show" class="task-scope-overlay" @click.self="handleClose">
     <div class="task-scope-dialog" @click.stop>
       <div class="task-scope-header">
@@ -22,7 +22,6 @@
           @update:model-value="localShowCompletedTasks = $event"
         />
       </div>
-
       <div class="task-scope-list">
         <label
           v-for="notebook in notebooks"
@@ -40,6 +39,16 @@
         <div v-if="notebooks.length === 0" class="task-scope-empty">
           暂无可管理笔记本
         </div>
+      </div>
+
+      
+      <div class="task-scope-auto-setting">
+        <span class="task-scope-extra-label">打开日期自动识别</span>
+        <SyCheckbox
+          class="task-scope-toggle"
+          :model-value="localAutoRecognizeTaskDate"
+          @update:model-value="localAutoRecognizeTaskDate = $event"
+        />
       </div>
 
       <div class="task-scope-actions">
@@ -67,6 +76,7 @@ interface Props {
   notebooks: NotebookItem[];
   excludedNotebookIds: string[];
   showCompletedTasks?: boolean;
+  autoRecognizeTaskDate?: boolean;
   lockClose?: boolean;
   showExtra?: boolean;
   title?: string;
@@ -78,11 +88,12 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
   close: [];
-  save: [excludedNotebookIds: string[], showCompletedTasks: boolean];
+  save: [excludedNotebookIds: string[], showCompletedTasks: boolean, autoRecognizeTaskDate: boolean];
 }>();
 
 const localExcludedNotebookIds = ref<string[]>([]);
 const localShowCompletedTasks = ref(true);
+const localAutoRecognizeTaskDate = ref(false);
 const lockClose = computed(() => props.lockClose === true);
 const showExtra = computed(() => props.showExtra !== false);
 const dialogTitle = computed(() => props.title || '任务范围');
@@ -93,6 +104,7 @@ function syncLocalSelection(): void {
   const visibleNotebookIds = new Set(props.notebooks.map(notebook => notebook.id));
   localExcludedNotebookIds.value = normalizeNotebookIds(props.excludedNotebookIds).filter(id => visibleNotebookIds.has(id));
   localShowCompletedTasks.value = props.showCompletedTasks !== false;
+  localAutoRecognizeTaskDate.value = props.autoRecognizeTaskDate === true;
 }
 
 function isNotebookEnabled(notebookId: string): boolean {
@@ -121,11 +133,22 @@ function handleClose(): void {
 }
 
 function save(): void {
-  emit('save', normalizeNotebookIds(localExcludedNotebookIds.value), localShowCompletedTasks.value);
+  emit(
+    'save',
+    normalizeNotebookIds(localExcludedNotebookIds.value),
+    localShowCompletedTasks.value,
+    localAutoRecognizeTaskDate.value
+  );
 }
 
 watch(
-  [() => props.show, () => props.excludedNotebookIds, () => props.notebooks, () => props.showCompletedTasks],
+  [
+    () => props.show,
+    () => props.excludedNotebookIds,
+    () => props.notebooks,
+    () => props.showCompletedTasks,
+    () => props.autoRecognizeTaskDate
+  ],
   ([show]) => {
     if (show) {
       syncLocalSelection();
@@ -189,6 +212,14 @@ watch(
   justify-content: space-between;
   padding: 0 14px 10px 14px;
   border-bottom: 1px solid var(--b3-border-color);
+}
+
+.task-scope-auto-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-top: 1px solid var(--b3-border-color);
 }
 
 .task-scope-extra-label {
@@ -276,3 +307,4 @@ watch(
   border-radius: 4px;
 }
 </style>
+

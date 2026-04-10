@@ -14,6 +14,16 @@ function shouldEmit(options?: TaskMutationOptions): boolean {
   return options?.emit !== false;
 }
 
+function hasTaskPatchChanges(task: Task, patch: Partial<Task>): boolean {
+  const patchKeys = Object.keys(patch) as Array<keyof Task>;
+  for (const key of patchKeys) {
+    if (!Object.is(task[key], patch[key])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function useTaskLocalMutations(
   localTasks: Ref<Task[]>,
   options: UseTaskLocalMutationsOptions = {}
@@ -30,9 +40,13 @@ export function useTaskLocalMutations(
   function patchTask(taskId: string, patch: Partial<Task>, mutationOptions?: TaskMutationOptions): Task | null {
     const index = localTasks.value.findIndex(task => task.id === taskId);
     if (index === -1) return null;
+    const currentTask = localTasks.value[index];
+    if (!hasTaskPatchChanges(currentTask, patch)) {
+      return null;
+    }
 
     const updatedTask = {
-      ...localTasks.value[index],
+      ...currentTask,
       ...patch
     };
     localTasks.value[index] = updatedTask;
@@ -65,8 +79,12 @@ export function useTaskLocalMutations(
     mergedPatchById.forEach((patch, id) => {
       const index = indexById.get(id);
       if (index === undefined) return;
+      const currentTask = localTasks.value[index];
+      if (!hasTaskPatchChanges(currentTask, patch)) {
+        return;
+      }
       const updatedTask = {
-        ...localTasks.value[index],
+        ...currentTask,
         ...patch
       };
       localTasks.value[index] = updatedTask;
@@ -86,8 +104,12 @@ export function useTaskLocalMutations(
     const index = localTasks.value.findIndex(existing => existing.id === task.id);
 
     if (index !== -1) {
+      const currentTask = localTasks.value[index];
+      if (!hasTaskPatchChanges(currentTask, patch)) {
+        return currentTask;
+      }
       const updatedTask = {
-        ...localTasks.value[index],
+        ...currentTask,
         ...patch
       };
       localTasks.value[index] = updatedTask;
