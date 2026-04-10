@@ -4882,7 +4882,15 @@ function handleTaskFilterOutsideClick(event: MouseEvent): void {
     const isInsideQuickDateMenu = path.some(node =>
       node instanceof HTMLElement && node.classList.contains('task-quick-date-menu')
     );
-    if (!isInsideQuickDateMenu) {
+    const isInsideQuickDatePopover = path.some(node =>
+      node instanceof HTMLElement && (
+        node.classList.contains('date-popover')
+        || node.classList.contains('date-popover-overlay')
+        || node.classList.contains('time-popover')
+        || node.classList.contains('time-popover-overlay')
+      )
+    );
+    if (!isInsideQuickDateMenu && !isInsideQuickDatePopover) {
       closeTaskQuickDateMenu();
     }
   }
