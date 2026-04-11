@@ -5,7 +5,7 @@
         <div class="modal-content" @click.stop v-show="show">
       <div class="modal-header">
         <h3>{{ titleText }}</h3>
-        <button @click="emit('close')" class="icon-button">
+        <button @click="emit('close')" class="icon-button" title="关闭" aria-label="关闭">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>

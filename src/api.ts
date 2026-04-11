@@ -31,6 +31,11 @@ import {
   setRepeatInstanceStatus,
   type RepeatFrequency
 } from "@/repeatRepository";
+import {
+  extractDocumentIconFromBlockRow,
+  extractDocumentIconFromDom,
+  normalizeDocumentIconValue
+} from "@/utils/documentIcon";
 
 async function request(url: string, data: any) {
   let response: IWebSocketData = await fetchSyncPost(url, data);
@@ -991,7 +996,7 @@ export interface BlockDOMResponse {
 const DEBUG = false;
 
 export const TASK_CONFIG = {
-  CACHE_VERSION: 7,
+  CACHE_VERSION: 8,
   CACHE_DURATION: 10 * 60 * 1000,
   BATCH_SIZE: 10,
   SQL_PAGE_SIZE: 1000,
@@ -1785,7 +1790,96 @@ export class TaskRepository {
     return normalized.length > 0 ? normalized : undefined;
   }
 
-  private static async buildTaskDocumentOrderByRoots(rootIds: string[]): Promise<Map<string, number>> {
+  private static async buildDocumentIconMap(
+    rootIds: string[],
+    preloadedDomMap?: Map<string, BlockDOMResponse>
+  ): Promise<Map<string, string>> {
+    const iconMap = new Map<string, string>();
+    const uniqueRootIds = Array.from(new Set(rootIds.filter(id => typeof id === 'string' && id.length > 0)));
+    if (uniqueRootIds.length === 0) {
+      return iconMap;
+    }
+
+    try {
+      const rootAttrsMap = await batchGetBlockAttrs(uniqueRootIds);
+      rootAttrsMap.forEach((attrs, rootId) => {
+        const icon = normalizeDocumentIconValue(attrs?.icon);
+        if (icon) {
+          iconMap.set(rootId, icon);
+        }
+      });
+    } catch (error) {
+      console.warn('[TaskRepository] 读取文档属性图标失败，将尝试 DOM 图标', error);
+    }
+
+    let unresolvedRootIds = uniqueRootIds.filter(rootId => !iconMap.has(rootId));
+    if (unresolvedRootIds.length === 0) {
+      return iconMap;
+    }
+
+    try {
+      const rootIdSql = unresolvedRootIds
+        .map(id => `'${this.escapeSqlLiteral(id)}'`)
+        .join(',');
+      const rootRows = await sql(`
+        SELECT *
+        FROM blocks
+        WHERE id IN (${rootIdSql})
+      `) as Array<Record<string, unknown>>;
+      for (const row of rootRows) {
+        const rootId = typeof row?.id === 'string' ? row.id : '';
+        if (!rootId || iconMap.has(rootId)) {
+          continue;
+        }
+        const iconFromRoot = extractDocumentIconFromBlockRow(row);
+        if (iconFromRoot) {
+          iconMap.set(rootId, iconFromRoot);
+        }
+      }
+    } catch (error) {
+      console.warn('[TaskRepository] 读取文档 IAL 图标失败，将尝试 DOM 图标', error);
+    }
+
+    unresolvedRootIds = uniqueRootIds.filter(rootId => !iconMap.has(rootId));
+    if (unresolvedRootIds.length === 0) {
+      return iconMap;
+    }
+
+    const domFallbackRootIds: string[] = [];
+    if (preloadedDomMap) {
+      for (const rootId of unresolvedRootIds) {
+        const iconFromDom = extractDocumentIconFromDom(preloadedDomMap.get(rootId)?.dom);
+        if (iconFromDom) {
+          iconMap.set(rootId, iconFromDom);
+        } else {
+          domFallbackRootIds.push(rootId);
+        }
+      }
+    } else {
+      domFallbackRootIds.push(...unresolvedRootIds);
+    }
+
+    if (domFallbackRootIds.length > 0) {
+      try {
+        const domMap = await batchGetBlockDOM(domFallbackRootIds);
+        for (const rootId of domFallbackRootIds) {
+          const iconFromDom = extractDocumentIconFromDom(domMap.get(rootId)?.dom);
+          if (iconFromDom) {
+            iconMap.set(rootId, iconFromDom);
+          }
+        }
+      } catch (error) {
+        console.warn('[TaskRepository] 读取文档 DOM 图标失败', error);
+      }
+    }
+
+    return iconMap;
+  }
+
+  private static async buildTaskDocumentOrderByRoots(
+    rootIds: string[],
+    preloadedDomMap?: Map<string, BlockDOMResponse>
+  ): Promise<Map<string, number>> {
     const orderMap = new Map<string, number>();
     const uniqueRootIds = Array.from(new Set(rootIds.filter(id => typeof id === 'string' && id.length > 0)));
     if (uniqueRootIds.length === 0) {
@@ -1793,7 +1887,7 @@ export class TaskRepository {
     }
 
     try {
-      const domMap = await batchGetBlockDOM(uniqueRootIds);
+      const domMap = preloadedDomMap || await batchGetBlockDOM(uniqueRootIds);
       const parser = new DOMParser();
       for (const rootId of uniqueRootIds) {
         const dom = domMap.get(rootId)?.dom;
@@ -2248,16 +2342,9 @@ export class TaskRepository {
       }
 
       const rootIds = Array.from(new Set(rows.map(row => row.root_id).filter((id): id is string => !!id)));
-      const documentOrderByBlockId = await this.buildTaskDocumentOrderByRoots(rootIds);
-      const rootIcons = new Map<string, string>();
-      if (rootIds.length > 0) {
-        const rootAttrs = await batchGetBlockAttrs(rootIds);
-        rootAttrs.forEach((attrs, rootId) => {
-          if (attrs?.icon) {
-            rootIcons.set(rootId, unicodeToEmoji(attrs.icon));
-          }
-        });
-      }
+      const rootDomMap = rootIds.length > 0 ? await batchGetBlockDOM(rootIds) : new Map<string, BlockDOMResponse>();
+      const documentOrderByBlockId = await this.buildTaskDocumentOrderByRoots(rootIds, rootDomMap);
+      const rootIcons = await this.buildDocumentIconMap(rootIds, rootDomMap);
 
       const domMap = await batchGetBlockDOM(rows.map(row => row.id));
       const protyleElement = useLiveDom ? document.querySelector('.protyle') : null;
@@ -2567,26 +2654,12 @@ export class TaskRepository {
       });
       
       const rootIds = Array.from(rootIdSet);
-      const documentOrderByBlockId = await this.buildTaskDocumentOrderByRoots(rootIds);
-      const rootIcons = new Map<string, string>();
+      const rootDomMap = rootIds.length > 0 ? await batchGetBlockDOM(rootIds) : new Map<string, BlockDOMResponse>();
+      const documentOrderByBlockId = await this.buildTaskDocumentOrderByRoots(rootIds, rootDomMap);
+      const rootIcons = await this.buildDocumentIconMap(rootIds, rootDomMap);
       const taskBlockById = new Map<string, SiyuanBlock>();
       const subtaskChildIdsByParentTask = new Map<string, string[]>();
       const sqlSubtasksMemo = new Map<string, SubTask[]>();
-      
-      if (rootIds.length > 0) {
-        try {
-          const rootAttrsList = await batchGetBlockAttrs(rootIds);
-          rootAttrsList.forEach((attrs, rootId) => {
-            const icon = attrs['icon'];
-            if (icon) {
-              const convertedIcon = unicodeToEmoji(icon);
-              rootIcons.set(rootId, convertedIcon);
-            }
-          });
-        } catch (error) {
-          console.error('[TaskRepository] 获取文档图标失败:', error);
-        }
-      }
 
       allBlocks.forEach((block) => {
         taskBlockById.set(block.id, block);

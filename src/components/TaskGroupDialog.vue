@@ -3,7 +3,7 @@
     <div class="task-group-dialog" @click.stop>
       <div class="task-group-header">
         <div class="task-group-title">标签管理</div>
-        <button type="button" class="icon-button" @click="emit('close')">
+        <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="emit('close')">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
@@ -116,7 +116,7 @@
       <div class="task-group-color-modal">
         <div class="task-group-color-modal-header">
           <span>选择颜色</span>
-          <button type="button" class="icon-button" @click="closeColorPicker">
+          <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="closeColorPicker">
             <Icon name="close" width="12" height="12" class="icon" />
           </button>
         </div>

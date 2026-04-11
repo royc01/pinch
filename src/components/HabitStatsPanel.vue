@@ -2,11 +2,11 @@
   <div v-if="habit" class="stats-panel">
     <div class="stats-header">
       <div class="stats-header-content">
-        <button @click="handleEdit" class="icon-button">
+        <button @click="handleEdit" class="icon-button" title="编辑习惯" aria-label="编辑习惯">
           <Icon name="edit" width="16" height="16" class="icon" />
         </button>
         <div class="stats-title">{{ habit.name }}</div>
-        <button @click="handleClose" class="icon-button">
+        <button @click="handleClose" class="icon-button" title="关闭" aria-label="关闭">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -20,11 +20,11 @@
       <div class="calendar-container">
         <div class="calendar-controls">
           <div class="calendar-navigation">
-            <button @click="changeCalendarPeriod(-1)" class="nav-btn">
+            <button @click="changeCalendarPeriod(-1)" class="nav-btn" title="上一周期" aria-label="上一周期">
               <Icon name="left" width="16" height="16" class="icon" />
             </button>
             <span class="current-period">{{ currentPeriodText }}</span>
-            <button @click="changeCalendarPeriod(1)" class="nav-btn">
+            <button @click="changeCalendarPeriod(1)" class="nav-btn" title="下一周期" aria-label="下一周期">
               <Icon name="right" width="16" height="16" class="icon" />
             </button>
           </div>

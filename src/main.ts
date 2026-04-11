@@ -752,6 +752,7 @@ function relocateMobileKanbanDialogCloseButton(dialog: Dialog, retryCount = 0) {
 
   const targetHeaderActions = dialogRoot.querySelector('.kanban-view .header-actions') as HTMLElement | null;
   const refreshButton = targetHeaderActions?.querySelector('.refresh-btn') as HTMLElement | null;
+  const newTaskButton = targetHeaderActions?.querySelector('.new-task-btn') as HTMLElement | null;
   const header = dialogRoot.querySelector('.resize__move.b3-dialog__header') as HTMLElement | null;
   const closeButton = (header?.querySelector('.b3-dialog__close') as HTMLButtonElement | null)
     || (dialogRoot.querySelector('.b3-dialog__close') as HTMLButtonElement | null);
@@ -778,7 +779,9 @@ function relocateMobileKanbanDialogCloseButton(dialog: Dialog, retryCount = 0) {
   closeButton.setAttribute('title', 'close');
   closeButton.classList.add('pinch-mobile-kanban-dialog-close-button');
 
-  if (refreshButton && refreshButton.parentElement === targetHeaderActions) {
+  if (newTaskButton && newTaskButton.parentElement === targetHeaderActions) {
+    newTaskButton.insertAdjacentElement('afterend', closeButton);
+  } else if (refreshButton && refreshButton.parentElement === targetHeaderActions) {
     refreshButton.insertAdjacentElement('afterend', closeButton);
   } else {
     targetHeaderActions.append(closeButton);

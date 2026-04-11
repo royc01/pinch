@@ -2,13 +2,13 @@
   <div class="month-view">
     <div class="calendar-container">
       <div class="calendar-header">
-        <button class="nav-btn" @click="previousMonth">
+        <button class="nav-btn" title="上一月" aria-label="上一月" @click="previousMonth">
           <svg viewBox="0 0 24 24" width="20" height="20">
             <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
           </svg>
         </button>
         <div class="month-title">{{ monthTitle }}</div>
-        <button class="nav-btn" @click="nextMonth">
+        <button class="nav-btn" title="下一月" aria-label="下一月" @click="nextMonth">
           <svg viewBox="0 0 24 24" width="20" height="20">
             <path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
           </svg>
@@ -167,9 +167,9 @@
       @update:dueTime="contextMenuDateDraft.dueTime = $event"
       @setColor="setTaskBackgroundColor(contextMenu.task!, $event)"
       @saveDates="applyTaskDates(contextMenu.task!)"
+      @clearTaskDates="clearTaskDates(contextMenu.task!)"
       @saveRepeatRule="saveTaskRepeatRule(contextMenu.task!, $event)"
-      @archiveTask="toggleTaskArchive(contextMenu.task!)"
-      @deleteTask="deleteTask(contextMenu.task!)"
+      @editTask="handleContextMenuEditTask(contextMenu.task!)"
     />
 
   </div>
@@ -202,6 +202,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   taskDateChanged: [task: Task];
   taskClick: [task: Task];
+  taskEdit: [task: Task, anchor: { x: number; y: number }];
   taskCreateRequested: [payload: { startDate: string; dueDate: string; allDay: boolean }];
 }>();
 
@@ -1233,6 +1234,17 @@ async function applyTaskDates(task: Task) {
   hideContextMenu();
 }
 
+async function clearTaskDates(task: Task): Promise<void> {
+  if (!task) return;
+  contextMenuDateDraft.value = {
+    startDate: '',
+    startTime: '',
+    dueDate: '',
+    dueTime: ''
+  };
+  await applyTaskDates(task);
+}
+
 async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
   if (!task) return;
   contextMenuRepeatFrequency.value = frequency;
@@ -1554,6 +1566,17 @@ function finishCreateSelection() {
 
 function handleTaskClick(task: Task) {
   emit('taskClick', task);
+}
+
+function handleContextMenuEditTask(task: Task): void {
+  if (!task) {
+    return;
+  }
+  emit('taskEdit', task, {
+    x: contextMenu.value.x,
+    y: contextMenu.value.y
+  });
+  hideContextMenu();
 }
 
 onUnmounted(() => {

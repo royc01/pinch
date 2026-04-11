@@ -245,6 +245,16 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
     const record = recordMap.get(recordKey);
     const status = record?.status || 'pending';
 
+    const templateTitle = typeof templateTask.title === 'string' ? templateTask.title : '';
+    const templateDescription = typeof templateTask.description === 'string' ? templateTask.description : '';
+    const templatePriority = (
+      templateTask.priority === 'high'
+      || templateTask.priority === 'medium'
+      || templateTask.priority === 'low'
+      || templateTask.priority === 'none'
+    ) ? templateTask.priority : undefined;
+    const templateTags = Array.isArray(templateTask.tags) ? [...templateTask.tags] : [];
+
     virtualTasks.push({
       ...templateTask,
       id: buildVirtualTaskId(series.id, instanceDate),
@@ -257,11 +267,12 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
       dueDate: instanceDate,
       startTime: series.startTime || templateTask.startTime,
       dueTime: series.dueTime || templateTask.dueTime,
-      title: series.title || templateTask.title,
-      description: series.description || templateTask.description,
-      priority: series.priority || templateTask.priority,
-      tags: series.tags?.length ? [...series.tags] : [...(templateTask.tags || [])],
-      backgroundColor: series.backgroundColor || templateTask.backgroundColor,
+      // Keep virtual instances aligned with latest template edits (title/priority/description/tags).
+      title: templateTitle || series.title || '\u91cd\u590d\u4efb\u52a1',
+      description: templateDescription,
+      priority: templatePriority || series.priority || 'none',
+      tags: templateTags,
+      backgroundColor: templateTask.backgroundColor || series.backgroundColor,
       blockId: undefined,
       completedAt: record?.completedAt,
       updatedAt: record?.updatedAt || series.updatedAt,

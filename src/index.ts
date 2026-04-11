@@ -34,7 +34,7 @@ export default class HabitTrackerPlugin extends Plugin {
     transactionIndex: number;
     operationIndex: number;
   }> = [];
-  private readonly MAX_OPERATIONS_PER_FLUSH = 150;
+  private readonly MAX_OPERATIONS_PER_FLUSH = 240;
 
   async onload() {
     const frontEnd = getFrontend();
@@ -90,7 +90,7 @@ export default class HabitTrackerPlugin extends Plugin {
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
       void this.flushPendingTransactions();
-    }, 24);
+    }, 8);
   }
 
   private async flushPendingTransactions() {
@@ -155,7 +155,7 @@ export default class HabitTrackerPlugin extends Plugin {
       this.debounceTimer = setTimeout(() => {
         this.debounceTimer = null;
         void this.flushPendingTransactions();
-      }, 16);
+      }, 8);
     }
   }
 
@@ -163,4 +163,3 @@ export default class HabitTrackerPlugin extends Plugin {
     destroy()
   }
 }
-

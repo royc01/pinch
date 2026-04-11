@@ -8,7 +8,6 @@
     @click.stop
   >
     <div class="context-menu-section">
-      <div class="context-menu-title">颜色</div>
       <div class="task-color-picker">
         <div
           v-for="color in backgroundColors"
@@ -22,7 +21,6 @@
     </div>
 
     <div class="context-menu-section">
-      <div class="context-menu-title">日期</div>
       <div class="date-edit-row">
         <label>开始</label>
         <div class="context-menu-date-input-group">
@@ -36,6 +34,8 @@
             type="button"
             class="context-menu-date-trigger"
             :class="{ active: activeDatePopoverField === 'startDate' }"
+            title="选择开始日期"
+            aria-label="选择开始日期"
             @click="toggleDatePopover('startDate')"
           >
             <Icon name="calendar" width="14" height="14" />
@@ -55,6 +55,8 @@
             type="button"
             class="context-menu-date-trigger"
             :class="{ active: activeTimePopoverField === 'startTime' }"
+            title="选择开始时间"
+            aria-label="选择开始时间"
             @click="toggleTimePopover('startTime')"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -76,6 +78,8 @@
             type="button"
             class="context-menu-date-trigger"
             :class="{ active: activeDatePopoverField === 'dueDate' }"
+            title="选择截止日期"
+            aria-label="选择截止日期"
             @click="toggleDatePopover('dueDate')"
           >
             <Icon name="calendar" width="14" height="14" />
@@ -95,6 +99,8 @@
             type="button"
             class="context-menu-date-trigger"
             :class="{ active: activeTimePopoverField === 'dueTime' }"
+            title="选择截止时间"
+            aria-label="选择截止时间"
             @click="toggleTimePopover('dueTime')"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -104,10 +110,10 @@
         </div>
       </div>
       <button class="context-menu-date-save" @click="$emit('saveDates')">保存日期</button>
+      <button class="context-menu-date-clear" @click="$emit('clearTaskDates')">清除任务</button>
     </div>
 
     <div class="context-menu-section">
-      <div class="context-menu-title">重复</div>
       <div class="repeat-edit-row">
         <label>频率</label>
         <select :value="repeatFrequency" @change="onRepeatChange">
@@ -121,13 +127,9 @@
     </div>
 
     <div class="context-menu-divider"></div>
-    <div class="context-menu-item archive-item" @click="$emit('archiveTask')">
-      <Icon name="archive" width="16" height="16" />
-      <span>{{ task?.archived ? '取消归档' : '归档任务' }}</span>
-    </div>
-    <div class="context-menu-item delete-item" @click="$emit('deleteTask')">
-      <Icon name="trash" width="16" height="16" />
-      <span>删除任务</span>
+    <div class="context-menu-item edit-item" @click="$emit('editTask')">
+      <Icon name="edit" width="16" height="16" />
+      <span>编辑任务</span>
     </div>
 
     <TaskDatePopover
@@ -198,8 +200,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'setColor', color: string): void;
   (event: 'saveDates'): void;
-  (event: 'archiveTask'): void;
-  (event: 'deleteTask'): void;
+  (event: 'clearTaskDates'): void;
+  (event: 'editTask'): void;
   (event: 'update:startDate', value: string): void;
   (event: 'update:startTime', value: string): void;
   (event: 'update:dueDate', value: string): void;
@@ -378,17 +380,6 @@ function onRepeatChange(event: Event): void {
   margin-bottom: 8px;
 }
 
-.context-menu-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.7;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-  padding: 0 4px;
-}
-
 .task-color-picker {
   display: grid;
   grid-template-columns: repeat(10, minmax(0, 1fr));
@@ -493,7 +484,6 @@ function onRepeatChange(event: Event): void {
 
 .context-menu-date-trigger:hover,
 .context-menu-date-trigger.active {
-  border-color: var(--b3-theme-primary);
   background: var(--b3-list-hover);
 }
 
@@ -511,6 +501,23 @@ function onRepeatChange(event: Event): void {
 .context-menu-date-save:hover {
   background-color: #f98f7a;
   color: var(--b3-theme-background);
+}
+
+.context-menu-date-clear {
+  width: 100%;
+  border: 1px solid var(--pinch-color10);
+  background-color:  var(--pinch-background10);
+  color: var(--b3-theme-on-background);
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+  margin-top: 6px;
+  opacity: 0.7;
+}
+
+.context-menu-date-clear:hover {
+  opacity: 1;
 }
 
 .context-menu-divider {
@@ -536,17 +543,8 @@ function onRepeatChange(event: Event): void {
   background: var(--b3-list-hover);
 }
 
-.context-menu-item.archive-item:hover {
-  color: var(--b3-theme-primary);
-}
-
-.context-menu-item.delete-item {
-  color: #ef4444;
-}
-
-.context-menu-item.delete-item:hover {
-  background: #fef2f2;
-  color: #dc2626;
+.context-menu-item.edit-item:hover {
+  color: #f98f7a;
 }
 
 .context-menu-item svg {

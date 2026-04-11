@@ -13,11 +13,11 @@
         @click.stop
       >
         <div class="date-popover-header">
-          <button type="button" class="date-nav-btn" @click="shiftMonth(-1)">
+          <button type="button" class="date-nav-btn" title="上一月" aria-label="上一月" @click="shiftMonth(-1)">
             <Icon name="chevronRight" width="16" height="16" class="icon flip" />
           </button>
           <div class="date-popover-title">{{ monthLabel }}</div>
-          <button type="button" class="date-nav-btn" @click="shiftMonth(1)">
+          <button type="button" class="date-nav-btn" title="下一月" aria-label="下一月" @click="shiftMonth(1)">
             <Icon name="chevronRight" width="16" height="16" class="icon" />
           </button>
         </div>

@@ -11,7 +11,7 @@
               @update:model-value="emit('update:miniEnabled', $event)"
             />
           </div>
-          <button @click="handleClose" class="icon-button">
+          <button @click="handleClose" class="icon-button" title="关闭专注计时" aria-label="关闭专注计时">
             <Icon name="close" width="16" height="16" class="icon" />
           </button>
         </div>
@@ -125,7 +125,9 @@
             <button v-for="sound in soundOptions" :key="sound.id"
                     @click="selectSound(sound)"
                     :disabled="isDownloading || !enableAudio"
-                    :class="['sound-btn', { active: selectedSound.id === sound.id }]">
+                    :class="['sound-btn', { active: selectedSound.id === sound.id }]"
+                    :title="`选择提示音：${sound.name}`"
+                    :aria-label="`选择提示音：${sound.name}`">
               <Icon :name="sound.icon" width="80%" height="80%" />
             </button>
           </div>
@@ -162,11 +164,11 @@
       <div class="timer-history">
         <div class="calendar-controls">
           <div class="calendar-navigation">
-            <button @click="changeMonth(-1)" class="nav-btn">
+            <button @click="changeMonth(-1)" class="nav-btn" title="上一月" aria-label="上一月">
               <Icon name="left" width="16" height="16" class="icon" />
             </button>
             <span class="current-period">{{ currentMonth.monthName }}</span>
-            <button @click="changeMonth(1)" class="nav-btn">
+            <button @click="changeMonth(1)" class="nav-btn" title="下一月" aria-label="下一月">
               <Icon name="right" width="16" height="16" class="icon" />
             </button>
           </div>

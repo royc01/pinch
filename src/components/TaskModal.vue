@@ -15,7 +15,7 @@
         >
           <div class="modal-header">
             <h3>{{ tt('taskManager.newTask', '新建任务') }}</h3>
-            <button @click="emit('close')" class="icon-button">
+            <button @click="emit('close')" class="icon-button" title="关闭" aria-label="关闭">
               <svg viewBox="0 0 1026 1024" width="16" height="16" class="icon" xmlns="http://www.w3.org/2000/svg">
                 <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z"></path>
               </svg>

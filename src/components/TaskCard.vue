@@ -119,8 +119,38 @@
           class="task-repeat-badge"
           :title="repeatBadgeTitle"
         >
-          重复
+          <svg
+            class="task-repeat-icon"
+            viewBox="0 0 1024 1024"
+            width="12"
+            height="12"
+            aria-hidden="true"
+          >
+            <path
+              d="M867.340007 319.228555c-51.538817-51.534723-120.027677-79.890538-192.814423-79.890538H388.423497v-54.715159c0-17.449417-11.967566-23.99653-26.734898-14.519692l-131.680065 85.000929c-14.705933 9.533121-14.583137 24.802896 0.314155 34.022885l131.114177 81.201393c14.772448 9.225105 26.986631 2.430352 26.986631-15.018041v-54.524825H674.588005c116.408243 0 211.132628 94.785783 211.132628 211.133652 0 19.317974-2.552126 38.388309-7.66354 56.705489-4.550643 16.389272 5.048993 33.282011 21.438265 37.766139 2.743484 0.874927 5.481851 1.245364 8.225335 1.245364 13.459546 0 25.802666-8.971325 29.601179-22.493294 6.541997-23.743774 9.784854-48.363498 9.784854-73.163323 0-72.7847-28.355815-141.335982-79.766719-192.750979zM816.547181 734.829018l-131.052778-81.202417c-14.896268-9.218966-27.110451-2.490727-27.110451 15.020089v54.40612H349.535815c-116.41029 0-211.133651-94.723362-211.133652-211.132628 0-40.756239 11.653411-80.32749 33.653471-114.417913 9.224082-14.273075 5.106298-33.339316-9.100262-42.562374-14.273075-9.16166-33.339316-5.048993-42.500976 9.156544-28.478612 44.060495-43.561122 95.223758-43.561122 147.884118 0 72.849168 28.355815 141.27663 79.828117 192.748932 51.477418 51.538817 119.965256 79.893608 192.814424 79.893609h308.910558v54.716182c0 17.509792 12.028964 24.051789 26.734898 14.519692l131.680065-85.063351c14.705933-9.475815 14.583137-24.742521-0.314155-33.966603z"
+              fill="currentColor"
+            />
+          </svg>
         </span>
+      </div>
+      <div
+        v-if="isDocumentTitleVisible"
+        class="task-document-title"
+        :title="documentTitleText"
+        @click="handleCardClick"
+      >
+        <span class="task-document-icon" aria-hidden="true">
+          <img
+            v-if="documentIconImageSrc"
+            class="task-document-icon-image"
+            :src="documentIconImageSrc"
+            alt=""
+            loading="lazy"
+            decoding="async"
+          />
+          <span v-else>{{ documentIconText }}</span>
+        </span>
+        <span class="task-document-title-text">{{ documentTitleText }}</span>
       </div>
 
       <div
@@ -172,6 +202,8 @@ const props = defineProps<{
   showBadges?: boolean;
   showSubtasks?: boolean;
   titleTooltip?: string;
+  showDocumentTitle?: boolean;
+  documentIconOverride?: string;
 }>();
 
 const emit = defineEmits<{
@@ -235,12 +267,44 @@ const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.valu
 const dueText = computed(() => (task.value.dueDate ? formatMonthDay(task.value.dueDate) : ''));
 const reminderText = computed(() => getTaskReminderLabel(task.value.reminderType, task.value.reminderCustomTime));
 const isPinned = computed(() => task.value.pinned === true);
+const documentTitleText = computed(() => {
+  const rawPath = typeof task.value.hPath === 'string' ? task.value.hPath.trim() : '';
+  if (!rawPath) {
+    return '';
+  }
+  const normalizedPath = rawPath.replace(/\/+$/, '');
+  if (!normalizedPath) {
+    return '';
+  }
+  const parts = normalizedPath.split('/').filter(part => part.length > 0);
+  return parts[parts.length - 1] || normalizedPath;
+});
+const documentIconRaw = computed(() => {
+  const overrideIcon = typeof props.documentIconOverride === 'string' ? props.documentIconOverride.trim() : '';
+  if (overrideIcon) {
+    return overrideIcon;
+  }
+  const rawIcon = typeof task.value.icon === 'string' ? task.value.icon.trim() : '';
+  return rawIcon;
+});
+const documentIconImageSrc = computed(() => resolveTaskDocumentIconImageSrc(documentIconRaw.value));
+const documentIconText = computed(() => {
+  if (documentIconImageSrc.value) {
+    return '';
+  }
+  return documentIconRaw.value || '\uD83D\uDCC4';
+});
+const isDocumentTitleVisible = computed(() => (
+  props.showDocumentTitle === true
+  && isKanban.value
+  && documentTitleText.value.length > 0
+));
 const isRepeatBadgeVisible = computed(() => (
   !!task.value.repeatSeriesId
   || (!!task.value.repeatFrequency && task.value.repeatFrequency !== 'none')
   || !!task.value.isVirtual
 ));
-const repeatBadgeTitle = computed(() => (task.value.isVirtual ? '重复实例' : '重复任务'));
+const repeatBadgeTitle = computed(() => '重复任务');
 const isOverdue = computed(() => {
   if (isCompleted.value) return false;
   const dueTimestamp = getTaskDateTimestamp(task.value.dueDate);
@@ -420,6 +484,28 @@ function getTaskDateTimestamp(value: unknown): number | null {
   const parsedDate = new Date(parsedTimestamp);
   parsedDate.setHours(0, 0, 0, 0);
   return parsedDate.getTime();
+}
+
+function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
+  if (!rawIcon) {
+    return '';
+  }
+
+  const decoded = rawIcon.replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
+  const urlMatch = decoded.match(/^(?:background-image\s*:\s*)?url\((.+)\)\s*;?$/i);
+  const candidate = (urlMatch ? urlMatch[1] : decoded).trim().replace(/^['"]+|['"]+$/g, '');
+  if (!candidate) {
+    return '';
+  }
+
+  if (
+    /^(?:https?:\/\/|\/|data:image\/|assets\/|\.{1,2}\/)/i.test(candidate)
+    || /\.(?:png|svg|jpe?g|gif|webp)(?:[?#].*)?$/i.test(candidate)
+  ) {
+    return candidate;
+  }
+
+  return '';
 }
 
 </script>
@@ -602,6 +688,40 @@ function getTaskDateTimestamp(value: unknown): number | null {
   margin-left: 26px;
 }
 
+.task-document-title {
+  margin-top: 4px;
+  margin-left: 26px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.72;
+}
+
+.task-document-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.task-document-icon-image {
+  width: 12px;
+  height: 12px;
+  display: block;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.task-document-title-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .task-description {
   font-size: 13px;
   line-height: 1.5;
@@ -690,12 +810,17 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .task-repeat-badge {
   display: flex;
   align-items: center;
+  justify-content: center;
   border-radius: 4px;
   font-weight: 500;
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-surface);
-  padding: 2px 4px;
-  font-size: 10px;
+  padding: 2px;
+  line-height: 0;
+}
+
+.task-repeat-icon {
+  display: block;
 }
 
 .task-group-badge {

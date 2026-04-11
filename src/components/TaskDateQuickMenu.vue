@@ -6,7 +6,6 @@
     @click.stop
   >
     <div class="context-menu-section">
-      <div class="context-menu-title">{{ title }}</div>
       <div class="date-edit-row">
         <label>开始</label>
         <div class="context-menu-date-input-group">
@@ -20,6 +19,8 @@
             type="button"
             class="context-menu-date-trigger"
             :class="{ active: activeDatePopoverField === 'startDate' }"
+            title="选择开始日期"
+            aria-label="选择开始日期"
             @click="toggleDatePopover('startDate')"
           >
             <Icon name="calendar" width="14" height="14" />
@@ -39,6 +40,8 @@
             type="button"
             class="context-menu-date-trigger"
             :class="{ active: activeTimePopoverField === 'startTime' }"
+            title="选择开始时间"
+            aria-label="选择开始时间"
             @click="toggleTimePopover('startTime')"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -60,6 +63,8 @@
             type="button"
             class="context-menu-date-trigger"
             :class="{ active: activeDatePopoverField === 'dueDate' }"
+            title="选择截止日期"
+            aria-label="选择截止日期"
             @click="toggleDatePopover('dueDate')"
           >
             <Icon name="calendar" width="14" height="14" />
@@ -79,6 +84,8 @@
             type="button"
             class="context-menu-date-trigger"
             :class="{ active: activeTimePopoverField === 'dueTime' }"
+            title="选择截止时间"
+            aria-label="选择截止时间"
             @click="toggleTimePopover('dueTime')"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -265,17 +272,6 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 
 .context-menu-section {
   padding: 4px;
-}
-
-.context-menu-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.7;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
-  padding: 0 4px;
 }
 
 .date-edit-row {

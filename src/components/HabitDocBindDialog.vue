@@ -3,7 +3,7 @@
     <div class="doc-bind-dialog" @click.stop>
       <div class="doc-bind-header">
         <div class="doc-bind-title">绑定备注文档</div>
-        <button type="button" class="icon-button" @click="emit('close')">
+        <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="emit('close')">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>

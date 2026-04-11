@@ -3,7 +3,7 @@
     <div class="task-scope-dialog" @click.stop>
       <div class="task-scope-header">
         <div class="task-scope-title">{{ dialogTitle }}</div>
-        <button v-if="!lockClose" type="button" class="icon-button" @click="handleClose">
+        <button v-if="!lockClose" type="button" class="icon-button" title="关闭" aria-label="关闭" @click="handleClose">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
@@ -43,12 +43,22 @@
 
       
       <div class="task-scope-auto-setting">
-        <span class="task-scope-extra-label">打开日期自动识别</span>
-        <SyCheckbox
-          class="task-scope-toggle"
-          :model-value="localAutoRecognizeTaskDate"
-          @update:model-value="localAutoRecognizeTaskDate = $event"
-        />
+        <div class="task-scope-auto-item">
+          <span class="task-scope-extra-label">打开日期自动识别</span>
+          <SyCheckbox
+            class="task-scope-toggle"
+            :model-value="localAutoRecognizeTaskDate"
+            @update:model-value="localAutoRecognizeTaskDate = $event"
+          />
+        </div>
+        <div class="task-scope-auto-item">
+          <span class="task-scope-extra-label">任务完成提示音</span>
+          <SyCheckbox
+            class="task-scope-toggle"
+            :model-value="localTaskCompletionSoundEnabled"
+            @update:model-value="localTaskCompletionSoundEnabled = $event"
+          />
+        </div>
       </div>
 
       <div class="task-scope-actions">
@@ -77,6 +87,7 @@ interface Props {
   excludedNotebookIds: string[];
   showCompletedTasks?: boolean;
   autoRecognizeTaskDate?: boolean;
+  taskCompletionSoundEnabled?: boolean;
   lockClose?: boolean;
   showExtra?: boolean;
   title?: string;
@@ -88,12 +99,18 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
   close: [];
-  save: [excludedNotebookIds: string[], showCompletedTasks: boolean, autoRecognizeTaskDate: boolean];
+  save: [
+    excludedNotebookIds: string[],
+    showCompletedTasks: boolean,
+    autoRecognizeTaskDate: boolean,
+    taskCompletionSoundEnabled: boolean
+  ];
 }>();
 
 const localExcludedNotebookIds = ref<string[]>([]);
 const localShowCompletedTasks = ref(true);
 const localAutoRecognizeTaskDate = ref(false);
+const localTaskCompletionSoundEnabled = ref(true);
 const lockClose = computed(() => props.lockClose === true);
 const showExtra = computed(() => props.showExtra !== false);
 const dialogTitle = computed(() => props.title || '任务范围');
@@ -105,6 +122,7 @@ function syncLocalSelection(): void {
   localExcludedNotebookIds.value = normalizeNotebookIds(props.excludedNotebookIds).filter(id => visibleNotebookIds.has(id));
   localShowCompletedTasks.value = props.showCompletedTasks !== false;
   localAutoRecognizeTaskDate.value = props.autoRecognizeTaskDate === true;
+  localTaskCompletionSoundEnabled.value = props.taskCompletionSoundEnabled !== false;
 }
 
 function isNotebookEnabled(notebookId: string): boolean {
@@ -137,7 +155,8 @@ function save(): void {
     'save',
     normalizeNotebookIds(localExcludedNotebookIds.value),
     localShowCompletedTasks.value,
-    localAutoRecognizeTaskDate.value
+    localAutoRecognizeTaskDate.value,
+    localTaskCompletionSoundEnabled.value
   );
 }
 
@@ -147,7 +166,8 @@ watch(
     () => props.excludedNotebookIds,
     () => props.notebooks,
     () => props.showCompletedTasks,
-    () => props.autoRecognizeTaskDate
+    () => props.autoRecognizeTaskDate,
+    () => props.taskCompletionSoundEnabled
   ],
   ([show]) => {
     if (show) {
@@ -216,9 +236,18 @@ watch(
 
 .task-scope-auto-setting {
   display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.task-scope-auto-item {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
+}
+
+.task-scope-auto-item + .task-scope-auto-item {
   border-top: 1px solid var(--b3-border-color);
 }
 

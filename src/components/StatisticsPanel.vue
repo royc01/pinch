@@ -3,7 +3,7 @@
     <div class="stats-header">
       <div class="stats-header-content">
         <div class="stats-title">统计总览</div>
-        <button @click="handleClose" class="icon-button">
+        <button @click="handleClose" class="icon-button" title="关闭" aria-label="关闭">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>

@@ -3,7 +3,7 @@
     <div class="stats-header">
       <div class="stats-header-content">
         <div class="stats-title">心情打卡月视图</div>
-        <button @click="handleClose" class="icon-button">
+        <button @click="handleClose" class="icon-button" title="关闭" aria-label="关闭">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -74,11 +74,11 @@
       <div class="calendar-container">
         <div class="calendar-controls">
           <div class="calendar-navigation">
-            <button @click="changeMonth(-1)" class="nav-btn">
+            <button @click="changeMonth(-1)" class="nav-btn" title="上一月" aria-label="上一月">
               <Icon name="left" width="16" height="16" class="icon" />
             </button>
             <span class="current-period">{{ monthYear }}</span>
-            <button @click="changeMonth(1)" class="nav-btn">
+            <button @click="changeMonth(1)" class="nav-btn" title="下一月" aria-label="下一月">
               <Icon name="right" width="16" height="16" class="icon" />
             </button>
           </div>

@@ -49,6 +49,7 @@ export interface UserSettings {
     excludedNotebookIds: string[];
     showCompletedTasks?: boolean;
     autoRecognizeTaskDate?: boolean;
+    taskCompletionSoundEnabled?: boolean;
     scopeInitialized?: boolean;
     lastTaskNotebook?: string;
     lastTaskDocument?: string;
@@ -116,6 +117,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     excludedNotebookIds: [],
     showCompletedTasks: true,
     autoRecognizeTaskDate: false,
+    taskCompletionSoundEnabled: true,
     scopeInitialized: false,
     selectedGroupId: 'all',
     taskListGroupBy: 'none',

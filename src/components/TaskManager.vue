@@ -21,14 +21,16 @@
           size="small"
           class="task-refresh"
           :class="{ 'is-refreshing': isRefreshButtonSpinning }"
+          title="刷新任务"
+          aria-label="刷新任务"
           @click="handleRefreshClick"
         >
           <Icon name="refresh" width="22" height="22" class="icon refresh-icon" />
         </SyButton>
-        <SyButton size="small" class="new-task-button" @click="openTaskModal">
+        <SyButton size="small" class="new-task-button" title="新建任务" aria-label="新建任务" @click="openTaskModal">
           <Icon name="add" width="24" height="24" class="icon" />
         </SyButton>
-        <SyButton size="small" class="view-all-button" @click="openKanbanView">
+        <SyButton size="small" class="view-all-button" title="查看全部任务" aria-label="查看全部任务" @click="openKanbanView">
           更多
         </SyButton>
     </div>
@@ -559,6 +561,7 @@
       :excluded-notebook-ids="excludedNotebookIds"
       :show-completed-tasks="showCompletedTasks"
       :auto-recognize-task-date="autoRecognizeTaskDate"
+      :task-completion-sound-enabled="taskCompletionSoundEnabled"
       :show-extra="false"
       :lock-close="requiresScopeInitialization"
       :title="requiresScopeInitialization ? '初始化任务范围' : '任务范围'"
@@ -630,6 +633,7 @@ import {
   type TaskReminderSelection,
   type TaskReminderType
 } from '@/utils/taskReminder';
+import { playTaskCompletionSound } from '@/utils/completionSound';
 import {
   applyRepeatRuleOptimisticToTasks,
   getDocumentCreationSortKey,
@@ -651,6 +655,7 @@ import {
 
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const autoRecognizeTaskDate = computed(() => userSettings.taskManager.autoRecognizeTaskDate === true);
+const taskCompletionSoundEnabled = computed(() => userSettings.taskManager.taskCompletionSoundEnabled !== false);
 const REPEAT_DEBUG_WINDOW_MS = 5000;
 let lastRepeatDebugPayload: {
   blockId?: string;
@@ -1652,7 +1657,10 @@ let lastRefreshTime = 0;
 let eventUnsubscribers: Array<() => void> = [];
 const processingBlockIds = new Set<string>();
 let fallbackRefreshTimer: number | null = null;
-const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 80;
+const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 120;
+const INCREMENTAL_QUEUE_DELAY_MS = 8;
+const IMMEDIATE_FALLBACK_DELAY_MS = 80;
+const TASK_ADDED_VERIFY_DELAY_MS = 90;
 const FALLBACK_FAILURE_THRESHOLD = 2;
 let consecutiveFallbackFailures = 0;
 let lastMismatchForceRefreshAt = 0;
@@ -3422,7 +3430,8 @@ async function openTaskScopeDialog() {
 async function handleTaskScopeSave(
   selectedVisibleExcludedNotebookIds: string[],
   nextShowCompletedTasks: boolean,
-  nextAutoRecognizeTaskDate: boolean
+  nextAutoRecognizeTaskDate: boolean,
+  nextTaskCompletionSoundEnabled: boolean
 ) {
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
@@ -3439,6 +3448,7 @@ async function handleTaskScopeSave(
     excludedNotebookIds: mergedExcludedNotebookIds,
     showCompletedTasks: nextShowCompletedTasks,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
+    taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
     ...(shouldFinalizeInit ? { scopeInitialized: true } : {})
   });
   if (shouldFinalizeInit) {
@@ -3593,7 +3603,7 @@ async function refreshTasks(
 
 function scheduleFallbackRefresh(
   force = true,
-  delay = 180,
+  delay = 120,
   strategy: 'threshold' | 'immediate' = 'threshold'
 ) {
   if (strategy === 'threshold') {
@@ -3677,12 +3687,90 @@ function hasTasksChanged(oldTasks: Task[], newTasks: Task[]): boolean {
 
 const incrementalUpdateQueue = createBlockIdBatchQueue({
   maxBatchSize: MAX_INCREMENTAL_BLOCKS_PER_FLUSH,
+  flushDelayMs: INCREMENTAL_QUEUE_DELAY_MS,
+  followupDelayMs: INCREMENTAL_QUEUE_DELAY_MS,
   onFlushBatch: async (blockIds) => {
     await incrementalUpdateTasks(blockIds);
   }
 });
 
-function queueIncrementalUpdates(blockIds: string[], delay = 24): void {
+function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
+  const normalizedBlockIds = [...new Set(blockIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  if (normalizedBlockIds.length === 0) {
+    return false;
+  }
+
+  let changed = false;
+  for (const blockId of normalizedBlockIds) {
+    const taskIndex = blockIdToTaskIndex.get(blockId);
+    if (!taskIndex) {
+      continue;
+    }
+
+    const liveCompleted = parseTaskCompleted('', blockId);
+    const liveTitle = getLiveTaskTitle(blockId);
+
+    if (taskIndex.isSubtask) {
+      patchTask(tasks.value, blockId, (subtask) => {
+        if (typeof liveCompleted === 'boolean' && subtask.completed !== liveCompleted) {
+          subtask.completed = liveCompleted;
+          changed = true;
+        }
+
+        if (liveTitle !== null && subtask.title !== liveTitle) {
+          const currentTitle = typeof subtask.title === 'string' ? subtask.title : '';
+          if (!shouldSkipMemoTitleDowngrade(currentTitle, liveTitle)) {
+            subtask.title = liveTitle;
+            changed = true;
+          }
+        }
+      }, 'nodeId');
+      continue;
+    }
+
+    patchTask(tasks.value, blockId, (task) => {
+      if (typeof liveCompleted === 'boolean') {
+        const nextStatus: Task['status'] = liveCompleted
+          ? 'completed'
+          : (task.status === 'completed' ? 'pending' : (task.status || 'pending'));
+        if (task.status !== nextStatus) {
+          task.status = nextStatus;
+          changed = true;
+        }
+        if (liveCompleted && !task.completedAt) {
+          task.completedAt = new Date().toISOString();
+          changed = true;
+        }
+        if (!liveCompleted && task.completedAt) {
+          delete task.completedAt;
+          changed = true;
+        }
+      }
+
+      if (liveTitle !== null && task.title !== liveTitle) {
+        const currentTitle = typeof task.title === 'string' ? task.title : '';
+        if (!shouldSkipMemoTitleDowngrade(currentTitle, liveTitle)) {
+          task.title = liveTitle;
+          changed = true;
+        }
+      }
+    }, 'blockId');
+  }
+
+  if (changed) {
+    invalidateCache();
+    invalidateSortCache();
+    updateTaskIndex();
+  }
+
+  return changed;
+}
+
+function queueIncrementalUpdates(blockIds: string[], delay = INCREMENTAL_QUEUE_DELAY_MS): void {
+  if (!Array.isArray(blockIds) || blockIds.length === 0) {
+    return;
+  }
+  applyImmediateLiveDomTaskPatch(blockIds);
   incrementalUpdateQueue.enqueue(blockIds, delay);
 }
 
@@ -3693,7 +3781,7 @@ function setupEventListeners() {
     if (data?.blockIds && data.blockIds.length > 0) {
       queueIncrementalUpdates(data.blockIds);
     } else {
-      scheduleFallbackRefresh(true, 180, 'immediate');
+      scheduleFallbackRefresh(true, IMMEDIATE_FALLBACK_DELAY_MS, 'immediate');
     }
   });
 
@@ -3745,15 +3833,15 @@ function setupEventListeners() {
         return;
       }
 
-      queueIncrementalUpdates(scopedBlockIds);
+      await incrementalUpdateTasks(scopedBlockIds);
       window.setTimeout(() => {
         if (!blockIdToTaskIndex.has(addedBlockId)) {
-          scheduleFallbackRefresh(true, 180, 'immediate');
+          scheduleFallbackRefresh(true, IMMEDIATE_FALLBACK_DELAY_MS, 'immediate');
         }
-      }, 220);
+      }, TASK_ADDED_VERIFY_DELAY_MS);
       return;
     }
-    scheduleFallbackRefresh(true, 180, 'immediate');
+    scheduleFallbackRefresh(true, IMMEDIATE_FALLBACK_DELAY_MS, 'immediate');
   });
   
   
@@ -3854,7 +3942,7 @@ async function incrementalUpdateTasks(blockIds: string[]) {
 
   if (parentBlockIds.size === 0) {
     if (unresolvedBlockIds.length > 0) {
-      scheduleFallbackRefresh(true, 120, 'immediate');
+      scheduleFallbackRefresh(true, IMMEDIATE_FALLBACK_DELAY_MS, 'immediate');
     } else {
       consecutiveFallbackFailures = 0;
     }
@@ -3933,10 +4021,10 @@ async function incrementalUpdateTasks(blockIds: string[]) {
         }
       }
     } else {
-      scheduleFallbackRefresh(true, 120, 'immediate');
+      scheduleFallbackRefresh(true, IMMEDIATE_FALLBACK_DELAY_MS, 'immediate');
     }
   } catch {
-    scheduleFallbackRefresh(true, 120, 'immediate');
+    scheduleFallbackRefresh(true, IMMEDIATE_FALLBACK_DELAY_MS, 'immediate');
   } finally {
     uniqueBlockIds.forEach(id => processingBlockIds.delete(id));
   }
@@ -4478,7 +4566,9 @@ async function toggleTaskStatus(task: Task) {
     return;
   }
   
+  const wasCompleted = task.status === 'completed';
   const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+  const shouldPlayCompletionSound = !wasCompleted && newStatus === 'completed';
   const isVirtualRepeatTask = !!task.isVirtual && !!task.repeatSeriesId && !!task.repeatInstanceDate;
   
   skipTaskTemporarily(skipSet, task.id);
@@ -4507,6 +4597,9 @@ async function toggleTaskStatus(task: Task) {
     
     if (!isVirtualRepeatTask) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: task.blockId ? [task.blockId] : [] });
+    }
+    if (shouldPlayCompletionSound && taskCompletionSoundEnabled.value) {
+      playTaskCompletionSound();
     }
   } catch (error) {
     // Swallow toggle errors to avoid breaking interaction flow.
@@ -5330,6 +5423,7 @@ async function applyBatchEdit(): Promise<void> {
     const changedBlockIds: string[] = [];
     let successCount = 0;
     let failedCount = 0;
+    let hasNewlyCompletedTask = false;
 
     results.forEach((result, index) => {
       const update = updates[index];
@@ -5349,6 +5443,7 @@ async function applyBatchEdit(): Promise<void> {
           targetTask.status = update.nextStatus;
           if (update.nextStatus === 'completed') {
             targetTask.completedAt = targetTask.completedAt || nowIso;
+            hasNewlyCompletedTask = true;
           } else {
             delete targetTask.completedAt;
           }
@@ -5386,6 +5481,9 @@ async function applyBatchEdit(): Promise<void> {
     await refreshInternalState();
     if (changedBlockIds.length > 0) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: changedBlockIds });
+    }
+    if (hasNewlyCompletedTask && taskCompletionSoundEnabled.value) {
+      playTaskCompletionSound();
     }
 
     if (successCount > 0) {

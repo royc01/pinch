@@ -140,13 +140,25 @@
               </div>
             </div>
             <div class="pomodoro-controls-inline">
-              <button v-if="!habit.isPomodoroPaused" class="pause-btn" @click="emit('pomodoro-pause')">
+              <button
+                v-if="!habit.isPomodoroPaused"
+                class="pause-btn"
+                title="暂停番茄钟"
+                aria-label="暂停番茄钟"
+                @click="emit('pomodoro-pause')"
+              >
                 <Icon name="pause" width="16" height="16" class="icon" />
               </button>
-              <button v-if="habit.isPomodoroPaused" class="resume-btn" @click="emit('pomodoro-resume')">
+              <button
+                v-if="habit.isPomodoroPaused"
+                class="resume-btn"
+                title="继续番茄钟"
+                aria-label="继续番茄钟"
+                @click="emit('pomodoro-resume')"
+              >
                 <Icon name="play" width="16" height="16" class="icon" />
               </button>
-              <button class="stop-btn" @click="emit('pomodoro-stop')">
+              <button class="stop-btn" title="停止番茄钟" aria-label="停止番茄钟" @click="emit('pomodoro-stop')">
                 <Icon name="stop" width="16" height="16" class="icon" />
               </button>
             </div>

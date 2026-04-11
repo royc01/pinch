@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="week-view" :class="{ 'mobile-day-view-mode': isMobileDayViewMode }">
     <div class="calendar-header">
-      <button class="nav-btn" @click="previousWeek">
+      <button class="nav-btn" :title="previousNavLabel" :aria-label="previousNavLabel" @click="previousWeek">
         <svg viewBox="0 0 24 24" width="20" height="20">
           <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
         </svg>
@@ -11,7 +11,7 @@
         <button class="today-btn" @click="goToToday">今天</button>
       </div>
       <div class="header-right">
-        <button class="nav-btn" @click="nextWeek">
+        <button class="nav-btn" :title="nextNavLabel" :aria-label="nextNavLabel" @click="nextWeek">
           <svg viewBox="0 0 24 24" width="20" height="20">
             <path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
           </svg>
@@ -361,16 +361,16 @@
       @update:dueTime="contextMenuDateDraft.dueTime = $event"
       @setColor="setTaskBackgroundColor(contextMenu.task!, $event)"
       @saveDates="applyTaskDates(contextMenu.task!)"
+      @clearTaskDates="clearTaskDates(contextMenu.task!)"
       @saveRepeatRule="saveTaskRepeatRule(contextMenu.task!, $event)"
-      @archiveTask="toggleTaskArchive(contextMenu.task!)"
-      @deleteTask="deleteTask(contextMenu.task!)"
+      @editTask="handleContextMenuEditTask(contextMenu.task!)"
     />
 
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import type { Task } from '@/api';
 import { setBlockAttrs, TaskRepository } from '@/api';
 import { updateTaskMarkdown } from '@/utils/taskHelpers';
@@ -434,6 +434,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   'taskDateChanged': [task: Task];
   'taskClick': [task: Task];
+  'taskEdit': [task: Task, anchor: { x: number; y: number }];
   'taskCreateRequested': [payload: { startDate: string; dueDate: string; startTime?: string; dueTime?: string; allDay: boolean }];
 }>();
 
@@ -483,6 +484,36 @@ const mobileMiniWeekdayLabels = ['一', '二', '三', '四', '五', '六', '日'
 const mobileWeekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const viewportWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth);
 const daysScrollRef = ref<HTMLElement | null>(null);
+
+function getCurrentTimeOffsetPx(): number {
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  return minutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
+}
+
+function scrollToCurrentTimeInView(behavior: ScrollBehavior = 'auto'): void {
+  if (isMobileWeekGridMode.value) {
+    return;
+  }
+  const container = daysScrollRef.value;
+  if (!container) {
+    return;
+  }
+
+  const targetCenter = getCurrentTimeOffsetPx() - container.clientHeight / 2;
+  const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
+  const top = Math.min(Math.max(0, targetCenter), maxTop);
+  container.scrollTo({ top, behavior });
+}
+
+async function centerCurrentTimeInViewport(behavior: ScrollBehavior = 'auto'): Promise<void> {
+  await nextTick();
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      scrollToCurrentTimeInView(behavior);
+    });
+  });
+}
 
 const localTasks = ref<Task[]>([]);
 const CREATE_SELECTION_THRESHOLD_PX = 8;
@@ -697,6 +728,28 @@ function resolveNavigationOffsetDays(): number {
   return 7;
 }
 
+const navigationOffsetDays = computed(() => resolveNavigationOffsetDays());
+const previousNavLabel = computed(() => {
+  const offset = navigationOffsetDays.value;
+  if (offset === 1) {
+    return '上一天';
+  }
+  if (offset === 7) {
+    return '上一周';
+  }
+  return `前${offset}天`;
+});
+const nextNavLabel = computed(() => {
+  const offset = navigationOffsetDays.value;
+  if (offset === 1) {
+    return '下一天';
+  }
+  if (offset === 7) {
+    return '下一周';
+  }
+  return `后${offset}天`;
+});
+
 function getTasksHash(tasks: Task[]): string {
   return tasks.map(t => 
     `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime}:${t.dueTime}:${t.title}:${t.backgroundColor || ''}`
@@ -854,9 +907,7 @@ function focusMobileDay(date: Date): void {
   nextDate.setHours(0, 0, 0, 0);
   currentWeekStart.value = nextDate;
   isAllDaySectionCollapsed.value = false;
-  window.requestAnimationFrame(() => {
-    daysScrollRef.value?.scrollTo({ top: 0, behavior: 'smooth' });
-  });
+  void centerCurrentTimeInViewport('smooth');
 }
 
 const mobileWeekStartDate = computed(() => {
@@ -1397,9 +1448,11 @@ function goToToday() {
     currentWeekStart.value = props.fixedCenterToday
       ? resolveCenteredStartDateFromToday(fixedDays)
       : getTodayStart();
+    void centerCurrentTimeInViewport('smooth');
     return;
   }
   currentWeekStart.value = getWeekStart(new Date());
+  void centerCurrentTimeInViewport('smooth');
 }
 
 function toggleAllDaySection() {
@@ -1932,6 +1985,17 @@ function handleTaskClick(task: Task) {
   emit('taskClick', task);
 }
 
+function handleContextMenuEditTask(task: Task): void {
+  if (!task) {
+    return;
+  }
+  emit('taskEdit', task, {
+    x: contextMenu.value.x,
+    y: contextMenu.value.y
+  });
+  hideContextMenu();
+}
+
 function handleContextMenu(event: MouseEvent, task: Task) {
   event.preventDefault();
   event.stopPropagation();
@@ -2071,6 +2135,17 @@ async function applyTaskDates(task: Task) {
   }
 
   hideContextMenu();
+}
+
+async function clearTaskDates(task: Task): Promise<void> {
+  if (!task) return;
+  contextMenuDateDraft.value = {
+    startDate: '',
+    startTime: '',
+    dueDate: '',
+    dueTime: ''
+  };
+  await applyTaskDates(task);
 }
 
 async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
@@ -2265,6 +2340,7 @@ onMounted(() => {
   document.addEventListener('mouseup', finishCreateSelection);
   document.addEventListener('dragend', clearWeekDragOverState, true);
   document.addEventListener('drop', clearWeekDragOverState, true);
+  void centerCurrentTimeInViewport();
 });
 
 onUnmounted(() => {
