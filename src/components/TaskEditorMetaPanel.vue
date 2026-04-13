@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="task-editor-meta-panel">
     <TaskDatePopover
       v-if="panel === 'due'"
@@ -18,16 +18,24 @@
       @select="handleReminderSelect"
       @close="emitPanelUpdate(null)"
     />
+    <StatusPopover
+      v-if="panel === 'status'"
+      :show="true"
+      :position="statusPopoverPosition"
+      placement="top"
+      @select="handleStatusSelect"
+      @close="emitPanelUpdate(null)"
+    />
     <div v-if="panel === 'group'" class="task-editor-group-panel">
       <div class="task-editor-group-header">
-        <span class="task-editor-group-title">选择标签</span>
+        <span class="task-editor-group-title">Group</span>
         <button
           v-if="showGroupManage"
           type="button"
           class="task-group-manage-btn"
           @click.stop="emitManageGroups"
         >
-          管理
+          Manage
         </button>
       </div>
       <div class="task-group-chip-list">
@@ -60,6 +68,19 @@
       />
     </div>
     <div class="task-editor-action-bar">
+      <button
+        ref="statusButtonRef"
+        type="button"
+        class="task-editor-action-btn task-editor-status-btn"
+        :class="{ 'is-active': panel === 'status' }"
+        title="状态"
+        aria-label="状态"
+        @click.stop="toggleStatusPanel"
+      >
+        <span class="task-editor-status-badge" :class="`status-${normalizedStatus}`">
+          {{ statusBadgeText }}
+        </span>
+      </button>
       <button
         type="button"
         class="task-editor-action-btn task-editor-group-btn"
@@ -113,13 +134,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import type { Task } from '@/api';
 import Icon from '@/components/Icon.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
+import StatusPopover from '@/components/StatusPopover.vue';
 import type { TaskReminderSelection, TaskReminderType } from '@/utils/taskReminder';
 
-type TaskEditorPanel = 'due' | 'description' | 'group' | 'reminder' | null;
+type TaskStatus = Task['status'];
+type TaskEditorPanel = 'due' | 'description' | 'group' | 'reminder' | 'status' | null;
 
 type TaskGroupOption = {
   value: string;
@@ -145,6 +169,7 @@ const props = withDefaults(defineProps<{
   reminderCustomTime?: string;
   reminderText?: string;
   hasReminder?: boolean;
+  status?: TaskStatus;
   groupButtonStyle?: Record<string, string>;
   defaultGroupChipColor?: string;
   descriptionPlaceholder?: string;
@@ -154,9 +179,10 @@ const props = withDefaults(defineProps<{
   reminderCustomTime: '',
   reminderText: '',
   hasReminder: false,
+  status: 'pending',
   groupButtonStyle: () => ({}),
   defaultGroupChipColor: '#9aa0a6',
-  descriptionPlaceholder: '添加任务描述...',
+  descriptionPlaceholder: 'Add task description...',
   showGroupManage: true
 });
 
@@ -166,15 +192,27 @@ const emit = defineEmits<{
   'select-due': [value: string];
   'select-group': [value: string];
   'select-reminder': [value: TaskReminderSelection];
+  'select-status': [value: TaskStatus];
   'commit-description': [];
   'manage-groups': [];
 }>();
 
 const dueButtonRef = ref<HTMLElement | null>(null);
 const reminderButtonRef = ref<HTMLElement | null>(null);
+const statusButtonRef = ref<HTMLElement | null>(null);
 const descriptionRef = ref<HTMLTextAreaElement | null>(null);
+const statusPopoverPosition = ref({ x: 0, y: 0 });
 
 const showDescriptionPanel = computed(() => props.panel === 'description' || props.hasDescription);
+const statusLabelMap: Record<TaskStatus, string> = {
+  pending: '\u5f85\u5904\u7406',
+  'in-progress': '\u8fdb\u884c\u4e2d',
+  delayed: '\u5ef6\u8fdf',
+  completed: '\u5df2\u5b8c\u6210',
+  cancelled: '\u5df2\u53d6\u6d88'
+};
+const normalizedStatus = computed<TaskStatus>(() => normalizeStatusValue(props.status));
+const statusBadgeText = computed(() => statusLabelMap[normalizedStatus.value]);
 
 function emitPanelUpdate(value: TaskEditorPanel): void {
   emit('update:panel', value);
@@ -184,12 +222,25 @@ function togglePanel(panel: Exclude<TaskEditorPanel, null>): void {
   emitPanelUpdate(props.panel === panel ? null : panel);
 }
 
+function toggleStatusPanel(): void {
+  if (props.panel === 'status') {
+    emitPanelUpdate(null);
+    return;
+  }
+  updateStatusPopoverPosition();
+  emitPanelUpdate('status');
+}
+
 function handleDueSelect(value: string): void {
   emit('select-due', value);
 }
 
 function handleReminderSelect(value: TaskReminderSelection): void {
   emit('select-reminder', value);
+}
+
+function handleStatusSelect(value: string): void {
+  emit('select-status', normalizeStatusValue(value));
 }
 
 function handleDescriptionInput(event: Event): void {
@@ -210,6 +261,49 @@ function emitManageGroups(): void {
   emit('manage-groups');
 }
 
+function normalizeStatusValue(value: unknown): TaskStatus {
+  if (value === 'pending' || value === 'in-progress' || value === 'delayed' || value === 'completed' || value === 'cancelled') {
+    return value;
+  }
+  return 'pending';
+}
+
+function updateStatusPopoverPosition(): void {
+  const button = statusButtonRef.value;
+  if (!button) {
+    return;
+  }
+  const rect = button.getBoundingClientRect();
+  statusPopoverPosition.value = {
+    x: Math.round(rect.left + rect.width / 2),
+    y: Math.round(rect.top - 8)
+  };
+}
+
+function handleOutsideMouseDown(event: MouseEvent): void {
+  if (props.panel !== 'status') {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (!target) {
+    emitPanelUpdate(null);
+    return;
+  }
+  if (target.closest('.status-popover')) {
+    return;
+  }
+  if (statusButtonRef.value?.contains(target)) {
+    return;
+  }
+  emitPanelUpdate(null);
+}
+
+function handleViewportChange(): void {
+  if (props.panel === 'status') {
+    updateStatusPopoverPosition();
+  }
+}
+
 watch(
   () => props.panel,
   (value) => {
@@ -218,8 +312,25 @@ watch(
         descriptionRef.value?.focus();
       });
     }
+    if (value === 'status') {
+      void nextTick(() => {
+        updateStatusPopoverPosition();
+      });
+    }
   }
 );
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleOutsideMouseDown);
+  window.addEventListener('resize', handleViewportChange);
+  window.addEventListener('scroll', handleViewportChange, true);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleOutsideMouseDown);
+  window.removeEventListener('resize', handleViewportChange);
+  window.removeEventListener('scroll', handleViewportChange, true);
+});
 </script>
 
 <style scoped>
@@ -277,6 +388,47 @@ watch(
   color: var(--b3-theme-on-background);
   cursor: pointer;
   font-size: 12px;
+}
+
+.task-editor-status-btn {
+  padding: 0px;
+  background: transparent;
+}
+
+.task-editor-status-badge {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  font-weight: 500;
+  gap: 2px;
+  padding: 5px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.task-editor-status-badge.status-pending {
+  background: var(--pinch-background4);
+  color: var(--pinch-group-color4);
+}
+
+.task-editor-status-badge.status-in-progress {
+  background: var(--pinch-background7);
+  color: var(--pinch-group-color7);
+}
+
+.task-editor-status-badge.status-delayed {
+  background: var(--pinch-background8);
+  color: var(--pinch-group-color8);
+}
+
+.task-editor-status-badge.status-completed {
+  background: var(--pinch-background5);
+  color: var(--pinch-group-color5);
+}
+
+.task-editor-status-badge.status-cancelled {
+  background: var(--pinch-background1);
+  color: var(--pinch-group-color1);
 }
 
 .task-editor-action-btn.is-active {

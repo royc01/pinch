@@ -68,6 +68,7 @@
               v-for="task in getMobileDayTasks(day.key)"
               :key="task.id"
               class="mobile-task-chip"
+              :title="stripHtml(task.title)"
               :class="[
                 `priority-${task.priority}`,
                 { 'task-completed': task.status === 'completed' }
@@ -80,7 +81,12 @@
                 <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
               </span>
               <span class="mobile-task-chip-title">{{ stripHtml(task.title) }}</span>
-              <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
+              <span
+                v-if="task.priority !== 'none'"
+                class="task-priority-badge"
+                :class="`priority-${task.priority}`"
+                :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+              >
                 <Icon name="flag" width="10" height="10" />
               </span>
               <span class="task-jump-btn" @click.stop="handleTaskClick(task)">
@@ -157,6 +163,7 @@
                 v-for="task in visibleTasks"
                 :key="task.id"
                 class="all-day-task"
+                :title="stripHtml(task.title)"
                 :class="[
                   `priority-${task.priority}`,
                   { 'task-completed': task.status === 'completed' }
@@ -182,7 +189,12 @@
                     <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                   </span>
                   <span class="task-title-text">{{ stripHtml(task.title) }}</span>
-                  <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
+                  <span
+                    v-if="task.priority !== 'none'"
+                    class="task-priority-badge"
+                    :class="`priority-${task.priority}`"
+                    :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                  >
                     <Icon name="flag" width="10" height="10" />
                   </span>
                   <span class="task-jump-btn" @click.stop="handleTaskClick(task)">
@@ -233,6 +245,7 @@
                 v-for="task in allDayExpandedTasks"
                 :key="`expanded-all-day-${task.id}`"
                 class="day-expanded-chip"
+                :title="stripHtml(task.title)"
                 :style="getExpandedAllDayChipStyle(task)"
                 :class="{ 'task-completed': task.status === 'completed' }"
                 @contextmenu="handleContextMenu($event, task)"
@@ -292,6 +305,7 @@
                   v-for="item in (tasksByDay.get(day.key) || [])"
                   :key="item.task.id + '-' + item.renderDate"
                   class="timed-task"
+                  :title="stripHtml(item.task.title)"
                   :class="[
                     `priority-${item.task.priority}`,
                     { 'task-completed': item.task.status === 'completed' },
@@ -316,7 +330,12 @@
                         <TaskCheckbox :checked="item.task.status === 'completed'" :size="12" />
                       </span>
                       <span class="task-title-text">{{ stripHtml(item.task.title) }}</span>
-                      <span v-if="item.task.priority !== 'none'" class="task-priority-badge" :class="`priority-${item.task.priority}`">
+                      <span
+                        v-if="item.task.priority !== 'none'"
+                        class="task-priority-badge"
+                        :class="`priority-${item.task.priority}`"
+                        :title="item.task.priority === 'high' ? '高优先级' : item.task.priority === 'medium' ? '中优先级' : '低优先级'"
+                      >
                         <Icon name="flag" width="10" height="10" />
                       </span>
                       <span class="task-jump-btn" @click.stop="handleTaskClick(item.task)">
@@ -383,7 +402,6 @@ import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
 import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
-import { eventBus, Events } from '@/utils/eventBus';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
@@ -542,8 +560,7 @@ const { saveTaskAttrs } = useDebouncedSave(500);
 const taskSyncGuard = useTaskSyncGuard(localTasks);
 const {
   upsertTask: upsertLocalTask,
-  patchTask: patchLocalTask,
-  removeTask: removeLocalTask
+  patchTask: patchLocalTask
 } = useTaskLocalMutations(localTasks);
 
 function emitTaskDateChanged(task: Task): void {
@@ -2212,120 +2229,6 @@ async function setTaskBackgroundColor(task: Task, color: string) {
     }
   }
 
-  hideContextMenu();
-}
-
-async function toggleTaskArchive(task: Task): Promise<void> {
-  if (!task || task.isVirtual) {
-    hideContextMenu();
-    return;
-  }
-
-  const isArchived = task.archived === true;
-  const repeatSeriesId = task.repeatSeriesId;
-
-  try {
-    if (isArchived) {
-      await TaskRepository.unarchiveTask(task.id);
-      if (task.blockId) {
-        eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
-      }
-      patchLocalTask(task.id, {
-        archived: false,
-        archivedAt: undefined,
-        archiveReason: undefined
-      });
-    } else {
-      await TaskRepository.archiveTask(task.id, 'manual');
-      if (task.blockId) {
-        eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
-      }
-      removeLocalTask(task.id);
-      if (repeatSeriesId) {
-        localTasks.value = localTasks.value.filter(
-          item => !(item.isVirtual && item.repeatSeriesId === repeatSeriesId)
-        );
-      }
-    }
-  } catch {
-  }
-
-  hideContextMenu();
-}
-
-async function deleteTask(task: Task) {
-  const seriesId = task.repeatSeriesId;
-  const isRepeatTask = !!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-
-  if (isRepeatTask) {
-    const templateTask = !task.isVirtual
-      ? task
-      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
-
-    try {
-      await TaskRepository.setTaskRepeatRule(templateTask || task, 'none');
-    } catch (error) {
-    }
-
-    if (seriesId) {
-      localTasks.value = localTasks.value.filter(
-        item => !(item.isVirtual && item.repeatSeriesId === seriesId)
-      );
-    }
-
-    const targetTask = templateTask || (!task.isVirtual ? task : null);
-    if (targetTask) {
-      if (targetTask.type === 'block' && targetTask.blockId) {
-        try {
-          await setBlockAttrs(targetTask.blockId, {
-            'custom-task-start-date': '',
-            'custom-task-due-date': '',
-            'custom-task-start-time': '',
-            'custom-task-due-time': ''
-          });
-        } catch (error) {
-        }
-      }
-
-      const updatedTask = patchLocalTask(targetTask.id, {
-        startDate: null,
-        dueDate: null,
-        startTime: undefined,
-        dueTime: undefined,
-        repeatFrequency: 'none',
-        repeatSeriesId: undefined,
-        repeatInstanceDate: undefined,
-        isVirtual: false
-      });
-      if (updatedTask) {
-        emitTaskDateChanged(updatedTask);
-      }
-    }
-
-    hideContextMenu();
-    return;
-  }
-
-  if (task.type === 'block' && task.blockId) {
-    try {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-start-date': '',
-        'custom-task-due-date': '',
-        'custom-task-start-time': '',
-        'custom-task-due-time': ''
-      });
-      const updatedTask = patchLocalTask(task.id, {
-        startDate: null,
-        dueDate: null,
-        startTime: undefined,
-        dueTime: undefined
-      });
-      if (updatedTask) {
-        emitTaskDateChanged(updatedTask);
-      }
-    } catch (error) {
-    }
-  }
   hideContextMenu();
 }
 

@@ -349,6 +349,23 @@ export async function transferBlockRef(
   return request(url, data);
 }
 
+export async function updateTaskListItemMarker(
+  id: BlockId,
+  marker: string
+): Promise<IResdoOperations[]> {
+  const normalizedMarker = marker === " " ? " " : "x";
+  const data = {
+    id,
+    marker: normalizedMarker
+  };
+  const url = "/api/block/updateTaskListItemMarker";
+  const result = await request(url, data);
+  if (result === null) {
+    throw new Error(`updateTaskListItemMarker failed for block ${id}`);
+  }
+  return result;
+}
+
 // **************************************** Attributes ****************************************
 export async function setBlockAttrs(
   id: BlockId,
@@ -1084,6 +1101,18 @@ export type TaskStatus = 'pending' | 'in-progress' | 'delayed' | 'completed' | '
 export type TaskPriority = 'none' | 'high' | 'medium' | 'low';
 export type TaskType = 'standalone' | 'block';
 
+function taskStatusToTaskMarker(status: TaskStatus | undefined): " " | "x" {
+  return status === 'completed' ? 'x' : ' ';
+}
+
+async function syncTaskListItemMarkerByStatus(
+  blockId: BlockId,
+  status: TaskStatus | undefined
+): Promise<void> {
+  const marker = taskStatusToTaskMarker(status);
+  await updateTaskListItemMarker(blockId, marker);
+}
+
 export interface Task {
   id: string;
   type: TaskType;
@@ -1648,6 +1677,77 @@ export class TaskRepository {
 
   static inferTaskDateFromText(title: string): string | null {
     return this.extractDateFromTaskText(title);
+  }
+
+  static async recognizeDatesForUndatedTasks(): Promise<{
+    scanned: number;
+    recognized: number;
+    updated: number;
+    failed: number;
+  }> {
+    const tasks = await this.getBlockTasks(false, undefined, { useLiveDom: false });
+    const undatedTasks = tasks.filter((task) => {
+      if (task.type !== 'block' || !task.blockId) {
+        return false;
+      }
+      const startDate = typeof task.startDate === 'string' ? task.startDate.trim() : '';
+      const dueDate = typeof task.dueDate === 'string' ? task.dueDate.trim() : '';
+      return !startDate && !dueDate;
+    });
+
+    if (undatedTasks.length === 0) {
+      return { scanned: 0, recognized: 0, updated: 0, failed: 0 };
+    }
+
+    let recognized = 0;
+    let updated = 0;
+    let failed = 0;
+    let cursor = 0;
+    const workerCount = Math.min(8, undatedTasks.length);
+
+    const worker = async (): Promise<void> => {
+      while (cursor < undatedTasks.length) {
+        const currentIndex = cursor;
+        cursor += 1;
+        const currentTask = undatedTasks[currentIndex];
+        if (!currentTask?.blockId) {
+          continue;
+        }
+
+        const inferredDate = this.inferTaskDateFromText(currentTask.title || '');
+        if (!inferredDate) {
+          continue;
+        }
+
+        recognized += 1;
+        try {
+          await setBlockAttrs(currentTask.blockId, {
+            'custom-task-start-date': inferredDate,
+            'custom-task-due-date': inferredDate
+          });
+          updated += 1;
+        } catch (error) {
+          failed += 1;
+          handleError('全局识别任务日期并写入失败', error, {
+            blockId: currentTask.blockId,
+            taskId: currentTask.id
+          });
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    if (updated > 0) {
+      await this.clearCache();
+    }
+
+    return {
+      scanned: undatedTasks.length,
+      recognized,
+      updated,
+      failed
+    };
   }
 
   private static resolveTaskDateRange(
@@ -3505,6 +3605,9 @@ export class TaskRepository {
     }
 
     await setBlockAttrs(blockId, attrsToUpdate);
+    if (updates.status !== undefined) {
+      await syncTaskListItemMarkerByStatus(blockId, updates.status);
+    }
     await this.clearCache();
   }
 

@@ -54,7 +54,7 @@ export interface UserSettings {
     lastTaskNotebook?: string;
     lastTaskDocument?: string;
     selectedGroupId?: string;
-    taskListGroupBy?: 'none' | TaskViewGroupMode;
+    taskListGroupBy?: 'none' | TaskViewGroupMode | 'date';
     taskListViewMode?: 'kanban' | 'list';
     showTaskCardDetails?: boolean;
     taskStatusFilters?: string[];

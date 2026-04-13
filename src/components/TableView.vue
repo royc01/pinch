@@ -81,7 +81,7 @@
         </tr>
       </thead>
       <tbody>
-        <template v-if="isGroupMode">
+        <template v-if="isGroupedDisplayMode">
           <template v-for="group in groupedVisibleTasks" :key="group.key">
             <tr class="group-row">
               <td colspan="11">
@@ -101,7 +101,7 @@
                   <span class="group-row-right">
                     <span class="group-row-count">{{ group.tasks.length }} 项</span>
                     <button
-                      v-if="canCreateTaskForGroup(group)"
+                      v-if="supportsGroupActions && canCreateTaskForGroup(group)"
                       type="button"
                       class="column-add-task-btn"
                       :title="getGroupCreateTaskLabel(group)"
@@ -116,6 +116,7 @@
                       </svg>
                     </button>
                     <button
+                      v-if="supportsGroupActions"
                       type="button"
                       class="column-archive-tasks-btn"
                       :title="getGroupArchiveTasksLabel(group)"
@@ -199,7 +200,12 @@
                 </td>
                 <td class="col-priority" @click.stop="togglePriorityEdit(task, $event)">
                   <div class="priority-content">
-                    <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
+                    <span
+                      v-if="task.priority !== 'none'"
+                      class="task-priority-badge"
+                      :class="`priority-${task.priority}`"
+                      :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                    >
                       <Icon name="flag" width="12" height="12" />
                     </span>
                   </div>
@@ -330,7 +336,12 @@
               </td>
               <td class="col-priority" @click.stop="togglePriorityEdit(task, $event)">
                 <div class="priority-content">
-                  <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
+                  <span
+                    v-if="task.priority !== 'none'"
+                    class="task-priority-badge"
+                    :class="`priority-${task.priority}`"
+                    :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                  >
                     <Icon name="flag" width="12" height="12" />
                   </span>
                 </div>
@@ -501,7 +512,7 @@ interface Props {
 type TableTaskGroupSection = {
   key: string;
   id: string;
-  mode: 'group' | 'heading';
+  mode: 'group' | 'heading' | 'date';
   label: string;
   tasks: Task[];
   style?: Record<string, string>;
@@ -577,6 +588,33 @@ function getTodayStartTimestamp(): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return today.getTime();
+}
+
+function getTaskDueDateTimestamp(task: Task): number | null {
+  return getTaskDateTimestamp(task.dueDate);
+}
+
+function getTaskStartDateTimestamp(task: Task): number | null {
+  return getTaskDateTimestamp(task.startDate);
+}
+
+function isVirtualTaskForToday(task: Task): boolean {
+  if (!task.isVirtual) return false;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const todayStart = getTodayStartTimestamp();
+  const todayEnd = todayStart + dayMs;
+  const startTimestamp = getTaskStartDateTimestamp(task);
+  const dueTimestamp = getTaskDueDateTimestamp(task);
+  if (startTimestamp !== null || dueTimestamp !== null) {
+    let rangeStart = startTimestamp ?? dueTimestamp ?? 0;
+    let rangeEnd = dueTimestamp ?? startTimestamp ?? 0;
+    if (rangeStart > rangeEnd) {
+      [rangeStart, rangeEnd] = [rangeEnd, rangeStart];
+    }
+    const taskRangeEnd = rangeEnd + dayMs;
+    return rangeStart < todayEnd && taskRangeEnd > todayStart;
+  }
+  return false;
 }
 
 function compareTasksDefault(a: Task, b: Task, domOrderMap?: Map<string, number>): number {
@@ -684,7 +722,8 @@ const groupPopoverOptions = computed(() => {
   return options;
 });
 const resolvedGroupMode = computed(() => normalizeTaskViewGroupMode(props.groupMode, 'status'));
-const isGroupMode = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
+const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date'].includes(resolvedGroupMode.value));
+const supportsGroupActions = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
 const customGroupOrder = computed(() => {
   const order: Array<{ id: string; label: string; style?: Record<string, string> }> = [
     { id: '', label: '无标签' }
@@ -705,30 +744,31 @@ const customGroupOrder = computed(() => {
   }
   return order;
 });
-const statusGroupOrder: Array<{ id: Task['status']; label: string; style: Record<string, string> }> = [
+type TableDateGroupKey = 'overdue' | 'today' | 'thisWeek' | 'thisMonth' | 'other';
+const dateGroupOrder: Array<{ id: TableDateGroupKey; label: string; style: Record<string, string> }> = [
   {
-    id: 'pending',
-    label: getStatusLabel('pending'),
+    id: 'overdue',
+    label: '逾期',
+    style: { '--group-badge-bg': 'rgba(239, 68, 68, 0.14)', '--group-badge-color': '#b91c1c' }
+  },
+  {
+    id: 'today',
+    label: '今日',
     style: { '--group-badge-bg': 'rgba(245, 158, 11, 0.14)', '--group-badge-color': '#b45309' }
   },
   {
-    id: 'in-progress',
-    label: getStatusLabel('in-progress'),
+    id: 'thisWeek',
+    label: '本周',
     style: { '--group-badge-bg': 'rgba(59, 130, 246, 0.14)', '--group-badge-color': '#1d4ed8' }
   },
   {
-    id: 'delayed',
-    label: getStatusLabel('delayed'),
-    style: { '--group-badge-bg': 'rgba(249, 115, 22, 0.14)', '--group-badge-color': '#c2410c' }
-  },
-  {
-    id: 'completed',
-    label: getStatusLabel('completed'),
+    id: 'thisMonth',
+    label: '本月',
     style: { '--group-badge-bg': 'rgba(16, 185, 129, 0.14)', '--group-badge-color': '#047857' }
   },
   {
-    id: 'cancelled',
-    label: getStatusLabel('cancelled'),
+    id: 'other',
+    label: '其他',
     style: { '--group-badge-bg': 'rgba(156, 163, 175, 0.16)', '--group-badge-color': '#4b5563' }
   }
 ];
@@ -786,7 +826,7 @@ const sortedTasks = computed(() => {
 const visibleTasks = computed(() => sortedTasks.value.slice(0, visibleTaskCount.value));
 const hasMoreTasks = computed(() => visibleTaskCount.value < sortedTasks.value.length);
 const groupedVisibleTasks = computed<TableTaskGroupSection[]>(() => {
-  if (!isGroupMode.value) return [];
+  if (!isGroupedDisplayMode.value) return [];
   if (resolvedGroupMode.value === 'group') {
     const buckets = new Map<string, Task[]>();
     for (const task of visibleTasks.value) {
@@ -834,22 +874,69 @@ const groupedVisibleTasks = computed<TableTaskGroupSection[]>(() => {
       .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
   }
 
-  const statusBuckets = new Map<Task['status'], Task[]>();
-  for (const task of visibleTasks.value) {
-    const list = statusBuckets.get(task.status) || [];
-    list.push(task);
-    statusBuckets.set(task.status, list);
+  if (resolvedGroupMode.value === 'date') {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStart = today.getTime();
+    const tomorrowStart = todayStart + dayMs;
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).getTime();
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 1).getTime();
+    const weekStart = new Date(todayStart);
+    const weekday = weekStart.getDay();
+    const diff = weekday === 0 ? -6 : 1 - weekday;
+    weekStart.setDate(weekStart.getDate() + diff);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekStartTimestamp = weekStart.getTime();
+    const weekEnd = weekStartTimestamp + dayMs * 7;
+    const buckets = new Map<TableDateGroupKey, Task[]>();
+    dateGroupOrder.forEach(group => buckets.set(group.id, []));
+    const todayVirtualSeriesIds = new Set<string>();
+
+    for (const task of visibleTasks.value) {
+      if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
+        todayVirtualSeriesIds.add(task.repeatSeriesId);
+      }
+    }
+
+    for (const task of visibleTasks.value) {
+      const dueTimestamp = getTaskDueDateTimestamp(task);
+      const groupingTimestamp = dueTimestamp ?? getTaskDateTimestamp(task.createdAt);
+      const repeatSeriesId = typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+      const hasTodayVirtualInstance = !!repeatSeriesId && todayVirtualSeriesIds.has(repeatSeriesId);
+      let dateKey: TableDateGroupKey = 'other';
+      if (hasTodayVirtualInstance) {
+        dateKey = 'today';
+      } else if (dueTimestamp !== null && dueTimestamp < todayStart) {
+        dateKey = 'overdue';
+      } else if (groupingTimestamp !== null) {
+        if (groupingTimestamp >= todayStart && groupingTimestamp < tomorrowStart) {
+          dateKey = 'today';
+        } else if (groupingTimestamp >= weekStartTimestamp && groupingTimestamp < weekEnd) {
+          dateKey = 'thisWeek';
+        } else if (groupingTimestamp >= monthStart && groupingTimestamp < monthEnd) {
+          dateKey = 'thisMonth';
+        }
+      }
+      const list = buckets.get(dateKey);
+      if (list) {
+        list.push(task);
+      }
+    }
+
+    return dateGroupOrder
+      .map(group => ({
+        key: `date:${group.id}`,
+        id: `date:${group.id}`,
+        mode: 'date' as const,
+        label: group.label,
+        style: group.style,
+        tasks: buckets.get(group.id) || []
+      }))
+      .filter(group => group.tasks.length > 0);
   }
 
-  return statusGroupOrder
-    .map(group => ({
-      key: group.id,
-      id: group.id,
-      label: group.label,
-      style: group.style,
-      tasks: statusBuckets.get(group.id) || []
-    }))
-    .filter(group => group.tasks.length > 0);
+  return [];
 });
 const collapsedGroups = ref<Set<string>>(new Set());
 const datePopoverValue = computed(() => {
@@ -1028,7 +1115,14 @@ function getGroupSampleBlockTask(group: TableTaskGroupSection): Task | null {
   return group.tasks.find(task => task.type === 'block' && task.isVirtual !== true) || null;
 }
 
+function isActionableGroupMode(mode: TableTaskGroupSection['mode']): mode is 'group' | 'heading' {
+  return mode === 'group' || mode === 'heading';
+}
+
 function canCreateTaskForGroup(group: TableTaskGroupSection): boolean {
+  if (!isActionableGroupMode(group.mode)) {
+    return false;
+  }
   if (group.mode === 'group') {
     return true;
   }
@@ -1068,6 +1162,9 @@ function getGroupArchiveTasksLabel(group: TableTaskGroupSection): string {
 }
 
 function emitGroupCreateTask(group: TableTaskGroupSection): void {
+  if (!isActionableGroupMode(group.mode)) {
+    return;
+  }
   const sampleTask = getGroupSampleBlockTask(group);
   emit('groupCreateTask', {
     mode: group.mode,
@@ -1078,6 +1175,9 @@ function emitGroupCreateTask(group: TableTaskGroupSection): void {
 }
 
 function emitGroupArchiveTasks(group: TableTaskGroupSection): void {
+  if (!isActionableGroupMode(group.mode)) {
+    return;
+  }
   emit('groupArchiveTasks', {
     mode: group.mode,
     groupId: group.id,
@@ -1663,7 +1763,7 @@ function toggleExpand(taskId: string) {
   justify-content: center;
   width: 20px;
   height: 20px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .task-priority-badge.priority-high {

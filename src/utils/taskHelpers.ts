@@ -1,4 +1,4 @@
-import { updateBlock, setBlockAttrs, getBlockKramdown } from '../api';
+import { setBlockAttrs, updateTaskListItemMarker } from '../api';
 
 export function skipTaskTemporarily(
   skipSet: Set<string>,
@@ -9,39 +9,29 @@ export function skipTaskTemporarily(
   setTimeout(() => skipSet.delete(taskId), delay);
 }
 
-export async function getBlockMarkdown(blockId: string): Promise<string> {
-  const blockData = await getBlockKramdown(blockId);
-  
-  if (typeof blockData === 'string') return blockData;
-  return blockData?.kramdown || '';
-}
-
 export async function updateTaskMarkdown(
   blockId: string,
   completed: boolean,
   updateCustomStatus: boolean = false
 ): Promise<void> {
   try {
-    const markdown = await getBlockMarkdown(blockId);
-    const taskRegex = /\[(x|X| )\]/;
-    const updated = markdown.replace(taskRegex, completed ? '[x]' : '[ ]');
-    
-    await updateBlock('markdown', updated, blockId);
-    
+    const marker = completed ? 'x' : ' ';
+    await updateTaskListItemMarker(blockId, marker);
+
     if (updateCustomStatus) {
       const status = completed ? 'completed' : 'pending';
       await setBlockAttrs(blockId, {
         'custom-task-status': status
       });
     }
-    
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('siyuan-block-update', {
         detail: { id: blockId, completed }
       }));
     }
   } catch (error) {
-    console.error('[TaskHelpers] updateTaskMarkdown 失败:', { blockId, completed, error });
+    console.error('[TaskHelpers] updateTaskMarkdown failed:', { blockId, completed, error });
     throw error;
   }
 }

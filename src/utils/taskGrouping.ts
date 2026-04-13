@@ -1,7 +1,7 @@
 import type { Task } from '@/api';
 import { getBlockDOM, sql } from '@/api';
 
-export type TaskViewGroupMode = 'status' | 'group' | 'heading';
+export type TaskViewGroupMode = 'status' | 'group' | 'heading' | 'date';
 export type TaskHeadingGroupKind = 'standalone' | 'document-root' | 'heading';
 
 export interface TaskHeadingGroupMeta {
@@ -38,7 +38,7 @@ interface HeadingStackEntry {
   order: number;
 }
 
-const TASK_VIEW_GROUP_MODES: TaskViewGroupMode[] = ['status', 'group', 'heading'];
+const TASK_VIEW_GROUP_MODES: TaskViewGroupMode[] = ['status', 'group', 'heading', 'date'];
 
 function isTaskViewGroupMode(value: unknown): value is TaskViewGroupMode {
   return typeof value === 'string' && TASK_VIEW_GROUP_MODES.includes(value as TaskViewGroupMode);
@@ -352,11 +352,57 @@ export function getTaskHeadingGroupMeta(
   return metaMap?.get(task.id) || buildFallbackHeadingGroupMeta(task);
 }
 
+function getTaskRepeatSeriesId(task: Task): string {
+  return typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+}
+
+function finalizeTaskHeadingGroupResult(
+  taskList: Task[],
+  result: Map<string, TaskHeadingGroupMeta>
+): Map<string, TaskHeadingGroupMeta> {
+  const repeatSeriesMetaMap = new Map<string, TaskHeadingGroupMeta>();
+
+  for (const task of taskList) {
+    if (task.isVirtual) {
+      continue;
+    }
+    const seriesId = getTaskRepeatSeriesId(task);
+    if (!seriesId || repeatSeriesMetaMap.has(seriesId)) {
+      continue;
+    }
+    const meta = result.get(task.id);
+    if (meta) {
+      repeatSeriesMetaMap.set(seriesId, meta);
+    }
+  }
+
+  for (const task of taskList) {
+    if (result.has(task.id)) {
+      continue;
+    }
+
+    const seriesId = getTaskRepeatSeriesId(task);
+    if (task.isVirtual && seriesId) {
+      const templateMeta = repeatSeriesMetaMap.get(seriesId);
+      if (templateMeta) {
+        result.set(task.id, { ...templateMeta });
+        continue;
+      }
+    }
+
+    result.set(task.id, buildFallbackHeadingGroupMeta(task));
+  }
+
+  return result;
+}
+
 export async function resolveTaskHeadingGroups(taskList: Task[]): Promise<Map<string, TaskHeadingGroupMeta>> {
   const result = new Map<string, TaskHeadingGroupMeta>();
 
   for (const task of taskList) {
-    if (task.type !== 'block' || !task.blockId) {
+    const seriesId = getTaskRepeatSeriesId(task);
+    const isRepeatVirtualTask = task.isVirtual === true && seriesId.length > 0;
+    if (!isRepeatVirtualTask && (task.type !== 'block' || !task.blockId)) {
       result.set(task.id, buildStandaloneHeadingGroupMeta());
     }
   }
@@ -369,14 +415,14 @@ export async function resolveTaskHeadingGroups(taskList: Task[]): Promise<Map<st
   );
 
   if (blockTasks.length === 0) {
-    return result;
+    return finalizeTaskHeadingGroupResult(taskList, result);
   }
 
   if (!blockTasks.some(task => typeof task.rootId === 'string' && task.rootId.trim().length > 0)) {
     for (const task of blockTasks) {
       result.set(task.id, buildFallbackHeadingGroupMeta(task));
     }
-    return result;
+    return finalizeTaskHeadingGroupResult(taskList, result);
   }
 
   const taskByBlockId = new Map<string, Task>();
@@ -414,7 +460,7 @@ export async function resolveTaskHeadingGroups(taskList: Task[]): Promise<Map<st
 
     const unresolvedBlockTasks = blockTasks.filter(task => !result.has(task.id));
     if (unresolvedBlockTasks.length === 0) {
-      return result;
+      return finalizeTaskHeadingGroupResult(taskList, result);
     }
 
     const rows = await sql(`
@@ -554,7 +600,7 @@ export async function resolveTaskHeadingGroups(taskList: Task[]): Promise<Map<st
     }
   }
 
-  return result;
+  return finalizeTaskHeadingGroupResult(taskList, result);
 }
 
 export async function resolveTaskHeadingDropTarget(

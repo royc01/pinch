@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <Teleport to="body">
     <div
       v-if="show"
@@ -26,10 +26,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   show: boolean;
   position: { x: number; y: number };
-}>();
+  placement?: 'bottom' | 'top';
+}>(), {
+  placement: 'bottom'
+});
 
 const emit = defineEmits<{
   select: [value: string];
@@ -37,18 +40,21 @@ const emit = defineEmits<{
 }>();
 
 const statusOptions = [
-  { value: 'pending', label: '待办', background: '#fef3c7', color: '#f59e0b' },
-  { value: 'in-progress', label: '进行中', background: '#dbeafe', color: '#3b82f6' },
-  { value: 'delayed', label: '延迟', background: '#ffedd5', color: '#f97316' },
-  { value: 'completed', label: '已完成', background: '#d1fae5', color: '#10b981' },
-  { value: 'cancelled', label: '已取消', background: '#f3f4f6', color: '#9ca3af' }
+  { value: 'pending', label: '\u5f85\u5904\u7406', background: '#fef3c7', color: '#f59e0b' },
+  { value: 'in-progress', label: '\u8fdb\u884c\u4e2d', background: '#dbeafe', color: '#3b82f6' },
+  { value: 'delayed', label: '\u5ef6\u8fdf', background: '#ffedd5', color: '#f97316' },
+  { value: 'completed', label: '\u5df2\u5b8c\u6210', background: '#d1fae5', color: '#10b981' },
+  { value: 'cancelled', label: '\u5df2\u53d6\u6d88', background: '#f3f4f6', color: '#9ca3af' }
 ];
 
-const popoverStyle = computed(() => ({
-  left: `${props.position.x}px`,
-  top: `${props.position.y}px`,
-  transform: 'translateX(-50%)'
-}));
+const popoverStyle = computed(() => {
+  const isTopPlacement = props.placement === 'top';
+  return {
+    left: `${props.position.x}px`,
+    top: `${props.position.y}px`,
+    transform: isTopPlacement ? 'translate(-50%, -100%)' : 'translateX(-50%)'
+  };
+});
 
 function handleSelect(value: string) {
   emit('select', value);

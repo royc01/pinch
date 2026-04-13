@@ -1,9 +1,12 @@
 ﻿<template>
-    <div class="kanban-view">
+    <div ref="kanbanViewRef" class="kanban-view">
       <div class="kanban-header">
         <div class="kanban-header-view-module">
-          <div class="view-switcher" :class="{ 'mobile-view-switcher-only': isMobileFrontend }">
-            <template v-if="isMobileFrontend">
+          <div
+            class="view-switcher"
+            :class="{ 'mobile-view-switcher-only': isMobileFrontend || isCompactViewSwitcher }"
+          >
+            <template v-if="isMobileFrontend || isCompactViewSwitcher">
               <div ref="mobileViewSwitcherControlRef" class="mobile-view-switcher">
                 <button
                   type="button"
@@ -513,6 +516,7 @@
           column.type === 'status' ? `status-${column.status}` : '',
           column.type === 'group' ? 'group-column' : '',
           column.type === 'heading' ? 'heading-column' : '',
+          column.type === 'date' ? 'date-column' : '',
           column.type === 'action' ? 'action-column' : ''
         ]"
       >
@@ -686,6 +690,7 @@
                   :task="task"
                   variant="kanban"
                   :task-groups="taskGroups"
+                  :show-status-badge="kanbanGroupBy !== 'status'"
                   :completed="isTaskCompletedVisual(task)"
                   :draggable="!isMobileFrontend && kanbanSupportsDrag && !isKanbanBatchEditMode"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
@@ -865,6 +870,7 @@
             :reminder-custom-time="activeKanbanEditDraft.reminderCustomTime || ''"
             :reminder-text="kanbanEditorReminderText"
             :has-reminder="kanbanEditorHasReminder"
+            :status="activeKanbanEditDraft.status"
             :group-button-style="kanbanEditorGroupButtonStyle"
             :default-group-chip-color="defaultGroupChipColor"
             description-placeholder="添加任务描述..."
@@ -873,6 +879,7 @@
             @select-due="handleKanbanEditorDateSelect"
             @select-group="handleKanbanEditorGroupSelect"
             @select-reminder="handleKanbanEditorReminderSelect"
+            @select-status="handleKanbanEditorStatusSelect"
             @commit-description="handleKanbanEditorDescriptionCommit"
             @manage-groups="openTaskGroupDialog"
           />
@@ -992,9 +999,11 @@
       :notebooks="notebooks"
       :excluded-notebook-ids="excludedNotebookIds"
       :auto-recognize-task-date="autoRecognizeTaskDate"
+      :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
       :show-extra="false"
       @close="showTaskScopeDialog = false"
+      @global-recognize-date="handleGlobalRecognizeTaskDates"
       @save="handleTaskScopeSave"
     />
     <TaskGroupDialog
@@ -1084,19 +1093,22 @@ try {
 }
 const loading = ref(false);
 const showTaskScopeDialog = ref(false);
+const isGlobalDateRecognitionRunning = ref(false);
 const showTaskGroupDialog = ref(false);
 const taskGroupDialogAutoAdd = ref(false);
 const excludedNotebookIds = ref<string[]>([]);
 const skipSet = new Set<string>();
 const kanbanGroupModeOptions = [
-  { value: 'status', text: '按状态' },
-  { value: 'group', text: '按标签' },
-  { value: 'heading', text: '按标题' }
+  { value: 'status', text: '按状态分组' },
+  { value: 'date', text: '按日期分组' },
+  { value: 'group', text: '按标签分组' },
+  { value: 'heading', text: '按标题分组' }
 ] as const;
 const tableGroupModeOptions = [
-  { value: 'status', text: '不分类' },
-  { value: 'group', text: '按标签' },
-  { value: 'heading', text: '按标题' }
+  { value: 'status', text: '不分组' },
+  { value: 'date', text: '按日期分组' },
+  { value: 'group', text: '按标签分组' },
+  { value: 'heading', text: '按标题分组' }
 ] as const;
 type TaskViewMode = 'kanban' | 'table' | 'archive-table' | 'month' | 'week' | 'three-day' | 'day';
 const viewSwitcherOptions: Array<{ value: TaskViewMode; text: string; icon: string }> = [
@@ -1197,6 +1209,10 @@ const hiddenDocumentTabIds = ref(new Set<string>());
 const mobileViewSwitcherVisible = ref(false);
 const mobileViewSwitcherControlRef = ref<HTMLElement | null>(null);
 const mobileViewSwitcherPopoverRef = ref<HTMLElement | null>(null);
+const kanbanViewRef = ref<HTMLElement | null>(null);
+const isCompactViewSwitcher = ref(false);
+const COMPACT_VIEW_SWITCHER_BREAKPOINT = 980;
+let kanbanViewResizeObserver: ResizeObserver | null = null;
 
 type KanbanTaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
 type KanbanTaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
@@ -1277,6 +1293,7 @@ let kanbanEditorProtyle: Protyle | null = null;
 const kanbanEditorTaskId = ref<string | null>(null);
 const kanbanEditorDraft = ref<{
   taskId: string;
+  status: Task['status'];
   dueDate: string;
   description: string;
   reminderType?: TaskReminderType;
@@ -1284,7 +1301,7 @@ const kanbanEditorDraft = ref<{
   groupId: string;
   priority: Task['priority'];
 } | null>(null);
-const kanbanEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
+const kanbanEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | 'status' | null>(null);
 const kanbanEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
 const showKanbanTaskMoveDialog = ref(false);
 const isKanbanTaskMoveSubmitting = ref(false);
@@ -1361,16 +1378,18 @@ const TASK_GROUP_NONE_ID = '__none__';
 const defaultGroupChipColor = '#9aa0a6';
 const ADD_GROUP_COLUMN_ID = '__add-group__';
 const ADD_HEADING_COLUMN_ID = '__add-heading__';
+type KanbanDateGroupKey = 'overdue' | 'today' | 'thisWeek' | 'thisMonth' | 'other';
 
 type KanbanColumn = {
   id: string;
   title: string;
-  type: 'status' | 'group' | 'heading' | 'action';
+  type: 'status' | 'group' | 'heading' | 'date' | 'action';
   actionKind?: 'group-add' | 'heading-add';
   status?: Task['status'];
   groupId?: string;
   headingKey?: string;
   headingMeta?: TaskHeadingGroupMeta;
+  dateGroupKey?: KanbanDateGroupKey;
 };
 
 const statusColumns: KanbanColumn[] = [
@@ -1379,6 +1398,13 @@ const statusColumns: KanbanColumn[] = [
   { id: 'status-completed', status: 'completed', title: '已完成', type: 'status' },
   { id: 'status-delayed', status: 'delayed', title: '延迟', type: 'status' },
   { id: 'status-cancelled', status: 'cancelled', title: '已取消', type: 'status' }
+];
+const kanbanDateGroups: Array<{ key: KanbanDateGroupKey; title: string; dotColor: string }> = [
+  { key: 'overdue', title: '逾期', dotColor: '#ef4444' },
+  { key: 'today', title: '今日', dotColor: '#f59e0b' },
+  { key: 'thisWeek', title: '本周', dotColor: '#3b82f6' },
+  { key: 'thisMonth', title: '本月', dotColor: '#10b981' },
+  { key: 'other', title: '其他', dotColor: '#9ca3af' }
 ];
 
 const KANBAN_VIRTUAL_CARD_HEIGHT = 110;
@@ -1439,16 +1465,27 @@ const headingColumns = computed<KanbanColumn[]>(() => {
     return a.title.localeCompare(b.title, 'zh-CN');
   });
 });
+const dateColumns = computed<KanbanColumn[]>(() =>
+  kanbanDateGroups.map(group => ({
+    id: `date:${group.key}`,
+    title: group.title,
+    type: 'date',
+    dateGroupKey: group.key
+  }))
+);
 
 const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action', actionKind: 'group-add' };
 const addHeadingColumn: KanbanColumn = { id: ADD_HEADING_COLUMN_ID, title: '', type: 'action', actionKind: 'heading-add' };
-const kanbanSupportsDrag = computed(() => true);
+const kanbanSupportsDrag = computed(() => kanbanGroupBy.value !== 'date');
 const kanbanColumns = computed<KanbanColumn[]>(() => {
   if (kanbanGroupBy.value === 'group') {
     return [...groupColumns.value, addGroupColumn];
   }
   if (kanbanGroupBy.value === 'heading') {
     return [...headingColumns.value, addHeadingColumn];
+  }
+  if (kanbanGroupBy.value === 'date') {
+    return dateColumns.value;
   }
   return showCompletedTasks.value
     ? statusColumns
@@ -1804,6 +1841,11 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
 
   if (column.type === 'heading') {
     return { backgroundColor: 'var(--b3-theme-primary)' };
+  }
+
+  if (column.type === 'date') {
+    const dateMeta = kanbanDateGroups.find(group => group.key === column.dateGroupKey);
+    return { backgroundColor: dateMeta?.dotColor || '#9ca3af' };
   }
 
   return { backgroundColor: 'transparent' };
@@ -2811,6 +2853,43 @@ async function handleTaskScopeSave(
   await validateDocumentSelection();
 }
 
+async function handleGlobalRecognizeTaskDates(): Promise<void> {
+  if (isGlobalDateRecognitionRunning.value) {
+    return;
+  }
+
+  isGlobalDateRecognitionRunning.value = true;
+  try {
+    const result = await TaskRepository.recognizeDatesForUndatedTasks();
+    if (result.scanned === 0) {
+      await pushMsg('未找到未设定起止日期的任务', 2200);
+      return;
+    }
+
+    if (result.updated > 0) {
+      if (result.failed > 0) {
+        await pushMsg(`已写入 ${result.updated} 项日期，${result.failed} 项写入失败`, 3200);
+      } else {
+        await pushMsg(`已识别并写入 ${result.updated} 项任务日期`, 2200);
+      }
+      await loadTasks(true, { silent: true });
+      return;
+    }
+
+    if (result.recognized === 0) {
+      await pushMsg(`扫描 ${result.scanned} 项未设定任务，未识别到可写入日期`, 2800);
+      return;
+    }
+
+    await pushMsg(`识别到 ${result.recognized} 项日期，写入失败 ${result.failed} 项`, 3200);
+  } catch (error) {
+    console.error('[KanbanView] 全局识别任务日期失败:', error);
+    await pushMsg('全局识别任务日期失败，请稍后重试', 3200);
+  } finally {
+    isGlobalDateRecognitionRunning.value = false;
+  }
+}
+
 let eventUnsubscribers: Array<() => void> = [];
 let saveSettingsTimer: number | null = null;
 let fallbackRefreshTimer: number | null = null;
@@ -2844,12 +2923,103 @@ function shouldHideCompletedOnlyDocumentTabs(view: TaskViewMode): boolean {
   return !showCompletedTasks.value && (view === 'kanban' || view === 'table');
 }
 
+type DocumentOptionsTaskMatcher = (task: Task) => boolean;
+
+function matchesDateViewDocumentCandidate(task: Task, notebookId: string): boolean {
+  if (task.type !== 'block') return false;
+  if (task.archived) return false;
+  if (!task.startDate && !task.dueDate) return false;
+  if (notebookId !== 'all' && task.notebookId !== notebookId) {
+    return false;
+  }
+  return true;
+}
+
+function matchesKanbanFiltersByDocumentScope(task: Task, includeDocumentFilter: boolean): boolean {
+  if (!task.title || task.title.trim() === '') return false;
+  if (task.type !== 'block') return false;
+  if (task.archived) return false;
+  if (!task.isVirtual && task.repeatSeriesId && todayVirtualSeriesIds.value.has(task.repeatSeriesId)) {
+    return false;
+  }
+  if (task.isVirtual && !isVirtualTaskForToday(task)) return false;
+  if (kanbanFilterType.value !== 'all' && task.notebookId !== kanbanFilterType.value) {
+    return false;
+  }
+  if (includeDocumentFilter && kanbanFilterDocument.value !== 'all' && task.rootId !== kanbanFilterDocument.value) {
+    return false;
+  }
+  if (!showCompletedTasks.value && isTaskCompletedVisual(task)) {
+    return false;
+  }
+  if (activeKanbanStatusFilters.value.length > 0) {
+    const status = getTaskVisualStatus(task);
+    if (!activeKanbanStatusFilters.value.includes(status)) {
+      return false;
+    }
+  }
+  if (activeKanbanPriorityFilters.value.length > 0 && !activeKanbanPriorityFilters.value.includes(task.priority)) {
+    return false;
+  }
+  if (activeKanbanGroupFilters.value.length > 0) {
+    const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+    const resolvedGroupId = groupId || TASK_GROUP_NONE_ID;
+    if (!activeKanbanGroupFilters.value.includes(resolvedGroupId)) {
+      return false;
+    }
+  }
+  if (activeKanbanDueFilters.value.length > 0 && !activeKanbanDueFilters.value.some(filter => matchesKanbanDueFilter(task, filter))) {
+    return false;
+  }
+  if (activeKanbanUpdatedFilters.value.length > 0 && !activeKanbanUpdatedFilters.value.some(filter => matchesKanbanUpdatedFilter(task, filter))) {
+    return false;
+  }
+  if (activeKanbanExtraFilters.value.length > 0) {
+    const wantsDescription = activeKanbanExtraFilters.value.includes('hasDescription');
+    const wantsSubtasks = activeKanbanExtraFilters.value.includes('hasSubtasks');
+    const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
+    const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
+
+    if (wantsDescription && wantsSubtasks) {
+      if (!hasDescription && !hasSubtasks) {
+        return false;
+      }
+    } else if (wantsDescription && !hasDescription) {
+      return false;
+    } else if (wantsSubtasks && !hasSubtasks) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function getDocumentTabTaskMatcher(view: TaskViewMode): DocumentOptionsTaskMatcher {
+  switch (view) {
+    case 'kanban':
+      return (task) => matchesKanbanFiltersByDocumentScope(task, false);
+    case 'table':
+      return (task) => matchesTableFiltersByArchivedState(task, false);
+    case 'archive-table':
+      return (task) => matchesTableFiltersByArchivedState(task, true);
+    case 'month':
+      return (task) => matchesDateViewDocumentCandidate(task, monthFilterType.value);
+    case 'week':
+      return (task) => matchesDateViewDocumentCandidate(task, weekFilterType.value);
+    case 'three-day':
+    case 'day':
+      return (task) => matchesDateViewDocumentCandidate(task, dayFilterType.value);
+    default:
+      return () => true;
+  }
+}
+
 function getDocumentEntriesByNotebook(
   notebookId: string,
-  options: { includeNotebookName?: boolean; excludeCompletedOnlyDocs?: boolean } = {}
+  options: { includeNotebookName?: boolean; excludeCompletedOnlyDocs?: boolean; taskMatcher?: DocumentOptionsTaskMatcher } = {}
 ): Array<{ id: string; name: string; notebookId: string }> {
   const includeNotebookName = options.includeNotebookName === true;
   const excludeCompletedOnlyDocs = options.excludeCompletedOnlyDocs === true;
+  const taskMatcher = typeof options.taskMatcher === 'function' ? options.taskMatcher : null;
   const notebookNameById = includeNotebookName
     ? new Map(notebooks.value.map(notebook => [notebook.id, notebook.name]))
     : null;
@@ -2863,6 +3033,9 @@ function getDocumentEntriesByNotebook(
       continue;
     }
     if (notebookId !== 'all' && taskNotebookId !== notebookId) {
+      continue;
+    }
+    if (taskMatcher && !taskMatcher(task)) {
       continue;
     }
 
@@ -2904,10 +3077,11 @@ function getDocumentEntriesByNotebook(
 
 function getDocumentIdsByNotebook(
   notebookId: string,
-  options: { excludeCompletedOnlyDocs?: boolean } = {}
+  options: { excludeCompletedOnlyDocs?: boolean; taskMatcher?: DocumentOptionsTaskMatcher } = {}
 ): string[] {
   return getDocumentEntriesByNotebook(notebookId, {
-    excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs
+    excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs,
+    taskMatcher: options.taskMatcher
   }).map(doc => doc.id);
 }
 
@@ -3017,13 +3191,14 @@ function scheduleTaskDocumentIconRefresh(delay = 80): void {
 
 function toFilterDocumentOptions(
   notebookId: string,
-  options: { excludeCompletedOnlyDocs?: boolean } = {}
+  options: { excludeCompletedOnlyDocs?: boolean; taskMatcher?: DocumentOptionsTaskMatcher } = {}
 ): Array<{ value: string; text: string }> {
   return [
     { value: 'all', text: '全部' },
     ...getDocumentEntriesByNotebook(notebookId, {
       includeNotebookName: notebookId === 'all',
-      excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs
+      excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs,
+      taskMatcher: options.taskMatcher
     }).map(doc => ({
       value: doc.id,
       text: doc.name
@@ -3039,7 +3214,8 @@ function toQuickCreateDocumentOptions(notebookId: string): Array<{ value: string
 }
 
 const documentOptions = computed(() => toFilterDocumentOptions(getCurrentFilterNotebookId(), {
-  excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs(currentView.value)
+  excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs(currentView.value),
+  taskMatcher: getDocumentTabTaskMatcher(currentView.value)
 }));
 const quickCreateDocumentOptions = computed(() => toQuickCreateDocumentOptions(quickCreateNotebookId.value));
 const visibleDocumentOptions = computed(() =>
@@ -3266,6 +3442,15 @@ function closeMobileViewSwitcher(): void {
   mobileViewSwitcherVisible.value = false;
 }
 
+function updateCompactViewSwitcherMode(): void {
+  if (isMobileFrontend) {
+    isCompactViewSwitcher.value = false;
+    return;
+  }
+  const containerWidth = kanbanViewRef.value?.clientWidth || window.innerWidth || 0;
+  isCompactViewSwitcher.value = containerWidth > 0 && containerWidth <= COMPACT_VIEW_SWITCHER_BREAKPOINT;
+}
+
 function closeMobileTableSearch(force = false): void {
   if (!isMobileFrontend) {
     return;
@@ -3348,9 +3533,14 @@ function toggleDocumentTabVisibility(value: string): void {
   }
 }
 
-function setupFilterTypeWatcher(typeRef: Ref<string>, documentRef: Ref<string>): void {
+function setupFilterTypeWatcher(
+  typeRef: Ref<string>,
+  documentRef: Ref<string>,
+  taskMatcher?: () => DocumentOptionsTaskMatcher
+): void {
   watch(typeRef, (newType) => {
-    const options = toFilterDocumentOptions(newType);
+    const matcher = taskMatcher ? taskMatcher() : undefined;
+    const options = toFilterDocumentOptions(newType, { taskMatcher: matcher });
     const allowedValues = new Set(options.map(option => option.value));
     if (!allowedValues.has(documentRef.value)) {
       documentRef.value = 'all';
@@ -3358,15 +3548,16 @@ function setupFilterTypeWatcher(typeRef: Ref<string>, documentRef: Ref<string>):
   });
 }
 
-setupFilterTypeWatcher(kanbanFilterType, kanbanFilterDocument);
-setupFilterTypeWatcher(tableFilterType, tableFilterDocument);
-setupFilterTypeWatcher(monthFilterType, monthFilterDocument);
-setupFilterTypeWatcher(weekFilterType, weekFilterDocument);
-setupFilterTypeWatcher(dayFilterType, dayFilterDocument);
+setupFilterTypeWatcher(kanbanFilterType, kanbanFilterDocument, () => getDocumentTabTaskMatcher('kanban'));
+setupFilterTypeWatcher(tableFilterType, tableFilterDocument, () => getDocumentTabTaskMatcher('table'));
+setupFilterTypeWatcher(monthFilterType, monthFilterDocument, () => getDocumentTabTaskMatcher('month'));
+setupFilterTypeWatcher(weekFilterType, weekFilterDocument, () => getDocumentTabTaskMatcher('week'));
+setupFilterTypeWatcher(dayFilterType, dayFilterDocument, () => getDocumentTabTaskMatcher('day'));
 
 const ensureTableDocumentSelection = () => {
   const options = toFilterDocumentOptions(tableFilterType.value, {
-    excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('table')
+    excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('table'),
+    taskMatcher: getDocumentTabTaskMatcher('table')
   });
   const optionValues = new Set(options.map(option => option.value));
   if (!optionValues.has(tableFilterDocument.value)) {
@@ -3619,15 +3810,6 @@ function isTaskCompletedVisual(task: Task): boolean {
 }
 
 function compareTasksLikeSidebar(a: Task, b: Task, todayStart: number, domOrderMap?: Map<string, number>): number {
-  const isAPinned = a.pinned === true;
-  const isBPinned = b.pinned === true;
-  if (isAPinned && !isBPinned) {
-    return -1;
-  }
-  if (!isAPinned && isBPinned) {
-    return 1;
-  }
-
   const isACompleted = getTaskVisualStatus(a) === 'completed';
   const isBCompleted = getTaskVisualStatus(b) === 'completed';
 
@@ -3636,6 +3818,15 @@ function compareTasksLikeSidebar(a: Task, b: Task, todayStart: number, domOrderM
   }
   if (!isACompleted && isBCompleted) {
     return -1;
+  }
+
+  const isAPinned = a.pinned === true;
+  const isBPinned = b.pinned === true;
+  if (isAPinned && !isBPinned) {
+    return -1;
+  }
+  if (!isAPinned && isBPinned) {
+    return 1;
   }
 
   if (isACompleted && isBCompleted) {
@@ -4038,7 +4229,7 @@ function toggleSelectAllVisibleKanbanTasks(): void {
 }
 
 function getKanbanColumnSelectableTaskIds(column: KanbanColumn): string[] {
-  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading') {
+  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading' && column.type !== 'date') {
     return [];
   }
   return getTasksForColumn(column).map(task => task.id);
@@ -4490,61 +4681,7 @@ function matchesTableSearch(task: Task): boolean {
 }
 
 function matchesKanbanFilters(task: Task): boolean {
-  if (!task.title || task.title.trim() === '') return false;
-  if (task.type !== 'block') return false;
-  if (task.archived) return false;
-  if (!task.isVirtual && task.repeatSeriesId && todayVirtualSeriesIds.value.has(task.repeatSeriesId)) {
-    return false;
-  }
-  if (task.isVirtual && !isVirtualTaskForToday(task)) return false;
-  if (kanbanFilterType.value !== 'all' && task.notebookId !== kanbanFilterType.value) {
-    return false;
-  }
-  if (kanbanFilterDocument.value !== 'all' && task.rootId !== kanbanFilterDocument.value) {
-    return false;
-  }
-  if (!showCompletedTasks.value && isTaskCompletedVisual(task)) {
-    return false;
-  }
-  if (activeKanbanStatusFilters.value.length > 0) {
-    const status = getTaskVisualStatus(task);
-    if (!activeKanbanStatusFilters.value.includes(status)) {
-      return false;
-    }
-  }
-  if (activeKanbanPriorityFilters.value.length > 0 && !activeKanbanPriorityFilters.value.includes(task.priority)) {
-    return false;
-  }
-  if (activeKanbanGroupFilters.value.length > 0) {
-    const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-    const resolvedGroupId = groupId || TASK_GROUP_NONE_ID;
-    if (!activeKanbanGroupFilters.value.includes(resolvedGroupId)) {
-      return false;
-    }
-  }
-  if (activeKanbanDueFilters.value.length > 0 && !activeKanbanDueFilters.value.some(filter => matchesKanbanDueFilter(task, filter))) {
-    return false;
-  }
-  if (activeKanbanUpdatedFilters.value.length > 0 && !activeKanbanUpdatedFilters.value.some(filter => matchesKanbanUpdatedFilter(task, filter))) {
-    return false;
-  }
-  if (activeKanbanExtraFilters.value.length > 0) {
-    const wantsDescription = activeKanbanExtraFilters.value.includes('hasDescription');
-    const wantsSubtasks = activeKanbanExtraFilters.value.includes('hasSubtasks');
-    const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
-    const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
-
-    if (wantsDescription && wantsSubtasks) {
-      if (!hasDescription && !hasSubtasks) {
-        return false;
-      }
-    } else if (wantsDescription && !hasDescription) {
-      return false;
-    } else if (wantsSubtasks && !hasSubtasks) {
-      return false;
-    }
-  }
-  return true;
+  return matchesKanbanFiltersByDocumentScope(task, true);
 }
 
 function matchesTableFiltersByArchivedState(task: Task, archivedOnly: boolean): boolean {
@@ -4685,6 +4822,62 @@ const kanbanTasksByHeading = computed<Record<string, Task[]>>(() => {
 
   return grouped;
 });
+const kanbanTasksByDate = computed<Record<KanbanDateGroupKey, Task[]>>(() => {
+  const grouped: Record<KanbanDateGroupKey, Task[]> = {
+    overdue: [],
+    today: [],
+    thisWeek: [],
+    thisMonth: [],
+    other: []
+  };
+  const filteredTasks = tasks.value.filter(task => matchesKanbanFilters(task));
+  const dayMs = 24 * 60 * 60 * 1000;
+  const today = getStartOfDay(new Date());
+  const todayStart = today.getTime();
+  const tomorrowStart = todayStart + dayMs;
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).getTime();
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 1).getTime();
+  const weekStartTimestamp = getStartOfWeekMonday(today).getTime();
+  const weekEnd = weekStartTimestamp + dayMs * 7;
+  const todayVirtualSeriesIdSet = new Set<string>();
+
+  for (const task of filteredTasks) {
+    if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
+      todayVirtualSeriesIdSet.add(task.repeatSeriesId);
+    }
+  }
+
+  for (const task of filteredTasks) {
+    const dueTimestamp = getTaskDueDateTimestamp(task);
+    const groupingTimestamp = dueTimestamp ?? getTaskDateTimestamp(task.createdAt);
+    const repeatSeriesId = typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+    const hasTodayVirtualInstance = !!repeatSeriesId && todayVirtualSeriesIdSet.has(repeatSeriesId);
+    let dateGroupKey: KanbanDateGroupKey = 'other';
+
+    if (hasTodayVirtualInstance) {
+      dateGroupKey = 'today';
+    } else if (dueTimestamp !== null && dueTimestamp < todayStart) {
+      dateGroupKey = 'overdue';
+    } else if (groupingTimestamp !== null) {
+      if (groupingTimestamp >= todayStart && groupingTimestamp < tomorrowStart) {
+        dateGroupKey = 'today';
+      } else if (groupingTimestamp >= weekStartTimestamp && groupingTimestamp < weekEnd) {
+        dateGroupKey = 'thisWeek';
+      } else if (groupingTimestamp >= monthStart && groupingTimestamp < monthEnd) {
+        dateGroupKey = 'thisMonth';
+      }
+    }
+
+    grouped[dateGroupKey].push(task);
+  }
+
+  const sortContext = createSidebarSortContext();
+  for (const list of Object.values(grouped)) {
+    sortTasksLikeSidebar(list, sortContext);
+  }
+
+  return grouped;
+});
 
 function getFilteredTasksForStatus(status?: string): Task[] {
   if (!status) return [];
@@ -4698,11 +4891,15 @@ function getTasksForColumn(column: KanbanColumn): Task[] {
   if (column.type === 'heading') {
     return kanbanTasksByHeading.value[column.id] || [];
   }
+  if (column.type === 'date') {
+    const dateGroupKey = column.dateGroupKey;
+    return dateGroupKey ? (kanbanTasksByDate.value[dateGroupKey] || []) : [];
+  }
   return kanbanTasksByGroup.value[column.id] || [];
 }
 
 function shouldUseKanbanVirtualList(column: KanbanColumn, taskCount: number): boolean {
-  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading') {
+  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading' && column.type !== 'date') {
     return false;
   }
   if (taskCount <= KANBAN_VIRTUAL_THRESHOLD) {
@@ -5198,7 +5395,8 @@ async function validateDocumentSelection() {
 
   if (kanbanFilterDocument.value !== 'all') {
     const availableDocIds = getDocumentIdsByNotebook(kanbanFilterType.value, {
-      excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('kanban')
+      excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('kanban'),
+      taskMatcher: getDocumentTabTaskMatcher('kanban')
     });
     if (!availableDocIds.includes(kanbanFilterDocument.value)) {
       kanbanFilterDocument.value = 'all';
@@ -5208,7 +5406,8 @@ async function validateDocumentSelection() {
 
   if (tableFilterDocument.value !== 'all') {
     const availableDocIds = getDocumentIdsByNotebook(tableFilterType.value, {
-      excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('table')
+      excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('table'),
+      taskMatcher: getDocumentTabTaskMatcher('table')
     });
     if (!availableDocIds.includes(tableFilterDocument.value)) {
       tableFilterDocument.value = 'all';
@@ -5217,7 +5416,9 @@ async function validateDocumentSelection() {
   }
 
   if (monthFilterDocument.value !== 'all') {
-    const availableDocIds = getDocumentIdsByNotebook(monthFilterType.value);
+    const availableDocIds = getDocumentIdsByNotebook(monthFilterType.value, {
+      taskMatcher: getDocumentTabTaskMatcher('month')
+    });
     if (!availableDocIds.includes(monthFilterDocument.value)) {
       monthFilterDocument.value = 'all';
       hasChanges = true;
@@ -5225,7 +5426,9 @@ async function validateDocumentSelection() {
   }
 
   if (weekFilterDocument.value !== 'all') {
-    const availableDocIds = getDocumentIdsByNotebook(weekFilterType.value);
+    const availableDocIds = getDocumentIdsByNotebook(weekFilterType.value, {
+      taskMatcher: getDocumentTabTaskMatcher('week')
+    });
     if (!availableDocIds.includes(weekFilterDocument.value)) {
       weekFilterDocument.value = 'all';
       hasChanges = true;
@@ -5233,7 +5436,9 @@ async function validateDocumentSelection() {
   }
 
   if (dayFilterDocument.value !== 'all') {
-    const availableDocIds = getDocumentIdsByNotebook(dayFilterType.value);
+    const availableDocIds = getDocumentIdsByNotebook(dayFilterType.value, {
+      taskMatcher: getDocumentTabTaskMatcher('day')
+    });
     if (!availableDocIds.includes(dayFilterDocument.value)) {
       dayFilterDocument.value = 'all';
       hasChanges = true;
@@ -5562,75 +5767,99 @@ async function isSubtaskBlockId(blockId: string): Promise<boolean> {
   }
 }
 
-function parseTaskCompleted(markdown: string, blockId: string): boolean | null {
-  const firstLine = markdown
-    .split('\n')
-    .map(line => line.trim())
-    .find(line => line.length > 0);
-  if (firstLine) {
-    const match = firstLine.match(/\[(x|X| )\]/);
-    if (match) {
-      return match[1].toLowerCase() === 'x';
+function getTaskActionElement(root: Element | null, ownerId?: string): Element | null {
+  if (!root) return null;
+  const matchesOwner = (action: Element): boolean => {
+    if (!ownerId) return true;
+    const owner = action.closest('[data-node-id]');
+    return owner?.getAttribute('data-node-id') === ownerId;
+  };
+
+  if (root.classList.contains('protyle-action--task') && matchesOwner(root)) {
+    return root;
+  }
+
+  const actions = root.querySelectorAll('.protyle-action--task');
+  for (const action of actions) {
+    if (matchesOwner(action)) {
+      return action;
     }
   }
 
-  const getTaskActionElement = (root: Element | null, ownerId?: string): Element | null => {
-    if (!root) return null;
-    const matchesOwner = (action: Element): boolean => {
-      if (!ownerId) return true;
-      const owner = action.closest('[data-node-id]');
-      return owner?.getAttribute('data-node-id') === ownerId;
-    };
+  const fallbackRoot = root.closest('.protyle-task');
+  const fallback = fallbackRoot?.querySelector('.protyle-action--task');
+  if (fallback && matchesOwner(fallback)) {
+    return fallback;
+  }
 
-    if (root.classList.contains('protyle-action--task') && matchesOwner(root)) {
-      return root;
-    }
+  return null;
+}
 
-    const actions = root.querySelectorAll('.protyle-action--task');
-    for (const action of actions) {
-      if (matchesOwner(action)) {
-        return action;
-      }
-    }
-
-    const fallbackRoot = root.closest('.protyle-task');
-    const fallback = fallbackRoot?.querySelector('.protyle-action--task');
-    if (fallback && matchesOwner(fallback)) {
-      return fallback;
-    }
-
+function parseTaskCompletedByMarker(marker: string | null): boolean | null {
+  if (marker === null) {
     return null;
-  };
+  }
+  return marker.trim().length > 0;
+}
 
+function parseTaskCompletedFromElement(root: Element | null, ownerId?: string): boolean | null {
+  if (!root) return null;
+
+  const ownerElement = root.getAttribute('data-type') === 'NodeListItem'
+    ? root
+    : (root.closest('[data-type="NodeListItem"]') || root);
+  const byMarker = parseTaskCompletedByMarker(ownerElement.getAttribute('data-task'));
+  if (byMarker !== null) {
+    return byMarker;
+  }
+
+  const action = getTaskActionElement(ownerElement, ownerId);
+  if (!action) {
+    return null;
+  }
+  const svg = action.querySelector('use');
+  const href = svg?.getAttribute('xlink:href') || svg?.getAttribute('href') || '';
+  return href ? href === '#iconCheck' : null;
+}
+
+function getLiveTaskElement(blockId: string): Element | null {
   const selectors = [
     `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
     `.protyle [data-node-id="${blockId}"]`,
     `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
     `[data-node-id="${blockId}"]`
   ];
-  let currentElement: Element | null = null;
   for (const selector of selectors) {
-    currentElement = document.querySelector(selector);
-    if (currentElement) {
-      break;
+    const matched = document.querySelector(selector);
+    if (matched) {
+      return matched;
     }
-  }
-  if (currentElement) {
-    const currentAction = getTaskActionElement(currentElement, blockId);
-    if (!currentAction) {
-      return null;
-    }
-    const currentSvg = currentAction.querySelector('use');
-    const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
-    if (currentHref) {
-      return currentHref === '#iconCheck';
-    }
-    return null;
   }
   return null;
 }
 
-async function fastSyncTaskFromMarkdown(
+function getTaskElementFromDoc(doc: Document, blockId: string): Element | null {
+  return doc.querySelector(`[data-node-id="${blockId}"][data-type="NodeListItem"]`)
+    || doc.querySelector(`[data-node-id="${blockId}"]`);
+}
+
+function parseTaskCompleted(blockId: string, parsedDoc?: Document | null): boolean | null {
+  const liveCompleted = parseTaskCompletedFromElement(getLiveTaskElement(blockId), blockId);
+  if (liveCompleted !== null) {
+    return liveCompleted;
+  }
+
+  if (parsedDoc) {
+    const domCompleted = parseTaskCompletedFromElement(getTaskElementFromDoc(parsedDoc, blockId), blockId);
+    if (domCompleted !== null) {
+      return domCompleted;
+    }
+  }
+
+  return null;
+}
+
+async function fastSyncTaskFromDom(
   blockIds: string[],
   taskIndexMap: Map<string, number>,
   subtaskNodeMap: Map<string, SubtaskLookup>
@@ -5658,22 +5887,24 @@ async function fastSyncTaskFromMarkdown(
 
   const blockSnapshots = await Promise.all(validBlockIds.map(async (blockId) => {
     try {
-      const blockData = await getBlockKramdown(blockId);
-      const markdown = typeof blockData === 'string' ? blockData : blockData?.kramdown || '';
-      return { blockId, markdown, error: null as unknown };
+      const blockData = await getBlockDOM(blockId);
+      const dom = typeof blockData?.dom === 'string' ? blockData.dom : '';
+      return { blockId, dom, error: null as unknown };
     } catch (error) {
-      return { blockId, markdown: '', error };
+      return { blockId, dom: '', error };
     }
   }));
+  const parser = new DOMParser();
 
   for (const snapshot of blockSnapshots) {
-    const { blockId, markdown, error } = snapshot;
+    const { blockId, dom, error } = snapshot;
     if (error) {
       unresolved.push(blockId);
       continue;
     }
 
-    const completed = parseTaskCompleted(markdown, blockId);
+    const parsedDoc = dom ? parser.parseFromString(dom, 'text/html') : null;
+    const completed = parseTaskCompleted(blockId, parsedDoc);
     if (completed === null) {
       unresolved.push(blockId);
       continue;
@@ -5703,9 +5934,9 @@ async function fastSyncTaskFromMarkdown(
         delete task.completedAt;
         changed = true;
       }
+      patchedParentStatuses.set(blockId, nextStatus);
       if (changed) {
         task.updatedAt = new Date().toISOString();
-        patchedParentStatuses.set(blockId, nextStatus);
         hasPatched = true;
       }
       continue;
@@ -5751,7 +5982,7 @@ async function incrementalUpdateTasks(
     }
 
     const { taskIndexMap, subtaskNodeMap } = buildTaskLookup();
-    const { patchedParentStatuses, hasPatched } = await fastSyncTaskFromMarkdown(
+    const { patchedParentStatuses, hasPatched } = await fastSyncTaskFromDom(
       scopedBlockIds,
       taskIndexMap,
       subtaskNodeMap
@@ -6136,6 +6367,15 @@ async function handleKanbanEditorReminderSelect(value: TaskReminderSelection): P
   );
 }
 
+async function handleKanbanEditorStatusSelect(status: Task['status']): Promise<void> {
+  if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) {
+    return;
+  }
+  activeKanbanEditDraft.value.status = status;
+  await handleStatusUpdate(activeKanbanEditTask.value, status);
+  invalidateTableFilters();
+}
+
 function syncKanbanMoveSelectedDocument(preferredDocumentId?: string): void {
   const preferredId = typeof preferredDocumentId === 'string' ? preferredDocumentId.trim() : '';
   if (preferredId && kanbanMoveDocuments.value.some(doc => doc.id === preferredId)) {
@@ -6436,6 +6676,7 @@ function handleKanbanEditorKeydown(event: KeyboardEvent): void {
 }
 
 function handleKanbanEditorViewportChange(): void {
+  updateCompactViewSwitcherMode();
   if (kanbanEditorVisible.value) {
     clampKanbanEditorPosition();
   }
@@ -6575,6 +6816,7 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
   const normalizedReminder = normalizeTaskReminderSelection(targetTask);
   kanbanEditorDraft.value = {
     taskId: targetTask.id,
+    status: targetTask.status || 'pending',
     dueDate: typeof targetTask.dueDate === 'string' ? targetTask.dueDate : '',
     description: typeof targetTask.description === 'string' ? targetTask.description : '',
     reminderType: normalizedReminder.reminderType,
@@ -7911,12 +8153,7 @@ async function handleStatusDrop(targetStatus: Task['status']) {
       await setBlockAttrs(task.blockId, {
         'custom-task-status': targetStatus
       });
-      
-      if (targetStatus === 'completed') {
-        await updateTaskMarkdown(task.blockId, true);
-      } else if (wasCompleted) {
-        await updateTaskMarkdown(task.blockId, false);
-      }
+      await updateTaskMarkdown(task.blockId, targetStatus === 'completed');
     }
     if (!wasCompleted && targetStatus === 'completed' && taskCompletionSoundEnabled.value) {
       playTaskCompletionSound();
@@ -8019,6 +8256,23 @@ onMounted(async () => {
   document.addEventListener('mousedown', handleKanbanEditorOutsideClick);
   window.addEventListener('keydown', handleKanbanEditorKeydown);
   window.addEventListener('resize', handleKanbanEditorViewportChange);
+  nextTick(() => {
+    updateCompactViewSwitcherMode();
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const container = kanbanViewRef.value;
+    if (!container) {
+      return;
+    }
+    if (kanbanViewResizeObserver) {
+      kanbanViewResizeObserver.disconnect();
+    }
+    kanbanViewResizeObserver = new ResizeObserver(() => {
+      updateCompactViewSwitcherMode();
+    });
+    kanbanViewResizeObserver.observe(container);
+  });
 });
 
 onUnmounted(() => {
@@ -8043,6 +8297,10 @@ onUnmounted(() => {
   document.removeEventListener('mousedown', handleKanbanEditorOutsideClick);
   window.removeEventListener('keydown', handleKanbanEditorKeydown);
   window.removeEventListener('resize', handleKanbanEditorViewportChange);
+  if (kanbanViewResizeObserver) {
+    kanbanViewResizeObserver.disconnect();
+    kanbanViewResizeObserver = null;
+  }
   closeKanbanEditor();
   removeKanbanBatchLassoListeners();
   resetKanbanBatchLasso();

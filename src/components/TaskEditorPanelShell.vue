@@ -322,9 +322,9 @@ function handlePriorityClick(event: MouseEvent): void {
 }
 
 .task-editor-priority-indicator {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -339,16 +339,17 @@ function handlePriorityClick(event: MouseEvent): void {
 .task-editor-sidebar-archive,
 .task-editor-sidebar-delete,
 .task-editor-sidebar-close {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--b3-theme-on-background);
   background: transparent;
+  padding: 0;
 }
 
 .task-editor-sidebar-move:hover {

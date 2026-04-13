@@ -86,6 +86,7 @@
                       v-for="task in getExpandedTasksForDay(day, week)"
                       :key="`expanded-${day.key}-${task.id}`"
                       class="day-expanded-chip"
+                      :title="stripHtml(task.title)"
                       :style="getExpandedTaskChipStyle(task)"
                       :class="{ 'task-completed': task.status === 'completed' }"
                       @contextmenu="handleContextMenu($event, task)"
@@ -109,6 +110,7 @@
                 v-for="task in getVisibleTasksForWeek(week)" 
                 :key="task.id"
                 class="task-chip"
+                :title="stripHtml(task.title)"
                 :class="{ 'task-completed': task.status === 'completed' }"
                 :style="getTaskStyle(task, week)"
                 @contextmenu="handleContextMenu($event, task)"
@@ -131,7 +133,12 @@
                     <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                   </span>
                   <span class="task-title-text">{{ stripHtml(task.title) }}</span>
-                  <span v-if="task.priority !== 'none'" class="task-priority-badge" :class="`priority-${task.priority}`">
+                  <span
+                    v-if="task.priority !== 'none'"
+                    class="task-priority-badge"
+                    :class="`priority-${task.priority}`"
+                    :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                  >
                     <Icon name="flag" width="10" height="10" />
                   </span>
                   <span class="task-jump-btn" @click.stop="handleTaskClick(task)">
@@ -187,7 +194,6 @@ import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
 import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
-import { eventBus, Events } from '@/utils/eventBus';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
@@ -310,8 +316,7 @@ const expandedDayKeys = ref<Set<string>>(new Set());
 const taskSyncGuard = useTaskSyncGuard(localTasks);
 const {
   upsertTask: upsertLocalTask,
-  patchTask: patchLocalTask,
-  removeTask: removeLocalTask
+  patchTask: patchLocalTask
 } = useTaskLocalMutations(localTasks);
 const CREATE_SELECTION_THRESHOLD_PX = 8;
 const createSelection = ref<{
@@ -1262,131 +1267,6 @@ async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
     await TaskRepository.setTaskRepeatRule(task, frequency);
     hideContextMenu();
   } catch (error) {
-  }
-}
-
-async function toggleTaskArchive(task: Task): Promise<void> {
-  if (!task || task.isVirtual) {
-    hideContextMenu();
-    return;
-  }
-
-  const isArchived = task.archived === true;
-  const repeatSeriesId = task.repeatSeriesId;
-
-  try {
-    if (isArchived) {
-      await TaskRepository.unarchiveTask(task.id);
-      if (task.blockId) {
-        eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
-      }
-      patchLocalTask(task.id, {
-        archived: false,
-        archivedAt: undefined,
-        archiveReason: undefined
-      });
-    } else {
-      await TaskRepository.archiveTask(task.id, 'manual');
-      if (task.blockId) {
-        eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
-      }
-      pendingDeletion.value.add(task.id);
-      removeLocalTask(task.id);
-      if (repeatSeriesId) {
-        const virtualTaskIds = localTasks.value
-          .filter(item => item.isVirtual && item.repeatSeriesId === repeatSeriesId)
-          .map(item => item.id);
-        virtualTaskIds.forEach((id) => {
-          pendingDeletion.value.add(id);
-          removeLocalTask(id);
-        });
-      }
-    }
-  } catch {
-  }
-
-  hideContextMenu();
-}
-
-async function deleteTask(task: Task) {
-  const seriesId = task.repeatSeriesId;
-  const isRepeatTask = !!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-
-  if (isRepeatTask) {
-    const templateTask = !task.isVirtual
-      ? task
-      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
-
-    try {
-      await TaskRepository.setTaskRepeatRule(templateTask || task, 'none');
-    } catch (error) {
-    }
-
-    if (seriesId) {
-      const virtualTaskIds = localTasks.value
-        .filter(item => item.isVirtual && item.repeatSeriesId === seriesId)
-        .map(item => item.id);
-      virtualTaskIds.forEach((id) => {
-        pendingDeletion.value.add(id);
-        removeLocalTask(id);
-      });
-    }
-
-    const targetTask = templateTask || (!task.isVirtual ? task : null);
-    if (targetTask) {
-      pendingDeletion.value.add(targetTask.id);
-      removeLocalTask(targetTask.id);
-
-      const updatedTask = {
-        ...targetTask,
-        startDate: null,
-        dueDate: null,
-        startTime: undefined,
-        dueTime: undefined,
-        repeatFrequency: 'none' as RepeatFrequency,
-        repeatSeriesId: undefined,
-        repeatInstanceDate: undefined,
-        isVirtual: false
-      };
-      emitTaskDateChanged(updatedTask);
-
-      if (targetTask.type === 'block' && targetTask.blockId) {
-        setBlockAttrs(targetTask.blockId, {
-          'custom-task-start-date': '',
-          'custom-task-due-date': '',
-          'custom-task-start-time': '',
-          'custom-task-due-time': ''
-        }).catch(() => {});
-      }
-    }
-
-    hideContextMenu();
-    return;
-  }
-
-  pendingDeletion.value.add(task.id);
-  
-  removeLocalTask(task.id);
-  
-  const updatedTask = {
-    ...task,
-    startDate: null,
-    dueDate: null,
-    startTime: undefined,
-    dueTime: undefined
-  };
-  
-  emitTaskDateChanged(updatedTask);
-  
-  hideContextMenu();
-  
-  if (task.type === 'block' && task.blockId) {
-    setBlockAttrs(task.blockId, {
-      'custom-task-start-date': '',
-      'custom-task-due-date': '',
-      'custom-task-start-time': '',
-      'custom-task-due-time': ''
-    }).catch(() => {});
   }
 }
 

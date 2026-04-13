@@ -307,6 +307,7 @@
               :reminder-custom-time="activeTaskEditDraft.reminderCustomTime || ''"
               :reminder-text="taskEditorReminderText"
               :has-reminder="taskEditorHasReminder"
+              :status="activeTaskEditDraft.status"
               :group-button-style="taskEditorGroupButtonStyle"
               :default-group-chip-color="defaultGroupChipColor"
               description-placeholder="添加任务描述..."
@@ -315,6 +316,7 @@
               @select-due="handleTaskEditorDateSelect"
               @select-group="selectTaskEditorGroup"
               @select-reminder="handleTaskEditorReminderSelect"
+              @select-status="handleTaskEditorStatusSelect"
               @commit-description="handleTaskEditorDescriptionCommit"
               @manage-groups="openTaskGroupDialog"
             />
@@ -464,6 +466,7 @@
                 :completed="task.status === 'completed'"
                 variant="sidebar"
                 :task-groups="taskGroups"
+                :show-status-badge="true"
                 :draggable="!isMobileFrontend && !isBatchEditMode"
                 :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
                 :description-editing="inlineEditingDescriptionTaskId === task.id"
@@ -508,6 +511,7 @@
             :completed="task.status === 'completed'"
             variant="sidebar"
             :task-groups="taskGroups"
+            :show-status-badge="true"
             :draggable="!isMobileFrontend && !isBatchEditMode"
             :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
             :description-editing="inlineEditingDescriptionTaskId === task.id"
@@ -561,6 +565,7 @@
       :excluded-notebook-ids="excludedNotebookIds"
       :show-completed-tasks="showCompletedTasks"
       :auto-recognize-task-date="autoRecognizeTaskDate"
+      :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
       :show-extra="false"
       :lock-close="requiresScopeInitialization"
@@ -570,6 +575,7 @@
         : '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。'"
       :confirm-text="requiresScopeInitialization ? '开始使用' : '保存'"
       @close="showTaskScopeDialog = false"
+      @global-recognize-date="handleGlobalRecognizeTaskDates"
       @save="handleTaskScopeSave"
     />
     <TaskDateQuickMenu
@@ -613,9 +619,8 @@ import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
 import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
-import { TaskRepository, Task, TaskGroup, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs, getBlockKramdown, sql, openBlockById, loadTaskGroups, saveTaskGroups, type TaskQueryScope } from '@/api';
+import { TaskRepository, Task, TaskGroup, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, type TaskQueryScope } from '@/api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
-import { formatTaskTitleHtml } from '@/utils/taskTitleFormat';
 import { openKanbanView, usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useTaskFilters } from '@/composables/useTaskFilters';
@@ -744,6 +749,7 @@ const loading = ref(false);
 const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
 const showTaskScopeDialog = ref(false);
+const isGlobalDateRecognitionRunning = ref(false);
 const showTaskGroupDialog = ref(false);
 const requiresScopeInitialization = ref(false);
 const excludedNotebookIds = ref<string[]>([]);
@@ -754,6 +760,7 @@ const expandedSubtasks = ref(new Set<string>());
 const expandedDescriptions = ref(new Set<string>());
 interface TaskEditDraft {
   taskId: string;
+  status: Task['status'];
   priority: Task['priority'];
   pinned: boolean;
   startDate: string;
@@ -769,7 +776,7 @@ type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
 type TaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
 type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks';
 type TaskListViewMode = 'kanban' | 'list';
-type TaskListGroupMode = 'none' | 'status' | 'group' | 'heading';
+type TaskListGroupMode = 'none' | 'status' | 'group' | 'heading' | 'date';
 interface TaskGroupedSection {
   key: string;
   label: string;
@@ -800,7 +807,7 @@ const taskEditorSidebarVisible = ref(false);
 const taskEditorSidebarTitle = ref('编辑任务');
 const taskEditorSidebarMountRef = ref<HTMLElement | null>(null);
 const taskEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
-const taskEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
+const taskEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | 'status' | null>(null);
 const showTaskMoveDialog = ref(false);
 const isTaskMoveSubmitting = ref(false);
 const taskMoveSelectedNotebook = ref('');
@@ -859,6 +866,7 @@ const taskListViewOptions: Array<{ value: TaskListViewMode; label: string }> = [
 const taskListGroupOptions: Array<{ value: TaskListGroupMode; label: string }> = [
   { value: 'none', label: '不分组' },
   { value: 'status', label: '按状态分组' },
+  { value: 'date', label: '按日期分组' },
   { value: 'group', label: '按标签分组' },
   { value: 'heading', label: '按标题分组' }
 ];
@@ -1487,7 +1495,7 @@ function stopSkipSetCleanup() {
 type TaskArchiveViewMode = 'active' | 'archived' | 'all';
 
 function normalizeTaskListGroupMode(value: unknown): TaskListGroupMode {
-  if (value === 'status' || value === 'group' || value === 'heading' || value === 'none') {
+  if (value === 'status' || value === 'group' || value === 'heading' || value === 'date' || value === 'none') {
     return value;
   }
   return 'none';
@@ -2074,11 +2082,58 @@ function scheduleTaskListGroupSettingsUpdate(): void {
 
 async function refreshTaskHeadingGroups(): Promise<void> {
   const requestId = ++taskHeadingGroupRequestId;
-  const resolvedGroups = await resolveTaskHeadingGroups(displayedTasks.value);
+  const resolvedGroups = await resolveTaskHeadingGroups(buildHeadingGroupSourceTasks());
   if (requestId !== taskHeadingGroupRequestId) {
     return;
   }
   taskHeadingGroups.value = resolvedGroups;
+}
+
+function getTaskRepeatSeriesId(task: Task): string {
+  return typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+}
+
+function buildHeadingGroupSourceTasks(): Task[] {
+  const visibleTasks = displayedTasks.value;
+  if (visibleTasks.length === 0) {
+    return visibleTasks;
+  }
+
+  const virtualSeriesIds = new Set<string>();
+  for (const task of visibleTasks) {
+    if (!task.isVirtual) {
+      continue;
+    }
+    const seriesId = getTaskRepeatSeriesId(task);
+    if (seriesId) {
+      virtualSeriesIds.add(seriesId);
+    }
+  }
+
+  if (virtualSeriesIds.size === 0) {
+    return visibleTasks;
+  }
+
+  const candidates = new Map<string, Task>();
+  for (const task of visibleTasks) {
+    candidates.set(task.id, task);
+  }
+
+  for (const task of tasks.value) {
+    if (task.isVirtual) {
+      continue;
+    }
+    if (task.type !== 'block') {
+      continue;
+    }
+    const seriesId = getTaskRepeatSeriesId(task);
+    if (!seriesId || !virtualSeriesIds.has(seriesId)) {
+      continue;
+    }
+    candidates.set(task.id, task);
+  }
+
+  return Array.from(candidates.values());
 }
 
 watch(
@@ -2703,15 +2758,6 @@ const filteredTasks = computed(() => {
   });
 
   const result = [...baseFiltered].sort((a, b) => {
-    const isAPinned = a.pinned === true;
-    const isBPinned = b.pinned === true;
-    if (isAPinned && !isBPinned) {
-      return -1;
-    }
-    if (!isAPinned && isBPinned) {
-      return 1;
-    }
-
     const isACompleted = a.status === 'completed';
     const isBCompleted = b.status === 'completed';
 
@@ -2720,6 +2766,15 @@ const filteredTasks = computed(() => {
     }
     if (!isACompleted && isBCompleted) {
       return -1;
+    }
+
+    const isAPinned = a.pinned === true;
+    const isBPinned = b.pinned === true;
+    if (isAPinned && !isBPinned) {
+      return -1;
+    }
+    if (!isAPinned && isBPinned) {
+      return 1;
     }
 
     if (isACompleted && isBCompleted) {
@@ -2861,27 +2916,43 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     return sections;
   }
 
+  const pinnedSectionTasks = tasks.filter(task => task.pinned === true && task.status !== 'completed');
+  const tasksWithoutPinnedSection = pinnedSectionTasks.length > 0
+    ? tasks.filter(task => !(task.pinned === true && task.status !== 'completed'))
+    : tasks;
+  const prependPinnedSection = (sections: TaskGroupedSection[]): TaskGroupedSection[] => {
+    if (pinnedSectionTasks.length === 0) {
+      return sections;
+    }
+    return [{
+      key: 'pinned:top',
+      label: '置顶',
+      tasks: pinnedSectionTasks,
+      order: -1
+    }, ...sections];
+  };
+
   if (mode === 'status') {
     const grouped = new Map<Task['status'], Task[]>();
     taskGroupStatusOrder.forEach(status => grouped.set(status, []));
-    tasks.forEach((task) => {
+    tasksWithoutPinnedSection.forEach((task) => {
       const status = grouped.has(task.status) ? task.status : 'pending';
       grouped.get(status)?.push(task);
     });
-    return taskGroupStatusOrder
+    return prependPinnedSection(taskGroupStatusOrder
       .map((status, index) => ({
         key: `status:${status}`,
         label: taskGroupStatusLabel[status],
         tasks: grouped.get(status) || [],
         order: index
       }))
-      .filter(section => section.tasks.length > 0);
+      .filter(section => section.tasks.length > 0));
   }
 
   if (mode === 'group') {
     const grouped = new Map<string, Task[]>();
     const completedTasks: Task[] = [];
-    tasks.forEach((task) => {
+    tasksWithoutPinnedSection.forEach((task) => {
       if (task.status === 'completed') {
         completedTasks.push(task);
         return;
@@ -2925,12 +2996,76 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
         order: Number.MAX_SAFE_INTEGER
       });
     }
-    return sections;
+    return prependPinnedSection(sections);
+  }
+
+  if (mode === 'date') {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStart = today.getTime();
+    const tomorrowStart = todayStart + dayMs;
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).getTime();
+    const weekStart = new Date(todayStart);
+    const weekday = weekStart.getDay();
+    const diff = weekday === 0 ? -6 : 1 - weekday;
+    weekStart.setDate(weekStart.getDate() + diff);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekStartTimestamp = weekStart.getTime();
+    const weekEnd = weekStartTimestamp + dayMs * 7;
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 1).getTime();
+
+    const dateSections = [
+      { key: 'overdue', label: '逾期' },
+      { key: 'today', label: '今日' },
+      { key: 'thisWeek', label: '本周' },
+      { key: 'thisMonth', label: '本月' },
+      { key: 'other', label: '其他' }
+    ] as const;
+    const grouped = new Map<(typeof dateSections)[number]['key'], Task[]>();
+    dateSections.forEach((section) => grouped.set(section.key, []));
+    const todayVirtualSeriesIds = new Set<string>();
+    tasksWithoutPinnedSection.forEach((task) => {
+      if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
+        todayVirtualSeriesIds.add(task.repeatSeriesId);
+      }
+    });
+
+    tasksWithoutPinnedSection.forEach((task) => {
+      const dueTimestamp = getTaskDueDateTimestamp(task);
+      const groupingTimestamp = dueTimestamp ?? getTaskDateTimestamp(task.createdAt);
+      const repeatSeriesId = typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+      const hasTodayVirtualInstance = !!repeatSeriesId && todayVirtualSeriesIds.has(repeatSeriesId);
+      let sectionKey: (typeof dateSections)[number]['key'] = 'other';
+      if (hasTodayVirtualInstance) {
+        sectionKey = 'today';
+      } else if (dueTimestamp !== null && dueTimestamp < todayStart) {
+        sectionKey = 'overdue';
+      } else if (groupingTimestamp !== null) {
+        if (groupingTimestamp >= todayStart && groupingTimestamp < tomorrowStart) {
+          sectionKey = 'today';
+        } else if (groupingTimestamp >= weekStartTimestamp && groupingTimestamp < weekEnd) {
+          sectionKey = 'thisWeek';
+        } else if (groupingTimestamp >= monthStart && groupingTimestamp < monthEnd) {
+          sectionKey = 'thisMonth';
+        }
+      }
+      grouped.get(sectionKey)?.push(task);
+    });
+
+    return prependPinnedSection(dateSections
+      .map((section, index) => ({
+        key: `date:${section.key}`,
+        label: section.label,
+        tasks: grouped.get(section.key) || [],
+        order: index
+      }))
+      .filter(section => section.tasks.length > 0));
   }
 
   const headingSections = new Map<string, TaskGroupedSection>();
   const completedTasks: Task[] = [];
-  tasks.forEach((task) => {
+  tasksWithoutPinnedSection.forEach((task) => {
     if (task.status === 'completed') {
       completedTasks.push(task);
       return;
@@ -2972,7 +3107,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
       order: Number.MAX_SAFE_INTEGER
     });
   }
-  return sections;
+  return prependPinnedSection(sections);
 });
 
 function isTaskGroupSectionCollapsed(sectionKey: string): boolean {
@@ -3427,6 +3562,43 @@ async function openTaskScopeDialog() {
   showTaskScopeDialog.value = true;
 }
 
+async function handleGlobalRecognizeTaskDates(): Promise<void> {
+  if (isGlobalDateRecognitionRunning.value) {
+    return;
+  }
+
+  isGlobalDateRecognitionRunning.value = true;
+  try {
+    const result = await TaskRepository.recognizeDatesForUndatedTasks();
+    if (result.scanned === 0) {
+      showMessage('未找到未设定起止日期的任务', 2200, 'info');
+      return;
+    }
+
+    if (result.updated > 0) {
+      if (result.failed > 0) {
+        showMessage(`已写入 ${result.updated} 项日期，${result.failed} 项写入失败`, 3200, 'error');
+      } else {
+        showMessage(`已识别并写入 ${result.updated} 项任务日期`, 2200, 'info');
+      }
+      await refreshTasks(true, { showLoading: false, compareExisting: false, source: 'global-date-recognize' });
+      return;
+    }
+
+    if (result.recognized === 0) {
+      showMessage(`扫描 ${result.scanned} 项未设定任务，未识别到可写入日期`, 2800, 'info');
+      return;
+    }
+
+    showMessage(`识别到 ${result.recognized} 项日期，写入失败 ${result.failed} 项`, 3200, 'error');
+  } catch (error) {
+    console.error('[TaskManager] 全局识别任务日期失败:', error);
+    showMessage('全局识别任务日期失败，请稍后重试', 3200, 'error');
+  } finally {
+    isGlobalDateRecognitionRunning.value = false;
+  }
+}
+
 async function handleTaskScopeSave(
   selectedVisibleExcludedNotebookIds: string[],
   nextShowCompletedTasks: boolean,
@@ -3707,7 +3879,7 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
       continue;
     }
 
-    const liveCompleted = parseTaskCompleted('', blockId);
+    const liveCompleted = parseTaskCompleted(blockId);
     const liveTitle = getLiveTaskTitle(blockId);
 
     if (taskIndex.isSubtask) {
@@ -3936,7 +4108,7 @@ async function incrementalUpdateTasks(blockIds: string[]) {
   const ancestorContextRows = await queryAncestorContextRows(scopedBlockIds);
   await pruneInvalidParentsFromEvents(scopedBlockIds, ancestorContextRows);
 
-  const { unresolvedBlockIds, patchedParentStatuses } = await fastSyncTaskFromMarkdown(scopedBlockIds);
+  const { unresolvedBlockIds, patchedParentStatuses } = await fastSyncTaskFromDom(scopedBlockIds);
   const blockIdsForFullSync = unresolvedBlockIds.length > 0 ? unresolvedBlockIds : scopedBlockIds;
   const parentBlockIds = await resolveParentTaskBlockIds(blockIdsForFullSync, ancestorContextRows);
 
@@ -4226,79 +4398,96 @@ async function resolveParentTaskBlockIds(
   return resolvedParentBlockIds;
 }
 
-function parseTaskCompleted(markdown: string, blockId: string): boolean | null {
-  const firstLine = markdown
-    .split('\n')
-    .map(line => line.trim())
-    .find(line => line.length > 0);
-  if (firstLine) {
-    const match = firstLine.match(/\[(x|X| )\]/);
-    if (match) {
-      return match[1].toLowerCase() === 'x';
+function getTaskActionElement(root: Element | null, ownerId?: string): Element | null {
+  if (!root) return null;
+  const matchesOwner = (action: Element): boolean => {
+    if (!ownerId) return true;
+    const owner = action.closest('[data-node-id]');
+    return owner?.getAttribute('data-node-id') === ownerId;
+  };
+
+  if (root.classList.contains('protyle-action--task') && matchesOwner(root)) {
+    return root;
+  }
+
+  const actions = root.querySelectorAll('.protyle-action--task');
+  for (const action of actions) {
+    if (matchesOwner(action)) {
+      return action;
     }
   }
 
-  const getTaskActionElement = (root: Element | null, ownerId?: string): Element | null => {
-    if (!root) return null;
-    const matchesOwner = (action: Element): boolean => {
-      if (!ownerId) return true;
-      const owner = action.closest('[data-node-id]');
-      return owner?.getAttribute('data-node-id') === ownerId;
-    };
+  const fallbackRoot = root.closest('.protyle-task');
+  const fallback = fallbackRoot?.querySelector('.protyle-action--task');
+  if (fallback && matchesOwner(fallback)) {
+    return fallback;
+  }
 
-    if (root.classList.contains('protyle-action--task') && matchesOwner(root)) {
-      return root;
-    }
+  return null;
+}
 
-    const actions = root.querySelectorAll('.protyle-action--task');
-    for (const action of actions) {
-      if (matchesOwner(action)) {
-        return action;
-      }
-    }
-
-    const fallbackRoot = root.closest('.protyle-task');
-    const fallback = fallbackRoot?.querySelector('.protyle-action--task');
-    if (fallback && matchesOwner(fallback)) {
-      return fallback;
-    }
-
+function parseTaskCompletedByMarker(marker: string | null): boolean | null {
+  if (marker === null) {
     return null;
-  };
+  }
+  return marker.trim().length > 0;
+}
 
+function parseTaskCompletedFromElement(root: Element | null, ownerId?: string): boolean | null {
+  if (!root) return null;
+
+  const ownerElement = root.getAttribute('data-type') === 'NodeListItem'
+    ? root
+    : (root.closest('[data-type="NodeListItem"]') || root);
+  const byMarker = parseTaskCompletedByMarker(ownerElement.getAttribute('data-task'));
+  if (byMarker !== null) {
+    return byMarker;
+  }
+
+  const action = getTaskActionElement(ownerElement, ownerId);
+  if (!action) {
+    return null;
+  }
+  const svg = action.querySelector('use');
+  const href = svg?.getAttribute('xlink:href') || svg?.getAttribute('href') || '';
+  return href ? href === '#iconCheck' : null;
+}
+
+function getLiveTaskElement(blockId: string): Element | null {
   const selectors = [
     `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
     `.protyle [data-node-id="${blockId}"]`,
     `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
     `[data-node-id="${blockId}"]`
   ];
-  let currentElement: Element | null = null;
   for (const selector of selectors) {
-    currentElement = document.querySelector(selector);
-    if (currentElement) {
-      break;
+    const matched = document.querySelector(selector);
+    if (matched) {
+      return matched;
     }
-  }
-  if (currentElement) {
-    const currentAction = getTaskActionElement(currentElement, blockId);
-    if (!currentAction) {
-      return null;
-    }
-    const currentSvg = currentAction.querySelector('use');
-    const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
-    if (currentHref) {
-      return currentHref === '#iconCheck';
-    }
-    return null;
   }
   return null;
 }
 
-function stripTaskPrefix(text: string): string {
-  return text
-    .replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| )\]\s*/i, '')
-    .replace(/\s*\{:\s*[^}]*\}\s*/g, ' ')
-    .trim();
+function getTaskElementFromDoc(doc: Document, blockId: string): Element | null {
+  return doc.querySelector(`[data-node-id="${blockId}"][data-type="NodeListItem"]`)
+    || doc.querySelector(`[data-node-id="${blockId}"]`);
+}
+
+function parseTaskCompleted(blockId: string, parsedDoc?: Document | null): boolean | null {
+  const liveCompleted = parseTaskCompletedFromElement(getLiveTaskElement(blockId), blockId);
+  if (liveCompleted !== null) {
+    return liveCompleted;
+  }
+
+  if (parsedDoc) {
+    const domCompleted = parseTaskCompletedFromElement(getTaskElementFromDoc(parsedDoc, blockId), blockId);
+    if (domCompleted !== null) {
+      return domCompleted;
+    }
+  }
+
+  return null;
 }
 
 function cleanTaskTitleHtml(html: string): string {
@@ -4379,24 +4568,32 @@ function hydrateMemoTitlesFromLiveDom(taskList: Task[], limit = TASK_TITLE_HYDRA
   }
 }
 
-function parseTaskTitle(markdown: string, blockId: string): string | null {
+function getTaskTitleFromElement(root: Element | null): string | null {
+  if (!root) return null;
+  const paragraph = root.querySelector('[data-type="NodeParagraph"]');
+  const editable = paragraph?.querySelector('[contenteditable="true"]');
+  const rawTitle = editable?.innerHTML || paragraph?.innerHTML || '';
+  const cleaned = cleanTaskTitleHtml(rawTitle);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function parseTaskTitle(blockId: string, parsedDoc?: Document | null): string | null {
   const liveTitle = getLiveTaskTitle(blockId);
   if (liveTitle !== null) {
     return liveTitle;
   }
 
-  const firstLine = markdown
-    .split('\n')
-    .map(line => line.trim())
-    .find(line => line.length > 0);
-  if (!firstLine) return null;
-  if (!/\[(x|X| )\]/.test(firstLine)) return null;
+  if (parsedDoc) {
+    const apiTitle = getTaskTitleFromElement(getTaskElementFromDoc(parsedDoc, blockId));
+    if (apiTitle !== null) {
+      return apiTitle;
+    }
+  }
 
-  const rawTitle = stripTaskPrefix(firstLine);
-  return formatTaskTitleHtml(rawTitle);
+  return null;
 }
 
-async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
+async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
   unresolvedBlockIds: string[];
   patchedParentStatuses: Map<string, Task['status']>;
 }> {
@@ -4418,15 +4615,16 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
 
   const blockSnapshots = await Promise.all(validBlockIds.map(async (blockId) => {
     try {
-      const blockData = await getBlockKramdown(blockId);
-      const markdown = typeof blockData === 'string' ? blockData : blockData?.kramdown || '';
-      return { blockId, markdown, error: null as unknown };
+      const blockData = await getBlockDOM(blockId);
+      const dom = typeof blockData?.dom === 'string' ? blockData.dom : '';
+      return { blockId, dom, error: null as unknown };
     } catch (error) {
-      return { blockId, markdown: '', error };
+      return { blockId, dom: '', error };
     }
   }));
+  const parser = new DOMParser();
   for (const snapshot of blockSnapshots) {
-    const { blockId, markdown, error } = snapshot;
+    const { blockId, dom, error } = snapshot;
     if (error) {
       unresolved.push(blockId);
       continue;
@@ -4439,8 +4637,9 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
     }
 
     try {
-      const completed = parseTaskCompleted(markdown, blockId);
-      const title = parseTaskTitle(markdown, blockId);
+      const parsedDoc = dom ? parser.parseFromString(dom, 'text/html') : null;
+      const completed = parseTaskCompleted(blockId, parsedDoc);
+      const title = parseTaskTitle(blockId, parsedDoc);
       if (completed === null) {
         unresolved.push(blockId);
         continue;
@@ -4500,11 +4699,11 @@ async function fastSyncTaskFromMarkdown(blockIds: string[]): Promise<{
           unresolved.push(blockId);
           continue;
         }
+        if (nextStatusForTask) {
+          patchedParentStatuses.set(blockId, nextStatusForTask);
+        }
         if (changed) {
           hasPatched = true;
-          if (nextStatusForTask) {
-            patchedParentStatuses.set(blockId, nextStatusForTask);
-          }
         }
       }
     } catch (_error) {
@@ -4527,6 +4726,7 @@ function createTaskEditDraft(task: Task): TaskEditDraft {
   const normalizedReminder = normalizeTaskReminderSelection(task);
   return {
     taskId: task.id,
+    status: task.status || 'pending',
     priority: task.priority,
     pinned: task.pinned === true,
     startDate: normalizeDateInputValue((task.startDate || '').toString()),
@@ -4592,6 +4792,10 @@ async function toggleTaskStatus(task: Task) {
         delete t.completedAt;
       }
     }, 'id');
+    const editedTask = activeTaskEditDraft.value;
+    if (editedTask && editedTask.taskId === task.id) {
+      editedTask.status = newStatus;
+    }
     
     await refreshInternalState();
     
@@ -4815,6 +5019,14 @@ function handleTaskEditorReminderSelect(value: TaskReminderSelection): void {
   activeTaskEditDraft.value.reminderType = value.reminderType;
   activeTaskEditDraft.value.reminderCustomTime = value.reminderCustomTime || '';
   void quickSaveTaskReminder(activeTaskEditTask.value, value);
+}
+
+function handleTaskEditorStatusSelect(value: Task['status']): void {
+  if (!activeTaskEditTask.value || !activeTaskEditDraft.value) {
+    return;
+  }
+  activeTaskEditDraft.value.status = value;
+  void quickSaveTaskStatus(activeTaskEditTask.value, value);
 }
 
 function handleTaskEditorDescriptionCommit(): void {
@@ -5203,6 +5415,7 @@ interface TaskEditorFieldUpdateOptions {
   syncDraft: (draft: TaskEditDraft) => void;
   syncTask: (task: Task) => void;
   syncCrdt: () => void;
+  beforePersist?: (blockId: string) => Promise<void>;
   emitTaskChanged?: boolean;
 }
 
@@ -5218,8 +5431,12 @@ async function applyTaskEditorFieldUpdate(
   options.syncDraft(editedTask);
 
   try {
-    if (task.type === 'block' && task.blockId) {
-      await setBlockAttrs(task.blockId, options.attrs);
+    const blockId = task.type === 'block' && task.blockId ? task.blockId.trim() : '';
+    if (blockId) {
+      await setBlockAttrs(blockId, options.attrs);
+      if (options.beforePersist) {
+        await options.beforePersist(blockId);
+      }
     }
 
     options.syncCrdt();
@@ -5416,7 +5633,12 @@ async function applyBatchEdit(): Promise<void> {
   isBatchApplying.value = true;
   try {
     const results = await Promise.allSettled(
-      updates.map(item => setBlockAttrs(item.blockId, item.attrs))
+      updates.map(async (item) => {
+        await setBlockAttrs(item.blockId, item.attrs);
+        if (item.nextStatus) {
+          await updateTaskMarkdown(item.blockId, item.nextStatus === 'completed');
+        }
+      })
     );
 
     const nowIso = new Date().toISOString();
@@ -5469,6 +5691,9 @@ async function applyBatchEdit(): Promise<void> {
 
       const editedTask = taskEditDraft.value;
       if (editedTask && editedTask.taskId === update.task.id) {
+        if (update.nextStatus) {
+          editedTask.status = update.nextStatus;
+        }
         if (update.nextPriority) {
           editedTask.priority = update.nextPriority;
         }
@@ -5494,6 +5719,41 @@ async function applyBatchEdit(): Promise<void> {
     }
   } finally {
     isBatchApplying.value = false;
+  }
+}
+
+async function quickSaveTaskStatus(task: Task, status: Task['status']): Promise<void> {
+  const wasCompleted = task.status === 'completed';
+  await applyTaskEditorFieldUpdate(task, {
+    attrs: {
+      'custom-task-status': status
+    },
+    isUnchanged: draft => draft.status === status && task.status === status,
+    syncDraft: draft => {
+      draft.status = status;
+    },
+    syncTask: targetTask => {
+      targetTask.status = status;
+      if (status === 'completed') {
+        targetTask.completedAt = targetTask.completedAt || new Date().toISOString();
+      } else {
+        delete targetTask.completedAt;
+      }
+    },
+    syncCrdt: () => {
+      crdtRepo.updateTaskField(task.id, 'status', status);
+    },
+    beforePersist: async (blockId) => {
+      await updateTaskMarkdown(blockId, status === 'completed');
+    },
+    emitTaskChanged: true
+  });
+
+  if (!wasCompleted && status === 'completed' && taskCompletionSoundEnabled.value) {
+    const refreshedTask = tasks.value.find(item => item.id === task.id);
+    if (refreshedTask?.status === 'completed') {
+      playTaskCompletionSound();
+    }
   }
 }
 

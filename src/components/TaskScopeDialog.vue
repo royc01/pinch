@@ -44,7 +44,21 @@
       
       <div class="task-scope-auto-setting">
         <div class="task-scope-auto-item">
-          <span class="task-scope-extra-label">打开日期自动识别</span>
+          <div class="task-scope-auto-main">
+            <div class="task-scope-auto-title-row">
+              <span class="task-scope-extra-label">打开日期自动识别</span>
+              <SyButton
+                class="task-scope-inline-btn"
+                :disabled="globalDateRecognizing"
+                @click="handleGlobalRecognizeDate"
+              >
+                {{ globalDateRecognizing ? '识别中...' : '一键全局识别' }}
+              </SyButton>
+            </div>
+            <div class="task-scope-auto-desc">
+              开关开启后，仅对新建任务自动识别文本并填充开始/截止时间。已存在任务不会自动识别；如需识别历史任务，请使用「一键全局识别」。
+            </div>
+          </div>
           <SyCheckbox
             class="task-scope-toggle"
             :model-value="localAutoRecognizeTaskDate"
@@ -87,6 +101,7 @@ interface Props {
   excludedNotebookIds: string[];
   showCompletedTasks?: boolean;
   autoRecognizeTaskDate?: boolean;
+  globalDateRecognizing?: boolean;
   taskCompletionSoundEnabled?: boolean;
   lockClose?: boolean;
   showExtra?: boolean;
@@ -105,6 +120,7 @@ const emit = defineEmits<{
     autoRecognizeTaskDate: boolean,
     taskCompletionSoundEnabled: boolean
   ];
+  'global-recognize-date': [];
 }>();
 
 const localExcludedNotebookIds = ref<string[]>([]);
@@ -113,6 +129,7 @@ const localAutoRecognizeTaskDate = ref(false);
 const localTaskCompletionSoundEnabled = ref(true);
 const lockClose = computed(() => props.lockClose === true);
 const showExtra = computed(() => props.showExtra !== false);
+const globalDateRecognizing = computed(() => props.globalDateRecognizing === true);
 const dialogTitle = computed(() => props.title || '任务范围');
 const dialogHint = computed(() => props.hint || '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。');
 const confirmText = computed(() => props.confirmText || '保存');
@@ -141,6 +158,13 @@ function toggleNotebookEnabled(notebookId: string, enabled: boolean): void {
 
 function clearExcluded(): void {
   localExcludedNotebookIds.value = [];
+}
+
+function handleGlobalRecognizeDate(): void {
+  if (globalDateRecognizing.value) {
+    return;
+  }
+  emit('global-recognize-date');
 }
 
 function handleClose(): void {
@@ -244,6 +268,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   padding: 10px 14px;
 }
 
@@ -251,9 +276,50 @@ watch(
   border-top: 1px solid var(--b3-border-color);
 }
 
+.task-scope-auto-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.task-scope-auto-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
 .task-scope-extra-label {
   font-size: 13px;
   color: var(--b3-theme-on-background);
+}
+
+.task-scope-auto-desc {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.78;
+  line-height: 1.45;
+}
+
+.task-scope-inline-btn {
+  font-size: 12px;
+  line-height: 1;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.task-scope-inline-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .task-scope-list {
