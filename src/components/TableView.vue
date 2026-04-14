@@ -7,74 +7,75 @@
     <table class="tasks-table">
       <thead>
         <tr>
+          <th class="col-expand"></th>
           <th class="col-status"></th>
           <th class="col-title">任务</th>
           <th class="col-description">描述</th>
           <th class="col-priority sortable" :class="{ active: sortColumn === 'priority' }" @click="toggleSort('priority')">
             <div class="th-content">
+              <span>优先级</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('priority')">
                 <svg viewBox="0 0 1024 1024" width="14" height="14" aria-hidden="true">
                   <path class="sort-indicator-top" :d="SORT_INDICATOR_TOP_PATH" />
                   <path class="sort-indicator-bottom" :d="SORT_INDICATOR_BOTTOM_PATH" />
                 </svg>
               </span>
-              <span>优先级</span>
             </div>
           </th>
           <th class="col-status-text sortable" :class="{ active: sortColumn === 'status' }" @click="toggleSort('status')">
             <div class="th-content">
+              <span>状态</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('status')">
                 <svg viewBox="0 0 1024 1024" width="14" height="14" aria-hidden="true">
                   <path class="sort-indicator-top" :d="SORT_INDICATOR_TOP_PATH" />
                   <path class="sort-indicator-bottom" :d="SORT_INDICATOR_BOTTOM_PATH" />
                 </svg>
               </span>
-              <span>状态</span>
             </div>
           </th>
           <th class="col-group">标签</th>
           <th class="col-start-date sortable" :class="{ active: sortColumn === 'startDate' }" @click="toggleSort('startDate')">
             <div class="th-content">
+              <span>开始日期</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('startDate')">
                 <svg viewBox="0 0 1024 1024" width="14" height="14" aria-hidden="true">
                   <path class="sort-indicator-top" :d="SORT_INDICATOR_TOP_PATH" />
                   <path class="sort-indicator-bottom" :d="SORT_INDICATOR_BOTTOM_PATH" />
                 </svg>
               </span>
-              <span>开始日期</span>
             </div>
           </th>
           <th class="col-due-date sortable" :class="{ active: sortColumn === 'dueDate' }" @click="toggleSort('dueDate')">
             <div class="th-content">
+              <span>截止日期</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('dueDate')">
                 <svg viewBox="0 0 1024 1024" width="14" height="14" aria-hidden="true">
                   <path class="sort-indicator-top" :d="SORT_INDICATOR_TOP_PATH" />
                   <path class="sort-indicator-bottom" :d="SORT_INDICATOR_BOTTOM_PATH" />
                 </svg>
               </span>
-              <span>截止日期</span>
             </div>
           </th>
           <th class="col-created-date sortable" :class="{ active: sortColumn === 'createdAt' }" @click="toggleSort('createdAt')">
             <div class="th-content">
+              <span>创建时间</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('createdAt')">
                 <svg viewBox="0 0 1024 1024" width="14" height="14" aria-hidden="true">
                   <path class="sort-indicator-top" :d="SORT_INDICATOR_TOP_PATH" />
                   <path class="sort-indicator-bottom" :d="SORT_INDICATOR_BOTTOM_PATH" />
                 </svg>
               </span>
-              <span>创建时间</span>
             </div>
           </th>
           <th class="col-updated-date sortable" :class="{ active: sortColumn === 'updatedAt' }" @click="toggleSort('updatedAt')">
             <div class="th-content">
+              <span>更新时间</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('updatedAt')">
                 <svg viewBox="0 0 1024 1024" width="14" height="14" aria-hidden="true">
                   <path class="sort-indicator-top" :d="SORT_INDICATOR_TOP_PATH" />
                   <path class="sort-indicator-bottom" :d="SORT_INDICATOR_BOTTOM_PATH" />
                 </svg>
               </span>
-              <span>更新时间</span>
             </div>
           </th>
           <th class="col-location">位置</th>
@@ -84,7 +85,7 @@
         <template v-if="isGroupedDisplayMode">
           <template v-for="group in groupedVisibleTasks" :key="group.key">
             <tr class="group-row">
-              <td colspan="11">
+              <td colspan="12">
                 <button
                   type="button"
                   class="group-row-content"
@@ -144,6 +145,19 @@
                       `priority-${task.priority}`,
                     { 'task-completed': task.status === 'completed' }
                   ]">
+                <td class="col-expand">
+                  <span
+                    v-if="task.subtasks && task.subtasks.length > 0"
+                    class="expand-arrow"
+                    :class="{ expanded: expandedTasks.has(task.id) }"
+                    @click.stop="toggleExpand(task.id)"
+                  >
+                    <svg viewBox="0 0 24 24">
+                      <path fill="currentColor" d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                    </svg>
+                  </span>
+                  <span v-else class="expand-arrow-placeholder"></span>
+                </td>
                 <td class="col-status">
                   <div class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
                     <TaskCheckbox :checked="task.status === 'completed'" :size="16" />
@@ -152,17 +166,6 @@
                 <td class="col-title">
                   <div class="title-wrapper">
                     <div class="title-main" @click="handleTaskClick(task, $event)">
-                      <span 
-                        v-if="task.subtasks && task.subtasks.length > 0" 
-                        class="expand-arrow"
-                        :class="{ expanded: expandedTasks.has(task.id) }"
-                        @click.stop="toggleExpand(task.id)"
-                      >
-                        <svg viewBox="0 0 24 24" width="14" height="14">
-                          <path fill="currentColor" d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
-                        </svg>
-                      </span>
-                      <span v-else class="expand-arrow-placeholder"></span>
                       <div class="task-title" v-html="getTitleHtml(task.title)"></div>
                     </div>
                     <button
@@ -237,36 +240,122 @@
                   <span class="date-display">{{ task.updatedAt ? formatLocaleDate(task.updatedAt) : '-' }}</span>
                 </td>
                 <td class="col-location">
-                  <div class="location-cell">
-                    <span class="location-text">{{ task.hPath }}</span>
+                  <div class="location-cell task-document-title" :title="task.hPath || ''">
+                    <span class="task-document-icon" aria-hidden="true">
+                      <img
+                        v-if="getTaskDocumentIconImageSrc(task)"
+                        class="task-document-icon-image"
+                        :src="getTaskDocumentIconImageSrc(task)"
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                      />
+                      <span v-else>{{ getTaskDocumentIconText(task) }}</span>
+                    </span>
+                    <span class="task-document-title-text">{{ getTaskDocumentTitleText(task) }}</span>
                   </div>
                 </td>
               </tr>
-              <tr 
-                v-if="task.subtasks && task.subtasks.length > 0 && expandedTasks.has(task.id)" 
-                class="subtasks-row"
-              >
-                <td class="col-status"></td>
-                <td :colspan="10" class="subtasks-cell">
-                  <div class="subtasks-list">
-                    <div 
-                      v-for="subtask in task.subtasks" 
-                      :key="subtask.id" 
-                      class="subtask-item"
-                      :class="{ 'subtask-completed': subtask.completed }"
-                    >
+              <template v-if="task.subtasks && task.subtasks.length > 0 && expandedTasks.has(task.id)">
+                <tr
+                  v-for="subtask in task.subtasks"
+                  :key="`${task.id}:${subtask.id}`"
+                  class="subtask-row"
+                  :class="{ 'subtask-completed': subtask.completed }"
+                >
+                  <td class="col-expand"></td>
+                  <td class="col-status"></td>
+                  <td class="col-title">
+                    <div class="subtask-title-cell">
                       <div class="subtask-checkbox-wrapper" @click.stop="toggleSubtaskStatus(task, subtask)">
                         <TaskCheckbox :checked="subtask.completed" :size="14" />
                       </div>
                       <span class="subtask-title" v-html="getTitleHtml(subtask.title)"></span>
-                      <SubtaskProgress 
-                        v-if="subtask.subtasks && subtask.subtasks.length > 0" 
-                        :subtasks="subtask.subtasks" 
+                      <SubtaskProgress
+                        v-if="subtask.subtasks && subtask.subtasks.length > 0"
+                        :subtasks="subtask.subtasks"
                       />
                     </div>
-                  </div>
-                </td>
-              </tr>
+                  </td>
+                  <td class="col-description">
+                    <div
+                      v-if="!isSubtaskDescriptionEditing(task, subtask)"
+                      class="task-description"
+                      :class="{ editable: true, empty: !getSubtaskDescription(subtask) }"
+                      v-html="getSubtaskDescription(subtask) || '&nbsp;'"
+                      @click.stop="startSubtaskDescriptionEdit(task, subtask)"
+                    ></div>
+                    <textarea
+                      v-else
+                      class="task-description-edit subtask-description-edit"
+                      :data-subtask-key="getSubtaskEditKey(task.id, subtask.id)"
+                      :value="getSubtaskDescriptionDraft(task, subtask)"
+                      @input.stop="handleSubtaskDescriptionInput(task, subtask, $event)"
+                      @blur.stop="commitSubtaskDescriptionEdit(task, subtask)"
+                      @keydown.ctrl.enter.prevent="commitSubtaskDescriptionEdit(task, subtask)"
+                      @keydown.meta.enter.prevent="commitSubtaskDescriptionEdit(task, subtask)"
+                      @keydown.esc.prevent="cancelSubtaskDescriptionEdit(task, subtask)"
+                      @click.stop
+                      rows="2"
+                      placeholder="输入描述..."
+                    />
+                  </td>
+                  <td class="col-priority" @click.stop="toggleSubtaskPriorityEdit(task, subtask, $event)">
+                    <div class="priority-content">
+                      <span
+                        v-if="getSubtaskPriority(subtask) !== 'none'"
+                        class="task-priority-badge"
+                        :class="`priority-${getSubtaskPriority(subtask)}`"
+                        :title="getSubtaskPriority(subtask) === 'high' ? '高优先级' : getSubtaskPriority(subtask) === 'medium' ? '中优先级' : '低优先级'"
+                      >
+                        <Icon name="flag" width="12" height="12" />
+                      </span>
+                    </div>
+                  </td>
+                  <td class="col-status-text" @click.stop="toggleSubtaskStatusEdit(task, subtask, $event)">
+                    <span class="status-badge" :class="`status-${getSubtaskStatus(subtask)}`">
+                      {{ getStatusLabel(getSubtaskStatus(subtask)) }}
+                    </span>
+                  </td>
+                  <td class="col-group" @click.stop="toggleSubtaskGroupPopover(task, subtask, $event)">
+                    <span
+                      v-if="getSubtaskGroupLabel(subtask)"
+                      class="group-badge"
+                      :style="getSubtaskGroupStyle(subtask)"
+                    >
+                      {{ getSubtaskGroupLabel(subtask) }}
+                    </span>
+                  </td>
+                  <td class="col-start-date" @click.stop="openSubtaskDatePopover(task, subtask, 'startDate', $event)">
+                    <span class="date-display">{{ subtask.startDate ? formatLocaleDate(subtask.startDate) : '-' }}</span>
+                  </td>
+                  <td class="col-due-date" @click.stop="openSubtaskDatePopover(task, subtask, 'dueDate', $event)">
+                    <span class="date-display">{{ subtask.dueDate ? formatLocaleDate(subtask.dueDate) : '-' }}</span>
+                  </td>
+                  <td class="col-created-date">
+                    <span class="date-display">{{ subtask.createdAt ? formatLocaleDate(subtask.createdAt) : '-' }}</span>
+                  </td>
+                  <td class="col-updated-date">
+                    <span class="date-display">{{ subtask.updatedAt ? formatLocaleDate(subtask.updatedAt) : '-' }}</span>
+                  </td>
+                  <td class="col-location">
+                    <div class="location-cell task-document-title" :title="task.hPath || ''">
+                      <span class="task-document-icon" aria-hidden="true">
+                        <img
+                          v-if="getTaskDocumentIconImageSrc(task)"
+                          class="task-document-icon-image"
+                          :src="getTaskDocumentIconImageSrc(task)"
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                        />
+                        <span v-else>{{ getTaskDocumentIconText(task) }}</span>
+                      </span>
+                      <span class="task-document-title-text">{{ getTaskDocumentTitleText(task) }}</span>
+                    </div>
+                  </td>
+                </tr>
+              </template>
               </template>
             </template>
           </template>
@@ -280,6 +369,19 @@
                   `priority-${task.priority}`,
                   { 'task-completed': task.status === 'completed' }
                 ]">
+              <td class="col-expand">
+                <span
+                  v-if="task.subtasks && task.subtasks.length > 0"
+                  class="expand-arrow"
+                  :class="{ expanded: expandedTasks.has(task.id) }"
+                  @click.stop="toggleExpand(task.id)"
+                >
+                  <svg viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                  </svg>
+                </span>
+                <span v-else class="expand-arrow-placeholder"></span>
+              </td>
               <td class="col-status">
                 <div class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
                   <TaskCheckbox :checked="task.status === 'completed'" :size="16" />
@@ -288,17 +390,6 @@
               <td class="col-title">
                 <div class="title-wrapper">
                   <div class="title-main" @click="handleTaskClick(task, $event)">
-                    <span 
-                      v-if="task.subtasks && task.subtasks.length > 0" 
-                      class="expand-arrow"
-                      :class="{ expanded: expandedTasks.has(task.id) }"
-                      @click.stop="toggleExpand(task.id)"
-                    >
-                      <svg viewBox="0 0 24 24" width="14" height="14">
-                        <path fill="currentColor" d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
-                      </svg>
-                    </span>
-                    <span v-else class="expand-arrow-placeholder"></span>
                     <div class="task-title" v-html="getTitleHtml(task.title)"></div>
                   </div>
                   <button
@@ -373,40 +464,126 @@
                 <span class="date-display">{{ task.updatedAt ? formatLocaleDate(task.updatedAt) : '-' }}</span>
               </td>
               <td class="col-location">
-                <div class="location-cell">
-                  <span class="location-text">{{ task.hPath }}</span>
+                <div class="location-cell task-document-title" :title="task.hPath || ''">
+                  <span class="task-document-icon" aria-hidden="true">
+                    <img
+                      v-if="getTaskDocumentIconImageSrc(task)"
+                      class="task-document-icon-image"
+                      :src="getTaskDocumentIconImageSrc(task)"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                    />
+                    <span v-else>{{ getTaskDocumentIconText(task) }}</span>
+                  </span>
+                  <span class="task-document-title-text">{{ getTaskDocumentTitleText(task) }}</span>
                 </div>
               </td>
             </tr>
-            <tr 
-              v-if="task.subtasks && task.subtasks.length > 0 && expandedTasks.has(task.id)" 
-              class="subtasks-row"
-            >
-              <td class="col-status"></td>
-              <td :colspan="10" class="subtasks-cell">
-                <div class="subtasks-list">
-                  <div 
-                    v-for="subtask in task.subtasks" 
-                    :key="subtask.id" 
-                    class="subtask-item"
-                    :class="{ 'subtask-completed': subtask.completed }"
-                  >
+            <template v-if="task.subtasks && task.subtasks.length > 0 && expandedTasks.has(task.id)">
+              <tr
+                v-for="subtask in task.subtasks"
+                :key="`${task.id}:${subtask.id}`"
+                class="subtask-row"
+                :class="{ 'subtask-completed': subtask.completed }"
+              >
+                <td class="col-expand"></td>
+                <td class="col-status"></td>
+                <td class="col-title">
+                  <div class="subtask-title-cell">
                     <div class="subtask-checkbox-wrapper" @click.stop="toggleSubtaskStatus(task, subtask)">
                       <TaskCheckbox :checked="subtask.completed" :size="14" />
                     </div>
                     <span class="subtask-title" v-html="getTitleHtml(subtask.title)"></span>
-                    <SubtaskProgress 
-                      v-if="subtask.subtasks && subtask.subtasks.length > 0" 
-                      :subtasks="subtask.subtasks" 
+                    <SubtaskProgress
+                      v-if="subtask.subtasks && subtask.subtasks.length > 0"
+                      :subtasks="subtask.subtasks"
                     />
                   </div>
-                </div>
-              </td>
-            </tr>
+                </td>
+                <td class="col-description">
+                  <div
+                    v-if="!isSubtaskDescriptionEditing(task, subtask)"
+                    class="task-description"
+                    :class="{ editable: true, empty: !getSubtaskDescription(subtask) }"
+                    v-html="getSubtaskDescription(subtask) || '&nbsp;'"
+                    @click.stop="startSubtaskDescriptionEdit(task, subtask)"
+                  ></div>
+                  <textarea
+                    v-else
+                    class="task-description-edit subtask-description-edit"
+                    :data-subtask-key="getSubtaskEditKey(task.id, subtask.id)"
+                    :value="getSubtaskDescriptionDraft(task, subtask)"
+                    @input.stop="handleSubtaskDescriptionInput(task, subtask, $event)"
+                    @blur.stop="commitSubtaskDescriptionEdit(task, subtask)"
+                    @keydown.ctrl.enter.prevent="commitSubtaskDescriptionEdit(task, subtask)"
+                    @keydown.meta.enter.prevent="commitSubtaskDescriptionEdit(task, subtask)"
+                    @keydown.esc.prevent="cancelSubtaskDescriptionEdit(task, subtask)"
+                    @click.stop
+                    rows="2"
+                    placeholder="输入描述..."
+                  />
+                </td>
+                <td class="col-priority" @click.stop="toggleSubtaskPriorityEdit(task, subtask, $event)">
+                  <div class="priority-content">
+                    <span
+                      v-if="getSubtaskPriority(subtask) !== 'none'"
+                      class="task-priority-badge"
+                      :class="`priority-${getSubtaskPriority(subtask)}`"
+                      :title="getSubtaskPriority(subtask) === 'high' ? '高优先级' : getSubtaskPriority(subtask) === 'medium' ? '中优先级' : '低优先级'"
+                    >
+                      <Icon name="flag" width="12" height="12" />
+                    </span>
+                  </div>
+                </td>
+                <td class="col-status-text" @click.stop="toggleSubtaskStatusEdit(task, subtask, $event)">
+                  <span class="status-badge" :class="`status-${getSubtaskStatus(subtask)}`">
+                    {{ getStatusLabel(getSubtaskStatus(subtask)) }}
+                  </span>
+                </td>
+                <td class="col-group" @click.stop="toggleSubtaskGroupPopover(task, subtask, $event)">
+                  <span
+                    v-if="getSubtaskGroupLabel(subtask)"
+                    class="group-badge"
+                    :style="getSubtaskGroupStyle(subtask)"
+                  >
+                    {{ getSubtaskGroupLabel(subtask) }}
+                  </span>
+                </td>
+                <td class="col-start-date" @click.stop="openSubtaskDatePopover(task, subtask, 'startDate', $event)">
+                  <span class="date-display">{{ subtask.startDate ? formatLocaleDate(subtask.startDate) : '-' }}</span>
+                </td>
+                <td class="col-due-date" @click.stop="openSubtaskDatePopover(task, subtask, 'dueDate', $event)">
+                  <span class="date-display">{{ subtask.dueDate ? formatLocaleDate(subtask.dueDate) : '-' }}</span>
+                </td>
+                <td class="col-created-date">
+                  <span class="date-display">{{ subtask.createdAt ? formatLocaleDate(subtask.createdAt) : '-' }}</span>
+                </td>
+                <td class="col-updated-date">
+                  <span class="date-display">{{ subtask.updatedAt ? formatLocaleDate(subtask.updatedAt) : '-' }}</span>
+                </td>
+                <td class="col-location">
+                  <div class="location-cell task-document-title" :title="task.hPath || ''">
+                    <span class="task-document-icon" aria-hidden="true">
+                      <img
+                        v-if="getTaskDocumentIconImageSrc(task)"
+                        class="task-document-icon-image"
+                        :src="getTaskDocumentIconImageSrc(task)"
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                      />
+                      <span v-else>{{ getTaskDocumentIconText(task) }}</span>
+                    </span>
+                    <span class="task-document-title-text">{{ getTaskDocumentTitleText(task) }}</span>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </template>
         </template>
         <tr v-if="hasMoreTasks" class="load-more-row">
-          <td colspan="11" class="load-more-cell">
+          <td colspan="12" class="load-more-cell">
             <button type="button" class="load-more-btn" @click="loadMoreTasks">
               显示更多（剩余 {{ sortedTasks.length - visibleTasks.length }} 项）
             </button>
@@ -419,7 +596,7 @@
       v-if="priorityPopover"
       :show="true"
       :position="priorityPopover.position"
-      @select="selectPriority(tasks.find(t => t.id === priorityPopover.taskId)!, $event)"
+      @select="handlePrioritySelect"
       @close="priorityPopover = null"
     />
     
@@ -427,7 +604,7 @@
       v-if="statusPopover"
       :show="true"
       :position="statusPopover.position"
-      @select="selectStatus(tasks.find(t => t.id === statusPopover.taskId)!, $event)"
+      @select="handleStatusSelect"
       @close="statusPopover = null"
     />
 
@@ -507,6 +684,7 @@ interface Props {
   taskGroups?: TaskGroup[];
   groupMode?: TaskViewGroupMode;
   headingGroups?: Map<string, TaskHeadingGroupMeta>;
+  documentIconByRootId?: Map<string, string>;
 }
 
 type TableTaskGroupSection = {
@@ -521,16 +699,28 @@ type TableTaskGroupSection = {
 const props = defineProps<Props>();
 
 const TASK_GROUP_NONE_ID = '__none__';
+type TableSubtask = NonNullable<Task['subtasks']>[number];
+type TablePopoverTarget = {
+  taskId: string;
+  subtaskId?: string;
+  position: { x: number; y: number };
+};
 
 const emit = defineEmits<{
   taskClick: [task: Task, event?: MouseEvent];
   openClick: [task: Task];
   statusToggle: [task: Task];
-  subtaskToggle: [task: Task, subtask: any];
+  subtaskToggle: [task: Task, subtask: TableSubtask];
   descriptionUpdate: [task: Task, description: string];
   priorityUpdate: [task: Task, priority: Task['priority']];
   statusUpdate: [task: Task, status: Task['status']];
   groupUpdate: [task: Task, groupId: string];
+  subtaskDescriptionUpdate: [task: Task, subtask: TableSubtask, description: string];
+  subtaskPriorityUpdate: [task: Task, subtask: TableSubtask, priority: Task['priority']];
+  subtaskStatusUpdate: [task: Task, subtask: TableSubtask, status: Task['status']];
+  subtaskGroupUpdate: [task: Task, subtask: TableSubtask, groupId: string];
+  subtaskStartDateUpdate: [task: Task, subtask: TableSubtask, startDate: string];
+  subtaskDueDateUpdate: [task: Task, subtask: TableSubtask, dueDate: string];
   'manage-groups': [];
   groupCreateTask: [payload: { mode: 'group' | 'heading'; groupId: string; groupLabel: string; sampleTaskId?: string }];
   groupArchiveTasks: [payload: { mode: 'group' | 'heading'; groupId: string; groupLabel: string; taskIds: string[] }];
@@ -541,9 +731,11 @@ const emit = defineEmits<{
 const expandedTasks = ref<Set<string>>(new Set());
 const editingDescriptions = ref<Set<string>>(new Set());
 const descriptionDraftByTaskId = ref(new Map<string, string>());
-const priorityPopover = ref<{ taskId: string; position: { x: number; y: number } } | null>(null);
-const statusPopover = ref<{ taskId: string; position: { x: number; y: number } } | null>(null);
-const groupPopover = ref<{ taskId: string; position: { x: number; y: number } } | null>(null);
+const editingSubtaskDescriptions = ref<Set<string>>(new Set());
+const subtaskDescriptionDraftByKey = ref(new Map<string, string>());
+const priorityPopover = ref<TablePopoverTarget | null>(null);
+const statusPopover = ref<TablePopoverTarget | null>(null);
+const groupPopover = ref<TablePopoverTarget | null>(null);
 type SortableColumn = 'priority' | 'status' | 'startDate' | 'dueDate' | 'createdAt' | 'updatedAt';
 
 const SORT_INDICATOR_TOP_PATH = 'M547.072 103.68a42.666667 42.666667 0 0 0-70.144 0l-192 277.333333A42.666667 42.666667 0 0 0 320 448h384a42.666667 42.666667 0 0 0 35.072-66.986667l-192-277.333333z';
@@ -558,6 +750,7 @@ const visibleTaskCount = ref(INITIAL_VISIBLE_TASKS);
 type DateField = 'startDate' | 'dueDate';
 const datePopoverVisible = ref(false);
 const datePopoverTaskId = ref('');
+const datePopoverSubtaskId = ref('');
 const datePopoverField = ref<DateField>('dueDate');
 const datePopoverAnchorRef = ref<HTMLElement | null>(null);
 
@@ -939,10 +1132,35 @@ const groupedVisibleTasks = computed<TableTaskGroupSection[]>(() => {
   return [];
 });
 const collapsedGroups = ref<Set<string>>(new Set());
+
+function findSubtaskById(subtasks: Task['subtasks'], subtaskId: string): TableSubtask | null {
+  if (!subtasks || subtasks.length === 0) {
+    return null;
+  }
+  for (const subtask of subtasks) {
+    if (subtask.id === subtaskId) {
+      return subtask;
+    }
+    const nested = findSubtaskById(subtask.subtasks, subtaskId);
+    if (nested) {
+      return nested;
+    }
+  }
+  return null;
+}
+
 const datePopoverValue = computed(() => {
   if (!datePopoverTaskId.value) return '';
   const task = props.tasks.find(t => t.id === datePopoverTaskId.value);
   if (!task) return '';
+  const subtaskId = datePopoverSubtaskId.value.trim();
+  if (subtaskId) {
+    const subtask = findSubtaskById(task.subtasks, subtaskId);
+    if (!subtask) return '';
+    return datePopoverField.value === 'startDate'
+      ? (subtask.startDate || '')
+      : (subtask.dueDate || '');
+  }
   return datePopoverField.value === 'startDate'
     ? (task.startDate || '')
     : (task.dueDate || '');
@@ -952,7 +1170,13 @@ const groupPopoverSelectedId = computed(() => {
   const popover = groupPopover.value;
   if (!popover) return TASK_GROUP_NONE_ID;
   const task = props.tasks.find(t => t.id === popover.taskId);
-  const groupId = typeof task?.groupId === 'string' ? task.groupId.trim() : '';
+  if (!task) return TASK_GROUP_NONE_ID;
+  if (popover.subtaskId) {
+    const subtask = findSubtaskById(task.subtasks, popover.subtaskId);
+    const subtaskGroupId = typeof subtask?.groupId === 'string' ? subtask.groupId.trim() : '';
+    return subtaskGroupId || TASK_GROUP_NONE_ID;
+  }
+  const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
   return groupId || TASK_GROUP_NONE_ID;
 });
 
@@ -982,6 +1206,16 @@ function loadMoreTasks(): void {
 function openDatePopover(task: Task, field: DateField, event: MouseEvent): void {
   groupPopover.value = null;
   datePopoverTaskId.value = task.id;
+  datePopoverSubtaskId.value = '';
+  datePopoverField.value = field;
+  datePopoverAnchorRef.value = event.currentTarget as HTMLElement | null;
+  datePopoverVisible.value = true;
+}
+
+function openSubtaskDatePopover(task: Task, subtask: TableSubtask, field: DateField, event: MouseEvent): void {
+  groupPopover.value = null;
+  datePopoverTaskId.value = task.id;
+  datePopoverSubtaskId.value = subtask.id;
   datePopoverField.value = field;
   datePopoverAnchorRef.value = event.currentTarget as HTMLElement | null;
   datePopoverVisible.value = true;
@@ -991,6 +1225,7 @@ function closeDatePopover(): void {
   datePopoverVisible.value = false;
   datePopoverAnchorRef.value = null;
   datePopoverTaskId.value = '';
+  datePopoverSubtaskId.value = '';
 }
 
 function handleDatePopoverSelect(value: string): void {
@@ -1001,6 +1236,20 @@ function handleDatePopoverSelect(value: string): void {
   const task = props.tasks.find(t => t.id === datePopoverTaskId.value);
   if (!task) {
     closeDatePopover();
+    return;
+  }
+  const subtaskId = datePopoverSubtaskId.value.trim();
+  if (subtaskId) {
+    const subtask = findSubtaskById(task.subtasks, subtaskId);
+    if (!subtask) {
+      closeDatePopover();
+      return;
+    }
+    if (datePopoverField.value === 'startDate') {
+      emit('subtaskStartDateUpdate', task, subtask, value);
+    } else {
+      emit('subtaskDueDateUpdate', task, subtask, value);
+    }
     return;
   }
   if (datePopoverField.value === 'startDate') {
@@ -1194,6 +1443,64 @@ function getTitleHtml(title?: string): string {
   return sanitizeTaskTitleHtml(title || '');
 }
 
+function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
+  if (!rawIcon) {
+    return '';
+  }
+
+  const decoded = rawIcon.replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
+  const urlMatch = decoded.match(/^(?:background-image\s*:\s*)?url\((.+)\)\s*;?$/i);
+  const candidate = (urlMatch ? urlMatch[1] : decoded).trim().replace(/^['"]+|['"]+$/g, '');
+  if (!candidate) {
+    return '';
+  }
+
+  if (
+    /^(?:https?:\/\/|\/|data:image\/|assets\/|\.{1,2}\/)/i.test(candidate)
+    || /\.(?:png|svg|jpe?g|gif|webp)(?:[?#].*)?$/i.test(candidate)
+  ) {
+    return candidate;
+  }
+
+  return '';
+}
+
+function getTaskDocumentIconRaw(task: Task): string {
+  const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  if (rootId) {
+    const mapped = props.documentIconByRootId?.get(rootId);
+    if (typeof mapped === 'string' && mapped.trim().length > 0) {
+      return mapped.trim();
+    }
+  }
+  return typeof task.icon === 'string' ? task.icon.trim() : '';
+}
+
+function getTaskDocumentIconImageSrc(task: Task): string {
+  return resolveTaskDocumentIconImageSrc(getTaskDocumentIconRaw(task));
+}
+
+function getTaskDocumentTitleText(task: Task): string {
+  const rawPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
+  if (!rawPath) {
+    return '';
+  }
+  const normalizedPath = rawPath.replace(/\/+$/, '');
+  if (!normalizedPath) {
+    return '';
+  }
+  const parts = normalizedPath.split('/').filter(part => part.length > 0);
+  return parts[parts.length - 1] || normalizedPath;
+}
+
+function getTaskDocumentIconText(task: Task): string {
+  const rawIcon = getTaskDocumentIconRaw(task);
+  if (getTaskDocumentIconImageSrc(task)) {
+    return '';
+  }
+  return rawIcon || '\uD83D\uDCC4';
+}
+
 function handleOpenClick(task: Task) {
   emit('openClick', task);
 }
@@ -1202,8 +1509,199 @@ function toggleTaskStatus(task: Task) {
   emit('statusToggle', task);
 }
 
-function toggleSubtaskStatus(task: Task, subtask: Task['subtasks'][0]) {
+function toggleSubtaskStatus(task: Task, subtask: TableSubtask) {
   emit('subtaskToggle', task, subtask);
+}
+
+function getSubtaskDescription(subtask: TableSubtask): string {
+  return typeof subtask?.description === 'string' ? subtask.description : '';
+}
+
+function getSubtaskPriority(subtask: TableSubtask): Task['priority'] {
+  const raw = typeof subtask?.priority === 'string' ? subtask.priority : '';
+  if (raw === 'high' || raw === 'medium' || raw === 'low' || raw === 'none') {
+    return raw;
+  }
+  return 'none';
+}
+
+function getSubtaskStatus(subtask: TableSubtask): Task['status'] {
+  const raw = typeof subtask?.status === 'string' ? subtask.status : '';
+  if (raw === 'pending' || raw === 'in-progress' || raw === 'delayed' || raw === 'completed' || raw === 'cancelled') {
+    if (subtask.completed && raw !== 'completed') {
+      return 'completed';
+    }
+    if (!subtask.completed && raw === 'completed') {
+      return 'pending';
+    }
+    return raw;
+  }
+  return subtask.completed ? 'completed' : 'pending';
+}
+
+function getSubtaskGroupId(subtask: TableSubtask): string {
+  const normalized = typeof subtask?.groupId === 'string' ? subtask.groupId.trim() : '';
+  return normalized;
+}
+
+function getSubtaskGroupLabel(subtask: TableSubtask): string {
+  const groupId = getSubtaskGroupId(subtask);
+  if (!groupId) return '';
+  return groupLookup.value.get(groupId)?.name || '';
+}
+
+function getSubtaskGroupStyle(subtask: TableSubtask): Record<string, string> | undefined {
+  const groupId = getSubtaskGroupId(subtask);
+  if (!groupId) return undefined;
+  const meta = groupLookup.value.get(groupId);
+  if (!meta || !meta.background) return undefined;
+  return {
+    '--group-badge-bg': meta.background,
+    '--group-badge-color': meta.color
+  };
+}
+
+function getSubtaskEditKey(taskId: string, subtaskId: string): string {
+  return `${taskId}::${subtaskId}`;
+}
+
+function isSubtaskDescriptionEditing(task: Task, subtask: TableSubtask): boolean {
+  return editingSubtaskDescriptions.value.has(getSubtaskEditKey(task.id, subtask.id));
+}
+
+function getSubtaskDescriptionDraft(task: Task, subtask: TableSubtask): string {
+  const key = getSubtaskEditKey(task.id, subtask.id);
+  if (subtaskDescriptionDraftByKey.value.has(key)) {
+    return subtaskDescriptionDraftByKey.value.get(key) || '';
+  }
+  return getSubtaskDescription(subtask);
+}
+
+function startSubtaskDescriptionEdit(task: Task, subtask: TableSubtask): void {
+  const key = getSubtaskEditKey(task.id, subtask.id);
+  if (editingSubtaskDescriptions.value.has(key)) {
+    return;
+  }
+
+  const activeEditingKey = editingSubtaskDescriptions.value.values().next().value as string | undefined;
+  if (activeEditingKey && activeEditingKey !== key) {
+    editingSubtaskDescriptions.value.delete(activeEditingKey);
+    subtaskDescriptionDraftByKey.value.delete(activeEditingKey);
+  }
+
+  editingSubtaskDescriptions.value.clear();
+  editingSubtaskDescriptions.value.add(key);
+  subtaskDescriptionDraftByKey.value.set(key, getSubtaskDescription(subtask));
+
+  nextTick(() => {
+    const textarea = document.querySelector(`.subtask-description-edit[data-subtask-key="${key}"]`) as HTMLTextAreaElement | null;
+    if (textarea) {
+      textarea.focus();
+      const length = textarea.value.length;
+      textarea.setSelectionRange(length, length);
+    }
+  });
+}
+
+function handleSubtaskDescriptionInput(task: Task, subtask: TableSubtask, event: Event): void {
+  const key = getSubtaskEditKey(task.id, subtask.id);
+  const target = event.target as HTMLTextAreaElement | null;
+  subtaskDescriptionDraftByKey.value.set(key, target?.value ?? '');
+}
+
+function commitSubtaskDescriptionEdit(task: Task, subtask: TableSubtask): void {
+  const key = getSubtaskEditKey(task.id, subtask.id);
+  if (!editingSubtaskDescriptions.value.has(key)) {
+    return;
+  }
+
+  const draft = subtaskDescriptionDraftByKey.value.get(key) || '';
+  editingSubtaskDescriptions.value.delete(key);
+  subtaskDescriptionDraftByKey.value.delete(key);
+
+  if (draft === getSubtaskDescription(subtask)) {
+    return;
+  }
+
+  emit('subtaskDescriptionUpdate', task, subtask, draft);
+}
+
+function cancelSubtaskDescriptionEdit(task: Task, subtask: TableSubtask): void {
+  const key = getSubtaskEditKey(task.id, subtask.id);
+  if (!editingSubtaskDescriptions.value.has(key)) {
+    return;
+  }
+  editingSubtaskDescriptions.value.delete(key);
+  subtaskDescriptionDraftByKey.value.delete(key);
+}
+
+function toggleSubtaskPriorityEdit(task: Task, subtask: TableSubtask, event: MouseEvent): void {
+  groupPopover.value = null;
+  const existing = priorityPopover.value;
+  const isSame = !!existing
+    && existing.taskId === task.id
+    && (existing.subtaskId || '') === subtask.id;
+  if (isSame) {
+    priorityPopover.value = null;
+    return;
+  }
+  const target = event.currentTarget as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  priorityPopover.value = {
+    taskId: task.id,
+    subtaskId: subtask.id,
+    position: {
+      x: rect.left + rect.width / 2,
+      y: rect.bottom + 4
+    }
+  };
+}
+
+function toggleSubtaskStatusEdit(task: Task, subtask: TableSubtask, event: MouseEvent): void {
+  groupPopover.value = null;
+  const existing = statusPopover.value;
+  const isSame = !!existing
+    && existing.taskId === task.id
+    && (existing.subtaskId || '') === subtask.id;
+  if (isSame) {
+    statusPopover.value = null;
+    return;
+  }
+  const target = event.currentTarget as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  statusPopover.value = {
+    taskId: task.id,
+    subtaskId: subtask.id,
+    position: {
+      x: rect.left + rect.width / 2,
+      y: rect.bottom + 4
+    }
+  };
+}
+
+function toggleSubtaskGroupPopover(task: Task, subtask: TableSubtask, event: MouseEvent): void {
+  const existing = groupPopover.value;
+  const isSame = !!existing
+    && existing.taskId === task.id
+    && (existing.subtaskId || '') === subtask.id;
+  if (isSame) {
+    groupPopover.value = null;
+    return;
+  }
+  priorityPopover.value = null;
+  statusPopover.value = null;
+  closeDatePopover();
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  groupPopover.value = {
+    taskId: task.id,
+    subtaskId: subtask.id,
+    position: {
+      x: rect.left + rect.width / 2,
+      y: rect.bottom + 6
+    }
+  };
 }
 
 function getDescriptionDraft(task: Task): string {
@@ -1274,7 +1772,11 @@ function cancelDescriptionEdit(taskId: string) {
 
 function togglePriorityEdit(task: Task, event: MouseEvent) {
   groupPopover.value = null;
-  if (priorityPopover.value && priorityPopover.value.taskId === task.id) {
+  const existing = priorityPopover.value;
+  const isSame = !!existing
+    && existing.taskId === task.id
+    && !existing.subtaskId;
+  if (isSame) {
     priorityPopover.value = null;
   } else {
     const target = event.currentTarget as HTMLElement;
@@ -1290,15 +1792,31 @@ function togglePriorityEdit(task: Task, event: MouseEvent) {
   }
 }
 
-function selectPriority(task: Task, priority: string) {
-  emit('priorityUpdate', task, priority as Task['priority']);
-  
+function handlePrioritySelect(priority: string): void {
+  const popover = priorityPopover.value;
   priorityPopover.value = null;
+  if (!popover) return;
+  if (priority !== 'none' && priority !== 'high' && priority !== 'medium' && priority !== 'low') {
+    return;
+  }
+  const task = props.tasks.find(item => item.id === popover.taskId);
+  if (!task) return;
+  if (popover.subtaskId) {
+    const subtask = findSubtaskById(task.subtasks, popover.subtaskId);
+    if (!subtask) return;
+    emit('subtaskPriorityUpdate', task, subtask, priority);
+    return;
+  }
+  emit('priorityUpdate', task, priority);
 }
 
 function toggleStatusEdit(task: Task, event: MouseEvent) {
   groupPopover.value = null;
-  if (statusPopover.value && statusPopover.value.taskId === task.id) {
+  const existing = statusPopover.value;
+  const isSame = !!existing
+    && existing.taskId === task.id
+    && !existing.subtaskId;
+  if (isSame) {
     statusPopover.value = null;
   } else {
     const target = event.currentTarget as HTMLElement;
@@ -1314,14 +1832,36 @@ function toggleStatusEdit(task: Task, event: MouseEvent) {
   }
 }
 
-function selectStatus(task: Task, status: string) {
-  emit('statusUpdate', task, status as Task['status']);
-  
+function handleStatusSelect(status: string): void {
+  const popover = statusPopover.value;
   statusPopover.value = null;
+  if (!popover) return;
+  if (
+    status !== 'pending'
+    && status !== 'in-progress'
+    && status !== 'delayed'
+    && status !== 'completed'
+    && status !== 'cancelled'
+  ) {
+    return;
+  }
+  const task = props.tasks.find(item => item.id === popover.taskId);
+  if (!task) return;
+  if (popover.subtaskId) {
+    const subtask = findSubtaskById(task.subtasks, popover.subtaskId);
+    if (!subtask) return;
+    emit('subtaskStatusUpdate', task, subtask, status);
+    return;
+  }
+  emit('statusUpdate', task, status);
 }
 
 function toggleGroupPopover(task: Task, event: MouseEvent): void {
-  if (groupPopover.value && groupPopover.value.taskId === task.id) {
+  const existing = groupPopover.value;
+  const isSame = !!existing
+    && existing.taskId === task.id
+    && !existing.subtaskId;
+  if (isSame) {
     groupPopover.value = null;
     return;
   }
@@ -1346,6 +1886,16 @@ function selectGroupFromPopover(value: string): void {
   const task = props.tasks.find(t => t.id === popover.taskId);
   groupPopover.value = null;
   if (!task) return;
+  if (popover.subtaskId) {
+    const subtask = findSubtaskById(task.subtasks, popover.subtaskId);
+    if (!subtask) return;
+    const nextGroupId = value === TASK_GROUP_NONE_ID ? '' : value;
+    const normalized = typeof nextGroupId === 'string' ? nextGroupId.trim() : '';
+    const currentGroupId = typeof subtask.groupId === 'string' ? subtask.groupId.trim() : '';
+    if (normalized === currentGroupId) return;
+    emit('subtaskGroupUpdate', task, subtask, normalized);
+    return;
+  }
   const nextGroupId = value === TASK_GROUP_NONE_ID ? '' : value;
   const normalized = typeof nextGroupId === 'string' ? nextGroupId.trim() : '';
   const currentGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
@@ -1401,13 +1951,15 @@ function toggleExpand(taskId: string) {
 
 <style scoped>
 .table-view {
-  width: 100%;
+  width: calc(100% - 20px);
   height: 100%;
   overflow: auto;
+  margin: 0 10px;
 }
 
 .tasks-table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -1416,7 +1968,7 @@ function toggleExpand(taskId: string) {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--b3-theme-background);
+  background-color: var(--Sv-theme-surface, var(--b3-theme-surface));
 }
 
 .tasks-table th {
@@ -1425,12 +1977,21 @@ function toggleExpand(taskId: string) {
   font-weight: 500;
   color: var(--b3-theme-on-surface);
   border-bottom: 1px solid var(--b3-border-color);
-  border-right: 1px solid var(--b3-border-color);
   white-space: nowrap;
+  position: relative;
 }
 
-.tasks-table th:last-child {
-  border-right: none;
+.tasks-table th:not(:last-child):not(.col-expand):not(.col-status)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 48%;
+  border-radius: 999px;
+  background: var(--b3-border-color);
+  opacity: 0.85;
 }
 
 .tasks-table th.sortable {
@@ -1491,12 +2052,8 @@ function toggleExpand(taskId: string) {
 .tasks-table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--b3-border-color);
-  border-right: 1px solid var(--b3-border-color);
 }
 
-.tasks-table td:last-child {
-  border-right: none;
-}
 
 .task-row {
   cursor: pointer;
@@ -1607,6 +2164,11 @@ function toggleExpand(taskId: string) {
   cursor: not-allowed;
 }
 
+.col-expand {
+  width: 28px;
+  text-align: center;
+}
+
 .col-status {
   width: 40px;
   text-align: center;
@@ -1622,6 +2184,9 @@ function toggleExpand(taskId: string) {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
   cursor: pointer;
 }
 
@@ -1652,15 +2217,20 @@ function toggleExpand(taskId: string) {
 
 .expand-arrow {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   cursor: pointer;
   color: var(--b3-theme-on-surface);
   transition: transform 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 2px;
+  margin-top: 0;
+}
+
+.expand-arrow svg {
+  width: 16px;
+  height: 16px;
 }
 
 .expand-arrow:hover {
@@ -1672,8 +2242,9 @@ function toggleExpand(taskId: string) {
 }
 
 .expand-arrow-placeholder {
-  width: 14px;
-  flex-shrink: 0;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
 }
 
 .task-title {
@@ -1904,24 +2475,40 @@ function toggleExpand(taskId: string) {
 }
 
 .col-location {
-  width: 18%;
-  min-width: 120px;
+  width: calc(18% - 20px);
+  min-width: 100px;
 }
 
 .location-cell {
   display: flex;
   align-items: center;
-  gap: 6px;
+  min-width: 0;
 }
 
-.task-icon {
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
-.location-text {
+.location-cell.task-document-title {
+  gap: 4px;
   font-size: 12px;
+  line-height: 1.3;
   color: var(--b3-theme-on-surface);
+  opacity: 0.72;
+}
+
+.location-cell .task-document-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.location-cell .task-document-icon-image {
+  width: 12px;
+  height: 12px;
+  display: block;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.location-cell .task-document-title-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1932,40 +2519,37 @@ function toggleExpand(taskId: string) {
   opacity: 0.6;
 }
 
-.subtasks-row {
+.subtask-row {
   background-color: var(--b3-theme-surface);
+  cursor: pointer;
 }
 
-.subtasks-row:hover {
+.subtask-row:hover {
   background-color: var(--b3-list-hover);
 }
 
-.subtasks-cell {
-  padding: 10px 4px !important;
-}
-
-.subtasks-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.subtask-item {
+.subtask-title-cell {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
+  min-height: 24px;
 }
 
 .subtask-title {
   font-size: 13px;
   color: var(--b3-theme-on-background);
   line-height: 1.4;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .subtask-completed .subtask-title {
   text-decoration: line-through;
   opacity: 0.6;
+}
+
+.subtask-description-edit {
+  z-index: 2;
 }
 
 .load-more-row td {

@@ -330,21 +330,24 @@ const isOverdue = computed(() => {
   return dueTimestamp < today.getTime();
 });
 
-const groupLabel = computed(() => {
+const resolvedTaskGroup = computed(() => {
   const groupId = typeof task.value.groupId === 'string' ? task.value.groupId.trim() : '';
   if (!groupId) {
+    return null;
+  }
+  return (props.taskGroups || []).find(item => item.id === groupId) || null;
+});
+const groupLabel = computed(() => {
+  if (!resolvedTaskGroup.value) {
     return '';
   }
-  const group = (props.taskGroups || []).find(item => item.id === groupId);
-  return group?.name || '标签';
+  return resolvedTaskGroup.value.name || '标签';
 });
 const groupStyle = computed<Record<string, string>>(() => {
   if (!groupLabel.value) {
     return {};
   }
-  const groupId = typeof task.value.groupId === 'string' ? task.value.groupId.trim() : '';
-  const group = (props.taskGroups || []).find(item => item.id === groupId);
-  const rawColor = group?.color || '';
+  const rawColor = resolvedTaskGroup.value?.color || '';
   if (!rawColor) {
     return {};
   }

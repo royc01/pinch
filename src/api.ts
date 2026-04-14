@@ -1089,6 +1089,16 @@ export interface SubTask {
   title: string;
   completed: boolean;
   nodeId?: string;
+  status?: TaskStatus;
+  priority?: TaskPriority;
+  description?: string;
+  groupId?: string;
+  startDate?: string;
+  dueDate?: string;
+  startTime?: string;
+  dueTime?: string;
+  createdAt?: string;
+  updatedAt?: string;
   subtasks?: SubTask[];
 }
 
@@ -2942,10 +2952,37 @@ export class TaskRepository {
           const childBlock = taskBlockById.get(childId);
           if (!childBlock) continue;
 
+          const childAttrs = blockAttrsMap.get(childId) || {};
           const markdown = typeof childBlock.markdown === 'string' ? childBlock.markdown : '';
           const markdownMatch = markdown.match(/\[(x|X| )\]/);
           const completed = !!markdownMatch && (markdownMatch[1] === 'x' || markdownMatch[1] === 'X');
           const title = buildFastTitleFromBlock(childBlock) || 'Untitled';
+          const status = this.parseTaskStatus(childAttrs, markdown, completed);
+          const priorityRaw = typeof childAttrs['custom-task-priority'] === 'string'
+            ? childAttrs['custom-task-priority'].trim()
+            : '';
+          const priority: TaskPriority = (priorityRaw === 'high'
+            || priorityRaw === 'medium'
+            || priorityRaw === 'low'
+            || priorityRaw === 'none')
+            ? priorityRaw
+            : 'none';
+          const description = typeof childAttrs['custom-task-description'] === 'string'
+            ? childAttrs['custom-task-description']
+            : '';
+          const groupId = typeof childAttrs['custom-task-group'] === 'string'
+            ? childAttrs['custom-task-group'].trim()
+            : '';
+          const dateRange = this.resolveTaskDateRange(childAttrs, title, {
+            allowInferFromTitle: false,
+            createdAtRaw: childBlock.created
+          });
+          const startTime = typeof childAttrs['custom-task-start-time'] === 'string'
+            ? childAttrs['custom-task-start-time'].trim()
+            : '';
+          const dueTime = typeof childAttrs['custom-task-due-time'] === 'string'
+            ? childAttrs['custom-task-due-time'].trim()
+            : '';
           const nestedSubtasks = buildSqlSubtasksForParent(childId, path);
 
           subtasks.push({
@@ -2953,6 +2990,16 @@ export class TaskRepository {
             title,
             completed,
             nodeId: childId,
+            status,
+            priority,
+            description,
+            groupId: groupId || undefined,
+            startDate: dateRange.startDate,
+            dueDate: dateRange.dueDate,
+            startTime: startTime || undefined,
+            dueTime: dueTime || undefined,
+            createdAt: this.parseBlockDateTime(childBlock.created),
+            updatedAt: this.parseBlockDateTime(childBlock.updated),
             subtasks: nestedSubtasks.length > 0 ? nestedSubtasks : undefined
           });
         }

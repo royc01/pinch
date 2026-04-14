@@ -736,6 +736,7 @@
       :task-groups="taskGroups"
       :group-mode="tableGroupBy"
       :heading-groups="taskHeadingGroups"
+      :document-icon-by-root-id="documentIconByRootId"
       @task-click="handleTaskClick"
       @open-click="handleTaskEditClick"
       @status-toggle="toggleTaskStatus"
@@ -744,6 +745,12 @@
       @priority-update="handlePriorityUpdate"
       @status-update="handleStatusUpdate"
       @group-update="handleGroupUpdate"
+      @subtask-description-update="handleSubtaskDescriptionUpdate"
+      @subtask-priority-update="handleSubtaskPriorityUpdate"
+      @subtask-status-update="handleSubtaskStatusUpdate"
+      @subtask-group-update="handleSubtaskGroupUpdate"
+      @subtask-start-date-update="handleSubtaskStartDateUpdate"
+      @subtask-due-date-update="handleSubtaskDueDateUpdate"
       @group-create-task="handleTableGroupCreateTask"
       @group-archive-tasks="handleTableGroupArchiveTasks"
       @manage-groups="openTaskGroupDialog"
@@ -1308,6 +1315,16 @@ const isKanbanTaskMoveSubmitting = ref(false);
 const kanbanMoveSelectedNotebook = ref('');
 const kanbanMoveSelectedDocument = ref('');
 const openingKanbanEditorBlockIds = new Set<string>();
+
+const todayVirtualSeriesIds = computed(() => {
+  const set = new Set<string>();
+  for (const task of tasks.value) {
+    if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
+      set.add(task.repeatSeriesId);
+    }
+  }
+  return set;
+});
 
 const activeKanbanEditTask = computed(() =>
   kanbanEditorTaskId.value
@@ -4536,16 +4553,6 @@ function isVirtualTaskForToday(task: Task): boolean {
   return false;
 }
 
-const todayVirtualSeriesIds = computed(() => {
-  const set = new Set<string>();
-  for (const task of tasks.value) {
-    if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
-      set.add(task.repeatSeriesId);
-    }
-  }
-  return set;
-});
-
 function matchesKanbanDueFilter(task: Task, filter: KanbanTaskDueFilterKey): boolean {
   const dueTimestamp = getTaskDueDateTimestamp(task);
   if (filter === 'noDueDate') {
@@ -5706,6 +5713,75 @@ interface SubtaskLookup {
   parentBlockId: string;
 }
 
+function collectSubtasksByNodeId(subtasks: SubTask[] | undefined, map: Map<string, SubTask>): void {
+  if (!subtasks || subtasks.length === 0) {
+    return;
+  }
+  for (const subtask of subtasks) {
+    if (subtask?.nodeId) {
+      map.set(subtask.nodeId, subtask);
+    }
+    if (subtask?.subtasks && subtask.subtasks.length > 0) {
+      collectSubtasksByNodeId(subtask.subtasks, map);
+    }
+  }
+}
+
+function mergeSubtaskCustomFields(
+  previousSubtasks: SubTask[] | undefined,
+  nextSubtasks: SubTask[] | undefined
+): SubTask[] | undefined {
+  if (!nextSubtasks || nextSubtasks.length === 0) {
+    return nextSubtasks;
+  }
+
+  const previousByNodeId = new Map<string, SubTask>();
+  collectSubtasksByNodeId(previousSubtasks, previousByNodeId);
+
+  const mergeItem = (item: SubTask): SubTask => {
+    const merged: SubTask = { ...item };
+    const previous = item.nodeId ? previousByNodeId.get(item.nodeId) : undefined;
+    if (previous) {
+      if (merged.status === undefined && previous.status !== undefined) {
+        merged.status = previous.status;
+      }
+      if (merged.priority === undefined && previous.priority !== undefined) {
+        merged.priority = previous.priority;
+      }
+      if (merged.description === undefined && previous.description !== undefined) {
+        merged.description = previous.description;
+      }
+      if (merged.groupId === undefined && previous.groupId !== undefined) {
+        merged.groupId = previous.groupId;
+      }
+      if (merged.startDate === undefined && previous.startDate !== undefined) {
+        merged.startDate = previous.startDate;
+      }
+      if (merged.dueDate === undefined && previous.dueDate !== undefined) {
+        merged.dueDate = previous.dueDate;
+      }
+      if (merged.startTime === undefined && previous.startTime !== undefined) {
+        merged.startTime = previous.startTime;
+      }
+      if (merged.dueTime === undefined && previous.dueTime !== undefined) {
+        merged.dueTime = previous.dueTime;
+      }
+      if (merged.createdAt === undefined && previous.createdAt !== undefined) {
+        merged.createdAt = previous.createdAt;
+      }
+      if (merged.updatedAt === undefined && previous.updatedAt !== undefined) {
+        merged.updatedAt = previous.updatedAt;
+      }
+    }
+    if (item.subtasks && item.subtasks.length > 0) {
+      merged.subtasks = item.subtasks.map(child => mergeItem(child));
+    }
+    return merged;
+  };
+
+  return nextSubtasks.map(item => mergeItem(item));
+}
+
 function collectSubtaskLookup(
   subtasks: SubTask[] | undefined,
   parentBlockId: string,
@@ -6054,6 +6130,7 @@ async function incrementalUpdateTasks(
       if (updatedTask) {
         if (oldIndex !== undefined) {
           const currentTask = tasks.value[oldIndex];
+          updatedTask.subtasks = mergeSubtaskCustomFields(currentTask?.subtasks, updatedTask.subtasks);
           if (currentTask) {
             Object.assign(currentTask, updatedTask);
           } else {
@@ -7550,35 +7627,232 @@ async function handleSubtaskToggle(parentTask: Task, subtask: Task['subtasks'][0
   }
   
   const newCompleted = !subtask.completed;
+  const nextStatus: Task['status'] = newCompleted ? 'completed' : 'pending';
   
   skipTaskTemporarily(skipSet, subtask.id);
   
-  const taskIndex = tasks.value.findIndex(t => t.id === parentTask.id);
-  if (taskIndex !== -1) {
-    const task = tasks.value[taskIndex];
-    const updateSubtask = (subtasks: Task['subtasks']) => {
-      for (const st of subtasks) {
-        if (st.id === subtask.id) {
-          st.completed = newCompleted;
-          return true;
-        }
-        if (st.subtasks && updateSubtask(st.subtasks)) {
-          return true;
-        }
-      }
-      return false;
-    };
-    
-    if (task.subtasks) {
-      updateSubtask(task.subtasks);
-    }
-  }
+  patchSubtaskInTask(parentTask, subtask.id, (targetSubtask) => {
+    targetSubtask.completed = newCompleted;
+    targetSubtask.status = nextStatus;
+    targetSubtask.updatedAt = new Date().toISOString();
+  });
   
   if (subtask.nodeId) {
     updateTaskMarkdown(subtask.nodeId, newCompleted).catch(() => {});
+    setBlockAttrs(subtask.nodeId, {
+      'custom-task-status': nextStatus
+    }).catch(() => {});
   }
   
   TaskRepository.updateSubtaskInCache(parentTask.id, subtask.id, newCompleted).catch(() => {});
+}
+
+function normalizeSubtaskPriority(value: unknown): Task['priority'] {
+  if (value === 'high' || value === 'medium' || value === 'low' || value === 'none') {
+    return value;
+  }
+  return 'none';
+}
+
+function normalizeSubtaskStatus(value: unknown): Task['status'] {
+  if (
+    value === 'pending'
+    || value === 'in-progress'
+    || value === 'delayed'
+    || value === 'completed'
+    || value === 'cancelled'
+  ) {
+    return value;
+  }
+  return 'pending';
+}
+
+function getSubtaskStatusValue(subtask: SubTask): Task['status'] {
+  const normalized = normalizeSubtaskStatus(subtask.status);
+  if (subtask.completed && normalized !== 'completed') {
+    return 'completed';
+  }
+  if (!subtask.completed && normalized === 'completed') {
+    return 'pending';
+  }
+  return normalized;
+}
+
+function patchSubtaskRecursive(
+  subtasks: SubTask[] | undefined,
+  subtaskId: string,
+  patch: (target: SubTask) => void
+): boolean {
+  if (!subtasks || subtasks.length === 0) {
+    return false;
+  }
+  for (const item of subtasks) {
+    if (item.id === subtaskId) {
+      patch(item);
+      return true;
+    }
+    if (patchSubtaskRecursive(item.subtasks, subtaskId, patch)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function patchSubtaskInTask(parentTask: Task, subtaskId: string, patch: (target: SubTask) => void): boolean {
+  const taskIndex = tasks.value.findIndex(task =>
+    task.id === parentTask.id
+    || (!!parentTask.blockId && task.blockId === parentTask.blockId)
+  );
+  if (taskIndex === -1) {
+    return false;
+  }
+  const task = tasks.value[taskIndex];
+  const patched = patchSubtaskRecursive(task.subtasks, subtaskId, patch);
+  if (patched) {
+    task.updatedAt = new Date().toISOString();
+  }
+  return patched;
+}
+
+async function applySubtaskFieldUpdate(
+  parentTask: Task,
+  subtask: SubTask,
+  attrs: Record<string, string>,
+  patch: (target: SubTask) => void,
+  errorMessage: string,
+  afterUpdate?: (blockId: string) => Promise<void> | void
+): Promise<void> {
+  const subtaskBlockId = typeof subtask.nodeId === 'string' ? subtask.nodeId.trim() : '';
+  if (!subtaskBlockId) {
+    return;
+  }
+
+  try {
+    await setBlockAttrs(subtaskBlockId, attrs);
+    patchSubtaskInTask(parentTask, subtask.id, patch);
+    if (afterUpdate) {
+      await afterUpdate(subtaskBlockId);
+    }
+    const changedBlockIds = [parentTask.blockId, subtaskBlockId]
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    if (changedBlockIds.length > 0) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: changedBlockIds });
+    }
+    invalidateTableFilters();
+  } catch (error) {
+    console.error(`[KanbanView] ${errorMessage}:`, error);
+  }
+}
+
+async function handleSubtaskDescriptionUpdate(parentTask: Task, subtask: SubTask, description: string): Promise<void> {
+  const normalizedDescription = typeof description === 'string' ? description : '';
+  const currentDescription = typeof subtask.description === 'string' ? subtask.description : '';
+  if (normalizedDescription === currentDescription) {
+    return;
+  }
+  await applySubtaskFieldUpdate(
+    parentTask,
+    subtask,
+    { 'custom-task-description': normalizedDescription || '' },
+    (targetSubtask) => {
+      targetSubtask.description = normalizedDescription;
+      targetSubtask.updatedAt = new Date().toISOString();
+    },
+    '更新子任务描述失败'
+  );
+}
+
+async function handleSubtaskPriorityUpdate(parentTask: Task, subtask: SubTask, priority: Task['priority']): Promise<void> {
+  const normalizedPriority = normalizeSubtaskPriority(priority);
+  if (normalizedPriority === normalizeSubtaskPriority(subtask.priority)) {
+    return;
+  }
+  await applySubtaskFieldUpdate(
+    parentTask,
+    subtask,
+    { 'custom-task-priority': normalizedPriority },
+    (targetSubtask) => {
+      targetSubtask.priority = normalizedPriority;
+      targetSubtask.updatedAt = new Date().toISOString();
+    },
+    '更新子任务优先级失败'
+  );
+}
+
+async function handleSubtaskStatusUpdate(parentTask: Task, subtask: SubTask, status: Task['status']): Promise<void> {
+  const normalizedStatus = normalizeSubtaskStatus(status);
+  const currentStatus = getSubtaskStatusValue(subtask);
+  if (normalizedStatus === currentStatus) {
+    return;
+  }
+  await applySubtaskFieldUpdate(
+    parentTask,
+    subtask,
+    { 'custom-task-status': normalizedStatus },
+    (targetSubtask) => {
+      targetSubtask.status = normalizedStatus;
+      targetSubtask.completed = normalizedStatus === 'completed';
+      targetSubtask.updatedAt = new Date().toISOString();
+    },
+    '更新子任务状态失败',
+    async (blockId) => {
+      await updateTaskMarkdown(blockId, normalizedStatus === 'completed');
+    }
+  );
+}
+
+async function handleSubtaskGroupUpdate(parentTask: Task, subtask: SubTask, groupId: string): Promise<void> {
+  const normalizedGroupId = typeof groupId === 'string' ? groupId.trim() : '';
+  const currentGroupId = typeof subtask.groupId === 'string' ? subtask.groupId.trim() : '';
+  if (normalizedGroupId === currentGroupId) {
+    return;
+  }
+  await applySubtaskFieldUpdate(
+    parentTask,
+    subtask,
+    { 'custom-task-group': normalizedGroupId || '' },
+    (targetSubtask) => {
+      targetSubtask.groupId = normalizedGroupId || undefined;
+      targetSubtask.updatedAt = new Date().toISOString();
+    },
+    '更新子任务标签失败'
+  );
+}
+
+async function handleSubtaskStartDateUpdate(parentTask: Task, subtask: SubTask, startDate: string): Promise<void> {
+  const normalizedStartDate = normalizeDateInputValue(startDate || '');
+  const currentStartDate = normalizeDateInputValue((subtask.startDate || '').toString());
+  if (normalizedStartDate === currentStartDate) {
+    return;
+  }
+  await applySubtaskFieldUpdate(
+    parentTask,
+    subtask,
+    { 'custom-task-start-date': normalizedStartDate || '' },
+    (targetSubtask) => {
+      targetSubtask.startDate = normalizedStartDate || undefined;
+      targetSubtask.updatedAt = new Date().toISOString();
+    },
+    '更新子任务开始日期失败'
+  );
+}
+
+async function handleSubtaskDueDateUpdate(parentTask: Task, subtask: SubTask, dueDate: string): Promise<void> {
+  const normalizedDueDate = normalizeDateInputValue(dueDate || '');
+  const currentDueDate = normalizeDateInputValue((subtask.dueDate || '').toString());
+  if (normalizedDueDate === currentDueDate) {
+    return;
+  }
+  await applySubtaskFieldUpdate(
+    parentTask,
+    subtask,
+    { 'custom-task-due-date': normalizedDueDate || '' },
+    (targetSubtask) => {
+      targetSubtask.dueDate = normalizedDueDate || undefined;
+      targetSubtask.updatedAt = new Date().toISOString();
+    },
+    '更新子任务截止日期失败'
+  );
 }
 
 async function handleDescriptionUpdate(task: Task, description: string) {
@@ -8202,9 +8476,12 @@ onMounted(async () => {
     userSettings.kanban?.tableGroupMode,
     'status'
   );
-  const shouldWarmTaskGroups = initialKanbanGroupMode === 'group' || initialTableGroupMode === 'group';
+  const shouldWarmTaskGroups =
+    initialView === 'kanban'
+    || initialKanbanGroupMode === 'group'
+    || initialTableGroupMode === 'group';
   const shouldAwaitTaskGroups =
-    (initialView === 'kanban' && initialKanbanGroupMode === 'group')
+    initialView === 'kanban'
     || (
       (initialView === 'table' || initialView === 'archive-table')
       && initialTableGroupMode === 'group'
@@ -8228,9 +8505,12 @@ onMounted(async () => {
   if (!shouldRunMountedReconcile) {
     await loadTasks(false, { validateSelection: false });
   }
-  await loadUserSettings();
   if (shouldAwaitTaskGroups) {
     await taskGroupsLoadPromise;
+  }
+  await loadUserSettings();
+  if (shouldAwaitTaskGroups) {
+    // Task groups are already awaited above for the initial active view.
   } else if (kanbanGroupBy.value === 'group' || tableGroupBy.value === 'group') {
     void ensureTaskGroupsLoaded();
   }
@@ -8354,6 +8634,7 @@ watch(currentView, (nextView) => {
     closeKanbanEditor();
   }
   if (nextView === 'kanban') {
+    void ensureTaskGroupsLoaded();
     scheduleKanbanTitleHydration(120);
   }
 });
