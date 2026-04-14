@@ -2064,6 +2064,16 @@ function toggleExpand(taskId: string) {
   background-color: var(--b3-list-hover);
 }
 
+.task-row > td,
+.subtask-row > td {
+  transition: background-color 0.15s;
+}
+
+.task-row > td:hover,
+.subtask-row > td:hover {
+  background-color: var(--b3-list-hover);
+}
+
 .group-row td {
   padding: 0;
   background: transparent;
@@ -2520,7 +2530,6 @@ function toggleExpand(taskId: string) {
 }
 
 .subtask-row {
-  background-color: var(--b3-theme-surface);
   cursor: pointer;
 }
 
