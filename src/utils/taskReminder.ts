@@ -30,7 +30,7 @@ type TaskReminderSelectionLike = {
 };
 
 const TASK_REMINDER_TYPE_SET = new Set<TaskReminderType>(['due', '5m', '30m', '60m', '1d', 'custom']);
-const DEFAULT_DUE_TIME = '09:00';
+export const DEFAULT_TASK_REMINDER_DUE_TIME = '09:00';
 
 export const TASK_REMINDER_PRESET_OPTIONS: TaskReminderPresetOption[] = [
   { value: 'due', label: '到点提醒', shortLabel: '到点' },
@@ -145,7 +145,7 @@ export function getTaskReminderBaseTimestamp(dueDate?: string, dueTime?: string)
     return null;
   }
 
-  const normalizedTime = normalizeClockTime(dueTime) || DEFAULT_DUE_TIME;
+  const normalizedTime = normalizeClockTime(dueTime) || DEFAULT_TASK_REMINDER_DUE_TIME;
   return parseLocalDateTime(`${normalizedDate}T${normalizedTime}`);
 }
 

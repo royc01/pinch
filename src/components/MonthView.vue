@@ -3,15 +3,11 @@
     <div class="calendar-container">
       <div class="calendar-header">
         <button class="nav-btn" title="上一月" aria-label="上一月" @click="previousMonth">
-          <svg viewBox="0 0 24 24" width="20" height="20">
-            <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
-          </svg>
+          <Icon name="chevronLeft" width="20" height="20" />
         </button>
         <div class="month-title">{{ monthTitle }}</div>
         <button class="nav-btn" title="下一月" aria-label="下一月" @click="nextMonth">
-          <svg viewBox="0 0 24 24" width="20" height="20">
-            <path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
-          </svg>
+          <Icon name="chevronRight" width="20" height="20" />
         </button>
       </div>
       <div class="calendar-grid">

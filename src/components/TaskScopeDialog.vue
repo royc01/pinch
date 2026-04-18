@@ -112,7 +112,14 @@
         >
           全部启用
         </SyButton>
-        <div v-else class="task-scope-actions-spacer"></div>
+        <div v-else class="task-scope-action-setting">
+          <span class="task-scope-extra-label">显示文档笔记本路径</span>
+          <SyCheckbox
+            class="task-scope-toggle"
+            :model-value="localShowDocumentGroupNotebookPath"
+            @update:model-value="localShowDocumentGroupNotebookPath = $event"
+          />
+        </div>
         <SyButton class="task-scope-btn confirm" @click="save">{{ confirmText || '保存' }}</SyButton>
       </div>
     </div>
@@ -146,6 +153,7 @@ export interface TaskScopeDialogSavePayload {
   showCompletedTasks: boolean;
   autoRecognizeTaskDate: boolean;
   taskCompletionSoundEnabled: boolean;
+  showDocumentGroupNotebookPath: boolean;
   documentGroups: DocumentGroup[];
 }
 
@@ -165,6 +173,7 @@ interface Props {
   initialTab?: 'scope' | 'document-groups';
   documentGroups?: DocumentGroup[];
   documentGroupDocuments?: DocumentGroupScopeDocument[];
+  showDocumentGroupNotebookPath?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -179,6 +188,7 @@ const localExcludedNotebookIds = ref<string[]>([]);
 const localShowCompletedTasks = ref(true);
 const localAutoRecognizeTaskDate = ref(false);
 const localTaskCompletionSoundEnabled = ref(true);
+const localShowDocumentGroupNotebookPath = ref(true);
 const localDocumentGroups = ref<DocumentGroup[]>([]);
 const activeTab = ref<'scope' | 'document-groups'>('scope');
 const lockClose = computed(() => props.lockClose === true);
@@ -210,6 +220,7 @@ function syncLocalSelection(): void {
   localShowCompletedTasks.value = props.showCompletedTasks !== false;
   localAutoRecognizeTaskDate.value = props.autoRecognizeTaskDate === true;
   localTaskCompletionSoundEnabled.value = props.taskCompletionSoundEnabled !== false;
+  localShowDocumentGroupNotebookPath.value = props.showDocumentGroupNotebookPath !== false;
   localDocumentGroups.value = cloneDocumentGroups(props.documentGroups || []);
   activeTab.value = props.initialTab === 'document-groups' && hasDocumentGroupTab.value
     ? 'document-groups'
@@ -254,6 +265,7 @@ function save(): void {
     showCompletedTasks: localShowCompletedTasks.value,
     autoRecognizeTaskDate: localAutoRecognizeTaskDate.value,
     taskCompletionSoundEnabled: localTaskCompletionSoundEnabled.value,
+    showDocumentGroupNotebookPath: localShowDocumentGroupNotebookPath.value,
     documentGroups: cloneDocumentGroups(localDocumentGroups.value)
   });
 }
@@ -266,6 +278,7 @@ watch(
     () => props.showCompletedTasks,
     () => props.autoRecognizeTaskDate,
     () => props.taskCompletionSoundEnabled,
+    () => props.showDocumentGroupNotebookPath,
     () => props.initialTab,
     () => props.documentGroups
   ],
@@ -503,8 +516,13 @@ watch(
   padding: 12px 14px;
 }
 
-.task-scope-actions-spacer {
+.task-scope-action-setting {
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 0;
 }
 
 .task-scope-btn.plain {

@@ -44,19 +44,7 @@
             title="来源"
             aria-label="来源"
           >
-            <svg
-              t="1774574520545"
-              class="task-manager-notebook-icon"
-              viewBox="0 0 1026 1024"
-              version="1.1"
-              xmlns="http://www.w3.org/2000/svg"
-              p-id="11770"
-              width="16"
-              height="16"
-              aria-hidden="true"
-            >
-              <path d="M950.857143 394.971429l-124.342857 438.857142c-7.314286 21.942857-36.571429 43.885714-58.514286 43.885715h-658.285714c-7.314286 0-14.628571 0-21.942857-7.314286 0-7.314286-7.314286-14.628571 0-21.942857l124.342857-438.857143c7.314286-21.942857 36.571429-43.885714 58.514285-43.885714h658.285715c7.314286 0 14.628571 0 14.628571 7.314285 7.314286 0 7.314286 7.314286 7.314286 21.942858zM73.142857 109.714286c0-21.942857 14.628571-36.571429 36.571429-36.571429h234.057143l65.828571 124.342857c0 14.628571 14.628571 21.942857 29.257143 21.942857h402.285714c21.942857 0 36.571429 14.628571 36.571429 36.571429V292.571429H270.628571C219.428571 292.571429 160.914286 336.457143 146.285714 394.971429L73.142857 643.657143V109.714286z m936.228572 219.428571c-14.628571-21.942857-36.571429-29.257143-58.514286-36.571428v-36.571429c0-58.514286-51.2-109.714286-109.714286-109.714286H460.8L394.971429 21.942857C394.971429 7.314286 380.342857 0 365.714286 0H109.714286C51.2 0 0 51.2 0 109.714286v731.428571c0 36.571429 21.942857 73.142857 43.885714 87.771429h7.314286c14.628571 14.628571 36.571429 21.942857 58.514286 21.942857h658.285714c58.514286 0 109.714286-43.885714 131.657143-102.4l124.342857-438.857143c7.314286-29.257143 0-58.514286-14.628571-80.457143z" p-id="11771"></path>
-            </svg>
+            <Icon name="source" width="16" height="16" class="task-manager-notebook-icon" />
           </label>
           <div class="filter-select-wrap">
             <SySelect
@@ -87,10 +75,7 @@
             aria-label="搜索任务"
             @click.stop="toggleTaskSearch"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="11" cy="11" r="6"></circle>
-              <path d="M16 16l4 4"></path>
-            </svg>
+            <Icon name="search" width="16" height="16" />
           </button>
         </div>
         <div ref="taskFilterControlRef" class="task-filter-control">
@@ -104,11 +89,7 @@
             aria-label="筛选任务"
             @click.stop="toggleTaskFilterPopover"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 7h16" />
-              <path d="M7 12h10" />
-              <path d="M10 17h4" />
-            </svg>
+            <Icon name="filter" width="16" height="16" />
             <span v-if="activeTaskFilterCount > 0" class="task-filter-count">
               {{ activeTaskFilterCount }}
             </span>
@@ -126,9 +107,7 @@
             aria-label="任务分组"
             @click.stop="toggleTaskGroupMenu"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12,7a2,2,0,1,0-2-2A2,2,0,0,0,12,7Zm0,10a2,2,0,1,0,2,2A2,2,0,0,0,12,17Zm0-7a2,2,0,1,0,2,2A2,2,0,0,0,12,10Z" />
-            </svg>
+            <Icon name="moreVertical" width="16" height="16" />
           </button>
           <div
             v-if="taskGroupMenuVisible"
@@ -584,6 +563,7 @@
         :default-group-id="taskModalDefaultGroupId"
         :lastSelectedNotebook="taskModalDefaultNotebook"
         :lastSelectedDocument="taskModalDefaultDocument"
+        presentation="center"
         @close="showTaskModal = false"
         @manage-groups="openTaskGroupDialog"
         @submit="handleCreateTask"
@@ -597,6 +577,7 @@
       :auto-recognize-task-date="autoRecognizeTaskDate"
       :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
+      :show-document-group-notebook-path="showDocumentGroupNotebookPath"
       :show-extra="false"
       :lock-close="requiresScopeInitialization"
       :title="requiresScopeInitialization ? '初始化任务范围' : '任务范围'"
@@ -703,6 +684,7 @@ import {
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const autoRecognizeTaskDate = computed(() => userSettings.taskManager.autoRecognizeTaskDate === true);
 const taskCompletionSoundEnabled = computed(() => userSettings.taskManager.taskCompletionSoundEnabled !== false);
+const showDocumentGroupNotebookPath = computed(() => userSettings.taskManager.showDocumentGroupNotebookPath !== false);
 const REPEAT_DEBUG_WINDOW_MS = 5000;
 let lastRepeatDebugPayload: {
   blockId?: string;
@@ -3900,6 +3882,7 @@ async function handleTaskScopeSave(payload: {
   showCompletedTasks: boolean;
   autoRecognizeTaskDate: boolean;
   taskCompletionSoundEnabled: boolean;
+  showDocumentGroupNotebookPath: boolean;
   documentGroups: DocumentGroup[];
 }) {
   const {
@@ -3907,6 +3890,7 @@ async function handleTaskScopeSave(payload: {
     showCompletedTasks: nextShowCompletedTasks,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     documentGroups: nextDocumentGroupsPayload
   } = payload;
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
@@ -3932,6 +3916,7 @@ async function handleTaskScopeSave(payload: {
     showCompletedTasks: nextShowCompletedTasks,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     ...(shouldFinalizeInit ? { scopeInitialized: true } : {})
   });
   if (shouldFinalizeInit) {

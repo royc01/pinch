@@ -1,7 +1,7 @@
 ﻿<template>
   <Transition name="fade">
     <div v-show="show" class="modal-overlay" @click.self="emit('close')">
-      <Transition name="slide">
+      <Transition name="pop">
         <div class="modal-content" @click.stop v-show="show">
       <div class="modal-header">
         <h3>{{ titleText }}</h3>
@@ -202,16 +202,35 @@ const handleSubmit = () => {
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   justify-content: center;
-  align-items: flex-end;
+  align-items: center;
+  box-sizing: border-box;
   z-index: 2;
 }
 
 .modal-content {
   background: var(--b3-theme-background);
-  border-radius: 24px 24px 0 0;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: 16px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
   overflow-y: auto;
-  min-width: 100%;
+  width: min(520px, 100%);
+  min-width: 0;
+  max-height: calc(100% - 40px);
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    height: auto;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    z-index: 80;
+  }
+
+  .modal-content {
+    max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .fade-enter-active,
@@ -229,19 +248,21 @@ const handleSubmit = () => {
   opacity: 1;
 }
 
-.slide-enter-active,
-.slide-leave-active {
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+.pop-enter-active,
+.pop-leave-active {
+  transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.slide-enter-from,
-.slide-leave-to {
-  transform: translateY(35%);
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(18px) scale(0.96);
 }
 
-.slide-enter-to,
-.slide-leave-from {
-  transform: translateY(0);
+.pop-enter-to,
+.pop-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 .modal-header {

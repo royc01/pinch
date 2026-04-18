@@ -189,9 +189,7 @@
           aria-label="文档标签列表"
           @click.stop="toggleDocumentTabsDropdown"
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 10l5 5 5-5" />
-          </svg>
+          <Icon name="chevronDown" width="16" height="16" />
         </button>
         <div
           v-if="documentTabsDropdownVisible"
@@ -215,18 +213,7 @@
               :aria-label="option.hidden ? '显示标签页' : '隐藏标签页'"
               @click.stop="toggleDocumentTabVisibility(option.value)"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  v-if="option.hidden"
-                  fill="currentColor"
-                  d="M10.94,6.08A6.93,6.93,0,0,1,12,6c3.18,0,6.17,2.29,7.91,6a15.23,15.23,0,0,1-.9,1.64,1,1,0,0,0-.16.55,1,1,0,0,0,1.86.5,15.77,15.77,0,0,0,1.21-2.3,1,1,0,0,0,0-.79C19.9,6.91,16.1,4,12,4a7.77,7.77,0,0,0-1.4.12,1,1,0,1,0,.34,2ZM3.71,2.29A1,1,0,0,0,2.29,3.71L5.39,6.8a14.62,14.62,0,0,0-3.31,4.8,1,1,0,0,0,0,.8C4.1,17.09,7.9,20,12,20a9.26,9.26,0,0,0,5.05-1.54l3.24,3.25a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42Zm6.36,9.19,2.45,2.45A1.81,1.81,0,0,1,12,14a2,2,0,0,1-2-2A1.81,1.81,0,0,1,10.07,11.48ZM12,18c-3.18,0-6.17-2.29-7.9-6A12.09,12.09,0,0,1,6.8,8.21L8.57,10A4,4,0,0,0,14,15.43L15.59,17A7.24,7.24,0,0,1,12,18Z"
-                />
-                <path
-                  v-else
-                  fill="currentColor"
-                  d="M21.92,11.6C19.9,6.91,16.1,4,12,4S4.1,6.91,2.08,11.6a1,1,0,0,0,0,.8C4.1,17.09,7.9,20,12,20s7.9-2.91,9.92-7.6A1,1,0,0,0,21.92,11.6ZM12,18c-3.17,0-6.17-2.29-7.9-6C5.83,8.29,8.83,6,12,6s6.17,2.29,7.9,6C18.17,15.71,15.17,18,12,18ZM12,8a4,4,0,1,0,4,4A4,4,0,0,0,12,8Zm0,6a2,2,0,1,1,2-2A2,2,0,0,1,12,14Z"
-                />
-              </svg>
+              <Icon :name="option.hidden ? 'eyeOff' : 'eye'" width="16" height="16" />
             </button>
           </div>
           <div v-if="documentTabPopoverOptions.length === 0" class="document-tabs-dropdown-empty">
@@ -244,11 +231,7 @@
             aria-label="筛选任务"
             @click.stop="toggleKanbanFilterPopover($event)"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M3 5h18" />
-              <path d="M7 12h10" />
-              <path d="M10 19h4" />
-            </svg>
+            <Icon name="filter" width="16" height="16" />
             <span v-if="activeKanbanFilterCount > 0" class="task-filter-count">
               {{ activeKanbanFilterCount }}
             </span>
@@ -266,9 +249,7 @@
             aria-label="视图设置"
             @click.stop="toggleTaskViewGroupMenu"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12,7a2,2,0,1,0-2-2A2,2,0,0,0,12,7Zm0,10a2,2,0,1,0,2,2A2,2,0,0,0,12,17Zm0-7a2,2,0,1,0,2,2A2,2,0,0,0,12,10Z" />
-            </svg>
+            <Icon name="moreVertical" width="16" height="16" />
           </button>
           <div
             v-if="taskViewGroupMenuVisible"
@@ -352,11 +333,7 @@
                 :aria-label="isMobileTaskSearchCollapsed ? '展开搜索' : '搜索任务'"
                 @click.stop="handleTaskSearchToggleClick"
               >
-                <svg class="task-search-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M10.5 3a7.5 7.5 0 1 0 4.83 13.24l3.46 3.46a1 1 0 0 0 1.42-1.42l-3.46-3.46A7.5 7.5 0 0 0 10.5 3zm0 2a5.5 5.5 0 1 1 0 11a5.5 5.5 0 0 1 0-11z"
-                  />
-                </svg>
+                <Icon name="searchCompact" class="task-search-icon" width="14" height="14" />
               </button>
               <input
                 v-show="!isMobileTaskSearchCollapsed"
@@ -386,11 +363,7 @@
                 aria-label="筛选任务"
                 @click.stop="toggleTableFilterPopover($event)"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M3 5h18" />
-                  <path d="M7 12h10" />
-                  <path d="M10 19h4" />
-                </svg>
+                <Icon name="filter" width="16" height="16" />
                 <span v-if="activeTableFilterCount > 0" class="task-filter-count">
                   {{ activeTableFilterCount }}
                 </span>
@@ -405,9 +378,7 @@
                 aria-label="视图设置"
                 @click.stop="toggleTaskViewGroupMenu"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12,7a2,2,0,1,0-2-2A2,2,0,0,0,12,7Zm0,10a2,2,0,1,0,2,2A2,2,0,0,0,12,17Zm0-7a2,2,0,1,0,2,2A2,2,0,0,0,12,10Z" />
-                </svg>
+                <Icon name="moreVertical" width="16" height="16" />
               </button>
               <div
                 v-if="taskViewGroupMenuVisible"
@@ -574,7 +545,20 @@
                     :size="18"
                   />
                 </span>
-                <span v-else class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
+                <span
+                  v-else
+                  class="column-title-dot"
+                  :class="{
+                    'is-heading-icon-dot': isKanbanHeadingColumn(column),
+                    'is-group-icon-dot': isKanbanGroupColumn(column)
+                  }"
+                  :style="getKanbanColumnDotStyle(column)"
+                >
+                  <svg v-if="isKanbanHeadingColumn(column)" class="column-title-dot-icon" aria-hidden="true">
+                    <use :xlink:href="`#${getKanbanHeadingIconName(column)}`"></use>
+                  </svg>
+                  <Icon v-else-if="isKanbanGroupColumn(column)" name="group" width="12" height="12" class="column-title-dot-icon" />
+                </span>
                 <input
                   ref="columnTitleInputRef"
                   v-model="columnTitleDraft"
@@ -611,7 +595,20 @@
                     :size="18"
                   />
                 </span>
-                <span v-else class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
+                <span
+                  v-else
+                  class="column-title-dot"
+                  :class="{
+                    'is-heading-icon-dot': isKanbanHeadingColumn(column),
+                    'is-group-icon-dot': isKanbanGroupColumn(column)
+                  }"
+                  :style="getKanbanColumnDotStyle(column)"
+                >
+                  <svg v-if="isKanbanHeadingColumn(column)" class="column-title-dot-icon" aria-hidden="true">
+                    <use :xlink:href="`#${getKanbanHeadingIconName(column)}`"></use>
+                  </svg>
+                  <Icon v-else-if="isKanbanGroupColumn(column)" name="group" width="12" height="12" class="column-title-dot-icon" />
+                </span>
                 <span class="column-title-text">{{ getKanbanColumnTitleText(column) }}</span>
               </button>
               <div v-else class="column-title">
@@ -632,7 +629,20 @@
                     :size="18"
                   />
                 </span>
-                <span v-else class="column-title-dot" :style="getKanbanColumnDotStyle(column)"></span>
+                <span
+                  v-else
+                  class="column-title-dot"
+                  :class="{
+                    'is-heading-icon-dot': isKanbanHeadingColumn(column),
+                    'is-group-icon-dot': isKanbanGroupColumn(column)
+                  }"
+                  :style="getKanbanColumnDotStyle(column)"
+                >
+                  <svg v-if="isKanbanHeadingColumn(column)" class="column-title-dot-icon" aria-hidden="true">
+                    <use :xlink:href="`#${getKanbanHeadingIconName(column)}`"></use>
+                  </svg>
+                  <Icon v-else-if="isKanbanGroupColumn(column)" name="group" width="12" height="12" class="column-title-dot-icon" />
+                </span>
                 <span class="column-title-text">{{ getKanbanColumnTitleText(column) }}</span>
               </div>
             </div>
@@ -646,12 +656,7 @@
                 :aria-label="getColumnCreateTaskLabel(column)"
                 @click.stop="openQuickCreateForKanbanColumn(column)"
               >
-                <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M836 476H548V188c0-19.8-16.2-36-36-36s-36 16.2-36 36v288H188c-19.8 0-36 16.2-36 36s16.2 36 36 36h288v288c0 19.8 16.2 36 36 36s36-16.2 36-36V548h288c19.8 0 36-16.2 36-36s-16.2-36-36-36z"
-                  />
-                </svg>
+                <Icon name="addPlain" width="16" height="16" />
               </button>
               <button
                 v-if="canCreateTaskInColumn(column)"
@@ -1016,6 +1021,7 @@
       :auto-recognize-task-date="autoRecognizeTaskDate"
       :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
+      :show-document-group-notebook-path="showDocumentGroupNotebookPath"
       :show-extra="false"
       :initial-tab="taskScopeDialogInitialTab"
       :document-groups="documentGroups"
@@ -1374,6 +1380,7 @@ const showKanbanTaskCardDetails = ref(userSettings.kanban?.showKanbanTaskCardDet
 const showCompletedTasks = computed(() => userSettings.taskManager.showCompletedTasks !== false);
 const autoRecognizeTaskDate = computed(() => userSettings.taskManager.autoRecognizeTaskDate === true);
 const taskCompletionSoundEnabled = computed(() => userSettings.taskManager.taskCompletionSoundEnabled !== false);
+const showDocumentGroupNotebookPath = computed(() => userSettings.taskManager.showDocumentGroupNotebookPath !== false);
 const kanbanSubtaskHydratingIds = new Set<string>();
 const inlineEditingDescriptionTaskId = ref<string | null>(null);
 const inlineDescriptionDraftByTaskId = ref(new Map<string, string>());
@@ -1994,15 +2001,22 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
   if (column.type === 'group') {
     const groupId = typeof column.groupId === 'string' ? column.groupId.trim() : '';
     if (!groupId) {
-      return { backgroundColor: defaultGroupChipColor };
+      return {
+        backgroundColor: 'var(--b3-theme-background)',
+        color: 'var(--b3-theme-on-background)'
+      };
     }
     const group = taskGroups.value.find(item => item.id === groupId);
     const backgroundColor = resolveGroupColorCss(group?.color || '');
-    return { backgroundColor: backgroundColor || defaultGroupChipColor };
+    const textColor = resolveGroupTextColor(group?.color || '');
+    return {
+      backgroundColor: backgroundColor || 'var(--b3-theme-background)',
+      color: backgroundColor ? (textColor || 'var(--b3-theme-on-surface)') : 'var(--b3-theme-on-background)'
+    };
   }
 
   if (column.type === 'heading') {
-    return { backgroundColor: 'var(--b3-theme-primary)' };
+    return {};
   }
 
   if (column.type === 'date') {
@@ -2011,6 +2025,22 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
   }
 
   return { backgroundColor: 'transparent' };
+}
+
+function isKanbanHeadingColumn(column: KanbanColumn): boolean {
+  return column.type === 'heading' && kanbanGroupBy.value === 'heading';
+}
+
+function isKanbanGroupColumn(column: KanbanColumn): boolean {
+  return column.type === 'group' && kanbanGroupBy.value === 'group';
+}
+
+function getKanbanHeadingIconName(column: KanbanColumn): string {
+  if (column.headingMeta?.kind === 'document-root') {
+    return 'iconFile';
+  }
+  const headingLevel = Math.max(1, Math.min(6, Number(column.headingMeta?.headingLevel) || 2));
+  return `iconH${headingLevel}`;
 }
 
 function normalizeColumnTitleDraft(value: string): string {
@@ -3103,12 +3133,14 @@ async function handleTaskScopeSave(payload: {
   showCompletedTasks: boolean;
   autoRecognizeTaskDate: boolean;
   taskCompletionSoundEnabled: boolean;
+  showDocumentGroupNotebookPath: boolean;
   documentGroups: DocumentGroup[];
 }) {
   const {
     excludedNotebookIds: selectedVisibleExcludedNotebookIds,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     documentGroups: nextDocumentGroupsPayload
   } = payload;
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
@@ -3133,7 +3165,8 @@ async function handleTaskScopeSave(payload: {
   await updateSettings('taskManager', {
     excludedNotebookIds: mergedExcludedNotebookIds,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
-    taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled
+    taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath
   });
   if (hasFilterChanges) {
     await saveUserSettings();
@@ -3559,10 +3592,12 @@ function toFilterDocumentOptions(
   options: { excludeCompletedOnlyDocs?: boolean; taskMatcher?: DocumentOptionsTaskMatcher } = {}
 ): DocumentFilterOption[] {
   const source = parseDocumentSource(sourceValue);
+  const includeNotebookName = source.kind === 'all'
+    || (source.kind === 'group' && showDocumentGroupNotebookPath.value);
   return [
     { value: 'all', text: '全部' },
     ...getDocumentEntriesBySource(sourceValue, {
-      includeNotebookName: source.kind !== 'notebook',
+      includeNotebookName,
       excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs,
       taskMatcher: options.taskMatcher
     }).map(doc => ({
@@ -10725,6 +10760,29 @@ watch(kanbanColumns, () => {
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.column-title-dot.is-heading-icon-dot,
+.column-title-dot.is-group-icon-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.column-title-dot.is-heading-icon-dot {
+  background: var(--pinch-background7);
+  color: var(--pinch-group-color7);
+}
+
+.column-title-dot-icon {
+  width: 12px;
+  height: 12px;
+  display: block;
+  fill: currentColor;
 }
 
 .column-batch-checkbox-btn {

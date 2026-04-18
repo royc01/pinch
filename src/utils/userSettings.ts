@@ -57,6 +57,7 @@ export interface UserSettings {
     showCompletedTasks?: boolean;
     autoRecognizeTaskDate?: boolean;
     taskCompletionSoundEnabled?: boolean;
+    showDocumentGroupNotebookPath?: boolean;
     scopeInitialized?: boolean;
     lastTaskNotebook?: string;
     lastTaskDocument?: string;
@@ -132,6 +133,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     showCompletedTasks: true,
     autoRecognizeTaskDate: false,
     taskCompletionSoundEnabled: true,
+    showDocumentGroupNotebookPath: true,
     scopeInitialized: false,
     selectedGroupId: 'all',
     taskListGroupBy: 'none',

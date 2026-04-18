@@ -6,7 +6,7 @@
       :class="{ 'is-centered': isCenteredPresentation }"
       @click.self="emit('close')"
     >
-      <Transition name="slide">
+      <Transition :name="contentTransitionName">
         <div
           class="modal-content"
           :class="{ 'is-centered': isCenteredPresentation }"
@@ -16,9 +16,7 @@
           <div class="modal-header">
             <h3>{{ tt('taskManager.newTask', '新建任务') }}</h3>
             <button @click="emit('close')" class="icon-button" title="关闭" aria-label="关闭">
-              <svg viewBox="0 0 1026 1024" width="16" height="16" class="icon" xmlns="http://www.w3.org/2000/svg">
-                <path d="M39.156558 39.219619a133.725281 133.725281 0 0 1 189.221272 0L984.594293 795.703532a133.725281 133.725281 0 0 1-189.221272 189.087547L39.156558 228.307166a133.725281 133.725281 0 0 1 0-189.087547z m0 756.483913L795.373021 39.219619a133.725281 133.725281 0 0 1 189.221272 189.087547L228.37783 984.791079a133.792143 133.792143 0 1 1-189.221272-189.288135z"></path>
-              </svg>
+              <Icon name="close" width="16" height="16" class="icon" />
             </button>
           </div>
           <div class="modal-body">
@@ -134,7 +132,7 @@
                 aria-label="描述"
                 @click.stop="toggleTaskModalQuickPanel('description')"
               >
-                <Icon name="edit" width="14" height="14" />
+                <Icon name="descriptionBubble" width="14" height="14" />
               </button>
             </div>
           </div>
@@ -356,6 +354,7 @@ const taskModalGroupOptions = computed(() => {
 });
 
 const isCenteredPresentation = computed(() => props.presentation === 'center');
+const contentTransitionName = computed(() => isCenteredPresentation.value ? 'pop' : 'slide');
 
 const notebookOptions = computed(() => {
   return props.notebooks.map(nb => ({ value: nb.id, text: nb.name }));
@@ -534,7 +533,6 @@ const handleSubmit = () => {
 
 .modal-overlay.is-centered {
   align-items: center;
-  padding: 20px;
   box-sizing: border-box;
 }
 
@@ -550,8 +548,24 @@ const handleSubmit = () => {
   border-radius: 14px;
   width: min(560px, 100%);
   min-width: 0;
-  max-height: calc(100vh - 40px);
+  max-height: calc(100% - 40px);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .modal-overlay.is-centered {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    height: auto;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    z-index: 80;
+  }
+
+  .modal-content.is-centered {
+    max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .fade-enter-active,
@@ -582,6 +596,23 @@ const handleSubmit = () => {
 .slide-enter-to,
 .slide-leave-from {
   transform: translateY(0);
+}
+
+.pop-enter-active,
+.pop-leave-active {
+  transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(18px) scale(0.96);
+}
+
+.pop-enter-to,
+.pop-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 .modal-header {

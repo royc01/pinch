@@ -23,12 +23,7 @@
             :aria-label="pinActive ? '取消置顶' : '置顶任务'"
             @click.stop="$emit('pin')"
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M12.71,6.29a1,1,0,0,0-.33-.21,1,1,0,0,0-.76,0,1,1,0,0,0-.33.21l-4,4a1,1,0,1,0,1.42,1.42L11,9.41V21a1,1,0,0,0,2,0V9.41l2.29,2.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42ZM19,2H5A1,1,0,0,0,5,4H19a1,1,0,0,0,0-2Z"
-              />
-            </svg>
+            <Icon name="pinTask" width="16" height="16" />
           </button>
           <button
             v-if="showMove"
@@ -38,12 +33,7 @@
             aria-label="移动任务"
             @click.stop="$emit('move')"
           >
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M11,12H3a1,1,0,0,0-1,1v8a1,1,0,0,0,1,1h8a1,1,0,0,0,1-1V13A1,1,0,0,0,11,12Zm-1,8H4V14h6ZM21.92,2.62a1,1,0,0,0-.54-.54A1,1,0,0,0,21,2H15a1,1,0,0,0,0,2h3.59l-5.3,5.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0L20,5.41V9a1,1,0,0,0,2,0V3A1,1,0,0,0,21.92,2.62Z"
-              />
-            </svg>
+            <Icon name="moveTask" width="16" height="16" />
           </button>
           <button
             v-if="showArchive"
@@ -63,12 +53,7 @@
             aria-label="删除任务"
             @click.stop="$emit('delete')"
           >
-            <svg viewBox="0 0 1225 1024" width="16" height="16" aria-hidden="true">
-              <path
-                fill="currentColor"
-                d="M1034.570239 270.996844V841.152359a182.847641 182.847641 0 0 1-182.847641 182.847641H391.641363a182.847641 182.847641 0 0 1-182.847641-182.847641V270.996844a45.090228 45.090228 0 0 1 0-90.162172v-0.091424h196.561214a219.837719 219.837719 0 0 1 432.672374 0h196.542929v0.109708a45.090228 45.090228 0 0 1 0 90.143888zM621.68198 90.398228a132.546255 132.546255 0 0 0-124.610667 90.34502h249.221335A132.546255 132.546255 0 0 0 621.68198 90.398228z m324.408286 180.690039H297.273695v552.858129a109.708585 109.708585 0 0 0 109.708585 109.708584h429.399401a109.708585 109.708585 0 0 0 109.708585-109.708584V271.106552z m-221.245646 481.85839a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z m-206.434987 0a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z"
-              />
-            </svg>
+            <Icon name="trash" width="16" height="16" />
           </button>
           <button
             v-if="showPriority"
@@ -120,12 +105,7 @@
           :aria-label="pinActive ? '取消置顶' : '置顶任务'"
           @click.stop="$emit('pin')"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M12.71,6.29a1,1,0,0,0-.33-.21,1,1,0,0,0-.76,0,1,1,0,0,0-.33.21l-4,4a1,1,0,1,0,1.42,1.42L11,9.41V21a1,1,0,0,0,2,0V9.41l2.29,2.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42ZM19,2H5A1,1,0,0,0,5,4H19a1,1,0,0,0,0-2Z"
-            />
-          </svg>
+          <Icon name="pinTask" width="16" height="16" />
         </button>
         <button
           v-if="showMove"
@@ -135,12 +115,7 @@
           aria-label="移动任务"
           @click.stop="$emit('move')"
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M11,12H3a1,1,0,0,0-1,1v8a1,1,0,0,0,1,1h8a1,1,0,0,0,1-1V13A1,1,0,0,0,11,12Zm-1,8H4V14h6ZM21.92,2.62a1,1,0,0,0-.54-.54A1,1,0,0,0,21,2H15a1,1,0,0,0,0,2h3.59l-5.3,5.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0L20,5.41V9a1,1,0,0,0,2,0V3A1,1,0,0,0,21.92,2.62Z"
-            />
-          </svg>
+          <Icon name="moveTask" width="16" height="16" />
         </button>
         <button
           v-if="showArchive"
@@ -160,12 +135,7 @@
           aria-label="删除任务"
           @click.stop="$emit('delete')"
         >
-          <svg viewBox="0 0 1225 1024" width="16" height="16" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M1034.570239 270.996844V841.152359a182.847641 182.847641 0 0 1-182.847641 182.847641H391.641363a182.847641 182.847641 0 0 1-182.847641-182.847641V270.996844a45.090228 45.090228 0 0 1 0-90.162172v-0.091424h196.561214a219.837719 219.837719 0 0 1 432.672374 0h196.542929v0.109708a45.090228 45.090228 0 0 1 0 90.143888zM621.68198 90.398228a132.546255 132.546255 0 0 0-124.610667 90.34502h249.221335A132.546255 132.546255 0 0 0 621.68198 90.398228z m324.408286 180.690039H297.273695v552.858129a109.708585 109.708585 0 0 0 109.708585 109.708584h429.399401a109.708585 109.708585 0 0 0 109.708585-109.708584V271.106552z m-221.245646 481.85839a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z m-206.434987 0a44.230844 44.230844 0 0 1-44.230845-44.230845V496.027436a44.230844 44.230844 0 0 1 88.479974 0v212.688376a44.230844 44.230844 0 0 1-44.194275 44.249129z"
-            />
-          </svg>
+          <Icon name="trash" width="16" height="16" />
         </button>
         <button
           v-if="showPriority"
@@ -254,9 +224,10 @@ function handlePriorityClick(event: MouseEvent): void {
   bottom: 0;
   z-index: 3;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   background-color: rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
 }
 
 .task-editor-sidebar-panel {
@@ -268,12 +239,25 @@ function handlePriorityClick(event: MouseEvent): void {
 
 .task-editor-sidebar-panel.is-sidebar {
   position: relative;
-  min-width: 100%;
-  width: 100%;
-  border-radius: 24px 24px 0 0;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
-  max-height: 85vh;
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  width: min(560px, 100%);
+  min-width: 0;
+  border-radius: 16px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
+  max-height: calc(100% - 40px);
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .task-editor-sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    z-index: 80;
+  }
+
+  .task-editor-sidebar-panel.is-sidebar {
+    max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .task-editor-sidebar-panel.is-floating {

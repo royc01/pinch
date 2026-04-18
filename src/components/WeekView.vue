@@ -2,9 +2,7 @@
   <div class="week-view" :class="{ 'mobile-day-view-mode': isMobileDayViewMode }">
     <div class="calendar-header">
       <button class="nav-btn" :title="previousNavLabel" :aria-label="previousNavLabel" @click="previousWeek">
-        <svg viewBox="0 0 24 24" width="20" height="20">
-          <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
-        </svg>
+        <Icon name="chevronLeft" width="20" height="20" />
       </button>
       <div class="header-center">
         <div class="header-title">{{ displayWeekTitle }}</div>
@@ -12,9 +10,7 @@
       </div>
       <div class="header-right">
         <button class="nav-btn" :title="nextNavLabel" :aria-label="nextNavLabel" @click="nextWeek">
-          <svg viewBox="0 0 24 24" width="20" height="20">
-            <path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
-          </svg>
+          <Icon name="chevronRight" width="20" height="20" />
         </button>
         <div v-if="showHeaderDaysSwitcher" class="all-day-label-cell header-days-switcher">
           <button class="days-control-btn" @click="decreaseDays" :disabled="isDaysCountLocked || daysCount <= minimumDaysCount">-</button>
@@ -127,26 +123,11 @@
         <div class="all-day-section" :style="{ height: isAllDaySectionCollapsed ? '30px' : allDaySectionHeight + 'px' }">
           <div class="all-day-label-in-section" @click="toggleAllDaySection">
             <span class="collapse-btn">
-              <svg
-                v-if="isAllDaySectionCollapsed"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
+              <Icon
+                :name="isAllDaySectionCollapsed ? 'chevronsVertical' : 'chevronsHorizontal'"
                 width="16"
                 height="16"
-                fill="currentColor"
-              >
-                <path d="M16.29,14.29,12,18.59l-4.29-4.3a1,1,0,0,0-1.42,1.42l5,5a1,1,0,0,0,1.42,0l5-5a1,1,0,0,0-1.42-1.42ZM7.71,9.71,12,5.41l4.29,4.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42l-5-5a1,1,0,0,0-1.42,0l-5,5A1,1,0,0,0,7.71,9.71Z"/>
-              </svg>
-              <svg
-                v-else
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-                fill="currentColor"
-              >
-                <path d="M11.29,9.71a1,1,0,0,0,1.42,0l5-5a1,1,0,1,0-1.42-1.42L12,7.59,7.71,3.29A1,1,0,0,0,6.29,4.71Zm1.42,4.58a1,1,0,0,0-1.42,0l-5,5a1,1,0,0,0,1.42,1.42L12,16.41l4.29,4.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42Z"/>
-              </svg>
+              />
             </span>
           </div>
           <div class="all-day-columns" :class="{ collapsed: isAllDaySectionCollapsed }" :style="{ overflow: isAllDaySectionCollapsed ? 'hidden' : 'visible' }">

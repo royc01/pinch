@@ -18,7 +18,9 @@
             :key="option.value"
             type="button"
             class="task-reminder-option-btn"
-            :class="{ active: modelValue === option.value }"
+            :class="{ active: !presetDisabled && modelValue === option.value }"
+            :disabled="presetDisabled"
+            :title="presetDisabled ? '请先设置截止日期' : option.label"
             @click="selectPreset(option.value)"
           >
             {{ option.label }}
@@ -27,6 +29,9 @@
 
         <div v-if="!hasDueDate" class="task-reminder-hint">
           到点和提前提醒依赖截止日期；未设置截止日期时可先用自定义提醒。
+        </div>
+        <div v-else-if="showDefaultDueTimeHint" class="task-reminder-hint">
+          未设置截止时间时，到点和提前提醒会按 {{ DEFAULT_TASK_REMINDER_DUE_TIME }} 计算。
         </div>
 
         <div class="task-reminder-custom">
@@ -54,6 +59,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
+  DEFAULT_TASK_REMINDER_DUE_TIME,
   TASK_REMINDER_PRESET_OPTIONS,
   getTaskReminderDefaultCustomTime,
   normalizeTaskReminderCustomTime,
@@ -84,6 +90,13 @@ const presetOptions = TASK_REMINDER_PRESET_OPTIONS;
 const hasDueDate = computed(() => {
   return !!(props.dueDate || '').trim();
 });
+
+const hasDueTime = computed(() => {
+  return !!(props.dueTime || '').trim();
+});
+
+const presetDisabled = computed(() => !hasDueDate.value);
+const showDefaultDueTimeHint = computed(() => hasDueDate.value && !hasDueTime.value);
 
 function updateCustomDraft(): void {
   customDraft.value = normalizeTaskReminderCustomTime(props.customTime)
@@ -127,6 +140,9 @@ function updatePopoverPosition(): void {
 }
 
 function selectPreset(reminderType: TaskReminderType): void {
+  if (presetDisabled.value) {
+    return;
+  }
   emit('select', { reminderType });
   emit('close');
 }
@@ -257,6 +273,12 @@ onUnmounted(() => {
 .task-reminder-save-btn.active {
   border-color: #f98f7a;
   box-shadow: 0 0 0 1px #f98f7a inset;
+}
+
+.task-reminder-option-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+  box-shadow: none;
 }
 
 .task-reminder-hint {
