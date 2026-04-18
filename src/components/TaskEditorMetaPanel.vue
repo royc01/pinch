@@ -5,7 +5,15 @@
       :visible="true"
       :anchor-el="dueButtonRef"
       :model-value="dueDate"
+      :auto-close="false"
+      :show-task-editor-details="true"
+      :start-date="startDate"
+      :start-time="startTime"
+      :due-time="dueTime"
       @update:modelValue="handleDueSelect"
+      @update:startDate="handleStartDateUpdate"
+      @update:startTime="handleStartTimeUpdate"
+      @update:dueTime="handleDueTimeUpdate"
       @close="emitPanelUpdate(null)"
     />
     <TaskReminderPopover
@@ -28,14 +36,14 @@
     />
     <div v-if="panel === 'group'" class="task-editor-group-panel">
       <div class="task-editor-group-header">
-        <span class="task-editor-group-title">Group</span>
+        <span class="task-editor-group-title">标签</span>
         <button
           v-if="showGroupManage"
           type="button"
           class="task-group-manage-btn"
           @click.stop="emitManageGroups"
         >
-          Manage
+          管理
         </button>
       </div>
       <div class="task-group-chip-list">
@@ -144,6 +152,12 @@ import type { TaskReminderSelection, TaskReminderType } from '@/utils/taskRemind
 
 type TaskStatus = Task['status'];
 type TaskEditorPanel = 'due' | 'description' | 'group' | 'reminder' | 'status' | null;
+type TaskEditorDateFields = {
+  startDate: string;
+  startTime: string;
+  dueDate: string;
+  dueTime: string;
+};
 
 type TaskGroupOption = {
   value: string;
@@ -157,7 +171,10 @@ const TASK_GROUP_NONE_ID = '__none__';
 
 const props = withDefaults(defineProps<{
   panel: TaskEditorPanel;
+  startDate: string;
+  startTime: string;
   dueDate: string;
+  dueTime: string;
   dueText: string;
   hasDueDate: boolean;
   description: string;
@@ -189,7 +206,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:panel': [value: TaskEditorPanel];
   'update:description': [value: string];
-  'select-due': [value: string];
+  'update-dates': [value: TaskEditorDateFields];
   'select-group': [value: string];
   'select-reminder': [value: TaskReminderSelection];
   'select-status': [value: TaskStatus];
@@ -232,7 +249,19 @@ function toggleStatusPanel(): void {
 }
 
 function handleDueSelect(value: string): void {
-  emit('select-due', value);
+  emitDateFields({ dueDate: value });
+}
+
+function handleStartDateUpdate(value: string): void {
+  emitDateFields({ startDate: value });
+}
+
+function handleStartTimeUpdate(value: string): void {
+  emitDateFields({ startTime: value });
+}
+
+function handleDueTimeUpdate(value: string): void {
+  emitDateFields({ dueTime: value });
 }
 
 function handleReminderSelect(value: TaskReminderSelection): void {
@@ -259,6 +288,16 @@ function emitSelectGroup(value: string): void {
 
 function emitManageGroups(): void {
   emit('manage-groups');
+}
+
+function emitDateFields(partialValue: Partial<TaskEditorDateFields>): void {
+  emit('update-dates', {
+    startDate: props.startDate,
+    startTime: props.startTime,
+    dueDate: props.dueDate,
+    dueTime: props.dueTime,
+    ...partialValue
+  });
 }
 
 function normalizeStatusValue(value: unknown): TaskStatus {
@@ -371,7 +410,7 @@ onUnmounted(() => {
 .task-editor-action-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
   justify-content: flex-start;
 }
 

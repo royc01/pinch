@@ -41,8 +41,8 @@
         <div class="filter-group">
           <label
             class="task-manager-notebook-label"
-            :title="t('taskManager.notebook')"
-            :aria-label="t('taskManager.notebook')"
+            title="来源"
+            aria-label="来源"
           >
             <svg
               t="1774574520545"
@@ -78,6 +78,21 @@
         </div>
       </div>
       <div class="filters-actions">
+        <div class="task-search-control">
+          <button
+            type="button"
+            class="task-search-btn"
+            :class="{ active: taskSearchVisible }"
+            title="搜索任务"
+            aria-label="搜索任务"
+            @click.stop="toggleTaskSearch"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="6"></circle>
+              <path d="M16 16l4 4"></path>
+            </svg>
+          </button>
+        </div>
         <div ref="taskFilterControlRef" class="task-filter-control">
           <button
             type="button"
@@ -198,6 +213,18 @@
       </div>
     </div>
 
+    <div v-if="taskSearchVisible && !isTaskListCollapsed" class="task-search-row">
+      <input
+        ref="taskSearchInputRef"
+        v-model="taskSearchQuery"
+        type="text"
+        class="task-search-input"
+        placeholder="搜索任务"
+        aria-label="搜索任务"
+        @keydown.esc.stop.prevent="closeTaskSearch"
+      />
+    </div>
+
     <div v-if="isBatchEditMode && !isTaskListCollapsed" class="task-batch-toolbar">
       <div class="task-batch-toolbar-header">
         <span class="task-batch-selected-count">已选 {{ batchSelectedCount }} 项</span>
@@ -295,7 +322,10 @@
           >
             <TaskEditorMetaPanel
               :panel="taskEditorQuickPanel"
+              :start-date="activeTaskEditDraft.startDate || ''"
+              :start-time="activeTaskEditDraft.startTime || ''"
               :due-date="activeTaskEditDraft.dueDate || ''"
+              :due-time="activeTaskEditDraft.dueTime || ''"
               :due-text="taskEditorDueText"
               :has-due-date="taskEditorHasDueDate"
               :description="activeTaskEditDraft.description || ''"
@@ -313,7 +343,7 @@
               description-placeholder="添加任务描述..."
               @update:panel="taskEditorQuickPanel = $event"
               @update:description="handleTaskEditorDescriptionInput"
-              @select-due="handleTaskEditorDateSelect"
+              @update-dates="handleTaskEditorDateFieldsUpdate"
               @select-group="selectTaskEditorGroup"
               @select-reminder="handleTaskEditorReminderSelect"
               @select-status="handleTaskEditorStatusSelect"
@@ -574,6 +604,8 @@
         ? '首次使用请先设置任务抓取范围。开关关闭表示排除该笔记本，开关开启表示参与任务抓取。'
         : '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。'"
       :confirm-text="requiresScopeInitialization ? '开始使用' : '保存'"
+      :document-groups="documentGroups"
+      :document-group-documents="documentGroupDialogDocuments"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
       @save="handleTaskScopeSave"
@@ -610,7 +642,7 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TaskCard from '@/components/TaskCard.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
-import TaskModal, { Notebook, Document } from '@/components/TaskModal.vue';
+import TaskModal, { type Notebook, type Document as TaskDocument } from '@/components/TaskModal.vue';
 import TaskScopeDialog from '@/components/TaskScopeDialog.vue';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
@@ -652,6 +684,16 @@ import {
 } from '@/utils/taskSortShared';
 import { repeatDragDebug } from '@/utils/repeatDragDebug';
 import { rebuildAffectedRepeatTasks } from '@/repeatRepository';
+import {
+  loadDocumentGroups,
+  saveDocumentGroups,
+  type DocumentGroup
+} from '@/documentGroupRepository';
+import {
+  buildGroupDocumentSource,
+  buildNotebookDocumentSource,
+  parseDocumentSource
+} from '@/utils/documentGroupSource';
 import {
   getTaskHeadingGroupMeta,
   resolveTaskHeadingGroups,
@@ -758,6 +800,7 @@ const lastTaskNotebook = ref<string>('');
 const lastTaskDocument = ref<string>('');
 const expandedSubtasks = ref(new Set<string>());
 const expandedDescriptions = ref(new Set<string>());
+const documentGroups = ref<DocumentGroup[]>([]);
 interface TaskEditDraft {
   taskId: string;
   status: Task['status'];
@@ -772,6 +815,7 @@ interface TaskEditDraft {
   reminderCustomTime: string;
   groupId: string;
 }
+type TaskEditorDateFields = Pick<TaskEditDraft, 'startDate' | 'startTime' | 'dueDate' | 'dueTime'>;
 type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
 type TaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
 type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks';
@@ -797,7 +841,10 @@ const taskFilterControlRef = ref<HTMLElement | null>(null);
 const taskGroupMenuControlRef = ref<HTMLElement | null>(null);
 const taskFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
 const taskFilterPopoverStyle = ref<Record<string, string>>({});
+const taskSearchInputRef = ref<HTMLInputElement | null>(null);
 const taskGroupMenuVisible = ref(false);
+const taskSearchVisible = ref(false);
+const taskSearchQuery = ref('');
 const taskListViewMode = ref<TaskListViewMode>('kanban');
 const taskListGroupBy = ref<TaskListGroupMode>('none');
 const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
@@ -818,6 +865,7 @@ const visibleTaskGroups = computed(() =>
   taskGroups.value.filter(group => group.hidden !== true)
 );
 const visibleTaskGroupIdSet = computed(() => new Set(visibleTaskGroups.value.map(group => group.id)));
+const taskGroupNameMap = computed(() => new Map(taskGroups.value.map(group => [group.id, group.name || ''])));
 const lastSelectedTaskGroupId = ref<string>('');
 const showTaskCardDetails = ref(true);
 const collapsedTaskGroupSectionKeys = ref<Set<string>>(new Set());
@@ -1219,6 +1267,14 @@ function openTaskGroupDialog(): void {
   showTaskGroupDialog.value = true;
 }
 
+function applyExternalDocumentGroups(groups: DocumentGroup[]): void {
+  documentGroups.value = sortDocumentGroups((groups || []).map(group => ({
+    ...group,
+    members: Array.isArray(group.members) ? group.members.map(member => ({ ...member })) : []
+  })));
+  normalizeDocumentSelection(filterNotebook.value);
+}
+
 function collectRemovedGroupIds(previous: TaskGroup[], next: TaskGroup[]): string[] {
   const previousIds = new Set(
     (previous || [])
@@ -1407,6 +1463,25 @@ function closeTaskGroupMenu(): void {
   taskGroupMenuVisible.value = false;
 }
 
+function closeTaskSearch(): void {
+  taskSearchVisible.value = false;
+  taskSearchQuery.value = '';
+}
+
+function toggleTaskSearch(): void {
+  closeTaskFilterPopover();
+  closeTaskGroupMenu();
+  if (taskSearchVisible.value) {
+    closeTaskSearch();
+    return;
+  }
+  taskSearchVisible.value = true;
+  void nextTick(() => {
+    taskSearchInputRef.value?.focus();
+    taskSearchInputRef.value?.select();
+  });
+}
+
 function toggleTaskFilterPopover(): void {
   closeTaskGroupMenu();
   taskFilterPopoverVisible.value = !taskFilterPopoverVisible.value;
@@ -1513,16 +1588,47 @@ const filterNotebook = ref<string>('all');
 const filterDocument = ref<string>('all');
 const archiveViewMode = ref<TaskArchiveViewMode>('active');
 
+function sortDocumentGroups(groups: DocumentGroup[]): DocumentGroup[] {
+  return [...groups].sort((a, b) => {
+    const orderA = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER;
+    const orderB = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER;
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    return a.name.localeCompare(b.name, 'zh-CN');
+  });
+}
+
+function resolveDocumentEntryName(document: Pick<TaskDocument, 'id' | 'name' | 'path'>): string {
+  if (typeof document.name === 'string' && document.name.trim().length > 0) {
+    return document.name.trim();
+  }
+  if (typeof document.path === 'string' && document.path.trim().length > 0) {
+    return document.path.trim().split('/').pop() || document.path.trim();
+  }
+  return document.id;
+}
+
 const taskModalDefaultNotebook = computed(() => {
-  if (filterNotebook.value !== 'all') {
-    return filterNotebook.value;
+  const selectedDocument = sourceDocuments.value.find(doc => doc.id === filterDocument.value);
+  if (selectedDocument) {
+    return selectedDocument.notebookId;
+  }
+  if (parsedFilterSource.value.kind === 'notebook') {
+    return parsedFilterSource.value.id;
+  }
+  if (parsedFilterSource.value.kind === 'group') {
+    return sourceDocuments.value[0]?.notebookId || lastTaskNotebook.value || '';
   }
   return lastTaskNotebook.value || '';
 });
 
 const taskModalDefaultDocument = computed(() => {
-  if (filterNotebook.value !== 'all' && filterDocument.value !== 'all') {
+  if (filterDocument.value !== 'all') {
     return filterDocument.value;
+  }
+  if (parsedFilterSource.value.kind === 'group') {
+    return sourceDocuments.value[0]?.id || lastTaskDocument.value || '';
   }
   return lastTaskDocument.value || '';
 });
@@ -1535,10 +1641,27 @@ const enabledNotebooks = computed(() => {
   return notebooks.value.filter(notebook => !excludedIdSet.has(notebook.id));
 });
 
+const enabledNotebookNameById = computed(() =>
+  new Map(enabledNotebooks.value.map(notebook => [notebook.id, notebook.name]))
+);
+
+const documentGroupsById = computed(() =>
+  new Map(sortDocumentGroups(documentGroups.value).map(group => [group.id, group]))
+);
+
+const parsedFilterSource = computed(() => parseDocumentSource(filterNotebook.value));
+
 const notebookOptions = computed(() => {
   return [
     { value: 'all', text: t('taskManager.all') },
-    ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
+    ...enabledNotebooks.value.map(nb => ({
+      value: buildNotebookDocumentSource(nb.id),
+      text: nb.name
+    })),
+    ...sortDocumentGroups(documentGroups.value).map(group => ({
+      value: buildGroupDocumentSource(group.id),
+      text: `🏷 ${group.name}`
+    }))
   ];
 });
 
@@ -1549,7 +1672,7 @@ const taskMoveNotebookOptions = computed(() => {
 const taskMoveDocuments = computed(() => {
   const notebookId = taskMoveSelectedNotebook.value;
   if (!notebookId) {
-    return [] as Document[];
+    return [] as TaskDocument[];
   }
 
   const docs = [...(taskDocumentsByNotebook.value.get(notebookId) || [])];
@@ -1693,28 +1816,133 @@ interface TaskIndex {
 
 const blockIdToTaskIndex = new Map<string, TaskIndex>();
 const subtaskToParentMap = new Map<string, string>();
-const taskDocumentsByNotebook = ref<Map<string, Document[]>>(new Map());
+const taskDocumentsByNotebook = ref<Map<string, TaskDocument[]>>(new Map());
 
 // === Notebook/document option derivation and persisted filter selection ===
 const allDocuments = computed(() => {
   return Array.from(taskDocumentsByNotebook.value.values()).flat();
 });
 
+const allDocumentsByKey = computed(() => {
+  const nextMap = new Map<string, TaskDocument>();
+  allDocuments.value.forEach((document) => {
+    nextMap.set(`${document.notebookId}:${document.id}`, document);
+  });
+  return nextMap;
+});
+
+function getDocumentsForActiveSource(sourceValue: string): TaskDocument[] {
+  const parsed = parseDocumentSource(sourceValue);
+  if (parsed.kind === 'all') {
+    return [];
+  }
+
+  if (parsed.kind === 'notebook') {
+    return [...(taskDocumentsByNotebook.value.get(parsed.id) || [])];
+  }
+
+  const group = documentGroupsById.value.get(parsed.id);
+  if (!group) {
+    return [];
+  }
+
+  const documents: TaskDocument[] = [];
+  const seen = new Set<string>();
+  group.members.forEach((member) => {
+    const key = `${member.notebookId}:${member.documentId}`;
+    if (!enabledNotebookNameById.value.has(member.notebookId)) {
+      return;
+    }
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+
+    const existing = allDocumentsByKey.value.get(key);
+    if (existing) {
+      documents.push(existing);
+      return;
+    }
+
+    documents.push({
+      id: member.documentId,
+      name: resolveDocumentEntryName({
+        id: member.documentId,
+        name: member.name || '',
+        path: member.path
+      }),
+      notebookId: member.notebookId,
+      path: member.path
+    });
+  });
+
+  return documents.sort((a, b) => {
+    const timeDiff = getDocumentCreationSortKey(b.id) - getDocumentCreationSortKey(a.id);
+    if (timeDiff !== 0) {
+      return timeDiff;
+    }
+    const notebookNameA = enabledNotebookNameById.value.get(a.notebookId) || a.notebookId;
+    const notebookNameB = enabledNotebookNameById.value.get(b.notebookId) || b.notebookId;
+    const notebookDiff = notebookNameA.localeCompare(notebookNameB, 'zh-CN');
+    if (notebookDiff !== 0) {
+      return notebookDiff;
+    }
+    return resolveDocumentEntryName(a).localeCompare(resolveDocumentEntryName(b), 'zh-CN');
+  });
+}
+
+const sourceDocuments = computed(() => getDocumentsForActiveSource(filterNotebook.value));
+
+const documentGroupDialogDocuments = computed(() => {
+  return [...allDocuments.value]
+    .map(document => ({
+      id: document.id,
+      name: resolveDocumentEntryName(document),
+      notebookId: document.notebookId,
+      notebookName: enabledNotebookNameById.value.get(document.notebookId) || document.notebookId,
+      path: document.path
+    }))
+    .sort((a, b) => {
+      const notebookDiff = a.notebookName.localeCompare(b.notebookName, 'zh-CN');
+      if (notebookDiff !== 0) {
+        return notebookDiff;
+      }
+      return a.name.localeCompare(b.name, 'zh-CN');
+    });
+});
+
 const documentOptions = computed(() => {
-  if (filterNotebook.value === 'all') return [];
-  
-  const docs = taskDocumentsByNotebook.value.get(filterNotebook.value) || [];
+  if (parsedFilterSource.value.kind === 'all') return [];
+
   return [
     { value: 'all', text: t('taskManager.all') },
-    ...docs.map(doc => ({ value: doc.id, text: doc.name }))
+    ...sourceDocuments.value.map(doc => ({
+      value: doc.id,
+      text: parsedFilterSource.value.kind === 'group'
+        ? `${resolveDocumentEntryName(doc)} · ${enabledNotebookNameById.value.get(doc.notebookId) || doc.notebookId}`
+        : resolveDocumentEntryName(doc)
+    }))
   ];
 });
 
-function normalizeDocumentSelection(notebookId: string): void {
-  if (notebookId === 'all') {
+function normalizeDocumentSelection(sourceValue: string): void {
+  const parsed = parseDocumentSource(sourceValue);
+  if (parsed.kind === 'all') {
     if (filterDocument.value !== 'all') {
       filterDocument.value = 'all';
     }
+    return;
+  }
+
+  if (parsed.kind === 'notebook' && !enabledNotebookNameById.value.has(parsed.id)) {
+    filterNotebook.value = 'all';
+    filterDocument.value = 'all';
+    return;
+  }
+
+  if (parsed.kind === 'group' && !documentGroupsById.value.has(parsed.id)) {
+    filterNotebook.value = 'all';
+    filterDocument.value = 'all';
     return;
   }
 
@@ -1763,7 +1991,7 @@ async function refreshTaskDocumentOptions(force = false): Promise<void> {
       ORDER BY b.box, b.root_id
     `) as Array<{ box?: string; root_id?: string; hpath?: string }>;
 
-    const nextMap = new Map<string, Document[]>();
+    const nextMap = new Map<string, TaskDocument[]>();
     for (const row of rows || []) {
       const notebookId = typeof row?.box === 'string' ? row.box : '';
       const rootId = typeof row?.root_id === 'string' ? row.root_id : '';
@@ -1786,7 +2014,7 @@ async function refreshTaskDocumentOptions(force = false): Promise<void> {
     }
 
     nextMap.forEach((docs, notebookId) => {
-      const dedupById = new Map<string, Document>();
+      const dedupById = new Map<string, TaskDocument>();
       for (const doc of docs) {
         if (!dedupById.has(doc.id)) {
           dedupById.set(doc.id, doc);
@@ -1816,8 +2044,10 @@ function scheduleFilterSettingsUpdate() {
   }
 
   filterSettingsUpdateTimer = window.setTimeout(async () => {
+    const activeSource = parseDocumentSource(filterNotebook.value);
     await updateSettings('taskManager', {
-      filterNotebook: filterNotebook.value,
+      filterSource: filterNotebook.value,
+      filterNotebook: activeSource.kind === 'notebook' ? activeSource.id : 'all',
       filterDocument: filterDocument.value,
       archiveViewMode: archiveViewMode.value
     });
@@ -1874,6 +2104,7 @@ watch(isTaskListCollapsed, (collapsed) => {
   if (collapsed) {
     closeTaskFilterPopover();
     closeTaskGroupMenu();
+    closeTaskSearch();
   }
 });
 
@@ -2190,9 +2421,17 @@ const taskEditorHasReminder = computed(() => {
   return !!(activeTaskEditDraft.value?.reminderType || '').trim();
 });
 
+const taskFilterNotebookId = computed(() =>
+  parsedFilterSource.value.kind === 'notebook' ? parsedFilterSource.value.id : 'all'
+);
+
+const taskFilterDocumentId = computed(() =>
+  filterDocument.value !== 'all' ? filterDocument.value : 'all'
+);
+
 const taskFilters = {
-  notebook: filterNotebook,
-  document: filterDocument,
+  notebook: taskFilterNotebookId,
+  document: taskFilterDocumentId,
   archiveMode: archiveViewMode
 };
 
@@ -2251,7 +2490,8 @@ function getCurrentTaskQueryScope(): TaskQueryScope | undefined {
   const includeArchived = mode === 'all';
   const archivedOnly = mode === 'archived';
   const includeCompleted = mode === 'active' ? showCompletedTasks.value : true;
-  if (filterNotebook.value === 'all' && includeCompleted && !includeArchived && !archivedOnly) {
+  const activeSource = parsedFilterSource.value;
+  if (activeSource.kind === 'all' && filterDocument.value === 'all' && includeCompleted && !includeArchived && !archivedOnly) {
     return undefined;
   }
 
@@ -2264,10 +2504,10 @@ function getCurrentTaskQueryScope(): TaskQueryScope | undefined {
   if (archivedOnly) {
     scope.archivedOnly = true;
   }
-  if (filterNotebook.value !== 'all') {
-    scope.notebookId = filterNotebook.value;
+  if (activeSource.kind === 'notebook') {
+    scope.notebookId = activeSource.id;
   }
-  if (filterNotebook.value !== 'all' && filterDocument.value !== 'all') {
+  if (filterDocument.value !== 'all') {
     scope.documentId = filterDocument.value;
   }
   return scope;
@@ -2680,6 +2920,34 @@ function matchesTaskFilterChips(task: Task): boolean {
   return true;
 }
 
+function matchesTaskSearchValue(value: string | undefined, keyword: string): boolean {
+  return typeof value === 'string' && value.toLocaleLowerCase().includes(keyword);
+}
+
+function matchesSubtaskSearch(subtasks: Task['subtasks'] | undefined, keyword: string): boolean {
+  if (!Array.isArray(subtasks) || subtasks.length === 0) {
+    return false;
+  }
+  return subtasks.some(subtask => (
+    matchesTaskSearchValue(subtask.title, keyword)
+    || matchesTaskSearchValue(subtask.description, keyword)
+    || matchesSubtaskSearch(subtask.subtasks, keyword)
+  ));
+}
+
+function matchesTaskSearch(task: Task, keyword: string): boolean {
+  if (!keyword) {
+    return true;
+  }
+  const groupName = task.groupId ? (taskGroupNameMap.value.get(task.groupId) || '') : '';
+  return matchesTaskSearchValue(task.title, keyword)
+    || matchesTaskSearchValue(task.description, keyword)
+    || matchesTaskSearchValue(task.hPath, keyword)
+    || matchesTaskSearchValue(groupName, keyword)
+    || (Array.isArray(task.tags) && task.tags.some(tag => matchesTaskSearchValue(tag, keyword)))
+    || matchesSubtaskSearch(task.subtasks, keyword);
+}
+
 // === Task patch helpers and filtered/sorted list derivation ===
 function patchTask(
   taskList: any[],
@@ -2715,11 +2983,32 @@ const taskSortVersion = ref(0);
 const MAX_VISIBLE_COMPLETED_TASKS = 3;
 const showAllCompletedTasks = ref(false);
 
+function matchesActiveSourceFilter(task: Task): boolean {
+  const activeSource = parsedFilterSource.value;
+  if (activeSource.kind === 'notebook' && task.notebookId !== activeSource.id) {
+    return false;
+  }
+  if (filterDocument.value !== 'all' && task.rootId !== filterDocument.value) {
+    return false;
+  }
+  if (activeSource.kind !== 'group') {
+    return true;
+  }
+  const activeGroup = documentGroupsById.value.get(activeSource.id);
+  if (!activeGroup) {
+    return false;
+  }
+  return activeGroup.members.some(member =>
+    member.documentId === task.rootId && member.notebookId === task.notebookId
+  );
+}
+
 const filteredTasks = computed(() => {
   // Manual invalidation hook for mutation paths that should force re-sorting.
   void taskSortVersion.value;
   const mode = archiveViewMode.value;
   const includeCompleted = mode === 'active' ? showCompletedTasks.value : true;
+  const searchKeyword = taskSearchQuery.value.trim().toLocaleLowerCase();
   const todayStart = getTodayStartTimestamp();
   const todayVirtualSeriesIds = new Set<string>();
   for (const task of baseFilteredTasks.value) {
@@ -2754,7 +3043,13 @@ const filteredTasks = computed(() => {
     if (!title || title === '-' || title === '') {
       return false;
     }
-    return matchesTaskFilterChips(task);
+    if (!matchesActiveSourceFilter(task)) {
+      return false;
+    }
+    if (!matchesTaskFilterChips(task)) {
+      return false;
+    }
+    return matchesTaskSearch(task, searchKeyword);
   });
 
   const result = [...baseFiltered].sort((a, b) => {
@@ -3549,7 +3844,8 @@ function applyExcludedNotebookScope(ids: string[]): void {
 }
 
 function ensureActiveNotebookFilterInScope(): void {
-  if (filterNotebook.value !== 'all' && excludedNotebookIds.value.includes(filterNotebook.value)) {
+  const activeSource = parsedFilterSource.value;
+  if (activeSource.kind === 'notebook' && excludedNotebookIds.value.includes(activeSource.id)) {
     filterNotebook.value = 'all';
     filterDocument.value = 'all';
   }
@@ -3599,23 +3895,38 @@ async function handleGlobalRecognizeTaskDates(): Promise<void> {
   }
 }
 
-async function handleTaskScopeSave(
-  selectedVisibleExcludedNotebookIds: string[],
-  nextShowCompletedTasks: boolean,
-  nextAutoRecognizeTaskDate: boolean,
-  nextTaskCompletionSoundEnabled: boolean
-) {
+async function handleTaskScopeSave(payload: {
+  excludedNotebookIds: string[];
+  showCompletedTasks: boolean;
+  autoRecognizeTaskDate: boolean;
+  taskCompletionSoundEnabled: boolean;
+  documentGroups: DocumentGroup[];
+}) {
+  const {
+    excludedNotebookIds: selectedVisibleExcludedNotebookIds,
+    showCompletedTasks: nextShowCompletedTasks,
+    autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
+    taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    documentGroups: nextDocumentGroupsPayload
+  } = payload;
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
   const mergedExcludedNotebookIds = normalizeNotebookIds([
     ...hiddenExcludedNotebookIds,
     ...selectedVisibleExcludedNotebookIds
   ]);
+  const nextDocumentGroups = sortDocumentGroups((nextDocumentGroupsPayload || []).map(group => ({
+    ...group,
+    members: Array.isArray(group.members) ? group.members.map(member => ({ ...member })) : []
+  })));
 
   applyExcludedNotebookScope(mergedExcludedNotebookIds);
+  applyExternalDocumentGroups(nextDocumentGroups);
+  eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
   showCompletedTasks.value = nextShowCompletedTasks;
   TaskRepository.setAutoRecognizeTaskDateEnabled(nextAutoRecognizeTaskDate);
   const shouldFinalizeInit = requiresScopeInitialization.value;
+  await saveDocumentGroups(nextDocumentGroups);
   await updateSettings('taskManager', {
     excludedNotebookIds: mergedExcludedNotebookIds,
     showCompletedTasks: nextShowCompletedTasks,
@@ -3629,6 +3940,7 @@ async function handleTaskScopeSave(
   showTaskScopeDialog.value = false;
   await refreshTaskDocumentOptions(true);
   ensureActiveNotebookFilterInScope();
+  normalizeDocumentSelection(filterNotebook.value);
   await refreshTasks(true, { showLoading: false, compareExisting: false, source: 'scope-save' });
 }
 async function handleRefreshClick() {
@@ -4077,6 +4389,20 @@ function setupEventListeners() {
     })();
   });
 
+  const unsubscribeDocumentGroupsUpdated = eventBus.on(
+    Events.DOCUMENT_GROUPS_UPDATED,
+    (payload?: { groups?: DocumentGroup[] }) => {
+      if (payload?.groups) {
+        applyExternalDocumentGroups(payload.groups);
+        return;
+      }
+      void (async () => {
+        const nextGroups = await loadDocumentGroups();
+        applyExternalDocumentGroups(nextGroups);
+      })();
+    }
+  );
+
   const unsubscribeTaskEditorOpenRequested = eventBus.on(
     Events.TASK_EDITOR_OPEN_REQUEST,
     (payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null }) => {
@@ -4091,6 +4417,7 @@ function setupEventListeners() {
     unsubscribeAdded,
     unsubscribeDateChanged,
     unsubscribeGroupsUpdated,
+    unsubscribeDocumentGroupsUpdated,
     unsubscribeTaskEditorOpenRequested
   );
 }
@@ -5008,10 +5335,9 @@ function handleTaskEditorDescriptionInput(value: string): void {
   activeTaskEditDraft.value.description = value;
 }
 
-function handleTaskEditorDateSelect(value: string): void {
+function handleTaskEditorDateFieldsUpdate(value: TaskEditorDateFields): void {
   if (!activeTaskEditTask.value || !activeTaskEditDraft.value) return;
-  activeTaskEditDraft.value.dueDate = value;
-  void quickSaveTaskDueDate(activeTaskEditTask.value, value || '');
+  void quickSaveTaskDateFields(activeTaskEditTask.value, value);
 }
 
 function handleTaskEditorReminderSelect(value: TaskReminderSelection): void {
@@ -5794,22 +6120,71 @@ async function quickSaveTaskPinned(task: Task, pinned: boolean): Promise<void> {
   });
 }
 
-async function quickSaveTaskDueDate(task: Task, dueDate: string): Promise<void> {
-  const normalizedDueDate = normalizeDateInputValue(dueDate || '');
-  const currentDueDate = normalizeDateInputValue((task.dueDate || '').toString());
+function normalizeTaskEditorDateFields(value: {
+  startDate?: string;
+  startTime?: string;
+  dueDate?: string;
+  dueTime?: string;
+}): TaskEditorDateFields {
+  const startDate = normalizeDateInputValue(value.startDate || '');
+  let dueDate = normalizeDateInputValue(value.dueDate || '');
+  if (startDate && dueDate && dueDate < startDate) {
+    dueDate = startDate;
+  }
+  const startTime = startDate ? normalizeTimeInputValue(value.startTime || '') : '';
+  const dueTime = dueDate ? normalizeTimeInputValue(value.dueTime || '') : '';
+  return {
+    startDate,
+    startTime,
+    dueDate,
+    dueTime
+  };
+}
+
+function isSameTaskEditorDateFields(a: TaskEditorDateFields, b: TaskEditorDateFields): boolean {
+  return a.startDate === b.startDate
+    && a.startTime === b.startTime
+    && a.dueDate === b.dueDate
+    && a.dueTime === b.dueTime;
+}
+
+async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields): Promise<void> {
+  const normalizedFields = normalizeTaskEditorDateFields(value);
+  const currentFields = normalizeTaskEditorDateFields({
+    startDate: (task.startDate || '').toString(),
+    startTime: (task.startTime || '').toString(),
+    dueDate: (task.dueDate || '').toString(),
+    dueTime: (task.dueTime || '').toString()
+  });
   await applyTaskEditorFieldUpdate(task, {
     attrs: {
-      'custom-task-due-date': normalizedDueDate
+      'custom-task-start-date': normalizedFields.startDate || '',
+      'custom-task-due-date': normalizedFields.dueDate || '',
+      'custom-task-start-time': normalizedFields.startTime || '',
+      'custom-task-due-time': normalizedFields.dueTime || ''
     },
-    isUnchanged: draft => draft.dueDate === normalizedDueDate && currentDueDate === normalizedDueDate,
+    isUnchanged: draft => {
+      const normalizedDraft = normalizeTaskEditorDateFields(draft);
+      return isSameTaskEditorDateFields(normalizedDraft, normalizedFields)
+        && isSameTaskEditorDateFields(currentFields, normalizedFields);
+    },
     syncDraft: draft => {
-      draft.dueDate = normalizedDueDate;
+      draft.startDate = normalizedFields.startDate;
+      draft.startTime = normalizedFields.startTime;
+      draft.dueDate = normalizedFields.dueDate;
+      draft.dueTime = normalizedFields.dueTime;
     },
     syncTask: targetTask => {
-      targetTask.dueDate = normalizedDueDate;
+      targetTask.startDate = normalizedFields.startDate;
+      targetTask.startTime = normalizedFields.startTime;
+      targetTask.dueDate = normalizedFields.dueDate;
+      targetTask.dueTime = normalizedFields.dueTime;
     },
     syncCrdt: () => {
-      crdtRepo.updateTaskField(task.id, 'dueDate', normalizedDueDate);
+      crdtRepo.updateTaskField(task.id, 'startDate', normalizedFields.startDate);
+      crdtRepo.updateTaskField(task.id, 'startTime', normalizedFields.startTime);
+      crdtRepo.updateTaskField(task.id, 'dueDate', normalizedFields.dueDate);
+      crdtRepo.updateTaskField(task.id, 'dueTime', normalizedFields.dueTime);
     },
     emitTaskChanged: true
   });
@@ -5969,6 +6344,7 @@ onMounted(async () => {
   await loadSettings();
   TaskRepository.setAutoRecognizeTaskDateEnabled(userSettings.taskManager.autoRecognizeTaskDate === true);
   taskGroups.value = await loadTaskGroups();
+  documentGroups.value = sortDocumentGroups(await loadDocumentGroups());
   const storedGroupId = typeof userSettings.taskManager.selectedGroupId === 'string'
     ? userSettings.taskManager.selectedGroupId
     : '';
@@ -5982,7 +6358,10 @@ onMounted(async () => {
   await loadNotebooks();
   await refreshTaskDocumentOptions(true);
   
-  filterNotebook.value = userSettings.taskManager.filterNotebook || 'all';
+  filterNotebook.value = userSettings.taskManager.filterSource
+    || (userSettings.taskManager.filterNotebook && userSettings.taskManager.filterNotebook !== 'all'
+      ? buildNotebookDocumentSource(userSettings.taskManager.filterNotebook)
+      : 'all');
   filterDocument.value = userSettings.taskManager.filterDocument || 'all';
   archiveViewMode.value = 'active';
   showCompletedTasks.value = userSettings.taskManager.showCompletedTasks !== false;
@@ -6183,6 +6562,36 @@ onUnmounted(() => {
   align-items: center;
   gap: 2px;
   margin-bottom: 12px;
+}
+
+.task-search-row {
+  margin: -4px 0 12px;
+  padding: 0 2px;
+  box-sizing: border-box;
+}
+
+.task-search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 10px;
+  box-sizing: border-box;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.task-search-input::placeholder {
+  color: var(--b3-theme-on-surface);
+  opacity: 0.62;
+}
+
+.task-search-input:focus {
+  border-color: #f98f7a;
+  box-shadow: 0 0 0 3px rgba(249, 143, 122, 0.14);
 }
 
 .task-batch-toolbar {
@@ -6502,15 +6911,21 @@ onUnmounted(() => {
   position: relative;
 }
 
+.task-search-control {
+  position: relative;
+}
+
 .task-group-menu-control {
   position: relative;
 }
 
+.task-search-btn,
 .task-group-menu-btn {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 7px;
+  border-radius: 6px;
+  padding: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6520,15 +6935,29 @@ onUnmounted(() => {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+.task-search-btn:hover,
+.task-search-btn.active,
 .task-group-menu-btn:hover,
 .task-group-menu-btn.active {
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
 }
 
+.task-search-btn svg,
 .task-group-menu-btn svg {
   width: 16px;
   height: 16px;
+}
+
+.task-search-btn svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.task-group-menu-btn svg {
   fill: currentColor;
 }
 
@@ -6597,10 +7026,11 @@ onUnmounted(() => {
 }
 
 .task-filter-btn {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 7px;
+  border-radius: 6px;
+  padding: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6937,8 +7367,9 @@ onUnmounted(() => {
 
 .filter-group :deep(.b3-select) {
   font-size: 12px;
-  padding: 4px 24px 4px 8px;
+  padding: 2px 24px 2px 8px;
   border-radius: 6px;
+  height: 24px;
   width: 100%;
   min-width: 0;
   max-width: 100%;

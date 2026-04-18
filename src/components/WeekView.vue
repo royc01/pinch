@@ -116,12 +116,7 @@
         </div>
         <div v-else class="weekday-header">
           <div class="all-day-label-cell">
-            <template v-if="!isDaysCountLocked && !showHeaderDaysSwitcher">
-              <button class="days-control-btn" @click="decreaseDays" :disabled="daysCount <= CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS">-</button>
-              <span class="days-count">{{ daysCount }}</span>
-              <button class="days-control-btn" @click="increaseDays" :disabled="daysCount >= CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS">+</button>
-            </template>
-            <span v-else class="all-day-label-text">全天</span>
+            <span class="all-day-label-text">全天</span>
           </div>
           <div v-for="day in weekDays" :key="day.key" class="weekday-cell" :class="{ today: day.isToday }">
             <div class="weekday-name">{{ day.weekdayName }}</div>
@@ -131,12 +126,28 @@
         
         <div class="all-day-section" :style="{ height: isAllDaySectionCollapsed ? '30px' : allDaySectionHeight + 'px' }">
           <div class="all-day-label-in-section" @click="toggleAllDaySection">
-            <span class="collapse-btn" :class="{ collapsed: isAllDaySectionCollapsed }">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+            <span class="collapse-btn">
+              <svg
+                v-if="isAllDaySectionCollapsed"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="currentColor"
+              >
+                <path d="M16.29,14.29,12,18.59l-4.29-4.3a1,1,0,0,0-1.42,1.42l5,5a1,1,0,0,0,1.42,0l5-5a1,1,0,0,0-1.42-1.42ZM7.71,9.71,12,5.41l4.29,4.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42l-5-5a1,1,0,0,0-1.42,0l-5,5A1,1,0,0,0,7.71,9.71Z"/>
+              </svg>
+              <svg
+                v-else
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="currentColor"
+              >
+                <path d="M11.29,9.71a1,1,0,0,0,1.42,0l5-5a1,1,0,1,0-1.42-1.42L12,7.59,7.71,3.29A1,1,0,0,0,6.29,4.71Zm1.42,4.58a1,1,0,0,0-1.42,0l-5,5a1,1,0,0,0,1.42,1.42L12,16.41l4.29,4.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42Z"/>
               </svg>
             </span>
-            <span v-show="!isAllDaySectionCollapsed">全天</span>
           </div>
           <div class="all-day-columns" :class="{ collapsed: isAllDaySectionCollapsed }" :style="{ overflow: isAllDaySectionCollapsed ? 'hidden' : 'visible' }">
             <div 
@@ -214,14 +225,18 @@
             v-if="hiddenTasksCount > 0" 
             class="more-all-day"
             :class="{ collapsed: isAllDaySectionCollapsed }"
-            :style="{ 
-              left: isAllDaySectionCollapsed ? '64px' : `calc(60px + (100% - 60px) / ${daysCount} * ${moreButtonDayIndex} + 4px)`,
-              width: isAllDaySectionCollapsed ? 'calc(100% - 8px)' : `calc((100% - 60px) / ${daysCount} - 16px)`
-            }"
-            @mousedown.stop
-            @click="showAllTasks"
+            :style="moreAllDayStyle"
           >
-            +{{ hiddenTasksCount }} 个任务
+            <button
+              type="button"
+              class="more-all-day-pill"
+              :title="`还有${hiddenTasksCount}个任务`"
+              :aria-label="`还有${hiddenTasksCount}个任务`"
+              @mousedown.stop
+              @click.stop="showAllTasks"
+            >
+              +{{ hiddenTasksCount }}
+            </button>
           </div>
           <div
             v-if="allDayExpandedPanelVisible"
@@ -394,7 +409,7 @@ import type { Task } from '@/api';
 import { setBlockAttrs, TaskRepository } from '@/api';
 import { updateTaskMarkdown } from '@/utils/taskHelpers';
 import { stripHtml } from '@/composables/useTaskCommon';
-import { formatDate, formatTime, formatHour, getWeekStart, formatChineseDate } from '@/composables/useDateUtils';
+import { formatDate, formatTime, formatHour, formatChineseDate } from '@/composables/useDateUtils';
 import { CALENDAR_CONSTANTS } from '@/composables/useCalendarConstants';
 import { useDebouncedSave } from '@/composables/useDebouncedSave';
 import { useTaskDrag } from '@/composables/useTaskDrag';
@@ -422,6 +437,7 @@ interface WeekDay {
 
 interface WeekAllDayTask extends Task {
   startDayOfWeek: number;
+  endDayOfWeek: number;
   spanDays: number;
   rangeStart: Date;
   rangeEnd: Date;
@@ -482,7 +498,7 @@ function resolveCenteredStartDateFromToday(days: number): Date {
 function resolveInitialWeekStart(): Date {
   const fixedDays = resolveFixedDaysCount(props.fixedDaysCount);
   if (!fixedDays) {
-    return getWeekStart(new Date());
+    return getMondayStart(new Date());
   }
   if (props.fixedCenterToday) {
     return resolveCenteredStartDateFromToday(fixedDays);
@@ -495,7 +511,7 @@ const currentTime = ref(new Date());
 const isAllDaySectionCollapsed = ref(false);
 const allDayExpandedPanelVisible = ref(false);
 const allDayExpandedDayKey = ref<string | null>(null);
-const MAX_VISIBLE_ALL_DAY_ROWS = 3;
+const MAX_VISIBLE_ALL_DAY_ROWS = 4;
 let timeUpdateInterval: ReturnType<typeof setInterval> | null = null;
 const MOBILE_WEEK_BREAKPOINT = 768;
 const mobileMiniWeekdayLabels = ['一', '二', '三', '四', '五', '六', '日'];
@@ -686,10 +702,7 @@ const isDaysCountLocked = computed(() =>
   && !isDayViewContext.value
   && !isThreeDayViewContext.value
 );
-const showHeaderDaysSwitcher = computed(() =>
-  isDayViewContext.value
-  || isThreeDayViewContext.value
-);
+const showHeaderDaysSwitcher = computed(() => !isDaysCountLocked.value);
 const isMobileWeekGridMode = computed(() => viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && daysCount.value === 7);
 const isMobileDayViewMode = computed(() => viewportWidth.value <= MOBILE_WEEK_BREAKPOINT && daysCount.value === 1);
 
@@ -930,7 +943,6 @@ function focusMobileDay(date: Date): void {
 const mobileWeekStartDate = computed(() => {
   const mondayStart = new Date(currentWeekStart.value);
   mondayStart.setHours(0, 0, 0, 0);
-  mondayStart.setDate(mondayStart.getDate() + 1);
   return mondayStart;
 });
 
@@ -1032,9 +1044,7 @@ const mobileMiniCalendarDays = computed<MobileMiniCalendarDay[]>(() => {
 function focusMobileWeek(date: Date): void {
   hideAllDayExpandedPanel();
   const monday = getMondayStart(date);
-  const anchor = new Date(monday);
-  anchor.setDate(anchor.getDate() - 1);
-  currentWeekStart.value = anchor;
+  currentWeekStart.value = monday;
 }
 
 function compareTasksForMobileDay(a: Task, b: Task): number {
@@ -1160,11 +1170,14 @@ const weekTasks = computed<WeekAllDayTask[]>(() => {
 
       const startDayOffset = Math.floor((displayStart.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
       const endDayOffset = Math.floor((displayEnd.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
+      const startDayOfWeek = Math.max(0, startDayOffset);
+      const endDayOfWeek = Math.min(daysCount.value - 1, endDayOffset);
 
       return {
         ...task,
-        startDayOfWeek: Math.max(0, startDayOffset),
-        spanDays: Math.min(daysCount.value - 1, endDayOffset) - Math.max(0, startDayOffset) + 1,
+        startDayOfWeek,
+        endDayOfWeek,
+        spanDays: endDayOfWeek - startDayOfWeek + 1,
         rangeStart: startDate,
         rangeEnd: endDate
       };
@@ -1247,7 +1260,7 @@ const maxVisibleTasks = computed(() => MAX_VISIBLE_ALL_DAY_ROWS);
 const allDaySectionHeight = computed(() => {
   const maxPosition = Math.max(0, ...Array.from(taskPositionsMap.value.values()));
   const visibleRows = Math.min(maxPosition + 1, maxVisibleTasks.value);
-  return CALENDAR_CONSTANTS.LAYOUT.ALL_DAY_HEADER_HEIGHT + visibleRows * CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT + CALENDAR_CONSTANTS.LAYOUT.ALL_DAY_PADDING;
+  return visibleRows * CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT + 6;
 });
 
 const visibleTasks = computed(() => {
@@ -1278,8 +1291,7 @@ const allDayExpandedTasks = computed<WeekAllDayTask[]>(() => {
   }
   return weekTasks.value
     .filter((task) => {
-      const endDay = task.startDayOfWeek + task.spanDays - 1;
-      return task.startDayOfWeek <= dayIndex && dayIndex <= endDay;
+      return task.startDayOfWeek <= dayIndex && dayIndex <= task.endDayOfWeek;
     })
     .sort((a, b) => {
       const positionDelta = (taskPositionsMap.value.get(a.id) ?? 0) - (taskPositionsMap.value.get(b.id) ?? 0);
@@ -1358,6 +1370,41 @@ const allDayExpandedPanelStyle = computed<Record<string, string>>(() => {
   };
 });
 
+const moreAllDayStyle = computed<Record<string, string>>(() => {
+  if (isAllDaySectionCollapsed.value) {
+    return {
+      left: '4px',
+      width: 'calc(100% - 8px)',
+      top: '4px',
+      height: '22px'
+    };
+  }
+
+  return {
+    left: `calc(60px + (100% - 60px) / ${daysCount.value} * ${moreButtonDayIndex.value} + 10px)`,
+    width: `calc((100% - 60px) / ${daysCount.value} - 16px)`,
+    top: `${CALENDAR_CONSTANTS.LAYOUT.TASK_TOP_OFFSET + (maxVisibleTasks.value - 1) * CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT}px`,
+    height: '22px'
+  };
+});
+
+function getAllDayMoreReserveWidthPx(): number {
+  return viewportWidth.value <= MOBILE_WEEK_BREAKPOINT ? 24 : 34;
+}
+
+function getAllDayTaskMoreReserveWidth(task: WeekAllDayTask): number {
+  if (isAllDaySectionCollapsed.value || hiddenTasksCount.value <= 0) {
+    return 0;
+  }
+
+  const position = getVisibleTaskPosition(task);
+  if (position !== Math.max(0, maxVisibleTasks.value - 1)) {
+    return 0;
+  }
+
+  return task.endDayOfWeek === moreButtonDayIndex.value ? getAllDayMoreReserveWidthPx() : 0;
+}
+
 function getVisibleTaskPosition(task: WeekAllDayTask): number {
   return taskPositionsMap.value.get(task.id) || 0;
 }
@@ -1367,13 +1414,14 @@ function getAllDayTaskStyle(task: WeekAllDayTask) {
   const widthPercent = (task.spanDays / daysCount.value) * 100;
 
   const position = getVisibleTaskPosition(task);
+  const widthOffset = 24 + getAllDayTaskMoreReserveWidth(task);
 
   const bgColor = resolveTaskBackgroundColor(task.backgroundColor);
 
   return {
     position: 'absolute' as const,
     left: `${leftPercent}%`,
-    width: `calc(${widthPercent}% - 30px)`,
+    width: `calc(${widthPercent}% - ${widthOffset}px)`,
     top: `${CALENDAR_CONSTANTS.LAYOUT.TASK_TOP_OFFSET + position * CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT}px`,
     height: '16px',
     backgroundColor: bgColor,
@@ -1468,7 +1516,7 @@ function goToToday() {
     void centerCurrentTimeInViewport('smooth');
     return;
   }
-  currentWeekStart.value = getWeekStart(new Date());
+  currentWeekStart.value = getMondayStart(new Date());
   void centerCurrentTimeInViewport('smooth');
 }
 
@@ -2701,11 +2749,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s;
-}
-
-.collapse-btn.collapsed {
-  transform: rotate(-90deg);
 }
 
 .all-day-columns {
@@ -2891,25 +2934,44 @@ onUnmounted(() => {
 
 .more-all-day {
   position: absolute;
-  bottom: 4px;
-  padding: 2px 4px;
-  border-radius: 6px;
-  background: var(--b3-list-hover);
-  color: var(--b3-theme-on-surface);
-  font-size: 10px;
-  font-weight: 500;
-  cursor: pointer;
-  pointer-events: auto;
-  text-align: center;
-  border: 1px dashed var(--b3-border-color);
-  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+  z-index: 24;
+  --more-pill-reserve-width: 30px;
+  font-size: 11px;
 }
 
 .more-all-day.collapsed {
-  left: 4px;
+  justify-content: center;
 }
 
-.more-all-day:hover {
+.more-all-day-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  box-sizing: border-box;
+  width: var(--more-pill-reserve-width);
+  max-width: calc(100% - 4px);
+  padding: 0 6px;
+  border: 1px dashed var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  font-size: inherit;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 0.2s;
+}
+
+.more-all-day-pill:hover {
   background: var(--b3-font-background2);
 }
 
@@ -3244,6 +3306,15 @@ onUnmounted(() => {
   .all-day-task,
   .task-title-text {
     font-size: 9px;
+  }
+
+  .more-all-day {
+    --more-pill-reserve-width: 30px;
+    font-size: 9px;
+  }
+
+  .more-all-day-pill {
+    padding: 0 5px;
   }
 
   .time-label {

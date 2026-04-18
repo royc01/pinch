@@ -1,6 +1,6 @@
-﻿<template>
+<template>
   <div v-if="show" class="task-scope-overlay" @click.self="handleClose">
-    <div class="task-scope-dialog" @click.stop>
+    <div class="task-scope-dialog" :class="{ 'with-document-groups': hasDocumentGroupTab }" @click.stop>
       <div class="task-scope-header">
         <div class="task-scope-title">{{ dialogTitle }}</div>
         <button v-if="!lockClose" type="button" class="icon-button" title="关闭" aria-label="关闭" @click="handleClose">
@@ -9,74 +9,110 @@
       </div>
 
       <div class="task-scope-hint">
-        {{ dialogHint }}
+        {{ activeHint }}
       </div>
-      <div class="task-scope-summary">
-        已启用 {{ notebooks.length - localExcludedNotebookIds.length }} / {{ notebooks.length }}
-      </div>
-      <div v-if="showExtra" class="task-scope-extra">
-        <span class="task-scope-extra-label">显示已完成任务</span>
-        <SyCheckbox
-          class="task-scope-toggle"
-          :model-value="localShowCompletedTasks"
-          @update:model-value="localShowCompletedTasks = $event"
-        />
-      </div>
-      <div class="task-scope-list">
-        <label
-          v-for="notebook in notebooks"
-          :key="notebook.id"
-          class="task-scope-item"
+
+      <div v-if="hasDocumentGroupTab" class="task-scope-tabs">
+        <button
+          type="button"
+          class="task-scope-tab"
+          :class="{ active: activeTab === 'scope' }"
+          @click="activeTab = 'scope'"
         >
+          范围设置
+        </button>
+        <button
+          type="button"
+          class="task-scope-tab"
+          :class="{ active: activeTab === 'document-groups' }"
+          @click="activeTab = 'document-groups'"
+        >
+          文档组
+        </button>
+      </div>
+
+      <div v-if="activeTab === 'scope'" class="task-scope-content scope-tab-content">
+        <div class="task-scope-summary">
+          已启用 {{ notebooks.length - localExcludedNotebookIds.length }} / {{ notebooks.length }}
+        </div>
+        <div v-if="showExtra" class="task-scope-extra">
+          <span class="task-scope-extra-label">显示已完成任务</span>
           <SyCheckbox
             class="task-scope-toggle"
-            :model-value="isNotebookEnabled(notebook.id)"
-            @update:model-value="toggleNotebookEnabled(notebook.id, $event)"
+            :model-value="localShowCompletedTasks"
+            @update:model-value="localShowCompletedTasks = $event"
           />
-          <span class="task-scope-name">{{ notebook.name }}</span>
-        </label>
+        </div>
+        <div class="task-scope-list">
+          <label
+            v-for="notebook in notebooks"
+            :key="notebook.id"
+            class="task-scope-item"
+          >
+            <SyCheckbox
+              class="task-scope-toggle"
+              :model-value="isNotebookEnabled(notebook.id)"
+              @update:model-value="toggleNotebookEnabled(notebook.id, $event)"
+            />
+            <span class="task-scope-name">{{ notebook.name }}</span>
+          </label>
 
-        <div v-if="notebooks.length === 0" class="task-scope-empty">
-          暂无可管理笔记本
+          <div v-if="notebooks.length === 0" class="task-scope-empty">
+            暂无可管理笔记本
+          </div>
+        </div>
+
+        <div class="task-scope-auto-setting">
+          <div class="task-scope-auto-item">
+            <div class="task-scope-auto-main">
+              <div class="task-scope-auto-title-row">
+                <span class="task-scope-extra-label">打开日期自动识别</span>
+                <SyButton
+                  class="task-scope-inline-btn"
+                  :disabled="globalDateRecognizing"
+                  @click="handleGlobalRecognizeDate"
+                >
+                  {{ globalDateRecognizing ? '识别中...' : '一键全局识别' }}
+                </SyButton>
+              </div>
+              <div class="task-scope-auto-desc">
+                开关开启后，仅对新建任务自动识别文本并填充开始/截止时间。已存在任务不会自动识别；如需识别历史任务，请使用「一键全局识别」。
+              </div>
+            </div>
+            <SyCheckbox
+              class="task-scope-toggle"
+              :model-value="localAutoRecognizeTaskDate"
+              @update:model-value="localAutoRecognizeTaskDate = $event"
+            />
+          </div>
+          <div class="task-scope-auto-item">
+            <span class="task-scope-extra-label">任务完成提示音</span>
+            <SyCheckbox
+              class="task-scope-toggle"
+              :model-value="localTaskCompletionSoundEnabled"
+              @update:model-value="localTaskCompletionSoundEnabled = $event"
+            />
+          </div>
         </div>
       </div>
 
-      
-      <div class="task-scope-auto-setting">
-        <div class="task-scope-auto-item">
-          <div class="task-scope-auto-main">
-            <div class="task-scope-auto-title-row">
-              <span class="task-scope-extra-label">打开日期自动识别</span>
-              <SyButton
-                class="task-scope-inline-btn"
-                :disabled="globalDateRecognizing"
-                @click="handleGlobalRecognizeDate"
-              >
-                {{ globalDateRecognizing ? '识别中...' : '一键全局识别' }}
-              </SyButton>
-            </div>
-            <div class="task-scope-auto-desc">
-              开关开启后，仅对新建任务自动识别文本并填充开始/截止时间。已存在任务不会自动识别；如需识别历史任务，请使用「一键全局识别」。
-            </div>
-          </div>
-          <SyCheckbox
-            class="task-scope-toggle"
-            :model-value="localAutoRecognizeTaskDate"
-            @update:model-value="localAutoRecognizeTaskDate = $event"
-          />
-        </div>
-        <div class="task-scope-auto-item">
-          <span class="task-scope-extra-label">任务完成提示音</span>
-          <SyCheckbox
-            class="task-scope-toggle"
-            :model-value="localTaskCompletionSoundEnabled"
-            @update:model-value="localTaskCompletionSoundEnabled = $event"
-          />
-        </div>
+      <div v-else class="task-scope-content document-groups-tab-content">
+        <DocumentGroupManagerPanel
+          :groups="localDocumentGroups"
+          :documents="documentGroupDocuments"
+          @update:groups="localDocumentGroups = $event"
+        />
       </div>
 
       <div class="task-scope-actions">
-        <SyButton class="task-scope-btn plain" @click="clearExcluded">全部启用</SyButton>
+        <SyButton
+          v-if="activeTab === 'scope'"
+          class="task-scope-btn plain"
+          @click="clearExcluded"
+        >
+          全部启用
+        </SyButton>
+        <div v-else class="task-scope-actions-spacer"></div>
         <SyButton class="task-scope-btn confirm" @click="save">{{ confirmText || '保存' }}</SyButton>
       </div>
     </div>
@@ -88,11 +124,29 @@ import { computed, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
+import DocumentGroupManagerPanel from '@/components/DocumentGroupManagerPanel.vue';
+import type { DocumentGroup } from '@/documentGroupRepository';
 import { normalizeNotebookIds } from '@/utils/taskViewShared';
 
 interface NotebookItem {
   id: string;
   name: string;
+}
+
+interface DocumentGroupScopeDocument {
+  id: string;
+  name: string;
+  notebookId: string;
+  notebookName: string;
+  path?: string;
+}
+
+export interface TaskScopeDialogSavePayload {
+  excludedNotebookIds: string[];
+  showCompletedTasks: boolean;
+  autoRecognizeTaskDate: boolean;
+  taskCompletionSoundEnabled: boolean;
+  documentGroups: DocumentGroup[];
 }
 
 interface Props {
@@ -108,18 +162,16 @@ interface Props {
   title?: string;
   hint?: string;
   confirmText?: string;
+  initialTab?: 'scope' | 'document-groups';
+  documentGroups?: DocumentGroup[];
+  documentGroupDocuments?: DocumentGroupScopeDocument[];
 }
 
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
   close: [];
-  save: [
-    excludedNotebookIds: string[],
-    showCompletedTasks: boolean,
-    autoRecognizeTaskDate: boolean,
-    taskCompletionSoundEnabled: boolean
-  ];
+  save: [payload: TaskScopeDialogSavePayload];
   'global-recognize-date': [];
 }>();
 
@@ -127,12 +179,30 @@ const localExcludedNotebookIds = ref<string[]>([]);
 const localShowCompletedTasks = ref(true);
 const localAutoRecognizeTaskDate = ref(false);
 const localTaskCompletionSoundEnabled = ref(true);
+const localDocumentGroups = ref<DocumentGroup[]>([]);
+const activeTab = ref<'scope' | 'document-groups'>('scope');
 const lockClose = computed(() => props.lockClose === true);
 const showExtra = computed(() => props.showExtra !== false);
 const globalDateRecognizing = computed(() => props.globalDateRecognizing === true);
 const dialogTitle = computed(() => props.title || '任务范围');
 const dialogHint = computed(() => props.hint || '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。');
 const confirmText = computed(() => props.confirmText || '保存');
+const hasDocumentGroupTab = computed(() =>
+  Array.isArray(props.documentGroups) && Array.isArray(props.documentGroupDocuments)
+);
+const documentGroupDocuments = computed(() => props.documentGroupDocuments || []);
+const activeHint = computed(() =>
+  activeTab.value === 'scope'
+    ? dialogHint.value
+    : '可将文档跨笔记本归组，来源下拉中的 🏷 项会使用这里的定义。'
+);
+
+function cloneDocumentGroups(groups: DocumentGroup[]): DocumentGroup[] {
+  return (groups || []).map(group => ({
+    ...group,
+    members: Array.isArray(group.members) ? group.members.map(member => ({ ...member })) : []
+  }));
+}
 
 function syncLocalSelection(): void {
   const visibleNotebookIds = new Set(props.notebooks.map(notebook => notebook.id));
@@ -140,6 +210,10 @@ function syncLocalSelection(): void {
   localShowCompletedTasks.value = props.showCompletedTasks !== false;
   localAutoRecognizeTaskDate.value = props.autoRecognizeTaskDate === true;
   localTaskCompletionSoundEnabled.value = props.taskCompletionSoundEnabled !== false;
+  localDocumentGroups.value = cloneDocumentGroups(props.documentGroups || []);
+  activeTab.value = props.initialTab === 'document-groups' && hasDocumentGroupTab.value
+    ? 'document-groups'
+    : 'scope';
 }
 
 function isNotebookEnabled(notebookId: string): boolean {
@@ -175,13 +249,13 @@ function handleClose(): void {
 }
 
 function save(): void {
-  emit(
-    'save',
-    normalizeNotebookIds(localExcludedNotebookIds.value),
-    localShowCompletedTasks.value,
-    localAutoRecognizeTaskDate.value,
-    localTaskCompletionSoundEnabled.value
-  );
+  emit('save', {
+    excludedNotebookIds: normalizeNotebookIds(localExcludedNotebookIds.value),
+    showCompletedTasks: localShowCompletedTasks.value,
+    autoRecognizeTaskDate: localAutoRecognizeTaskDate.value,
+    taskCompletionSoundEnabled: localTaskCompletionSoundEnabled.value,
+    documentGroups: cloneDocumentGroups(localDocumentGroups.value)
+  });
 }
 
 watch(
@@ -191,7 +265,9 @@ watch(
     () => props.notebooks,
     () => props.showCompletedTasks,
     () => props.autoRecognizeTaskDate,
-    () => props.taskCompletionSoundEnabled
+    () => props.taskCompletionSoundEnabled,
+    () => props.initialTab,
+    () => props.documentGroups
   ],
   ([show]) => {
     if (show) {
@@ -224,6 +300,13 @@ watch(
   border: 1px solid var(--b3-border-color);
 }
 
+.task-scope-dialog.with-document-groups {
+  width: min(640px, calc(100% - 24px));
+  height: min(80vh, 600px);
+  max-height: min(80vh, 600px);
+  overflow: hidden;
+}
+
 .task-scope-header {
   display: flex;
   align-items: center;
@@ -241,6 +324,64 @@ watch(
   padding: 12px 14px 2px 14px;
   font-size: 12px;
   color: var(--b3-theme-on-surface);
+}
+
+.task-scope-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 14px 4px 14px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  min-width: 0;
+}
+
+.task-scope-tabs::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.task-scope-tab {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.task-scope-tab:hover {
+  background: var(--b3-theme-background);
+  border-color: var(--b3-border-color);
+}
+
+.task-scope-tab.active {
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.task-scope-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scope-tab-content {
+  padding-top: 6px;
+}
+
+.document-groups-tab-content {
+  padding-top: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .task-scope-summary {
@@ -360,7 +501,10 @@ watch(
   gap: 8px;
   justify-content: flex-end;
   padding: 12px 14px;
-  border-top: 1px solid var(--b3-border-color);
+}
+
+.task-scope-actions-spacer {
+  flex: 1;
 }
 
 .task-scope-btn.plain {
@@ -401,5 +545,12 @@ watch(
   background-color: var(--b3-list-hover);
   border-radius: 4px;
 }
-</style>
 
+@media (max-width: 900px) {
+  .task-scope-dialog.with-document-groups {
+    width: calc(100% - 20px);
+    height: calc(100vh - 24px);
+    max-height: calc(100vh - 24px);
+  }
+}
+</style>

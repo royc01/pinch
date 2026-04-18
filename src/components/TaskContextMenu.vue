@@ -21,92 +21,94 @@
     </div>
 
     <div class="context-menu-section">
-      <div class="date-edit-row">
-        <label>开始</label>
-        <div class="context-menu-date-input-group">
-          <input
-            :value="startDate"
-            type="date"
-            @input="$emit('update:startDate', ($event.target as HTMLInputElement).value)"
-          />
-          <button
-            ref="startDateTriggerRef"
-            type="button"
-            class="context-menu-date-trigger"
-            :class="{ active: activeDatePopoverField === 'startDate' }"
-            title="选择开始日期"
-            aria-label="选择开始日期"
-            @click="toggleDatePopover('startDate')"
-          >
-            <Icon name="calendar" width="14" height="14" />
-          </button>
+      <div class="context-menu-date-grid">
+        <div class="date-edit-field">
+          <label>开始日期</label>
+          <div class="context-menu-date-input-group">
+            <input
+              :value="startDate"
+              type="date"
+              @input="$emit('update:startDate', ($event.target as HTMLInputElement).value)"
+            />
+            <button
+              ref="startDateTriggerRef"
+              type="button"
+              class="context-menu-date-trigger"
+              :class="{ active: activeDatePopoverField === 'startDate' }"
+              title="选择开始日期"
+              aria-label="选择开始日期"
+              @click="toggleDatePopover('startDate')"
+            >
+              <Icon name="calendar" width="14" height="14" />
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="date-edit-row">
-        <label>开始时</label>
-        <div class="context-menu-date-input-group">
-          <input
-            :value="startTime"
-            type="time"
-            @input="$emit('update:startTime', ($event.target as HTMLInputElement).value)"
-          />
-          <button
-            ref="startTimeTriggerRef"
-            type="button"
-            class="context-menu-date-trigger"
-            :class="{ active: activeTimePopoverField === 'startTime' }"
-            title="选择开始时间"
-            aria-label="选择开始时间"
-            @click="toggleTimePopover('startTime')"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-              <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
-            </svg>
-          </button>
+        <div class="date-edit-field">
+          <label>截止日期</label>
+          <div class="context-menu-date-input-group">
+            <input
+              :value="dueDate"
+              type="date"
+              @input="$emit('update:dueDate', ($event.target as HTMLInputElement).value)"
+            />
+            <button
+              ref="dueDateTriggerRef"
+              type="button"
+              class="context-menu-date-trigger"
+              :class="{ active: activeDatePopoverField === 'dueDate' }"
+              title="选择截止日期"
+              aria-label="选择截止日期"
+              @click="toggleDatePopover('dueDate')"
+            >
+              <Icon name="calendar" width="14" height="14" />
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="date-edit-row">
-        <label>截止</label>
-        <div class="context-menu-date-input-group">
-          <input
-            :value="dueDate"
-            type="date"
-            @input="$emit('update:dueDate', ($event.target as HTMLInputElement).value)"
-          />
-          <button
-            ref="dueDateTriggerRef"
-            type="button"
-            class="context-menu-date-trigger"
-            :class="{ active: activeDatePopoverField === 'dueDate' }"
-            title="选择截止日期"
-            aria-label="选择截止日期"
-            @click="toggleDatePopover('dueDate')"
-          >
-            <Icon name="calendar" width="14" height="14" />
-          </button>
+        <div class="date-edit-field">
+          <label>开始时间</label>
+          <div class="context-menu-date-input-group">
+            <input
+              :value="startTime"
+              type="time"
+              @input="$emit('update:startTime', ($event.target as HTMLInputElement).value)"
+            />
+            <button
+              ref="startTimeTriggerRef"
+              type="button"
+              class="context-menu-date-trigger"
+              :class="{ active: activeTimePopoverField === 'startTime' }"
+              title="选择开始时间"
+              aria-label="选择开始时间"
+              @click="toggleTimePopover('startTime')"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="date-edit-row">
-        <label>结束时</label>
-        <div class="context-menu-date-input-group">
-          <input
-            :value="dueTime"
-            type="time"
-            @input="$emit('update:dueTime', ($event.target as HTMLInputElement).value)"
-          />
-          <button
-            ref="dueTimeTriggerRef"
-            type="button"
-            class="context-menu-date-trigger"
-            :class="{ active: activeTimePopoverField === 'dueTime' }"
-            title="选择截止时间"
-            aria-label="选择截止时间"
-            @click="toggleTimePopover('dueTime')"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-              <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
-            </svg>
-          </button>
+        <div class="date-edit-field">
+          <label>截止时间</label>
+          <div class="context-menu-date-input-group">
+            <input
+              :value="dueTime"
+              type="time"
+              @input="$emit('update:dueTime', ($event.target as HTMLInputElement).value)"
+            />
+            <button
+              ref="dueTimeTriggerRef"
+              type="button"
+              class="context-menu-date-trigger"
+              :class="{ active: activeTimePopoverField === 'dueTime' }"
+              title="选择截止时间"
+              aria-label="选择截止时间"
+              @click="toggleTimePopover('dueTime')"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
       <button class="context-menu-date-save" @click="$emit('saveDates')">保存日期</button>
@@ -403,7 +405,26 @@ function onRepeatChange(event: Event): void {
   border-color: var(--b3-border-color);
 }
 
-.date-edit-row,
+.context-menu-date-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.date-edit-field {
+  min-width: 0;
+}
+
+.date-edit-field label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.8;
+  line-height: 1.2;
+}
+
 .repeat-edit-row {
   display: flex;
   align-items: center;
@@ -411,7 +432,6 @@ function onRepeatChange(event: Event): void {
   margin-bottom: 6px;
 }
 
-.date-edit-row label,
 .repeat-edit-row label {
   width: 36px;
   font-size: 12px;
@@ -420,30 +440,31 @@ function onRepeatChange(event: Event): void {
   flex-shrink: 0;
 }
 
-.date-edit-row input[type="date"],
-.date-edit-row input[type="time"],
+.date-edit-field input[type="date"],
+.date-edit-field input[type="time"],
 .repeat-edit-row select {
   flex: 1;
   min-width: 0;
-  padding: 4px 6px;
-  border: 1px solid var(--b3-border-color);
-  border-radius: 4px;
-  background: var(--b3-theme-background);
+  padding: 6px 34px 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
   font-size: 12px;
+  outline: none;
 }
 
 .context-menu-date-input-group {
   flex: 1;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  position: relative;
+  display: block;
 }
 
 .context-menu-date-input-group input[type="date"],
 .context-menu-date-input-group input[type="time"] {
-  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
   appearance: none;
   -webkit-appearance: none;
 }
@@ -462,19 +483,23 @@ function onRepeatChange(event: Event): void {
 }
 
 .context-menu-date-trigger {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 auto;
-  display: inline-flex;
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid var(--b3-border-color);
+  border: none;
   border-radius: 4px;
-  background: var(--b3-theme-background);
+  background: transparent;
   color: var(--b3-theme-on-background);
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transform: translateY(-50%);
+  transition: color 0.15s ease, background-color 0.15s ease;
+  z-index: 1;
 }
 
 .context-menu-date-trigger svg {
@@ -484,6 +509,7 @@ function onRepeatChange(event: Event): void {
 
 .context-menu-date-trigger:hover,
 .context-menu-date-trigger.active {
+  color: var(--b3-theme-primary);
   background: var(--b3-list-hover);
 }
 

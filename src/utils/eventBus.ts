@@ -50,6 +50,7 @@ export const Events = {
   TASK_DELETED: 'task-deleted',
   TASK_UPDATED: 'task-updated',
   TASK_GROUPS_UPDATED: 'task-groups-updated',
+  DOCUMENT_GROUPS_UPDATED: 'document-groups-updated',
   TASK_TOGGLED: 'task-toggled',
   TASK_EDITOR_OPEN_REQUEST: 'task-editor-open-request',
   KANBAN_VIEW_SWITCH_REQUEST: 'kanban-view-switch-request',

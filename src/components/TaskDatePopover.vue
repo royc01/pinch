@@ -7,7 +7,13 @@
     >
       <div
         ref="popoverRef"
-        :class="['date-popover', { 'date-popover-inline': !floating }]"
+        :class="[
+          'date-popover',
+          {
+            'date-popover-inline': !floating,
+            'date-popover-detailed': showTaskEditorDetails
+          }
+        ]"
         :style="floating ? popoverStyle : undefined"
         @mousedown.stop
         @click.stop
@@ -50,6 +56,99 @@
             {{ day.label }}
           </button>
         </div>
+
+        <div v-if="showTaskEditorDetails" class="date-popover-detail">
+          <div class="date-popover-detail-divider"></div>
+          <div class="date-popover-detail-grid">
+            <div class="date-popover-field">
+              <label>开始日期</label>
+              <div class="date-popover-input-group">
+                <input
+                  ref="startDateInputRef"
+                  :value="startDate"
+                  type="date"
+                  @input="handleDateFieldInput('update:startDate', $event)"
+                />
+                <button
+                  type="button"
+                  class="date-popover-input-trigger"
+                  title="选择开始日期"
+                  aria-label="选择开始日期"
+                  @click="openInputPicker(startDateInputRef)"
+                >
+                  <Icon name="calendar" width="14" height="14" />
+                </button>
+              </div>
+            </div>
+
+            <div class="date-popover-field">
+              <label>截止日期</label>
+              <div class="date-popover-input-group">
+                <input
+                  ref="dueDateInputRef"
+                  :value="modelValue"
+                  type="date"
+                  @input="handleModelValueInput"
+                />
+                <button
+                  type="button"
+                  class="date-popover-input-trigger"
+                  title="选择截止日期"
+                  aria-label="选择截止日期"
+                  @click="openInputPicker(dueDateInputRef)"
+                >
+                  <Icon name="calendar" width="14" height="14" />
+                </button>
+              </div>
+            </div>
+
+            <div class="date-popover-field">
+              <label>开始时间</label>
+              <div class="date-popover-input-group">
+                <input
+                  ref="startTimeInputRef"
+                  :value="startTime"
+                  type="time"
+                  @input="handleDateFieldInput('update:startTime', $event)"
+                />
+                <button
+                  type="button"
+                  class="date-popover-input-trigger"
+                  title="选择开始时间"
+                  aria-label="选择开始时间"
+                  @click="openInputPicker(startTimeInputRef)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="date-popover-field">
+              <label>截止时间</label>
+              <div class="date-popover-input-group">
+                <input
+                  ref="dueTimeInputRef"
+                  :value="dueTime"
+                  type="time"
+                  @input="handleDateFieldInput('update:dueTime', $event)"
+                />
+                <button
+                  type="button"
+                  class="date-popover-input-trigger"
+                  title="选择截止时间"
+                  aria-label="选择截止时间"
+                  @click="openInputPicker(dueTimeInputRef)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path d="M15.09814,12.63379,13,11.42285V7a1,1,0,0,0-2,0v5a.99985.99985,0,0,0,.5.86621l2.59814,1.5a1.00016,1.00016,0,1,0,1-1.73242ZM12,2A10,10,0,1,0,22,12,10.01114,10.01114,0,0,0,12,2Zm0,18a8,8,0,1,1,8-8A8.00917,8.00917,0,0,1,12,20Z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </Teleport>
@@ -75,20 +174,36 @@ const props = withDefaults(defineProps<{
   floating?: boolean;
   anchorEl?: HTMLElement | null;
   autoClose?: boolean;
+  showTaskEditorDetails?: boolean;
+  startDate?: string;
+  startTime?: string;
+  dueTime?: string;
 }>(), {
   floating: true,
-  autoClose: true
+  autoClose: true,
+  showTaskEditorDetails: false,
+  startDate: '',
+  startTime: '',
+  dueTime: ''
 });
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
+  'update:startDate': [value: string];
+  'update:startTime': [value: string];
+  'update:dueTime': [value: string];
   close: [];
 }>();
 
 const popoverRef = ref<HTMLElement | null>(null);
 const popoverStyle = ref<Record<string, string>>({});
 const monthCursor = ref(new Date());
+const startDateInputRef = ref<HTMLInputElement | null>(null);
+const dueDateInputRef = ref<HTMLInputElement | null>(null);
+const startTimeInputRef = ref<HTMLInputElement | null>(null);
+const dueTimeInputRef = ref<HTMLInputElement | null>(null);
 const weekDayLabels = ['一', '二', '三', '四', '五', '六', '日'];
+const showTaskEditorDetails = computed(() => props.showTaskEditorDetails);
 
 const monthLabel = computed(() => {
   const cursor = monthCursor.value;
@@ -222,6 +337,45 @@ function emitSelection(dateStr: string): void {
   }
 }
 
+function handleModelValueInput(event: Event): void {
+  const target = event.target as HTMLInputElement | null;
+  emit('update:modelValue', target?.value ?? '');
+}
+
+function handleDateFieldInput(
+  eventName: 'update:startDate' | 'update:startTime' | 'update:dueTime',
+  event: Event
+): void {
+  const target = event.target as HTMLInputElement | null;
+  const value = target?.value ?? '';
+  if (eventName === 'update:startDate') {
+    emit('update:startDate', value);
+    return;
+  }
+  if (eventName === 'update:startTime') {
+    emit('update:startTime', value);
+    return;
+  }
+  emit('update:dueTime', value);
+}
+
+function openInputPicker(inputRef: { value: HTMLInputElement | null } | HTMLInputElement | null): void {
+  const input = inputRef instanceof HTMLInputElement ? inputRef : inputRef?.value || null;
+  if (!input) {
+    return;
+  }
+  input.focus({ preventScroll: true });
+  const pickerInput = input as HTMLInputElement & { showPicker?: () => void };
+  if (typeof pickerInput.showPicker === 'function') {
+    try {
+      pickerInput.showPicker();
+      return;
+    } catch {
+    }
+  }
+  input.click();
+}
+
 function selectDate(dateStr: string): void {
   emitSelection(dateStr);
 }
@@ -318,11 +472,19 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
+.date-popover-detailed {
+  width: min(92vw, 300px);
+}
+
 .date-popover-inline {
   position: relative;
   width: 100%;
   max-width: 320px;
   box-shadow: none;
+}
+
+.date-popover-inline.date-popover-detailed {
+  max-width: 360px;
 }
 
 .date-popover-header {
@@ -393,6 +555,103 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
+}
+
+.date-popover-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.date-popover-detail-divider {
+  height: 1px;
+  background: var(--b3-theme-border);
+  opacity: 0.7;
+}
+
+.date-popover-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.date-popover-field {
+  min-width: 0;
+}
+
+.date-popover-field label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.85;
+  line-height: 1.2;
+}
+
+.date-popover-input-group {
+  position: relative;
+}
+
+.date-popover-input-group input[type="date"],
+.date-popover-input-group input[type="time"] {
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 6px 34px 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  outline: none;
+}
+
+.date-popover-input-group input[type="date"]:focus,
+.date-popover-input-group input[type="time"]:focus {
+  box-shadow: inset 0 0 0 1px rgba(249, 143, 122, 0.45);
+}
+
+.date-popover-input-group input[type="date"]::-webkit-calendar-picker-indicator,
+.date-popover-input-group input[type="time"]::-webkit-calendar-picker-indicator,
+.date-popover-input-group input[type="date"]::-webkit-clear-button,
+.date-popover-input-group input[type="date"]::-webkit-inner-spin-button,
+.date-popover-input-group input[type="time"]::-webkit-clear-button,
+.date-popover-input-group input[type="time"]::-webkit-inner-spin-button {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  margin: 0;
+  display: none;
+}
+
+.date-popover-input-trigger {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.date-popover-input-trigger:hover {
+  color: var(--b3-theme-primary);
+  background: var(--b3-theme-background);
+}
+
+.date-popover-input-trigger svg {
+  flex: 0 0 auto;
+  fill: currentColor;
 }
 
 .date-popover-day {

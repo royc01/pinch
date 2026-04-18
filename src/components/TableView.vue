@@ -45,6 +45,11 @@
               </span>
             </div>
           </th>
+          <th class="col-start-time">
+            <div class="th-content">
+              <span>开始时间</span>
+            </div>
+          </th>
           <th class="col-due-date sortable" :class="{ active: sortColumn === 'dueDate' }" @click="toggleSort('dueDate')">
             <div class="th-content">
               <span>截止日期</span>
@@ -54,6 +59,11 @@
                   <path class="sort-indicator-bottom" :d="SORT_INDICATOR_BOTTOM_PATH" />
                 </svg>
               </span>
+            </div>
+          </th>
+          <th class="col-due-time">
+            <div class="th-content">
+              <span>截止时间</span>
             </div>
           </th>
           <th class="col-created-date sortable" :class="{ active: sortColumn === 'createdAt' }" @click="toggleSort('createdAt')">
@@ -85,7 +95,7 @@
         <template v-if="isGroupedDisplayMode">
           <template v-for="group in groupedVisibleTasks" :key="group.key">
             <tr class="group-row">
-              <td colspan="12">
+              <td colspan="14">
                 <button
                   type="button"
                   class="group-row-content"
@@ -166,6 +176,11 @@
                 <td class="col-title">
                   <div class="title-wrapper">
                     <div class="title-main" @click="handleTaskClick(task, $event)">
+                      <span v-if="task.pinned === true" class="title-pinned-badge" title="已置顶" aria-label="已置顶">
+                        <svg viewBox="0 0 1024 1024" aria-hidden="true">
+                          <path :d="PINNED_BADGE_PATH" fill="currentColor" />
+                        </svg>
+                      </span>
                       <div class="task-title" v-html="getTitleHtml(task.title)"></div>
                     </div>
                     <button
@@ -175,11 +190,21 @@
                       aria-label="跳转到任务"
                       @click.stop="handleOpenClick(task)"
                     >
-                      <Icon name="open" width="14" height="14" />
+                      <svg viewBox="0 0 1024 1024" width="14" height="14" aria-hidden="true">
+                        <path
+                          d="M512 426.666667a85.333333 85.333333 0 1 1 0 170.666666 85.333333 85.333333 0 0 1 0-170.666666z m341.333333 0a85.333333 85.333333 0 1 1 0 170.666666 85.333333 85.333333 0 0 1 0-170.666666zM170.666667 426.666667a85.333333 85.333333 0 1 1 0 170.666666 85.333333 85.333333 0 0 1 0-170.666666z"
+                          fill="#000000"
+                          fill-opacity=".45"
+                        />
+                      </svg>
                     </button>
                   </div>
                 </td>
-                <td class="col-description" @click.stop="startDescriptionEdit(task)">
+                <td
+                  class="col-description"
+                  :class="{ 'is-editing': editingDescriptions.has(task.id) }"
+                  @click.stop="startDescriptionEdit(task)"
+                >
                   <div 
                     v-if="!editingDescriptions.has(task.id)"
                     class="task-description"
@@ -230,14 +255,20 @@
                 <td class="col-start-date" @click.stop="openDatePopover(task, 'startDate', $event)">
                   <span class="date-display">{{ task.startDate ? formatLocaleDate(task.startDate) : '-' }}</span>
                 </td>
+                <td class="col-start-time" @click.stop="openTimePopover(task, 'startTime', $event)">
+                  <span class="time-display">{{ formatTaskTime(task.startTime) }}</span>
+                </td>
                 <td class="col-due-date" @click.stop="openDatePopover(task, 'dueDate', $event)">
                   <span class="date-display">{{ task.dueDate ? formatLocaleDate(task.dueDate) : '-' }}</span>
                 </td>
+                <td class="col-due-time" @click.stop="openTimePopover(task, 'dueTime', $event)">
+                  <span class="time-display">{{ formatTaskTime(task.dueTime) }}</span>
+                </td>
                 <td class="col-created-date">
-                  <span class="date-display">{{ task.createdAt ? formatLocaleDate(task.createdAt) : '-' }}</span>
+                  <span class="date-display">{{ task.createdAt ? formatLocaleDate(task.createdAt, { includeTime: true }) : '-' }}</span>
                 </td>
                 <td class="col-updated-date">
-                  <span class="date-display">{{ task.updatedAt ? formatLocaleDate(task.updatedAt) : '-' }}</span>
+                  <span class="date-display">{{ task.updatedAt ? formatLocaleDate(task.updatedAt, { includeTime: true }) : '-' }}</span>
                 </td>
                 <td class="col-location">
                   <div class="location-cell task-document-title" :title="task.hPath || ''">
@@ -277,7 +308,10 @@
                       />
                     </div>
                   </td>
-                  <td class="col-description">
+                  <td
+                    class="col-description"
+                    :class="{ 'is-editing': isSubtaskDescriptionEditing(task, subtask) }"
+                  >
                     <div
                       v-if="!isSubtaskDescriptionEditing(task, subtask)"
                       class="task-description"
@@ -329,14 +363,20 @@
                   <td class="col-start-date" @click.stop="openSubtaskDatePopover(task, subtask, 'startDate', $event)">
                     <span class="date-display">{{ subtask.startDate ? formatLocaleDate(subtask.startDate) : '-' }}</span>
                   </td>
+                  <td class="col-start-time" @click.stop="openSubtaskTimePopover(task, subtask, 'startTime', $event)">
+                    <span class="time-display">{{ formatTaskTime(subtask.startTime) }}</span>
+                  </td>
                   <td class="col-due-date" @click.stop="openSubtaskDatePopover(task, subtask, 'dueDate', $event)">
                     <span class="date-display">{{ subtask.dueDate ? formatLocaleDate(subtask.dueDate) : '-' }}</span>
                   </td>
+                  <td class="col-due-time" @click.stop="openSubtaskTimePopover(task, subtask, 'dueTime', $event)">
+                    <span class="time-display">{{ formatTaskTime(subtask.dueTime) }}</span>
+                  </td>
                   <td class="col-created-date">
-                    <span class="date-display">{{ subtask.createdAt ? formatLocaleDate(subtask.createdAt) : '-' }}</span>
+                    <span class="date-display">{{ subtask.createdAt ? formatLocaleDate(subtask.createdAt, { includeTime: true }) : '-' }}</span>
                   </td>
                   <td class="col-updated-date">
-                    <span class="date-display">{{ subtask.updatedAt ? formatLocaleDate(subtask.updatedAt) : '-' }}</span>
+                    <span class="date-display">{{ subtask.updatedAt ? formatLocaleDate(subtask.updatedAt, { includeTime: true }) : '-' }}</span>
                   </td>
                   <td class="col-location">
                     <div class="location-cell task-document-title" :title="task.hPath || ''">
@@ -390,6 +430,11 @@
               <td class="col-title">
                 <div class="title-wrapper">
                   <div class="title-main" @click="handleTaskClick(task, $event)">
+                    <span v-if="task.pinned === true" class="title-pinned-badge" title="已置顶" aria-label="已置顶">
+                      <svg viewBox="0 0 1024 1024" aria-hidden="true">
+                        <path :d="PINNED_BADGE_PATH" fill="currentColor" />
+                      </svg>
+                    </span>
                     <div class="task-title" v-html="getTitleHtml(task.title)"></div>
                   </div>
                   <button
@@ -399,7 +444,13 @@
                     aria-label="跳转到任务"
                     @click.stop="handleOpenClick(task)"
                   >
-                    <Icon name="open" width="14" height="14" />
+                    <svg viewBox="0 0 1024 1024" width="14" height="14" aria-hidden="true">
+                      <path
+                        d="M512 426.666667a85.333333 85.333333 0 1 1 0 170.666666 85.333333 85.333333 0 0 1 0-170.666666z m341.333333 0a85.333333 85.333333 0 1 1 0 170.666666 85.333333 85.333333 0 0 1 0-170.666666zM170.666667 426.666667a85.333333 85.333333 0 1 1 0 170.666666 85.333333 85.333333 0 0 1 0-170.666666z"
+                        fill="#000000"
+                        fill-opacity=".45"
+                      />
+                    </svg>
                   </button>
                 </div>
               </td>
@@ -454,14 +505,20 @@
               <td class="col-start-date" @click.stop="openDatePopover(task, 'startDate', $event)">
                 <span class="date-display">{{ task.startDate ? formatLocaleDate(task.startDate) : '-' }}</span>
               </td>
+              <td class="col-start-time" @click.stop="openTimePopover(task, 'startTime', $event)">
+                <span class="time-display">{{ formatTaskTime(task.startTime) }}</span>
+              </td>
               <td class="col-due-date" @click.stop="openDatePopover(task, 'dueDate', $event)">
                 <span class="date-display">{{ task.dueDate ? formatLocaleDate(task.dueDate) : '-' }}</span>
               </td>
+              <td class="col-due-time" @click.stop="openTimePopover(task, 'dueTime', $event)">
+                <span class="time-display">{{ formatTaskTime(task.dueTime) }}</span>
+              </td>
               <td class="col-created-date">
-                <span class="date-display">{{ task.createdAt ? formatLocaleDate(task.createdAt) : '-' }}</span>
+                <span class="date-display">{{ task.createdAt ? formatLocaleDate(task.createdAt, { includeTime: true }) : '-' }}</span>
               </td>
               <td class="col-updated-date">
-                <span class="date-display">{{ task.updatedAt ? formatLocaleDate(task.updatedAt) : '-' }}</span>
+                <span class="date-display">{{ task.updatedAt ? formatLocaleDate(task.updatedAt, { includeTime: true }) : '-' }}</span>
               </td>
               <td class="col-location">
                 <div class="location-cell task-document-title" :title="task.hPath || ''">
@@ -553,14 +610,20 @@
                 <td class="col-start-date" @click.stop="openSubtaskDatePopover(task, subtask, 'startDate', $event)">
                   <span class="date-display">{{ subtask.startDate ? formatLocaleDate(subtask.startDate) : '-' }}</span>
                 </td>
+                <td class="col-start-time" @click.stop="openSubtaskTimePopover(task, subtask, 'startTime', $event)">
+                  <span class="time-display">{{ formatTaskTime(subtask.startTime) }}</span>
+                </td>
                 <td class="col-due-date" @click.stop="openSubtaskDatePopover(task, subtask, 'dueDate', $event)">
                   <span class="date-display">{{ subtask.dueDate ? formatLocaleDate(subtask.dueDate) : '-' }}</span>
                 </td>
+                <td class="col-due-time" @click.stop="openSubtaskTimePopover(task, subtask, 'dueTime', $event)">
+                  <span class="time-display">{{ formatTaskTime(subtask.dueTime) }}</span>
+                </td>
                 <td class="col-created-date">
-                  <span class="date-display">{{ subtask.createdAt ? formatLocaleDate(subtask.createdAt) : '-' }}</span>
+                  <span class="date-display">{{ subtask.createdAt ? formatLocaleDate(subtask.createdAt, { includeTime: true }) : '-' }}</span>
                 </td>
                 <td class="col-updated-date">
-                  <span class="date-display">{{ subtask.updatedAt ? formatLocaleDate(subtask.updatedAt) : '-' }}</span>
+                  <span class="date-display">{{ subtask.updatedAt ? formatLocaleDate(subtask.updatedAt, { includeTime: true }) : '-' }}</span>
                 </td>
                 <td class="col-location">
                   <div class="location-cell task-document-title" :title="task.hPath || ''">
@@ -583,7 +646,7 @@
           </template>
         </template>
         <tr v-if="hasMoreTasks" class="load-more-row">
-          <td colspan="12" class="load-more-cell">
+          <td colspan="14" class="load-more-cell">
             <button type="button" class="load-more-btn" @click="loadMoreTasks">
               显示更多（剩余 {{ sortedTasks.length - visibleTasks.length }} 项）
             </button>
@@ -648,6 +711,14 @@
       @update:modelValue="handleDatePopoverSelect"
       @close="closeDatePopover"
     />
+
+    <TaskTimePopover
+      :visible="timePopoverVisible"
+      :anchor-el="timePopoverAnchorRef"
+      :model-value="timePopoverValue"
+      @update:modelValue="handleTimePopoverSelect"
+      @close="closeTimePopover"
+    />
     
     <div v-if="tasks.length === 0" class="empty-state">
       暂无任务
@@ -664,6 +735,7 @@ import Icon from '@/components/Icon.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
+import TaskTimePopover from '@/components/TaskTimePopover.vue';
 import { getStatusLabel, formatLocaleDate } from '@/composables/useTaskCommon';
 import {
   getTaskHeadingGroupMeta,
@@ -721,11 +793,15 @@ const emit = defineEmits<{
   subtaskGroupUpdate: [task: Task, subtask: TableSubtask, groupId: string];
   subtaskStartDateUpdate: [task: Task, subtask: TableSubtask, startDate: string];
   subtaskDueDateUpdate: [task: Task, subtask: TableSubtask, dueDate: string];
+  subtaskStartTimeUpdate: [task: Task, subtask: TableSubtask, startTime: string];
+  subtaskDueTimeUpdate: [task: Task, subtask: TableSubtask, dueTime: string];
   'manage-groups': [];
   groupCreateTask: [payload: { mode: 'group' | 'heading'; groupId: string; groupLabel: string; sampleTaskId?: string }];
   groupArchiveTasks: [payload: { mode: 'group' | 'heading'; groupId: string; groupLabel: string; taskIds: string[] }];
   startDateUpdate: [task: Task, startDate: string];
   dueDateUpdate: [task: Task, dueDate: string];
+  startTimeUpdate: [task: Task, startTime: string];
+  dueTimeUpdate: [task: Task, dueTime: string];
 }>();
 
 const expandedTasks = ref<Set<string>>(new Set());
@@ -740,6 +816,7 @@ type SortableColumn = 'priority' | 'status' | 'startDate' | 'dueDate' | 'created
 
 const SORT_INDICATOR_TOP_PATH = 'M547.072 103.68a42.666667 42.666667 0 0 0-70.144 0l-192 277.333333A42.666667 42.666667 0 0 0 320 448h384a42.666667 42.666667 0 0 0 35.072-66.986667l-192-277.333333z';
 const SORT_INDICATOR_BOTTOM_PATH = 'M320 576a42.666667 42.666667 0 0 0-35.072 66.986667l192 277.333333a42.666667 42.666667 0 0 0 70.144 0l192-277.333333a42.666667 42.666667 0 0 0-35.072-66.986667h-384z';
+const PINNED_BADGE_PATH = 'M287.008 62.016h450.016a224.992 224.992 0 0 1 224.992 224.992v450.016a224.992 224.992 0 0 1-224.992 224.992H287.008a224.992 224.992 0 0 1-224.992-224.992V287.008a224.992 224.992 0 0 1 224.992-224.992z m14.048 432.544a50.144 50.144 0 0 0 70.336 0l90.56-91.68v340.32a50.048 50.048 0 1 0 100.096 0V402.88l90.56 91.68a50.144 50.144 0 0 0 70.336 0 51.52 51.52 0 0 0-0.032-71.456l0.032 0.032-174.368-176.64a49.28 49.28 0 0 0-36.544-16.32h-0.288c-14.24 0-27.008 6.304-35.68 16.256l-0.064 0.064-174.944 176.64a51.52 51.52 0 0 0 0.032 71.456l-0.032-0.032z';
 
 const sortColumn = ref<SortableColumn | null>(null);
 const sortDirection = ref<'asc' | 'desc'>('asc');
@@ -748,11 +825,17 @@ const INITIAL_VISIBLE_TASKS = 120;
 const TASKS_CHUNK_SIZE = 120;
 const visibleTaskCount = ref(INITIAL_VISIBLE_TASKS);
 type DateField = 'startDate' | 'dueDate';
+type TimeField = 'startTime' | 'dueTime';
 const datePopoverVisible = ref(false);
 const datePopoverTaskId = ref('');
 const datePopoverSubtaskId = ref('');
 const datePopoverField = ref<DateField>('dueDate');
 const datePopoverAnchorRef = ref<HTMLElement | null>(null);
+const timePopoverVisible = ref(false);
+const timePopoverTaskId = ref('');
+const timePopoverSubtaskId = ref('');
+const timePopoverField = ref<TimeField>('dueTime');
+const timePopoverAnchorRef = ref<HTMLElement | null>(null);
 
 const priorityOrder = { high: 0, medium: 1, low: 2, none: 3 };
 const statusOrder = { 'in-progress': 0, delayed: 1, pending: 2, completed: 3, cancelled: 4 };
@@ -775,6 +858,26 @@ function getTaskDateTimestamp(value: unknown): number | null {
   const parsedDate = new Date(parsedTimestamp);
   parsedDate.setHours(0, 0, 0, 0);
   return parsedDate.getTime();
+}
+
+function normalizeTaskTimeValue(value: unknown): string {
+  const rawValue = typeof value === 'string' ? value.trim() : '';
+  if (!rawValue) {
+    return '';
+  }
+  const match = rawValue.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (match) {
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${String(hour).padStart(2, '0')}:${match[2]}`;
+    }
+  }
+  return '';
+}
+
+function formatTaskTime(value: unknown): string {
+  return normalizeTaskTimeValue(value) || '-';
 }
 
 function getTodayStartTimestamp(): number {
@@ -1166,6 +1269,23 @@ const datePopoverValue = computed(() => {
     : (task.dueDate || '');
 });
 
+const timePopoverValue = computed(() => {
+  if (!timePopoverTaskId.value) return '';
+  const task = props.tasks.find(t => t.id === timePopoverTaskId.value);
+  if (!task) return '';
+  const subtaskId = timePopoverSubtaskId.value.trim();
+  if (subtaskId) {
+    const subtask = findSubtaskById(task.subtasks, subtaskId);
+    if (!subtask) return '';
+    return timePopoverField.value === 'startTime'
+      ? normalizeTaskTimeValue(subtask.startTime)
+      : normalizeTaskTimeValue(subtask.dueTime);
+  }
+  return timePopoverField.value === 'startTime'
+    ? normalizeTaskTimeValue(task.startTime)
+    : normalizeTaskTimeValue(task.dueTime);
+});
+
 const groupPopoverSelectedId = computed(() => {
   const popover = groupPopover.value;
   if (!popover) return TASK_GROUP_NONE_ID;
@@ -1205,6 +1325,9 @@ function loadMoreTasks(): void {
 
 function openDatePopover(task: Task, field: DateField, event: MouseEvent): void {
   groupPopover.value = null;
+  priorityPopover.value = null;
+  statusPopover.value = null;
+  closeTimePopover();
   datePopoverTaskId.value = task.id;
   datePopoverSubtaskId.value = '';
   datePopoverField.value = field;
@@ -1214,6 +1337,9 @@ function openDatePopover(task: Task, field: DateField, event: MouseEvent): void 
 
 function openSubtaskDatePopover(task: Task, subtask: TableSubtask, field: DateField, event: MouseEvent): void {
   groupPopover.value = null;
+  priorityPopover.value = null;
+  statusPopover.value = null;
+  closeTimePopover();
   datePopoverTaskId.value = task.id;
   datePopoverSubtaskId.value = subtask.id;
   datePopoverField.value = field;
@@ -1226,6 +1352,37 @@ function closeDatePopover(): void {
   datePopoverAnchorRef.value = null;
   datePopoverTaskId.value = '';
   datePopoverSubtaskId.value = '';
+}
+
+function openTimePopover(task: Task, field: TimeField, event: MouseEvent): void {
+  groupPopover.value = null;
+  priorityPopover.value = null;
+  statusPopover.value = null;
+  closeDatePopover();
+  timePopoverTaskId.value = task.id;
+  timePopoverSubtaskId.value = '';
+  timePopoverField.value = field;
+  timePopoverAnchorRef.value = event.currentTarget as HTMLElement | null;
+  timePopoverVisible.value = true;
+}
+
+function openSubtaskTimePopover(task: Task, subtask: TableSubtask, field: TimeField, event: MouseEvent): void {
+  groupPopover.value = null;
+  priorityPopover.value = null;
+  statusPopover.value = null;
+  closeDatePopover();
+  timePopoverTaskId.value = task.id;
+  timePopoverSubtaskId.value = subtask.id;
+  timePopoverField.value = field;
+  timePopoverAnchorRef.value = event.currentTarget as HTMLElement | null;
+  timePopoverVisible.value = true;
+}
+
+function closeTimePopover(): void {
+  timePopoverVisible.value = false;
+  timePopoverAnchorRef.value = null;
+  timePopoverTaskId.value = '';
+  timePopoverSubtaskId.value = '';
 }
 
 function handleDatePopoverSelect(value: string): void {
@@ -1259,10 +1416,45 @@ function handleDatePopoverSelect(value: string): void {
   }
 }
 
+function handleTimePopoverSelect(value: string): void {
+  if (!timePopoverTaskId.value) {
+    closeTimePopover();
+    return;
+  }
+  const task = props.tasks.find(t => t.id === timePopoverTaskId.value);
+  if (!task) {
+    closeTimePopover();
+    return;
+  }
+  const normalizedValue = normalizeTaskTimeValue(value);
+  const subtaskId = timePopoverSubtaskId.value.trim();
+  if (subtaskId) {
+    const subtask = findSubtaskById(task.subtasks, subtaskId);
+    if (!subtask) {
+      closeTimePopover();
+      return;
+    }
+    if (timePopoverField.value === 'startTime') {
+      emit('subtaskStartTimeUpdate', task, subtask, normalizedValue);
+    } else {
+      emit('subtaskDueTimeUpdate', task, subtask, normalizedValue);
+    }
+    return;
+  }
+  if (timePopoverField.value === 'startTime') {
+    emit('startTimeUpdate', task, normalizedValue);
+  } else {
+    emit('dueTimeUpdate', task, normalizedValue);
+  }
+}
+
 function handleTableScroll(): void {
   const container = tableContainerRef.value;
   if (datePopoverVisible.value) {
     closeDatePopover();
+  }
+  if (timePopoverVisible.value) {
+    closeTimePopover();
   }
   if (groupPopover.value) {
     groupPopover.value = null;
@@ -1637,6 +1829,8 @@ function cancelSubtaskDescriptionEdit(task: Task, subtask: TableSubtask): void {
 
 function toggleSubtaskPriorityEdit(task: Task, subtask: TableSubtask, event: MouseEvent): void {
   groupPopover.value = null;
+  closeDatePopover();
+  closeTimePopover();
   const existing = priorityPopover.value;
   const isSame = !!existing
     && existing.taskId === task.id
@@ -1659,6 +1853,8 @@ function toggleSubtaskPriorityEdit(task: Task, subtask: TableSubtask, event: Mou
 
 function toggleSubtaskStatusEdit(task: Task, subtask: TableSubtask, event: MouseEvent): void {
   groupPopover.value = null;
+  closeDatePopover();
+  closeTimePopover();
   const existing = statusPopover.value;
   const isSame = !!existing
     && existing.taskId === task.id
@@ -1691,6 +1887,7 @@ function toggleSubtaskGroupPopover(task: Task, subtask: TableSubtask, event: Mou
   priorityPopover.value = null;
   statusPopover.value = null;
   closeDatePopover();
+  closeTimePopover();
   const target = event.currentTarget as HTMLElement | null;
   if (!target) return;
   const rect = target.getBoundingClientRect();
@@ -1772,6 +1969,8 @@ function cancelDescriptionEdit(taskId: string) {
 
 function togglePriorityEdit(task: Task, event: MouseEvent) {
   groupPopover.value = null;
+  closeDatePopover();
+  closeTimePopover();
   const existing = priorityPopover.value;
   const isSame = !!existing
     && existing.taskId === task.id
@@ -1812,6 +2011,8 @@ function handlePrioritySelect(priority: string): void {
 
 function toggleStatusEdit(task: Task, event: MouseEvent) {
   groupPopover.value = null;
+  closeDatePopover();
+  closeTimePopover();
   const existing = statusPopover.value;
   const isSame = !!existing
     && existing.taskId === task.id
@@ -1868,6 +2069,7 @@ function toggleGroupPopover(task: Task, event: MouseEvent): void {
   priorityPopover.value = null;
   statusPopover.value = null;
   closeDatePopover();
+  closeTimePopover();
   const target = event.currentTarget as HTMLElement | null;
   if (!target) return;
   const rect = target.getBoundingClientRect();
@@ -1909,7 +2111,7 @@ function handleGroupManage(): void {
 }
 
 function handleDocumentMouseDown(event: MouseEvent): void {
-  if (!groupPopover.value && !priorityPopover.value && !statusPopover.value && !datePopoverVisible.value) {
+  if (!groupPopover.value && !priorityPopover.value && !statusPopover.value && !datePopoverVisible.value && !timePopoverVisible.value) {
     return;
   }
   const target = event.target as HTMLElement | null;
@@ -1918,7 +2120,8 @@ function handleDocumentMouseDown(event: MouseEvent): void {
     target.closest('.group-popover') ||
     target.closest('.priority-popover') ||
     target.closest('.status-popover') ||
-    target.closest('.date-popover')
+    target.closest('.date-popover') ||
+    target.closest('.time-popover')
   ) {
     return;
   }
@@ -1927,7 +2130,9 @@ function handleDocumentMouseDown(event: MouseEvent): void {
     target.closest('.col-priority') ||
     target.closest('.col-status-text') ||
     target.closest('.col-start-date') ||
-    target.closest('.col-due-date')
+    target.closest('.col-due-date') ||
+    target.closest('.col-start-time') ||
+    target.closest('.col-due-time')
   ) {
     return;
   }
@@ -1936,6 +2141,9 @@ function handleDocumentMouseDown(event: MouseEvent): void {
   statusPopover.value = null;
   if (datePopoverVisible.value) {
     closeDatePopover();
+  }
+  if (timePopoverVisible.value) {
+    closeTimePopover();
   }
 }
 
@@ -1987,8 +2195,8 @@ function toggleExpand(taskId: string) {
   right: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 3px;
-  height: 48%;
+  width: 2px;
+  height: 40%;
   border-radius: 999px;
   background: var(--b3-border-color);
   opacity: 0.85;
@@ -2050,7 +2258,7 @@ function toggleExpand(taskId: string) {
 }
 
 .tasks-table td {
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--b3-border-color);
 }
 
@@ -2060,18 +2268,32 @@ function toggleExpand(taskId: string) {
   transition: background-color 0.15s;
 }
 
-.task-row:hover {
-  background-color: var(--b3-list-hover);
-}
-
 .task-row > td,
 .subtask-row > td {
+  position: relative;
   transition: background-color 0.15s;
 }
 
-.task-row > td:hover,
-.subtask-row > td:hover {
+.task-row > td::before,
+.subtask-row > td::before {
+  content: '';
+  position: absolute;
+  inset: 3px 4px;
+  border-radius: 8px;
+  background: transparent;
+  pointer-events: none;
+  transition: background-color 0.15s ease;
+}
+
+.task-row > td:hover::before,
+.subtask-row > td:hover::before {
   background-color: var(--b3-list-hover);
+}
+
+.task-row > td > *,
+.subtask-row > td > * {
+  position: relative;
+  z-index: 1;
 }
 
 .group-row td {
@@ -2175,12 +2397,10 @@ function toggleExpand(taskId: string) {
 }
 
 .col-expand {
-  width: 28px;
   text-align: center;
 }
 
 .col-status {
-  width: 40px;
   text-align: center;
 }
 
@@ -2205,7 +2425,6 @@ function toggleExpand(taskId: string) {
 }
 
 .col-title {
-  width: 25%;
   min-width: 150px;
 }
 
@@ -2219,10 +2438,27 @@ function toggleExpand(taskId: string) {
 .title-main {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
   cursor: pointer;
+}
+
+.title-pinned-badge {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #f98f7a;
+}
+
+.title-pinned-badge svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  fill: currentColor;
 }
 
 .expand-arrow {
@@ -2293,6 +2529,10 @@ function toggleExpand(taskId: string) {
   position: relative;
 }
 
+.col-description.is-editing {
+  padding: 2px 4px;
+}
+
 .task-description {
   font-size: 12px;
   color: var(--b3-theme-on-surface);
@@ -2315,13 +2555,18 @@ function toggleExpand(taskId: string) {
   left: 0;
   right: 0;
   bottom: 0;
+  display: block;
+  width: 100%;
+  min-width: 100%;
+  max-width: none;
+  box-sizing: border-box;
   font-size: 12px;
   color: var(--b3-theme-on-background);
   line-height: 1.4;
-  padding: 4px 8px;
+  padding: 6px 10px;
   background: var(--b3-theme-background);
   border: 1px solid var(--b3-theme-primary);
-  border-radius: 4px;
+  border-radius: 6px;
   resize: none;
   font-family: inherit;
   z-index: 1;
@@ -2450,7 +2695,9 @@ function toggleExpand(taskId: string) {
 }
 
 .col-start-date,
+.col-start-time,
 .col-due-date,
+.col-due-time,
 .col-created-date,
 .col-updated-date {
   width: 80px;
@@ -2461,9 +2708,21 @@ function toggleExpand(taskId: string) {
   position: relative;
 }
 
+.col-start-time,
+.col-due-time {
+  cursor: default;
+}
+
+.tasks-table td.col-start-time,
+.tasks-table td.col-due-time {
+  cursor: pointer;
+}
+
 .col-status-text .th-content,
 .col-start-date .th-content,
+.col-start-time .th-content,
 .col-due-date .th-content,
+.col-due-time .th-content,
 .col-created-date .th-content,
 .col-updated-date .th-content {
   justify-content: center;
@@ -2473,15 +2732,12 @@ function toggleExpand(taskId: string) {
   display: block;
   padding: 4px 8px;
   text-align: center;
-  transition: background-color 0.15s;
 }
 
-.col-start-date:hover .date-display,
-.col-due-date:hover .date-display,
-.col-created-date:hover .date-display,
-.col-updated-date:hover .date-display {
-  background: var(--b3-list-hover);
-  border-radius: 4px;
+.time-display {
+  display: block;
+  padding: 4px 8px;
+  text-align: center;
 }
 
 .col-location {
@@ -2531,10 +2787,6 @@ function toggleExpand(taskId: string) {
 
 .subtask-row {
   cursor: pointer;
-}
-
-.subtask-row:hover {
-  background-color: var(--b3-list-hover);
 }
 
 .subtask-title-cell {

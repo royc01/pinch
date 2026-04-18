@@ -60,10 +60,18 @@
                 <div 
                   v-if="shouldShowHiddenCountForDay(day, week) && !isDayExpanded(day.key)"
                   class="more-tasks-placeholder day-more"
-                  @mousedown.stop
-                  @click.stop="expandDayTasks(day.key)"
+                  :style="getDayMoreStyle(week)"
                 >
-                  +{{ getHiddenTaskCountForDay(day, week) }} 个任务
+                  <button
+                    type="button"
+                    class="more-tasks-pill"
+                    :title="`还有${getHiddenTaskCountForDay(day, week)}个任务`"
+                    :aria-label="`还有${getHiddenTaskCountForDay(day, week)}个任务`"
+                    @mousedown.stop
+                    @click.stop="expandDayTasks(day.key)"
+                  >
+                    +{{ getHiddenTaskCountForDay(day, week) }}
+                  </button>
                 </div>
                 <div
                   v-if="isDayExpanded(day.key)"
@@ -484,7 +492,7 @@ watch(() => props.tasks, (newTasks) => {
 const visibleCalendarRange = computed(() => {
   const start = new Date(baseDate.value);
   start.setHours(0, 0, 0, 0);
-  const dayOfWeek = start.getDay();
+  const dayOfWeek = (start.getDay() + 6) % 7;
   start.setDate(start.getDate() - dayOfWeek);
 
   const end = new Date(start);
@@ -583,12 +591,12 @@ const taskPositionsMap = computed(() => {
   return positionMap;
 });
 
-const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
 
 const monthTitle = computed(() => {
   const startDate = new Date(baseDate.value);
   startDate.setHours(0, 0, 0, 0);
-  const dayOfWeek = startDate.getDay();
+  const dayOfWeek = (startDate.getDay() + 6) % 7;
   startDate.setDate(startDate.getDate() - dayOfWeek);
   
   const endDate = new Date(startDate);
@@ -615,7 +623,7 @@ const calendarDays = computed(() => {
   
   const startDate = new Date(baseDate.value);
   startDate.setHours(0, 0, 0, 0);
-  const dayOfWeek = startDate.getDay();
+  const dayOfWeek = (startDate.getDay() + 6) % 7;
   startDate.setDate(startDate.getDate() - dayOfWeek);
   
   const today = new Date();
@@ -777,11 +785,10 @@ function getMaxVisibleTasksForWeek(week: any[]): number {
 
   const {
     dateNumberHeight: DATE_NUMBER_HEIGHT,
-    moreLabelHeight: MORE_LABEL_HEIGHT,
     slotHeight: SLOT_HEIGHT
   } = monthTaskLayout.value;
 
-  const count = Math.floor((rowHeight - DATE_NUMBER_HEIGHT - MORE_LABEL_HEIGHT) / SLOT_HEIGHT);
+  const count = Math.floor((rowHeight - DATE_NUMBER_HEIGHT) / SLOT_HEIGHT);
   
   return Math.max(1, count);
 }
@@ -839,6 +846,43 @@ function shouldShowHiddenCountForDay(day: any, week: any[]): boolean {
   return getHiddenTaskCountForDay(day, week) > 0;
 }
 
+function getDayMoreStyle(week: any[]): Record<string, string> {
+  const {
+    topOffset: TOP_OFFSET,
+    positionStep: POSITION_STEP,
+    chipHeight: CHIP_HEIGHT
+  } = monthTaskLayout.value;
+  const maxTasks = getMaxVisibleTasksForWeek(week);
+  const rowIndex = Math.max(0, maxTasks - 1);
+  const visualHeight = CHIP_HEIGHT + (isCompactMobileLayout.value ? 2 : 6);
+
+  return {
+    top: `${TOP_OFFSET + rowIndex * POSITION_STEP}px`,
+    height: `${visualHeight}px`
+  };
+}
+
+function getDayMoreReserveWidthPx(): number {
+  return isCompactMobileLayout.value ? 24 : 34;
+}
+
+function getTaskMoreReserveWidth(task: WeekTask, week: any[]): number {
+  const maxTasks = getMaxVisibleTasksForWeek(week);
+  const rowIndex = Math.max(0, maxTasks - 1);
+  const position = task.position ?? (taskPositionsMap.value.get(task.id) ?? 0);
+  if (position !== rowIndex) {
+    return 0;
+  }
+
+  const weekData = weekRenderDataMap.value.get(getWeekKey(week));
+  const endDay = week[task.endDayOfWeek];
+  if (!weekData || !endDay) {
+    return 0;
+  }
+
+  return (weekData.hiddenCountByDayKey[endDay.key] || 0) > 0 ? getDayMoreReserveWidthPx() : 0;
+}
+
 function isDayExpanded(dayKey: string): boolean {
   return expandedDayKeys.value.has(dayKey);
 }
@@ -889,7 +933,7 @@ function getTaskStyle(task: any, week: any[]) {
   
   const leftPercent = (task.startDayOfWeek / 7) * 100;
   const widthPercent = (task.spanDays / 7) * 100;
-  const widthOffset = isCompactMobileLayout.value ? 6 : 30;
+  const widthOffset = (isCompactMobileLayout.value ? 6 : 24) + getTaskMoreReserveWidth(task, week);
   const bgColor = resolveTaskBackgroundColor(task.backgroundColor);
   
   const position = task.position ?? (taskPositionsMap.value.get(task.id) ?? 0);
@@ -1811,30 +1855,46 @@ onUnmounted(() => {
   position: absolute;
   left: 32px;
   right: 6px;
-  padding: 3px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.more-tasks-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  box-sizing: border-box;
+  width: var(--more-pill-reserve-width);
+  max-width: calc(100% - 4px);
+  padding: 0 6px;
+  border: 1px dashed var(--b3-border-color);
   border-radius: 6px;
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-surface);
-  font-size: 11px;
+  font-size: inherit;
   font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   pointer-events: auto;
-  text-align: center;
-  border: 1px dashed var(--b3-border-color);
   transition: background-color 0.2s;
 }
 
-.more-tasks-placeholder:hover {
+.more-tasks-pill:hover {
   background: var(--b3-font-background2);
 }
 
 .more-tasks-placeholder.day-more {
   left: 4px;
   right: 4px;
-  bottom: 4px;
-  top: auto;
-  font-size: 10px;
-  padding: 2px 4px;
+  --more-pill-reserve-width: 30px;
+  font-size: 11px;
 }
 
 .day-expanded-panel {
@@ -2005,8 +2065,13 @@ onUnmounted(() => {
     font-size: 9px;
   }
 
+  .more-tasks-pill {
+    padding: 0 5px;
+  }
+
   .more-tasks-placeholder.day-more {
-    font-size: 8px;
+    --more-pill-reserve-width: 30px;
+    font-size: 9px;
   }
 
   .day-expanded-panel {

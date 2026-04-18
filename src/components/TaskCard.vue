@@ -6,11 +6,6 @@
     @dragend="handleDragEnd"
     @contextmenu="handleContextMenu"
   >
-    <span v-if="isPinned" class="task-pinned-indicator" title="已置顶" aria-label="已置顶">
-      <svg viewBox="0 0 1024 1024" aria-hidden="true">
-        <path d="M896.149659 67.771523 126.54051 67.771523c-34.758642 0-62.935378 28.176736-62.935378 62.935378 0 34.757618 28.176736 62.934355 62.935378 62.934355l769.610172 0c34.758642 0 62.935378-28.176736 62.935378-62.934355C959.085036 95.948259 930.9083 67.771523 896.149659 67.771523zM557.654294 258.83814c-1.471514-1.470491-3.016707-2.862187-4.625344-4.181229-0.713244-0.586354-1.469468-1.095961-2.202155-1.6465-0.906649-0.681522-1.797949-1.384533-2.743484-2.01796-0.884137-0.591471-1.805112-1.105171-2.713808-1.648546-0.853437-0.509606-1.689479-1.044796-2.568499-1.515516-0.928139-0.496304-1.883907-0.917906-2.832512-1.364067-0.913812-0.431835-1.811252-0.886183-2.746554-1.27504-0.924045-0.382717-1.864464-0.689708-2.800789-1.02433-1.000793-0.36225-1.989307-0.744967-3.012613-1.054005-0.938372-0.283456-1.892093-0.491187-2.837628-0.729617-1.043772-0.264013-2.071172-0.554632-3.133364-0.766456-1.094938-0.215918-2.201132-0.344854-3.305279-0.503467-0.927115-0.13303-1.840928-0.309038-2.78237-0.402159-2.059915-0.201591-4.124947-0.311085-6.192026-0.312108-0.005117 0-0.011256 0-0.016373 0l0 0c-0.299829 0-0.599657 0.037862-0.898463 0.041956-16.406668-0.231267-32.884968 5.874801-45.402049 18.391882L148.569222 577.09967c-24.576745 24.578792-24.576745 64.425312 0 89.005127 12.288884 12.289907 28.396747 18.434861 44.502563 18.434861 16.105816 0 32.213679-6.144954 44.502563-18.434861l212.633818-212.634842L450.208167 893.124254c0 34.757618 28.176736 62.934355 62.934355 62.934355 34.758642 0 62.935378-28.176736 62.935378-62.934355L576.077899 455.269951l210.836893 210.834846c12.288884 12.289907 28.395724 18.434861 44.500517 18.434861 16.10684 0 32.212656-6.144954 44.500517-18.434861 24.580838-24.579815 24.580838-64.426335 0-89.005127L557.654294 258.83814z"></path>
-      </svg>
-    </span>
     <div class="task-card-content">
       <div class="task-card-header">
         <div
@@ -21,12 +16,21 @@
         >
           <TaskCheckbox :checked="isCompleted" :size="18" />
         </div>
-        <div
-          class="task-title"
-          :title="titleTooltip"
-          v-html="titleHtml"
-          @click="handleCardClick"
-        ></div>
+        <div class="task-title-wrap" @click="handleCardClick">
+          <span v-if="isPinned" class="task-pinned-indicator" title="已置顶" aria-label="已置顶">
+            <svg viewBox="0 0 1024 1024" aria-hidden="true">
+              <path
+                d="M287.008 62.016h450.016a224.992 224.992 0 0 1 224.992 224.992v450.016a224.992 224.992 0 0 1-224.992 224.992H287.008a224.992 224.992 0 0 1-224.992-224.992V287.008a224.992 224.992 0 0 1 224.992-224.992z m14.048 432.544a50.144 50.144 0 0 0 70.336 0l90.56-91.68v340.32a50.048 50.048 0 1 0 100.096 0V402.88l90.56 91.68a50.144 50.144 0 0 0 70.336 0 51.52 51.52 0 0 0-0.032-71.456l0.032 0.032-174.368-176.64a49.28 49.28 0 0 0-36.544-16.32h-0.288c-14.24 0-27.008 6.304-35.68 16.256l-0.064 0.064-174.944 176.64a51.52 51.52 0 0 0 0.032 71.456l-0.032-0.032z"
+                fill="currentColor"
+              />
+            </svg>
+          </span>
+          <div
+            class="task-title"
+            :title="titleTooltip"
+            v-html="titleHtml"
+          ></div>
+        </div>
         <div class="task-card-actions">
           <span
             v-if="task.priority !== 'none'"
@@ -75,6 +79,7 @@
 
       <div
         v-if="showDescription"
+        ref="descriptionBodyRef"
         class="task-description"
         :class="{
           collapsed: isCollapsed,
@@ -189,7 +194,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { Task, SubTask, TaskGroup } from '@/api';
 import Icon from '@/components/Icon.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
@@ -243,11 +248,12 @@ const isCompleted = computed(() => props.completed ?? task.value.status === 'com
 const isExpanded = computed(() => !!props.expanded);
 const isDragging = computed(() => !!props.dragging);
 const hasSubtasks = computed(() => (task.value.subtasks?.length ?? 0) > 0);
+const descriptionCanExpand = ref(false);
 const canExpand = computed(() => {
   if (isKanban.value) {
     return hasSubtasks.value;
   }
-  return !!task.value.description || hasSubtasks.value;
+  return hasSubtasks.value || descriptionCanExpand.value;
 });
 const showDescription = computed(() => {
   const hasDescription = typeof task.value.description === 'string' && task.value.description.trim().length > 0;
@@ -280,7 +286,20 @@ const titleTooltip = computed(() => props.titleTooltip || '');
 const titleHtml = computed(() => sanitizeTaskTitleHtml(task.value.title));
 const descriptionHtml = computed(() => sanitizeTaskHtml(task.value.description || ''));
 const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.value.description ?? '');
-const dueText = computed(() => (task.value.dueDate ? formatMonthDay(task.value.dueDate) : ''));
+const dueTimeText = computed(() => {
+  const rawDueTime = typeof task.value.dueTime === 'string' ? task.value.dueTime.trim() : '';
+  return /^\d{2}:\d{2}$/.test(rawDueTime) ? rawDueTime : '';
+});
+const dueText = computed(() => {
+  if (!task.value.dueDate) {
+    return '';
+  }
+  const dateText = formatMonthDay(task.value.dueDate);
+  if (!dateText) {
+    return '';
+  }
+  return dueTimeText.value ? `${dateText} ${dueTimeText.value}` : dateText;
+});
 const reminderText = computed(() => getTaskReminderLabel(task.value.reminderType, task.value.reminderCustomTime));
 const isPinned = computed(() => task.value.pinned === true);
 const documentTitleText = computed(() => {
@@ -399,12 +418,15 @@ const rootClasses = computed(() => [
   `priority-${task.value.priority}`,
   {
     'task-completed': isCompleted.value,
+    'is-pinned': isPinned.value,
     dragging: isDragging.value,
     'protyle-wysiwyg': isKanban.value
   }
 ]);
 
 const descriptionTextareaRef = ref<HTMLTextAreaElement | null>(null);
+const descriptionBodyRef = ref<HTMLElement | null>(null);
+let descriptionResizeObserver: ResizeObserver | null = null;
 
 watch(
   () => props.descriptionEditing,
@@ -419,6 +441,64 @@ watch(
     });
   }
 );
+
+watch(
+  [variant, showDescription, () => props.descriptionEditing, () => task.value.description, () => props.expanded],
+  () => {
+    scheduleDescriptionExpandabilityMeasure();
+  },
+  { immediate: true }
+);
+
+watch(descriptionBodyRef, (el) => {
+  disconnectDescriptionResizeObserver();
+  if (typeof ResizeObserver !== 'undefined' && el) {
+    descriptionResizeObserver = new ResizeObserver(() => {
+      updateDescriptionExpandability();
+    });
+    descriptionResizeObserver.observe(el);
+  }
+  scheduleDescriptionExpandabilityMeasure();
+});
+
+onUnmounted(() => {
+  disconnectDescriptionResizeObserver();
+});
+
+function disconnectDescriptionResizeObserver(): void {
+  descriptionResizeObserver?.disconnect();
+  descriptionResizeObserver = null;
+}
+
+function scheduleDescriptionExpandabilityMeasure(): void {
+  void nextTick(() => {
+    updateDescriptionExpandability();
+  });
+}
+
+function updateDescriptionExpandability(): void {
+  if (variant.value !== 'sidebar' || !showDescription.value) {
+    descriptionCanExpand.value = false;
+    return;
+  }
+  if (props.descriptionEditing) {
+    return;
+  }
+  const descriptionEl = descriptionBodyRef.value;
+  if (!descriptionEl) {
+    descriptionCanExpand.value = false;
+    return;
+  }
+
+  const computedStyle = window.getComputedStyle(descriptionEl);
+  const parsedLineHeight = Number.parseFloat(computedStyle.lineHeight);
+  const parsedFontSize = Number.parseFloat(computedStyle.fontSize);
+  const lineHeight = Number.isFinite(parsedLineHeight)
+    ? parsedLineHeight
+    : (Number.isFinite(parsedFontSize) ? parsedFontSize * 1.5 : 19.5);
+  const collapsedHeight = lineHeight + 1;
+  descriptionCanExpand.value = descriptionEl.scrollHeight > collapsedHeight;
+}
 
 function handleCardClick(event: MouseEvent) {
   emit('cardClick', task.value, event);
@@ -591,6 +671,14 @@ function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
   width: 100%;
 }
 
+.task-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .task-checkbox-wrapper {
   cursor: pointer;
   flex-shrink: 0;
@@ -631,32 +719,20 @@ function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
 }
 
 .task-pinned-indicator {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 22px;
-  height: 22px;
-  z-index: 2;
-  pointer-events: none;
-}
-
-.task-pinned-indicator::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: #f98f7a;
-  clip-path: polygon(100% 0, 0 0, 100% 100%);
-  border-top-right-radius: 10px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #f98f7a;
 }
 
 .task-pinned-indicator svg {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 8px;
-  height: 8px;
+  width: 100%;
+  height: 100%;
+  display: block;
   fill: currentColor;
-  color: #fff;
 }
 
 .task-card-action-btn {
@@ -698,12 +774,12 @@ function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
 }
 
 .task-title {
-  flex: 1;
-  min-width: 0;
   font-size: 14px;
   color: var(--b3-theme-on-background);
   line-height: 1.4;
   display: block;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -6,9 +6,11 @@ export interface UserSettings {
   kanban: {
     currentView?: 'kanban' | 'table' | 'archive-table' | 'month' | 'week' | 'three-day' | 'day';
     filterType: string;
+    filterSource?: string;
     filterDocument: string;
     filterPriority: string;
     kanbanFilterType: string;
+    kanbanFilterSource?: string;
     kanbanFilterDocument: string;
     kanbanFilterPriority: string;
     kanbanFilterUpdatedRange: string;
@@ -19,12 +21,16 @@ export interface UserSettings {
     showKanbanTaskCardDetails?: boolean;
     tableFilterUpdatedRange: string;
     tableFilterType: string;
+    tableFilterSource?: string;
     tableFilterDocument: string;
     monthFilterType: string;
+    monthFilterSource?: string;
     monthFilterDocument: string;
     weekFilterType?: string;
+    weekFilterSource?: string;
     weekFilterDocument?: string;
     dayFilterType?: string;
+    dayFilterSource?: string;
     dayFilterDocument?: string;
     hiddenDocumentTabIds: string[];
     kanbanStatusFilters?: string[];
@@ -43,6 +49,7 @@ export interface UserSettings {
   taskManager: {
     filterStatus: string;
     filterNotebook: string;
+    filterSource?: string;
     filterDocument: string;
     filterPriority: string;
     archiveViewMode?: 'active' | 'archived' | 'all';
@@ -74,9 +81,11 @@ export const DEFAULT_SETTINGS: UserSettings = {
   kanban: {
     currentView: 'table',
     filterType: 'all',
+    filterSource: 'all',
     filterDocument: 'all',
     filterPriority: 'all',
     kanbanFilterType: 'all',
+    kanbanFilterSource: 'all',
     kanbanFilterDocument: 'all',
     kanbanFilterPriority: 'all',
     kanbanFilterUpdatedRange: 'all',
@@ -87,12 +96,16 @@ export const DEFAULT_SETTINGS: UserSettings = {
     showKanbanTaskCardDetails: true,
     tableFilterUpdatedRange: 'all',
     tableFilterType: 'all',
+    tableFilterSource: 'all',
     tableFilterDocument: 'all',
     monthFilterType: 'all',
+    monthFilterSource: 'all',
     monthFilterDocument: 'all',
     weekFilterType: 'all',
+    weekFilterSource: 'all',
     weekFilterDocument: 'all',
     dayFilterType: 'all',
+    dayFilterSource: 'all',
     dayFilterDocument: 'all',
     hiddenDocumentTabIds: [],
     kanbanStatusFilters: [],
@@ -111,6 +124,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   taskManager: {
     filterStatus: 'all',
     filterNotebook: 'all',
+    filterSource: 'all',
     filterDocument: 'all',
     filterPriority: 'all',
     archiveViewMode: 'active',

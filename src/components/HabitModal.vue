@@ -210,7 +210,6 @@ const handleSubmit = () => {
   background: var(--b3-theme-background);
   border-radius: 24px 24px 0 0;
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
-  min-height: 85vh;
   overflow-y: auto;
   min-width: 100%;
 }
@@ -396,7 +395,7 @@ const handleSubmit = () => {
 }
 
 .modal-footer {
-  padding: 16px 20px;
+  padding: 0px 20px 16px; 
   display: flex;
   justify-content: flex-end;
   gap: 8px;

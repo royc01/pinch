@@ -129,7 +129,6 @@ const handleDelete = () => {
   background: var(--b3-theme-background);
   border-radius: 24px 24px 0 0;
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
-  min-height: 85vh;
   overflow-y: auto;
   min-width: 100%;
 }
