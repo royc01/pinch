@@ -1130,6 +1130,7 @@ import TaskModal, { type Notebook as TaskModalNotebook, type Document as TaskMod
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import { useTaskFilterState } from '@/composables/useTaskFilterState';
+import { useMobileTextInputActivation } from '@/composables/useMobileTextInputActivation';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TableView from '@/components/TableView.vue';
 import MonthView from '@/components/MonthView.vue';
@@ -1389,6 +1390,7 @@ const kanbanEditorVisible = ref(false);
 const kanbanEditorPosition = ref({ x: 0, y: 0 });
 const kanbanEditorPanelRef = ref<InstanceType<typeof TaskEditorPanelShell> | null>(null);
 const kanbanEditorMountRef = ref<HTMLElement | null>(null);
+useMobileTextInputActivation(kanbanViewRef);
 let kanbanEditorProtyle: Protyle | null = null;
 const kanbanEditorTaskId = ref<string | null>(null);
 type KanbanEditorDateFields = {

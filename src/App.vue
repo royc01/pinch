@@ -1,11 +1,17 @@
 <template>
-  <div class="plugin-app-main">
+  <div ref="pluginAppMainRef" class="plugin-app-main">
     <HabitTracker />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue';
 import HabitTracker from './components/HabitTracker.vue';
+import { useMobileTextInputActivation } from '@/composables/useMobileTextInputActivation';
+
+const pluginAppMainRef = ref<HTMLElement | null>(null);
+
+useMobileTextInputActivation(pluginAppMainRef);
 </script>
 
 

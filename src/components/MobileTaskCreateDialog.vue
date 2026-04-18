@@ -1,5 +1,5 @@
 <template>
-  <div class="mobile-task-create-root">
+  <div ref="mobileTaskCreateRootRef" class="mobile-task-create-root">
     <div v-if="loading" class="mobile-task-create-loading">Loading...</div>
     <TaskModal
       :show="showTaskModal"
@@ -40,6 +40,7 @@ import {
 } from '@/api';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import TaskModal, { type Document, type Notebook } from '@/components/TaskModal.vue';
+import { useMobileTextInputActivation } from '@/composables/useMobileTextInputActivation';
 import { useUserSettings } from '@/composables/useUserSettings';
 import type { TaskReminderType } from '@/utils/taskReminder';
 import { getDocumentCreationSortKey, normalizeNotebookIds } from '@/utils/taskViewShared';
@@ -67,9 +68,12 @@ const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const loading = ref(true);
 const showTaskModal = ref(false);
 const showTaskGroupDialog = ref(false);
+const mobileTaskCreateRootRef = ref<HTMLElement | null>(null);
 const notebooks = ref<Notebook[]>([]);
 const taskGroups = ref<TaskGroup[]>([]);
 const taskDocumentsByNotebook = ref<Map<string, Document[]>>(new Map());
+
+useMobileTextInputActivation(mobileTaskCreateRootRef);
 
 const excludedNotebookIds = computed(() => normalizeNotebookIds(userSettings.taskManager.excludedNotebookIds));
 const showCompletedTasks = computed(() => userSettings.taskManager.showCompletedTasks !== false);
