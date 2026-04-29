@@ -93,6 +93,10 @@
                       :title="stripHtml(task.title)"
                       :style="getExpandedTaskChipStyle(task)"
                       :class="{ 'task-completed': task.status === 'completed' }"
+                      @pointerdown="handleMobileTaskPointerDown($event, task)"
+                      @pointermove="handleMobileTaskPointerMove"
+                      @pointerup="handleMobileTaskPointerUp"
+                      @pointercancel="handleMobileTaskPointerCancel"
                       @contextmenu="handleContextMenu($event, task)"
                     >
                       <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
@@ -115,14 +119,26 @@
                 :key="task.id"
                 class="task-chip"
                 :title="stripHtml(task.title)"
-                :class="{ 'task-completed': task.status === 'completed' }"
+                :class="{
+                  'task-completed': task.status === 'completed',
+                  'mobile-selected': shouldShowMobileTaskChipControls(task.id)
+                }"
                 :style="getTaskStyle(task, week)"
+                @click="handleMobileTaskChipClick($event, task)"
+                @pointerdown="handleMobileTaskChipPointerDown($event, task)"
+                @pointermove="handleMobileTaskChipPointerMove"
+                @pointerup="handleMobileTaskChipPointerUp"
+                @pointercancel="handleMobileTaskChipPointerCancel"
                 @contextmenu="handleContextMenu($event, task)"
               >
                 <div 
                   class="task-handle task-handle-left"
-                  :class="{ 'handle-dragging': draggingHandle?.task.id === task.id && draggingHandle?.type === 'start' }"
+                  :class="{
+                    'handle-dragging': draggingHandle?.task.id === task.id && draggingHandle?.type === 'start',
+                    'mobile-visible': shouldShowMobileTaskChipControls(task.id)
+                  }"
                   @mousedown="handleHandleMouseDown($event, task, 'start')"
+                  @pointerdown.stop="handleMobileTaskChipHandlePointerDown($event, task, 'start')"
                 ></div>
                 <div 
                   class="task-chip-title"
@@ -151,8 +167,12 @@
                 </div>
                 <div 
                   class="task-handle task-handle-right"
-                  :class="{ 'handle-dragging': draggingHandle?.task.id === task.id && draggingHandle?.type === 'end' }"
+                  :class="{
+                    'handle-dragging': draggingHandle?.task.id === task.id && draggingHandle?.type === 'end',
+                    'mobile-visible': shouldShowMobileTaskChipControls(task.id)
+                  }"
                   @mousedown="handleHandleMouseDown($event, task, 'end')"
+                  @pointerdown.stop="handleMobileTaskChipHandlePointerDown($event, task, 'end')"
                 ></div>
               </div>
             </div>
@@ -180,8 +200,18 @@
       @saveDates="applyTaskDates(contextMenu.task!)"
       @clearTaskDates="clearTaskDates(contextMenu.task!)"
       @saveRepeatRule="saveTaskRepeatRule(contextMenu.task!, $event)"
+      @start-focus="startFocusForTask(contextMenu.task!)"
       @editTask="handleContextMenuEditTask(contextMenu.task!)"
     />
+
+    <div
+      v-if="mobileDragPreview.active && mobileDragPreview.task"
+      class="mobile-drag-preview"
+      :style="mobileDragPreviewStyle"
+    >
+      <div class="mobile-drag-preview-title">{{ mobileDragPreviewTitle }}</div>
+      <div v-if="mobileDragHint" class="mobile-drag-preview-hint">{{ mobileDragHint }}</div>
+    </div>
 
   </div>
 </template>
@@ -202,10 +232,92 @@ import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
+import { openHabitTrackerFocusTimer } from '@/main';
+import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 
 interface Props {
   tasks: Task[];
 }
+
+interface MonthCalendarDay {
+  key: string;
+  dayNumber: number;
+  date: Date;
+  isOtherMonth: boolean;
+  isToday: boolean;
+}
+
+interface ExternalTaskDropPoint {
+  clientX: number;
+  clientY: number;
+}
+
+interface MobilePointerTaskDragSession {
+  task: Task;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  latestX: number;
+  latestY: number;
+  timerId: number | null;
+  started: boolean;
+  captureElement: HTMLElement | null;
+}
+
+type MobileTaskChipGestureMode = 'move' | 'resize-start' | 'resize-end';
+
+interface MobileTaskChipRepeatSnapshotEntry {
+  id: string;
+  isVirtual: boolean;
+  repeatInstanceDate?: string;
+  startDate: string;
+  dueDate: string;
+  hasExplicitDueDate: boolean;
+  startTime?: string;
+  dueTime?: string;
+}
+
+interface MobileTaskChipRepeatSnapshot {
+  seriesId: string;
+  entries: MobileTaskChipRepeatSnapshotEntry[];
+}
+
+interface MobileTaskChipGesture {
+  task: Task;
+  pointerId: number;
+  mode: MobileTaskChipGestureMode;
+  startX: number;
+  startY: number;
+  latestX: number;
+  latestY: number;
+  timerId: number | null;
+  started: boolean;
+  moved: boolean;
+  captureElement: HTMLElement | null;
+  originalStartDate: string;
+  originalDueDate: string;
+  hasExplicitDueDate: boolean;
+  repeatSeriesSnapshot?: MobileTaskChipRepeatSnapshot | null;
+}
+
+type MobileTaskChipDropTarget = {
+  day: MonthCalendarDay;
+  dayKey: string;
+  label: string;
+};
+
+type RectBounds = Pick<DOMRectReadOnly, 'left' | 'right' | 'top' | 'bottom'>;
+
+type MonthDayHitZone = {
+  dayKey: string;
+  day: MonthCalendarDay;
+  rect: RectBounds;
+};
+
+type PointerCaptureSession = {
+  pointerId: number;
+  captureElement: HTMLElement | null;
+};
 
 const props = defineProps<Props>();
 
@@ -214,6 +326,7 @@ const emit = defineEmits<{
   taskClick: [task: Task];
   taskEdit: [task: Task, anchor: { x: number; y: number }];
   taskCreateRequested: [payload: { startDate: string; dueDate: string; allDay: boolean }];
+  visibleRangeChange: [payload: { startDate: string; endDate: string }];
 }>();
 
 type EventListener = (...args: any[]) => void;
@@ -255,15 +368,103 @@ const eventManager = new EventManager();
 const baseDate = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
 const dragOverDay = ref<string | null>(null);
 const MOBILE_BREAKPOINT = 768;
+const MOBILE_DRAG_LONG_PRESS_MS = 280;
+const MOBILE_DRAG_MOVE_THRESHOLD_PX = 18;
+const MOBILE_TASK_CHIP_OPERATION_MOVE_THRESHOLD_PX = 10;
 const isCompactMobileLayout = ref(false);
 
 let dragOverDayUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingDragOverDay: string | null = null;
 
 const localTasks = ref<Task[]>([]);
+const mobilePointerTaskDrag = ref<MobilePointerTaskDragSession | null>(null);
+const mobileTaskChipGesture = ref<MobileTaskChipGesture | null>(null);
+const selectedMobileTaskChipId = ref<string | null>(null);
+const mobileDragPreview = ref<{
+  active: boolean;
+  task: Task | null;
+  clientX: number;
+  clientY: number;
+}>({
+  active: false,
+  task: null,
+  clientX: 0,
+  clientY: 0
+});
+const mobileDragHint = ref('');
+const suppressedTaskClickIds = new Map<string, number>();
+let contextMenuOutsidePointerBound = false;
+let monthDayHitZones: MonthDayHitZone[] | null = null;
+let mobileTaskPointerMoveRafId: number | null = null;
+let mobileTaskChipPointerMoveRafId: number | null = null;
 
 function syncCompactMobileLayout() {
   isCompactMobileLayout.value = window.innerWidth <= MOBILE_BREAKPOINT;
+  invalidateMonthDropZoneCache();
+}
+
+function copyRectBounds(rect: DOMRect | DOMRectReadOnly): RectBounds {
+  return {
+    left: rect.left,
+    right: rect.right,
+    top: rect.top,
+    bottom: rect.bottom
+  };
+}
+
+function invalidateMonthDropZoneCache(): void {
+  monthDayHitZones = null;
+}
+
+function buildMonthDayHitZones(): MonthDayHitZone[] {
+  const dayMap = new Map(calendarDays.value.map(day => [day.key, day]));
+  return Array.from(document.querySelectorAll<HTMLElement>('.day-cell[data-day-key]'))
+    .map((cell) => {
+      const dayKey = cell.getAttribute('data-day-key') || '';
+      const day = dayMap.get(dayKey);
+      if (!day || day.isOtherMonth) {
+        return null;
+      }
+      return {
+        dayKey,
+        day,
+        rect: copyRectBounds(cell.getBoundingClientRect())
+      };
+    })
+    .filter((zone): zone is MonthDayHitZone => !!zone);
+}
+
+function getMonthDayHitZones(): MonthDayHitZone[] {
+  if (!monthDayHitZones) {
+    monthDayHitZones = buildMonthDayHitZones();
+  }
+  return monthDayHitZones;
+}
+
+function findMonthDayHitZone(point: ExternalTaskDropPoint): MonthDayHitZone | null {
+  for (const zone of getMonthDayHitZones()) {
+    if (pointWithinRect(point, zone.rect)) {
+      return zone;
+    }
+  }
+  return null;
+}
+
+const mobileDragPreviewTitle = computed(() =>
+  mobileDragPreview.value.task ? stripHtml(mobileDragPreview.value.task.title) : ''
+);
+const mobileDragPreviewStyle = computed(() => ({
+  left: `${Math.max(12, mobileDragPreview.value.clientX + 10)}px`,
+  top: `${Math.max(12, mobileDragPreview.value.clientY - 14)}px`
+}));
+const isMobileTaskChipInteractionEnabled = computed(() => isCompactMobileLayout.value);
+
+function normalizeOptionalDateValue(value: string | null | undefined): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function getEffectiveDueDate(startDate: string, dueDate: string | null | undefined): string {
+  return normalizeOptionalDateValue(dueDate) || startDate;
 }
 
 const monthTaskLayout = computed(() => {
@@ -320,7 +521,8 @@ const expandedDayKeys = ref<Set<string>>(new Set());
 const taskSyncGuard = useTaskSyncGuard(localTasks);
 const {
   upsertTask: upsertLocalTask,
-  patchTask: patchLocalTask
+  patchTask: patchLocalTask,
+  patchTasksBatch: patchLocalTasksBatch
 } = useTaskLocalMutations(localTasks);
 const CREATE_SELECTION_THRESHOLD_PX = 8;
 const createSelection = ref<{
@@ -485,6 +687,23 @@ watch(() => props.tasks, (newTasks) => {
   taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
 }, { deep: true, immediate: true });
 
+watch(isMobileTaskChipInteractionEnabled, (enabled) => {
+  if (!enabled) {
+    clearMobileTaskChipGesture({ restorePreview: true });
+    selectMobileTaskChip(null);
+  }
+});
+
+watch(() => localTasks.value.map(task => task.id).join('|'), () => {
+  const selectedTaskId = selectedMobileTaskChipId.value;
+  if (!selectedTaskId) {
+    return;
+  }
+  if (!localTasks.value.some(task => task.id === selectedTaskId)) {
+    selectedMobileTaskChipId.value = null;
+  }
+});
+
 const visibleCalendarRange = computed(() => {
   const start = new Date(baseDate.value);
   start.setHours(0, 0, 0, 0);
@@ -497,6 +716,17 @@ const visibleCalendarRange = computed(() => {
 
   return { start, end };
 });
+
+watch(
+  visibleCalendarRange,
+  ({ start, end }) => {
+    emit('visibleRangeChange', {
+      startDate: formatDate(start),
+      endDate: formatDate(end)
+    });
+  },
+  { immediate: true }
+);
 
 const normalizedTaskRanges = computed<TaskRenderRange[]>(() => {
   const { start: visibleStart, end: visibleEnd } = visibleCalendarRange.value;
@@ -717,6 +947,29 @@ const calendarWeeks = computed(() => {
   
   return weeks;
 });
+
+watch(
+  () => calendarDays.value.map(day => day.key).join('|'),
+  () => {
+    invalidateMonthDropZoneCache();
+  }
+);
+
+watch(
+  () => Array.from(expandedDayKeys.value).join('|'),
+  () => {
+    invalidateMonthDropZoneCache();
+  }
+);
+
+watch(
+  () => Object.entries(weekRowHeights.value)
+    .map(([weekKey, height]) => `${weekKey}:${height}`)
+    .join('|'),
+  () => {
+    invalidateMonthDropZoneCache();
+  }
+);
 
 type WeekTask = Task & {
   startDayOfWeek: number;
@@ -952,13 +1205,184 @@ function getExpandedTaskChipStyle(task: WeekTask): Record<string, string> {
   };
 }
 
+function isMobileTaskChipSelected(taskId: string): boolean {
+  return selectedMobileTaskChipId.value === taskId;
+}
+
+function shouldShowMobileTaskChipControls(taskId: string): boolean {
+  return isMobileTaskChipInteractionEnabled.value && isMobileTaskChipSelected(taskId);
+}
+
+function selectMobileTaskChip(taskId: string | null): void {
+  selectedMobileTaskChipId.value = taskId;
+}
+
+function buildMobileTaskChipRepeatSnapshot(task: Task): MobileTaskChipRepeatSnapshot | null {
+  if (!task.repeatSeriesId) {
+    return null;
+  }
+  const entries = localTasks.value
+    .filter(candidate => candidate.repeatSeriesId === task.repeatSeriesId)
+    .map((candidate) => {
+      const startDate = candidate.startDate || candidate.dueDate || '';
+      const dueDate = candidate.dueDate || candidate.startDate || startDate;
+      const hasExplicitDueDate = typeof candidate.dueDate === 'string' && candidate.dueDate.trim().length > 0;
+      if (!startDate || !dueDate) {
+        return null;
+      }
+      return {
+        id: candidate.id,
+        isVirtual: !!candidate.isVirtual,
+        repeatInstanceDate: candidate.repeatInstanceDate,
+        startDate,
+        dueDate,
+        hasExplicitDueDate,
+        startTime: candidate.startTime,
+        dueTime: candidate.dueTime
+      } as MobileTaskChipRepeatSnapshotEntry;
+    })
+    .filter((entry): entry is MobileTaskChipRepeatSnapshotEntry => !!entry);
+  if (entries.length === 0) {
+    return null;
+  }
+  return {
+    seriesId: task.repeatSeriesId,
+    entries
+  };
+}
+
+function restoreMobileTaskChipRepeatSnapshot(snapshot: MobileTaskChipRepeatSnapshot): void {
+  for (const entry of snapshot.entries) {
+    patchLocalTask(entry.id, {
+      repeatInstanceDate: entry.isVirtual ? entry.repeatInstanceDate : undefined,
+      startDate: entry.startDate,
+      dueDate: entry.hasExplicitDueDate ? entry.dueDate : undefined,
+      startTime: entry.startTime,
+      dueTime: entry.dueTime
+    }, { emit: false });
+  }
+}
+
+function restoreMobileTaskChipPreview(gesture: MobileTaskChipGesture): void {
+  if (gesture.repeatSeriesSnapshot) {
+    restoreMobileTaskChipRepeatSnapshot(gesture.repeatSeriesSnapshot);
+    return;
+  }
+  patchLocalTask(gesture.task.id, {
+    startDate: gesture.originalStartDate,
+    dueDate: gesture.hasExplicitDueDate ? gesture.originalDueDate : undefined
+  }, { emit: false });
+}
+
+function applyMobileTaskChipRepeatMovePreview(
+  snapshot: MobileTaskChipRepeatSnapshot,
+  deltaDays: number
+): void {
+  const updates = snapshot.entries.map((entry) => {
+    const nextStartDate = shiftDate(entry.startDate, deltaDays);
+    const effectiveDueDate = getEffectiveDueDate(entry.startDate, entry.hasExplicitDueDate ? entry.dueDate : null);
+    const nextDueDate = shiftDate(effectiveDueDate, deltaDays);
+    return {
+      id: entry.id,
+      patch: {
+        repeatInstanceDate: entry.isVirtual ? nextStartDate : undefined,
+        startDate: nextStartDate,
+        dueDate: entry.hasExplicitDueDate || nextDueDate !== nextStartDate
+          ? nextDueDate
+          : undefined
+      }
+    };
+  });
+
+  patchLocalTasksBatch(updates, { emit: false });
+}
+
+function applyMobileTaskChipRepeatHandlePreview(
+  snapshot: MobileTaskChipRepeatSnapshot,
+  draggedTaskId: string,
+  handleType: 'start' | 'end',
+  targetDate: string
+): void {
+  const anchorEntry = snapshot.entries.find(entry => entry.id === draggedTaskId);
+  if (!anchorEntry) {
+    return;
+  }
+
+  const anchorDate = handleType === 'start'
+    ? anchorEntry.startDate
+    : getEffectiveDueDate(anchorEntry.startDate, anchorEntry.hasExplicitDueDate ? anchorEntry.dueDate : null);
+  const deltaDays = getDayDiff(anchorDate, targetDate);
+  const updates = snapshot.entries.map((entry) => {
+    const effectiveDueDate = getEffectiveDueDate(entry.startDate, entry.hasExplicitDueDate ? entry.dueDate : null);
+    if (handleType === 'start') {
+      let nextStartDate = shiftDate(entry.startDate, deltaDays);
+      if (nextStartDate > effectiveDueDate) {
+        nextStartDate = effectiveDueDate;
+      }
+      return {
+        id: entry.id,
+        patch: {
+          repeatInstanceDate: entry.isVirtual ? nextStartDate : undefined,
+          startDate: nextStartDate,
+          dueDate: entry.hasExplicitDueDate || effectiveDueDate !== nextStartDate
+            ? effectiveDueDate
+            : undefined
+        }
+      };
+    }
+
+    let nextDueDate = shiftDate(effectiveDueDate, deltaDays);
+    if (nextDueDate < entry.startDate) {
+      nextDueDate = entry.startDate;
+    }
+    return {
+      id: entry.id,
+      patch: {
+        dueDate: entry.hasExplicitDueDate || nextDueDate !== entry.startDate
+          ? nextDueDate
+          : undefined
+      }
+    };
+  });
+
+  patchLocalTasksBatch(updates, { emit: false });
+}
+
+function applyMobileTaskChipMovePreview(
+  gesture: MobileTaskChipGesture,
+  target: MobileTaskChipDropTarget | null
+): void {
+  if (!target) {
+    restoreMobileTaskChipPreview(gesture);
+    return;
+  }
+
+  const deltaDays = getDayDiff(gesture.originalStartDate, target.dayKey);
+  if (gesture.repeatSeriesSnapshot) {
+    applyMobileTaskChipRepeatMovePreview(gesture.repeatSeriesSnapshot, deltaDays);
+    return;
+  }
+
+  const nextDueDate = shiftDate(gesture.originalDueDate, deltaDays);
+  patchLocalTask(gesture.task.id, {
+    startDate: target.dayKey,
+    dueDate: gesture.hasExplicitDueDate || nextDueDate !== target.dayKey
+      ? nextDueDate
+      : undefined
+  }, { emit: false });
+}
+
 async function applyRepeatSeriesDrop(task: Task, targetDate: string): Promise<boolean> {
   if (!isRepeatTaskEntity(task)) return false;
 
   const series = await getRepeatSeriesForTask(task);
   if (!series) return false;
 
-  const deltaDays = getDayDiff(series.startDate, targetDate);
+  const draggedInstanceDate = task.repeatInstanceDate
+    || task.startDate
+    || task.dueDate
+    || series.startDate;
+  const deltaDays = getDayDiff(draggedInstanceDate, targetDate);
   const nextSeriesStart = shiftDate(series.startDate, deltaDays);
   const nextSeriesEnd = series.endDate ? shiftDate(series.endDate, deltaDays) : null;
 
@@ -1053,18 +1477,177 @@ function handleDragLeave(event: DragEvent) {
   clearDragOverState();
 }
 
-async function handleDrop(day: any) {
+function findCalendarDayByKey(dayKey: string): MonthCalendarDay | null {
+  return calendarDays.value.find(day => day.key === dayKey) || null;
+}
+
+function formatExternalDropLabel(day: MonthCalendarDay): string {
+  return `${day.date.getMonth() + 1}/${day.date.getDate()}`;
+}
+
+function pointWithinRect(point: ExternalTaskDropPoint, rect: RectBounds): boolean {
+  return point.clientX >= rect.left
+    && point.clientX <= rect.right
+    && point.clientY >= rect.top
+    && point.clientY <= rect.bottom;
+}
+
+function resolveExternalDropDay(point: ExternalTaskDropPoint): MonthCalendarDay | null {
+  const hitZone = findMonthDayHitZone(point);
+  if (hitZone) {
+    return hitZone.day;
+  }
+
+  const element = document.elementFromPoint(point.clientX, point.clientY) as HTMLElement | null;
+  const dayCell = element?.closest('.day-cell[data-day-key]') as HTMLElement | null;
+  const dayKey = dayCell?.getAttribute('data-day-key') || '';
+  if (!dayKey) {
+    return null;
+  }
+  const day = findCalendarDayByKey(dayKey);
+  if (!day || day.isOtherMonth) {
+    return null;
+  }
+  return day;
+}
+
+function resolveMobileTaskChipDropTarget(point: ExternalTaskDropPoint): MobileTaskChipDropTarget | null {
+  const day = resolveExternalDropDay(point);
+  if (!day) {
+    return null;
+  }
+  return {
+    day,
+    dayKey: day.key,
+    label: formatExternalDropLabel(day)
+  };
+}
+
+function resetMobileDragFeedback(): void {
+  mobileDragPreview.value = {
+    active: false,
+    task: null,
+    clientX: 0,
+    clientY: 0
+  };
+  mobileDragHint.value = '';
   clearDragOverState();
-  
-  if (day.isOtherMonth) return;
-  
-  const event = window.event as DragEvent;
-  const taskData = event?.dataTransfer?.getData('application/json');
-  
-  if (!taskData) return;
-  
+}
+
+function clearMobileTaskChipGesture(options: { restorePreview?: boolean } = {}): void {
+  const gesture = mobileTaskChipGesture.value;
+  if (!gesture) {
+    return;
+  }
+  if (gesture.timerId != null) {
+    window.clearTimeout(gesture.timerId);
+  }
+  cancelMobileTaskChipPointerMoveFrame();
+  if (options.restorePreview && gesture.started) {
+    restoreMobileTaskChipPreview(gesture);
+  }
+  releaseMobileTaskPointerCapture(gesture);
+  mobileTaskChipGesture.value = null;
+  resetMobileDragFeedback();
+  invalidateMonthDropZoneCache();
+}
+
+function updateMobileTaskChipDragState(target: MobileTaskChipDropTarget | null): void {
+  clearDragOverState();
+  if (!target) {
+    return;
+  }
+  dragOverDay.value = target.dayKey;
+}
+
+function updateMobileTaskChipMoveFeedback(
+  gesture: MobileTaskChipGesture,
+  point: ExternalTaskDropPoint
+): MobileTaskChipDropTarget | null {
+  const target = resolveMobileTaskChipDropTarget(point);
+  updateMobileTaskChipDragState(target);
+  applyMobileTaskChipMovePreview(gesture, target);
+  mobileDragPreview.value = {
+    active: true,
+    task: gesture.task,
+    clientX: point.clientX,
+    clientY: point.clientY
+  };
+  mobileDragHint.value = target?.label || '';
+  return target;
+}
+
+function previewMobileTaskChipHandleDrag(
+  gesture: MobileTaskChipGesture,
+  point: ExternalTaskDropPoint
+): boolean {
+  const target = resolveMobileTaskChipDropTarget(point);
+  if (!target) {
+    resetMobileDragFeedback();
+    return false;
+  }
+
+  if (gesture.repeatSeriesSnapshot) {
+    applyMobileTaskChipRepeatHandlePreview(
+      gesture.repeatSeriesSnapshot,
+      gesture.task.id,
+      gesture.mode === 'resize-start' ? 'start' : 'end',
+      target.dayKey
+    );
+  } else {
+    const currentTask = localTasks.value.find(task => task.id === gesture.task.id);
+    if (!currentTask) {
+      return false;
+    }
+    const currentStartDate = currentTask.startDate || gesture.originalStartDate;
+    const currentDueDateValue = normalizeOptionalDateValue(currentTask.dueDate);
+    const currentEffectiveDueDate = getEffectiveDueDate(currentStartDate, currentDueDateValue);
+
+    if (gesture.mode === 'resize-start') {
+      if (target.dayKey > currentEffectiveDueDate) {
+        return false;
+      }
+      patchLocalTask(gesture.task.id, {
+        startDate: target.dayKey,
+        dueDate: currentDueDateValue || currentEffectiveDueDate !== target.dayKey
+          ? currentEffectiveDueDate
+          : undefined
+      }, { emit: false });
+    } else {
+      if (target.dayKey < currentStartDate) {
+        return false;
+      }
+      patchLocalTask(gesture.task.id, {
+        dueDate: target.dayKey !== currentStartDate ? target.dayKey : undefined
+      }, { emit: false });
+    }
+  }
+
+  updateMobileTaskChipDragState(target);
+  mobileDragPreview.value = {
+    active: true,
+    task: gesture.task,
+    clientX: point.clientX,
+    clientY: point.clientY
+  };
+  mobileDragHint.value = target.label;
+  return true;
+}
+
+function updateExternalTaskDrag(point: ExternalTaskDropPoint): { label: string } | null {
+  const day = resolveExternalDropDay(point);
+  clearDragOverState();
+  if (!day) {
+    return null;
+  }
+  dragOverDay.value = day.key;
+  return {
+    label: formatExternalDropLabel(day)
+  };
+}
+
+async function applyTaskDropToDay(task: Task, day: MonthCalendarDay): Promise<void> {
   try {
-    const task = JSON.parse(taskData) as Task;
     const dateStr = formatDate(day.date);
     const hasBackgroundColor = typeof task.backgroundColor === 'string' && task.backgroundColor.trim().length > 0;
     const assignedBackgroundColor = hasBackgroundColor ? undefined : pickRandomTaskBackgroundColor();
@@ -1100,6 +1683,34 @@ async function handleDrop(day: any) {
   }
 }
 
+async function dropExternalTask(task: Task, point: ExternalTaskDropPoint): Promise<boolean> {
+  const day = resolveExternalDropDay(point);
+  clearDragOverState();
+  if (!day) {
+    return false;
+  }
+  await applyTaskDropToDay(task, day);
+  return true;
+}
+
+async function handleDrop(day: MonthCalendarDay) {
+  clearDragOverState();
+  
+  if (day.isOtherMonth) return;
+  
+  const event = window.event as DragEvent;
+  const taskData = event?.dataTransfer?.getData('application/json');
+  
+  if (!taskData) return;
+  
+  try {
+    const task = JSON.parse(taskData) as Task;
+    await applyTaskDropToDay(task, day);
+  } catch (error) {
+    console.error('[MonthView] handleDrop parse error', error);
+  }
+}
+
 function previousMonth() {
   expandedDayKeys.value = new Set();
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() - 1, 1);
@@ -1121,14 +1732,685 @@ function handleWheel(event: WheelEvent) {
   baseDate.value = newDate;
 }
 
+function shouldIgnoreMobileTaskDragTarget(target: EventTarget | null): boolean {
+  const element = target instanceof Element
+    ? target
+    : (target instanceof Node ? target.parentElement : null);
+  if (!element) {
+    return false;
+  }
+  return !!element.closest(
+    'button, a, input, textarea, select, .task-checkbox-wrapper, .task-jump-btn, .task-priority-badge, .task-handle'
+  );
+}
 
-function handleContextMenu(event: MouseEvent, task: Task) {
+function suppressTaskClick(taskId: string): void {
+  suppressedTaskClickIds.set(taskId, Date.now() + 450);
+}
+
+function shouldSuppressTaskClick(taskId: string): boolean {
+  const expiresAt = suppressedTaskClickIds.get(taskId);
+  if (!expiresAt) {
+    return false;
+  }
+  if (expiresAt <= Date.now()) {
+    suppressedTaskClickIds.delete(taskId);
+    return false;
+  }
+  return true;
+}
+
+function releaseMobileTaskPointerCapture(gesture: PointerCaptureSession | null): void {
+  if (!gesture?.captureElement) {
+    return;
+  }
+  try {
+    if (gesture.captureElement.hasPointerCapture?.(gesture.pointerId)) {
+      gesture.captureElement.releasePointerCapture(gesture.pointerId);
+    }
+  } catch {
+    // Ignore pointer capture errors from browsers that auto-release on cancel.
+  }
+}
+
+function clearMobileTaskPointerDrag(): void {
+  const gesture = mobilePointerTaskDrag.value;
+  if (gesture?.timerId != null) {
+    window.clearTimeout(gesture.timerId);
+  }
+  cancelMobileTaskPointerMoveFrame();
+  releaseMobileTaskPointerCapture(gesture);
+  mobilePointerTaskDrag.value = null;
+}
+
+function triggerMobileDragHaptic(): void {
+  if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') {
+    return;
+  }
+  navigator.vibrate(12);
+}
+
+function clearMobileTaskDrag(): void {
+  clearMobileTaskPointerDrag();
+  resetMobileDragFeedback();
+  invalidateMonthDropZoneCache();
+}
+
+function cancelMobileTaskPointerMoveFrame(): void {
+  if (mobileTaskPointerMoveRafId == null) {
+    return;
+  }
+  window.cancelAnimationFrame(mobileTaskPointerMoveRafId);
+  mobileTaskPointerMoveRafId = null;
+}
+
+function flushMobileTaskPointerMoveFrame(): void {
+  mobileTaskPointerMoveRafId = null;
+  const gesture = mobilePointerTaskDrag.value;
+  if (!gesture?.started) {
+    return;
+  }
+  mobileDragPreview.value = {
+    active: true,
+    task: gesture.task,
+    clientX: gesture.latestX,
+    clientY: gesture.latestY
+  };
+  const result = updateExternalTaskDrag({
+    clientX: gesture.latestX,
+    clientY: gesture.latestY
+  });
+  mobileDragHint.value = result?.label || '';
+}
+
+function scheduleMobileTaskPointerMoveFrame(): void {
+  if (mobileTaskPointerMoveRafId != null) {
+    return;
+  }
+  mobileTaskPointerMoveRafId = window.requestAnimationFrame(() => {
+    flushMobileTaskPointerMoveFrame();
+  });
+}
+
+function cancelMobileTaskChipPointerMoveFrame(): void {
+  if (mobileTaskChipPointerMoveRafId == null) {
+    return;
+  }
+  window.cancelAnimationFrame(mobileTaskChipPointerMoveRafId);
+  mobileTaskChipPointerMoveRafId = null;
+}
+
+function flushMobileTaskChipPointerMoveFrame(): void {
+  mobileTaskChipPointerMoveRafId = null;
+  const gesture = mobileTaskChipGesture.value;
+  if (!gesture?.started) {
+    return;
+  }
+  const point = {
+    clientX: gesture.latestX,
+    clientY: gesture.latestY
+  };
+  if (gesture.mode === 'move') {
+    updateMobileTaskChipMoveFeedback(gesture, point);
+    return;
+  }
+  previewMobileTaskChipHandleDrag(gesture, point);
+}
+
+function scheduleMobileTaskChipPointerMoveFrame(): void {
+  if (mobileTaskChipPointerMoveRafId != null) {
+    return;
+  }
+  mobileTaskChipPointerMoveRafId = window.requestAnimationFrame(() => {
+    flushMobileTaskChipPointerMoveFrame();
+  });
+}
+
+function handleMobileTaskPointerDown(event: PointerEvent, task: Task): void {
+  if (!isCompactMobileLayout.value) {
+    return;
+  }
+  if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) {
+    return;
+  }
+  if (shouldIgnoreMobileTaskDragTarget(event.target)) {
+    clearMobileTaskDrag();
+    return;
+  }
+
+  const captureElement = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  selectMobileTaskChip(null);
+  clearMobileTaskChipGesture({ restorePreview: true });
+  clearMobileTaskDrag();
+
+  const timerId = window.setTimeout(() => {
+    const gesture = mobilePointerTaskDrag.value;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.task.id !== task.id) {
+      return;
+    }
+    gesture.started = true;
+    mobileDragPreview.value = {
+      active: true,
+      task,
+      clientX: gesture.latestX,
+      clientY: gesture.latestY
+    };
+    triggerMobileDragHaptic();
+    const result = updateExternalTaskDrag({
+      clientX: gesture.latestX,
+      clientY: gesture.latestY
+    });
+    mobileDragHint.value = result?.label || '';
+  }, MOBILE_DRAG_LONG_PRESS_MS);
+
+  if (captureElement) {
+    try {
+      captureElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Ignore environments that don't allow capturing this pointer.
+    }
+  }
+
+  mobilePointerTaskDrag.value = {
+    task,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    latestX: event.clientX,
+    latestY: event.clientY,
+    timerId,
+    started: false,
+    captureElement
+  };
+}
+
+function handleMobileTaskPointerMove(event: PointerEvent): void {
+  const gesture = mobilePointerTaskDrag.value;
+  if (!gesture || gesture.pointerId !== event.pointerId) {
+    return;
+  }
+  gesture.latestX = event.clientX;
+  gesture.latestY = event.clientY;
+
+  if (!gesture.started) {
+    const movedDistance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+    if (movedDistance > MOBILE_DRAG_MOVE_THRESHOLD_PX) {
+      clearMobileTaskDrag();
+    }
+    return;
+  }
+
+  event.preventDefault();
+  scheduleMobileTaskPointerMoveFrame();
+}
+
+function handleDocumentMobileTaskPointerMove(event: PointerEvent): void {
+  if (!mobilePointerTaskDrag.value) {
+    return;
+  }
+  handleMobileTaskPointerMove(event);
+}
+
+async function finishMobileTaskPointer(event: PointerEvent, cancelled: boolean): Promise<void> {
+  const gesture = mobilePointerTaskDrag.value;
+  if (!gesture || gesture.pointerId !== event.pointerId) {
+    return;
+  }
+  if (gesture.timerId !== null) {
+    window.clearTimeout(gesture.timerId);
+  }
+
+  if (!gesture.started) {
+    clearMobileTaskDrag();
+    return;
+  }
+
+  suppressTaskClick(gesture.task.id);
+  event.preventDefault();
+  const task = gesture.task;
+  const point = {
+    clientX: event.clientX,
+    clientY: event.clientY
+  };
+  clearMobileTaskDrag();
+  if (!cancelled) {
+    await dropExternalTask(task, point);
+  }
+}
+
+function handleMobileTaskPointerUp(event: PointerEvent): void {
+  void finishMobileTaskPointer(event, false);
+}
+
+function handleMobileTaskPointerCancel(event: PointerEvent): void {
+  void finishMobileTaskPointer(event, true);
+}
+
+function handleDocumentMobileTaskPointerUp(event: PointerEvent): void {
+  if (!mobilePointerTaskDrag.value) {
+    return;
+  }
+  handleMobileTaskPointerUp(event);
+}
+
+function handleDocumentMobileTaskPointerCancel(event: PointerEvent): void {
+  if (!mobilePointerTaskDrag.value) {
+    return;
+  }
+  handleMobileTaskPointerCancel(event);
+}
+
+async function commitMobileTaskChipMove(
+  gesture: MobileTaskChipGesture,
+  target: MobileTaskChipDropTarget | null
+): Promise<void> {
+  if (!target) {
+    return;
+  }
+
+  const task = gesture.task;
+  if (isRepeatTaskEntity(task)) {
+    await applyRepeatSeriesDrop(task, target.dayKey);
+    return;
+  }
+
+  const deltaDays = getDayDiff(gesture.originalStartDate, target.dayKey);
+  const nextDueDate = shiftDate(gesture.originalDueDate, deltaDays);
+  const nextDueDateValue = gesture.hasExplicitDueDate || nextDueDate !== target.dayKey
+    ? nextDueDate
+    : undefined;
+  const updatedTask = patchLocalTask(task.id, {
+    startDate: target.dayKey,
+    dueDate: nextDueDateValue
+  });
+  const syncedTask = updatedTask || localTasks.value.find(item => item.id === task.id) || task;
+  if (syncedTask) {
+    emitTaskDateChanged(syncedTask);
+  }
+
+  if (syncedTask.type !== 'block' || !syncedTask.blockId) {
+    return;
+  }
+
+  try {
+    await setBlockAttrs(syncedTask.blockId, {
+      'custom-task-start-date': target.dayKey,
+      'custom-task-due-date': nextDueDateValue || ''
+    });
+  } catch {
+    patchLocalTask(task.id, {
+      startDate: gesture.originalStartDate,
+      dueDate: gesture.hasExplicitDueDate ? gesture.originalDueDate : undefined
+    });
+  }
+}
+
+async function commitMobileTaskChipHandleDrag(gesture: MobileTaskChipGesture): Promise<void> {
+  const currentTask = localTasks.value.find(task => task.id === gesture.task.id);
+  if (!currentTask) {
+    return;
+  }
+
+  const currentStartDate = currentTask.startDate || gesture.originalStartDate;
+  const currentDueDateValue = normalizeOptionalDateValue(currentTask.dueDate);
+  const originalDueDateValue = gesture.hasExplicitDueDate ? gesture.originalDueDate : null;
+  const changed = currentStartDate !== gesture.originalStartDate || currentDueDateValue !== originalDueDateValue;
+  if (!changed) {
+    return;
+  }
+
+  if (gesture.repeatSeriesSnapshot && isRepeatTaskEntity(currentTask)) {
+    try {
+      const series = await getRepeatSeriesForTask(currentTask);
+      if (series) {
+        let nextSeriesStart = series.startDate;
+        let nextSeriesEnd: string | null = series.endDate || null;
+
+        if (gesture.mode === 'resize-start') {
+          const dateDeltaDays = getDayDiff(gesture.originalStartDate, currentStartDate);
+          nextSeriesStart = shiftDate(series.startDate, dateDeltaDays);
+          nextSeriesEnd = currentDueDateValue ? (series.endDate || series.startDate) : null;
+        } else {
+          const originalEffectiveDueDate = getEffectiveDueDate(gesture.originalStartDate, originalDueDateValue);
+          const currentEffectiveDueDate = getEffectiveDueDate(currentStartDate, currentDueDateValue);
+          const dateDeltaDays = getDayDiff(originalEffectiveDueDate, currentEffectiveDueDate);
+          nextSeriesEnd = currentDueDateValue
+            ? shiftDate(series.endDate || series.startDate, dateDeltaDays)
+            : null;
+        }
+
+        await updateRepeatSeriesDates(
+          currentTask,
+          nextSeriesStart,
+          nextSeriesEnd,
+          undefined,
+          { emitChange: false }
+        );
+
+        const templateBlockId = series.templateBlockId
+          || localTasks.value.find(item => !item.isVirtual && item.repeatSeriesId === series.id)?.blockId;
+        if (templateBlockId) {
+          await setBlockAttrs(templateBlockId, {
+            'custom-task-start-date': nextSeriesStart || '',
+            'custom-task-due-date': nextSeriesEnd || ''
+          });
+        }
+
+        notifyRepeatChanged({
+          blockId: templateBlockId,
+          seriesId: series.id,
+          frequency: series.frequency
+        });
+
+        for (const entry of gesture.repeatSeriesSnapshot.entries) {
+          const syncedTask = localTasks.value.find(task => task.id === entry.id);
+          if (syncedTask) {
+            emitTaskDateChanged(syncedTask);
+          }
+        }
+      }
+      return;
+    } catch {
+      restoreMobileTaskChipRepeatSnapshot(gesture.repeatSeriesSnapshot);
+      return;
+    }
+  }
+
+  if (currentTask.type === 'block' && currentTask.blockId) {
+    try {
+      await setBlockAttrs(currentTask.blockId, {
+        'custom-task-start-date': currentStartDate,
+        'custom-task-due-date': currentDueDateValue || ''
+      });
+    } catch {
+      patchLocalTask(gesture.task.id, {
+        startDate: gesture.originalStartDate,
+        dueDate: gesture.hasExplicitDueDate ? gesture.originalDueDate : undefined
+      });
+      return;
+    }
+  }
+
+  const syncedTask = localTasks.value.find(task => task.id === gesture.task.id) || currentTask;
+  emitTaskDateChanged(syncedTask);
+}
+
+function handleMobileTaskChipPointerDown(event: PointerEvent, task: Task): void {
+  if (!isMobileTaskChipInteractionEnabled.value) {
+    handleMobileTaskPointerDown(event, task);
+    return;
+  }
+  if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) {
+    return;
+  }
+  if (shouldIgnoreMobileTaskDragTarget(event.target)) {
+    return;
+  }
+
+  const captureElement = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  const originalStartDate = task.startDate || task.dueDate || formatDate(new Date());
+  const originalDueDateValue = normalizeOptionalDateValue(task.dueDate);
+  const originalDueDate = getEffectiveDueDate(originalStartDate, originalDueDateValue);
+  const alreadySelected = isMobileTaskChipSelected(task.id);
+
+  clearMobileTaskChipGesture();
+  resetMobileDragFeedback();
+
+  let timerId: number | null = null;
+  if (!alreadySelected) {
+    timerId = window.setTimeout(() => {
+      const gesture = mobileTaskChipGesture.value;
+      if (!gesture || gesture.pointerId !== event.pointerId || gesture.task.id !== task.id) {
+        return;
+      }
+      gesture.started = true;
+      selectMobileTaskChip(task.id);
+      triggerMobileDragHaptic();
+    }, MOBILE_DRAG_LONG_PRESS_MS);
+  } else {
+    selectMobileTaskChip(task.id);
+  }
+
+  if (captureElement) {
+    try {
+      captureElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Ignore environments that don't allow capturing this pointer.
+    }
+  }
+
+  mobileTaskChipGesture.value = {
+    task,
+    pointerId: event.pointerId,
+    mode: 'move',
+    startX: event.clientX,
+    startY: event.clientY,
+    latestX: event.clientX,
+    latestY: event.clientY,
+    timerId,
+    started: alreadySelected,
+    moved: false,
+    captureElement,
+    originalStartDate,
+    originalDueDate,
+    hasExplicitDueDate: !!originalDueDateValue,
+    repeatSeriesSnapshot: isRepeatTaskEntity(task)
+      ? buildMobileTaskChipRepeatSnapshot(task)
+      : null
+  };
+}
+
+function handleMobileTaskChipHandlePointerDown(
+  event: PointerEvent,
+  task: Task,
+  handleType: 'start' | 'end'
+): void {
+  if (!isMobileTaskChipInteractionEnabled.value) {
+    return;
+  }
+  if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) {
+    return;
+  }
+
+  clearMobileTaskChipGesture();
+  resetMobileDragFeedback();
+  selectMobileTaskChip(task.id);
+
+  const captureElement = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  if (captureElement) {
+    try {
+      captureElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Ignore environments that don't allow capturing this pointer.
+    }
+  }
+
+  const originalStartDate = task.startDate || task.dueDate || formatDate(new Date());
+  const originalDueDateValue = normalizeOptionalDateValue(task.dueDate);
+  mobileTaskChipGesture.value = {
+    task,
+    pointerId: event.pointerId,
+    mode: handleType === 'start' ? 'resize-start' : 'resize-end',
+    startX: event.clientX,
+    startY: event.clientY,
+    latestX: event.clientX,
+    latestY: event.clientY,
+    timerId: null,
+    started: true,
+    moved: false,
+    captureElement,
+    originalStartDate,
+    originalDueDate: getEffectiveDueDate(originalStartDate, originalDueDateValue),
+    hasExplicitDueDate: !!originalDueDateValue,
+    repeatSeriesSnapshot: isRepeatTaskEntity(task)
+      ? buildMobileTaskChipRepeatSnapshot(task)
+      : null
+  };
+}
+
+function handleMobileTaskChipPointerMove(event: PointerEvent): void {
+  const gesture = mobileTaskChipGesture.value;
+  if (!gesture || gesture.pointerId !== event.pointerId) {
+    return;
+  }
+
+  gesture.latestX = event.clientX;
+  gesture.latestY = event.clientY;
+
+  if (!gesture.started) {
+    const movedDistance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+    if (movedDistance > MOBILE_DRAG_MOVE_THRESHOLD_PX) {
+      clearMobileTaskChipGesture();
+    }
+    return;
+  }
+
+  if (gesture.mode === 'move') {
+    const movedDistance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+    if (!gesture.moved && movedDistance < MOBILE_TASK_CHIP_OPERATION_MOVE_THRESHOLD_PX) {
+      return;
+    }
+    gesture.moved = true;
+    event.preventDefault();
+    scheduleMobileTaskChipPointerMoveFrame();
+    return;
+  }
+
+  gesture.moved = true;
+  event.preventDefault();
+  scheduleMobileTaskChipPointerMoveFrame();
+}
+
+function handleDocumentMobileTaskChipPointerMove(event: PointerEvent): void {
+  if (!mobileTaskChipGesture.value) {
+    return;
+  }
+  handleMobileTaskChipPointerMove(event);
+}
+
+async function finishMobileTaskChipPointer(event: PointerEvent, cancelled: boolean): Promise<void> {
+  const gesture = mobileTaskChipGesture.value;
+  if (!gesture || gesture.pointerId !== event.pointerId) {
+    return;
+  }
+  if (gesture.timerId != null) {
+    window.clearTimeout(gesture.timerId);
+  }
+
+  if (!gesture.started) {
+    clearMobileTaskChipGesture();
+    return;
+  }
+
+  if (gesture.mode === 'move') {
+    const point = {
+      clientX: event.clientX,
+      clientY: event.clientY
+    };
+    const target = !cancelled && gesture.moved
+      ? resolveMobileTaskChipDropTarget(point)
+      : null;
+    const task = gesture.task;
+    const shouldAllowTapClick = !cancelled && !gesture.moved && gesture.timerId == null;
+    const shouldRestorePreview = cancelled || (gesture.moved && !target);
+    clearMobileTaskChipGesture({ restorePreview: shouldRestorePreview });
+    if (shouldAllowTapClick) {
+      return;
+    }
+    suppressTaskClick(task.id);
+    if (!cancelled && !gesture.moved) {
+      selectMobileTaskChip(task.id);
+      return;
+    }
+    if (!cancelled && gesture.moved) {
+      await commitMobileTaskChipMove(gesture, target);
+    }
+    return;
+  }
+
+  const gestureSnapshot = gesture;
+  clearMobileTaskChipGesture({ restorePreview: cancelled });
+  if (cancelled || !gestureSnapshot.moved) {
+    return;
+  }
+  suppressTaskClick(gestureSnapshot.task.id);
+  await commitMobileTaskChipHandleDrag(gestureSnapshot);
+}
+
+function handleMobileTaskChipPointerUp(event: PointerEvent): void {
+  void finishMobileTaskChipPointer(event, false);
+}
+
+function handleMobileTaskChipPointerCancel(event: PointerEvent): void {
+  void finishMobileTaskChipPointer(event, true);
+}
+
+function handleDocumentMobileTaskChipPointerUp(event: PointerEvent): void {
+  if (!mobileTaskChipGesture.value) {
+    return;
+  }
+  handleMobileTaskChipPointerUp(event);
+}
+
+function handleDocumentMobileTaskChipPointerCancel(event: PointerEvent): void {
+  if (!mobileTaskChipGesture.value) {
+    return;
+  }
+  handleMobileTaskChipPointerCancel(event);
+}
+
+function handleMobileTaskChipClick(event: MouseEvent, task: Task): void {
+  if (!isMobileTaskChipInteractionEnabled.value) {
+    return;
+  }
+  if (shouldSuppressTaskClick(task.id)) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   event.preventDefault();
   event.stopPropagation();
+  selectMobileTaskChip(null);
+  showTaskContextMenu(task, {
+    x: event.clientX,
+    y: event.clientY
+  });
+}
+
+function handleContextMenuOutsidePointerDown(event: PointerEvent): void {
+  if (!contextMenu.value.show) {
+    return;
+  }
+  const menu = document.querySelector('.context-menu');
+  const target = event.target;
+  if (menu && target instanceof Node && menu.contains(target)) {
+    return;
+  }
+  selectMobileTaskChip(null);
+  hideContextMenu();
+}
+
+function bindContextMenuOutsidePointerDown(): void {
+  if (contextMenuOutsidePointerBound) {
+    return;
+  }
+  document.addEventListener('pointerdown', handleContextMenuOutsidePointerDown, true);
+  contextMenuOutsidePointerBound = true;
+}
+
+function unbindContextMenuOutsidePointerDown(): void {
+  if (!contextMenuOutsidePointerBound) {
+    return;
+  }
+  document.removeEventListener('pointerdown', handleContextMenuOutsidePointerDown, true);
+  contextMenuOutsidePointerBound = false;
+}
+
+function showTaskContextMenu(task: Task, anchor?: { x: number; y: number }): void {
   contextMenu.value = {
     show: true,
-    x: event.clientX,
-    y: event.clientY,
+    x: anchor?.x ?? window.innerWidth / 2,
+    y: anchor?.y ?? window.innerHeight / 2,
     task
   };
   contextMenuDateDraft.value = {
@@ -1162,11 +2444,35 @@ function handleContextMenu(event: MouseEvent, task: Task) {
       }
     })
     .catch(() => {});
+
+  bindContextMenuOutsidePointerDown();
+}
+
+
+function handleContextMenu(event: MouseEvent, task: Task) {
+  if (isCompactMobileLayout.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  showTaskContextMenu(task, {
+    x: event.clientX,
+    y: event.clientY
+  });
 }
 
 function handleGlobalClick(event: MouseEvent) {
   const target = event.target;
   const targetElement = target instanceof Element ? target : null;
+
+  if (selectedMobileTaskChipId.value) {
+    const clickedInsideInteractiveChip = !!targetElement?.closest('.task-chip, .context-menu, .mobile-drag-preview');
+    if (!clickedInsideInteractiveChip) {
+      selectMobileTaskChip(null);
+    }
+  }
 
   if (expandedDayKeys.value.size > 0) {
     const clickedInsideExpandedPanel = !!targetElement?.closest('.day-expanded-panel');
@@ -1183,7 +2489,13 @@ function handleGlobalClick(event: MouseEvent) {
   }
 }
 
+function startFocusForTask(task: Task): void {
+  hideContextMenu();
+  openHabitTrackerFocusTimer(createTaskFocusTarget(task));
+}
+
 function hideContextMenu() {
+  unbindContextMenuOutsidePointerDown();
   contextMenu.value = {
     show: false,
     x: 0,
@@ -1382,6 +2694,12 @@ let resizeObserver: ResizeObserver | null = null;
 onMounted(() => {
   syncCompactMobileLayout();
   window.addEventListener('resize', syncCompactMobileLayout);
+  document.addEventListener('pointermove', handleDocumentMobileTaskPointerMove);
+  document.addEventListener('pointerup', handleDocumentMobileTaskPointerUp);
+  document.addEventListener('pointercancel', handleDocumentMobileTaskPointerCancel);
+  document.addEventListener('pointermove', handleDocumentMobileTaskChipPointerMove);
+  document.addEventListener('pointerup', handleDocumentMobileTaskChipPointerUp);
+  document.addEventListener('pointercancel', handleDocumentMobileTaskChipPointerCancel);
 
   const container = document.querySelector('.month-view');
   if (container) {
@@ -1485,6 +2803,9 @@ function finishCreateSelection() {
 }
 
 function handleTaskClick(task: Task) {
+  if (shouldSuppressTaskClick(task.id)) {
+    return;
+  }
   emit('taskClick', task);
 }
 
@@ -1499,12 +2820,27 @@ function handleContextMenuEditTask(task: Task): void {
   hideContextMenu();
 }
 
+defineExpose({
+  updateExternalTaskDrag,
+  clearExternalTaskDrag: clearDragOverState,
+  dropExternalTask
+});
+
 onUnmounted(() => {
+  clearMobileTaskDrag();
+  clearMobileTaskChipGesture({ restorePreview: true });
+  document.removeEventListener('pointermove', handleDocumentMobileTaskPointerMove);
+  document.removeEventListener('pointerup', handleDocumentMobileTaskPointerUp);
+  document.removeEventListener('pointercancel', handleDocumentMobileTaskPointerCancel);
+  document.removeEventListener('pointermove', handleDocumentMobileTaskChipPointerMove);
+  document.removeEventListener('pointerup', handleDocumentMobileTaskChipPointerUp);
+  document.removeEventListener('pointercancel', handleDocumentMobileTaskChipPointerCancel);
   window.removeEventListener('resize', syncCompactMobileLayout);
   taskSyncGuard.clearAllTaskSyncLocks();
   removeEventListeners();
 
   eventManager.clear();
+  unbindContextMenuOutsidePointerDown();
 
   clearDragOverState();
 
@@ -1597,7 +2933,6 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
   gap: 1px;
   background-color: var(--b3-list-hover);
 }
@@ -1735,6 +3070,11 @@ onUnmounted(() => {
   background: var(--b3-list-hover);
 }
 
+.task-chip.mobile-selected {
+  box-shadow: 0 0 0 2px var(--pinch-task-chip-color, var(--pinch-color6));
+  z-index: 25;
+}
+
 .task-handle {
   position: absolute;
   top: 0;
@@ -1746,12 +3086,33 @@ onUnmounted(() => {
   border-radius: 2px;
 }
 
+.task-chip .task-handle::after {
+  display: none;
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 22px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: color-mix(in srgb, var(--pinch-task-chip-color, var(--pinch-color6)) 72%, white 28%);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+}
+
 .task-handle-left {
   left: 0;
 }
 
+.task-handle-left::after {
+  left: 3px;
+}
+
 .task-handle-right {
   right: 0;
+}
+
+.task-handle-right::after {
+  right: 3px;
 }
 
 .task-chip.task-completed {
@@ -1988,7 +3349,82 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
+.mobile-drag-preview {
+  position: fixed;
+  max-width: min(72vw, 260px);
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.24);
+  transform: translate(0, -100%);
+  pointer-events: none;
+  z-index: 1300;
+}
+
+.mobile-drag-preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mobile-drag-preview-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .task-chip .task-handle {
+    top: -3px;
+    bottom: -3px;
+    width: 14px;
+  }
+
+  .task-chip .task-handle-left {
+    left: -7px;
+  }
+
+  .task-chip .task-handle-left::after {
+    left: 4px;
+  }
+
+  .task-chip .task-handle-right {
+    right: -7px;
+  }
+
+  .task-chip .task-handle-right::after {
+    right: 4px;
+  }
+
+  .task-chip:hover {
+    box-shadow: 0 0 0 2px var(--pinch-task-chip-color, var(--pinch-color6));
+    z-index: 25;
+  }
+
+  .task-chip:hover .task-handle::after {
+    display: block;
+  }
+}
+
+.day-expanded-chip,
+.task-chip,
+.task-chip-title {
+  -webkit-touch-callout: none;
+  touch-action: none;
+}
+
 @media (max-width: 768px) {
+  .day-cell.drag-over {
+    background: var(--b3-theme-background);
+    border: none;
+  }
+
   .calendar-header {
     padding: 4px 8px;
   }
@@ -2036,7 +3472,43 @@ onUnmounted(() => {
     display: none;
   }
 
-  .task-handle,
+  .task-chip.mobile-selected {
+    z-index: 28;
+  }
+
+  .task-handle {
+    display: none;
+    pointer-events: none;
+    top: -4px;
+    bottom: -4px;
+    width: 20px;
+  }
+
+  .task-handle-left {
+    left: -10px;
+  }
+
+  .task-handle-left::after {
+    left: 7px;
+  }
+
+  .task-handle-right {
+    right: -10px;
+  }
+
+  .task-handle-right::after {
+    right: 7px;
+  }
+
+  .task-handle.mobile-visible {
+    display: block !important;
+    pointer-events: auto;
+  }
+
+  .task-handle.mobile-visible::after {
+    display: block;
+  }
+
   .task-checkbox-wrapper,
   .task-priority-badge,
   .task-jump-btn {

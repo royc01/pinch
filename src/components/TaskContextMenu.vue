@@ -125,6 +125,10 @@
     </div>
 
     <div class="context-menu-divider"></div>
+    <div class="context-menu-item" @click="$emit('startFocus')">
+      <Icon name="timer" width="16" height="16" />
+      <span>开始专注</span>
+    </div>
     <div class="context-menu-item edit-item" @click="$emit('editTask')">
       <Icon name="edit" width="16" height="16" />
       <span>编辑任务</span>
@@ -200,6 +204,7 @@ const emit = defineEmits<{
   (event: 'saveDates'): void;
   (event: 'clearTaskDates'): void;
   (event: 'editTask'): void;
+  (event: 'startFocus'): void;
   (event: 'update:startDate', value: string): void;
   (event: 'update:startTime', value: string): void;
   (event: 'update:dueDate', value: string): void;
@@ -331,7 +336,7 @@ function onRepeatChange(event: Event): void {
   border: 1px solid var(--b3-border-color);
   border-radius: 8px;
   box-shadow: 0 12px 28px #0000002e;
-  z-index: 10;
+  z-index: 50;
   min-width: 240px;
   padding: 8px;
   animation: contextMenuFadeIn 0.15s ease-out;

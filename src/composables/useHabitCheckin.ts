@@ -1,5 +1,6 @@
 ﻿import { nextTick, type Ref, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
+import { awardHabitRewards } from '@/rewardRepository';
 
 interface UseHabitCheckinOptions {
   habits: ShallowRef<Habit[]>;
@@ -27,6 +28,7 @@ interface HabitPomodoroControls {
   activePomodoroHabit: Ref<Habit | null>;
   startPomodoroTimer: (habit: Habit) => void;
   clearPomodoroForHabit: (habit: Habit, options?: { clearActive?: boolean }) => void;
+  startFocusTimerForHabit?: (habit: Habit) => void;
 }
 
 export const useHabitCheckin = ({
@@ -50,8 +52,18 @@ export const useHabitCheckin = ({
   playBubbleSound,
   confirmUncheckMessage = '是否要取消打卡记录？'
 }: UseHabitCheckinOptions) => {
-  const toggleHabitCompletion = (habit: Habit, date: string) => {
+  const toggleHabitCompletion = (
+    habit: Habit,
+    date: string,
+    options: { source?: 'manual' | 'calendar' | 'pomodoro' } = {}
+  ) => {
     let dayRecord = habit.calendar.find(day => day.date === date);
+    const previousCompletedCount = dayRecord?.completedCount || 0;
+    const previousDayCompleted = dayRecord?.completed === true;
+    const previousStreak = habit.currentStreak || 0;
+    const previousWeeklyCompleted = habit.frequency?.startsWith('weekly')
+      ? getWeeklyCompletionStatus(habit)
+      : false;
 
     if (!dayRecord) {
       const timesPerDay = Math.min(
@@ -100,13 +112,45 @@ export const useHabitCheckin = ({
     habit.completedToday = date === todayStr && dayRecord.completed;
 
     habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+    clearCurrentStreakCacheForHabit(habit.id);
     habit.currentStreak = calculateCurrentStreak(habit);
+    const nextWeeklyCompleted = habit.frequency?.startsWith('weekly')
+      ? (() => {
+          clearWeeklyCompletionCacheForHabit(habit.id);
+          return getWeeklyCompletionStatus(habit);
+        })()
+      : false;
     clearCompletionRateCacheForHabit(habit.id);
     triggerHabitsRef();
+
+    const nextCompletedCount = dayRecord.completedCount || 0;
+    const becameCompleted = !previousDayCompleted && dayRecord.completed;
+
+    if (nextCompletedCount > previousCompletedCount || becameCompleted || nextWeeklyCompleted !== previousWeeklyCompleted) {
+      void awardHabitRewards({
+        habit: {
+          id: habit.id,
+          name: habit.name,
+          difficulty: habit.difficulty,
+          frequency: habit.frequency,
+          timesPerDay: habit.timesPerDay
+        },
+        date,
+        previousCompletedCount,
+        nextCompletedCount,
+        targetCount,
+        becameCompleted,
+        previousStreak,
+        nextStreak: habit.currentStreak,
+        weeklyCompletedBefore: previousWeeklyCompleted,
+        weeklyCompletedAfter: nextWeeklyCompleted,
+        source: options.source || 'manual'
+      });
+    }
   };
 
   const toggleDayCompletion = async (habit: Habit, date: string) => {
-    toggleHabitCompletion(habit, date);
+    toggleHabitCompletion(habit, date, { source: 'calendar' });
     await debouncedSaveHabits(habits.value);
     triggerHabitsRef();
 
@@ -121,7 +165,8 @@ export const useHabitCheckin = ({
   const buildToggleHabit = ({
     activePomodoroHabit,
     startPomodoroTimer,
-    clearPomodoroForHabit
+    clearPomodoroForHabit,
+    startFocusTimerForHabit
   }: HabitPomodoroControls) => {
     return async (habitId: string) => {
       const habit = habits.value.find(h => h.id === habitId);
@@ -156,6 +201,16 @@ export const useHabitCheckin = ({
               habit.totalCompletions = calculateTotalMonthCompletions(habit);
             });
           }
+          return;
+        }
+
+        if (startFocusTimerForHabit) {
+          if (activePomodoroHabit.value) {
+            clearPomodoroForHabit(activePomodoroHabit.value, { clearActive: true });
+            await immediateSaveHabits(habits.value);
+          }
+
+          startFocusTimerForHabit(habit);
           return;
         }
 
@@ -208,6 +263,7 @@ export const useHabitCheckin = ({
             }
             delete lastCompletedDay.timestamp;
             delete animationOriginalStatus.value[habit.id];
+            triggerHabitsRef();
           }
 
           await immediateSaveHabits(habits.value);
@@ -224,7 +280,7 @@ export const useHabitCheckin = ({
       }
 
       const today = getToday();
-      toggleHabitCompletion(habit, today);
+      toggleHabitCompletion(habit, today, { source: 'manual' });
 
       const completedToday = habit.completedToday;
       if (completedToday && !habit.usePomodoro) {
@@ -253,4 +309,3 @@ export const useHabitCheckin = ({
     buildToggleHabit
   };
 };
-

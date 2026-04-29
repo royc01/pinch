@@ -1,9 +1,11 @@
 import { ref } from 'vue';
 import { createNumberOptions } from '@/composables/useHabitUtils';
+import type { HabitDifficulty } from '@/api';
 
 export interface NewHabitFormState {
   name: string;
   emoji: string;
+  difficulty: HabitDifficulty;
   frequency: 'daily' | 'weekly6' | 'weekly5' | 'weekly4' | 'weekly3' | 'weekly2' | 'weekly1';
   noteDocId: string;
   timesPerDay: string;
@@ -14,6 +16,7 @@ export interface NewHabitFormState {
 const createDefaultNewHabit = (): NewHabitFormState => ({
   name: '',
   emoji: '',
+  difficulty: 'medium',
   frequency: 'daily',
   noteDocId: '',
   timesPerDay: '1',
@@ -33,6 +36,11 @@ export const useHabitFormState = (t: (key: string) => string) => {
   ]);
 
   const timesPerDayOptions = ref(createNumberOptions(20, '次'));
+  const difficultyOptions = ref([
+    { value: 'easy', text: '简单' },
+    { value: 'medium', text: '普通' },
+    { value: 'hard', text: '困难' }
+  ]);
 
   const pomodoroDurationOptions = ref([
     { value: '5', text: '5分钟' },
@@ -46,6 +54,7 @@ export const useHabitFormState = (t: (key: string) => string) => {
 
   return {
     newHabit,
+    difficultyOptions,
     frequencyOptions,
     timesPerDayOptions,
     pomodoroDurationOptions

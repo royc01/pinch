@@ -4,10 +4,30 @@
     <div class="habit-list-container">
       <div class="Pinch-habit-header">
         <div class="header-content">
-          <div class="date-display">{{ currentDateString.split('/')[0] }}<span>.</span>{{ currentDateString.split('/')[1] }}<span>.</span>{{ currentDateString.split('/')[2] }}</div>
+          <div class="date-display">
+            <span class="reward-summary-level">Lv {{ rewardSnapshot.level }}</span>
+            <div class="reward-summary-progress">
+              <div
+                class="reward-summary-progress-bar"
+                :title="rewardLevelProgressText"
+                :aria-label="rewardLevelProgressText"
+              >
+                <span class="reward-summary-progress-fill" :style="rewardLevelProgressStyle"></span>
+              </div>
+            </div>
+          </div>
           <div class="header-buttons">
-            <SyButton @click="showFocusTimer = true" id="focus-timer-btn" class="focus-timer-btn" title="专注倒计时">
+            <SyButton @click="openFocusTimer" id="focus-timer-btn" class="focus-timer-btn" title="专注计时">
               <Icon name="timer" width="24" height="24" class="icon" />
+            </SyButton>
+            <SyButton
+              @click="openPersonalStatsView"
+              id="task-stats-btn"
+              class="task-stats-btn"
+              title="统计视图"
+              aria-label="打开统计视图"
+            >
+              <Icon name="stats" width="24" height="24" class="icon" />
             </SyButton>
             <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn" title="情绪日历">
               <Icon name="smile" width="24" height="24" class="icon" />
@@ -23,6 +43,51 @@
         :open-mood-tracker="openMoodTracker"
         :get-small-mood-svg="getSmallMoodSvg"
       />
+
+      <div class="summary-card-grid">
+        <div class="reward-summary-card" @click="openRewardPage()">
+          <div class="reward-summary-main">
+            <div class="reward-summary-stats">
+              <div class="reward-summary-stat">
+                <div class="reward-summary-stat-value">{{ rewardSnapshot.availableCoins }}</div>
+                <div class="reward-summary-stat-label">趣币</div>
+              </div>
+            </div>
+            <div v-if="latestRewardEntry" class="reward-summary-latest">
+              <span class="reward-summary-latest-title">{{ latestRewardEntry.title }}</span>
+              <span class="reward-summary-latest-points">
+                +{{ latestRewardEntry.xp }} 碎片<span v-if="latestRewardEntry.coins > 0"> · +{{ latestRewardEntry.coins }} 趣币</span>
+              </span>
+            </div>
+            <div v-else class="reward-summary-empty">
+              完成习惯、任务或专注后会在这里累计奖励
+            </div>
+          </div>
+        </div>
+
+        <div class="goal-summary-card" @click="openGoalPage()">
+          <div class="goal-summary-main">
+            <div class="goal-summary-head">
+              <div class="goal-summary-level">
+                <div class="goal-summary-level-value">{{ goalSummaryValueText }}</div>
+                <div class="goal-summary-level-label">完成</div>
+              </div>
+            </div>
+            <div v-if="featuredGoal" class="goal-summary-latest">
+              <span class="goal-summary-latest-title">{{ featuredGoal.name }}</span>
+              <div class="goal-summary-latest-points" :title="featuredGoalText">
+                <span class="goal-summary-latest-points-bar">
+                  <span :style="{ width: `${featuredGoalProgressPercent}%` }"></span>
+                </span>
+                <span class="goal-summary-latest-points-text">{{ featuredGoalProgressText }}</span>
+              </div>
+            </div>
+            <div v-else class="goal-summary-empty">
+              创建目标后会在这里汇总进度
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div class="habit-list">
         <!-- 习惯打卡标题 -->
@@ -43,7 +108,7 @@
             >
               <Icon name="taskScope" width="24" height="24" class="icon" />
             </SyButton>
-            <SyButton @click="showTotalStatsPage = true" id="stats-btn" class="stats-btn">
+            <SyButton @click="openTotalStatsPage" id="stats-btn" class="stats-btn">
               <Icon name="stats" width="24" height="24" class="icon" />
             </SyButton>
             <SyButton @click="showAddHabitModal = true" id="add-habit-btn" class="add-habit-btn">
@@ -65,12 +130,13 @@
           :get-calendar-view-data="getCalendarViewData"
           :pomodoro-state-class="pomodoroStateClass"
           :format-pomodoro-time="formatPomodoroTime"
-          @show-stats="showHabitStats"
-          @doc-button="handleHabitDocButton"
-          @open-bind-doc="openBindDocModal"
-          @toggle-habit="toggleHabit"
-          @pomodoro-pause="togglePomodoroPause"
-          @pomodoro-resume="togglePomodoroResume"
+            @show-stats="showHabitStats"
+            @doc-button="handleHabitDocButton"
+            @open-bind-doc="openBindDocModal"
+            @start-focus="openFocusTimerForHabit"
+            @toggle-habit="toggleHabit"
+            @pomodoro-pause="togglePomodoroPause"
+            @pomodoro-resume="togglePomodoroResume"
           @pomodoro-stop="stopCurrentPomodoro"
         />
       </div>
@@ -104,12 +170,13 @@
           :pomodoro-state-class="pomodoroStateClass"
           :format-pomodoro-time="formatPomodoroTime"
           manage-mode
-          @show-stats="showHabitStats"
-          @doc-button="handleHabitDocButton"
-          @open-bind-doc="openBindDocModal"
-          @toggle-pause="togglePauseHabit"
-          @pomodoro-pause="togglePomodoroPause"
-          @pomodoro-resume="togglePomodoroResume"
+            @show-stats="showHabitStats"
+            @doc-button="handleHabitDocButton"
+            @open-bind-doc="openBindDocModal"
+            @start-focus="openFocusTimerForHabit"
+            @toggle-pause="togglePauseHabit"
+            @pomodoro-pause="togglePomodoroPause"
+            @pomodoro-resume="togglePomodoroResume"
           @pomodoro-stop="stopCurrentPomodoro"
         />
       </div>
@@ -155,7 +222,20 @@
       :calculate-longest-streak="calculateLongestStreak"
       :calculate-total-completion-rate="calculateTotalCompletionRate"
       :calculate-common-time-slot="calculateCommonTimeSlot"
-      @close="showTotalStatsPage = false"
+      @close="closeTotalStatsPage"
+    />
+
+    <RewardPanel
+      :show="showRewardPage"
+      :reward-snapshot="rewardSnapshot"
+      :highlight-entry-id="highlightedRewardEntryId"
+      @close="closeRewardPage"
+    />
+
+    <GoalPanel
+      :show="showGoalPage"
+      :highlight-goal-id="highlightedGoalId"
+      @close="closeGoalPage"
     />
     
     <!-- 编辑习惯模态框 -->
@@ -163,6 +243,7 @@
       :show="showEditHabitModal"
       mode="edit"
       :habit="editedHabit"
+      :difficulty-options="difficultyOptions"
       :frequency-options="frequencyOptions"
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
@@ -176,6 +257,7 @@
       :show="showAddHabitModal"
       mode="add"
       :habit="newHabit"
+      :difficulty-options="difficultyOptions"
       :frequency-options="frequencyOptions"
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
@@ -217,20 +299,14 @@
       @change-month="changeMoodCalendarMonth"
     />
     
-    <!-- 专注倒计时 -->
-    <FocusTimer
-      :show="showFocusTimer"
-      :mini-enabled="floatingFocusEnabled"
-      @update:miniEnabled="floatingFocusEnabled = $event"
-      @close="showFocusTimer = false"
+    <FocusTimerHost
+      ref="focusTimerHostRef"
+      @complete-linked-habit="completeFocusLinkedHabit"
     />
-
-    <!-- 悬浮专注胶囊 -->
-    <FloatingFocusCapsule :enabled="floatingFocusEnabled" />
     
     <!-- 任务管理器容器 -->
     <div class="stand-container">
-      <TaskManager />
+      <TaskManager @start-focus="openFocusTimerForTask" />
     </div>
   </div>
 </template>
@@ -240,25 +316,35 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
   width: 100%;
 }
 
 .date-display {
-  font-weight: bold;
-  font-size: 18px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-left: 5px;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
 }
 
-.date-display span {
-  color: var(--b3-theme-on-background);
+.date-display .reward-summary-progress {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .header-buttons {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  flex: 0 0 auto;
+  margin-left: auto;
+  gap: 4px;
 }
 
 </style>
@@ -271,14 +357,16 @@ import WeekDates from '@/components/WeekDates.vue';
 import HabitModal from '@/components/HabitModal.vue';
 import MoodTrackerModal from '@/components/MoodTrackerModal.vue';
 import StatisticsPanel from '@/components/StatisticsPanel.vue';
+import RewardPanel from '@/components/RewardPanel.vue';
+import GoalPanel from '@/components/GoalPanel.vue';
 import HabitStatsPanel from '@/components/HabitStatsPanel.vue';
 import HabitCardList from '@/components/HabitCardList.vue';
 import MoodCalendarPanel from '@/components/MoodCalendarPanel.vue';
-import FocusTimer from '@/components/FocusTimer.vue';
-import FloatingFocusCapsule from '@/components/FloatingFocusCapsule.vue';
+import FocusTimerHost from '@/components/FocusTimerHost.vue';
 import TaskManager from '@/components/TaskManager.vue';
 import HabitDocBindDialog from '@/components/HabitDocBindDialog.vue';
-import { getHabits, saveHabits, Habit } from '@/api';
+import { getHabits, saveHabits, Habit, type Task } from '@/api';
+import { openTaskViewByRequest } from '@/main';
 import { useHabitCache } from '@/composables/useHabitCache';
 import { useHabitCheckin } from '@/composables/useHabitCheckin';
 import { useHabitCrud } from '@/composables/useHabitCrud';
@@ -291,6 +379,19 @@ import { useHabitEmojis } from '@/composables/useHabitEmojis';
 import { useHabitPomodoro } from '@/composables/useHabitPomodoro';
 import { useHabitStatistics } from '@/composables/useHabitStatistics';
 import { useMoodTracker } from '@/composables/useMoodTracker';
+import { useGoals } from '@/composables/useGoals';
+import { useRewards } from '@/composables/useRewards';
+import {
+  eventBus,
+  Events,
+  type FocusTimerPanelOpenRequest,
+  type HabitTrackerPanelOpenRequest
+} from '@/utils/eventBus';
+import {
+  createHabitFocusTarget,
+  createTaskFocusTarget,
+  type FocusTimerLinkedTarget
+} from '@/utils/focusTimerTarget';
 import {
   formatTimelineDate,
   getCreatedDateText,
@@ -322,6 +423,19 @@ const {
 } = useHabitEmojis();
 
 const { t } = useHabitI18n();
+const { rewardSnapshot } = useRewards();
+const { goalItems } = useGoals();
+const rewardLevelProgressStyle = computed(() => {
+  const progress = Math.max(0, Math.min(100, Number(rewardSnapshot.value.levelProgressPercent) || 0));
+  return {
+    width: `${progress}%`,
+    minWidth: progress > 0 ? '8px' : '0'
+  };
+});
+
+const rewardLevelProgressText = computed(
+  () => `${rewardSnapshot.value.currentLevelXp}/${rewardSnapshot.value.nextLevelXp} 碎片`
+);
 
 // 防抖的保存函数 - 优化性能，减少频繁的存储操作
 let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -348,12 +462,27 @@ const immediateSaveHabits = async (habitsToSave: Habit[]) => {
 
 // 习惯数据
 const habits = shallowRef<Habit[]>([]);
+
+function emitHabitsUpdated(nextHabits: Habit[] = habits.value): void {
+  eventBus.emit(Events.HABITS_UPDATED, {
+    habits: Array.isArray(nextHabits) ? [...nextHabits] : []
+  });
+}
+
 const showAddHabitModal = ref(false);
 const showTotalStatsPage = ref(false);
+const showRewardPage = ref(false);
+const showGoalPage = ref(false);
 const showHabitManagerPage = ref(false);
-const showFocusTimer = ref(false);
-const floatingFocusEnabled = ref(false);
-const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
+const highlightedRewardEntryId = ref('');
+const highlightedGoalId = ref('');
+const focusTimerHostRef = ref<{
+  open: (target?: FocusTimerLinkedTarget | null, options?: { showPanel?: boolean }) => void;
+  syncTarget: (
+    target?: FocusTimerLinkedTarget | null,
+    options?: { openMiniSettings?: boolean }
+  ) => void;
+} | null>(null);
 const {
   moodData,
   showMoodCalendar,
@@ -445,7 +574,8 @@ const {
 const toggleHabit = buildToggleHabit({
   activePomodoroHabit,
   startPomodoroTimer,
-  clearPomodoroForHabit
+  clearPomodoroForHabit,
+  startFocusTimerForHabit: openFocusTimerForHabit
 });
 const {
   showBindDocModal,
@@ -463,11 +593,37 @@ const toggleHabitListCollapsed = () => {
   isHabitListCollapsed.value = !isHabitListCollapsed.value;
 };
 
+function openFocusTimer(): void {
+  focusTimerHostRef.value?.open(null);
+}
+
+function openFocusTimerForHabit(habit: Habit): void {
+  focusTimerHostRef.value?.open(createHabitFocusTarget(habit));
+}
+
+function openFocusTimerForTask(task: Task): void {
+  focusTimerHostRef.value?.open(createTaskFocusTarget(task));
+}
+
+function openPersonalStatsView(): void {
+  void openTaskViewByRequest({ view: 'stats' });
+}
+
+async function completeFocusLinkedHabit(habitId: string): Promise<void> {
+  const habit = habits.value.find(item => item.id === habitId);
+  if (!habit || habit.isPaused || habit.completedToday) {
+    return;
+  }
+
+  playBubbleSound();
+  toggleHabitCompletion(habit, getToday(), { source: 'pomodoro' });
+  await immediateSaveHabits(habits.value);
+}
+
 
 const {
   weekDates,
   weekdaysForCalendar,
-  currentDateString,
   getCalendarViewData,
   generateMonthViewData,
   getStatsMonthViewData,
@@ -487,19 +643,63 @@ const { sortedHabits } = useHabitSorting({
   animationOriginalStatus
 });
 const visibleHabits = computed(() => sortedHabits.value.filter(habit => !habit.isPaused));
+let unsubscribePanelOpenRequest: (() => void) | null = null;
+let unsubscribeFocusTimerOpenRequest: (() => void) | null = null;
 
-const { newHabit, frequencyOptions, timesPerDayOptions, pomodoroDurationOptions } = useHabitFormState(t);
+watch(habits, (nextHabits) => {
+  emitHabitsUpdated(nextHabits);
+});
+
+const { newHabit, difficultyOptions, frequencyOptions, timesPerDayOptions, pomodoroDurationOptions } = useHabitFormState(t);
+
+function handlePanelOpenRequest(payload?: HabitTrackerPanelOpenRequest): void {
+  if (!payload) {
+    return;
+  }
+
+  if (payload.target === 'habit-total') {
+    openTotalStatsPage();
+    return;
+  }
+
+  if (payload.target === 'habit-detail') {
+    const targetHabit = habits.value.find(habit => habit.id === payload.habitId);
+    if (targetHabit) {
+      showHabitStats(targetHabit);
+      return;
+    }
+    openTotalStatsPage();
+    return;
+  }
+
+  if (payload.target === 'reward') {
+    openRewardPage(payload.rewardEntryId || '');
+    return;
+  }
+
+  openGoalPage(payload.goalId || '');
+}
+
+function handleFocusTimerOpenRequest(payload?: FocusTimerPanelOpenRequest): void {
+  if (payload?.showPanel === false) {
+    focusTimerHostRef.value?.syncTarget(payload?.target ?? null, {
+      openMiniSettings: payload?.openMiniSettings === true
+    });
+    return;
+  }
+  focusTimerHostRef.value?.open(payload?.target ?? null);
+}
 
 // 初始化数据
 onMounted(async () => {
-  try {
-    const savedState = localStorage.getItem(FLOATING_FOCUS_STORAGE_KEY);
-    if (savedState !== null) {
-      floatingFocusEnabled.value = savedState === 'true';
-    }
-  } catch {
-    // ignore storage errors
-  }
+  unsubscribePanelOpenRequest = eventBus.on(
+    Events.HABIT_TRACKER_PANEL_OPEN_REQUEST,
+    handlePanelOpenRequest
+  );
+  unsubscribeFocusTimerOpenRequest = eventBus.on(
+    Events.FOCUS_TIMER_PANEL_OPEN_REQUEST,
+    handleFocusTimerOpenRequest
+  );
 
   try {
     const loadedHabits = await getHabits();
@@ -534,16 +734,13 @@ onMounted(async () => {
   }
 });
 
-watch(floatingFocusEnabled, (value) => {
-  try {
-    localStorage.setItem(FLOATING_FOCUS_STORAGE_KEY, String(value));
-  } catch {
-    // ignore storage errors
-  }
-});
-
 // 组件卸载时清理定时器
 onUnmounted(() => {
+  unsubscribePanelOpenRequest?.();
+  unsubscribePanelOpenRequest = null;
+  unsubscribeFocusTimerOpenRequest?.();
+  unsubscribeFocusTimerOpenRequest = null;
+
   // 清理主定时器
   if ((window as any).habitTrackerTimer) {
     clearInterval((window as any).habitTrackerTimer);
@@ -598,9 +795,97 @@ const selectedHabit = ref<Habit | null>(null);
 const selectedHabitLongestStreak = computed(() =>
   selectedHabit.value ? calculateLongestStreak(selectedHabit.value) : { streak: 0, startDate: null, endDate: null }
 );
+const latestRewardEntry = computed(() => rewardSnapshot.value.recentEntries[0] || null);
+const completedGoalCount = computed(() => goalItems.value.filter(goal => goal.status === 'completed').length);
+const goalSummaryValueText = computed(() => `${completedGoalCount.value}/${goalItems.value.length}`);
+const featuredGoal = computed(() =>
+  goalItems.value.find(goal => goal.documentCount > 0 && goal.status === 'in-progress')
+  || goalItems.value.find(goal => goal.documentCount > 0 && goal.status === 'completed')
+  || goalItems.value.find(goal => goal.documentCount > 0)
+  || goalItems.value[0]
+  || null
+);
+const featuredGoalText = computed(() => {
+  if (!featuredGoal.value) {
+    return '';
+  }
+  if (featuredGoal.value.documentCount === 0) {
+    return '还没有选择文档';
+  }
+  if (featuredGoal.value.totalTasks === 0) {
+    return '当前暂无可统计任务';
+  }
+  return `${featuredGoal.value.progressPercent}% · ${featuredGoal.value.completedTasks}/${featuredGoal.value.totalTasks}`;
+});
+const featuredGoalProgressPercent = computed(() => {
+  if (!featuredGoal.value || featuredGoal.value.documentCount === 0 || featuredGoal.value.totalTasks <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Number(featuredGoal.value.progressPercent) || 0));
+});
+const featuredGoalProgressText = computed(() => {
+  if (!featuredGoal.value) {
+    return '';
+  }
+  if (featuredGoal.value.documentCount === 0) {
+    return '未选文档';
+  }
+  if (featuredGoal.value.totalTasks === 0) {
+    return '暂无任务';
+  }
+  return `${featuredGoal.value.completedTasks}/${featuredGoal.value.totalTasks}`;
+});
+
+function closeTrackerPanels(): void {
+  showTotalStatsPage.value = false;
+  showRewardPage.value = false;
+  showGoalPage.value = false;
+  showHabitManagerPage.value = false;
+  selectedHabit.value = null;
+}
+
+function closeTotalStatsPage(): void {
+  showTotalStatsPage.value = false;
+}
+
+function closeRewardPage(): void {
+  showRewardPage.value = false;
+  highlightedRewardEntryId.value = '';
+}
+
+function closeGoalPage(): void {
+  showGoalPage.value = false;
+  highlightedGoalId.value = '';
+}
+
+function openTotalStatsPage(): void {
+  closeTrackerPanels();
+  highlightedRewardEntryId.value = '';
+  highlightedGoalId.value = '';
+  showRewardPage.value = false;
+  showGoalPage.value = false;
+  showTotalStatsPage.value = true;
+}
+
+function openRewardPage(entryId: string = ''): void {
+  closeTrackerPanels();
+  highlightedGoalId.value = '';
+  highlightedRewardEntryId.value = entryId;
+  showRewardPage.value = true;
+}
+
+function openGoalPage(goalId: string = ''): void {
+  closeTrackerPanels();
+  highlightedRewardEntryId.value = '';
+  highlightedGoalId.value = goalId;
+  showGoalPage.value = true;
+}
 
 // 显示习惯统计页面
 const showHabitStats = (habit: Habit) => {
+  closeTrackerPanels();
+  highlightedRewardEntryId.value = '';
+  highlightedGoalId.value = '';
   selectedHabit.value = habit;
 };
 
@@ -654,7 +939,7 @@ const closeHabitStats = () => {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 10px;
     
     h2 {
       margin: 0;
@@ -672,6 +957,7 @@ const closeHabitStats = () => {
       #add-habit-btn,
       #stats-btn,
       #habit-manage-btn,
+      #task-stats-btn,
       #mood-calendar-btn,
       #focus-timer-btn {
       background: none;
@@ -695,7 +981,8 @@ const closeHabitStats = () => {
     }
 
     #mood-calendar-btn,
-    #focus-timer-btn {
+    #focus-timer-btn,
+    #task-stats-btn {
       width: 24px;
       height: 24px;
 
@@ -705,6 +992,248 @@ const closeHabitStats = () => {
         height: 24px;
       }
     }
+  .summary-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin: 14px 0 4px;
+  }
+
+  .reward-summary-card,
+  .goal-summary-card {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    min-width: 0;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .reward-summary-card {
+    position: relative;
+    background:  var(--pinch-background10);
+    border: 0.5px solid var(--pinch-color10);
+    box-shadow: #0000000f 0 1px 5px;
+
+    &:hover {
+      transform: translateY(-1px);
+    }
+  }
+
+  .goal-summary-card {
+    position: relative;
+    background: var(--pinch-background6);
+    border: 0.5px solid var(--pinch-color6);
+    box-shadow: #0000000f 0 1px 5px;
+
+    &:hover {
+      transform: translateY(-1px);
+    }
+  }
+
+  .reward-summary-main {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .reward-summary-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .reward-summary-level {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--b3-theme-on-background);
+    background:  var(--b3-theme-background);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .reward-summary-progress {
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .reward-summary-progress-bar {
+    position: relative;
+    flex: 1 1 72px;
+    height: 8px;
+    min-width: 0;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--b3-list-hover);
+  }
+
+  .reward-summary-progress-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    display: block;
+    border-radius: inherit;
+    background: #f98f7a;
+  }
+
+  .header-buttons #mood-calendar-btn,
+  .header-buttons #focus-timer-btn,
+  .header-buttons #task-stats-btn {
+    margin-right: 0;
+  }
+
+  .reward-summary-latest,
+  .reward-summary-empty {
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--b3-theme-on-background);
+  }
+
+  .reward-summary-latest {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .reward-summary-latest-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+  }
+
+  .reward-summary-latest-points {
+    color: var(--pinch-font-color10);
+    opacity: 0.7;
+  }
+
+  .reward-summary-stats {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .reward-summary-stat {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .reward-summary-stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--b3-theme-on-background);
+  }
+
+  .reward-summary-stat-label {
+    margin-top: 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--b3-theme-on-background);
+    white-space: nowrap;
+  }
+
+  .goal-summary-main {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .goal-summary-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .goal-summary-level {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .goal-summary-level-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--b3-theme-on-background);
+  }
+
+  .goal-summary-level-label {
+    margin-top: 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--b3-theme-on-background);
+    white-space: nowrap;
+  }
+
+  .goal-summary-latest,
+  .goal-summary-empty {
+    font-size: 10px;
+    line-height: 1.5;
+    color: var(--b3-theme-on-background);
+  }
+
+  .goal-summary-latest {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .goal-summary-latest-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+  }
+
+  .goal-summary-latest-points {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    color: var(--b3-theme-on-background);
+  }
+
+  .goal-summary-latest-points-bar {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 6px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--b3-list-hover);
+
+    span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--pinch-color6);
+    }
+  }
+
+  .goal-summary-latest-points-text {
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--pinch-font-color6);
+    opacity: 0.7;
+  }
+
   .habit-manager-header {
     display: flex;
     justify-content: space-between;
@@ -1164,6 +1693,44 @@ const closeHabitStats = () => {
         color: var(--b3-font-color3);
         font-style: italic;
       }
+    }
+  }
+}
+
+@media (max-width: 720px) {
+  .Pinch-habit-container {
+    .header-content {
+      gap: 8px;
+    }
+
+    .date-display {
+      gap: 8px;
+    }
+
+    .header-buttons {
+      gap: 2px;
+    }
+
+    .date-display .reward-summary-progress {
+      gap: 6px;
+    }
+
+    .reward-summary-level {
+      padding: 4px 8px;
+      font-size: 11px;
+    }
+
+    .reward-summary-progress-bar {
+      min-width: 0;
+    }
+
+    .summary-card-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .reward-summary-card,
+    .goal-summary-card {
+      grid-template-columns: 1fr;
     }
   }
 }

@@ -76,6 +76,13 @@ export interface RepeatTaskLike {
   isVirtual?: boolean;
 }
 
+export interface RepeatMaterializeOptions {
+  pastDays?: number;
+  futureDays?: number;
+  startDate?: string;
+  endDate?: string;
+}
+
 let repeatSeriesCache: { value: RepeatSeries[]; timestamp: number } | null = null;
 let repeatRecordsCache: { value: RepeatRecord[]; timestamp: number } | null = null;
 
@@ -181,7 +188,18 @@ function buildRepeatRecordMap(records: RepeatRecord[]): Map<string, RepeatRecord
   return new Map(records.map((record) => [record.key, record]));
 }
 
-function getMaterializeRange(options: { pastDays?: number; futureDays?: number } = {}): { start: Date; end: Date } {
+function getMaterializeRange(options: RepeatMaterializeOptions = {}): { start: Date; end: Date } {
+  const explicitStart = parseDate(options.startDate);
+  const explicitEnd = parseDate(options.endDate);
+  if (explicitStart || explicitEnd) {
+    const start = explicitStart ? new Date(explicitStart) : new Date(explicitEnd!);
+    const end = explicitEnd ? new Date(explicitEnd) : new Date(explicitStart!);
+    if (start.getTime() <= end.getTime()) {
+      return { start, end };
+    }
+    return { start: end, end: start };
+  }
+
   const today = parseDate(nowDateString())!;
   const start = new Date(today);
   start.setDate(start.getDate() - (options.pastDays ?? DEFAULT_PAST_WINDOW_DAYS));
@@ -826,7 +844,7 @@ export async function setRepeatInstanceStatus(seriesId: string, date: string, st
 
 export async function materializeRepeatTasks<T extends RepeatTaskLike>(
   baseTasks: T[],
-  options: { pastDays?: number; futureDays?: number } = {}
+  options: RepeatMaterializeOptions = {}
 ): Promise<T[]> {
   if (!Array.isArray(baseTasks) || baseTasks.length === 0) {
     return baseTasks;
@@ -868,7 +886,7 @@ export async function rebuildAffectedRepeatTasks<T extends RepeatTaskLike>(
     seriesId?: string;
     frequency?: string;
   },
-  options: { pastDays?: number; futureDays?: number } = {}
+  options: RepeatMaterializeOptions = {}
 ): Promise<{ nextTasks: T[]; touched: boolean; handled: boolean }> {
   const { seriesId, frequency } = payload;
   if (!Array.isArray(taskList)) {

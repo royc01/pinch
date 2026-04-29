@@ -20,7 +20,8 @@
               'is-drag-over': isGroupCardDragOver(group),
               'is-drag-over-before': isGroupCardDragOverBefore(group),
               'is-drag-over-after': isGroupCardDragOverAfter(group),
-              'is-hidden': group.hidden === true
+              'is-hidden': group.hidden === true && !isNoneOption(group),
+              'is-special': isNoneOption(group)
             }"
             @dragover.prevent="handleGroupCardDragOver($event, group)"
             @dragleave="handleGroupCardDragLeave($event, group)"
@@ -39,13 +40,19 @@
                 >
                   <Icon name="dragHandle" width="16" height="16" />
                 </button>
+                <div v-if="isNoneOption(group)" class="task-group-special-field">
+                  <span class="task-group-name-static">无标签</span>
+                  <span class="task-group-special-badge">仅排序</span>
+                </div>
                 <SyInput
+                  v-if="!isNoneOption(group)"
                   v-model="group.name"
                   class="task-group-name"
                   :style="getGroupInputStyle(group)"
                   placeholder="标签名称"
                 />
                 <Icon
+                  v-if="!isNoneOption(group)"
                   name="palette"
                   class="task-group-color-button"
                   width="18"
@@ -59,6 +66,7 @@
                   @keydown.space.prevent="openColorPicker(index)"
                 />
                 <button
+                  v-if="!isNoneOption(group)"
                   type="button"
                   class="task-group-visibility"
                   :class="{ active: group.hidden === true }"
@@ -69,6 +77,7 @@
                   <Icon :name="group.hidden ? 'eyeOff' : 'eye'" width="16" height="16" />
                 </button>
                 <button
+                  v-if="!isNoneOption(group)"
                   type="button"
                   class="task-group-delete"
                   aria-label="Delete tag"
@@ -142,13 +151,20 @@ interface Props {
   show: boolean;
   groups: TaskGroup[];
   autoAdd?: boolean;
+  includeNoneOption?: boolean;
+  orderIds?: string[];
 }
 
 const props = defineProps<Props>();
 
+interface TaskGroupDialogSavePayload {
+  groups: TaskGroup[];
+  orderIds: string[];
+}
+
 const emit = defineEmits<{
   close: [];
-  save: [groups: TaskGroup[]];
+  save: [payload: TaskGroupDialogSavePayload];
 }>();
 
 const groupColorOptions = [
@@ -163,7 +179,13 @@ const groupColorOptions = [
   { value: 'pinch-background9', css: 'var(--pinch-background9)' },
   { value: 'pinch-background10', css: 'var(--pinch-background10)' }
 ];
-const localGroups = ref<TaskGroup[]>([]);
+const TASK_GROUP_NONE_ID = '__none__';
+
+type TaskGroupDialogItem = TaskGroup & {
+  special?: 'none';
+};
+
+const localGroups = ref<TaskGroupDialogItem[]>([]);
 const colorPickerIndex = ref<number | null>(null);
 const draggedGroupId = ref<string | null>(null);
 const dragOverGroupId = ref<string | null>(null);
@@ -173,7 +195,65 @@ function generateGroupId(): string {
   return `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function normalizeGroup(group: TaskGroup, index: number, now: string): TaskGroup | null {
+function isNoneOption(group: TaskGroupDialogItem): boolean {
+  return group.special === 'none' || resolveGroupId(group) === TASK_GROUP_NONE_ID;
+}
+
+function normalizeOrderIds(input: unknown): string[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  input.forEach((item) => {
+    if (typeof item !== 'string') {
+      return;
+    }
+    const value = item.trim();
+    if (!value || seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+    normalized.push(value);
+  });
+  return normalized;
+}
+
+function buildNoneOptionItem(): TaskGroupDialogItem {
+  return {
+    id: TASK_GROUP_NONE_ID,
+    name: '无标签',
+    color: '',
+    hidden: false,
+    order: -1,
+    special: 'none'
+  };
+}
+
+function resolveDialogOrderIds(groups: TaskGroupDialogItem[], orderIds: string[], includeNoneOption: boolean): string[] {
+  const groupIds = groups
+    .map(group => resolveGroupId(group))
+    .filter(id => id.length > 0 && id !== TASK_GROUP_NONE_ID);
+
+  if (!includeNoneOption) {
+    return groupIds;
+  }
+
+  const normalizedOrderIds = normalizeOrderIds(orderIds);
+  const groupIdSet = new Set(groupIds);
+  const noneIndex = normalizedOrderIds.indexOf(TASK_GROUP_NONE_ID);
+  const noneSlot = noneIndex >= 0
+    ? normalizedOrderIds
+      .slice(0, noneIndex)
+      .filter(id => groupIdSet.has(id))
+      .length
+    : 0;
+  const resolved = [...groupIds];
+  resolved.splice(Math.max(0, Math.min(noneSlot, resolved.length)), 0, TASK_GROUP_NONE_ID);
+  return resolved;
+}
+
+function normalizeGroup(group: TaskGroupDialogItem, index: number, now: string): TaskGroup | null {
   const name = (group.name || '').trim();
   if (!name) return null;
 
@@ -197,7 +277,7 @@ function normalizeGroup(group: TaskGroup, index: number, now: string): TaskGroup
   };
 }
 
-function resolveGroupId(group: TaskGroup): string {
+function resolveGroupId(group: TaskGroupDialogItem): string {
   return typeof group.id === 'string' ? group.id.trim() : '';
 }
 
@@ -208,7 +288,22 @@ function clearGroupDragState(): void {
 }
 
 function syncLocalGroups(): void {
-  localGroups.value = (props.groups || []).map(group => ({ ...group }));
+  const nextGroups = (props.groups || []).map(group => ({ ...group })) as TaskGroupDialogItem[];
+  if (props.includeNoneOption !== true) {
+    localGroups.value = nextGroups;
+    clearGroupDragState();
+    return;
+  }
+
+  const itemsById = new Map(nextGroups.map(group => [resolveGroupId(group), group]));
+  localGroups.value = resolveDialogOrderIds(nextGroups, props.orderIds || [], true)
+    .map((id) => {
+      if (id === TASK_GROUP_NONE_ID) {
+        return buildNoneOptionItem();
+      }
+      return itemsById.get(id) || null;
+    })
+    .filter((group): group is TaskGroupDialogItem => !!group);
   clearGroupDragState();
 }
 
@@ -240,21 +335,21 @@ function moveLocalGroupOrder(sourceId: string, targetId: string, position: 'befo
   localGroups.value = nextGroups;
 }
 
-function isGroupCardDragging(group: TaskGroup): boolean {
+function isGroupCardDragging(group: TaskGroupDialogItem): boolean {
   const groupId = resolveGroupId(group);
   return !!groupId && draggedGroupId.value === groupId;
 }
 
-function isGroupCardDragOver(group: TaskGroup): boolean {
+function isGroupCardDragOver(group: TaskGroupDialogItem): boolean {
   const groupId = resolveGroupId(group);
   return !!groupId && dragOverGroupId.value === groupId && draggedGroupId.value !== groupId;
 }
 
-function isGroupCardDragOverBefore(group: TaskGroup): boolean {
+function isGroupCardDragOverBefore(group: TaskGroupDialogItem): boolean {
   return isGroupCardDragOver(group) && dragOverGroupPosition.value === 'before';
 }
 
-function isGroupCardDragOverAfter(group: TaskGroup): boolean {
+function isGroupCardDragOverAfter(group: TaskGroupDialogItem): boolean {
   return isGroupCardDragOver(group) && dragOverGroupPosition.value === 'after';
 }
 
@@ -268,7 +363,7 @@ function resolveGroupCardDropPosition(event: DragEvent): 'before' | 'after' {
   return event.clientY < midpoint ? 'before' : 'after';
 }
 
-function handleGroupCardDragStart(event: DragEvent, group: TaskGroup): void {
+function handleGroupCardDragStart(event: DragEvent, group: TaskGroupDialogItem): void {
   const groupId = resolveGroupId(group);
   if (!groupId) {
     return;
@@ -283,7 +378,7 @@ function handleGroupCardDragStart(event: DragEvent, group: TaskGroup): void {
   }
 }
 
-function handleGroupCardDragOver(event: DragEvent, group: TaskGroup): void {
+function handleGroupCardDragOver(event: DragEvent, group: TaskGroupDialogItem): void {
   const sourceId = draggedGroupId.value;
   if (!sourceId) {
     return;
@@ -303,7 +398,7 @@ function handleGroupCardDragOver(event: DragEvent, group: TaskGroup): void {
   dragOverGroupPosition.value = resolveGroupCardDropPosition(event);
 }
 
-function handleGroupCardDragLeave(event: DragEvent, group: TaskGroup): void {
+function handleGroupCardDragLeave(event: DragEvent, group: TaskGroupDialogItem): void {
   const targetId = resolveGroupId(group);
   if (!targetId || dragOverGroupId.value !== targetId) {
     return;
@@ -321,7 +416,7 @@ function handleGroupCardDragLeave(event: DragEvent, group: TaskGroup): void {
   dragOverGroupPosition.value = null;
 }
 
-function handleGroupCardDrop(event: DragEvent, group: TaskGroup): void {
+function handleGroupCardDrop(event: DragEvent, group: TaskGroupDialogItem): void {
   event.preventDefault();
   const sourceId = draggedGroupId.value;
   const targetId = resolveGroupId(group);
@@ -356,6 +451,9 @@ function addGroup(): void {
 function removeGroup(index: number): void {
   if (!confirm('确认删除该标签？')) return;
   const removedGroup = localGroups.value[index];
+  if (!removedGroup || isNoneOption(removedGroup)) {
+    return;
+  }
   localGroups.value.splice(index, 1);
   const removedId = removedGroup ? resolveGroupId(removedGroup) : '';
   if (!removedId) {
@@ -368,7 +466,7 @@ function removeGroup(index: number): void {
 
 function toggleGroupHidden(index: number): void {
   const group = localGroups.value[index];
-  if (!group) {
+  if (!group || isNoneOption(group)) {
     return;
   }
   group.hidden = group.hidden !== true;
@@ -376,22 +474,22 @@ function toggleGroupHidden(index: number): void {
 
 function setGroupColor(index: number, value: string): void {
   const group = localGroups.value[index];
-  if (!group) return;
+  if (!group || isNoneOption(group)) return;
   group.color = value;
 }
 
 function clearGroupColor(index: number): void {
   const group = localGroups.value[index];
-  if (!group) return;
+  if (!group || isNoneOption(group)) return;
   group.color = '';
 }
 
-function getGroupSwatchStyle(group: TaskGroup): Record<string, string> {
+function getGroupSwatchStyle(group: TaskGroupDialogItem): Record<string, string> {
   void group;
   return { color: 'var(--b3-theme-on-surface)' };
 }
 
-function getGroupInputStyle(group: TaskGroup): Record<string, string> {
+function getGroupInputStyle(group: TaskGroupDialogItem): Record<string, string> {
   const rawColor = typeof group.color === 'string' ? group.color.trim() : '';
   if (!rawColor) return {};
   const background = resolveGroupColorCss(rawColor);
@@ -437,18 +535,28 @@ function save(): void {
   const now = new Date().toISOString();
   const seen = new Set<string>();
   const normalized: TaskGroup[] = [];
+  const orderIds: string[] = [];
+  let groupOrderIndex = 0;
 
-  localGroups.value.forEach((group, index) => {
-    const normalizedGroup = normalizeGroup(group, index, now);
+  localGroups.value.forEach((group) => {
+    const groupId = resolveGroupId(group);
+    if (groupId) {
+      orderIds.push(groupId);
+    }
+    if (isNoneOption(group)) {
+      return;
+    }
+    const normalizedGroup = normalizeGroup(group, groupOrderIndex, now);
     if (!normalizedGroup) return;
     if (seen.has(normalizedGroup.id)) {
       normalizedGroup.id = generateGroupId();
     }
     seen.add(normalizedGroup.id);
     normalized.push(normalizedGroup);
+    groupOrderIndex += 1;
   });
 
-  emit('save', normalized);
+  emit('save', { groups: normalized, orderIds });
 }
 
 watch(
@@ -629,6 +737,35 @@ watch(
   background: var(--group-input-bg, var(--b3-list-hover))!important;
   color: var(--group-input-color, var(--b3-theme-on-background));
   border-color: var(--group-input-border, var(--b3-border-color));
+}
+
+.task-group-special-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.task-group-name-static {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.task-group-special-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--b3-theme-primary) 14%, transparent);
+  color: var(--b3-theme-primary);
 }
 
 .task-group-name::placeholder {

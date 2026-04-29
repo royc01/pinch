@@ -12,7 +12,14 @@ import MobileTaskCreateDialog from './components/MobileTaskCreateDialog.vue'
 import KanbanView from './components/KanbanView.vue'
 import { startTaskReminderScheduler, stopTaskReminderScheduler } from '@/taskReminderScheduler';
 import { TaskRepository, sql } from '@/api';
-import { eventBus, Events } from '@/utils/eventBus';
+import {
+  eventBus,
+  Events,
+  type FocusTimerPanelOpenRequest,
+  type HabitTrackerPanelOpenRequest,
+  type TaskViewSwitchRequest
+} from '@/utils/eventBus';
+import { destroyDetachedFocusWindow } from '@/utils/detachedFocusWindow';
 
 // 确保数据目录存在
 import { ensureDataDir } from '@/utils';
@@ -24,8 +31,11 @@ let mobileTaskCreateDialog: Dialog | null = null;
 let mobileTaskCreateApp: any = null;
 let mobileSidebarPinchApp: any = null;
 let pinchDockModel: any = null;
+let unsubscribeMobileKanbanCloseRequest: (() => void) | null = null;
+let topBarViewButton: HTMLElement | null = null;
 const PINCH_DOCK_TYPE = 'Pinch-habit';
 const MOBILE_BREADCRUMB_LONG_PRESS_MS = 480;
+const TOP_BAR_VIEW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.7,10c-1.7-0.2-2.6,0.8-3.3,1.8c-1.4,2.4-3,2.5-4.3,2.5c-2.5,0-4.2-1.8-4.2-4.5c0-2.7,1.7-4.5,4.2-4.5c2.1,0,3.5,0.6,4.4,2.6c0.4,0.9,1.4,2.1,2.9,1.9c1.6-0.4,2.5-1.9,1.9-4C22.7,3.2,19.5,0,14.1,0C8.7,0,4.8,3.7,4.4,9v0.2c0,0.2,0,0.4,0,0.7c0,0.2,0,0.5,0,0.7v14.8c0,1.5,1.2,2.8,2.8,2.8s2.8-1.2,2.8-2.8v-6.5c1.2,0.5,2.7,0.9,4.2,0.9c5,0,8.6-3.2,9.3-6.5C23.7,12,23.4,10.3,21.7,10z" fill="currentColor"></path></svg>';
 export function usePlugin(pluginProps?: Plugin): Plugin | null {
   if (pluginProps) {
     plugin = pluginProps;
@@ -55,7 +65,10 @@ const PINCH_ICONS = [
 ] as const;
 
 function buildIconSymbol(id: string, viewBox: string, path: string) {
-  return `<symbol id="${id}" viewBox="${viewBox}"><path d="${path}" /></symbol>`;
+  const content = path.includes('<')
+    ? path
+    : `<path d="${path}" />`;
+  return `<symbol id="${id}" viewBox="${viewBox}">${content}</symbol>`;
 }
 
 function registerIcons(pluginInstance: Plugin) {
@@ -67,6 +80,17 @@ function registerIcons(pluginInstance: Plugin) {
   if (svg) {
     pluginInstance.addIcons(svg);
   }
+}
+
+function registerTopBarViewButton(pluginInstance: Plugin) {
+  topBarViewButton?.remove();
+  topBarViewButton = pluginInstance.addTopBar({
+    icon: TOP_BAR_VIEW_SVG,
+    title: '查看全部任务',
+    callback: () => {
+      void openKanbanView();
+    }
+  });
 }
 
 let mobileBreadcrumbObserver: MutationObserver | null = null;
@@ -86,6 +110,7 @@ function isMobileFrontend() {
 
 // SiYuan command hotkey prefers symbol format, which is adapted per platform.
 const OPEN_TASK_EDITOR_HOTKEY = '⌥Q';
+const OPEN_GLOBAL_TASK_CREATE_HOTKEY = '';
 type QuickTaskViewMode = 'kanban' | 'table' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table';
 const QUICK_TASK_VIEW_COMMANDS: Array<{ langKey: string; langText: string; view: QuickTaskViewMode }> = [
   { langKey: 'pinchOpenKanbanView', langText: '快速打开看板视图', view: 'kanban' },
@@ -383,8 +408,21 @@ function registerTaskEditorHotkeyCommand(pluginInstance: Plugin): void {
   });
 }
 
-function emitTaskViewSwitchRequest(view: QuickTaskViewMode): void {
-  const payload = { view };
+function registerGlobalTaskCreateCommand(pluginInstance: Plugin): void {
+  pluginInstance.addCommand({
+    langKey: 'pinchOpenGlobalTaskCreate',
+    langText: '打开全局新建任务弹窗',
+    hotkey: OPEN_GLOBAL_TASK_CREATE_HOTKEY,
+    editorCallback: () => {
+      void openGlobalTaskCreateDialog();
+    },
+    globalCallback: () => {
+      void openGlobalTaskCreateDialog();
+    }
+  });
+}
+
+function emitTaskViewSwitchRequest(payload: TaskViewSwitchRequest): void {
   eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
   window.setTimeout(() => {
     eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
@@ -394,9 +432,13 @@ function emitTaskViewSwitchRequest(view: QuickTaskViewMode): void {
   }, 480);
 }
 
-async function openTaskViewByMode(view: QuickTaskViewMode): Promise<void> {
+export async function openTaskViewByRequest(payload: TaskViewSwitchRequest): Promise<void> {
   await openKanbanView();
-  emitTaskViewSwitchRequest(view);
+  emitTaskViewSwitchRequest(payload);
+}
+
+async function openTaskViewByMode(view: QuickTaskViewMode): Promise<void> {
+  await openTaskViewByRequest({ view });
 }
 
 function registerTaskViewHotkeyCommands(pluginInstance: Plugin): void {
@@ -489,7 +531,7 @@ function createMobileBreadcrumbTaskButton() {
       handledLongPress = false;
       return;
     }
-    void openTaskCreateFromMobileBreadcrumb();
+    void openGlobalTaskCreateDialog();
   });
   return button;
 }
@@ -642,12 +684,18 @@ async function openTaskCreateFromMobileBreadcrumb() {
   }
 }
 
+async function openGlobalTaskCreateDialog() {
+  return openTaskCreateFromMobileBreadcrumb();
+}
+
 let app = null;
 export function init(pluginInstance: Plugin) {
   // bind plugin hook
   usePlugin(pluginInstance);
   registerIcons(pluginInstance);
+  registerTopBarViewButton(pluginInstance);
   registerTaskEditorHotkeyCommand(pluginInstance);
+  registerGlobalTaskCreateCommand(pluginInstance);
   registerTaskViewHotkeyCommands(pluginInstance);
   registerTaskBlockIconMenu(pluginInstance);
   startMobileBreadcrumbButtonObserver();
@@ -656,6 +704,14 @@ export function init(pluginInstance: Plugin) {
   // 确保数据目录存在
   ensureDataDir('/data/storage/petal/Pinch-habit');
   ensureDataDir('/data/storage/petal/stand');
+
+  unsubscribeMobileKanbanCloseRequest?.();
+  unsubscribeMobileKanbanCloseRequest = eventBus.on(
+    Events.MOBILE_KANBAN_DIALOG_CLOSE_REQUEST,
+    () => {
+      closeMobileKanbanDialog();
+    }
+  );
 
   // 注册自定义 Tab
   pluginInstance.addTab({
@@ -713,6 +769,11 @@ export function destroy() {
   stopTaskReminderScheduler();
   stopMobileBreadcrumbButtonObserver();
   unregisterTaskBlockIconMenu();
+  destroyDetachedFocusWindow();
+  topBarViewButton?.remove();
+  topBarViewButton = null;
+  unsubscribeMobileKanbanCloseRequest?.();
+  unsubscribeMobileKanbanCloseRequest = null;
   closeMobileTaskCreateDialog();
   cleanupMobileSidebarPinchView();
   if (app) {
@@ -904,7 +965,7 @@ function findPinchDockTrigger(): HTMLElement | null {
   return null;
 }
 
-function openPinchDockView(): boolean {
+export function openPinchDockView(): boolean {
   const model = pinchDockModel;
   if (model && (typeof model.showDock === 'function' || typeof model.toggleModel === 'function')) {
     try {
@@ -925,6 +986,20 @@ function openPinchDockView(): boolean {
 
   trigger.click();
   return true;
+}
+
+export function openHabitTrackerPanel(payload: HabitTrackerPanelOpenRequest): boolean {
+  const opened = openPinchDockView();
+  eventBus.emit(Events.HABIT_TRACKER_PANEL_OPEN_REQUEST, payload);
+  return opened;
+}
+
+export function openHabitTrackerFocusTimer(
+  target: FocusTimerPanelOpenRequest['target'] = null
+): boolean {
+  const opened = openPinchDockView();
+  eventBus.emit(Events.FOCUS_TIMER_PANEL_OPEN_REQUEST, { target });
+  return opened;
 }
 
 export async function openKanbanView() {

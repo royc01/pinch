@@ -2,7 +2,7 @@
   "name": "pinch",
   "author": "Roy",
   "url": "https://github.com/royc01/pinch",
-  "version": "2.2.4",
+  "version": "2.2.5",
   "minAppVersion": "3.6.4",
   "disabledInPublish": true,
   "backends": [

@@ -7,7 +7,7 @@ interface UseHabitPomodoroOptions {
   habits: ShallowRef<Habit[]>;
   getToday: () => string;
   saveHabits: (habitsToSave: Habit[]) => Promise<void>;
-  toggleHabitCompletion: (habit: Habit, date: string) => void;
+  toggleHabitCompletion: (habit: Habit, date: string, options?: { source?: 'manual' | 'calendar' | 'pomodoro' }) => void;
   playBubbleSound?: () => void;
 }
 
@@ -61,7 +61,7 @@ export const useHabitPomodoro = ({
   const completeHabitAfterPomodoro = async (habit: Habit) => {
     playBubbleSound?.();
     const today = getToday();
-    toggleHabitCompletion(habit, today);
+    toggleHabitCompletion(habit, today, { source: 'pomodoro' });
     clearPomodoroForHabit(habit);
     await saveHabits(habits.value);
   };

@@ -1,6 +1,6 @@
 <template>
-  <Teleport :to="teleportTarget">
-    <div v-if="enabled" class="floating-focus" :style="wrapperStyle">
+  <Teleport v-if="shouldRenderInlineCapsule" :to="teleportTarget">
+    <div class="floating-focus" :style="wrapperStyle">
       <div
         ref="capsuleRef"
         class="floating-focus__capsule"
@@ -22,11 +22,30 @@
           <Icon name="timer" width="16" height="16" class="icon" />
         </button>
         <button
+          v-if="linkedTarget && canOpenLinkedTarget"
+          type="button"
+          class="floating-focus__target"
+          data-no-drag
+          :title="linkedTargetLabel"
+          :aria-label="linkedTargetLabel"
+          @click.stop="emit('open-linked-target', linkedTarget)"
+        >
+          {{ linkedTargetLabel }}
+        </button>
+        <span
+          v-else-if="linkedTarget"
+          class="floating-focus__target-label"
+          :title="linkedTargetLabel"
+        >
+          {{ linkedTargetLabel }}
+        </span>
+        <button
           v-if="!isActive"
           type="button"
           class="floating-focus__duration"
           data-no-drag
-          title="点击切换专注时长"
+          :disabled="isPomodoroSettingsLocked"
+          :title="isPomodoroSettingsLocked ? '正计时时不可调整专注时长' : '点击切换专注时长'"
           @click="cycleDuration"
         >
           专注 {{ durationMinutes }}m
@@ -51,7 +70,7 @@
             data-no-drag
             title="停止"
             aria-label="停止"
-            @click.stop="stopTimer"
+            @click.stop="stopTimer(true)"
           >
             <Icon name="stop" width="12" height="12" class="icon" />
           </button>
@@ -64,6 +83,129 @@
           @click.stop
         >
           <div class="timer-settings">
+            <div class="setting-section linked-target-setting">
+              <div class="setting-label">
+                <span>计时关联</span>
+              </div>
+              <div v-if="linkedTarget" class="linked-habit-banner__chip-row">
+                <button
+                  type="button"
+                  class="linked-habit-banner__chip"
+                  :disabled="!canOpenLinkedTarget"
+                  :title="canOpenLinkedTarget ? `打开${linkedTargetLabel}` : linkedTargetLabel"
+                  :aria-label="linkedTargetLabel"
+                  @click="openLinkedTarget"
+                >
+                  <span class="linked-habit-banner__emoji">{{ linkedTargetDisplayEmoji }}</span>
+                  <span class="linked-habit-banner__name">{{ linkedTargetLabel }}</span>
+                  <Icon v-if="canOpenLinkedTarget" name="open" width="12" height="12" class="icon" />
+                </button>
+                <button
+                  type="button"
+                  class="linked-habit-banner__clear"
+                  :disabled="isLinkedTargetLocked"
+                  title="清除关联"
+                  aria-label="清除关联"
+                  @click="clearLinkedTarget"
+                >
+                  <Icon name="close" width="12" height="12" class="icon" />
+                </button>
+              </div>
+              <div v-else class="linked-habit-banner__actions">
+                <button
+                  type="button"
+                  class="linked-habit-banner__action"
+                  :disabled="isLinkedTargetLocked"
+                  @click="openTargetPicker('habit')"
+                >
+                  关联习惯
+                </button>
+                <button
+                  type="button"
+                  class="linked-habit-banner__action"
+                  :disabled="isLinkedTargetLocked"
+                  @click="openTargetPicker('task')"
+                >
+                  关联任务
+                </button>
+              </div>
+              <div v-if="targetPickerMode" class="linked-habit-banner__picker">
+                <div class="linked-habit-banner__picker-header">
+                  <span>{{ targetPickerMode === 'habit' ? '选择习惯' : '选择任务' }}</span>
+                  <button
+                    type="button"
+                    class="linked-habit-banner__picker-close"
+                    title="关闭"
+                    aria-label="关闭"
+                    @click="closeTargetPicker"
+                  >
+                    <Icon name="close" width="12" height="12" class="icon" />
+                  </button>
+                </div>
+                <input
+                  v-model.trim="targetSearch"
+                  class="linked-habit-banner__search"
+                  type="text"
+                  :placeholder="targetPickerMode === 'habit' ? '搜索习惯' : '搜索任务'"
+                />
+                <div v-if="isLoadingTargetOptions" class="linked-habit-banner__picker-state">
+                  加载中...
+                </div>
+                <div v-else-if="targetOptionsError" class="linked-habit-banner__picker-state is-error">
+                  {{ targetOptionsError }}
+                </div>
+                <div v-else-if="filteredTargetOptions.length === 0" class="linked-habit-banner__picker-state">
+                  未找到可关联的{{ targetPickerMode === 'habit' ? '习惯' : '任务' }}
+                </div>
+                <div v-else class="linked-habit-banner__picker-list">
+                  <button
+                    v-for="target in filteredTargetOptions"
+                    :key="`${target.type}-${target.id}`"
+                    type="button"
+                    class="linked-habit-banner__picker-item"
+                    @click="selectLinkedTarget(target)"
+                  >
+                    <span class="linked-habit-banner__picker-item-main">
+                      <span class="linked-habit-banner__emoji">{{ getTargetEmoji(target) }}</span>
+                      <span class="linked-habit-banner__picker-item-name">{{ target.name }}</span>
+                    </span>
+                    <span
+                      v-if="target.type === 'habit' && target.preferredDuration"
+                      class="linked-habit-banner__picker-item-meta"
+                    >
+                      {{ target.preferredDuration }}m
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="setting-section">
+              <div class="setting-label">
+                <span>计时模式</span>
+                <div class="timer-mode-toggle timer-mode-toggle--inline" role="radiogroup" aria-label="计时模式">
+                  <button
+                    type="button"
+                    class="timer-mode-option"
+                    :class="{ active: timerMode === 'countdown' }"
+                    :disabled="isRunning || isPaused"
+                    @click="setTimerMode('countdown')"
+                  >
+                    倒计时
+                  </button>
+                  <button
+                    type="button"
+                    class="timer-mode-option"
+                    :class="{ active: timerMode === 'countup' }"
+                    :disabled="isRunning || isPaused"
+                    @click="setTimerMode('countup')"
+                  >
+                    正计时
+                  </button>
+                </div>
+              </div>
+              <div class="setting-hint">正计时不封顶，手动停止后按累计时长计入统计。</div>
+            </div>
+
             <div class="setting-section">
               <div class="setting-label">
                 <span>专注时长</span>
@@ -78,7 +220,7 @@
                   :max="durationMarks.length - 1"
                   step="1"
                   class="duration-slider"
-                  :disabled="isRunning || isPaused"
+                  :disabled="isPomodoroSettingsLocked"
                   style="accent-color: var(--b3-theme-on-background)"
                 />
                 <div class="duration-marks">
@@ -108,7 +250,7 @@
                   :max="shortBreakMarks.length - 1"
                   step="1"
                   class="duration-slider"
-                  :disabled="isRunning || isPaused"
+                  :disabled="isPomodoroSettingsLocked"
                   style="accent-color: var(--b3-theme-on-background)"
                 />
                 <div class="duration-marks">
@@ -138,7 +280,7 @@
                   :max="pomodoroSetMarks[pomodoroSetMarks.length - 1]"
                   step="1"
                   class="duration-slider"
-                  :disabled="isRunning || isPaused"
+                  :disabled="isPomodoroSettingsLocked"
                   style="accent-color: var(--b3-theme-on-background)"
                 />
                 <div class="duration-marks">
@@ -161,16 +303,42 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import { addFocusSession } from '@/api';
 import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
+import { awardFocusSession } from '@/rewardRepository';
+import {
+  closeDetachedFocusWindow,
+  isDetachedFocusWindowSupported,
+  openDetachedFocusWindowSettings,
+  syncDetachedFocusWindow
+} from '@/utils/detachedFocusWindow';
+import type { FocusTimerLinkedTarget } from '@/utils/focusTimerTarget';
+import {
+  filterFocusTargetOptions,
+  getFocusTargetDisplayLabel,
+  getFocusTargetEmoji,
+  loadHabitFocusTargetOptions,
+  loadTaskFocusTargetOptions,
+  type FocusTargetPickerMode
+} from '@/utils/focusTimerTargetPicker';
+
+type TimerMode = 'countdown' | 'countup';
 
 const props = withDefaults(defineProps<{
   enabled: boolean;
+  linkedTarget?: FocusTimerLinkedTarget | null;
 }>(), {
-  enabled: false
+  enabled: false,
+  linkedTarget: null
 });
+const { linkedTarget } = toRefs(props);
+const emit = defineEmits<{
+  'open-linked-target': [target: FocusTimerLinkedTarget];
+  'update-linked-target': [target: FocusTimerLinkedTarget | null];
+  'clear-linked-target': [];
+}>();
 
 const STORAGE_KEY = 'pinch-floating-focus-position';
 const EDGE_PADDING = 12;
@@ -197,28 +365,63 @@ const shortBreakDurationIndex = ref(2);
 const selectedDuration = ref(durationMarks[durationIndex.value]);
 const shortBreakDuration = ref(shortBreakMarks[shortBreakDurationIndex.value]);
 const pomodoroSets = ref(1);
+const timerMode = ref<TimerMode>('countdown');
 const {
   isLockedByOther: isStartBlockedByOther,
   claimFocusSession,
   releaseFocusSession
 } = useFocusSessionLock('capsule');
+const supportsDetachedFocusWindow = isDetachedFocusWindowSupported();
 
-const remainingSeconds = ref(selectedDuration.value * 60);
+const phaseElapsedSeconds = ref(0);
 const isRunning = ref(false);
 const isPaused = ref(false);
 const isBreakMode = ref(false);
 const currentSet = ref(1);
 const timerInterval = ref<number | null>(null);
 const timerDeadline = ref<number>(0);
+const timerStartedAt = ref(0);
 const showSettings = ref(false);
 const settingsRef = ref<HTMLElement | null>(null);
+const targetPickerMode = ref<FocusTargetPickerMode | null>(null);
+const targetSearch = ref('');
+const isLoadingTargetOptions = ref(false);
+const targetOptionsError = ref('');
+const habitTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
+const taskTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
 
 const teleportTarget = computed(() => containerEl.value || 'body');
+const shouldRenderInlineCapsule = computed(() => props.enabled && !supportsDetachedFocusWindow);
 
 const durationMinutes = computed(() => selectedDuration.value);
 const isActive = computed(() => isRunning.value || isPaused.value);
+const isPomodoroSettingsLocked = computed(() =>
+  isRunning.value || isPaused.value || timerMode.value === 'countup'
+);
+const isLinkedTargetLocked = computed(() => isRunning.value || isPaused.value);
+const linkedTargetLabel = computed(() => {
+  return getFocusTargetDisplayLabel(linkedTarget.value);
+});
+const linkedTargetDisplayEmoji = computed(() => getFocusTargetEmoji(linkedTarget.value));
+const canOpenLinkedTarget = computed(() =>
+  !!linkedTarget.value && (linkedTarget.value.type === 'habit' || !!linkedTarget.value.blockId)
+);
+const filteredTargetOptions = computed(() => {
+  const source = targetPickerMode.value === 'habit'
+    ? habitTargetOptions.value
+    : taskTargetOptions.value;
+  return filterFocusTargetOptions(source, targetSearch.value);
+});
+const phaseDurationSeconds = computed(() =>
+  (isBreakMode.value ? shortBreakDuration.value : durationMinutes.value) * 60
+);
 
-const displayTime = computed(() => formatSeconds(remainingSeconds.value));
+const displayTime = computed(() => {
+  const seconds = timerMode.value === 'countdown'
+    ? Math.max(phaseDurationSeconds.value - phaseElapsedSeconds.value, 0)
+    : Math.max(phaseElapsedSeconds.value, 0);
+  return formatSeconds(seconds);
+});
 
 const actionIcon = computed(() => (isRunning.value ? 'pause' : 'play'));
 const actionTitle = computed(() => {
@@ -229,10 +432,10 @@ const actionTitle = computed(() => {
 
 const progress = computed(() => {
   if (!isActive.value) return 0;
-  const total = (isBreakMode.value ? shortBreakDuration.value : durationMinutes.value) * 60;
+  const total = phaseDurationSeconds.value;
   if (!total) return 0;
-  const remaining = Math.min(Math.max(remainingSeconds.value, 0), total);
-  return 1 - remaining / total;
+  const elapsed = Math.min(Math.max(phaseElapsedSeconds.value, 0), total);
+  return elapsed / total;
 });
 
 const progressColor = computed(() => (isBreakMode.value ? '#4dab9a' : '#f98f7a'));
@@ -372,53 +575,119 @@ const ensureContainer = () => {
 };
 
 const clearTimer = () => {
-  if (timerInterval.value) {
+  if (timerInterval.value !== null) {
     clearInterval(timerInterval.value);
     timerInterval.value = null;
   }
+  timerDeadline.value = 0;
+  timerStartedAt.value = 0;
 };
 
-const resetRemaining = () => {
-  remainingSeconds.value = durationMinutes.value * 60;
+const resetPhaseProgress = () => {
+  phaseElapsedSeconds.value = 0;
+  timerStartedAt.value = 0;
 };
 
-const recordFocusSession = async () => {
-  const sessionMinutes = selectedDuration.value;
-  await addFocusSession(sessionMinutes);
-  window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, { detail: { minutes: sessionMinutes } }));
+const setTimerMode = (mode: TimerMode) => {
+  if (isRunning.value || isPaused.value) return;
+  timerMode.value = mode;
+  resetPhaseProgress();
 };
 
-const startCountdown = () => {
-  timerDeadline.value = Date.now() + remainingSeconds.value * 1000;
-  timerInterval.value = window.setInterval(async () => {
-    const timeLeft = Math.ceil((timerDeadline.value - Date.now()) / 1000);
-    if (timeLeft <= 0) {
-      clearTimer();
-      if (!isBreakMode.value) {
-        try {
-          await recordFocusSession();
-        } catch {
-          // ignore recording errors
-        }
+const getElapsedFocusMinutes = () => {
+  if (isBreakMode.value || timerMode.value !== 'countup') {
+    return 0;
+  }
 
-        if (currentSet.value < pomodoroSets.value && pomodoroSets.value >= 2) {
-          isBreakMode.value = true;
-          remainingSeconds.value = shortBreakDuration.value * 60;
-          currentSet.value += 1;
-          startCountdown();
-          return;
-        }
-        stopTimer();
+  return Math.floor(phaseElapsedSeconds.value / 60);
+};
+
+const recordFocusSession = async (sessionMinutes: number) => {
+  const sessionId = `focus-capsule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await addFocusSession(
+    sessionMinutes,
+    linkedTarget.value ? {
+      type: linkedTarget.value.type,
+      id: linkedTarget.value.id,
+      name: linkedTarget.value.name,
+      emoji: linkedTarget.value.emoji,
+      blockId: linkedTarget.value.blockId
+    } : null
+  );
+  await awardFocusSession({
+    minutes: sessionMinutes,
+    sessionId,
+    source: 'capsule'
+  }).catch(() => {});
+  window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, { detail: { minutes: sessionMinutes, sessionId } }));
+};
+
+const startPhaseTimer = () => {
+  if (timerMode.value === 'countup' && !isBreakMode.value) {
+    const startedAt = Date.now() - phaseElapsedSeconds.value * 1000;
+    timerStartedAt.value = startedAt;
+
+    timerInterval.value = window.setInterval(() => {
+      if (!isRunning.value || timerStartedAt.value !== startedAt) {
         return;
       }
+      phaseElapsedSeconds.value = Math.max(
+        0,
+        Math.floor((Date.now() - startedAt) / 1000)
+      );
+    }, 200);
+    return;
+  }
 
-      isBreakMode.value = false;
-      remainingSeconds.value = durationMinutes.value * 60;
-      startCountdown();
+  const totalSeconds = phaseDurationSeconds.value;
+  const remainingSeconds = Math.max(totalSeconds - phaseElapsedSeconds.value, 0);
+
+  if (remainingSeconds <= 0) {
+    phaseElapsedSeconds.value = totalSeconds;
+    void completeTimer();
+    return;
+  }
+
+  const deadline = Date.now() + remainingSeconds * 1000;
+  timerDeadline.value = deadline;
+  timerInterval.value = window.setInterval(async () => {
+    if (!isRunning.value || timerDeadline.value !== deadline) {
+      return;
+    }
+    const timeLeft = Math.ceil((deadline - Date.now()) / 1000);
+    if (timeLeft <= 0) {
+      phaseElapsedSeconds.value = totalSeconds;
+      clearTimer();
+      await completeTimer();
     } else {
-      remainingSeconds.value = timeLeft;
+      phaseElapsedSeconds.value = Math.min(totalSeconds - timeLeft, totalSeconds);
     }
   }, 200);
+};
+
+const completeTimer = async () => {
+  if (!isBreakMode.value) {
+    try {
+      await recordFocusSession(selectedDuration.value);
+    } catch {
+      // ignore recording errors
+    }
+
+    if (currentSet.value < pomodoroSets.value && pomodoroSets.value >= 2) {
+      isBreakMode.value = true;
+      resetPhaseProgress();
+      currentSet.value += 1;
+      startPhaseTimer();
+      return;
+    }
+
+    await stopTimer();
+    return;
+  }
+
+  isBreakMode.value = false;
+  resetPhaseProgress();
+  startPhaseTimer();
 };
 
 const startTimer = () => {
@@ -428,13 +697,11 @@ const startTimer = () => {
 
   currentSet.value = 1;
   isBreakMode.value = false;
-  if (remainingSeconds.value <= 0) {
-    resetRemaining();
-  }
+  resetPhaseProgress();
   clearTimer();
   isRunning.value = true;
   isPaused.value = false;
-  startCountdown();
+  startPhaseTimer();
 };
 
 const pauseTimer = () => {
@@ -448,17 +715,31 @@ const resumeTimer = () => {
   if (!isPaused.value) return;
   isRunning.value = true;
   isPaused.value = false;
-  startCountdown();
+  startPhaseTimer();
 };
 
-const stopTimer = () => {
+const stopTimer = async (recordCurrentSession: boolean = false) => {
+  const elapsedMinutes = recordCurrentSession ? getElapsedFocusMinutes() : 0;
+
+  if (recordCurrentSession) {
+    clearTimer();
+  }
+
   clearTimer();
   isRunning.value = false;
   isPaused.value = false;
   isBreakMode.value = false;
   currentSet.value = 1;
-  resetRemaining();
+  resetPhaseProgress();
   releaseFocusSession();
+
+  if (elapsedMinutes > 0) {
+    try {
+      await recordFocusSession(elapsedMinutes);
+    } catch {
+      // ignore recording errors
+    }
+  }
 };
 
 const toggleStartPause = () => {
@@ -475,30 +756,88 @@ const toggleStartPause = () => {
 };
 
 const cycleDuration = () => {
-  if (isActive.value) return;
+  if (isActive.value || isPomodoroSettingsLocked.value) return;
   durationIndex.value = (durationIndex.value + 1) % durationMarks.length;
   selectedDuration.value = durationMarks[durationIndex.value];
-  resetRemaining();
+  resetPhaseProgress();
 };
 
 const updateDurationByIndex = () => {
-  if (isRunning.value || isPaused.value) return;
+  if (isPomodoroSettingsLocked.value) return;
   selectedDuration.value = durationMarks[durationIndex.value];
-  resetRemaining();
+  resetPhaseProgress();
 };
 
 const updateShortBreakDuration = () => {
-  if (isRunning.value || isPaused.value) return;
+  if (isPomodoroSettingsLocked.value) return;
   shortBreakDuration.value = shortBreakMarks[shortBreakDurationIndex.value];
 };
 
 const updatePomodoroSets = () => {
-  if (isRunning.value || isPaused.value) return;
+  if (isPomodoroSettingsLocked.value) return;
   pomodoroSets.value = Math.max(
     1,
     Math.min(Math.round(pomodoroSets.value), pomodoroSetMarks[pomodoroSetMarks.length - 1])
   );
 };
+
+const closeTargetPicker = () => {
+  targetPickerMode.value = null;
+  targetSearch.value = '';
+  targetOptionsError.value = '';
+};
+
+const openTargetPicker = async (mode: FocusTargetPickerMode) => {
+  if (isLinkedTargetLocked.value) {
+    return;
+  }
+
+  targetPickerMode.value = mode;
+  targetSearch.value = '';
+  targetOptionsError.value = '';
+  isLoadingTargetOptions.value = true;
+
+  try {
+    if (mode === 'habit') {
+      habitTargetOptions.value = await loadHabitFocusTargetOptions();
+    } else {
+      taskTargetOptions.value = await loadTaskFocusTargetOptions();
+    }
+  } catch {
+    targetOptionsError.value = `加载${mode === 'habit' ? '习惯' : '任务'}失败，请稍后重试`;
+  } finally {
+    isLoadingTargetOptions.value = false;
+  }
+};
+
+const selectLinkedTarget = (target: FocusTimerLinkedTarget) => {
+  if (isLinkedTargetLocked.value) {
+    return;
+  }
+
+  emit('update-linked-target', target);
+  closeTargetPicker();
+};
+
+const clearLinkedTarget = () => {
+  if (isLinkedTargetLocked.value) {
+    return;
+  }
+
+  emit('update-linked-target', null);
+  emit('clear-linked-target');
+  closeTargetPicker();
+};
+
+const openLinkedTarget = () => {
+  if (!linkedTarget.value || !canOpenLinkedTarget.value) {
+    return;
+  }
+
+  emit('open-linked-target', linkedTarget.value);
+};
+
+const getTargetEmoji = (target: FocusTimerLinkedTarget) => getFocusTargetEmoji(target);
 
 const formatSeconds = (seconds: number) => {
   const total = Math.max(0, Math.floor(seconds));
@@ -509,6 +848,25 @@ const formatSeconds = (seconds: number) => {
 
 const toggleSettings = () => {
   showSettings.value = !showSettings.value;
+  if (!showSettings.value) {
+    closeTargetPicker();
+  }
+};
+
+const openSettingsPanel = () => {
+  if (!props.enabled) {
+    return;
+  }
+
+  closeTargetPicker();
+
+  if (supportsDetachedFocusWindow) {
+    syncDetachedFocusWindow(true, linkedTarget.value ?? null);
+    openDetachedFocusWindowSettings();
+    return;
+  }
+
+  showSettings.value = true;
 };
 
 const handleDocumentClick = (event: MouseEvent) => {
@@ -518,6 +876,7 @@ const handleDocumentClick = (event: MouseEvent) => {
   if (capsuleRef.value?.contains(target)) return;
   if (settingsRef.value?.contains(target)) return;
   showSettings.value = false;
+  closeTargetPicker();
 };
 
 const onPointerDown = (event: PointerEvent) => {
@@ -571,26 +930,80 @@ const handleContainerResize = () => {
   handleResize();
 };
 
+const syncDetachedFocusWindowVisibility = () => {
+  if (!supportsDetachedFocusWindow) {
+    closeDetachedFocusWindow();
+    return;
+  }
+
+  if (props.enabled) {
+    syncDetachedFocusWindow(true, linkedTarget.value ?? null);
+    return;
+  }
+
+  closeDetachedFocusWindow();
+};
+
+watch(linkedTarget, (nextTarget) => {
+  if (supportsDetachedFocusWindow && props.enabled) {
+    syncDetachedFocusWindow(true, nextTarget ?? null);
+  }
+
+  if (!nextTarget || isRunning.value || isPaused.value) {
+    return;
+  }
+
+  isBreakMode.value = false;
+  currentSet.value = 1;
+  resetPhaseProgress();
+
+  if (typeof nextTarget.preferredDuration === 'number' && Number.isFinite(nextTarget.preferredDuration)) {
+    const duration = nextTarget.preferredDuration;
+    const nextIndex = durationMarks.indexOf(duration);
+    timerMode.value = 'countdown';
+    selectedDuration.value = duration;
+    durationIndex.value = nextIndex >= 0 ? nextIndex : 3;
+  }
+}, { immediate: true });
+
 watch(() => props.enabled, (value) => {
+  syncDetachedFocusWindowVisibility();
+
   if (!value) {
-    stopTimer();
+    void stopTimer();
     showSettings.value = false;
-  } else {
+  } else if (!supportsDetachedFocusWindow) {
     ensureContainer();
     initPosition();
   }
 });
 
-onMounted(() => {
-  ensureContainer();
-  loadPosition();
-  initPosition();
-  window.addEventListener('resize', handleResize);
-  if (containerEl.value && typeof ResizeObserver !== 'undefined') {
-    containerResizeObserver.value = new ResizeObserver(handleContainerResize);
-    containerResizeObserver.value.observe(containerEl.value);
+watch(showSettings, (visible) => {
+  if (!visible) {
+    closeTargetPicker();
   }
-  document.addEventListener('mousedown', handleDocumentClick);
+});
+
+watch(isLinkedTargetLocked, (locked) => {
+  if (locked) {
+    closeTargetPicker();
+  }
+});
+
+onMounted(() => {
+  syncDetachedFocusWindowVisibility();
+
+  if (!supportsDetachedFocusWindow) {
+    ensureContainer();
+    loadPosition();
+    initPosition();
+    window.addEventListener('resize', handleResize);
+    if (containerEl.value && typeof ResizeObserver !== 'undefined') {
+      containerResizeObserver.value = new ResizeObserver(handleContainerResize);
+      containerResizeObserver.value.observe(containerEl.value);
+    }
+    document.addEventListener('mousedown', handleDocumentClick);
+  }
 });
 
 onBeforeUnmount(() => {
@@ -600,8 +1013,14 @@ onBeforeUnmount(() => {
     containerResizeObserver.value = null;
   }
   document.removeEventListener('mousedown', handleDocumentClick);
+  closeDetachedFocusWindow();
+
   clearTimer();
   releaseFocusSession();
+});
+
+defineExpose({
+  openSettingsPanel
 });
 </script>
 
@@ -620,8 +1039,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   min-width: 120px;
-  height: 24px;
-  padding: 6px 10px;
+  min-height: 24px;
+  padding: 7px 10px 9px;
   border-radius: 999px;
   border: 1px solid var(--b3-border-color);
   background: var(--b3-theme-background);
@@ -682,9 +1101,47 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.floating-focus__duration:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .floating-focus__time {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.4px;
+  line-height: 1.1;
+}
+
+.floating-focus__content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.floating-focus__target,
+.floating-focus__target-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1.1;
+  color: var(--b3-theme-on-surface);
+}
+
+.floating-focus__target {
+  border: none;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.floating-focus__target:hover {
+  color: var(--b3-theme-on-background);
 }
 
 .floating-focus__actions {
@@ -726,7 +1183,7 @@ onBeforeUnmount(() => {
   position: absolute;
   right: 0;
   bottom: 44px;
-  width: 260px;
+  width: 280px;
   background: var(--b3-theme-background);
   border-radius: 16px;
   box-shadow: var(--b3-point-shadow);
@@ -748,6 +1205,50 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.linked-target-setting {
+  gap: 10px;
+}
+
+.timer-mode-toggle {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+}
+
+.timer-mode-toggle--inline {
+  flex-shrink: 0;
+}
+
+.timer-mode-option {
+  border: none;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+.timer-mode-option.active {
+  background: var(--b3-theme-on-background-background);
+  color: var(--b3-theme-background);
+}
+
+.timer-mode-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.setting-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--b3-theme-on-surface);
 }
 
 .setting-label {
@@ -800,5 +1301,196 @@ onBeforeUnmount(() => {
   color: var(--b3-theme-on-surface);
   opacity: 0.6;
   transform: translateX(-50%);
+}
+
+.linked-habit-banner__chip-row,
+.linked-habit-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.linked-habit-banner__chip {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 12px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.linked-habit-banner__chip:hover:not(:disabled) {
+  border-color: rgba(249, 143, 122, 0.45);
+}
+
+.linked-habit-banner__chip:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.linked-habit-banner__emoji {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.linked-habit-banner__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  text-align: left;
+}
+
+.linked-habit-banner__action,
+.linked-habit-banner__picker-item,
+.linked-habit-banner__picker-close,
+.linked-habit-banner__clear {
+  border: 1px solid var(--b3-border-color);
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  font: inherit;
+}
+
+.linked-habit-banner__action {
+  flex: 1 1 0;
+  min-height: 32px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.linked-habit-banner__action:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+}
+
+.linked-habit-banner__action:disabled,
+.linked-habit-banner__clear:disabled,
+.linked-habit-banner__picker-close:disabled,
+.linked-habit-banner__picker-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.linked-habit-banner__clear {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.linked-habit-banner__clear:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+}
+
+.linked-habit-banner__picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 12px;
+  background: var(--b3-theme-background);
+}
+
+.linked-habit-banner__picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.linked-habit-banner__picker-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.linked-habit-banner__picker-close:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+}
+
+.linked-habit-banner__search {
+  width: 100%;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font: inherit;
+  outline: none;
+}
+
+.linked-habit-banner__search:focus {
+  border-color: rgba(249, 143, 122, 0.55);
+}
+
+.linked-habit-banner__picker-state {
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.linked-habit-banner__picker-state.is-error {
+  color: #d96b5f;
+}
+
+.linked-habit-banner__picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.linked-habit-banner__picker-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.linked-habit-banner__picker-item:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+}
+
+.linked-habit-banner__picker-item-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.linked-habit-banner__picker-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.linked-habit-banner__picker-item-meta {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--b3-theme-on-surface);
 }
 </style>

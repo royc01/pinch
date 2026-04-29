@@ -87,10 +87,13 @@ const hideCustomTooltip = () => {
   width: 38px;
   padding: 6px;
   border-radius: 14px;
-  background-color: var(--b3-theme-background);
   box-shadow: rgba(0, 0, 0, 0.03) 0px 1px 5px 0px;
   overflow: hidden;
   position: relative;
+  background-color: var(--b3-theme-background);
+  &:hover{
+    background-color: var(--b3-list-hover)
+  }
 }
 
 .week-date-item.today {
@@ -99,6 +102,7 @@ const hideCustomTooltip = () => {
 
 .week-date-item.today .weekday-name {
   color: #f98f7a;
+  font-weight: 700;
 }
 
 .weekdate-item .weekday-name {

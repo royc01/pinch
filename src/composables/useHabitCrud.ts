@@ -1,9 +1,10 @@
 ﻿import { type Ref, type ShallowRef } from 'vue';
-import type { Habit } from '@/api';
+import type { Habit, HabitDifficulty } from '@/api';
 
 interface NewHabitFormState {
   name: string;
   emoji: string;
+  difficulty: HabitDifficulty;
   frequency: string;
   noteDocId: string;
   timesPerDay: string;
@@ -28,6 +29,7 @@ interface UseHabitCrudOptions {
 const createDefaultNewHabit = (): NewHabitFormState => ({
   name: '',
   emoji: '',
+  difficulty: 'medium',
   frequency: 'daily',
   noteDocId: '',
   timesPerDay: '1',
@@ -68,6 +70,7 @@ export const useHabitCrud = ({
       id: Date.now().toString(),
       name: habitData.name,
       emoji: habitData.emoji,
+      difficulty: habitData.difficulty || 'medium',
       frequency: habitData.frequency as any,
       timesPerDay,
       noteDocId: normalizeDocId(habitData.noteDocId || ''),
@@ -117,14 +120,15 @@ export const useHabitCrud = ({
     }
 
     Object.assign(selectedHabit.value, habit);
+    triggerHabitsRef();
     await immediateSaveHabits(habits.value);
     closeEditHabitModal();
   };
 
   const togglePauseHabit = async (habit: Habit) => {
     habit.isPaused = !habit.isPaused;
-    await immediateSaveHabits(habits.value);
     triggerHabitsRef();
+    await immediateSaveHabits(habits.value);
   };
 
   return {

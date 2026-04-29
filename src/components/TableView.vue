@@ -4,71 +4,201 @@
     ref="tableContainerRef"
     @scroll.passive="handleTableScroll"
   >
-    <table class="tasks-table">
+    <table
+      class="tasks-table"
+      :class="{ 'has-manual-widths': hasManualColumnWidths }"
+      :style="tableColumnCssVars"
+    >
+      <colgroup>
+        <col
+          v-for="column in TABLE_COLUMNS"
+          :key="column.key"
+          :class="column.className"
+          :style="getTableColumnStyle(column.key)"
+        />
+      </colgroup>
       <thead>
         <tr>
           <th class="col-expand"></th>
           <th class="col-status"></th>
-          <th class="col-title">任务</th>
-          <th class="col-description">描述</th>
-          <th class="col-priority sortable" :class="{ active: sortColumn === 'priority' }" @click="toggleSort('priority')">
+          <th class="col-title is-resizable">
+            <div class="th-content">
+              <span>任务</span>
+            </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'title' }"
+              aria-label="调整任务列宽"
+              title="拖动调整任务列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('title', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('title')"
+              @click.stop.prevent
+            ></button>
+          </th>
+          <th class="col-description is-resizable">
+            描述
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'description' }"
+              aria-label="调整描述列宽"
+              title="拖动调整描述列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('description', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('description')"
+              @click.stop.prevent
+            ></button>
+          </th>
+          <th class="col-priority sortable is-resizable" :class="{ active: sortColumn === 'priority' }" @click="toggleSort('priority')">
             <div class="th-content">
               <span>优先级</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('priority')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
             </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'priority' }"
+              aria-label="调整优先级列宽"
+              title="拖动调整优先级列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('priority', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('priority')"
+              @click.stop.prevent
+            ></button>
           </th>
-          <th class="col-status-text sortable" :class="{ active: sortColumn === 'status' }" @click="toggleSort('status')">
+          <th class="col-status-text sortable is-resizable" :class="{ active: sortColumn === 'status' }" @click="toggleSort('status')">
             <div class="th-content">
               <span>状态</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('status')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
             </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'statusText' }"
+              aria-label="调整状态列宽"
+              title="拖动调整状态列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('statusText', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('statusText')"
+              @click.stop.prevent
+            ></button>
           </th>
-          <th class="col-group">标签</th>
-          <th class="col-start-date sortable" :class="{ active: sortColumn === 'startDate' }" @click="toggleSort('startDate')">
+          <th class="col-group is-resizable">
+            标签
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'group' }"
+              aria-label="调整标签列宽"
+              title="拖动调整标签列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('group', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('group')"
+              @click.stop.prevent
+            ></button>
+          </th>
+          <th class="col-start-date sortable is-resizable" :class="{ active: sortColumn === 'startDate' }" @click="toggleSort('startDate')">
             <div class="th-content">
               <span>开始日期</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('startDate')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
             </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'startDate' }"
+              aria-label="调整开始日期列宽"
+              title="拖动调整开始日期列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('startDate', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('startDate')"
+              @click.stop.prevent
+            ></button>
           </th>
-          <th class="col-start-time">
+          <th class="col-start-time is-resizable">
             <div class="th-content">
               <span>开始时间</span>
             </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'startTime' }"
+              aria-label="调整开始时间列宽"
+              title="拖动调整开始时间列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('startTime', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('startTime')"
+              @click.stop.prevent
+            ></button>
           </th>
-          <th class="col-due-date sortable" :class="{ active: sortColumn === 'dueDate' }" @click="toggleSort('dueDate')">
+          <th class="col-due-date sortable is-resizable" :class="{ active: sortColumn === 'dueDate' }" @click="toggleSort('dueDate')">
             <div class="th-content">
               <span>截止日期</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('dueDate')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
             </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'dueDate' }"
+              aria-label="调整截止日期列宽"
+              title="拖动调整截止日期列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('dueDate', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('dueDate')"
+              @click.stop.prevent
+            ></button>
           </th>
-          <th class="col-due-time">
+          <th class="col-due-time is-resizable">
             <div class="th-content">
               <span>截止时间</span>
             </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'dueTime' }"
+              aria-label="调整截止时间列宽"
+              title="拖动调整截止时间列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('dueTime', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('dueTime')"
+              @click.stop.prevent
+            ></button>
           </th>
-          <th class="col-created-date sortable" :class="{ active: sortColumn === 'createdAt' }" @click="toggleSort('createdAt')">
+          <th class="col-created-date sortable is-resizable" :class="{ active: sortColumn === 'createdAt' }" @click="toggleSort('createdAt')">
             <div class="th-content">
               <span>创建时间</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('createdAt')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
             </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'createdDate' }"
+              aria-label="调整创建时间列宽"
+              title="拖动调整创建时间列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('createdDate', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('createdDate')"
+              @click.stop.prevent
+            ></button>
           </th>
-          <th class="col-updated-date sortable" :class="{ active: sortColumn === 'updatedAt' }" @click="toggleSort('updatedAt')">
+          <th class="col-updated-date sortable is-resizable" :class="{ active: sortColumn === 'updatedAt' }" @click="toggleSort('updatedAt')">
             <div class="th-content">
               <span>更新时间</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('updatedAt')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
             </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'updatedDate' }"
+              aria-label="调整更新时间列宽"
+              title="拖动调整更新时间列宽，双击重置"
+              @mousedown.stop.prevent="startColumnResize('updatedDate', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('updatedDate')"
+              @click.stop.prevent
+            ></button>
           </th>
           <th class="col-location">位置</th>
         </tr>
@@ -98,9 +228,11 @@
                 <span class="group-row-arrow" :class="{ collapsed: isGroupCollapsed(row.group.id) }" aria-hidden="true">
                   <Icon name="chevronDown" width="16" height="16" />
                 </span>
-                <span class="group-row-label">{{ row.group.label }}</span>
-                <span class="group-row-right">
+                <span class="group-row-title">
+                  <span class="group-row-label">{{ row.group.label }}</span>
                   <span class="group-row-count">{{ row.group.tasks.length }} 项</span>
+                </span>
+                <span class="group-row-right">
                   <button
                     v-if="supportsGroupActions && canCreateTaskForGroup(row.group)"
                     type="button"
@@ -138,6 +270,7 @@
               }
             ]"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
+            @contextmenu="handleTaskRowContextMenu(row.task, $event)"
           >
             <td class="col-expand">
               <span
@@ -266,12 +399,17 @@
             class="subtask-row"
             :class="{
               'subtask-completed': row.subtask.completed,
-              'is-terminal-row': terminalTableRowKeys.has(row.key)
+              'is-terminal-row': terminalTableRowKeys.has(row.key),
+              'is-last-subtask': isLastSubtaskRow(row.task, row.subtask)
             }"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
           >
-            <td class="col-expand"></td>
-            <td class="col-status"></td>
+            <td class="col-expand">
+              <span class="subtask-tree-stem" aria-hidden="true"></span>
+            </td>
+            <td class="col-status">
+              <span class="subtask-tree-branch" aria-hidden="true"></span>
+            </td>
             <td class="col-title">
               <div class="subtask-title-cell">
                 <div class="subtask-checkbox-wrapper" @click.stop="toggleSubtaskStatus(row.task, row.subtask)">
@@ -527,6 +665,63 @@ const TABLE_VIRTUAL_OVERSCAN = 10;
 const TABLE_GROUP_ROW_HEIGHT = 38;
 const TABLE_TASK_ROW_HEIGHT = 52;
 const TABLE_SUBTASK_ROW_HEIGHT = 44;
+const COLUMN_RESIZE_DRAG_THRESHOLD = 3;
+
+type ResizableTableColumnKey =
+  | 'title'
+  | 'description'
+  | 'priority'
+  | 'statusText'
+  | 'group'
+  | 'startDate'
+  | 'startTime'
+  | 'dueDate'
+  | 'dueTime'
+  | 'createdDate'
+  | 'updatedDate';
+
+type TableColumnKey = 'expand' | 'status' | ResizableTableColumnKey | 'location';
+
+type TableColumnDefinition = {
+  key: TableColumnKey;
+  className: string;
+};
+
+const TABLE_COLUMNS: readonly TableColumnDefinition[] = [
+  { key: 'expand', className: 'col-expand' },
+  { key: 'status', className: 'col-status' },
+  { key: 'title', className: 'col-title' },
+  { key: 'description', className: 'col-description' },
+  { key: 'priority', className: 'col-priority' },
+  { key: 'statusText', className: 'col-status-text' },
+  { key: 'group', className: 'col-group' },
+  { key: 'startDate', className: 'col-start-date' },
+  { key: 'startTime', className: 'col-start-time' },
+  { key: 'dueDate', className: 'col-due-date' },
+  { key: 'dueTime', className: 'col-due-time' },
+  { key: 'createdDate', className: 'col-created-date' },
+  { key: 'updatedDate', className: 'col-updated-date' },
+  { key: 'location', className: 'col-location' }
+] as const;
+
+const TABLE_COLUMN_MIN_WIDTHS: Record<ResizableTableColumnKey, number> = {
+  title: 150,
+  description: 200,
+  priority: 60,
+  statusText: 60,
+  group: 110,
+  startDate: 80,
+  startTime: 80,
+  dueDate: 80,
+  dueTime: 80,
+  createdDate: 80,
+  updatedDate: 80
+};
+
+const TABLE_FIXED_COLUMN_WIDTHS: Partial<Record<TableColumnKey, number>> = {
+  expand: 40,
+  status: 40
+};
 
 const TASK_GROUP_NONE_ID = '__none__';
 type TableSubtask = NonNullable<Task['subtasks']>[number];
@@ -575,6 +770,9 @@ type SortableColumn = 'priority' | 'status' | 'startDate' | 'dueDate' | 'created
 const sortColumn = ref<SortableColumn | null>(null);
 const sortDirection = ref<'asc' | 'desc'>('asc');
 const tableContainerRef = ref<HTMLElement | null>(null);
+const defaultTableColumnWidths = ref<Partial<Record<TableColumnKey, number>>>({});
+const tableColumnWidths = ref<Partial<Record<TableColumnKey, number>>>({});
+const activeResizeColumn = ref<ResizableTableColumnKey | null>(null);
 const tableScrollTop = ref(0);
 const tableViewportHeight = ref(0);
 const tableRowHeights = ref<Record<string, number>>({});
@@ -583,6 +781,13 @@ let tableMetricsRaf: number | null = null;
 let tableMeasureRaf: number | null = null;
 let tableScrollSettleTimer: number | null = null;
 let isTableScrollActive = false;
+let activeColumnResize: {
+  column: ResizableTableColumnKey;
+  startX: number;
+  startWidth: number;
+  baseWidths: Partial<Record<TableColumnKey, number>>;
+  hasActivated: boolean;
+} | null = null;
 type DateField = 'startDate' | 'dueDate';
 type TimeField = 'startTime' | 'dueTime';
 const datePopoverVisible = ref(false);
@@ -1015,6 +1220,13 @@ function buildTaskVirtualRows(task: Task): TableVirtualRow[] {
   return rows;
 }
 
+function isLastSubtaskRow(task: Task, subtask: TableSubtask): boolean {
+  if (!task.subtasks || task.subtasks.length === 0) {
+    return false;
+  }
+  return task.subtasks[task.subtasks.length - 1]?.id === subtask.id;
+}
+
 const tableRows = computed<TableVirtualRow[]>(() => {
   if (!isGroupedDisplayMode.value) {
     return sortedTasks.value.flatMap(task => buildTaskVirtualRows(task));
@@ -1225,6 +1437,25 @@ const groupPopoverStyle = computed(() => {
   };
 });
 
+const hasManualColumnWidths = computed(() => Object.keys(tableColumnWidths.value).length > 0);
+
+const tableColumnCssVars = computed<Record<string, string>>(() => {
+  const cssVars: Record<string, string> = {};
+  let totalWidth = 0;
+  for (const [column, width] of Object.entries(tableColumnWidths.value)) {
+    if (typeof width !== 'number' || width <= 0) {
+      continue;
+    }
+    const cssKey = column.replace(/[A-Z]/g, match => `-${match.toLowerCase()}`);
+    cssVars[`--table-col-${cssKey}-width`] = `${Math.round(width)}px`;
+    totalWidth += Math.round(width);
+  }
+  if (hasManualColumnWidths.value && totalWidth > 0) {
+    cssVars.width = `${totalWidth}px`;
+  }
+  return cssVars;
+});
+
 function syncTableViewportMetrics(): void {
   const container = tableContainerRef.value;
   if (!container) {
@@ -1235,6 +1466,9 @@ function syncTableViewportMetrics(): void {
 }
 
 function measureVisibleTableRowHeights(): void {
+  if (!shouldUseTableVirtualList.value) {
+    return;
+  }
   if (tableVisibleRowElements.size === 0) {
     return;
   }
@@ -1263,6 +1497,13 @@ function measureVisibleTableRowHeights(): void {
 }
 
 function scheduleTableRowMeasurement(): void {
+  if (!shouldUseTableVirtualList.value) {
+    if (tableMeasureRaf !== null) {
+      cancelAnimationFrame(tableMeasureRaf);
+      tableMeasureRaf = null;
+    }
+    return;
+  }
   if (tableMeasureRaf !== null) {
     cancelAnimationFrame(tableMeasureRaf);
   }
@@ -1295,6 +1536,217 @@ function scheduleTableViewportMetrics(): void {
 
 function handleTableViewportResize(): void {
   isTableScrollActive = false;
+  scheduleTableViewportMetrics();
+  scheduleTableRowMeasurement();
+  if (!hasManualColumnWidths.value) {
+    window.requestAnimationFrame(() => {
+      syncDefaultTableColumnWidths();
+    });
+  }
+}
+
+function isResizableTableColumn(column: TableColumnKey): column is ResizableTableColumnKey {
+  return Object.prototype.hasOwnProperty.call(TABLE_COLUMN_MIN_WIDTHS, column);
+}
+
+function getTableColumnMinWidth(column: TableColumnKey): number {
+  if (isResizableTableColumn(column)) {
+    return TABLE_COLUMN_MIN_WIDTHS[column];
+  }
+  return TABLE_FIXED_COLUMN_WIDTHS[column] ?? 0;
+}
+
+function getTableColumnStyle(column: TableColumnKey): Record<string, string> | undefined {
+  const width = tableColumnWidths.value[column] ?? TABLE_FIXED_COLUMN_WIDTHS[column];
+  if (typeof width !== 'number' || width <= 0) {
+    return undefined;
+  }
+  return {
+    width: `${Math.round(width)}px`
+  };
+}
+
+function cleanupColumnResizeInteraction(): void {
+  document.removeEventListener('mousemove', handleColumnResizeMouseMove);
+  document.removeEventListener('mouseup', stopColumnResize);
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+}
+
+function measureTableColumnWidth(header: HTMLTableCellElement, minWidth = 0): number {
+  return Math.max(minWidth, Math.round(header.getBoundingClientRect().width));
+}
+
+function captureTableColumnWidths(): Partial<Record<TableColumnKey, number>> {
+  const headers = Array.from(
+    tableContainerRef.value?.querySelectorAll('.tasks-table thead th') || []
+  ) as HTMLTableCellElement[];
+  if (headers.length === 0) {
+    return {};
+  }
+
+  const nextWidths: Partial<Record<TableColumnKey, number>> = {};
+  TABLE_COLUMNS.forEach((columnDef, index) => {
+    const header = headers[index];
+    if (!header) {
+      return;
+    }
+    const minWidth = getTableColumnMinWidth(columnDef.key);
+    const measuredWidth = measureTableColumnWidth(header, minWidth);
+    if (measuredWidth > 0) {
+      nextWidths[columnDef.key] = measuredWidth;
+    }
+  });
+  return nextWidths;
+}
+
+function syncDefaultTableColumnWidths(): void {
+  if (hasManualColumnWidths.value) {
+    return;
+  }
+  const capturedWidths = captureTableColumnWidths();
+  if (Object.keys(capturedWidths).length > 0) {
+    defaultTableColumnWidths.value = capturedWidths;
+  }
+}
+
+function getDefaultTableColumnWidths(): Partial<Record<TableColumnKey, number>> {
+  if (Object.keys(defaultTableColumnWidths.value).length > 0) {
+    return { ...defaultTableColumnWidths.value };
+  }
+  const capturedWidths = captureTableColumnWidths();
+  if (Object.keys(capturedWidths).length > 0) {
+    defaultTableColumnWidths.value = capturedWidths;
+  }
+  return capturedWidths;
+}
+
+function areColumnWidthsMatchingDefaults(widths: Partial<Record<TableColumnKey, number>>): boolean {
+  const defaultWidths = getDefaultTableColumnWidths();
+  if (Object.keys(defaultWidths).length === 0) {
+    return false;
+  }
+  return TABLE_COLUMNS.every(({ key }) => {
+    const defaultWidth = defaultWidths[key];
+    const currentWidth = widths[key];
+    if (typeof defaultWidth !== 'number' || defaultWidth <= 0) {
+      return typeof currentWidth !== 'number' || currentWidth <= 0;
+    }
+    return typeof currentWidth === 'number' && Math.abs(currentWidth - defaultWidth) <= 1;
+  });
+}
+
+function updateColumnResizeWidth(clientX: number): void {
+  if (!activeColumnResize) {
+    return;
+  }
+  const deltaX = clientX - activeColumnResize.startX;
+  if (!activeColumnResize.hasActivated) {
+    if (Math.abs(deltaX) < COLUMN_RESIZE_DRAG_THRESHOLD) {
+      return;
+    }
+    activeColumnResize.hasActivated = true;
+    tableColumnWidths.value = {
+      ...activeColumnResize.baseWidths,
+      [activeColumnResize.column]: activeColumnResize.startWidth
+    };
+  }
+  const { column, startWidth } = activeColumnResize;
+  const minWidth = TABLE_COLUMN_MIN_WIDTHS[column];
+  const nextWidth = Math.max(minWidth, Math.round(startWidth + deltaX));
+  if (tableColumnWidths.value[column] === nextWidth) {
+    return;
+  }
+  tableColumnWidths.value = {
+    ...tableColumnWidths.value,
+    [column]: nextWidth
+  };
+  scheduleTableViewportMetrics();
+  scheduleTableRowMeasurement();
+}
+
+function handleColumnResizeMouseMove(event: MouseEvent): void {
+  if (!activeColumnResize) {
+    return;
+  }
+  updateColumnResizeWidth(event.clientX);
+}
+
+function stopColumnResize(): void {
+  if (!activeColumnResize) {
+    return;
+  }
+  const wasActivated = activeColumnResize.hasActivated;
+  activeColumnResize = null;
+  activeResizeColumn.value = null;
+  cleanupColumnResizeInteraction();
+  if (wasActivated) {
+    scheduleTableViewportMetrics();
+    scheduleTableRowMeasurement();
+  }
+}
+
+function startColumnResize(column: ResizableTableColumnKey, event: MouseEvent): void {
+  const header = (event.currentTarget as HTMLElement | null)?.closest('th') as HTMLTableCellElement | null;
+  if (!header) {
+    return;
+  }
+
+  if (activeColumnResize) {
+    stopColumnResize();
+  }
+
+  if (priorityPopover.value) {
+    priorityPopover.value = null;
+  }
+  if (statusPopover.value) {
+    statusPopover.value = null;
+  }
+  if (groupPopover.value) {
+    groupPopover.value = null;
+  }
+  if (datePopoverVisible.value) {
+    closeDatePopover();
+  }
+  if (timePopoverVisible.value) {
+    closeTimePopover();
+  }
+
+  const baseWidths = hasManualColumnWidths.value
+    ? { ...tableColumnWidths.value }
+    : getDefaultTableColumnWidths();
+  const measuredWidth = baseWidths[column] ?? measureTableColumnWidth(header, TABLE_COLUMN_MIN_WIDTHS[column]);
+
+  activeResizeColumn.value = column;
+  activeColumnResize = {
+    column,
+    startX: event.clientX,
+    startWidth: measuredWidth,
+    baseWidths,
+    hasActivated: false
+  };
+
+  cleanupColumnResizeInteraction();
+  document.addEventListener('mousemove', handleColumnResizeMouseMove);
+  document.addEventListener('mouseup', stopColumnResize);
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function resetColumnWidth(column: ResizableTableColumnKey): void {
+  if (!hasManualColumnWidths.value) {
+    return;
+  }
+  const defaultWidths = getDefaultTableColumnWidths();
+  const defaultWidth = defaultWidths[column];
+  if (typeof defaultWidth !== 'number' || defaultWidth <= 0) {
+    return;
+  }
+  const nextWidths = {
+    ...tableColumnWidths.value,
+    [column]: defaultWidth
+  };
+  tableColumnWidths.value = areColumnWidthsMatchingDefaults(nextWidths) ? {} : nextWidths;
   scheduleTableViewportMetrics();
   scheduleTableRowMeasurement();
 }
@@ -1450,21 +1902,21 @@ watch(
       syncTableViewportMetrics();
       isTableScrollActive = false;
       scheduleTableRowMeasurement();
+      syncDefaultTableColumnWidths();
     });
   },
   { immediate: true }
 );
 
 watch(
-  () => [expandedTasks.value, collapsedGroups.value, tableRows.value.length],
+  () => [expandedTasks.value, collapsedGroups.value],
   () => {
     nextTick(() => {
       scheduleTableViewportMetrics();
       isTableScrollActive = false;
       scheduleTableRowMeasurement();
     });
-  },
-  { immediate: true }
+  }
 );
 
 onMounted(() => {
@@ -1472,12 +1924,16 @@ onMounted(() => {
     syncTableViewportMetrics();
     isTableScrollActive = false;
     scheduleTableRowMeasurement();
+    syncDefaultTableColumnWidths();
   });
   window.addEventListener('resize', handleTableViewportResize);
   document.addEventListener('mousedown', handleDocumentMouseDown);
 });
 
 onUnmounted(() => {
+  activeColumnResize = null;
+  activeResizeColumn.value = null;
+  cleanupColumnResizeInteraction();
   if (tableMetricsRaf !== null) {
     cancelAnimationFrame(tableMetricsRaf);
     tableMetricsRaf = null;
@@ -1634,6 +2090,20 @@ function emitGroupArchiveTasks(group: TableTaskGroupSection): void {
 
 function handleTaskClick(task: Task, event?: MouseEvent) {
   emit('taskClick', task, event);
+}
+
+function handleTaskRowContextMenu(task: Task, event: MouseEvent) {
+  const target = event.target instanceof Element
+    ? event.target
+    : (event.target instanceof Node ? event.target.parentElement : null);
+  if (
+    target?.closest('button, input, textarea, select, a, [contenteditable="true"]')
+    || target?.closest('.task-checkbox-wrapper, .expand-arrow')
+  ) {
+    return;
+  }
+  event.preventDefault();
+  handleTaskClick(task, event);
 }
 
 function getTitleHtml(title?: string): string {
@@ -2178,6 +2648,12 @@ function toggleExpand(taskId: string) {
   font-size: 13px;
 }
 
+.tasks-table.has-manual-widths {
+  min-width: 0;
+  max-width: none;
+  table-layout: fixed;
+}
+
 .tasks-table thead {
   position: sticky;
   top: 0;
@@ -2188,11 +2664,13 @@ function toggleExpand(taskId: string) {
 .tasks-table th {
   padding: 10px 12px;
   text-align: left;
+  vertical-align: middle;
   font-weight: 500;
   color: var(--b3-theme-on-surface);
   background-color: var(--Sv-theme-surface, var(--b3-theme-surface));
   white-space: nowrap;
   position: relative;
+  box-sizing: border-box;
 }
 
 .tasks-table thead th:first-child {
@@ -2216,6 +2694,15 @@ function toggleExpand(taskId: string) {
   border-radius: 999px;
   background: var(--b3-border-color);
   opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+
+.tasks-table th.is-resizable {
+  padding-right: 18px;
+}
+
+.tasks-table th.is-resizable:hover::after {
+  opacity: 0.18;
 }
 
 .tasks-table th.sortable {
@@ -2232,6 +2719,49 @@ function toggleExpand(taskId: string) {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -6px;
+  width: 12px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 3;
+  touch-action: none;
+}
+
+.column-resize-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 52%;
+  border-radius: 999px;
+  background: var(--b3-border-color);
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.tasks-table th.is-resizable:hover .column-resize-handle::before,
+.column-resize-handle.is-active::before,
+.column-resize-handle:hover::before {
+  opacity: 1;
+}
+
+.column-resize-handle.is-active::before,
+.column-resize-handle:hover::before {
+  background: var(--b3-theme-primary);
+}
+
+.column-resize-handle:focus-visible {
+  outline: none;
 }
 
 .sort-indicator {
@@ -2276,6 +2806,7 @@ function toggleExpand(taskId: string) {
 .tasks-table td {
   padding: 6px 12px;
   border-bottom: 1px solid var(--b3-border-color);
+  box-sizing: border-box;
 }
 
 .task-row.is-terminal-row > td,
@@ -2315,6 +2846,65 @@ function toggleExpand(taskId: string) {
 .subtask-row > td > * {
   position: relative;
   z-index: 1;
+}
+
+.subtask-row:not(.is-last-subtask) > td.col-expand,
+.subtask-row:not(.is-last-subtask) > td.col-status {
+  border-bottom: none;
+}
+
+.subtask-row > td.col-expand > .subtask-tree-stem,
+.subtask-row > td.col-status > .subtask-tree-branch {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.subtask-row > td.col-expand > .subtask-tree-stem::before {
+  content: '';
+  position: absolute;
+  right: -19px;
+  top: -6px;
+  bottom: -1px;
+  width: 1px;
+  border-radius: 999px;
+  background: var(--b3-border-color);
+  opacity: 0.9;
+}
+
+.subtask-row.is-last-subtask > td.col-expand > .subtask-tree-stem::before {
+  bottom: calc(50% + 12px);
+}
+
+.subtask-row > td.col-status > .subtask-tree-branch {
+  overflow: visible;
+}
+
+.subtask-row > td.col-status > .subtask-tree-branch::before {
+  content: "";
+  position: absolute;
+  left: 30px;
+  top: 50%;
+  width: calc(100% - 24px);
+  height: 1.5px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--b3-border-color);
+  opacity: 0.9;
+}
+
+.subtask-row > td.col-status > .subtask-tree-branch::after {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 0px;
+  width: 12px;
+  height: calc(50% + 1px);
+  box-sizing: border-box;
+  border-left: 1.5px solid var(--b3-border-color);
+  border-bottom: 1.5px solid var(--b3-border-color);
+  border-bottom-left-radius: 20px;
 }
 
 .group-row td {
@@ -2381,10 +2971,23 @@ function toggleExpand(taskId: string) {
   font-size: 13px;
 }
 
+.group-row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .group-row-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--b3-theme-background);
   font-size: 11px;
   color: currentColor;
-  opacity: 0.7;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .column-add-task-btn,
@@ -2420,12 +3023,20 @@ function toggleExpand(taskId: string) {
 }
 
 .col-expand {
+  width: var(--table-col-expand-width, 40px);
+  min-width: var(--table-col-expand-width, 40px);
+  max-width: var(--table-col-expand-width, 40px);
   text-align: center;
 }
 
 .col-status {
+  width: var(--table-col-status-width, 40px);
+  min-width: var(--table-col-status-width, 40px);
+  max-width: var(--table-col-status-width, 40px);
   text-align: center;
 }
+
+
 
 .task-checkbox-wrapper {
   display: flex;
@@ -2448,19 +3059,22 @@ function toggleExpand(taskId: string) {
 }
 
 .col-title {
-  min-width: 150px;
+  width: var(--table-col-title-width, auto);
+  min-width: var(--table-col-title-width, 150px);
+  vertical-align: middle;
 }
 
 .title-wrapper {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
   justify-content: space-between;
+  min-height: 24px;
 }
 
 .title-main {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
@@ -2537,7 +3151,8 @@ function toggleExpand(taskId: string) {
   justify-content: center;
   cursor: pointer;
   flex: 0 0 auto;
-  margin-top: 1px;
+  align-self: center;
+  margin-top: 0;
   opacity: 0.7;
   transition: background-color 0.15s ease, opacity 0.15s ease;
 }
@@ -2548,7 +3163,8 @@ function toggleExpand(taskId: string) {
 }
 
 .col-description {
-  min-width: 200px;
+  width: var(--table-col-description-width, auto);
+  min-width: var(--table-col-description-width, 200px);
   position: relative;
 }
 
@@ -2602,7 +3218,8 @@ function toggleExpand(taskId: string) {
 
 
 .col-priority {
-  width: 60px;
+  width: var(--table-col-priority-width, 60px);
+  min-width: var(--table-col-priority-width, 60px);
   text-align: center;
 }
 
@@ -2646,14 +3263,16 @@ function toggleExpand(taskId: string) {
 }
 
 .col-status-text {
-  width: 60px;
+  width: var(--table-col-status-text-width, 60px);
+  min-width: var(--table-col-status-text-width, 60px);
   text-align: center;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .col-group {
-  width: 110px;
+  width: var(--table-col-group-width, 110px);
+  min-width: var(--table-col-group-width, 110px);
   text-align: center;
   cursor: pointer;
 }
@@ -2723,12 +3342,41 @@ function toggleExpand(taskId: string) {
 .col-due-time,
 .col-created-date,
 .col-updated-date {
-  width: 80px;
   text-align: center;
   white-space: nowrap;
   color: var(--b3-theme-on-surface);
   cursor: pointer;
   position: relative;
+}
+
+.col-start-date {
+  width: var(--table-col-start-date-width, 80px);
+  min-width: var(--table-col-start-date-width, 80px);
+}
+
+.col-start-time {
+  width: var(--table-col-start-time-width, 80px);
+  min-width: var(--table-col-start-time-width, 80px);
+}
+
+.col-due-date {
+  width: var(--table-col-due-date-width, 80px);
+  min-width: var(--table-col-due-date-width, 80px);
+}
+
+.col-due-time {
+  width: var(--table-col-due-time-width, 80px);
+  min-width: var(--table-col-due-time-width, 80px);
+}
+
+.col-created-date {
+  width: var(--table-col-created-date-width, 80px);
+  min-width: var(--table-col-created-date-width, 80px);
+}
+
+.col-updated-date {
+  width: var(--table-col-updated-date-width, 80px);
+  min-width: var(--table-col-updated-date-width, 80px);
 }
 
 .col-start-time,
@@ -2764,8 +3412,8 @@ function toggleExpand(taskId: string) {
 }
 
 .col-location {
-  width: calc(18% - 20px);
-  min-width: 100px;
+  width: var(--table-col-location-width, calc(18% - 20px));
+  min-width: var(--table-col-location-width, 100px);
 }
 
 .location-cell {

@@ -71,6 +71,16 @@
             </span>
           </button>
           <button
+            v-if="showFocus"
+            type="button"
+            class="task-editor-action-btn task-editor-focus-btn"
+            title="开始专注"
+            aria-label="开始专注"
+            @click.stop="$emit('focus')"
+          >
+            <Icon name="timer" width="14" height="14" />
+          </button>
+          <button
             type="button"
             class="task-editor-sidebar-close"
             title="关闭编辑器"
@@ -153,6 +163,16 @@
           </span>
         </button>
         <button
+          v-if="showFocus"
+          type="button"
+          class="task-editor-action-btn task-editor-focus-btn"
+          title="开始专注"
+          aria-label="开始专注"
+          @click.stop="$emit('focus')"
+        >
+          <Icon name="timer" width="14" height="14" />
+        </button>
+        <button
           type="button"
           class="task-editor-sidebar-close"
           title="关闭编辑器"
@@ -182,6 +202,7 @@ withDefaults(defineProps<{
   isArchived?: boolean;
   showDelete?: boolean;
   showPriority?: boolean;
+  showFocus?: boolean;
   priorityStyle?: Record<string, string>;
 }>(), {
   mode: 'sidebar',
@@ -193,6 +214,7 @@ withDefaults(defineProps<{
   isArchived: false,
   showDelete: false,
   showPriority: false,
+  showFocus: false,
   priorityStyle: () => ({})
 });
 
@@ -204,6 +226,7 @@ const emit = defineEmits<{
   archive: [];
   delete: [];
   priority: [event: MouseEvent];
+  focus: [];
   close: [];
 }>();
 
@@ -316,6 +339,24 @@ function handlePriorityClick(event: MouseEvent): void {
 
 .task-editor-priority-btn:hover .task-editor-priority-indicator {
   background-color: var(--b3-list-hover);
+}
+
+.task-editor-focus-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f98f7a;
+  background: rgb(249 143 122 / 0.12);
+  padding: 0;
+}
+
+.task-editor-focus-btn:hover {
+  background: rgb(249 143 122 / 0.2);
 }
 
 .task-editor-sidebar-move,

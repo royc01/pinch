@@ -39,6 +39,13 @@
             :options="timesPerDayOptions" 
           />
         </div>
+        <div class="form-group">
+          <label>困难程度</label>
+          <SySelect
+            v-model="localHabit.difficulty"
+            :options="difficultyOptions"
+          />
+        </div>
         
         <div class="form-group">
           <label>
@@ -76,7 +83,7 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
-import type { Habit as ApiHabit } from '@/api';
+import type { Habit as ApiHabit, HabitDifficulty } from '@/api';
 
 interface Habit extends ApiHabit {
   weeklyGoal?: number;
@@ -85,6 +92,7 @@ interface Habit extends ApiHabit {
 interface NewHabit {
   name: string;
   emoji: string;
+  difficulty: HabitDifficulty;
   frequency: string;
   timesPerDay: string | number;
   usePomodoro: boolean;
@@ -100,6 +108,7 @@ interface Props {
   show: boolean;
   mode: 'add' | 'edit';
   habit: Habit | NewHabit | null;
+  difficultyOptions: Option[];
   frequencyOptions: Option[];
   timesPerDayOptions: Option[];
   pomodoroDurationOptions: Option[];

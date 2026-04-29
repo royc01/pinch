@@ -24,6 +24,7 @@ export interface CRDTTask {
   groupId: CRDTField<string | undefined>;
   backgroundColor: CRDTField<string | undefined>;
   archived: CRDTField<boolean>;
+  completedAt: CRDTField<string | undefined>;
   archivedAt: CRDTField<string | undefined>;
   archiveReason: CRDTField<string | undefined>;
   deleted: CRDTField<boolean>;
@@ -117,6 +118,7 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
     groupId: mergeField(a.groupId, b.groupId),
     backgroundColor: mergeField(a.backgroundColor || b.backgroundColor, b.backgroundColor || a.backgroundColor),
     archived: mergeField(a.archived || b.archived, b.archived || a.archived),
+    completedAt: mergeField(a.completedAt || b.completedAt, b.completedAt || a.completedAt),
     archivedAt: mergeField(a.archivedAt || b.archivedAt, b.archivedAt || a.archivedAt),
     archiveReason: mergeField(a.archiveReason || b.archiveReason, b.archiveReason || a.archiveReason),
     deleted: mergeField(a.deleted, b.deleted),
@@ -153,6 +155,7 @@ export class TaskCRDTEngine {
       groupId: base,
       backgroundColor: base,
       archived: this.baseField(false),
+      completedAt: base,
       archivedAt: base,
       archiveReason: base,
       deleted: this.baseField(false),

@@ -433,6 +433,7 @@ onUnmounted(() => {
   background: transparent;
 }
 
+
 .task-editor-status-badge {
   display: flex;
   align-items: center;

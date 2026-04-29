@@ -14,7 +14,7 @@ import {
   openTab,
   type TProtyleAction
 } from "siyuan";
-import { eventBus } from "@/utils/eventBus";
+import { eventBus, Events } from "@/utils/eventBus";
 import { normalizeNotebookIds } from "@/utils/notebookIds";
 import {
   normalizeTaskReminderCustomTime,
@@ -23,13 +23,15 @@ import {
 } from "@/utils/taskReminder";
 import { formatTaskTitleHtml } from "@/utils/taskTitleFormat";
 import { usePlugin } from "@/main";
+import { awardTaskCompletion } from "@/rewardRepository";
 import {
   attachRepeatMetadataToTasks,
   materializeRepeatTasks,
   setTaskRepeatSeries,
   getTaskRepeatFrequency,
   setRepeatInstanceStatus,
-  type RepeatFrequency
+  type RepeatFrequency,
+  type RepeatMaterializeOptions
 } from "@/repeatRepository";
 import {
   extractDocumentIconFromBlockRow,
@@ -41,6 +43,53 @@ async function request(url: string, data: any) {
   let response: IWebSocketData = await fetchSyncPost(url, data);
   let res = response.code === 0 ? response.data : null;
   return res;
+}
+
+async function closeOpenMobileKanbanDialogIfNeeded(): Promise<void> {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  let dialog = document.querySelector(".pinch-mobile-kanban-dialog.b3-dialog--open") as HTMLElement | null;
+  if (!dialog) {
+    return;
+  }
+
+  eventBus.emit(Events.MOBILE_KANBAN_DIALOG_CLOSE_REQUEST);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    dialog = document.querySelector(".pinch-mobile-kanban-dialog.b3-dialog--open") as HTMLElement | null;
+    if (!dialog) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 16);
+    });
+  }
+
+  dialog = document.querySelector(".pinch-mobile-kanban-dialog.b3-dialog--open") as HTMLElement | null;
+  if (!dialog) {
+    return;
+  }
+
+  const closeButton = dialog.querySelector(
+    ".pinch-mobile-kanban-dialog-close-button, .b3-dialog__close"
+  ) as HTMLButtonElement | null;
+
+  if (!closeButton) {
+    return;
+  }
+
+  closeButton.click();
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (!dialog.isConnected || !dialog.classList.contains("b3-dialog--open")) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 16);
+    });
+  }
 }
 
 export async function openBlockById(
@@ -65,6 +114,7 @@ export async function openBlockById(
     const isMobile = frontend === "mobile" || frontend === "browser-mobile";
 
     if (isMobile) {
+      await closeOpenMobileKanbanDialogIfNeeded();
       openMobileFileById(plugin.app, normalizedId, action);
       return true;
     }
@@ -594,6 +644,7 @@ export interface Habit {
   id: string;
   name: string;
   emoji?: string;
+  difficulty: HabitDifficulty;
   frequency: 'daily' | 'weekly' | 'custom' | 'weekly1' | 'weekly2' | 'weekly3' | 'weekly4' | 'weekly5' | 'weekly6';
   timesPerDay?: number;
   noteDocId?: string;
@@ -613,6 +664,8 @@ export interface Habit {
   isPaused?: boolean;
   isPomodoroPaused?: boolean;
 }
+
+export type HabitDifficulty = 'easy' | 'medium' | 'hard';
 
 export interface HabitCalendarDay {
   date: string;
@@ -639,6 +692,13 @@ function normalizeHabitFrequency(frequency: unknown): Habit['frequency'] {
     return frequency as Habit['frequency'];
   }
   return 'daily';
+}
+
+function normalizeHabitDifficulty(difficulty: unknown): HabitDifficulty {
+  if (difficulty === 'easy' || difficulty === 'medium' || difficulty === 'hard') {
+    return difficulty;
+  }
+  return 'easy';
 }
 
 function normalizeHabitCalendar(calendar: unknown): HabitCalendarDay[] {
@@ -705,6 +765,7 @@ export async function getHabits(): Promise<Habit[]> {
         ...(habit as Habit),
         id: typeof habit.id === 'string' ? habit.id : `habit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         name: typeof habit.name === 'string' ? habit.name : '',
+        difficulty: normalizeHabitDifficulty(habit.difficulty),
         frequency: normalizeHabitFrequency(habit.frequency),
         calendar,
         completedToday,
@@ -751,6 +812,7 @@ export async function saveHabits(habits: Habit[]): Promise<void> {
           ...(habit as Habit),
           id: typeof habit.id === 'string' ? habit.id : `habit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           name: typeof habit.name === 'string' ? habit.name : '',
+          difficulty: normalizeHabitDifficulty(habit.difficulty),
           frequency: normalizeHabitFrequency(habit.frequency),
           calendar,
           completedToday,
@@ -833,8 +895,29 @@ export interface DailyFocusRecord {
   timestamp: number;
 }
 
+export interface FocusSessionRecord {
+  id: string;
+  date: string; // YYYY-MM-DD
+  minutes: number;
+  timestamp: number;
+  targetType: 'habit' | 'task' | 'unlinked';
+  targetId?: string;
+  targetName?: string;
+  targetEmoji?: string;
+  targetBlockId?: string;
+}
+
+export interface FocusSessionTargetInput {
+  type: 'habit' | 'task';
+  id: string;
+  name: string;
+  emoji?: string;
+  blockId?: string;
+}
+
 export interface FocusTimerData {
   dailyRecords: DailyFocusRecord[];
+  sessionRecords: FocusSessionRecord[];
 }
 
 export interface FocusStatsSummary {
@@ -851,27 +934,28 @@ export async function getFocusTimerData(): Promise<FocusTimerData> {
     const plugin = usePlugin();
     if (!plugin) {
       console.error('插件未初始化，无法读取数据');
-      return { dailyRecords: [] };
+      return { dailyRecords: [], sessionRecords: [] };
     }
     
     const data = await plugin.loadData('Pinch-focus-timer.json');
     
     if (data) {
-      const parsed: FocusTimerData = typeof data === 'string' ? JSON.parse(data) : data;
-      
-      if (!parsed.dailyRecords || !Array.isArray(parsed.dailyRecords)) {
-        return { dailyRecords: [] };
-      }
-      
-      return parsed;
+      const parsed = (typeof data === 'string' ? JSON.parse(data) : data) as Partial<FocusTimerData>;
+      const dailyRecords = Array.isArray(parsed.dailyRecords) ? parsed.dailyRecords : [];
+      const sessionRecords = normalizeFocusSessionRecords(parsed.sessionRecords);
+
+      return {
+        dailyRecords,
+        sessionRecords
+      };
     } else {
       // 文件不存在时返回空结构，避免首启报错
-      return { dailyRecords: [] };
+      return { dailyRecords: [], sessionRecords: [] };
     }
   } catch (error) {
     console.error('Error reading focus timer data:', error);
     // 读取失败时返回空结构
-    return { dailyRecords: [] };
+    return { dailyRecords: [], sessionRecords: [] };
   }
 }
 
@@ -922,14 +1006,79 @@ export async function saveFocusTimerData(data: FocusTimerData): Promise<void> {
     }
     
     // 直接保存对象，无需额外序列化
-    await plugin.saveData('Pinch-focus-timer.json', data);
+    await plugin.saveData('Pinch-focus-timer.json', {
+      dailyRecords: Array.isArray(data.dailyRecords) ? data.dailyRecords : [],
+      sessionRecords: Array.isArray(data.sessionRecords) ? data.sessionRecords : []
+    });
   } catch (error) {
     console.error('Error saving focus timer data:', error);
     throw error;
   }
 }
 
-export async function addFocusSession(duration: number): Promise<void> {
+function normalizeFocusSessionRecords(records: unknown): FocusSessionRecord[] {
+  if (!Array.isArray(records)) {
+    return [];
+  }
+
+  const normalized: FocusSessionRecord[] = [];
+
+  for (const item of records) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+
+    const record = item as Partial<FocusSessionRecord>;
+    const minutes = typeof record.minutes === 'number'
+      ? record.minutes
+      : Number(record.minutes);
+    const timestamp = typeof record.timestamp === 'number'
+      ? record.timestamp
+      : Number(record.timestamp);
+    const date = typeof record.date === 'string' ? record.date.trim() : '';
+
+    if (!date || !Number.isFinite(minutes) || minutes <= 0 || !Number.isFinite(timestamp)) {
+      continue;
+    }
+
+    const targetType = record.targetType === 'habit' || record.targetType === 'task'
+      ? record.targetType
+      : 'unlinked';
+    const targetId = typeof record.targetId === 'string' && record.targetId.trim().length > 0
+      ? record.targetId.trim()
+      : undefined;
+    const targetName = typeof record.targetName === 'string' && record.targetName.trim().length > 0
+      ? record.targetName.trim()
+      : undefined;
+    const targetEmoji = typeof record.targetEmoji === 'string' && record.targetEmoji.trim().length > 0
+      ? record.targetEmoji.trim()
+      : undefined;
+    const targetBlockId = typeof record.targetBlockId === 'string' && record.targetBlockId.trim().length > 0
+      ? record.targetBlockId.trim()
+      : undefined;
+
+    normalized.push({
+      id: typeof record.id === 'string' && record.id.trim().length > 0
+        ? record.id.trim()
+        : `focus-session-${timestamp}-${normalized.length}`,
+      date,
+      minutes,
+      timestamp,
+      targetType,
+      targetId,
+      targetName,
+      targetEmoji,
+      targetBlockId
+    });
+  }
+
+  return normalized;
+}
+
+export async function addFocusSession(
+  duration: number,
+  target: FocusSessionTargetInput | null = null
+): Promise<void> {
   try {
     const data = await getFocusTimerData();
     const today = new Date().toISOString().split('T')[0];
@@ -948,6 +1097,18 @@ export async function addFocusSession(duration: number): Promise<void> {
         timestamp: now
       });
     }
+
+    data.sessionRecords.push({
+      id: `focus-session-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      date: today,
+      minutes: duration,
+      timestamp: now,
+      targetType: target?.type ?? 'unlinked',
+      targetId: target?.id,
+      targetName: target?.name,
+      targetEmoji: target?.emoji,
+      targetBlockId: target?.blockId
+    });
 
     await saveFocusTimerData(data);
   } catch (error) {
@@ -1110,6 +1271,24 @@ export interface EmojiConfig {
 export type TaskStatus = 'pending' | 'in-progress' | 'delayed' | 'completed' | 'cancelled';
 export type TaskPriority = 'none' | 'high' | 'medium' | 'low';
 export type TaskType = 'standalone' | 'block';
+const TASK_COMPLETED_AT_ATTR = 'custom-task-completed-at';
+
+export function buildTaskStatusAttrs(status: TaskStatus, completedAt?: string): Record<string, string> {
+  if (status === 'completed') {
+    const normalizedCompletedAt = typeof completedAt === 'string' && completedAt.trim().length > 0
+      ? completedAt.trim()
+      : new Date().toISOString();
+    return {
+      'custom-task-status': status,
+      [TASK_COMPLETED_AT_ATTR]: normalizedCompletedAt
+    };
+  }
+
+  return {
+    'custom-task-status': status,
+    [TASK_COMPLETED_AT_ATTR]: ''
+  };
+}
 
 function taskStatusToTaskMarker(status: TaskStatus | undefined): " " | "x" {
   return status === 'completed' ? 'x' : ' ';
@@ -1266,8 +1445,45 @@ export interface TaskQueryScope {
   archivedOnly?: boolean;
 }
 
+type TaskFetchDetailLevel = 'full' | 'light';
+
+type RootTaskMetadataCacheEntry = {
+  updatedAt: string;
+  icon?: string;
+  documentOrderByBlockId: Map<string, number>;
+};
+
+export interface TaskRepeatWindow {
+  startDate: string;
+  endDate: string;
+}
+
+export const DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS = Object.freeze({
+  pastDays: 60,
+  futureDays: 120
+}) as Readonly<Required<Pick<RepeatMaterializeOptions, 'pastDays' | 'futureDays'>>>;
+
+export function resolveTaskRepeatMaterializeOptions(
+  repeatWindow?: TaskRepeatWindow | null
+): RepeatMaterializeOptions {
+  if (repeatWindow?.startDate && repeatWindow?.endDate) {
+    return {
+      startDate: repeatWindow.startDate,
+      endDate: repeatWindow.endDate
+    };
+  }
+
+  return {
+    pastDays: DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS.pastDays,
+    futureDays: DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS.futureDays
+  };
+}
+
 export interface TaskFetchOptions {
   useLiveDom?: boolean;
+  detailLevel?: TaskFetchDetailLevel;
+  materializeRepeats?: boolean;
+  repeatWindow?: TaskRepeatWindow;
 }
 
 function generateTaskId(): string {
@@ -1278,10 +1494,22 @@ export class TaskRepository {
   private static memoryCache: {
     tasks: Task[] | null;
     timestamp: number;
-  } = { tasks: null, timestamp: 0 };
-  private static blockTasksFetchPromise: Promise<Task[]> | null = null;
-  private static scopedMemoryCache = new Map<string, { tasks: Task[]; timestamp: number }>();
-  private static scopedBlockTasksFetchPromises = new Map<string, Promise<Task[]>>();
+    detailLevel: TaskFetchDetailLevel;
+  } = { tasks: null, timestamp: 0, detailLevel: 'full' };
+  private static blockTasksFetchPromise: {
+    promise: Promise<Task[]>;
+    detailLevel: TaskFetchDetailLevel;
+  } | null = null;
+  private static scopedMemoryCache = new Map<string, {
+    tasks: Task[];
+    timestamp: number;
+    detailLevel: TaskFetchDetailLevel;
+  }>();
+  private static scopedBlockTasksFetchPromises = new Map<string, {
+    promise: Promise<Task[]>;
+    detailLevel: TaskFetchDetailLevel;
+  }>();
+  private static rootTaskMetadataCache = new Map<string, RootTaskMetadataCacheEntry>();
   private static excludedNotebookIds = new Set<string>();
   private static inferredDatePersistingBlockIds = new Set<string>();
   private static autoRecognizeTaskDateEnabled: boolean | null = null;
@@ -1291,6 +1519,7 @@ export class TaskRepository {
   private static readonly MEMORY_CACHE_DURATION = 5000; // 5 秒内存缓存
   private static readonly SCOPED_MEMORY_CACHE_DURATION = 60000; // 60 秒筛选范围缓存
   private static readonly SCOPED_CACHE_MAX_ENTRIES = 30;
+  private static readonly ROOT_TASK_METADATA_CACHE_MAX_ENTRIES = 500;
   private static readonly TASK_CONTAINER_ATTR = 'custom-task-container';
   private static readonly SETTINGS_LOCAL_STORAGE_KEY = 'siyuan-stand-settings';
 
@@ -1421,7 +1650,22 @@ export class TaskRepository {
     )`;
   }
 
-  private static buildScopeCacheKey(scope: TaskQueryScope | null, useLiveDom: boolean = true): string {
+  private static resolveTaskFetchDetailLevel(options: TaskFetchOptions = {}): TaskFetchDetailLevel {
+    return options.detailLevel === 'light' ? 'light' : 'full';
+  }
+
+  private static isTaskFetchDetailLevelSatisfied(
+    available: TaskFetchDetailLevel,
+    requested: TaskFetchDetailLevel
+  ): boolean {
+    return available === 'full' || available === requested;
+  }
+
+  private static buildScopeCacheKey(
+    scope: TaskQueryScope | null,
+    useLiveDom: boolean = true,
+    detailLevel: TaskFetchDetailLevel = 'full'
+  ): string {
     const notebookKey = scope?.notebookId || '*';
     const documentKey = scope?.documentId || '*';
     const includeCompletedKey = scope?.includeCompleted === false ? 'open-only' : 'all-status';
@@ -1430,16 +1674,21 @@ export class TaskRepository {
       : (scope?.includeArchived === true ? 'include-archived' : 'active-only');
     const excludedKey = this.getExcludedNotebookIdsSorted().join(',');
     const domKey = useLiveDom ? 'live-dom' : 'api-dom-only';
-    return `${notebookKey}|${documentKey}|${includeCompletedKey}|${archiveKey}|${excludedKey}|${domKey}`;
+    return `${notebookKey}|${documentKey}|${includeCompletedKey}|${archiveKey}|${excludedKey}|${domKey}|${detailLevel}`;
   }
 
-  private static setScopedMemoryCache(key: string, tasks: Task[]): void {
+  private static setScopedMemoryCache(
+    key: string,
+    tasks: Task[],
+    detailLevel: TaskFetchDetailLevel
+  ): void {
     if (this.scopedMemoryCache.has(key)) {
       this.scopedMemoryCache.delete(key);
     }
     this.scopedMemoryCache.set(key, {
       tasks,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      detailLevel
     });
 
     while (this.scopedMemoryCache.size > this.SCOPED_CACHE_MAX_ENTRIES) {
@@ -1457,7 +1706,7 @@ export class TaskRepository {
     }
 
     this.excludedNotebookIds = new Set(normalized);
-    this.memoryCache = { tasks: null, timestamp: 0 };
+    this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
     this.scopedMemoryCache.clear();
     this.scopedBlockTasksFetchPromises.clear();
   }
@@ -1545,6 +1794,27 @@ export class TaskRepository {
     } catch {
       return '';
     }
+  }
+
+  private static resolveTaskCompletedAt(
+    attrs: Record<string, string>,
+    status: TaskStatus,
+    fallbackRaw?: string | number
+  ): string | undefined {
+    const completedAtRaw = (attrs[TASK_COMPLETED_AT_ATTR] || '')
+      .split(',')
+      .map(item => item.trim())
+      .filter(item => item.length > 0)
+      .pop() || '';
+    const completedAt = this.parseBlockDateTime(completedAtRaw);
+    if (completedAt) {
+      return completedAt;
+    }
+    if (status !== 'completed') {
+      return undefined;
+    }
+    const fallback = this.parseBlockDateTime(fallbackRaw);
+    return fallback || undefined;
   }
 
   private static formatDateString(date: Date): string {
@@ -1904,31 +2174,71 @@ export class TaskRepository {
     rootIds: string[],
     preloadedDomMap?: Map<string, BlockDOMResponse>
   ): Promise<Map<string, string>> {
-    const iconMap = new Map<string, string>();
+    return (await this.resolveRootTaskMetadata(rootIds, preloadedDomMap)).rootIcons;
+  }
+
+  private static async buildTaskDocumentOrderByRoots(
+    rootIds: string[],
+    preloadedDomMap?: Map<string, BlockDOMResponse>
+  ): Promise<Map<string, number>> {
+    return (await this.resolveRootTaskMetadata(rootIds, preloadedDomMap)).documentOrderByBlockId;
+  }
+
+  private static setRootTaskMetadataCacheEntry(rootId: string, entry: RootTaskMetadataCacheEntry): void {
+    if (!rootId) {
+      return;
+    }
+    if (this.rootTaskMetadataCache.has(rootId)) {
+      this.rootTaskMetadataCache.delete(rootId);
+    }
+    this.rootTaskMetadataCache.set(rootId, entry);
+
+    while (this.rootTaskMetadataCache.size > this.ROOT_TASK_METADATA_CACHE_MAX_ENTRIES) {
+      const oldestKey = this.rootTaskMetadataCache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      this.rootTaskMetadataCache.delete(oldestKey);
+    }
+  }
+
+  private static buildTaskDocumentOrderFromDom(
+    dom: string,
+    parser: DOMParser
+  ): Map<string, number> {
+    const orderMap = new Map<string, number>();
+    if (typeof dom !== 'string' || dom.trim().length === 0) {
+      return orderMap;
+    }
+
+    const doc = parser.parseFromString(dom, 'text/html');
+    let order = 0;
+    const taskItems = doc.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"][data-node-id]');
+    taskItems.forEach((item) => {
+      const blockId = item.getAttribute('data-node-id');
+      if (!blockId || orderMap.has(blockId)) {
+        return;
+      }
+      const hasTaskAction = item.querySelector('.protyle-action--task');
+      if (!hasTaskAction) {
+        return;
+      }
+      orderMap.set(blockId, order);
+      order += 1;
+    });
+
+    return orderMap;
+  }
+
+  private static async loadRootBlockRows(rootIds: string[]): Promise<Map<string, Record<string, unknown>>> {
+    const rootRowsById = new Map<string, Record<string, unknown>>();
     const uniqueRootIds = Array.from(new Set(rootIds.filter(id => typeof id === 'string' && id.length > 0)));
     if (uniqueRootIds.length === 0) {
-      return iconMap;
+      return rootRowsById;
     }
 
     try {
-      const rootAttrsMap = await batchGetBlockAttrs(uniqueRootIds);
-      rootAttrsMap.forEach((attrs, rootId) => {
-        const icon = normalizeDocumentIconValue(attrs?.icon);
-        if (icon) {
-          iconMap.set(rootId, icon);
-        }
-      });
-    } catch (error) {
-      console.warn('[TaskRepository] 读取文档属性图标失败，将尝试 DOM 图标', error);
-    }
-
-    let unresolvedRootIds = uniqueRootIds.filter(rootId => !iconMap.has(rootId));
-    if (unresolvedRootIds.length === 0) {
-      return iconMap;
-    }
-
-    try {
-      const rootIdSql = unresolvedRootIds
+      const rootIdSql = uniqueRootIds
         .map(id => `'${this.escapeSqlLiteral(id)}'`)
         .join(',');
       const rootRows = await sql(`
@@ -1938,93 +2248,118 @@ export class TaskRepository {
       `) as Array<Record<string, unknown>>;
       for (const row of rootRows) {
         const rootId = typeof row?.id === 'string' ? row.id : '';
-        if (!rootId || iconMap.has(rootId)) {
-          continue;
-        }
-        const iconFromRoot = extractDocumentIconFromBlockRow(row);
-        if (iconFromRoot) {
-          iconMap.set(rootId, iconFromRoot);
+        if (rootId) {
+          rootRowsById.set(rootId, row);
         }
       }
     } catch (error) {
-      console.warn('[TaskRepository] 读取文档 IAL 图标失败，将尝试 DOM 图标', error);
+      console.warn('[TaskRepository] 读取文档块元数据失败', error);
     }
 
-    unresolvedRootIds = uniqueRootIds.filter(rootId => !iconMap.has(rootId));
-    if (unresolvedRootIds.length === 0) {
-      return iconMap;
-    }
-
-    const domFallbackRootIds: string[] = [];
-    if (preloadedDomMap) {
-      for (const rootId of unresolvedRootIds) {
-        const iconFromDom = extractDocumentIconFromDom(preloadedDomMap.get(rootId)?.dom);
-        if (iconFromDom) {
-          iconMap.set(rootId, iconFromDom);
-        } else {
-          domFallbackRootIds.push(rootId);
-        }
-      }
-    } else {
-      domFallbackRootIds.push(...unresolvedRootIds);
-    }
-
-    if (domFallbackRootIds.length > 0) {
-      try {
-        const domMap = await batchGetBlockDOM(domFallbackRootIds);
-        for (const rootId of domFallbackRootIds) {
-          const iconFromDom = extractDocumentIconFromDom(domMap.get(rootId)?.dom);
-          if (iconFromDom) {
-            iconMap.set(rootId, iconFromDom);
-          }
-        }
-      } catch (error) {
-        console.warn('[TaskRepository] 读取文档 DOM 图标失败', error);
-      }
-    }
-
-    return iconMap;
+    return rootRowsById;
   }
 
-  private static async buildTaskDocumentOrderByRoots(
+  private static async resolveRootTaskMetadata(
     rootIds: string[],
     preloadedDomMap?: Map<string, BlockDOMResponse>
-  ): Promise<Map<string, number>> {
-    const orderMap = new Map<string, number>();
+  ): Promise<{
+    documentOrderByBlockId: Map<string, number>;
+    rootIcons: Map<string, string>;
+  }> {
+    const documentOrderByBlockId = new Map<string, number>();
+    const rootIcons = new Map<string, string>();
     const uniqueRootIds = Array.from(new Set(rootIds.filter(id => typeof id === 'string' && id.length > 0)));
     if (uniqueRootIds.length === 0) {
-      return orderMap;
+      return { documentOrderByBlockId, rootIcons };
+    }
+
+    const rootRowsById = await this.loadRootBlockRows(uniqueRootIds);
+    const staleRootIds: string[] = [];
+
+    for (const rootId of uniqueRootIds) {
+      const rootRow = rootRowsById.get(rootId);
+      const updatedAt = typeof rootRow?.updated === 'string' ? rootRow.updated : '';
+      const cachedEntry = this.rootTaskMetadataCache.get(rootId);
+      if (cachedEntry && cachedEntry.updatedAt === updatedAt) {
+        if (cachedEntry.icon) {
+          rootIcons.set(rootId, cachedEntry.icon);
+        }
+        cachedEntry.documentOrderByBlockId.forEach((order, blockId) => {
+          documentOrderByBlockId.set(blockId, order);
+        });
+        this.setRootTaskMetadataCacheEntry(rootId, cachedEntry);
+        continue;
+      }
+      if (cachedEntry) {
+        this.rootTaskMetadataCache.delete(rootId);
+      }
+      staleRootIds.push(rootId);
+    }
+
+    if (staleRootIds.length === 0) {
+      return { documentOrderByBlockId, rootIcons };
     }
 
     try {
-      const domMap = preloadedDomMap || await batchGetBlockDOM(uniqueRootIds);
-      const parser = new DOMParser();
-      for (const rootId of uniqueRootIds) {
-        const dom = domMap.get(rootId)?.dom;
-        if (!dom) {
-          continue;
+      const rootAttrsMap = await batchGetBlockAttrs(staleRootIds);
+      rootAttrsMap.forEach((attrs, rootId) => {
+        const icon = normalizeDocumentIconValue(attrs?.icon);
+        if (icon) {
+          rootIcons.set(rootId, icon);
         }
-        const doc = parser.parseFromString(dom, 'text/html');
-        let order = 0;
-        const taskItems = doc.querySelectorAll('[data-type="NodeListItem"][data-subtype="t"][data-node-id]');
-        taskItems.forEach((item) => {
-          const blockId = item.getAttribute('data-node-id');
-          if (!blockId || orderMap.has(blockId)) {
-            return;
-          }
-          const hasTaskAction = item.querySelector('.protyle-action--task');
-          if (!hasTaskAction) {
-            return;
-          }
-          orderMap.set(blockId, order);
-          order += 1;
-        });
-      }
+      });
     } catch (error) {
-      console.warn('[TaskRepository] 解析文档任务顺序失败，回退至默认排序', error);
+      console.warn('[TaskRepository] 读取文档属性图标失败，将尝试块属性或 DOM 图标', error);
     }
 
-    return orderMap;
+    for (const rootId of staleRootIds) {
+      if (rootIcons.has(rootId)) {
+        continue;
+      }
+      const iconFromRoot = extractDocumentIconFromBlockRow(rootRowsById.get(rootId) || {});
+      if (iconFromRoot) {
+        rootIcons.set(rootId, iconFromRoot);
+      }
+    }
+
+    let fetchedDomMap = preloadedDomMap;
+    if (!fetchedDomMap) {
+      try {
+        fetchedDomMap = await batchGetBlockDOM(staleRootIds);
+      } catch (error) {
+        console.warn('[TaskRepository] 读取文档 DOM 失败，回退至默认排序', error);
+        fetchedDomMap = new Map<string, BlockDOMResponse>();
+      }
+    }
+    const domMap = fetchedDomMap || new Map<string, BlockDOMResponse>();
+
+    const parser = new DOMParser();
+    for (const rootId of staleRootIds) {
+      const rootRow = rootRowsById.get(rootId);
+      const updatedAt = typeof rootRow?.updated === 'string' ? rootRow.updated : '';
+      const dom = domMap.get(rootId)?.dom;
+      if (rootIcons.has(rootId) === false) {
+        const iconFromDom = extractDocumentIconFromDom(dom);
+        if (iconFromDom) {
+          rootIcons.set(rootId, iconFromDom);
+        }
+      }
+      if (!dom) {
+        continue;
+      }
+
+      const rootOrderMap = this.buildTaskDocumentOrderFromDom(dom, parser);
+      rootOrderMap.forEach((order, blockId) => {
+        documentOrderByBlockId.set(blockId, order);
+      });
+      this.setRootTaskMetadataCacheEntry(rootId, {
+        updatedAt,
+        icon: rootIcons.get(rootId),
+        documentOrderByBlockId: rootOrderMap
+      });
+    }
+
+    return { documentOrderByBlockId, rootIcons };
   }
 
   private static normalizeTaskArchiveReason(value: string | undefined): 'manual' | 'auto' | undefined {
@@ -2267,10 +2602,10 @@ export class TaskRepository {
     options: TaskFetchOptions = {}
   ): Promise<Task[]> {
     const blockTasks = await this.getBlockTasks(useCache, scope, options);
-    return materializeRepeatTasks(blockTasks, {
-      pastDays: 60,
-      futureDays: 120
-    });
+    if (options.materializeRepeats === false) {
+      return blockTasks;
+    }
+    return materializeRepeatTasks(blockTasks, resolveTaskRepeatMaterializeOptions(options.repeatWindow));
   }
 
   private static async getCachedBlockTasks(): Promise<Task[] | null> {
@@ -2313,23 +2648,24 @@ export class TaskRepository {
 
     const tasks = data.tasks.map((t: Task) => ({
       ...t,
-      icon: unicodeToEmoji(t.icon)
+      icon: unicodeToEmoji(t.icon),
+      completedAt: t.completedAt || (t.status === 'completed' ? this.parseBlockDateTime(t.updatedAt) || undefined : undefined)
     }));
 
-    this.memoryCache = { tasks, timestamp: now };
+    this.memoryCache = { tasks, timestamp: now, detailLevel: 'full' };
     return tasks;
   }
 
-  static async getCachedTasksOnly(): Promise<Task[]> {
+  static async getCachedTasksOnly(options: TaskFetchOptions = {}): Promise<Task[]> {
     const cachedBlockTasks = await this.getCachedBlockTasks();
     if (!cachedBlockTasks) {
       return [];
     }
+    if (options.materializeRepeats === false) {
+      return cachedBlockTasks;
+    }
 
-    return materializeRepeatTasks(cachedBlockTasks, {
-      pastDays: 60,
-      futureDays: 120
-    });
+    return materializeRepeatTasks(cachedBlockTasks, resolveTaskRepeatMaterializeOptions(options.repeatWindow));
   }
   
   static async getBlockTasks(
@@ -2339,45 +2675,54 @@ export class TaskRepository {
   ): Promise<Task[]> {
     const normalizedScope = this.normalizeTaskQueryScope(scope);
     const useLiveDom = options.useLiveDom !== false;
+    const detailLevel = this.resolveTaskFetchDetailLevel(options);
     const isScopedQuery = !!normalizedScope;
     const now = Date.now();
 
     // 1. 内存缓存
     if (!isScopedQuery && useCache && this.memoryCache.tasks &&
-      now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION) {
+      now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION &&
+      this.isTaskFetchDetailLevelSatisfied(this.memoryCache.detailLevel, detailLevel)) {
       return this.memoryCache.tasks;
     }
     
     // 2. 磁盘缓存
     if (!isScopedQuery && useCache) {
       const cachedTasks = await this.getCachedBlockTasks();
-      if (cachedTasks) {
+      if (cachedTasks && this.isTaskFetchDetailLevelSatisfied(this.memoryCache.detailLevel, detailLevel)) {
         return cachedTasks;
       }
     }
 
     if (isScopedQuery) {
-      const scopedCacheKey = this.buildScopeCacheKey(normalizedScope, useLiveDom);
+      const scopedCacheKey = this.buildScopeCacheKey(normalizedScope, useLiveDom, detailLevel);
       if (useCache) {
         const scopedCached = this.scopedMemoryCache.get(scopedCacheKey);
-        if (scopedCached && now - scopedCached.timestamp < this.SCOPED_MEMORY_CACHE_DURATION) {
+        if (
+          scopedCached &&
+          now - scopedCached.timestamp < this.SCOPED_MEMORY_CACHE_DURATION &&
+          this.isTaskFetchDetailLevelSatisfied(scopedCached.detailLevel, detailLevel)
+        ) {
           return scopedCached.tasks;
         }
       }
 
       const scopedInFlight = this.scopedBlockTasksFetchPromises.get(scopedCacheKey);
-      if (scopedInFlight) {
-        return scopedInFlight;
+      if (scopedInFlight && this.isTaskFetchDetailLevelSatisfied(scopedInFlight.detailLevel, detailLevel)) {
+        return scopedInFlight.promise;
       }
 
       const scopedFetchPromise = (async () => {
-        const tasks = await this.fetchBlockTasks(normalizedScope, useLiveDom);
+        const tasks = await this.fetchBlockTasks(normalizedScope, useLiveDom, detailLevel);
         if (useCache) {
-          this.setScopedMemoryCache(scopedCacheKey, tasks);
+          this.setScopedMemoryCache(scopedCacheKey, tasks, detailLevel);
         }
         return tasks;
       })();
-      this.scopedBlockTasksFetchPromises.set(scopedCacheKey, scopedFetchPromise);
+      this.scopedBlockTasksFetchPromises.set(scopedCacheKey, {
+        promise: scopedFetchPromise,
+        detailLevel
+      });
 
       try {
         return await scopedFetchPromise;
@@ -2387,19 +2732,29 @@ export class TaskRepository {
     }
 
     // 3. 全量查询并回写缓存（in-flight 去重，避免并发全量扫描）
-    if (this.blockTasksFetchPromise) {
-      return this.blockTasksFetchPromise;
+    if (
+      this.blockTasksFetchPromise &&
+      this.isTaskFetchDetailLevelSatisfied(this.blockTasksFetchPromise.detailLevel, detailLevel)
+    ) {
+      return this.blockTasksFetchPromise.promise;
     }
 
-    this.blockTasksFetchPromise = (async () => {
-      const tasks = await this.fetchBlockTasks(null, useLiveDom);
-      await this.saveBlockTasksCache(tasks);
-      this.memoryCache = { tasks, timestamp: Date.now() };
+    const globalFetchPromise = (async () => {
+      const tasks = await this.fetchBlockTasks(null, useLiveDom, detailLevel);
+      if (detailLevel === 'full') {
+        await this.saveBlockTasksCache(tasks);
+      } else {
+        this.memoryCache = { tasks, timestamp: Date.now(), detailLevel };
+      }
       return tasks;
     })();
+    this.blockTasksFetchPromise = {
+      promise: globalFetchPromise,
+      detailLevel
+    };
 
     try {
-      return await this.blockTasksFetchPromise;
+      return await globalFetchPromise;
     } finally {
       this.blockTasksFetchPromise = null;
     }
@@ -2432,11 +2787,12 @@ export class TaskRepository {
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) as custom_task_pinned,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) as custom_task_archived,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-completed-at' THEN a.value END) as custom_task_completed_at,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) as custom_task_archived_at,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
-        FROM blocks b
-        LEFT JOIN attributes a ON b.id = a.block_id
-          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-archived-at', 'custom-task-archive-reason')
+         FROM blocks b
+         LEFT JOIN attributes a ON b.id = a.block_id
+          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
         WHERE b.id IN (${idsClause})
           ${this.buildNotebookScopeSql('b')}
           ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -2452,9 +2808,10 @@ export class TaskRepository {
       }
 
       const rootIds = Array.from(new Set(rows.map(row => row.root_id).filter((id): id is string => !!id)));
-      const rootDomMap = rootIds.length > 0 ? await batchGetBlockDOM(rootIds) : new Map<string, BlockDOMResponse>();
-      const documentOrderByBlockId = await this.buildTaskDocumentOrderByRoots(rootIds, rootDomMap);
-      const rootIcons = await this.buildDocumentIconMap(rootIds, rootDomMap);
+      const {
+        documentOrderByBlockId,
+        rootIcons
+      } = await this.resolveRootTaskMetadata(rootIds);
 
       const domMap = await batchGetBlockDOM(rows.map(row => row.id));
       const protyleElement = useLiveDom ? document.querySelector('.protyle') : null;
@@ -2477,6 +2834,7 @@ export class TaskRepository {
           'custom-task-pinned': row.custom_task_pinned,
           'custom-task-background-color': row.custom_task_background_color,
           'custom-task-archived': row.custom_task_archived,
+          'custom-task-completed-at': row.custom_task_completed_at,
           'custom-task-archived-at': row.custom_task_archived_at,
           'custom-task-archive-reason': row.custom_task_archive_reason
         };
@@ -2562,6 +2920,7 @@ export class TaskRepository {
           backgroundColor: attrs['custom-task-background-color'],
           subtasks: subtasks.length > 0 ? subtasks : undefined,
           archived,
+          completedAt: this.resolveTaskCompletedAt(attrs, status, row.updated),
           archivedAt: archived && archivedAtRaw ? archivedAtRaw : undefined,
           archiveReason: archived ? archiveReason : undefined,
           createdAt: this.parseBlockDateTime(row.created),
@@ -2578,11 +2937,13 @@ export class TaskRepository {
   
   private static async fetchBlockTasks(
     scope: TaskQueryScope | null = null,
-    useLiveDom: boolean = true
+    useLiveDom: boolean = true,
+    detailLevel: TaskFetchDetailLevel = 'full'
   ): Promise<Task[]> {
     const tasks: Task[] = [];
     const BATCH_SIZE = TASK_CONFIG.BATCH_SIZE;
     const shouldFilterTopLevelCompleted = !useLiveDom && scope?.includeCompleted === false;
+    const shouldBuildNestedSubtasks = !useLiveDom && detailLevel === 'full';
     
     try {
       const notebookScopeSql = this.buildNotebookScopeSql(null);
@@ -2632,11 +2993,12 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) as custom_task_pinned,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) as custom_task_archived,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-completed-at' THEN a.value END) as custom_task_completed_at,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) as custom_task_archived_at,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
           FROM blocks b
           LEFT JOIN attributes a ON b.id = a.block_id
-            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-archived-at', 'custom-task-archive-reason')
+            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
           WHERE (b.type = 'i' OR b.type = 'p')
             ${this.buildNotebookScopeSql('b')}
             ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -2758,15 +3120,22 @@ export class TaskRepository {
           'custom-task-pinned': block.custom_task_pinned,
           'custom-task-background-color': block.custom_task_background_color,
           'custom-task-archived': block.custom_task_archived,
+          'custom-task-completed-at': block.custom_task_completed_at,
           'custom-task-archived-at': block.custom_task_archived_at,
           'custom-task-archive-reason': block.custom_task_archive_reason
         });
       });
       
-      const rootIds = Array.from(rootIdSet);
-      const rootDomMap = rootIds.length > 0 ? await batchGetBlockDOM(rootIds) : new Map<string, BlockDOMResponse>();
-      const documentOrderByBlockId = await this.buildTaskDocumentOrderByRoots(rootIds, rootDomMap);
-      const rootIcons = await this.buildDocumentIconMap(rootIds, rootDomMap);
+      const rootIds = detailLevel === 'full' ? Array.from(rootIdSet) : [];
+      const {
+        documentOrderByBlockId,
+        rootIcons
+      } = detailLevel === 'full'
+        ? await this.resolveRootTaskMetadata(rootIds)
+        : {
+          documentOrderByBlockId: new Map<string, number>(),
+          rootIcons: new Map<string, string>()
+        };
       const taskBlockById = new Map<string, SiyuanBlock>();
       const subtaskChildIdsByParentTask = new Map<string, string[]>();
       const sqlSubtasksMemo = new Map<string, SubTask[]>();
@@ -2845,7 +3214,7 @@ export class TaskRepository {
         return null;
       };
 
-      if (!useLiveDom) {
+      if (shouldBuildNestedSubtasks) {
         for (const block of allBlocks) {
           const parentTaskId = resolveNearestTaskParentId(block);
           if (parentTaskId && parentTaskId !== block.id) {
@@ -3068,10 +3437,14 @@ export class TaskRepository {
               status = 'pending';
             }
 
-            const sqlSubtasks = buildSqlSubtasksForParent(parentBlock.id);
+            const sqlSubtasks = shouldBuildNestedSubtasks
+              ? buildSqlSubtasksForParent(parentBlock.id)
+              : [];
             const subtasks = sqlSubtasks.length > 0 ? sqlSubtasks : undefined;
             markSubtaskNodesProcessed(subtasks);
-            const docIcon = parentBlock.root_id ? rootIcons.get(parentBlock.root_id) : undefined;
+            const docIcon = detailLevel === 'full' && parentBlock.root_id
+              ? rootIcons.get(parentBlock.root_id)
+              : undefined;
             const title = buildFastTitleFromBlock(parentBlock);
             const dateRange = this.resolveTaskDateRange(attrs, title, {
               allowInferFromTitle: true,
@@ -3091,7 +3464,9 @@ export class TaskRepository {
               type: 'block',
               blockId: parentBlock.id,
               blockSort: this.normalizeTaskBlockSort(parentBlock.sort),
-              documentOrder: documentOrderByBlockId.get(parentBlock.id),
+              documentOrder: detailLevel === 'full'
+                ? documentOrderByBlockId.get(parentBlock.id)
+                : undefined,
               rootId: parentBlock.root_id,
               title,
               status,
@@ -3112,6 +3487,7 @@ export class TaskRepository {
               backgroundColor: attrs['custom-task-background-color'],
               subtasks,
               archived,
+              completedAt: this.resolveTaskCompletedAt(attrs, status, parentBlock.updated),
               archivedAt: archived && archivedAtRaw ? archivedAtRaw : undefined,
               archiveReason: archived ? archiveReason : undefined,
               createdAt: this.parseBlockDateTime(parentBlock.created),
@@ -3279,6 +3655,7 @@ export class TaskRepository {
             backgroundColor: attrs['custom-task-background-color'],
             subtasks: subtasks.length > 0 ? subtasks : undefined,
             archived,
+            completedAt: this.resolveTaskCompletedAt(attrs, status, parentBlock.updated),
             archivedAt: archived && archivedAtRaw ? archivedAtRaw : undefined,
             archiveReason: archived ? archiveReason : undefined,
             createdAt: this.parseBlockDateTime(parentBlock.created),
@@ -3321,13 +3698,13 @@ export class TaskRepository {
       excludedNotebookIds: this.getExcludedNotebookIdsSorted(),
       updatedAt: new Date().toISOString()
     });
-    this.memoryCache = { tasks, timestamp: Date.now() };
+    this.memoryCache = { tasks, timestamp: Date.now(), detailLevel: 'full' };
   }
   
   static async clearCache(): Promise<void> {
     const plugin = usePlugin();
     await plugin.saveData('stand-block-tasks-cache.json', {});
-    this.memoryCache = { tasks: null, timestamp: 0 };
+    this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
     this.scopedMemoryCache.clear();
     this.scopedBlockTasksFetchPromises.clear();
   }
@@ -3406,6 +3783,11 @@ export class TaskRepository {
 
     if (task.status && task.status !== 'pending') {
       attrs['custom-task-status'] = task.status;
+    }
+    if (task.status === 'completed') {
+      attrs[TASK_COMPLETED_AT_ATTR] = typeof task.completedAt === 'string' && task.completedAt.trim().length > 0
+        ? task.completedAt.trim()
+        : new Date().toISOString();
     }
 
     const taskMarkdown = task.status === 'completed' ? `- [x] ${trimmedTitle}` : `- [ ] ${trimmedTitle}`;
@@ -3575,7 +3957,8 @@ export class TaskRepository {
           blockId: listItemBlockId || result[0].doOperations[0].id
         };
 
-        eventBus.emit('task-added', createResult);
+        await this.clearCache();
+        eventBus.emit(Events.TASK_ADDED, createResult);
 
         return createResult;
       }
@@ -3595,7 +3978,9 @@ export class TaskRepository {
 
     const attrsToUpdate: { [key: string]: string } = {};
     if (updates.status !== undefined) {
-      attrsToUpdate['custom-task-status'] = updates.status || '';
+      const statusAttrs = buildTaskStatusAttrs(updates.status, updates.completedAt);
+      attrsToUpdate['custom-task-status'] = statusAttrs['custom-task-status'];
+      attrsToUpdate[TASK_COMPLETED_AT_ATTR] = statusAttrs[TASK_COMPLETED_AT_ATTR];
     }
     if (updates.priority !== undefined) {
       attrsToUpdate['custom-task-priority'] = updates.priority || '';
@@ -3642,6 +4027,9 @@ export class TaskRepository {
     }
     if (updates.archivedAt !== undefined) {
       attrsToUpdate['custom-task-archived-at'] = updates.archivedAt || '';
+    }
+    if (updates.completedAt !== undefined && updates.status === undefined) {
+      attrsToUpdate[TASK_COMPLETED_AT_ATTR] = updates.completedAt || '';
     }
     if (updates.archiveReason !== undefined) {
       attrsToUpdate['custom-task-archive-reason'] = updates.archiveReason || '';
@@ -3706,6 +4094,13 @@ export class TaskRepository {
       return;
     }
     await setRepeatInstanceStatus(task.repeatSeriesId, task.repeatInstanceDate, status);
+    if (status === 'completed') {
+      void awardTaskCompletion({
+        ...task,
+        status,
+        completedAt: task.completedAt || new Date().toISOString()
+      });
+    }
   }
 
   static async moveTask(taskId: string, targetRootId: string): Promise<{ blockId: string; parentId: string }> {
@@ -3743,7 +4138,9 @@ export class TaskRepository {
   }
   
   static async updateSubtaskInCache(parentTaskId: string, subtaskId: string, completed: boolean): Promise<void> {
-    let cachedTasks = this.memoryCache.tasks;
+    let cachedTasks = this.memoryCache.detailLevel === 'full'
+      ? this.memoryCache.tasks
+      : null;
 
     if (!cachedTasks) {
       const plugin = usePlugin();
@@ -3802,7 +4199,11 @@ export class TaskRepository {
 
       if (useCache) {
         const now = Date.now();
-        if (this.memoryCache.tasks && now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION) {
+        if (
+          this.memoryCache.tasks &&
+          this.memoryCache.detailLevel === 'full' &&
+          now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION
+        ) {
           const memoryTaskMap = new Map<string, Task>();
           for (const task of this.memoryCache.tasks) {
             if (task.type === 'block' && task.blockId) {
@@ -3832,7 +4233,11 @@ export class TaskRepository {
         }
       });
 
-      if (enrichedTaskMap.size > 0 && this.memoryCache.tasks) {
+      if (
+        enrichedTaskMap.size > 0 &&
+        this.memoryCache.tasks &&
+        this.memoryCache.detailLevel === 'full'
+      ) {
         const cachedMap = new Map<string, Task>();
         for (const task of this.memoryCache.tasks) {
           if (task.type === 'block' && task.blockId) {
@@ -3844,7 +4249,8 @@ export class TaskRepository {
         });
         this.memoryCache = {
           tasks: Array.from(cachedMap.values()),
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          detailLevel: 'full'
         };
       }
 

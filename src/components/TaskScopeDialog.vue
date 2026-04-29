@@ -1,6 +1,6 @@
 <template>
   <div v-if="show" class="task-scope-overlay" @click.self="handleClose">
-    <div class="task-scope-dialog" :class="{ 'with-document-groups': hasDocumentGroupTab }" @click.stop>
+    <div class="task-scope-dialog" :class="{ 'with-document-groups': hasWideLayout }" @click.stop>
       <div class="task-scope-header">
         <div class="task-scope-title">{{ dialogTitle }}</div>
         <button v-if="!lockClose" type="button" class="icon-button" title="关闭" aria-label="关闭" @click="handleClose">
@@ -12,8 +12,9 @@
         {{ activeHint }}
       </div>
 
-      <div v-if="hasDocumentGroupTab" class="task-scope-tabs">
+      <div v-if="showTabs" class="task-scope-tabs">
         <button
+          v-if="showScopeTab"
           type="button"
           class="task-scope-tab"
           :class="{ active: activeTab === 'scope' }"
@@ -22,12 +23,22 @@
           范围设置
         </button>
         <button
+          v-if="hasDocumentGroupTab"
           type="button"
           class="task-scope-tab"
           :class="{ active: activeTab === 'document-groups' }"
           @click="activeTab = 'document-groups'"
         >
           文档组
+        </button>
+        <button
+          v-if="hasGoalTab"
+          type="button"
+          class="task-scope-tab"
+          :class="{ active: activeTab === 'goals' }"
+          @click="activeTab = 'goals'"
+        >
+          目标
         </button>
       </div>
 
@@ -96,23 +107,33 @@
         </div>
       </div>
 
-      <div v-else class="task-scope-content document-groups-tab-content">
+      <div v-else-if="activeTab === 'document-groups'" class="task-scope-content document-groups-tab-content">
         <DocumentGroupManagerPanel
           :groups="localDocumentGroups"
           :documents="documentGroupDocuments"
           @update:groups="localDocumentGroups = $event"
         />
       </div>
+      <div v-else-if="activeTab === 'goals'" class="task-scope-content goals-tab-content">
+        <GoalManagerPanel
+          :goals="localGoals"
+          :documents="goalDocuments"
+          @update:goals="localGoals = $event"
+        />
+      </div>
 
       <div class="task-scope-actions">
         <SyButton
-          v-if="activeTab === 'scope'"
+          v-if="activeTab === 'scope' && showScopeTab"
           class="task-scope-btn plain"
           @click="clearExcluded"
         >
           全部启用
         </SyButton>
-        <div v-else class="task-scope-action-setting">
+        <div
+          v-else-if="activeTab === 'document-groups' && showDocumentGroupNotebookPathToggle"
+          class="task-scope-action-setting"
+        >
           <span class="task-scope-extra-label">显示文档笔记本路径</span>
           <SyCheckbox
             class="task-scope-toggle"
@@ -132,7 +153,10 @@ import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import DocumentGroupManagerPanel from '@/components/DocumentGroupManagerPanel.vue';
+import GoalManagerPanel from '@/components/GoalManagerPanel.vue';
 import type { DocumentGroup } from '@/documentGroupRepository';
+import type { Goal } from '@/goalRepository';
+import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
 import { normalizeNotebookIds } from '@/utils/taskViewShared';
 
 interface NotebookItem {
@@ -155,6 +179,7 @@ export interface TaskScopeDialogSavePayload {
   taskCompletionSoundEnabled: boolean;
   showDocumentGroupNotebookPath: boolean;
   documentGroups: DocumentGroup[];
+  goals: Goal[];
 }
 
 interface Props {
@@ -170,10 +195,14 @@ interface Props {
   title?: string;
   hint?: string;
   confirmText?: string;
-  initialTab?: 'scope' | 'document-groups';
+  initialTab?: 'scope' | 'document-groups' | 'goals';
   documentGroups?: DocumentGroup[];
   documentGroupDocuments?: DocumentGroupScopeDocument[];
   showDocumentGroupNotebookPath?: boolean;
+  showDocumentGroupNotebookPathToggle?: boolean;
+  showScopeTab?: boolean;
+  goals?: Goal[];
+  goalDocuments?: GoalScopeDocument[];
 }
 
 const props = defineProps<Props>();
@@ -190,21 +219,45 @@ const localAutoRecognizeTaskDate = ref(false);
 const localTaskCompletionSoundEnabled = ref(true);
 const localShowDocumentGroupNotebookPath = ref(true);
 const localDocumentGroups = ref<DocumentGroup[]>([]);
-const activeTab = ref<'scope' | 'document-groups'>('scope');
+const localGoals = ref<Goal[]>([]);
+const activeTab = ref<'scope' | 'document-groups' | 'goals'>('scope');
 const lockClose = computed(() => props.lockClose === true);
 const showExtra = computed(() => props.showExtra !== false);
 const globalDateRecognizing = computed(() => props.globalDateRecognizing === true);
+const showScopeTab = computed(() => props.showScopeTab !== false);
+const showDocumentGroupNotebookPathToggle = computed(() => props.showDocumentGroupNotebookPathToggle !== false);
 const dialogTitle = computed(() => props.title || '任务范围');
 const dialogHint = computed(() => props.hint || '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。');
 const confirmText = computed(() => props.confirmText || '保存');
 const hasDocumentGroupTab = computed(() =>
   Array.isArray(props.documentGroups) && Array.isArray(props.documentGroupDocuments)
 );
+const hasGoalTab = computed(() =>
+  Array.isArray(props.goals) && Array.isArray(props.goalDocuments)
+);
+const hasWideLayout = computed(() => hasDocumentGroupTab.value || hasGoalTab.value);
+const availableTabs = computed<Array<'scope' | 'document-groups' | 'goals'>>(() => {
+  const tabs: Array<'scope' | 'document-groups' | 'goals'> = [];
+  if (showScopeTab.value) {
+    tabs.push('scope');
+  }
+  if (hasDocumentGroupTab.value) {
+    tabs.push('document-groups');
+  }
+  if (hasGoalTab.value) {
+    tabs.push('goals');
+  }
+  return tabs;
+});
+const showTabs = computed(() => availableTabs.value.length > 1);
 const documentGroupDocuments = computed(() => props.documentGroupDocuments || []);
+const goalDocuments = computed(() => props.goalDocuments || []);
 const activeHint = computed(() =>
   activeTab.value === 'scope'
     ? dialogHint.value
-    : '可将文档跨笔记本归组，来源下拉中的 🏷 项会使用这里的定义。'
+    : activeTab.value === 'document-groups'
+      ? '可将文档跨笔记本归组，来源下拉中的 🏷 项会使用这里的定义。'
+      : '目标会独立保存文档选择，后续调整文档组不会影响这里的统计范围。'
 );
 
 function cloneDocumentGroups(groups: DocumentGroup[]): DocumentGroup[] {
@@ -212,6 +265,21 @@ function cloneDocumentGroups(groups: DocumentGroup[]): DocumentGroup[] {
     ...group,
     members: Array.isArray(group.members) ? group.members.map(member => ({ ...member })) : []
   }));
+}
+
+function cloneGoals(goals: Goal[]): Goal[] {
+  return (goals || []).map(goal => ({
+    ...goal,
+    members: Array.isArray(goal.members) ? goal.members.map(member => ({ ...member })) : []
+  }));
+}
+
+function resolveInitialTab(): 'scope' | 'document-groups' | 'goals' {
+  const requestedTab = props.initialTab;
+  if (requestedTab && availableTabs.value.includes(requestedTab)) {
+    return requestedTab;
+  }
+  return availableTabs.value[0] || 'scope';
 }
 
 function syncLocalSelection(): void {
@@ -222,9 +290,8 @@ function syncLocalSelection(): void {
   localTaskCompletionSoundEnabled.value = props.taskCompletionSoundEnabled !== false;
   localShowDocumentGroupNotebookPath.value = props.showDocumentGroupNotebookPath !== false;
   localDocumentGroups.value = cloneDocumentGroups(props.documentGroups || []);
-  activeTab.value = props.initialTab === 'document-groups' && hasDocumentGroupTab.value
-    ? 'document-groups'
-    : 'scope';
+  localGoals.value = cloneGoals(props.goals || []);
+  activeTab.value = resolveInitialTab();
 }
 
 function isNotebookEnabled(notebookId: string): boolean {
@@ -266,7 +333,8 @@ function save(): void {
     autoRecognizeTaskDate: localAutoRecognizeTaskDate.value,
     taskCompletionSoundEnabled: localTaskCompletionSoundEnabled.value,
     showDocumentGroupNotebookPath: localShowDocumentGroupNotebookPath.value,
-    documentGroups: cloneDocumentGroups(localDocumentGroups.value)
+    documentGroups: cloneDocumentGroups(localDocumentGroups.value),
+    goals: cloneGoals(localGoals.value)
   });
 }
 
@@ -279,8 +347,10 @@ watch(
     () => props.autoRecognizeTaskDate,
     () => props.taskCompletionSoundEnabled,
     () => props.showDocumentGroupNotebookPath,
+    () => props.showScopeTab,
     () => props.initialTab,
-    () => props.documentGroups
+    () => props.documentGroups,
+    () => props.goals
   ],
   ([show]) => {
     if (show) {
@@ -392,6 +462,12 @@ watch(
 }
 
 .document-groups-tab-content {
+  padding-top: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.goals-tab-content {
   padding-top: 8px;
   min-width: 0;
   overflow: hidden;

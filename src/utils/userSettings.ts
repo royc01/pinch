@@ -4,7 +4,7 @@ import type { TaskViewGroupMode } from './taskGrouping';
 
 export interface UserSettings {
   kanban: {
-    currentView?: 'kanban' | 'table' | 'archive-table' | 'month' | 'week' | 'three-day' | 'day';
+    currentView?: 'kanban' | 'table' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
     filterType: string;
     filterSource?: string;
     filterDocument: string;
@@ -33,6 +33,7 @@ export interface UserSettings {
     dayFilterSource?: string;
     dayFilterDocument?: string;
     hiddenDocumentTabIds: string[];
+    kanbanGroupColumnOrder?: string[];
     kanbanStatusFilters?: string[];
     kanbanPriorityFilters?: string[];
     kanbanDueFilters?: string[];
@@ -109,6 +110,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     dayFilterSource: 'all',
     dayFilterDocument: 'all',
     hiddenDocumentTabIds: [],
+    kanbanGroupColumnOrder: [],
     kanbanStatusFilters: [],
     kanbanPriorityFilters: [],
     kanbanDueFilters: [],
@@ -186,6 +188,7 @@ function mergeWithDefaults(input: unknown): UserSettings {
       ...DEFAULT_SETTINGS.kanban,
       ...rawKanban,
       hiddenDocumentTabIds: normalizeNotebookIds((rawKanban as { hiddenDocumentTabIds?: unknown }).hiddenDocumentTabIds),
+      kanbanGroupColumnOrder: normalizeStringArray((rawKanban as { kanbanGroupColumnOrder?: unknown }).kanbanGroupColumnOrder),
       kanbanStatusFilters: normalizeStringArray((rawKanban as { kanbanStatusFilters?: unknown }).kanbanStatusFilters),
       kanbanPriorityFilters: normalizeStringArray((rawKanban as { kanbanPriorityFilters?: unknown }).kanbanPriorityFilters),
       kanbanDueFilters: normalizeStringArray((rawKanban as { kanbanDueFilters?: unknown }).kanbanDueFilters),

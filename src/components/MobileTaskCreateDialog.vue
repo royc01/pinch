@@ -17,6 +17,8 @@
     <TaskGroupDialog
       :show="showTaskGroupDialog"
       :groups="taskGroups"
+      :include-none-option="true"
+      :order-ids="userSettings.kanban.kanbanGroupColumnOrder"
       @close="showTaskGroupDialog = false"
       @save="handleTaskGroupSave"
     />
@@ -55,6 +57,31 @@ interface NewTaskPayload {
   reminderCustomTime?: string;
   tags: string[];
   groupId: string;
+}
+
+interface TaskGroupDialogSavePayload {
+  groups: TaskGroup[];
+  orderIds: string[];
+}
+
+function normalizeTaskGroupDialogOrderIds(input: unknown): string[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  input.forEach((item) => {
+    if (typeof item !== 'string') {
+      return;
+    }
+    const value = item.trim();
+    if (!value || seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+    normalized.push(value);
+  });
+  return normalized;
 }
 
 const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
@@ -266,9 +293,12 @@ async function handleCreateTask(taskData: NewTaskPayload, notebookId: string, do
   }
 }
 
-async function handleTaskGroupSave(groups: TaskGroup[]): Promise<void> {
+async function handleTaskGroupSave(payload: TaskGroupDialogSavePayload): Promise<void> {
+  const groups = Array.isArray(payload?.groups) ? payload.groups : [];
+  const orderIds = normalizeTaskGroupDialogOrderIds(payload?.orderIds);
   await saveTaskGroups(groups);
   taskGroups.value = groups;
+  await updateSettings('kanban', { kanbanGroupColumnOrder: orderIds });
   showTaskGroupDialog.value = false;
 }
 

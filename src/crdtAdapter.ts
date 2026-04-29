@@ -32,6 +32,7 @@ export function taskToCRDT(task: Task, nodeId: string = 'db'): CRDTTask {
     groupId: baseField(task.groupId, updatedAt),
     backgroundColor: baseField(task.backgroundColor, updatedAt),
     archived: baseField(task.archived === true, updatedAt),
+    completedAt: baseField(task.completedAt, updatedAt),
     archivedAt: baseField(task.archivedAt, updatedAt),
     archiveReason: baseField(task.archiveReason, updatedAt),
     deleted: baseField(false, 0),
@@ -72,6 +73,7 @@ export function crdtToTask(crdtTask: CRDTTask): Task {
     groupId: crdtTask.groupId?.value,
     backgroundColor: crdtTask.backgroundColor?.value,
     archived: crdtTask.archived?.value === true,
+    completedAt: crdtTask.completedAt?.value,
     archivedAt: crdtTask.archivedAt?.value,
     archiveReason: crdtTask.archiveReason?.value as Task['archiveReason'],
     blockId: crdtTask.metadata.blockId,
@@ -132,6 +134,7 @@ export class CRDTTaskRepository {
       groupId: withTs(crdtTask.groupId),
       backgroundColor: withTs(crdtTask.backgroundColor),
       archived: withTs(crdtTask.archived),
+      completedAt: withTs(crdtTask.completedAt),
       archivedAt: withTs(crdtTask.archivedAt),
       archiveReason: withTs(crdtTask.archiveReason),
       updatedAt: nextTs

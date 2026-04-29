@@ -26,9 +26,17 @@
                 >
                   <Icon :name="habit.noteDocId ? 'open' : 'bindDoc'" width="12" height="12" class="icon" />
                 </button>
-                <span v-if="habit.usePomodoro" class="pomodoro-indicator">
+                <button
+                  v-if="habit.usePomodoro"
+                  type="button"
+                  class="pomodoro-indicator pomodoro-indicator--button"
+                  :disabled="habit.isPaused"
+                  title="开始专注计时"
+                  aria-label="开始专注计时"
+                  @click.stop="emit('start-focus', habit)"
+                >
                   {{ pomodoroIcon }} {{ habit.pomodoroDuration ? `${habit.pomodoroDuration}min` : '25min' }}
-                </span>
+                </button>
               </div>
               <div v-if="manageMode" class="habit-status-text">
                 <span :class="['habit-status-badge', habit.isPaused ? 'paused' : 'active']">
@@ -73,6 +81,7 @@
                 size="small"
                 :class="['check-in-btn', { 'success-animation': showAnimation && animationHabitId === habit.id }]"
                 :disabled="habit.isPaused"
+                :title="habit.usePomodoro && !isHabitCompleted(habit) ? '开始专注计时' : '打卡'"
               >
                 <div v-if="showAnimation && animationHabitId === habit.id" class="rays-container">
                   <div class="ray"></div>
@@ -115,7 +124,12 @@
                     {{ getHabitCache(habit.id).todayCompletionCount }}
                   </text>
                 </svg>
-                <Icon v-else name="check" :completed="habit.completedToday" class="icon" />
+                <Icon
+                  v-else
+                  :name="habit.usePomodoro && !isHabitCompleted(habit) ? 'timer' : 'check'"
+                  :completed="habit.completedToday"
+                  class="icon"
+                />
               </SyButton>
             </div>
           </div>
@@ -213,6 +227,7 @@ const emit = defineEmits<{
   (event: 'show-stats', habit: Habit): void;
   (event: 'doc-button', habit: Habit): void;
   (event: 'open-bind-doc', habit: Habit): void;
+  (event: 'start-focus', habit: Habit): void;
   (event: 'toggle-habit', habitId: string): void;
   (event: 'toggle-pause', habit: Habit): void;
   (event: 'pomodoro-pause'): void;
@@ -346,6 +361,22 @@ const {
   background-color: var(--b3-list-hover);
   padding: 2px 6px;
   border-radius: 6px;
+}
+
+.pomodoro-indicator--button {
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+}
+
+.pomodoro-indicator--button:hover:not(:disabled) {
+  background-color: rgba(249, 143, 122, 0.16);
+  color: #cf5c4b;
+}
+
+.pomodoro-indicator--button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .week-checkboxes {

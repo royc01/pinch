@@ -203,11 +203,13 @@ const props = defineProps<{
   titleTooltip?: string;
   showDocumentTitle?: boolean;
   documentIconOverride?: string;
+  disableContextMenu?: boolean;
 }>();
 
 const emit = defineEmits<{
   cardClick: [task: Task, event?: MouseEvent];
   openClick: [task: Task, event?: MouseEvent];
+  startFocus: [task: Task];
   toggleExpand: [task: Task];
   toggleStatus: [task: Task];
   descriptionStartEdit: [task: Task];
@@ -486,6 +488,10 @@ function handleOpenClick(event: MouseEvent) {
   emit('openClick', task.value, event);
 }
 
+function handleStartFocusClick() {
+  emit('startFocus', task.value);
+}
+
 function handleToggleExpand() {
   emit('toggleExpand', task.value);
 }
@@ -511,10 +517,17 @@ function handleDescriptionCancel() {
 }
 
 function handleContextMenu(event: MouseEvent) {
+  if (props.disableContextMenu) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   if (variant.value !== 'sidebar') {
     return;
   }
-  const target = event.target as HTMLElement | null;
+  const target = event.target instanceof Element
+    ? event.target
+    : (event.target instanceof Node ? event.target.parentElement : null);
   if (target?.closest('[data-disable-description-contextmenu]')) {
     return;
   }
