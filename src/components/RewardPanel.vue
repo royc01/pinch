@@ -81,7 +81,7 @@
       <div v-if="shopMessage" class="shop-feedback is-success">{{ shopMessage }}</div>
       <div v-if="shopError" class="shop-feedback is-error">{{ shopError }}</div>
 
-      <div v-if="isShopFormVisible" class="shop-form">
+      <div v-if="isShopFormVisible && !editingShopItemId" class="shop-form">
         <div class="shop-form-grid">
           <label class="shop-field">
             <span>奖励名称</span>
@@ -122,34 +122,72 @@
         还没有奖励项，先添加一个你愿意为自己兑换的奖励吧。
       </div>
       <div v-else class="shop-grid">
-        <div v-for="item in rewardSnapshot.shopItems" :key="item.id" class="shop-card">
-          <div class="shop-card-head">
-            <div class="shop-card-icon">{{ item.icon || '🎁' }}</div>
-            <div class="shop-card-main">
-              <div class="shop-card-title">{{ item.title }}</div>
-              <div v-if="item.description" class="shop-card-description">{{ item.description }}</div>
+        <div v-for="item in rewardSnapshot.shopItems" :key="item.id" class="shop-card-wrapper">
+          <div class="shop-card">
+            <div class="shop-card-head">
+              <div class="shop-card-icon">{{ item.icon || '🎁' }}</div>
+              <div class="shop-card-main">
+                <div class="shop-card-title">{{ item.title }}</div>
+                <div v-if="item.description" class="shop-card-description">{{ item.description }}</div>
+              </div>
+              <div class="shop-card-cost">{{ item.cost }} 趣币</div>
             </div>
-            <div class="shop-card-cost">{{ item.cost }} 趣币</div>
+            <div class="shop-card-actions">
+              <button
+                type="button"
+                class="shop-card-btn primary"
+                :disabled="shopActionLoadingId === item.id || rewardSnapshot.availableCoins < item.cost"
+                @click="handleRedeem(item)"
+              >
+                {{
+                  shopActionLoadingId === item.id
+                    ? '兑换中...'
+                    : (rewardSnapshot.availableCoins >= item.cost ? '兑换' : '趣币不足')
+                }}
+              </button>
+              <button type="button" class="shop-card-btn" :disabled="shopActionLoadingId === item.id" @click="startEditShopItem(item)">
+                编辑
+              </button>
+              <button type="button" class="shop-card-btn ghost" :disabled="shopActionLoadingId === item.id" @click="handleDeleteShopItem(item)">
+                删除
+              </button>
+            </div>
           </div>
-          <div class="shop-card-actions">
-            <button
-              type="button"
-              class="shop-card-btn primary"
-              :disabled="shopActionLoadingId === item.id || rewardSnapshot.availableCoins < item.cost"
-              @click="handleRedeem(item)"
-            >
-              {{
-                shopActionLoadingId === item.id
-                  ? '兑换中...'
-                  : (rewardSnapshot.availableCoins >= item.cost ? '兑换' : '趣币不足')
-              }}
-            </button>
-            <button type="button" class="shop-card-btn" :disabled="shopActionLoadingId === item.id" @click="startEditShopItem(item)">
-              编辑
-            </button>
-            <button type="button" class="shop-card-btn ghost" :disabled="shopActionLoadingId === item.id" @click="handleDeleteShopItem(item)">
-              删除
-            </button>
+          <div v-if="editingShopItemId === item.id" class="shop-form shop-form-inline">
+            <div class="shop-form-grid">
+              <label class="shop-field">
+                <span>奖励名称</span>
+                <input v-model="shopForm.title" type="text" maxlength="30" placeholder="填一个清晰的兑换名称" />
+              </label>
+              <label class="shop-field shop-field-cost">
+                <span>价格</span>
+                <input v-model.number="shopForm.cost" type="number" min="1" max="999" />
+              </label>
+              <label class="shop-field shop-field-icon">
+                <span>图标</span>
+                <button
+                  type="button"
+                  class="shop-icon-picker-btn"
+                  aria-label="切换商品图标"
+                  title="切换商品图标"
+                  @click="openShopIconPicker($event)"
+                >
+                  <span class="shop-icon-picker-display">{{ shopForm.icon || '🎁' }}</span>
+                </button>
+              </label>
+            </div>
+            <label class="shop-field">
+              <span>说明</span>
+              <textarea v-model="shopForm.description" rows="3" maxlength="120" placeholder="写一点兑换后的具体奖励说明"></textarea>
+            </label>
+            <div class="shop-form-actions">
+              <button type="button" class="shop-form-btn primary" :disabled="shopFormSaving" @click="submitShopForm">
+                {{ shopFormSaving ? '保存中...' : '保存修改' }}
+              </button>
+              <button type="button" class="shop-form-btn" :disabled="shopFormSaving" @click="resetShopForm">
+                取消
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -680,6 +718,13 @@ watch([() => props.show, () => props.highlightEntryId, () => props.rewardSnapsho
   background: rgb(247 249 248);
 }
 
+.shop-form-inline {
+  margin-top: 12px;
+  margin-bottom: 0;
+  border: 1px solid rgb(249 143 122 / 0.24);
+  box-shadow: 0 4px 12px rgb(249 143 122 / 0.08);
+}
+
 .shop-form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) 60px 40px;
@@ -774,6 +819,11 @@ watch([() => props.show, () => props.highlightEntryId, () => props.rewardSnapsho
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+}
+
+.shop-card-wrapper {
+  display: flex;
+  flex-direction: column;
 }
 
 .shop-card {
