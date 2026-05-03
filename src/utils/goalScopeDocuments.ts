@@ -64,6 +64,11 @@ export async function loadGoalScopeDocuments(): Promise<GoalScopeDocument[]> {
     }
 
     return documents.sort((left, right) => {
+      const idA = left.id || '';
+      const idB = right.id || '';
+      if (idA !== idB) {
+        return idB.localeCompare(idA);
+      }
       const notebookDiff = left.notebookName.localeCompare(right.notebookName, 'zh-CN');
       if (notebookDiff !== 0) {
         return notebookDiff;

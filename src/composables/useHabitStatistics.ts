@@ -651,33 +651,89 @@ export const useHabitStatistics = ({
     };
   };
 
-  const totalHabitsCount = computed(() => habits.value.length);
+  // 聚合统计：一次遍历 habits + calendar，产出 totalCompletions、longestStreak、heatmap 等
+  // 避免原先 4 个独立 computed 各遍历一次全部数据的 O(4n) 问题
+  const _aggregatedStats = computed(() => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const thisMonday = new Date(today);
+    thisMonday.setDate(today.getDate() - daysToSubtract);
+    const startMonday = new Date(thisMonday);
+    startMonday.setDate(thisMonday.getDate() - 17 * 7);
 
-  const totalCompletionsCount = computed(() =>
-    habits.value.reduce(
-      (total, habit) => total + habit.calendar.reduce((count, record) => (record.completed ? count + 1 : count), 0),
-      0
-    )
-  );
+    let totalCompletions = 0;
+    let maxStreak = 0;
 
-  const longestStreak = computed(() =>
-    Math.max(...habits.value.map(habit => calculateLongestStreak(habit).streak), 0)
-  );
+    // heatmap 原始数据收集
+    const heatmapCountMap = new Map<string, number>();
 
-  const heatmapGridData = computed(() => getHeatmapGridData());
+    for (const habit of habits.value) {
+      // 总计完成次数
+      for (const record of habit.calendar) {
+        if (record.completed) {
+          totalCompletions++;
 
-  const heatmapMonths = computed(() => {
-    const weeks = heatmapGridData.value.weeks;
+          // 热力图数据
+          const recordDate = parseDate(record.date);
+          if (recordDate >= startMonday && recordDate <= today) {
+            const dateStr = formatDate(recordDate);
+            heatmapCountMap.set(dateStr, (heatmapCountMap.get(dateStr) || 0) + 1);
+          }
+        }
+      }
+
+      // 最长连续打卡（calculateLongestStreak 内部有日级缓存）
+      const streakResult = calculateLongestStreak(habit);
+      if (streakResult.streak > maxStreak) {
+        maxStreak = streakResult.streak;
+      }
+    }
+
+    // 构建热力图网格
+    const maxCount = heatmapCountMap.size > 0
+      ? Math.max(...heatmapCountMap.values(), 1)
+      : 1;
+
+    const weeks: Array<
+      Array<{ date: string; count: number; intensity: number; isCurrentYear: boolean }>
+    > = [[], [], [], [], [], [], []];
+    const totalDays = 18 * 7;
+    const cursor = new Date(startMonday);
+
+    for (let i = 0; i < totalDays; i++) {
+      cursor.setHours(0, 0, 0, 0);
+      const dateStr = formatDate(cursor);
+      const count = heatmapCountMap.get(dateStr) || 0;
+      const day = cursor.getDay();
+      const dayIdx = day === 0 ? 6 : day - 1;
+
+      let intensity = 0;
+      if (maxCount > 0 && count > 0) {
+        if (count < maxCount * 0.25) intensity = 1;
+        else if (count < maxCount * 0.5) intensity = 2;
+        else if (count < maxCount * 0.75) intensity = 3;
+        else intensity = 4;
+      }
+
+      weeks[dayIdx].push({
+        date: dateStr,
+        count,
+        intensity,
+        isCurrentYear: cursor.getFullYear() === today.getFullYear()
+      });
+
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    // 由 weeks 推导 heatmapMonths
     const datePositions = new Map<string, { year: number; month: number; position: number }>();
-
-    for (let dayOfWeek = 0; dayOfWeek < weeks.length; dayOfWeek++) {
-      const daysOfThisWeekday = weeks[dayOfWeek];
-
+    for (let dayOfWeekIdx = 0; dayOfWeekIdx < weeks.length; dayOfWeekIdx++) {
+      const daysOfThisWeekday = weeks[dayOfWeekIdx];
       for (let dateIndex = 0; dateIndex < daysOfThisWeekday.length; dateIndex++) {
         const day = daysOfThisWeekday[dateIndex];
         const date = parseDate(day.date);
         const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
-
         if (!datePositions.has(monthKey)) {
           datePositions.set(monthKey, {
             year: date.getFullYear(),
@@ -688,14 +744,33 @@ export const useHabitStatistics = ({
       }
     }
 
-    return Array.from(datePositions.values())
+    const heatmapMonthLabels = Array.from(datePositions.values())
       .sort((a, b) => a.position - b.position)
       .slice(1)
       .map(pos => ({
         monthLabel: `${String(pos.month + 1).padStart(2, '0')}月`,
         offset: (pos.position / 17) * 100
       }));
+
+    return {
+      totalHabits: habits.value.length,
+      totalCompletions,
+      maxStreak,
+      heatmapGrid: {
+        weeks,
+        startDate: formatDate(startMonday),
+        endDate: formatDate(cursor),
+        maxCount
+      },
+      heatmapMonthLabels
+    };
   });
+
+  const totalHabitsCount = computed(() => _aggregatedStats.value.totalHabits);
+  const totalCompletionsCount = computed(() => _aggregatedStats.value.totalCompletions);
+  const longestStreak = computed(() => _aggregatedStats.value.maxStreak);
+  const heatmapGridData = computed(() => _aggregatedStats.value.heatmapGrid);
+  const heatmapMonths = computed(() => _aggregatedStats.value.heatmapMonthLabels);
 
   return {
     calculateCurrentStreak,

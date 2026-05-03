@@ -1,16 +1,6 @@
 ﻿import { type Ref, type ShallowRef } from 'vue';
-import type { Habit, HabitDifficulty } from '@/api';
-
-interface NewHabitFormState {
-  name: string;
-  emoji: string;
-  difficulty: HabitDifficulty;
-  frequency: string;
-  noteDocId: string;
-  timesPerDay: string;
-  usePomodoro: boolean;
-  pomodoroDuration: string;
-}
+import type { Habit } from '@/api';
+import { createDefaultNewHabit, type NewHabitFormState } from '@/composables/useHabitFormState';
 
 interface UseHabitCrudOptions {
   habits: ShallowRef<Habit[]>;
@@ -25,17 +15,6 @@ interface UseHabitCrudOptions {
   triggerHabitsRef: () => void;
   normalizeDocId: (raw: string) => string;
 }
-
-const createDefaultNewHabit = (): NewHabitFormState => ({
-  name: '',
-  emoji: '',
-  difficulty: 'medium',
-  frequency: 'daily',
-  noteDocId: '',
-  timesPerDay: '1',
-  usePomodoro: false,
-  pomodoroDuration: '25'
-});
 
 const createCalendarData = (): any[] => [];
 

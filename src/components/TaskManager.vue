@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div ref="taskManagerContainerRef" class="task-manager-container">
     <div class="task-manager-header">
       <div class="header-left">
@@ -688,7 +688,6 @@ import {
   compareTaskCreatedAtDesc,
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
-import { repeatDragDebug } from '@/utils/repeatDragDebug';
 import { rebuildAffectedRepeatTasks } from '@/repeatRepository';
 import {
   loadDocumentGroups,
@@ -745,47 +744,8 @@ const { goalDefinitions, goalDocuments, goalItems, goalsLoading, saveGoalDefinit
 const autoRecognizeTaskDate = computed(() => userSettings.taskManager.autoRecognizeTaskDate === true);
 const taskCompletionSoundEnabled = computed(() => userSettings.taskManager.taskCompletionSoundEnabled !== false);
 const showDocumentGroupNotebookPath = computed(() => userSettings.taskManager.showDocumentGroupNotebookPath !== false);
-const REPEAT_DEBUG_WINDOW_MS = 5000;
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
-let lastRepeatDebugPayload: {
-  blockId?: string;
-  seriesId?: string;
-  frequency?: string;
-  ts: number;
-} | null = null;
 let repeatReconcileRequestId = 0;
-
-function summarizeTaskForRepeatDebug(task: Task | null | undefined) {
-  if (!task) return null;
-  return {
-    id: task.id,
-    blockId: task.blockId,
-    repeatSeriesId: task.repeatSeriesId,
-    repeatFrequency: task.repeatFrequency,
-    repeatInstanceDate: task.repeatInstanceDate,
-    isVirtual: task.isVirtual,
-    startDate: task.startDate,
-    dueDate: task.dueDate,
-    startTime: task.startTime,
-    dueTime: task.dueTime
-  };
-}
-
-function getActiveRepeatDebugContext() {
-  if (!lastRepeatDebugPayload) return null;
-  if (Date.now() - lastRepeatDebugPayload.ts > REPEAT_DEBUG_WINDOW_MS) return null;
-  return lastRepeatDebugPayload;
-}
-
-function collectRepeatDebugTasks(taskList: Task[], context?: { blockId?: string; seriesId?: string } | null) {
-  if (!context) return [];
-  return taskList
-    .filter((task) =>
-      (!!context.blockId && task.blockId === context.blockId)
-      || (!!context.seriesId && task.repeatSeriesId === context.seriesId)
-    )
-    .map((task) => summarizeTaskForRepeatDebug(task));
-}
 
 const t = (key: string) => {
   const lang = window.siyuan?.languages || {};
@@ -2003,6 +1963,11 @@ const documentGroupDialogDocuments = computed(() => {
       path: document.path
     }))
     .sort((a, b) => {
+      const idA = a.id || '';
+      const idB = b.id || '';
+      if (idA !== idB) {
+        return idB.localeCompare(idA);
+      }
       const notebookDiff = a.notebookName.localeCompare(b.notebookName, 'zh-CN');
       if (notebookDiff !== 0) {
         return notebookDiff;
@@ -3486,6 +3451,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
 
   const headingSections = new Map<string, TaskGroupedSection>();
   const completedTasks: Task[] = [];
+  const shouldHideDocumentPrefix = filterDocument.value !== 'all';
   tasksWithoutPinnedSection.forEach((task) => {
     if (task.status === 'completed') {
       completedTasks.push(task);
@@ -3494,7 +3460,10 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     const meta = getTaskHeadingGroupMeta(task, taskHeadingGroups.value);
     const headingKey = meta.key || `heading:${task.id}`;
     const sectionKey = `heading:${headingKey}`;
-    const label = (meta.label || '').trim() || '未命名标题';
+    let label = (meta.label || '').trim() || '未命名标题';
+    if (shouldHideDocumentPrefix && label.includes(' / ')) {
+      label = label.split(' / ').slice(1).join(' / ');
+    }
     const order = typeof meta.order === 'number' ? meta.order : Number.MAX_SAFE_INTEGER;
     const existing = headingSections.get(sectionKey);
     if (existing) {
@@ -3663,7 +3632,7 @@ async function hydrateVisibleTaskTitles(): Promise<void> {
     if (task.type !== 'block' || !task.blockId) continue;
     if (seen.has(task.blockId)) continue;
     const titleHtml = typeof task.title === 'string' ? task.title : '';
-    if (!titleHtml.includes('<sup')) {
+    if (!titleHtml.includes('<sup') && !hasMarkdownInlineMemo(titleHtml)) {
       continue;
     }
     seen.add(task.blockId);
@@ -4122,32 +4091,12 @@ async function refreshTasks(
     : requestedScope;
   const now = Date.now();
   const SKIP_DELAY = 500;
-  const repeatDebugContext = getActiveRepeatDebugContext();
   if (!force && !ignoreThrottle && now - lastRefreshTime < SKIP_DELAY) {
-    if (repeatDebugContext) {
-      repeatDragDebug('TaskManager', 'refreshTasks skipped by throttle', {
-        source,
-        force,
-        ignoreThrottle,
-        repeatDebugContext
-      });
-    }
     return;
   }
   lastRefreshTime = now;
 
    try {
-    if (repeatDebugContext || source === 'fallback-refresh') {
-      repeatDragDebug('TaskManager', 'refreshTasks start', {
-        source,
-        force,
-        compareExisting,
-        requestedScope,
-        loadScope,
-        repeatDebugContext,
-        currentMatches: collectRepeatDebugTasks(tasks.value, repeatDebugContext)
-      });
-    }
     if (showLoading) {
       loading.value = true;
     }
@@ -4173,27 +4122,11 @@ async function refreshTasks(
 
     crdtRepo.syncFromSQLTasks(sqlTasks);
     const newTasks = crdtRepo.getTasks();
-    if (repeatDebugContext || source === 'fallback-refresh') {
-      repeatDragDebug('TaskManager', 'refreshTasks fetched tasks', {
-        source,
-        sqlCount: sqlTasks.length,
-        newCount: newTasks.length,
-        repeatDebugContext,
-        newMatches: collectRepeatDebugTasks(newTasks, repeatDebugContext)
-      });
-    }
 
     if (!compareExisting || force || hasTasksChanged(tasks.value, newTasks)) {
       invalidateCache();
       tasks.value = newTasks;
       invalidateSortCache();
-      if (repeatDebugContext || source === 'fallback-refresh') {
-        repeatDragDebug('TaskManager', 'refreshTasks applied new tasks', {
-          source,
-          repeatDebugContext,
-          appliedMatches: collectRepeatDebugTasks(tasks.value, repeatDebugContext)
-        });
-      }
 
       await nextTick();
       updateTaskIndex();
@@ -4226,16 +4159,6 @@ function scheduleFallbackRefresh(
 
   if (fallbackRefreshTimer !== null) {
     clearTimeout(fallbackRefreshTimer);
-  }
-
-  const repeatDebugContext = getActiveRepeatDebugContext();
-  if (repeatDebugContext) {
-    repeatDragDebug('TaskManager', 'scheduleFallbackRefresh', {
-      force,
-      delay,
-      strategy,
-      repeatDebugContext
-    });
   }
 
   fallbackRefreshTimer = window.setTimeout(async () => {
@@ -4468,26 +4391,11 @@ function setupEventListeners() {
 
   const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string }) => {
     if (payload?.reason === 'repeat-changed' && payload.frequency) {
-      lastRepeatDebugPayload = {
-        blockId: payload.blockId,
-        seriesId: payload.seriesId,
-        frequency: payload.frequency,
-        ts: Date.now()
-      };
-      repeatDragDebug('TaskManager', 'received repeat-changed event', {
-        payload,
-        currentMatches: collectRepeatDebugTasks(tasks.value, lastRepeatDebugPayload)
-      });
       const requestId = ++repeatReconcileRequestId;
       const fastPathApplied = await applyRepeatRuleIncremental(payload, requestId);
       if (requestId !== repeatReconcileRequestId) {
         return;
       }
-      repeatDragDebug('TaskManager', 'after repeat-changed local reconcile', {
-        payload,
-        fastPathApplied,
-        nextMatches: collectRepeatDebugTasks(tasks.value, lastRepeatDebugPayload)
-      });
       if (!fastPathApplied) {
         scheduleFallbackRefresh(true, 100, 'immediate');
       }
@@ -4514,9 +4422,6 @@ function setupEventListeners() {
   
 
   const unsubscribeDateChanged = eventBus.on('task-date-changed', (updatedTask: Task) => {
-    if (updatedTask.repeatSeriesId || (updatedTask.repeatFrequency && updatedTask.repeatFrequency !== 'none')) {
-      repeatDragDebug('TaskManager', 'received task-date-changed', summarizeTaskForRepeatDebug(updatedTask));
-    }
     const now = Date.now();
     
     if (updatedTask.startDate === null && updatedTask.dueDate === null) {
@@ -5030,6 +4935,19 @@ function hasInlineMemoTitle(title: string): boolean {
   return title.includes('data-type="inline-memo"') || title.includes('data-inline-memo-content');
 }
 
+function hasMarkdownInlineMemo(title: string): boolean {
+  const inlineMemoRegex = /\(\(([^()]+)\)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = inlineMemoRegex.exec(title)) !== null) {
+    const content = match[1];
+    // Block references have format: 14-digit timestamp + hyphen + 7+ alphanumeric
+    if (!/^[0-9]{14}-[a-z0-9]{7,}$/.test(content)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function shouldSkipMemoTitleDowngrade(currentTitle: string, nextTitle: string): boolean {
   return hasInlineMemoTitle(currentTitle) && !hasInlineMemoTitle(nextTitle) && nextTitle.includes('<sup');
 }
@@ -5068,7 +4986,7 @@ function hydrateMemoTitlesFromLiveDom(taskList: Task[], limit = TASK_TITLE_HYDRA
       continue;
     }
     const currentTitle = typeof task.title === 'string' ? task.title : '';
-    if (!currentTitle.includes('<sup')) {
+    if (!currentTitle.includes('<sup') && !hasMarkdownInlineMemo(currentTitle)) {
       continue;
     }
     const liveTitle = getLiveTaskTitle(task.blockId);
@@ -6576,7 +6494,6 @@ function handleMobileTaskPointerDown(event: PointerEvent, task: Task): void {
     return;
   }
 
-  const captureElement = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
   clearMobileCalendarPointerGesture(true);
 
   const timerId = window.setTimeout(() => {
@@ -6594,14 +6511,6 @@ function handleMobileTaskPointerDown(event: PointerEvent, task: Task): void {
     });
   }, MOBILE_CALENDAR_DRAG_LONG_PRESS_MS);
 
-  if (captureElement) {
-    try {
-      captureElement.setPointerCapture(event.pointerId);
-    } catch {
-      // Ignore environments that don't allow capturing this pointer.
-    }
-  }
-
   mobileCalendarPointerGesture.value = {
     task,
     pointerId: event.pointerId,
@@ -6611,7 +6520,7 @@ function handleMobileTaskPointerDown(event: PointerEvent, task: Task): void {
     latestY: event.clientY,
     timerId,
     started: false,
-    captureElement
+    captureElement: null
   };
 }
 
@@ -6633,6 +6542,7 @@ function handleMobileTaskPointerMove(event: PointerEvent): void {
   }
 
   event.preventDefault();
+  event.stopPropagation();
   emit('mobileCalendarDragMove', {
     task: gesture.task,
     clientX: event.clientX,
@@ -6645,6 +6555,65 @@ function handleDocumentMobileTaskPointerMove(event: PointerEvent): void {
     return;
   }
   handleMobileTaskPointerMove(event);
+}
+
+function handleDocumentMobileTaskTouchMove(event: TouchEvent): void {
+  const gesture = mobileCalendarPointerGesture.value;
+  if (!gesture) {
+    return;
+  }
+  const touch = event.touches[0];
+  if (!touch) {
+    return;
+  }
+  if (!gesture.started) {
+    const movedDistance = Math.hypot(touch.clientX - gesture.startX, touch.clientY - gesture.startY);
+    if (movedDistance > MOBILE_CALENDAR_DRAG_MOVE_THRESHOLD_PX) {
+      clearMobileCalendarPointerGesture();
+    }
+    return;
+  }
+  event.preventDefault();
+  gesture.latestX = touch.clientX;
+  gesture.latestY = touch.clientY;
+  emit('mobileCalendarDragMove', {
+    task: gesture.task,
+    clientX: touch.clientX,
+    clientY: touch.clientY
+  });
+}
+
+function handleDocumentMobileTaskTouchEnd(event: TouchEvent): void {
+  const gesture = mobileCalendarPointerGesture.value;
+  if (!gesture) {
+    return;
+  }
+  if (gesture.timerId !== null) {
+    window.clearTimeout(gesture.timerId);
+  }
+  if (!gesture.started) {
+    clearMobileCalendarPointerGesture();
+    return;
+  }
+  suppressTaskCardClick(gesture.task.id);
+  const touch = event.changedTouches[0];
+  emit('mobileCalendarDragEnd', {
+    task: gesture.task,
+    clientX: touch?.clientX ?? gesture.latestX,
+    clientY: touch?.clientY ?? gesture.latestY
+  });
+  clearMobileCalendarPointerGesture();
+}
+
+function handleDocumentMobileTaskTouchCancel(): void {
+  const gesture = mobileCalendarPointerGesture.value;
+  if (!gesture) {
+    return;
+  }
+  if (gesture.started) {
+    emit('mobileCalendarDragCancel');
+  }
+  clearMobileCalendarPointerGesture();
 }
 
 function finishMobileTaskPointer(event: PointerEvent, cancelled: boolean): void {
@@ -6776,6 +6745,9 @@ onMounted(async () => {
   document.addEventListener('pointermove', handleDocumentMobileTaskPointerMove);
   document.addEventListener('pointerup', handleDocumentMobileTaskPointerUp);
   document.addEventListener('pointercancel', handleDocumentMobileTaskPointerCancel);
+  document.addEventListener('touchmove', handleDocumentMobileTaskTouchMove, { passive: false });
+  document.addEventListener('touchend', handleDocumentMobileTaskTouchEnd);
+  document.addEventListener('touchcancel', handleDocumentMobileTaskTouchCancel);
   window.addEventListener('resize', scheduleTaskVirtualUpdate, true);
   document.addEventListener('mousedown', handleTaskFilterOutsideClick, true);
   window.addEventListener('resize', handleTaskFilterPopoverViewportChange, true);
@@ -6848,6 +6820,9 @@ onUnmounted(() => {
   document.removeEventListener('pointermove', handleDocumentMobileTaskPointerMove);
   document.removeEventListener('pointerup', handleDocumentMobileTaskPointerUp);
   document.removeEventListener('pointercancel', handleDocumentMobileTaskPointerCancel);
+  document.removeEventListener('touchmove', handleDocumentMobileTaskTouchMove);
+  document.removeEventListener('touchend', handleDocumentMobileTaskTouchEnd);
+  document.removeEventListener('touchcancel', handleDocumentMobileTaskTouchCancel);
   closeTaskEditMenu();
   closeTaskFilterPopover();
   closeTaskGroupMenu();
@@ -7578,6 +7553,9 @@ onUnmounted(() => {
 
 .task-batch-item.mobile-calendar-drag-source {
   -webkit-touch-callout: none;
+}
+
+.task-batch-item.mobile-calendar-dragging {
   touch-action: none;
 }
 
@@ -7650,9 +7628,10 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--b3-theme-on-surface);
   font-weight: 600;
+  margin-left: 4px;
 }
 
 .task-group-section-batch-checkbox {

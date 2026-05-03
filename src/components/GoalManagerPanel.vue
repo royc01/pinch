@@ -1,5 +1,13 @@
 <template>
   <div class="goal-panel-root">
+    <TaskDatePopover
+      :visible="dueDatePopover.visible"
+      :anchor-el="dueDatePopover.anchorEl"
+      :model-value="dueDatePopover.value"
+      quick-mode="goal"
+      @update:model-value="handleDueDateSelect"
+      @close="closeDueDatePopover"
+    />
     <div class="goal-panel-body">
       <div class="goal-panel goal-list-panel">
         <div class="goal-panel-header">
@@ -45,6 +53,30 @@
               >
                 <Icon name="trash" width="16" height="16" />
               </button>
+            </div>
+            <div class="goal-item-footer">
+              <div class="goal-due-date">
+                <label class="goal-due-date-label">截止日期</label>
+                <div class="goal-due-date-input-group">
+                  <input
+                    type="date"
+                    :value="goal.dueDate || ''"
+                    @input="updateGoalDueDate(goal.id, ($event.target as HTMLInputElement).value)"
+                    @click.stop
+                    @mousedown.stop
+                  />
+                  <button
+                    :ref="el => setDueDateButtonRef(goal.id, el as HTMLElement)"
+                    type="button"
+                    class="goal-due-date-trigger"
+                    title="选择截止日期"
+                    aria-label="选择截止日期"
+                    @click.stop="openDueDatePopover(goal.id, goal.dueDate || '', $event)"
+                  >
+                    <Icon name="calendar" width="14" height="14" />
+                  </button>
+                </div>
+              </div>
             </div>
           </button>
         </div>
@@ -109,11 +141,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { openEmoji } from 'siyuan';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
+import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
 import type { Goal } from '@/goalRepository';
 
@@ -131,6 +164,13 @@ const emit = defineEmits<{
 const localGoals = ref<Goal[]>([]);
 const selectedGoalId = ref('');
 const documentSearch = ref('');
+const dueDateButtonRefs = new Map<string, HTMLElement>();
+const dueDatePopover = reactive({
+  visible: false,
+  anchorEl: null as HTMLElement | null,
+  goalId: '',
+  value: ''
+});
 
 function cloneGoals(goals: Goal[]): Goal[] {
   return (goals || []).map(goal => ({
@@ -181,6 +221,44 @@ function updateGoalName(goalId: string, value: string): void {
       ? { ...goal, name: value }
       : goal
   )));
+}
+
+function updateGoalDueDate(goalId: string, value: string): void {
+  emitGoals(localGoals.value.map(goal => (
+    goal.id === goalId
+      ? { ...goal, dueDate: value || undefined }
+      : goal
+  )));
+}
+
+function setDueDateButtonRef(goalId: string, el: HTMLElement | null): void {
+  if (el) {
+    dueDateButtonRefs.set(goalId, el);
+  } else {
+    dueDateButtonRefs.delete(goalId);
+  }
+}
+
+function openDueDatePopover(goalId: string, currentValue: string, event: MouseEvent): void {
+  const target = event.currentTarget as HTMLElement;
+  dueDatePopover.visible = true;
+  dueDatePopover.anchorEl = target;
+  dueDatePopover.goalId = goalId;
+  dueDatePopover.value = currentValue;
+}
+
+function closeDueDatePopover(): void {
+  dueDatePopover.visible = false;
+  dueDatePopover.anchorEl = null;
+  dueDatePopover.goalId = '';
+  dueDatePopover.value = '';
+}
+
+function handleDueDateSelect(value: string): void {
+  if (dueDatePopover.goalId) {
+    updateGoalDueDate(dueDatePopover.goalId, value);
+  }
+  closeDueDatePopover();
 }
 
 function updateGoalEmoji(goalId: string, value: string): void {
@@ -426,12 +504,13 @@ watch(
 
 .goal-item {
   width: 100%;
-  padding: 4px;
+  padding: 8px;
   border: 1px solid var(--b3-border-color);
   border-radius: 10px;
   background: var(--b3-theme-background);
   cursor: pointer;
   text-align: left;
+  box-sizing: border-box;
 }
 
 .goal-item.active {
@@ -443,6 +522,7 @@ watch(
   align-items: center;
   gap: 8px;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .goal-emoji-btn {
@@ -503,6 +583,88 @@ watch(
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+
+.goal-item-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.goal-due-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.goal-due-date-label {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  white-space: nowrap;
+}
+
+.goal-due-date-input-group {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: block;
+  max-width: 150px;
+}
+
+.goal-due-date-input-group input[type="date"] {
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 6px 34px 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  outline: none;
+}
+
+.goal-due-date-input-group input[type="date"]:focus {
+  box-shadow: inset 0 0 0 1px rgba(249, 143, 122, 0.45);
+}
+
+.goal-due-date-input-group input[type="date"]::-webkit-calendar-picker-indicator,
+.goal-due-date-input-group input[type="date"]::-webkit-clear-button,
+.goal-due-date-input-group input[type="date"]::-webkit-inner-spin-button {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  margin: 0;
+  display: none;
+}
+
+.goal-due-date-trigger {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.goal-due-date-trigger:hover {
+  color: var(--b3-theme-primary);
+  background: var(--b3-theme-background);
 }
 
 .goal-search-input {

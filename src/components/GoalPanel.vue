@@ -52,8 +52,14 @@
                 <span v-if="goal.status === 'completed'" class="goal-state-chip success">已完成</span>
                 <span v-else-if="goal.documentCount === 0" class="goal-state-chip muted">未选文档</span>
                 <span v-else-if="goal.status === 'empty'" class="goal-state-chip muted">暂无任务</span>
+                <span v-else-if="isGoalOverdue(goal)" class="goal-state-chip danger">已逾期</span>
               </div>
-              <div class="goal-card-meta">{{ goal.documentSummary }}</div>
+              <div class="goal-card-meta">
+                <span>{{ goal.documentSummary }}</span>
+                <span v-if="goal.dueDate" class="goal-due-date-info" :class="{ 'is-overdue': isGoalOverdue(goal) }">
+                  截止: {{ formatDueDate(goal.dueDate) }}
+                </span>
+              </div>
             </div>
             <div class="goal-card-count">{{ goal.completedTasks }}/{{ goal.totalTasks }}</div>
           </div>
@@ -227,6 +233,21 @@ function describeGoalProgress(goal: GoalListItem): string {
   return `还差 ${goal.remainingTasks} 个任务推进目标。`;
 }
 
+function formatDueDate(dueDate: string): string {
+  if (!dueDate) return '';
+  const [year, month, day] = dueDate.split('-');
+  return `${month}月${day}日`;
+}
+
+function isGoalOverdue(goal: GoalListItem): boolean {
+  if (!goal.dueDate || goal.status === 'completed') return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(goal.dueDate);
+  due.setHours(0, 0, 0, 0);
+  return due < today;
+}
+
 async function handleGoalSave(payload: TaskScopeDialogSavePayload): Promise<void> {
   const visibleNotebookIds = new Set(scopeNotebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = scopeExcludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
@@ -302,7 +323,7 @@ watch([() => props.show, () => props.highlightGoalId, () => goalItems.value.leng
 .goal-page-panel {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 10;
   box-sizing: border-box;
   overflow-y: auto;
   display: flex;
@@ -472,12 +493,6 @@ watch([() => props.show, () => props.highlightGoalId, () => goalItems.value.leng
   color: var(--b3-theme-on-background);
 }
 
-.goal-card-meta {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #7b706b;
-}
-
 .goal-card-count {
   flex-shrink: 0;
   font-size: 18px;
@@ -502,6 +517,33 @@ watch([() => props.show, () => props.highlightGoalId, () => goalItems.value.leng
 .goal-state-chip.muted {
   background: rgb(95 102 100 / 0.1);
   color: #5d6966;
+}
+
+.goal-state-chip.danger {
+  background: rgb(237 97 84 / 0.12);
+  color: #c24d3f;
+}
+
+.goal-card-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #7b706b;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.goal-due-date-info {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(42 147 106 / 0.08);
+  color: #256e53;
+}
+
+.goal-due-date-info.is-overdue {
+  background: rgb(237 97 84 / 0.1);
+  color: #c24d3f;
 }
 
 .goal-progress {

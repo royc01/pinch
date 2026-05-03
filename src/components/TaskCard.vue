@@ -96,7 +96,7 @@
         </template>
       </div>
 
-      <div v-if="showBadges" class="task-badges" @click="handleCardClick">
+      <div v-show="showBadges" class="task-badges" @click="handleCardClick">
         <span
           v-if="groupLabel"
           class="task-group-badge"
@@ -209,7 +209,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   cardClick: [task: Task, event?: MouseEvent];
   openClick: [task: Task, event?: MouseEvent];
-  startFocus: [task: Task];
   toggleExpand: [task: Task];
   toggleStatus: [task: Task];
   descriptionStartEdit: [task: Task];
@@ -486,10 +485,6 @@ function handleCardClick(event: MouseEvent) {
 
 function handleOpenClick(event: MouseEvent) {
   emit('openClick', task.value, event);
-}
-
-function handleStartFocusClick() {
-  emit('startFocus', task.value);
 }
 
 function handleToggleExpand() {

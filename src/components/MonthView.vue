@@ -3216,7 +3216,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: flex-end;
   pointer-events: none;
-  z-index: 20;
+  z-index: 9;
 }
 
 .more-tasks-pill {

@@ -1,4 +1,4 @@
-﻿import { computed, type ShallowRef } from 'vue';
+﻿import { computed, type ShallowRef, watch } from 'vue';
 import type { Habit } from '@/api';
 import { getTodayCompletionCount, getWeekCompletionData, getWeekStart } from '@/composables/useHabitUtils';
 
@@ -233,23 +233,37 @@ export const useHabitViewData = ({
     return `${targetDate.getFullYear()}年${targetDate.getMonth() + 1}月`;
   };
 
-  const habitsCache = computed(() => {
-    const cache = new Map<string, HabitCacheData>();
+  // 懒加载缓存：仅在渲染时按需计算单个习惯的数据，而非一次性计算全部
+  const habitsCacheMap = new Map<string, HabitCacheData>();
 
-    for (const habit of habits.value) {
-      const weeklyCompleted = habit.frequency && habit.frequency.startsWith('weekly')
-        ? getWeeklyCompletionStatus(habit)
-        : false;
-      const todayCompletionCount = getTodayCompletionCount(habit, getToday);
-      const piePath = getLargePiePath(habit);
+  // 当 habits 数组引用变化时清空缓存，下次渲染时按需重建
+  watch(
+    () => habits.value,
+    () => {
+      habitsCacheMap.clear();
+    },
+    { flush: 'sync' }
+  );
 
-      cache.set(habit.id, { weeklyCompleted, todayCompletionCount, piePath });
+  const getHabitCache = (habitId: string): HabitCacheData => {
+    const cached = habitsCacheMap.get(habitId);
+    if (cached !== undefined) {
+      return cached;
     }
 
-    return cache;
-  });
+    const habit = habits.value.find(h => h.id === habitId);
+    if (!habit) return DEFAULT_HABIT_CACHE;
 
-  const getHabitCache = (habitId: string) => habitsCache.value.get(habitId) || DEFAULT_HABIT_CACHE;
+    const weeklyCompleted = habit.frequency && habit.frequency.startsWith('weekly')
+      ? getWeeklyCompletionStatus(habit)
+      : false;
+    const todayCompletionCount = getTodayCompletionCount(habit, getToday);
+    const piePath = getLargePiePath(habit);
+
+    const data: HabitCacheData = { weeklyCompleted, todayCompletionCount, piePath };
+    habitsCacheMap.set(habitId, data);
+    return data;
+  };
 
   const weekdaysForCalendar = computed(() => CALENDAR_WEEKDAYS);
 

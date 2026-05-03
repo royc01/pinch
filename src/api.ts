@@ -3445,7 +3445,17 @@ export class TaskRepository {
             const docIcon = detailLevel === 'full' && parentBlock.root_id
               ? rootIcons.get(parentBlock.root_id)
               : undefined;
-            const title = buildFastTitleFromBlock(parentBlock);
+            const title = markdownHasInlineMemo(parentBlock.markdown || '')
+              ? (() => {
+                  const domEntry = domMap.get(parentBlock.id);
+                  const domTitle = domEntry?.dom
+                    ? extractTitleFromBlockDom(domEntry.dom, parentBlock.id)
+                    : null;
+                  return (domTitle && domTitle.length > 0)
+                    ? domTitle
+                    : buildFastTitleFromBlock(parentBlock);
+                })()
+              : buildFastTitleFromBlock(parentBlock);
             const dateRange = this.resolveTaskDateRange(attrs, title, {
               allowInferFromTitle: true,
               createdAtRaw: parentBlock.created
@@ -3671,9 +3681,40 @@ export class TaskRepository {
       for (let i = 0; i < parentBlocks.length; i += BATCH_SIZE) {
         chunks.push(parentBlocks.slice(i, i + BATCH_SIZE));
       }
+
+      const markdownHasInlineMemo = (md: string): boolean => {
+        const regex = /\(\(([^()]+)\)\)/g;
+        let m: RegExpExecArray | null;
+        while ((m = regex.exec(md)) !== null) {
+          if (!/^[0-9]{14}-[a-z0-9]{7,}$/.test(m[1])) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const extractTitleFromBlockDom = (domHtml: string, blockId: string): string | null => {
+        try {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(domHtml, 'text/html');
+          const listItem =
+            doc.querySelector(`[data-node-id="${blockId}"][data-type="NodeListItem"]`) ||
+            doc.querySelector(`[data-node-id="${blockId}"]`);
+          const paragraph = listItem?.querySelector('[data-type="NodeParagraph"]');
+          const rawTitle = paragraph?.querySelector('[contenteditable="true"]')?.innerHTML
+            || paragraph?.innerHTML
+            || '';
+          return rawTitle.replace(/\{:\s*[^}]*\}/g, '').trim();
+        } catch {
+          return null;
+        }
+      };
     
       for (const chunk of chunks) {
-        const domMap = useLiveDom
+        const needsDomForMemos = !useLiveDom && chunk.some(
+          block => markdownHasInlineMemo(block.markdown || '')
+        );
+        const domMap = (useLiveDom || needsDomForMemos)
           ? await batchGetBlockDOM(chunk.map(block => block.id))
           : new Map<string, BlockDOMResponse>();
         

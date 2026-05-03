@@ -369,7 +369,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1200;
+  z-index: 10;
 }
 
 .task-scope-dialog {

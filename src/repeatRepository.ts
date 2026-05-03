@@ -1,7 +1,6 @@
 import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
 import { formatDate } from '@/composables/useDateUtils';
-import { repeatDragDebug } from '@/utils/repeatDragDebug';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
@@ -536,16 +535,6 @@ export async function updateRepeatSeriesDates(
   }
 
   await saveRepeatSeries(seriesList);
-  repeatDragDebug('repeatRepository', 'updateRepeatSeriesDates saved series', {
-    taskId: task.id,
-    blockId: task.blockId,
-    seriesId: updated.id,
-    startDate: updated.startDate,
-    endDate: updated.endDate,
-    startTime: updated.startTime,
-    dueTime: updated.dueTime,
-    emitChange: options.emitChange !== false
-  });
   if (options.emitChange !== false) {
     emitRepeatChanged({
       blockId: updated.templateBlockId,
@@ -586,13 +575,6 @@ export async function updateRepeatSeriesBackgroundColor(
   }
 
   await saveRepeatSeries(seriesList);
-  repeatDragDebug('repeatRepository', 'updateRepeatSeriesBackgroundColor saved series', {
-    taskId: task.id,
-    blockId: task.blockId,
-    seriesId: updated.id,
-    backgroundColor: updated.backgroundColor,
-    emitChange: options.emitChange !== false
-  });
 
   if (options.emitChange !== false) {
     emitRepeatChanged({
@@ -681,7 +663,6 @@ export function notifyRepeatChanged(payload: {
   seriesId?: string;
   frequency?: RepeatFrequency;
 } = {}): void {
-  repeatDragDebug('repeatRepository', 'notifyRepeatChanged', payload);
   emitRepeatChanged(payload);
 }
 

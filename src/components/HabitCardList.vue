@@ -126,7 +126,7 @@
                 </svg>
                 <Icon
                   v-else
-                  :name="habit.usePomodoro && !isHabitCompleted(habit) ? 'timer' : 'check'"
+                  name="check"
                   :completed="habit.completedToday"
                   class="icon"
                 />

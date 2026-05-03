@@ -294,10 +294,38 @@
         </div>
         
         <div ref="daysScrollRef" class="days-scroll">
-          <div class="days-grid">
-            <div class="time-labels-column">
-              <div v-for="hour in 23" :key="hour" class="time-label" :style="{ top: (hour * 48) + 'px' }">
-                {{ formatHour(hour) }}
+          <div
+            class="days-grid"
+            :style="{ minHeight: isInactiveHoursCollapsed ? '912px' : '1152px' }"
+          >
+            <div
+              class="time-labels-column"
+              :style="{ height: isInactiveHoursCollapsed ? '912px' : '1152px' }"
+            >
+
+              <div
+                class="inactive-hours-labels"
+                :style="{ height: isInactiveHoursCollapsed ? '0px' : '240px' }"
+              >
+                <div v-for="hour in 5" :key="hour" v-show="!isInactiveHoursCollapsed" class="time-label" :style="{ top: (hour * 48) + 'px' }">
+                  {{ formatHour(hour) }}
+                </div>
+              </div>
+
+              <div
+                class="inactive-hours-toggle-btn"
+                :style="{ top: isInactiveHoursCollapsed ? '24px' : '264px' }"
+                @click="toggleInactiveHours"
+              >
+                <Icon
+                  :name="isInactiveHoursCollapsed ? 'chevronsVertical' : 'chevronsHorizontal'"
+                  width="16"
+                  height="16"
+                />
+              </div>
+
+              <div v-for="hour in 18" :key="hour + 5" class="time-label" :style="{ top: ((hour + 5) * 48 - (isInactiveHoursCollapsed ? 240 : 0)) + 'px' }">
+                {{ formatHour(hour + 5) }}
               </div>
             </div>
             <div 
@@ -309,19 +337,38 @@
                 'drag-over': dragState.overDayColumn === day.key
               }"
               :data-day-key="day.key"
+              :style="{ minHeight: isInactiveHoursCollapsed ? '912px' : '1152px' }"
             >
               <div
-                v-for="hour in 24"
-                :key="hour"
+                class="inactive-hours-cells"
+                :style="{ height: isInactiveHoursCollapsed ? '0px' : '240px', overflow: 'hidden' }"
+              >
+                <div
+                  v-for="hour in 5"
+                  :key="hour"
+                  class="hour-cell"
+                  :class="{
+                    'drag-over': dragState.overHourCell === `${day.key}-${hour}`
+                  }"
+                  @mousedown.left="handleHourCellMouseDown(day, hour, $event)"
+                  @mouseenter="handleHourCellMouseEnter(day, hour)"
+                  @dragover.prevent="handleHourCellDragOver(day, hour)"
+                  @dragleave="handleHourCellDragLeave"
+                  @drop="handleDropOnHourCell(day, hour)"
+                ></div>
+              </div>
+              <div
+                v-for="hour in 19"
+                :key="hour + 5"
                 class="hour-cell"
                 :class="{
-                  'drag-over': dragState.overHourCell === `${day.key}-${hour}`
+                  'drag-over': dragState.overHourCell === `${day.key}-${hour + 5}`
                 }"
-                @mousedown.left="handleHourCellMouseDown(day, hour, $event)"
-                @mouseenter="handleHourCellMouseEnter(day, hour)"
-                @dragover.prevent="handleHourCellDragOver(day, hour)"
+                @mousedown.left="handleHourCellMouseDown(day, hour + 5, $event)"
+                @mouseenter="handleHourCellMouseEnter(day, hour + 5)"
+                @dragover.prevent="handleHourCellDragOver(day, hour + 5)"
                 @dragleave="handleHourCellDragLeave"
-                @drop="handleDropOnHourCell(day, hour)"
+                @drop="handleDropOnHourCell(day, hour + 5)"
               ></div>
               <div
                 v-if="getTimedCreateSelectionStyle(day.key)"
@@ -333,6 +380,7 @@
                 <div
                   v-for="item in (tasksByDay.get(day.key) || [])"
                   :key="item.task.id + '-' + item.renderDate"
+                  v-show="!isInactiveHoursCollapsed || item.renderStartTime >= '06:00'"
                   class="timed-task"
                   :title="stripHtml(item.task.title)"
                   :class="[
@@ -664,6 +712,8 @@ function resolveInitialWeekStart(): Date {
 const currentWeekStart = ref(resolveInitialWeekStart());
 const currentTime = ref(new Date());
 const isAllDaySectionCollapsed = ref(false);
+const INACTIVE_HOURS_OFFSET = 240; // 5 小时标签+5 个 hour-cell × 48px
+const isInactiveHoursCollapsed = ref(true);
 const allDayExpandedPanelVisible = ref(false);
 const allDayExpandedDayKey = ref<string | null>(null);
 const MAX_VISIBLE_ALL_DAY_ROWS = 4;
@@ -703,7 +753,10 @@ let mobileTimedTaskPointerMoveRafId: number | null = null;
 function getCurrentTimeOffsetPx(): number {
   const now = new Date();
   const minutes = now.getHours() * 60 + now.getMinutes();
-  return minutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
+  const offset = minutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
+  return isInactiveHoursCollapsed.value
+    ? Math.max(0, offset - INACTIVE_HOURS_OFFSET)
+    : offset;
 }
 
 function scrollToCurrentTimeInView(behavior: ScrollBehavior = 'auto'): void {
@@ -1827,6 +1880,9 @@ const currentTimePlacement = computed(() => {
   const now = currentTime.value;
   const minutes = now.getHours() * 60 + now.getMinutes();
   const top = minutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
+  const adjustedTop = isInactiveHoursCollapsed.value
+    ? Math.max(0, top - INACTIVE_HOURS_OFFSET)
+    : top;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -1836,7 +1892,7 @@ const currentTimePlacement = computed(() => {
   const dayOffset = Math.floor((today.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
   const inRange = dayOffset >= 0 && dayOffset < daysCount.value;
 
-  return { top, dayOffset, inRange };
+  return { top: adjustedTop, dayOffset, inRange };
 });
 
 const currentTimeLabelStyle = computed(() => {
@@ -1892,6 +1948,10 @@ function goToToday() {
   }
   currentWeekStart.value = getMondayStart(new Date());
   void centerCurrentTimeInViewport('smooth');
+}
+
+function toggleInactiveHours() {
+  isInactiveHoursCollapsed.value = !isInactiveHoursCollapsed.value;
 }
 
 function toggleAllDaySection() {
@@ -5654,6 +5714,37 @@ onUnmounted(() => {
   text-align: center;
   color: var(--b3-theme-on-surface);
   opacity: 0.6;
+}
+
+.inactive-hours-labels {
+  position: relative;
+}
+
+.inactive-hours-toggle-btn {
+  position: absolute;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.5;
+  border-radius: 4px;
+  z-index: 2;
+  transition: opacity 0.15s;
+  transform: translateY(-50%);
+}
+
+.inactive-hours-toggle-btn:hover {
+  opacity: 0.9;
+  background: var(--b3-list-hover);
+}
+
+.inactive-hours-cells {
+  position: relative;
 }
 
 .days-scroll {

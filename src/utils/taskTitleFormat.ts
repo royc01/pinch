@@ -58,11 +58,28 @@ function restoreBlockRefs(text: string, tokens: BlockRefToken[]): string {
   return restored;
 }
 
+/**
+ * Convert SiYuan inline memo markdown syntax to HTML.
+ * At this point block refs ((id)) have already been tokenized by replaceBlockRefs,
+ * so any remaining ((...)) patterns are inline memos.
+ * Produces <sup>(memo)</sup> which sanitizeTaskHtml will convert to
+ * <span data-type="inline-memo" data-inline-memo-content="memo">.
+ */
+function convertInlineMemos(text: string): string {
+  // Strip leading ^ before ((memo)) (superscript marker) then convert ((memo)) to <sup>(memo)</sup>
+  return text
+    .replace(/\^\(\(/g, '((')
+    .replace(/\(\(([^()]+)\)\)/g, (_match, memo: string) => {
+      return `<sup>(${escapeHtml(memo)})</sup>`;
+    });
+}
+
 export function formatTaskTitleHtml(text: string): string {
   const cleaned = text.replace(INLINE_ATTR_MARKER_REGEX, ' ').trim();
   if (!cleaned) return '';
   const { text: withTokens, tokens } = replaceBlockRefs(cleaned);
   const linkConverted = convertMarkdownLinks(withTokens);
   const strongConverted = convertMarkdownStrong(linkConverted);
-  return restoreBlockRefs(strongConverted, tokens);
+  const memoConverted = convertInlineMemos(strongConverted);
+  return restoreBlockRefs(memoConverted, tokens);
 }

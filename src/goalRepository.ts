@@ -7,6 +7,7 @@ export interface Goal {
   emoji?: string;
   members: DocumentGroupMember[];
   order?: number;
+  dueDate?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -103,12 +104,15 @@ function normalizeGoal(input: unknown, legacyGroupsById: Map<string, DocumentGro
     ? explicitMembers
     : resolveLegacyGoalMembers(raw, legacyGroupsById);
 
+  const dueDate = typeof raw.dueDate === 'string' ? raw.dueDate.trim() : '';
+
   return {
     id,
     name,
     emoji: emoji || undefined,
     members,
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : undefined,
+    dueDate: dueDate || undefined,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined
   };

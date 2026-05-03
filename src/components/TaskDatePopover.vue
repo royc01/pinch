@@ -29,10 +29,17 @@
         </div>
 
         <div class="date-popover-quick">
-          <button type="button" class="date-quick-btn" @click="applyQuickDate('today')">今天</button>
-          <button type="button" class="date-quick-btn" @click="applyQuickDate('tomorrow')">明天</button>
-          <button type="button" class="date-quick-btn" @click="applyQuickDate('weekend')">本周末</button>
-          <button type="button" class="date-quick-btn" @click="applyQuickDate('nextMonday')">下周一</button>
+          <template v-if="quickMode === 'goal'">
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('thisWeek')">本周</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('thisMonth')">本月</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('thisYear')">今年</button>
+          </template>
+          <template v-else>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('today')">今天</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('tomorrow')">明天</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('weekend')">本周末</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('nextMonday')">下周一</button>
+          </template>
           <button type="button" class="date-quick-btn danger" @click="clearSelection">清除</button>
         </div>
 
@@ -154,7 +161,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 
-type DateQuickKey = 'today' | 'tomorrow' | 'weekend' | 'nextMonday';
+type DateQuickKey = 'today' | 'tomorrow' | 'weekend' | 'nextMonday' | 'thisWeek' | 'thisMonth' | 'thisYear';
 type CalendarDay = {
   key: string;
   label: number;
@@ -174,13 +181,15 @@ const props = withDefaults(defineProps<{
   startDate?: string;
   startTime?: string;
   dueTime?: string;
+  quickMode?: 'default' | 'goal';
 }>(), {
   floating: true,
   autoClose: true,
   showTaskEditorDetails: false,
   startDate: '',
   startTime: '',
-  dueTime: ''
+  dueTime: '',
+  quickMode: 'default'
 });
 
 const emit = defineEmits<{
@@ -292,6 +301,20 @@ function getNextMondayDate(base: Date): Date {
   return addDays(base, delta);
 }
 
+function getThisWeekEndDate(base: Date): Date {
+  const day = base.getDay();
+  const delta = day === 0 ? 0 : 7 - day;
+  return addDays(base, delta);
+}
+
+function getThisMonthEndDate(base: Date): Date {
+  return new Date(base.getFullYear(), base.getMonth() + 1, 0);
+}
+
+function getThisYearEndDate(base: Date): Date {
+  return new Date(base.getFullYear(), 11, 31);
+}
+
 function updatePopoverPosition(): void {
   if (!props.floating) return;
   const anchor = props.anchorEl;
@@ -390,6 +413,12 @@ function applyQuickDate(key: DateQuickKey): void {
     target = getWeekendDate(base);
   } else if (key === 'nextMonday') {
     target = getNextMondayDate(base);
+  } else if (key === 'thisWeek') {
+    target = getThisWeekEndDate(base);
+  } else if (key === 'thisMonth') {
+    target = getThisMonthEndDate(base);
+  } else if (key === 'thisYear') {
+    target = getThisYearEndDate(base);
   }
 
   emitSelection(formatDateInput(target));

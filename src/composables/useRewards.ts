@@ -10,6 +10,7 @@ import {
 import { eventBus, Events } from '@/utils/eventBus';
 
 const BLOCK_REWARD_SYNC_DELAY_MS = 80;
+const TASK_CHANGE_REWARD_DELAY_MS = 150;
 
 interface BlockUpdateEventDetail {
   id?: string;
@@ -20,6 +21,8 @@ export const useRewards = () => {
   const rewardSnapshot = ref<RewardSnapshot>(createEmptyRewardSnapshot());
   const rewardLoading = ref(false);
   const blockRewardTimers = new Map<string, number>();
+  const taskChangeRewardTimers = new Map<string, number>();
+  const recentlyAwardedTasks = new Set<string>();
 
   const loadRewards = async (forceRefresh: boolean = false) => {
     rewardLoading.value = true;
@@ -58,6 +61,40 @@ export const useRewards = () => {
     blockRewardTimers.set(normalizedBlockId, timer);
   };
 
+  const scheduleTaskChangeReward = (blockId: string) => {
+    const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+    if (!normalizedBlockId || typeof window === 'undefined') {
+      return;
+    }
+
+    if (recentlyAwardedTasks.has(normalizedBlockId)) {
+      return;
+    }
+
+    const existingTimer = taskChangeRewardTimers.get(normalizedBlockId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = window.setTimeout(() => {
+      taskChangeRewardTimers.delete(normalizedBlockId);
+      void TaskRepository.getTaskByBlockId(normalizedBlockId, false)
+        .then((task) => {
+          if (!task || task.status !== 'completed') {
+            return;
+          }
+          recentlyAwardedTasks.add(normalizedBlockId);
+          setTimeout(() => recentlyAwardedTasks.delete(normalizedBlockId), 2000);
+          return awardTaskCompletion(task);
+        })
+        .catch((error) => {
+          console.error('[Rewards] 任务变更奖励同步失败:', error);
+        });
+    }, TASK_CHANGE_REWARD_DELAY_MS);
+
+    taskChangeRewardTimers.set(normalizedBlockId, timer);
+  };
+
   const handleRewardUpdated = (payload?: RewardUpdatePayload) => {
     if (payload?.snapshot) {
       rewardSnapshot.value = payload.snapshot;
@@ -80,10 +117,23 @@ export const useRewards = () => {
     scheduleTaskRewardSync(blockId);
   };
 
+  const handleTaskChanged = (data?: { blockIds?: string[] }) => {
+    if (!data?.blockIds?.length) {
+      return;
+    }
+    for (const blockId of data.blockIds) {
+      if (typeof blockId === 'string' && blockId.trim()) {
+        scheduleTaskChangeReward(blockId.trim());
+      }
+    }
+  };
+
   let unsubscribeRewardUpdates: (() => void) | null = null;
+  let unsubscribeTaskChanged: (() => void) | null = null;
 
   onMounted(() => {
     unsubscribeRewardUpdates = eventBus.on(Events.REWARDS_UPDATED, handleRewardUpdated);
+    unsubscribeTaskChanged = eventBus.on(Events.TASK_CHANGED, handleTaskChanged);
     if (typeof window !== 'undefined') {
       window.addEventListener('siyuan-block-update', handleBlockUpdated as EventListener);
     }
@@ -92,10 +142,13 @@ export const useRewards = () => {
 
   onUnmounted(() => {
     unsubscribeRewardUpdates?.();
+    unsubscribeTaskChanged?.();
     if (typeof window !== 'undefined') {
       window.removeEventListener('siyuan-block-update', handleBlockUpdated as EventListener);
       blockRewardTimers.forEach((timer) => clearTimeout(timer));
       blockRewardTimers.clear();
+      taskChangeRewardTimers.forEach((timer) => clearTimeout(timer));
+      taskChangeRewardTimers.clear();
     }
   });
 

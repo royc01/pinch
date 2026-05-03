@@ -18,14 +18,6 @@ export function formatHour(hour: number): string {
   return `${hour - 12}pm`;
 }
 
-export function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  d.setDate(d.getDate() - day);
-  return d;
-}
-
 export function formatChineseDate(date: Date): string {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }

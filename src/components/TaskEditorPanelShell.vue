@@ -350,8 +350,6 @@ function handlePriorityClick(event: MouseEvent): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #f98f7a;
-  background: rgb(249 143 122 / 0.12);
   padding: 0;
 }
 

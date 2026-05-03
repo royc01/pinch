@@ -13,7 +13,7 @@ export interface NewHabitFormState {
   pomodoroDuration: string;
 }
 
-const createDefaultNewHabit = (): NewHabitFormState => ({
+export const createDefaultNewHabit = (): NewHabitFormState => ({
   name: '',
   emoji: '',
   difficulty: 'medium',

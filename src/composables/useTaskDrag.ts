@@ -5,7 +5,6 @@ import { formatDate, formatTime } from './useDateUtils';
 import { CALENDAR_CONSTANTS } from './useCalendarConstants';
 import { useDebouncedSave } from './useDebouncedSave';
 import { useTaskLocalMutations } from './useTaskLocalMutations';
-import { repeatDragDebug } from '@/utils/repeatDragDebug';
 
 interface EventListener {
   element: Document;
@@ -192,14 +191,6 @@ export function useTaskDrag(
 
     event.preventDefault();
     event.stopPropagation();
-    repeatDragDebug('useTaskDrag', 'blocked drag start while previous drag is still settling', {
-      kind,
-      task: summarizeTask(task),
-      hasDraggingHandle: !!draggingHandle.value,
-      hasDraggingTask: !!draggingTask.value,
-      hasDraggingTimedHandle: !!draggingTimedTaskHandle.value,
-      hasDraggingTimedTask: !!draggingTimedTask.value
-    });
     return true;
   }
 
@@ -863,14 +854,6 @@ export function useTaskDrag(
           toStartDate: targetDate,
           toDueDate: targetDate
         });
-        repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed resolved scope', {
-          scope,
-          targetDate,
-          startTime,
-          dueTime,
-          currentTask: summarizeTask(currentTask),
-          hasRepeatSnapshot: !!repeatSeriesSnapshot
-        });
 
         if (scope !== 'cancel') {
           if (repeatSeriesSnapshot && scope === 'series' && isRepeatTask(currentTask)) {
@@ -904,15 +887,6 @@ export function useTaskDrag(
                     'custom-task-due-time': dueTime
                   });
                 }
-                repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed series persisted', {
-                  templateBlockId,
-                  seriesId: series.id,
-                  nextSeriesStart,
-                  nextSeriesEnd,
-                  startTime,
-                  dueTime,
-                  currentTask: summarizeTask(currentTask)
-                });
                 notifyRepeatChanged({
                   blockId: templateBlockId,
                   seriesId: series.id,
@@ -967,13 +941,6 @@ export function useTaskDrag(
                   },
                   { emitChange: false }
                 );
-                repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed single-template series metadata persisted', {
-                  seriesId: series.id,
-                  templateBlockId: series.templateBlockId,
-                  currentTask: summarizeTask(currentTask),
-                  startTime,
-                  dueTime
-                });
               }
             } catch (_error) {
             }
@@ -1000,10 +967,6 @@ export function useTaskDrag(
                 attrs['custom-task-due-date'] = targetDate;
               }
               await setBlockAttrs(persistTarget.blockId, attrs);
-              repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed persistTarget attrs saved', {
-                persistTarget: summarizeTask(persistTarget),
-                attrs
-              });
             } catch (error) {
             }
           }
@@ -1017,10 +980,6 @@ export function useTaskDrag(
                   blockId: series.templateBlockId || persistTarget?.blockId,
                   seriesId: series.id,
                   frequency: series.frequency
-                });
-                repeatDragDebug('useTaskDrag', 'handleTaskMouseUp timed series notify sent', {
-                  seriesId: series.id,
-                  blockId: series.templateBlockId || persistTarget?.blockId
                 });
               }
             } catch (_error) {
@@ -1052,15 +1011,6 @@ export function useTaskDrag(
             fromDueDate: originalDueDate,
             toStartDate: currentStart,
             toDueDate: currentDue
-          });
-          repeatDragDebug('useTaskDrag', 'handleTaskMouseUp all-day resolved scope', {
-            scope,
-            currentTask: summarizeTask(currentTask),
-            originalStartDate,
-            originalDueDate,
-            currentStart,
-            currentDue,
-            hasRepeatSnapshot: !!repeatSeriesSnapshot
           });
 
           if (scope === 'cancel') {
@@ -1110,13 +1060,6 @@ export function useTaskDrag(
                       'custom-task-due-date': nextSeriesEnd || ''
                     });
                   }
-                  repeatDragDebug('useTaskDrag', 'handleTaskMouseUp all-day series persisted', {
-                    seriesId: series.id,
-                    templateBlockId: series.templateBlockId,
-                    nextSeriesStart,
-                    nextSeriesEnd,
-                    currentTask: summarizeTask(currentTask)
-                  });
                   notifyRepeatChanged({
                     blockId: series.templateBlockId,
                     seriesId: series.id,
@@ -1165,13 +1108,6 @@ export function useTaskDrag(
                       'custom-task-due-date': nextSeriesEnd || ''
                     });
                   }
-                  repeatDragDebug('useTaskDrag', 'handleTaskMouseUp all-day non-snapshot series persisted', {
-                    seriesId: series.id,
-                    templateBlockId: series.templateBlockId,
-                    nextSeriesStart,
-                    nextSeriesEnd,
-                    currentTask: summarizeTask(currentTask)
-                  });
                   notifyRepeatChanged({
                     blockId: series.templateBlockId,
                     seriesId: series.id,
@@ -1373,15 +1309,6 @@ export function useTaskDrag(
                 } catch (_error) {
                 }
               }
-              repeatDragDebug('useTaskDrag', 'handleTimedTaskHandleMouseUp series persisted', {
-                seriesId: series.id,
-                templateBlockId,
-                nextSeriesStart,
-                nextSeriesEnd,
-                newStartTime,
-                newEndTime,
-                currentTask: summarizeTask(currentTask)
-              });
               notifyRepeatChanged({
                 blockId: templateBlockId,
                 seriesId: series.id,
@@ -1654,16 +1581,6 @@ export function useTaskDrag(
                 'custom-task-due-time': isAllDayDrop ? null : resolvedEndTime
               });
             }
-            repeatDragDebug('useTaskDrag', 'handleTimedTaskMouseUp series persisted', {
-              seriesId: series.id,
-              templateBlockId,
-              nextSeriesStart,
-              nextSeriesEnd,
-              newStartTime: resolvedStartTime,
-              newEndTime: resolvedEndTime,
-              allDayDrop: isAllDayDrop,
-              currentTask: summarizeTask(currentTask)
-            });
             notifyRepeatChanged({
               blockId: templateBlockId,
               seriesId: series.id,

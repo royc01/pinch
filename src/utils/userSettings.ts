@@ -4,7 +4,7 @@ import type { TaskViewGroupMode } from './taskGrouping';
 
 export interface UserSettings {
   kanban: {
-    currentView?: 'kanban' | 'table' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
+    currentView?: 'kanban' | 'list' | 'table' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
     filterType: string;
     filterSource?: string;
     filterDocument: string;

@@ -1,4 +1,4 @@
-﻿<template>
+﻿﻿<template>
     <div ref="kanbanViewRef" class="kanban-view">
       <div class="kanban-header">
         <div class="kanban-header-view-module">
@@ -16,7 +16,9 @@
                   :aria-label="`切换视图（当前：${currentViewOption.text}）`"
                   @click.stop="toggleMobileViewSwitcher"
                 >
-                  <Icon :name="currentViewOption.icon" width="16" height="16" />
+                  <Icon v-if="currentView === 'stats'" name="statsBar" width="16" height="16" />
+                  <Icon v-else :name="currentViewOption.icon" width="16" height="16" />
+                  <span class="mobile-view-switcher-btn-text">{{ currentViewOption.text }}</span>
                 </button>
                 <div
                   v-if="mobileViewSwitcherVisible"
@@ -32,7 +34,8 @@
                     :class="{ active: currentView === option.value }"
                     @click="selectMobileView(option.value)"
                   >
-                    <Icon :name="option.icon" width="17" height="17" />
+                    <Icon v-if="option.value === 'stats'" name="statsBar" width="17" height="17" />
+                    <Icon v-else :name="option.icon" width="17" height="17" />
                     <span>{{ option.text }}</span>
                   </button>
                 </div>
@@ -42,6 +45,10 @@
               <button :class="['view-btn', { active: currentView === 'kanban' }]" @click="currentView = 'kanban'">
                 <Icon name="kanban" width="15" height="15" />
                 <span>看板</span>
+              </button>
+              <button :class="['view-btn', { active: currentView === 'list' }]" @click="currentView = 'list'">
+                <Icon name="card" width="15" height="15" />
+                <span>卡片</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'table' }]" @click="currentView = 'table'">
                 <Icon name="table" width="15" height="15" />
@@ -64,11 +71,11 @@
                 <span>日视图</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'archive-table' }]" @click="currentView = 'archive-table'">
-                <Icon name="table" width="15" height="15" />
+                <Icon name="archive" width="15" height="15" />
                 <span>归档</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'stats' }]" @click="currentView = 'stats'">
-                <Icon name="stats" width="15" height="15" />
+                <Icon name="statsBar" width="15" height="15" />
                 <span>统计</span>
               </button>
             </template>
@@ -76,7 +83,7 @@
         </div>
 
         <div class="kanban-header-tools-module">
-          <div v-if="currentView === 'kanban'" class="filter-bar-inline">
+          <div v-if="currentView === 'kanban' || currentView === 'list'" class="filter-bar-inline">
             <div class="filter-group">
               <label>来源:</label>
               <SySelect
@@ -156,7 +163,7 @@
               <Icon name="taskDrawer" width="21" height="21" />
             </button>
             <button
-              v-if="currentView === 'kanban' || currentView === 'table'"
+              v-if="currentView === 'kanban' || currentView === 'list' || currentView === 'table'"
               type="button"
               class="new-task-btn"
               title="新建任务"
@@ -169,7 +176,7 @@
         </div>
       </div>
       <div
-        v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'table' || currentView === 'archive-table' || currentView === 'stats' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
+        v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'list' || currentView === 'table' || currentView === 'archive-table' || currentView === 'stats' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
         class="document-tabs-row"
       >
       <div
@@ -192,7 +199,7 @@
       </div>
       <div v-else class="document-tabs-placeholder"></div>
       <div
-        v-if="currentView === 'kanban' || currentView === 'table' || currentView === 'archive-table' || currentView === 'stats' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
+        v-if="currentView === 'kanban' || currentView === 'list' || currentView === 'table' || currentView === 'archive-table' || currentView === 'stats' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
         ref="documentTabsDropdownControlRef"
         class="document-tabs-dropdown"
       >
@@ -236,7 +243,7 @@
           </div>
         </div>
       </div>
-      <div v-if="currentView === 'kanban'" class="document-tabs-actions">
+      <div v-if="currentView === 'kanban' || currentView === 'list'" class="document-tabs-actions">
         <div ref="kanbanFilterControlRef" class="task-filter-control">
           <button
             type="button"
@@ -257,7 +264,7 @@
             type="button"
             class="task-group-menu-btn"
             :class="{
-              active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks,
+              active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks || currentView === 'list',
               'is-batch-active': currentView === 'kanban' && isKanbanBatchEditMode
             }"
             title="视图设置"
@@ -274,7 +281,7 @@
           >
             <button
               v-for="option in currentTaskViewGroupOptions"
-              :key="`kanban-group:${option.value}`"
+              :key="`task-group:${option.value}`"
               type="button"
               class="task-group-menu-item"
               :class="{ active: activeTaskViewGroupMode === option.value }"
@@ -287,6 +294,7 @@
             </button>
             <div class="task-group-menu-divider"></div>
             <button
+              v-if="currentView === 'kanban'"
               type="button"
               class="task-group-menu-item"
               :class="{ active: isKanbanBatchEditMode }"
@@ -306,6 +314,7 @@
             </button>
             <div class="task-group-menu-divider"></div>
             <button
+              v-if="currentView === 'kanban' || currentView === 'list'"
               type="button"
               class="task-group-menu-item"
               @click.stop="toggleKanbanTaskCardDetailsFromMenu"
@@ -751,6 +760,145 @@
         class="kanban-batch-lasso"
         :style="kanbanBatchLassoStyle"
       ></div>
+    </div>
+    <div
+      v-else-if="currentView === 'list' && isSettingsLoaded"
+      ref="listViewRef"
+      class="kanban-list-view"
+      @scroll="handleListViewScroll"
+    >
+      <div v-if="kanbanListSections.length === 0" class="empty-state">
+        暂无任务
+      </div>
+      <div v-else class="kanban-list-masonry">
+        <div
+          v-for="(column, colIndex) in kanbanListMasonryColumns"
+          :key="column.id"
+          class="kanban-list-masonry-column"
+        >
+          <section
+            v-if="colIndex === kanbanListMasonryColumns.length - 1 && kanbanListGroupActionColumn"
+            class="kanban-list-section kanban-list-action-section"
+          >
+            <div class="kanban-list-action-body" @click="handleActionColumnClick(kanbanListGroupActionColumn)">
+              <Icon name="add" width="16" height="16" />
+              <span>{{ kanbanListGroupActionColumn.actionKind === 'heading-add' ? '新建标题' : '新建标签' }}</span>
+            </div>
+          </section>
+          <section
+            v-for="section in column.sections"
+            :key="section.id"
+            class="kanban-list-section"
+            :class="[
+              section.column.type === 'status' ? `status-${section.column.status}` : '',
+              section.column.type === 'group' ? 'group-column' : '',
+              section.column.type === 'heading' ? 'heading-column' : '',
+              section.column.type === 'date' ? 'date-column' : '',
+              { 'drag-over': dragOverColumnId === section.column.id }
+            ]"
+            @dragover.prevent="handleDragOver($event, section.column)"
+            @dragleave="handleDragLeave"
+            @drop="handleDrop($event, section.column)"
+          >
+            <header class="kanban-list-section-header">
+              <div class="kanban-list-section-title-wrap">
+                <span
+                  class="column-title-dot"
+                  :class="{
+                    'is-heading-icon-dot': isKanbanHeadingColumn(section.column),
+                    'is-group-icon-dot': isKanbanGroupColumn(section.column)
+                  }"
+                  :style="getKanbanColumnDotStyle(section.column)"
+                >
+                  <svg v-if="isKanbanHeadingColumn(section.column)" class="column-title-dot-icon" aria-hidden="true">
+                    <use :xlink:href="`#${getKanbanHeadingIconName(section.column)}`"></use>
+                  </svg>
+                  <Icon v-else-if="isKanbanGroupColumn(section.column)" name="group" width="12" height="12" class="column-title-dot-icon" />
+                </span>
+                <span class="kanban-list-section-title">{{ getKanbanColumnTitleText(section.column) }}</span>
+              </div>
+              <div class="kanban-list-section-meta">
+                <span class="kanban-list-section-count">{{ section.tasks.length }}</span>
+                <button
+                  v-if="canCreateTaskInColumn(section.column)"
+                  type="button"
+                  class="column-add-task-btn"
+                  :title="getColumnCreateTaskLabel(section.column)"
+                  :aria-label="getColumnCreateTaskLabel(section.column)"
+                  @click.stop="openQuickCreateForKanbanColumn(section.column)"
+                >
+                  <Icon name="addPlain" width="16" height="16" />
+                </button>
+                <button
+                  v-if="canCreateTaskInColumn(section.column)"
+                  type="button"
+                  class="column-archive-tasks-btn"
+                  :title="getColumnArchiveTasksLabel(section.column)"
+                  :aria-label="getColumnArchiveTasksLabel(section.column)"
+                  :disabled="isKanbanColumnArchiving(section.column.id) || !canArchiveTasksInColumn(section.column)"
+                  @click.stop="archiveColumnTasks(section.column)"
+                >
+                  <Icon name="archive" width="16" height="16" />
+                </button>
+                <button
+                  type="button"
+                  class="kanban-list-section-toggle"
+                  :class="{ collapsed: isKanbanListSectionCollapsed(section.id) }"
+                  :title="isKanbanListSectionCollapsed(section.id) ? '展开分组' : '折叠分组'"
+                  :aria-label="isKanbanListSectionCollapsed(section.id) ? '展开分组' : '折叠分组'"
+                  :aria-expanded="!isKanbanListSectionCollapsed(section.id)"
+                  @click.stop="toggleKanbanListSectionCollapse(section.id)"
+                >
+                  <Icon name="chevronRight" width="14" height="14" />
+                </button>
+              </div>
+            </header>
+            <div
+              v-if="!isKanbanListSectionCollapsed(section.id)"
+              class="kanban-list-section-body protyle-wysiwyg"
+              :style="getListSectionSpacerStyle(section)"
+            >
+              <div
+                v-for="task in getVisibleTasksForListSection(section)"
+                :key="task.id"
+                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id)]"
+                class="kanban-list-task-item"
+                @contextmenu="handleKanbanTaskContextMenu(task, $event)"
+              >
+                <TaskCard
+                  :task="task"
+                  variant="sidebar"
+                  :task-groups="taskGroups"
+                  :show-status-badge="kanbanGroupBy !== 'status'"
+                  :completed="isTaskCompletedVisual(task)"
+                  :draggable="!isMobileFrontend && kanbanSupportsDrag"
+                  :dragging="!!(draggedTask && draggedTask.id === task.id)"
+                  :expanded="isKanbanTaskExpanded(task.id)"
+                  :description-editing="inlineEditingDescriptionTaskId === task.id"
+                  :description-draft="getInlineDescriptionDraft(task)"
+                  :show-description="showKanbanTaskCardDetails"
+                  :show-badges="showKanbanTaskCardDetails"
+                  :show-document-title="!kanbanFilterDocument || kanbanFilterDocument === 'all'"
+                  :document-icon-override="getTaskDocumentIcon(task)"
+                  :show-subtasks="isKanbanTaskExpanded(task.id)"
+                  @card-click="handleKanbanTaskCardClick"
+                  @open-click="handleKanbanTaskOpenClick"
+                  @start-focus="startFocusForTask"
+                  @toggle-status="handleKanbanTaskToggleStatus"
+                  @toggle-expand="toggleKanbanTaskExpand"
+                  @description-start-edit="startInlineDescriptionEdit"
+                  @description-input="handleInlineDescriptionInput"
+                  @description-save="saveInlineDescriptionEdit"
+                  @description-cancel="cancelInlineDescriptionEdit"
+                  @subtask-toggle="handleSubtaskToggle"
+                  @dragstart="handleDragStart"
+                  @dragend="handleDragEnd"
+                />
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
     
     <TableView 
@@ -1287,7 +1435,7 @@ const tableGroupModeOptions = [
   { value: 'group', text: '按标签分组' },
   { value: 'heading', text: '按标题分组' }
 ] as const;
-type TaskViewMode = 'kanban' | 'table' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
+type TaskViewMode = 'kanban' | 'list' | 'table' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
 type TaskLoadMode = 'full' | 'light-with-repeats' | 'light-base';
 type CalendarTaskViewMode = Extract<TaskViewMode, 'month' | 'week' | 'three-day' | 'day'>;
 type StatsDrilldownPayload = {
@@ -1341,17 +1489,19 @@ type MobileCalendarDragSession = {
 };
 const viewSwitcherOptions: Array<{ value: TaskViewMode; text: string; icon: string }> = [
   { value: 'kanban', text: '看板', icon: 'kanban' },
+  { value: 'list', text: '卡片', icon: 'card' },
   { value: 'table', text: '表格', icon: 'table' },
   { value: 'month', text: '月视图', icon: 'month' },
   { value: 'week', text: '周视图', icon: 'week' },
   { value: 'three-day', text: '三日图', icon: 'threeDay' },
   { value: 'day', text: '日视图', icon: 'day' },
-  { value: 'archive-table', text: '归档', icon: 'table' },
+  { value: 'archive-table', text: '归档', icon: 'archive' },
   { value: 'stats', text: '统计', icon: 'stats' }
 ];
 function normalizeTaskViewMode(value: unknown): TaskViewMode {
   if (
     value === 'kanban'
+    || value === 'list'
     || value === 'table'
     || value === 'archive-table'
     || value === 'stats'
@@ -1558,6 +1708,7 @@ let documentIconRefreshSeq = 0;
 const taskViewGroupMenuVisible = ref(false);
 const taskViewGroupMenuControlRef = ref<HTMLElement | null>(null);
 const taskViewGroupMenuPopoverRef = ref<HTMLElement | null>(null);
+const collapsedKanbanListSectionIds = ref<Set<string>>(new Set());
 const hiddenDocumentTabIds = ref(new Set<string>());
 const mobileViewSwitcherVisible = ref(false);
 const mobileViewSwitcherControlRef = ref<HTMLElement | null>(null);
@@ -1574,6 +1725,7 @@ const mobileCalendarTaskDrag = ref<MobileCalendarDragSession>({
 const mobileCalendarTaskDragHint = ref('');
 const kanbanViewRef = ref<HTMLElement | null>(null);
 const isCompactViewSwitcher = ref(false);
+const kanbanListColumnCount = ref(1);
 const COMPACT_VIEW_SWITCHER_BREAKPOINT = 980;
 let kanbanViewResizeObserver: ResizeObserver | null = null;
 
@@ -1643,6 +1795,11 @@ const isDropping = ref(false);
 const kanbanColumnElements = new Map<string, HTMLElement>();
 let kanbanMetricsRaf: number | null = null;
 const kanbanColumnEstimatedHeights = ref<Record<string, number>>({});
+const listViewRef = ref<HTMLElement | null>(null);
+const listViewMetrics = ref<{ scrollTop: number; height: number }>({ scrollTop: 0, height: 600 });
+let listViewMetricsRaf: number | null = null;
+const LIST_VIRTUAL_CARD_HEIGHT = 56;
+const listViewEstimatedCardHeight = ref<number>(LIST_VIRTUAL_CARD_HEIGHT);
 const currentView = ref<TaskViewMode>(normalizeTaskViewMode(userSettings.kanban?.currentView));
 const currentViewOption = computed(() =>
   viewSwitcherOptions.find(option => option.value === currentView.value) || viewSwitcherOptions[0]
@@ -1869,6 +2026,18 @@ type KanbanColumn = {
   dateGroupKey?: KanbanDateGroupKey;
 };
 
+type KanbanListSection = {
+  id: string;
+  column: KanbanColumn;
+  tasks: Task[];
+};
+
+type KanbanListMasonryColumn = {
+  id: string;
+  sections: KanbanListSection[];
+  heightScore: number;
+};
+
 const statusColumns: KanbanColumn[] = [
   { id: 'status-pending', status: 'pending', title: '待处理', type: 'status' },
   { id: 'status-in-progress', status: 'in-progress', title: '进行中', type: 'status' },
@@ -1887,7 +2056,11 @@ const kanbanDateGroups: Array<{ key: KanbanDateGroupKey; title: string; dotColor
 const KANBAN_VIRTUAL_CARD_HEIGHT = 110;
 const KANBAN_VIRTUAL_OVERSCAN = 6;
 const KANBAN_VIRTUAL_THRESHOLD = 120;
+const LIST_VIRTUAL_OVERSCAN = 8;
+const LIST_VIRTUAL_THRESHOLD = 80;
 const KANBAN_TITLE_HYDRATE_LIMIT = 120;
+const KANBAN_LIST_MIN_COLUMN_WIDTH = 330;
+const KANBAN_LIST_COLUMN_GAP = 10;
 const kanbanPriorityOrder = { high: 0, medium: 1, low: 2, none: 3 } as const;
 
 const taskGroupIdSet = computed(() => {
@@ -1964,8 +2137,7 @@ const groupColumns = computed<KanbanColumn[]>(() => {
 const headingColumns = computed<KanbanColumn[]>(() => {
   const columnsByKey = new Map<string, KanbanColumn>();
 
-  for (const task of tasks.value) {
-    if (!matchesKanbanFilters(task)) continue;
+  for (const task of visibleKanbanTasks.value) {
     const meta = getTaskHeadingGroupMeta(task, taskHeadingGroups.value);
     if (columnsByKey.has(meta.key)) {
       continue;
@@ -2004,6 +2176,11 @@ const dateColumns = computed<KanbanColumn[]>(() =>
 
 const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action', actionKind: 'group-add' };
 const addHeadingColumn: KanbanColumn = { id: ADD_HEADING_COLUMN_ID, title: '', type: 'action', actionKind: 'heading-add' };
+const kanbanListGroupActionColumn = computed<KanbanColumn | null>(() => {
+  if (kanbanGroupBy.value === 'group') return addGroupColumn;
+  if (kanbanGroupBy.value === 'heading') return addHeadingColumn;
+  return null;
+});
 const kanbanSupportsDrag = computed(() => kanbanGroupBy.value !== 'date');
 const kanbanColumns = computed<KanbanColumn[]>(() => {
   if (kanbanGroupBy.value === 'group') {
@@ -2019,6 +2196,78 @@ const kanbanColumns = computed<KanbanColumn[]>(() => {
     ? statusColumns
     : statusColumns.filter(column => column.status !== 'completed');
 });
+
+const kanbanListSections = computed<KanbanListSection[]>(() =>
+  kanbanColumns.value
+    .filter(column => column.type !== 'action')
+    .map(column => ({
+      id: column.id,
+      column,
+      tasks: getTasksForColumn(column)
+    }))
+    .filter(section => section.tasks.length > 0)
+);
+
+function getKanbanListSectionHeightScore(section: KanbanListSection): number {
+  if (isKanbanListSectionCollapsed(section.id)) {
+    return 1.2;
+  }
+  const detailWeight = showKanbanTaskCardDetails.value ? 1.45 : 1;
+  const subtaskScore = section.tasks.reduce((total, task) => {
+    if (!Array.isArray(task.subtasks) || task.subtasks.length === 0) {
+      return total;
+    }
+    return total + Math.min(task.subtasks.length, 6) * 0.35;
+  }, 0);
+  return 1.2 + section.tasks.length * detailWeight + subtaskScore;
+}
+
+const kanbanListMasonryColumns = computed<KanbanListMasonryColumn[]>(() => {
+  const sections = kanbanListSections.value;
+  if (sections.length === 0) {
+    return [];
+  }
+  const columnCount = Math.max(1, Math.min(kanbanListColumnCount.value, sections.length));
+  const columns: KanbanListMasonryColumn[] = Array.from({ length: columnCount }, (_, index) => ({
+    id: `kanban-list-column-${index}`,
+    sections: [],
+    heightScore: 0
+  }));
+
+  sections.forEach((section, index) => {
+    const targetColumn = index < columnCount
+      ? columns[index]
+      : columns.reduce((shortest, column) =>
+        column.heightScore < shortest.heightScore ? column : shortest
+      );
+    targetColumn.sections.push(section);
+    targetColumn.heightScore += getKanbanListSectionHeightScore(section);
+  });
+
+  return columns;
+});
+
+function isKanbanListSectionCollapsed(sectionId: string): boolean {
+  const id = typeof sectionId === 'string' ? sectionId.trim() : '';
+  return id ? collapsedKanbanListSectionIds.value.has(id) : false;
+}
+
+function toggleKanbanListSectionCollapse(sectionId: string): void {
+  const id = typeof sectionId === 'string' ? sectionId.trim() : '';
+  if (!id) {
+    return;
+  }
+  const next = new Set(collapsedKanbanListSectionIds.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  collapsedKanbanListSectionIds.value = next;
+  nextTick(() => {
+    scheduleKanbanTitleHydration(120);
+  });
+}
 
 interface CreateTaskPayload {
   startDate: string;
@@ -2268,6 +2517,11 @@ const documentGroupDialogDocuments = computed(() =>
       path: undefined
     }))
     .sort((a, b) => {
+      const idA = a.id || '';
+      const idB = b.id || '';
+      if (idA !== idB) {
+        return idB.localeCompare(idA);
+      }
       const notebookDiff = a.notebookName.localeCompare(b.notebookName, 'zh-CN');
       if (notebookDiff !== 0) {
         return notebookDiff;
@@ -3640,6 +3894,7 @@ let repeatReconcileRequestId = 0;
 function getCurrentFilterNotebookId(): string {
   switch (currentView.value) {
     case 'kanban':
+    case 'list':
       return kanbanFilterType.value;
     case 'table':
     case 'archive-table':
@@ -3658,7 +3913,7 @@ function getCurrentFilterNotebookId(): string {
 }
 
 function shouldHideCompletedOnlyDocumentTabs(view: TaskViewMode): boolean {
-  return !showCompletedTasks.value && (view === 'kanban' || view === 'table');
+  return !showCompletedTasks.value && (view === 'kanban' || view === 'list' || view === 'table');
 }
 
 type DocumentOptionsTaskMatcher = (task: Task) => boolean;
@@ -3758,6 +4013,7 @@ function matchesKanbanFiltersByDocumentScope(task: Task, includeDocumentFilter: 
 function getDocumentTabTaskMatcher(view: TaskViewMode): DocumentOptionsTaskMatcher {
   switch (view) {
     case 'kanban':
+    case 'list':
       return (task) => matchesKanbanFiltersByDocumentScope(task, false);
     case 'table':
       return (task) => matchesTableFiltersByArchivedState(task, false, false);
@@ -4063,6 +4319,7 @@ const currentDocumentFilter = computed<string>({
   get() {
     switch (currentView.value) {
       case 'kanban':
+      case 'list':
         return kanbanFilterDocument.value;
       case 'table':
       case 'archive-table':
@@ -4082,6 +4339,7 @@ const currentDocumentFilter = computed<string>({
   set(value) {
     switch (currentView.value) {
       case 'kanban':
+      case 'list':
         kanbanFilterDocument.value = value;
         break;
       case 'table':
@@ -4174,10 +4432,10 @@ const documentTabContextMenuStyle = computed<Record<string, string>>(() => {
   };
 });
 const activeTaskViewGroupMode = computed<TaskViewGroupMode>(() =>
-  currentView.value === 'kanban' ? kanbanGroupBy.value : tableGroupBy.value
+  currentView.value === 'kanban' || currentView.value === 'list' ? kanbanGroupBy.value : tableGroupBy.value
 );
 const currentTaskViewGroupOptions = computed(() =>
-  currentView.value === 'kanban' ? kanbanGroupModeOptions : tableGroupModeOptions
+  currentView.value === 'kanban' || currentView.value === 'list' ? kanbanGroupModeOptions : tableGroupModeOptions
 );
 
 function closeTaskViewGroupMenu(): void {
@@ -4198,7 +4456,7 @@ function toggleTaskViewGroupMenu(): void {
 }
 
 function selectTaskViewGroupMode(mode: TaskViewGroupMode): void {
-  if (currentView.value === 'kanban') {
+  if (currentView.value === 'kanban' || currentView.value === 'list') {
     kanbanGroupBy.value = mode;
   } else if (currentView.value === 'table' || currentView.value === 'archive-table') {
     tableGroupBy.value = mode;
@@ -4228,7 +4486,7 @@ async function toggleHideCompletedTasksFromMenu(): Promise<void> {
 }
 
 function toggleKanbanTaskCardDetailsFromMenu(): void {
-  if (currentView.value !== 'kanban') {
+  if (currentView.value !== 'kanban' && currentView.value !== 'list') {
     return;
   }
   showKanbanTaskCardDetails.value = !showKanbanTaskCardDetails.value;
@@ -4256,7 +4514,7 @@ function toggleAllVisibleKanbanDetails(): void {
 }
 
 function toggleAllVisibleKanbanDetailsFromMenu(): void {
-  if (currentView.value !== 'kanban') {
+  if (currentView.value !== 'kanban' && currentView.value !== 'list') {
     return;
   }
   toggleAllVisibleKanbanDetails();
@@ -4446,6 +4704,16 @@ function updateCompactViewSwitcherMode(): void {
   }
   const containerWidth = kanbanViewRef.value?.clientWidth || window.innerWidth || 0;
   isCompactViewSwitcher.value = containerWidth > 0 && containerWidth <= COMPACT_VIEW_SWITCHER_BREAKPOINT;
+}
+
+function updateKanbanListColumnCount(): void {
+  const containerWidth = kanbanViewRef.value?.clientWidth || window.innerWidth || 0;
+  const availableWidth = Math.max(0, containerWidth - 20);
+  const nextColumnCount = Math.max(
+    1,
+    Math.floor((availableWidth + KANBAN_LIST_COLUMN_GAP) / (KANBAN_LIST_MIN_COLUMN_WIDTH + KANBAN_LIST_COLUMN_GAP))
+  );
+  kanbanListColumnCount.value = isMobileFrontend ? 1 : nextColumnCount;
 }
 
 function closeMobileTableSearch(force = false): void {
@@ -4884,10 +5152,24 @@ interface SidebarSortContext {
   domOrderMap: Map<string, number>;
 }
 
+let cachedDomOrderMap: Map<string, number> | null = null;
+let cachedDomOrderMapTimestamp = 0;
+const DOM_ORDER_MAP_CACHE_MS = 200;
+
+function getCachedDomOrderMap(): Map<string, number> {
+  const now = Date.now();
+  if (cachedDomOrderMap && (now - cachedDomOrderMapTimestamp) < DOM_ORDER_MAP_CACHE_MS) {
+    return cachedDomOrderMap;
+  }
+  cachedDomOrderMap = buildLiveTaskDomOrderMap();
+  cachedDomOrderMapTimestamp = now;
+  return cachedDomOrderMap;
+}
+
 function createSidebarSortContext(): SidebarSortContext {
   return {
     todayStart: getStartOfDay(new Date()).getTime(),
-    domOrderMap: buildLiveTaskDomOrderMap()
+    domOrderMap: getCachedDomOrderMap()
   };
 }
 
@@ -5812,8 +6094,8 @@ const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
     'cancelled': []
   };
 
-  for (const task of tasks.value) {
-    if (!matchesKanbanFilters(task)) continue;
+  const sourceTasks = visibleKanbanTasks.value;
+  for (const task of sourceTasks) {
     const status = getTaskVisualStatus(task);
     if (grouped[status]) {
       grouped[status].push(task);
@@ -5838,8 +6120,8 @@ const kanbanTasksByGroup = computed<Record<string, Task[]>>(() => {
     }
   }
 
-  for (const task of tasks.value) {
-    if (!matchesKanbanFilters(task)) continue;
+  const sourceTasks = visibleKanbanTasks.value;
+  for (const task of sourceTasks) {
     const groupId = getGroupColumnIdForTask(task);
     if (!grouped[groupId]) {
       grouped[groupId] = [];
@@ -5858,8 +6140,8 @@ const kanbanTasksByGroup = computed<Record<string, Task[]>>(() => {
 const kanbanTasksByHeading = computed<Record<string, Task[]>>(() => {
   const grouped: Record<string, Task[]> = {};
 
-  for (const task of tasks.value) {
-    if (!matchesKanbanFilters(task)) continue;
+  const sourceTasks = visibleKanbanTasks.value;
+  for (const task of sourceTasks) {
     const headingKey = getHeadingColumnIdForTask(task);
     if (!grouped[headingKey]) {
       grouped[headingKey] = [];
@@ -5882,7 +6164,7 @@ const kanbanTasksByDate = computed<Record<KanbanDateGroupKey, Task[]>>(() => {
     thisMonth: [],
     other: []
   };
-  const filteredTasks = tasks.value.filter(task => matchesKanbanFilters(task));
+  const filteredTasks = visibleKanbanTasks.value;
   const dayMs = 24 * 60 * 60 * 1000;
   const today = getStartOfDay(new Date());
   const todayStart = today.getTime();
@@ -6003,6 +6285,44 @@ function getKanbanSpacerStyle(column: KanbanColumn): Record<string, string> {
   };
 }
 
+function cleanTaskTitleHtml(html: string): string {
+  return html.replace(/\{:\s*[^}]*\}/g, '').trim();
+}
+
+function getLiveKanbanTaskTitle(blockId: string): string | null {
+  if (!blockId) return null;
+  const selectors = [
+    `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
+    `.protyle [data-node-id="${blockId}"]`,
+    `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
+    `[data-node-id="${blockId}"]`
+  ];
+  for (const selector of selectors) {
+    const currentElement = document.querySelector(selector);
+    if (!currentElement) continue;
+    const currentParagraph = currentElement.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
+    const liveTitle = cleanTaskTitleHtml(currentParagraph?.innerHTML || '');
+    if (liveTitle.length > 0) {
+      return liveTitle;
+    }
+  }
+  return null;
+}
+
+function hydrateKanbanMemoTitlesSync(taskList: Task[], limit = KANBAN_TITLE_HYDRATE_LIMIT): void {
+  let handled = 0;
+  for (const task of taskList) {
+    if (handled >= limit) break;
+    if (task.type !== 'block' || !task.blockId) continue;
+    const currentTitle = typeof task.title === 'string' ? task.title : '';
+    if (!currentTitle.includes('<sup') && !hasMarkdownInlineMemo(currentTitle)) continue;
+    const liveTitle = getLiveKanbanTaskTitle(task.blockId);
+    if (!liveTitle || liveTitle === currentTitle) continue;
+    task.title = liveTitle;
+    handled += 1;
+  }
+}
+
 function scheduleKanbanTitleHydration(delay = 120): void {
   if (kanbanTitleHydrateTimer !== null) {
     clearTimeout(kanbanTitleHydrateTimer);
@@ -6011,6 +6331,18 @@ function scheduleKanbanTitleHydration(delay = 120): void {
     kanbanTitleHydrateTimer = null;
     void hydrateVisibleKanbanTitles();
   }, delay);
+}
+
+function hasMarkdownInlineMemo(title: string): boolean {
+  const inlineMemoRegex = /\(\(([^()]+)\)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = inlineMemoRegex.exec(title)) !== null) {
+    const content = match[1];
+    if (!/^[0-9]{14}-[a-z0-9]{7,}$/.test(content)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function hydrateVisibleKanbanTitles(): Promise<void> {
@@ -6029,7 +6361,7 @@ async function hydrateVisibleKanbanTitles(): Promise<void> {
       if (task.type !== 'block' || !task.blockId) continue;
       if (seen.has(task.blockId)) continue;
       const titleHtml = typeof task.title === 'string' ? task.title : '';
-      if (!titleHtml.includes('<sup')) {
+      if (!titleHtml.includes('<sup') && !hasMarkdownInlineMemo(titleHtml)) {
         continue;
       }
       seen.add(task.blockId);
@@ -6146,6 +6478,94 @@ function scheduleKanbanMetricsUpdate(columnId: string): void {
   });
 }
 
+function shouldUseListVirtualScroll(taskCount: number): boolean {
+  if (taskCount <= LIST_VIRTUAL_THRESHOLD) return false;
+  if (expandedKanbanTaskIds.value.size > 0) return false;
+  return true;
+}
+
+function getListSectionVirtualRange(sectionId: string, taskCount: number) {
+  if (!shouldUseListVirtualScroll(taskCount)) {
+    return { start: 0, end: taskCount, top: 0, bottom: 0 };
+  }
+  const { scrollTop, height } = listViewMetrics.value;
+  const cardHeight = listViewEstimatedCardHeight.value;
+  const sectionHeaderHeight = 42;
+  const sectionGap = 10;
+  const masonryColumnCount = kanbanListColumnCount.value || 1;
+  const sectionIndex = kanbanListSections.value.findIndex(s => s.id === sectionId);
+  if (sectionIndex < 0) {
+    return { start: 0, end: taskCount, top: 0, bottom: 0 };
+  }
+  const columnIndex = sectionIndex % masonryColumnCount;
+  let estimatedTop = 0;
+  for (let i = 0; i < sectionIndex; i++) {
+    if (i % masonryColumnCount !== columnIndex) continue;
+    const prevSection = kanbanListSections.value[i];
+    if (isKanbanListSectionCollapsed(prevSection.id)) {
+      estimatedTop += sectionHeaderHeight + sectionGap;
+    } else {
+      estimatedTop += sectionHeaderHeight + prevSection.tasks.length * cardHeight + sectionGap;
+    }
+  }
+  const sectionBodyTop = estimatedTop + sectionHeaderHeight;
+  const sectionBodyBottom = sectionBodyTop + taskCount * cardHeight;
+  const viewTop = scrollTop;
+  const viewBottom = scrollTop + height;
+  if (sectionBodyBottom < viewTop - cardHeight * LIST_VIRTUAL_OVERSCAN || sectionBodyTop > viewBottom + cardHeight * LIST_VIRTUAL_OVERSCAN) {
+    return {
+      start: 0,
+      end: 0,
+      top: 0,
+      bottom: taskCount * cardHeight
+    };
+  }
+  const localScrollTop = Math.max(0, viewTop - sectionBodyTop);
+  const startIndex = Math.max(0, Math.floor(localScrollTop / cardHeight) - LIST_VIRTUAL_OVERSCAN);
+  const visibleCount = Math.ceil(height / cardHeight) + LIST_VIRTUAL_OVERSCAN * 2;
+  const endIndex = Math.min(taskCount, startIndex + visibleCount);
+  const topPadding = startIndex * cardHeight;
+  const totalHeight = taskCount * cardHeight;
+  const bottomPadding = Math.max(0, totalHeight - topPadding - (endIndex - startIndex) * cardHeight);
+  return { start: startIndex, end: endIndex, top: topPadding, bottom: bottomPadding };
+}
+
+function getVisibleTasksForListSection(section: KanbanListSection): Task[] {
+  const range = getListSectionVirtualRange(section.id, section.tasks.length);
+  return section.tasks.slice(range.start, range.end);
+}
+
+function getListSectionSpacerStyle(section: KanbanListSection): Record<string, string> {
+  if (!shouldUseListVirtualScroll(section.tasks.length)) return {};
+  const range = getListSectionVirtualRange(section.id, section.tasks.length);
+  if (range.top === 0 && range.bottom === 0) return {};
+  const style: Record<string, string> = {};
+  if (range.top > 0) style.paddingTop = `${range.top}px`;
+  if (range.bottom > 0) style.paddingBottom = `${range.bottom}px`;
+  return style;
+}
+
+function handleListViewScroll(): void {
+  if (listViewMetricsRaf !== null) {
+    cancelAnimationFrame(listViewMetricsRaf);
+  }
+  listViewMetricsRaf = requestAnimationFrame(() => {
+    listViewMetricsRaf = null;
+    const el = listViewRef.value;
+    if (!el) return;
+    const next = { scrollTop: el.scrollTop, height: el.clientHeight };
+    if (listViewMetrics.value.scrollTop === next.scrollTop && listViewMetrics.value.height === next.height) return;
+    listViewMetrics.value = next;
+    const card = el.querySelector<HTMLElement>('.kanban-list-task-item');
+    if (card) {
+      const h = Math.round(card.getBoundingClientRect().height);
+      if (h && Math.abs(listViewEstimatedCardHeight.value - h) > 4) {
+        listViewEstimatedCardHeight.value = h;
+      }
+    }
+  });
+}
+
 async function loadTasks(
   forceRefresh: boolean = false,
   options: { silent?: boolean; validateSelection?: boolean; mode?: TaskLoadMode; repeatWindow?: TaskRepeatWindow | null } = {}
@@ -6174,6 +6594,7 @@ async function loadTasks(
     if (requestId !== latestTaskLoadRequestId) {
       return;
     }
+    hydrateKanbanMemoTitlesSync(sqlTasks, KANBAN_TITLE_HYDRATE_LIMIT);
     syncFromSQL(sqlTasks);
     tasks.value = applyDraggedStatusLocks(tasks.value);
     loadedTaskLoadMode.value = mode;
@@ -6458,7 +6879,7 @@ async function loadUserSettings() {
     const shouldPrimeHeadingGroups =
       tasks.value.length > 0
       && (
-        (currentView.value === 'kanban' && kanbanGroupBy.value === 'heading')
+        ((currentView.value === 'kanban' || currentView.value === 'list') && kanbanGroupBy.value === 'heading')
         || (
           (currentView.value === 'table' || currentView.value === 'archive-table')
           && tableGroupBy.value === 'heading'
@@ -7557,7 +7978,7 @@ async function saveInlineDescriptionEdit(task: Task): Promise<void> {
 }
 
 function handleTaskClick(task: Task, event?: MouseEvent) {
-  if (event && (currentView.value === 'kanban' || currentView.value === 'table' || currentView.value === 'archive-table')) {
+  if (event && (currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'table' || currentView.value === 'archive-table')) {
     void openKanbanEditor(task, event);
     return;
   }
@@ -8338,6 +8759,7 @@ function normalizeDocPath(notebookName: string, hPath: string): string {
 function getCurrentSidebarFilterSelection(): { sourceValue: string; documentId: string } {
   switch (currentView.value) {
     case 'kanban':
+    case 'list':
       return {
         sourceValue: kanbanFilterType.value,
         documentId: kanbanFilterDocument.value
@@ -8375,7 +8797,7 @@ function taskModalTranslate(key: string): string {
 
 function resolvePreferredTaskModalGroupId(): string {
   const activeGroupFilters =
-    currentView.value === 'kanban'
+    currentView.value === 'kanban' || currentView.value === 'list'
       ? activeKanbanGroupFilters.value
       : (currentView.value === 'table' || currentView.value === 'archive-table'
         ? activeTableGroupFilters.value
@@ -10044,12 +10466,14 @@ onMounted(async () => {
   );
   const shouldWarmTaskGroups =
     initialView === 'kanban'
+    || initialView === 'list'
     || initialView === 'table'
     || initialView === 'archive-table'
     || initialKanbanGroupMode === 'group'
     || initialTableGroupMode === 'group';
   const shouldAwaitTaskGroups =
     initialView === 'kanban'
+    || initialView === 'list'
     || (
       initialView === 'table' || initialView === 'archive-table'
     );
@@ -10061,6 +10485,7 @@ onMounted(async () => {
     try {
       const cachedTasks = await TaskRepository.getCachedTasksOnly();
       if (cachedTasks.length > 0) {
+        hydrateKanbanMemoTitlesSync(cachedTasks, KANBAN_TITLE_HYDRATE_LIMIT);
         syncFromSQL(cachedTasks);
         tasks.value = applyDraggedStatusLocks(tasks.value);
         loadedTaskLoadMode.value = 'full';
@@ -10111,8 +10536,10 @@ onMounted(async () => {
   document.addEventListener('mousedown', handleKanbanEditorOutsideClick);
   window.addEventListener('keydown', handleKanbanEditorKeydown);
   window.addEventListener('resize', handleKanbanEditorViewportChange);
+  window.addEventListener('resize', updateKanbanListColumnCount);
   nextTick(() => {
     updateCompactViewSwitcherMode();
+    updateKanbanListColumnCount();
     if (typeof ResizeObserver === 'undefined') {
       return;
     }
@@ -10125,6 +10552,7 @@ onMounted(async () => {
     }
     kanbanViewResizeObserver = new ResizeObserver(() => {
       updateCompactViewSwitcherMode();
+      updateKanbanListColumnCount();
     });
     kanbanViewResizeObserver.observe(container);
   });
@@ -10153,6 +10581,7 @@ onUnmounted(() => {
   document.removeEventListener('mousedown', handleKanbanEditorOutsideClick);
   window.removeEventListener('keydown', handleKanbanEditorKeydown);
   window.removeEventListener('resize', handleKanbanEditorViewportChange);
+  window.removeEventListener('resize', updateKanbanListColumnCount);
   if (kanbanViewResizeObserver) {
     kanbanViewResizeObserver.disconnect();
     kanbanViewResizeObserver = null;
@@ -10165,6 +10594,10 @@ onUnmounted(() => {
   if (kanbanMetricsRaf !== null) {
     cancelAnimationFrame(kanbanMetricsRaf);
     kanbanMetricsRaf = null;
+  }
+  if (listViewMetricsRaf !== null) {
+    cancelAnimationFrame(listViewMetricsRaf);
+    listViewMetricsRaf = null;
   }
   kanbanColumnElements.clear();
 });
@@ -10238,7 +10671,7 @@ watch(currentView, (nextView) => {
   ) {
     mobileCalendarTaskDrawerVisible.value = false;
   }
-  if (nextView !== 'kanban') {
+  if (nextView !== 'kanban' && nextView !== 'list') {
     closeKanbanFilterPopover();
     if (isKanbanBatchEditMode.value) {
       exitKanbanBatchEditMode();
@@ -10248,16 +10681,24 @@ watch(currentView, (nextView) => {
     closeTableFilterPopover();
     closeMobileTableSearch(true);
   }
-  if (nextView !== 'kanban' && kanbanEditorVisible.value) {
+  if (nextView !== 'kanban' && nextView !== 'list' && kanbanEditorVisible.value) {
     closeKanbanEditor();
   }
   void ensureTasksLoadedForView(nextView, {
     silent: true,
     validateSelection: false
   });
-  if (nextView === 'kanban') {
+  if (nextView === 'kanban' || nextView === 'list') {
     void ensureTaskGroupsLoaded();
     scheduleKanbanTitleHydration(120);
+    if (nextView === 'list') {
+      nextTick(() => {
+        const el = listViewRef.value;
+        if (el) {
+          listViewMetrics.value = { scrollTop: el.scrollTop, height: el.clientHeight };
+        }
+      });
+    }
     return;
   }
   if (nextView === 'table' || nextView === 'archive-table') {
@@ -10282,6 +10723,7 @@ watch(kanbanColumns, () => {
 .kanban-view {
   width: 100%;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--b3-theme-background);
@@ -11000,9 +11442,9 @@ watch(kanbanColumns, () => {
 
 .view-switcher {
   display: flex;
-  gap: 8px;
+  gap: 2px;
   background: var(--b3-list-hover);
-  padding: 3px;
+  padding: 2px;
   border-radius: 9px;
   min-width: 0;
 }
@@ -11019,8 +11461,8 @@ watch(kanbanColumns, () => {
 }
 
 .mobile-view-switcher-btn {
-  width: 30px;
   height: 30px;
+  padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: var(--b3-list-hover);
@@ -11028,8 +11470,14 @@ watch(kanbanColumns, () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
+}
+
+.mobile-view-switcher-btn-text {
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .mobile-view-switcher-btn:hover {
@@ -11087,7 +11535,7 @@ watch(kanbanColumns, () => {
 }
 
 .view-btn {
-  padding: 4px 10px 4px 8px;
+  padding: 6px 10px 6px 8px;
   border: none;
   background: transparent;
   border-radius: 6px;
@@ -11097,17 +11545,20 @@ watch(kanbanColumns, () => {
   gap: 4px;
   color: var(--b3-theme-on-surface);
   transition: all 0.2s;
-  font-size: 14px;
+  font-size: 13px;
+  opacity: 0.6;
 }
 
 .view-btn:hover {
-  background: var(--b3-list-hover);
+  background: var(--b3-theme-background);
+  opacity: 1;
 }
 
 .view-btn.active {
   background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: #0000000f 0 1px 5px;
+  opacity: 1;
 }
 
 .header-actions {
@@ -11562,6 +12013,192 @@ watch(kanbanColumns, () => {
   margin: 0 10px;
 }
 
+.kanban-list-view {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: 0;
+  padding: 10px;
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+  background: radial-gradient(var(--b3-border-color) 1.5px, var(--b3-list-hover) 1px) 0 0 / 20px 20px;
+}
+
+.kanban-list-masonry {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.kanban-list-action-section {
+  cursor: pointer;
+}
+
+.kanban-list-action-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 10px;
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
+  font-weight: 500;
+  background: var(--b3-theme-background);
+  transition: background 0.15s ease;
+}
+
+.kanban-list-action-body:hover {
+  background: var(--b3-list-hover);
+}
+
+.kanban-list-masonry-column {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kanban-list-section {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border-radius: 12px;
+  box-shadow:  rgba(15, 15, 15, 0.1) 0px 2px 4px;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: var(--b3-theme-background);
+}
+
+.kanban-list-section.drag-over {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14), #0000000f 0 2px 8px;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.kanban-list-section-header {
+  min-height: 42px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-sizing: border-box;
+  background: var(--b3-theme-background);
+}
+
+.kanban-list-section-title-wrap {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kanban-list-section-title {
+  min-width: 0;
+  color: var(--b3-theme-on-background);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-list-section-meta {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kanban-list-section-count {
+  min-width: 24px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  text-align: center;
+  opacity: 0.76;
+}
+
+.kanban-list-section-toggle {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  padding: 0;
+}
+
+.kanban-list-section-toggle:hover {
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+}
+
+.kanban-list-section-toggle svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.2s ease;
+  transform: rotate(90deg);
+}
+
+.kanban-list-section-toggle.collapsed svg {
+  transform: rotate(0deg);
+}
+
+.kanban-list-section-body {
+  background: var(--b3-theme-background);
+  padding: 2px 10px 8px;
+}
+
+.kanban-list-task-item :deep(.task-card.variant-sidebar) {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 8px 0;
+  cursor: default;
+}
+
+.kanban-list-task-item :deep(.task-card.variant-sidebar[draggable="true"]) {
+  cursor: grab;
+}
+
+.kanban-list-task-item :deep(.task-card.variant-sidebar[draggable="true"]:active) {
+  cursor: grabbing;
+}
+
+.kanban-list-task-item :deep(.task-card.variant-sidebar:hover) {
+  background: transparent;
+  box-shadow: none;
+}
+
+.kanban-list-task-item :deep(.task-card.variant-sidebar .task-card-content) {
+  cursor: pointer;
+}
+
+.kanban-list-task-item :deep(.task-card.variant-sidebar .task-title) {
+  white-space: normal;
+}
+
+.kanban-list-task-item :deep(.task-card.variant-sidebar .task-title *) {
+  white-space: normal;
+}
+
+.kanban-list-task-item :deep(.task-card.variant-sidebar .task-description),
+.kanban-list-task-item :deep(.task-card.variant-sidebar .task-badges),
+.kanban-list-task-item :deep(.task-card.variant-sidebar .task-document-title) {
+  margin-left: 26px;
+}
+
 .kanban-column {
   flex: 1;
   min-width: 280px;
@@ -11613,7 +12250,7 @@ watch(kanbanColumns, () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 10px;
 }
 
 .column-header-main {
@@ -11834,7 +12471,7 @@ watch(kanbanColumns, () => {
 .column-tasks {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 0 8px 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
