@@ -2386,6 +2386,9 @@ function handleContextMenuOutsidePointerDown(event: PointerEvent): void {
   if (menu && target instanceof Node && menu.contains(target)) {
     return;
   }
+  if (target instanceof Element && target.closest('.time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover')) {
+    return;
+  }
   selectMobileTaskChip(null);
   hideContextMenu();
 }
@@ -2468,7 +2471,7 @@ function handleGlobalClick(event: MouseEvent) {
   const targetElement = target instanceof Element ? target : null;
 
   if (selectedMobileTaskChipId.value) {
-    const clickedInsideInteractiveChip = !!targetElement?.closest('.task-chip, .context-menu, .mobile-drag-preview');
+    const clickedInsideInteractiveChip = !!targetElement?.closest('.task-chip, .context-menu, .mobile-drag-preview, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover');
     if (!clickedInsideInteractiveChip) {
       selectMobileTaskChip(null);
     }
@@ -2477,7 +2480,7 @@ function handleGlobalClick(event: MouseEvent) {
   if (expandedDayKeys.value.size > 0) {
     const clickedInsideExpandedPanel = !!targetElement?.closest('.day-expanded-panel');
     const clickedExpandTrigger = !!targetElement?.closest('.more-tasks-placeholder.day-more');
-    const clickedInsideContextMenu = !!targetElement?.closest('.context-menu');
+    const clickedInsideContextMenu = !!targetElement?.closest('.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover');
     if (!clickedInsideExpandedPanel && !clickedExpandTrigger && !clickedInsideContextMenu) {
       expandedDayKeys.value = new Set();
     }
@@ -2485,7 +2488,9 @@ function handleGlobalClick(event: MouseEvent) {
 
   const menu = document.querySelector('.context-menu');
   if (menu && !(target instanceof Node && menu.contains(target))) {
-    hideContextMenu();
+    if (!(targetElement && targetElement.closest('.time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover'))) {
+      hideContextMenu();
+    }
   }
 }
 

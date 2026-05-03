@@ -832,7 +832,9 @@ const {
   handleTimedTaskHandleMouseDown,
   handleTimedTaskMouseDown,
   removeEventListeners
-} = useTaskDrag(localTasks, emitTaskDateChanged);
+} = useTaskDrag(localTasks, emitTaskDateChanged, {
+  inactiveHoursOffset: () => isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0
+});
 
 const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
   show: false,
@@ -869,6 +871,9 @@ function handleContextMenuOutsidePointerDown(event: PointerEvent): void {
   const menu = document.querySelector('.context-menu');
   const target = event.target;
   if (menu && target instanceof Node && menu.contains(target)) {
+    return;
+  }
+  if (target instanceof Element && target.closest('.time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover')) {
     return;
   }
   selectMobileAllDayTask(null);
@@ -1977,7 +1982,7 @@ function handleGlobalPointerDown(event: PointerEvent): void {
   const targetElement = event.target instanceof Element ? event.target : null;
 
   if (selectedMobileAllDayTaskId.value || selectedMobileTimedTaskId.value) {
-    const clickedInsideInteractiveTask = !!targetElement?.closest('.all-day-task, .timed-task, .context-menu, .mobile-drag-preview');
+    const clickedInsideInteractiveTask = !!targetElement?.closest('.all-day-task, .timed-task, .context-menu, .mobile-drag-preview, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover');
     if (!clickedInsideInteractiveTask) {
       selectMobileAllDayTask(null);
       selectMobileTimedTask(null);
@@ -1989,7 +1994,7 @@ function handleGlobalPointerDown(event: PointerEvent): void {
   }
   const clickedInsidePanel = !!targetElement?.closest('.all-day-expanded-panel');
   const clickedExpandTrigger = !!targetElement?.closest('.more-all-day');
-  const clickedInsideContextMenu = !!targetElement?.closest('.context-menu');
+  const clickedInsideContextMenu = !!targetElement?.closest('.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover');
   if (clickedInsidePanel || clickedExpandTrigger || clickedInsideContextMenu) {
     return;
   }
@@ -2244,7 +2249,8 @@ function buildExternalTimedDropTarget(
 
   const scrollTop = scrollElement.scrollTop;
   const offsetY = point.clientY - scrollRect.top + scrollTop;
-  const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+  const inactiveOffsetMinutes = (isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0) * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+  const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT + inactiveOffsetMinutes;
   const snappedMinutes = Math.round(totalMinutes / MOBILE_TIMED_TASK_SNAP_MINUTES) * MOBILE_TIMED_TASK_SNAP_MINUTES;
   const maxStartMinutes = Math.max(0, 24 * 60 - MOBILE_TIMED_TASK_SNAP_MINUTES);
   const clampedMinutes = Math.max(0, Math.min(maxStartMinutes, snappedMinutes));
@@ -2456,8 +2462,13 @@ function getTimedCreateSelectionStyle(dayKey: string): Record<string, string> | 
   const toQuarter = Math.max(selection.startQuarter, selection.endQuarter);
   const quarterHeight = CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / QUARTERS_PER_HOUR;
 
+  const rawTop = fromQuarter * quarterHeight;
+  const top = isInactiveHoursCollapsed.value
+    ? Math.max(0, rawTop - INACTIVE_HOURS_OFFSET)
+    : rawTop;
+
   return {
-    top: `${fromQuarter * quarterHeight}px`,
+    top: `${top}px`,
     height: `${(toQuarter - fromQuarter + 1) * quarterHeight}px`
   };
 }
@@ -2501,7 +2512,10 @@ function getQuarterFromClientY(dayKey: string, clientY: number): number | null {
   const rect = dayColumn.getBoundingClientRect();
   const dayHeight = CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT * 24;
   const offsetY = Math.max(0, Math.min(clientY - rect.top, dayHeight - 1));
-  return Math.floor(offsetY / (CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / QUARTERS_PER_HOUR));
+  const adjustedOffset = isInactiveHoursCollapsed.value
+    ? offsetY + INACTIVE_HOURS_OFFSET
+    : offsetY;
+  return Math.floor(adjustedOffset / (CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / QUARTERS_PER_HOUR));
 }
 
 function quarterToTime(quarter: number): string {
@@ -2614,7 +2628,10 @@ function getTimedTaskStyle(item: TimedTaskRenderItem) {
   const startMinutes = startHour * 60 + startMin;
   const endMinutes = endHour * 60 + endMin;
 
-  const top = startMinutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
+  const rawTop = startMinutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
+  const top = isInactiveHoursCollapsed.value
+    ? Math.max(0, rawTop - INACTIVE_HOURS_OFFSET)
+    : rawTop;
   const height = Math.max(CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT, (endMinutes - startMinutes) * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60);
 
   const bgColor = resolveTaskBackgroundColor(item.task.backgroundColor);
@@ -2928,7 +2945,8 @@ function resolveMobileAllDayTaskMoveTarget(point: ExternalTaskDropPoint): Mobile
   }
   const scrollTop = scrollElement.scrollTop;
   const offsetY = point.clientY - scrollRect.top + scrollTop;
-  const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+  const inactiveOffsetMinutes = (isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0) * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+  const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT + inactiveOffsetMinutes;
   const snapMinutes = MOBILE_TIMED_TASK_SNAP_MINUTES;
   const snappedMinutes = Math.round(totalMinutes / snapMinutes) * snapMinutes;
   const maxStartMinutes = Math.max(0, 24 * 60 - snapMinutes);
@@ -3608,7 +3626,8 @@ function resolveMobileTimedTaskDropTarget(
   }
   const scrollTop = scrollElement.scrollTop;
   const offsetY = point.clientY - scrollRect.top + scrollTop - (gesture.clickOffsetY || 0);
-  const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+  const inactiveOffsetMinutes = (isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0) * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+  const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT + inactiveOffsetMinutes;
   const snapMinutes = MOBILE_TIMED_TASK_SNAP_MINUTES;
   const snappedMinutes = Math.round(totalMinutes / snapMinutes) * snapMinutes;
   const maxStartMinutes = Math.max(0, 24 * 60 - snapMinutes);
@@ -3651,7 +3670,8 @@ function resolveMobileTimedTaskHandleTarget(point: ExternalTaskDropPoint): {
   }
   const scrollTop = scrollElement.scrollTop;
   const offsetY = point.clientY - scrollRect.top + scrollTop;
-  const totalMinutes = Math.round(offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT);
+  const inactiveOffsetMinutes = (isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0) * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+  const totalMinutes = Math.round(offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT) + inactiveOffsetMinutes;
   const snappedMinutes = Math.round(totalMinutes / MOBILE_TIMED_TASK_SNAP_MINUTES)
     * MOBILE_TIMED_TASK_SNAP_MINUTES;
   const clampedMinutes = Math.max(0, Math.min(24 * 60 - 15, snappedMinutes));

@@ -25,6 +25,11 @@ interface RepeatMoveDecisionPayload {
 
 interface UseTaskDragOptions {
   resolveRepeatMoveScope?: (payload: RepeatMoveDecisionPayload) => Promise<RepeatMoveScope> | RepeatMoveScope;
+  /** Number of pixels the inactive hours region (0-5am) is collapsed by.
+   *  When collapsed, timed-task positioning and drag calculations need to offset
+   *  by this amount. Defaults to 0 (no collapse).
+   *  Can be a number or a getter function for dynamic updates. */
+  inactiveHoursOffset?: number | (() => number);
 }
 
 interface RepeatSeriesDragSnapshotEntry {
@@ -82,6 +87,11 @@ export function useTaskDrag(
   } catch {
     isMobileFrontend = false;
   }
+
+  const resolveInactiveHoursOffset = (): number => {
+    const offset = options.inactiveHoursOffset;
+    return typeof offset === 'function' ? offset() : (offset || 0);
+  };
 
   const { scheduleSave } = useDebouncedSave(500);
   const {
@@ -536,7 +546,8 @@ export function useTaskDrag(
     const scrollRect = daysScrollElement.getBoundingClientRect();
     const scrollTop = daysScrollElement.scrollTop;
     const offsetY = event.clientY - scrollRect.top + scrollTop - clickOffsetY;
-    const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+    const inactiveOffsetMinutes = resolveInactiveHoursOffset() * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+    const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT + inactiveOffsetMinutes;
     const snapMinutes = CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES;
     const snappedMinutes = Math.round(totalMinutes / snapMinutes) * snapMinutes;
     const maxStartMinutes = Math.max(0, 24 * 60 - snapMinutes);
@@ -1189,7 +1200,8 @@ export function useTaskDrag(
     const scrollTop = daysScrollElement.scrollTop;
     const offsetY = event.clientY - scrollRect.top + scrollTop;
 
-    const totalMinutes = Math.round(offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT);
+    const inactiveOffsetMinutes = resolveInactiveHoursOffset() * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+    const totalMinutes = Math.round(offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT) + inactiveOffsetMinutes;
     const snappedMinutes = Math.round(totalMinutes / CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES) * CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES;
 
     const hours = Math.floor(snappedMinutes / 60);
@@ -1458,7 +1470,8 @@ export function useTaskDrag(
     const scrollTop = daysScrollElement.scrollTop;
     const offsetY = event.clientY - scrollRect.top + scrollTop - (clickOffsetY || 0);
 
-    const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+    const inactiveOffsetMinutes = resolveInactiveHoursOffset() * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+    const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT + inactiveOffsetMinutes;
     const snapMinutes = CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES;
     const snappedMinutes = Math.round(totalMinutes / snapMinutes) * snapMinutes;
     const maxStartMinutes = Math.max(0, 24 * 60 - snapMinutes);
