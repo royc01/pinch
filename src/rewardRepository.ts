@@ -416,15 +416,21 @@ function cloneRewardRedemption(redemption: RewardRedemption): RewardRedemption {
 }
 
 function cloneRewardState(state: RewardState): RewardState {
-  return {
-    ...state,
-    ledger: state.ledger.map(cloneLedgerEntry),
-    stats: { ...state.stats },
-    badges: state.badges.map(badge => ({ ...badge })),
-    shopItems: state.shopItems.map(cloneRewardShopItem),
-    redemptions: state.redemptions.map(cloneRewardRedemption),
-    processedEventKeys: [...state.processedEventKeys]
-  };
+  try {
+    return structuredClone(state);
+  } catch (err) {
+    console.error('[Rewards] structuredClone failed, falling back to manual clone:', err);
+    // Fallback: manual deep clone
+    return {
+      ...state,
+      ledger: state.ledger.map(cloneLedgerEntry),
+      stats: { ...state.stats },
+      badges: state.badges.map(badge => ({ ...badge })),
+      shopItems: state.shopItems.map(cloneRewardShopItem),
+      redemptions: state.redemptions.map(cloneRewardRedemption),
+      processedEventKeys: [...state.processedEventKeys]
+    };
+  }
 }
 
 function normalizeMeta(input: unknown): Record<string, string | number | boolean> | undefined {
@@ -906,15 +912,18 @@ function getDailySourceTotals(
   source: RewardSource,
   dateKey: string
 ): { xp: number; coins: number } {
-  return state.ledger.reduce((summary, entry) => {
+  let xp = 0;
+  let coins = 0;
+  const ledger = state.ledger;
+  for (let i = 0; i < ledger.length; i++) {
+    const entry = ledger[i];
     if (entry.source !== source || getDateKey(entry.createdAt) !== dateKey) {
-      return summary;
+      continue;
     }
-
-    summary.xp += entry.xp;
-    summary.coins += entry.coins;
-    return summary;
-  }, { xp: 0, coins: 0 });
+    xp += entry.xp;
+    coins += entry.coins;
+  }
+  return { xp, coins };
 }
 
 function applyEntryToRewardStats(stats: RewardStats, entry: RewardLedgerEntry): void {

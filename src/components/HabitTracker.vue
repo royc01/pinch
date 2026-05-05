@@ -186,16 +186,16 @@
     <HabitStatsPanel
       :habit="selectedHabit"
       :weekdays="weekdaysForCalendar"
-      :month-view-data="selectedHabit ? getStatsMonthViewData(selectedHabit) : []"
-      :current-period-text="selectedHabit ? getCurrentPeriodText(selectedHabit) : ''"
-      :current-month-streak="selectedHabit ? calculateCurrentMonthStreak(selectedHabit) : 0"
-      :total-month-completions="selectedHabit ? calculateTotalMonthCompletions(selectedHabit) : 0"
-      :completion-rate="selectedHabit ? calculateCompletionRate(selectedHabit) : 0"
-      :monthly-progress-data="selectedHabit ? getMonthlyProgressData(selectedHabit) : []"
+      :month-view-data="statsMonthViewData"
+      :current-period-text="statsCurrentPeriodText"
+      :current-month-streak="statsCurrentMonthStreak"
+      :total-month-completions="statsTotalMonthCompletions"
+      :completion-rate="statsCompletionRate"
+      :monthly-progress-data="statsMonthlyProgressData"
       :longest-streak="selectedHabitLongestStreak"
-      :total-completion-rate="selectedHabit ? calculateTotalCompletionRate(selectedHabit) : 0"
-      :common-time-slot="selectedHabit ? calculateCommonTimeSlot(selectedHabit) : ''"
-      :hour-distribution="selectedHabit ? getHourDistribution(selectedHabit) : []"
+      :total-completion-rate="statsTotalCompletionRate"
+      :common-time-slot="statsCommonTimeSlot"
+      :hour-distribution="statsHourDistribution"
       :get-frequency-text="getFrequencyText"
       :get-created-date-text="getCreatedDateText"
       :format-timeline-date="formatTimelineDate"
@@ -531,7 +531,8 @@ const {
 const {
   toggleHabitCompletion,
   toggleDayCompletion,
-  buildToggleHabit
+  buildToggleHabit,
+  processRewardPayload
 } = useHabitCheckin({
   habits,
   formatDate,
@@ -616,8 +617,9 @@ async function completeFocusLinkedHabit(habitId: string): Promise<void> {
   }
 
   playBubbleSound();
-  toggleHabitCompletion(habit, getToday(), { source: 'pomodoro' });
+  const rewardPayload = toggleHabitCompletion(habit, getToday(), { source: 'pomodoro' });
   await immediateSaveHabits(habits.value);
+  processRewardPayload(rewardPayload);
 }
 
 
@@ -776,17 +778,17 @@ const formatPomodoroTime = (seconds: number): string => {
 
 // 计算条形图高度
 const calculateBarHeight = (count: number) => {
-  // 根据打卡次数计算条形图高度，最大高度设为80%
-  // 如果没有打卡记录，返回最小高度
   if (count <= 0) return 5;
-  
-  // 找到所有小时中的最大打卡次数
-  const hourDistribution = getHourDistribution(selectedHabit.value);
-  const maxCount = Math.max(...hourDistribution.map(h => h.count), 1);
-  
-  // 计算相对高度，最大为80%
-  return Math.max(5, (count / maxCount) * 80);
+  // maxCount 已从外部预计算传入，此处不再重复调用 getHourDistribution
+  return Math.max(5, (count / maxHourCount.value) * 80);
 };
+
+// 预计算小时分布的最大值，避免在模板 v-for 中重复调用 getHourDistribution
+const maxHourCount = computed(() => {
+  if (!selectedHabit.value) return 1;
+  const dist = getHourDistribution(selectedHabit.value);
+  return Math.max(...dist.map(h => h.count), 1);
+});
 
 // 当前选中的习惯
 const selectedHabit = ref<Habit | null>(null);
@@ -795,6 +797,80 @@ const selectedHabit = ref<Habit | null>(null);
 const selectedHabitLongestStreak = computed(() =>
   selectedHabit.value ? calculateLongestStreak(selectedHabit.value) : { streak: 0, startDate: null, endDate: null }
 );
+
+// 统计面板数据 — 使用 computed 缓存 + try-catch 防止渲染期异常导致界面卡死
+const statsMonthViewData = computed(() => {
+  try {
+    return selectedHabit.value ? getStatsMonthViewData(selectedHabit.value) : [];
+  } catch (e) {
+    console.error('getStatsMonthViewData error:', e);
+    return [];
+  }
+});
+const statsCurrentPeriodText = computed(() => {
+  try {
+    return selectedHabit.value ? getCurrentPeriodText(selectedHabit.value) : '';
+  } catch (e) {
+    console.error('getCurrentPeriodText error:', e);
+    return '';
+  }
+});
+const statsCurrentMonthStreak = computed(() => {
+  try {
+    return selectedHabit.value ? calculateCurrentMonthStreak(selectedHabit.value) : 0;
+  } catch (e) {
+    console.error('calculateCurrentMonthStreak error:', e);
+    return 0;
+  }
+});
+const statsTotalMonthCompletions = computed(() => {
+  try {
+    return selectedHabit.value ? calculateTotalMonthCompletions(selectedHabit.value) : 0;
+  } catch (e) {
+    console.error('calculateTotalMonthCompletions error:', e);
+    return 0;
+  }
+});
+const statsCompletionRate = computed(() => {
+  try {
+    return selectedHabit.value ? calculateCompletionRate(selectedHabit.value) : 0;
+  } catch (e) {
+    console.error('calculateCompletionRate error:', e);
+    return 0;
+  }
+});
+const statsMonthlyProgressData = computed(() => {
+  try {
+    return selectedHabit.value ? getMonthlyProgressData(selectedHabit.value) : [];
+  } catch (e) {
+    console.error('getMonthlyProgressData error:', e);
+    return [];
+  }
+});
+const statsTotalCompletionRate = computed(() => {
+  try {
+    return selectedHabit.value ? calculateTotalCompletionRate(selectedHabit.value) : 0;
+  } catch (e) {
+    console.error('calculateTotalCompletionRate error:', e);
+    return 0;
+  }
+});
+const statsCommonTimeSlot = computed(() => {
+  try {
+    return selectedHabit.value ? calculateCommonTimeSlot(selectedHabit.value) : '';
+  } catch (e) {
+    console.error('calculateCommonTimeSlot error:', e);
+    return '';
+  }
+});
+const statsHourDistribution = computed(() => {
+  try {
+    return selectedHabit.value ? getHourDistribution(selectedHabit.value) : [];
+  } catch (e) {
+    console.error('getHourDistribution error:', e);
+    return [];
+  }
+});
 const latestRewardEntry = computed(() => rewardSnapshot.value.recentEntries[0] || null);
 const completedGoalCount = computed(() => goalItems.value.filter(goal => goal.status === 'completed').length);
 const goalSummaryValueText = computed(() => `${completedGoalCount.value}/${goalItems.value.length}`);
@@ -881,7 +957,6 @@ function openGoalPage(goalId: string = ''): void {
   showGoalPage.value = true;
 }
 
-// 显示习惯统计页面
 const showHabitStats = (habit: Habit) => {
   closeTrackerPanels();
   highlightedRewardEntryId.value = '';

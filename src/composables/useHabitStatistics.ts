@@ -136,6 +136,7 @@ export const useHabitStatistics = ({
   };
 
   const calculateCompletionRate = (habit: Habit) => {
+    const perfStart = performance.now();
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
@@ -282,6 +283,7 @@ export const useHabitStatistics = ({
   };
 
   const calculateCurrentMonthStreak = (habit: Habit) => {
+    const perfStart = performance.now();
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
@@ -325,6 +327,10 @@ export const useHabitStatistics = ({
       }
     }
 
+    const elapsed = performance.now() - perfStart;
+    if (elapsed > 5) {
+      console.log(`[perf] calculateCurrentMonthStreak: ${elapsed.toFixed(1)}ms, habit="${habit.name}", calendar=${habit.calendar.length}`);
+    }
     return streak;
   };
 
@@ -337,6 +343,7 @@ export const useHabitStatistics = ({
   };
 
   const calculateLongestStreak = (habit: Habit) => {
+    const perfStart = performance.now();
     const cacheKey = `${habit.id}-longestStreak-${getDayBucket()}`;
 
     const cached = getCachedValue(longestStreakCache, cacheKey, CACHE_TTL);
@@ -402,6 +409,10 @@ export const useHabitStatistics = ({
 
     const result = { streak: maxStreak, startDate: maxStreakStartDate, endDate: maxStreakEndDate };
     setCachedValue(longestStreakCache, cacheKey, result, MAX_CACHE_SIZE);
+    const elapsed = performance.now() - perfStart;
+    if (elapsed > 5) {
+      console.log(`[perf] calculateLongestStreak: ${elapsed.toFixed(1)}ms, habit="${habit.name}", calendar=${habit.calendar.length}`);
+    }
     return result;
   };
 

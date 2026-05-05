@@ -1,6 +1,6 @@
 ﻿import { nextTick, type Ref, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
-import { awardHabitRewards } from '@/rewardRepository';
+import { awardHabitRewards, type HabitRewardPayload } from '@/rewardRepository';
 
 interface UseHabitCheckinOptions {
   habits: ShallowRef<Habit[]>;
@@ -56,7 +56,7 @@ export const useHabitCheckin = ({
     habit: Habit,
     date: string,
     options: { source?: 'manual' | 'calendar' | 'pomodoro' } = {}
-  ) => {
+  ): HabitRewardPayload | null => {
     let dayRecord = habit.calendar.find(day => day.date === date);
     const previousCompletedCount = dayRecord?.completedCount || 0;
     const previousDayCompleted = dayRecord?.completed === true;
@@ -127,7 +127,7 @@ export const useHabitCheckin = ({
     const becameCompleted = !previousDayCompleted && dayRecord.completed;
 
     if (nextCompletedCount > previousCompletedCount || becameCompleted || nextWeeklyCompleted !== previousWeeklyCompleted) {
-      void awardHabitRewards({
+      return {
         habit: {
           id: habit.id,
           name: habit.name,
@@ -145,12 +145,23 @@ export const useHabitCheckin = ({
         weeklyCompletedBefore: previousWeeklyCompleted,
         weeklyCompletedAfter: nextWeeklyCompleted,
         source: options.source || 'manual'
-      });
+      };
     }
+    return null;
+  };
+
+  const processRewardPayload = (payload: HabitRewardPayload | null): void => {
+    if (!payload) return;
+    // 使用 setTimeout 延迟奖励计算，让浏览器有机会处理 UI 事件
+    setTimeout(() => {
+      awardHabitRewards(payload).catch(err => {
+        console.error('[Rewards] Failed to award habit rewards:', err);
+      });
+    }, 50);
   };
 
   const toggleDayCompletion = async (habit: Habit, date: string) => {
-    toggleHabitCompletion(habit, date, { source: 'calendar' });
+    const rewardPayload = toggleHabitCompletion(habit, date, { source: 'calendar' });
     await debouncedSaveHabits(habits.value);
     triggerHabitsRef();
 
@@ -160,6 +171,8 @@ export const useHabitCheckin = ({
 
     clearCurrentStreakCacheForHabit(habit.id);
     clearCompletionRateCacheForHabit(habit.id);
+
+    processRewardPayload(rewardPayload);
   };
 
   const buildToggleHabit = ({
@@ -280,7 +293,7 @@ export const useHabitCheckin = ({
       }
 
       const today = getToday();
-      toggleHabitCompletion(habit, today, { source: 'manual' });
+      const rewardPayload = toggleHabitCompletion(habit, today, { source: 'manual' });
 
       const completedToday = habit.completedToday;
       if (completedToday && !habit.usePomodoro) {
@@ -293,12 +306,14 @@ export const useHabitCheckin = ({
 
         setTimeout(async () => {
           await immediateSaveHabits(habits.value);
+          processRewardPayload(rewardPayload);
           showAnimation.value = false;
           animationHabitId.value = null;
           delete animationOriginalStatus.value[habit.id];
         }, 600);
       } else {
         await immediateSaveHabits(habits.value);
+        processRewardPayload(rewardPayload);
       }
     };
   };
@@ -306,6 +321,7 @@ export const useHabitCheckin = ({
   return {
     toggleHabitCompletion,
     toggleDayCompletion,
-    buildToggleHabit
+    buildToggleHabit,
+    processRewardPayload
   };
 };

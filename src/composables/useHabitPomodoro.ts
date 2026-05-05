@@ -1,5 +1,6 @@
 import { computed, ref, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
+import { awardHabitRewards, type HabitRewardPayload } from '@/rewardRepository';
 
 type PomodoroAction = 'pause' | 'resume' | 'start' | 'stop';
 
@@ -7,7 +8,7 @@ interface UseHabitPomodoroOptions {
   habits: ShallowRef<Habit[]>;
   getToday: () => string;
   saveHabits: (habitsToSave: Habit[]) => Promise<void>;
-  toggleHabitCompletion: (habit: Habit, date: string, options?: { source?: 'manual' | 'calendar' | 'pomodoro' }) => void;
+  toggleHabitCompletion: (habit: Habit, date: string, options?: { source?: 'manual' | 'calendar' | 'pomodoro' }) => HabitRewardPayload | null;
   playBubbleSound?: () => void;
 }
 
@@ -61,9 +62,17 @@ export const useHabitPomodoro = ({
   const completeHabitAfterPomodoro = async (habit: Habit) => {
     playBubbleSound?.();
     const today = getToday();
-    toggleHabitCompletion(habit, today, { source: 'pomodoro' });
+    const rewardPayload = toggleHabitCompletion(habit, today, { source: 'pomodoro' });
     clearPomodoroForHabit(habit);
     await saveHabits(habits.value);
+    if (rewardPayload) {
+      // 延迟奖励计算，避免与保存 I/O 竞争主线程
+      setTimeout(() => {
+        awardHabitRewards(rewardPayload).catch(err => {
+          console.error('[Rewards] Failed to award habit rewards:', err);
+        });
+      }, 50);
+    }
   };
 
   const startPomodoroTimer = (habit: Habit) => {
