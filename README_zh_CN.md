@@ -1,38 +1,77 @@
-# 片趣打卡
+## 片趣打卡
+**片趣打卡（Pinch Habit）**  是一款深度集成于思源笔记的习惯打卡与任务管理插件。它遵循"极致的轻量化"设计哲学，无需离开思源笔记即可完成习惯追踪、任务管理、专注计时、心情记录等一系列效率操作。
 
-## 💧源起：重拾被浪费的碎片时刻
+## 核心理念
 
-快节奏生活里碎片化时间往往在不经意间流逝，我曾经尝试过各种时间管理方法，却发现多数需要切换应用、复杂设置，经过反复试用和比较，我发现了一个根本问题：**工具本身成为了坚持的障碍**。当打卡需要打开专门应用、进行多层操作时，坚持的动力就在无形中消耗。
+- **无缝融入**：不要求用户改变工作流，依附于思源笔记生态
+- **随手可及**：侧边栏一键打开，无需切换应用
+- **尊重碎片时间**：每一次微小的坚持都值得被记录
+- **相信复利**：碎片时间的积累能创造惊人成果
 
-## ⚙️最好的工具应该“隐形”
+## 主要功能模块
 
-真正的效率工具不应该要求用户改变工作流，而应该无缝融入现有习惯。这时，我意识到：**思源笔记已经成为我的数字生活中心**，所以决定依附于思源制作一款用于提醒自己又不消耗动力的插件。
+| 模块     | 说明                         |
+| ---------- | ------------------------------ |
+| 习惯打卡 | 创建习惯、每日打卡、统计趋势 |
+| 任务管理 | 自动收集文档任务、多视图管理 |
+| 番茄钟   | 专注计时、白噪音、悬浮胶囊窗 |
+| 心情打卡 | 每日心情记录、趋势图表       |
+| 目标系统 | 目标设定、进度追踪、逾期提醒 |
+| 奖励系统 | 打卡/任务得奖励、兑换商店    |
+| 统计复盘 | 多维度的行为数据分析         |
 
-## 🌈设计哲学：极致的轻量化，免去复杂的设置
+<div style="display: flex; gap: 20px; align-items: center; justify-content: flex-start; margin: 1.5em 0;">
+  <!-- 按钮1：蓝色 -->
+  <a href="https://ld246.com/article/1778053942822" 
+      style="display: inline-flex; 
+              align-items: center; 
+              padding: 10px 20px; 
+              background: #2d8cf0; 
+              color: white; 
+              border-radius: 6px; 
+              text-decoration: none;
+              transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+              transform: translateY(0);
+              box-shadow: 0 4px 6px rgba(45,140,240,0.1);
+              border: 1px solid rgba(45,140,240,0.2);">
+      📖 详细使用教程
+  </a>
+  <!-- 按钮2：绿色 -->
+  <a href="https://qm.qq.com/q/BpFzB93TLG" 
+      style="display: inline-flex; 
+              align-items: center; 
+              padding: 10px 20px; 
+              background: #19be6b; 
+              color: white; 
+              border-radius: 6px; 
+              text-decoration: none;
+              transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+              transform: translateY(0);
+              box-shadow: 0 4px 6px rgba(25,190,107,0.1);
+              border: 1px solid rgba(25,190,107,0.2);">
+      💬 加入用户交流群
+  </a>
+  <!-- 按钮3：橙色/琥珀色 -->
+  <a href="https://github.com/royc01/pinch/issues" 
+      style="display: inline-flex; 
+              align-items: center; 
+              padding: 10px 20px; 
+              background: #ff9900; 
+              color: white; 
+              border-radius: 6px; 
+              text-decoration: none;
+              transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+              transform: translateY(0);
+              box-shadow: 0 4px 6px rgba(255,153,0,0.1);
+              border: 1px solid rgba(255,153,0,0.2);">
+      💌 插件建议反馈
+  </a>
+</div>
 
-- 打卡入口在笔记侧边栏，随手可及
-- 直观快捷的操作，没有复杂的设置
-- 无需离开当前工作环境
-
-## ❤️片趣打卡的初心
-
-**让坚持不再需要‘坚持’，重拾记录碎片里的趣味。**
-
-最好的工具是那些你感觉不到存在的工具。它不会要求你为它腾出时间，而是在你需要时恰好在身边；它不会打断你的思考流程，而是在思考的间隙提供恰到好处的支持。
-
-- **以用户现有习惯为起点**：不强迫改变，只提供便利
-- **尊重碎片时间的价值**：每一次微小的坚持都值得记录
-- **相信复利的力量**：碎片时间的积累能创造惊人成果
-
-
-## 操作说明
-* 开启后右上角dock栏点击打开侧栏插件面板
-* 顶部“+”可新增习惯
-* 点击周日期可以新增心情打卡
-* 点击习惯可以查看习惯详情，可查看统计也可补打卡
-* 顶部有心情打卡统计与习惯打卡统计
-
-更多[详细操作说明](https://ld246.com/article/1768713530985)
+## v2.2.9
+* 【新增】习惯打卡右键输入打卡备注
+* 【新增】习惯打卡右键绑定备注文档
+* 【新增】习惯打卡统计页显示打卡备注
 
 ## v2.2.8
 * 【修复】某些情况下习惯打卡统计页面渲染问题造成软件卡死bug

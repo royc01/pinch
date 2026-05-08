@@ -1,4 +1,4 @@
-﻿import { computed, type ShallowRef, watch } from 'vue';
+import { computed, type ShallowRef, watch } from 'vue';
 import type { Habit } from '@/api';
 import { getTodayCompletionCount, getWeekCompletionData, getWeekStart } from '@/composables/useHabitUtils';
 

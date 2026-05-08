@@ -1,4 +1,4 @@
-﻿import { nextTick, type Ref, type ShallowRef } from 'vue';
+import { nextTick, type Ref, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
 import { awardHabitRewards, type HabitRewardPayload } from '@/rewardRepository';
 

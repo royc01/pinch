@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="Pinch-habit-container">
     <!-- 习惯列表页面 -->
     <div class="habit-list-container">
@@ -135,6 +135,8 @@
             @open-bind-doc="openBindDocModal"
             @start-focus="openFocusTimerForHabit"
             @toggle-habit="toggleHabit"
+            @toggle-habit-with-note="openCheckinNoteDialog"
+            @bind-doc="handleBindDocFromDrag"
             @pomodoro-pause="togglePomodoroPause"
             @pomodoro-resume="togglePomodoroResume"
           @pomodoro-stop="stopCurrentPomodoro"
@@ -196,6 +198,7 @@
       :total-completion-rate="statsTotalCompletionRate"
       :common-time-slot="statsCommonTimeSlot"
       :hour-distribution="statsHourDistribution"
+      :month-checkin-notes="statsMonthCheckinNotes"
       :get-frequency-text="getFrequencyText"
       :get-created-date-text="getCreatedDateText"
       :format-timeline-date="formatTimelineDate"
@@ -273,6 +276,16 @@
       @close="closeBindDocModal"
       @clear="clearBindDoc"
       @confirm="confirmBindDoc"
+    />
+    
+    <HabitCheckinNoteDialog
+      :show="showCheckinNoteDialog"
+      :habit-name="checkinNoteHabit?.name || ''"
+      :habit-emoji="checkinNoteHabit?.emoji"
+      :is-edit="checkinNoteIsEdit"
+      :initial-note="checkinNoteInitial"
+      @close="closeCheckinNoteDialog"
+      @confirm="handleCheckinNoteConfirm"
     />
     
     <!-- 情绪打卡模态框 -->
@@ -365,6 +378,7 @@ import MoodCalendarPanel from '@/components/MoodCalendarPanel.vue';
 import FocusTimerHost from '@/components/FocusTimerHost.vue';
 import TaskManager from '@/components/TaskManager.vue';
 import HabitDocBindDialog from '@/components/HabitDocBindDialog.vue';
+import HabitCheckinNoteDialog from '@/components/HabitCheckinNoteDialog.vue';
 import { getHabits, saveHabits, Habit, type Task } from '@/api';
 import { openTaskViewByRequest } from '@/main';
 import { useHabitCache } from '@/composables/useHabitCache';
@@ -375,6 +389,7 @@ import { useHabitI18n } from '@/composables/useHabitI18n';
 import { useHabitSorting } from '@/composables/useHabitSorting';
 import { useHabitViewData } from '@/composables/useHabitViewData';
 import { normalizeDocId, useHabitDocBinding } from '@/composables/useHabitDocBinding';
+import { useHabitCheckinLog } from '@/composables/useHabitCheckinLog';
 import { useHabitEmojis } from '@/composables/useHabitEmojis';
 import { useHabitPomodoro } from '@/composables/useHabitPomodoro';
 import { useHabitStatistics } from '@/composables/useHabitStatistics';
@@ -589,6 +604,122 @@ const {
 } = useHabitDocBinding(habits, {
   saveHabitsNow: immediateSaveHabits
 });
+
+const { writeCheckinLogToDoc, getExistingNote, getMonthCheckinNotes } = useHabitCheckinLog();
+
+const showCheckinNoteDialog = ref(false);
+const checkinNoteHabit = ref<Habit | null>(null);
+const checkinNoteIsEdit = ref(false);
+const checkinNoteInitial = ref('');
+const statsMonthCheckinNotes = ref<{ date: string; note: string }[]>([]);
+
+const openCheckinNoteDialog = async (habit: Habit): Promise<void> => {
+  checkinNoteHabit.value = habit;
+
+  if (habit.completedToday && habit.noteDocId) {
+    const today = getToday();
+    const existingNote = await getExistingNote(habit.noteDocId, today, habit.id);
+    if (existingNote !== null) {
+      checkinNoteIsEdit.value = true;
+      checkinNoteInitial.value = existingNote;
+      showCheckinNoteDialog.value = true;
+      return;
+    }
+  }
+
+  checkinNoteIsEdit.value = false;
+  checkinNoteInitial.value = '';
+  showCheckinNoteDialog.value = true;
+};
+
+const closeCheckinNoteDialog = (): void => {
+  showCheckinNoteDialog.value = false;
+  checkinNoteHabit.value = null;
+  checkinNoteIsEdit.value = false;
+  checkinNoteInitial.value = '';
+};
+
+const handleCheckinNoteConfirm = async (note: string): Promise<void> => {
+  if (!checkinNoteHabit.value) return;
+
+  const habit = checkinNoteHabit.value;
+  const today = getToday();
+  const isEdit = checkinNoteIsEdit.value;
+
+  if (isEdit) {
+    if (habit.noteDocId) {
+      const dayRecord = habit.calendar.find(day => day.date === today);
+      await writeCheckinLogToDoc(habit.noteDocId, {
+        habit,
+        date: today,
+        note,
+        completedCount: dayRecord?.completedCount,
+        targetCount: dayRecord?.targetCount
+      });
+    }
+    closeCheckinNoteDialog();
+    return;
+  }
+
+  playBubbleSound();
+  const rewardPayload = toggleHabitCompletion(habit, today, { source: 'manual' });
+  
+  const completedToday = habit.completedToday;
+  if (completedToday && !habit.usePomodoro) {
+    animationOriginalStatus.value[habit.id] = false;
+    showAnimation.value = true;
+    animationHabitId.value = habit.id;
+
+    setTimeout(async () => {
+      await immediateSaveHabits(habits.value);
+      processRewardPayload(rewardPayload);
+      
+      if (habit.noteDocId && note) {
+        const dayRecord = habit.calendar.find(day => day.date === today);
+        await writeCheckinLogToDoc(habit.noteDocId, {
+          habit,
+          date: today,
+          note,
+          completedCount: dayRecord?.completedCount,
+          targetCount: dayRecord?.targetCount
+        });
+      }
+      
+      showAnimation.value = false;
+      animationHabitId.value = null;
+      delete animationOriginalStatus.value[habit.id];
+    }, 600);
+  } else {
+    await immediateSaveHabits(habits.value);
+    processRewardPayload(rewardPayload);
+    
+    if (habit.noteDocId && note) {
+      const dayRecord = habit.calendar.find(day => day.date === today);
+      await writeCheckinLogToDoc(habit.noteDocId, {
+        habit,
+        date: today,
+        note,
+        completedCount: dayRecord?.completedCount,
+        targetCount: dayRecord?.targetCount
+      });
+    }
+  }
+  
+  closeCheckinNoteDialog();
+};
+
+const handleBindDocFromDrag = async (habit: Habit, docId: string): Promise<void> => {
+  const DOC_ID_PATTERN = /^\d{14}-[a-z0-9]{7}$/i;
+  
+  if (!DOC_ID_PATTERN.test(docId)) {
+    console.warn('[HabitTracker] Invalid doc ID format:', docId);
+    return;
+  }
+
+  habit.noteDocId = docId;
+  habits.value = [...habits.value];
+  await immediateSaveHabits(habits.value);
+};
 
 const toggleHabitListCollapsed = () => {
   isHabitListCollapsed.value = !isHabitListCollapsed.value;
@@ -957,11 +1088,12 @@ function openGoalPage(goalId: string = ''): void {
   showGoalPage.value = true;
 }
 
-const showHabitStats = (habit: Habit) => {
+const showHabitStats = async (habit: Habit) => {
   closeTrackerPanels();
   highlightedRewardEntryId.value = '';
   highlightedGoalId.value = '';
   selectedHabit.value = habit;
+  await loadMonthCheckinNotes(habit);
 };
 
 // 显示编辑习惯模态框
@@ -993,7 +1125,35 @@ const {
 // 关闭统计页面
 const closeHabitStats = () => {
   selectedHabit.value = null;
+  statsMonthCheckinNotes.value = [];
 };
+
+const loadMonthCheckinNotes = async (habit: Habit) => {
+  statsMonthCheckinNotes.value = [];
+  if (habit.noteDocId) {
+    const today = new Date();
+    const offset = habit.statsMonthOffset || 0;
+    const targetDate = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth() + 1;
+
+    try {
+      const notes = await getMonthCheckinNotes(habit.noteDocId, habit.id, year, month);
+      statsMonthCheckinNotes.value = notes;
+    } catch (error) {
+      console.error('[HabitTracker] Failed to load month checkin notes:', error);
+    }
+  }
+};
+
+watch(
+  () => selectedHabit.value?.statsMonthOffset,
+  () => {
+    if (selectedHabit.value) {
+      loadMonthCheckinNotes(selectedHabit.value);
+    }
+  }
+);
 
 // 切换统计页面视图模式（已移除，统计页面只显示月视图）
 // const toggleStatsViewMode = (habit: Habit) => {

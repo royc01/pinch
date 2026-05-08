@@ -7,7 +7,10 @@
       <div
         v-for="habit in sortedHabits"
         :key="habit.id"
-        :class="['habit-card', { completed: isHabitCompleted(habit), paused: habit.isPaused }]"
+        :class="['habit-card', { completed: isHabitCompleted(habit), paused: habit.isPaused, 'drag-over': dragOverHabitId === habit.id }]"
+        @dragover.prevent="handleHabitDragOver($event, habit)"
+        @dragleave="handleHabitDragLeave"
+        @drop.prevent="handleHabitDrop($event, habit)"
       >
         <div class="habit-week-view">
           <div class="week-habit-item">
@@ -77,6 +80,7 @@
               <SyButton
                 v-else
                 @click="emit('toggle-habit', habit.id)"
+                @contextmenu.prevent="habit.noteDocId ? emit('toggle-habit-with-note', habit) : emit('open-bind-doc', habit)"
                 :type="isHabitCompleted(habit) ? 'success' : 'default'"
                 size="small"
                 :class="['check-in-btn', { 'success-animation': showAnimation && animationHabitId === habit.id }]"
@@ -184,7 +188,7 @@
 </template>
 
 <script setup lang="ts">
-import { toRefs } from 'vue';
+import { ref, toRefs } from 'vue';
 import type { Habit } from '@/api';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
@@ -229,11 +233,68 @@ const emit = defineEmits<{
   (event: 'open-bind-doc', habit: Habit): void;
   (event: 'start-focus', habit: Habit): void;
   (event: 'toggle-habit', habitId: string): void;
+  (event: 'toggle-habit-with-note', habit: Habit): void;
   (event: 'toggle-pause', habit: Habit): void;
   (event: 'pomodoro-pause'): void;
   (event: 'pomodoro-resume'): void;
   (event: 'pomodoro-stop'): void;
+  (event: 'bind-doc', habit: Habit, docId: string): void;
 }>();
+
+const dragOverHabitId = ref<string | null>(null);
+
+const extractDocIdFromDragEvent = (event: DragEvent): string | null => {
+  const dataTransfer = event.dataTransfer;
+  if (!dataTransfer) return null;
+
+  console.log('[HabitCard] Drop event - dataTransfer.types:', dataTransfer.types);
+  
+  // 思源使用 application/siyuan-file 格式
+  const formats = ['application/siyuan-file', 'text/plain', 'text/uri-list', 'text/html', 'application/x-siyuan-id'];
+  let textData: string | null = null;
+  
+  for (const format of formats) {
+    const data = dataTransfer.getData(format);
+    console.log(`[HabitCard] Data format ${format}:`, data);
+    if (data) {
+      textData = data;
+      break;
+    }
+  }
+
+  if (!textData) return null;
+
+  // 匹配思源文档ID格式：YYYYMMDDHHMMSS-xxxxxxx
+  const match = textData.match(/\d{14}-[a-z0-9]{7}/i);
+  console.log('[HabitCard] Extracted doc ID:', match ? match[0] : null);
+  
+  return match ? match[0] : null;
+};
+
+const handleHabitDragOver = (event: DragEvent, habit: Habit): void => {
+  event.preventDefault();
+  const dataTransfer = event.dataTransfer;
+  if (!dataTransfer) return;
+
+  console.log('[HabitCard] DragOver - types:', dataTransfer.types);
+  
+  // 允许所有类型的拖放
+  dragOverHabitId.value = habit.id;
+  dataTransfer.dropEffect = 'link';
+};
+
+const handleHabitDragLeave = (): void => {
+  dragOverHabitId.value = null;
+};
+
+const handleHabitDrop = (event: DragEvent, habit: Habit): void => {
+  dragOverHabitId.value = null;
+  
+  const docId = extractDocIdFromDragEvent(event);
+  if (docId) {
+    emit('bind-doc', habit, docId);
+  }
+};
 
 const getRectClipId = (habitId: string) => `rect-clip-${habitId}`;
 const fallbackHabitEmoji = '\u{1F4DD}';
@@ -295,6 +356,12 @@ const {
 
 .habit-card.completed {
   box-shadow: inset 0 0 0 100px rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.06) 0 1px 5px 0;
+}
+
+.habit-card.drag-over {
+  box-shadow: 0 0 0 2px #f98f7a, rgba(0, 0, 0, 0.12) 0 4px 12px 0;
+  background: rgba(249, 143, 122, 0.05);
+  transform: scale(1.02);
 }
 
 .week-habit-item {

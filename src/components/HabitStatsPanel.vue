@@ -39,6 +39,7 @@
                 v-for="day in monthViewData" 
                 :key="day.date" 
                 :class="['day', { completed: day.completed, today: day.date === getToday(), 'not-current-month': !day.isCurrentMonth }]"
+                :title="day.date"
                 @click="!habit.isPaused && toggleDayCompletion(day.date)"
               >
                 <span class="day-number">{{ day.date.split('-')[2] }}</span>
@@ -51,24 +52,38 @@
             </div>
           </div>
         </div>
-      <div class="stats-grid">
-        <div class="stat-item">
-          <div class="stat-value">{{ currentMonthStreak }}</div>
-          <div class="stat-label">{{ t('habitTracker.currentStreak') }}</div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value">{{ currentMonthStreak }}</div>
+            <div class="stat-label">{{ t('habitTracker.currentStreak') }}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">{{ totalMonthCompletions }}</div>
+            <div class="stat-label">{{ t('habitTracker.totalCompletions') }}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">{{ completionRate }}<span> %</span></div>
+            <div class="stat-label">{{ t('habitTracker.completionRate') }}</div>
+          </div>
         </div>
-        <div class="stat-item">
-          <div class="stat-value">{{ totalMonthCompletions }}</div>
-          <div class="stat-label">{{ t('habitTracker.totalCompletions') }}</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-value">{{ completionRate }}<span> %</span></div>
-          <div class="stat-label">{{ t('habitTracker.completionRate') }}</div>
+        <div v-if="monthCheckinNotes.length > 0" class="checkin-notes-container">
+          <h4 class="checkin-notes-title">本月打卡备注</h4>
+          <div class="checkin-notes-list">
+            <div 
+              v-for="entry in monthCheckinNotes" 
+              :key="entry.date" 
+              class="checkin-notes-item"
+            >
+              <div class="checkin-notes-date">{{ entry.date.split('-')[2] }}</div>
+              <div class="checkin-notes-content">
+                <div class="checkin-notes-note">{{ entry.note }}</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-        
-        <div class="cumulative-stats">
-          <div class="stat-row">
+      <div class="cumulative-stats">
+        <div class="stat-row">
             <div class="stat-item">
               <div class="stat-label">累计打卡</div>
               <div class="stat-value">{{ habit.totalCompletions }}<span> 次</span></div>
@@ -150,6 +165,11 @@ interface HourData {
   count: number;
 }
 
+interface CheckinNote {
+  date: string;
+  note: string;
+}
+
 interface LongestStreak {
   streak: number;
   startDate: Date | null;
@@ -169,6 +189,7 @@ interface Props {
   totalCompletionRate: number;
   commonTimeSlot: string;
   hourDistribution: HourData[];
+  monthCheckinNotes: CheckinNote[];
   getFrequencyText: (habit: Habit) => string;
   getCreatedDateText: (habit: Habit) => string;
   formatTimelineDate: (date: Date | null) => string;
@@ -303,35 +324,6 @@ const getToday = (): string => {
     }
   }
   
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 34px;
-    margin-top: 10px;
-    padding: 10px 0;
-    border-top: 1px solid var(--b3-border-color);
-    
-    .stat-item {
-      text-align: center;
-      border-radius: 24px;
-      
-      .stat-value {
-        font-size: 24px;
-        font-weight: 600;
-        color: var(--b3-theme-on-background);
-        margin-bottom: 4px;
-        span {
-          font-size: 12px;
-        }
-      }
-      
-      .stat-label {
-        font-size: 12px;
-        color: var(--b3-scroll-color);
-      }
-    }
-  }
-  
   .stats-content {
     flex: 1;
     display: flex;
@@ -396,6 +388,104 @@ const getToday = (): string => {
       padding: 16px 16px 8px 16px;
       border-radius: 24px;
       box-shadow: rgba(0, 0, 0, 0.06) 0px 1px 5px 0px;
+      
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 34px;
+        margin-top: 10px;
+        padding: 10px 0;
+        border-top: 1px solid var(--b3-border-color);
+        
+        .stat-item {
+          text-align: center;
+          border-radius: 24px;
+          
+          .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--b3-theme-on-background);
+            margin-bottom: 4px;
+            span {
+              font-size: 12px;
+            }
+          }
+          
+          .stat-label {
+            font-size: 12px;
+            color: var(--b3-scroll-color);
+          }
+        }
+      }
+      
+      .checkin-notes-container {
+        margin-top: 20px;
+        background: var(--b3-list-background);
+        border-radius: 8px;
+        
+        .checkin-notes-title {
+          margin: 0 0 12px 0;
+          font-size: 14px;
+          font-weight: bold;
+          color: var(--b3-theme-on-surface);
+        }
+        
+        .checkin-notes-list {
+          display: flex;
+          flex-direction: column;
+          overflow-y: auto;
+          max-height: 200px;
+          
+          .checkin-notes-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 16px 0;
+            background: var(--b3-theme-background);
+            border-radius: 6px;
+            position: relative;
+            transition: background-color 0.2s;
+            
+            &::before {
+              content: '';
+              position: absolute;
+              top: 0;
+              left: 7px;
+              height: 100%;
+              width: 2px;
+              background: radial-gradient(circle at center, var(--b3-theme-on-background) 1px, transparent 1px);
+              background-size: 2px 5px;
+              background-repeat: repeat-y;
+              opacity: 0.3;
+            }
+            
+            .checkin-notes-date {
+              font-size: 14px;
+              font-weight: bold;
+              color: var(--b3-theme-on-background);
+              min-width: 30px;
+              position: relative;
+              z-index: 1;
+              background: var(--b3-theme-background);
+            }
+            
+            .checkin-notes-content {
+              flex: 1;
+              background-color: var(--b3-list-hover);
+              border-radius: 12px;
+              margin-top: -8px;
+              padding: 8px;
+              
+              .checkin-notes-note {
+                font-size: 13px;
+                color: var(--b3-theme-on-surface);
+                word-break: break-word;
+                line-height: 1.5;
+                white-space: pre-wrap;
+              }
+            }
+          }
+        }
+      }
     }
 
     .calendar-view {

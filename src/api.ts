@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Copyright (c) 2023 frostime. All rights reserved.
  * https://github.com/frostime/sy-plugin-template-vite
  *
@@ -673,6 +673,7 @@ export interface HabitCalendarDay {
   targetCount?: number;
   completedCount?: number;
   timestamp?: number;
+  note?: string;
 }
 
 const HABIT_FREQUENCIES: Habit['frequency'][] = [
