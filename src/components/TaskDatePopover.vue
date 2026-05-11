@@ -19,28 +19,28 @@
         @click.stop
       >
         <div class="date-popover-header">
-          <button type="button" class="date-nav-btn" title="上一月" aria-label="上一月" @click="shiftMonth(-1)">
+          <button type="button" class="date-nav-btn" :title="t('previousMonth')" :aria-label="t('previousMonth')" @click="shiftMonth(-1)">
             <Icon name="chevronRight" width="16" height="16" class="icon flip" />
           </button>
           <div class="date-popover-title">{{ monthLabel }}</div>
-          <button type="button" class="date-nav-btn" title="下一月" aria-label="下一月" @click="shiftMonth(1)">
+          <button type="button" class="date-nav-btn" :title="t('nextMonth')" :aria-label="t('nextMonth')" @click="shiftMonth(1)">
             <Icon name="chevronRight" width="16" height="16" class="icon" />
           </button>
         </div>
 
         <div class="date-popover-quick">
           <template v-if="quickMode === 'goal'">
-            <button type="button" class="date-quick-btn" @click="applyQuickDate('thisWeek')">本周</button>
-            <button type="button" class="date-quick-btn" @click="applyQuickDate('thisMonth')">本月</button>
-            <button type="button" class="date-quick-btn" @click="applyQuickDate('thisYear')">今年</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('thisWeek')">{{ t('thisWeek') }}</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('thisMonth')">{{ t('thisMonth') }}</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('thisYear')">{{ t('thisYear') }}</button>
           </template>
           <template v-else>
-            <button type="button" class="date-quick-btn" @click="applyQuickDate('today')">今天</button>
-            <button type="button" class="date-quick-btn" @click="applyQuickDate('tomorrow')">明天</button>
-            <button type="button" class="date-quick-btn" @click="applyQuickDate('weekend')">本周末</button>
-            <button type="button" class="date-quick-btn" @click="applyQuickDate('nextMonday')">下周一</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('today')">{{ t('today') }}</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('tomorrow')">{{ t('tomorrow') }}</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('weekend')">{{ t('thisWeekend') }}</button>
+            <button type="button" class="date-quick-btn" @click="applyQuickDate('nextMonday')">{{ t('nextMonday') }}</button>
           </template>
-          <button type="button" class="date-quick-btn danger" @click="clearSelection">清除</button>
+          <button type="button" class="date-quick-btn danger" @click="clearSelection">{{ t('clear') }}</button>
         </div>
 
         <div class="date-popover-weekdays">
@@ -68,7 +68,7 @@
           <div class="date-popover-detail-divider"></div>
           <div class="date-popover-detail-grid">
             <div class="date-popover-field">
-              <label>开始日期</label>
+              <label>{{ t('startDate') }}</label>
               <div class="date-popover-input-group">
                 <input
                   ref="startDateInputRef"
@@ -79,8 +79,8 @@
                 <button
                   type="button"
                   class="date-popover-input-trigger"
-                  title="选择开始日期"
-                  aria-label="选择开始日期"
+                  :title="t('selectStartDate')"
+                  :aria-label="t('selectStartDate')"
                   @click="openInputPicker(startDateInputRef)"
                 >
                   <Icon name="calendar" width="14" height="14" />
@@ -89,7 +89,7 @@
             </div>
 
             <div class="date-popover-field">
-              <label>截止日期</label>
+              <label>{{ t('dueDate') }}</label>
               <div class="date-popover-input-group">
                 <input
                   ref="dueDateInputRef"
@@ -100,8 +100,8 @@
                 <button
                   type="button"
                   class="date-popover-input-trigger"
-                  title="选择截止日期"
-                  aria-label="选择截止日期"
+                  :title="t('selectDueDate')"
+                  :aria-label="t('selectDueDate')"
                   @click="openInputPicker(dueDateInputRef)"
                 >
                   <Icon name="calendar" width="14" height="14" />
@@ -110,7 +110,7 @@
             </div>
 
             <div class="date-popover-field">
-              <label>开始时间</label>
+              <label>{{ t('startTime') }}</label>
               <div class="date-popover-input-group">
                 <input
                   ref="startTimeInputRef"
@@ -121,8 +121,8 @@
                 <button
                   type="button"
                   class="date-popover-input-trigger"
-                  title="选择开始时间"
-                  aria-label="选择开始时间"
+                  :title="t('selectStartTime')"
+                  :aria-label="t('selectStartTime')"
                   @click="openInputPicker(startTimeInputRef)"
                 >
                   <Icon name="clock" width="14" height="14" />
@@ -131,7 +131,7 @@
             </div>
 
             <div class="date-popover-field">
-              <label>截止时间</label>
+              <label>{{ t('dueTime') }}</label>
               <div class="date-popover-input-group">
                 <input
                   ref="dueTimeInputRef"
@@ -142,8 +142,8 @@
                 <button
                   type="button"
                   class="date-popover-input-trigger"
-                  title="选择截止时间"
-                  aria-label="选择截止时间"
+                  :title="t('selectDueTime')"
+                  :aria-label="t('selectDueTime')"
                   @click="openInputPicker(dueTimeInputRef)"
                 >
                   <Icon name="clock" width="14" height="14" />
@@ -159,6 +159,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { t } from '@/utils/i18n';
 import Icon from '@/components/Icon.vue';
 
 type DateQuickKey = 'today' | 'tomorrow' | 'weekend' | 'nextMonday' | 'thisWeek' | 'thisMonth' | 'thisYear';
@@ -207,12 +208,12 @@ const startDateInputRef = ref<HTMLInputElement | null>(null);
 const dueDateInputRef = ref<HTMLInputElement | null>(null);
 const startTimeInputRef = ref<HTMLInputElement | null>(null);
 const dueTimeInputRef = ref<HTMLInputElement | null>(null);
-const weekDayLabels = ['一', '二', '三', '四', '五', '六', '日'];
+const weekDayLabels = [t('mondayShort'), t('tuesdayShort'), t('wednesdayShort'), t('thursdayShort'), t('fridayShort'), t('saturdayShort'), t('sundayShort')];
 const showTaskEditorDetails = computed(() => props.showTaskEditorDetails);
 
 const monthLabel = computed(() => {
   const cursor = monthCursor.value;
-  return `${cursor.getFullYear()}年${cursor.getMonth() + 1}月`;
+  return t('yearMonthLabel', { year: cursor.getFullYear(), month: cursor.getMonth() + 1 });
 });
 
 const calendarDays = computed<CalendarDay[]>(() => {

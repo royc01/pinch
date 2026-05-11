@@ -1,6 +1,7 @@
 import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
 import { formatDate } from '@/composables/useDateUtils';
+import { t } from '@/utils/i18n';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
@@ -285,7 +286,7 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
       startTime: series.startTime || templateTask.startTime,
       dueTime: series.dueTime || templateTask.dueTime,
       // Keep virtual instances aligned with latest template edits (title/priority/description/tags).
-      title: templateTitle || series.title || '\u91cd\u590d\u4efb\u52a1',
+      title: templateTitle || series.title || t('recurringTask'),
       description: templateDescription,
       priority: templatePriority || series.priority || 'none',
       tags: templateTags,
@@ -400,7 +401,7 @@ function normalizeSeries(raw: unknown): RepeatSeries | null {
     startDate: formatDate(startDate),
     endDate: normalizedEndDate,
     spanDays: normalizedSpanDays,
-    title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : '重复任务',
+    title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : t('recurringTask'),
     description: typeof item.description === 'string' ? item.description : '',
     priority: item.priority === 'high' || item.priority === 'medium' || item.priority === 'low' ? item.priority : 'none',
     tags: Array.isArray(item.tags) ? item.tags.filter((tag) => typeof tag === 'string') : [],
@@ -726,7 +727,7 @@ export async function setTaskRepeatSeries(task: RepeatTaskLike, frequency: Repea
     startDate: existing?.startDate || baseDate,
     endDate: normalizedEndDate,
     spanDays: calculateSpanDays(task),
-    title: task.title || existing?.title || '重复任务',
+    title: task.title || existing?.title || t('recurringTask'),
     description: task.description || '',
     priority: task.priority || existing?.priority || 'none',
     tags: Array.isArray(task.tags) ? [...task.tags] : [],

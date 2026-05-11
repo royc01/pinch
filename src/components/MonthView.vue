@@ -1,12 +1,12 @@
-﻿<template>
+<template>
   <div class="month-view">
     <div class="calendar-container">
       <div class="calendar-header">
-        <button class="nav-btn" title="上一月" aria-label="上一月" @click="previousMonth">
+        <button class="nav-btn" :title="t('previousMonth')" :aria-label="t('previousMonth')" @click="previousMonth">
           <Icon name="chevronLeft" width="20" height="20" />
         </button>
         <div class="month-title">{{ monthTitle }}</div>
-        <button class="nav-btn" title="下一月" aria-label="下一月" @click="nextMonth">
+        <button class="nav-btn" :title="t('nextMonth')" :aria-label="t('nextMonth')" @click="nextMonth">
           <Icon name="chevronRight" width="20" height="20" />
         </button>
       </div>
@@ -43,7 +43,7 @@
                 <div class="day-info">
                   <div class="day-number">{{ day.dayNumber }}</div>
                   <div 
-                    v-if="day.lunarInfo" 
+                    v-if="showLunarInfo && day.lunarInfo" 
                     class="day-lunar"
                     :class="{ 
                       'festival': day.lunarInfo.isFestival,
@@ -61,8 +61,8 @@
                   <button
                     type="button"
                     class="more-tasks-pill"
-                    :title="`还有${getHiddenTaskCountForDay(day, week)}个任务`"
-                    :aria-label="`还有${getHiddenTaskCountForDay(day, week)}个任务`"
+                    :title="t('remainingTasksCount', { count: getHiddenTaskCountForDay(day, week) })"
+                    :aria-label="t('remainingTasksCount', { count: getHiddenTaskCountForDay(day, week) })"
                     @mousedown.stop
                     @click.stop="expandDayTasks(day.key)"
                   >
@@ -76,13 +76,13 @@
                   @click.stop
                 >
                   <div class="day-expanded-header">
-                    <span class="day-expanded-title">当天任务</span>
+                    <span class="day-expanded-title">{{ t('tasksOfToday') }}</span>
                     <button
                       type="button"
                       class="day-expanded-close"
                       @click.stop="collapseDayTasks(day.key)"
                     >
-                      收起
+                      {{ t('collapse') }}
                     </button>
                   </div>
                   <div class="day-expanded-list">
@@ -107,7 +107,7 @@
                       </span>
                     </div>
                     <div v-if="getExpandedTasksForDay(day, week).length === 0" class="day-expanded-empty">
-                      暂无任务
+                      {{ t('noTasksFound') }}
                     </div>
                   </div>
                 </div>
@@ -157,7 +157,7 @@
                     v-if="task.priority !== 'none'"
                     class="task-priority-badge"
                     :class="`priority-${task.priority}`"
-                    :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                    :title="task.priority === 'high' ? t('highPriority') : task.priority === 'medium' ? t('mediumPriority') : t('lowPriority')"
                   >
                     <Icon name="flag" width="10" height="10" />
                   </span>
@@ -217,6 +217,7 @@
 </template>
 
 <script setup lang="ts">
+import { t, getLanguage } from '@/utils/i18n';
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { Task } from '@/api';
 import { setBlockAttrs, TaskRepository } from '@/api';
@@ -458,6 +459,10 @@ const mobileDragPreviewStyle = computed(() => ({
   top: `${Math.max(12, mobileDragPreview.value.clientY - 14)}px`
 }));
 const isMobileTaskChipInteractionEnabled = computed(() => isCompactMobileLayout.value);
+const showLunarInfo = computed(() => {
+  const lang = getLanguage();
+  return lang === 'zh_CN' || lang === 'zh_CHT';
+});
 
 function normalizeOptionalDateValue(value: string | null | undefined): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
@@ -817,7 +822,7 @@ const taskPositionsMap = computed(() => {
   return positionMap;
 });
 
-const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+const weekdays = computed(() => [t('mon'), t('tue'), t('wed'), t('thu'), t('fri'), t('sat'), t('sun')]);
 
 const monthTitle = computed(() => {
   const startDate = new Date(baseDate.value);
@@ -828,10 +833,15 @@ const monthTitle = computed(() => {
   const endDate = new Date(startDate);
   endDate.setDate(startDate.getDate() + 41);
   
+  const getMonthName = (monthIndex: number) => {
+    const keys = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    return t(keys[monthIndex]);
+  };
+
   const formatMonth = (date: Date) => {
     const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    return `${year}年${month}月`;
+    const month = getMonthName(date.getMonth());
+    return t('yearMonth', { year, month });
   };
   
   const startMonth = formatMonth(startDate);
@@ -840,7 +850,7 @@ const monthTitle = computed(() => {
   if (startMonth === endMonth) {
     return startMonth;
   } else {
-    return `${startMonth} - ${endMonth}`;
+    return `${startMonth}${t('yearMonthSeparator')}${endMonth}`;
   }
 });
 

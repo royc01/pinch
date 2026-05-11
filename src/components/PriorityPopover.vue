@@ -25,6 +25,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { t } from '@/utils/i18n';
 import Icon from './Icon.vue';
 
 const props = withDefaults(defineProps<{
@@ -40,12 +41,12 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const priorityOptions = [
-  { value: 'high', label: '高优先级', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
-  { value: 'medium', label: '中优先级', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'low', label: '低优先级', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'none', label: '无优先级', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
-];
+const priorityOptions = computed(() => [
+  { value: 'high', label: t('priorityHigh'), background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
+  { value: 'medium', label: t('priorityMedium'), background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
+  { value: 'low', label: t('priorityLow'), background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
+  { value: 'none', label: t('priorityNone'), background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
+]);
 
 const popoverStyle = computed(() => ({
   left: `${props.position.x}px`,

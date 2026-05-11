@@ -1,4 +1,6 @@
-﻿export function formatDate(date: Date): string {
+import { t } from '@/utils/i18n';
+
+export function formatDate(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -18,6 +20,10 @@ export function formatHour(hour: number): string {
   return `${hour - 12}pm`;
 }
 
-export function formatChineseDate(date: Date): string {
-  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+export function formatLocaleDate(date: Date): string {
+  return t('dateFull', {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate()
+  });
 }

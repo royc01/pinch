@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div
     :class="rootClasses"
     :draggable="draggable"
@@ -17,7 +17,7 @@
           <TaskCheckbox :checked="isCompleted" :size="18" />
         </div>
         <div class="task-title-wrap" @click="handleCardClick">
-          <span v-if="isPinned" class="task-pinned-indicator" title="已置顶" aria-label="已置顶">
+          <span v-if="isPinned" class="task-pinned-indicator" :title="t('pinned')" :aria-label="t('pinned')">
             <Icon name="pinBadge" />
           </span>
           <div
@@ -31,7 +31,7 @@
             v-if="task.priority !== 'none'"
             class="task-priority-badge"
             :class="`priority-${task.priority}`"
-            :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+            :title="task.priority === 'high' ? t('priorityHigh') : task.priority === 'medium' ? t('priorityMedium') : t('priorityLow')"
           >
             <Icon name="flag" width="10" height="10" />
           </span>
@@ -42,8 +42,8 @@
             type="button"
             class="task-card-action-btn task-card-open-btn"
             data-disable-description-contextmenu
-            title="跳转正文"
-            aria-label="跳转正文"
+            :title="t('jumpToContent')"
+            :aria-label="t('jumpToContent')"
             @mousedown.stop
             @click.stop.prevent="handleOpenClick"
           >
@@ -56,8 +56,8 @@
             class="task-card-action-btn task-card-expand-btn"
             data-disable-description-contextmenu
             :class="{ expanded: isExpanded }"
-            title="折叠/展开详情"
-            aria-label="折叠/展开详情"
+            :title="t('foldUnfoldDetails')"
+            :aria-label="t('foldUnfoldDetails')"
             @mousedown.stop
             @click.stop="handleToggleExpand"
           >
@@ -83,7 +83,7 @@
           data-disable-description-contextmenu
           rows="3"
           :value="descriptionDraftValue"
-          placeholder="添加任务描述..."
+          :placeholder="t('addDescription')"
           @click.stop
           @contextmenu.stop
           @input="handleDescriptionInput"
@@ -110,10 +110,10 @@
           v-if="task.dueDate"
           class="task-due-badge"
           :class="{ 'is-overdue': isOverdue }"
-          :title="`截止日期：${dueText}${isOverdue ? ' \u903E\u671F' : ''}`"
+          :title="t('dueDateWithStatus', { date: dueText, status: isOverdue ? t('statusOverdue') : '' })"
         >
           <Icon name="calendar" width="12" height="12" />
-          {{ dueText }}{{ isOverdue ? ' \u903E\u671F' : '' }}
+          {{ dueText }}<span v-if="isOverdue"> {{ t('statusOverdue') }}</span>
         </span>
         <span
           v-if="reminderText"
@@ -173,6 +173,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { t } from '@/utils/i18n';
 import type { Task, SubTask, TaskGroup } from '@/api';
 import Icon from '@/components/Icon.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
@@ -318,7 +319,7 @@ const isRepeatBadgeVisible = computed(() => (
   || (!!task.value.repeatFrequency && task.value.repeatFrequency !== 'none')
   || !!task.value.isVirtual
 ));
-const repeatBadgeTitle = computed(() => '重复任务');
+const repeatBadgeTitle = computed(() => t('recurringTask'));
 const isOverdue = computed(() => {
   if (isCompleted.value) return false;
   const dueTimestamp = getTaskDateTimestamp(task.value.dueDate);
@@ -339,7 +340,7 @@ const groupLabel = computed(() => {
   if (!resolvedTaskGroup.value) {
     return '';
   }
-  return resolvedTaskGroup.value.name || '标签';
+  return resolvedTaskGroup.value.name || t('label');
 });
 const groupStyle = computed<Record<string, string>>(() => {
   if (!groupLabel.value) {
@@ -362,13 +363,13 @@ const statusBadgeText = computed(() => {
     return '';
   }
   if (task.value.status === 'in-progress') {
-    return '\u8FDB\u884C\u4E2D';
+    return t('statusInProgress');
   }
   if (task.value.status === 'delayed') {
-    return '\u5EF6\u8FDF';
+    return t('statusDelayed');
   }
   if (task.value.status === 'cancelled') {
-    return '\u5DF2\u53D6\u6D88';
+    return t('statusCancelled');
   }
   return '';
 });

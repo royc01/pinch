@@ -1,6 +1,6 @@
 <template>
   <div class="Pinch-habit-container">
-    <!-- 习惯列表页面 -->
+    <!-- Habit list page -->
     <div class="habit-list-container">
       <div class="Pinch-habit-header">
         <div class="header-content">
@@ -17,26 +17,26 @@
             </div>
           </div>
           <div class="header-buttons">
-            <SyButton @click="openFocusTimer" id="focus-timer-btn" class="focus-timer-btn" title="专注计时">
+            <SyButton @click="openFocusTimer" id="focus-timer-btn" class="focus-timer-btn" :title="t('focusTimer')">
               <Icon name="timer" width="24" height="24" class="icon" />
             </SyButton>
             <SyButton
               @click="openPersonalStatsView"
               id="task-stats-btn"
               class="task-stats-btn"
-              title="统计视图"
-              aria-label="打开统计视图"
+              :title="t('statsView')"
+              :aria-label="t('statsView')"
             >
               <Icon name="stats" width="24" height="24" class="icon" />
             </SyButton>
-            <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn" title="情绪日历">
+            <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn" :title="t('moodCalendar')">
               <Icon name="smile" width="24" height="24" class="icon" />
             </SyButton>
           </div>
         </div>
       </div>
 
-      <!-- 本周日期显示，从周一开始 -->
+      <!-- Week days display, starting from Monday -->
       <WeekDates 
         :week-dates="weekDates"
         :mood-data="moodData"
@@ -50,17 +50,17 @@
             <div class="reward-summary-stats">
               <div class="reward-summary-stat">
                 <div class="reward-summary-stat-value">{{ rewardSnapshot.availableCoins }}</div>
-                <div class="reward-summary-stat-label">趣币</div>
+                <div class="reward-summary-stat-label">{{ t('coins') }}</div>
               </div>
             </div>
             <div v-if="latestRewardEntry" class="reward-summary-latest">
               <span class="reward-summary-latest-title">{{ latestRewardEntry.title }}</span>
               <span class="reward-summary-latest-points">
-                +{{ latestRewardEntry.xp }} 碎片<span v-if="latestRewardEntry.coins > 0"> · +{{ latestRewardEntry.coins }} 趣币</span>
+                {{ t('plusXpFragments', { count: latestRewardEntry.xp }) }}<span v-if="latestRewardEntry.coins > 0"> · {{ t('plusCoinsAmount', { count: latestRewardEntry.coins }) }}</span>
               </span>
             </div>
             <div v-else class="reward-summary-empty">
-              完成习惯、任务或专注后会在这里累计奖励
+              {{ t('rewardSummaryEmpty') }}
             </div>
           </div>
         </div>
@@ -70,7 +70,7 @@
             <div class="goal-summary-head">
               <div class="goal-summary-level">
                 <div class="goal-summary-level-value">{{ goalSummaryValueText }}</div>
-                <div class="goal-summary-level-label">完成</div>
+                <div class="goal-summary-level-label">{{ t('completed') }}</div>
               </div>
             </div>
             <div v-if="featuredGoal" class="goal-summary-latest">
@@ -83,14 +83,14 @@
               </div>
             </div>
             <div v-else class="goal-summary-empty">
-              创建目标后会在这里汇总进度
+              {{ t('goalSummaryEmpty') }}
             </div>
           </div>
         </div>
       </div>
 
       <div class="habit-list">
-        <!-- 习惯打卡标题 -->
+        <!-- Habit check-in title -->
         <div class="habit-manager-header">
           <div class="header-left">
             <div class="collapse-arrow" @click="toggleHabitListCollapsed" :class="{ collapsed: isHabitListCollapsed }">
@@ -103,8 +103,8 @@
               @click="showHabitManagerPage = true"
               id="habit-manage-btn"
               class="habit-manage-btn"
-              title="习惯管理"
-              aria-label="习惯管理"
+              :title="t('habitManagement')"
+              :aria-label="t('habitManagement')"
             >
               <Icon name="taskScope" width="24" height="24" class="icon" />
             </SyButton>
@@ -146,12 +146,12 @@
 
     <div v-if="showHabitManagerPage" class="habit-manage-panel">
       <div class="habit-manage-panel-header">
-        <div class="habit-manage-panel-title">习惯管理</div>
+        <div class="habit-manage-panel-title">{{ t('habitManagement') }}</div>
         <button
           type="button"
           class="habit-manage-panel-close"
-          title="关闭"
-          aria-label="关闭"
+          :title="t('close')"
+          :aria-label="t('close')"
           @click="showHabitManagerPage = false"
         >
           <Icon name="close" width="16" height="16" class="icon" />
@@ -184,7 +184,7 @@
       </div>
     </div>
 
-    <!-- 习惯统计面板 -->
+    <!-- Habit statistics panel -->
     <HabitStatsPanel
       :habit="selectedHabit"
       :weekdays="weekdaysForCalendar"
@@ -212,7 +212,7 @@
       @toggle-day="selectedHabit && toggleDayCompletion(selectedHabit, $event)"
     />
     
-    <!-- 总统计面板 -->
+    <!-- General statistics panel -->
     <StatisticsPanel
       :show="showTotalStatsPage"
       :total-habits-count="totalHabitsCount"
@@ -241,7 +241,7 @@
       @close="closeGoalPage"
     />
     
-    <!-- 编辑习惯模态框 -->
+    <!-- Edit habit modal -->
     <HabitModal 
       :show="showEditHabitModal"
       mode="edit"
@@ -255,7 +255,7 @@
       @submit="saveEditedHabit"
     />
 
-    <!-- 添加习惯模态框 -->
+    <!-- Add habit modal -->
     <HabitModal 
       :show="showAddHabitModal"
       mode="add"
@@ -288,7 +288,7 @@
       @confirm="handleCheckinNoteConfirm"
     />
     
-    <!-- 情绪打卡模态框 -->
+    <!-- Mood check-in modal -->
     <MoodTrackerModal
       :show="showMoodTracker"
       :selectedDate="selectedDate"
@@ -299,7 +299,7 @@
       @delete="handleDeleteMoodEntry"
     />
     
-    <!-- 情绪打卡月视图 -->
+    <!-- Mood check-in month view -->
     <MoodCalendarPanel
       :show="showMoodCalendar"
       :mood-data="moodData"
@@ -317,7 +317,7 @@
       @complete-linked-habit="completeFocusLinkedHabit"
     />
     
-    <!-- 任务管理器容器 -->
+    <!-- Task manager container -->
     <div class="stand-container">
       <TaskManager @start-focus="openFocusTimerForTask" />
     </div>
@@ -448,9 +448,10 @@ const rewardLevelProgressStyle = computed(() => {
   };
 });
 
-const rewardLevelProgressText = computed(
-  () => `${rewardSnapshot.value.currentLevelXp}/${rewardSnapshot.value.nextLevelXp} 碎片`
-);
+const rewardLevelProgressText = computed(() => {
+  const { currentLevelXp, nextLevelXp } = rewardSnapshot.value;
+  return t('xpFragmentsLabel', { current: currentLevelXp, next: nextLevelXp });
+});
 
 // 防抖的保存函数 - 优化性能，减少频繁的存储操作
 let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -462,7 +463,7 @@ const debouncedSaveHabits = async (habitsToSave: Habit[]) => {
     saveDebounceTimer = setTimeout(async () => {
       await saveHabits(habitsToSave);
       resolve();
-    }, 300); // 300ms 防抖延迟
+    }, 300); // 300ms debounce delay
   });
 };
 
@@ -567,7 +568,7 @@ const {
   showAnimation,
   animationHabitId,
   playBubbleSound,
-  confirmUncheckMessage: '是否要取消打卡记录？'
+  confirmUncheckMessage: t('confirmUncheck')
 });
 const {
   activePomodoroHabit,
@@ -858,7 +859,7 @@ onMounted(async () => {
     // 定期清理过期缓存（每小时清理一次）
     cacheCleanupTimer = setInterval(() => {
       cleanupExpiredStatisticCaches();
-    }, 3600000) as unknown as number; // 1小时
+    }, 3600000) as unknown as number; // 1 hour
     
   } catch (error) {
     console.error('Error initializing habits:', error);
@@ -1017,10 +1018,10 @@ const featuredGoalText = computed(() => {
     return '';
   }
   if (featuredGoal.value.documentCount === 0) {
-    return '还没有选择文档';
+    return t('noDocumentSelected');
   }
   if (featuredGoal.value.totalTasks === 0) {
-    return '当前暂无可统计任务';
+    return t('noTasksToAnalyze');
   }
   return `${featuredGoal.value.progressPercent}% · ${featuredGoal.value.completedTasks}/${featuredGoal.value.totalTasks}`;
 });
@@ -1035,10 +1036,10 @@ const featuredGoalProgressText = computed(() => {
     return '';
   }
   if (featuredGoal.value.documentCount === 0) {
-    return '未选文档';
+    return t('noDocumentSelected');
   }
   if (featuredGoal.value.totalTasks === 0) {
-    return '暂无任务';
+    return t('noTasks');
   }
   return `${featuredGoal.value.completedTasks}/${featuredGoal.value.totalTasks}`;
 });
@@ -1589,8 +1590,8 @@ watch(
     repeating-linear-gradient(135deg,var(--c1) calc(var(--s)/-2) calc(var(--s)/2),var(--c2) 0 calc(2.328*var(--s)));
   background-size: calc(4*var(--s)) calc(4*var(--s));
   
-  /* 隐藏滚动条但保持滚动功能 */
-  -ms-overflow-style: none; /* IE 和 Edge */
+  /* Hide scrollbar but keep scroll function */
+  -ms-overflow-style: none; /* IE and Edge */
   scrollbar-width: none; /* Firefox */
   
   &::-webkit-scrollbar {

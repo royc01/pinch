@@ -27,6 +27,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { t } from '@/utils/i18n';
 import {
   TaskRepository,
   createDocWithMd,
@@ -137,7 +138,7 @@ const defaultGroupId = computed(() => {
 });
 
 function translate(key: string): string {
-  return key;
+  return t(key);
 }
 
 function escapeSqlLiteral(value: string): string {
@@ -238,7 +239,7 @@ async function loadDocumentOptions(): Promise<void> {
 }
 
 async function ensureInboxDocument(notebookId: string): Promise<string> {
-  const inboxPath = '/pinch收集箱';
+  const inboxPath = `/${t('pinchInbox')}`;
 
   try {
     const existingIds = await getIDsByHPath(notebookId, inboxPath);
@@ -289,7 +290,7 @@ async function handleCreateTask(taskData: NewTaskPayload, notebookId: string, do
     emit('close');
   } catch (error) {
     console.error('[MobileTaskCreateDialog] Failed to create task:', error);
-    await pushMsg('创建任务失败', 3000);
+    await pushMsg(t('createTaskFailed'), 3000);
   }
 }
 

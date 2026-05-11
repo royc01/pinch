@@ -1,4 +1,5 @@
 import { addFocusSession, type FocusSessionTargetInput } from '@/api';
+import { t } from './i18n';
 import {
   getActiveFocusSessionOwner,
   setActiveFocusSessionOwner,
@@ -49,6 +50,7 @@ type DetachedFocusWindowState = {
   linkedTarget: FocusTimerLinkedTarget | null;
   activeOwner: FocusSessionOwner | null;
   theme: DetachedFocusTheme;
+  translations: Record<string, any>;
 };
 
 type DetachedFocusRequest =
@@ -558,7 +560,8 @@ function getDetachedFocusWindowState(): DetachedFocusWindowState {
   return {
     linkedTarget: latestLinkedTarget,
     activeOwner: getActiveFocusSessionOwner(),
-    theme: latestThemeSnapshot
+    theme: latestThemeSnapshot,
+    translations: t('focusCapsule') as any
   };
 }
 
@@ -965,8 +968,8 @@ function buildDetachedFocusWindowHtml(initialState: DetachedFocusWindowState): s
 <body>
   <div class="shell">
     <div id="capsule" class="capsule">
-      <button id="settingsToggle" class="control dot" title="专注设置" aria-label="专注设置">⏱</button>
-      <button id="durationButton" class="duration" title="切换专注时长">专注 25m</button>
+      <button id="settingsToggle" class="control dot" title="${initialState.translations.settings}" aria-label="${initialState.translations.settings}">⏱</button>
+      <button id="durationButton" class="duration" title="${initialState.translations.toggleDuration}">${initialState.translations.focus} 25m</button>
       <div id="content" class="content" hidden>
         <span id="timeLabel" class="time">00:00</span>
         <button id="targetButton" class="target" hidden></button>
@@ -974,24 +977,24 @@ function buildDetachedFocusWindowHtml(initialState: DetachedFocusWindowState): s
       </div>
       <span id="timeOnly" class="time" hidden>00:00</span>
       <div class="actions">
-        <button id="actionButton" class="action" title="开始专注" aria-label="开始专注">▶</button>
-        <button id="stopButton" class="action stop" title="停止" aria-label="停止" hidden>■</button>
+        <button id="actionButton" class="action" title="${initialState.translations.start}" aria-label="${initialState.translations.start}">▶</button>
+        <button id="stopButton" class="action stop" title="${initialState.translations.stop}" aria-label="${initialState.translations.stop}" hidden>■</button>
       </div>
       <div id="popover" class="popover">
         <div class="setting-section">
           <div class="setting-label">
-            <span>计时模式</span>
-            <div class="mode-toggle" role="radiogroup" aria-label="计时模式">
-              <button id="modeCountdown" class="mode-option active" type="button">倒计时</button>
-              <button id="modeCountup" class="mode-option" type="button">正计时</button>
+            <span>${initialState.translations.timerMode}</span>
+            <div class="mode-toggle" role="radiogroup" aria-label="${initialState.translations.timerMode}">
+              <button id="modeCountdown" class="mode-option active" type="button">${initialState.translations.countdown}</button>
+              <button id="modeCountup" class="mode-option" type="button">${initialState.translations.countup}</button>
             </div>
           </div>
-          <div class="setting-hint">正计时会从 00:00 开始累计，到点不会自动停止，需手动结束。</div>
+          <div class="setting-hint">${initialState.translations.countupHint}</div>
         </div>
         <div class="setting-section">
           <div class="setting-label">
-            <span>专注时长</span>
-            <span id="focusDurationValue" class="duration-value">25 分钟</span>
+            <span>${initialState.translations.focusDuration}</span>
+            <span id="focusDurationValue" class="duration-value"></span>
           </div>
           <div>
             <input id="focusDurationSlider" class="slider" type="range" min="0" max="6" step="1" value="3" />
@@ -1000,8 +1003,8 @@ function buildDetachedFocusWindowHtml(initialState: DetachedFocusWindowState): s
         </div>
         <div class="setting-section">
           <div class="setting-label">
-            <span>短休时长</span>
-            <span id="breakDurationValue" class="duration-value">5 分钟</span>
+            <span>${initialState.translations.breakDuration}</span>
+            <span id="breakDurationValue" class="duration-value"></span>
           </div>
           <div>
             <input id="breakDurationSlider" class="slider" type="range" min="0" max="4" step="1" value="2" />
@@ -1010,8 +1013,8 @@ function buildDetachedFocusWindowHtml(initialState: DetachedFocusWindowState): s
         </div>
         <div class="setting-section">
           <div class="setting-label">
-            <span>专注组数</span>
-            <span id="setCountValue" class="duration-value">1 组</span>
+            <span>${initialState.translations.sets}</span>
+            <span id="setCountValue" class="duration-value"></span>
           </div>
           <div>
             <input id="setCountSlider" class="slider" type="range" min="1" max="8" step="1" value="1" />
@@ -1316,9 +1319,9 @@ function buildDetachedFocusWindowHtml(initialState: DetachedFocusWindowState): s
       const active = isActive();
       const durationLocked = active || state.timerMode === 'countup';
       durationButtonEl.hidden = active;
-      durationButtonEl.textContent = '专注 ' + state.selectedDuration + 'm';
+      durationButtonEl.textContent = initialState.translations.focus + ' ' + state.selectedDuration + 'm';
       durationButtonEl.disabled = durationLocked;
-      durationButtonEl.title = durationLocked ? '正计时下不可调整番茄参数' : '切换专注时长';
+      durationButtonEl.title = durationLocked ? initialState.translations.lockedMode : initialState.translations.toggleDuration;
 
       contentEl.hidden = !active || !state.linkedTarget;
       timeOnlyEl.hidden = active && !!state.linkedTarget;
@@ -1335,8 +1338,8 @@ function buildDetachedFocusWindowHtml(initialState: DetachedFocusWindowState): s
       actionButtonEl.disabled = false;
       actionButtonEl.textContent = state.isRunning ? '❚❚' : '▶';
       actionButtonEl.title = blocked
-        ? '面板专注进行中'
-        : (state.isRunning ? '暂停' : (state.isPaused ? '继续' : '开始专注'));
+        ? initialState.translations.alreadyRunning
+        : (state.isRunning ? initialState.translations.pause : (state.isPaused ? initialState.translations.resume : initialState.translations.start));
       stopButtonEl.hidden = !active;
 
       modeCountdownEl.classList.toggle('active', state.timerMode === 'countdown');
@@ -2331,16 +2334,16 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         type="button"
         class="floating-focus__close"
         data-no-drag
-        title="关闭迷你茄"
-        aria-label="关闭迷你茄"
+        title="${initialState.translations.stop}"
+        aria-label="${initialState.translations.stop}"
       >&times;</button>
       <button
         id="settingsToggle"
         type="button"
         class="floating-focus__dot"
         data-no-drag
-        title="专注设置"
-        aria-label="专注设置"
+        title="${initialState.translations.settings}"
+        aria-label="${initialState.translations.settings}"
         aria-expanded="false"
       ></button>
       <button
@@ -2356,9 +2359,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         type="button"
         class="floating-focus__duration"
         data-no-drag
-        title="切换下一档专注时长"
+        title="${initialState.translations.toggleDuration}"
       >
-        专注 25m
       </button>
       <span id="timeOnly" class="floating-focus__time" hidden>00:00</span>
       <div class="floating-focus__actions" data-no-drag>
@@ -2367,16 +2369,16 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
           type="button"
           class="floating-focus__action"
           data-no-drag
-          title="开始专注"
-          aria-label="开始专注"
+          title="${initialState.translations.start}"
+          aria-label="${initialState.translations.start}"
         ></button>
         <button
           id="stopButton"
           type="button"
           class="floating-focus__action is-stop"
           data-no-drag
-          title="停止"
-          aria-label="停止"
+          title="${initialState.translations.stop}"
+          aria-label="${initialState.translations.stop}"
           hidden
         ></button>
       </div>
@@ -2384,7 +2386,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         <div class="timer-settings">
           <div class="setting-section linked-target-setting">
             <div class="setting-label">
-              <span>计时关联</span>
+              <span>${initialState.translations.linkTarget}</span>
             </div>
             <div id="linkedTargetChipRow" class="linked-habit-banner__chip-row" hidden>
               <button
@@ -2399,8 +2401,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
                 id="clearLinkedTargetButton"
                 type="button"
                 class="linked-habit-banner__clear"
-                title="清除关联"
-                aria-label="清除关联"
+                title="${initialState.translations.noCandidates}"
+                aria-label="${initialState.translations.noCandidates}"
               ></button>
             </div>
             <div id="linkedTargetActions" class="linked-habit-banner__actions">
@@ -2408,29 +2410,29 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
                 id="pickHabitButton"
                 type="button"
                 class="linked-habit-banner__action"
-              >关联习惯</button>
+              >${initialState.translations.habit.replace('：', '')}</button>
               <button
                 id="pickTaskButton"
                 type="button"
                 class="linked-habit-banner__action"
-              >关联任务</button>
+              >${initialState.translations.task.replace('：', '')}</button>
             </div>
             <div id="targetPicker" class="linked-habit-banner__picker" hidden>
               <div class="linked-habit-banner__picker-header">
-                <span id="targetPickerTitle">选择习惯</span>
+                <span id="targetPickerTitle">${initialState.translations.linkTarget}</span>
                 <button
                   id="targetPickerClose"
                   type="button"
                   class="linked-habit-banner__picker-close"
-                  title="关闭"
-                  aria-label="关闭"
+                  title="${initialState.translations.stop}"
+                  aria-label="${initialState.translations.stop}"
                 ></button>
               </div>
               <input
                 id="targetSearchInput"
                 class="linked-habit-banner__search"
                 type="text"
-                placeholder="搜索习惯"
+                placeholder="${initialState.translations.search}"
               />
               <div id="targetPickerState" class="linked-habit-banner__picker-state" hidden></div>
               <div id="targetPickerList" class="linked-habit-banner__picker-list"></div>
@@ -2438,18 +2440,18 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
           </div>
           <div class="setting-section">
             <div class="setting-label">
-              <span>计时模式</span>
-              <div class="timer-mode-toggle timer-mode-toggle--inline" role="radiogroup" aria-label="计时模式">
-                <button id="modeCountdown" class="timer-mode-option active" type="button">倒计时</button>
-                <button id="modeCountup" class="timer-mode-option" type="button">正计时</button>
+              <span>${initialState.translations.timerMode}</span>
+              <div class="timer-mode-toggle timer-mode-toggle--inline" role="radiogroup" aria-label="${initialState.translations.timerMode}">
+                <button id="modeCountdown" class="timer-mode-option active" type="button">${initialState.translations.countdown}</button>
+                <button id="modeCountup" class="timer-mode-option" type="button">${initialState.translations.countup}</button>
               </div>
             </div>
-            <div class="setting-hint">正计时会从 00:00 开始累计，需要手动停止后再记录专注时长。</div>
+            <div class="setting-hint" :textContent="initialState.translations.countupHint"></div>
           </div>
           <div class="setting-section">
             <div class="setting-label">
-              <span>专注时长</span>
-              <span id="focusDurationValue" class="duration-value">25 分钟</span>
+              <span>${initialState.translations.focusDuration}</span>
+              <span id="focusDurationValue" class="duration-value"></span>
             </div>
             <div class="duration-slider-container">
               <input id="focusDurationSlider" class="duration-slider" type="range" min="0" max="6" step="1" value="3" />
@@ -2458,8 +2460,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
           </div>
           <div class="setting-section">
             <div class="setting-label">
-              <span>短休时长</span>
-              <span id="breakDurationValue" class="duration-value">5 分钟</span>
+              <span>${initialState.translations.breakDuration}</span>
+              <span id="breakDurationValue" class="duration-value"></span>
             </div>
             <div class="duration-slider-container">
               <input id="breakDurationSlider" class="duration-slider" type="range" min="0" max="4" step="1" value="2" />
@@ -2468,8 +2470,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
           </div>
           <div class="setting-section">
             <div class="setting-label">
-              <span>专注组数</span>
-              <span id="setCountValue" class="duration-value">1 组</span>
+              <span>${initialState.translations.sets}</span>
+              <span id="setCountValue" class="duration-value"></span>
             </div>
             <div class="duration-slider-container">
               <input id="setCountSlider" class="duration-slider" type="range" min="1" max="8" step="1" value="1" />
@@ -2902,13 +2904,13 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       const label = linkedTargetLabel();
       const blocked = false;
       const actionTitle = blocked
-        ? '已有专注计时进行中'
-        : (state.isRunning ? '暂停' : (state.isPaused ? '继续专注' : '开始专注'));
+        ? initialState.translations.alreadyRunning
+        : (state.isRunning ? initialState.translations.pause : (state.isPaused ? initialState.translations.resume : initialState.translations.start));
 
       durationButtonEl.hidden = active;
-      durationButtonEl.textContent = '专注 ' + state.selectedDuration + 'm';
+      durationButtonEl.textContent = initialState.translations.focus + ' ' + state.selectedDuration + 'm';
       durationButtonEl.disabled = durationLocked;
-      durationButtonEl.title = durationLocked ? '专注中无法调整专注时长' : '切换下一档专注时长';
+      durationButtonEl.title = durationLocked ? initialState.translations.lockedMode : initialState.translations.toggleDuration;
       settingsToggleEl.setAttribute('aria-expanded', state.showSettings ? 'true' : 'false');
 
       if (contentEl) {
@@ -2934,8 +2936,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }
       if (linkedTargetChipEl) {
         linkedTargetChipEl.disabled = !canOpenLinkedTarget();
-        linkedTargetChipEl.title = canOpenLinkedTarget() ? '打开' + label : label;
-        linkedTargetChipEl.setAttribute('aria-label', label || '计时关联');
+        linkedTargetChipEl.title = canOpenLinkedTarget() ? initialState.translations.start + ' ' + label : label;
+        linkedTargetChipEl.setAttribute('aria-label', label || initialState.translations.linkTarget);
       }
       if (linkedTargetEmojiEl) {
         linkedTargetEmojiEl.textContent = getTargetEmoji(state.linkedTarget);
@@ -2957,14 +2959,14 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         targetPickerEl.hidden = !state.targetPickerMode;
       }
       if (targetPickerTitleEl) {
-        targetPickerTitleEl.textContent = state.targetPickerMode === 'task' ? '选择任务' : '选择习惯';
+        targetPickerTitleEl.textContent = state.targetPickerMode === 'task' ? initialState.translations.task.replace('：', '') : initialState.translations.habit.replace('：', '');
       }
       if (targetPickerCloseEl) {
         targetPickerCloseEl.disabled = linkedTargetLocked;
         targetPickerCloseEl.innerHTML = iconMarkup('close', 12, 12);
       }
       if (targetSearchInputEl) {
-        targetSearchInputEl.placeholder = state.targetPickerMode === 'task' ? '搜索任务' : '搜索习惯';
+        targetSearchInputEl.placeholder = state.targetPickerMode === 'task' ? initialState.translations.task.replace('：', '') : initialState.translations.habit.replace('：', '');
         targetSearchInputEl.disabled = linkedTargetLocked || state.isLoadingTargetOptions;
         if (targetSearchInputEl.value !== state.targetSearch) {
           targetSearchInputEl.value = state.targetSearch;
@@ -2972,16 +2974,13 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }
       if (state.targetPickerMode) {
         if (state.isLoadingTargetOptions) {
-          setTargetPickerState('加载中...', false);
+          setTargetPickerState(initialState.translations.loading, false);
           renderTargetPickerList([]);
         } else if (state.targetOptionsError) {
           setTargetPickerState(state.targetOptionsError, true);
           renderTargetPickerList([]);
         } else if (filteredTargetOptions.length === 0) {
-          setTargetPickerState(
-            '未找到可关联的' + (state.targetPickerMode === 'habit' ? '习惯' : '任务'),
-            false
-          );
+          setTargetPickerState(initialState.translations.noCandidates, false);
           renderTargetPickerList([]);
         } else {
           setTargetPickerState('', false);
@@ -2997,36 +2996,36 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       actionButtonEl.title = actionTitle;
       actionButtonEl.setAttribute('aria-label', actionTitle);
       if (blocked) {
-        actionButtonEl.title = '已有专注计时进行中';
-        actionButtonEl.setAttribute('aria-label', '已有专注计时进行中');
+        actionButtonEl.title = initialState.translations.alreadyRunning;
+        actionButtonEl.setAttribute('aria-label', initialState.translations.alreadyRunning);
       } else if (active) {
-        actionButtonEl.title = '停止';
-        actionButtonEl.setAttribute('aria-label', '停止');
+        actionButtonEl.title = initialState.translations.stop;
+        actionButtonEl.setAttribute('aria-label', initialState.translations.stop);
       } else {
-        actionButtonEl.title = '开始专注';
-        actionButtonEl.setAttribute('aria-label', '开始专注');
+        actionButtonEl.title = initialState.translations.start;
+        actionButtonEl.setAttribute('aria-label', initialState.translations.start);
       }
       if (state.isRunning) {
-        actionButtonEl.title = '證ょ●';
-        actionButtonEl.setAttribute('aria-label', '證ょ●');
+        actionButtonEl.title = initialState.translations.pause;
+        actionButtonEl.setAttribute('aria-label', initialState.translations.pause);
       } else if (state.isPaused) {
-        actionButtonEl.title = '扈ｧ扈ｭ荳捺ｳｨ';
-        actionButtonEl.setAttribute('aria-label', '扈ｧ扈ｭ荳捺ｳｨ');
+        actionButtonEl.title = initialState.translations.resume;
+        actionButtonEl.setAttribute('aria-label', initialState.translations.resume);
       }
 
       stopButtonEl.hidden = !active;
       stopButtonEl.innerHTML = iconMarkup('stop', 12, 12);
       const normalizedActionTitle = blocked
-        ? '\u5df2\u6709\u4e13\u6ce8\u8ba1\u65f6\u8fdb\u884c\u4e2d'
+        ? initialState.translations.alreadyRunning
         : (state.isRunning
-          ? '\u6682\u505c'
-          : (state.isPaused ? '\u7ee7\u7eed\u4e13\u6ce8' : '\u5f00\u59cb\u4e13\u6ce8'));
+          ? initialState.translations.pause
+          : (state.isPaused ? initialState.translations.resume : initialState.translations.start));
       actionButtonEl.title = normalizedActionTitle;
       actionButtonEl.setAttribute('aria-label', normalizedActionTitle);
       stopButtonEl.hidden = !active;
       stopButtonEl.style.display = active ? '' : 'none';
-      stopButtonEl.title = '\u505c\u6b62';
-      stopButtonEl.setAttribute('aria-label', '\u505c\u6b62');
+      stopButtonEl.title = initialState.translations.stop;
+      stopButtonEl.setAttribute('aria-label', initialState.translations.stop);
 
       modeCountdownEl.classList.toggle('active', state.timerMode === 'countdown');
       modeCountupEl.classList.toggle('active', state.timerMode === 'countup');

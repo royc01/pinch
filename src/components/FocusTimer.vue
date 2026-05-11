@@ -3,7 +3,7 @@
     <div class="timer-header">
       <div class="stats-header-content">
         <div class="stats-title">
-          <div class="timer-mode-toggle timer-mode-toggle--header" role="radiogroup" aria-label="计时模式">
+          <div class="timer-mode-toggle timer-mode-toggle--header" role="radiogroup" :aria-label="t('timerMode')">
             <button
               type="button"
               class="timer-mode-option"
@@ -11,7 +11,7 @@
               :disabled="isRunning || isPaused"
               @click="setTimerMode('countdown')"
             >
-              倒计时
+              {{ t('countdown') }}
             </button>
             <button
               type="button"
@@ -20,19 +20,19 @@
               :disabled="isRunning || isPaused"
               @click="setTimerMode('countup')"
             >
-              正计时
+              {{ t('countup') }}
             </button>
           </div>
         </div>
         <div class="stats-header-actions">
           <div class="mini-focus-toggle">
-            <span class="mini-focus-label">开启迷你茄</span>
+            <span class="mini-focus-label">{{ t('miniFocusLabel') }}</span>
             <SyCheckbox
               :model-value="miniEnabled"
               @update:model-value="emit('update:miniEnabled', $event)"
             />
           </div>
-          <button @click="handleClose" class="icon-button" title="关闭专注计时" aria-label="关闭专注计时">
+          <button @click="handleClose" class="icon-button" :title="t('closeFocusTimer')" :aria-label="t('closeFocusTimer')">
             <Icon name="close" width="16" height="16" class="icon" />
           </button>
         </div>
@@ -43,14 +43,14 @@
         <div class="linked-habit-banner">
           <div class="linked-habit-banner__row">
             <div class="linked-habit-banner__header">
-              <span class="linked-habit-banner__label">计时关联</span>
+              <span class="linked-habit-banner__label">{{ t('timerConnection') }}</span>
             </div>
             <div v-if="linkedTarget" class="linked-habit-banner__chip-row">
               <button
                 type="button"
                 class="linked-habit-banner__chip"
                 :disabled="!canOpenLinkedTarget"
-                :title="canOpenLinkedTarget ? `打开${linkedTargetDisplayLabel}` : linkedTargetDisplayLabel"
+                :title="canOpenLinkedTarget ? t('openTarget', { name: linkedTargetDisplayLabel }) : linkedTargetDisplayLabel"
                 :aria-label="linkedTargetDisplayLabel"
                 @click="openLinkedTarget"
               >
@@ -62,8 +62,8 @@
                 type="button"
                 class="linked-habit-banner__clear"
                 :disabled="isLinkedTargetLocked"
-                title="清除关联"
-                aria-label="清除关联"
+                :title="t('clearConnection')"
+                :aria-label="t('clearConnection')"
                 @click="clearLinkedTarget"
               >
                 <Icon name="close" width="12" height="12" class="icon" />
@@ -77,7 +77,7 @@
                   :disabled="isLinkedTargetLocked"
                   @click="openTargetPicker('habit')"
                 >
-                  选择习惯
+                  {{ t('selectHabit') }}
                 </button>
                 <button
                   type="button"
@@ -85,19 +85,19 @@
                   :disabled="isLinkedTargetLocked"
                   @click="openTargetPicker('task')"
                 >
-                  选择任务
+                  {{ t('selectTask') }}
                 </button>
               </div>
             </div>
           </div>
           <div v-if="targetPickerMode" class="linked-habit-banner__picker">
             <div class="linked-habit-banner__picker-header">
-              <span>{{ targetPickerMode === 'habit' ? '选择习惯' : '选择任务' }}</span>
+              <span>{{ targetPickerMode === 'habit' ? t('selectHabit') : t('selectTask') }}</span>
               <button
                 type="button"
                 class="linked-habit-banner__picker-close"
-                title="关闭"
-                aria-label="关闭"
+                :title="t('close')"
+                :aria-label="t('close')"
                 @click="closeTargetPicker"
               >
                 <Icon name="close" width="12" height="12" class="icon" />
@@ -107,16 +107,16 @@
               v-model.trim="targetSearch"
               class="linked-habit-banner__search"
               type="text"
-              :placeholder="targetPickerMode === 'habit' ? '搜索习惯' : '搜索任务'"
+              :placeholder="targetPickerMode === 'habit' ? t('searchHabit') : t('searchTask')"
             />
             <div v-if="isLoadingTargetOptions" class="linked-habit-banner__picker-state">
-              加载中...
+              {{ t('loading') }}
             </div>
             <div v-else-if="targetOptionsError" class="linked-habit-banner__picker-state is-error">
               {{ targetOptionsError }}
             </div>
             <div v-else-if="filteredTargetOptions.length === 0" class="linked-habit-banner__picker-state">
-              未找到可关联的{{ targetPickerMode === 'habit' ? '习惯' : '任务' }}
+              {{ t('noLinkableTarget', { type: targetPickerMode === 'habit' ? t('habit') : t('task') }) }}
             </div>
             <div v-else class="linked-habit-banner__picker-list">
               <button
@@ -160,26 +160,26 @@
           @click="isPaused ? resumeTimer() : startTimer()"
           class="control-btn start-btn"
           :disabled="isStartBlockedByOther && !isPaused"
-          :title="isStartBlockedByOther && !isPaused ? '悬浮专注进行中' : undefined"
+          :title="isStartBlockedByOther && !isPaused ? t('focusInProgressFloatingHint') : undefined"
         >
           <Icon name="play" width="20" height="20" />
-          <span>{{ isPaused ? '继续专注' : '开始专注' }}</span>
+          <span>{{ isPaused ? t('continueFocus') : t('startFocus') }}</span>
         </button>
         <button v-else @click="pauseTimer" class="control-btn pause-btn">
           <Icon name="pause" width="20" height="20" />
-          <span>暂停</span>
+          <span>{{ t('pause') }}</span>
         </button>
         <button v-if="isRunning || isPaused" @click="stopTimer(true)" class="control-btn stop-btn">
           <Icon name="stop" width="20" height="20" />
-          <span>停止</span>
+          <span>{{ t('stop') }}</span>
         </button>
       </div>
 
       <div class="timer-settings">
         <div class="setting-section">
           <div class="setting-label">
-            <span>专注时长</span>
-            <span class="duration-value">{{ selectedDuration }}分钟</span>
+            <span>{{ t('focusDuration') }}</span>
+            <span class="duration-value">{{ t('minutes', { count: selectedDuration }) }}</span>
           </div>
           <div class="duration-slider-container">
             <input type="range" v-model="durationIndex" @input="updateDurationByIndex"
@@ -198,8 +198,8 @@
 
         <div class="setting-section">
           <div class="setting-label">
-            <span>短休时长</span>
-            <span class="duration-value">{{ shortBreakDuration }}分钟</span>
+            <span>{{ t('shortBreakDuration') }}</span>
+            <span class="duration-value">{{ t('minutes', { count: shortBreakDuration }) }}</span>
           </div>
           <div class="duration-slider-container">
             <input type="range" v-model="shortBreakDurationIndex" @input="updateShortBreakDuration"
@@ -218,8 +218,8 @@
 
         <div class="setting-section">
           <div class="setting-label">
-            <span>专注组数</span>
-            <span class="duration-value">{{ pomodoroSets }}组</span>
+            <span>{{ t('pomodoroSets') }}</span>
+            <span class="duration-value">{{ t('sets', { count: pomodoroSets }) }}</span>
           </div>
           <div class="duration-slider-container">
             <input type="range" v-model="pomodoroSets" @input="updatePomodoroSets"
@@ -238,7 +238,7 @@
 
         <div class="setting-section">
           <div class="setting-label">
-            <span>白噪音</span>
+            <span>{{ t('whiteNoise') }}</span>
             <div class="switch-container">
               <label class="switch">
                 <input type="checkbox" :checked="enableAudio" @change="handleAudioToggle" />
@@ -250,9 +250,10 @@
             <button v-for="sound in soundOptions" :key="sound.id"
                     @click="selectSound(sound)"
                     :disabled="isDownloading || !enableAudio"
-                    :class="['sound-btn', { active: selectedSound.id === sound.id }]"
-                    :title="`选择提示音：${sound.name}`"
-                    :aria-label="`选择提示音：${sound.name}`">
+                    class="sound-option-btn"
+                    :class="{ active: selectedSound?.id === sound.id }"
+                    :title="t('selectSound', { name: sound.name })"
+                    :aria-label="t('selectSound', { name: sound.name })">
               <Icon :name="sound.icon" width="80%" height="80%" />
             </button>
           </div>
@@ -274,26 +275,26 @@
       <div class="timer-stats" v-if="stats.totalSessions > 0">
         <div class="stat-item">
           <div class="stat-value">{{ stats.totalSessions }}</div>
-          <div class="stat-label">总专注次数</div>
+          <div class="stat-label">{{ t('totalFocusCount') }}</div>
         </div>
         <div class="stat-item">
           <div class="stat-value" v-html="formatTotalTime(stats.totalMinutes)"></div>
-          <div class="stat-label">总专注时长</div>
+          <div class="stat-label">{{ t('totalFocusDuration') }}</div>
         </div>
         <div class="stat-item">
           <div class="stat-value">{{ stats.todaySessions }}</div>
-          <div class="stat-label">今日专注</div>
+          <div class="stat-label">{{ t('todayFocus') }}</div>
         </div>
       </div>
 
       <div class="timer-history">
         <div class="calendar-controls">
           <div class="calendar-navigation">
-            <button @click="changeMonth(-1)" class="nav-btn" title="上一月" aria-label="上一月">
+            <button @click="changeMonth(-1)" class="nav-btn" :title="t('previousMonth')" :aria-label="t('previousMonth')">
               <Icon name="left" width="16" height="16" class="icon" />
             </button>
             <span class="current-period">{{ currentMonth.monthName }}</span>
-            <button @click="changeMonth(1)" class="nav-btn" title="下一月" aria-label="下一月">
+            <button @click="changeMonth(1)" class="nav-btn" :title="t('nextMonth')" :aria-label="t('nextMonth')">
               <Icon name="right" width="16" height="16" class="icon" />
             </button>
           </div>
@@ -301,7 +302,7 @@
         <div class="calendar-view">
           <div class="month-view">
             <div class="weekdays-header">
-              <div v-for="day in ['一', '二', '三', '四', '五', '六', '日']" :key="day" class="weekday">{{ day }}</div>
+              <div v-for="day in [t('mon'), t('tue'), t('wed'), t('thu'), t('fri'), t('sat'), t('sun')]" :key="day" class="weekday">{{ day }}</div>
             </div>
             <div class="month-grid">
               <div v-for="(day, index) in calendarDays" :key="index" 
@@ -324,6 +325,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '@/utils/i18n';
 import { ref, computed, onMounted, onUnmounted, toRefs, watch } from 'vue';
 import Icon from './Icon.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
@@ -378,12 +380,12 @@ const pomodoroSetMarks = [1, 2, 3, 4, 5, 6, 7, 8];
 const FOCUS_SESSION_EVENT = 'pinch-focus-session';
 
 const soundOptions: Sound[] = [
-  { id: 'none', name: '无音效', emoji: '🔇', icon: 'soundOff' },
-  { id: 'rain', name: '雨声', emoji: '🌧️', icon: 'rain' },
-  { id: 'jungle', name: '森林', emoji: '🌲', icon: 'jungle' },
-  { id: 'waves', name: '海浪', emoji: '🌊', icon: 'waves' },
-  { id: 'campfire', name: '篝火', emoji: '�', icon: 'campfire' },
-  { id: 'river', name: '河流', emoji: '🏞️', icon: 'river' }
+  { id: 'none', name: t('noAudioEffect'), emoji: '🔇', icon: 'soundOff' },
+  { id: 'rain', name: t('rainSound'), emoji: '🌧️', icon: 'rain' },
+  { id: 'jungle', name: t('jungleSound'), emoji: '🌲', icon: 'jungle' },
+  { id: 'waves', name: t('wavesSound'), emoji: '🌊', icon: 'waves' },
+  { id: 'campfire', name: t('campfireSound'), emoji: '🔥', icon: 'campfire' },
+  { id: 'river', name: t('riverSound'), emoji: '🏞️', icon: 'river' }
 ];
 
 const audioFiles: Record<string, string> = {
@@ -452,9 +454,11 @@ const currentMonth = computed(() => {
   return {
     year: now.getFullYear(),
     month: now.getMonth(),
-    monthName: `${now.getFullYear()}年${now.getMonth() + 1}月`
+    monthName: t('yearMonthLabel', { year: now.getFullYear(), month: now.getMonth() + 1 })
   };
 });
+
+const isPomodoroMode = computed(() => pomodoroSets.value > 1);
 
 const daysInMonth = computed(() => {
   const { year, month } = currentMonth.value;
@@ -503,7 +507,7 @@ const circumference = computed(() => 2 * Math.PI * radius);
 const phaseDurationSeconds = computed(() =>
   (isBreakMode.value ? shortBreakDuration.value : selectedDuration.value) * 60
 );
-const timerModeLabel = computed(() => (timerMode.value === 'countdown' ? '倒计时' : '正计时'));
+const timerModeLabel = computed(() => (timerMode.value === 'countdown' ? t('countdown') : t('countup')));
 const isPomodoroSettingsLocked = computed(() =>
   isRunning.value || isPaused.value || timerMode.value === 'countup'
 );
@@ -521,7 +525,7 @@ const linkedTargetDisplayLabel = computed(() => {
   if (!linkedTarget.value) {
     return '';
   }
-  return `${linkedTarget.value.type === 'task' ? '任务' : '习惯'}：${linkedTarget.value.name}`;
+  return `${linkedTarget.value.type === 'task' ? t('task') : t('habit')}：${linkedTarget.value.name}`;
 });
 const filteredTargetOptions = computed(() => {
   const source = targetPickerMode.value === 'habit'
@@ -558,24 +562,24 @@ const formattedTime = computed(() => {
 const currentModeLabel = computed(() => {
   if (timerMode.value === 'countup' && !isBreakMode.value) {
     if (isPaused.value) {
-      return '正计时已暂停';
+      return t('countupPaused');
     }
     if (isRunning.value) {
-      return '正计时专注中 · 手动停止';
+      return t('countupInProgress');
     }
-    return '准备开始';
+    return t('readyToStart');
   }
 
   if (isPaused.value) {
-    return isBreakMode.value ? `${timerModeLabel.value}短休已暂停` : `${timerModeLabel.value}已暂停`;
+    return isBreakMode.value ? t('shortBreakPaused') : t('countdownPaused');
   }
   if (isRunning.value) {
     if (isBreakMode.value) {
-      return `${timerModeLabel.value}短休中...`;
+      return t('shortBreakInProgress');
     }
-    return `${timerModeLabel.value}专注 (${currentSet.value}/${pomodoroSets.value})`;
+    return t('countdownInProgress', { current: currentSet.value, total: pomodoroSets.value });
   }
-  return '准备开始';
+  return t('readyToStart');
 });
 
 const clearTimer = () => {
@@ -642,7 +646,7 @@ const openTargetPicker = async (mode: 'habit' | 'task') => {
       await loadTaskTargetOptions();
     }
   } catch (error) {
-    targetOptionsError.value = `加载${mode === 'habit' ? '习惯' : '任务'}失败，请稍后重试`;
+    targetOptionsError.value = t('loadTargetFailed', { type: mode === 'habit' ? t('habit') : t('task') });
   } finally {
     isLoadingTargetOptions.value = false;
   }
@@ -787,7 +791,7 @@ const downloadAudioFiles = async () => {
       downloadProgress.value = Math.round((downloadedCount / total) * 100);
     }
   } catch (err) {
-    console.error('下载出错:', err);
+    console.error(t('downloadError'), err);
   } finally {
     isDownloading.value = false;
   }
@@ -997,7 +1001,9 @@ const completeTimer = async () => {
     stats.value.todaySessions++;
     stats.value.todayMinutes += selectedDuration.value;
 
-    showNotification('专注完成！', `${selectedDuration.value}分钟专注已完成`, '🎉');
+    if (selectedDuration.value > 0) {
+      showNotification(t('focusComplete'), t('focusCompleteDesc', { minutes: selectedDuration.value }), '🎉');
+    }
     playCompleteSound();
 
     await loadMonthlyRecords();
@@ -1011,8 +1017,10 @@ const completeTimer = async () => {
       return;
     }
   } else {
+    if (isPomodoroMode.value) {
+      showNotification(t('breakEnded'), t('startSetFocus', { count: currentSet.value }), '☕');
+    }
     playCompleteSound();
-    showNotification('短休结束！', `开始第 ${currentSet.value} 组专注`, '☕');
 
     clearTimer();
     isBreakMode.value = false;
@@ -1068,8 +1076,8 @@ const changeMonth = (offset: number) => {
 };
 
 const handleClose = async () => {
-  if (isRunning.value || isPaused.value) {
-    if (confirm('专注进行中，确定要退出吗？')) {
+  if (isRunning.value) {
+    if (confirm(t('exitFocusConfirm'))) {
       await stopTimer(true);
       emit('close');
     }

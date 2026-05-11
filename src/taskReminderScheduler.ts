@@ -9,6 +9,7 @@ import {
   getTaskReminderLongLabel,
   normalizeTaskReminderType
 } from '@/utils/taskReminder';
+import { t } from '@/utils/i18n';
 
 type FiredReminderMap = Record<string, number>;
 type MobileNotificationId = number | string;
@@ -338,7 +339,7 @@ function buildScheduledReminder(task: Task): ScheduledReminder | null {
     return null;
   }
 
-  const title = stripHtml(task.title || '').trim() || '未命名任务';
+  const title = stripHtml(task.title || '').trim() || t('unnamedTask');
 
   return {
     identity,
@@ -360,7 +361,7 @@ function buildReminderBody(reminder: ScheduledReminder): string {
     : '';
 
   if (reminderLabel && dueText) {
-    return `${reminder.title} (${reminderLabel}，截止 ${dueText})`;
+    return `${reminder.title} (${reminderLabel}，${t('dueUntil')} ${dueText})`;
   }
   if (reminderLabel) {
     return `${reminder.title} (${reminderLabel})`;
@@ -399,7 +400,7 @@ async function scheduleMobileSystemNotification(reminder: ScheduledReminder): Pr
   try {
     const notificationId = await platformUtils.sendNotification({
       channel: MOBILE_NOTIFICATION_CHANNEL_NAME,
-      title: '任务提醒',
+      title: t('taskReminder'),
       body: buildReminderBody(reminder),
       delayInSeconds,
       timeoutType: 'default'
@@ -572,7 +573,7 @@ async function showTaskSystemNotification(reminder: ScheduledReminder): Promise<
   }
 
   const tag = reminder.occurrenceKey;
-  const title = '任务提醒';
+  const title = t('taskReminder');
   const body = buildReminderBody(reminder);
 
   closeTrackedNotification(tag);

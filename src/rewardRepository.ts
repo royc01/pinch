@@ -1,6 +1,7 @@
 import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
 import type { Habit, HabitDifficulty, Task } from '@/api';
+import { t } from '@/utils/i18n';
 
 export type RewardSource = 'habit' | 'task' | 'focus' | 'system';
 
@@ -195,8 +196,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'habit',
     tier: 1,
     id: 'habit-starter',
-    title: '习惯起步',
-    description: '首次完成一个习惯目标',
+    title: t('badgeHabitStarterTitle'),
+    description: t('badgeHabitStarterDesc'),
     icon: '🥇',
     when: progress => progress.habitCompletionCount >= 1
   },
@@ -204,8 +205,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'habit',
     tier: 2,
     id: 'habit-builder',
-    title: '习惯渐稳',
-    description: '累计完成 20 次习惯目标',
+    title: t('badgeHabitBuilderTitle'),
+    description: t('badgeHabitBuilderDesc'),
     icon: '🏅',
     when: progress => progress.habitCompletionCount >= 20
   },
@@ -213,8 +214,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'habit',
     tier: 3,
     id: 'habit-master',
-    title: '习惯成形',
-    description: '累计完成 100 次习惯目标',
+    title: t('badgeHabitMasterTitle'),
+    description: t('badgeHabitMasterDesc'),
     icon: '🏆',
     when: progress => progress.habitCompletionCount >= 100
   },
@@ -222,8 +223,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'streak',
     tier: 1,
     id: 'streak-keeper',
-    title: '连续守住',
-    description: '任一习惯达成 7 天连续',
+    title: t('badgeStreakKeeperTitle'),
+    description: t('badgeStreakKeeperDesc'),
     icon: '💪',
     when: progress => progress.maxHabitStreak >= 7
   },
@@ -231,8 +232,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'streak',
     tier: 2,
     id: 'streak-anchor',
-    title: '节奏稳定',
-    description: '任一习惯达成 30 天连续',
+    title: t('badgeStreakAnchorTitle'),
+    description: t('badgeStreakAnchorDesc'),
     icon: '🦾',
     when: progress => progress.maxHabitStreak >= 30
   },
@@ -240,8 +241,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'streak',
     tier: 3,
     id: 'streak-legend',
-    title: '长期主义',
-    description: '任一习惯达成 100 天连续',
+    title: t('badgeStreakLegendTitle'),
+    description: t('badgeStreakLegendDesc'),
     icon: '🧘',
     when: progress => progress.maxHabitStreak >= 100
   },
@@ -249,8 +250,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'task',
     tier: 1,
     id: 'task-closer',
-    title: '任务收割机',
-    description: '累计完成 10 个任务',
+    title: t('badgeTaskCloserTitle'),
+    description: t('badgeTaskCloserDesc'),
     icon: '✅',
     when: progress => progress.taskCompletionCount >= 10
   },
@@ -258,8 +259,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'task',
     tier: 2,
     id: 'task-driver',
-    title: '执行加速',
-    description: '累计完成 50 个任务',
+    title: t('badgeTaskDriverTitle'),
+    description: t('badgeTaskDriverDesc'),
     icon: '❇️',
     when: progress => progress.taskCompletionCount >= 50
   },
@@ -267,8 +268,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'task',
     tier: 3,
     id: 'task-master',
-    title: '清单掌控者',
-    description: '累计完成 100 个任务',
+    title: t('badgeTaskMasterTitle'),
+    description: t('badgeTaskMasterDesc'),
     icon: '✳️',
     when: progress => progress.taskCompletionCount >= 100
   },
@@ -276,8 +277,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'focus',
     tier: 1,
     id: 'focus-rookie',
-    title: '专注入门',
-    description: '累计完成 5 次专注',
+    title: t('badgeFocusRookieTitle'),
+    description: t('badgeFocusRookieDesc'),
     icon: '❤️',
     when: progress => progress.focusSessionCount >= 5
   },
@@ -285,8 +286,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'focus',
     tier: 2,
     id: 'focus-regular',
-    title: '专注渐深',
-    description: '累计完成 20 次专注',
+    title: t('badgeFocusRegularTitle'),
+    description: t('badgeFocusRegularDesc'),
     icon: '💕',
     when: progress => progress.focusSessionCount >= 20
   },
@@ -294,8 +295,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'focus',
     tier: 3,
     id: 'focus-master',
-    title: '心流常驻',
-    description: '累计完成 50 次专注',
+    title: t('badgeFocusMasterTitle'),
+    description: t('badgeFocusMasterDesc'),
     icon: '💖',
     when: progress => progress.focusSessionCount >= 50
   },
@@ -303,8 +304,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'level',
     tier: 1,
     id: 'level-five',
-    title: '自控新手',
-    description: '奖励等级达到 5 级',
+    title: t('badgeLevelFiveTitle'),
+    description: t('badgeLevelFiveDesc'),
     icon: '🌱',
     when: progress => progress.level >= 5
   },
@@ -312,8 +313,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'level',
     tier: 2,
     id: 'level-ten',
-    title: '自控进阶',
-    description: '奖励等级达到 10 级',
+    title: t('badgeLevelTenTitle'),
+    description: t('badgeLevelTenDesc'),
     icon: '☘️',
     when: progress => progress.level >= 10
   },
@@ -321,8 +322,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'level',
     tier: 3,
     id: 'level-fifteen',
-    title: '自控达人',
-    description: '奖励等级达到 15 级',
+    title: t('badgeLevelFifteenTitle'),
+    description: t('badgeLevelFifteenDesc'),
     icon: '🍀',
     when: progress => progress.level >= 15
   }
@@ -342,8 +343,8 @@ function createDefaultShopItems(nowIso: string): RewardShopItem[] {
   return [
     {
       id: 'shop-break-30',
-      title: '看一部电影',
-      description: '给自己一段不带负担的休息时间',
+      title: t('shopItemMovieTitle'),
+      description: t('shopItemMovieDesc'),
       cost: 12,
       icon: '🎬',
       createdAt: nowIso,
@@ -351,8 +352,8 @@ function createDefaultShopItems(nowIso: string): RewardShopItem[] {
     },
     {
       id: 'shop-drink',
-      title: '买杯喜欢的饮料',
-      description: '咖啡、果汁或奶茶都可以',
+      title: t('shopItemDrinkTitle'),
+      description: t('shopItemDrinkDesc'),
       cost: 20,
       icon: '🧋',
       createdAt: nowIso,
@@ -360,8 +361,8 @@ function createDefaultShopItems(nowIso: string): RewardShopItem[] {
     },
     {
       id: 'shop-snack',
-      title: '加一份小零食',
-      description: '用趣币换一个轻松时刻',
+      title: t('shopItemSnackTitle'),
+      description: t('shopItemSnackDesc'),
       cost: 28,
       icon: '🍿',
       createdAt: nowIso,

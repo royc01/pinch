@@ -4,32 +4,33 @@
       <div class="checkin-note-header">
         <div class="checkin-note-title">
           <span v-if="habitEmoji" class="habit-emoji-display">{{ habitEmoji }}</span>
-          <span>{{ habitName }} - {{ isEdit ? '修改备注' : '打卡备注' }}</span>
+          <span>{{ habitName }} - {{ isEdit ? t('modifyNote') : t('checkinNote') }}</span>
         </div>
-        <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="handleCancel">
+        <button type="button" class="icon-button" :title="t('close')" :aria-label="t('close')" @click="handleCancel">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
       <div class="checkin-note-body">
-        <div class="checkin-note-label">备注将写入关联文档</div>
+        <div class="checkin-note-label">{{ t('notesWillBeWritten') }}</div>
         <textarea
           v-model="noteInput"
           class="checkin-note-textarea"
-          placeholder="记录一下这次打卡的心得..."
+          :placeholder="t('checkinNotePlaceholder')"
           rows="3"
           @keydown.enter.ctrl="handleConfirm"
         />
-        <div class="checkin-note-hint">按 Ctrl+Enter 快速保存</div>
+        <div class="checkin-note-hint">{{ t('pressCtrlEnterToSave') }}</div>
       </div>
       <div class="checkin-note-actions">
-        <SyButton class="checkin-note-btn plain" @click="handleCancel">取消</SyButton>
-        <SyButton class="checkin-note-btn confirm" @click="handleConfirm">{{ isEdit ? '保存修改' : '保存并打卡' }}</SyButton>
+        <SyButton class="checkin-note-btn plain" @click="handleCancel">{{ t('cancel') }}</SyButton>
+        <SyButton class="checkin-note-btn confirm" @click="handleConfirm">{{ isEdit ? t('saveChanges') : t('saveAndCheckin') }}</SyButton>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t } from '@/utils/i18n';
 import { ref, watch } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import Icon from '@/components/Icon.vue';

@@ -23,7 +23,7 @@
     <div class="context-menu-section">
       <div class="context-menu-date-grid">
         <div class="date-edit-field">
-          <label>开始日期</label>
+          <label>{{ t('startDate') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="startDate"
@@ -35,8 +35,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeDatePopoverField === 'startDate' }"
-              title="选择开始日期"
-              aria-label="选择开始日期"
+              :title="t('selectStartDate')"
+              :aria-label="t('selectStartDate')"
               @click="toggleDatePopover('startDate')"
             >
               <Icon name="calendar" width="14" height="14" />
@@ -44,7 +44,7 @@
           </div>
         </div>
         <div class="date-edit-field">
-          <label>截止日期</label>
+          <label>{{ t('dueDate') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="dueDate"
@@ -56,8 +56,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeDatePopoverField === 'dueDate' }"
-              title="选择截止日期"
-              aria-label="选择截止日期"
+              :title="t('selectDueDate')"
+              :aria-label="t('selectDueDate')"
               @click="toggleDatePopover('dueDate')"
             >
               <Icon name="calendar" width="14" height="14" />
@@ -65,7 +65,7 @@
           </div>
         </div>
         <div class="date-edit-field">
-          <label>开始时间</label>
+          <label>{{ t('startTime') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="startTime"
@@ -77,8 +77,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeTimePopoverField === 'startTime' }"
-              title="选择开始时间"
-              aria-label="选择开始时间"
+              :title="t('selectStartTime')"
+              :aria-label="t('selectStartTime')"
               @click="toggleTimePopover('startTime')"
             >
               <Icon name="clock" width="14" height="14" />
@@ -86,7 +86,7 @@
           </div>
         </div>
         <div class="date-edit-field">
-          <label>截止时间</label>
+          <label>{{ t('dueTime') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="dueTime"
@@ -98,8 +98,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeTimePopoverField === 'dueTime' }"
-              title="选择截止时间"
-              aria-label="选择截止时间"
+              :title="t('selectDueTime')"
+              :aria-label="t('selectDueTime')"
               @click="toggleTimePopover('dueTime')"
             >
               <Icon name="clock" width="14" height="14" />
@@ -107,19 +107,19 @@
           </div>
         </div>
       </div>
-      <button class="context-menu-date-save" @click="$emit('saveDates')">保存日期</button>
-      <button class="context-menu-date-clear" @click="$emit('clearTaskDates')">清除任务</button>
+      <button class="context-menu-date-save" @click="$emit('saveDates')">{{ t('saveDates') }}</button>
+      <button class="context-menu-date-clear" @click="$emit('clearTaskDates')">{{ t('clearTask') }}</button>
     </div>
 
     <div class="context-menu-section">
       <div class="repeat-edit-row">
-        <label>频率</label>
+        <label>{{ t('frequency') }}</label>
         <select :value="repeatFrequency" @change="onRepeatChange">
-          <option value="none">不重复</option>
-          <option value="daily">每一天</option>
-          <option value="weekdays">工作日（周一到周五）</option>
-          <option value="weekend">周末</option>
-          <option value="weekly">每周一天（按第一天任务的星期几）</option>
+          <option value="none">{{ t('none') }}</option>
+          <option value="daily">{{ t('everyday') }}</option>
+          <option value="weekdays">{{ t('workdays') }}</option>
+          <option value="weekend">{{ t('weekend') }}</option>
+          <option value="weekly">{{ t('weeklyBasedOnFirstDay') }}</option>
         </select>
       </div>
     </div>
@@ -127,11 +127,11 @@
     <div class="context-menu-divider"></div>
     <div class="context-menu-item" @click="$emit('startFocus')">
       <Icon name="timer" width="16" height="16" />
-      <span>开始专注</span>
+      <span>{{ t('startFocus') }}</span>
     </div>
     <div class="context-menu-item edit-item" @click="$emit('editTask')">
       <Icon name="edit" width="16" height="16" />
-      <span>编辑任务</span>
+      <span>{{ t('editTask') }}</span>
     </div>
 
     <TaskDatePopover
@@ -175,6 +175,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { t } from '@/utils/i18n';
 import type { Task } from '@/api';
 import type { RepeatFrequency } from '@/repeatRepository';
 import Icon from '@/components/Icon.vue';

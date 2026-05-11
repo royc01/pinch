@@ -1,4 +1,4 @@
-﻿﻿<template>
+<template>
     <div ref="kanbanViewRef" class="kanban-view">
       <div class="kanban-header">
         <div class="kanban-header-view-module">
@@ -12,8 +12,8 @@
                   type="button"
                   class="mobile-view-switcher-btn"
                   :class="{ active: mobileViewSwitcherVisible }"
-                  :title="`切换视图（当前：${currentViewOption.text}）`"
-                  :aria-label="`切换视图（当前：${currentViewOption.text}）`"
+                  :title="t('switchViewWithCurrent', { view: currentViewOption.text })"
+                  :aria-label="t('switchViewWithCurrent', { view: currentViewOption.text })"
                   @click.stop="toggleMobileViewSwitcher"
                 >
                   <Icon v-if="currentView === 'stats'" name="statsBar" width="16" height="16" />
@@ -44,39 +44,39 @@
             <template v-else>
               <button :class="['view-btn', { active: currentView === 'kanban' }]" @click="currentView = 'kanban'">
                 <Icon name="kanban" width="15" height="15" />
-                <span>看板</span>
+                <span>{{ t('kanban') }}</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'list' }]" @click="currentView = 'list'">
                 <Icon name="card" width="15" height="15" />
-                <span>卡片</span>
+                <span>{{ t('card') }}</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'table' }]" @click="currentView = 'table'">
                 <Icon name="table" width="15" height="15" />
-                <span>表格</span>
+                <span>{{ t('table') }}</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'month' }]" @click="currentView = 'month'">
                 <Icon name="month" width="15" height="15" />
-                <span>月视图</span>
+                <span>{{ t('monthView') }}</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'week' }]" @click="currentView = 'week'">
                 <Icon name="week" width="15" height="15" />
-                <span>周视图</span>
+                <span>{{ t('weekView') }}</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'three-day' }]" @click="currentView = 'three-day'">
                 <Icon name="threeDay" width="15" height="15" />
-                <span>三日图</span>
+                <span>{{ t('threeDayView') }}</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'day' }]" @click="currentView = 'day'">
                 <Icon name="day" width="15" height="15" />
-                <span>日视图</span>
+                <span>{{ t('dayView') }}</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'archive-table' }]" @click="currentView = 'archive-table'">
                 <Icon name="archive" width="15" height="15" />
-                <span>归档</span>
+                <span>{{ t('archive') }}</span>
               </button>
               <button :class="['view-btn', { active: currentView === 'stats' }]" @click="currentView = 'stats'">
                 <Icon name="statsBar" width="15" height="15" />
-                <span>统计</span>
+                <span>{{ t('stats') }}</span>
               </button>
             </template>
           </div>
@@ -85,7 +85,7 @@
         <div class="kanban-header-tools-module">
           <div v-if="currentView === 'kanban' || currentView === 'list'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('source') }}:</label>
               <SySelect
                 :model-value="kanbanFilterType"
                 @update:model-value="kanbanFilterType = $event"
@@ -96,7 +96,7 @@
 
           <div v-if="currentView === 'table' || currentView === 'archive-table' || currentView === 'stats'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('source') }}:</label>
               <SySelect
                 :model-value="tableFilterType"
                 @update:model-value="tableFilterType = $event"
@@ -107,7 +107,7 @@
 
           <div v-if="currentView === 'month'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('source') }}:</label>
               <SySelect
                 :model-value="monthFilterType"
                 @update:model-value="monthFilterType = $event"
@@ -118,7 +118,7 @@
 
           <div v-if="currentView === 'week'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('source') }}:</label>
               <SySelect
                 :model-value="weekFilterType"
                 @update:model-value="weekFilterType = $event"
@@ -129,7 +129,7 @@
 
           <div v-if="currentView === 'day' || currentView === 'three-day'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('source') }}:</label>
               <SySelect
                 :model-value="dayFilterType"
                 @update:model-value="dayFilterType = $event"
@@ -142,13 +142,13 @@
             <button
               type="button"
               class="scope-btn"
-              title="任务范围"
-              aria-label="任务范围"
+              :title="t('taskScope')"
+              :aria-label="t('taskScope')"
               @click="void openTaskScopeDialog()"
             >
               <Icon name="taskScope" width="24" height="24" />
             </button>
-            <button @click="refreshTasks" class="refresh-btn" title="刷新任务" aria-label="刷新任务">
+            <button @click="refreshTasks" class="refresh-btn" :title="t('refreshTask')" :aria-label="t('refreshTask')">
               <Icon name="refresh" width="24" height="24" />
             </button>
             <button
@@ -156,8 +156,8 @@
               type="button"
               class="mobile-calendar-task-drawer-btn"
               :class="{ active: mobileCalendarTaskDrawerVisible }"
-              title="打开任务库"
-              aria-label="打开任务库"
+              :title="t('openTaskLibrary')"
+              :aria-label="t('openTaskLibrary')"
               @click="toggleMobileCalendarTaskDrawer"
             >
               <Icon name="taskDrawer" width="21" height="21" />
@@ -166,8 +166,8 @@
               v-if="currentView === 'kanban' || currentView === 'list' || currentView === 'table'"
               type="button"
               class="new-task-btn"
-              title="新建任务"
-              aria-label="新建任务"
+              :title="t('taskManager.newTask')"
+              :aria-label="t('taskManager.newTask')"
               @click="openHeaderTaskModal"
             >
               <Icon name="add" width="24" height="24" />
@@ -207,8 +207,8 @@
           type="button"
           class="document-tabs-dropdown-btn"
           :class="{ active: documentTabsDropdownVisible }"
-          title="文档标签列表"
-          aria-label="文档标签列表"
+          :title="t('documentTagList')"
+          :aria-label="t('documentTagList')"
           @click.stop="toggleDocumentTabsDropdown"
         >
           <Icon name="chevronDown" width="16" height="16" />
@@ -231,15 +231,15 @@
             <button
               type="button"
               class="document-tabs-visibility-btn"
-              :title="option.hidden ? '显示标签页' : '隐藏标签页'"
-              :aria-label="option.hidden ? '显示标签页' : '隐藏标签页'"
+              :title="option.hidden ? t('showTab') : t('hideTab')"
+              :aria-label="option.hidden ? t('showTab') : t('hideTab')"
               @click.stop="toggleDocumentTabVisibility(option.value)"
             >
               <Icon :name="option.hidden ? 'eyeOff' : 'eye'" width="16" height="16" />
             </button>
           </div>
           <div v-if="documentTabPopoverOptions.length === 0" class="document-tabs-dropdown-empty">
-            暂无文档标签
+            {{ t('noDocumentTags') }}
           </div>
         </div>
       </div>
@@ -249,8 +249,8 @@
             type="button"
             class="task-filter-btn"
             :class="{ active: kanbanFilterPopoverVisible || hasActiveKanbanFilters }"
-            title="筛选任务"
-            aria-label="筛选任务"
+            :title="t('filterTasks')"
+            :aria-label="t('filterTasks')"
             @click.stop="toggleKanbanFilterPopover($event)"
           >
             <Icon name="filter" width="16" height="16" />
@@ -267,8 +267,8 @@
               active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks || currentView === 'list',
               'is-batch-active': currentView === 'kanban' && isKanbanBatchEditMode
             }"
-            title="视图设置"
-            aria-label="视图设置"
+            :title="t('viewSettings')"
+            :aria-label="t('viewSettings')"
             @click.stop="toggleTaskViewGroupMenu"
           >
             <Icon name="moreVertical" width="16" height="16" />
@@ -300,7 +300,7 @@
               :class="{ active: isKanbanBatchEditMode }"
               @click.stop="toggleKanbanBatchEditModeFromMenu"
             >
-              <span>{{ isKanbanBatchEditMode ? '退出批量编辑' : '进入批量编辑' }}</span>
+              <span>{{ isKanbanBatchEditMode ? t('exitBatchEdit') : t('enterBatchEdit') }}</span>
               <span v-if="isKanbanBatchEditMode" class="task-group-menu-check">
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
@@ -310,7 +310,7 @@
               class="task-group-menu-item"
               @click.stop="openTaskGroupDialogFromMenu"
             >
-              <span>标签管理</span>
+              <span>{{ t('manageTags') }}</span>
             </button>
             <div class="task-group-menu-divider"></div>
             <button
@@ -319,7 +319,7 @@
               class="task-group-menu-item"
               @click.stop="toggleKanbanTaskCardDetailsFromMenu"
             >
-              <span>{{ showKanbanTaskCardDetails ? '隐藏详细' : '显示详细' }}</span>
+              <span>{{ showKanbanTaskCardDetails ? t('hideDetails') : t('showDetails') }}</span>
             </button>
             <button
               type="button"
@@ -327,7 +327,7 @@
               :class="{ active: !showCompletedTasks }"
               @click.stop="toggleHideCompletedTasksFromMenu"
             >
-              <span>隐藏已完成任务</span>
+              <span>{{ t('hideCompletedTasks') }}</span>
               <span v-if="!showCompletedTasks" class="task-group-menu-check">
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
@@ -338,7 +338,7 @@
               class="task-group-menu-item"
               @click.stop="toggleAllVisibleKanbanDetailsFromMenu"
             >
-              <span>{{ areAllVisibleKanbanDetailsExpanded ? '一键折叠详情' : '一键展开详情' }}</span>
+              <span>{{ areAllVisibleKanbanDetailsExpanded ? t('collapseAllDetails') : t('expandAllDetails') }}</span>
             </button>
           </div>
         </div>
@@ -353,8 +353,8 @@
               <button
                 type="button"
                 class="task-search-toggle"
-                :title="isMobileTaskSearchCollapsed ? '展开搜索' : '搜索任务'"
-                :aria-label="isMobileTaskSearchCollapsed ? '展开搜索' : '搜索任务'"
+                :title="isMobileTaskSearchCollapsed ? t('expandSearch') : t('searchTasks')"
+                :aria-label="isMobileTaskSearchCollapsed ? t('expandSearch') : t('searchTasks')"
                 @click.stop="handleTaskSearchToggleClick"
               >
                 <Icon name="searchCompact" class="task-search-icon" width="14" height="14" />
@@ -364,15 +364,15 @@
                 ref="tableSearchInputRef"
                 v-model="tableSearchQuery"
                 type="search"
-                placeholder="搜索任务"
-                aria-label="搜索任务"
+                :placeholder="t('searchTasks')"
+                :aria-label="t('searchTasks')"
                 @keydown.esc.stop.prevent="handleTableSearchEscape"
               />
               <button
                 v-if="tableSearchQuery && !isMobileTaskSearchCollapsed"
                 type="button"
                 class="task-search-clear"
-                aria-label="清除搜索"
+                :aria-label="t('clearSearch')"
                 @click="tableSearchQuery = ''"
               >
                 ×
@@ -383,8 +383,8 @@
                 type="button"
                 class="task-filter-btn"
                 :class="{ active: tableFilterPopoverVisible || hasActiveTableFilters }"
-                title="筛选任务"
-                aria-label="筛选任务"
+                :title="t('filterTasks')"
+                :aria-label="t('filterTasks')"
                 @click.stop="toggleTableFilterPopover($event)"
               >
                 <Icon name="filter" width="16" height="16" />
@@ -398,8 +398,8 @@
                 type="button"
                 class="task-group-menu-btn"
                 :class="{ active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks }"
-                title="视图设置"
-                aria-label="视图设置"
+                :title="t('viewSettings')"
+                :aria-label="t('viewSettings')"
                 @click.stop="toggleTaskViewGroupMenu"
               >
                 <Icon name="moreVertical" width="16" height="16" />
@@ -430,7 +430,7 @@
                   :class="{ active: !showCompletedTasks }"
                   @click.stop="toggleHideCompletedTasksFromMenu"
                 >
-                  <span>隐藏已完成任务</span>
+                  <span>{{ t('hideCompletedTasks') }}</span>
                   <span v-if="!showCompletedTasks" class="task-group-menu-check">
                     <Icon name="taskCheckboxChecked" width="12" height="12" />
                   </span>
@@ -446,10 +446,10 @@
       class="kanban-batch-toolbar"
     >
       <div class="kanban-batch-toolbar-header">
-        <span class="kanban-batch-selected-count">已选 {{ kanbanBatchSelectedCount }} 项</span>
+        <span class="kanban-batch-selected-count">{{ t('selectedCount', { count: kanbanBatchSelectedCount }) }}</span>
         <div class="kanban-batch-toolbar-actions">
           <button type="button" class="kanban-batch-tool-btn" @click="toggleSelectAllVisibleKanbanTasks">
-            {{ allVisibleKanbanTasksSelected ? '取消全选' : '全选当前视图' }}
+            {{ allVisibleKanbanTasksSelected ? t('deselectAll') : t('selectAllInView') }}
           </button>
           <button
             type="button"
@@ -457,13 +457,13 @@
             :disabled="kanbanBatchSelectedCount === 0"
             @click="clearKanbanBatchSelection"
           >
-            清空选择
+            {{ t('clearSelection') }}
           </button>
         </div>
       </div>
       <div class="kanban-batch-edit-grid">
         <label class="kanban-batch-field">
-          <span>状态</span>
+          <span>{{ t('status') }}</span>
           <SySelect
             :model-value="kanbanBatchEditStatus"
             :options="kanbanBatchStatusOptions"
@@ -471,7 +471,7 @@
           />
         </label>
         <label class="kanban-batch-field">
-          <span>优先级</span>
+          <span>{{ t('priority') }}</span>
           <SySelect
             :model-value="kanbanBatchEditPriority"
             :options="kanbanBatchPriorityOptions"
@@ -479,7 +479,7 @@
           />
         </label>
         <label class="kanban-batch-field">
-          <span>标签</span>
+          <span>{{ t('tag') }}</span>
           <SySelect
             :model-value="kanbanBatchEditGroupId"
             :options="kanbanBatchGroupOptions"
@@ -492,11 +492,11 @@
           :disabled="!canApplyKanbanBatchEdit"
           @click="applyKanbanBatchEdit"
         >
-          {{ isKanbanBatchApplying ? '应用中...' : '应用到已选' }}
+          {{ isKanbanBatchApplying ? t('applying') : t('applyToSelected') }}
         </button>
       </div>
     </div>
-    <div v-if="loading" class="loading">加载中...</div>
+    <div v-if="loading" class="loading">{{ t('loading') }}...</div>
     <div
       v-else-if="currentView === 'kanban' && isSettingsLoaded"
       ref="kanbanBoardRef"
@@ -559,8 +559,8 @@
                     partial: isKanbanColumnBatchPartiallySelected(column),
                     'is-disabled': getColumnTaskCount(column) === 0
                   }"
-                  :title="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
-                  :aria-label="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :title="isKanbanColumnBatchAllSelected(column) ? t('deselectColumn') : t('selectAllInColumn')"
+                  :aria-label="isKanbanColumnBatchAllSelected(column) ? t('deselectColumn') : t('selectAllInColumn')"
                   :aria-disabled="getColumnTaskCount(column) === 0"
                   @click.stop="toggleKanbanColumnBatchSelection(column)"
                 >
@@ -588,7 +588,7 @@
                   v-model="columnTitleDraft"
                   class="column-title-input"
                   type="text"
-                  :placeholder="column.type === 'group' ? '请输入标签名称' : '请输入标题名称'"
+                  :placeholder="column.type === 'group' ? t('enterTagName') : t('enterTitleName')"
                   :disabled="isSavingColumnTitle"
                   @keydown.enter.prevent.stop="submitColumnTitleEdit(column)"
                   @keydown.esc.prevent.stop="cancelColumnTitleEdit()"
@@ -599,7 +599,7 @@
                 v-else-if="canEditColumnTitle(column)"
                 type="button"
                 class="column-title column-title-button"
-                :title="column.type === 'group' ? '编辑标签名称' : '编辑标题名称'"
+                :title="column.type === 'group' ? t('editTagName') : t('editTitleName')"
                 @click.stop="startColumnTitleEdit(column)"
               >
                 <span
@@ -609,8 +609,8 @@
                     partial: isKanbanColumnBatchPartiallySelected(column),
                     'is-disabled': getColumnTaskCount(column) === 0
                   }"
-                  :title="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
-                  :aria-label="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :title="isKanbanColumnBatchAllSelected(column) ? t('deselectColumn') : t('selectAllInColumn')"
+                  :aria-label="isKanbanColumnBatchAllSelected(column) ? t('deselectColumn') : t('selectAllInColumn')"
                   :aria-disabled="getColumnTaskCount(column) === 0"
                   @click.stop="toggleKanbanColumnBatchSelection(column)"
                 >
@@ -643,8 +643,8 @@
                     partial: isKanbanColumnBatchPartiallySelected(column),
                     'is-disabled': getColumnTaskCount(column) === 0
                   }"
-                  :title="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
-                  :aria-label="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :title="isKanbanColumnBatchAllSelected(column) ? t('deselectColumn') : t('selectAllInColumn')"
+                  :aria-label="isKanbanColumnBatchAllSelected(column) ? t('deselectColumn') : t('selectAllInColumn')"
                   :aria-disabled="getColumnTaskCount(column) === 0"
                   @click.stop="toggleKanbanColumnBatchSelection(column)"
                 >
@@ -733,7 +733,7 @@
                   :show-document-title="!kanbanFilterDocument || kanbanFilterDocument === 'all'"
                   :document-icon-override="getTaskDocumentIcon(task)"
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
-                  :title-tooltip="isKanbanBatchEditMode ? '点击选择任务' : ''"
+                  :title-tooltip="isKanbanBatchEditMode ? t('clickToSelectTask') : ''"
                   @card-click="handleKanbanTaskCardClick"
                   @open-click="handleKanbanTaskOpenClick"
                   @start-focus="startFocusForTask"
@@ -750,7 +750,7 @@
               </div>
             </div>
             <div v-else class="empty-column">
-              暂无任务
+              {{ t('noTasks') }}
             </div>
           </div>
         </template>
@@ -768,7 +768,7 @@
       @scroll="handleListViewScroll"
     >
       <div v-if="kanbanListSections.length === 0" class="empty-state">
-        暂无任务
+        {{ t('noTasks') }}
       </div>
       <div v-else class="kanban-list-masonry">
         <div
@@ -782,7 +782,7 @@
           >
             <div class="kanban-list-action-body" @click="handleActionColumnClick(kanbanListGroupActionColumn)">
               <Icon name="add" width="16" height="16" />
-              <span>{{ kanbanListGroupActionColumn.actionKind === 'heading-add' ? '新建标题' : '新建标签' }}</span>
+              <span>{{ kanbanListGroupActionColumn.actionKind === 'heading-add' ? t('newTaskHeading') : t('newGroup') }}</span>
             </div>
           </section>
           <section
@@ -844,8 +844,8 @@
                   type="button"
                   class="kanban-list-section-toggle"
                   :class="{ collapsed: isKanbanListSectionCollapsed(section.id) }"
-                  :title="isKanbanListSectionCollapsed(section.id) ? '展开分组' : '折叠分组'"
-                  :aria-label="isKanbanListSectionCollapsed(section.id) ? '展开分组' : '折叠分组'"
+                  :title="isKanbanListSectionCollapsed(section.id) ? t('expandGroup') : t('collapseGroup')"
+                  :aria-label="isKanbanListSectionCollapsed(section.id) ? t('expandGroup') : t('collapseGroup')"
                   :aria-expanded="!isKanbanListSectionCollapsed(section.id)"
                   @click.stop="toggleKanbanListSectionCollapse(section.id)"
                 >
@@ -995,18 +995,18 @@
         <div class="mobile-calendar-task-drawer">
           <div class="mobile-calendar-task-drawer-grabber"></div>
           <div class="mobile-calendar-task-drawer-header">
-            <div class="mobile-calendar-task-drawer-title">任务库</div>
+            <div class="mobile-calendar-task-drawer-title">{{ t('taskLibrary') }}</div>
             <button
               type="button"
               class="mobile-calendar-task-drawer-close"
-              title="关闭任务库"
-              aria-label="关闭任务库"
+              title="t('closeTaskLibrary')"
+              aria-label="t('closeTaskLibrary')"
               @click="closeMobileCalendarTaskDrawer"
             >
               <Icon name="close" width="14" height="14" />
             </button>
           </div>
-          <div class="mobile-calendar-task-drawer-hint">长按任务后拖到日期或时间格</div>
+          <div class="mobile-calendar-task-drawer-hint">{{ t('taskLibraryHint') }}</div>
           <div class="mobile-calendar-task-drawer-body">
             <TaskManager
               :enable-mobile-calendar-drag="true"
@@ -1079,7 +1079,7 @@
         ref="kanbanEditorPanelRef"
         mode="floating"
         :panel-style="kanbanEditorStyle"
-        title="编辑任务"
+        title="t('editTask')"
         :show-pin="!!activeKanbanEditTask"
         :pin-active="isActiveKanbanTaskPinned"
         :show-move="!!activeKanbanEditTask"
@@ -1123,7 +1123,7 @@
             :status="activeKanbanEditDraft.status"
             :group-button-style="kanbanEditorGroupButtonStyle"
             :default-group-chip-color="defaultGroupChipColor"
-            description-placeholder="添加任务描述..."
+            description-placeholder="t('addDescription')"
             @update:panel="kanbanEditorQuickPanel = $event"
             @update:description="handleKanbanEditorDescriptionInput"
             @update-dates="handleKanbanEditorDateFieldsUpdate"
@@ -1141,12 +1141,12 @@
         >
           <div class="kanban-task-move-dialog" @click.stop>
             <div class="kanban-task-move-dialog-header">
-              <span class="kanban-task-move-dialog-title">移动任务</span>
+              <span class="kanban-task-move-dialog-title">{{ t('moveTask') }}</span>
               <button
                 type="button"
                 class="kanban-task-move-dialog-close"
-                title="关闭"
-                aria-label="关闭"
+                title="t('close')"
+                aria-label="t('close')"
                 @click.stop="closeKanbanTaskMoveDialog"
               >
                 <Icon name="close" width="16" height="16" />
@@ -1154,7 +1154,7 @@
             </div>
             <div class="kanban-task-move-dialog-body">
               <div class="kanban-task-move-dialog-field">
-                <label>笔记本</label>
+                <label>{{ t('notebook') }}</label>
                 <SySelect
                   :model-value="kanbanMoveSelectedNotebook"
                   :options="kanbanMoveNotebookOptions"
@@ -1162,7 +1162,7 @@
                 />
               </div>
               <div class="kanban-task-move-dialog-field">
-                <label>文档</label>
+                <label>{{ t('document') }}</label>
                 <SySelect
                   :model-value="kanbanMoveSelectedDocument"
                   :options="kanbanMoveDocumentOptions"
@@ -1170,10 +1170,10 @@
                 />
               </div>
               <div v-if="kanbanMoveTargetUnchanged" class="kanban-task-move-dialog-hint">
-                任务已位于当前文档。
+                {{ t('taskAlreadyInDocument') }}
               </div>
               <div v-else-if="kanbanMoveDocumentOptions.length === 0" class="kanban-task-move-dialog-hint">
-                当前笔记本暂无可选文档，请先在目标笔记本创建文档。
+                {{ t('noDocsInNotebook') }}
               </div>
             </div>
             <div class="kanban-task-move-dialog-footer">
@@ -1182,7 +1182,7 @@
                 class="kanban-task-move-dialog-btn cancel"
                 @click.stop="closeKanbanTaskMoveDialog"
               >
-                取消
+                {{ t('cancel') }}
               </button>
               <button
                 type="button"
@@ -1190,7 +1190,7 @@
                 :disabled="!canSubmitKanbanMove"
                 @click.stop="handleKanbanEditorMove"
               >
-                {{ isKanbanTaskMoveSubmitting ? '移动中...' : '确认移动' }}
+                {{ isKanbanTaskMoveSubmitting ? t('moving') : t('confirmMove') }}
               </button>
             </div>
           </div>
@@ -1201,10 +1201,10 @@
     <div v-if="quickCreateDialog.show" class="quick-create-mask" @click="closeQuickCreateDialog">
       <div class="quick-create-dialog" @click.stop>
         <div class="quick-create-title">
-          {{ quickCreateDialog.mode === 'heading-task' ? '新建标题和任务' : '新建任务' }}
+          {{ quickCreateDialog.mode === 'heading-task' ? t('newHeadingAndTask') : t('newTask') }}
         </div>
         <div class="quick-create-row">
-          <label>笔记本</label>
+          <label>{{ t('notebook') }}</label>
           <SySelect
             :model-value="quickCreateNotebookId"
             @update:model-value="quickCreateNotebookId = $event"
@@ -1212,7 +1212,7 @@
           />
         </div>
         <div class="quick-create-row">
-          <label>文档</label>
+          <label>{{ t('document') }}</label>
           <SySelect
             :model-value="quickCreateDocumentId"
             @update:model-value="quickCreateDocumentId = $event"
@@ -1225,7 +1225,7 @@
           v-model="quickCreateDialog.headingTitle"
           class="quick-create-input"
           type="text"
-          placeholder="请输入标题名称"
+          placeholder="t('enterHeadingName')"
           @keydown.enter.prevent="submitQuickCreateTask"
           @keydown.esc.prevent="closeQuickCreateDialog"
         />
@@ -1234,13 +1234,13 @@
           v-model="quickCreateDialog.title"
           class="quick-create-input"
           type="text"
-          :placeholder="quickCreateDialog.mode === 'heading-task' ? '请输入首个任务标题' : '请输入任务标题'"
+          :placeholder="quickCreateDialog.mode === 'heading-task' ? t('enterFirstTaskTitle') : t('enterTaskTitle')"
           @keydown.enter.prevent="submitQuickCreateTask"
           @keydown.esc.prevent="closeQuickCreateDialog"
         />
         <div class="quick-create-actions">
-          <button class="quick-create-btn cancel" @click="closeQuickCreateDialog">取消</button>
-          <button class="quick-create-btn confirm" @click="submitQuickCreateTask">创建</button>
+          <button class="quick-create-btn cancel" @click="closeQuickCreateDialog">{{ t('cancel') }}</button>
+          <button class="quick-create-btn confirm" @click="submitQuickCreateTask">{{ t('create') }}</button>
         </div>
       </div>
     </div>
@@ -1272,7 +1272,7 @@
     >
       <div class="document-tab-context-menu-title">{{ documentTabContextMenu.text }}</div>
       <div class="document-tab-context-menu-subtitle">
-        {{ documentTabContextCurrentGroupId ? '修改分组' : '加入分组' }}
+        {{ documentTabContextCurrentGroupId ? t('changeGroup') : t('joinGroup') }}
       </div>
       <div v-if="sortedDocumentGroups.length > 0" class="document-tab-context-menu-list">
         <button
@@ -1281,7 +1281,7 @@
           :class="{ active: !documentTabContextCurrentGroupId }"
           @click="void updateDocumentTabGroupAssignment('')"
         >
-          <span>未分组</span>
+          <span>{{ t('unGrouped') }}</span>
           <span v-if="!documentTabContextCurrentGroupId" class="task-group-menu-check">
             <Icon name="check" width="12" height="12" />
           </span>
@@ -1300,13 +1300,13 @@
           </span>
         </button>
       </div>
-      <div v-else class="document-tab-context-menu-empty">暂无文档组</div>
+      <div v-else class="document-tab-context-menu-empty">{{ t('noDocumentGroups') }}</div>
       <button
         type="button"
         class="document-tab-context-menu-manage"
         @click="void openDocumentGroupManagerFromTabMenu()"
       >
-        管理分组
+        {{ t('manageGroups') }}
       </button>
     </div>
     <TaskGroupDialog
@@ -1322,6 +1322,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '@/utils/i18n';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { Protyle, getFrontend } from 'siyuan';
 import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, getIDsByHPath, resolveTaskRepeatMaterializeOptions, type TaskRepeatWindow } from '../api';
@@ -1424,16 +1425,16 @@ const taskGroupDialogAutoAdd = ref(false);
 const excludedNotebookIds = ref<string[]>([]);
 const skipSet = new Set<string>();
 const kanbanGroupModeOptions = [
-  { value: 'status', text: '按状态分组' },
-  { value: 'date', text: '按日期分组' },
-  { value: 'group', text: '按标签分组' },
-  { value: 'heading', text: '按标题分组' }
+  { value: 'status', text: t('groupByStatus') },
+  { value: 'date', text: t('groupByDate') },
+  { value: 'group', text: t('groupByTag') },
+  { value: 'heading', text: t('groupByHeading') }
 ] as const;
 const tableGroupModeOptions = [
-  { value: 'status', text: '不分组' },
-  { value: 'date', text: '按日期分组' },
-  { value: 'group', text: '按标签分组' },
-  { value: 'heading', text: '按标题分组' }
+  { value: 'status', text: t('noGrouping') },
+  { value: 'date', text: t('groupByDate') },
+  { value: 'group', text: t('groupByTag') },
+  { value: 'heading', text: t('groupByHeading') }
 ] as const;
 type TaskViewMode = 'kanban' | 'list' | 'table' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
 type TaskLoadMode = 'full' | 'light-with-repeats' | 'light-base';
@@ -1488,15 +1489,15 @@ type MobileCalendarDragSession = {
   clientY: number;
 };
 const viewSwitcherOptions: Array<{ value: TaskViewMode; text: string; icon: string }> = [
-  { value: 'kanban', text: '看板', icon: 'kanban' },
-  { value: 'list', text: '卡片', icon: 'card' },
-  { value: 'table', text: '表格', icon: 'table' },
-  { value: 'month', text: '月视图', icon: 'month' },
-  { value: 'week', text: '周视图', icon: 'week' },
-  { value: 'three-day', text: '三日图', icon: 'threeDay' },
-  { value: 'day', text: '日视图', icon: 'day' },
-  { value: 'archive-table', text: '归档', icon: 'archive' },
-  { value: 'stats', text: '统计', icon: 'stats' }
+  { value: 'kanban', text: t('kanbanView'), icon: 'kanban' },
+  { value: 'list', text: t('cardView'), icon: 'card' },
+  { value: 'table', text: t('tableView'), icon: 'table' },
+  { value: 'month', text: t('monthView'), icon: 'month' },
+  { value: 'week', text: t('weekView'), icon: 'week' },
+  { value: 'three-day', text: t('threeDayView'), icon: 'threeDay' },
+  { value: 'day', text: t('dayView'), icon: 'day' },
+  { value: 'archive-table', text: t('archiveView'), icon: 'archive' },
+  { value: 'stats', text: t('statsView'), icon: 'stats' }
 ];
 function normalizeTaskViewMode(value: unknown): TaskViewMode {
   if (
@@ -1977,11 +1978,11 @@ const allVisibleKanbanTasksSelected = computed(() => {
   return currentTasks.every(task => kanbanBatchSelectedTaskIds.value.has(task.id));
 });
 const kanbanBatchGroupOptions = computed(() => [
-  { value: '', text: '标签（不修改）' },
-  { value: TASK_GROUP_NONE_ID, text: '无标签' },
+  { value: '', text: t('tagNoChange') },
+  { value: TASK_GROUP_NONE_ID, text: t('unGrouped') },
   ...visibleTaskGroups.value.map(group => ({
     value: group.id,
-    text: group.name || '未命名标签'
+    text: group.name || t('unnamedTag')
   }))
 ]);
 const canApplyKanbanBatchEdit = computed(() => {
@@ -2038,20 +2039,20 @@ type KanbanListMasonryColumn = {
   heightScore: number;
 };
 
-const statusColumns: KanbanColumn[] = [
-  { id: 'status-pending', status: 'pending', title: '待处理', type: 'status' },
-  { id: 'status-in-progress', status: 'in-progress', title: '进行中', type: 'status' },
-  { id: 'status-completed', status: 'completed', title: '已完成', type: 'status' },
-  { id: 'status-delayed', status: 'delayed', title: '延迟', type: 'status' },
-  { id: 'status-cancelled', status: 'cancelled', title: '已取消', type: 'status' }
-];
-const kanbanDateGroups: Array<{ key: KanbanDateGroupKey; title: string; dotColor: string }> = [
-  { key: 'overdue', title: '逾期', dotColor: '#ef4444' },
-  { key: 'today', title: '今日', dotColor: '#f59e0b' },
-  { key: 'thisWeek', title: '本周', dotColor: '#3b82f6' },
-  { key: 'thisMonth', title: '本月', dotColor: '#10b981' },
-  { key: 'other', title: '其他', dotColor: '#9ca3af' }
-];
+const statusColumns = computed<KanbanColumn[]>(() => [
+  { id: 'status-pending', status: 'pending', title: t('statusPending'), type: 'status' },
+  { id: 'status-in-progress', status: 'in-progress', title: t('statusInProgress'), type: 'status' },
+  { id: 'status-completed', status: 'completed', title: t('statusCompleted'), type: 'status' },
+  { id: 'status-delayed', status: 'delayed', title: t('statusDelayed'), type: 'status' },
+  { id: 'status-cancelled', status: 'cancelled', title: t('statusCancelled'), type: 'status' }
+]);
+const kanbanDateGroups = computed<Array<{ key: KanbanDateGroupKey; title: string; dotColor: string }>>(() => [
+  { key: 'overdue', title: t('overdue'), dotColor: '#ef4444' },
+  { key: 'today', title: t('today'), dotColor: '#f59e0b' },
+  { key: 'thisWeek', title: t('thisWeek'), dotColor: '#3b82f6' },
+  { key: 'thisMonth', title: t('thisMonth'), dotColor: '#10b981' },
+  { key: 'other', title: t('other'), dotColor: '#9ca3af' }
+]);
 
 const KANBAN_VIRTUAL_CARD_HEIGHT = 110;
 const KANBAN_VIRTUAL_OVERSCAN = 6;
@@ -2106,13 +2107,13 @@ function resolveKanbanGroupColumnOrder(availableIds: string[], storedOrder: stri
 
 const baseGroupColumns = computed<KanbanColumn[]>(() => {
   const columns: KanbanColumn[] = [
-    { id: TASK_GROUP_NONE_ID, title: '无标签', type: 'group', groupId: '' }
+    { id: TASK_GROUP_NONE_ID, title: t('unGrouped'), type: 'group', groupId: '' }
   ];
   for (const group of visibleTaskGroups.value) {
     if (!group || !group.id) continue;
     columns.push({
       id: group.id,
-      title: group.name?.trim() || '标签',
+      title: group.name?.trim() || t('tag'),
       type: 'group',
       groupId: group.id
     });
@@ -2153,7 +2154,7 @@ const headingColumns = computed<KanbanColumn[]>(() => {
 
   if (columnsByKey.size === 0) {
     return [
-      { id: '__heading-empty__', title: '标题归类', type: 'heading', headingKey: '__heading-empty__' }
+      { id: '__heading-empty__', title: t('headingCategorization'), type: 'heading', headingKey: '__heading-empty__' }
     ];
   }
 
@@ -2166,7 +2167,7 @@ const headingColumns = computed<KanbanColumn[]>(() => {
   });
 });
 const dateColumns = computed<KanbanColumn[]>(() =>
-  kanbanDateGroups.map(group => ({
+  kanbanDateGroups.value.map(group => ({
     id: `date:${group.key}`,
     title: group.title,
     type: 'date',
@@ -2193,8 +2194,8 @@ const kanbanColumns = computed<KanbanColumn[]>(() => {
     return dateColumns.value;
   }
   return showCompletedTasks.value
-    ? statusColumns
-    : statusColumns.filter(column => column.status !== 'completed');
+    ? statusColumns.value
+    : statusColumns.value.filter(column => column.status !== 'completed');
 });
 
 const kanbanListSections = computed<KanbanListSection[]>(() =>
@@ -2331,7 +2332,7 @@ const quickCreateDialog = ref<{
   context: null
 });
 const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
-const PINCH_INBOX_PATH = '/pinch收集箱';
+const PINCH_INBOX_PATH = t('pinchInbox');
 const showTaskModal = ref(false);
 const taskModalDefaultNotebook = ref('');
 const taskModalDefaultDocument = ref(PINCH_INBOX_OPTION_ID);
@@ -2350,47 +2351,47 @@ interface TaskModalCreateTaskPayload {
 }
 
 const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
-  { value: 'pending', label: '待处理' },
-  { value: 'in-progress', label: '进行中' },
-  { value: 'delayed', label: '延迟' },
-  { value: 'completed', label: '已完成' },
-  { value: 'cancelled', label: '已取消' }
+  { value: 'pending', label: t('pending') },
+  { value: 'in-progress', label: t('inProgress') },
+  { value: 'delayed', label: t('delayed') },
+  { value: 'completed', label: t('completed') },
+  { value: 'cancelled', label: t('cancelled') }
 ];
 const kanbanPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = [
-  { value: 'high', label: '高优先级' },
-  { value: 'medium', label: '中优先级' },
-  { value: 'low', label: '低优先级' },
-  { value: 'none', label: '无优先级' }
+  { value: 'high', label: t('highPriority') },
+  { value: 'medium', label: t('mediumPriority') },
+  { value: 'low', label: t('lowPriority') },
+  { value: 'none', label: t('noPriority') }
 ];
 const kanbanDueFilterOptions: Array<{ value: KanbanTaskDueFilterKey; label: string }> = [
-  { value: 'overdue', label: '已逾期' },
-  { value: 'today', label: '今天到期' },
-  { value: 'next7Days', label: '未来 7 天' },
-  { value: 'noDueDate', label: '无截止日期' }
+  { value: 'overdue', label: t('overdue') },
+  { value: 'today', label: t('todayDueDate') },
+  { value: 'next7Days', label: t('next7Days') },
+  { value: 'noDueDate', label: t('noDueDate') }
 ];
 const kanbanUpdatedFilterOptions: Array<{ value: KanbanTaskUpdateFilterKey; label: string }> = [
-  { value: 'today', label: '今日' },
-  { value: 'thisWeek', label: '本周' },
-  { value: 'thisMonth', label: '本月' }
+  { value: 'today', label: t('today') },
+  { value: 'thisWeek', label: t('thisWeek') },
+  { value: 'thisMonth', label: t('thisMonth') }
 ];
 const kanbanExtraFilterOptions: Array<{ value: KanbanTaskExtraFilterKey; label: string }> = [
-  { value: 'hasDescription', label: '有描述' },
-  { value: 'hasSubtasks', label: '有子任务' }
+  { value: 'hasDescription', label: t('hasDescription') },
+  { value: 'hasSubtasks', label: t('hasSubtasks') }
 ];
 const kanbanBatchStatusOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: '状态（不修改）' },
-  { value: 'pending', text: '待处理' },
-  { value: 'in-progress', text: '进行中' },
-  { value: 'delayed', text: '延迟' },
-  { value: 'completed', text: '已完成' },
-  { value: 'cancelled', text: '已取消' }
+  { value: '', text: t('statusNoChange') },
+  { value: 'pending', text: t('pending') },
+  { value: 'in-progress', text: t('inProgress') },
+  { value: 'delayed', text: t('delayed') },
+  { value: 'completed', text: t('completed') },
+  { value: 'cancelled', text: t('cancelled') }
 ];
 const kanbanBatchPriorityOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: '优先级（不修改）' },
-  { value: 'none', text: '无' },
-  { value: 'low', text: '低' },
-  { value: 'medium', text: '中' },
-  { value: 'high', text: '高' }
+  { value: '', text: t('priorityNoChange') },
+  { value: 'none', text: t('none') },
+  { value: 'low', text: t('low') },
+  { value: 'medium', text: t('medium') },
+  { value: 'high', text: t('high') }
 ];
 const kanbanStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(kanbanStatusFilterOptions.map(option => option.value));
 const kanbanPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(kanbanPriorityFilterOptions.map(option => option.value));
@@ -2474,12 +2475,12 @@ const goalDefinitionsById = computed(() =>
   new Map(goalDefinitions.value.map(goal => [goal.id, goal]))
 );
 const notebookOptions = computed(() => [
-  { value: 'all', text: '全部' },
+  { value: 'all', text: t('all') },
   ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
 ]);
 
 const sourceOptions = computed(() => [
-  { value: 'all', text: '全部' },
+  { value: 'all', text: t('all') },
   ...enabledNotebooks.value.map(nb => ({
     value: buildNotebookDocumentSource(nb.id),
     text: nb.name
@@ -2490,7 +2491,7 @@ const sourceOptions = computed(() => [
   })),
   ...goalItems.value.map(goal => ({
     value: buildGoalDocumentSource(goal.id),
-    text: `${goal.emoji || '🎯'} ${goal.name || '未命名目标'}`
+    text: `${goal.emoji || '🎯'} ${goal.name || t('unnamedGoal')}`
   }))
 ]);
 const taskModalNotebooks = computed<TaskModalNotebook[]>(() =>
@@ -2590,7 +2591,7 @@ const canSubmitKanbanMove = computed(() => {
 
 const kanbanGroupPickerOptions = computed(() => {
   const options = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: t('unGrouped'), special: true, colorCss: '', textColor: '' }
   ];
   visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -2607,7 +2608,7 @@ const kanbanGroupPickerOptions = computed(() => {
 
 const kanbanGroupFilterOptions = computed(() => {
   const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', style: {} }
+    { value: TASK_GROUP_NONE_ID, label: t('unGrouped'), style: {} }
   ];
   visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -2689,7 +2690,7 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
   }
 
   if (column.type === 'date') {
-    const dateMeta = kanbanDateGroups.find(group => group.key === column.dateGroupKey);
+    const dateMeta = kanbanDateGroups.value.find(group => group.key === column.dateGroupKey);
     return { backgroundColor: dateMeta?.dotColor || '#9ca3af' };
   }
 
@@ -2872,7 +2873,7 @@ async function submitColumnTitleEdit(column: KanbanColumn): Promise<void> {
   );
 
   if (!nextTitle) {
-    await pushMsg(column.type === 'group' ? '标签名称不能为空' : '标题名称不能为空', 2000);
+    await pushMsg(column.type === 'group' ? t('tagNameNotEmpty') : t('titleNameNotEmpty'), 2000);
     await nextTick();
     columnTitleInputRef.value?.focus();
     return;
@@ -2910,7 +2911,7 @@ async function submitColumnTitleEdit(column: KanbanColumn): Promise<void> {
         ? headingMeta.headingBlockId.trim()
         : '';
       if (!headingMeta || headingMeta.kind !== 'heading' || !headingBlockId) {
-        await pushMsg('当前分组不支持重命名', 2000);
+        await pushMsg(t('noRenameSupport'), 2000);
         cancelColumnTitleEdit(true);
         return;
       }
@@ -2921,8 +2922,8 @@ async function submitColumnTitleEdit(column: KanbanColumn): Promise<void> {
       scheduleRefreshTasks(120, 'full');
     }
   } catch (error) {
-    console.error('[KanbanView] 分组标题编辑失败:', error);
-    await pushMsg('保存失败，请稍后重试', 2600);
+    console.error('[KanbanView] Group title edit failed:', error);
+    await pushMsg(t('saveFailedTryAgain'), 2600);
   } finally {
     isSavingColumnTitle.value = false;
   }
@@ -2939,16 +2940,10 @@ function canCreateTaskInColumn(column: KanbanColumn): boolean {
 }
 
 function getColumnCreateTaskLabel(column: KanbanColumn): string {
-  if (column.type === 'status') {
-    return `在“${column.title}”列新建任务`;
+  if (column.type === 'status' || column.type === 'group' || column.type === 'heading' || column.type === 'date') {
+    return t('newTaskInColumn', { column: column.title });
   }
-  if (column.type === 'group') {
-    return `在“${column.title}”列新建任务`;
-  }
-  if (column.type === 'heading') {
-    return `在“${column.title}”列新建任务`;
-  }
-  return '新建任务';
+  return t('newTask');
 }
 
 function getDefaultCreateTaskPayload(): CreateTaskPayload {
@@ -3135,14 +3130,14 @@ function buildQuickCreateOptionsForTableGroup(payload: TableGroupActionPayload):
 async function handleTableGroupCreateTask(payload: TableGroupActionPayload): Promise<void> {
   const options = buildQuickCreateOptionsForTableGroup(payload);
   if (!options) {
-    await pushMsg('当前分组暂不支持新建任务', 2200);
+    await pushMsg(t('noNewTaskSupport'), 2200);
     return;
   }
   await handleTaskCreateRequested(getDefaultCreateTaskPayload(), options);
 }
 
 async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): Promise<void> {
-  const label = (payload.groupLabel || '当前分组').trim() || '当前分组';
+  const label = (payload.groupLabel || t('currentGroup')).trim() || t('currentGroup');
   const taskIds = Array.isArray(payload.taskIds) ? payload.taskIds : [];
   const tasksToArchive = taskIds
     .map(taskId => tasks.value.find(task => task.id === taskId))
@@ -3151,12 +3146,12 @@ async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): P
   const totalCount = tasksToArchive.length;
 
   if (totalCount === 0) {
-    await pushMsg('该分组暂无可归档任务', 2000);
+    await pushMsg(t('noTasksToArchive'), 2000);
     return;
   }
 
   const confirmed = window.confirm(
-    `确认归档“${label}”分组的全部 ${totalCount} 个任务吗？\n归档后可在「归档」视图查看。`
+    t('archiveTasksInGroupConfirm', { title: label, count: totalCount })
   );
   if (!confirmed) {
     return;
@@ -3182,7 +3177,7 @@ async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): P
       }
       successCount += 1;
     } catch (error) {
-      console.error('[KanbanView] 分组批量归档任务失败:', error);
+      console.error('[KanbanView] Failed to archive tasks in group:', error);
     }
   }
 
@@ -3190,16 +3185,15 @@ async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): P
     eventBus.emit(Events.TASK_CHANGED, { blockIds: Array.from(changedBlockIdSet) });
   }
   invalidateTableFilters();
+  const failedCount = totalCount - successCount;
 
-  if (successCount === totalCount) {
-    await pushMsg(`已归档“${label}”分组全部 ${totalCount} 个任务`, 2400);
-    return;
+  if (failedCount === 0) {
+    await pushMsg(t('archiveTasksInGroupSuccess', { title: label, count: successCount }), 2400);
+  } else if (successCount > 0) {
+    await pushMsg(t('archiveTasksInGroupPartialSuccess', { title: label, success: successCount, total: totalCount }), 3000);
+  } else {
+    await pushMsg(t('archiveFailedTryAgain'), 3000);
   }
-  if (successCount > 0) {
-    await pushMsg(`已归档 ${successCount}/${totalCount} 个任务，部分归档失败`, 3000);
-    return;
-  }
-  await pushMsg('归档失败，请稍后重试', 3000);
 }
 
 function getArchivableTasksForColumn(column: KanbanColumn): Task[] {
@@ -3218,12 +3212,12 @@ function canArchiveTasksInColumn(column: KanbanColumn): boolean {
 }
 
 function getColumnArchiveTasksLabel(column: KanbanColumn): string {
-  const title = (column.title || '当前').trim() || '当前';
+  const title = (column.title || t('current')).trim() || t('current');
   const taskCount = getArchivableTasksForColumn(column).length;
   if (taskCount > 0) {
-    return `归档“${title}”列全部 ${taskCount} 个任务`;
+    return t('archiveTasksInColumnConfirm', { title, count: taskCount });
   }
-  return `归档“${title}”列全部任务`;
+  return t('archiveTasksInColumnConfirm', { title, count: '' });
 }
 
 function isKanbanColumnArchiving(columnId: string): boolean {
@@ -3251,13 +3245,13 @@ async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
   const tasksToArchive = getArchivableTasksForColumn(column);
   const totalCount = tasksToArchive.length;
   if (totalCount === 0) {
-    await pushMsg('该列暂无可归档任务', 2000);
+    await pushMsg(t('noTasksInColumnToArchive'), 2000);
     return;
   }
 
-  const title = (column.title || '当前').trim() || '当前';
+  const title = (column.title || t('current')).trim() || t('current');
   const confirmed = window.confirm(
-    `确认归档“${title}”列的全部 ${totalCount} 个任务吗？\n归档后可在「归档」视图查看。`
+    t('archiveTasksInColumnConfirm', { title, count: totalCount })
   );
   if (!confirmed) {
     return;
@@ -3265,6 +3259,7 @@ async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
 
   setKanbanColumnArchiving(column.id, true);
   let successCount = 0;
+  let failedCount = 0;
   const changedBlockIdSet = new Set<string>();
 
   try {
@@ -3285,7 +3280,8 @@ async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
         }
         successCount += 1;
       } catch (error) {
-        console.error('[KanbanView] 列批量归档任务失败:', error);
+        console.error('[KanbanView] Failed to archive tasks in column:', error);
+        failedCount += 1;
       }
     }
 
@@ -3294,15 +3290,13 @@ async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
     }
     invalidateTableFilters();
 
-    if (successCount === totalCount) {
-      await pushMsg(`已归档“${title}”列全部 ${totalCount} 个任务`, 2400);
-      return;
+    if (failedCount === 0) {
+      await pushMsg(t('archiveTasksInColumnSuccess', { title, count: successCount }), 2400);
+    } else if (successCount > 0) {
+      await pushMsg(t('archiveTasksInColumnPartialSuccess', { success: successCount, total: totalCount }), 3000);
+    } else {
+      await pushMsg(t('archiveFailedTryAgain'), 3000);
     }
-    if (successCount > 0) {
-      await pushMsg(`已归档 ${successCount}/${totalCount} 个任务，部分归档失败`, 3000);
-      return;
-    }
-    await pushMsg('归档失败，请稍后重试', 3000);
   } finally {
     setKanbanColumnArchiving(column.id, false);
   }
@@ -3316,10 +3310,10 @@ const kanbanEditorSelectedGroupId = computed(() => {
 const kanbanEditorGroupLabel = computed(() => {
   const groupId = (activeKanbanEditDraft.value?.groupId || '').trim();
   if (!groupId) {
-    return '无标签';
+    return t('unGrouped');
   }
   const group = taskGroups.value.find(item => item.id === groupId);
-  return group?.name || '标签';
+  return group?.name || t('tag');
 });
 
 const kanbanEditorGroupColorValue = computed(() => {
@@ -3348,10 +3342,10 @@ const kanbanEditPriorityOptions: Array<{
   background: string;
   color: string;
 }> = [
-  { value: 'high', label: '高优先级', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
-  { value: 'medium', label: '中优先级', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'low', label: '低优先级', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'none', label: '无优先级', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
+  { value: 'high', label: t('highPriority'), background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
+  { value: 'medium', label: t('mediumPriority'), background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
+  { value: 'low', label: t('lowPriority'), background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
+  { value: 'none', label: t('noPriority'), background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
 ];
 
 const kanbanEditorPriorityOption = computed(() => {
@@ -3361,7 +3355,7 @@ const kanbanEditorPriorityOption = computed(() => {
 
 const kanbanEditorDueText = computed(() => {
   const dueDate = activeKanbanEditDraft.value?.dueDate || '';
-  if (!dueDate) return '未设置';
+  if (!dueDate) return t('notSet');
   return formatMonthDay(dueDate);
 });
 
@@ -3620,7 +3614,7 @@ async function openHeadingAndTaskQuickCreate(): Promise<void> {
 }
 
 function getActionColumnButtonLabel(column: KanbanColumn): string {
-  return column.actionKind === 'heading-add' ? '新建标题' : '新建标签';
+  return column.actionKind === 'heading-add' ? t('newTaskHeading') : t('newGroup');
 }
 
 function handleActionColumnClick(column: KanbanColumn): void {
@@ -3704,7 +3698,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       .filter(id => id.length > 0);
     blockIdsToClear = Array.from(new Set([...sqlBlockIds, ...localBlockIds]));
   } catch (error) {
-    console.error('[KanbanView] 查询标签任务失败:', error);
+    console.error('[KanbanView] Failed to query tag tasks:', error);
     blockIdsToClear = Array.from(new Set(localBlockIds));
   }
 
@@ -3714,7 +3708,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       await setBlockAttrs(blockId, { 'custom-task-group': '' });
       successBlockIds.push(blockId);
     } catch (error) {
-      console.error('[KanbanView] 清理任务标签属性失败:', error);
+      console.error('[KanbanView] Failed to clear task tag attributes:', error);
     }
   }
 
@@ -3780,7 +3774,7 @@ async function handleTaskGroupSave(payload: TaskGroupDialogSavePayload): Promise
       );
     }
   } catch (error) {
-    console.error('[KanbanView] 保存标签失败:', error);
+    console.error('[KanbanView] Failed to save tag:', error);
   }
 }
 
@@ -3853,29 +3847,29 @@ async function handleGlobalRecognizeTaskDates(): Promise<void> {
   try {
     const result = await TaskRepository.recognizeDatesForUndatedTasks();
     if (result.scanned === 0) {
-      await pushMsg('未找到未设定起止日期的任务', 2200);
+      await pushMsg(t('noTaskDateFound'), 2200);
       return;
     }
 
     if (result.updated > 0) {
       if (result.failed > 0) {
-        await pushMsg(`已写入 ${result.updated} 项日期，${result.failed} 项写入失败`, 3200);
+        await pushMsg(t('recognizedTasksSummary', { updated: result.updated, failed: result.failed }), 3200);
       } else {
-        await pushMsg(`已识别并写入 ${result.updated} 项任务日期`, 2200);
+        await pushMsg(t('recognizedTasksSuccess', { count: result.updated }), 2200);
       }
       await loadTasks(true, { silent: true });
       return;
     }
 
     if (result.recognized === 0) {
-      await pushMsg(`扫描 ${result.scanned} 项未设定任务，未识别到可写入日期`, 2800);
+      await pushMsg(t('scanTasksNoResult', { scanned: result.scanned }), 2800);
       return;
     }
 
-    await pushMsg(`识别到 ${result.recognized} 项日期，写入失败 ${result.failed} 项`, 3200);
+    await pushMsg(t('recognitionResults', { recognized: result.recognized, failed: result.failed }), 3200);
   } catch (error) {
-    console.error('[KanbanView] 全局识别任务日期失败:', error);
-    await pushMsg('全局识别任务日期失败，请稍后重试', 3200);
+    console.error('[KanbanView] Global recognition of task dates failed:', error);
+    await pushMsg(t('recognitionFailedTryAgain'), 3200);
   } finally {
     isGlobalDateRecognitionRunning.value = false;
   }
@@ -4277,7 +4271,7 @@ function toFilterDocumentOptions(
   const includeNotebookName = source.kind === 'all'
     || ((source.kind === 'group' || source.kind === 'goal') && showDocumentGroupNotebookPath.value);
   return [
-    { value: 'all', text: '全部' },
+    { value: 'all', text: t('all') },
     ...getDocumentEntriesBySource(sourceValue, {
       includeNotebookName,
       excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs,
@@ -4293,7 +4287,7 @@ function toFilterDocumentOptions(
 
 function toQuickCreateDocumentOptions(notebookId: string): Array<{ value: string; text: string }> {
   if (notebookId === 'all') {
-    return [{ value: 'all', text: '全部' }];
+    return [{ value: 'all', text: t('all') }];
   }
   return toFilterDocumentOptions(notebookId);
 }
@@ -4371,16 +4365,16 @@ const statsViewTasks = computed(() =>
   )
 );
 const statsViewSourceLabel = computed(() =>
-  sourceOptions.value.find(option => option.value === tableFilterType.value)?.text || '全部'
+  sourceOptions.value.find(option => option.value === tableFilterType.value)?.text || t('all')
 );
 const statsViewDocumentLabel = computed(() => {
   if (tableFilterDocument.value === 'all') {
-    return '全部';
+    return t('all');
   }
   const options = toFilterDocumentOptions(tableFilterType.value, {
     taskMatcher: getDocumentTabTaskMatcher('stats')
   });
-  return options.find(option => option.value === tableFilterDocument.value)?.text || '全部';
+  return options.find(option => option.value === tableFilterDocument.value)?.text || t('all');
 });
 
 async function handleStatsDrilldown(payload: StatsDrilldownPayload): Promise<void> {
@@ -5641,7 +5635,7 @@ async function applyKanbanBatchEdit(): Promise<void> {
   }
   const selectedIds = Array.from(kanbanBatchSelectedTaskIds.value);
   if (selectedIds.length === 0) {
-    await pushMsg('请先选择任务', 2200);
+    await pushMsg(t('pleaseSelectTasks'), 2200);
     return;
   }
 
@@ -5656,13 +5650,13 @@ async function applyKanbanBatchEdit(): Promise<void> {
     } else if (validGroupIds.has(rawGroupSelection)) {
       nextGroupId = rawGroupSelection;
     } else {
-      await pushMsg('请选择有效标签', 2200);
+      await pushMsg(t('pleaseSelectValidTag'), 2200);
       return;
     }
   }
 
   if (!nextStatus && !nextPriority && nextGroupId === null) {
-    await pushMsg('请选择要批量修改的字段', 2200);
+    await pushMsg(t('pleaseSelectFieldsToModify'), 2200);
     return;
   }
 
@@ -5724,7 +5718,7 @@ async function applyKanbanBatchEdit(): Promise<void> {
   }
 
   if (updates.length === 0) {
-    await pushMsg('未检测到可更新的任务', 2200);
+    await pushMsg(t('noTasksToUpdate'), 2200);
     return;
   }
 
@@ -5792,10 +5786,10 @@ async function applyKanbanBatchEdit(): Promise<void> {
     }
 
     if (successCount > 0) {
-      await pushMsg(`已批量更新 ${successCount} 项任务`, 2200);
+      await pushMsg(t('batchUpdateSuccess', { count: successCount }), 2200);
     }
     if (failedCount > 0) {
-      await pushMsg(`有 ${failedCount} 项任务更新失败`, 3000);
+      await pushMsg(t('batchUpdateFailed', { count: failedCount }), 3000);
     }
   } finally {
     isKanbanBatchApplying.value = false;
@@ -6410,7 +6404,7 @@ async function hydrateVisibleKanbanTitles(): Promise<void> {
       invalidateTableFilters();
     }
   } catch (error) {
-    console.error('[KanbanView] 任务标题同步失败:', error);
+    console.error('[KanbanView] Task title synchronization failed:', error);
   } finally {
     isKanbanTitleHydrating = false;
   }
@@ -6604,7 +6598,7 @@ async function loadTasks(
     }
     scheduleKanbanTitleHydration(120);
   } catch (error) {
-    console.error('[KanbanView] 加载任务失败:', error);
+    console.error('[KanbanView] Failed to load tasks:', error);
   } finally {
     if (!silent) {
       pendingVisibleTaskLoadCount = Math.max(0, pendingVisibleTaskLoadCount - 1);
@@ -6896,7 +6890,7 @@ async function loadUserSettings() {
       void saveUserSettings();
     }
   } catch (error) {
-    console.error('[KanbanView] 加载用户设置失败:', error);
+    console.error('[KanbanView] Failed to load user settings:', error);
   }
   isHydratingSettings.value = false;
 }
@@ -6948,7 +6942,7 @@ async function saveUserSettings() {
       hiddenDocumentTabIds: normalizeNotebookIds(Array.from(hiddenDocumentTabIds.value), { sort: true })
     });
   } catch (error) {
-    console.error('[KanbanView] 保存用户设置失败:', error);
+    console.error('[KanbanView] Failed to save user settings:', error);
   }
 }
 
@@ -7061,7 +7055,7 @@ async function flushExternalTaskStatusAttrSync(blockIds: Iterable<string>): Prom
   const hasApplied = results.some(result => result.status === 'fulfilled' && result.value === true);
   results.forEach((result, index) => {
     if (result.status === 'rejected') {
-      console.warn('[KanbanView] 同步任务完成属性失败:', {
+      console.warn('[KanbanView] Failed to sync task completion attribute:', {
         blockId: entries[index]?.blockId,
         error: result.reason
       });
@@ -7822,7 +7816,7 @@ async function incrementalUpdateTasks(
       await nextTick();
     }
   } catch (error) {
-    console.error('[KanbanView] 增量更新任务失败:', error);
+    console.error('[KanbanView] Failed to update task incrementally:', error);
     scheduleRefreshTasks(180, allowUnknown ? 'silent-full' : 'full');
   }
 }
@@ -7894,7 +7888,7 @@ async function ensureKanbanTaskSubtasks(task: Task): Promise<void> {
     crdtRepo.syncIncrementalTasks([refreshedTask]);
     updateTasks();
   } catch (error) {
-    console.warn('[KanbanView] 获取子任务失败:', error);
+    console.warn('[KanbanView] Failed to get subtasks:', error);
   } finally {
     kanbanSubtaskHydratingIds.delete(task.blockId);
   }
@@ -8035,7 +8029,7 @@ async function handleKanbanEditorPinToggle(): Promise<void> {
     { 'custom-task-pinned': nextPinned ? '1' : '' },
     'pinned',
     nextPinned,
-    '更新任务置顶失败'
+    'Failed to update task pin'
   );
   invalidateTableFilters();
 }
@@ -8128,7 +8122,7 @@ async function saveKanbanEditorDateFields(task: Task, value: KanbanEditorDateFie
     eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
     invalidateTableFilters();
   } catch (error) {
-    console.error('[KanbanView] 更新任务日期失败:', error);
+    console.error('[KanbanView] Failed to update task date:', error);
   }
 }
 
@@ -8142,7 +8136,7 @@ async function handleKanbanEditorGroupSelect(value: string): Promise<void> {
     { 'custom-task-group': normalized || '' },
     'groupId',
     normalized || undefined,
-    '更新任务标签失败'
+    'Failed to update task tags'
   );
   invalidateTableFilters();
 }
@@ -8160,7 +8154,7 @@ async function handleKanbanEditorReminderSelect(value: TaskReminderSelection): P
     buildTaskReminderAttrs(normalizedReminder),
     'reminderType',
     normalizedReminder.reminderType,
-    '更新任务提醒失败',
+    'Failed to update task reminder',
     () => {
       updateTaskLocalField(
         activeKanbanEditTask.value!.id,
@@ -8196,7 +8190,7 @@ async function openKanbanTaskMoveDialog(): Promise<void> {
   }
 
   if (task.type !== 'block' || !task.blockId) {
-    await pushMsg('该任务无法移动', 2000);
+    await pushMsg(t('taskCannotBeMoved'), 2000);
     return;
   }
 
@@ -8233,17 +8227,14 @@ async function handleKanbanEditorMove(): Promise<void> {
 
   isKanbanTaskMoveSubmitting.value = true;
   try {
-    const moveResult = await TaskRepository.moveTask(task.id, kanbanMoveSelectedDocument.value);
+    await TaskRepository.moveTask(task.id, kanbanMoveSelectedDocument.value);
     closeKanbanTaskMoveDialog();
     closeKanbanEditor();
-    if (moveResult.blockId) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [moveResult.blockId] });
-    }
     scheduleRefreshTasks(120, 'silent-full');
   } catch (error) {
-    console.error('[KanbanView] 移动任务失败:', error);
+    console.error('[KanbanView] Failed to move task:', error);
     isKanbanTaskMoveSubmitting.value = false;
-    await pushMsg('移动任务失败，请稍后重试', 3000);
+    await pushMsg(t('moveTaskFailed'), 3000);
   }
 }
 
@@ -8294,8 +8285,8 @@ async function handleKanbanEditorArchiveToggle(): Promise<void> {
       scheduleRefreshTasks(120, 'silent-full');
     }
   } catch (error) {
-    console.error('[KanbanView] 切换任务归档失败:', error);
-    await pushMsg('归档操作失败，请稍后重试', 3000);
+    console.error('[KanbanView] Toggle task archive failed:', error);
+    await pushMsg(t('archiveFailedTryAgain'), 3000);
   }
 }
 
@@ -8305,7 +8296,7 @@ async function handleKanbanEditorDelete(): Promise<void> {
     return;
   }
 
-  if (!window.confirm('确认删除该任务？')) {
+  if (!window.confirm(t('deleteTaskConfirm'))) {
     return;
   }
 
@@ -8325,8 +8316,8 @@ async function handleKanbanEditorDelete(): Promise<void> {
       scheduleRefreshTasks(120, 'silent-full');
     }
   } catch (error) {
-    console.error('[KanbanView] 删除任务失败:', error);
-    await pushMsg('删除任务失败，请稍后重试', 3000);
+    console.error('[KanbanView] Delete task failed:', error);
+    await pushMsg(t('deleteTaskFailed'), 3000);
   }
 }
 
@@ -8620,7 +8611,7 @@ async function resolveKanbanEditorTargetTask(task: Task): Promise<Task | null> {
       return fetchedTemplateTask;
     }
   } catch (error) {
-    console.warn('[KanbanView] 解析重复任务模板失败:', error);
+    console.warn('[KanbanView] Failed to parse recurring task template:', error);
   }
 
   return null;
@@ -8630,7 +8621,7 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
   const targetTask = await resolveKanbanEditorTargetTask(task);
   const blockId = typeof targetTask?.blockId === 'string' ? targetTask.blockId.trim() : '';
   if (!targetTask || targetTask.type !== 'block' || !blockId) {
-    const message = task.isVirtual ? '未找到重复任务模板，无法编辑' : '该任务无法编辑';
+    const message = task.isVirtual ? t('noTaskTemplateFound') : t('taskCannotBeEdited');
     await pushMsg(message, 2000);
     return;
   }
@@ -8672,7 +8663,7 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
   if (!plugin?.app || !mountElement) {
     openingKanbanEditorBlockIds.delete(blockId);
     closeKanbanEditor();
-    await pushMsg('编辑器初始化失败', 2000);
+    await pushMsg(t('editorInitFailed'), 2000);
     return;
   }
 
@@ -8707,7 +8698,7 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
   } catch {
     kanbanEditorProtyle = null;
     closeKanbanEditor();
-    await pushMsg('编辑器打开失败', 2000);
+    await pushMsg(t('editorOpenFailed'), 2000);
   } finally {
     openingKanbanEditorBlockIds.delete(blockId);
   }
@@ -8873,7 +8864,7 @@ function resolveTaskModalDefaults(): { notebookId: string; documentId: string; g
 
 async function openHeaderTaskModal(): Promise<void> {
   if (enabledNotebooks.value.length === 0) {
-    await pushMsg('暂无可用笔记本，请先在任务范围中启用笔记本', 3000);
+    await pushMsg(t('noNotebooksAvailable'), 3000);
     return;
   }
   await ensureTaskGroupsLoaded();
@@ -8946,8 +8937,8 @@ async function handleTaskModalCreate(
       scheduleRefreshTasks(180, 'silent-full');
     }
   } catch (error) {
-    console.error('[KanbanView] 通过弹窗创建任务失败:', error);
-    await pushMsg('创建任务失败，请稍后重试', 3000);
+    console.error('[KanbanView] Failed to create task via dialog:', error);
+    await pushMsg(t('createTaskFailed'), 3000);
   }
 }
 
@@ -9158,7 +9149,7 @@ async function ensureTaskListDropTarget(
     if (insertMeta.listItemId) {
       await deleteBlock(insertMeta.listItemId).catch(() => undefined);
     }
-    throw new Error('创建标题任务列表容器失败');
+    throw new Error('Failed to create heading task list container');
   }
 
   return {
@@ -9171,7 +9162,7 @@ async function ensureTaskListDropTarget(
 async function moveTaskBlockToHeadingMeta(blockId: string, headingMeta: TaskHeadingGroupMeta): Promise<void> {
   const dropTarget = await resolveTaskHeadingDropTarget(headingMeta);
   if (!dropTarget) {
-    throw new Error('无法解析目标标题位置');
+    throw new Error('Unable to resolve target heading position');
   }
 
   let moveParentId = dropTarget.parentId;
@@ -9234,7 +9225,7 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
     show: true,
     mode,
     headingTitle: '',
-    title: mode === 'heading-task' ? '' : '新建任务',
+    title: mode === 'heading-task' ? '' : t('newTask'),
     payload,
     context: options.context || null
   };
@@ -9328,17 +9319,17 @@ async function submitQuickCreateTask() {
   const trimmedTitle = quickCreateDialog.value.title.trim();
   if (!payload) return;
   if (isHeadingTaskMode && !headingTitle) {
-    await pushMsg('请输入标题名称', 2000);
+    await pushMsg(t('enterHeadingName'), 2000);
     return;
   }
   if (!trimmedTitle) {
-    await pushMsg('请输入任务标题', 2000);
+    await pushMsg(t('enterTaskTitle'), 2000);
     return;
   }
 
   const target = context?.fixedTarget || resolveCreateTarget(quickCreateNotebookId.value, quickCreateDocumentId.value);
   if (!target) {
-    await pushMsg('请先选择笔记本和文档', 3000);
+    await pushMsg(t('pleaseSelectNotebookAndDoc'), 3000);
     return;
   }
 
@@ -9347,7 +9338,7 @@ async function submitQuickCreateTask() {
     if (isHeadingTaskMode) {
       const headingBlockId = await createQuickCreateHeading(target.documentId, headingTitle);
       if (!headingBlockId) {
-        await pushMsg('创建标题失败，请稍后重试', 3000);
+        await pushMsg(t('createHeadingFailed'), 3000);
         return;
       }
       headingMetaForNewTask = {
@@ -9401,8 +9392,8 @@ async function submitQuickCreateTask() {
         try {
           await moveTaskBlockToHeadingMeta(created.blockId, targetHeadingMeta);
         } catch (error) {
-          console.error('[KanbanView] 新建任务后移动到标题失败:', error);
-          await pushMsg('任务已创建，但移动到标题失败', 3000);
+          console.error('[KanbanView] Failed to move newly created task to heading:', error);
+          await pushMsg(t('taskCreatedButMoveToHeadingFailed'), 3000);
         }
       }
     }
@@ -9434,8 +9425,8 @@ async function submitQuickCreateTask() {
       scheduleRefreshTasks(180, 'silent-full');
     }
   } catch (error) {
-    console.error('[KanbanView] 创建任务失败:', error);
-    await pushMsg('创建任务失败，请稍后重试', 3000);
+    console.error('[KanbanView] Create task failed:', error);
+    await pushMsg(t('createTaskFailed'), 3000);
   }
 }
 
@@ -9473,7 +9464,7 @@ async function toggleTaskStatus(task: Task) {
       }
     }
   } catch (error) {
-    console.error('[KanbanView] 切换任务状态失败:', error);
+    console.error('[KanbanView] Failed to toggle task status:', error);
   }
 }
 
@@ -9614,7 +9605,7 @@ async function handleSubtaskDescriptionUpdate(parentTask: Task, subtask: SubTask
       targetSubtask.description = normalizedDescription;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务描述失败'
+    'Failed to update subtask description'
   );
 }
 
@@ -9631,7 +9622,7 @@ async function handleSubtaskPriorityUpdate(parentTask: Task, subtask: SubTask, p
       targetSubtask.priority = normalizedPriority;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务优先级失败'
+    'Failed to update subtask priority'
   );
 }
 
@@ -9650,7 +9641,7 @@ async function handleSubtaskStatusUpdate(parentTask: Task, subtask: SubTask, sta
       targetSubtask.completed = normalizedStatus === 'completed';
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务状态失败',
+    'Failed to update subtask status',
     async (blockId) => {
       await updateTaskMarkdown(blockId, normalizedStatus === 'completed');
     }
@@ -9671,7 +9662,7 @@ async function handleSubtaskGroupUpdate(parentTask: Task, subtask: SubTask, grou
       targetSubtask.groupId = normalizedGroupId || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务标签失败'
+    'Failed to update subtask tags'
   );
 }
 
@@ -9689,7 +9680,7 @@ async function handleSubtaskStartDateUpdate(parentTask: Task, subtask: SubTask, 
       targetSubtask.startDate = normalizedStartDate || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务开始日期失败'
+    'Failed to update subtask start date'
   );
 }
 
@@ -9707,7 +9698,7 @@ async function handleSubtaskDueDateUpdate(parentTask: Task, subtask: SubTask, du
       targetSubtask.dueDate = normalizedDueDate || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务截止日期失败'
+    'Failed to update subtask due date'
   );
 }
 
@@ -9725,7 +9716,7 @@ async function handleSubtaskStartTimeUpdate(parentTask: Task, subtask: SubTask, 
       targetSubtask.startTime = normalizedStartTime || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务开始时间失败'
+    'Failed to update subtask start time'
   );
 }
 
@@ -9743,7 +9734,7 @@ async function handleSubtaskDueTimeUpdate(parentTask: Task, subtask: SubTask, du
       targetSubtask.dueTime = normalizedDueTime || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务截止时间失败'
+    'Failed to update subtask due time'
   );
 }
 
@@ -9753,7 +9744,7 @@ async function handleDescriptionUpdate(task: Task, description: string) {
     { 'custom-task-description': description || '' },
     'description',
     description,
-    '更新任务描述失败'
+    'Failed to update task description'
   );
 }
 
@@ -9763,7 +9754,7 @@ async function handlePriorityUpdate(task: Task, priority: Task['priority']) {
     { 'custom-task-priority': priority },
     'priority',
     priority,
-    '更新任务优先级失败'
+    'Failed to update task priority'
   );
 }
 
@@ -9774,7 +9765,7 @@ async function handleStatusUpdate(task: Task, status: Task['status']) {
     { 'custom-task-status': status },
     'status',
     status,
-    '更新任务状态失败',
+    'Failed to update task status',
     async (blockId) => {
       await updateTaskMarkdown(blockId, status === 'completed');
     }
@@ -9794,7 +9785,7 @@ async function handleGroupUpdate(task: Task, groupId: string) {
     { 'custom-task-group': normalizedGroupId || '' },
     'groupId',
     normalizedGroupId || undefined,
-    '更新任务标签失败'
+    'Failed to update task tags'
   );
   invalidateTableFilters();
 }
@@ -9805,7 +9796,7 @@ async function handleStartDateUpdate(task: Task, startDate: string) {
     { 'custom-task-start-date': startDate || '' },
     'startDate',
     startDate,
-    '更新开始日期失败'
+    'Failed to update start date'
   );
 }
 
@@ -9815,7 +9806,7 @@ async function handleDueDateUpdate(task: Task, dueDate: string) {
     { 'custom-task-due-date': dueDate || '' },
     'dueDate',
     dueDate,
-    '更新截止日期失败'
+    'Failed to update due date'
   );
 }
 
@@ -9830,7 +9821,7 @@ async function handleStartTimeUpdate(task: Task, startTime: string) {
     { 'custom-task-start-time': normalizedStartTime || '' },
     'startTime',
     normalizedStartTime || undefined,
-    '更新开始时间失败'
+    'Failed to update start time'
   );
 }
 
@@ -9845,7 +9836,7 @@ async function handleDueTimeUpdate(task: Task, dueTime: string) {
     { 'custom-task-due-time': normalizedDueTime || '' },
     'dueTime',
     normalizedDueTime || undefined,
-    '更新截止时间失败'
+    'Failed to update due time'
   );
 }
 
@@ -10041,8 +10032,8 @@ async function reorderTaskGroupsByColumnDrag(
     try {
       await saveUserSettings();
     } catch (error) {
-      console.error('[KanbanView] 标签列排序保存失败:', error);
-      await pushMsg('标签列排序保存失败，请稍后重试', 2600);
+      console.error('[KanbanView] Failed to save tag column order:', error);
+      await pushMsg(t('saveTagOrderFailed'), 2600);
     }
     return;
   }
@@ -10066,8 +10057,8 @@ async function reorderTaskGroupsByColumnDrag(
     taskGroups.value = refreshedGroups;
     eventBus.emit(Events.TASK_GROUPS_UPDATED, { groups: refreshedGroups });
   } catch (error) {
-    console.error('[KanbanView] 标签列排序保存失败:', error);
-    await pushMsg('标签列排序保存失败，请稍后重试', 2600);
+    console.error('[KanbanView] Failed to save tag column order:', error);
+    await pushMsg(t('saveTagOrderFailed'), 2600);
   }
 }
 
@@ -10281,7 +10272,7 @@ async function handleGroupDrop(column: KanbanColumn) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
     }
   } catch (error) {
-    console.error('[KanbanView] 拖拽更新任务标签失败:', error);
+    console.error('[KanbanView] Failed to update task tags via drag:', error);
     if (droppedBlockId) {
       dragSyncSuppressUntil.delete(droppedBlockId);
     }
@@ -10311,7 +10302,7 @@ async function handleHeadingDrop(column: KanbanColumn) {
 
   const task = draggedTask.value;
   if (!(task.type === 'block' && task.blockId)) {
-    pushMsg('只有块任务支持按标题拖动');
+    pushMsg(t('blockTaskDragOnly'));
     draggedTask.value = null;
     dragOverColumnId.value = null;
     return;
@@ -10352,7 +10343,7 @@ async function handleHeadingDrop(column: KanbanColumn) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: [droppedBlockId] });
     }, 500);
   } catch (error) {
-    console.error('[KanbanView] 拖拽移动任务到标题失败:', error);
+    console.error('[KanbanView] Failed to move task to heading via drag:', error);
     dragSyncSuppressUntil.delete(droppedBlockId);
     const nextGroupMap = new Map(taskHeadingGroups.value);
     if (previousMeta) {
@@ -10361,7 +10352,7 @@ async function handleHeadingDrop(column: KanbanColumn) {
       nextGroupMap.delete(taskId);
     }
     taskHeadingGroups.value = nextGroupMap;
-    pushMsg('移动到标题失败');
+    pushMsg(t('moveToHeadingFailed'));
   } finally {
     isDropping.value = false;
   }
@@ -10420,7 +10411,7 @@ async function handleStatusDrop(targetStatus: Task['status']) {
       playTaskCompletionSound();
     }
   } catch (error) {
-    console.error('[KanbanView] 拖拽更新任务状态失败:', error);
+    console.error('[KanbanView] Failed to update task status via drag:', error);
     if (droppedBlockId) {
       unlockDraggedTaskStatus(droppedBlockId);
       dragSyncSuppressUntil.delete(droppedBlockId);

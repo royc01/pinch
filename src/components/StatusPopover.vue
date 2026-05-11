@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <Teleport to="body">
     <div
       v-if="show"
@@ -25,6 +25,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { t } from '@/utils/i18n';
 
 const props = withDefaults(defineProps<{
   show: boolean;
@@ -39,13 +40,13 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const statusOptions = [
-  { value: 'pending', label: '\u5f85\u5904\u7406', background: '#fef3c7', color: '#f59e0b' },
-  { value: 'in-progress', label: '\u8fdb\u884c\u4e2d', background: '#dbeafe', color: '#3b82f6' },
-  { value: 'delayed', label: '\u5ef6\u8fdf', background: '#ffedd5', color: '#f97316' },
-  { value: 'completed', label: '\u5df2\u5b8c\u6210', background: '#d1fae5', color: '#10b981' },
-  { value: 'cancelled', label: '\u5df2\u53d6\u6d88', background: '#f3f4f6', color: '#9ca3af' }
-];
+const statusOptions = computed(() => [
+  { value: 'pending', label: t('statusPending'), background: '#fef3c7', color: '#f59e0b' },
+  { value: 'in-progress', label: t('statusInProgress'), background: '#dbeafe', color: '#3b82f6' },
+  { value: 'delayed', label: t('statusDelayed'), background: '#ffedd5', color: '#f97316' },
+  { value: 'completed', label: t('statusCompleted'), background: '#d1fae5', color: '#10b981' },
+  { value: 'cancelled', label: t('statusCancelled'), background: '#f3f4f6', color: '#9ca3af' }
+]);
 
 const popoverStyle = computed(() => {
   const isTopPlacement = props.placement === 'top';

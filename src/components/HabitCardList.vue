@@ -34,8 +34,8 @@
                   type="button"
                   class="pomodoro-indicator pomodoro-indicator--button"
                   :disabled="habit.isPaused"
-                  title="开始专注计时"
-                  aria-label="开始专注计时"
+                  :title="t('startFocusTimer')"
+                  :aria-label="t('startFocusTimer')"
                   @click.stop="emit('start-focus', habit)"
                 >
                   {{ pomodoroIcon }} {{ habit.pomodoroDuration ? `${habit.pomodoroDuration}min` : '25min' }}
@@ -43,7 +43,7 @@
               </div>
               <div v-if="manageMode" class="habit-status-text">
                 <span :class="['habit-status-badge', habit.isPaused ? 'paused' : 'active']">
-                  {{ habit.isPaused ? '已暂停' : '进行中' }}
+                  {{ habit.isPaused ? t('paused') : t('statusInProgress') }}
                 </span>
               </div>
               <div v-else class="week-checkboxes">
@@ -85,7 +85,7 @@
                 size="small"
                 :class="['check-in-btn', { 'success-animation': showAnimation && animationHabitId === habit.id }]"
                 :disabled="habit.isPaused"
-                :title="habit.usePomodoro && !isHabitCompleted(habit) ? '开始专注计时' : '打卡'"
+                :title="habit.usePomodoro && !isHabitCompleted(habit) ? t('startFocusTimer') : t('checkin')"
               >
                 <div v-if="showAnimation && animationHabitId === habit.id" class="rays-container">
                   <div class="ray"></div>
@@ -161,8 +161,8 @@
               <button
                 v-if="!habit.isPomodoroPaused"
                 class="pause-btn"
-                title="暂停番茄钟"
-                aria-label="暂停番茄钟"
+                :title="t('pausePomodoro')"
+                :aria-label="t('pausePomodoro')"
                 @click="emit('pomodoro-pause')"
               >
                 <Icon name="pause" width="16" height="16" class="icon" />
@@ -170,13 +170,13 @@
               <button
                 v-if="habit.isPomodoroPaused"
                 class="resume-btn"
-                title="继续番茄钟"
-                aria-label="继续番茄钟"
+                :title="t('resumePomodoro')"
+                :aria-label="t('resumePomodoro')"
                 @click="emit('pomodoro-resume')"
               >
                 <Icon name="play" width="16" height="16" class="icon" />
               </button>
-              <button class="stop-btn" title="停止番茄钟" aria-label="停止番茄钟" @click="emit('pomodoro-stop')">
+              <button class="stop-btn" :title="t('stopPomodoro')" :aria-label="t('stopPomodoro')" @click="emit('pomodoro-stop')">
                 <Icon name="stop" width="16" height="16" class="icon" />
               </button>
             </div>
@@ -217,7 +217,7 @@ const props = withDefaults(defineProps<{
   activePomodoroHabitId: string | null;
   inlineCircumference: number;
   inlineStrokeDashoffset: number;
-  t: (key: string) => string;
+  t: (key: string, vars?: Record<string, any>) => string;
   getHabitCache: (habitId: string) => HabitCacheData;
   getCalendarViewData: (habit: Habit) => CalendarDayData[];
   pomodoroStateClass: (state: string | undefined) => string;

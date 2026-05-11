@@ -13,7 +13,7 @@
         @click.stop
       >
         <div class="time-popover-header">
-          <div class="time-popover-title">选择时间</div>
+          <div class="time-popover-title">{{ t('selectTime') }}</div>
           <div class="time-popover-value">{{ previewValue }}</div>
         </div>
 
@@ -62,8 +62,8 @@
         </div>
 
         <div class="time-popover-footer">
-          <button type="button" class="time-popover-footer-btn subtle" @click="clearSelection">清除</button>
-          <button type="button" class="time-popover-footer-btn primary" @click="applySelection">应用</button>
+          <button type="button" class="time-popover-footer-btn subtle" @click="clearSelection">{{ t('clear') }}</button>
+          <button type="button" class="time-popover-footer-btn primary" @click="applySelection">{{ t('apply') }}</button>
         </div>
       </div>
     </div>
@@ -72,6 +72,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { t } from '@/utils/i18n';
 
 const ITEM_HEIGHT = 36;
 

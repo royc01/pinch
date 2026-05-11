@@ -5,9 +5,9 @@
     :excluded-notebook-ids="[]"
     :show-scope-tab="false"
     :show-extra="false"
-    :title="'目标管理'"
-    :hint="'目标管理已整合进任务范围弹窗，这里保留为兼容入口。'"
-    :confirm-text="'保存'"
+    :title="t('goalManagement')"
+    :hint="t('goalManagementHint')"
+    :confirm-text="t('save')"
     :initial-tab="'goals'"
     :goals="goals"
     :goal-documents="documents"
@@ -17,6 +17,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '@/utils/i18n';
 import TaskScopeDialog, { type TaskScopeDialogSavePayload } from '@/components/TaskScopeDialog.vue';
 import type { Goal } from '@/goalRepository';
 import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';

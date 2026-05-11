@@ -1,25 +1,25 @@
-﻿<template>
+<template>
   <Transition name="fade">
     <div v-show="show" class="modal-overlay" @click.self="emit('close')">
       <Transition name="pop">
         <div class="modal-content" @click.stop v-show="show">
       <div class="modal-header">
         <h3>{{ titleText }}</h3>
-        <button @click="emit('close')" class="icon-button" title="关闭" aria-label="关闭">
+        <button @click="emit('close')" class="icon-button" :title="t('close')" :aria-label="t('close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
       <div class="modal-body" v-if="localHabit">
         <div class="form-group">
           <div class="emoji-selector">
-            <SyInput v-model="localHabit.emoji" placeholder="选择或输入 Emoji" class="emoji-input-hidden" />
+            <SyInput v-model="localHabit.emoji" :placeholder="t('selectOrTypeEmoji')" class="emoji-input-hidden" />
             <SyButton
               @click.stop="openEmojiPicker"
               type="default"
               size="small"
               class="emoji-picker-btn">
               <span v-if="localHabit.emoji" class="emoji-display">{{ localHabit.emoji }}</span>
-              <span v-else>选择图标</span>
+              <span v-else>{{ t('selectIcon') }}</span>
             </SyButton>
           </div>
         </div>
@@ -40,7 +40,7 @@
           />
         </div>
         <div class="form-group">
-          <label>困难程度</label>
+           <label>{{ t('difficulty') }}</label>
           <SySelect
             v-model="localHabit.difficulty"
             :options="difficultyOptions"
@@ -53,12 +53,12 @@
               v-model="localHabit.usePomodoro"
               class="pomodoro-checkbox"
             />
-            启用番茄钟
+             {{ t('enablePomodoro') }}
           </label>
         </div>
         
         <div class="form-group" v-if="localHabit.usePomodoro">
-          <label>番茄钟时长</label>
+           <label>{{ t('pomodoroDuration') }}</label>
           <SySelect 
             :modelValue="localHabit.pomodoroDuration?.toString()" 
             @update:modelValue="onPomodoroDurationChange"
@@ -112,7 +112,7 @@ interface Props {
   frequencyOptions: Option[];
   timesPerDayOptions: Option[];
   pomodoroDurationOptions: Option[];
-  t: (key: string) => string;
+  t: (key: string, vars?: Record<string, any>) => string;
 }
 
 const props = defineProps<Props>();
@@ -123,11 +123,11 @@ const emit = defineEmits<{
 }>();
 
 const titleText = computed(() => {
-  return props.mode === 'add' ? props.t('habitTracker.addHabit') : '编辑习惯';
+  return props.mode === 'add' ? props.t('habitTracker.addHabit') : props.t('editHabit');
 });
 
 const buttonText = computed(() => {
-  return props.mode === 'add' ? props.t('OK') : '保存';
+  return props.mode === 'add' ? props.t('OK') : props.t('save');
 });
 
 const localHabit = ref<Habit | NewHabit | null>(null);

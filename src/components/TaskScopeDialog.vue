@@ -3,7 +3,7 @@
     <div class="task-scope-dialog" :class="{ 'with-document-groups': hasWideLayout }" @click.stop>
       <div class="task-scope-header">
         <div class="task-scope-title">{{ dialogTitle }}</div>
-        <button v-if="!lockClose" type="button" class="icon-button" title="关闭" aria-label="关闭" @click="handleClose">
+        <button v-if="!lockClose" type="button" class="icon-button" :title="t('close')" :aria-label="t('close')" @click="handleClose">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
@@ -20,7 +20,7 @@
           :class="{ active: activeTab === 'scope' }"
           @click="activeTab = 'scope'"
         >
-          范围设置
+          {{ t('scopeSettings') }}
         </button>
         <button
           v-if="hasDocumentGroupTab"
@@ -29,7 +29,7 @@
           :class="{ active: activeTab === 'document-groups' }"
           @click="activeTab = 'document-groups'"
         >
-          文档组
+          {{ t('docGroups') }}
         </button>
         <button
           v-if="hasGoalTab"
@@ -38,16 +38,16 @@
           :class="{ active: activeTab === 'goals' }"
           @click="activeTab = 'goals'"
         >
-          目标
+          {{ t('goals') }}
         </button>
       </div>
 
       <div v-if="activeTab === 'scope'" class="task-scope-content scope-tab-content">
         <div class="task-scope-summary">
-          已启用 {{ notebooks.length - localExcludedNotebookIds.length }} / {{ notebooks.length }}
+          {{ t('enabledNotebooksCount', { enabled: notebooks.length - localExcludedNotebookIds.length, total: notebooks.length }) }}
         </div>
         <div v-if="showExtra" class="task-scope-extra">
-          <span class="task-scope-extra-label">显示已完成任务</span>
+          <span class="task-scope-extra-label">{{ t('showCompletedTasks') }}</span>
           <SyCheckbox
             class="task-scope-toggle"
             :model-value="localShowCompletedTasks"
@@ -69,7 +69,7 @@
           </label>
 
           <div v-if="notebooks.length === 0" class="task-scope-empty">
-            暂无可管理笔记本
+            {{ t('noNotebooksToManage') }}
           </div>
         </div>
 
@@ -77,17 +77,17 @@
           <div class="task-scope-auto-item">
             <div class="task-scope-auto-main">
               <div class="task-scope-auto-title-row">
-                <span class="task-scope-extra-label">打开日期自动识别</span>
+                <span class="task-scope-extra-label">{{ t('enableDateRecognition') }}</span>
                 <SyButton
                   class="task-scope-inline-btn"
                   :disabled="globalDateRecognizing"
                   @click="handleGlobalRecognizeDate"
                 >
-                  {{ globalDateRecognizing ? '识别中...' : '一键全局识别' }}
+                  {{ globalDateRecognizing ? t('recognizing') : t('globalRecognize') }}
                 </SyButton>
               </div>
               <div class="task-scope-auto-desc">
-                开关开启后，仅对新建任务自动识别文本并填充开始/截止时间。已存在任务不会自动识别；如需识别历史任务，请使用「一键全局识别」。
+                {{ t('autoRecognizeHint') }}
               </div>
             </div>
             <SyCheckbox
@@ -97,7 +97,7 @@
             />
           </div>
           <div class="task-scope-auto-item">
-            <span class="task-scope-extra-label">任务完成提示音</span>
+            <span class="task-scope-extra-label">{{ t('taskCompletionSound') }}</span>
             <SyCheckbox
               class="task-scope-toggle"
               :model-value="localTaskCompletionSoundEnabled"
@@ -128,26 +128,27 @@
           class="task-scope-btn plain"
           @click="clearExcluded"
         >
-          全部启用
+          {{ t('enableAll') }}
         </SyButton>
         <div
           v-else-if="activeTab === 'document-groups' && showDocumentGroupNotebookPathToggle"
           class="task-scope-action-setting"
         >
-          <span class="task-scope-extra-label">显示文档笔记本路径</span>
+          <span class="task-scope-extra-label">{{ t('showDocNotebookPath') }}</span>
           <SyCheckbox
             class="task-scope-toggle"
             :model-value="localShowDocumentGroupNotebookPath"
             @update:model-value="localShowDocumentGroupNotebookPath = $event"
           />
         </div>
-        <SyButton class="task-scope-btn confirm" @click="save">{{ confirmText || '保存' }}</SyButton>
+        <SyButton class="task-scope-btn confirm" @click="save">{{ confirmText || t('save') }}</SyButton>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { t } from '@/utils/i18n';
 import { computed, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
@@ -226,9 +227,9 @@ const showExtra = computed(() => props.showExtra !== false);
 const globalDateRecognizing = computed(() => props.globalDateRecognizing === true);
 const showScopeTab = computed(() => props.showScopeTab !== false);
 const showDocumentGroupNotebookPathToggle = computed(() => props.showDocumentGroupNotebookPathToggle !== false);
-const dialogTitle = computed(() => props.title || '任务范围');
-const dialogHint = computed(() => props.hint || '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。');
-const confirmText = computed(() => props.confirmText || '保存');
+const dialogTitle = computed(() => props.title || t('defaultScopeDialogTitle'));
+const dialogHint = computed(() => props.hint || t('defaultScopeDialogHint'));
+const confirmText = computed(() => props.confirmText || t('save'));
 const hasDocumentGroupTab = computed(() =>
   Array.isArray(props.documentGroups) && Array.isArray(props.documentGroupDocuments)
 );
@@ -256,8 +257,8 @@ const activeHint = computed(() =>
   activeTab.value === 'scope'
     ? dialogHint.value
     : activeTab.value === 'document-groups'
-      ? '可将文档跨笔记本归组，来源下拉中的 🏷 项会使用这里的定义。'
-      : '目标会独立保存文档选择，后续调整文档组不会影响这里的统计范围。'
+      ? t('docGroupHint')
+      : t('goalHint')
 );
 
 function cloneDocumentGroups(groups: DocumentGroup[]): DocumentGroup[] {

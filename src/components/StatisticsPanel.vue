@@ -2,8 +2,8 @@
   <div v-if="show" class="total-stats-panel">
     <div class="stats-header">
       <div class="stats-header-content">
-        <div class="stats-title">统计总览</div>
-        <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="emit('close')">
+        <div class="stats-title">{{ t('statsOverview') }}</div>
+        <button type="button" class="icon-button" :title="t('close')" :aria-label="t('close')" @click="emit('close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -12,23 +12,23 @@
     <div class="stats-grid">
       <div class="stat-item">
         <div class="stat-value">{{ totalHabitsCount }}</div>
-        <div class="stat-label">习惯总数</div>
+        <div class="stat-label">{{ t('totalHabits') }}</div>
       </div>
       <div class="stat-item">
         <div class="stat-value">{{ totalCompletionsCount }}</div>
-        <div class="stat-label">总完成数</div>
+        <div class="stat-label">{{ t('totalCompletions') }}</div>
       </div>
       <div class="stat-item">
         <div class="stat-value">{{ longestStreak }}</div>
-        <div class="stat-label">最长连击</div>
+        <div class="stat-label">{{ t('longestStreak') }}</div>
       </div>
     </div>
 
     <div class="heatmap-section">
       <div class="heatmap-header">
-        <h3 class="heatmap-title">打卡热力图</h3>
+        <h3 class="heatmap-title">{{ t('checkinHeatmap') }}</h3>
         <div class="heatmap-legend">
-          <span>少</span>
+          <span>{{ t('less') }}</span>
           <div class="legend-colors">
             <div class="legend-color intensity-0"></div>
             <div class="legend-color intensity-1"></div>
@@ -36,19 +36,19 @@
             <div class="legend-color intensity-3"></div>
             <div class="legend-color intensity-4"></div>
           </div>
-          <span>多</span>
+          <span>{{ t('more') }}</span>
         </div>
       </div>
       <div class="heatmap-container">
         <div class="heatmap-grid">
           <div class="heatmap-weekdays">
-            <div class="heatmap-weekday">一</div>
-            <div class="heatmap-weekday">二</div>
-            <div class="heatmap-weekday">三</div>
-            <div class="heatmap-weekday">四</div>
-            <div class="heatmap-weekday">五</div>
-            <div class="heatmap-weekday">六</div>
-            <div class="heatmap-weekday">日</div>
+            <div class="heatmap-weekday">{{ t('mondayShort') }}</div>
+            <div class="heatmap-weekday">{{ t('tuesdayShort') }}</div>
+            <div class="heatmap-weekday">{{ t('wednesdayShort') }}</div>
+            <div class="heatmap-weekday">{{ t('thursdayShort') }}</div>
+            <div class="heatmap-weekday">{{ t('fridayShort') }}</div>
+            <div class="heatmap-weekday">{{ t('saturdayShort') }}</div>
+            <div class="heatmap-weekday">{{ t('sundayShort') }}</div>
           </div>
           <div class="heatmap-days-container">
             <template v-for="(week, weekIndex) in heatmapGridData.weeks" :key="weekIndex">
@@ -57,7 +57,7 @@
                   <div
                     class="heatmap-day"
                     :class="`intensity-${day.intensity}`"
-                    :title="`${day.date}: ${day.count} 次打卡`"
+                    :title="t('checkinCount', { date: day.date, count: day.count })"
                   ></div>
                 </template>
               </div>
@@ -82,20 +82,20 @@
           </div>
           <div class="habit-stat-details">
             <div class="stat-detail-item">
-              <span class="stat-value">{{ habit.totalCompletions || habit.calendar.filter(record => record.completed).length }}<span> 次</span></span>
-              <span class="stat-label">累计打卡</span>
+              <span class="stat-value">{{ habit.totalCompletions || habit.calendar.filter(record => record.completed).length }}<span> {{ t('times') }}</span></span>
+              <span class="stat-label">{{ t('cumulativeCheckins') }}</span>
             </div>
             <div class="stat-detail-item">
-              <span class="stat-value">{{ calculateLongestStreak(habit).streak }}<span> 天</span></span>
-              <span class="stat-label">最长连击</span>
+              <span class="stat-value">{{ calculateLongestStreak(habit).streak }}<span> {{ t('daysSuffix') }}</span></span>
+              <span class="stat-label">{{ t('longestStreak') }}</span>
             </div>
             <div class="stat-detail-item">
               <span class="stat-value">{{ calculateTotalCompletionRate(habit) }}<span> %</span></span>
-              <span class="stat-label">总完成率</span>
+              <span class="stat-label">{{ t('totalCompletionRate') }}</span>
             </div>
             <div class="stat-detail-item">
               <span class="stat-value" v-html="calculateCommonTimeSlot(habit)"></span>
-              <span class="stat-label">高频时段</span>
+              <span class="stat-label">{{ t('peakTimes') }}</span>
             </div>
           </div>
         </div>
@@ -106,6 +106,7 @@
 
 <script setup lang="ts">
 import type { Habit } from '@/api';
+import { t } from '@/utils/i18n';
 import Icon from './Icon.vue';
 
 interface HeatmapDay {

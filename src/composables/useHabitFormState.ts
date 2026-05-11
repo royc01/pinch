@@ -24,32 +24,32 @@ export const createDefaultNewHabit = (): NewHabitFormState => ({
   pomodoroDuration: '25'
 });
 
-export const useHabitFormState = (t: (key: string) => string) => {
+export const useHabitFormState = (t: (key: string, vars?: Record<string, any>) => string) => {
   const newHabit = ref<NewHabitFormState>(createDefaultNewHabit());
 
   const frequencyOptions = ref([
     { value: 'daily', text: t('habitTracker.daily') },
     ...Array.from({ length: 6 }, (_, i) => ({
       value: `weekly${6 - i}`,
-      text: `每周${6 - i}天`
+      text: t('XDaysPerWeek', { count: 6 - i })
     }))
   ]);
 
-  const timesPerDayOptions = ref(createNumberOptions(20, '次'));
+  const timesPerDayOptions = ref(createNumberOptions(20, 'XTimesPerDay'));
   const difficultyOptions = ref([
-    { value: 'easy', text: '简单' },
-    { value: 'medium', text: '普通' },
-    { value: 'hard', text: '困难' }
+    { value: 'easy', text: t('difficultyEasy') },
+    { value: 'medium', text: t('difficultyMedium') },
+    { value: 'hard', text: t('difficultyHard') }
   ]);
 
   const pomodoroDurationOptions = ref([
-    { value: '5', text: '5分钟' },
-    { value: '10', text: '10分钟' },
-    { value: '15', text: '15分钟' },
-    { value: '25', text: '25分钟' },
-    { value: '30', text: '30分钟' },
-    { value: '45', text: '45分钟' },
-    { value: '60', text: '60分钟' }
+    { value: '5', text: t('XMinutes', { count: 5 }) },
+    { value: '10', text: t('XMinutes', { count: 10 }) },
+    { value: '15', text: t('XMinutes', { count: 15 }) },
+    { value: '25', text: t('XMinutes', { count: 25 }) },
+    { value: '30', text: t('XMinutes', { count: 30 }) },
+    { value: '45', text: t('XMinutes', { count: 45 }) },
+    { value: '60', text: t('XMinutes', { count: 60 }) }
   ]);
 
   return {

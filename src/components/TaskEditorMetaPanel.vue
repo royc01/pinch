@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="task-editor-meta-panel">
     <TaskDatePopover
       v-if="panel === 'due'"
@@ -37,14 +37,14 @@
     />
     <div v-if="panel === 'group'" class="task-editor-group-panel">
       <div class="task-editor-group-header">
-        <span class="task-editor-group-title">标签</span>
+        <span class="task-editor-group-title">{{ t('tag') }}</span>
         <button
           v-if="showGroupManage"
           type="button"
           class="task-group-manage-btn"
           @click.stop="emitManageGroups"
         >
-          管理
+          {{ t('manage') }}
         </button>
       </div>
       <div class="task-group-chip-list">
@@ -82,8 +82,8 @@
         type="button"
         class="task-editor-action-btn task-editor-status-btn"
         :class="{ 'is-active': panel === 'status' }"
-        title="状态"
-        aria-label="状态"
+        :title="t('status')"
+        :aria-label="t('status')"
         @click.stop="toggleStatusPanel"
       >
         <span class="task-editor-status-badge" :class="`status-${normalizedStatus}`">
@@ -95,8 +95,8 @@
         class="task-editor-action-btn task-editor-group-btn"
         :class="{ 'is-active': panel === 'group' }"
         :style="groupButtonStyle"
-        title="标签"
-        aria-label="标签"
+        :title="t('tag')"
+        :aria-label="t('tag')"
         @click.stop="togglePanel('group')"
       >
         <Icon name="group" width="14" height="14" />
@@ -107,8 +107,8 @@
         type="button"
         class="task-editor-action-btn"
         :class="{ 'is-active': panel === 'due' }"
-        title="截止日期"
-        aria-label="截止日期"
+        :title="t('dueDate')"
+        :aria-label="t('dueDate')"
         @click.stop="togglePanel('due')"
       >
         <Icon name="calendar" width="14" height="14" />
@@ -119,8 +119,8 @@
         type="button"
         class="task-editor-action-btn"
         :class="{ 'is-active': panel === 'reminder' }"
-        title="提醒"
-        aria-label="提醒"
+        :title="t('reminder')"
+        :aria-label="t('reminder')"
         @click.stop="togglePanel('reminder')"
       >
         <Icon name="bell" width="14" height="14" />
@@ -130,8 +130,8 @@
         type="button"
         class="task-editor-action-btn"
         :class="{ 'is-active': panel === 'description' }"
-        title="描述"
-        aria-label="描述"
+        :title="t('description')"
+        :aria-label="t('description')"
         @click.stop="togglePanel('description')"
       >
         <Icon name="descriptionBubble" width="14" height="14" />
@@ -142,6 +142,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { t } from '@/utils/i18n';
 import type { Task } from '@/api';
 import Icon from '@/components/Icon.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
@@ -221,11 +222,11 @@ const statusPopoverPosition = ref({ x: 0, y: 0 });
 
 const showDescriptionPanel = computed(() => props.panel === 'description' || props.hasDescription);
 const statusLabelMap: Record<TaskStatus, string> = {
-  pending: '\u5f85\u5904\u7406',
-  'in-progress': '\u8fdb\u884c\u4e2d',
-  delayed: '\u5ef6\u8fdf',
-  completed: '\u5df2\u5b8c\u6210',
-  cancelled: '\u5df2\u53d6\u6d88'
+  pending: t('statusPending'),
+  'in-progress': t('statusInProgress'),
+  delayed: t('statusDelayed'),
+  completed: t('statusCompleted'),
+  cancelled: t('statusCancelled')
 };
 const normalizedStatus = computed<TaskStatus>(() => normalizeStatusValue(props.status));
 const statusBadgeText = computed(() => statusLabelMap[normalizedStatus.value]);

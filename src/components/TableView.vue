@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div
     class="table-view"
     ref="tableContainerRef"
@@ -23,27 +23,27 @@
           <th class="col-status"></th>
           <th class="col-title is-resizable">
             <div class="th-content">
-              <span>任务</span>
+              <span>{{ t('task') }}</span>
             </div>
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'title' }"
-              aria-label="调整任务列宽"
-              title="拖动调整任务列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('task') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('task') })"
               @mousedown.stop.prevent="startColumnResize('title', $event)"
               @dblclick.stop.prevent="resetColumnWidth('title')"
               @click.stop.prevent
             ></button>
           </th>
           <th class="col-description is-resizable">
-            描述
+            {{ t('description') }}
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'description' }"
-              aria-label="调整描述列宽"
-              title="拖动调整描述列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('description') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('description') })"
               @mousedown.stop.prevent="startColumnResize('description', $event)"
               @dblclick.stop.prevent="resetColumnWidth('description')"
               @click.stop.prevent
@@ -51,7 +51,7 @@
           </th>
           <th class="col-priority sortable is-resizable" :class="{ active: sortColumn === 'priority' }" @click="toggleSort('priority')">
             <div class="th-content">
-              <span>优先级</span>
+              <span>{{ t('priority') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('priority')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -60,8 +60,8 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'priority' }"
-              aria-label="调整优先级列宽"
-              title="拖动调整优先级列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('priority') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('priority') })"
               @mousedown.stop.prevent="startColumnResize('priority', $event)"
               @dblclick.stop.prevent="resetColumnWidth('priority')"
               @click.stop.prevent
@@ -69,7 +69,7 @@
           </th>
           <th class="col-status-text sortable is-resizable" :class="{ active: sortColumn === 'status' }" @click="toggleSort('status')">
             <div class="th-content">
-              <span>状态</span>
+              <span>{{ t('status') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('status')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -78,21 +78,21 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'statusText' }"
-              aria-label="调整状态列宽"
-              title="拖动调整状态列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('status') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('status') })"
               @mousedown.stop.prevent="startColumnResize('statusText', $event)"
               @dblclick.stop.prevent="resetColumnWidth('statusText')"
               @click.stop.prevent
             ></button>
           </th>
           <th class="col-group is-resizable">
-            标签
+            {{ t('label') }}
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'group' }"
-              aria-label="调整标签列宽"
-              title="拖动调整标签列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('label') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('label') })"
               @mousedown.stop.prevent="startColumnResize('group', $event)"
               @dblclick.stop.prevent="resetColumnWidth('group')"
               @click.stop.prevent
@@ -100,7 +100,7 @@
           </th>
           <th class="col-start-date sortable is-resizable" :class="{ active: sortColumn === 'startDate' }" @click="toggleSort('startDate')">
             <div class="th-content">
-              <span>开始日期</span>
+              <span>{{ t('startDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('startDate')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -109,8 +109,8 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'startDate' }"
-              aria-label="调整开始日期列宽"
-              title="拖动调整开始日期列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('startDate') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('startDate') })"
               @mousedown.stop.prevent="startColumnResize('startDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('startDate')"
               @click.stop.prevent
@@ -118,14 +118,14 @@
           </th>
           <th class="col-start-time is-resizable">
             <div class="th-content">
-              <span>开始时间</span>
+              <span>{{ t('startTime') }}</span>
             </div>
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'startTime' }"
-              aria-label="调整开始时间列宽"
-              title="拖动调整开始时间列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('startTime') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('startTime') })"
               @mousedown.stop.prevent="startColumnResize('startTime', $event)"
               @dblclick.stop.prevent="resetColumnWidth('startTime')"
               @click.stop.prevent
@@ -133,7 +133,7 @@
           </th>
           <th class="col-due-date sortable is-resizable" :class="{ active: sortColumn === 'dueDate' }" @click="toggleSort('dueDate')">
             <div class="th-content">
-              <span>截止日期</span>
+              <span>{{ t('dueDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('dueDate')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -142,8 +142,8 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'dueDate' }"
-              aria-label="调整截止日期列宽"
-              title="拖动调整截止日期列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('dueDate') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('dueDate') })"
               @mousedown.stop.prevent="startColumnResize('dueDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('dueDate')"
               @click.stop.prevent
@@ -151,14 +151,14 @@
           </th>
           <th class="col-due-time is-resizable">
             <div class="th-content">
-              <span>截止时间</span>
+              <span>{{ t('dueTime') }}</span>
             </div>
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'dueTime' }"
-              aria-label="调整截止时间列宽"
-              title="拖动调整截止时间列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('dueTime') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('dueTime') })"
               @mousedown.stop.prevent="startColumnResize('dueTime', $event)"
               @dblclick.stop.prevent="resetColumnWidth('dueTime')"
               @click.stop.prevent
@@ -166,7 +166,7 @@
           </th>
           <th class="col-created-date sortable is-resizable" :class="{ active: sortColumn === 'createdAt' }" @click="toggleSort('createdAt')">
             <div class="th-content">
-              <span>创建时间</span>
+              <span>{{ t('createdAt') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('createdAt')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -175,8 +175,8 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'createdDate' }"
-              aria-label="调整创建时间列宽"
-              title="拖动调整创建时间列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('createdAt') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('createdAt') })"
               @mousedown.stop.prevent="startColumnResize('createdDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('createdDate')"
               @click.stop.prevent
@@ -184,7 +184,7 @@
           </th>
           <th class="col-updated-date sortable is-resizable" :class="{ active: sortColumn === 'updatedAt' }" @click="toggleSort('updatedAt')">
             <div class="th-content">
-              <span>更新时间</span>
+              <span>{{ t('updatedAt') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('updatedAt')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -193,14 +193,14 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'updatedDate' }"
-              aria-label="调整更新时间列宽"
-              title="拖动调整更新时间列宽，双击重置"
+              :aria-label="t('adjustColumnWidth', { column: t('updatedAt') })"
+              :title="t('dragToAdjustColumnWidth', { column: t('updatedAt') })"
               @mousedown.stop.prevent="startColumnResize('updatedDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('updatedDate')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-location">位置</th>
+          <th class="col-location">{{ t('location') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -230,7 +230,7 @@
                 </span>
                 <span class="group-row-title">
                   <span class="group-row-label">{{ row.group.label }}</span>
-                  <span class="group-row-count">{{ row.group.tasks.length }} 项</span>
+                  <span class="group-row-count">{{ t('itemsCount', { count: row.group.tasks.length }) }}</span>
                 </span>
                 <span class="group-row-right">
                   <button
@@ -291,7 +291,7 @@
             <td class="col-title">
               <div class="title-wrapper">
                 <div class="title-main" @click="handleTaskClick(row.task, $event)">
-                  <span v-if="row.task.pinned === true" class="title-pinned-badge" title="已置顶" aria-label="已置顶">
+                  <span v-if="row.task.pinned === true" class="title-pinned-badge" :title="t('pinned')" :aria-label="t('pinned')">
                     <Icon name="pinBadge" width="18" height="18" />
                   </span>
                   <div class="task-title" v-html="getTitleHtml(row.task.title)"></div>
@@ -299,8 +299,8 @@
                 <button
                   type="button"
                   class="title-open-btn"
-                  title="跳转到任务"
-                  aria-label="跳转到任务"
+                  :title="t('jumpToTask')"
+                  :aria-label="t('jumpToTask')"
                   @click.stop="handleOpenClick(row.task)"
                 >
                   <Icon name="moreHorizontal" width="14" height="14" />
@@ -330,7 +330,7 @@
                 @keydown.esc.prevent="cancelDescriptionEdit(row.task.id)"
                 @click.stop
                 rows="2"
-                placeholder="输入描述..."
+                :placeholder="t('enterDescription')"
               />
             </td>
             <td class="col-priority" @click.stop="togglePriorityEdit(row.task, $event)">
@@ -339,7 +339,7 @@
                   v-if="row.task.priority !== 'none'"
                   class="task-priority-badge"
                   :class="`priority-${row.task.priority}`"
-                  :title="row.task.priority === 'high' ? '高优先级' : row.task.priority === 'medium' ? '中优先级' : '低优先级'"
+                  :title="row.task.priority === 'high' ? t('priorityHigh') : row.task.priority === 'medium' ? t('priorityMedium') : t('priorityLow')"
                 >
                   <Icon name="flag" width="12" height="12" />
                 </span>
@@ -445,7 +445,7 @@
                 @keydown.esc.prevent="cancelSubtaskDescriptionEdit(row.task, row.subtask)"
                 @click.stop
                 rows="2"
-                placeholder="输入描述..."
+                :placeholder="t('enterDescription')"
               />
             </td>
             <td class="col-priority" @click.stop="toggleSubtaskPriorityEdit(row.task, row.subtask, $event)">
@@ -454,7 +454,7 @@
                   v-if="getSubtaskPriority(row.subtask) !== 'none'"
                   class="task-priority-badge"
                   :class="`priority-${getSubtaskPriority(row.subtask)}`"
-                  :title="getSubtaskPriority(row.subtask) === 'high' ? '高优先级' : getSubtaskPriority(row.subtask) === 'medium' ? '中优先级' : '低优先级'"
+                  :title="getSubtaskPriority(row.subtask) === 'high' ? t('priorityHigh') : getSubtaskPriority(row.subtask) === 'medium' ? t('priorityMedium') : t('priorityLow')"
                 >
                   <Icon name="flag" width="12" height="12" />
                 </span>
@@ -545,9 +545,9 @@
         @mousedown.stop
       >
         <div class="group-popover-header">
-          <span class="group-popover-title">选择标签</span>
+          <span class="group-popover-title">{{ t('selectLabel') }}</span>
           <button type="button" class="group-popover-manage" @click.stop="handleGroupManage">
-            管理
+            {{ t('manage') }}
           </button>
         </div>
         <div class="group-popover-chip-list">
@@ -586,13 +586,14 @@
     />
     
     <div v-if="tasks.length === 0" class="empty-state">
-      暂无任务
+      {{ t('noTasks') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
+import { t } from '@/utils/i18n';
 import { Task, TaskGroup } from '@/api';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubtaskProgress from '@/components/SubtaskProgress.vue';
@@ -955,7 +956,7 @@ const groupLookup = computed(() => {
   const map = new Map<string, { name: string; background: string; color: string }>();
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
-    const name = group.name?.trim() || '标签';
+    const name = group.name?.trim() || t('label');
     const background = resolveGroupColorCss(group.color || '');
     const color = resolveGroupTextColor(group.color || '');
     map.set(group.id, { name, background, color });
@@ -965,7 +966,7 @@ const groupLookup = computed(() => {
 
 const groupPopoverOptions = computed(() => {
   const options: Array<{ value: string; label: string; special?: boolean; colorCss?: string; textColor?: string }> = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: t('noLabel'), special: true, colorCss: '', textColor: '' }
   ];
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
@@ -973,7 +974,7 @@ const groupPopoverOptions = computed(() => {
     const rawColor = group.color || '';
     options.push({
       value: group.id,
-      label: group.name?.trim() || '标签',
+      label: group.name?.trim() || t('tag'),
       special: false,
       colorCss: resolveGroupColorCss(rawColor),
       textColor: resolveGroupTextColor(rawColor)
@@ -986,7 +987,7 @@ const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date'].include
 const supportsGroupActions = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
 const customGroupOrder = computed(() => {
   const order: Array<{ id: string; label: string; style?: Record<string, string> }> = [
-    { id: '', label: '无标签' }
+    { id: '', label: t('noLabel') }
   ];
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
@@ -998,7 +999,7 @@ const customGroupOrder = computed(() => {
     } : undefined;
     order.push({
       id: group.id,
-      label: group.name?.trim() || '标签',
+      label: group.name?.trim() || t('tag'),
       style
     });
   }
@@ -1008,27 +1009,27 @@ type TableDateGroupKey = 'overdue' | 'today' | 'thisWeek' | 'thisMonth' | 'other
 const dateGroupOrder: Array<{ id: TableDateGroupKey; label: string; style: Record<string, string> }> = [
   {
     id: 'overdue',
-    label: '逾期',
+    label: t('overdue'),
     style: { '--group-badge-bg': 'rgba(239, 68, 68, 0.14)', '--group-badge-color': '#b91c1c' }
   },
   {
     id: 'today',
-    label: '今日',
+    label: t('today'),
     style: { '--group-badge-bg': 'rgba(245, 158, 11, 0.14)', '--group-badge-color': '#b45309' }
   },
   {
     id: 'thisWeek',
-    label: '本周',
+    label: t('thisWeek'),
     style: { '--group-badge-bg': 'rgba(59, 130, 246, 0.14)', '--group-badge-color': '#1d4ed8' }
   },
   {
     id: 'thisMonth',
-    label: '本月',
+    label: t('thisMonth'),
     style: { '--group-badge-bg': 'rgba(16, 185, 129, 0.14)', '--group-badge-color': '#047857' }
   },
   {
     id: 'other',
-    label: '其他',
+    label: t('others'),
     style: { '--group-badge-bg': 'rgba(156, 163, 175, 0.16)', '--group-badge-color': '#4b5563' }
   }
 ];
@@ -2050,17 +2051,17 @@ function getGroupArchivableTaskCount(group: TableTaskGroupSection): number {
 }
 
 function getGroupCreateTaskLabel(group: TableTaskGroupSection): string {
-  const title = (group.label || '当前分组').trim() || '当前分组';
-  return `在“${title}”分组新建任务`;
+  const title = (group.label || t('currentGroup')).trim() || t('currentGroup');
+  return t('createTaskInGroup', { title });
 }
 
 function getGroupArchiveTasksLabel(group: TableTaskGroupSection): string {
-  const title = (group.label || '当前分组').trim() || '当前分组';
+  const title = (group.label || t('currentGroup')).trim() || t('currentGroup');
   const count = getGroupArchivableTaskCount(group);
   if (count > 0) {
-    return `归档“${title}”分组全部 ${count} 个任务`;
+    return t('archiveAllTasksInGroup', { title, count });
   }
-  return `归档“${title}”分组全部任务`;
+  return t('archiveAllTasksInGroupSimple', { title });
 }
 
 function emitGroupCreateTask(group: TableTaskGroupSection): void {

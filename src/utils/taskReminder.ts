@@ -32,12 +32,14 @@ type TaskReminderSelectionLike = {
 const TASK_REMINDER_TYPE_SET = new Set<TaskReminderType>(['due', '5m', '30m', '60m', '1d', 'custom']);
 export const DEFAULT_TASK_REMINDER_DUE_TIME = '09:00';
 
-export const TASK_REMINDER_PRESET_OPTIONS: TaskReminderPresetOption[] = [
-  { value: 'due', label: '到点提醒', shortLabel: '到点' },
-  { value: '5m', label: '提前 5 分钟', shortLabel: '5 分钟前' },
-  { value: '30m', label: '提前 30 分钟', shortLabel: '30 分钟前' },
-  { value: '60m', label: '提前 60 分钟', shortLabel: '60 分钟前' },
-  { value: '1d', label: '提前 1 天', shortLabel: '1 天前' },
+import { t } from './i18n';
+
+export const TASK_REMINDER_PRESET_OPTIONS = (): TaskReminderPresetOption[] => [
+  { value: 'due', label: t('reminderAtDue'), shortLabel: t('reminderAtDueShort') },
+  { value: '5m', label: t('reminder5mBefore'), shortLabel: t('reminder5mBeforeShort') },
+  { value: '30m', label: t('reminder30mBefore'), shortLabel: t('reminder30mBeforeShort') },
+  { value: '60m', label: t('reminder60mBefore'), shortLabel: t('reminder60mBeforeShort') },
+  { value: '1d', label: t('reminder1dBefore'), shortLabel: t('reminder1dBeforeShort') },
 ];
 
 export function normalizeTaskReminderType(value?: string | null): TaskReminderType | undefined {
@@ -202,10 +204,10 @@ export function getTaskReminderLabel(reminderType?: string, reminderCustomTime?:
   }
 
   if (normalizedType === 'custom') {
-    return formatReminderDateTime(reminderCustomTime) || '自定义';
+    return formatReminderDateTime(reminderCustomTime) || t('custom');
   }
 
-  return TASK_REMINDER_PRESET_OPTIONS.find(option => option.value === normalizedType)?.shortLabel || '';
+  return TASK_REMINDER_PRESET_OPTIONS().find(option => option.value === normalizedType)?.shortLabel || '';
 }
 
 export function getTaskReminderLongLabel(reminderType?: string, reminderCustomTime?: string): string {
@@ -215,10 +217,10 @@ export function getTaskReminderLongLabel(reminderType?: string, reminderCustomTi
   }
 
   if (normalizedType === 'custom') {
-    return formatReminderDateTime(reminderCustomTime) || '自定义提醒';
+    return formatReminderDateTime(reminderCustomTime) || t('customReminder');
   }
 
-  return TASK_REMINDER_PRESET_OPTIONS.find(option => option.value === normalizedType)?.label || '';
+  return TASK_REMINDER_PRESET_OPTIONS().find(option => option.value === normalizedType)?.label || '';
 }
 
 function normalizeClockTime(value?: string): string | undefined {

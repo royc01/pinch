@@ -1,4 +1,5 @@
 import type { Habit } from '@/api';
+import { t } from '@/utils/i18n';
 
 export function formatTimelineDate(date: Date | null): string {
   if (!date) return '';
@@ -10,10 +11,10 @@ export function formatTimelineDate(date: Date | null): string {
   return `${year}.${month}.${day}`;
 }
 
-export function createNumberOptions(count: number, suffix: string): Array<{ value: string; text: string }> {
+export function createNumberOptions(count: number, key: string): Array<{ value: string; text: string }> {
   return Array.from({ length: count }, (_, index) => ({
     value: String(index + 1),
-    text: `${index + 1}${suffix}`
+    text: t(key, { count: index + 1 })
   }));
 }
 
@@ -79,23 +80,26 @@ export function getTodayCompletionCount(habit: Habit, getToday: () => string): n
 
 export function getFrequencyText(habit: Habit): string {
   const timesPerDay = habit.timesPerDay || 1;
-  if (!habit.frequency || habit.frequency === 'daily') return `每天${timesPerDay}次`;
-
-  const match = habit.frequency.match(/weekly(\d)/);
-  if (match) return `每周${match[1]}天 | 每天${timesPerDay}次`;
-
-  if (habit.frequency === 'custom' && (habit as any).customFrequency) {
-    return `每周${(habit as any).customFrequency}天 | 每天${timesPerDay}次`;
+  if (!habit.frequency || habit.frequency === 'daily') {
+    return t('dailyXTimes', { count: timesPerDay });
   }
 
-  return `每天${timesPerDay}次`;
+  const match = habit.frequency.match(/weekly(\d)/);
+  if (match) {
+    return t('weeklyXDaysYTimes', { days: match[1], times: timesPerDay });
+  }
+
+  if (habit.frequency === 'custom' && (habit as any).customFrequency) {
+    return t('weeklyXDaysYTimes', { days: (habit as any).customFrequency, times: timesPerDay });
+  }
+
+  return t('dailyXTimes', { count: timesPerDay });
 }
 
 export function getCreatedDateText(habit: Habit): string {
   if (!habit.createdAt) return '';
   const date = new Date(habit.createdAt);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `创建于 ${year}-${month}-${day}`;
+  return t('createdAtDate', {
+    date: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  });
 }

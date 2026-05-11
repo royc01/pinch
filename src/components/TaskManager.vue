@@ -11,8 +11,8 @@
         <SyButton
           size="small"
           class="task-scope-button"
-          title="任务范围"
-          aria-label="任务范围"
+          :title="t('taskScope')"
+          :aria-label="t('taskScope')"
           @click="openTaskScopeDialog"
         >
           <Icon name="taskScope" width="24" height="24" class="icon refresh-icon" />
@@ -21,17 +21,17 @@
           size="small"
           class="task-refresh"
           :class="{ 'is-refreshing': isRefreshButtonSpinning }"
-          title="刷新任务"
-          aria-label="刷新任务"
+          :title="t('refreshTask')"
+          :aria-label="t('refreshTask')"
           @click="handleRefreshClick"
         >
           <Icon name="refresh" width="22" height="22" class="icon refresh-icon" />
         </SyButton>
-        <SyButton size="small" class="new-task-button" title="新建任务" aria-label="新建任务" @click="openTaskModal">
+        <SyButton size="small" class="new-task-button" :title="t('taskManager.newTask')" :aria-label="t('taskManager.newTask')" @click="openTaskModal">
           <Icon name="add" width="24" height="24" class="icon" />
         </SyButton>
-        <SyButton size="small" class="view-all-button" title="查看全部任务" aria-label="查看全部任务" @click="openKanbanView">
-          更多
+        <SyButton size="small" class="view-all-button" :title="t('viewAllTasks')" :aria-label="t('viewAllTasks')" @click="openKanbanView">
+          {{ t('more') }}
         </SyButton>
     </div>
     </div>
@@ -41,8 +41,8 @@
         <div class="filter-group">
           <label
             class="task-manager-notebook-label"
-            title="来源"
-            aria-label="来源"
+            :title="t('source')"
+            :aria-label="t('source')"
           >
             <Icon name="source" width="16" height="16" class="task-manager-notebook-icon" />
           </label>
@@ -71,8 +71,8 @@
             type="button"
             class="task-search-btn"
             :class="{ active: taskSearchVisible }"
-            title="搜索任务"
-            aria-label="搜索任务"
+            :title="t('searchTask')"
+            :aria-label="t('searchTask')"
             @click.stop="toggleTaskSearch"
           >
             <Icon name="search" width="16" height="16" />
@@ -85,8 +85,8 @@
             :class="{
               active: taskFilterPopoverVisible || hasActiveTaskFilters
             }"
-            title="筛选任务"
-            aria-label="筛选任务"
+            :title="t('filterTask')"
+            :aria-label="t('filterTask')"
             @click.stop="toggleTaskFilterPopover"
           >
             <Icon name="filter" width="16" height="16" />
@@ -103,8 +103,8 @@
               active: taskGroupMenuVisible || taskListGroupBy !== 'none' || taskListViewMode !== 'kanban',
               'is-batch-active': isBatchEditMode
             }"
-            title="任务分组"
-            aria-label="任务分组"
+            :title="t('taskGrouping')"
+            :aria-label="t('taskGrouping')"
             @click.stop="toggleTaskGroupMenu"
           >
             <Icon name="moreVertical" width="16" height="16" />
@@ -148,7 +148,7 @@
               :class="{ active: isBatchEditMode }"
               @click.stop="toggleBatchEditModeFromMenu"
             >
-              <span>{{ isBatchEditMode ? '退出批量编辑' : '进入批量编辑' }}</span>
+              <span>{{ isBatchEditMode ? t('exitBatchEdit') : t('enterBatchEdit') }}</span>
               <span v-if="isBatchEditMode" class="task-group-menu-check">
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
@@ -158,7 +158,7 @@
               class="task-group-menu-item"
               @click.stop="openTaskGroupDialogFromMenu"
             >
-              <span>标签管理</span>
+              <span>{{ t('tagManagement') }}</span>
             </button>
             <div class="task-group-menu-divider"></div>
             <button
@@ -166,7 +166,7 @@
               class="task-group-menu-item"
               @click.stop="toggleTaskCardDetailsFromMenu"
             >
-              <span>{{ showTaskCardDetails ? '隐藏详细' : '显示详细' }}</span>
+              <span>{{ showTaskCardDetails ? t('hideDetails') : t('showDetails') }}</span>
             </button>
             <button
               type="button"
@@ -174,7 +174,7 @@
               :class="{ active: !showCompletedTasks }"
               @click.stop="toggleHideCompletedTasksFromMenu"
             >
-              <span>隐藏已完成任务</span>
+              <span>{{ t('hideCompletedTasks') }}</span>
               <span v-if="!showCompletedTasks" class="task-group-menu-check">
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
@@ -185,7 +185,7 @@
               class="task-group-menu-item"
               @click.stop="toggleAllVisibleSubtasksFromMenu"
             >
-              <span>{{ areAllVisibleSubtasksExpanded ? '一键折叠详情' : '一键展开详情' }}</span>
+              <span>{{ areAllVisibleSubtasksExpanded ? t('collapseAllDetails') : t('expandAllDetails') }}</span>
             </button>
           </div>
         </div>
@@ -198,18 +198,18 @@
         v-model="taskSearchQuery"
         type="text"
         class="task-search-input"
-        placeholder="搜索任务"
-        aria-label="搜索任务"
+        :placeholder="t('searchTask')"
+        :aria-label="t('searchTask')"
         @keydown.esc.stop.prevent="closeTaskSearch"
       />
     </div>
 
     <div v-if="isBatchEditMode && !isTaskListCollapsed" class="task-batch-toolbar">
       <div class="task-batch-toolbar-header">
-        <span class="task-batch-selected-count">已选 {{ batchSelectedCount }} 项</span>
+        <span class="task-batch-selected-count">{{ t('selectedCount', { count: batchSelectedCount }) }}</span>
         <div class="task-batch-toolbar-actions">
           <button type="button" class="task-batch-tool-btn" @click="toggleSelectAllVisibleTasks">
-            {{ allVisibleTasksSelected ? '取消全选' : '全选当前列表' }}
+            {{ allVisibleTasksSelected ? t('deselectAll') : t('selectAllVisible') }}
           </button>
           <button
             type="button"
@@ -217,13 +217,13 @@
             :disabled="batchSelectedCount === 0"
             @click="clearBatchSelection"
           >
-            清空选择
+            {{ t('clearSelection') }}
           </button>
         </div>
       </div>
       <div class="task-batch-edit-grid">
         <label class="task-batch-field">
-          <span>状态</span>
+          <span>{{ t('status') }}</span>
           <SySelect
             :model-value="batchEditStatus"
             :options="batchEditStatusOptions"
@@ -231,7 +231,7 @@
           />
         </label>
         <label class="task-batch-field">
-          <span>优先级</span>
+          <span>{{ t('priority') }}</span>
           <SySelect
             :model-value="batchEditPriority"
             :options="batchEditPriorityOptions"
@@ -239,7 +239,7 @@
           />
         </label>
         <label class="task-batch-field">
-          <span>标签</span>
+          <span>{{ t('tag') }}</span>
           <SySelect
             :model-value="batchEditGroupId"
             :options="batchEditGroupOptions"
@@ -252,7 +252,7 @@
           :disabled="!canApplyBatchEdit"
           @click="applyBatchEdit"
         >
-          {{ isBatchApplying ? '应用中...' : '应用到已选' }}
+          {{ isBatchApplying ? t('applying') : t('applyToSelected') }}
         </button>
       </div>
     </div>
@@ -321,7 +321,7 @@
               :status="activeTaskEditDraft.status"
               :group-button-style="taskEditorGroupButtonStyle"
               :default-group-chip-color="defaultGroupChipColor"
-              description-placeholder="添加任务描述..."
+              :description-placeholder="t('addTaskDescriptionPlaceholder')"
               @update:panel="taskEditorQuickPanel = $event"
               @update:description="handleTaskEditorDescriptionInput"
               @update-dates="handleTaskEditorDateFieldsUpdate"
@@ -339,12 +339,12 @@
           >
             <div class="task-move-dialog" @click.stop>
               <div class="task-move-dialog-header">
-                <span class="task-move-dialog-title">移动任务</span>
+                <span class="task-move-dialog-title">{{ t('moveTask') }}</span>
                 <button
                   type="button"
                   class="task-move-dialog-close"
-                  title="关闭"
-                  aria-label="关闭"
+                  :title="t('close')"
+                  :aria-label="t('close')"
                   @click.stop="closeTaskMoveDialog"
                 >
                   <Icon name="close" width="16" height="16" />
@@ -352,7 +352,7 @@
               </div>
               <div class="task-move-dialog-body">
                 <div class="task-move-dialog-field">
-                  <label>笔记本</label>
+                  <label>{{ t('notebook') }}</label>
                   <SySelect
                     :model-value="taskMoveSelectedNotebook"
                     :options="taskMoveNotebookOptions"
@@ -360,7 +360,7 @@
                   />
                 </div>
                 <div class="task-move-dialog-field">
-                  <label>文档</label>
+                  <label>{{ t('document') }}</label>
                   <SySelect
                     :model-value="taskMoveSelectedDocument"
                     :options="taskMoveDocumentOptions"
@@ -368,10 +368,10 @@
                   />
                 </div>
                 <div v-if="taskMoveTargetUnchanged" class="task-move-dialog-hint">
-                  当前已经在这个文档中
+                  {{ t('alreadyInDocument') }}
                 </div>
                 <div v-else-if="taskMoveDocumentOptions.length === 0" class="task-move-dialog-hint">
-                  当前笔记本下暂无可选文档
+                  {{ t('noDocumentsInNotebook') }}
                 </div>
               </div>
               <div class="task-move-dialog-actions">
@@ -380,7 +380,7 @@
                   class="task-move-dialog-btn"
                   @click.stop="closeTaskMoveDialog"
                 >
-                  取消
+                  {{ t('cancel') }}
                 </button>
                 <button
                   type="button"
@@ -388,7 +388,7 @@
                   :disabled="!canSubmitTaskMove"
                   @click.stop="handleTaskEditorMove"
                 >
-                  {{ isTaskMoveSubmitting ? '移动中...' : '移动' }}
+                  {{ isTaskMoveSubmitting ? t('applying') : t('moveTask') }}
                 </button>
               </div>
             </div>
@@ -435,8 +435,8 @@
                   partial: isTaskGroupSectionBatchPartiallySelected(section),
                   'is-disabled': section.tasks.length === 0
                 }"
-                :title="isTaskGroupSectionBatchAllSelected(section) ? '取消全选该分组' : '全选该分组'"
-                :aria-label="isTaskGroupSectionBatchAllSelected(section) ? '取消全选该分组' : '全选该分组'"
+                :title="isTaskGroupSectionBatchAllSelected(section) ? t('deselectAll') : t('selectAllVisible')"
+                :aria-label="isTaskGroupSectionBatchAllSelected(section) ? t('deselectAll') : t('selectAllVisible')"
                 :aria-disabled="section.tasks.length === 0"
                 @click.stop="toggleTaskGroupSectionBatchSelection(section)"
               >
@@ -453,8 +453,8 @@
                 type="button"
                 class="task-group-section-toggle"
                 :class="{ collapsed: isTaskGroupSectionCollapsed(section.key) }"
-                :title="isTaskGroupSectionCollapsed(section.key) ? '展开分组' : '折叠分组'"
-                :aria-label="isTaskGroupSectionCollapsed(section.key) ? '展开分组' : '折叠分组'"
+                :title="isTaskGroupSectionCollapsed(section.key) ? t('expandGroup') : t('collapseGroup')"
+                :aria-label="isTaskGroupSectionCollapsed(section.key) ? t('expandGroup') : t('collapseGroup')"
                 @click.stop="toggleTaskGroupSectionCollapse(section.key)"
               >
                 <Icon name="chevronRight" width="14" height="14" />
@@ -491,7 +491,7 @@
                 :show-description="shouldShowTaskCardDetails"
                 :show-badges="shouldShowTaskCardDetails"
                 :show-subtasks="expandedSubtasks.has(task.id)"
-                :title-tooltip="isBatchEditMode ? '点击选择任务' : '点击编辑任务'"
+                :title-tooltip="isBatchEditMode ? t('clickToSelectTask') : t('clickToEditTask')"
                 :disable-context-menu="shouldEnableMobileCalendarDrag()"
                 :ref="(el) => setTaskRowRef(task.id, el)"
                 @card-click="handleTaskCardClick"
@@ -544,7 +544,7 @@
             :show-description="shouldShowTaskCardDetails"
             :show-badges="shouldShowTaskCardDetails"
               :show-subtasks="expandedSubtasks.has(task.id)"
-              :title-tooltip="isBatchEditMode ? '点击选择任务' : '点击编辑任务'"
+              :title-tooltip="isBatchEditMode ? t('clickToSelectTask') : t('clickToEditTask')"
               :disable-context-menu="shouldEnableMobileCalendarDrag()"
                 :ref="(el) => setTaskRowRef(task.id, el)"
                 @card-click="handleTaskCardClick"
@@ -567,7 +567,7 @@
         type="button"
         @click="showMoreCompletedTasks"
       >
-        更多已完成
+        {{ t('moreCompleted') }}
       </button>
     </div>
     
@@ -599,11 +599,11 @@
       :show-document-group-notebook-path="showDocumentGroupNotebookPath"
       :show-extra="false"
       :lock-close="requiresScopeInitialization"
-      :title="requiresScopeInitialization ? '初始化任务范围' : '任务范围'"
+      :title="requiresScopeInitialization ? t('initTaskScope') : t('taskScope')"
       :hint="requiresScopeInitialization
-        ? '首次使用请先设置任务抓取范围。开关关闭表示排除该笔记本，开关开启表示参与任务抓取。'
-        : '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。'"
-      :confirm-text="requiresScopeInitialization ? '开始使用' : '保存'"
+        ? t('initTaskScopeHint')
+        : t('taskScopeHint')"
+      :confirm-text="requiresScopeInitialization ? t('startUsing') : t('save')"
       :document-groups="documentGroups"
       :document-group-documents="documentGroupDialogDocuments"
       :goals="goalDefinitions"
@@ -620,8 +620,8 @@
       :start-time="taskQuickDateDraft.startTime"
       :due-date="taskQuickDateDraft.dueDate"
       :due-time="taskQuickDateDraft.dueTime"
-      title="日期"
-      save-label="保存日期"
+      :title="t('date')"
+      :save-label="t('saveDate')"
       @update:startDate="taskQuickDateDraft.startDate = $event"
       @update:startTime="taskQuickDateDraft.startTime = $event"
       @update:dueDate="taskQuickDateDraft.dueDate = $event"
@@ -747,38 +747,7 @@ const showDocumentGroupNotebookPath = computed(() => userSettings.taskManager.sh
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 let repeatReconcileRequestId = 0;
 
-const t = (key: string) => {
-  const lang = window.siyuan?.languages || {};
-  const defaultLang: Record<string, string> = {
-    'taskManager.title': '任务管理',
-    'taskManager.status': '状态',
-    'taskManager.statusAll': '全部',
-    'taskManager.statusPending': '待处理',
-    'taskManager.statusInProgress': '进行中',
-    'taskManager.statusCompleted': '已完成',
-    'taskManager.statusCancelled': '已取消',
-    'taskManager.priority': '优先级',
-    'taskManager.priorityAll': '全部',
-    'taskManager.priorityHigh': '高',
-    'taskManager.priorityMedium': '中',
-    'taskManager.priorityLow': '低',
-    'taskManager.priorityNone': '无',
-    'taskManager.notebook': '笔记本',
-    'taskManager.all': '全部',
-    'taskManager.document': '文档',
-    'taskManager.filter': '筛选',
-    'taskManager.refresh': '刷新',
-    'taskManager.addTask': '新建任务',
-    'taskManager.expandAll': '展开全部',
-    'taskManager.collapseAll': '收起全部',
-    'taskManager.taskList': '任务列表',
-    'taskManager.noTasks': '暂无任务',
-    'taskManager.taskName': '任务名称',
-    'taskManager.dueDate': '截止日期',
-    'taskManager.save': '保存'
-  };
-  return (lang as Record<string, string>)[key] || defaultLang[key] || key;
-};
+import { t } from '@/utils/i18n';
 
 const TASK_MANAGER_CRDT_STORE_ID = 'task-manager';
 const crdtRepo = getCrdtRepository(TASK_MANAGER_CRDT_STORE_ID);
@@ -859,7 +828,7 @@ const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
 let taskEditorProtyle: Protyle | null = null;
 const openingTaskPopoverBlockIds = new Set<string>();
 const taskEditorSidebarVisible = ref(false);
-const taskEditorSidebarTitle = ref('编辑任务');
+const taskEditorSidebarTitle = ref(t('editTaskTitle'));
 const taskEditorSidebarMountRef = ref<HTMLElement | null>(null);
 const taskEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
 const taskEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | 'status' | null>(null);
@@ -940,40 +909,45 @@ function normalizeTaskGroupDialogOrderIds(input: unknown): string[] {
 }
 
 let skipCleanupTimer: number | null = null;
-const taskListViewOptions: Array<{ value: TaskListViewMode; label: string }> = [
-  { value: 'kanban', label: '看板视图' },
-  { value: 'list', label: '列表视图' }
-];
-const taskListGroupOptions: Array<{ value: TaskListGroupMode; label: string }> = [
-  { value: 'none', label: '不分组' },
-  { value: 'status', label: '按状态分组' },
-  { value: 'date', label: '按日期分组' },
-  { value: 'group', label: '按标签分组' },
-  { value: 'heading', label: '按标题分组' }
-];
-const batchEditStatusOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: '状态（不修改）' },
-  { value: 'pending', text: '待处理' },
-  { value: 'in-progress', text: '进行中' },
-  { value: 'delayed', text: '延迟' },
-  { value: 'completed', text: '已完成' },
-  { value: 'cancelled', text: '已取消' }
-];
-const batchEditPriorityOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: '优先级（不修改）' },
-  { value: 'none', text: '无' },
-  { value: 'low', text: '低' },
-  { value: 'medium', text: '中' },
-  { value: 'high', text: '高' }
-];
+const taskListViewOptions = computed<Array<{ value: TaskListViewMode; label: string }>>(() => [
+  { value: 'kanban', label: t('kanbanView') },
+  { value: 'list', label: t('listView') }
+]);
+
+const taskListGroupOptions = computed<Array<{ value: TaskListGroupMode; label: string }>>(() => [
+  { value: 'none', label: t('noGrouping') },
+  { value: 'status', label: t('groupByStatus') },
+  { value: 'date', label: t('groupByDate') },
+  { value: 'group', label: t('groupByTag') },
+  { value: 'heading', label: t('groupByHeading') }
+]);
+
+const batchEditStatusOptions = computed<Array<{ value: string; text: string }>>(() => [
+  { value: '', text: t('statusUnchanged') },
+  { value: 'pending', text: t('statusPending') },
+  { value: 'in-progress', text: t('statusInProgress') },
+  { value: 'delayed', text: t('statusDelayed') },
+  { value: 'completed', text: t('statusCompleted') },
+  { value: 'cancelled', text: t('statusCancelled') }
+]);
+
+const batchEditPriorityOptions = computed<Array<{ value: string; text: string }>>(() => [
+  { value: '', text: t('priorityUnchanged') },
+  { value: 'none', text: t('priorityNone') },
+  { value: 'low', text: t('priorityLow') },
+  { value: 'medium', text: t('priorityMedium') },
+  { value: 'high', text: t('priorityHigh') }
+]);
+
 const taskGroupStatusOrder: Task['status'][] = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
-const taskGroupStatusLabel: Record<Task['status'], string> = {
-  'pending': '待处理',
-  'in-progress': '进行中',
-  'delayed': '延迟',
-  'completed': '已完成',
-  'cancelled': '已取消'
-};
+
+const taskGroupStatusLabel = computed<Record<Task['status'], string>>(() => ({
+  'pending': t('statusPending'),
+  'in-progress': t('statusInProgress'),
+  'delayed': t('statusDelayed'),
+  'completed': t('statusCompleted'),
+  'cancelled': t('statusCancelled')
+}));
 
 const taskModalTeleportTo = computed(() => taskModalTeleportTarget.value || 'body');
 const activeTaskEditTask = computed(() =>
@@ -997,11 +971,11 @@ const allVisibleTasksSelected = computed(() => {
   return currentTasks.every(task => batchSelectedTaskIds.value.has(task.id));
 });
 const batchEditGroupOptions = computed(() => [
-  { value: '', text: '标签（不修改）' },
-  { value: TASK_GROUP_NONE_ID, text: '无标签' },
+  { value: '', text: t('tagUnchanged') },
+  { value: TASK_GROUP_NONE_ID, text: t('noTag') },
   ...visibleTaskGroups.value.map(group => ({
     value: group.id,
-    text: group.name || '未命名标签'
+    text: group.name || t('unnamedTag')
   }))
 ]);
 const canApplyBatchEdit = computed(() => {
@@ -1363,7 +1337,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       .filter(id => id.length > 0);
     blockIdsToClear = Array.from(new Set([...sqlBlockIds, ...localBlockIds]));
   } catch (error) {
-    console.error('[TaskManager] 查询标签任务失败:', error);
+    console.error('[TaskManager] Failed to query tag tasks:', error);
     blockIdsToClear = Array.from(new Set(localBlockIds));
   }
 
@@ -1373,7 +1347,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       await setBlockAttrs(blockId, { 'custom-task-group': '' });
       successBlockIds.push(blockId);
     } catch (error) {
-      console.error('[TaskManager] 清理任务标签属性失败:', error);
+      console.error('[TaskManager] Failed to clear task tag attributes:', error);
     }
   }
 
@@ -1715,7 +1689,7 @@ const notebookOptions = computed(() => {
     })),
     ...activeGoalItems.value.map(goal => ({
       value: buildGoalDocumentSource(goal.id),
-      text: `${goal.emoji || '🎯'} ${goal.name || '未命名目标'}`
+      text: `${goal.emoji || '🎯'} ${goal.name || t('unnamedGoal')}`
     }))
   ];
 });
@@ -1775,7 +1749,7 @@ const canSubmitTaskMove = computed(() => {
 
 const taskGroupPickerOptions = computed(() => {
   const options = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, color: '', colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: t('noTag'), special: true, color: '', colorCss: '', textColor: '' }
   ];
   visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -1799,10 +1773,10 @@ const taskEditorSelectedGroupId = computed(() => {
 const taskEditorGroupLabel = computed(() => {
   const groupId = (activeTaskEditDraft.value?.groupId || '').trim();
   if (!groupId) {
-    return '无标签';
+    return t('noTag');
   }
   const group = taskGroups.value.find(item => item.id === groupId);
-  return group?.name || '标签';
+  return group?.name || t('tag');
 });
 
 const taskEditorGroupColorValue = computed(() => {
@@ -2215,32 +2189,32 @@ watch([taskListViewMode, showTaskCardDetails], () => {
 
 const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
 const taskStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
-  { value: 'pending', label: '待处理' },
-  { value: 'in-progress', label: '进行中' },
-  { value: 'delayed', label: '延迟' },
-  { value: 'completed', label: '已完成' },
-  { value: 'cancelled', label: '已取消' }
+  { value: 'pending', label: t('statusPending') },
+  { value: 'in-progress', label: t('statusInProgress') },
+  { value: 'delayed', label: t('statusDelayed') },
+  { value: 'completed', label: t('statusCompleted') },
+  { value: 'cancelled', label: t('statusCancelled') }
 ];
 const taskPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = [
-  { value: 'high', label: '高优先级' },
-  { value: 'medium', label: '中优先级' },
-  { value: 'low', label: '低优先级' },
-  { value: 'none', label: '无优先级' }
+  { value: 'high', label: t('priorityHigh') },
+  { value: 'medium', label: t('priorityMedium') },
+  { value: 'low', label: t('priorityLow') },
+  { value: 'none', label: t('priorityNone') }
 ];
 const taskDueFilterOptions: Array<{ value: TaskDueFilterKey; label: string }> = [
-  { value: 'overdue', label: '已逾期' },
-  { value: 'today', label: '今天到期' },
-  { value: 'next7Days', label: '未来 7 天' },
-  { value: 'noDueDate', label: '无截止日期' }
+  { value: 'overdue', label: t('statusOverdue') },
+  { value: 'today', label: t('today') },
+  { value: 'next7Days', label: t('next7Days') },
+  { value: 'noDueDate', label: t('noDueDate') }
 ];
 const taskUpdatedFilterOptions: Array<{ value: TaskUpdateFilterKey; label: string }> = [
-  { value: 'today', label: '今日' },
-  { value: 'thisWeek', label: '本周' },
-  { value: 'thisMonth', label: '本月' }
+  { value: 'today', label: t('today') },
+  { value: 'thisWeek', label: t('thisWeek') },
+  { value: 'thisMonth', label: t('thisMonth') }
 ];
 const taskExtraFilterOptions: Array<{ value: TaskExtraFilterKey; label: string }> = [
-  { value: 'hasDescription', label: '有描述' },
-  { value: 'hasSubtasks', label: '有子任务' }
+  { value: 'hasDescription', label: t('hasDescription') },
+  { value: 'hasSubtasks', label: t('hasSubtasks') }
 ];
 const taskStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(taskStatusFilterOptions.map(option => option.value));
 const taskPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(taskPriorityFilterOptions.map(option => option.value));
@@ -2296,7 +2270,7 @@ function normalizeStoredGroupFilters(values: unknown): string[] {
 }
 const taskGroupFilterOptions = computed(() => {
   const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', style: {} }
+    { value: TASK_GROUP_NONE_ID, label: t('noTag'), style: {} }
   ];
   visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -2478,10 +2452,10 @@ const taskEditPriorityOptions: Array<{
   background: string;
   color: string;
 }> = [
-  { value: 'high', label: '高优先级', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
-  { value: 'medium', label: '中优先级', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'low', label: '低优先级', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'none', label: '无优先级', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
+  { value: 'high', label: t('priorityHigh'), background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
+  { value: 'medium', label: t('priorityMedium'), background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
+  { value: 'low', label: t('priorityLow'), background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
+  { value: 'none', label: t('priorityNone'), background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
 ];
 const taskEditorPriorityOption = computed(() => {
   const current = activeTaskEditDraft.value?.priority || 'none';
@@ -2489,7 +2463,7 @@ const taskEditorPriorityOption = computed(() => {
 });
 const taskEditorDueText = computed(() => {
   const dueDate = activeTaskEditDraft.value?.dueDate || '';
-  if (!dueDate) return '未设置';
+  if (!dueDate) return t('notSet');
   return formatMonthDay(dueDate);
 });
 const taskEditorHasDueDate = computed(() => {
@@ -3286,7 +3260,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     if (pendingTasks.length > 0) {
       sections.push({
         key: 'list:pending',
-        label: '待处理',
+        label: t('statusPending'),
         tasks: pendingTasks,
         order: 0
       });
@@ -3294,7 +3268,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     if (completedTasks.length > 0) {
       sections.push({
         key: 'list:completed',
-        label: '已完成',
+        label: t('statusCompleted'),
         tasks: completedTasks,
         order: 1
       });
@@ -3312,7 +3286,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     }
     return [{
       key: 'pinned:top',
-      label: '置顶',
+      label: t('pinned'),
       tasks: pinnedSectionTasks,
       order: -1
     }, ...sections];
@@ -3328,7 +3302,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     return prependPinnedSection(taskGroupStatusOrder
       .map((status, index) => ({
         key: `status:${status}`,
-        label: taskGroupStatusLabel[status],
+        label: taskGroupStatusLabel.value[status],
         tasks: grouped.get(status) || [],
         order: index
       }))
@@ -3369,7 +3343,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     if (noneTasks.length > 0) {
       sections.push({
         key: `group:${TASK_GROUP_NONE_ID}`,
-        label: '无标签',
+        label: t('noTag'),
         tasks: noneTasks,
         order: Number.MAX_SAFE_INTEGER
       });
@@ -3377,7 +3351,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     if (completedTasks.length > 0) {
       sections.push({
         key: 'completed:all',
-        label: '已完成',
+        label: t('statusCompleted'),
         tasks: completedTasks,
         order: Number.MAX_SAFE_INTEGER
       });
@@ -3402,11 +3376,11 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 1).getTime();
 
     const dateSections = [
-      { key: 'overdue', label: '逾期' },
-      { key: 'today', label: '今日' },
-      { key: 'thisWeek', label: '本周' },
-      { key: 'thisMonth', label: '本月' },
-      { key: 'other', label: '其他' }
+      { key: 'overdue', label: t('statusOverdue') },
+      { key: 'today', label: t('today') },
+      { key: 'thisWeek', label: t('thisWeek') },
+      { key: 'thisMonth', label: t('thisMonth') },
+      { key: 'other', label: t('other') }
     ] as const;
     const grouped = new Map<(typeof dateSections)[number]['key'], Task[]>();
     dateSections.forEach((section) => grouped.set(section.key, []));
@@ -3460,7 +3434,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     const meta = getTaskHeadingGroupMeta(task, taskHeadingGroups.value);
     const headingKey = meta.key || `heading:${task.id}`;
     const sectionKey = `heading:${headingKey}`;
-    let label = (meta.label || '').trim() || '未命名标题';
+    let label = (meta.label || '').trim() || t('unnamedTitle');
     if (shouldHideDocumentPrefix && label.includes(' / ')) {
       label = label.split(' / ').slice(1).join(' / ');
     }
@@ -3492,7 +3466,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
   if (completedTasks.length > 0) {
     sections.push({
       key: 'completed:all',
-      label: '已完成',
+      label: t('statusCompleted'),
       tasks: completedTasks,
       order: Number.MAX_SAFE_INTEGER
     });
@@ -3676,7 +3650,7 @@ async function hydrateVisibleTaskTitles(): Promise<void> {
       }
     });
   } catch (error) {
-    console.error('[TaskManager] 标题同步失败:', error);
+    console.error('[TaskManager] Title synchronization failed:', error);
   } finally {
     isTaskTitleHydrating = false;
   }
@@ -3953,7 +3927,7 @@ async function openTaskScopeDialog() {
   showTaskScopeDialog.value = true;
 }
 
-async function handleGlobalRecognizeTaskDates(): Promise<void> {
+async function handleGlobalRecognizeTaskDates() {
   if (isGlobalDateRecognitionRunning.value) {
     return;
   }
@@ -3962,34 +3936,33 @@ async function handleGlobalRecognizeTaskDates(): Promise<void> {
   try {
     const result = await TaskRepository.recognizeDatesForUndatedTasks();
     if (result.scanned === 0) {
-      showMessage('未找到未设定起止日期的任务', 2200, 'info');
+      showMessage(t('noTaskDateFound'), 2200, 'info');
       return;
     }
 
     if (result.updated > 0) {
       if (result.failed > 0) {
-        showMessage(`已写入 ${result.updated} 项日期，${result.failed} 项写入失败`, 3200, 'error');
+        showMessage(t('recognizedTasksSummary', { updated: result.updated, failed: result.failed }), 3200, 'error');
       } else {
-        showMessage(`已识别并写入 ${result.updated} 项任务日期`, 2200, 'info');
+        showMessage(t('recognizedTasksSuccess', { count: result.updated }), 2200, 'info');
       }
       await refreshTasks(true, { showLoading: false, compareExisting: false, source: 'global-date-recognize' });
       return;
     }
 
     if (result.recognized === 0) {
-      showMessage(`扫描 ${result.scanned} 项未设定任务，未识别到可写入日期`, 2800, 'info');
+      showMessage(t('scanTasksNoResult', { scanned: result.scanned }), 2800, 'info');
       return;
     }
 
-    showMessage(`识别到 ${result.recognized} 项日期，写入失败 ${result.failed} 项`, 3200, 'error');
+    showMessage(t('recognizedTasksSummary', { updated: result.recognized, failed: result.failed }), 3200, 'error');
   } catch (error) {
-    console.error('[TaskManager] 全局识别任务日期失败:', error);
-    showMessage('全局识别任务日期失败，请稍后重试', 3200, 'error');
+    console.error('[TaskManager] Global recognition of task dates failed:', error);
+    showMessage(t('recognizeTasksError'), 3200, 'error');
   } finally {
     isGlobalDateRecognitionRunning.value = false;
   }
 }
-
 async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
   const {
     excludedNotebookIds: selectedVisibleExcludedNotebookIds,
@@ -4352,7 +4325,7 @@ async function flushExternalTaskStatusAttrSync(blockIds: Iterable<string>): Prom
   const hasApplied = results.some(result => result.status === 'fulfilled' && result.value === true);
   results.forEach((result, index) => {
     if (result.status === 'rejected') {
-      console.warn('[TaskManager] 同步任务完成属性失败:', {
+      console.warn('[TaskManager] Failed to sync task completion attribute:', {
         blockId: entries[index]?.blockId,
         error: result.reason
       });
@@ -5521,7 +5494,7 @@ async function handleTaskEditorDelete(): Promise<void> {
     return;
   }
 
-  if (!confirm('确认删除该任务？')) {
+  if (!confirm(t('confirmDelete'))) {
     return;
   }
 
@@ -5707,7 +5680,7 @@ async function openTaskEditorPopover(task: Task): Promise<void> {
   }
 
   openingTaskPopoverBlockIds.add(blockId);
-  taskEditorSidebarTitle.value = '编辑任务';
+  taskEditorSidebarTitle.value = t('editTask');
   try {
     const opened = await openTaskEditorInSidebar(blockId, rootId);
     if (!opened) {
@@ -6023,7 +5996,7 @@ async function applyBatchEdit(): Promise<void> {
   }
   const selectedIds = Array.from(batchSelectedTaskIds.value);
   if (selectedIds.length === 0) {
-    showMessage('请先选择任务', 2200, 'error');
+    showMessage(t('pleaseSelectTasks'), 2200, 'error');
     return;
   }
 
@@ -6038,13 +6011,13 @@ async function applyBatchEdit(): Promise<void> {
     } else if (validGroupIds.has(rawGroupSelection)) {
       nextGroupId = rawGroupSelection;
     } else {
-      showMessage('请选择有效标签', 2200, 'error');
+      showMessage(t('pleaseSelectValidTag'), 2200, 'error');
       return;
     }
   }
 
   if (!nextStatus && !nextPriority && nextGroupId === null) {
-    showMessage('请选择要批量修改的字段', 2200, 'error');
+    showMessage(t('pleaseSelectFieldsToModify'), 2200, 'error');
     return;
   }
 
@@ -6106,7 +6079,7 @@ async function applyBatchEdit(): Promise<void> {
   }
 
   if (updates.length === 0) {
-    showMessage('未检测到可更新的任务', 2200, 'info');
+    showMessage(t('noTasksToUpdate'), 2200, 'info');
     return;
   }
 
@@ -6192,10 +6165,10 @@ async function applyBatchEdit(): Promise<void> {
     }
 
     if (successCount > 0) {
-      showMessage(`已批量更新 ${successCount} 项任务`, 2200, 'info');
+      showMessage(t('batchUpdateSuccess', { count: successCount }), 2200, 'info');
     }
     if (failedCount > 0) {
-      showMessage(`有 ${failedCount} 项任务更新失败`, 3000, 'error');
+      showMessage(t('batchUpdateFailed', { count: failedCount }), 3000, 'error');
     }
   } finally {
     isBatchApplying.value = false;
@@ -6670,7 +6643,7 @@ function handleDocumentMobileTaskPointerCancel(event: PointerEvent): void {
 }
 
 async function ensureInboxDocument(notebookId: string): Promise<string> {
-  const inboxPath = '/pinch收集箱';
+  const inboxPath = '/' + t('inbox');
   
   try {
     const existingIds = await getIDsByHPath(notebookId, inboxPath);

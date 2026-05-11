@@ -1,4 +1,5 @@
 import { computed, ref, unref, type Ref } from 'vue';
+import { t } from '@/utils/i18n';
 
 export type TaskFilterSectionKey = 'status' | 'priority' | 'group' | 'due' | 'updated' | 'extra';
 
@@ -59,12 +60,12 @@ export function useTaskFilterState<
   });
 
   const sectionTitles: Record<TaskFilterSectionKey, string> = {
-    status: '状态',
-    priority: '优先级',
-    group: '标签',
-    due: '截止日期',
-    updated: '日期更新',
-    extra: '其他',
+    status: t('status'),
+    priority: t('priority'),
+    group: t('label'),
+    due: t('dueDate'),
+    updated: t('dateUpdated'),
+    extra: t('other'),
     ...options.sectionTitles
   };
 

@@ -1,4 +1,5 @@
 import { getHabits, TaskRepository } from '@/api';
+import { t } from '@/utils/i18n';
 import {
   createHabitFocusTarget,
   createTaskFocusTarget,
@@ -53,7 +54,7 @@ export function getFocusTargetDisplayLabel(
     return '';
   }
 
-  return `${target.type === 'task' ? '任务' : '习惯'}：${target.name}`;
+  return `${target.type === 'task' ? t('task') : t('habit')}：${target.name}`;
 }
 
 export function getFocusTargetEmoji(target: FocusTimerLinkedTarget | null | undefined): string {

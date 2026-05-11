@@ -2,8 +2,8 @@
   <div v-if="show" ref="goalPagePanelRef" class="goal-page-panel">
     <div class="goal-page-header">
       <div class="goal-page-header-content">
-        <div class="goal-page-title">目标进度</div>
-        <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="emit('close')">
+        <div class="goal-page-title">{{ t('goalProgress') }}</div>
+        <button type="button" class="icon-button" :title="t('close')" :aria-label="t('close')" @click="emit('close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -12,20 +12,20 @@
     <div class="goal-section">
       <div class="goal-header">
         <div>
-          <h3 class="goal-title">目标进度</h3>
-          <div class="goal-subtitle">为目标单独选择文档，并统计当前任务完成情况。</div>
+          <h3 class="goal-title">{{ t('goalProgress') }}</h3>
+          <div class="goal-subtitle">{{ t('goalProgressHint') }}</div>
         </div>
         <button type="button" class="goal-manage-btn" @click="void openGoalManager()">
-          管理目标
+          {{ t('manageGoals') }}
         </button>
       </div>
 
       <div v-if="goalsError" class="goal-feedback is-error">{{ goalsError }}</div>
       <div v-else-if="goalsLoading && goalItems.length === 0" class="goal-empty">
-        正在加载目标...
+        {{ t('loadingGoals') }}
       </div>
       <div v-else-if="goalItems.length === 0" class="goal-empty">
-        还没有目标，先创建一个目标吧。
+        {{ t('noGoalsFound') }}
       </div>
       <div v-else class="goal-list">
         <div
@@ -49,15 +49,15 @@
               <div class="goal-card-title-row">
                 <span class="goal-card-flag" aria-hidden="true">{{ goal.emoji || '🎯' }}</span>
                 <span class="goal-card-title">{{ goal.name }}</span>
-                <span v-if="goal.status === 'completed'" class="goal-state-chip success">已完成</span>
-                <span v-else-if="goal.documentCount === 0" class="goal-state-chip muted">未选文档</span>
-                <span v-else-if="goal.status === 'empty'" class="goal-state-chip muted">暂无任务</span>
-                <span v-else-if="isGoalOverdue(goal)" class="goal-state-chip danger">已逾期</span>
+                <span v-if="goal.status === 'completed'" class="goal-state-chip success">{{ t('completed') }}</span>
+                <span v-else-if="goal.documentCount === 0" class="goal-state-chip muted">{{ t('noDocSelectedChip') }}</span>
+                <span v-else-if="goal.status === 'empty'" class="goal-state-chip muted">{{ t('noTasksChip') }}</span>
+                <span v-else-if="isGoalOverdue(goal)" class="goal-state-chip danger">{{ t('overdueChip') }}</span>
               </div>
               <div class="goal-card-meta">
                 <span>{{ goal.documentSummary }}</span>
                 <span v-if="goal.dueDate" class="goal-due-date-info" :class="{ 'is-overdue': isGoalOverdue(goal) }">
-                  截止: {{ formatDueDate(goal.dueDate) }}
+                  {{ t('dueDatePrefix') }}{{ formatDueDate(goal.dueDate) }}
                 </span>
               </div>
             </div>
@@ -84,7 +84,7 @@
       :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="scopeTaskCompletionSoundEnabled"
       :show-document-group-notebook-path="scopeShowDocumentGroupNotebookPath"
-      :title="'任务范围 / 文档组 / 目标'"
+      :title="t('taskScopeDialogTitle')"
       :initial-tab="goalManagerInitialTab"
       :document-groups="documentGroups"
       :document-group-documents="goalDocuments"
@@ -98,6 +98,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '@/utils/i18n';
 import { nextTick, ref, watch } from 'vue';
 import { showMessage } from 'siyuan';
 import { TaskRepository, lsNotebooks } from '@/api';
@@ -193,28 +194,28 @@ async function handleGlobalRecognizeTaskDates(): Promise<void> {
   try {
     const result = await TaskRepository.recognizeDatesForUndatedTasks();
     if (result.scanned === 0) {
-      showMessage('没有扫描到可识别日期的任务', 2200, 'info');
+      showMessage(t('noTaskDateFound'), 2200, 'info');
       return;
     }
 
     if (result.updated > 0) {
       if (result.failed > 0) {
-        showMessage(`已写入 ${result.updated} 项日期，${result.failed} 项写入失败`, 3200, 'error');
+        showMessage(t('recognizedTasksSummary', { updated: result.updated, failed: result.failed }), 3200, 'error');
       } else {
-        showMessage(`已识别并写入 ${result.updated} 项任务日期`, 2200, 'info');
+        showMessage(t('recognizedTasksSuccess', { count: result.updated }), 2200, 'info');
       }
       return;
     }
 
     if (result.recognized === 0) {
-      showMessage(`扫描 ${result.scanned} 项未设定任务，未识别到可写入日期`, 2800, 'info');
+      showMessage(t('scanTasksNoResult', { scanned: result.scanned }), 2800, 'info');
       return;
     }
 
-    showMessage(`识别到 ${result.recognized} 项日期，写入失败 ${result.failed} 项`, 3200, 'error');
+    showMessage(t('recognizedTasksSummary', { updated: result.recognized, failed: result.failed }), 3200, 'error');
   } catch (error) {
-    console.error('[GoalPanel] 全局识别任务日期失败:', error);
-    showMessage('全局识别任务日期失败，请稍后重试', 3200, 'error');
+    console.error('[GoalPanel] Global recognition of task dates failed:', error);
+    showMessage(t('recognizeTasksError'), 3200, 'error');
   } finally {
     isGlobalDateRecognitionRunning.value = false;
   }
@@ -222,21 +223,21 @@ async function handleGlobalRecognizeTaskDates(): Promise<void> {
 
 function describeGoalProgress(goal: GoalListItem): string {
   if (goal.documentCount === 0) {
-    return '请先为目标选择要统计的文档。';
+    return t('noDocSelectedDesc');
   }
   if (goal.totalTasks === 0) {
-    return '所选文档里暂时没有可统计任务。';
+    return t('noTasksDesc');
   }
   if (goal.status === 'completed') {
-    return `已完成全部 ${goal.totalTasks} 个任务。`;
+    return t('allTasksCompletedDesc', { total: goal.totalTasks });
   }
-  return `还差 ${goal.remainingTasks} 个任务推进目标。`;
+  return t('remainingTasksDesc', { count: goal.remainingTasks });
 }
 
 function formatDueDate(dueDate: string): string {
   if (!dueDate) return '';
   const [year, month, day] = dueDate.split('-');
-  return `${month}月${day}日`;
+  return t('dateFormatShort', { month, day });
 }
 
 function isGoalOverdue(goal: GoalListItem): boolean {

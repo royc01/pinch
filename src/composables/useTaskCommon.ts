@@ -1,16 +1,16 @@
-﻿import { ref } from 'vue';
+import { ref } from 'vue';
 import { lsNotebooks } from '@/api';
-
-export const STATUS_LABELS: Record<string, string> = {
-  'pending': '待办',
-  'in-progress': '进行中',
-  'delayed': '延迟',
-  'completed': '已完成',
-  'cancelled': '已取消'
-};
+import { t } from '@/utils/i18n';
 
 export function getStatusLabel(status: string): string {
-  return STATUS_LABELS[status] || status;
+  const labels: Record<string, string> = {
+    'pending': t('statusPending'),
+    'in-progress': t('statusInProgress'),
+    'delayed': t('statusDelayed'),
+    'completed': t('statusCompleted'),
+    'cancelled': t('statusCancelled')
+  };
+  return labels[status] || status;
 }
 
 export function formatLocaleDate(dateStr: string, options?: { includeTime?: boolean }): string {
@@ -28,7 +28,11 @@ export function formatLocaleDate(dateStr: string, options?: { includeTime?: bool
       hour12: false
     });
   }
-  return date.toLocaleDateString();
+  return t('dateFull', {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate()
+  });
 }
 
 export function stripHtml(html: string): string {

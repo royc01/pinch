@@ -15,7 +15,7 @@
           :disabled="!hasActive"
           @click="emitClear"
         >
-          清空
+          {{ t('clear') }}
         </button>
       </div>
 
@@ -45,6 +45,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { t } from '@/utils/i18n';
 
 interface TaskFilterOption {
   value: string;
@@ -76,7 +77,7 @@ const popoverRef = ref<HTMLElement | null>(null);
 defineExpose({ popoverEl: popoverRef });
 
 const normalizedStyle = computed(() => props.popoverStyle || {});
-const title = computed(() => props.title || '筛选任务');
+const title = computed(() => props.title || t('filterTasks'));
 
 function emitClear(): void {
   emit('clear');

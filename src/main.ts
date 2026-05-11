@@ -1,4 +1,4 @@
-﻿import {
+import {
   Dialog,
   Plugin,
   getFrontend,
@@ -12,6 +12,7 @@ import MobileTaskCreateDialog from './components/MobileTaskCreateDialog.vue'
 import KanbanView from './components/KanbanView.vue'
 import { startTaskReminderScheduler, stopTaskReminderScheduler } from '@/taskReminderScheduler';
 import { TaskRepository, sql } from '@/api';
+import { t, setI18n } from '@/utils/i18n';
 import {
   eventBus,
   Events,
@@ -86,7 +87,7 @@ function registerTopBarViewButton(pluginInstance: Plugin) {
   topBarViewButton?.remove();
   topBarViewButton = pluginInstance.addTopBar({
     icon: TOP_BAR_VIEW_SVG,
-    title: '查看全部任务',
+    title: t('viewAllTasks'),
     callback: () => {
       void openKanbanView();
     }
@@ -113,13 +114,13 @@ const OPEN_TASK_EDITOR_HOTKEY = '⌥Q';
 const OPEN_GLOBAL_TASK_CREATE_HOTKEY = '';
 type QuickTaskViewMode = 'kanban' | 'table' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table';
 const QUICK_TASK_VIEW_COMMANDS: Array<{ langKey: string; langText: string; view: QuickTaskViewMode }> = [
-  { langKey: 'pinchOpenKanbanView', langText: '快速打开看板视图', view: 'kanban' },
-  { langKey: 'pinchOpenTableView', langText: '快速打开表格视图', view: 'table' },
-  { langKey: 'pinchOpenDayView', langText: '快速打开日视图', view: 'day' },
-  { langKey: 'pinchOpenThreeDayView', langText: '快速打开三日图', view: 'three-day' },
-  { langKey: 'pinchOpenWeekView', langText: '快速打开周视图', view: 'week' },
-  { langKey: 'pinchOpenMonthView', langText: '快速打开月视图', view: 'month' },
-  { langKey: 'pinchOpenArchiveView', langText: '快速打开归档视图', view: 'archive-table' }
+  { langKey: 'pinchOpenKanbanView', langText: t('openKanbanView'), view: 'kanban' },
+  { langKey: 'pinchOpenTableView', langText: t('openTableView'), view: 'table' },
+  { langKey: 'pinchOpenDayView', langText: t('openDayView'), view: 'day' },
+  { langKey: 'pinchOpenThreeDayView', langText: t('openThreeDayView'), view: 'three-day' },
+  { langKey: 'pinchOpenWeekView', langText: t('openWeekView'), view: 'week' },
+  { langKey: 'pinchOpenMonthView', langText: t('openMonthView'), view: 'month' },
+  { langKey: 'pinchOpenArchiveView', langText: t('openArchiveView'), view: 'archive-table' }
 ];
 
 function escapeSqlLiteral(value: string): string {
@@ -290,13 +291,13 @@ async function resolveNearestTaskBlockId(blockId: string): Promise<string | null
 async function openTaskEditorFromCurrentContext(protyle?: IProtyle): Promise<void> {
   const contextBlockId = getCurrentContextBlockId(protyle);
   if (!contextBlockId) {
-    showMessage('未定位到当前块', 2000, 'error');
+    showMessage(t('blockNotFound'), 2000, 'error');
     return;
   }
 
   const taskBlockId = await resolveNearestTaskBlockId(contextBlockId);
   if (!taskBlockId) {
-    showMessage('当前块不是任务块', 2000, 'error');
+    showMessage(t('notTaskBlock'), 2000, 'error');
     return;
   }
 
@@ -328,7 +329,7 @@ async function openTaskDateMenuByBlockId(
 
   const taskBlockId = await resolveNearestTaskBlockId(normalizedBlockId);
   if (!taskBlockId) {
-    showMessage('当前块不是任务块', 2000, 'error');
+    showMessage(t('notTaskBlock'), 2000, 'error');
     return;
   }
 
@@ -376,7 +377,7 @@ function registerTaskBlockIconMenu(pluginInstance: Plugin): void {
     const anchor = getMenuAnchorFromBlockElement(primaryBlockElement);
     detail.menu.addItem({
       icon: 'iconCalendar',
-      label: '编辑任务日期',
+      label: t('editTaskDate'),
       click: () => {
         void openTaskDateMenuByBlockId(targetBlockId, anchor);
       }
@@ -397,7 +398,7 @@ function unregisterTaskBlockIconMenu(): void {
 function registerTaskEditorHotkeyCommand(pluginInstance: Plugin): void {
   pluginInstance.addCommand({
     langKey: 'pinchOpenTaskEditor',
-    langText: '打开当前任务日期弹窗',
+    langText: t('openTaskEditor'),
     hotkey: OPEN_TASK_EDITOR_HOTKEY,
     editorCallback: (protyle) => {
       void openTaskEditorFromCurrentContext(protyle as IProtyle);
@@ -411,7 +412,7 @@ function registerTaskEditorHotkeyCommand(pluginInstance: Plugin): void {
 function registerGlobalTaskCreateCommand(pluginInstance: Plugin): void {
   pluginInstance.addCommand({
     langKey: 'pinchOpenGlobalTaskCreate',
-    langText: '打开全局新建任务弹窗',
+    langText: t('openGlobalTaskCreate'),
     hotkey: OPEN_GLOBAL_TASK_CREATE_HOTKEY,
     editorCallback: () => {
       void openGlobalTaskCreateDialog();
@@ -475,7 +476,7 @@ function createMobileBreadcrumbTaskButton() {
       clearLongPressTimer();
       closeMobileTaskCreateDialog();
       if (!openKanbanMobileDialog()) {
-        showMessage('\u65E0\u6CD5\u6253\u5F00 Pinch \u4EFB\u52A1\u770B\u677F', 3000, 'error');
+        showMessage(t('unableToOpenKanban'), 3000, 'error');
       }
     }, MOBILE_BREADCRUMB_LONG_PRESS_MS);
   };
@@ -484,11 +485,11 @@ function createMobileBreadcrumbTaskButton() {
   button.type = 'button';
   button.className = 'block__icon fn__flex-center ariaLabel';
   button.dataset.pinchMobileTaskCreate = 'true';
-  button.setAttribute('aria-label', '新建任务');
-  button.setAttribute('title', '新建任务');
+  button.setAttribute('aria-label', t('newTask'));
+  button.setAttribute('title', t('newTask'));
   button.innerHTML = '<svg style="width:18px;height:18px;"><use xlink:href="#ht-custom-icon"></use></svg>';
-  button.setAttribute('aria-label', '\u65B0\u5EFA\u4EFB\u52A1');
-  button.setAttribute('title', '\u65B0\u5EFA\u4EFB\u52A1\uff08\u957F\u6309\u6253\u5F00 Pinch \u770B\u677F\uff09');
+  button.setAttribute('aria-label', t('newTask'));
+  button.setAttribute('title', `${t('newTask')}(Long press to open Kanban)`);
   button.addEventListener('pointerdown', (event) => {
     event.stopPropagation();
     startLongPress();
@@ -690,6 +691,7 @@ async function openGlobalTaskCreateDialog() {
 
 let app = null;
 export function init(pluginInstance: Plugin) {
+  setI18n(pluginInstance.i18n);
   // bind plugin hook
   usePlugin(pluginInstance);
   registerIcons(pluginInstance);
@@ -1033,7 +1035,7 @@ export async function openKanbanView() {
       custom: {
         id: 'kanban',
         icon: 'ht-custom-icon',
-        title: 'pinch视图',
+        title: t('pinchView'),
         data: {}
       }
     });
@@ -1063,7 +1065,7 @@ function findExistingKanbanTab(): HTMLElement | null {
     const title = titleElement?.textContent;
     
     // 检查是否是 pinch 视图标签页
-    if (title === 'pinch视图' && iconElement) {
+    if (title === t('pinchView') && iconElement) {
       const hasIcon = iconElement.innerHTML.includes('ht-custom-icon');
       if (hasIcon) {
         return tabHeader;

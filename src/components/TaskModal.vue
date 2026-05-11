@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <Transition name="fade">
     <div
       v-show="show"
@@ -14,8 +14,8 @@
           v-show="show"
         >
           <div class="modal-header">
-            <h3>{{ tt('taskManager.newTask', '新建任务') }}</h3>
-            <button @click="emit('close')" class="icon-button" title="关闭" aria-label="关闭">
+            <h3>{{ tt('taskManager.newTask', 'New Task') }}</h3>
+            <button @click="emit('close')" class="icon-button" :title="t('close')" :aria-label="t('close')">
               <Icon name="close" width="16" height="16" class="icon" />
             </button>
           </div>
@@ -25,24 +25,24 @@
                 v-model="localTask.title"
                 class="task-title-input b3-text-field fn__flex-center"
                 rows="3"
-                :placeholder="tt('taskManager.taskTitlePlaceholder', '请输入任务标题')"
+                :placeholder="tt('taskTitlePlaceholder', 'Enter task title')"
               ></textarea>
             </div>
             <div class="filters-row">
               <div class="form-group filter-group">
-                <label>{{ tt('taskManager.notebook', '笔记本') }}</label>
+                <label>{{ tt('notebook', 'Notebook') }}</label>
                 <SySelect v-model="selectedNotebook" :options="notebookOptions" @update:modelValue="handleNotebookChange" />
               </div>
               <div class="form-group filter-group" v-if="selectedNotebook">
-                <label>{{ tt('taskManager.document', '文档') }}</label>
+                <label>{{ tt('document', 'Document') }}</label>
                 <SySelect v-model="selectedDocument" :options="documentOptions" />
               </div>
             </div>
             <div v-if="taskModalQuickPanel === 'group'" class="task-modal-group-panel">
               <div class="task-modal-group-header">
-                <span class="task-modal-group-title">选择标签</span>
+                <span class="task-modal-group-title">{{ t('selectTag') }}</span>
                 <button type="button" class="task-modal-group-manage" @click.stop="emit('manage-groups')">
-                  管理
+                  {{ t('manage') }}
                 </button>
               </div>
               <div class="task-modal-group-chip-list">
@@ -68,7 +68,7 @@
                 v-model="localTask.description"
                 class="task-description-input b3-text-field"
                 rows="3"
-                :placeholder="tt('taskManager.taskDescriptionPlaceholder', '请输入任务描述（可选）')"
+                :placeholder="tt('taskDescriptionPlaceholder', 'Enter task description (optional)')"
                 @blur="handleTaskModalDescriptionCommit"
                 @keydown.ctrl.enter.prevent="handleTaskModalDescriptionCommit"
               ></textarea>
@@ -79,8 +79,8 @@
                 class="task-modal-action-btn task-modal-group-btn"
                 :class="{ 'is-active': taskModalQuickPanel === 'group' }"
                 :style="taskModalGroupButtonStyle"
-                title="标签"
-                aria-label="标签"
+                :title="t('tag')"
+                :aria-label="t('tag')"
                 @click.stop="toggleTaskModalQuickPanel('group')"
               >
                 <Icon name="group" width="14" height="14" />
@@ -88,10 +88,10 @@
               </button>
                 <button
                   type="button"
-                  class="task-modal-action-btn task-modal-priority-btn"
-                  title="优先级"
-                  aria-label="优先级"
-                  @click.stop="toggleTaskModalPriorityPopover($event)"
+                   class="task-modal-action-btn task-modal-priority-btn"
+                   :title="t('priority')"
+                   :aria-label="t('priority')"
+                   @click.stop="toggleTaskModalPriorityPopover($event)"
                 >
                   <span
                     class="task-modal-priority-indicator"
@@ -102,25 +102,23 @@
                 </button>
                 <button
                   type="button"
-                  class="task-modal-action-btn"
-                  :class="{ 'is-active': taskModalQuickPanel === 'due' }"
-                  ref="taskModalDueButtonRef"
-                  title="截止日期"
-                  aria-label="截止日期"
-                  @click.stop="toggleTaskModalQuickPanel('due')"
+                   class="task-modal-action-btn task-modal-due-btn"
+                   :class="{ 'is-active': taskModalQuickPanel === 'due' }"
+                   :title="t('dueDate')"
+                   :aria-label="t('dueDate')"
+                   @click.stop="toggleTaskModalQuickPanel('due')"
                 >
                 <Icon name="calendar" width="14" height="14" />
                 <span v-if="taskModalHasDueDate" class="task-modal-action-value">{{ taskModalDueText }}</span>
               </button>
-              <button
-                type="button"
-                class="task-modal-action-btn"
-                :class="{ 'is-active': taskModalQuickPanel === 'reminder' }"
-                ref="taskModalReminderButtonRef"
-                title="提醒"
-                aria-label="提醒"
-                @click.stop="toggleTaskModalQuickPanel('reminder')"
-              >
+                 <button
+                   type="button"
+                   class="task-modal-action-btn task-modal-reminder-btn"
+                   :class="{ 'is-active': taskModalQuickPanel === 'reminder' }"
+                   :title="t('reminder')"
+                   :aria-label="t('reminder')"
+                   @click.stop="toggleTaskModalQuickPanel('reminder')"
+                 >
                 <Icon name="bell" width="14" height="14" />
                 <span v-if="taskModalHasReminder" class="task-modal-action-value">{{ taskModalReminderText }}</span>
               </button>
@@ -128,8 +126,8 @@
                 type="button"
                 class="task-modal-action-btn"
                 :class="{ 'is-active': taskModalQuickPanel === 'description' }"
-                title="描述"
-                aria-label="描述"
+                :title="t('description')"
+                :aria-label="t('description')"
                 @click.stop="toggleTaskModalQuickPanel('description')"
               >
                 <Icon name="descriptionBubble" width="14" height="14" />
@@ -137,7 +135,7 @@
             </div>
           </div>
           <div class="modal-footer">
-            <SyButton @click="handleSubmit" class="confirm-button">{{ tt('taskManager.save', '保存') }}</SyButton>
+            <SyButton @click="handleSubmit" class="confirm-button">{{ tt('save', 'Save') }}</SyButton>
           </div>
         </div>
       </Transition>
@@ -201,7 +199,7 @@ export interface Document {
 }
 
 const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
-const PINCH_INBOX_OPTION_NAME = 'pinch收集箱';
+const PINCH_INBOX_OPTION_NAME = t('pinchInbox');
 const TASK_GROUP_NONE_ID = '__none__';
 interface NewTask {
   title: string;
@@ -217,7 +215,7 @@ interface NewTask {
 
 interface Props {
   show: boolean;
-  t: (key: string) => string;
+  t: (key: string, vars?: Record<string, any>) => string;
   notebooks: Notebook[];
   documents: Document[];
   lastSelectedNotebook?: string;
@@ -306,10 +304,10 @@ const taskModalSelectedGroupId = computed(() => {
 const taskModalGroupLabel = computed(() => {
   const groupId = (localTask.value.groupId || '').trim();
   if (!groupId) {
-    return '无标签';
+    return t('noTag');
   }
   const group = (props.groups || []).find(item => item.id === groupId);
-  return group?.name || '标签';
+  return group?.name || t('tag');
 });
 
 const taskModalGroupColorValue = computed(() => {
@@ -334,7 +332,7 @@ const taskModalGroupButtonStyle = computed(() => {
 
 const taskModalGroupOptions = computed(() => {
   const options = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, color: '', colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: t('noTag'), special: true, color: '', colorCss: '', textColor: '' }
   ];
   (props.groups || []).forEach(group => {
     if (group.hidden === true) {
@@ -380,7 +378,7 @@ const documentOptions = computed(() => {
   if (hasInboxDoc) {
     return docOptions;
   }
-  return [{ value: PINCH_INBOX_OPTION_ID, text: PINCH_INBOX_OPTION_NAME }, ...docOptions];
+  return [{ value: PINCH_INBOX_OPTION_ID, text: t('inbox') }, ...docOptions];
 });
 
 function tt(key: string, fallback: string): string {

@@ -9,7 +9,7 @@ interface UseHabitCrudOptions {
   newHabit: Ref<NewHabitFormState>;
   showEditHabitModal: Ref<boolean>;
   editedHabit: Ref<Habit | null>;
-  t: (key: string) => string;
+  t: (key: string, vars?: Record<string, any>) => string;
   saveHabitsNow: (habitsToSave: Habit[]) => Promise<void>;
   immediateSaveHabits: (habitsToSave: Habit[]) => Promise<void>;
   triggerHabitsRef: () => void;

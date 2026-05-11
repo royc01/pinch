@@ -2,11 +2,11 @@
   <div v-if="habit" class="stats-panel">
     <div class="stats-header">
       <div class="stats-header-content">
-        <button @click="handleEdit" class="icon-button" title="编辑习惯" aria-label="编辑习惯">
+        <button @click="handleEdit" class="icon-button" :title="t('editHabit')" :aria-label="t('editHabit')">
           <Icon name="edit" width="16" height="16" class="icon" />
         </button>
         <div class="stats-title">{{ habit.name }}</div>
-        <button @click="handleClose" class="icon-button" title="关闭" aria-label="关闭">
+        <button @click="handleClose" class="icon-button" :title="t('close')" :aria-label="t('close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -20,11 +20,11 @@
       <div class="calendar-container">
         <div class="calendar-controls">
           <div class="calendar-navigation">
-            <button @click="changeCalendarPeriod(-1)" class="nav-btn" title="上一周期" aria-label="上一周期">
+            <button @click="changeCalendarPeriod(-1)" class="nav-btn" :title="t('previousPeriod')" :aria-label="t('previousPeriod')">
               <Icon name="left" width="16" height="16" class="icon" />
             </button>
             <span class="current-period">{{ currentPeriodText }}</span>
-            <button @click="changeCalendarPeriod(1)" class="nav-btn" title="下一周期" aria-label="下一周期">
+            <button @click="changeCalendarPeriod(1)" class="nav-btn" :title="t('nextPeriod')" :aria-label="t('nextPeriod')">
               <Icon name="right" width="16" height="16" class="icon" />
             </button>
           </div>
@@ -67,7 +67,7 @@
           </div>
         </div>
         <div v-if="monthCheckinNotes.length > 0" class="checkin-notes-container">
-          <h4 class="checkin-notes-title">本月打卡备注</h4>
+          <h4 class="checkin-notes-title">{{ t('checkinNotesThisMonth') }}</h4>
           <div class="checkin-notes-list">
             <div 
               v-for="entry in monthCheckinNotes" 
@@ -85,8 +85,8 @@
       <div class="cumulative-stats">
         <div class="stat-row">
             <div class="stat-item">
-              <div class="stat-label">累计打卡</div>
-              <div class="stat-value">{{ habit.totalCompletions }}<span> 次</span></div>
+              <div class="stat-label">{{ t('totalCheckins') }}</div>
+              <div class="stat-value">{{ habit.totalCompletions }}<span> {{ t('times') }}</span></div>
               <div class="monthly-progress-chart">
                 <div class="chart-bar" v-for="monthData in monthlyProgressData" :key="monthData.month">
                   <div class="bar-fill" :style="{ height: monthData.percentage + '%' }"></div>
@@ -94,8 +94,8 @@
               </div>
             </div>
             <div class="stat-item">
-              <div class="stat-label">最长连续坚持</div>
-              <div class="stat-value">{{ longestStreak.streak }}<span> 天</span></div>
+              <div class="stat-label">{{ t('longestStreak') }}</div>
+              <div class="stat-value">{{ longestStreak.streak }}<span> {{ t('days') }}</span></div>
               <div class="stat-timeline" v-if="longestStreak.startDate && longestStreak.endDate">
                 <div class="stat-timeline-start">{{ formatTimelineDate(longestStreak.startDate) }}</div>
                 <div class="stat-timeline-end">{{ formatTimelineDate(longestStreak.endDate) }}</div>
@@ -104,14 +104,14 @@
           </div>
           <div class="stat-row">
             <div class="stat-item">
-              <div class="stat-label">总完成率</div>
+              <div class="stat-label">{{ t('overallCompletionRate') }}</div>
               <div class="stat-value">{{ totalCompletionRate }}<span> %</span></div>
               <div class="progress-bar">
                 <div class="progress-fill" :style="{ width: totalCompletionRate + '%' }"></div>
               </div>
             </div>
             <div class="stat-item">
-              <div class="stat-label">最常打卡时刻</div>
+              <div class="stat-label">{{ t('mostFrequentCheckinTime') }}</div>
               <div class="stat-value" v-html="commonTimeSlot"></div>
               <div class="hour-distribution-chart">
                 <div class="chart-container">
@@ -120,7 +120,7 @@
                     :key="hourData.hour"
                     class="hour-bar"
                     :style="{ height: calculateBarHeight(hourData.count) + '%' }"
-                    :title="`${hourData.hour}点: ${hourData.count}次`"
+                    :title="t('hourStatTooltip', { hour: hourData.hour, count: hourData.count })"
                   >
                   </div>
                 </div>
@@ -132,7 +132,7 @@
         
         <div class="stats-actions">
           <SyButton @click="togglePause" class="pause-button" :icon="habit.isPaused ? 'iconPlay' : 'iconPause'">
-            {{ habit.isPaused ? '恢复打卡' : '暂停打卡' }}
+             {{ habit.isPaused ? t('resumeHabit') : t('pauseHabit') }}
           </SyButton>
           <SyButton @click="handleDelete" class="confirm-button" icon="iconTrashcan">
             {{ t('habitTracker.delete') }}
@@ -194,7 +194,7 @@ interface Props {
   getCreatedDateText: (habit: Habit) => string;
   formatTimelineDate: (date: Date | null) => string;
   calculateBarHeight: (count: number) => number;
-  t: (key: string) => string;
+  t: (key: string, vars?: Record<string, any>) => string;
 }
 
 const props = defineProps<Props>();

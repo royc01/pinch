@@ -8,8 +8,8 @@
         @mousedown.stop
       >
         <div class="task-reminder-popover-header">
-          <span class="task-reminder-popover-title">提醒</span>
-          <button type="button" class="task-reminder-clear-btn" @click="clearSelection">清除</button>
+          <span class="task-reminder-popover-title">{{ t('reminder') }}</span>
+          <button type="button" class="task-reminder-clear-btn" @click="clearSelection">{{ t('clear') }}</button>
         </div>
 
         <div class="task-reminder-option-list">
@@ -20,7 +20,7 @@
             class="task-reminder-option-btn"
             :class="{ active: !presetDisabled && modelValue === option.value }"
             :disabled="presetDisabled"
-            :title="presetDisabled ? '请先设置截止日期' : option.label"
+            :title="presetDisabled ? t('pleaseSetDueDateFirst') : option.label"
             @click="selectPreset(option.value)"
           >
             {{ option.label }}
@@ -28,14 +28,14 @@
         </div>
 
         <div v-if="!hasDueDate" class="task-reminder-hint">
-          到点和提前提醒依赖截止日期；未设置截止日期时可先用自定义提醒。
+          {{ t('reminderHintNoDueDate') }}
         </div>
         <div v-else-if="showDefaultDueTimeHint" class="task-reminder-hint">
-          未设置截止时间时，到点和提前提醒会按 {{ DEFAULT_TASK_REMINDER_DUE_TIME }} 计算。
+          {{ t('reminderHintNoDueTime', { time: DEFAULT_TASK_REMINDER_DUE_TIME }) }}
         </div>
 
         <div class="task-reminder-custom">
-          <label class="task-reminder-custom-label" for="task-reminder-custom-input">自定义</label>
+          <label class="task-reminder-custom-label" for="task-reminder-custom-input">{{ t('custom') }}</label>
           <input
             id="task-reminder-custom-input"
             v-model="customDraft"
@@ -48,7 +48,7 @@
             :class="{ active: modelValue === 'custom' }"
             @click="saveCustomReminder"
           >
-            保存自定义提醒
+            {{ t('saveCustomReminder') }}
           </button>
         </div>
       </div>
@@ -58,6 +58,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { t } from '@/utils/i18n';
 import {
   DEFAULT_TASK_REMINDER_DUE_TIME,
   TASK_REMINDER_PRESET_OPTIONS,
@@ -85,7 +86,7 @@ const popoverRef = ref<HTMLElement | null>(null);
 const popoverStyle = ref<Record<string, string>>({});
 const customDraft = ref('');
 
-const presetOptions = TASK_REMINDER_PRESET_OPTIONS;
+const presetOptions = computed(() => TASK_REMINDER_PRESET_OPTIONS());
 
 const hasDueDate = computed(() => {
   return !!(props.dueDate || '').trim();

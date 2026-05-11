@@ -1,5 +1,6 @@
 import { openBlockById, type Habit, type Task } from '@/api';
 import { eventBus, Events } from '@/utils/eventBus';
+import { t } from '@/utils/i18n';
 
 export interface FocusTimerLinkedTarget {
   type: 'habit' | 'task';
@@ -23,7 +24,7 @@ export function createHabitFocusTarget(
   return {
     type: 'habit',
     id: habit.id,
-    name: habit.name || '未命名习惯',
+    name: habit.name || t('unnamedHabit'),
     emoji: habit.emoji,
     preferredDuration: habit.pomodoroDuration
   };
@@ -35,7 +36,7 @@ export function createTaskFocusTarget(
   return {
     type: 'task',
     id: task.id,
-    name: stripFocusTargetText(task.title || '') || '未命名任务',
+    name: stripFocusTargetText(task.title || '') || t('unnamedTask'),
     blockId: task.blockId
   };
 }

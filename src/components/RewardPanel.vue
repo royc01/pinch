@@ -2,8 +2,8 @@
   <div v-if="show" ref="rewardPagePanelRef" class="reward-page-panel">
     <div class="reward-page-header">
       <div class="reward-page-header-content">
-        <div class="reward-page-title">奖励总览</div>
-        <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="emit('close')">
+        <div class="reward-page-title">{{ t('rewardsOverview') }}</div>
+        <button type="button" class="icon-button" :title="t('close')" :aria-label="t('close')" @click="emit('close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -11,30 +11,28 @@
 
     <div class="reward-section">
       <div class="reward-header">
-        <h3 class="reward-title">奖励概览</h3>
+        <h3 class="reward-title">{{ t('rewardsOverview') }}</h3>
         <div class="reward-level-chip">Lv {{ rewardSnapshot.level }}</div>
       </div>
       <div class="reward-grid">
         <div class="reward-card">
           <div class="reward-card-value">{{ rewardSnapshot.totalXp }}</div>
-          <div class="reward-card-label">累计碎片</div>
+          <div class="reward-card-label">{{ t('totalXp') }}</div>
         </div>
         <div class="reward-card">
           <div class="reward-card-value">{{ rewardSnapshot.availableCoins }}</div>
-          <div class="reward-card-label">可用趣币</div>
+          <div class="reward-card-label">{{ t('availableCoins') }}</div>
         </div>
         <div class="reward-card">
           <div class="reward-card-value">{{ rewardSnapshot.badges.length }}</div>
-          <div class="reward-card-label">徽章数量</div>
+          <div class="reward-card-label">{{ t('badgesCount') }}</div>
         </div>
       </div>
       <div class="reward-progress">
         <div class="reward-progress-bar">
           <span :style="{ width: `${rewardSnapshot.levelProgressPercent}%` }"></span>
         </div>
-        <div class="reward-progress-text">
-          当前等级经验 {{ rewardSnapshot.currentLevelXp }}/{{ rewardSnapshot.nextLevelXp }} 碎片
-        </div>
+          {{ t('currentLevelXp', { current: rewardSnapshot.currentLevelXp, next: rewardSnapshot.nextLevelXp }) }}
       </div>
       <div v-if="rewardSnapshot.badges.length > 0" class="reward-badges">
         <div v-for="badge in rewardSnapshot.badges" :key="badge.id" class="reward-badge">
@@ -43,11 +41,11 @@
         </div>
       </div>
       <div class="reward-history">
-        <div class="reward-history-header">最近奖励</div>
+        <div class="reward-history-header">{{ t('recentRewards') }}</div>
         <div v-if="rewardSnapshot.recentEntries.length === 0" class="reward-history-empty">
-          还没有奖励记录，先去完成一项习惯、任务或专注吧。
+          {{ t('noRewardsYet') }}
         </div>
-          <div v-else class="reward-history-list">
+        <div v-else class="reward-history-list">
             <div
               v-for="entry in rewardSnapshot.recentEntries"
               :key="entry.id"
@@ -60,7 +58,7 @@
               <div v-if="entry.detail" class="reward-history-item-detail">{{ entry.detail }}</div>
             </div>
             <div class="reward-history-points">
-              +{{ entry.xp }} 碎片<span v-if="entry.coins > 0"> · +{{ entry.coins }} 趣币</span>
+              +{{ entry.xp }} {{ t('xp') }}<span v-if="entry.coins > 0"> · +{{ entry.coins }} {{ t('coins') }}</span>
             </div>
           </div>
         </div>
@@ -70,12 +68,12 @@
     <div class="shop-section">
       <div class="shop-header">
         <div>
-          <h3 class="shop-title">奖励商店</h3>
-          <div class="shop-subtitle">用趣币兑换你真正想要的奖励，也可以自己新增奖励项。</div>
+          <h3 class="shop-title">{{ t('rewardsShop') }}</h3>
+           <div class="shop-subtitle">{{ t('rewardsShopSubtitle') }}</div>
         </div>
-        <button type="button" class="shop-add-btn" @click="openCreateShopItem">
-          {{ isShopFormVisible && !editingShopItemId ? '收起表单' : '新增奖励' }}
-        </button>
+          <button type="button" class="shop-add-btn" @click="openCreateShopItem">
+            {{ isShopFormVisible && !editingShopItemId ? t('collapseForm') : t('addReward') }}
+          </button>
       </div>
 
       <div v-if="shopMessage" class="shop-feedback is-success">{{ shopMessage }}</div>
@@ -84,20 +82,20 @@
       <div v-if="isShopFormVisible && !editingShopItemId" class="shop-form">
         <div class="shop-form-grid">
           <label class="shop-field">
-            <span>奖励名称</span>
-            <input v-model="shopForm.title" type="text" maxlength="30" placeholder="填一个清晰的兑换名称" />
+            <span>{{ t('rewardName') }}</span>
+            <input v-model="shopForm.title" type="text" maxlength="30" :placeholder="t('rewardNamePlaceholder')" />
           </label>
           <label class="shop-field shop-field-cost">
-            <span>价格</span>
+            <span>{{ t('price') }}</span>
             <input v-model.number="shopForm.cost" type="number" min="1" max="999" />
           </label>
           <label class="shop-field shop-field-icon">
-            <span>图标</span>
+            <span>{{ t('icon') }}</span>
             <button
               type="button"
               class="shop-icon-picker-btn"
-              aria-label="切换商品图标"
-              title="切换商品图标"
+               :aria-label="t('switchItemIcon')"
+               :title="t('switchItemIcon')"
               @click="openShopIconPicker($event)"
             >
               <span class="shop-icon-picker-display">{{ shopForm.icon || '🎁' }}</span>
@@ -105,21 +103,21 @@
           </label>
         </div>
         <label class="shop-field">
-          <span>说明</span>
-          <textarea v-model="shopForm.description" rows="3" maxlength="120" placeholder="写一点兑换后的具体奖励说明"></textarea>
+          <span>{{ t('description') }}</span>
+          <textarea v-model="shopForm.description" rows="3" maxlength="120" :placeholder="t('rewardDescriptionPlaceholder')"></textarea>
         </label>
         <div class="shop-form-actions">
           <button type="button" class="shop-form-btn primary" :disabled="shopFormSaving" @click="submitShopForm">
-            {{ shopFormSaving ? '保存中...' : (editingShopItemId ? '保存修改' : '添加奖励') }}
+             {{ shopFormSaving ? t('saving') : (editingShopItemId ? t('saveChanges') : t('addReward')) }}
           </button>
           <button type="button" class="shop-form-btn" :disabled="shopFormSaving" @click="resetShopForm">
-            取消
+            {{ t('cancel') }}
           </button>
         </div>
       </div>
 
       <div v-if="rewardSnapshot.shopItems.length === 0" class="shop-empty">
-        还没有奖励项，先添加一个你愿意为自己兑换的奖励吧。
+        {{ t('noShopItemsYet') }}
       </div>
       <div v-else class="shop-grid">
         <div v-for="item in rewardSnapshot.shopItems" :key="item.id" class="shop-card-wrapper">
@@ -130,7 +128,7 @@
                 <div class="shop-card-title">{{ item.title }}</div>
                 <div v-if="item.description" class="shop-card-description">{{ item.description }}</div>
               </div>
-              <div class="shop-card-cost">{{ item.cost }} 趣币</div>
+               <div class="shop-card-cost">{{ item.cost }} {{ t('coins') }}</div>
             </div>
             <div class="shop-card-actions">
               <button
@@ -139,37 +137,37 @@
                 :disabled="shopActionLoadingId === item.id || rewardSnapshot.availableCoins < item.cost"
                 @click="handleRedeem(item)"
               >
-                {{
+                 {{
                   shopActionLoadingId === item.id
-                    ? '兑换中...'
-                    : (rewardSnapshot.availableCoins >= item.cost ? '兑换' : '趣币不足')
+                    ? t('redeeming')
+                    : (rewardSnapshot.availableCoins >= item.cost ? t('redeem') : t('insufficientCoins'))
                 }}
               </button>
               <button type="button" class="shop-card-btn" :disabled="shopActionLoadingId === item.id" @click="startEditShopItem(item)">
-                编辑
+                 {{ t('edit') }}
               </button>
               <button type="button" class="shop-card-btn ghost" :disabled="shopActionLoadingId === item.id" @click="handleDeleteShopItem(item)">
-                删除
+                 {{ t('delete') }}
               </button>
             </div>
           </div>
           <div v-if="editingShopItemId === item.id" class="shop-form shop-form-inline">
             <div class="shop-form-grid">
               <label class="shop-field">
-                <span>奖励名称</span>
-                <input v-model="shopForm.title" type="text" maxlength="30" placeholder="填一个清晰的兑换名称" />
+                <span>{{ t('rewardName') }}</span>
+                <input v-model="shopForm.title" type="text" maxlength="30" :placeholder="t('rewardNamePlaceholder')" />
               </label>
               <label class="shop-field shop-field-cost">
-                <span>价格</span>
+                <span>{{ t('price') }}</span>
                 <input v-model.number="shopForm.cost" type="number" min="1" max="999" />
               </label>
               <label class="shop-field shop-field-icon">
-                <span>图标</span>
+                <span>{{ t('icon') }}</span>
                 <button
                   type="button"
                   class="shop-icon-picker-btn"
-                  aria-label="切换商品图标"
-                  title="切换商品图标"
+                  :aria-label="t('switchItemIcon')"
+                  :title="t('switchItemIcon')"
                   @click="openShopIconPicker($event)"
                 >
                   <span class="shop-icon-picker-display">{{ shopForm.icon || '🎁' }}</span>
@@ -177,15 +175,15 @@
               </label>
             </div>
             <label class="shop-field">
-              <span>说明</span>
-              <textarea v-model="shopForm.description" rows="3" maxlength="120" placeholder="写一点兑换后的具体奖励说明"></textarea>
+              <span>{{ t('description') }}</span>
+              <textarea v-model="shopForm.description" rows="3" maxlength="120" :placeholder="t('rewardDescriptionPlaceholder')"></textarea>
             </label>
             <div class="shop-form-actions">
               <button type="button" class="shop-form-btn primary" :disabled="shopFormSaving" @click="submitShopForm">
-                {{ shopFormSaving ? '保存中...' : '保存修改' }}
+                 {{ shopFormSaving ? t('saving') : t('saveChanges') }}
               </button>
               <button type="button" class="shop-form-btn" :disabled="shopFormSaving" @click="resetShopForm">
-                取消
+                 {{ t('cancel') }}
               </button>
             </div>
           </div>
@@ -193,9 +191,9 @@
       </div>
 
       <div class="shop-redemption-history">
-        <div class="shop-redemption-header">最近兑换</div>
+         <div class="shop-redemption-header">{{ t('recentRedemptions') }}</div>
         <div v-if="rewardSnapshot.recentRedemptions.length === 0" class="shop-redemption-empty">
-          还没有兑换记录。
+          {{ t('noRedemptionsYet') }}
         </div>
         <div v-else class="shop-redemption-list">
           <div v-for="redemption in rewardSnapshot.recentRedemptions" :key="redemption.id" class="shop-redemption-item">
@@ -203,7 +201,7 @@
               <div class="shop-redemption-title">{{ redemption.itemTitle }}</div>
               <div class="shop-redemption-time">{{ formatRedeemedAt(redemption.redeemedAt) }}</div>
             </div>
-            <div class="shop-redemption-cost">-{{ redemption.cost }} 趣币</div>
+             <div class="shop-redemption-cost">-{{ redemption.cost }} {{ t('coins') }}</div>
           </div>
         </div>
       </div>
@@ -213,6 +211,7 @@
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
+import { t } from '@/utils/i18n';
 import { openEmoji } from 'siyuan';
 import {
   addRewardShopItem,
@@ -340,14 +339,14 @@ async function submitShopForm(): Promise<void> {
   try {
     if (editingShopItemId.value) {
       await updateRewardShopItem(editingShopItemId.value, shopForm.value);
-      shopMessage.value = '奖励项已更新';
+      shopMessage.value = t('rewardItemUpdated');
     } else {
       await addRewardShopItem(shopForm.value);
-      shopMessage.value = '奖励项已添加';
+      shopMessage.value = t('rewardItemAdded');
     }
     resetShopForm();
   } catch (error) {
-    shopError.value = error instanceof Error ? error.message : '保存奖励项失败';
+    shopError.value = error instanceof Error ? error.message : t('saveRewardItemFailed');
   } finally {
     shopFormSaving.value = false;
   }
@@ -355,16 +354,16 @@ async function submitShopForm(): Promise<void> {
 
 async function handleRedeem(item: RewardShopItem): Promise<void> {
   clearShopMessages();
-  if (!confirm(`确定消耗 ${item.cost} 趣币兑换「${item.title}」吗？`)) {
+  if (!confirm(t('confirmRedeem', { cost: item.cost, title: item.title }))) {
     return;
   }
 
   shopActionLoadingId.value = item.id;
   try {
     await redeemRewardShopItem(item.id);
-    shopMessage.value = `已兑换「${item.title}」`;
+    shopMessage.value = t('redeemedSuccess', { title: item.title });
   } catch (error) {
-    shopError.value = error instanceof Error ? error.message : '兑换失败';
+    shopError.value = error instanceof Error ? error.message : t('redemptionFailed');
   } finally {
     shopActionLoadingId.value = '';
   }
@@ -372,7 +371,7 @@ async function handleRedeem(item: RewardShopItem): Promise<void> {
 
 async function handleDeleteShopItem(item: RewardShopItem): Promise<void> {
   clearShopMessages();
-  if (!confirm(`确定删除奖励项「${item.title}」吗？`)) {
+  if (!confirm(t('confirmDeleteRewardItem', { title: item.title }))) {
     return;
   }
 
@@ -382,9 +381,9 @@ async function handleDeleteShopItem(item: RewardShopItem): Promise<void> {
     if (editingShopItemId.value === item.id) {
       resetShopForm();
     }
-    shopMessage.value = '奖励项已删除';
+    shopMessage.value = t('rewardItemDeleted');
   } catch (error) {
-    shopError.value = error instanceof Error ? error.message : '删除失败';
+    shopError.value = error instanceof Error ? error.message : t('deletionFailed');
   } finally {
     shopActionLoadingId.value = '';
   }

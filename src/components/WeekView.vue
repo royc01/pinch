@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div
     class="week-view"
     :class="{
@@ -13,7 +13,7 @@
       </button>
       <div class="header-center">
         <div class="header-title">{{ displayWeekTitle }}</div>
-        <button class="today-btn" @click="goToToday">今天</button>
+        <button class="today-btn" @click="goToToday">{{ t('today') }}</button>
       </div>
       <div class="header-right">
         <button class="nav-btn" :title="nextNavLabel" :aria-label="nextNavLabel" @click="nextWeek">
@@ -31,7 +31,7 @@
       <div v-if="isMobileWeekGridMode" class="mobile-week-grid">
         <div class="mobile-week-cell mobile-month-cell">
           <div class="mobile-cell-header mobile-month-header">
-            <span class="mobile-cell-title">月历</span>
+            <span class="mobile-cell-title">{{ t('calendar') }}</span>
             <span class="mobile-cell-date">{{ mobileCalendarTitle }}</span>
           </div>
           <div class="mobile-mini-calendar">
@@ -96,7 +96,7 @@
                 v-if="task.priority !== 'none'"
                 class="task-priority-badge"
                 :class="`priority-${task.priority}`"
-                :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                :title="task.priority === 'high' ? t('highPriority') : task.priority === 'medium' ? t('mediumPriority') : t('lowPriority')"
               >
                 <Icon name="flag" width="10" height="10" />
               </span>
@@ -104,7 +104,7 @@
                 <Icon name="open" width="14" height="14" />
               </span>
             </div>
-            <div v-if="getMobileDayTasks(day.key).length === 0" class="mobile-empty-tip">暂无任务</div>
+            <div v-if="getMobileDayTasks(day.key).length === 0" class="mobile-empty-tip">{{ t('noTasks') }}</div>
           </div>
         </div>
       </div>
@@ -127,7 +127,7 @@
         </div>
         <div v-else class="weekday-header">
           <div class="all-day-label-cell">
-            <span class="all-day-label-text">全天</span>
+            <span class="all-day-label-text">{{ t('allDay') }}</span>
           </div>
           <div v-for="day in weekDays" :key="day.key" class="weekday-cell" :class="{ today: day.isToday }">
             <div class="weekday-name">{{ day.weekdayName }}</div>
@@ -210,7 +210,7 @@
                     v-if="task.priority !== 'none'"
                     class="task-priority-badge"
                     :class="`priority-${task.priority}`"
-                    :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                    :title="task.priority === 'high' ? t('highPriority') : task.priority === 'medium' ? t('mediumPriority') : t('lowPriority')"
                   >
                     <Icon name="flag" width="10" height="10" />
                   </span>
@@ -240,8 +240,8 @@
             <button
               type="button"
               class="more-all-day-pill"
-              :title="`还有${hiddenTasksCount}个任务`"
-              :aria-label="`还有${hiddenTasksCount}个任务`"
+              :title="t('remainingTasksCount', { count: hiddenTasksCount })"
+              :aria-label="t('remainingTasksCount', { count: hiddenTasksCount })"
               @mousedown.stop
               @click.stop="showAllTasks"
             >
@@ -256,13 +256,13 @@
             @click.stop
           >
             <div class="day-expanded-header">
-              <span class="day-expanded-title">全天任务</span>
+              <span class="day-expanded-title">{{ t('allDayTasks') }}</span>
               <button
                 type="button"
                 class="day-expanded-close"
                 @click.stop="hideAllDayExpandedPanel"
               >
-                收起
+                {{ t('collapse') }}
               </button>
             </div>
             <div class="day-expanded-list">
@@ -287,7 +287,7 @@
                 </span>
               </div>
               <div v-if="allDayExpandedTasks.length === 0" class="day-expanded-empty">
-                暂无任务
+                {{ t('noTasks') }}
               </div>
             </div>
           </div>
@@ -421,7 +421,7 @@
                         v-if="item.task.priority !== 'none'"
                         class="task-priority-badge"
                         :class="`priority-${item.task.priority}`"
-                        :title="item.task.priority === 'high' ? '高优先级' : item.task.priority === 'medium' ? '中优先级' : '低优先级'"
+                        :title="item.task.priority === 'high' ? t('highPriority') : item.task.priority === 'medium' ? t('mediumPriority') : t('lowPriority')"
                       >
                         <Icon name="flag" width="10" height="10" />
                       </span>
@@ -503,7 +503,7 @@ import type { Task } from '@/api';
 import { setBlockAttrs, TaskRepository } from '@/api';
 import { updateTaskMarkdown } from '@/utils/taskHelpers';
 import { stripHtml } from '@/composables/useTaskCommon';
-import { formatDate, formatTime, formatHour, formatChineseDate } from '@/composables/useDateUtils';
+import { formatDate, formatTime, formatHour, formatLocaleDate } from '@/composables/useDateUtils';
 import { CALENDAR_CONSTANTS } from '@/composables/useCalendarConstants';
 import { useDebouncedSave } from '@/composables/useDebouncedSave';
 import { useTaskDrag } from '@/composables/useTaskDrag';
@@ -516,6 +516,7 @@ import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import { openHabitTrackerFocusTimer } from '@/main';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
+import { t } from '@/utils/i18n';
 
 interface Props {
   tasks: Task[];
@@ -712,7 +713,7 @@ function resolveInitialWeekStart(): Date {
 const currentWeekStart = ref(resolveInitialWeekStart());
 const currentTime = ref(new Date());
 const isAllDaySectionCollapsed = ref(false);
-const INACTIVE_HOURS_OFFSET = 240; // 5 小时标签+5 个 hour-cell × 48px
+const INACTIVE_HOURS_OFFSET = 240; // 5 hour labels + 5 hour-cells × 48px
 const isInactiveHoursCollapsed = ref(true);
 const allDayExpandedPanelVisible = ref(false);
 const allDayExpandedDayKey = ref<string | null>(null);
@@ -723,8 +724,8 @@ const MOBILE_DRAG_LONG_PRESS_MS = 280;
 const MOBILE_DRAG_MOVE_THRESHOLD_PX = 18;
 const MOBILE_TIMED_TASK_OPERATION_MOVE_THRESHOLD_PX = 10;
 const MOBILE_TIMED_TASK_SNAP_MINUTES = Math.min(CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES, 5);
-const mobileMiniWeekdayLabels = ['一', '二', '三', '四', '五', '六', '日'];
-const mobileWeekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const mobileMiniWeekdayLabels = computed(() => [t('mon'), t('tue'), t('wed'), t('thu'), t('fri'), t('sat'), t('sun')]);
+const mobileWeekdayNames = computed(() => [t('monShort'), t('tueShort'), t('wedShort'), t('thuShort'), t('friShort'), t('satShort'), t('sunShort')]);
 const viewportWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth);
 const daysScrollRef = ref<HTMLElement | null>(null);
 const mobilePointerTaskDrag = ref<MobilePointerTaskDragSession | null>(null);
@@ -1165,22 +1166,22 @@ const navigationOffsetDays = computed(() => resolveNavigationOffsetDays());
 const previousNavLabel = computed(() => {
   const offset = navigationOffsetDays.value;
   if (offset === 1) {
-    return '上一天';
+    return t('previousDay');
   }
   if (offset === 7) {
-    return '上一周';
+    return t('previousWeek');
   }
-  return `前${offset}天`;
+  return t('previousNDays', { count: offset });
 });
 const nextNavLabel = computed(() => {
   const offset = navigationOffsetDays.value;
   if (offset === 1) {
-    return '下一天';
+    return t('nextDay');
   }
   if (offset === 7) {
-    return '下一周';
+    return t('nextWeek');
   }
-  return `后${offset}天`;
+  return t('nextNDays', { count: offset });
 });
 
 function getTasksHash(tasks: Task[]): string {
@@ -1193,7 +1194,7 @@ watch(() => props.tasks, (newTasks) => {
   taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
 }, { deep: true, immediate: true });
 
-const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const weekdays = [t('sunday'), t('monday'), t('tuesday'), t('wednesday'), t('thursday'), t('friday'), t('saturday')];
 
 function timeToMinutes(time: string): number {
   const [hour, min] = time.split(':').map(Number);
@@ -1270,9 +1271,9 @@ const weekTitle = computed(() => {
   end.setDate(start.getDate() + daysCount.value - 1);
 
   if (daysCount.value === 1) {
-    return formatChineseDate(start);
+    return formatLocaleDate(start);
   }
-  return `${formatChineseDate(start)} - ${formatChineseDate(end)}`;
+  return `${formatLocaleDate(start)} - ${formatLocaleDate(end)}`;
 });
 
 const weekDays = computed<WeekDay[]>(() => {
@@ -1347,7 +1348,7 @@ const mobileDayWeekDates = computed(() => {
   const mondayStart = getMondayStart(selectedDate);
   const today = getTodayStart().getTime();
 
-  return mobileMiniWeekdayLabels.map((label, index) => {
+  return mobileMiniWeekdayLabels.value.map((label, index) => {
     const date = new Date(mondayStart);
     date.setDate(mondayStart.getDate() + index);
     date.setHours(0, 0, 0, 0);
@@ -1400,7 +1401,7 @@ const mobileWeekDays = computed<WeekDay[]>(() => {
     days.push({
       key,
       date,
-      weekdayName: mobileWeekdayNames[i],
+      weekdayName: mobileWeekdayNames.value[i],
       dayNumber: date.getDate(),
       isToday: date.getTime() === today
     });
@@ -1412,7 +1413,7 @@ const mobileWeekDays = computed<WeekDay[]>(() => {
 const mobileWeekDayKeySet = computed(() => new Set(mobileWeekDays.value.map(day => day.key)));
 
 function formatMonthDayWithoutYear(date: Date): string {
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
+  return t('monthDayLabel', { month: date.getMonth() + 1, day: date.getDate() });
 }
 
 const displayWeekTitle = computed(() => {
@@ -1431,12 +1432,12 @@ const displayWeekTitle = computed(() => {
   const start = new Date(mobileWeekStartDate.value);
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
-  return `${formatChineseDate(start)} - ${formatChineseDate(end)}`;
+  return `${formatLocaleDate(start)} - ${formatLocaleDate(end)}`;
 });
 
 const mobileCalendarTitle = computed(() => {
   const date = mobileWeekStartDate.value;
-  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+  return t('yearMonthLabel', { year: date.getFullYear(), month: date.getMonth() + 1 });
 });
 
 const mobileMiniCalendarDays = computed<MobileMiniCalendarDay[]>(() => {
@@ -2975,7 +2976,7 @@ function resolveMobileAllDayTaskDropTarget(point: ExternalTaskDropPoint): Mobile
     return {
       day: allDayZone.day,
       dayKey: allDayZone.dayKey,
-      label: formatChineseDate(allDayZone.day.date)
+      label: formatLocaleDate(allDayZone.day.date)
     };
   }
 
@@ -2984,7 +2985,7 @@ function resolveMobileAllDayTaskDropTarget(point: ExternalTaskDropPoint): Mobile
     return {
       day: timedZone.day,
       dayKey: timedZone.dayKey,
-      label: formatChineseDate(timedZone.day.date)
+      label: formatLocaleDate(timedZone.day.date)
     };
   }
 
@@ -2998,7 +2999,7 @@ function resolveMobileAllDayTaskDropTarget(point: ExternalTaskDropPoint): Mobile
   return {
     day,
     dayKey,
-    label: formatChineseDate(day.date)
+    label: formatLocaleDate(day.date)
   };
 }
 
@@ -3593,9 +3594,9 @@ function resolveTaskPersistBlockId(task: Task | null | undefined): string | null
 }
 
 function formatMobileTimedTaskDropLabel(day: WeekDay, startTime?: string, dueTime?: string): string {
-  const dateLabel = formatChineseDate(day.date);
+  const dateLabel = formatLocaleDate(day.date);
   if (!startTime || !dueTime) {
-    return `${dateLabel} 全天`;
+    return t('allDayWithName', { name: dateLabel });
   }
   return `${dateLabel} ${startTime} - ${dueTime}`;
 }

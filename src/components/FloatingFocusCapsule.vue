@@ -15,8 +15,8 @@
           type="button"
           class="floating-focus__dot"
           data-no-drag
-          title="专注设置"
-          aria-label="专注设置"
+          :title="t('focusSettings')"
+          :aria-label="t('focusSettings')"
           @click.stop="toggleSettings"
         >
           <Icon name="timer" width="16" height="16" class="icon" />
@@ -45,10 +45,10 @@
           class="floating-focus__duration"
           data-no-drag
           :disabled="isPomodoroSettingsLocked"
-          :title="isPomodoroSettingsLocked ? '正计时时不可调整专注时长' : '点击切换专注时长'"
+          :title="isPomodoroSettingsLocked ? t('countdownUnlockedHint') : t('cycleFocusDurationHint')"
           @click="cycleDuration"
         >
-          专注 {{ durationMinutes }}m
+          {{ t('focusPhase', { minutes: durationMinutes }) }}
         </button>
         <span v-else class="floating-focus__time">{{ displayTime }}</span>
         <div class="floating-focus__actions">
@@ -56,8 +56,8 @@
             type="button"
             class="floating-focus__action"
             data-no-drag
-            :title="isStartBlockedByOther && !isActive ? '面板专注进行中' : actionTitle"
-            :aria-label="isStartBlockedByOther && !isActive ? '面板专注进行中' : actionTitle"
+            :title="isStartBlockedByOther && !isActive ? t('focusInProgressHint') : actionTitle"
+            :aria-label="isStartBlockedByOther && !isActive ? t('focusInProgressHint') : actionTitle"
             :disabled="isStartBlockedByOther && !isActive"
             @click.stop="toggleStartPause"
           >
@@ -68,8 +68,8 @@
             type="button"
             class="floating-focus__action is-stop"
             data-no-drag
-            title="停止"
-            aria-label="停止"
+            :title="t('stop')"
+            :aria-label="t('stop')"
             @click.stop="stopTimer(true)"
           >
             <Icon name="stop" width="12" height="12" class="icon" />
@@ -85,14 +85,14 @@
           <div class="timer-settings">
             <div class="setting-section linked-target-setting">
               <div class="setting-label">
-                <span>计时关联</span>
+                <span>{{ t('timerConnection') }}</span>
               </div>
               <div v-if="linkedTarget" class="linked-habit-banner__chip-row">
                 <button
                   type="button"
                   class="linked-habit-banner__chip"
                   :disabled="!canOpenLinkedTarget"
-                  :title="canOpenLinkedTarget ? `打开${linkedTargetLabel}` : linkedTargetLabel"
+                  :title="canOpenLinkedTarget ? t('openTarget', { name: linkedTargetLabel }) : linkedTargetLabel"
                   :aria-label="linkedTargetLabel"
                   @click="openLinkedTarget"
                 >
@@ -104,8 +104,8 @@
                   type="button"
                   class="linked-habit-banner__clear"
                   :disabled="isLinkedTargetLocked"
-                  title="清除关联"
-                  aria-label="清除关联"
+                  :title="t('clearConnection')"
+                  :aria-label="t('clearConnection')"
                   @click="clearLinkedTarget"
                 >
                   <Icon name="close" width="12" height="12" class="icon" />
@@ -118,7 +118,7 @@
                   :disabled="isLinkedTargetLocked"
                   @click="openTargetPicker('habit')"
                 >
-                  关联习惯
+                  {{ t('linkHabit') }}
                 </button>
                 <button
                   type="button"
@@ -126,17 +126,17 @@
                   :disabled="isLinkedTargetLocked"
                   @click="openTargetPicker('task')"
                 >
-                  关联任务
+                  {{ t('linkTask') }}
                 </button>
               </div>
               <div v-if="targetPickerMode" class="linked-habit-banner__picker">
                 <div class="linked-habit-banner__picker-header">
-                  <span>{{ targetPickerMode === 'habit' ? '选择习惯' : '选择任务' }}</span>
+                  <span>{{ targetPickerMode === 'habit' ? t('selectHabit') : t('selectTask') }}</span>
                   <button
                     type="button"
                     class="linked-habit-banner__picker-close"
-                    title="关闭"
-                    aria-label="关闭"
+                    :title="t('close')"
+                    :aria-label="t('close')"
                     @click="closeTargetPicker"
                   >
                     <Icon name="close" width="12" height="12" class="icon" />
@@ -146,16 +146,16 @@
                   v-model.trim="targetSearch"
                   class="linked-habit-banner__search"
                   type="text"
-                  :placeholder="targetPickerMode === 'habit' ? '搜索习惯' : '搜索任务'"
+                  :placeholder="targetPickerMode === 'habit' ? t('searchHabit') : t('searchTask')"
                 />
                 <div v-if="isLoadingTargetOptions" class="linked-habit-banner__picker-state">
-                  加载中...
+                  {{ t('loading') }}
                 </div>
                 <div v-else-if="targetOptionsError" class="linked-habit-banner__picker-state is-error">
                   {{ targetOptionsError }}
                 </div>
                 <div v-else-if="filteredTargetOptions.length === 0" class="linked-habit-banner__picker-state">
-                  未找到可关联的{{ targetPickerMode === 'habit' ? '习惯' : '任务' }}
+                  {{ targetPickerMode === 'habit' ? t('noLinkableHabit') : t('noLinkableTask') }}
                 </div>
                 <div v-else class="linked-habit-banner__picker-list">
                   <button
@@ -181,8 +181,8 @@
             </div>
             <div class="setting-section">
               <div class="setting-label">
-                <span>计时模式</span>
-                <div class="timer-mode-toggle timer-mode-toggle--inline" role="radiogroup" aria-label="计时模式">
+                <span>{{ t('timerMode') }}</span>
+                <div class="timer-mode-toggle timer-mode-toggle--inline" role="radiogroup" :aria-label="t('timerMode')">
                   <button
                     type="button"
                     class="timer-mode-option"
@@ -190,7 +190,7 @@
                     :disabled="isRunning || isPaused"
                     @click="setTimerMode('countdown')"
                   >
-                    倒计时
+                    {{ t('countdown') }}
                   </button>
                   <button
                     type="button"
@@ -199,17 +199,17 @@
                     :disabled="isRunning || isPaused"
                     @click="setTimerMode('countup')"
                   >
-                    正计时
+                    {{ t('countup') }}
                   </button>
                 </div>
               </div>
-              <div class="setting-hint">正计时不封顶，手动停止后按累计时长计入统计。</div>
+              <div class="setting-hint">{{ t('countupHint') }}</div>
             </div>
 
             <div class="setting-section">
               <div class="setting-label">
-                <span>专注时长</span>
-                <span class="duration-value">{{ selectedDuration }}分钟</span>
+                <span>{{ t('focusDuration') }}</span>
+                <span class="duration-value">{{ t('minutes', { count: selectedDuration }) }}</span>
               </div>
               <div class="duration-slider-container">
                 <input
@@ -238,8 +238,8 @@
 
             <div class="setting-section">
               <div class="setting-label">
-                <span>短休时长</span>
-                <span class="duration-value">{{ shortBreakDuration }}分钟</span>
+                <span>{{ t('shortBreakDuration') }}</span>
+                <span class="duration-value">{{ t('minutes', { count: shortBreakDuration }) }}</span>
               </div>
               <div class="duration-slider-container">
                 <input
@@ -268,8 +268,8 @@
 
             <div class="setting-section">
               <div class="setting-label">
-                <span>专注组数</span>
-                <span class="duration-value">{{ pomodoroSets }}组</span>
+                <span>{{ t('pomodoroSets') }}</span>
+                <span class="duration-value">{{ t('sets', { count: pomodoroSets }) }}</span>
               </div>
               <div class="duration-slider-container">
                 <input
@@ -303,6 +303,7 @@
 </template>
 
 <script setup lang="ts">
+import { t } from '@/utils/i18n';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import { addFocusSession } from '@/api';
@@ -425,9 +426,9 @@ const displayTime = computed(() => {
 
 const actionIcon = computed(() => (isRunning.value ? 'pause' : 'play'));
 const actionTitle = computed(() => {
-  if (isRunning.value) return '暂停';
-  if (isPaused.value) return '继续';
-  return '开始';
+  if (isRunning.value) return t('pause');
+  if (isPaused.value) return t('continue');
+  return t('start');
 });
 
 const progress = computed(() => {
@@ -804,7 +805,7 @@ const openTargetPicker = async (mode: FocusTargetPickerMode) => {
       taskTargetOptions.value = await loadTaskFocusTargetOptions();
     }
   } catch {
-    targetOptionsError.value = `加载${mode === 'habit' ? '习惯' : '任务'}失败，请稍后重试`;
+    targetOptionsError.value = mode === 'habit' ? t('loadHabitFailed') : t('loadTaskFailed');
   } finally {
     isLoadingTargetOptions.value = false;
   }

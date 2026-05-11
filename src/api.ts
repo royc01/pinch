@@ -1863,9 +1863,10 @@ export class TaskRepository {
     };
 
     if (normalizedTitle.includes('大后天')) return buildRelativeDate(3);
-    if (normalizedTitle.includes('后天')) return buildRelativeDate(2);
-    if (normalizedTitle.includes('明天')) return buildRelativeDate(1);
-    if (normalizedTitle.includes('今天')) return buildRelativeDate(0);
+    if (normalizedTitle.includes('后天') || normalizedTitle.toLowerCase().includes('day after tomorrow')) return buildRelativeDate(2);
+    if (normalizedTitle.includes('明天') || normalizedTitle.toLowerCase().includes('tomorrow')) return buildRelativeDate(1);
+    if (normalizedTitle.includes('今天') || normalizedTitle.toLowerCase().includes('today')) return buildRelativeDate(0);
+    if (normalizedTitle.includes('昨天') || normalizedTitle.toLowerCase().includes('yesterday')) return buildRelativeDate(-1);
 
     const weekdayMatch = normalizedTitle.match(
       /(?:^|[^\d])(下下|下|本|这)?(?:周|星期|礼拜)(末|天|日|[1-7]|一|二|三|四|五|六)(?![一二三四五六日天末\d])/
