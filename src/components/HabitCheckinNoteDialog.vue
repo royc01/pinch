@@ -4,26 +4,49 @@
       <div class="checkin-note-header">
         <div class="checkin-note-title">
           <span v-if="habitEmoji" class="habit-emoji-display">{{ habitEmoji }}</span>
-          <span>{{ habitName }} - {{ isEdit ? '修改备注' : '打卡备注' }}</span>
+          <span>{{ habitName }} - {{ isEdit ? t('habitCheckinNote.editTitleSuffix') : t('habitCheckinNote.createTitleSuffix') }}</span>
         </div>
-        <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="handleCancel">
+        <button
+          type="button"
+          class="icon-button"
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
+          @click="handleCancel"
+        >
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
       <div class="checkin-note-body">
-        <div class="checkin-note-label">备注将写入关联文档</div>
+        <div class="checkin-note-label">{{ t('habitCheckinNote.writeToDoc') }}</div>
         <textarea
           v-model="noteInput"
           class="checkin-note-textarea"
-          placeholder="记录一下这次打卡的心得..."
+          :placeholder="t('habitCheckinNote.placeholder')"
           rows="3"
           @keydown.enter.ctrl="handleConfirm"
         />
-        <div class="checkin-note-hint">按 Ctrl+Enter 快速保存</div>
+        <div class="checkin-note-hint">{{ t('habitCheckinNote.ctrlEnterHint') }}</div>
       </div>
       <div class="checkin-note-actions">
-        <SyButton class="checkin-note-btn plain" @click="handleCancel">取消</SyButton>
-        <SyButton class="checkin-note-btn confirm" @click="handleConfirm">{{ isEdit ? '保存修改' : '保存并打卡' }}</SyButton>
+        <SyButton
+          v-if="canUndoOnce"
+          class="checkin-note-btn danger"
+          @click="handleUndoOnce"
+        >
+          {{ t('habitCheckinNote.undoOnce') }}
+        </SyButton>
+        <SyButton
+          v-if="canClearToday"
+          class="checkin-note-btn danger"
+          @click="handleClearToday"
+        >
+          {{ t('habitCheckinNote.clearToday') }}
+        </SyButton>
+        <span class="checkin-note-actions-spacer"></span>
+        <SyButton class="checkin-note-btn plain" @click="handleCancel">{{ t('common.cancel') }}</SyButton>
+        <SyButton class="checkin-note-btn confirm" @click="handleConfirm">
+          {{ isEdit ? t('habitCheckinNote.saveEdit') : t('habitCheckinNote.saveAndCheckin') }}
+        </SyButton>
       </div>
     </div>
   </div>
@@ -33,6 +56,7 @@
 import { ref, watch } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import Icon from '@/components/Icon.vue';
+import { useI18n } from '@/composables/useI18n';
 
 interface Props {
   show: boolean;
@@ -40,17 +64,25 @@ interface Props {
   habitEmoji?: string;
   isEdit?: boolean;
   initialNote?: string;
+  canUndoOnce?: boolean;
+  canClearToday?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   habitEmoji: '',
   isEdit: false,
-  initialNote: ''
+  initialNote: '',
+  canUndoOnce: false,
+  canClearToday: false
 });
+
+const { t } = useI18n();
 
 const emit = defineEmits<{
   close: [];
   confirm: [note: string];
+  undoOnce: [];
+  clearToday: [];
 }>();
 
 const noteInput = ref('');
@@ -67,6 +99,14 @@ function handleCancel(): void {
 
 function handleConfirm(): void {
   emit('confirm', noteInput.value.trim());
+}
+
+function handleUndoOnce(): void {
+  emit('undoOnce');
+}
+
+function handleClearToday(): void {
+  emit('clearToday');
 }
 </script>
 
@@ -149,8 +189,12 @@ function handleConfirm(): void {
 .checkin-note-actions {
   display: flex;
   gap: 8px;
-  justify-content: flex-end;
+  align-items: center;
   padding: 12px 14px;
+}
+
+.checkin-note-actions-spacer {
+  flex: 1;
 }
 
 .checkin-note-btn.plain {
@@ -163,6 +207,14 @@ function handleConfirm(): void {
 .checkin-note-btn.confirm {
   background: #f98f7a;
   color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 4px 10px;
+}
+
+.checkin-note-btn.danger {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-error);
   border: none;
   border-radius: 20px;
   padding: 4px 10px;

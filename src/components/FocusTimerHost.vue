@@ -8,6 +8,7 @@
     @update-linked-target="linkedTarget = $event"
     @clear-linked-target="linkedTarget = null"
     @open-linked-target="handleOpenLinkedTarget"
+    @handoff-to-mini="handleHandoffToMini"
     @close="showFocusTimer = false"
   />
 
@@ -34,13 +35,17 @@ import {
   openFocusTimerLinkedTarget,
   type FocusTimerLinkedTarget
 } from '@/utils/focusTimerTarget';
+import type { FocusTimerHandoffState } from '@/utils/focusTimerHandoff';
 
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 
 const showFocusTimer = ref(false);
 const floatingFocusEnabled = ref(false);
 const linkedTarget = ref<FocusTimerLinkedTarget | null>(null);
-const floatingFocusCapsuleRef = ref<{ openSettingsPanel: () => void } | null>(null);
+const floatingFocusCapsuleRef = ref<{
+  openSettingsPanel: () => void;
+  acceptPanelHandoff: (state: FocusTimerHandoffState) => void;
+} | null>(null);
 let unsubscribeDetachedFocusDisableRequest: (() => void) | null = null;
 let unsubscribeDetachedFocusLinkedTargetChange: (() => void) | null = null;
 
@@ -89,6 +94,15 @@ function handleCompleteLinkedTarget(target: FocusTimerLinkedTarget): void {
 
 function handleOpenLinkedTarget(target: FocusTimerLinkedTarget): void {
   void openFocusTimerLinkedTarget(target);
+}
+
+function handleHandoffToMini(state: FocusTimerHandoffState): void {
+  linkedTarget.value = state.linkedTarget;
+  floatingFocusEnabled.value = true;
+  showFocusTimer.value = false;
+  void nextTick(() => {
+    floatingFocusCapsuleRef.value?.acceptPanelHandoff(state);
+  });
 }
 
 watch(floatingFocusEnabled, (value) => {

@@ -5,9 +5,9 @@
     :excluded-notebook-ids="[]"
     :show-scope-tab="false"
     :show-extra="false"
-    :title="'目标管理'"
-    :hint="'目标管理已整合进任务范围弹窗，这里保留为兼容入口。'"
-    :confirm-text="'保存'"
+    :title="t('goalManager.title')"
+    :hint="t('goalManager.compatHint')"
+    :confirm-text="t('common.save')"
     :initial-tab="'goals'"
     :goals="goals"
     :goal-documents="documents"
@@ -20,6 +20,7 @@
 import TaskScopeDialog, { type TaskScopeDialogSavePayload } from '@/components/TaskScopeDialog.vue';
 import type { Goal } from '@/goalRepository';
 import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
+import { useI18n } from '@/composables/useI18n';
 
 interface Props {
   show: boolean;
@@ -28,6 +29,7 @@ interface Props {
 }
 
 defineProps<Props>();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   close: [];

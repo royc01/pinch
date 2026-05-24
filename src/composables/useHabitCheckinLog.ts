@@ -1,4 +1,5 @@
-import { appendBlock, deleteBlock, setBlockAttrs, sql, type Habit } from '@/api';
+import { appendBlock, deleteBlock, getFocusTimerData, setBlockAttrs, sql, type FocusSessionRecord, type Habit } from '@/api';
+import { translate } from '@/composables/useI18n';
 
 export interface CheckinLogOptions {
   habit: Habit;
@@ -6,6 +7,12 @@ export interface CheckinLogOptions {
   note?: string;
   completedCount?: number;
   targetCount?: number;
+  focusSummary?: HabitFocusLogSummary | null;
+}
+
+export interface HabitFocusLogSummary {
+  minutes: number;
+  periods: string[];
 }
 
 export function useHabitCheckinLog() {
@@ -17,11 +24,87 @@ export function useHabitCheckinLog() {
     return dateStr;
   };
 
+  const formatMinutes = (minutes: number): string => {
+    const roundedMinutes = Math.max(0, Math.round(minutes));
+    if (roundedMinutes < 60) {
+      return translate('habitCheckinLog.minutesTemplate').replace('{minutes}', String(roundedMinutes));
+    }
+
+    const hours = Math.floor(roundedMinutes / 60);
+    const restMinutes = roundedMinutes % 60;
+    return restMinutes > 0
+      ? translate('habitCheckinLog.hoursMinutesTemplate')
+        .replace('{hours}', String(hours))
+        .replace('{minutes}', String(restMinutes))
+      : translate('habitCheckinLog.hoursTemplate').replace('{hours}', String(hours));
+  };
+
+  const formatTime = (timestamp: number): string => {
+    const date = new Date(timestamp);
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const formatFocusPeriod = (record: FocusSessionRecord): string | null => {
+    const minutes = Math.max(0, Math.round(Number(record.minutes) || 0));
+    const end = Number(record.timestamp);
+    if (minutes <= 0 || !Number.isFinite(end)) {
+      return null;
+    }
+
+    const start = end - minutes * 60 * 1000;
+    return `${formatTime(start)}-${formatTime(end)}`;
+  };
+
+  const formatHabitName = (habit: Habit): string => {
+    const name = habit.name.trim() || translate('habitCheckinLog.untitledHabit');
+    return habit.emoji ? `${habit.emoji} ${name}` : name;
+  };
+
+  const formatFocusSummary = (summary?: HabitFocusLogSummary | null): string => {
+    if (!summary || summary.minutes <= 0) {
+      return '';
+    }
+
+    const periodSeparator = translate('habitCheckinLog.periodSeparator');
+    const periodText = summary.periods.length > 0
+      ? translate('habitCheckinLog.periodsWrapper').replace('{periods}', summary.periods.join(periodSeparator))
+      : '';
+    return ` · ${translate('habitCheckinLog.focusLabel')}：${formatMinutes(summary.minutes)}${periodText}`;
+  };
+
+  const getHabitFocusSummary = async (habit: Habit, date: string): Promise<HabitFocusLogSummary | null> => {
+    try {
+      const data = await getFocusTimerData();
+      const records = data.sessionRecords
+        .filter(record =>
+          record.date === date
+          && record.targetType === 'habit'
+          && record.targetId === habit.id
+          && Number(record.minutes) > 0
+        )
+        .sort((left, right) => left.timestamp - right.timestamp);
+
+      if (records.length === 0) {
+        return null;
+      }
+
+      return {
+        minutes: records.reduce((sum, record) => sum + Math.max(0, Number(record.minutes) || 0), 0),
+        periods: records
+          .map(formatFocusPeriod)
+          .filter((period): period is string => Boolean(period))
+      };
+    } catch (error) {
+      console.error('[HabitCheckinLog] getHabitFocusSummary failed:', error);
+      return null;
+    }
+  };
+
   const formatCheckinLog = (options: CheckinLogOptions): string => {
-    const { date, note, completedCount, targetCount } = options;
+    const { habit, date, note, completedCount, targetCount, focusSummary } = options;
     const displayDate = formatDateDot(date);
 
-    let log = `* ${displayDate}`;
+    let log = `* ${displayDate} · ${translate('habitCheckinLog.habitLabel')}：${formatHabitName(habit)}${formatFocusSummary(focusSummary)}`;
 
     if (completedCount !== undefined && targetCount !== undefined && targetCount > 1) {
       log += ` (${completedCount}/${targetCount})`;
@@ -220,7 +303,10 @@ export function useHabitCheckinLog() {
         await deleteBlock(existingNodeListId);
       }
 
-      const logContent = formatCheckinLog(options);
+      const logOptions = options.focusSummary === undefined
+        ? { ...options, focusSummary: await getHabitFocusSummary(options.habit, options.date) }
+        : options;
+      const logContent = formatCheckinLog(logOptions);
       const result = await appendBlock('markdown', logContent, docId);
 
       let nodeListBlockId: string | null = extractBlockIdFromOps(result);
@@ -257,6 +343,21 @@ export function useHabitCheckinLog() {
       return true;
     } catch (error) {
       console.error('[HabitCheckinLog] writeCheckinLogToDoc failed:', error);
+      return false;
+    }
+  };
+
+  const deleteCheckinLogFromDoc = async (docId: string, date: string, habitId: string): Promise<boolean> => {
+    try {
+      const existingNodeListId = await findCheckinNodeListId(docId, date, habitId);
+      if (!existingNodeListId) {
+        return true;
+      }
+
+      await deleteBlock(existingNodeListId);
+      return true;
+    } catch (error) {
+      console.error('[HabitCheckinLog] deleteCheckinLogFromDoc failed:', error);
       return false;
     }
   };
@@ -353,6 +454,7 @@ export function useHabitCheckinLog() {
   return {
     formatCheckinLog,
     writeCheckinLogToDoc,
+    deleteCheckinLogFromDoc,
     findCheckinNodeListId,
     getExistingNote,
     getMonthCheckinNotes

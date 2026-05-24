@@ -2,14 +2,14 @@
   <div v-if="show" class="task-group-overlay" @click.self="emit('close')">
     <div class="task-group-dialog" @click.stop>
       <div class="task-group-header">
-        <div class="task-group-title">标签管理</div>
-        <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="emit('close')">
+        <div class="task-group-title">{{ t('taskManager.tagManager') }}</div>
+        <button type="button" class="icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="emit('close')">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
-      <div class="task-group-hint">选择标签名称与颜色，颜色会应用在标签徽标与表格标签标题上。</div>
+      <div class="task-group-hint">{{ t('taskGroupDialog.hint') }}</div>
       <div class="task-group-list">
-        <div v-if="localGroups.length === 0" class="task-group-empty">暂无标签</div>
+        <div v-if="localGroups.length === 0" class="task-group-empty">{{ t('taskManager.noTags') }}</div>
         <div v-else class="task-group-grid">
           <div
             v-for="(group, index) in localGroups"
@@ -33,23 +33,23 @@
                   type="button"
                   class="task-group-drag-handle"
                   draggable="true"
-                  title="拖动排序"
-                  aria-label="Drag to reorder tags"
+                  :title="t('taskGroupDialog.dragToSort')"
+                  :aria-label="t('taskGroupDialog.dragToSort')"
                   @dragstart="handleGroupCardDragStart($event, group)"
                   @dragend="handleGroupCardDragEnd"
                 >
                   <Icon name="dragHandle" width="16" height="16" />
                 </button>
                 <div v-if="isNoneOption(group)" class="task-group-special-field">
-                  <span class="task-group-name-static">无标签</span>
-                  <span class="task-group-special-badge">仅排序</span>
+                  <span class="task-group-name-static">{{ t('taskManager.noTag') }}</span>
+                  <span class="task-group-special-badge">{{ t('taskGroupDialog.sortOnly') }}</span>
                 </div>
                 <SyInput
                   v-if="!isNoneOption(group)"
                   v-model="group.name"
                   class="task-group-name"
                   :style="getGroupInputStyle(group)"
-                  placeholder="标签名称"
+                  :placeholder="t('taskGroupDialog.tagNamePlaceholder')"
                 />
                 <Icon
                   v-if="!isNoneOption(group)"
@@ -60,7 +60,7 @@
                   :style="getGroupSwatchStyle(group)"
                   role="button"
                   tabindex="0"
-                  aria-label="Pick tag color"
+                  :aria-label="t('taskGroupDialog.pickTagColor')"
                   @click="openColorPicker(index)"
                   @keydown.enter.prevent="openColorPicker(index)"
                   @keydown.space.prevent="openColorPicker(index)"
@@ -70,8 +70,8 @@
                   type="button"
                   class="task-group-visibility"
                   :class="{ active: group.hidden === true }"
-                  :title="group.hidden ? '显示标签' : '隐藏标签'"
-                  :aria-label="group.hidden ? '显示标签' : '隐藏标签'"
+                  :title="group.hidden ? t('taskGroupDialog.showTag') : t('taskGroupDialog.hideTag')"
+                  :aria-label="group.hidden ? t('taskGroupDialog.showTag') : t('taskGroupDialog.hideTag')"
                   @click="toggleGroupHidden(index)"
                 >
                   <Icon :name="group.hidden ? 'eyeOff' : 'eye'" width="16" height="16" />
@@ -80,7 +80,7 @@
                   v-if="!isNoneOption(group)"
                   type="button"
                   class="task-group-delete"
-                  aria-label="Delete tag"
+                  :aria-label="t('taskGroupDialog.deleteTag')"
                   @click="removeGroup(index)"
                 >
                   <Icon name="trash" width="16" height="16" />
@@ -91,8 +91,8 @@
         </div>
       </div>
       <div class="task-group-actions">
-        <SyButton class="task-group-btn plain" @click="addGroup">新增标签</SyButton>
-        <SyButton class="task-group-btn confirm" @click="save">保存</SyButton>
+        <SyButton class="task-group-btn plain" @click="addGroup">{{ t('taskGroupDialog.addTag') }}</SyButton>
+        <SyButton class="task-group-btn confirm" @click="save">{{ t('common.save') }}</SyButton>
       </div>
     </div>
   </div>
@@ -104,8 +104,8 @@
     >
       <div class="task-group-color-modal">
         <div class="task-group-color-modal-header">
-          <span>选择颜色</span>
-          <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="closeColorPicker">
+          <span>{{ t('taskGroupDialog.pickColor') }}</span>
+          <button type="button" class="icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="closeColorPicker">
             <Icon name="close" width="12" height="12" class="icon" />
           </button>
         </div>
@@ -128,10 +128,10 @@
             class="task-group-color-clear"
             @click="clearPickerColor"
           >
-            清除颜色
+            {{ t('taskGroupDialog.clearColor') }}
           </button>
           <button type="button" class="task-group-color-cancel" @click="closeColorPicker">
-            取消
+            {{ t('common.cancel') }}
           </button>
         </div>
       </div>
@@ -146,6 +146,7 @@ import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import Icon from '@/components/Icon.vue';
 import type { TaskGroup } from '@/api';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
+import { useI18n } from '@/composables/useI18n';
 
 interface Props {
   show: boolean;
@@ -156,6 +157,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+const { t } = useI18n();
 
 interface TaskGroupDialogSavePayload {
   groups: TaskGroup[];
@@ -222,7 +224,7 @@ function normalizeOrderIds(input: unknown): string[] {
 function buildNoneOptionItem(): TaskGroupDialogItem {
   return {
     id: TASK_GROUP_NONE_ID,
-    name: '无标签',
+    name: t('taskManager.noTag'),
     color: '',
     hidden: false,
     order: -1,
@@ -449,7 +451,7 @@ function addGroup(): void {
 }
 
 function removeGroup(index: number): void {
-  if (!confirm('确认删除该标签？')) return;
+  if (!confirm(t('taskGroupDialog.confirmDelete'))) return;
   const removedGroup = localGroups.value[index];
   if (!removedGroup || isNoneOption(removedGroup)) {
     return;

@@ -1,4 +1,5 @@
 import { lsNotebooks, sql } from '@/api';
+import { loadRootDocumentMetadata, resolveDocumentDisplayName } from './taskViewShared';
 
 export interface GoalScopeDocument {
   id: string;
@@ -6,16 +7,6 @@ export interface GoalScopeDocument {
   notebookId: string;
   notebookName: string;
   path?: string;
-}
-
-function resolveDocumentName(path: string, fallbackId: string): string {
-  const trimmedPath = path.trim();
-  if (!trimmedPath) {
-    return fallbackId;
-  }
-
-  const segments = trimmedPath.split('/').filter(Boolean);
-  return segments[segments.length - 1] || trimmedPath || fallbackId;
 }
 
 export async function loadGoalScopeDocuments(): Promise<GoalScopeDocument[]> {
@@ -37,6 +28,11 @@ export async function loadGoalScopeDocuments(): Promise<GoalScopeDocument[]> {
         .filter(notebook => !notebook.closed)
         .map(notebook => [notebook.id, notebook.name])
     );
+    const fallbackMetadataByRootId = await loadRootDocumentMetadata(
+      (rows || [])
+        .filter(row => typeof row?.hpath !== 'string' || row.hpath.trim().length === 0)
+        .map(row => typeof row?.root_id === 'string' ? row.root_id : '')
+    );
     const documents: GoalScopeDocument[] = [];
     const seen = new Set<string>();
 
@@ -53,10 +49,13 @@ export async function loadGoalScopeDocuments(): Promise<GoalScopeDocument[]> {
       }
       seen.add(key);
 
-      const path = typeof row?.hpath === 'string' ? row.hpath.trim() : '';
+      const fallbackMetadata = fallbackMetadataByRootId.get(documentId);
+      const path = typeof row?.hpath === 'string' && row.hpath.trim().length > 0
+        ? row.hpath.trim()
+        : fallbackMetadata?.path || '';
       documents.push({
         id: documentId,
-        name: resolveDocumentName(path, documentId),
+        name: resolveDocumentDisplayName({ id: documentId, name: fallbackMetadata?.name, path }),
         notebookId,
         notebookName: notebookNameById.get(notebookId) || notebookId,
         path: path || undefined

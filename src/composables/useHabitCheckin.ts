@@ -1,6 +1,7 @@
 import { nextTick, type Ref, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
 import { awardHabitRewards, type HabitRewardPayload } from '@/rewardRepository';
+import { translate } from '@/composables/useI18n';
 
 interface UseHabitCheckinOptions {
   habits: ShallowRef<Habit[]>;
@@ -50,8 +51,10 @@ export const useHabitCheckin = ({
   showAnimation,
   animationHabitId,
   playBubbleSound,
-  confirmUncheckMessage = '是否要取消打卡记录？'
+  confirmUncheckMessage = translate('habitTracker.confirmUncheck')
 }: UseHabitCheckinOptions) => {
+  const isAtLeastCompletionMode = (habit: Habit): boolean => habit.completionMode === 'atLeast';
+
   const toggleHabitCompletion = (
     habit: Habit,
     date: string,
@@ -84,7 +87,7 @@ export const useHabitCheckin = ({
         ? parseInt(dayRecord.targetCount, 10) || 1
         : dayRecord.targetCount || 1;
 
-    if (dayRecord.completed) {
+    if (dayRecord.completed && !isAtLeastCompletionMode(habit)) {
       if (confirm(confirmUncheckMessage)) {
         dayRecord.completedCount = 0;
         dayRecord.completed = false;
@@ -97,7 +100,7 @@ export const useHabitCheckin = ({
         delete animationOriginalStatus.value[habit.id];
       }
     } else {
-      if (dayRecord.completedCount < targetCount) {
+      if (isAtLeastCompletionMode(habit) || dayRecord.completedCount < targetCount) {
         dayRecord.completedCount = (dayRecord.completedCount || 0) + 1;
       }
       dayRecord.completed = dayRecord.completedCount >= targetCount;
@@ -133,6 +136,7 @@ export const useHabitCheckin = ({
           name: habit.name,
           difficulty: habit.difficulty,
           frequency: habit.frequency,
+          completionMode: habit.completionMode,
           timesPerDay: habit.timesPerDay
         },
         date,
@@ -152,7 +156,7 @@ export const useHabitCheckin = ({
 
   const processRewardPayload = (payload: HabitRewardPayload | null): void => {
     if (!payload) return;
-    // 使用 setTimeout 延迟奖励计算，让浏览器有机会处理 UI 事件
+    // Delay reward calculation slightly so the browser can finish processing UI updates.
     setTimeout(() => {
       awardHabitRewards(payload).catch(err => {
         console.error('[Rewards] Failed to award habit rewards:', err);
@@ -188,7 +192,7 @@ export const useHabitCheckin = ({
       }
 
       if (habit.usePomodoro) {
-        if (habit.completedToday) {
+        if (habit.completedToday && !isAtLeastCompletionMode(habit)) {
           if (confirm(confirmUncheckMessage)) {
             const today = getToday();
             const todayRecord = habit.calendar.find(day => day.date === today);
@@ -236,7 +240,7 @@ export const useHabitCheckin = ({
         return;
       }
 
-      if (habit.frequency?.startsWith('weekly') && getWeeklyCompletionStatus(habit)) {
+      if (habit.frequency?.startsWith('weekly') && getWeeklyCompletionStatus(habit) && !isAtLeastCompletionMode(habit)) {
         if (confirm(confirmUncheckMessage)) {
           const today = new Date();
           const todayWeekday = today.getDay();

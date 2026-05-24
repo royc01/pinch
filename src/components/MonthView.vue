@@ -1,12 +1,22 @@
-﻿<template>
+<template>
   <div class="month-view">
     <div class="calendar-container">
       <div class="calendar-header">
-        <button class="nav-btn" title="上一月" aria-label="上一月" @click="previousMonth">
+        <button
+          class="nav-btn"
+          :title="t('date.previousMonth')"
+          :aria-label="t('date.previousMonth')"
+          @click="previousMonth"
+        >
           <Icon name="chevronLeft" width="20" height="20" />
         </button>
         <div class="month-title">{{ monthTitle }}</div>
-        <button class="nav-btn" title="下一月" aria-label="下一月" @click="nextMonth">
+        <button
+          class="nav-btn"
+          :title="t('date.nextMonth')"
+          :aria-label="t('date.nextMonth')"
+          @click="nextMonth"
+        >
           <Icon name="chevronRight" width="20" height="20" />
         </button>
       </div>
@@ -43,7 +53,7 @@
                 <div class="day-info">
                   <div class="day-number">{{ day.dayNumber }}</div>
                   <div 
-                    v-if="day.lunarInfo" 
+                    v-if="showLunarInfo && day.lunarInfo" 
                     class="day-lunar"
                     :class="{ 
                       'festival': day.lunarInfo.isFestival,
@@ -61,8 +71,8 @@
                   <button
                     type="button"
                     class="more-tasks-pill"
-                    :title="`还有${getHiddenTaskCountForDay(day, week)}个任务`"
-                    :aria-label="`还有${getHiddenTaskCountForDay(day, week)}个任务`"
+                    :title="getHiddenTasksLabel(getHiddenTaskCountForDay(day, week))"
+                    :aria-label="getHiddenTasksLabel(getHiddenTaskCountForDay(day, week))"
                     @mousedown.stop
                     @click.stop="expandDayTasks(day.key)"
                   >
@@ -76,13 +86,13 @@
                   @click.stop
                 >
                   <div class="day-expanded-header">
-                    <span class="day-expanded-title">当天任务</span>
+                    <span class="day-expanded-title">{{ t('monthView.dayTasks') }}</span>
                     <button
                       type="button"
                       class="day-expanded-close"
                       @click.stop="collapseDayTasks(day.key)"
                     >
-                      收起
+                      {{ t('monthView.collapse') }}
                     </button>
                   </div>
                   <div class="day-expanded-list">
@@ -90,7 +100,7 @@
                       v-for="task in getExpandedTasksForDay(day, week)"
                       :key="`expanded-${day.key}-${task.id}`"
                       class="day-expanded-chip"
-                      :title="stripHtml(task.title)"
+                      :title="getTaskDisplayTitle(task)"
                       :style="getExpandedTaskChipStyle(task)"
                       :class="{ 'task-completed': task.status === 'completed' }"
                       @pointerdown="handleMobileTaskPointerDown($event, task)"
@@ -103,11 +113,11 @@
                         <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                       </span>
                       <span class="day-expanded-chip-title" @click.stop="handleTaskClick(task)">
-                        {{ stripHtml(task.title) }}
+                        {{ getTaskDisplayTitle(task) }}
                       </span>
                     </div>
                     <div v-if="getExpandedTasksForDay(day, week).length === 0" class="day-expanded-empty">
-                      暂无任务
+                      {{ t('taskManager.noTasks') }}
                     </div>
                   </div>
                 </div>
@@ -118,7 +128,7 @@
                 v-for="task in getVisibleTasksForWeek(week)" 
                 :key="task.id"
                 class="task-chip"
-                :title="stripHtml(task.title)"
+                :title="getTaskDisplayTitle(task)"
                 :class="{
                   'task-completed': task.status === 'completed',
                   'mobile-selected': shouldShowMobileTaskChipControls(task.id)
@@ -152,12 +162,12 @@
                   >
                     <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                   </span>
-                  <span class="task-title-text">{{ stripHtml(task.title) }}</span>
+                  <span class="task-title-text">{{ getTaskDisplayTitle(task) }}</span>
                   <span
                     v-if="task.priority !== 'none'"
                     class="task-priority-badge"
                     :class="`priority-${task.priority}`"
-                    :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                    :title="getPriorityTitle(task.priority)"
                   >
                     <Icon name="flag" width="10" height="10" />
                   </span>
@@ -192,6 +202,7 @@
       :due-date="contextMenuDateDraft.dueDate"
       :due-time="contextMenuDateDraft.dueTime"
       :repeat-frequency="contextMenuRepeatFrequency"
+      :repeat-rule="contextMenuRepeatRule"
       @update:startDate="contextMenuDateDraft.startDate = $event"
       @update:startTime="contextMenuDateDraft.startTime = $event"
       @update:dueDate="contextMenuDateDraft.dueDate = $event"
@@ -218,15 +229,15 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import type { Task } from '@/api';
+import type { Task, TaskGroup } from '@/api';
 import { setBlockAttrs, TaskRepository } from '@/api';
 import { updateTaskMarkdown } from '@/utils/taskHelpers';
-import { stripHtml } from '@/composables/useTaskCommon';
+import { getTaskDisplayTitle } from '@/composables/useTaskCommon';
 import { formatDate } from '@/composables/useDateUtils';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
-import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
@@ -234,9 +245,11 @@ import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import { openHabitTrackerFocusTimer } from '@/main';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
+import { useI18n } from '@/composables/useI18n';
 
 interface Props {
   tasks: Task[];
+  taskGroups?: TaskGroup[];
 }
 
 interface MonthCalendarDay {
@@ -320,6 +333,25 @@ type PointerCaptureSession = {
 };
 
 const props = defineProps<Props>();
+const { t } = useI18n();
+
+const formatTemplate = (key: string, values: Record<string, string | number>): string => {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    t(key)
+  );
+};
+
+const showLunarInfo = computed(() => {
+  const siyuan = window.siyuan as any;
+  const lang = String(
+    siyuan?.config?.appearance?.lang
+    || siyuan?.config?.lang
+    || navigator.language
+    || ''
+  ).toLowerCase();
+  return lang.startsWith('zh');
+});
 
 const emit = defineEmits<{
   taskDateChanged: [task: Task];
@@ -451,7 +483,7 @@ function findMonthDayHitZone(point: ExternalTaskDropPoint): MonthDayHitZone | nu
 }
 
 const mobileDragPreviewTitle = computed(() =>
-  mobileDragPreview.value.task ? stripHtml(mobileDragPreview.value.task.title) : ''
+  mobileDragPreview.value.task ? getTaskDisplayTitle(mobileDragPreview.value.task) : ''
 );
 const mobileDragPreviewStyle = computed(() => ({
   left: `${Math.max(12, mobileDragPreview.value.clientX + 10)}px`,
@@ -501,6 +533,7 @@ const contextMenuDateDraft = ref<{ startDate: string; startTime: string; dueDate
   dueTime: ''
 });
 const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
+const contextMenuRepeatRule = ref<RepeatRule | null>(null);
 
 function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined): RepeatFrequency {
   if (
@@ -509,6 +542,7 @@ function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined)
     || frequency === 'weekdays'
     || frequency === 'weekend'
     || frequency === 'weekly'
+    || frequency === 'custom'
   ) {
     return frequency;
   }
@@ -621,25 +655,55 @@ function pickRandomTaskBackgroundColor(): string {
   return monthDropColorValues[index];
 }
 
+function normalizeTaskBackgroundColorValue(backgroundColor?: string): string {
+  const raw = typeof backgroundColor === 'string' ? backgroundColor.trim() : '';
+  if (!raw) {
+    return '';
+  }
+  const cssVarMatch = raw.match(/^var\(--(pinch-background(?:10|[1-9]))\)$/);
+  if (cssVarMatch) {
+    return cssVarMatch[1];
+  }
+  return raw;
+}
+
+function resolveTaskGroupBackgroundColor(task: Pick<Task, 'groupId'>): string {
+  const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+  if (!groupId) {
+    return '';
+  }
+  const group = (props.taskGroups || []).find(item => item.id === groupId);
+  return normalizeTaskBackgroundColorValue(group?.color);
+}
+
+function resolveEffectiveTaskBackgroundColor(task: Pick<Task, 'backgroundColor' | 'groupId'>): string {
+  return normalizeTaskBackgroundColorValue(task.backgroundColor) || resolveTaskGroupBackgroundColor(task);
+}
+
 function resolveTaskBackgroundColor(backgroundColor?: string): string {
-  if (!backgroundColor || typeof backgroundColor !== 'string') {
+  const raw = normalizeTaskBackgroundColorValue(backgroundColor);
+  if (!raw) {
     return 'var(--b3-font-background9)';
   }
-  if (/^pinch-background(?:10|[1-9])$/.test(backgroundColor)) {
-    return `var(--${backgroundColor})`;
+  if (/^pinch-background(?:10|[1-9])$/.test(raw)) {
+    return `var(--${raw})`;
   }
-  return `var(--b3-font-${backgroundColor})`;
+  if (/^background(1[0-3]|[4-9])$/.test(raw)) {
+    return `var(--b3-font-${raw})`;
+  }
+  return raw;
 }
 
 function resolveTaskColorIndex(backgroundColor?: string): number | null {
-  if (!backgroundColor || typeof backgroundColor !== 'string') {
+  const raw = normalizeTaskBackgroundColorValue(backgroundColor);
+  if (!raw) {
     return null;
   }
-  const pinchMatch = backgroundColor.match(/^pinch-background(10|[1-9])$/);
+  const pinchMatch = raw.match(/^pinch-background(10|[1-9])$/);
   if (pinchMatch) {
     return Number(pinchMatch[1]);
   }
-  const legacyMatch = backgroundColor.match(/^background(1[0-3]|[4-9])$/);
+  const legacyMatch = raw.match(/^background(1[0-3]|[4-9])$/);
   if (legacyMatch) {
     return Number(legacyMatch[1]) - 3;
   }
@@ -653,8 +717,8 @@ function resolveTaskAccentColor(backgroundColor?: string): string {
 
 function getTasksHash(tasks: Task[]): string {
   return tasks.map(t => 
-    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.title}:${t.backgroundColor || ''}`
-  ).sort().join('|');
+    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime || ''}:${t.dueTime || ''}:${t.title}:${t.backgroundColor || ''}:${t.groupId || ''}`
+  ).join('|');
 }
 
 function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date } | null {
@@ -670,6 +734,10 @@ function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date
   taskEnd.setHours(23, 59, 59, 999);
 
   return { taskStart, taskEnd };
+}
+
+function getTaskRepeatSeriesId(task: Task): string {
+  return typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
 }
 
 type TaskRenderRange = {
@@ -755,7 +823,24 @@ const normalizedTaskRanges = computed<TaskRenderRange[]>(() => {
     });
   }
 
-  return ranges;
+  const virtualRepeatSeriesIds = new Set<string>();
+  for (const range of ranges) {
+    if (!range.task.isVirtual) continue;
+    const seriesId = getTaskRepeatSeriesId(range.task);
+    if (seriesId) {
+      virtualRepeatSeriesIds.add(seriesId);
+    }
+  }
+
+  if (virtualRepeatSeriesIds.size === 0) {
+    return ranges;
+  }
+
+  return ranges.filter((range) => {
+    if (range.task.isVirtual) return true;
+    const seriesId = getTaskRepeatSeriesId(range.task);
+    return !seriesId || !virtualRepeatSeriesIds.has(seriesId);
+  });
 });
 
 const taskPositionsMap = computed(() => {
@@ -817,7 +902,15 @@ const taskPositionsMap = computed(() => {
   return positionMap;
 });
 
-const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+const weekdays = computed(() => [
+  t('date.weekdayMonShort'),
+  t('date.weekdayTueShort'),
+  t('date.weekdayWedShort'),
+  t('date.weekdayThuShort'),
+  t('date.weekdayFriShort'),
+  t('date.weekdaySatShort'),
+  t('date.weekdaySunShort')
+]);
 
 const monthTitle = computed(() => {
   const startDate = new Date(baseDate.value);
@@ -829,9 +922,10 @@ const monthTitle = computed(() => {
   endDate.setDate(startDate.getDate() + 41);
   
   const formatMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth() + 1;
-    return `${year}年${month}月`;
+    return formatTemplate('date.yearMonthTemplate', {
+      year: date.getFullYear(),
+      month: date.getMonth() + 1
+    });
   };
   
   const startMonth = formatMonth(startDate);
@@ -1095,6 +1189,16 @@ function shouldShowHiddenCountForDay(day: any, week: any[]): boolean {
   return getHiddenTaskCountForDay(day, week) > 0;
 }
 
+function getHiddenTasksLabel(count: number): string {
+  return formatTemplate('monthView.moreTasksTemplate', { count });
+}
+
+function getPriorityTitle(priority: string | undefined): string {
+  if (priority === 'high') return t('taskManager.priorityHighLabel');
+  if (priority === 'medium') return t('taskManager.priorityMediumLabel');
+  return t('taskManager.priorityLowLabel');
+}
+
 function getDayMoreStyle(week: any[]): Record<string, string> {
   const {
     topOffset: TOP_OFFSET,
@@ -1183,7 +1287,8 @@ function getTaskStyle(task: any, week: any[]) {
   const leftPercent = (task.startDayOfWeek / 7) * 100;
   const widthPercent = (task.spanDays / 7) * 100;
   const widthOffset = (isCompactMobileLayout.value ? 6 : 24) + getTaskMoreReserveWidth(task, week);
-  const bgColor = resolveTaskBackgroundColor(task.backgroundColor);
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task);
+  const bgColor = resolveTaskBackgroundColor(effectiveBackgroundColor);
   
   const position = task.position ?? (taskPositionsMap.value.get(task.id) ?? 0);
   
@@ -1194,14 +1299,15 @@ function getTaskStyle(task: any, week: any[]) {
       top: `${TOP_OFFSET + position * TASK_POSITION_STEP}px`,
       height: `${TASK_CHIP_HEIGHT}px`,
       backgroundColor: bgColor,
-    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
+    '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
 }
 
 function getExpandedTaskChipStyle(task: WeekTask): Record<string, string> {
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task);
   return {
-    backgroundColor: resolveTaskBackgroundColor(task.backgroundColor),
-    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
+    backgroundColor: resolveTaskBackgroundColor(effectiveBackgroundColor),
+    '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
 }
 
@@ -1649,8 +1755,10 @@ function updateExternalTaskDrag(point: ExternalTaskDropPoint): { label: string }
 async function applyTaskDropToDay(task: Task, day: MonthCalendarDay): Promise<void> {
   try {
     const dateStr = formatDate(day.date);
-    const hasBackgroundColor = typeof task.backgroundColor === 'string' && task.backgroundColor.trim().length > 0;
-    const assignedBackgroundColor = hasBackgroundColor ? undefined : pickRandomTaskBackgroundColor();
+    const existingBackgroundColor = normalizeTaskBackgroundColorValue(task.backgroundColor);
+    const assignedBackgroundColor = existingBackgroundColor
+      ? undefined
+      : (resolveTaskGroupBackgroundColor(task) || pickRandomTaskBackgroundColor());
     
     if (pendingDeletion.value.has(task.id)) {
       pendingDeletion.value.delete(task.id);
@@ -2386,7 +2494,7 @@ function handleContextMenuOutsidePointerDown(event: PointerEvent): void {
   if (menu && target instanceof Node && menu.contains(target)) {
     return;
   }
-  if (target instanceof Element && target.closest('.time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover')) {
+  if (target instanceof Element && target.closest('.time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog')) {
     return;
   }
   selectMobileTaskChip(null);
@@ -2423,6 +2531,7 @@ function showTaskContextMenu(task: Task, anchor?: { x: number; y: number }): voi
     dueTime: task.dueTime || ''
   };
   contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
+  contextMenuRepeatRule.value = null;
 
   const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
   if (isRepeatTask) {
@@ -2436,6 +2545,7 @@ function showTaskContextMenu(task: Task, anchor?: { x: number; y: number }): voi
           dueDate: series.endDate || '',
           dueTime: series.dueTime || ''
         };
+        contextMenuRepeatRule.value = series.rule || null;
       })
       .catch(() => {});
   }
@@ -2480,7 +2590,7 @@ function handleGlobalClick(event: MouseEvent) {
   if (expandedDayKeys.value.size > 0) {
     const clickedInsideExpandedPanel = !!targetElement?.closest('.day-expanded-panel');
     const clickedExpandTrigger = !!targetElement?.closest('.more-tasks-placeholder.day-more');
-    const clickedInsideContextMenu = !!targetElement?.closest('.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover');
+    const clickedInsideContextMenu = !!targetElement?.closest('.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog');
     if (!clickedInsideExpandedPanel && !clickedExpandTrigger && !clickedInsideContextMenu) {
       expandedDayKeys.value = new Set();
     }
@@ -2509,6 +2619,7 @@ function hideContextMenu() {
   };
   contextMenuDateDraft.value = { startDate: '', startTime: '', dueDate: '', dueTime: '' };
   contextMenuRepeatFrequency.value = 'none';
+  contextMenuRepeatRule.value = null;
 }
 
 async function applyTaskDates(task: Task) {
@@ -2598,6 +2709,61 @@ async function applyTaskDates(task: Task) {
 
 async function clearTaskDates(task: Task): Promise<void> {
   if (!task) return;
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  if (isRepeatTask) {
+    const seriesId = task.repeatSeriesId;
+    const templateTask = !task.isVirtual
+      ? task
+      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
+    const targetTask = templateTask || task;
+
+    localTasks.value = localTasks.value.filter(
+      item => !item.isVirtual || item.repeatSeriesId !== seriesId
+    );
+
+    notifyRepeatChanged({
+      blockId: targetTask.blockId,
+      seriesId: seriesId,
+      frequency: 'none'
+    });
+
+    const patchedTask = patchLocalTask(targetTask.id, {
+      repeatFrequency: 'none',
+      repeatSeriesId: undefined,
+      repeatInstanceDate: undefined,
+      isVirtual: false,
+      startDate: null,
+      dueDate: null,
+      startTime: undefined,
+      dueTime: undefined
+    });
+
+    if (patchedTask) {
+      emitTaskDateChanged(patchedTask);
+    }
+
+    if (targetTask.type === 'block' && targetTask.blockId) {
+      try {
+        await setBlockAttrs(targetTask.blockId, {
+          'custom-task-start-date': '',
+          'custom-task-due-date': '',
+          'custom-task-start-time': '',
+          'custom-task-due-time': ''
+        });
+      } catch (error) {
+      }
+    }
+
+    try {
+      await TaskRepository.setTaskRepeatRule(targetTask, 'none');
+    } catch (error) {
+    }
+
+    hideContextMenu();
+    return;
+  }
+
   contextMenuDateDraft.value = {
     startDate: '',
     startTime: '',
@@ -2607,8 +2773,9 @@ async function clearTaskDates(task: Task): Promise<void> {
   await applyTaskDates(task);
 }
 
-async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
+async function saveTaskRepeatRule(task: Task, repeat: RepeatFrequency | RepeatRuleInput) {
   if (!task) return;
+  const frequency = typeof repeat === 'string' ? repeat : repeat.frequency;
   contextMenuRepeatFrequency.value = frequency;
   if (frequency === 'none') {
     patchLocalTask(task.id, {
@@ -2621,7 +2788,7 @@ async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
     patchLocalTask(task.id, { repeatFrequency: frequency });
   }
   try {
-    await TaskRepository.setTaskRepeatRule(task, frequency);
+    await TaskRepository.setTaskRepeatRule(task, repeat);
     hideContextMenu();
   } catch (error) {
   }

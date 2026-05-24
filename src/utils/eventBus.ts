@@ -65,7 +65,7 @@ export interface FocusTimerPanelOpenRequest {
 }
 
 export interface TaskViewSwitchRequest {
-  view?: 'kanban' | 'table' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table' | 'stats';
+  view?: 'kanban' | 'table' | 'gantt' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table' | 'stats';
   source?: string;
   documentId?: string;
 }

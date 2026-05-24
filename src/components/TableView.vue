@@ -6,12 +6,12 @@
   >
     <table
       class="tasks-table"
-      :class="{ 'has-manual-widths': hasManualColumnWidths }"
+      :class="{ 'has-stable-widths': hasStableColumnWidths }"
       :style="tableColumnCssVars"
     >
       <colgroup>
         <col
-          v-for="column in TABLE_COLUMNS"
+          v-for="column in visibleTableColumns"
           :key="column.key"
           :class="column.className"
           :style="getTableColumnStyle(column.key)"
@@ -19,39 +19,86 @@
       </colgroup>
       <thead>
         <tr>
-          <th class="col-expand"></th>
+          <th class="col-expand">
+            <div ref="columnSettingsControlRef" class="table-column-settings">
+              <button
+                type="button"
+                class="table-column-settings-btn"
+                :class="{ active: columnSettingsVisible }"
+                :title="t('tableView.columnSettings')"
+                :aria-label="t('tableView.columnSettings')"
+                @click.stop="toggleColumnSettings"
+              >
+                <Icon name="table" width="16" height="16" />
+              </button>
+              <div
+                v-if="columnSettingsVisible"
+                class="table-column-settings-popover"
+                @click.stop
+              >
+                <div class="table-column-settings-title">{{ t('tableView.columnSettings') }}</div>
+                <div
+                  v-for="group in tableColumnSettingGroups"
+                  :key="group.title"
+                  class="table-column-settings-group"
+                >
+                  <div class="table-column-settings-group-title">{{ group.title }}</div>
+                  <label
+                    v-for="column in group.columns"
+                    :key="column.key"
+                    class="table-column-settings-item"
+                  >
+                    <span class="table-column-settings-item-label">{{ column.label }}</span>
+                    <SyCheckbox
+                      class="table-column-settings-switch"
+                      :model-value="isTableColumnVisible(column.key)"
+                      :aria-label="getColumnVisibilityAria(column.label)"
+                      @update:model-value="setTableColumnVisibility(column.key, $event)"
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  class="table-column-settings-reset"
+                  @click="resetTableColumnVisibility"
+                >
+                  {{ t('tableView.resetColumns') }}
+                </button>
+              </div>
+            </div>
+          </th>
           <th class="col-status"></th>
           <th class="col-title is-resizable">
             <div class="th-content">
-              <span>任务</span>
+              <span>{{ getTableColumnLabel('title') }}</span>
             </div>
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'title' }"
-              aria-label="调整任务列宽"
-              title="拖动调整任务列宽，双击重置"
+               :aria-label="getColumnResizeAria(getTableColumnLabel('title'))"
+               :title="getColumnResizeTitle(getTableColumnLabel('title'))"
               @mousedown.stop.prevent="startColumnResize('title', $event)"
               @dblclick.stop.prevent="resetColumnWidth('title')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-description is-resizable">
-            描述
+          <th v-if="isTableColumnVisible('description')" class="col-description is-resizable">
+            {{ getTableColumnLabel('description') }}
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'description' }"
-              aria-label="调整描述列宽"
-              title="拖动调整描述列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('description'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('description'))"
               @mousedown.stop.prevent="startColumnResize('description', $event)"
               @dblclick.stop.prevent="resetColumnWidth('description')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-priority sortable is-resizable" :class="{ active: sortColumn === 'priority' }" @click="toggleSort('priority')">
+          <th v-if="isTableColumnVisible('priority')" class="col-priority sortable is-resizable" :class="{ active: sortColumn === 'priority' }" @click="toggleSort('priority')">
             <div class="th-content">
-              <span>优先级</span>
+              <span>{{ getTableColumnLabel('priority') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('priority')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -60,16 +107,16 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'priority' }"
-              aria-label="调整优先级列宽"
-              title="拖动调整优先级列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('priority'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('priority'))"
               @mousedown.stop.prevent="startColumnResize('priority', $event)"
               @dblclick.stop.prevent="resetColumnWidth('priority')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-status-text sortable is-resizable" :class="{ active: sortColumn === 'status' }" @click="toggleSort('status')">
+          <th v-if="isTableColumnVisible('statusText')" class="col-status-text sortable is-resizable" :class="{ active: sortColumn === 'status' }" @click="toggleSort('status')">
             <div class="th-content">
-              <span>状态</span>
+              <span>{{ getTableColumnLabel('statusText') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('status')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -78,29 +125,29 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'statusText' }"
-              aria-label="调整状态列宽"
-              title="拖动调整状态列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('statusText'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('statusText'))"
               @mousedown.stop.prevent="startColumnResize('statusText', $event)"
               @dblclick.stop.prevent="resetColumnWidth('statusText')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-group is-resizable">
-            标签
+          <th v-if="isTableColumnVisible('group')" class="col-group is-resizable">
+            {{ getTableColumnLabel('group') }}
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'group' }"
-              aria-label="调整标签列宽"
-              title="拖动调整标签列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('group'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('group'))"
               @mousedown.stop.prevent="startColumnResize('group', $event)"
               @dblclick.stop.prevent="resetColumnWidth('group')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-start-date sortable is-resizable" :class="{ active: sortColumn === 'startDate' }" @click="toggleSort('startDate')">
+          <th v-if="isTableColumnVisible('startDate')" class="col-start-date sortable is-resizable" :class="{ active: sortColumn === 'startDate' }" @click="toggleSort('startDate')">
             <div class="th-content">
-              <span>开始日期</span>
+              <span>{{ getTableColumnLabel('startDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('startDate')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -109,31 +156,31 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'startDate' }"
-              aria-label="调整开始日期列宽"
-              title="拖动调整开始日期列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('startDate'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('startDate'))"
               @mousedown.stop.prevent="startColumnResize('startDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('startDate')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-start-time is-resizable">
+          <th v-if="isTableColumnVisible('startTime')" class="col-start-time is-resizable">
             <div class="th-content">
-              <span>开始时间</span>
+              <span>{{ getTableColumnLabel('startTime') }}</span>
             </div>
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'startTime' }"
-              aria-label="调整开始时间列宽"
-              title="拖动调整开始时间列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('startTime'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('startTime'))"
               @mousedown.stop.prevent="startColumnResize('startTime', $event)"
               @dblclick.stop.prevent="resetColumnWidth('startTime')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-due-date sortable is-resizable" :class="{ active: sortColumn === 'dueDate' }" @click="toggleSort('dueDate')">
+          <th v-if="isTableColumnVisible('dueDate')" class="col-due-date sortable is-resizable" :class="{ active: sortColumn === 'dueDate' }" @click="toggleSort('dueDate')">
             <div class="th-content">
-              <span>截止日期</span>
+              <span>{{ getTableColumnLabel('dueDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('dueDate')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -142,31 +189,64 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'dueDate' }"
-              aria-label="调整截止日期列宽"
-              title="拖动调整截止日期列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('dueDate'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('dueDate'))"
               @mousedown.stop.prevent="startColumnResize('dueDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('dueDate')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-due-time is-resizable">
+          <th v-if="isTableColumnVisible('dueTime')" class="col-due-time is-resizable">
             <div class="th-content">
-              <span>截止时间</span>
+              <span>{{ getTableColumnLabel('dueTime') }}</span>
             </div>
             <button
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'dueTime' }"
-              aria-label="调整截止时间列宽"
-              title="拖动调整截止时间列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('dueTime'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('dueTime'))"
               @mousedown.stop.prevent="startColumnResize('dueTime', $event)"
               @dblclick.stop.prevent="resetColumnWidth('dueTime')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-created-date sortable is-resizable" :class="{ active: sortColumn === 'createdAt' }" @click="toggleSort('createdAt')">
+          <th v-if="isTableColumnVisible('focusDuration')" class="col-focus-duration is-resizable">
             <div class="th-content">
-              <span>创建时间</span>
+              <span>{{ getTableColumnLabel('focusDuration') }}</span>
+            </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'focusDuration' }"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('focusDuration'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('focusDuration'))"
+              @mousedown.stop.prevent="startColumnResize('focusDuration', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('focusDuration')"
+              @click.stop.prevent
+            ></button>
+          </th>
+          <th v-if="isTableColumnVisible('completedDate')" class="col-completed-date sortable is-resizable" :class="{ active: sortColumn === 'completedAt' }" @click="toggleSort('completedAt')">
+            <div class="th-content">
+              <span>{{ getTableColumnLabel('completedDate') }}</span>
+              <span class="sort-indicator" :class="getSortIndicatorClass('completedAt')">
+                <Icon name="sortIndicator" width="14" height="14" />
+              </span>
+            </div>
+            <button
+              type="button"
+              class="column-resize-handle"
+              :class="{ 'is-active': activeResizeColumn === 'completedDate' }"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('completedDate'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('completedDate'))"
+              @mousedown.stop.prevent="startColumnResize('completedDate', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('completedDate')"
+              @click.stop.prevent
+            ></button>
+          </th>
+          <th v-if="isTableColumnVisible('createdDate')" class="col-created-date sortable is-resizable" :class="{ active: sortColumn === 'createdAt' }" @click="toggleSort('createdAt')">
+            <div class="th-content">
+              <span>{{ getTableColumnLabel('createdDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('createdAt')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -175,16 +255,16 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'createdDate' }"
-              aria-label="调整创建时间列宽"
-              title="拖动调整创建时间列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('createdDate'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('createdDate'))"
               @mousedown.stop.prevent="startColumnResize('createdDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('createdDate')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-updated-date sortable is-resizable" :class="{ active: sortColumn === 'updatedAt' }" @click="toggleSort('updatedAt')">
+          <th v-if="isTableColumnVisible('updatedDate')" class="col-updated-date sortable is-resizable" :class="{ active: sortColumn === 'updatedAt' }" @click="toggleSort('updatedAt')">
             <div class="th-content">
-              <span>更新时间</span>
+              <span>{{ getTableColumnLabel('updatedDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('updatedAt')">
                 <Icon name="sortIndicator" width="14" height="14" />
               </span>
@@ -193,20 +273,20 @@
               type="button"
               class="column-resize-handle"
               :class="{ 'is-active': activeResizeColumn === 'updatedDate' }"
-              aria-label="调整更新时间列宽"
-              title="拖动调整更新时间列宽，双击重置"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('updatedDate'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('updatedDate'))"
               @mousedown.stop.prevent="startColumnResize('updatedDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('updatedDate')"
               @click.stop.prevent
             ></button>
           </th>
-          <th class="col-location">位置</th>
+          <th v-if="isTableColumnVisible('location')" class="col-location">{{ getTableColumnLabel('location') }}</th>
         </tr>
       </thead>
       <tbody>
         <tr v-if="tableVirtualSpacerTop > 0" class="table-virtual-spacer-row" aria-hidden="true">
           <td
-            :colspan="TABLE_COLUMN_COUNT"
+            :colspan="tableColumnCount"
             class="table-virtual-spacer-cell"
             :style="{ height: `${tableVirtualSpacerTop}px` }"
           ></td>
@@ -217,7 +297,7 @@
             class="group-row"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
           >
-            <td :colspan="TABLE_COLUMN_COUNT">
+            <td :colspan="tableColumnCount">
               <button
                 type="button"
                 class="group-row-content"
@@ -230,7 +310,7 @@
                 </span>
                 <span class="group-row-title">
                   <span class="group-row-label">{{ row.group.label }}</span>
-                  <span class="group-row-count">{{ row.group.tasks.length }} 项</span>
+                  <span class="group-row-count">{{ getGroupItemCountLabel(row.group.tasks.length) }}</span>
                 </span>
                 <span class="group-row-right">
                   <button
@@ -291,7 +371,7 @@
             <td class="col-title">
               <div class="title-wrapper">
                 <div class="title-main" @click="handleTaskClick(row.task, $event)">
-                  <span v-if="row.task.pinned === true" class="title-pinned-badge" title="已置顶" aria-label="已置顶">
+                  <span v-if="row.task.pinned === true" class="title-pinned-badge" :title="t('taskManager.pinned')" :aria-label="t('taskManager.pinned')">
                     <Icon name="pinBadge" width="18" height="18" />
                   </span>
                   <div class="task-title" v-html="getTitleHtml(row.task.title)"></div>
@@ -299,8 +379,8 @@
                 <button
                   type="button"
                   class="title-open-btn"
-                  title="跳转到任务"
-                  aria-label="跳转到任务"
+                  :title="t('tableView.openTask')"
+                  :aria-label="t('tableView.openTask')"
                   @click.stop="handleOpenClick(row.task)"
                 >
                   <Icon name="moreHorizontal" width="14" height="14" />
@@ -308,6 +388,7 @@
               </div>
             </td>
             <td
+              v-if="isTableColumnVisible('description')"
               class="col-description"
               :class="{ 'is-editing': editingDescriptions.has(row.task.id) }"
               @click.stop="startDescriptionEdit(row.task)"
@@ -330,27 +411,27 @@
                 @keydown.esc.prevent="cancelDescriptionEdit(row.task.id)"
                 @click.stop
                 rows="2"
-                placeholder="输入描述..."
+                :placeholder="t('taskManager.taskDescriptionPlaceholder')"
               />
             </td>
-            <td class="col-priority" @click.stop="togglePriorityEdit(row.task, $event)">
+            <td v-if="isTableColumnVisible('priority')" class="col-priority" @click.stop="togglePriorityEdit(row.task, $event)">
               <div class="priority-content">
                 <span
                   v-if="row.task.priority !== 'none'"
                   class="task-priority-badge"
                   :class="`priority-${row.task.priority}`"
-                  :title="row.task.priority === 'high' ? '高优先级' : row.task.priority === 'medium' ? '中优先级' : '低优先级'"
+                  :title="getPriorityTitle(row.task.priority)"
                 >
                   <Icon name="flag" width="12" height="12" />
                 </span>
               </div>
             </td>
-            <td class="col-status-text" @click.stop="toggleStatusEdit(row.task, $event)">
+            <td v-if="isTableColumnVisible('statusText')" class="col-status-text" @click.stop="toggleStatusEdit(row.task, $event)">
               <span class="status-badge" :class="`status-${row.task.status}`">
                 {{ getStatusLabel(row.task.status) }}
               </span>
             </td>
-            <td class="col-group" @click.stop="toggleGroupPopover(row.task, $event)">
+            <td v-if="isTableColumnVisible('group')" class="col-group" @click.stop="toggleGroupPopover(row.task, $event)">
               <span
                 v-if="getTaskGroupLabel(row.task)"
                 class="group-badge"
@@ -359,25 +440,31 @@
                 {{ getTaskGroupLabel(row.task) }}
               </span>
             </td>
-            <td class="col-start-date" @click.stop="openDatePopover(row.task, 'startDate', $event)">
+            <td v-if="isTableColumnVisible('startDate')" class="col-start-date" @click.stop="openDatePopover(row.task, 'startDate', $event)">
               <span class="date-display">{{ row.task.startDate ? formatLocaleDate(row.task.startDate) : '-' }}</span>
             </td>
-            <td class="col-start-time" @click.stop="openTimePopover(row.task, 'startTime', $event)">
+            <td v-if="isTableColumnVisible('startTime')" class="col-start-time" @click.stop="openTimePopover(row.task, 'startTime', $event)">
               <span class="time-display">{{ formatTaskTime(row.task.startTime) }}</span>
             </td>
-            <td class="col-due-date" @click.stop="openDatePopover(row.task, 'dueDate', $event)">
+            <td v-if="isTableColumnVisible('dueDate')" class="col-due-date" @click.stop="openDatePopover(row.task, 'dueDate', $event)">
               <span class="date-display">{{ row.task.dueDate ? formatLocaleDate(row.task.dueDate) : '-' }}</span>
             </td>
-            <td class="col-due-time" @click.stop="openTimePopover(row.task, 'dueTime', $event)">
+            <td v-if="isTableColumnVisible('dueTime')" class="col-due-time" @click.stop="openTimePopover(row.task, 'dueTime', $event)">
               <span class="time-display">{{ formatTaskTime(row.task.dueTime) }}</span>
             </td>
-            <td class="col-created-date">
+            <td v-if="isTableColumnVisible('focusDuration')" class="col-focus-duration">
+              <span class="focus-duration-display">{{ getTaskFocusDurationText(row.task) }}</span>
+            </td>
+            <td v-if="isTableColumnVisible('completedDate')" class="col-completed-date">
+              <span class="date-display">{{ row.task.completedAt ? formatLocaleDate(row.task.completedAt, { includeTime: true }) : '' }}</span>
+            </td>
+            <td v-if="isTableColumnVisible('createdDate')" class="col-created-date">
               <span class="date-display">{{ row.task.createdAt ? formatLocaleDate(row.task.createdAt, { includeTime: true }) : '-' }}</span>
             </td>
-            <td class="col-updated-date">
+            <td v-if="isTableColumnVisible('updatedDate')" class="col-updated-date">
               <span class="date-display">{{ row.task.updatedAt ? formatLocaleDate(row.task.updatedAt, { includeTime: true }) : '-' }}</span>
             </td>
-            <td class="col-location">
+            <td v-if="isTableColumnVisible('location')" class="col-location">
               <div class="location-cell task-document-title" :title="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
                   <img
@@ -423,6 +510,7 @@
               </div>
             </td>
             <td
+              v-if="isTableColumnVisible('description')"
               class="col-description"
               :class="{ 'is-editing': isSubtaskDescriptionEditing(row.task, row.subtask) }"
             >
@@ -445,27 +533,27 @@
                 @keydown.esc.prevent="cancelSubtaskDescriptionEdit(row.task, row.subtask)"
                 @click.stop
                 rows="2"
-                placeholder="输入描述..."
+                :placeholder="t('taskManager.taskDescriptionPlaceholder')"
               />
             </td>
-            <td class="col-priority" @click.stop="toggleSubtaskPriorityEdit(row.task, row.subtask, $event)">
+            <td v-if="isTableColumnVisible('priority')" class="col-priority" @click.stop="toggleSubtaskPriorityEdit(row.task, row.subtask, $event)">
               <div class="priority-content">
                 <span
                   v-if="getSubtaskPriority(row.subtask) !== 'none'"
                   class="task-priority-badge"
                   :class="`priority-${getSubtaskPriority(row.subtask)}`"
-                  :title="getSubtaskPriority(row.subtask) === 'high' ? '高优先级' : getSubtaskPriority(row.subtask) === 'medium' ? '中优先级' : '低优先级'"
+                  :title="getPriorityTitle(getSubtaskPriority(row.subtask))"
                 >
                   <Icon name="flag" width="12" height="12" />
                 </span>
               </div>
             </td>
-            <td class="col-status-text" @click.stop="toggleSubtaskStatusEdit(row.task, row.subtask, $event)">
+            <td v-if="isTableColumnVisible('statusText')" class="col-status-text" @click.stop="toggleSubtaskStatusEdit(row.task, row.subtask, $event)">
               <span class="status-badge" :class="`status-${getSubtaskStatus(row.subtask)}`">
                 {{ getStatusLabel(getSubtaskStatus(row.subtask)) }}
               </span>
             </td>
-            <td class="col-group" @click.stop="toggleSubtaskGroupPopover(row.task, row.subtask, $event)">
+            <td v-if="isTableColumnVisible('group')" class="col-group" @click.stop="toggleSubtaskGroupPopover(row.task, row.subtask, $event)">
               <span
                 v-if="getSubtaskGroupLabel(row.subtask)"
                 class="group-badge"
@@ -474,25 +562,31 @@
                 {{ getSubtaskGroupLabel(row.subtask) }}
               </span>
             </td>
-            <td class="col-start-date" @click.stop="openSubtaskDatePopover(row.task, row.subtask, 'startDate', $event)">
+            <td v-if="isTableColumnVisible('startDate')" class="col-start-date" @click.stop="openSubtaskDatePopover(row.task, row.subtask, 'startDate', $event)">
               <span class="date-display">{{ row.subtask.startDate ? formatLocaleDate(row.subtask.startDate) : '-' }}</span>
             </td>
-            <td class="col-start-time" @click.stop="openSubtaskTimePopover(row.task, row.subtask, 'startTime', $event)">
+            <td v-if="isTableColumnVisible('startTime')" class="col-start-time" @click.stop="openSubtaskTimePopover(row.task, row.subtask, 'startTime', $event)">
               <span class="time-display">{{ formatTaskTime(row.subtask.startTime) }}</span>
             </td>
-            <td class="col-due-date" @click.stop="openSubtaskDatePopover(row.task, row.subtask, 'dueDate', $event)">
+            <td v-if="isTableColumnVisible('dueDate')" class="col-due-date" @click.stop="openSubtaskDatePopover(row.task, row.subtask, 'dueDate', $event)">
               <span class="date-display">{{ row.subtask.dueDate ? formatLocaleDate(row.subtask.dueDate) : '-' }}</span>
             </td>
-            <td class="col-due-time" @click.stop="openSubtaskTimePopover(row.task, row.subtask, 'dueTime', $event)">
+            <td v-if="isTableColumnVisible('dueTime')" class="col-due-time" @click.stop="openSubtaskTimePopover(row.task, row.subtask, 'dueTime', $event)">
               <span class="time-display">{{ formatTaskTime(row.subtask.dueTime) }}</span>
             </td>
-            <td class="col-created-date">
+            <td v-if="isTableColumnVisible('focusDuration')" class="col-focus-duration">
+              <span class="focus-duration-display"></span>
+            </td>
+            <td v-if="isTableColumnVisible('completedDate')" class="col-completed-date">
+              <span class="date-display">{{ getSubtaskCompletedAt(row.subtask) ? formatLocaleDate(getSubtaskCompletedAt(row.subtask), { includeTime: true }) : '' }}</span>
+            </td>
+            <td v-if="isTableColumnVisible('createdDate')" class="col-created-date">
               <span class="date-display">{{ row.subtask.createdAt ? formatLocaleDate(row.subtask.createdAt, { includeTime: true }) : '-' }}</span>
             </td>
-            <td class="col-updated-date">
+            <td v-if="isTableColumnVisible('updatedDate')" class="col-updated-date">
               <span class="date-display">{{ row.subtask.updatedAt ? formatLocaleDate(row.subtask.updatedAt, { includeTime: true }) : '-' }}</span>
             </td>
-            <td class="col-location">
+            <td v-if="isTableColumnVisible('location')" class="col-location">
               <div class="location-cell task-document-title" :title="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
                   <img
@@ -512,7 +606,7 @@
         </template>
         <tr v-if="tableVirtualSpacerBottom > 0" class="table-virtual-spacer-row" aria-hidden="true">
           <td
-            :colspan="TABLE_COLUMN_COUNT"
+            :colspan="tableColumnCount"
             class="table-virtual-spacer-cell"
             :style="{ height: `${tableVirtualSpacerBottom}px` }"
           ></td>
@@ -545,9 +639,9 @@
         @mousedown.stop
       >
         <div class="group-popover-header">
-          <span class="group-popover-title">选择标签</span>
+          <span class="group-popover-title">{{ t('tableView.selectGroup') }}</span>
           <button type="button" class="group-popover-manage" @click.stop="handleGroupManage">
-            管理
+            {{ t('tableView.manageGroups') }}
           </button>
         </div>
         <div class="group-popover-chip-list">
@@ -586,17 +680,18 @@
     />
     
     <div v-if="tasks.length === 0" class="empty-state">
-      暂无任务
+      {{ t('taskManager.noTasks') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
-import { Task, TaskGroup } from '@/api';
+import { getFocusTimerData, Task, TaskGroup, type FocusSessionRecord } from '@/api';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubtaskProgress from '@/components/SubtaskProgress.vue';
 import Icon from '@/components/Icon.vue';
+import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
@@ -615,6 +710,8 @@ import {
 } from '@/utils/taskSortShared';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { useI18n } from '@/composables/useI18n';
+import { usePlugin } from '@/main';
 
 interface Props {
   tasks: Task[];
@@ -658,8 +755,8 @@ type TableVirtualSubtaskRow = {
 type TableVirtualRow = TableVirtualGroupRow | TableVirtualTaskRow | TableVirtualSubtaskRow;
 
 const props = defineProps<Props>();
+const { t } = useI18n();
 
-const TABLE_COLUMN_COUNT = 14;
 const TABLE_VIRTUAL_THRESHOLD = 120;
 const TABLE_VIRTUAL_OVERSCAN = 10;
 const TABLE_GROUP_ROW_HEIGHT = 38;
@@ -677,6 +774,8 @@ type ResizableTableColumnKey =
   | 'startTime'
   | 'dueDate'
   | 'dueTime'
+  | 'focusDuration'
+  | 'completedDate'
   | 'createdDate'
   | 'updatedDate';
 
@@ -686,6 +785,96 @@ type TableColumnDefinition = {
   key: TableColumnKey;
   className: string;
 };
+
+type ConfigurableTableColumnKey = Exclude<TableColumnKey, 'expand' | 'status' | 'title'>;
+type TableColumnSettingGroup = {
+  title: string;
+  columns: Array<{ key: ConfigurableTableColumnKey; label: string }>;
+};
+type TableColumnVisibilitySnapshot = {
+  version: 1;
+  hiddenColumns: ConfigurableTableColumnKey[];
+};
+
+function formatTemplate(key: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    t(key)
+  );
+}
+
+function getTableColumnLabel(column: TableColumnKey): string {
+  switch (column) {
+    case 'title':
+      return t('tableView.columnTask');
+    case 'description':
+      return t('tableView.columnDescription');
+    case 'priority':
+      return t('tableView.columnPriority');
+    case 'statusText':
+      return t('tableView.columnStatus');
+    case 'group':
+      return t('tableView.columnGroup');
+    case 'startDate':
+      return t('tableView.columnStartDate');
+    case 'startTime':
+      return t('tableView.columnStartTime');
+    case 'dueDate':
+      return t('tableView.columnDueDate');
+    case 'dueTime':
+      return t('tableView.columnDueTime');
+    case 'focusDuration':
+      return t('tableView.columnFocusDuration');
+    case 'completedDate':
+      return t('tableView.columnCompletedDate');
+    case 'createdDate':
+      return t('tableView.columnCreatedDate');
+    case 'updatedDate':
+      return t('tableView.columnUpdatedDate');
+    case 'location':
+      return t('tableView.columnLocation');
+    default:
+      return '';
+  }
+}
+
+function getColumnVisibilityAria(label: string): string {
+  return formatTemplate('tableView.columnVisibilityTemplate', { label });
+}
+
+function getColumnResizeAria(label: string): string {
+  return formatTemplate('tableView.resizeColumnAriaTemplate', { label });
+}
+
+function getColumnResizeTitle(label: string): string {
+  return formatTemplate('tableView.resizeColumnTitleTemplate', { label });
+}
+
+function getPriorityTitle(priority: Task['priority']): string {
+  if (priority === 'high') {
+    return t('taskManager.priorityHighLabel');
+  }
+  if (priority === 'medium') {
+    return t('taskManager.priorityMediumLabel');
+  }
+  return t('taskManager.priorityLowLabel');
+}
+
+function getGroupItemCountLabel(count: number): string {
+  return formatTemplate('tableView.itemCountTemplate', { count });
+}
+
+function getGroupFallbackLabel(): string {
+  return t('tableView.groupLabel');
+}
+
+function getNoGroupLabel(): string {
+  return t('tableView.noGroup');
+}
+
+function getCurrentGroupLabel(label: string): string {
+  return label.trim() || t('tableView.currentGroup');
+}
 
 const TABLE_COLUMNS: readonly TableColumnDefinition[] = [
   { key: 'expand', className: 'col-expand' },
@@ -699,10 +888,62 @@ const TABLE_COLUMNS: readonly TableColumnDefinition[] = [
   { key: 'startTime', className: 'col-start-time' },
   { key: 'dueDate', className: 'col-due-date' },
   { key: 'dueTime', className: 'col-due-time' },
+  { key: 'focusDuration', className: 'col-focus-duration' },
+  { key: 'completedDate', className: 'col-completed-date' },
   { key: 'createdDate', className: 'col-created-date' },
   { key: 'updatedDate', className: 'col-updated-date' },
   { key: 'location', className: 'col-location' }
 ] as const;
+
+const TABLE_COLUMN_VISIBILITY_STORAGE_KEY = 'pinch-table-column-visibility';
+const LEGACY_TABLE_COLUMN_VISIBILITY_STORAGE_KEY = 'pinch-table-visible-columns';
+const TABLE_COLUMN_VISIBILITY_DATA_FILE = 'Pinch-table-column-visibility.json';
+const TABLE_CONFIGURABLE_COLUMNS: readonly ConfigurableTableColumnKey[] = [
+  'description',
+  'priority',
+  'statusText',
+  'group',
+  'startDate',
+  'startTime',
+  'dueDate',
+  'dueTime',
+  'focusDuration',
+  'completedDate',
+  'createdDate',
+  'updatedDate',
+  'location'
+] as const;
+const DEFAULT_VISIBLE_TABLE_COLUMNS = new Set<ConfigurableTableColumnKey>(TABLE_CONFIGURABLE_COLUMNS);
+const tableColumnSettingGroups = computed<TableColumnSettingGroup[]>(() => [
+  {
+    title: t('tableView.settingsBasicGroup'),
+    columns: [
+      { key: 'description', label: getTableColumnLabel('description') },
+      { key: 'priority', label: getTableColumnLabel('priority') },
+      { key: 'statusText', label: getTableColumnLabel('statusText') },
+      { key: 'group', label: getTableColumnLabel('group') }
+    ]
+  },
+  {
+    title: t('tableView.settingsTimeGroup'),
+    columns: [
+      { key: 'startDate', label: getTableColumnLabel('startDate') },
+      { key: 'startTime', label: getTableColumnLabel('startTime') },
+      { key: 'dueDate', label: getTableColumnLabel('dueDate') },
+      { key: 'dueTime', label: getTableColumnLabel('dueTime') },
+      { key: 'focusDuration', label: getTableColumnLabel('focusDuration') },
+      { key: 'completedDate', label: getTableColumnLabel('completedDate') },
+      { key: 'createdDate', label: getTableColumnLabel('createdDate') },
+      { key: 'updatedDate', label: getTableColumnLabel('updatedDate') }
+    ]
+  },
+  {
+    title: t('tableView.settingsSourceGroup'),
+    columns: [
+      { key: 'location', label: getTableColumnLabel('location') }
+    ]
+  }
+]);
 
 const TABLE_COLUMN_MIN_WIDTHS: Record<ResizableTableColumnKey, number> = {
   title: 150,
@@ -714,6 +955,8 @@ const TABLE_COLUMN_MIN_WIDTHS: Record<ResizableTableColumnKey, number> = {
   startTime: 80,
   dueDate: 80,
   dueTime: 80,
+  focusDuration: 80,
+  completedDate: 80,
   createdDate: 80,
   updatedDate: 80
 };
@@ -765,7 +1008,7 @@ const subtaskDescriptionDraftByKey = ref(new Map<string, string>());
 const priorityPopover = ref<TablePopoverTarget | null>(null);
 const statusPopover = ref<TablePopoverTarget | null>(null);
 const groupPopover = ref<TablePopoverTarget | null>(null);
-type SortableColumn = 'priority' | 'status' | 'startDate' | 'dueDate' | 'createdAt' | 'updatedAt';
+type SortableColumn = 'priority' | 'status' | 'startDate' | 'dueDate' | 'completedAt' | 'createdAt' | 'updatedAt';
 
 const sortColumn = ref<SortableColumn | null>(null);
 const sortDirection = ref<'asc' | 'desc'>('asc');
@@ -800,6 +1043,12 @@ const timePopoverTaskId = ref('');
 const timePopoverSubtaskId = ref('');
 const timePopoverField = ref<TimeField>('dueTime');
 const timePopoverAnchorRef = ref<HTMLElement | null>(null);
+const focusSessionRecords = ref<FocusSessionRecord[]>([]);
+const columnSettingsControlRef = ref<HTMLElement | null>(null);
+const columnSettingsVisible = ref(false);
+const visibleConfigurableColumns = ref<Set<ConfigurableTableColumnKey>>(loadTableColumnVisibility());
+let focusDurationLoadVersion = 0;
+let tableColumnVisibilityLoadVersion = 0;
 
 const priorityOrder = { high: 0, medium: 1, low: 2, none: 3 };
 const statusOrder = { 'in-progress': 0, delayed: 1, pending: 2, completed: 3, cancelled: 4 };
@@ -844,6 +1093,324 @@ function formatTaskTime(value: unknown): string {
   return normalizeTaskTimeValue(value) || '-';
 }
 
+function isConfigurableTableColumnKey(value: unknown): value is ConfigurableTableColumnKey {
+  return typeof value === 'string' && (TABLE_CONFIGURABLE_COLUMNS as readonly string[]).includes(value);
+}
+
+function createDefaultVisibleTableColumns(): Set<ConfigurableTableColumnKey> {
+  return new Set(DEFAULT_VISIBLE_TABLE_COLUMNS);
+}
+
+function createVisibleTableColumnsFromLegacyArray(value: unknown[]): Set<ConfigurableTableColumnKey> {
+  const visible = new Set<ConfigurableTableColumnKey>();
+  for (const key of value) {
+    if (isConfigurableTableColumnKey(key)) {
+      visible.add(key);
+    }
+  }
+  return visible;
+}
+
+function createVisibleTableColumnsFromHiddenArray(value: unknown[]): Set<ConfigurableTableColumnKey> {
+  const visible = createDefaultVisibleTableColumns();
+  for (const key of value) {
+    if (isConfigurableTableColumnKey(key)) {
+      visible.delete(key);
+    }
+  }
+  return visible;
+}
+
+function createVisibleTableColumnsFromBooleanMap(value: Record<string, unknown>): Set<ConfigurableTableColumnKey> {
+  const visible = createDefaultVisibleTableColumns();
+  for (const key of TABLE_CONFIGURABLE_COLUMNS) {
+    const enabled = value[key];
+    if (typeof enabled === 'boolean') {
+      if (enabled) {
+        visible.add(key);
+      } else {
+        visible.delete(key);
+      }
+    }
+  }
+  return visible;
+}
+
+function normalizeTableColumnVisibilitySnapshot(value: unknown): Set<ConfigurableTableColumnKey> {
+  if (Array.isArray(value)) {
+    return createVisibleTableColumnsFromLegacyArray(value);
+  }
+  if (!value || typeof value !== 'object') {
+    return createDefaultVisibleTableColumns();
+  }
+  const snapshot = value as { hiddenColumns?: unknown; columns?: unknown };
+  if (Array.isArray(snapshot.hiddenColumns)) {
+    return createVisibleTableColumnsFromHiddenArray(snapshot.hiddenColumns);
+  }
+  if (snapshot.columns && typeof snapshot.columns === 'object' && !Array.isArray(snapshot.columns)) {
+    return createVisibleTableColumnsFromBooleanMap(snapshot.columns as Record<string, unknown>);
+  }
+  return createDefaultVisibleTableColumns();
+}
+
+function readLocalTableColumnVisibility(): Set<ConfigurableTableColumnKey> {
+  if (typeof window === 'undefined') {
+    return createDefaultVisibleTableColumns();
+  }
+  try {
+    const raw = window.localStorage.getItem(TABLE_COLUMN_VISIBILITY_STORAGE_KEY)
+      ?? window.localStorage.getItem(LEGACY_TABLE_COLUMN_VISIBILITY_STORAGE_KEY);
+    if (!raw) {
+      return createDefaultVisibleTableColumns();
+    }
+    return normalizeTableColumnVisibilitySnapshot(JSON.parse(raw));
+  } catch (error) {
+    console.warn('[TableView]', t('tableView.readColumnSettingsFailed'), error);
+    return createDefaultVisibleTableColumns();
+  }
+}
+
+function loadTableColumnVisibility(): Set<ConfigurableTableColumnKey> {
+  return readLocalTableColumnVisibility();
+}
+
+function createTableColumnVisibilitySnapshot(
+  visibleColumns: Set<ConfigurableTableColumnKey>
+): TableColumnVisibilitySnapshot {
+  return {
+    version: 1,
+    hiddenColumns: TABLE_CONFIGURABLE_COLUMNS.filter(key => !visibleColumns.has(key))
+  };
+}
+
+function saveLocalTableColumnVisibility(visibleColumns: Set<ConfigurableTableColumnKey>): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      TABLE_COLUMN_VISIBILITY_STORAGE_KEY,
+      JSON.stringify(createTableColumnVisibilitySnapshot(visibleColumns))
+    );
+    window.localStorage.removeItem(LEGACY_TABLE_COLUMN_VISIBILITY_STORAGE_KEY);
+  } catch (error) {
+    console.warn('[TableView]', t('tableView.saveLocalColumnSettingsFailed'), error);
+  }
+}
+
+async function savePluginTableColumnVisibility(visibleColumns: Set<ConfigurableTableColumnKey>): Promise<void> {
+  const plugin = usePlugin();
+  if (!plugin) {
+    return;
+  }
+  try {
+    await plugin.saveData(
+      TABLE_COLUMN_VISIBILITY_DATA_FILE,
+      createTableColumnVisibilitySnapshot(visibleColumns)
+    );
+  } catch (error) {
+    console.warn('[TableView]', t('tableView.saveColumnSettingsFailed'), error);
+  }
+}
+
+function saveTableColumnVisibility(visibleColumns: Set<ConfigurableTableColumnKey>): void {
+  saveLocalTableColumnVisibility(visibleColumns);
+  void savePluginTableColumnVisibility(visibleColumns);
+}
+
+async function loadPluginTableColumnVisibility(): Promise<Set<ConfigurableTableColumnKey> | null> {
+  const plugin = usePlugin();
+  if (!plugin) {
+    return null;
+  }
+  try {
+    const raw = await plugin.loadData(TABLE_COLUMN_VISIBILITY_DATA_FILE);
+    if (!raw) {
+      return null;
+    }
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return normalizeTableColumnVisibilitySnapshot(parsed);
+  } catch (error) {
+    console.warn('[TableView]', t('tableView.readColumnSettingsFailed'), error);
+    return null;
+  }
+}
+
+async function hydrateTableColumnVisibility(): Promise<void> {
+  const loadVersion = ++tableColumnVisibilityLoadVersion;
+  const persistedColumns = await loadPluginTableColumnVisibility();
+  if (loadVersion !== tableColumnVisibilityLoadVersion) {
+    return;
+  }
+  if (persistedColumns) {
+    visibleConfigurableColumns.value = persistedColumns;
+    saveLocalTableColumnVisibility(persistedColumns);
+    resyncTableColumnWidthsAfterVisibilityChange();
+    return;
+  }
+  await savePluginTableColumnVisibility(visibleConfigurableColumns.value);
+}
+
+function isTableColumnVisible(column: TableColumnKey): boolean {
+  if (column === 'expand' || column === 'status' || column === 'title') {
+    return true;
+  }
+  return visibleConfigurableColumns.value.has(column);
+}
+
+function resyncTableColumnWidthsAfterVisibilityChange(): void {
+  if (!hasManualColumnWidths.value) {
+    defaultTableColumnWidths.value = {};
+  }
+  nextTick(() => {
+    syncDefaultTableColumnWidths();
+    scheduleTableViewportMetrics();
+    isTableScrollActive = false;
+    scheduleTableRowMeasurement();
+  });
+}
+
+function setTableColumnVisibility(column: ConfigurableTableColumnKey, visible: boolean): void {
+  tableColumnVisibilityLoadVersion += 1;
+  const next = new Set(visibleConfigurableColumns.value);
+  if (visible) {
+    next.add(column);
+  } else {
+    next.delete(column);
+  }
+  visibleConfigurableColumns.value = next;
+  saveTableColumnVisibility(next);
+  clearSortForHiddenColumn(column, next);
+  resyncTableColumnWidthsAfterVisibilityChange();
+}
+
+function resetTableColumnVisibility(): void {
+  tableColumnVisibilityLoadVersion += 1;
+  const next = createDefaultVisibleTableColumns();
+  visibleConfigurableColumns.value = next;
+  saveTableColumnVisibility(next);
+  resyncTableColumnWidthsAfterVisibilityChange();
+}
+
+function toggleColumnSettings(): void {
+  columnSettingsVisible.value = !columnSettingsVisible.value;
+}
+
+function clearSortForHiddenColumn(
+  column: ConfigurableTableColumnKey,
+  visibleColumns: Set<ConfigurableTableColumnKey>
+): void {
+  if (visibleColumns.has(column)) {
+    return;
+  }
+  const sortColumnByTableColumn: Partial<Record<ConfigurableTableColumnKey, SortableColumn>> = {
+    priority: 'priority',
+    statusText: 'status',
+    startDate: 'startDate',
+    dueDate: 'dueDate',
+    completedDate: 'completedAt',
+    createdDate: 'createdAt',
+    updatedDate: 'updatedAt'
+  };
+  if (sortColumn.value === sortColumnByTableColumn[column]) {
+    sortColumn.value = null;
+    sortDirection.value = 'asc';
+  }
+}
+
+function getTaskFocusKeys(task: Task): string[] {
+  const keys = new Set<string>();
+  const taskId = typeof task.id === 'string' ? task.id.trim() : '';
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+  if (taskId) {
+    keys.add(`id:${taskId}`);
+  }
+  if (blockId) {
+    keys.add(`block:${blockId}`);
+  }
+  return Array.from(keys);
+}
+
+async function refreshTaskFocusDurations(): Promise<void> {
+  const loadVersion = ++focusDurationLoadVersion;
+  try {
+    const data = await getFocusTimerData();
+    if (loadVersion !== focusDurationLoadVersion) {
+      return;
+    }
+    focusSessionRecords.value = data.sessionRecords;
+  } catch (error) {
+    console.error('[TableView]', t('tableView.loadTaskFocusDurationFailed'), error);
+  }
+}
+
+const focusMinutesByTaskId = computed(() => {
+  const map = new Map<string, number>();
+  const taskIdsByFocusKey = new Map<string, Set<string>>();
+  for (const task of props.tasks) {
+    for (const key of getTaskFocusKeys(task)) {
+      if (!taskIdsByFocusKey.has(key)) {
+        taskIdsByFocusKey.set(key, new Set());
+      }
+      taskIdsByFocusKey.get(key)!.add(task.id);
+    }
+  }
+  for (const record of focusSessionRecords.value) {
+    if (record.targetType !== 'task') {
+      continue;
+    }
+    const minutes = typeof record.minutes === 'number' ? record.minutes : Number(record.minutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      continue;
+    }
+    const recordKeys = [
+      record.targetId ? `id:${record.targetId}` : '',
+      record.targetBlockId ? `block:${record.targetBlockId}` : ''
+    ].filter(Boolean);
+    if (recordKeys.length === 0) {
+      continue;
+    }
+    const matchedTaskIds = new Set<string>();
+    for (const key of recordKeys) {
+      const taskIds = taskIdsByFocusKey.get(key);
+      if (!taskIds) {
+        continue;
+      }
+      for (const taskId of taskIds) {
+        matchedTaskIds.add(taskId);
+      }
+    }
+    for (const taskId of matchedTaskIds) {
+      map.set(taskId, (map.get(taskId) || 0) + minutes);
+    }
+  }
+  return map;
+});
+
+function getTaskFocusMinutes(task: Task): number {
+  const minutes = focusMinutesByTaskId.value.get(task.id);
+  return typeof minutes === 'number' && Number.isFinite(minutes) ? minutes : 0;
+}
+
+function formatFocusDuration(minutes: number): string {
+  const roundedMinutes = Math.max(0, Math.round(minutes));
+  if (roundedMinutes <= 0) {
+    return '';
+  }
+  if (roundedMinutes < 60) {
+    return formatTemplate('tableView.focusMinutesTemplate', { minutes: roundedMinutes });
+  }
+  const hours = Math.floor(roundedMinutes / 60);
+  const restMinutes = roundedMinutes % 60;
+  return restMinutes > 0
+    ? formatTemplate('tableView.focusHoursMinutesTemplate', { hours, minutes: restMinutes })
+    : formatTemplate('tableView.focusHoursTemplate', { hours });
+}
+
+function getTaskFocusDurationText(task: Task): string {
+  return formatFocusDuration(getTaskFocusMinutes(task));
+}
+
 function getTodayStartTimestamp(): number {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -879,15 +1446,6 @@ function isVirtualTaskForToday(task: Task): boolean {
 
 function compareTasksDefault(a: Task, b: Task, domOrderMap?: Map<string, number>): number {
   const todayStart = getTodayStartTimestamp();
-  const isAPinned = a.pinned === true;
-  const isBPinned = b.pinned === true;
-  if (isAPinned && !isBPinned) {
-    return -1;
-  }
-  if (!isAPinned && isBPinned) {
-    return 1;
-  }
-
   const isACompleted = a.status === 'completed';
   const isBCompleted = b.status === 'completed';
 
@@ -896,6 +1454,15 @@ function compareTasksDefault(a: Task, b: Task, domOrderMap?: Map<string, number>
   }
   if (!isACompleted && isBCompleted) {
     return -1;
+  }
+
+  const isAPinned = a.pinned === true;
+  const isBPinned = b.pinned === true;
+  if (isAPinned && !isBPinned) {
+    return -1;
+  }
+  if (!isAPinned && isBPinned) {
+    return 1;
   }
 
   if (isACompleted && isBCompleted) {
@@ -955,7 +1522,7 @@ const groupLookup = computed(() => {
   const map = new Map<string, { name: string; background: string; color: string }>();
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
-    const name = group.name?.trim() || '标签';
+    const name = group.name?.trim() || getGroupFallbackLabel();
     const background = resolveGroupColorCss(group.color || '');
     const color = resolveGroupTextColor(group.color || '');
     map.set(group.id, { name, background, color });
@@ -965,7 +1532,7 @@ const groupLookup = computed(() => {
 
 const groupPopoverOptions = computed(() => {
   const options: Array<{ value: string; label: string; special?: boolean; colorCss?: string; textColor?: string }> = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: getNoGroupLabel(), special: true, colorCss: '', textColor: '' }
   ];
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
@@ -973,7 +1540,7 @@ const groupPopoverOptions = computed(() => {
     const rawColor = group.color || '';
     options.push({
       value: group.id,
-      label: group.name?.trim() || '标签',
+      label: group.name?.trim() || getGroupFallbackLabel(),
       special: false,
       colorCss: resolveGroupColorCss(rawColor),
       textColor: resolveGroupTextColor(rawColor)
@@ -986,7 +1553,7 @@ const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date'].include
 const supportsGroupActions = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
 const customGroupOrder = computed(() => {
   const order: Array<{ id: string; label: string; style?: Record<string, string> }> = [
-    { id: '', label: '无标签' }
+    { id: '', label: getNoGroupLabel() }
   ];
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
@@ -998,40 +1565,40 @@ const customGroupOrder = computed(() => {
     } : undefined;
     order.push({
       id: group.id,
-      label: group.name?.trim() || '标签',
+      label: group.name?.trim() || getGroupFallbackLabel(),
       style
     });
   }
   return order;
 });
 type TableDateGroupKey = 'overdue' | 'today' | 'thisWeek' | 'thisMonth' | 'other';
-const dateGroupOrder: Array<{ id: TableDateGroupKey; label: string; style: Record<string, string> }> = [
+const dateGroupOrder = computed<Array<{ id: TableDateGroupKey; label: string; style: Record<string, string> }>>(() => [
   {
     id: 'overdue',
-    label: '逾期',
+    label: t('tableView.dateGroupOverdue'),
     style: { '--group-badge-bg': 'rgba(239, 68, 68, 0.14)', '--group-badge-color': '#b91c1c' }
   },
   {
     id: 'today',
-    label: '今日',
+    label: t('tableView.dateGroupToday'),
     style: { '--group-badge-bg': 'rgba(245, 158, 11, 0.14)', '--group-badge-color': '#b45309' }
   },
   {
     id: 'thisWeek',
-    label: '本周',
+    label: t('tableView.dateGroupThisWeek'),
     style: { '--group-badge-bg': 'rgba(59, 130, 246, 0.14)', '--group-badge-color': '#1d4ed8' }
   },
   {
     id: 'thisMonth',
-    label: '本月',
+    label: t('tableView.dateGroupThisMonth'),
     style: { '--group-badge-bg': 'rgba(16, 185, 129, 0.14)', '--group-badge-color': '#047857' }
   },
   {
     id: 'other',
-    label: '其他',
+    label: t('tableView.dateGroupOther'),
     style: { '--group-badge-bg': 'rgba(156, 163, 175, 0.16)', '--group-badge-color': '#4b5563' }
   }
-];
+]);
 
 const sortedTasks = computed(() => {
   const domOrderMap = buildLiveTaskDomOrderMap();
@@ -1060,6 +1627,10 @@ const sortedTasks = computed(() => {
       if (!a.dueDate) return 1;
       if (!b.dueDate) return -1;
       comparison = new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    } else if (sortColumn.value === 'completedAt') {
+      if (!a.completedAt) return 1;
+      if (!b.completedAt) return -1;
+      comparison = new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime();
     } else if (sortColumn.value === 'createdAt') {
       if (!a.createdAt) return 1;
       if (!b.createdAt) return -1;
@@ -1148,7 +1719,7 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
     const weekStartTimestamp = weekStart.getTime();
     const weekEnd = weekStartTimestamp + dayMs * 7;
     const buckets = new Map<TableDateGroupKey, Task[]>();
-    dateGroupOrder.forEach(group => buckets.set(group.id, []));
+    dateGroupOrder.value.forEach(group => buckets.set(group.id, []));
     const todayVirtualSeriesIds = new Set<string>();
 
     for (const task of sortedTasks.value) {
@@ -1182,7 +1753,7 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
       }
     }
 
-    return dateGroupOrder
+    return dateGroupOrder.value
       .map(group => ({
         key: `date:${group.id}`,
         id: `date:${group.id}`,
@@ -1437,12 +2008,19 @@ const groupPopoverStyle = computed(() => {
   };
 });
 
+const visibleTableColumns = computed(() => TABLE_COLUMNS.filter(column => isTableColumnVisible(column.key)));
+const tableColumnCount = computed(() => visibleTableColumns.value.length);
 const hasManualColumnWidths = computed(() => Object.keys(tableColumnWidths.value).length > 0);
+const effectiveTableColumnWidths = computed<Partial<Record<TableColumnKey, number>>>(() =>
+  hasManualColumnWidths.value ? tableColumnWidths.value : defaultTableColumnWidths.value
+);
+const hasStableColumnWidths = computed(() => Object.keys(effectiveTableColumnWidths.value).length > 0);
 
 const tableColumnCssVars = computed<Record<string, string>>(() => {
   const cssVars: Record<string, string> = {};
   let totalWidth = 0;
-  for (const [column, width] of Object.entries(tableColumnWidths.value)) {
+  for (const { key: column } of visibleTableColumns.value) {
+    const width = effectiveTableColumnWidths.value[column];
     if (typeof width !== 'number' || width <= 0) {
       continue;
     }
@@ -1450,7 +2028,7 @@ const tableColumnCssVars = computed<Record<string, string>>(() => {
     cssVars[`--table-col-${cssKey}-width`] = `${Math.round(width)}px`;
     totalWidth += Math.round(width);
   }
-  if (hasManualColumnWidths.value && totalWidth > 0) {
+  if (hasStableColumnWidths.value && totalWidth > 0) {
     cssVars.width = `${totalWidth}px`;
   }
   return cssVars;
@@ -1539,8 +2117,11 @@ function handleTableViewportResize(): void {
   scheduleTableViewportMetrics();
   scheduleTableRowMeasurement();
   if (!hasManualColumnWidths.value) {
-    window.requestAnimationFrame(() => {
-      syncDefaultTableColumnWidths();
+    defaultTableColumnWidths.value = {};
+    nextTick(() => {
+      window.requestAnimationFrame(() => {
+        syncDefaultTableColumnWidths();
+      });
     });
   }
 }
@@ -1557,7 +2138,7 @@ function getTableColumnMinWidth(column: TableColumnKey): number {
 }
 
 function getTableColumnStyle(column: TableColumnKey): Record<string, string> | undefined {
-  const width = tableColumnWidths.value[column] ?? TABLE_FIXED_COLUMN_WIDTHS[column];
+  const width = effectiveTableColumnWidths.value[column] ?? TABLE_FIXED_COLUMN_WIDTHS[column];
   if (typeof width !== 'number' || width <= 0) {
     return undefined;
   }
@@ -1586,7 +2167,7 @@ function captureTableColumnWidths(): Partial<Record<TableColumnKey, number>> {
   }
 
   const nextWidths: Partial<Record<TableColumnKey, number>> = {};
-  TABLE_COLUMNS.forEach((columnDef, index) => {
+  visibleTableColumns.value.forEach((columnDef, index) => {
     const header = headers[index];
     if (!header) {
       return;
@@ -1626,7 +2207,7 @@ function areColumnWidthsMatchingDefaults(widths: Partial<Record<TableColumnKey, 
   if (Object.keys(defaultWidths).length === 0) {
     return false;
   }
-  return TABLE_COLUMNS.every(({ key }) => {
+  return visibleTableColumns.value.every(({ key }) => {
     const defaultWidth = defaultWidths[key];
     const currentWidth = widths[key];
     if (typeof defaultWidth !== 'number' || defaultWidth <= 0) {
@@ -1886,6 +2467,9 @@ function handleTableScroll(): void {
   if (groupPopover.value) {
     groupPopover.value = null;
   }
+  if (columnSettingsVisible.value) {
+    columnSettingsVisible.value = false;
+  }
   isTableScrollActive = true;
   syncTableViewportMetrics();
   scheduleTableScrollSettle();
@@ -1920,6 +2504,8 @@ watch(
 );
 
 onMounted(() => {
+  void hydrateTableColumnVisibility();
+  void refreshTaskFocusDurations();
   nextTick(() => {
     syncTableViewportMetrics();
     isTableScrollActive = false;
@@ -1927,10 +2513,13 @@ onMounted(() => {
     syncDefaultTableColumnWidths();
   });
   window.addEventListener('resize', handleTableViewportResize);
+  window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
   document.addEventListener('mousedown', handleDocumentMouseDown);
 });
 
 onUnmounted(() => {
+  focusDurationLoadVersion += 1;
+  tableColumnVisibilityLoadVersion += 1;
   activeColumnResize = null;
   activeResizeColumn.value = null;
   cleanupColumnResizeInteraction();
@@ -1947,6 +2536,7 @@ onUnmounted(() => {
     tableScrollSettleTimer = null;
   }
   window.removeEventListener('resize', handleTableViewportResize);
+  window.removeEventListener('pinch-focus-session', handleFocusSessionUpdate);
   document.removeEventListener('mousedown', handleDocumentMouseDown);
 });
 
@@ -1971,6 +2561,10 @@ function getSortIndicatorClass(column: SortableColumn): Record<string, boolean> 
     'is-asc': isActive && sortDirection.value === 'asc',
     'is-desc': isActive && sortDirection.value === 'desc'
   };
+}
+
+function handleFocusSessionUpdate(): void {
+  void refreshTaskFocusDurations();
 }
 
 function getTaskGroupId(task: Task): string {
@@ -2050,17 +2644,17 @@ function getGroupArchivableTaskCount(group: TableTaskGroupSection): number {
 }
 
 function getGroupCreateTaskLabel(group: TableTaskGroupSection): string {
-  const title = (group.label || '当前分组').trim() || '当前分组';
-  return `在“${title}”分组新建任务`;
+  const title = getCurrentGroupLabel(group.label || '');
+  return formatTemplate('tableView.createTaskInGroupTemplate', { title });
 }
 
 function getGroupArchiveTasksLabel(group: TableTaskGroupSection): string {
-  const title = (group.label || '当前分组').trim() || '当前分组';
+  const title = getCurrentGroupLabel(group.label || '');
   const count = getGroupArchivableTaskCount(group);
   if (count > 0) {
-    return `归档“${title}”分组全部 ${count} 个任务`;
+    return formatTemplate('tableView.archiveGroupTasksTemplate', { title, count });
   }
-  return `归档“${title}”分组全部任务`;
+  return formatTemplate('tableView.archiveGroupTasksWithoutCountTemplate', { title });
 }
 
 function emitGroupCreateTask(group: TableTaskGroupSection): void {
@@ -2204,6 +2798,11 @@ function getSubtaskStatus(subtask: TableSubtask): Task['status'] {
     return raw;
   }
   return subtask.completed ? 'completed' : 'pending';
+}
+
+function getSubtaskCompletedAt(subtask: TableSubtask): string {
+  const raw = (subtask as TableSubtask & { completedAt?: unknown }).completedAt;
+  return typeof raw === 'string' ? raw : '';
 }
 
 function getSubtaskGroupId(subtask: TableSubtask): string {
@@ -2586,11 +3185,14 @@ function handleGroupManage(): void {
 }
 
 function handleDocumentMouseDown(event: MouseEvent): void {
-  if (!groupPopover.value && !priorityPopover.value && !statusPopover.value && !datePopoverVisible.value && !timePopoverVisible.value) {
+  if (!groupPopover.value && !priorityPopover.value && !statusPopover.value && !datePopoverVisible.value && !timePopoverVisible.value && !columnSettingsVisible.value) {
     return;
   }
   const target = event.target as HTMLElement | null;
   if (!target) return;
+  if (columnSettingsVisible.value && columnSettingsControlRef.value?.contains(target)) {
+    return;
+  }
   if (
     target.closest('.group-popover') ||
     target.closest('.priority-popover') ||
@@ -2614,6 +3216,7 @@ function handleDocumentMouseDown(event: MouseEvent): void {
   groupPopover.value = null;
   priorityPopover.value = null;
   statusPopover.value = null;
+  columnSettingsVisible.value = false;
   if (datePopoverVisible.value) {
     closeDatePopover();
   }
@@ -2638,6 +3241,113 @@ function toggleExpand(taskId: string) {
   height: 100%;
   overflow: auto;
   margin: 0 10px;
+  position: relative;
+}
+
+.table-column-settings {
+  position: relative;
+  z-index: 20;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.table-column-settings-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.table-column-settings-btn:hover,
+.table-column-settings-btn.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-primary);
+}
+
+.table-column-settings-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  width: 220px;
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--Sv-theme-surface, var(--b3-theme-surface));
+  color: var(--b3-theme-on-surface);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+}
+
+.table-column-settings-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.table-column-settings-group + .table-column-settings-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.table-column-settings-group-title {
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.62;
+}
+
+.table-column-settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.table-column-settings-item:hover {
+  background: var(--b3-list-hover);
+}
+
+.table-column-settings-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-column-settings-switch {
+  flex: 0 0 auto;
+}
+
+.table-column-settings-reset {
+  width: 100%;
+  margin-top: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.table-column-settings-reset:hover {
+  background: var(--b3-list-hover);
 }
 
 .tasks-table {
@@ -2648,7 +3358,7 @@ function toggleExpand(taskId: string) {
   font-size: 13px;
 }
 
-.tasks-table.has-manual-widths {
+.tasks-table.has-stable-widths {
   min-width: 0;
   max-width: none;
   table-layout: fixed;
@@ -3340,6 +4050,8 @@ function toggleExpand(taskId: string) {
 .col-start-time,
 .col-due-date,
 .col-due-time,
+.col-focus-duration,
+.col-completed-date,
 .col-created-date,
 .col-updated-date {
   text-align: center;
@@ -3369,6 +4081,17 @@ function toggleExpand(taskId: string) {
   min-width: var(--table-col-due-time-width, 80px);
 }
 
+.col-focus-duration {
+  width: var(--table-col-focus-duration-width, 80px);
+  min-width: var(--table-col-focus-duration-width, 80px);
+  cursor: default;
+}
+
+.col-completed-date {
+  width: var(--table-col-completed-date-width, 80px);
+  min-width: var(--table-col-completed-date-width, 80px);
+}
+
 .col-created-date {
   width: var(--table-col-created-date-width, 80px);
   min-width: var(--table-col-created-date-width, 80px);
@@ -3394,6 +4117,8 @@ function toggleExpand(taskId: string) {
 .col-start-time .th-content,
 .col-due-date .th-content,
 .col-due-time .th-content,
+.col-focus-duration .th-content,
+.col-completed-date .th-content,
 .col-created-date .th-content,
 .col-updated-date .th-content {
   justify-content: center;
@@ -3409,6 +4134,13 @@ function toggleExpand(taskId: string) {
   display: block;
   padding: 4px 8px;
   text-align: center;
+}
+
+.focus-duration-display {
+  display: block;
+  padding: 4px 8px;
+  text-align: center;
+  color: var(--b3-theme-on-surface);
 }
 
 .col-location {

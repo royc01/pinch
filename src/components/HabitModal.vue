@@ -5,21 +5,30 @@
         <div class="modal-content" @click.stop v-show="show">
       <div class="modal-header">
         <h3>{{ titleText }}</h3>
-        <button @click="emit('close')" class="icon-button" title="关闭" aria-label="关闭">
+        <button
+          @click="emit('close')"
+          class="icon-button"
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
+        >
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
       <div class="modal-body" v-if="localHabit">
         <div class="form-group">
           <div class="emoji-selector">
-            <SyInput v-model="localHabit.emoji" placeholder="选择或输入 Emoji" class="emoji-input-hidden" />
+            <SyInput
+              v-model="localHabit.emoji"
+              :placeholder="t('habitTracker.selectOrInputEmoji')"
+              class="emoji-input-hidden"
+            />
             <SyButton
               @click.stop="openEmojiPicker"
               type="default"
               size="small"
               class="emoji-picker-btn">
               <span v-if="localHabit.emoji" class="emoji-display">{{ localHabit.emoji }}</span>
-              <span v-else>选择图标</span>
+              <span v-else>{{ t('habitTracker.selectIcon') }}</span>
             </SyButton>
           </div>
         </div>
@@ -32,6 +41,10 @@
           <SySelect v-model="localHabit.frequency" :options="frequencyOptions" />
         </div>
         <div class="form-group">
+          <label>{{ t('habitTracker.completionMode') }}</label>
+          <SySelect v-model="localHabit.completionMode" :options="completionModeOptions" />
+        </div>
+        <div class="form-group">
           <label>{{ t('habitTracker.timesPerDay') }}</label>
           <SySelect 
             :modelValue="localHabit.timesPerDay?.toString()" 
@@ -40,7 +53,7 @@
           />
         </div>
         <div class="form-group">
-          <label>困难程度</label>
+          <label>{{ t('habitTracker.difficulty') }}</label>
           <SySelect
             v-model="localHabit.difficulty"
             :options="difficultyOptions"
@@ -53,12 +66,12 @@
               v-model="localHabit.usePomodoro"
               class="pomodoro-checkbox"
             />
-            启用番茄钟
+            {{ t('habitTracker.enablePomodoro') }}
           </label>
         </div>
         
         <div class="form-group" v-if="localHabit.usePomodoro">
-          <label>番茄钟时长</label>
+          <label>{{ t('habitTracker.pomodoroDuration') }}</label>
           <SySelect 
             :modelValue="localHabit.pomodoroDuration?.toString()" 
             @update:modelValue="onPomodoroDurationChange"
@@ -94,6 +107,7 @@ interface NewHabit {
   emoji: string;
   difficulty: HabitDifficulty;
   frequency: string;
+  completionMode?: 'fixed' | 'atLeast';
   timesPerDay: string | number;
   usePomodoro: boolean;
   pomodoroDuration: string | number;
@@ -110,6 +124,7 @@ interface Props {
   habit: Habit | NewHabit | null;
   difficultyOptions: Option[];
   frequencyOptions: Option[];
+  completionModeOptions: Option[];
   timesPerDayOptions: Option[];
   pomodoroDurationOptions: Option[];
   t: (key: string) => string;
@@ -123,11 +138,11 @@ const emit = defineEmits<{
 }>();
 
 const titleText = computed(() => {
-  return props.mode === 'add' ? props.t('habitTracker.addHabit') : '编辑习惯';
+  return props.mode === 'add' ? props.t('habitTracker.addHabit') : props.t('habitTracker.editHabit');
 });
 
 const buttonText = computed(() => {
-  return props.mode === 'add' ? props.t('OK') : '保存';
+  return props.mode === 'add' ? props.t('common.ok') : props.t('common.save');
 });
 
 const localHabit = ref<Habit | NewHabit | null>(null);

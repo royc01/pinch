@@ -15,7 +15,7 @@
           :disabled="!hasActive"
           @click="emitClear"
         >
-          清空
+          {{ t('taskManager.clear') }}
         </button>
       </div>
 
@@ -45,6 +45,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from '@/composables/useI18n';
 
 interface TaskFilterOption {
   value: string;
@@ -73,10 +74,11 @@ const emit = defineEmits<{
 }>();
 
 const popoverRef = ref<HTMLElement | null>(null);
+const { t } = useI18n();
 defineExpose({ popoverEl: popoverRef });
 
 const normalizedStyle = computed(() => props.popoverStyle || {});
-const title = computed(() => props.title || '筛选任务');
+const title = computed(() => props.title || t('taskManager.filterTasks'));
 
 function emitClear(): void {
   emit('clear');

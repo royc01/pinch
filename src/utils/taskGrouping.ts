@@ -1,5 +1,6 @@
 import type { Task } from '@/api';
 import { getBlockDOM, sql } from '@/api';
+import { translate } from '@/composables/useI18n';
 
 export type TaskViewGroupMode = 'status' | 'group' | 'heading' | 'date';
 export type TaskHeadingGroupKind = 'standalone' | 'document-root' | 'heading';
@@ -72,7 +73,7 @@ function stripMarkup(value: string): string {
 function extractDocumentLabel(task: Task): string {
   const rawPath = typeof task.hPath === 'string' ? stripMarkup(task.hPath) : '';
   if (!rawPath) {
-    return '文档';
+    return translate('taskManager.document');
   }
 
   const segments = rawPath
@@ -86,7 +87,7 @@ function extractDocumentLabel(task: Task): string {
 function buildStandaloneHeadingGroupMeta(): TaskHeadingGroupMeta {
   return {
     key: 'standalone',
-    label: '独立任务',
+    label: translate('taskManager.typeStandalone'),
     kind: 'standalone',
     order: -1
   };
@@ -103,7 +104,7 @@ function buildDocumentRootHeadingGroupMeta(
   const documentLabel = extractDocumentLabel(task);
   return {
     key: `document:${normalizedRootId || task.blockId || task.id}`,
-    label: `${documentLabel} / 文档根部`,
+    label: `${documentLabel} / ${translate('taskManager.documentRoot')}`,
     kind: 'document-root',
     rootId: normalizedRootId || undefined,
     order
@@ -121,7 +122,7 @@ function buildHeadingChainGroupMeta(
   const nearestHeading = stack[stack.length - 1];
   const headingLabels = stack.map(item => item.label).filter(Boolean);
   const documentLabel = extractDocumentLabel(task);
-  const chainLabel = headingLabels.length > 0 ? headingLabels.join(' / ') : '未命名标题';
+  const chainLabel = headingLabels.length > 0 ? headingLabels.join(' / ') : translate('taskManager.untitledHeading');
 
   return {
     key: `heading:${normalizedRootId || task.blockId || task.id}:${nearestHeading?.id || task.id}`,
@@ -173,7 +174,7 @@ function resolveHeadingLevel(block: HeadingContextRow): number {
 }
 
 function resolveHeadingLabel(block: HeadingContextRow): string {
-  return stripMarkup(block.content) || '未命名标题';
+  return stripMarkup(block.content) || translate('taskManager.untitledHeading');
 }
 
 function pushHeadingEntry(
@@ -211,7 +212,7 @@ function resolveDomHeadingLevel(element: Element): number {
 function resolveDomHeadingLabel(element: Element): string {
   const editable = element.querySelector('[contenteditable="true"]');
   const rawText = editable?.innerHTML || element.textContent || '';
-  return stripMarkup(rawText) || '未命名标题';
+  return stripMarkup(rawText) || translate('taskManager.untitledHeading');
 }
 
 function buildFallbackHeadingGroupMeta(task: Task): TaskHeadingGroupMeta {

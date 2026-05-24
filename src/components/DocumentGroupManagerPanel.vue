@@ -3,12 +3,12 @@
     <div class="document-group-body">
       <div class="document-group-panel group-list-panel">
         <div class="document-group-panel-header">
-          <span>文档组</span>
-          <SyButton size="small" @click="addGroup">新建分组</SyButton>
+          <span>{{ t('documentGroup.title') }}</span>
+          <SyButton size="small" @click="addGroup">{{ t('documentGroup.newGroup') }}</SyButton>
         </div>
 
         <div v-if="localGroups.length === 0" class="document-group-empty">
-          还没有文档组
+          {{ t('documentGroup.emptyGroups') }}
         </div>
         <div v-else class="document-group-list">
           <button
@@ -23,15 +23,15 @@
               <SyInput
                 class="document-group-name-input"
                 :model-value="group.name"
-                placeholder="输入分组名称"
+                :placeholder="t('documentGroup.groupNamePlaceholder')"
                 @update:model-value="updateGroupName(group.id, $event)"
               />
               <span class="document-group-count">{{ group.members.length }}</span>
               <button
                 type="button"
                 class="document-group-delete"
-                aria-label="删除分组"
-                title="删除分组"
+                :aria-label="t('documentGroup.deleteGroup')"
+                :title="t('documentGroup.deleteGroup')"
                 @click.stop="removeGroup(group.id)"
               >
                 <Icon name="trash" width="16" height="16" />
@@ -43,22 +43,22 @@
 
       <div class="document-group-panel document-list-panel">
         <div class="document-group-panel-header">
-          <span>文档</span>
-          <span v-if="selectedGroup" class="document-group-current">{{ selectedGroup.name || '未命名分组' }}</span>
+          <span>{{ t('documentGroup.documents') }}</span>
+          <span v-if="selectedGroup" class="document-group-current">{{ selectedGroup.name || t('documentGroup.untitledGroup') }}</span>
         </div>
 
         <div v-if="!selectedGroup" class="document-group-empty">
-          先新建或选择一个文档组
+          {{ t('documentGroup.selectGroupFirst') }}
         </div>
         <template v-else>
           <SyInput
             class="document-group-search-input"
             :model-value="documentSearch"
-            placeholder="搜索文档"
+            :placeholder="t('documentGroup.searchDocuments')"
             @update:model-value="documentSearch = $event"
           />
           <div v-if="filteredDocuments.length === 0" class="document-group-empty">
-            没有可用文档
+            {{ t('documentGroup.noDocuments') }}
           </div>
           <div v-else class="document-checkbox-list">
             <label
@@ -102,6 +102,7 @@ import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import type { DocumentGroup } from '@/documentGroupRepository';
+import { useI18n } from '@/composables/useI18n';
 
 interface DocumentGroupManagerDocument {
   id: string;
@@ -117,6 +118,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   'update:groups': [groups: DocumentGroup[]];
@@ -180,7 +182,7 @@ function addGroup(): void {
   const now = new Date().toISOString();
   const nextGroup: DocumentGroup = {
     id: generateGroupId(),
-    name: '新分组',
+    name: t('documentGroup.newGroupDefaultName'),
     members: [],
     order: localGroups.value.length,
     createdAt: now,
@@ -196,7 +198,7 @@ function removeGroup(groupId: string): void {
   if (!group) {
     return;
   }
-  if (!confirm(`删除文档组“${group.name || '未命名分组'}”？`)) {
+  if (!confirm(`${t('documentGroup.confirmDeletePrefix')}“${group.name || t('documentGroup.untitledGroup')}”？`)) {
     return;
   }
   const nextGroups = localGroups.value.filter(item => item.id !== group.id);

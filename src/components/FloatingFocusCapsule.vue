@@ -15,8 +15,8 @@
           type="button"
           class="floating-focus__dot"
           data-no-drag
-          title="专注设置"
-          aria-label="专注设置"
+          :title="t('focusTimer.settings')"
+          :aria-label="t('focusTimer.settings')"
           @click.stop="toggleSettings"
         >
           <Icon name="timer" width="16" height="16" class="icon" />
@@ -44,11 +44,11 @@
           type="button"
           class="floating-focus__duration"
           data-no-drag
-          :disabled="isPomodoroSettingsLocked"
-          :title="isPomodoroSettingsLocked ? '正计时时不可调整专注时长' : '点击切换专注时长'"
+          :disabled="isTimerActive"
+          :title="t('focusTimer.cycleDuration')"
           @click="cycleDuration"
         >
-          专注 {{ durationMinutes }}m
+          {{ focusDurationButtonText }}
         </button>
         <span v-else class="floating-focus__time">{{ displayTime }}</span>
         <div class="floating-focus__actions">
@@ -56,8 +56,8 @@
             type="button"
             class="floating-focus__action"
             data-no-drag
-            :title="isStartBlockedByOther && !isActive ? '面板专注进行中' : actionTitle"
-            :aria-label="isStartBlockedByOther && !isActive ? '面板专注进行中' : actionTitle"
+            :title="isStartBlockedByOther && !isActive ? t('focusTimer.panelFocusRunning') : actionTitle"
+            :aria-label="isStartBlockedByOther && !isActive ? t('focusTimer.panelFocusRunning') : actionTitle"
             :disabled="isStartBlockedByOther && !isActive"
             @click.stop="toggleStartPause"
           >
@@ -68,8 +68,8 @@
             type="button"
             class="floating-focus__action is-stop"
             data-no-drag
-            title="停止"
-            aria-label="停止"
+            :title="t('focusTimer.stop')"
+            :aria-label="t('focusTimer.stop')"
             @click.stop="stopTimer(true)"
           >
             <Icon name="stop" width="12" height="12" class="icon" />
@@ -85,14 +85,14 @@
           <div class="timer-settings">
             <div class="setting-section linked-target-setting">
               <div class="setting-label">
-                <span>计时关联</span>
+                <span>{{ t('focusTimer.linkedTarget') }}</span>
               </div>
               <div v-if="linkedTarget" class="linked-habit-banner__chip-row">
                 <button
                   type="button"
                   class="linked-habit-banner__chip"
                   :disabled="!canOpenLinkedTarget"
-                  :title="canOpenLinkedTarget ? `打开${linkedTargetLabel}` : linkedTargetLabel"
+                  :title="canOpenLinkedTarget ? `${t('focusTimer.openTargetPrefix')}${linkedTargetLabel}` : linkedTargetLabel"
                   :aria-label="linkedTargetLabel"
                   @click="openLinkedTarget"
                 >
@@ -104,8 +104,8 @@
                   type="button"
                   class="linked-habit-banner__clear"
                   :disabled="isLinkedTargetLocked"
-                  title="清除关联"
-                  aria-label="清除关联"
+                  :title="t('focusTimer.clearLinkedTarget')"
+                  :aria-label="t('focusTimer.clearLinkedTarget')"
                   @click="clearLinkedTarget"
                 >
                   <Icon name="close" width="12" height="12" class="icon" />
@@ -118,7 +118,7 @@
                   :disabled="isLinkedTargetLocked"
                   @click="openTargetPicker('habit')"
                 >
-                  关联习惯
+                  {{ t('focusTimer.linkHabit') }}
                 </button>
                 <button
                   type="button"
@@ -126,17 +126,17 @@
                   :disabled="isLinkedTargetLocked"
                   @click="openTargetPicker('task')"
                 >
-                  关联任务
+                  {{ t('focusTimer.linkTask') }}
                 </button>
               </div>
               <div v-if="targetPickerMode" class="linked-habit-banner__picker">
                 <div class="linked-habit-banner__picker-header">
-                  <span>{{ targetPickerMode === 'habit' ? '选择习惯' : '选择任务' }}</span>
+                  <span>{{ targetPickerTitle }}</span>
                   <button
                     type="button"
                     class="linked-habit-banner__picker-close"
-                    title="关闭"
-                    aria-label="关闭"
+                    :title="t('common.close')"
+                    :aria-label="t('common.close')"
                     @click="closeTargetPicker"
                   >
                     <Icon name="close" width="12" height="12" class="icon" />
@@ -146,16 +146,16 @@
                   v-model.trim="targetSearch"
                   class="linked-habit-banner__search"
                   type="text"
-                  :placeholder="targetPickerMode === 'habit' ? '搜索习惯' : '搜索任务'"
+                  :placeholder="targetPickerPlaceholder"
                 />
                 <div v-if="isLoadingTargetOptions" class="linked-habit-banner__picker-state">
-                  加载中...
+                  {{ t('taskManager.loading') }}
                 </div>
                 <div v-else-if="targetOptionsError" class="linked-habit-banner__picker-state is-error">
                   {{ targetOptionsError }}
                 </div>
                 <div v-else-if="filteredTargetOptions.length === 0" class="linked-habit-banner__picker-state">
-                  未找到可关联的{{ targetPickerMode === 'habit' ? '习惯' : '任务' }}
+                  {{ targetPickerEmptyText }}
                 </div>
                 <div v-else class="linked-habit-banner__picker-list">
                   <button
@@ -181,35 +181,8 @@
             </div>
             <div class="setting-section">
               <div class="setting-label">
-                <span>计时模式</span>
-                <div class="timer-mode-toggle timer-mode-toggle--inline" role="radiogroup" aria-label="计时模式">
-                  <button
-                    type="button"
-                    class="timer-mode-option"
-                    :class="{ active: timerMode === 'countdown' }"
-                    :disabled="isRunning || isPaused"
-                    @click="setTimerMode('countdown')"
-                  >
-                    倒计时
-                  </button>
-                  <button
-                    type="button"
-                    class="timer-mode-option"
-                    :class="{ active: timerMode === 'countup' }"
-                    :disabled="isRunning || isPaused"
-                    @click="setTimerMode('countup')"
-                  >
-                    正计时
-                  </button>
-                </div>
-              </div>
-              <div class="setting-hint">正计时不封顶，手动停止后按累计时长计入统计。</div>
-            </div>
-
-            <div class="setting-section">
-              <div class="setting-label">
-                <span>专注时长</span>
-                <span class="duration-value">{{ selectedDuration }}分钟</span>
+                <span>{{ t('focusTimer.focusDuration') }}</span>
+                <span class="duration-value">{{ focusDurationValueText }}</span>
               </div>
               <div class="duration-slider-container">
                 <input
@@ -217,20 +190,20 @@
                   v-model.number="durationIndex"
                   @input="updateDurationByIndex"
                   min="0"
-                  :max="durationMarks.length - 1"
+                  :max="durationOptions.length - 1"
                   step="1"
                   class="duration-slider"
-                  :disabled="isPomodoroSettingsLocked"
+                  :disabled="isTimerActive"
                   style="accent-color: var(--b3-theme-on-background)"
                 />
                 <div class="duration-marks">
                   <span
-                    v-for="(mark, index) in durationMarks"
-                    :key="mark"
+                    v-for="(mark, index) in durationOptions"
+                    :key="`${mark}-${index}`"
                     class="duration-mark"
-                    :style="{ left: `${(index / (durationMarks.length - 1)) * 100}%` }"
+                    :style="{ left: `${(index / (durationOptions.length - 1)) * 100}%` }"
                   >
-                    {{ mark }}
+                    {{ mark === 'unlimited' ? t('focusTimer.infinity') : mark }}
                   </span>
                 </div>
               </div>
@@ -238,8 +211,8 @@
 
             <div class="setting-section">
               <div class="setting-label">
-                <span>短休时长</span>
-                <span class="duration-value">{{ shortBreakDuration }}分钟</span>
+                <span>{{ t('focusTimer.shortBreakDuration') }}</span>
+                <span class="duration-value">{{ shortBreakDuration }}{{ t('focusTimer.minuteSuffix') }}</span>
               </div>
               <div class="duration-slider-container">
                 <input
@@ -268,8 +241,8 @@
 
             <div class="setting-section">
               <div class="setting-label">
-                <span>专注组数</span>
-                <span class="duration-value">{{ pomodoroSets }}组</span>
+                <span>{{ t('focusTimer.focusSets') }}</span>
+                <span class="duration-value">{{ pomodoroSets }}{{ t('focusTimer.setSuffix') }}</span>
               </div>
               <div class="duration-slider-container">
                 <input
@@ -305,16 +278,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
-import { addFocusSession } from '@/api';
+import { addFocusSession, upsertFocusSessionRecord } from '@/api';
 import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
+import { useI18n } from '@/composables/useI18n';
 import { awardFocusSession } from '@/rewardRepository';
 import {
   closeDetachedFocusWindow,
+  handoffDetachedFocusSession,
   isDetachedFocusWindowSupported,
   openDetachedFocusWindowSettings,
   syncDetachedFocusWindow
 } from '@/utils/detachedFocusWindow';
 import type { FocusTimerLinkedTarget } from '@/utils/focusTimerTarget';
+import type { FocusTimerHandoffState } from '@/utils/focusTimerHandoff';
 import {
   filterFocusTargetOptions,
   getFocusTargetDisplayLabel,
@@ -325,6 +301,7 @@ import {
 } from '@/utils/focusTimerTargetPicker';
 
 type TimerMode = 'countdown' | 'countup';
+type DurationOption = number | 'unlimited';
 
 const props = withDefaults(defineProps<{
   enabled: boolean;
@@ -339,6 +316,7 @@ const emit = defineEmits<{
   'update-linked-target': [target: FocusTimerLinkedTarget | null];
   'clear-linked-target': [];
 }>();
+const { t } = useI18n();
 
 const STORAGE_KEY = 'pinch-floating-focus-position';
 const EDGE_PADDING = 12;
@@ -356,9 +334,11 @@ const dragStart = ref({ x: 0, y: 0 });
 const dragOrigin = ref({ x: 0, y: 0 });
 
 const durationMarks = [5, 10, 15, 25, 30, 45, 60];
+const durationOptions: DurationOption[] = [...durationMarks, 'unlimited'];
 const shortBreakMarks = [1, 3, 5, 10, 15];
 const pomodoroSetMarks = [1, 2, 3, 4, 5, 6, 7, 8];
 const FOCUS_SESSION_EVENT = 'pinch-focus-session';
+const FOCUS_COUNTUP_AUTOSAVE_INTERVAL_MS = 60_000;
 
 const durationIndex = ref(3);
 const shortBreakDurationIndex = ref(2);
@@ -381,6 +361,10 @@ const currentSet = ref(1);
 const timerInterval = ref<number | null>(null);
 const timerDeadline = ref<number>(0);
 const timerStartedAt = ref(0);
+const countupSessionId = ref('');
+const savedCountupMinutes = ref(0);
+const isSavingCountupCheckpoint = ref(false);
+const hasPendingCountupCheckpoint = ref(false);
 const showSettings = ref(false);
 const settingsRef = ref<HTMLElement | null>(null);
 const targetPickerMode = ref<FocusTargetPickerMode | null>(null);
@@ -395,8 +379,15 @@ const shouldRenderInlineCapsule = computed(() => props.enabled && !supportsDetac
 
 const durationMinutes = computed(() => selectedDuration.value);
 const isActive = computed(() => isRunning.value || isPaused.value);
+const isTimerActive = computed(() => isRunning.value || isPaused.value);
 const isPomodoroSettingsLocked = computed(() =>
-  isRunning.value || isPaused.value || timerMode.value === 'countup'
+  isTimerActive.value || timerMode.value === 'countup'
+);
+const focusDurationValueText = computed(() =>
+  timerMode.value === 'countup' ? t('focusTimer.countup') : `${selectedDuration.value}${t('focusTimer.minuteSuffix')}`
+);
+const focusDurationButtonText = computed(() =>
+  timerMode.value === 'countup' ? `${t('focusTimer.title')} ${t('focusTimer.infinity')}` : `${t('focusTimer.title')} ${durationMinutes.value}m`
 );
 const isLinkedTargetLocked = computed(() => isRunning.value || isPaused.value);
 const linkedTargetLabel = computed(() => {
@@ -412,6 +403,15 @@ const filteredTargetOptions = computed(() => {
     : taskTargetOptions.value;
   return filterFocusTargetOptions(source, targetSearch.value);
 });
+const targetPickerTitle = computed(() =>
+  targetPickerMode.value === 'habit' ? t('focusTimer.selectHabit') : t('focusTimer.selectTask')
+);
+const targetPickerPlaceholder = computed(() =>
+  targetPickerMode.value === 'habit' ? t('focusTimer.searchHabit') : t('focusTimer.searchTask')
+);
+const targetPickerEmptyText = computed(() =>
+  `${t('focusTimer.noLinkablePrefix')}${targetPickerMode.value === 'habit' ? t('focusTimer.habit') : t('focusTimer.task')}`
+);
 const phaseDurationSeconds = computed(() =>
   (isBreakMode.value ? shortBreakDuration.value : durationMinutes.value) * 60
 );
@@ -425,9 +425,9 @@ const displayTime = computed(() => {
 
 const actionIcon = computed(() => (isRunning.value ? 'pause' : 'play'));
 const actionTitle = computed(() => {
-  if (isRunning.value) return '暂停';
-  if (isPaused.value) return '继续';
-  return '开始';
+  if (isRunning.value) return t('focusTimer.pause');
+  if (isPaused.value) return t('focusTimer.continue');
+  return t('focusTimer.start');
 });
 
 const progress = computed(() => {
@@ -588,12 +588,6 @@ const resetPhaseProgress = () => {
   timerStartedAt.value = 0;
 };
 
-const setTimerMode = (mode: TimerMode) => {
-  if (isRunning.value || isPaused.value) return;
-  timerMode.value = mode;
-  resetPhaseProgress();
-};
-
 const getElapsedFocusMinutes = () => {
   if (isBreakMode.value || timerMode.value !== 'countup') {
     return 0;
@@ -622,10 +616,73 @@ const recordFocusSession = async (sessionMinutes: number) => {
   window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, { detail: { minutes: sessionMinutes, sessionId } }));
 };
 
+function getFocusSessionTargetInput() {
+  return linkedTarget.value ? {
+    type: linkedTarget.value.type,
+    id: linkedTarget.value.id,
+    name: linkedTarget.value.name,
+    emoji: linkedTarget.value.emoji,
+    blockId: linkedTarget.value.blockId
+  } : null;
+}
+
+function ensureCountupSessionId(): string {
+  if (!countupSessionId.value) {
+    countupSessionId.value = `focus-capsule-countup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  return countupSessionId.value;
+}
+
+function resetCountupCheckpointState(): void {
+  countupSessionId.value = '';
+  savedCountupMinutes.value = 0;
+  isSavingCountupCheckpoint.value = false;
+  hasPendingCountupCheckpoint.value = false;
+}
+
+const saveCountupCheckpoint = async (final = false, minutesOverride?: number): Promise<void> => {
+  if (isBreakMode.value || timerMode.value !== 'countup') {
+    return;
+  }
+
+  const minutes = typeof minutesOverride === 'number'
+    ? Math.max(0, Math.floor(minutesOverride))
+    : getElapsedFocusMinutes();
+  if (minutes <= savedCountupMinutes.value) {
+    return;
+  }
+
+  if (isSavingCountupCheckpoint.value) {
+    hasPendingCountupCheckpoint.value = true;
+    return;
+  }
+
+  isSavingCountupCheckpoint.value = true;
+  try {
+    const sessionId = ensureCountupSessionId();
+    await upsertFocusSessionRecord(sessionId, minutes, getFocusSessionTargetInput());
+    const savedDelta = Math.max(0, minutes - savedCountupMinutes.value);
+    savedCountupMinutes.value = Math.max(savedCountupMinutes.value, minutes);
+    if (savedDelta > 0) {
+      window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, {
+        detail: { minutes: savedDelta, sessionId, checkpoint: !final }
+      }));
+    }
+  } finally {
+    isSavingCountupCheckpoint.value = false;
+    if (hasPendingCountupCheckpoint.value) {
+      hasPendingCountupCheckpoint.value = false;
+      void saveCountupCheckpoint(final);
+    }
+  }
+};
+
 const startPhaseTimer = () => {
   if (timerMode.value === 'countup' && !isBreakMode.value) {
     const startedAt = Date.now() - phaseElapsedSeconds.value * 1000;
     timerStartedAt.value = startedAt;
+    let lastAutosavedMinute = savedCountupMinutes.value;
+    let lastAutosaveCheckAt = Date.now();
 
     timerInterval.value = window.setInterval(() => {
       if (!isRunning.value || timerStartedAt.value !== startedAt) {
@@ -635,6 +692,17 @@ const startPhaseTimer = () => {
         0,
         Math.floor((Date.now() - startedAt) / 1000)
       );
+      const elapsedMinutes = getElapsedFocusMinutes();
+      const now = Date.now();
+      if (
+        now - lastAutosaveCheckAt >= FOCUS_COUNTUP_AUTOSAVE_INTERVAL_MS
+        && elapsedMinutes > lastAutosavedMinute
+        && elapsedMinutes > savedCountupMinutes.value
+      ) {
+        lastAutosaveCheckAt = now;
+        lastAutosavedMinute = elapsedMinutes;
+        void saveCountupCheckpoint(false);
+      }
     }, 200);
     return;
   }
@@ -698,6 +766,7 @@ const startTimer = () => {
   currentSet.value = 1;
   isBreakMode.value = false;
   resetPhaseProgress();
+  resetCountupCheckpointState();
   clearTimer();
   isRunning.value = true;
   isPaused.value = false;
@@ -706,6 +775,7 @@ const startTimer = () => {
 
 const pauseTimer = () => {
   if (!isRunning.value) return;
+  void saveCountupCheckpoint(false);
   clearTimer();
   isRunning.value = false;
   isPaused.value = true;
@@ -720,6 +790,7 @@ const resumeTimer = () => {
 
 const stopTimer = async (recordCurrentSession: boolean = false) => {
   const elapsedMinutes = recordCurrentSession ? getElapsedFocusMinutes() : 0;
+  const countupSessionIdToAward = countupSessionId.value;
 
   if (recordCurrentSession) {
     clearTimer();
@@ -735,10 +806,24 @@ const stopTimer = async (recordCurrentSession: boolean = false) => {
 
   if (elapsedMinutes > 0) {
     try {
-      await recordFocusSession(elapsedMinutes);
+      if (timerMode.value === 'countup') {
+        await saveCountupCheckpoint(true, elapsedMinutes);
+        if (countupSessionIdToAward || countupSessionId.value) {
+          await awardFocusSession({
+            minutes: elapsedMinutes,
+            sessionId: countupSessionIdToAward || countupSessionId.value,
+            source: 'capsule'
+          }).catch(() => {});
+        }
+        resetCountupCheckpointState();
+      } else {
+        await recordFocusSession(elapsedMinutes);
+      }
     } catch {
       // ignore recording errors
     }
+  } else {
+    resetCountupCheckpointState();
   }
 };
 
@@ -755,16 +840,76 @@ const toggleStartPause = () => {
   startTimer();
 };
 
+const acceptPanelHandoff = (state: FocusTimerHandoffState) => {
+  emit('update-linked-target', state.linkedTarget ?? null);
+  clearTimer();
+  releaseFocusSession();
+
+  timerMode.value = state.timerMode === 'countup' ? 'countup' : 'countdown';
+  selectedDuration.value = Number.isFinite(state.selectedDuration) ? state.selectedDuration : 25;
+  durationIndex.value = Number.isFinite(state.durationIndex) ? state.durationIndex : 3;
+  shortBreakDuration.value = Number.isFinite(state.shortBreakDuration) ? state.shortBreakDuration : 5;
+  shortBreakDurationIndex.value = Number.isFinite(state.shortBreakDurationIndex) ? state.shortBreakDurationIndex : 2;
+  pomodoroSets.value = Math.max(
+    1,
+    Math.min(
+      Number.isFinite(state.pomodoroSets) ? Math.round(state.pomodoroSets) : 1,
+      pomodoroSetMarks[pomodoroSetMarks.length - 1]
+    )
+  );
+  phaseElapsedSeconds.value = Math.max(0, Math.floor(state.phaseElapsedSeconds || 0));
+  isRunning.value = state.isRunning === true;
+  isPaused.value = state.isPaused === true;
+  isBreakMode.value = state.isBreakMode === true;
+  currentSet.value = Number.isFinite(state.currentSet) ? state.currentSet : 1;
+  countupSessionId.value = state.countupSessionId || '';
+  savedCountupMinutes.value = Number.isFinite(state.savedCountupMinutes) ? state.savedCountupMinutes : 0;
+  showSettings.value = false;
+  closeTargetPicker();
+
+  if (supportsDetachedFocusWindow) {
+    syncDetachedFocusWindow(true, state.linkedTarget ?? null);
+    handoffDetachedFocusSession(state);
+    isRunning.value = false;
+    isPaused.value = false;
+    return;
+  }
+
+  if (isRunning.value || isPaused.value) {
+    if (!claimFocusSession()) {
+      isRunning.value = false;
+      isPaused.value = false;
+      return;
+    }
+  }
+
+  if (isRunning.value) {
+    startPhaseTimer();
+  }
+};
+
 const cycleDuration = () => {
-  if (isActive.value || isPomodoroSettingsLocked.value) return;
-  durationIndex.value = (durationIndex.value + 1) % durationMarks.length;
-  selectedDuration.value = durationMarks[durationIndex.value];
+  if (isTimerActive.value) return;
+  durationIndex.value = (durationIndex.value + 1) % durationOptions.length;
+  const option = durationOptions[durationIndex.value];
+  if (option === 'unlimited') {
+    timerMode.value = 'countup';
+  } else {
+    timerMode.value = 'countdown';
+    selectedDuration.value = option;
+  }
   resetPhaseProgress();
 };
 
 const updateDurationByIndex = () => {
-  if (isPomodoroSettingsLocked.value) return;
-  selectedDuration.value = durationMarks[durationIndex.value];
+  if (isTimerActive.value) return;
+  const option = durationOptions[durationIndex.value];
+  if (option === 'unlimited') {
+    timerMode.value = 'countup';
+  } else {
+    timerMode.value = 'countdown';
+    selectedDuration.value = option;
+  }
   resetPhaseProgress();
 };
 
@@ -804,7 +949,7 @@ const openTargetPicker = async (mode: FocusTargetPickerMode) => {
       taskTargetOptions.value = await loadTaskFocusTargetOptions();
     }
   } catch {
-    targetOptionsError.value = `加载${mode === 'habit' ? '习惯' : '任务'}失败，请稍后重试`;
+    targetOptionsError.value = `${t('focusTimer.loadTargetFailedPrefix')}${mode === 'habit' ? t('focusTimer.habit') : t('focusTimer.task')}${t('focusTimer.loadTargetFailedSuffix')}`;
   } finally {
     isLoadingTargetOptions.value = false;
   }
@@ -1017,10 +1162,12 @@ onBeforeUnmount(() => {
 
   clearTimer();
   releaseFocusSession();
+  void saveCountupCheckpoint(false);
 });
 
 defineExpose({
-  openSettingsPanel
+  openSettingsPanel,
+  acceptPanelHandoff
 });
 </script>
 
@@ -1209,40 +1356,6 @@ defineExpose({
 
 .linked-target-setting {
   gap: 10px;
-}
-
-.timer-mode-toggle {
-  display: inline-flex;
-  gap: 6px;
-  padding: 4px;
-  border-radius: 999px;
-  background: var(--b3-list-hover);
-}
-
-.timer-mode-toggle--inline {
-  flex-shrink: 0;
-}
-
-.timer-mode-option {
-  border: none;
-  background: transparent;
-  color: var(--b3-theme-on-surface);
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
-}
-
-.timer-mode-option.active {
-  background: var(--b3-theme-on-background-background);
-  color: var(--b3-theme-background);
-}
-
-.timer-mode-option:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
 }
 
 .setting-hint {

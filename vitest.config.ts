@@ -5,7 +5,8 @@ import vue from '@vitejs/plugin-vue';
 export default defineConfig({
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      siyuan: resolve(__dirname, 'src/test/siyuanMock.ts')
     }
   },
   plugins: [vue()],

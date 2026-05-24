@@ -34,8 +34,8 @@
                   type="button"
                   class="pomodoro-indicator pomodoro-indicator--button"
                   :disabled="habit.isPaused"
-                  title="开始专注计时"
-                  aria-label="开始专注计时"
+                  :title="t('habitTracker.startFocusTimer')"
+                  :aria-label="t('habitTracker.startFocusTimer')"
                   @click.stop="emit('start-focus', habit)"
                 >
                   {{ pomodoroIcon }} {{ habit.pomodoroDuration ? `${habit.pomodoroDuration}min` : '25min' }}
@@ -43,7 +43,7 @@
               </div>
               <div v-if="manageMode" class="habit-status-text">
                 <span :class="['habit-status-badge', habit.isPaused ? 'paused' : 'active']">
-                  {{ habit.isPaused ? '已暂停' : '进行中' }}
+                  {{ habit.isPaused ? t('habitTracker.pausedStatus') : t('habitTracker.activeStatus') }}
                 </span>
               </div>
               <div v-else class="week-checkboxes">
@@ -85,7 +85,7 @@
                 size="small"
                 :class="['check-in-btn', { 'success-animation': showAnimation && animationHabitId === habit.id }]"
                 :disabled="habit.isPaused"
-                :title="habit.usePomodoro && !isHabitCompleted(habit) ? '开始专注计时' : '打卡'"
+                :title="habit.usePomodoro && !isHabitCompleted(habit) ? t('habitTracker.startFocusTimer') : t('habitTracker.checkIn')"
               >
                 <div v-if="showAnimation && animationHabitId === habit.id" class="rays-container">
                   <div class="ray"></div>
@@ -161,8 +161,8 @@
               <button
                 v-if="!habit.isPomodoroPaused"
                 class="pause-btn"
-                title="暂停番茄钟"
-                aria-label="暂停番茄钟"
+                :title="t('habitTracker.pausePomodoro')"
+                :aria-label="t('habitTracker.pausePomodoro')"
                 @click="emit('pomodoro-pause')"
               >
                 <Icon name="pause" width="16" height="16" class="icon" />
@@ -170,13 +170,18 @@
               <button
                 v-if="habit.isPomodoroPaused"
                 class="resume-btn"
-                title="继续番茄钟"
-                aria-label="继续番茄钟"
+                :title="t('habitTracker.resumePomodoro')"
+                :aria-label="t('habitTracker.resumePomodoro')"
                 @click="emit('pomodoro-resume')"
               >
                 <Icon name="play" width="16" height="16" class="icon" />
               </button>
-              <button class="stop-btn" title="停止番茄钟" aria-label="停止番茄钟" @click="emit('pomodoro-stop')">
+              <button
+                class="stop-btn"
+                :title="t('habitTracker.stopPomodoro')"
+                :aria-label="t('habitTracker.stopPomodoro')"
+                @click="emit('pomodoro-stop')"
+              >
                 <Icon name="stop" width="16" height="16" class="icon" />
               </button>
             </div>
@@ -249,7 +254,7 @@ const extractDocIdFromDragEvent = (event: DragEvent): string | null => {
 
   console.log('[HabitCard] Drop event - dataTransfer.types:', dataTransfer.types);
   
-  // 思源使用 application/siyuan-file 格式
+  // SiYuan uses the application/siyuan-file format.
   const formats = ['application/siyuan-file', 'text/plain', 'text/uri-list', 'text/html', 'application/x-siyuan-id'];
   let textData: string | null = null;
   
@@ -264,7 +269,7 @@ const extractDocIdFromDragEvent = (event: DragEvent): string | null => {
 
   if (!textData) return null;
 
-  // 匹配思源文档ID格式：YYYYMMDDHHMMSS-xxxxxxx
+  // Match the SiYuan document ID format: YYYYMMDDHHMMSS-xxxxxxx.
   const match = textData.match(/\d{14}-[a-z0-9]{7}/i);
   console.log('[HabitCard] Extracted doc ID:', match ? match[0] : null);
   
@@ -278,7 +283,7 @@ const handleHabitDragOver = (event: DragEvent, habit: Habit): void => {
 
   console.log('[HabitCard] DragOver - types:', dataTransfer.types);
   
-  // 允许所有类型的拖放
+  // Allow all supported drag payload types.
   dragOverHabitId.value = habit.id;
   dataTransfer.dropEffect = 'link';
 };
@@ -308,6 +313,9 @@ const isHabitCompleted = (habit: Habit) => {
 const shouldShowProgressPie = (habit: Habit) => {
   const timesPerDay = Number(habit.timesPerDay || 1);
   const count = props.getHabitCache(habit.id).todayCompletionCount;
+  if (habit.completionMode === 'atLeast') {
+    return count > 0;
+  }
   return timesPerDay > 1 && count > 0 && count < timesPerDay;
 };
 

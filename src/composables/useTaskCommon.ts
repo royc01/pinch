@@ -1,16 +1,19 @@
-﻿import { ref } from 'vue';
+import { ref } from 'vue';
 import { lsNotebooks } from '@/api';
+import type { SubTask, Task } from '@/api';
+import { translate } from '@/composables/useI18n';
 
-export const STATUS_LABELS: Record<string, string> = {
-  'pending': '待办',
-  'in-progress': '进行中',
-  'delayed': '延迟',
-  'completed': '已完成',
-  'cancelled': '已取消'
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  'pending': 'taskManager.statusPending',
+  'in-progress': 'taskManager.statusInProgress',
+  'delayed': 'taskManager.statusDelayed',
+  'completed': 'taskManager.statusCompleted',
+  'cancelled': 'taskManager.statusCancelled'
 };
 
 export function getStatusLabel(status: string): string {
-  return STATUS_LABELS[status] || status;
+  const key = STATUS_LABEL_KEYS[status];
+  return key ? translate(key, status) : status;
 }
 
 export function formatLocaleDate(dateStr: string, options?: { includeTime?: boolean }): string {
@@ -34,6 +37,25 @@ export function formatLocaleDate(dateStr: string, options?: { includeTime?: bool
 export function stripHtml(html: string): string {
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
+  tmp.querySelectorAll('.list, [data-type="NodeList"], ul, ol').forEach((list) => {
+    list.remove();
+  });
+  const firstElement = tmp.firstElementChild;
+  const hasTextOutsideFirstElement = Array.from(tmp.childNodes).some((node) => (
+    node !== firstElement
+    && node.nodeType === Node.TEXT_NODE
+    && (node.textContent || '').trim().length > 0
+  ));
+  const keepSingleTopLevelListItem = !!firstElement
+    && tmp.children.length === 1
+    && !hasTextOutsideFirstElement
+    && firstElement.matches('[data-type="NodeListItem"], .li');
+  tmp.querySelectorAll('.protyle-action--task, [data-type="NodeListItem"], .li').forEach((node) => {
+    if (keepSingleTopLevelListItem && node === firstElement) {
+      return;
+    }
+    node.remove();
+  });
   const inlineMemoSupNodes = tmp.querySelectorAll('sup');
   inlineMemoSupNodes.forEach((sup) => {
     const text = (sup.textContent || '').trim();
@@ -42,6 +64,101 @@ export function stripHtml(html: string): string {
     }
   });
   return tmp.textContent || tmp.innerText || '';
+}
+
+type TaskTitleSource = Pick<Task, 'title' | 'subtasks'> | Pick<SubTask, 'title' | 'subtasks'>;
+const TASK_DISPLAY_TITLE_CACHE_LIMIT = 1200;
+const taskDisplayTitleCache = new Map<string, string>();
+
+function normalizeTitleText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function appendTitleCachePart(parts: string[], value: string): void {
+  parts.push(`${value.length}:${value}`);
+}
+
+function appendSubtaskTitleCacheParts(subtasks: TaskTitleSource['subtasks'], parts: string[]): void {
+  if (!Array.isArray(subtasks) || subtasks.length === 0) {
+    return;
+  }
+
+  for (const subtask of subtasks) {
+    appendTitleCachePart(parts, subtask.title || '');
+    appendSubtaskTitleCacheParts(subtask.subtasks, parts);
+  }
+}
+
+function getTaskDisplayTitleCacheKey(task: TaskTitleSource): string {
+  const parts: string[] = [];
+  appendTitleCachePart(parts, task.title || '');
+  appendSubtaskTitleCacheParts(task.subtasks, parts);
+  return parts.join('|');
+}
+
+function rememberTaskDisplayTitle(cacheKey: string, title: string): string {
+  if (!taskDisplayTitleCache.has(cacheKey) && taskDisplayTitleCache.size >= TASK_DISPLAY_TITLE_CACHE_LIMIT) {
+    const oldestKey = taskDisplayTitleCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      taskDisplayTitleCache.delete(oldestKey);
+    }
+  }
+  taskDisplayTitleCache.set(cacheKey, title);
+  return title;
+}
+
+function collectSubtaskTitles(subtasks: TaskTitleSource['subtasks']): string[] {
+  if (!Array.isArray(subtasks) || subtasks.length === 0) {
+    return [];
+  }
+
+  const titles: string[] = [];
+  for (const subtask of subtasks) {
+    const title = normalizeTitleText(stripHtml(subtask.title || ''));
+    if (title) {
+      titles.push(title);
+    }
+    titles.push(...collectSubtaskTitles(subtask.subtasks));
+  }
+  return titles;
+}
+
+function titleHasNestedTaskStructure(rawTitle: string): boolean {
+  return /data-type=["']NodeList(Item)?["']|class=["'][^"']*(?:list|li|protyle-task)|<(?:ul|ol)\b|\n\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(?:x|X| )\]/i.test(rawTitle);
+}
+
+export function getTaskDisplayTitle(task: TaskTitleSource | null | undefined): string {
+  if (!task) {
+    return '';
+  }
+
+  const cacheKey = getTaskDisplayTitleCacheKey(task);
+  if (taskDisplayTitleCache.has(cacheKey)) {
+    return taskDisplayTitleCache.get(cacheKey) || '';
+  }
+
+  const title = normalizeTitleText(stripHtml(task.title || ''));
+  if (!title) {
+    return rememberTaskDisplayTitle(cacheKey, title);
+  }
+
+  const subtaskTitles = collectSubtaskTitles(task.subtasks);
+  if (subtaskTitles.length === 0 && !titleHasNestedTaskStructure(task.title || '')) {
+    return rememberTaskDisplayTitle(cacheKey, title);
+  }
+
+  let cutIndex = title.length;
+  for (const subtaskTitle of subtaskTitles) {
+    const index = title.indexOf(subtaskTitle);
+    if (index > 0 && index < cutIndex) {
+      cutIndex = index;
+    }
+  }
+
+  const displayTitle = cutIndex < title.length
+    ? (title.slice(0, cutIndex).trim() || title)
+    : title;
+  return rememberTaskDisplayTitle(cacheKey, displayTitle);
 }
 
 export interface TaskCommonNotebook {
@@ -66,7 +183,7 @@ export function useNotebooks() {
           }));
       }
     } catch (error) {
-      console.error('[useNotebooks] 蜉霓ｽ隨碑ｮｰ譛ｬ螟ｱ雍･:', error);
+      console.error('[useNotebooks] Failed to load notebooks:', error);
     } finally {
       loading.value = false;
     }
@@ -78,8 +195,3 @@ export function useNotebooks() {
     loadNotebooks
   };
 }
-
-
-
-
-

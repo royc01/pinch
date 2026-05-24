@@ -1,6 +1,7 @@
 import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
 import type { Habit, HabitDifficulty, Task } from '@/api';
+import { translate } from '@/composables/useI18n';
 
 export type RewardSource = 'habit' | 'task' | 'focus' | 'system';
 
@@ -119,7 +120,7 @@ export interface RewardShopItemDraft {
 }
 
 export interface HabitRewardPayload {
-  habit: Pick<Habit, 'id' | 'name' | 'difficulty' | 'frequency' | 'timesPerDay'>;
+  habit: Pick<Habit, 'id' | 'name' | 'difficulty' | 'frequency' | 'completionMode' | 'timesPerDay'>;
   date: string;
   previousCompletedCount: number;
   nextCompletedCount: number;
@@ -161,10 +162,23 @@ interface RewardBadgeDefinition {
   groupId: RewardBadgeGroupId;
   tier: number;
   id: string;
-  title: string;
-  description: string;
+  title: LocalizedTextDefinition;
+  description: LocalizedTextDefinition;
   icon: string;
   when: (progress: RewardBadgeProgress) => boolean;
+}
+
+interface LocalizedTextDefinition {
+  key: string;
+  fallback: string;
+}
+
+interface DefaultRewardShopItemDefinition {
+  id: string;
+  title: LocalizedTextDefinition;
+  description: LocalizedTextDefinition;
+  cost: number;
+  icon: string;
 }
 
 interface RewardBadgeProgress extends RewardStats {
@@ -190,13 +204,18 @@ const FOCUS_DAILY_CAP_XP = 36;
 const FOCUS_DAILY_CAP_COINS = 4;
 const STREAK_MILESTONES = [7, 30, 100];
 const REWARD_BADGE_GROUP_ORDER: RewardBadgeGroupId[] = ['habit', 'streak', 'task', 'focus', 'level'];
+
+function localizedText(key: string, fallback: string): LocalizedTextDefinition {
+  return { key, fallback };
+}
+
 const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
   {
     groupId: 'habit',
     tier: 1,
     id: 'habit-starter',
-    title: '习惯起步',
-    description: '首次完成一个习惯目标',
+    title: localizedText('rewardRepository.badges.habitStarter.title', 'Habit starter'),
+    description: localizedText('rewardRepository.badges.habitStarter.description', 'Complete a habit target for the first time'),
     icon: '🥇',
     when: progress => progress.habitCompletionCount >= 1
   },
@@ -204,8 +223,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'habit',
     tier: 2,
     id: 'habit-builder',
-    title: '习惯渐稳',
-    description: '累计完成 20 次习惯目标',
+    title: localizedText('rewardRepository.badges.habitBuilder.title', 'Habit builder'),
+    description: localizedText('rewardRepository.badges.habitBuilder.description', 'Complete habit targets 20 times'),
     icon: '🏅',
     when: progress => progress.habitCompletionCount >= 20
   },
@@ -213,8 +232,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'habit',
     tier: 3,
     id: 'habit-master',
-    title: '习惯成形',
-    description: '累计完成 100 次习惯目标',
+    title: localizedText('rewardRepository.badges.habitMaster.title', 'Habit master'),
+    description: localizedText('rewardRepository.badges.habitMaster.description', 'Complete habit targets 100 times'),
     icon: '🏆',
     when: progress => progress.habitCompletionCount >= 100
   },
@@ -222,8 +241,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'streak',
     tier: 1,
     id: 'streak-keeper',
-    title: '连续守住',
-    description: '任一习惯达成 7 天连续',
+    title: localizedText('rewardRepository.badges.streakKeeper.title', 'Streak keeper'),
+    description: localizedText('rewardRepository.badges.streakKeeper.description', 'Reach a 7-day streak on any habit'),
     icon: '💪',
     when: progress => progress.maxHabitStreak >= 7
   },
@@ -231,8 +250,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'streak',
     tier: 2,
     id: 'streak-anchor',
-    title: '节奏稳定',
-    description: '任一习惯达成 30 天连续',
+    title: localizedText('rewardRepository.badges.streakAnchor.title', 'Steady rhythm'),
+    description: localizedText('rewardRepository.badges.streakAnchor.description', 'Reach a 30-day streak on any habit'),
     icon: '🦾',
     when: progress => progress.maxHabitStreak >= 30
   },
@@ -240,8 +259,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'streak',
     tier: 3,
     id: 'streak-legend',
-    title: '长期主义',
-    description: '任一习惯达成 100 天连续',
+    title: localizedText('rewardRepository.badges.streakLegend.title', 'Long-game legend'),
+    description: localizedText('rewardRepository.badges.streakLegend.description', 'Reach a 100-day streak on any habit'),
     icon: '🧘',
     when: progress => progress.maxHabitStreak >= 100
   },
@@ -249,8 +268,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'task',
     tier: 1,
     id: 'task-closer',
-    title: '任务收割机',
-    description: '累计完成 10 个任务',
+    title: localizedText('rewardRepository.badges.taskCloser.title', 'Task closer'),
+    description: localizedText('rewardRepository.badges.taskCloser.description', 'Complete 10 tasks'),
     icon: '✅',
     when: progress => progress.taskCompletionCount >= 10
   },
@@ -258,8 +277,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'task',
     tier: 2,
     id: 'task-driver',
-    title: '执行加速',
-    description: '累计完成 50 个任务',
+    title: localizedText('rewardRepository.badges.taskDriver.title', 'Execution boost'),
+    description: localizedText('rewardRepository.badges.taskDriver.description', 'Complete 50 tasks'),
     icon: '❇️',
     when: progress => progress.taskCompletionCount >= 50
   },
@@ -267,8 +286,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'task',
     tier: 3,
     id: 'task-master',
-    title: '清单掌控者',
-    description: '累计完成 100 个任务',
+    title: localizedText('rewardRepository.badges.taskMaster.title', 'Checklist master'),
+    description: localizedText('rewardRepository.badges.taskMaster.description', 'Complete 100 tasks'),
     icon: '✳️',
     when: progress => progress.taskCompletionCount >= 100
   },
@@ -276,8 +295,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'focus',
     tier: 1,
     id: 'focus-rookie',
-    title: '专注入门',
-    description: '累计完成 5 次专注',
+    title: localizedText('rewardRepository.badges.focusRookie.title', 'Focus starter'),
+    description: localizedText('rewardRepository.badges.focusRookie.description', 'Complete 5 focus sessions'),
     icon: '❤️',
     when: progress => progress.focusSessionCount >= 5
   },
@@ -285,8 +304,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'focus',
     tier: 2,
     id: 'focus-regular',
-    title: '专注渐深',
-    description: '累计完成 20 次专注',
+    title: localizedText('rewardRepository.badges.focusRegular.title', 'Focus regular'),
+    description: localizedText('rewardRepository.badges.focusRegular.description', 'Complete 20 focus sessions'),
     icon: '💕',
     when: progress => progress.focusSessionCount >= 20
   },
@@ -294,8 +313,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'focus',
     tier: 3,
     id: 'focus-master',
-    title: '心流常驻',
-    description: '累计完成 50 次专注',
+    title: localizedText('rewardRepository.badges.focusMaster.title', 'Flow state'),
+    description: localizedText('rewardRepository.badges.focusMaster.description', 'Complete 50 focus sessions'),
     icon: '💖',
     when: progress => progress.focusSessionCount >= 50
   },
@@ -303,8 +322,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'level',
     tier: 1,
     id: 'level-five',
-    title: '自控新手',
-    description: '奖励等级达到 5 级',
+    title: localizedText('rewardRepository.badges.levelFive.title', 'Self-control novice'),
+    description: localizedText('rewardRepository.badges.levelFive.description', 'Reach reward level 5'),
     icon: '🌱',
     when: progress => progress.level >= 5
   },
@@ -312,8 +331,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'level',
     tier: 2,
     id: 'level-ten',
-    title: '自控进阶',
-    description: '奖励等级达到 10 级',
+    title: localizedText('rewardRepository.badges.levelTen.title', 'Self-control advanced'),
+    description: localizedText('rewardRepository.badges.levelTen.description', 'Reach reward level 10'),
     icon: '☘️',
     when: progress => progress.level >= 10
   },
@@ -321,8 +340,8 @@ const REWARD_BADGE_DEFINITIONS: RewardBadgeDefinition[] = [
     groupId: 'level',
     tier: 3,
     id: 'level-fifteen',
-    title: '自控达人',
-    description: '奖励等级达到 15 级',
+    title: localizedText('rewardRepository.badges.levelFifteen.title', 'Self-control expert'),
+    description: localizedText('rewardRepository.badges.levelFifteen.description', 'Reach reward level 15'),
     icon: '🍀',
     when: progress => progress.level >= 15
   }
@@ -338,36 +357,57 @@ const REWARD_BADGE_GROUPS = REWARD_BADGE_GROUP_ORDER.map(groupId => ({
 let cachedRewardState: RewardState | null = null;
 let rewardMutationQueue: Promise<void> = Promise.resolve();
 
+const DEFAULT_REWARD_SHOP_ITEM_DEFINITIONS: DefaultRewardShopItemDefinition[] = [
+  {
+    id: 'shop-break-30',
+    title: localizedText('rewardRepository.shopDefaults.break30.title', 'Watch a movie'),
+    description: localizedText('rewardRepository.shopDefaults.break30.description', 'Give yourself a guilt-free stretch of downtime'),
+    cost: 12,
+    icon: '🎬'
+  },
+  {
+    id: 'shop-drink',
+    title: localizedText('rewardRepository.shopDefaults.drink.title', 'Buy a favorite drink'),
+    description: localizedText('rewardRepository.shopDefaults.drink.description', 'Coffee, juice, or milk tea all count'),
+    cost: 20,
+    icon: '🧋'
+  },
+  {
+    id: 'shop-snack',
+    title: localizedText('rewardRepository.shopDefaults.snack.title', 'Grab a small snack'),
+    description: localizedText('rewardRepository.shopDefaults.snack.description', 'Trade some coins for an easy little break'),
+    cost: 28,
+    icon: '🍿'
+  }
+];
+
 function createDefaultShopItems(nowIso: string): RewardShopItem[] {
-  return [
-    {
-      id: 'shop-break-30',
-      title: '看一部电影',
-      description: '给自己一段不带负担的休息时间',
-      cost: 12,
-      icon: '🎬',
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: 'shop-drink',
-      title: '买杯喜欢的饮料',
-      description: '咖啡、果汁或奶茶都可以',
-      cost: 20,
-      icon: '🧋',
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: 'shop-snack',
-      title: '加一份小零食',
-      description: '用趣币换一个轻松时刻',
-      cost: 28,
-      icon: '🍿',
-      createdAt: nowIso,
-      updatedAt: nowIso
-    }
-  ];
+  return DEFAULT_REWARD_SHOP_ITEM_DEFINITIONS.map(item => ({
+    id: item.id,
+    title: translate(item.title.key, item.title.fallback),
+    description: translate(item.description.key, item.description.fallback),
+    cost: item.cost,
+    icon: item.icon,
+    createdAt: nowIso,
+    updatedAt: nowIso
+  }));
+}
+
+function formatRewardMessage(
+  key: string,
+  fallback: string,
+  values?: Record<string, string | number | boolean>
+): string {
+  let result = translate(key, fallback);
+  if (!values) {
+    return result;
+  }
+
+  Object.entries(values).forEach(([name, value]) => {
+    result = result.split(`{${name}}`).join(String(value));
+  });
+
+  return result;
 }
 
 function createEmptyRewardStats(): RewardStats {
@@ -738,8 +778,8 @@ function sortRewardBadges(badges: RewardBadge[]): RewardBadge[] {
 function createBadgeFromDefinition(definition: RewardBadgeDefinition, unlockedAt: string): RewardBadge {
   return {
     id: definition.id,
-    title: definition.title,
-    description: definition.description,
+    title: translate(definition.title.key, definition.title.fallback),
+    description: translate(definition.description.key, definition.description.fallback),
     icon: definition.icon,
     unlockedAt
   };
@@ -880,7 +920,7 @@ async function loadRewardState(forceRefresh: boolean = false): Promise<RewardSta
     cachedRewardState = normalized;
     return cloneRewardState(normalized);
   } catch (error) {
-    console.error('[Rewards] 加载奖励数据失败:', error);
+    console.error('[Rewards] Failed to load reward data:', error);
     const emptyState = createEmptyRewardState();
     cachedRewardState = emptyState;
     return cloneRewardState(emptyState);
@@ -897,7 +937,7 @@ async function saveRewardState(state: RewardState): Promise<void> {
     }
     await plugin.saveData(STORAGE_KEY, state);
   } catch (error) {
-    console.error('[Rewards] 保存奖励数据失败:', error);
+    console.error('[Rewards] Failed to save reward data:', error);
   }
 }
 
@@ -1082,10 +1122,16 @@ function normalizeShopItemDraft(input: RewardShopItemDraft): RewardShopItemDraft
     : 0;
 
   if (!title) {
-    throw new Error('奖励名称不能为空');
+    throw new Error(formatRewardMessage(
+      'rewardRepository.errors.emptyTitle',
+      'Reward name cannot be empty'
+    ));
   }
   if (cost <= 0) {
-    throw new Error('奖励价格必须大于 0');
+    throw new Error(formatRewardMessage(
+      'rewardRepository.errors.invalidCost',
+      'Reward price must be greater than 0'
+    ));
   }
 
   return {
@@ -1102,7 +1148,11 @@ export async function addRewardShopItem(input: RewardShopItemDraft): Promise<Rew
   return enqueueRewardMutation(async () => {
     const state = await loadRewardState(false);
     if (state.shopItems.length >= MAX_SHOP_ITEMS) {
-      throw new Error(`最多只能添加 ${MAX_SHOP_ITEMS} 个奖励项`);
+      throw new Error(formatRewardMessage(
+        'rewardRepository.errors.maxShopItemsTemplate',
+        'You can add at most {count} reward items',
+        { count: MAX_SHOP_ITEMS }
+      ));
     }
 
     const nowIso = new Date().toISOString();
@@ -1131,14 +1181,20 @@ export async function updateRewardShopItem(itemId: string, input: RewardShopItem
   const normalized = normalizeShopItemDraft(input);
 
   if (!normalizedItemId) {
-    throw new Error('缺少奖励项 ID');
+    throw new Error(formatRewardMessage(
+      'rewardRepository.errors.missingShopItemId',
+      'Missing reward item ID'
+    ));
   }
 
   return enqueueRewardMutation(async () => {
     const state = await loadRewardState(false);
     const target = state.shopItems.find(item => item.id === normalizedItemId);
     if (!target) {
-      throw new Error('未找到要更新的奖励项');
+      throw new Error(formatRewardMessage(
+        'rewardRepository.errors.updateTargetNotFound',
+        'Reward item to update was not found'
+      ));
     }
 
     const nowIso = new Date().toISOString();
@@ -1159,14 +1215,20 @@ export async function updateRewardShopItem(itemId: string, input: RewardShopItem
 export async function deleteRewardShopItem(itemId: string): Promise<RewardSnapshot> {
   const normalizedItemId = typeof itemId === 'string' ? itemId.trim() : '';
   if (!normalizedItemId) {
-    throw new Error('缺少奖励项 ID');
+    throw new Error(formatRewardMessage(
+      'rewardRepository.errors.missingShopItemId',
+      'Missing reward item ID'
+    ));
   }
 
   return enqueueRewardMutation(async () => {
     const state = await loadRewardState(false);
     const nextItems = state.shopItems.filter(item => item.id !== normalizedItemId);
     if (nextItems.length === state.shopItems.length) {
-      throw new Error('未找到要删除的奖励项');
+      throw new Error(formatRewardMessage(
+        'rewardRepository.errors.deleteTargetNotFound',
+        'Reward item to delete was not found'
+      ));
     }
 
     state.shopItems = nextItems;
@@ -1182,19 +1244,28 @@ export async function deleteRewardShopItem(itemId: string): Promise<RewardSnapsh
 export async function redeemRewardShopItem(itemId: string): Promise<{ snapshot: RewardSnapshot; redemption: RewardRedemption }> {
   const normalizedItemId = typeof itemId === 'string' ? itemId.trim() : '';
   if (!normalizedItemId) {
-    throw new Error('缺少奖励项 ID');
+    throw new Error(formatRewardMessage(
+      'rewardRepository.errors.missingShopItemId',
+      'Missing reward item ID'
+    ));
   }
 
   return enqueueRewardMutation(async () => {
     const state = await loadRewardState(false);
     const item = state.shopItems.find(shopItem => shopItem.id === normalizedItemId);
     if (!item) {
-      throw new Error('未找到要兑换的奖励项');
+      throw new Error(formatRewardMessage(
+        'rewardRepository.errors.redeemTargetNotFound',
+        'Reward item to redeem was not found'
+      ));
     }
 
     const availableCoins = Math.max(0, state.totalCoins - state.spentCoins);
     if (availableCoins < item.cost) {
-      throw new Error('趣币不足');
+      throw new Error(formatRewardMessage(
+        'rewardRepository.errors.notEnoughCoins',
+        'Not enough coins'
+      ));
     }
 
     const nowIso = new Date().toISOString();
@@ -1225,7 +1296,8 @@ export async function redeemRewardShopItem(itemId: string): Promise<{ snapshot: 
 
 export async function awardHabitRewards(payload: HabitRewardPayload): Promise<RewardBatchResult> {
   const habitDifficulty = normalizeHabitDifficulty(payload.habit.difficulty);
-  const habitName = payload.habit.name?.trim() || '未命名习惯';
+  const habitName = payload.habit.name?.trim()
+    || formatRewardMessage('rewardRepository.untitledHabit', 'Untitled habit');
   const normalizedDate = typeof payload.date === 'string' ? payload.date : new Date().toISOString().slice(0, 10);
   const safeTargetCount = Math.max(1, Math.floor(payload.targetCount || payload.habit.timesPerDay || 1));
   const inputs: RewardAwardInput[] = [];
@@ -1237,8 +1309,16 @@ export async function awardHabitRewards(payload: HabitRewardPayload): Promise<Re
       eventKey: `habit:${payload.habit.id}:${normalizedDate}:step:${nextCount}`,
       source: 'habit',
       kind: 'habit-step',
-      title: `推进习惯：${habitName}`,
-      detail: `${nextCount}/${safeTargetCount} 次`,
+      title: formatRewardMessage(
+        'rewardRepository.habitStepTitleTemplate',
+        'Habit progress: {title}',
+        { title: habitName }
+      ),
+      detail: formatRewardMessage(
+        'rewardRepository.habitStepDetailTemplate',
+        '{count}/{target} times',
+        { count: nextCount, target: safeTargetCount }
+      ),
       xp: 2,
       coins: 0,
       meta: {
@@ -1255,8 +1335,20 @@ export async function awardHabitRewards(payload: HabitRewardPayload): Promise<Re
       eventKey: `habit:${payload.habit.id}:${normalizedDate}:target-met`,
       source: 'habit',
       kind: 'habit-target',
-      title: `习惯达标：${habitName}`,
-      detail: payload.source === 'pomodoro' ? '通过番茄专注完成' : '完成当天目标',
+      title: formatRewardMessage(
+        'rewardRepository.habitTargetTitleTemplate',
+        'Habit target reached: {title}',
+        { title: habitName }
+      ),
+      detail: payload.source === 'pomodoro'
+        ? formatRewardMessage(
+          'rewardRepository.habitTargetDetailPomodoro',
+          'Completed via pomodoro focus'
+        )
+        : formatRewardMessage(
+          'rewardRepository.habitTargetDetailDefault',
+          'Completed today\'s target'
+        ),
       xp: 6,
       coins: getHabitTargetCoinsByDifficulty(habitDifficulty),
       meta: {
@@ -1273,8 +1365,15 @@ export async function awardHabitRewards(payload: HabitRewardPayload): Promise<Re
       eventKey: `habit:${payload.habit.id}:${weekKey}:weekly-target`,
       source: 'habit',
       kind: 'habit-weekly-target',
-      title: `周目标达成：${habitName}`,
-      detail: '本周目标已达成',
+      title: formatRewardMessage(
+        'rewardRepository.habitWeeklyTargetTitleTemplate',
+        'Weekly target reached: {title}',
+        { title: habitName }
+      ),
+      detail: formatRewardMessage(
+        'rewardRepository.habitWeeklyTargetDetail',
+        'This week\'s target is complete'
+      ),
       xp: 8,
       coins: 2,
       meta: {
@@ -1290,8 +1389,15 @@ export async function awardHabitRewards(payload: HabitRewardPayload): Promise<Re
       eventKey: `habit:${payload.habit.id}:streak:${payload.nextStreak}`,
       source: 'habit',
       kind: 'habit-streak',
-      title: `连续 ${payload.nextStreak} 天：${habitName}`,
-      detail: '保持连续记录',
+      title: formatRewardMessage(
+        'rewardRepository.habitStreakTitleTemplate',
+        '{days}-day streak: {title}',
+        { days: payload.nextStreak, title: habitName }
+      ),
+      detail: formatRewardMessage(
+        'rewardRepository.habitStreakDetail',
+        'Kept the streak going'
+      ),
       xp: payload.nextStreak >= 100 ? 30 : (payload.nextStreak >= 30 ? 16 : 10),
       coins: payload.nextStreak >= 100 ? 12 : (payload.nextStreak >= 30 ? 5 : 3),
       meta: {
@@ -1360,15 +1466,32 @@ export async function awardTaskCompletion(
   };
   const baseReward = baseRewards[priority] || baseRewards.none;
   const onTime = isTaskCompletedOnTime(task);
-  const title = stripHtml(task.title) || '未命名任务';
+  const title = stripHtml(task.title) || formatRewardMessage('focusTimer.untitledTask', 'Untitled task');
 
   return applyRewardBatch([
     {
       eventKey: getTaskCompletionEventKey(task),
       source: 'task',
       kind: 'task-complete',
-      title: `完成任务：${title}`,
-      detail: onTime === true ? '按期完成' : (onTime === false ? '任务完成，但已逾期' : '任务已完成'),
+      title: formatRewardMessage(
+        'rewardRepository.taskCompleteTitleTemplate',
+        'Task completed: {title}',
+        { title }
+      ),
+      detail: onTime === true
+        ? formatRewardMessage(
+          'rewardRepository.taskCompleteDetailOnTime',
+          'Completed on time'
+        )
+        : (onTime === false
+          ? formatRewardMessage(
+            'rewardRepository.taskCompleteDetailLate',
+            'Task completed after the due time'
+          )
+          : formatRewardMessage(
+            'rewardRepository.taskCompleteDetailDone',
+            'Task completed'
+          )),
       xp: baseReward.xp + (onTime === true ? 4 : 0),
       coins: baseReward.coins + (onTime === true ? 1 : 0),
       createdAt: task.completedAt || new Date().toISOString(),
@@ -1399,8 +1522,20 @@ export async function awardFocusSession(payload: FocusRewardPayload): Promise<Re
       eventKey: `focus:${payload.sessionId}`,
       source: 'focus',
       kind: 'focus-session',
-      title: `完成专注：${minutes} 分钟`,
-      detail: payload.source === 'capsule' ? '来自悬浮胶囊' : '来自专注面板',
+      title: formatRewardMessage(
+        'rewardRepository.focusSessionTitleTemplate',
+        'Focus session completed: {minutes} min',
+        { minutes }
+      ),
+      detail: payload.source === 'capsule'
+        ? formatRewardMessage(
+          'rewardRepository.focusSessionDetailCapsule',
+          'From floating capsule'
+        )
+        : formatRewardMessage(
+          'rewardRepository.focusSessionDetailPanel',
+          'From focus panel'
+        ),
       xp,
       coins,
       meta: {

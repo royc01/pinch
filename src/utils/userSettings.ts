@@ -1,10 +1,15 @@
 import { usePlugin } from '../main';
 import { normalizeNotebookIds } from './taskViewShared';
 import type { TaskViewGroupMode } from './taskGrouping';
+import type { TaskDateKeywordConfig } from './taskDateParser';
+
+export type TaskViewSwitcherId = 'kanban' | 'list' | 'table' | 'gantt' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
+export type SidebarSectionId = 'week-dates' | 'summary-card-grid' | 'habit-list' | 'stand-container';
+export type TaskCreateDefaultTarget = 'last' | 'inbox' | 'daily-note';
 
 export interface UserSettings {
   kanban: {
-    currentView?: 'kanban' | 'list' | 'table' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
+    currentView?: TaskViewSwitcherId;
     filterType: string;
     filterSource?: string;
     filterDocument: string;
@@ -15,14 +20,22 @@ export interface UserSettings {
     kanbanFilterPriority: string;
     kanbanFilterUpdatedRange: string;
     kanbanGroupMode?: boolean;
+    listFilterType?: string;
+    listFilterSource?: string;
+    listFilterDocument?: string;
+    listGroupMode?: boolean;
     tableGroupMode?: boolean;
     kanbanGroupBy?: TaskViewGroupMode;
+    listGroupBy?: TaskViewGroupMode;
     tableGroupBy?: TaskViewGroupMode;
     showKanbanTaskCardDetails?: boolean;
     tableFilterUpdatedRange: string;
     tableFilterType: string;
     tableFilterSource?: string;
     tableFilterDocument: string;
+    ganttFilterType?: string;
+    ganttFilterSource?: string;
+    ganttFilterDocument?: string;
     monthFilterType: string;
     monthFilterSource?: string;
     monthFilterDocument: string;
@@ -46,6 +59,7 @@ export interface UserSettings {
     tableUpdatedFilters?: string[];
     tableGroupFilters?: string[];
     tableExtraFilters?: string[];
+    hiddenViewSwitcherIds?: TaskViewSwitcherId[];
   };
   taskManager: {
     filterStatus: string;
@@ -57,11 +71,14 @@ export interface UserSettings {
     excludedNotebookIds: string[];
     showCompletedTasks?: boolean;
     autoRecognizeTaskDate?: boolean;
+    dateRecognitionKeywords?: TaskDateKeywordConfig;
     taskCompletionSoundEnabled?: boolean;
     showDocumentGroupNotebookPath?: boolean;
     scopeInitialized?: boolean;
     lastTaskNotebook?: string;
     lastTaskDocument?: string;
+    defaultTaskCreateTarget?: TaskCreateDefaultTarget;
+    defaultTaskCreateNotebook?: string;
     selectedGroupId?: string;
     taskListGroupBy?: 'none' | TaskViewGroupMode | 'date';
     taskListViewMode?: 'kanban' | 'list';
@@ -76,6 +93,8 @@ export interface UserSettings {
   sidebar: {
     selectedNotebook: string;
     selectedDocument: string;
+    hiddenSectionIds?: SidebarSectionId[];
+    sectionOrder?: SidebarSectionId[];
   };
 }
 
@@ -92,14 +111,22 @@ export const DEFAULT_SETTINGS: UserSettings = {
     kanbanFilterPriority: 'all',
     kanbanFilterUpdatedRange: 'all',
     kanbanGroupMode: false,
+    listFilterType: 'all',
+    listFilterSource: 'all',
+    listFilterDocument: 'all',
+    listGroupMode: false,
     tableGroupMode: false,
     kanbanGroupBy: 'status',
+    listGroupBy: 'status',
     tableGroupBy: 'status',
     showKanbanTaskCardDetails: true,
     tableFilterUpdatedRange: 'all',
     tableFilterType: 'all',
     tableFilterSource: 'all',
     tableFilterDocument: 'all',
+    ganttFilterType: 'all',
+    ganttFilterSource: 'all',
+    ganttFilterDocument: 'all',
     monthFilterType: 'all',
     monthFilterSource: 'all',
     monthFilterDocument: 'all',
@@ -122,7 +149,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     tableDueFilters: [],
     tableUpdatedFilters: [],
     tableGroupFilters: [],
-    tableExtraFilters: []
+    tableExtraFilters: [],
+    hiddenViewSwitcherIds: []
   },
   taskManager: {
     filterStatus: 'all',
@@ -134,9 +162,12 @@ export const DEFAULT_SETTINGS: UserSettings = {
     excludedNotebookIds: [],
     showCompletedTasks: true,
     autoRecognizeTaskDate: false,
+    dateRecognitionKeywords: {},
     taskCompletionSoundEnabled: true,
     showDocumentGroupNotebookPath: true,
     scopeInitialized: false,
+    defaultTaskCreateTarget: 'last',
+    defaultTaskCreateNotebook: '',
     selectedGroupId: 'all',
     taskListGroupBy: 'none',
     taskListViewMode: 'kanban',
@@ -150,7 +181,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
   },
   sidebar: {
     selectedNotebook: 'all',
-    selectedDocument: 'all'
+    selectedDocument: 'all',
+    hiddenSectionIds: [],
+    sectionOrder: ['week-dates', 'summary-card-grid', 'habit-list', 'stand-container']
   }
 };
 
@@ -177,6 +210,60 @@ function normalizeStringArray(input: unknown): string[] {
   return normalized;
 }
 
+function normalizeDateRecognitionKeywords(input: unknown): TaskDateKeywordConfig {
+  const raw = input && typeof input === 'object' ? input as TaskDateKeywordConfig : {};
+  return {
+    start: normalizeStringArray(raw.start),
+    due: normalizeStringArray(raw.due),
+    range: normalizeStringArray(raw.range),
+    afternoon: normalizeStringArray(raw.afternoon)
+  };
+}
+
+function normalizeAllowedStringArray<T extends string>(input: unknown, allowed: readonly T[]): T[] {
+  const allowedSet = new Set<string>(allowed);
+  return normalizeStringArray(input).filter((item): item is T => allowedSet.has(item));
+}
+
+function normalizeAllowedString<T extends string>(input: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof input === 'string' && (allowed as readonly string[]).includes(input)
+    ? input as T
+    : fallback;
+}
+
+function normalizeOrderedAllowedStringArray<T extends string>(
+  input: unknown,
+  allowed: readonly T[]
+): T[] {
+  const stored = normalizeAllowedStringArray(input, allowed);
+  const storedSet = new Set(stored);
+  return [
+    ...stored,
+    ...allowed.filter(item => !storedSet.has(item))
+  ];
+}
+
+const TASK_VIEW_SWITCHER_IDS: readonly TaskViewSwitcherId[] = [
+  'kanban',
+  'list',
+  'table',
+  'gantt',
+  'month',
+  'week',
+  'three-day',
+  'day',
+  'archive-table',
+  'stats'
+];
+
+const SIDEBAR_SECTION_IDS: readonly SidebarSectionId[] = [
+  'week-dates',
+  'summary-card-grid',
+  'habit-list',
+  'stand-container'
+];
+const TASK_CREATE_DEFAULT_TARGETS: readonly TaskCreateDefaultTarget[] = ['last', 'inbox', 'daily-note'];
+
 function mergeWithDefaults(input: unknown): UserSettings {
   const raw = input && typeof input === 'object' ? (input as Partial<UserSettings>) : {};
   const rawKanban = raw.kanban && typeof raw.kanban === 'object' ? raw.kanban : {};
@@ -200,7 +287,11 @@ function mergeWithDefaults(input: unknown): UserSettings {
       tableDueFilters: normalizeStringArray((rawKanban as { tableDueFilters?: unknown }).tableDueFilters),
       tableUpdatedFilters: normalizeStringArray((rawKanban as { tableUpdatedFilters?: unknown }).tableUpdatedFilters),
       tableGroupFilters: normalizeStringArray((rawKanban as { tableGroupFilters?: unknown }).tableGroupFilters),
-      tableExtraFilters: normalizeStringArray((rawKanban as { tableExtraFilters?: unknown }).tableExtraFilters)
+      tableExtraFilters: normalizeStringArray((rawKanban as { tableExtraFilters?: unknown }).tableExtraFilters),
+      hiddenViewSwitcherIds: normalizeAllowedStringArray(
+        (rawKanban as { hiddenViewSwitcherIds?: unknown }).hiddenViewSwitcherIds,
+        TASK_VIEW_SWITCHER_IDS
+      )
     },
     taskManager: {
       ...DEFAULT_SETTINGS.taskManager,
@@ -211,11 +302,30 @@ function mergeWithDefaults(input: unknown): UserSettings {
       taskDueFilters: normalizeStringArray((rawTaskManager as { taskDueFilters?: unknown }).taskDueFilters),
       taskUpdatedFilters: normalizeStringArray((rawTaskManager as { taskUpdatedFilters?: unknown }).taskUpdatedFilters),
       taskGroupFilters: normalizeStringArray((rawTaskManager as { taskGroupFilters?: unknown }).taskGroupFilters),
-      taskExtraFilters: normalizeStringArray((rawTaskManager as { taskExtraFilters?: unknown }).taskExtraFilters)
+      taskExtraFilters: normalizeStringArray((rawTaskManager as { taskExtraFilters?: unknown }).taskExtraFilters),
+      dateRecognitionKeywords: normalizeDateRecognitionKeywords(
+        (rawTaskManager as { dateRecognitionKeywords?: unknown }).dateRecognitionKeywords
+      ),
+      defaultTaskCreateTarget: normalizeAllowedString(
+        (rawTaskManager as { defaultTaskCreateTarget?: unknown }).defaultTaskCreateTarget,
+        TASK_CREATE_DEFAULT_TARGETS,
+        DEFAULT_SETTINGS.taskManager.defaultTaskCreateTarget
+      ),
+      defaultTaskCreateNotebook: typeof (rawTaskManager as { defaultTaskCreateNotebook?: unknown }).defaultTaskCreateNotebook === 'string'
+        ? (rawTaskManager as { defaultTaskCreateNotebook: string }).defaultTaskCreateNotebook.trim()
+        : DEFAULT_SETTINGS.taskManager.defaultTaskCreateNotebook
     },
     sidebar: {
       ...DEFAULT_SETTINGS.sidebar,
-      ...rawSidebar
+      ...rawSidebar,
+      hiddenSectionIds: normalizeAllowedStringArray(
+        (rawSidebar as { hiddenSectionIds?: unknown }).hiddenSectionIds,
+        SIDEBAR_SECTION_IDS
+      ),
+      sectionOrder: normalizeOrderedAllowedStringArray(
+        (rawSidebar as { sectionOrder?: unknown }).sectionOrder,
+        SIDEBAR_SECTION_IDS
+      )
     }
   };
 }

@@ -1,4 +1,5 @@
 import { TaskRepository, openBlockById, pushMsg, type Task } from '@/api';
+import { translate } from '@/composables/useI18n';
 import { usePlugin } from '@/main';
 import { stripHtml } from '@/composables/useTaskCommon';
 import { eventBus, Events } from '@/utils/eventBus';
@@ -64,6 +65,17 @@ let persistTimer: number | null = null;
 let blockRefreshTimer: number | null = null;
 let fullRefreshTimer: number | null = null;
 let unsubscribeHandlers: Array<() => void> = [];
+
+function formatTemplate(key: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    translate(key)
+  );
+}
+
+function getReminderNotificationTitle(): string {
+  return translate('taskReminder.notificationTitle', 'Task reminder');
+}
 
 function isAppVisible(): boolean {
   if (typeof document === 'undefined') {
@@ -338,7 +350,7 @@ function buildScheduledReminder(task: Task): ScheduledReminder | null {
     return null;
   }
 
-  const title = stripHtml(task.title || '').trim() || '未命名任务';
+  const title = stripHtml(task.title || '').trim() || translate('focusTimer.untitledTask', 'Untitled task');
 
   return {
     identity,
@@ -360,10 +372,17 @@ function buildReminderBody(reminder: ScheduledReminder): string {
     : '';
 
   if (reminderLabel && dueText) {
-    return `${reminder.title} (${reminderLabel}，截止 ${dueText})`;
+    return formatTemplate('taskReminder.bodyWithDueTemplate', {
+      title: reminder.title,
+      reminderLabel,
+      dueText
+    });
   }
   if (reminderLabel) {
-    return `${reminder.title} (${reminderLabel})`;
+    return formatTemplate('taskReminder.bodyWithLabelTemplate', {
+      title: reminder.title,
+      reminderLabel
+    });
   }
   return reminder.title;
 }
@@ -399,7 +418,7 @@ async function scheduleMobileSystemNotification(reminder: ScheduledReminder): Pr
   try {
     const notificationId = await platformUtils.sendNotification({
       channel: MOBILE_NOTIFICATION_CHANNEL_NAME,
-      title: '任务提醒',
+      title: getReminderNotificationTitle(),
       body: buildReminderBody(reminder),
       delayInSeconds,
       timeoutType: 'default'
@@ -572,7 +591,7 @@ async function showTaskSystemNotification(reminder: ScheduledReminder): Promise<
   }
 
   const tag = reminder.occurrenceKey;
-  const title = '任务提醒';
+  const title = getReminderNotificationTitle();
   const body = buildReminderBody(reminder);
 
   closeTrackedNotification(tag);
@@ -612,7 +631,7 @@ async function emitReminder(reminder: ScheduledReminder): Promise<void> {
     return;
   }
 
-  const title = '任务提醒';
+  const title = getReminderNotificationTitle();
   const body = buildReminderBody(reminder);
   const overdueMs = Math.max(0, Date.now() - reminder.fireAt);
   let notified = false;

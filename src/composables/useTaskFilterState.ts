@@ -1,4 +1,5 @@
 import { computed, ref, unref, type Ref } from 'vue';
+import { translate } from '@/composables/useI18n';
 
 export type TaskFilterSectionKey = 'status' | 'priority' | 'group' | 'due' | 'updated' | 'extra';
 
@@ -59,12 +60,12 @@ export function useTaskFilterState<
   });
 
   const sectionTitles: Record<TaskFilterSectionKey, string> = {
-    status: '状态',
-    priority: '优先级',
-    group: '标签',
-    due: '截止日期',
-    updated: '日期更新',
-    extra: '其他',
+    status: translate('taskManager.status'),
+    priority: translate('taskManager.priority'),
+    group: translate('taskManager.tags'),
+    due: translate('taskManager.dueDate'),
+    updated: translate('taskManager.updatedDate'),
+    extra: translate('taskManager.other'),
     ...options.sectionTitles
   };
 

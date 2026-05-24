@@ -1,6 +1,7 @@
 import { computed, type ShallowRef, watch } from 'vue';
 import type { Habit } from '@/api';
 import { getTodayCompletionCount, getWeekCompletionData, getWeekStart } from '@/composables/useHabitUtils';
+import { translate } from '@/composables/useI18n';
 
 interface HabitCacheData {
   weeklyCompleted: boolean;
@@ -15,10 +16,6 @@ interface UseHabitViewDataOptions {
   getWeeklyCompletionStatus: (habit: Habit) => boolean;
 }
 
-const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const CALENDAR_WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
-const DATE_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
-
 const DEFAULT_HABIT_CACHE: HabitCacheData = {
   weeklyCompleted: false,
   todayCompletionCount: 0,
@@ -31,6 +28,37 @@ export const useHabitViewData = ({
   getToday,
   getWeeklyCompletionStatus
 }: UseHabitViewDataOptions) => {
+  const formatTemplate = (key: string, values: Record<string, string | number>): string => {
+    return Object.entries(values).reduce(
+      (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+      translate(key)
+    );
+  };
+
+  const mondayFirstWeekdayKeys = [
+    'date.weekdayMonShort',
+    'date.weekdayTueShort',
+    'date.weekdayWedShort',
+    'date.weekdayThuShort',
+    'date.weekdayFriShort',
+    'date.weekdaySatShort',
+    'date.weekdaySunShort'
+  ] as const;
+  const sundayFirstWeekdayKeys = [
+    'date.weekdaySunShort',
+    'date.weekdayMonShort',
+    'date.weekdayTueShort',
+    'date.weekdayWedShort',
+    'date.weekdayThuShort',
+    'date.weekdayFriShort',
+    'date.weekdaySatShort'
+  ] as const;
+  const getYearMonthLabel = (date: Date): string =>
+    formatTemplate('date.yearMonthTemplate', {
+      year: date.getFullYear(),
+      month: date.getMonth() + 1
+    });
+
   const isToday = (dateString: string) => dateString === getToday();
 
   const weekDates = computed(() => {
@@ -49,7 +77,7 @@ export const useHabitViewData = ({
 
       dates.push({
         date: `${currentDate.getDate()}`,
-        dayName: WEEKDAY_NAMES[i],
+        dayName: translate(mondayFirstWeekdayKeys[i]),
         isToday: currentDate.toDateString() === today.toDateString(),
         fullDate: formatDate(currentDate)
       });
@@ -230,7 +258,7 @@ export const useHabitViewData = ({
     initializeStatsViewMode(habit);
     const today = new Date();
     const targetDate = new Date(today.getFullYear(), today.getMonth() + (habit.statsMonthOffset || 0), 1);
-    return `${targetDate.getFullYear()}年${targetDate.getMonth() + 1}月`;
+    return getYearMonthLabel(targetDate);
   };
 
   // 懒加载缓存：仅在渲染时按需计算单个习惯的数据，而非一次性计算全部
@@ -238,7 +266,7 @@ export const useHabitViewData = ({
 
   // 当 habits 数组引用变化时清空缓存，下次渲染时按需重建
   watch(
-    () => habits.value,
+    habits,
     () => {
       habitsCacheMap.clear();
     },
@@ -265,13 +293,17 @@ export const useHabitViewData = ({
     return data;
   };
 
-  const weekdaysForCalendar = computed(() => CALENDAR_WEEKDAYS);
+  const weekdaysForCalendar = computed(() => mondayFirstWeekdayKeys.map(key => translate(key)));
 
   const currentDateString = computed(() => {
     const date = new Date();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
-    return `${month}/${day}/周${DATE_WEEKDAYS[date.getDay()]}`;
+    return formatTemplate('date.monthDayWeekdayTemplate', {
+      month,
+      day,
+      weekday: translate(sundayFirstWeekdayKeys[date.getDay()])
+    });
   });
 
   return {

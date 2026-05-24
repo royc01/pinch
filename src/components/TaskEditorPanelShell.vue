@@ -19,8 +19,8 @@
             type="button"
             class="task-editor-sidebar-pin"
             :class="{ 'is-active': pinActive }"
-            :title="pinActive ? '取消置顶' : '置顶任务'"
-            :aria-label="pinActive ? '取消置顶' : '置顶任务'"
+            :title="pinActive ? t('taskManager.unpinTask') : t('taskManager.pinTask')"
+            :aria-label="pinActive ? t('taskManager.unpinTask') : t('taskManager.pinTask')"
             @click.stop="$emit('pin')"
           >
             <Icon name="pinTask" width="16" height="16" />
@@ -29,8 +29,8 @@
             v-if="showMove"
             type="button"
             class="task-editor-sidebar-move"
-            title="移动任务"
-            aria-label="移动任务"
+            :title="t('taskManager.moveTask')"
+            :aria-label="t('taskManager.moveTask')"
             @click.stop="$emit('move')"
           >
             <Icon name="moveTask" width="16" height="16" />
@@ -39,8 +39,8 @@
             v-if="showArchive"
             type="button"
             class="task-editor-sidebar-archive"
-            :title="isArchived ? '取消归档' : '归档任务'"
-            :aria-label="isArchived ? '取消归档' : '归档任务'"
+            :title="isArchived ? t('taskManager.unarchiveTask') : t('taskManager.archiveTask')"
+            :aria-label="isArchived ? t('taskManager.unarchiveTask') : t('taskManager.archiveTask')"
             @click.stop="$emit('archive')"
           >
             <Icon name="archive" width="16" height="16" />
@@ -49,8 +49,8 @@
             v-if="showDelete"
             type="button"
             class="task-editor-sidebar-delete"
-            title="删除任务"
-            aria-label="删除任务"
+            :title="t('taskManager.deleteTask')"
+            :aria-label="t('taskManager.deleteTask')"
             @click.stop="$emit('delete')"
           >
             <Icon name="trash" width="16" height="16" />
@@ -59,8 +59,8 @@
             v-if="showPriority"
             type="button"
             class="task-editor-priority-btn"
-            title="优先级"
-            aria-label="优先级"
+            :title="t('taskManager.priority')"
+            :aria-label="t('taskManager.priority')"
             @click.stop="handlePriorityClick"
           >
             <span
@@ -74,8 +74,8 @@
             v-if="showFocus"
             type="button"
             class="task-editor-action-btn task-editor-focus-btn"
-            title="开始专注"
-            aria-label="开始专注"
+            :title="t('taskManager.startFocus')"
+            :aria-label="t('taskManager.startFocus')"
             @click.stop="$emit('focus')"
           >
             <Icon name="timer" width="14" height="14" />
@@ -83,8 +83,8 @@
           <button
             type="button"
             class="task-editor-sidebar-close"
-            title="关闭编辑器"
-            aria-label="关闭编辑器"
+            :title="t('taskManager.closeEditor')"
+            :aria-label="t('taskManager.closeEditor')"
             @click.stop="$emit('close')"
           >
             <Icon name="close" width="16" height="16" />
@@ -111,8 +111,8 @@
           type="button"
           class="task-editor-sidebar-pin"
           :class="{ 'is-active': pinActive }"
-          :title="pinActive ? '取消置顶' : '置顶任务'"
-          :aria-label="pinActive ? '取消置顶' : '置顶任务'"
+          :title="pinActive ? t('taskManager.unpinTask') : t('taskManager.pinTask')"
+          :aria-label="pinActive ? t('taskManager.unpinTask') : t('taskManager.pinTask')"
           @click.stop="$emit('pin')"
         >
           <Icon name="pinTask" width="16" height="16" />
@@ -121,8 +121,8 @@
           v-if="showMove"
           type="button"
           class="task-editor-sidebar-move"
-          title="移动任务"
-          aria-label="移动任务"
+          :title="t('taskManager.moveTask')"
+          :aria-label="t('taskManager.moveTask')"
           @click.stop="$emit('move')"
         >
           <Icon name="moveTask" width="16" height="16" />
@@ -131,8 +131,8 @@
           v-if="showArchive"
           type="button"
           class="task-editor-sidebar-archive"
-          :title="isArchived ? '取消归档' : '归档任务'"
-          :aria-label="isArchived ? '取消归档' : '归档任务'"
+          :title="isArchived ? t('taskManager.unarchiveTask') : t('taskManager.archiveTask')"
+          :aria-label="isArchived ? t('taskManager.unarchiveTask') : t('taskManager.archiveTask')"
           @click.stop="$emit('archive')"
         >
           <Icon name="archive" width="16" height="16" />
@@ -141,8 +141,8 @@
           v-if="showDelete"
           type="button"
           class="task-editor-sidebar-delete"
-          title="删除任务"
-          aria-label="删除任务"
+          :title="t('taskManager.deleteTask')"
+          :aria-label="t('taskManager.deleteTask')"
           @click.stop="$emit('delete')"
         >
           <Icon name="trash" width="16" height="16" />
@@ -151,8 +151,8 @@
           v-if="showPriority"
           type="button"
           class="task-editor-priority-btn"
-          title="优先级"
-          aria-label="优先级"
+          :title="t('taskManager.priority')"
+          :aria-label="t('taskManager.priority')"
           @click.stop="handlePriorityClick"
         >
           <span
@@ -166,8 +166,8 @@
           v-if="showFocus"
           type="button"
           class="task-editor-action-btn task-editor-focus-btn"
-          title="开始专注"
-          aria-label="开始专注"
+          :title="t('taskManager.startFocus')"
+          :aria-label="t('taskManager.startFocus')"
           @click.stop="$emit('focus')"
         >
           <Icon name="timer" width="14" height="14" />
@@ -175,8 +175,8 @@
         <button
           type="button"
           class="task-editor-sidebar-close"
-          title="关闭编辑器"
-          aria-label="关闭编辑器"
+          :title="t('taskManager.closeEditor')"
+          :aria-label="t('taskManager.closeEditor')"
           @click.stop="$emit('close')"
         >
           <Icon name="close" width="16" height="16" />
@@ -190,6 +190,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import Icon from '@/components/Icon.vue';
+import { useI18n } from '@/composables/useI18n';
 
 withDefaults(defineProps<{
   mode?: 'sidebar' | 'floating';
@@ -231,6 +232,7 @@ const emit = defineEmits<{
 }>();
 
 const panelRef = ref<HTMLElement | null>(null);
+const { t } = useI18n();
 defineExpose({ panelEl: panelRef });
 
 function handlePriorityClick(event: MouseEvent): void {

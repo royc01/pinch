@@ -2,13 +2,15 @@
   <div class="personal-stats-view">
     <section class="stats-hero">
       <div class="stats-hero-copy">
-        <h2>个人统计</h2>
+        <h2>{{ t('personalStats.heroTitle') }}</h2>
         <p>
-          当前聚焦 <strong>{{ taskScopeLabel }}</strong>，以下数据基于
-          <strong>{{ selectedRangeLabel }}</strong>，方便你快速看清节奏、风险和回报。
+          {{ formatTemplate('personalStats.heroSummaryTemplate', {
+            scope: taskScopeLabel,
+            range: selectedRangeLabel
+          }) }}
         </p>
 
-        <div class="range-switch" role="tablist" aria-label="统计时间范围">
+        <div class="range-switch" role="tablist" :aria-label="t('personalStats.rangeSwitchAria')">
           <button
             v-for="option in rangeOptions"
             :key="option.value"
@@ -69,7 +71,7 @@
         <div class="panel-head">
           <div class="task-panel-head-copy">
             <div class="task-panel-head-top">
-              <h3>任务复盘</h3>
+              <h3>{{ t('personalStats.taskReviewTitle') }}</h3>
               <div class="status-pills task-status-pills">
                 <button
                   v-for="item in taskStatusSummary"
@@ -84,7 +86,7 @@
                 </button>
               </div>
             </div>
-            <p>围绕 {{ taskScopeLabel }} 回看本周期的新增、完成、积压和归档走势。</p>
+            <p>{{ formatTemplate('personalStats.taskReviewSummaryTemplate', { scope: taskScopeLabel }) }}</p>
           </div>
           <div class="panel-head-actions">
             <span class="panel-chip">{{ taskFlowDeltaLabel }}</span>
@@ -94,29 +96,29 @@
               :aria-expanded="panelOpenState.tasks"
               @click="togglePanel('tasks')"
             >
-              {{ panelOpenState.tasks ? '收起' : '展开' }}
+              {{ getPanelToggleLabel(panelOpenState.tasks) }}
             </button>
           </div>
         </div>
 
         <div v-show="panelOpenState.tasks" class="panel-body">
-          <div v-if="taskTotalCount === 0" class="panel-empty">这个范围里还没有可复盘的任务数据。</div>
+          <div v-if="taskTotalCount === 0" class="panel-empty">{{ t('personalStats.noTaskReviewData') }}</div>
           <template v-else>
           <div class="mini-stat-grid review-mini-grid">
             <article class="mini-stat-card">
-              <span class="mini-stat-label">{{ selectedRangeShortLabel }}新增</span>
+              <span class="mini-stat-label">{{ formatRangeMetricLabel(selectedRangeShortLabel, t('personalStats.taskCreated')) }}</span>
               <strong class="mini-stat-value">{{ taskCreatedInRangeCount }}</strong>
             </article>
             <article class="mini-stat-card">
-              <span class="mini-stat-label">{{ selectedRangeShortLabel }}完成</span>
+              <span class="mini-stat-label">{{ formatRangeMetricLabel(selectedRangeShortLabel, t('personalStats.taskCompleted')) }}</span>
               <strong class="mini-stat-value">{{ taskCompletedInRangeCount }}</strong>
             </article>
             <article class="mini-stat-card">
-              <span class="mini-stat-label">当前积压</span>
+              <span class="mini-stat-label">{{ t('personalStats.currentBacklog') }}</span>
               <strong class="mini-stat-value">{{ activeBacklogCount }}</strong>
             </article>
             <article class="mini-stat-card">
-              <span class="mini-stat-label">当前逾期</span>
+              <span class="mini-stat-label">{{ t('personalStats.currentOverdue') }}</span>
               <strong class="mini-stat-value">{{ overdueTaskCount }}</strong>
             </article>
           </div>
@@ -136,11 +138,11 @@
             </button>
           </div>
 
-          <div class="trend-stack">
-            <div class="list-block-head">
-              <span>{{ selectedRangeLabel }} 任务趋势</span>
-              <span class="list-block-subtle">新增 / 完成</span>
-            </div>
+            <div class="trend-stack">
+              <div class="list-block-head">
+                <span>{{ formatTemplate('personalStats.taskTrendTitleTemplate', { range: selectedRangeLabel }) }}</span>
+                <span class="list-block-subtle">{{ t('personalStats.taskCreatedCompleted') }}</span>
+              </div>
 
             <div class="task-trend-layout">
               <div class="task-trend-desktop">
@@ -176,7 +178,7 @@
                       :viewBox="taskTrendDesktopViewBox"
                       preserveAspectRatio="none"
                       role="img"
-                      aria-label="任务新增与完成趋势"
+                      :aria-label="t('personalStats.taskTrendChartAria')"
                     >
                       <line
                         v-for="tick in taskTrendDesktopTicks"
@@ -214,7 +216,11 @@
                           :cy="point.y"
                           r="1.8"
                         >
-                          <title>{{ `${point.label}：${series.label} ${point.count}` }}</title>
+                          <title>{{ formatTemplate('personalStats.taskPointTitleTemplate', {
+                            label: point.label,
+                            series: series.label,
+                            count: point.count
+                          }) }}</title>
                         </circle>
                       </g>
                     </svg>
@@ -230,7 +236,11 @@
                           class="task-trend-dot"
                           :class="series.key"
                           :style="getTaskTrendPointStyle(point)"
-                          :title="`${point.label}・・{series.label} ${point.count}`"
+                          :title="formatTemplate('personalStats.taskPointTitleTemplate', {
+                            label: point.label,
+                            series: series.label,
+                            count: point.count
+                          })"
                         ></span>
                       </template>
                     </div>
@@ -241,7 +251,11 @@
                         v-for="point in taskTrendDesktopAxisPoints"
                         :key="point.key"
                         class="task-trend-chart-label"
-                        :title="`${point.label}：新增 ${point.created}，完成 ${point.completed}`"
+                        :title="formatTemplate('personalStats.taskAxisTitleTemplate', {
+                          label: point.label,
+                          created: point.created,
+                          completed: point.completed
+                        })"
                       >
                         <small>{{ point.label }}</small>
                         <div class="task-trend-chart-values">
@@ -257,8 +271,8 @@
 
               <div class="review-detail-block review-detail-wide task-trend-sidecard">
                 <div class="list-block-head">
-                  <span>新增 vs 完成环比</span>
-                  <span class="list-block-subtle">基于对比区间计算</span>
+                  <span>{{ t('personalStats.taskPeriodComparisonTitle') }}</span>
+                  <span class="list-block-subtle">{{ t('personalStats.taskPeriodComparisonSubtitle') }}</span>
                 </div>
                 <div class="comparison-grid">
                   <article
@@ -277,7 +291,7 @@
             </div>
 
             <div class="task-trend-mobile">
-              <div class="mobile-trend-switch" role="tablist" aria-label="任务趋势分页">
+              <div class="mobile-trend-switch" role="tablist" :aria-label="t('personalStats.taskTrendPaginationAria')">
                 <button
                   v-for="series in taskTrendSections"
                   :key="`mobile-${series.key}`"
@@ -294,7 +308,9 @@
               <div class="mobile-trend-card">
                 <div class="mobile-trend-card-head">
                   <span>{{ activeTaskTrendSection.label }}</span>
-                  <span class="list-block-subtle">{{ selectedRangeShortLabel }} 分页查看</span>
+                  <span class="list-block-subtle">{{ formatTemplate('personalStats.taskTrendPageViewTemplate', {
+                    range: selectedRangeShortLabel
+                  }) }}</span>
                 </div>
                 <div class="trend-row mobile-trend-row">
                   <div class="trend-row-bars mobile-trend-bars" :style="taskTrendColumnsStyle">
@@ -302,7 +318,11 @@
                       v-for="point in activeTaskTrendSection.points"
                       :key="`mobile-${activeTaskTrendSection.key}-${point.key}`"
                       class="trend-row-bar"
-                      :title="`${point.label}：${activeTaskTrendSection.label} ${point.count}`"
+                      :title="formatTemplate('personalStats.taskPointTitleTemplate', {
+                        label: point.label,
+                        series: activeTaskTrendSection.label,
+                        count: point.count
+                      })"
                     >
                       <span
                         class="trend-row-fill"
@@ -319,10 +339,10 @@
 
           <div class="review-detail-grid">
             <div v-if="false" class="review-detail-block review-detail-wide">
-              <div class="list-block-head">
-                <span>新增 vs 完成环比</span>
-                <span class="list-block-subtle">对比上一周期</span>
-              </div>
+                <div class="list-block-head">
+                  <span>{{ t('personalStats.taskPeriodComparisonTitle') }}</span>
+                  <span class="list-block-subtle">{{ t('personalStats.rangePreviousComparisonSubtitle') }}</span>
+                </div>
               <div class="comparison-grid">
                 <article
                   v-for="item in taskPeriodComparisonCards"
@@ -339,13 +359,15 @@
             </div>
 
             <div class="review-detail-block">
-              <div class="list-block-head">
-                <span>逾期拖延分布</span>
-                <span class="list-block-subtle">{{ overdueTaskCount }} 条逾期</span>
-              </div>
-              <div v-if="overdueDistribution.every(bucket => bucket.count === 0)" class="inline-empty">
-                当前没有逾期任务。
-              </div>
+                <div class="list-block-head">
+                  <span>{{ t('personalStats.overdueDistributionTitle') }}</span>
+                  <span class="list-block-subtle">{{ formatTemplate('personalStats.overdueCountTemplate', {
+                    count: overdueTaskCount
+                  }) }}</span>
+                </div>
+                <div v-if="overdueDistribution.every(bucket => bucket.count === 0)" class="inline-empty">
+                {{ t('personalStats.noOverdueTasks') }}
+                </div>
               <div v-else class="bucket-list">
                 <div
                   v-for="bucket in overdueDistribution"
@@ -367,13 +389,13 @@
             </div>
 
             <div class="review-detail-block">
-              <div class="list-block-head">
-                <span>卡住最久任务</span>
-                <span class="list-block-subtle">按最近更新时间排序</span>
-              </div>
-              <div v-if="longestStuckTasks.length === 0" class="inline-empty">
-                当前没有明显停滞的任务。
-              </div>
+                <div class="list-block-head">
+                  <span>{{ t('personalStats.stuckTasksTitle') }}</span>
+                  <span class="list-block-subtle">{{ t('personalStats.stuckTasksSubtitle') }}</span>
+                </div>
+                <div v-if="longestStuckTasks.length === 0" class="inline-empty">
+                {{ t('personalStats.noStuckTasks') }}
+                </div>
               <div v-else class="stuck-list">
                 <button
                   v-for="entry in longestStuckTasks"
@@ -382,26 +404,26 @@
                   class="stuck-item"
                   @click="handleOpenTask(entry.task)"
                 >
-                  <div class="stuck-main">
-                    <div class="stuck-title">{{ entry.title }}</div>
-                    <div class="stuck-meta">
-                      {{ entry.sourceLabel }} · {{ entry.daysSinceUpdate }} 天未更新
-                      <span v-if="entry.overdueDays > 0"> · 已逾期 {{ entry.overdueDays }} 天</span>
+                    <div class="stuck-main">
+                      <div class="stuck-title">{{ entry.title }}</div>
+                      <div class="stuck-meta">
+                      {{ getStuckTaskMeta(entry) }}
+                      <span v-if="entry.overdueDays > 0"> · {{ getOverdueDaysText(entry.overdueDays) }}</span>
+                      </div>
                     </div>
-                  </div>
                   <span class="stuck-badge">{{ entry.statusLabel }}</span>
                 </button>
               </div>
             </div>
 
             <div class="review-detail-block">
-              <div class="list-block-head">
-                <span>按标签完成率</span>
-                <span class="list-block-subtle">当前任务池</span>
-              </div>
-              <div v-if="tagCompletionRates.length === 0" class="inline-empty">
-                当前任务还没有标签。
-              </div>
+                <div class="list-block-head">
+                  <span>{{ t('personalStats.tagCompletionTitle') }}</span>
+                  <span class="list-block-subtle">{{ t('personalStats.currentTaskPool') }}</span>
+                </div>
+                <div v-if="tagCompletionRates.length === 0" class="inline-empty">
+                {{ t('personalStats.noTaskTags') }}
+                </div>
               <div v-else class="rate-list">
                 <div
                   v-for="item in tagCompletionRates"
@@ -415,19 +437,22 @@
                   <div class="progress-track compact">
                     <span class="progress-fill rate" :style="{ width: `${item.rate > 0 ? Math.max(6, item.rate) : 0}%` }"></span>
                   </div>
-                  <div class="rate-item-meta">{{ item.completed }}/{{ item.total }} 已完成</div>
+                  <div class="rate-item-meta">{{ formatTemplate('personalStats.completionRateMetaTemplate', {
+                    completed: item.completed,
+                    total: item.total
+                  }) }}</div>
                 </div>
               </div>
             </div>
 
             <div class="review-detail-block">
-              <div class="list-block-head">
-                <span>按来源完成率</span>
-                <span class="list-block-subtle">当前任务池</span>
-              </div>
-              <div v-if="sourceCompletionRates.length === 0" class="inline-empty">
-                当前没有可统计来源。
-              </div>
+                <div class="list-block-head">
+                  <span>{{ t('personalStats.sourceCompletionTitle') }}</span>
+                  <span class="list-block-subtle">{{ t('personalStats.currentTaskPool') }}</span>
+                </div>
+                <div v-if="sourceCompletionRates.length === 0" class="inline-empty">
+                {{ t('personalStats.noTaskSources') }}
+                </div>
               <div v-else class="rate-list">
                 <div
                   v-for="item in sourceCompletionRates"
@@ -441,7 +466,10 @@
                   <div class="progress-track compact">
                     <span class="progress-fill source" :style="{ width: `${item.rate > 0 ? Math.max(6, item.rate) : 0}%` }"></span>
                   </div>
-                  <div class="rate-item-meta">{{ item.completed }}/{{ item.total }} 已完成</div>
+                  <div class="rate-item-meta">{{ formatTemplate('personalStats.completionRateMetaTemplate', {
+                    completed: item.completed,
+                    total: item.total
+                  }) }}</div>
                 </div>
               </div>
             </div>
@@ -454,14 +482,14 @@
         <div class="panel-head">
           <div class="panel-head-copy">
             <div class="panel-head-top">
-              <h3>习惯</h3>
+              <h3>{{ t('personalStats.habitsTitle') }}</h3>
               <div class="panel-head-actions">
                 <button
                   type="button"
                   class="panel-link-btn"
                   @click="handleOpenDetail({ target: 'habit-total' })"
                 >
-                  习惯总览
+                  {{ t('personalStats.habitsOverview') }}
                 </button>
                 <span class="panel-chip">{{ selectedRangeShortLabel }}</span>
                 <button
@@ -470,49 +498,52 @@
                   :aria-expanded="panelOpenState.habits"
                   @click="togglePanel('habits')"
                 >
-                  {{ panelOpenState.habits ? '收起' : '展开' }}
+                  {{ getPanelToggleLabel(panelOpenState.habits) }}
                 </button>
               </div>
             </div>
-            <p>查看打卡密度、连续表现，以及这个周期里最稳定的习惯。</p>
+            <p>{{ t('personalStats.habitsSummary') }}</p>
           </div>
         </div>
 
         <div v-show="panelOpenState.habits" class="panel-body">
-          <div v-if="habitsLoading" class="panel-empty">正在读取习惯数据...</div>
+          <div v-if="habitsLoading" class="panel-empty">{{ t('personalStats.loadingHabits') }}</div>
           <template v-else>
-          <div v-if="totalHabitsCount === 0" class="panel-empty">还没有创建习惯。</div>
+          <div v-if="totalHabitsCount === 0" class="panel-empty">{{ t('personalStats.noHabits') }}</div>
           <template v-else>
             <div class="mini-stat-grid">
               <article class="mini-stat-card">
-                <span class="mini-stat-label">活跃习惯</span>
+                <span class="mini-stat-label">{{ t('personalStats.activeHabits') }}</span>
                 <strong class="mini-stat-value">{{ activeHabitsCount }}</strong>
               </article>
               <article class="mini-stat-card">
-                <span class="mini-stat-label">{{ selectedRangeShortLabel }}打卡</span>
+                <span class="mini-stat-label">{{ formatRangeMetricLabel(selectedRangeShortLabel, t('personalStats.habitCheckins')) }}</span>
                 <strong class="mini-stat-value">{{ habitCompletionsInRange }}</strong>
               </article>
               <article class="mini-stat-card">
-                <span class="mini-stat-label">本周期最长连续</span>
-                <strong class="mini-stat-value">{{ longestHabitRangeStreak }} 天</strong>
+                <span class="mini-stat-label">{{ t('personalStats.longestHabitStreak') }}</span>
+                <strong class="mini-stat-value">{{ getDayCountLabel(longestHabitRangeStreak) }}</strong>
               </article>
               <article class="mini-stat-card">
-                <span class="mini-stat-label">完成率</span>
+                <span class="mini-stat-label">{{ t('habitTracker.completionRate') }}</span>
                 <strong class="mini-stat-value">{{ habitCompletionRateInRange }}%</strong>
               </article>
             </div>
 
             <div class="trend-block">
               <div class="list-block-head">
-                <span>{{ selectedRangeLabel }} 习惯走势</span>
-                <span class="list-block-subtle">按打卡次数聚合</span>
+                <span>{{ formatTemplate('personalStats.habitsTrendTitleTemplate', { range: selectedRangeLabel }) }}</span>
+                <span class="list-block-subtle">{{ t('personalStats.habitsTrendSubtitle') }}</span>
               </div>
               <div class="trend-bars">
                 <div
                   v-for="point in habitTrend"
                   :key="point.key"
                   class="trend-bar-item"
-                  :title="`${point.label}：${point.count} 次打卡`"
+                  :title="formatTemplate('personalStats.habitTrendPointTitleTemplate', {
+                    label: point.label,
+                    count: point.count
+                  })"
                 >
                   <span class="trend-bar">
                     <span class="trend-bar-fill habit" :style="getBarStyle(point.count, habitTrendMax)"></span>
@@ -525,8 +556,8 @@
 
             <div class="list-block">
               <div class="list-block-head">
-                <span>本周期表现最佳</span>
-                <span class="list-block-subtle">按打卡次数与完成率排序</span>
+                <span>{{ t('personalStats.topHabitsTitle') }}</span>
+                <span class="list-block-subtle">{{ t('personalStats.topHabitsSubtitle') }}</span>
               </div>
               <div class="rank-list">
                 <button
@@ -540,10 +571,10 @@
                     <span class="rank-emoji">{{ habit.emoji || '📝' }}</span>
                     <div>
                       <div class="rank-title">{{ habit.name }}</div>
-                      <div class="rank-meta">{{ habit.completions }} 次 · {{ habit.rate }}%</div>
+                      <div class="rank-meta">{{ getHabitRankMeta(habit.completions, habit.rate) }}</div>
                     </div>
                   </div>
-                  <span class="rank-badge">{{ habit.streak }} 天</span>
+                  <span class="rank-badge">{{ getDayCountLabel(habit.streak) }}</span>
                 </button>
               </div>
             </div>
@@ -556,7 +587,7 @@
         <div class="panel-head">
           <div class="panel-head-copy">
             <div class="panel-head-top">
-              <h3>专注</h3>
+              <h3>{{ t('focusTimer.title') }}</h3>
               <div class="panel-head-actions">
                 <span class="panel-chip">{{ selectedRangeShortLabel }}</span>
                 <button
@@ -565,49 +596,52 @@
                   :aria-expanded="panelOpenState.focus"
                   @click="togglePanel('focus')"
                 >
-                  {{ panelOpenState.focus ? '收起' : '展开' }}
+                  {{ getPanelToggleLabel(panelOpenState.focus) }}
                 </button>
               </div>
             </div>
-            <p>看清这个周期里投入了多少时间，专注节奏是上升还是回落。</p>
+            <p>{{ t('personalStats.focusSummary') }}</p>
           </div>
         </div>
 
         <div v-show="panelOpenState.focus" class="panel-body">
-          <div v-if="focusLoading" class="panel-empty">正在读取专注记录...</div>
+          <div v-if="focusLoading" class="panel-empty">{{ t('personalStats.loadingFocus') }}</div>
           <template v-else>
-          <div v-if="focusSessionsInRange === 0" class="panel-empty">这个周期里还没有专注记录。</div>
+          <div v-if="focusSessionsInRange === 0" class="panel-empty">{{ t('personalStats.noFocusInRange') }}</div>
           <template v-else>
             <div class="mini-stat-grid">
               <article class="mini-stat-card">
-                <span class="mini-stat-label">{{ selectedRangeShortLabel }}时长</span>
+                <span class="mini-stat-label">{{ formatRangeMetricLabel(selectedRangeShortLabel, t('personalStats.focusDuration')) }}</span>
                 <strong class="mini-stat-value">{{ formatMinutes(focusMinutesInRange) }}</strong>
               </article>
               <article class="mini-stat-card">
-                <span class="mini-stat-label">{{ selectedRangeShortLabel }}会话</span>
+                <span class="mini-stat-label">{{ formatRangeMetricLabel(selectedRangeShortLabel, t('personalStats.focusSessions')) }}</span>
                 <strong class="mini-stat-value">{{ focusSessionsInRange }}</strong>
               </article>
               <article class="mini-stat-card">
-                <span class="mini-stat-label">活跃天数</span>
+                <span class="mini-stat-label">{{ t('personalStats.focusActiveDays') }}</span>
                 <strong class="mini-stat-value">{{ focusActiveDaysInRange }}</strong>
               </article>
               <article class="mini-stat-card">
-                <span class="mini-stat-label">平均每次</span>
+                <span class="mini-stat-label">{{ t('personalStats.focusAveragePerSession') }}</span>
                 <strong class="mini-stat-value">{{ formatMinutes(focusAverageMinutesPerSession) }}</strong>
               </article>
             </div>
 
              <div class="trend-block">
                <div class="list-block-head">
-                 <span>{{ selectedRangeLabel }} 专注走势</span>
-                 <span class="list-block-subtle">按分钟聚合</span>
+                 <span>{{ formatTemplate('personalStats.focusTrendTitleTemplate', { range: selectedRangeLabel }) }}</span>
+                 <span class="list-block-subtle">{{ t('personalStats.focusTrendSubtitle') }}</span>
                </div>
               <div class="trend-bars">
                 <div
                   v-for="point in focusTrend"
                   :key="point.key"
                   class="trend-bar-item"
-                  :title="`${point.label}：${point.count} 分钟`"
+                  :title="formatTemplate('personalStats.focusTrendPointTitleTemplate', {
+                    label: point.label,
+                    count: point.count
+                  })"
                 >
                   <span class="trend-bar">
                     <span class="trend-bar-fill focus" :style="getBarStyle(point.count, focusTrendMax)"></span>
@@ -621,11 +655,11 @@
             <div class="review-detail-grid focus-association-grid">
               <div class="review-detail-block">
                 <div class="list-block-head">
-                  <span>Top 习惯专注</span>
-                  <span class="list-block-subtle">{{ focusTopHabits.length }} 项</span>
+                  <span>{{ t('personalStats.focusTopHabitsTitle') }}</span>
+                  <span class="list-block-subtle">{{ getItemCountLabel(focusTopHabits.length) }}</span>
                 </div>
                 <div v-if="focusTopHabits.length === 0" class="inline-empty">
-                  这个周期里还没有关联到习惯的专注记录。
+                  {{ t('personalStats.noFocusHabitLinks') }}
                 </div>
                 <div v-else class="rate-list">
                   <button
@@ -641,7 +675,7 @@
                         <span v-if="item.emoji" class="focus-target-emoji">{{ item.emoji }}</span>
                         <span>{{ item.name }}</span>
                       </div>
-                      <div class="focus-target-meta">{{ item.sessions }} 次会话</div>
+                      <div class="focus-target-meta">{{ getFocusTargetMeta(item.sessions) }}</div>
                     </div>
                     <div class="focus-target-side">
                       <strong class="focus-target-badge">{{ formatMinutes(item.minutes) }}</strong>
@@ -658,11 +692,11 @@
 
               <div class="review-detail-block">
                 <div class="list-block-head">
-                  <span>Top 任务专注</span>
-                  <span class="list-block-subtle">{{ focusTopTasks.length }} 项</span>
+                  <span>{{ t('personalStats.focusTopTasksTitle') }}</span>
+                  <span class="list-block-subtle">{{ getItemCountLabel(focusTopTasks.length) }}</span>
                 </div>
                 <div v-if="focusTopTasks.length === 0" class="inline-empty">
-                  这个周期里还没有关联到任务的专注记录。
+                  {{ t('personalStats.noFocusTaskLinks') }}
                 </div>
                 <div v-else class="rate-list">
                   <button
@@ -675,7 +709,7 @@
                   >
                     <div class="focus-target-main">
                       <div class="focus-target-title">{{ item.name }}</div>
-                      <div class="focus-target-meta">{{ item.sessions }} 次会话</div>
+                      <div class="focus-target-meta">{{ getFocusTargetMeta(item.sessions) }}</div>
                     </div>
                     <div class="focus-target-side">
                       <strong class="focus-target-badge">{{ formatMinutes(item.minutes) }}</strong>
@@ -699,58 +733,58 @@
         <div class="panel-head">
           <div class="panel-head-copy">
             <div class="panel-head-top">
-              <h3>奖励</h3>
+              <h3>{{ t('personalStats.rewardsTitle') }}</h3>
               <div class="panel-head-actions">
                 <button
                   type="button"
                   class="panel-link-btn"
                   @click="handleOpenDetail({ target: 'reward' })"
                 >
-                  奖励面板
+                  {{ t('personalStats.rewardsPanelLink') }}
                 </button>
-                <span class="panel-chip">累计</span>
+                <span class="panel-chip">{{ t('personalStats.totalLabel') }}</span>
                 <button
                   type="button"
                   class="panel-toggle-btn"
                   :aria-expanded="panelOpenState.rewards"
                   @click="togglePanel('rewards')"
                 >
-                  {{ panelOpenState.rewards ? '收起' : '展开' }}
+                  {{ getPanelToggleLabel(panelOpenState.rewards) }}
                 </button>
               </div>
             </div>
-            <p>奖励仍按个人累计展示，方便你把成长和反馈放在一个面板里看。</p>
+            <p>{{ t('personalStats.rewardsSummary') }}</p>
           </div>
         </div>
 
         <div v-show="panelOpenState.rewards" class="panel-body">
-          <div v-if="rewardsLoading" class="panel-empty">正在读取奖励数据...</div>
+          <div v-if="rewardsLoading" class="panel-empty">{{ t('personalStats.loadingRewards') }}</div>
           <template v-else>
-          <div v-if="rewardSnapshot.ledgerCount === 0" class="panel-empty">完成习惯、任务或专注后，这里会出现奖励流水。</div>
+          <div v-if="rewardSnapshot.ledgerCount === 0" class="panel-empty">{{ t('personalStats.noRewardLedger') }}</div>
           <template v-else>
             <div class="mini-stat-grid">
               <article class="mini-stat-card">
-                <span class="mini-stat-label">累计碎片</span>
+                <span class="mini-stat-label">{{ t('rewardPanel.totalXp') }}</span>
                 <strong class="mini-stat-value">{{ rewardSnapshot.totalXp }}</strong>
               </article>
               <article class="mini-stat-card">
-                <span class="mini-stat-label">可用趣币</span>
+                <span class="mini-stat-label">{{ t('rewardPanel.availableCoins') }}</span>
                 <strong class="mini-stat-value">{{ rewardSnapshot.availableCoins }}</strong>
               </article>
               <article class="mini-stat-card">
-                <span class="mini-stat-label">徽章</span>
+                <span class="mini-stat-label">{{ t('rewardPanel.badgeCount') }}</span>
                 <strong class="mini-stat-value">{{ rewardSnapshot.badges.length }}</strong>
               </article>
               <article class="mini-stat-card">
-                <span class="mini-stat-label">奖励流水</span>
+                <span class="mini-stat-label">{{ t('personalStats.rewardLedger') }}</span>
                 <strong class="mini-stat-value">{{ rewardSnapshot.ledgerCount }}</strong>
               </article>
             </div>
 
               <div class="progress-block">
                 <div class="list-block-head">
-                  <span>等级进度</span>
-                  <span class="list-block-subtle">{{ rewardSnapshot.currentLevelXp }}/{{ rewardSnapshot.nextLevelXp }} 碎片</span>
+                  <span>{{ t('personalStats.rewardLevelTitle') }}</span>
+                  <span class="list-block-subtle">{{ getRewardLevelProgressLabel(rewardSnapshot.currentLevelXp, rewardSnapshot.nextLevelXp) }}</span>
                 </div>
                 <div class="progress-track">
                   <span class="progress-fill reward" :style="{ width: `${rewardSnapshot.levelProgressPercent}%` }"></span>
@@ -759,8 +793,8 @@
 
             <div class="list-block">
               <div class="list-block-head">
-                <span>最近奖励</span>
-                <span class="list-block-subtle">最近 {{ rewardSnapshot.recentEntries.length }} 条</span>
+                <span>{{ t('rewardPanel.recentRewards') }}</span>
+                <span class="list-block-subtle">{{ getRecentEntriesLabel(rewardSnapshot.recentEntries.length) }}</span>
               </div>
               <div class="event-list">
                 <button
@@ -774,7 +808,7 @@
                     <div class="event-title">{{ entry.title }}</div>
                     <div class="event-meta">{{ getRewardSourceText(entry.source) }}</div>
                   </div>
-                  <span class="event-points">+{{ entry.xp }} 碎片</span>
+                  <span class="event-points">{{ getRewardEventPointsLabel(entry.xp) }}</span>
                 </button>
               </div>
             </div>
@@ -787,48 +821,48 @@
         <div class="panel-head">
           <div class="panel-head-copy">
             <div class="panel-head-top">
-              <h3>目标</h3>
+              <h3>{{ t('personalStats.goalsTitle') }}</h3>
               <div class="panel-head-actions">
                 <button
                   type="button"
                   class="panel-link-btn"
                   @click="handleOpenDetail({ target: 'goal' })"
                 >
-                  目标面板
+                  {{ t('personalStats.goalsPanelLink') }}
                 </button>
-                <span class="panel-chip">{{ completedGoalCount }}/{{ goalItems.length }} 已完成</span>
+                <span class="panel-chip">{{ getCompletedGoalsChipLabel(completedGoalCount, goalItems.length) }}</span>
                 <button
                   type="button"
                   class="panel-toggle-btn"
                   :aria-expanded="panelOpenState.goals"
                   @click="togglePanel('goals')"
                 >
-                  {{ panelOpenState.goals ? '收起' : '展开' }}
+                  {{ getPanelToggleLabel(panelOpenState.goals) }}
                 </button>
               </div>
             </div>
-            <p>目标继续保留全局视角，方便你判断哪些方向在推进，哪些还停着。</p>
+            <p>{{ t('personalStats.goalsSummary') }}</p>
           </div>
         </div>
 
         <div v-show="panelOpenState.goals" class="panel-body">
-          <div v-if="goalItems.length === 0" class="panel-empty">还没有创建目标。</div>
+          <div v-if="goalItems.length === 0" class="panel-empty">{{ t('personalStats.noGoals') }}</div>
           <template v-else>
           <div class="mini-stat-grid">
             <article class="mini-stat-card">
-              <span class="mini-stat-label">进行中</span>
+              <span class="mini-stat-label">{{ t('taskManager.statusInProgress') }}</span>
               <strong class="mini-stat-value">{{ inProgressGoalCount }}</strong>
             </article>
             <article class="mini-stat-card">
-              <span class="mini-stat-label">已完成</span>
+              <span class="mini-stat-label">{{ t('taskManager.statusCompleted') }}</span>
               <strong class="mini-stat-value">{{ completedGoalCount }}</strong>
             </article>
             <article class="mini-stat-card">
-              <span class="mini-stat-label">待启动</span>
+              <span class="mini-stat-label">{{ t('personalStats.goalStatusPending') }}</span>
               <strong class="mini-stat-value">{{ emptyGoalCount }}</strong>
             </article>
             <article class="mini-stat-card">
-              <span class="mini-stat-label">平均进度</span>
+              <span class="mini-stat-label">{{ t('personalStats.averageGoalProgress') }}</span>
               <strong class="mini-stat-value">{{ averageGoalProgress }}%</strong>
             </article>
           </div>
@@ -852,8 +886,8 @@
                 <span class="progress-fill goal" :style="{ width: `${goal.progressPercent}%` }"></span>
               </div>
               <div class="goal-item-foot">
-                <span>{{ goal.completedTasks }}/{{ goal.totalTasks }} 任务</span>
-                <span>{{ goal.documentCount }} 文档</span>
+                <span>{{ getGoalTasksLabel(goal.completedTasks, goal.totalTasks) }}</span>
+                <span>{{ getGoalDocumentsLabel(goal.documentCount) }}</span>
               </div>
             </button>
           </div>
@@ -878,6 +912,7 @@ import {
 import type { GoalListItem } from '@/composables/useGoals';
 import { getWeekStart, getWeeklyTarget } from '@/composables/useHabitUtils';
 import { createEmptyRewardSnapshot, getRewardSnapshot, type RewardSnapshot, type RewardSource } from '@/rewardRepository';
+import { useI18n } from '@/composables/useI18n';
 import { eventBus, Events } from '@/utils/eventBus';
 import { openTaskViewByRequest } from '@/main';
 import { buildGoalDocumentSource } from '@/utils/documentGroupSource';
@@ -1036,6 +1071,83 @@ const TASK_TREND_CHART_VIEWBOX_HEIGHT = 72;
 const STATS_RANGE_STORAGE_KEY = 'pinch.personal-stats.range';
 const STATS_PANEL_STATE_STORAGE_KEY = 'pinch.personal-stats.panels';
 const statsPanelKeys: StatsPanelKey[] = ['tasks', 'habits', 'focus', 'rewards', 'goals'];
+const { t } = useI18n();
+
+const formatTemplate = (key: string, values: Record<string, string | number>): string => {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    t(key)
+  );
+};
+
+const formatRangeMetricLabel = (range: string, label: string): string => (
+  formatTemplate('personalStats.rangeMetricTemplate', { range, label })
+);
+
+const getPanelToggleLabel = (isOpen: boolean): string => (
+  t(isOpen ? 'personalStats.collapse' : 'personalStats.expand')
+);
+
+const getAllScopeLabel = (): string => t('personalStats.allScope');
+
+const isAllScopeLabel = (value: string | undefined): boolean => {
+  const normalized = value?.trim().toLowerCase();
+  return !value
+    || value === '全部'
+    || value === getAllScopeLabel()
+    || normalized === 'all';
+};
+
+const getStuckTaskMeta = (entry: Pick<StuckTaskEntry, 'sourceLabel' | 'daysSinceUpdate'>): string => (
+  formatTemplate('personalStats.stuckTaskMetaTemplate', {
+    source: entry.sourceLabel,
+    days: entry.daysSinceUpdate
+  })
+);
+
+const getOverdueDaysText = (days: number): string => (
+  formatTemplate('personalStats.overdueDaysTemplate', { days })
+);
+
+const getDayCountLabel = (count: number): string => (
+  formatTemplate('personalStats.dayCountTemplate', { count })
+);
+
+const getItemCountLabel = (count: number): string => (
+  formatTemplate('personalStats.itemCountTemplate', { count })
+);
+
+const getHabitRankMeta = (count: number, rate: number): string => (
+  formatTemplate('personalStats.habitRankMetaTemplate', { count, rate })
+);
+
+const getFocusTargetMeta = (count: number): string => (
+  formatTemplate('personalStats.focusTargetMetaTemplate', { count })
+);
+
+const getRewardLevelProgressLabel = (current: number, next: number): string => (
+  formatTemplate('personalStats.rewardLevelProgressTemplate', { current, next })
+);
+
+const getRecentEntriesLabel = (count: number): string => (
+  formatTemplate('personalStats.recentEntriesTemplate', { count })
+);
+
+const getRewardEventPointsLabel = (xp: number): string => (
+  formatTemplate('personalStats.rewardEventPointsTemplate', { xp })
+);
+
+const getCompletedGoalsChipLabel = (completed: number, total: number): string => (
+  formatTemplate('personalStats.completedGoalsChipTemplate', { completed, total })
+);
+
+const getGoalTasksLabel = (completed: number, total: number): string => (
+  formatTemplate('personalStats.goalTasksTemplate', { completed, total })
+);
+
+const getGoalDocumentsLabel = (count: number): string => (
+  formatTemplate('personalStats.goalDocumentsTemplate', { count })
+);
 
 const props = withDefaults(defineProps<{
   tasks: Task[];
@@ -1043,8 +1155,8 @@ const props = withDefaults(defineProps<{
   sourceLabel?: string;
   documentLabel?: string;
 }>(), {
-  sourceLabel: '全部',
-  documentLabel: '全部'
+  sourceLabel: '',
+  documentLabel: ''
 });
 
 const emit = defineEmits<{
@@ -1052,12 +1164,12 @@ const emit = defineEmits<{
   (event: 'open-detail', payload: StatsDetailPayload): void;
 }>();
 
-const rangeOptions: Array<{ value: StatsRangeKey; label: string }> = [
-  { value: 'today', label: '今日' },
-  { value: '7d', label: '近 7 天' },
-  { value: '30d', label: '近 30 天' },
-  { value: 'month', label: '本月' }
-];
+const rangeOptions = computed<Array<{ value: StatsRangeKey; label: string }>>(() => [
+  { value: 'today', label: t('personalStats.rangeToday') },
+  { value: '7d', label: t('personalStats.range7d') },
+  { value: '30d', label: t('personalStats.range30d') },
+  { value: 'month', label: t('personalStats.rangeMonth') }
+]);
 
 const selectedRange = ref<StatsRangeKey>(loadSavedStatsRange());
 const panelOpenState = ref<StatsPanelState>(loadSavedPanelState());
@@ -1070,11 +1182,17 @@ const focusLoading = ref(false);
 const rewardsLoading = ref(false);
 const rewardSnapshot = ref<RewardSnapshot>(createEmptyRewardSnapshot());
 
-const taskScopeLabel = computed(() =>
-  props.documentLabel && props.documentLabel !== '全部'
-    ? `${props.sourceLabel} / ${props.documentLabel}`
-    : props.sourceLabel || '全部'
-);
+const taskScopeLabel = computed(() => {
+  const sourceLabel = isAllScopeLabel(props.sourceLabel)
+    ? getAllScopeLabel()
+    : props.sourceLabel;
+  const documentLabel = isAllScopeLabel(props.documentLabel)
+    ? ''
+    : props.documentLabel;
+  return documentLabel
+    ? `${sourceLabel} / ${documentLabel}`
+    : sourceLabel;
+});
 
 const todayKey = computed(() => formatLocalDateKey(startOfDay(new Date())));
 const currentRange = computed(() => buildCurrentRangeWindow(selectedRange.value));
@@ -1125,61 +1243,60 @@ const taskCompletedPreviousCount = computed(() =>
 );
 const taskFlowDelta = computed(() => taskCompletedInRangeCount.value - taskCreatedInRangeCount.value);
 const taskFlowDeltaLabel = computed(() => {
-  if (taskFlowDelta.value === 0) {
-    return '净变化 0';
-  }
   const prefix = taskFlowDelta.value > 0 ? '+' : '';
-  return `净变化 ${prefix}${taskFlowDelta.value}`;
+  return formatTemplate('personalStats.taskFlowDeltaTemplate', {
+    delta: `${prefix}${taskFlowDelta.value}`
+  });
 });
 
 const taskStatusSummary = computed(() => [
   {
-    label: '待开始',
+    label: t('personalStats.taskStatusPending'),
     count: liveScopedTasks.value.filter(task => task.status === 'pending').length,
     tone: 'pending',
     payload: {
-      title: '待开始任务',
+      title: t('personalStats.taskStatusPendingTitle'),
       target: 'table',
       statuses: ['pending']
     } satisfies StatsDrilldownPayload
   },
   {
-    label: '进行中',
+    label: t('taskManager.statusInProgress'),
     count: liveScopedTasks.value.filter(task => task.status === 'in-progress').length,
     tone: 'progress',
     payload: {
-      title: '进行中任务',
+      title: t('personalStats.taskStatusInProgressTitle'),
       target: 'table',
       statuses: ['in-progress']
     } satisfies StatsDrilldownPayload
   },
   {
-    label: '已拖延',
+    label: t('personalStats.taskStatusDelayed'),
     count: liveScopedTasks.value.filter(task => task.status === 'delayed').length,
     tone: 'delayed',
     payload: {
-      title: '拖延任务',
+      title: t('personalStats.taskStatusDelayedTitle'),
       target: 'table',
       statuses: ['delayed']
     } satisfies StatsDrilldownPayload
   },
   {
-    label: '已完成',
+    label: t('taskManager.statusCompleted'),
     count: liveScopedTasks.value.filter(task => task.status === 'completed').length,
     tone: 'completed',
     payload: {
-      title: '已完成任务',
+      title: t('personalStats.taskStatusCompletedTitle'),
       target: 'table',
       statuses: ['completed'],
       includeCompleted: true
     } satisfies StatsDrilldownPayload
   },
   {
-    label: '已取消',
+    label: t('taskManager.statusCancelled'),
     count: liveScopedTasks.value.filter(task => task.status === 'cancelled').length,
     tone: 'cancelled',
     payload: {
-      title: '已取消任务',
+      title: t('personalStats.taskStatusCancelledTitle'),
       target: 'table',
       statuses: ['cancelled']
     } satisfies StatsDrilldownPayload
@@ -1188,46 +1305,46 @@ const taskStatusSummary = computed(() => [
 
 const taskReviewActions = computed(() => [
   {
-    label: '查看积压',
+    label: t('personalStats.reviewActionBacklog'),
     value: activeBacklogCount.value,
-    meta: '待开始 + 进行中 + 已拖延',
+    meta: t('personalStats.reviewActionBacklogMeta'),
     disabled: activeBacklogCount.value === 0,
     payload: {
-      title: '积压任务',
+      title: t('personalStats.reviewActionBacklogTitle'),
       target: 'table',
       statuses: ['pending', 'in-progress', 'delayed']
     } satisfies StatsDrilldownPayload
   },
   {
-    label: '查看已完成',
+    label: t('personalStats.reviewActionCompleted'),
     value: liveScopedTasks.value.filter(task => task.status === 'completed').length,
-    meta: '跳转到表格筛选',
+    meta: t('personalStats.reviewActionCompletedMeta'),
     disabled: liveScopedTasks.value.every(task => task.status !== 'completed'),
     payload: {
-      title: '已完成任务',
+      title: t('personalStats.taskStatusCompletedTitle'),
       target: 'table',
       statuses: ['completed'],
       includeCompleted: true
     } satisfies StatsDrilldownPayload
   },
   {
-    label: '查看逾期',
+    label: t('personalStats.reviewActionOverdue'),
     value: overdueTaskCount.value,
-    meta: '优先处理风险项',
+    meta: t('personalStats.reviewActionOverdueMeta'),
     disabled: overdueTaskCount.value === 0,
     payload: {
-      title: '逾期任务',
+      title: t('personalStats.reviewActionOverdueTitle'),
       target: 'table',
       due: 'overdue'
     } satisfies StatsDrilldownPayload
   },
   {
-    label: '查看归档',
+    label: t('personalStats.reviewActionArchived'),
     value: archivedTaskCount.value,
-    meta: '切到归档视图',
+    meta: t('personalStats.reviewActionArchivedMeta'),
     disabled: archivedTaskCount.value === 0,
     payload: {
-      title: '归档任务',
+      title: t('personalStats.reviewActionArchivedTitle'),
       target: 'archive-table'
     } satisfies StatsDrilldownPayload
   }
@@ -1251,12 +1368,12 @@ const taskTrendDesktopSeries = computed<TaskTrendDesktopSeries[]>(() => {
   }> = [
     {
       key: 'created',
-      label: '新增',
+      label: t('personalStats.taskCreated'),
       points: taskCreatedTrend.value
     },
     {
       key: 'completed',
-      label: '完成',
+      label: t('personalStats.taskCompleted'),
       points: taskCompletedTrend.value
     }
   ];
@@ -1281,19 +1398,19 @@ const taskTrendDesktopSeries = computed<TaskTrendDesktopSeries[]>(() => {
 const taskTrendSections = computed<TaskTrendSection[]>(() => [
   {
     key: 'created',
-    label: '新增',
+    label: t('personalStats.taskCreated'),
     fillClass: 'created',
     points: taskCreatedTrend.value
   },
   {
     key: 'completed',
-    label: '完成',
+    label: t('personalStats.taskCompleted'),
     fillClass: 'completed',
     points: taskCompletedTrend.value
   },
   {
     key: 'archived',
-    label: '归档',
+    label: t('personalStats.taskArchived'),
     fillClass: 'archived',
     points: taskArchivedTrend.value
   }
@@ -1303,7 +1420,7 @@ const activeTaskTrendSection = computed<TaskTrendSection>(() =>
   ?? taskTrendSections.value[0]
   ?? {
     key: 'created',
-    label: '新增',
+    label: t('personalStats.taskCreated'),
     fillClass: 'created',
     points: []
   }
@@ -1339,17 +1456,17 @@ const taskTrendDesktopTicks = computed<TaskTrendDesktopTick[]>(() => {
 });
 const taskTrendDesktopViewBox = '0 0 100 72';
 const taskPeriodComparisonCards = computed<TaskPeriodComparisonCard[]>(() => [
-  buildTaskPeriodComparisonCard('新增', taskCreatedInRangeCount.value, taskCreatedPreviousCount.value),
-  buildTaskPeriodComparisonCard('完成', taskCompletedInRangeCount.value, taskCompletedPreviousCount.value)
+  buildTaskPeriodComparisonCard(t('personalStats.taskCreated'), taskCreatedInRangeCount.value, taskCreatedPreviousCount.value),
+  buildTaskPeriodComparisonCard(t('personalStats.taskCompleted'), taskCompletedInRangeCount.value, taskCompletedPreviousCount.value)
 ]);
 
 const overdueDistribution = computed<OverdueBucket[]>(() => {
   const buckets = [
-    { key: '1', label: '逾期 1 天', min: 1, max: 1 },
-    { key: '2-3', label: '逾期 2-3 天', min: 2, max: 3 },
-    { key: '4-7', label: '逾期 4-7 天', min: 4, max: 7 },
-    { key: '8-14', label: '逾期 8-14 天', min: 8, max: 14 },
-    { key: '15+', label: '逾期 15 天以上', min: 15, max: Number.POSITIVE_INFINITY }
+    { key: '1', label: t('personalStats.overdueBucket1'), min: 1, max: 1 },
+    { key: '2-3', label: t('personalStats.overdueBucket2to3'), min: 2, max: 3 },
+    { key: '4-7', label: t('personalStats.overdueBucket4to7'), min: 4, max: 7 },
+    { key: '8-14', label: t('personalStats.overdueBucket8to14'), min: 8, max: 14 },
+    { key: '15+', label: t('personalStats.overdueBucket15Plus'), min: 15, max: Number.POSITIVE_INFINITY }
   ];
 
   return buckets.map((bucket) => ({
@@ -1399,7 +1516,7 @@ const tagCompletionRates = computed<CompletionRateItem[]>(() =>
   buildCompletionRateItems(scopedTasks.value, (task) => {
     const tags = Array.isArray(task.tags) ? task.tags.filter(tag => tag.trim().length > 0) : [];
     if (tags.length === 0) {
-      return [{ key: '__untagged__', label: '未打标签' }];
+      return [{ key: '__untagged__', label: t('personalStats.untagged') }];
     }
     return tags.map(tag => ({ key: tag.trim(), label: tag.trim() }));
   })
@@ -1551,27 +1668,37 @@ const featuredGoals = computed(() =>
 
 const overviewTiles = computed(() => [
   {
-    label: `${selectedRangeShortLabel.value}任务完成`,
+    label: formatRangeMetricLabel(selectedRangeShortLabel.value, t('personalStats.taskCompleted')),
     value: String(taskCompletedInRangeCount.value),
-    meta: `上期 ${taskCompletedPreviousCount.value} / 本期 ${taskCompletedInRangeCount.value}`,
+    meta: formatTemplate('personalStats.overviewTaskCompletionMetaTemplate', {
+      previous: taskCompletedPreviousCount.value,
+      current: taskCompletedInRangeCount.value
+    }),
     tone: 'tone-complete'
   },
   {
-    label: `${selectedRangeShortLabel.value}专注时长`,
+    label: formatRangeMetricLabel(selectedRangeShortLabel.value, t('personalStats.focusDuration')),
     value: formatMinutes(focusMinutesInRange.value),
-    meta: focusSessionsInRange.value > 0 ? `${focusSessionsInRange.value} 次会话` : '还没有专注记录',
+    meta: focusSessionsInRange.value > 0
+      ? formatTemplate('personalStats.focusSessionsTemplate', { count: focusSessionsInRange.value })
+      : t('personalStats.noFocusRecords'),
     tone: 'tone-focus'
   },
   {
-    label: `${selectedRangeShortLabel.value}习惯打卡`,
+    label: formatRangeMetricLabel(selectedRangeShortLabel.value, t('personalStats.habitCheckins')),
     value: String(habitCompletionsInRange.value),
-    meta: habitCompletionRateInRange.value > 0 ? `完成率 ${habitCompletionRateInRange.value}%` : '本周期还未打卡',
+    meta: habitCompletionRateInRange.value > 0
+      ? formatTemplate('personalStats.habitCompletionRateTemplate', { rate: habitCompletionRateInRange.value })
+      : t('personalStats.noHabitCheckins'),
     tone: 'tone-habit'
   },
   {
-    label: '可用趣币',
+    label: t('rewardPanel.availableCoins'),
     value: String(rewardSnapshot.value.availableCoins),
-    meta: `Lv ${rewardSnapshot.value.level} · 累计${rewardSnapshot.value.totalXp}个碎片`,
+    meta: formatTemplate('personalStats.rewardLevelMetaTemplate', {
+      level: rewardSnapshot.value.level,
+      xp: rewardSnapshot.value.totalXp
+    }),
     tone: 'tone-reward'
   }
 ]);
@@ -1582,8 +1709,8 @@ const insightCards = computed<InsightCard[]>(() => {
   if (taskCreatedInRangeCount.value === 0 && taskCompletedInRangeCount.value === 0 && focusMinutesInRange.value === 0 && habitCompletionsInRange.value === 0) {
     cards.push({
       id: 'quiet',
-      title: '本周期还比较安静',
-      text: '可以从一条最小任务、一次短专注或一次习惯打卡开始，把节奏重新拉起来。',
+      title: t('personalStats.insightQuietTitle'),
+      text: t('personalStats.insightQuietText'),
       tone: 'neutral'
     });
   }
@@ -1591,15 +1718,21 @@ const insightCards = computed<InsightCard[]>(() => {
   if (taskCreatedInRangeCount.value > taskCompletedInRangeCount.value) {
     cards.push({
       id: 'backlog-growth',
-      title: '任务池在增长',
-      text: `${selectedRangeShortLabel.value}新增比完成多 ${taskCreatedInRangeCount.value - taskCompletedInRangeCount.value} 条，建议先清掉积压再继续加任务。`,
+      title: t('personalStats.insightBacklogGrowthTitle'),
+      text: formatTemplate('personalStats.insightBacklogGrowthTextTemplate', {
+        range: selectedRangeShortLabel.value,
+        count: taskCreatedInRangeCount.value - taskCompletedInRangeCount.value
+      }),
       tone: 'warning'
     });
   } else if (taskCompletedInRangeCount.value > taskCreatedInRangeCount.value) {
     cards.push({
       id: 'backlog-clear',
-      title: '你在清空积压',
-      text: `${selectedRangeShortLabel.value}完成比新增多 ${taskCompletedInRangeCount.value - taskCreatedInRangeCount.value} 条，节奏是健康的。`,
+      title: t('personalStats.insightBacklogClearTitle'),
+      text: formatTemplate('personalStats.insightBacklogClearTextTemplate', {
+        range: selectedRangeShortLabel.value,
+        count: taskCompletedInRangeCount.value - taskCreatedInRangeCount.value
+      }),
       tone: 'positive'
     });
   }
@@ -1608,15 +1741,21 @@ const insightCards = computed<InsightCard[]>(() => {
   if (focusDelta > 0) {
     cards.push({
       id: 'focus-up',
-      title: '专注投入在上升',
-      text: `${selectedRangeShortLabel.value}专注时长比上一周期多 ${formatMinutes(focusDelta)}。`,
+      title: t('personalStats.insightFocusUpTitle'),
+      text: formatTemplate('personalStats.insightFocusUpTextTemplate', {
+        range: selectedRangeShortLabel.value,
+        duration: formatMinutes(focusDelta)
+      }),
       tone: 'positive'
     });
   } else if (focusDelta < 0) {
     cards.push({
       id: 'focus-down',
-      title: '专注投入回落了',
-      text: `${selectedRangeShortLabel.value}专注时长比上一周期少 ${formatMinutes(Math.abs(focusDelta))}。`,
+      title: t('personalStats.insightFocusDownTitle'),
+      text: formatTemplate('personalStats.insightFocusDownTextTemplate', {
+        range: selectedRangeShortLabel.value,
+        duration: formatMinutes(Math.abs(focusDelta))
+      }),
       tone: 'warning'
     });
   }
@@ -1625,15 +1764,21 @@ const insightCards = computed<InsightCard[]>(() => {
   if (habitDelta > 0) {
     cards.push({
       id: 'habit-up',
-      title: '习惯执行更稳了',
-      text: `${selectedRangeShortLabel.value}比上一周期多完成 ${habitDelta} 次打卡。`,
+      title: t('personalStats.insightHabitUpTitle'),
+      text: formatTemplate('personalStats.insightHabitUpTextTemplate', {
+        range: selectedRangeShortLabel.value,
+        count: habitDelta
+      }),
       tone: 'positive'
     });
   } else if (habitDelta < 0) {
     cards.push({
       id: 'habit-down',
-      title: '习惯执行略有回落',
-      text: `${selectedRangeShortLabel.value}比上一周期少了 ${Math.abs(habitDelta)} 次打卡，可以先保住最核心的 1 到 2 个习惯。`,
+      title: t('personalStats.insightHabitDownTitle'),
+      text: formatTemplate('personalStats.insightHabitDownTextTemplate', {
+        range: selectedRangeShortLabel.value,
+        count: Math.abs(habitDelta)
+      }),
       tone: 'warning'
     });
   }
@@ -1641,8 +1786,10 @@ const insightCards = computed<InsightCard[]>(() => {
   if (overdueTaskCount.value > 0) {
     cards.push({
       id: 'overdue',
-      title: '逾期任务需要优先处理',
-      text: `当前还有 ${overdueTaskCount.value} 条逾期任务，适合先切回表格逐个消化。`,
+      title: t('personalStats.insightOverdueTitle'),
+      text: formatTemplate('personalStats.insightOverdueTextTemplate', {
+        count: overdueTaskCount.value
+      }),
       tone: 'warning'
     });
   }
@@ -1650,8 +1797,8 @@ const insightCards = computed<InsightCard[]>(() => {
   if (cards.length === 0) {
     cards.push({
       id: 'stable',
-      title: '节奏比较稳定',
-      text: '这个周期没有明显失衡项，可以继续沿着当前节奏推进。',
+      title: t('personalStats.insightStableTitle'),
+      text: t('personalStats.insightStableText'),
       tone: 'neutral'
     });
   }
@@ -1921,25 +2068,25 @@ function buildCurrentRangeWindow(key: StatsRangeKey): RangeWindow {
   const tomorrow = addDays(today, 1);
 
   if (key === 'today') {
-    return buildRangeWindow(key, '今日', '今日', today, tomorrow);
+    return buildRangeWindow(key, t('personalStats.rangeToday'), t('personalStats.rangeTodayShort'), today, tomorrow);
   }
 
   if (key === '30d') {
-    return buildRangeWindow(key, '近 30 天', '近30天', addDays(today, -29), tomorrow);
+    return buildRangeWindow(key, t('personalStats.range30d'), t('personalStats.range30dShort'), addDays(today, -29), tomorrow);
   }
 
   if (key === 'month') {
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    return buildRangeWindow(key, '本月', '本月', monthStart, tomorrow);
+    return buildRangeWindow(key, t('personalStats.rangeMonth'), t('personalStats.rangeMonthShort'), monthStart, tomorrow);
   }
 
-  return buildRangeWindow(key, '近 7 天', '近7天', addDays(today, -6), tomorrow);
+  return buildRangeWindow(key, t('personalStats.range7d'), t('personalStats.range7dShort'), addDays(today, -6), tomorrow);
 }
 
 function buildPreviousRangeWindow(current: RangeWindow): RangeWindow {
   const endExclusive = new Date(current.start);
   const start = addDays(endExclusive, -current.dayCount);
-  return buildRangeWindow(current.key, '上一周期', '上一周期', start, endExclusive);
+  return buildRangeWindow(current.key, t('personalStats.rangePrevious'), t('personalStats.rangePreviousShort'), start, endExclusive);
 }
 
 function buildRangeWindow(
@@ -2052,7 +2199,9 @@ function buildFocusTargetSummaries(
       return;
     }
 
-    const fallbackName = type === 'habit' ? '未命名习惯' : '未命名任务';
+    const fallbackName = type === 'habit'
+      ? t('focusTimer.untitledHabit')
+      : t('focusTimer.untitledTask');
     const name = typeof record.targetName === 'string' && record.targetName.trim().length > 0
       ? record.targetName.trim()
       : fallbackName;
@@ -2258,25 +2407,25 @@ function getGoalPriority(goal: GoalListItem): number {
 
 function getGoalStatusText(status: GoalListItem['status']): string {
   if (status === 'completed') {
-    return '已完成';
+    return t('taskManager.statusCompleted');
   }
   if (status === 'in-progress') {
-    return '进行中';
+    return t('taskManager.statusInProgress');
   }
-  return '待启动';
+  return t('personalStats.goalStatusPending');
 }
 
 function getRewardSourceText(source: RewardSource): string {
   if (source === 'habit') {
-    return '习惯';
+    return t('personalStats.rewardSourceHabit');
   }
   if (source === 'task') {
-    return '任务';
+    return t('personalStats.rewardSourceTask');
   }
   if (source === 'focus') {
-    return '专注';
+    return t('personalStats.rewardSourceFocus');
   }
-  return '系统';
+  return t('personalStats.rewardSourceSystem');
 }
 
 function buildTaskPeriodComparisonCard(label: string, current: number, previous: number): TaskPeriodComparisonCard {
@@ -2286,25 +2435,33 @@ function buildTaskPeriodComparisonCard(label: string, current: number, previous:
   const base = Math.max(1, Math.abs(previous));
   const percent = previous === 0 ? null : Math.round((magnitude / base) * 100);
   const deltaLabel = delta === 0
-    ? '持平'
+    ? t('personalStats.comparisonFlat')
     : percent === null
-      ? `${delta > 0 ? '+' : '-'}${magnitude} 条`
+      ? formatTemplate('personalStats.comparisonCountDeltaTemplate', {
+        sign: delta > 0 ? '+' : '-',
+        count: magnitude
+      })
       : `${delta > 0 ? '+' : '-'}${percent}%`;
 
   let detail = '';
   if (delta === 0) {
-    detail = '和上一周期一致';
+    detail = t('personalStats.comparisonSameAsPrevious');
   } else if (previous === 0) {
-    detail = `上一周期为 0，本周期 ${current} 条`;
+    detail = formatTemplate('personalStats.comparisonPreviousZeroTemplate', { current });
   } else {
-    detail = `${delta > 0 ? '比上一周期增加' : '比上一周期减少'} ${magnitude} 条`;
+    detail = formatTemplate(
+      delta > 0
+        ? 'personalStats.comparisonIncreaseTemplate'
+        : 'personalStats.comparisonDecreaseTemplate',
+      { count: magnitude }
+    );
   }
 
   return {
     label,
     currentValue: String(current),
-    previousValue: `上周期 ${previous}`,
-    deltaLabel: `环比 ${deltaLabel}`,
+    previousValue: formatTemplate('personalStats.comparisonPreviousValueTemplate', { previous }),
+    deltaLabel: formatTemplate('personalStats.comparisonDeltaLabelTemplate', { delta: deltaLabel }),
     detail,
     tone
   };
@@ -2322,32 +2479,38 @@ function getTaskOverdueDays(task: Task, currentDayKey: string): number {
 }
 
 function getTaskDaysSinceUpdate(task: Task, currentDayKey: string): number {
-  const activityKey = normalizeDateKey(task.updatedAt) || normalizeDateKey(task.createdAt);
+  const activityKey = getTaskStuckBaseDateKey(task);
   if (!activityKey) {
     return 0;
   }
   return getDayDifference(currentDayKey, activityKey);
 }
 
+function getTaskStuckBaseDateKey(task: Task): string {
+  return normalizeDateKey(task.startDate)
+    || normalizeDateKey(task.updatedAt)
+    || normalizeDateKey(task.createdAt);
+}
+
 function getTaskDisplayTitle(task: Task): string {
   const title = stripMarkupText(task.title || '').trim();
-  return title || '未命名任务';
+  return title || t('focusTimer.untitledTask');
 }
 
 function getTaskStatusText(status: Task['status']): string {
   if (status === 'in-progress') {
-    return '进行中';
+    return t('taskManager.statusInProgress');
   }
   if (status === 'delayed') {
-    return '已拖延';
+    return t('personalStats.taskStatusDelayed');
   }
   if (status === 'completed') {
-    return '已完成';
+    return t('taskManager.statusCompleted');
   }
   if (status === 'cancelled') {
-    return '已取消';
+    return t('taskManager.statusCancelled');
   }
-  return '待开始';
+  return t('personalStats.taskStatusPending');
 }
 
 function buildCompletionRateItems(
@@ -2393,7 +2556,7 @@ function getTaskSourceKey(task: Task): string {
   if (notebookId) {
     return notebookId;
   }
-  return '未定位文档';
+  return t('personalStats.unlocatedDocument');
 }
 
 function getTaskSourceLabel(task: Task): string {

@@ -2,8 +2,8 @@
   <div v-if="show" class="mood-calendar-panel">
     <div class="stats-header">
       <div class="stats-header-content">
-        <div class="stats-title">心情打卡月视图</div>
-        <button @click="handleClose" class="icon-button" title="关闭" aria-label="关闭">
+        <div class="stats-title">{{ t('moodTracker.calendarTitle') }}</div>
+        <button @click="handleClose" class="icon-button" :title="t('common.close')" :aria-label="t('common.close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -11,7 +11,7 @@
     <div class="stats-content">
       <div class="stats-row">
         <div class="mood-stats-container">
-          <div class="mood-stats-title">心情统计</div>
+          <div class="mood-stats-title">{{ t('moodTracker.statsTitle') }}</div>
           <div class="mood-stats-chart">
             <div class="mood-stat-item" v-for="item in moodStatsData.data" :key="item.type">
               <div class="mood-stat-count">{{ item.count }}</div>
@@ -28,7 +28,7 @@
         </div>
         
         <div class="mood-trend-container">
-        <div class="mood-trend-title">心情趋势图</div>
+        <div class="mood-trend-title">{{ t('moodTracker.trendTitle') }}</div>
         <div class="mood-trend-chart">
           <svg viewBox="0 0 200 120" preserveAspectRatio="none">
             <!-- 网格线 -->
@@ -74,11 +74,21 @@
       <div class="calendar-container">
         <div class="calendar-controls">
           <div class="calendar-navigation">
-            <button @click="changeMonth(-1)" class="nav-btn" title="上一月" aria-label="上一月">
+            <button
+              @click="changeMonth(-1)"
+              class="nav-btn"
+              :title="t('date.previousMonth')"
+              :aria-label="t('date.previousMonth')"
+            >
               <Icon name="left" width="16" height="16" class="icon" />
             </button>
             <span class="current-period">{{ monthYear }}</span>
-            <button @click="changeMonth(1)" class="nav-btn" title="下一月" aria-label="下一月">
+            <button
+              @click="changeMonth(1)"
+              class="nav-btn"
+              :title="t('date.nextMonth')"
+              :aria-label="t('date.nextMonth')"
+            >
               <Icon name="right" width="16" height="16" class="icon" />
             </button>
           </div>
@@ -108,7 +118,7 @@
         </div>
         
         <div class="mood-list-container">
-          <h4 class="mood-list-title">本月心情记录</h4>
+          <h4 class="mood-list-title">{{ t('moodTracker.monthRecords') }}</h4>
           <div class="mood-list">
             <div 
               v-for="entry in currentMonthMoodEntries" 
@@ -131,6 +141,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
+import { useI18n } from '@/composables/useI18n';
 
 interface MoodData {
   [date: string]: {
@@ -173,6 +184,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   close: [];
@@ -181,6 +193,13 @@ const emit = defineEmits<{
 }>();
 
 const hoverPoint = ref(-1);
+
+const formatTemplate = (key: string, values: Record<string, string | number>): string => {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    t(key)
+  );
+};
 
 const moodScoreMap: Record<string, number> = {
   '🤩': 5,
@@ -193,7 +212,10 @@ const moodScoreMap: Record<string, number> = {
 const monthYear = computed(() => {
   const today = new Date();
   const targetDate = new Date(today.getFullYear(), today.getMonth() + props.currentMonth, 1);
-  return `${targetDate.getFullYear()}年${targetDate.getMonth() + 1}月`;
+  return formatTemplate('date.yearMonthTemplate', {
+    year: targetDate.getFullYear(),
+    month: targetDate.getMonth() + 1
+  });
 });
 
 const moodStatsData = computed<MoodStatsData>(() => {
@@ -232,11 +254,11 @@ const moodStatsData = computed<MoodStatsData>(() => {
   
   return {
     data: [
-      { type: 'excited', count: stats.excited, emoji: '🤩', label: '兴奋' },
-      { type: 'happy', count: stats.happy, emoji: '😊', label: '开心' },
-      { type: 'calm', count: stats.calm, emoji: '😌', label: '平静' },
-      { type: 'sad', count: stats.sad, emoji: '😢', label: '难过' },
-      { type: 'angry', count: stats.angry, emoji: '😡', label: '愤怒' }
+      { type: 'excited', count: stats.excited, emoji: '🤩', label: t('moodTracker.excited') },
+      { type: 'happy', count: stats.happy, emoji: '😊', label: t('moodTracker.happy') },
+      { type: 'calm', count: stats.calm, emoji: '😌', label: t('moodTracker.calm') },
+      { type: 'sad', count: stats.sad, emoji: '😢', label: t('moodTracker.sad') },
+      { type: 'angry', count: stats.angry, emoji: '😡', label: t('moodTracker.angry') }
     ],
     maxValue
   };

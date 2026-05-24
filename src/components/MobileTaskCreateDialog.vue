@@ -1,6 +1,6 @@
 <template>
   <div ref="mobileTaskCreateRootRef" class="mobile-task-create-root">
-    <div v-if="loading" class="mobile-task-create-loading">Loading...</div>
+    <div v-if="loading" class="mobile-task-create-loading">{{ t('taskManager.loading') }}</div>
     <TaskModal
       :show="showTaskModal"
       :t="translate"
@@ -30,6 +30,8 @@ import { computed, onMounted, ref } from 'vue';
 import {
   TaskRepository,
   createDocWithMd,
+  createDailyNote,
+  getHPathByID,
   getIDsByHPath,
   loadTaskGroups,
   lsNotebooks,
@@ -42,10 +44,12 @@ import {
 } from '@/api';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import TaskModal, { type Document, type Notebook } from '@/components/TaskModal.vue';
+import { useI18n } from '@/composables/useI18n';
 import { useMobileTextInputActivation } from '@/composables/useMobileTextInputActivation';
 import { useUserSettings } from '@/composables/useUserSettings';
+import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
 import type { TaskReminderType } from '@/utils/taskReminder';
-import { getDocumentCreationSortKey, normalizeNotebookIds } from '@/utils/taskViewShared';
+import { getDocumentCreationSortKey, loadRootDocumentMetadata, normalizeNotebookIds, resolveDocumentDisplayName } from '@/utils/taskViewShared';
 
 interface NewTaskPayload {
   title: string;
@@ -84,7 +88,7 @@ function normalizeTaskGroupDialogOrderIds(input: unknown): string[] {
   return normalized;
 }
 
-const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
+const { t } = useI18n();
 
 const emit = defineEmits<{
   close: [];
@@ -115,6 +119,12 @@ const allDocuments = computed(() => {
 });
 
 const lastSelectedNotebook = computed(() => {
+  const configuredNotebookId = typeof userSettings.taskManager.defaultTaskCreateNotebook === 'string'
+    ? userSettings.taskManager.defaultTaskCreateNotebook
+    : '';
+  if (enabledNotebooks.value.some(notebook => notebook.id === configuredNotebookId)) {
+    return configuredNotebookId;
+  }
   const storedNotebookId = typeof userSettings.taskManager.lastTaskNotebook === 'string'
     ? userSettings.taskManager.lastTaskNotebook
     : '';
@@ -125,6 +135,12 @@ const lastSelectedNotebook = computed(() => {
 });
 
 const lastSelectedDocument = computed(() => {
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'inbox') {
+    return PINCH_INBOX_OPTION_ID;
+  }
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'daily-note') {
+    return PINCH_DAILY_NOTE_OPTION_ID;
+  }
   return typeof userSettings.taskManager.lastTaskDocument === 'string'
     ? userSettings.taskManager.lastTaskDocument
     : '';
@@ -137,7 +153,7 @@ const defaultGroupId = computed(() => {
 });
 
 function translate(key: string): string {
-  return key;
+  return t(key);
 }
 
 function escapeSqlLiteral(value: string): string {
@@ -190,6 +206,11 @@ async function loadDocumentOptions(): Promise<void> {
       GROUP BY b.box, b.root_id
       ORDER BY b.box, b.root_id
     `) as Array<{ box?: string; root_id?: string; hpath?: string }>;
+    const fallbackMetadataByRootId = await loadRootDocumentMetadata(
+      (rows || [])
+        .filter(row => typeof row?.hpath !== 'string' || row.hpath.trim().length === 0)
+        .map(row => typeof row?.root_id === 'string' ? row.root_id : '')
+    );
 
     const nextMap = new Map<string, Document[]>();
     for (const row of rows || []) {
@@ -199,16 +220,21 @@ async function loadDocumentOptions(): Promise<void> {
         continue;
       }
 
+      const fallbackMetadata = fallbackMetadataByRootId.get(rootId);
       const rawPath = typeof row?.hpath === 'string' && row.hpath.trim().length > 0
-        ? row.hpath
-        : rootId;
-      const name = rawPath.split('/').pop() || rawPath;
+        ? row.hpath.trim()
+        : fallbackMetadata?.path || '';
+      const name = resolveDocumentDisplayName({
+        id: rootId,
+        name: fallbackMetadata?.name,
+        path: rawPath
+      });
       const docs = nextMap.get(notebookId) || [];
       docs.push({
         id: rootId,
         name,
         notebookId,
-        path: rawPath,
+        path: rawPath || undefined,
       });
       nextMap.set(notebookId, docs);
     }
@@ -238,25 +264,71 @@ async function loadDocumentOptions(): Promise<void> {
 }
 
 async function ensureInboxDocument(notebookId: string): Promise<string> {
-  const inboxPath = '/pinch收集箱';
-
   try {
-    const existingIds = await getIDsByHPath(notebookId, inboxPath);
+    const existingIds = await getIDsByHPath(notebookId, PINCH_INBOX_PATH);
     if (existingIds && existingIds.length > 0) {
-      return inboxPath;
+      return PINCH_INBOX_PATH;
     }
   } catch {
   }
 
-  await createDocWithMd(notebookId, inboxPath, '');
-  return inboxPath;
+  await createDocWithMd(notebookId, PINCH_INBOX_PATH, '');
+  return PINCH_INBOX_PATH;
+}
+
+function extractDailyNoteId(result: Awaited<ReturnType<typeof createDailyNote>>): string {
+  if (typeof result === 'string') {
+    return result;
+  }
+  if (result && typeof result === 'object') {
+    return result.id || result.rootId || '';
+  }
+  return '';
+}
+
+function normalizeNotebookDocPath(notebookId: string, hPath: string): string {
+  const notebook = notebooks.value.find(nb => nb.id === notebookId);
+  const normalizedHPath = hPath.startsWith('/') ? hPath : `/${hPath}`;
+  if (!notebook?.name) {
+    return normalizedHPath;
+  }
+  const notebookPrefix = `/${notebook.name}/`;
+  if (normalizedHPath.startsWith(notebookPrefix)) {
+    return `/${normalizedHPath.slice(notebookPrefix.length)}`;
+  }
+  return normalizedHPath;
+}
+
+async function ensureDailyNoteDocument(notebookId: string): Promise<string> {
+  const result = await createDailyNote(notebookId);
+  if (result && typeof result === 'object') {
+    const directPath = typeof result.path === 'string' && result.path.trim()
+      ? result.path.trim()
+      : typeof result.hPath === 'string' && result.hPath.trim()
+        ? result.hPath.trim()
+        : '';
+    if (directPath) {
+      return normalizeNotebookDocPath(notebookId, directPath);
+    }
+  }
+  const dailyNoteId = extractDailyNoteId(result);
+  if (!dailyNoteId) {
+    throw new Error('Failed to create daily note');
+  }
+  const hPath = await getHPathByID(dailyNoteId);
+  if (!hPath) {
+    throw new Error('Failed to resolve daily note path');
+  }
+  return normalizeNotebookDocPath(notebookId, hPath);
 }
 
 async function handleCreateTask(taskData: NewTaskPayload, notebookId: string, documentId: string): Promise<void> {
   try {
     let docPath = '';
 
-    if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
+    if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
+      docPath = await ensureDailyNoteDocument(notebookId);
+    } else if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
       const selectedDoc = allDocuments.value.find(doc => doc.id === documentId && doc.notebookId === notebookId);
       if (selectedDoc?.path) {
         docPath = selectedDoc.path.startsWith('/') ? selectedDoc.path : `/${selectedDoc.path}`;
@@ -289,7 +361,7 @@ async function handleCreateTask(taskData: NewTaskPayload, notebookId: string, do
     emit('close');
   } catch (error) {
     console.error('[MobileTaskCreateDialog] Failed to create task:', error);
-    await pushMsg('创建任务失败', 3000);
+    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
   }
 }
 

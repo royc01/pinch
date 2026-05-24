@@ -10,10 +10,14 @@
       :start-date="startDate"
       :start-time="startTime"
       :due-time="dueTime"
+      :show-repeat-editor="true"
+      :repeat-frequency="repeatFrequency"
+      :repeat-rule="repeatRule"
       @update:modelValue="handleDueSelect"
       @update:startDate="handleStartDateUpdate"
       @update:startTime="handleStartTimeUpdate"
       @update:dueTime="handleDueTimeUpdate"
+      @saveRepeatRule="emitSaveRepeatRule"
       @close="emitPanelUpdate(null)"
     />
     <TaskReminderPopover
@@ -37,14 +41,14 @@
     />
     <div v-if="panel === 'group'" class="task-editor-group-panel">
       <div class="task-editor-group-header">
-        <span class="task-editor-group-title">标签</span>
+        <span class="task-editor-group-title">{{ t('taskManager.tags') }}</span>
         <button
           v-if="showGroupManage"
           type="button"
           class="task-group-manage-btn"
           @click.stop="emitManageGroups"
         >
-          管理
+          {{ t('taskManager.manage') }}
         </button>
       </div>
       <div class="task-group-chip-list">
@@ -82,8 +86,8 @@
         type="button"
         class="task-editor-action-btn task-editor-status-btn"
         :class="{ 'is-active': panel === 'status' }"
-        title="状态"
-        aria-label="状态"
+        :title="t('taskManager.status')"
+        :aria-label="t('taskManager.status')"
         @click.stop="toggleStatusPanel"
       >
         <span class="task-editor-status-badge" :class="`status-${normalizedStatus}`">
@@ -95,8 +99,8 @@
         class="task-editor-action-btn task-editor-group-btn"
         :class="{ 'is-active': panel === 'group' }"
         :style="groupButtonStyle"
-        title="标签"
-        aria-label="标签"
+        :title="t('taskManager.tags')"
+        :aria-label="t('taskManager.tags')"
         @click.stop="togglePanel('group')"
       >
         <Icon name="group" width="14" height="14" />
@@ -107,8 +111,8 @@
         type="button"
         class="task-editor-action-btn"
         :class="{ 'is-active': panel === 'due' }"
-        title="截止日期"
-        aria-label="截止日期"
+        :title="t('taskManager.dueDate')"
+        :aria-label="t('taskManager.dueDate')"
         @click.stop="togglePanel('due')"
       >
         <Icon name="calendar" width="14" height="14" />
@@ -119,8 +123,8 @@
         type="button"
         class="task-editor-action-btn"
         :class="{ 'is-active': panel === 'reminder' }"
-        title="提醒"
-        aria-label="提醒"
+        :title="t('taskManager.reminder')"
+        :aria-label="t('taskManager.reminder')"
         @click.stop="togglePanel('reminder')"
       >
         <Icon name="bell" width="14" height="14" />
@@ -130,8 +134,8 @@
         type="button"
         class="task-editor-action-btn"
         :class="{ 'is-active': panel === 'description' }"
-        title="描述"
-        aria-label="描述"
+        :title="t('taskManager.description')"
+        :aria-label="t('taskManager.description')"
         @click.stop="togglePanel('description')"
       >
         <Icon name="descriptionBubble" width="14" height="14" />
@@ -147,6 +151,8 @@ import Icon from '@/components/Icon.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
+import { useI18n } from '@/composables/useI18n';
+import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
 import type { TaskReminderSelection, TaskReminderType } from '@/utils/taskReminder';
 
 type TaskStatus = Task['status'];
@@ -186,6 +192,8 @@ const props = withDefaults(defineProps<{
   reminderText?: string;
   hasReminder?: boolean;
   status?: TaskStatus;
+  repeatFrequency?: RepeatFrequency;
+  repeatRule?: RepeatRule | null;
   groupButtonStyle?: Record<string, string>;
   defaultGroupChipColor?: string;
   descriptionPlaceholder?: string;
@@ -196,6 +204,8 @@ const props = withDefaults(defineProps<{
   reminderText: '',
   hasReminder: false,
   status: 'pending',
+  repeatFrequency: 'none',
+  repeatRule: null,
   groupButtonStyle: () => ({}),
   defaultGroupChipColor: '#9aa0a6',
   descriptionPlaceholder: 'Add task description...',
@@ -209,11 +219,13 @@ const emit = defineEmits<{
   'select-group': [value: string];
   'select-reminder': [value: TaskReminderSelection];
   'select-status': [value: TaskStatus];
+  'save-repeat-rule': [value: RepeatFrequency | RepeatRuleInput];
   'commit-description': [];
   'manage-groups': [];
 }>();
 
 const dueButtonRef = ref<HTMLElement | null>(null);
+const { t } = useI18n();
 const reminderButtonRef = ref<HTMLElement | null>(null);
 const statusButtonRef = ref<HTMLElement | null>(null);
 const descriptionRef = ref<HTMLTextAreaElement | null>(null);
@@ -221,11 +233,11 @@ const statusPopoverPosition = ref({ x: 0, y: 0 });
 
 const showDescriptionPanel = computed(() => props.panel === 'description' || props.hasDescription);
 const statusLabelMap: Record<TaskStatus, string> = {
-  pending: '\u5f85\u5904\u7406',
-  'in-progress': '\u8fdb\u884c\u4e2d',
-  delayed: '\u5ef6\u8fdf',
-  completed: '\u5df2\u5b8c\u6210',
-  cancelled: '\u5df2\u53d6\u6d88'
+  pending: t('taskManager.statusPending'),
+  'in-progress': t('taskManager.statusInProgress'),
+  delayed: t('taskManager.statusDelayed'),
+  completed: t('taskManager.statusCompleted'),
+  cancelled: t('taskManager.statusCancelled')
 };
 const normalizedStatus = computed<TaskStatus>(() => normalizeStatusValue(props.status));
 const statusBadgeText = computed(() => statusLabelMap[normalizedStatus.value]);
@@ -261,6 +273,10 @@ function handleStartTimeUpdate(value: string): void {
 
 function handleDueTimeUpdate(value: string): void {
   emitDateFields({ dueTime: value });
+}
+
+function emitSaveRepeatRule(value: RepeatFrequency | RepeatRuleInput): void {
+  emit('save-repeat-rule', value);
 }
 
 function handleReminderSelect(value: TaskReminderSelection): void {

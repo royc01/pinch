@@ -13,7 +13,7 @@
         @click.stop
       >
         <div class="time-popover-header">
-          <div class="time-popover-title">选择时间</div>
+          <div class="time-popover-title">{{ t('taskManager.pickTime') }}</div>
           <div class="time-popover-value">{{ previewValue }}</div>
         </div>
 
@@ -62,8 +62,8 @@
         </div>
 
         <div class="time-popover-footer">
-          <button type="button" class="time-popover-footer-btn subtle" @click="clearSelection">清除</button>
-          <button type="button" class="time-popover-footer-btn primary" @click="applySelection">应用</button>
+          <button type="button" class="time-popover-footer-btn subtle" @click="clearSelection">{{ t('taskManager.clear') }}</button>
+          <button type="button" class="time-popover-footer-btn primary" @click="applySelection">{{ t('taskManager.apply') }}</button>
         </div>
       </div>
     </div>
@@ -72,6 +72,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from '@/composables/useI18n';
 
 const ITEM_HEIGHT = 36;
 
@@ -97,6 +98,7 @@ const minuteScrollerRef = ref<HTMLElement | null>(null);
 const popoverStyle = ref<Record<string, string>>({});
 const localHour = ref('09');
 const localMinute = ref('00');
+const { t } = useI18n();
 
 const hourOptions = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
 const minuteOptions = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));

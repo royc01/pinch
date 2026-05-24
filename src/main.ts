@@ -10,6 +10,8 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import MobileTaskCreateDialog from './components/MobileTaskCreateDialog.vue'
 import KanbanView from './components/KanbanView.vue'
+import zhCN from '@/i18n/zh_CN.json';
+import { translate } from '@/composables/useI18n';
 import { startTaskReminderScheduler, stopTaskReminderScheduler } from '@/taskReminderScheduler';
 import { TaskRepository, sql } from '@/api';
 import {
@@ -20,8 +22,9 @@ import {
   type TaskViewSwitchRequest
 } from '@/utils/eventBus';
 import { destroyDetachedFocusWindow } from '@/utils/detachedFocusWindow';
+import { getKernelTaskIndex, pingPinchKernel, refreshKernelTaskIndex } from '@/kernelRpc';
 
-// 确保数据目录存在
+// Ensure the data directory exists.
 import { ensureDataDir } from '@/utils';
 let plugin: Plugin | null = null;
 let kanbanApp = null;
@@ -36,6 +39,9 @@ let topBarViewButton: HTMLElement | null = null;
 const PINCH_DOCK_TYPE = 'Pinch-habit';
 const MOBILE_BREADCRUMB_LONG_PRESS_MS = 480;
 const TOP_BAR_VIEW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.7,10c-1.7-0.2-2.6,0.8-3.3,1.8c-1.4,2.4-3,2.5-4.3,2.5c-2.5,0-4.2-1.8-4.2-4.5c0-2.7,1.7-4.5,4.2-4.5c2.1,0,3.5,0.6,4.4,2.6c0.4,0.9,1.4,2.1,2.9,1.9c1.6-0.4,2.5-1.9,1.9-4C22.7,3.2,19.5,0,14.1,0C8.7,0,4.8,3.7,4.4,9v0.2c0,0.2,0,0.4,0,0.7c0,0.2,0,0.5,0,0.7v14.8c0,1.5,1.2,2.8,2.8,2.8s2.8-1.2,2.8-2.8v-6.5c1.2,0.5,2.7,0.9,4.2,0.9c5,0,8.6-3.2,9.3-6.5C23.7,12,23.4,10.3,21.7,10z" fill="currentColor"></path></svg>';
+const LEGACY_KANBAN_TAB_TITLE = typeof zhCN['app.kanbanTabTitle'] === 'string'
+  ? zhCN['app.kanbanTabTitle']
+  : 'Pinch View';
 export function usePlugin(pluginProps?: Plugin): Plugin | null {
   if (pluginProps) {
     plugin = pluginProps;
@@ -86,7 +92,7 @@ function registerTopBarViewButton(pluginInstance: Plugin) {
   topBarViewButton?.remove();
   topBarViewButton = pluginInstance.addTopBar({
     icon: TOP_BAR_VIEW_SVG,
-    title: '查看全部任务',
+    title: translate('app.openTaskView', 'Open all tasks'),
     callback: () => {
       void openKanbanView();
     }
@@ -111,15 +117,16 @@ function isMobileFrontend() {
 // SiYuan command hotkey prefers symbol format, which is adapted per platform.
 const OPEN_TASK_EDITOR_HOTKEY = '⌥Q';
 const OPEN_GLOBAL_TASK_CREATE_HOTKEY = '';
-type QuickTaskViewMode = 'kanban' | 'table' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table';
-const QUICK_TASK_VIEW_COMMANDS: Array<{ langKey: string; langText: string; view: QuickTaskViewMode }> = [
-  { langKey: 'pinchOpenKanbanView', langText: '快速打开看板视图', view: 'kanban' },
-  { langKey: 'pinchOpenTableView', langText: '快速打开表格视图', view: 'table' },
-  { langKey: 'pinchOpenDayView', langText: '快速打开日视图', view: 'day' },
-  { langKey: 'pinchOpenThreeDayView', langText: '快速打开三日图', view: 'three-day' },
-  { langKey: 'pinchOpenWeekView', langText: '快速打开周视图', view: 'week' },
-  { langKey: 'pinchOpenMonthView', langText: '快速打开月视图', view: 'month' },
-  { langKey: 'pinchOpenArchiveView', langText: '快速打开归档视图', view: 'archive-table' }
+type QuickTaskViewMode = 'kanban' | 'table' | 'gantt' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table';
+const QUICK_TASK_VIEW_COMMANDS: Array<{ langKey: string; langTextKey: string; fallback: string; view: QuickTaskViewMode }> = [
+  { langKey: 'pinchOpenKanbanView', langTextKey: 'command.openKanbanView', fallback: 'Quick open kanban view', view: 'kanban' },
+  { langKey: 'pinchOpenTableView', langTextKey: 'command.openTableView', fallback: 'Quick open table view', view: 'table' },
+  { langKey: 'pinchOpenGanttView', langTextKey: 'command.openGanttView', fallback: 'Quick open gantt view', view: 'gantt' },
+  { langKey: 'pinchOpenDayView', langTextKey: 'command.openDayView', fallback: 'Quick open day view', view: 'day' },
+  { langKey: 'pinchOpenThreeDayView', langTextKey: 'command.openThreeDayView', fallback: 'Quick open three-day view', view: 'three-day' },
+  { langKey: 'pinchOpenWeekView', langTextKey: 'command.openWeekView', fallback: 'Quick open week view', view: 'week' },
+  { langKey: 'pinchOpenMonthView', langTextKey: 'command.openMonthView', fallback: 'Quick open month view', view: 'month' },
+  { langKey: 'pinchOpenArchiveView', langTextKey: 'command.openArchiveView', fallback: 'Quick open archive view', view: 'archive-table' }
 ];
 
 function escapeSqlLiteral(value: string): string {
@@ -290,13 +297,13 @@ async function resolveNearestTaskBlockId(blockId: string): Promise<string | null
 async function openTaskEditorFromCurrentContext(protyle?: IProtyle): Promise<void> {
   const contextBlockId = getCurrentContextBlockId(protyle);
   if (!contextBlockId) {
-    showMessage('未定位到当前块', 2000, 'error');
+    showMessage(translate('message.noCurrentBlock', 'Current block not found'), 2000, 'error');
     return;
   }
 
   const taskBlockId = await resolveNearestTaskBlockId(contextBlockId);
   if (!taskBlockId) {
-    showMessage('当前块不是任务块', 2000, 'error');
+    showMessage(translate('message.currentBlockNotTask', 'Current block is not a task block'), 2000, 'error');
     return;
   }
 
@@ -328,7 +335,7 @@ async function openTaskDateMenuByBlockId(
 
   const taskBlockId = await resolveNearestTaskBlockId(normalizedBlockId);
   if (!taskBlockId) {
-    showMessage('当前块不是任务块', 2000, 'error');
+    showMessage(translate('message.currentBlockNotTask', 'Current block is not a task block'), 2000, 'error');
     return;
   }
 
@@ -376,7 +383,7 @@ function registerTaskBlockIconMenu(pluginInstance: Plugin): void {
     const anchor = getMenuAnchorFromBlockElement(primaryBlockElement);
     detail.menu.addItem({
       icon: 'iconCalendar',
-      label: '编辑任务日期',
+      label: translate('menu.editTaskDate', 'Edit task date'),
       click: () => {
         void openTaskDateMenuByBlockId(targetBlockId, anchor);
       }
@@ -397,7 +404,7 @@ function unregisterTaskBlockIconMenu(): void {
 function registerTaskEditorHotkeyCommand(pluginInstance: Plugin): void {
   pluginInstance.addCommand({
     langKey: 'pinchOpenTaskEditor',
-    langText: '打开当前任务日期弹窗',
+    langText: translate('command.openTaskEditor', 'Open current task date dialog'),
     hotkey: OPEN_TASK_EDITOR_HOTKEY,
     editorCallback: (protyle) => {
       void openTaskEditorFromCurrentContext(protyle as IProtyle);
@@ -411,7 +418,7 @@ function registerTaskEditorHotkeyCommand(pluginInstance: Plugin): void {
 function registerGlobalTaskCreateCommand(pluginInstance: Plugin): void {
   pluginInstance.addCommand({
     langKey: 'pinchOpenGlobalTaskCreate',
-    langText: '打开全局新建任务弹窗',
+    langText: translate('command.openGlobalTaskCreate', 'Open global task creation dialog'),
     hotkey: OPEN_GLOBAL_TASK_CREATE_HOTKEY,
     editorCallback: () => {
       void openGlobalTaskCreateDialog();
@@ -445,7 +452,7 @@ function registerTaskViewHotkeyCommands(pluginInstance: Plugin): void {
   QUICK_TASK_VIEW_COMMANDS.forEach((command) => {
     pluginInstance.addCommand({
       langKey: command.langKey,
-      langText: command.langText,
+      langText: translate(command.langTextKey, command.fallback),
       editorCallback: () => {
         void openTaskViewByMode(command.view);
       },
@@ -453,6 +460,29 @@ function registerTaskViewHotkeyCommands(pluginInstance: Plugin): void {
         void openTaskViewByMode(command.view);
       }
     });
+  });
+}
+
+function registerKernelTrialCommand(pluginInstance: Plugin): void {
+  pluginInstance.addCommand({
+    langKey: 'pinchKernelTrial',
+    langText: translate('command.kernelTrial', 'Pinch kernel performance trial'),
+    globalCallback: async () => {
+      try {
+        const ping = await pingPinchKernel();
+        const refreshed = await refreshKernelTaskIndex();
+        const cached = await getKernelTaskIndex(200);
+        const lightTasks = await TaskRepository.getKernelLightTasks(200);
+        showMessage(
+          `${translate('kernelTrial.running', 'Kernel plugin running')}: ${ping.source}, ${translate('kernelTrial.refreshed', 'refreshed')} ${refreshed.rows.length} ${translate('kernelTrial.rowsElapsed', 'rows in')} ${refreshed.elapsedMs}ms, ${translate('kernelTrial.cacheRead', 'cached')} ${cached.rows.length} ${translate('kernelTrial.rowsElapsed', 'rows in')} ${cached.elapsedMs}ms, ${translate('kernelTrial.converted', 'converted')} ${lightTasks.tasks.length} ${translate('kernelTrial.rowsElapsed', 'rows in')} ${lightTasks.elapsedMs}ms`,
+          5000,
+          'info'
+        );
+      } catch (error) {
+        console.error('[Pinch Kernel Trial] failed', error);
+        showMessage(translate('kernelTrial.disconnected', 'Pinch kernel trial is unavailable. Please confirm your SiYuan build includes the kernel plugin system.'), 5000, 'error');
+      }
+    }
   });
 }
 
@@ -475,7 +505,7 @@ function createMobileBreadcrumbTaskButton() {
       clearLongPressTimer();
       closeMobileTaskCreateDialog();
       if (!openKanbanMobileDialog()) {
-        showMessage('\u65E0\u6CD5\u6253\u5F00 Pinch \u4EFB\u52A1\u770B\u677F', 3000, 'error');
+        showMessage(translate('message.openTaskBoardFailed', 'Unable to open the Pinch task board'), 3000, 'error');
       }
     }, MOBILE_BREADCRUMB_LONG_PRESS_MS);
   };
@@ -484,11 +514,9 @@ function createMobileBreadcrumbTaskButton() {
   button.type = 'button';
   button.className = 'block__icon fn__flex-center ariaLabel';
   button.dataset.pinchMobileTaskCreate = 'true';
-  button.setAttribute('aria-label', '新建任务');
-  button.setAttribute('title', '新建任务');
   button.innerHTML = '<svg style="width:18px;height:18px;"><use xlink:href="#ht-custom-icon"></use></svg>';
-  button.setAttribute('aria-label', '\u65B0\u5EFA\u4EFB\u52A1');
-  button.setAttribute('title', '\u65B0\u5EFA\u4EFB\u52A1\uff08\u957F\u6309\u6253\u5F00 Pinch \u770B\u677F\uff09');
+  button.setAttribute('aria-label', translate('task.new', 'New task'));
+  button.setAttribute('title', translate('task.newLongPressOpenBoard', 'New task (long press to open Pinch board)'));
   button.addEventListener('pointerdown', (event) => {
     event.stopPropagation();
     startLongPress();
@@ -697,11 +725,12 @@ export function init(pluginInstance: Plugin) {
   registerTaskEditorHotkeyCommand(pluginInstance);
   registerGlobalTaskCreateCommand(pluginInstance);
   registerTaskViewHotkeyCommands(pluginInstance);
+  registerKernelTrialCommand(pluginInstance);
   registerTaskBlockIconMenu(pluginInstance);
   startMobileBreadcrumbButtonObserver();
   startTaskReminderScheduler();
 
-  // 确保数据目录存在
+  // Ensure the data directory exists.
   ensureDataDir('/data/storage/petal/Pinch-habit');
   ensureDataDir('/data/storage/petal/stand');
 
@@ -713,7 +742,7 @@ export function init(pluginInstance: Plugin) {
     }
   );
 
-  // 注册自定义 Tab
+  // Register the custom tab.
   pluginInstance.addTab({
     type: 'kanban',
     init: function() {
@@ -836,8 +865,8 @@ function relocateMobileKanbanDialogCloseButton(dialog: Dialog, retryCount = 0) {
     });
   }
 
-  closeButton.setAttribute('aria-label', 'close');
-  closeButton.setAttribute('title', 'close');
+  closeButton.setAttribute('aria-label', translate('common.close', 'Close'));
+  closeButton.setAttribute('title', translate('common.close', 'Close'));
   closeButton.classList.add('pinch-mobile-kanban-dialog-close-button');
 
   if (newTaskButton && newTaskButton.parentElement === targetHeaderActions) {
@@ -860,7 +889,7 @@ function openKanbanMobileDialog(): boolean {
 
     const mountId = `pinch-mobile-kanban-${Date.now()}`;
     dialog = new Dialog({
-      title: 'Pinch Tasks',
+      title: translate('app.pinchTasks', 'Pinch Tasks'),
       content: `<div id="${mountId}" style="width:100%;height:100%;"></div>`,
       width: '100vw',
       height: '100vh',
@@ -1018,22 +1047,22 @@ export async function openKanbanView() {
   }
 
   try {
-    // 检查是否已存在 kanban 标签页
+    // Check whether the kanban tab already exists.
     const existingTab = findExistingKanbanTab();
     
     if (existingTab) {
-      // 如果已存在，激活该标签页
+      // If it already exists, activate that tab.
       existingTab.click();
       return;
     }
 
-    // 如果不存在，创建新标签页
+    // Otherwise create a new tab.
     const tab = await openTab({
       app: plugin.app,
       custom: {
         id: 'kanban',
         icon: 'ht-custom-icon',
-        title: 'pinch视图',
+        title: translate('app.kanbanTabTitle', 'Pinch View'),
         data: {}
       }
     });
@@ -1052,7 +1081,7 @@ export async function openKanbanView() {
 }
 
 function findExistingKanbanTab(): HTMLElement | null {
-  // 通过 DOM 查询查找所有标签页
+  // Find all tab headers via the DOM.
   const tabHeaders = document.querySelectorAll('li[data-type="tab-header"]');
   
   for (let i = 0; i < tabHeaders.length; i++) {
@@ -1062,8 +1091,15 @@ function findExistingKanbanTab(): HTMLElement | null {
     
     const title = titleElement?.textContent;
     
-    // 检查是否是 pinch 视图标签页
-    if (title === 'pinch视图' && iconElement) {
+    // Check whether this is a Pinch view tab.
+    if (
+      iconElement
+      && (
+        title === translate('app.kanbanTabTitle', 'Pinch View')
+        || title === LEGACY_KANBAN_TAB_TITLE
+        || title === 'Pinch View'
+      )
+    ) {
       const hasIcon = iconElement.innerHTML.includes('ht-custom-icon');
       if (hasIcon) {
         return tabHeader;

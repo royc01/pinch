@@ -29,6 +29,24 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
     ].join('|');
   }
 
+  function getTaskUpdatedAtMs(task: Task | null | undefined): number {
+    const raw = typeof task?.updatedAt === 'string' ? task.updatedAt : '';
+    if (!raw) {
+      return 0;
+    }
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function shouldAcceptIncomingWhileLocked(incomingTask: Task, localTask: Task | undefined): boolean {
+    if (!localTask) {
+      return true;
+    }
+    const incomingUpdatedAt = getTaskUpdatedAtMs(incomingTask);
+    const localUpdatedAt = getTaskUpdatedAtMs(localTask);
+    return incomingUpdatedAt > 0 && incomingUpdatedAt > localUpdatedAt;
+  }
+
   function summarizeTask(task: Task | null | undefined) {
     if (!task) return null;
     return {
@@ -122,6 +140,11 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
       }
 
       const localTask = localTaskMap.get(incomingTask.id);
+      if (shouldAcceptIncomingWhileLocked(incomingTask, localTask)) {
+        clearTaskSyncLock(incomingTask.id);
+        merged.push({ ...incomingTask });
+        continue;
+      }
       merged.push(localTask ? { ...localTask } : { ...incomingTask });
     }
 

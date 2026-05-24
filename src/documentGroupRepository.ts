@@ -110,7 +110,7 @@ function normalizeDocumentGroups(input: unknown): DocumentGroup[] {
 export async function loadDocumentGroups(): Promise<DocumentGroup[]> {
   const plugin = usePlugin();
   if (!plugin) {
-    console.error('[DocumentGroups] loadDocumentGroups: plugin 未初始化');
+    console.error('[DocumentGroups] loadDocumentGroups: plugin is not initialized');
     return [];
   }
 
@@ -130,7 +130,7 @@ export async function loadDocumentGroups(): Promise<DocumentGroup[]> {
       return normalizeDocumentGroups(storage.groups);
     }
   } catch (error) {
-    console.error('[DocumentGroups] loadDocumentGroups: 读取失败', error);
+    console.error('[DocumentGroups] loadDocumentGroups: failed to read data', error);
   }
 
   return [];
@@ -139,7 +139,7 @@ export async function loadDocumentGroups(): Promise<DocumentGroup[]> {
 export async function saveDocumentGroups(groups: DocumentGroup[]): Promise<void> {
   const plugin = usePlugin();
   if (!plugin) {
-    console.error('[DocumentGroups] saveDocumentGroups: plugin 未初始化');
+    console.error('[DocumentGroups] saveDocumentGroups: plugin is not initialized');
     return;
   }
 
@@ -152,6 +152,6 @@ export async function saveDocumentGroups(groups: DocumentGroup[]): Promise<void>
   try {
     await plugin.saveData(DOCUMENT_GROUPS_STORAGE_KEY, payload);
   } catch (error) {
-    console.error('[DocumentGroups] saveDocumentGroups: 写入失败', error);
+    console.error('[DocumentGroups] saveDocumentGroups: failed to write data', error);
   }
 }

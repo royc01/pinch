@@ -23,14 +23,17 @@ import {
 } from "@/utils/taskReminder";
 import { formatTaskTitleHtml } from "@/utils/taskTitleFormat";
 import { usePlugin } from "@/main";
+import { translate } from "@/composables/useI18n";
 import { awardTaskCompletion } from "@/rewardRepository";
 import {
   attachRepeatMetadataToTasks,
+  loadRepeatSeries,
   materializeRepeatTasks,
   setTaskRepeatSeries,
   getTaskRepeatFrequency,
   setRepeatInstanceStatus,
   type RepeatFrequency,
+  type RepeatRuleInput,
   type RepeatMaterializeOptions
 } from "@/repeatRepository";
 import {
@@ -38,6 +41,12 @@ import {
   extractDocumentIconFromDom,
   normalizeDocumentIconValue
 } from "@/utils/documentIcon";
+import {
+  inferTaskDateFromText as inferLocalizedTaskDateFromText,
+  inferTaskDateRangeFromText,
+  type InferredTaskDateRange,
+  type TaskDateKeywordConfig
+} from "@/utils/taskDateParser";
 
 async function request(url: string, data: any) {
   let response: IWebSocketData = await fetchSyncPost(url, data);
@@ -101,7 +110,7 @@ export async function openBlockById(
 
   const plugin = usePlugin();
   if (!plugin) {
-    console.error("[TaskAPI Error] openBlockById: plugin 未初始化");
+    console.error("[TaskAPI Error] openBlockById: plugin is not initialized");
     return false;
   }
 
@@ -128,7 +137,7 @@ export async function openBlockById(
     });
     return true;
   } catch (error) {
-    console.error("[TaskAPI Error] openBlockById: 打开块失败", error);
+    console.error("[TaskAPI Error] openBlockById: failed to open block", error);
     return false;
   }
 }
@@ -195,6 +204,11 @@ export async function createDocWithMd(
   };
   let url = "/api/filetree/createDocWithMd";
   return request(url, data);
+}
+
+export async function createDailyNote(notebook: NotebookId): Promise<DocumentId | { id?: string; rootId?: string; path?: string; hPath?: string } | null> {
+  let url = "/api/filetree/createDailyNote";
+  return request(url, { notebook, app: "SiYuan" });
 }
 
 export async function renameDoc(
@@ -506,7 +520,7 @@ export async function checkHabitFileStatus() {
       }
     }
   } catch (error) {
-    console.error('读取习惯文件状态失败:', error);
+    console.error('Failed to read habit file status:', error);
   }
 }
 export async function putFile(path: string, isDir: boolean, file: any) {
@@ -646,6 +660,7 @@ export interface Habit {
   emoji?: string;
   difficulty: HabitDifficulty;
   frequency: 'daily' | 'weekly' | 'custom' | 'weekly1' | 'weekly2' | 'weekly3' | 'weekly4' | 'weekly5' | 'weekly6';
+  completionMode?: HabitCompletionMode;
   timesPerDay?: number;
   noteDocId?: string;
   completedToday: boolean;
@@ -666,6 +681,7 @@ export interface Habit {
 }
 
 export type HabitDifficulty = 'easy' | 'medium' | 'hard';
+export type HabitCompletionMode = 'fixed' | 'atLeast';
 
 export interface HabitCalendarDay {
   date: string;
@@ -700,6 +716,10 @@ function normalizeHabitDifficulty(difficulty: unknown): HabitDifficulty {
     return difficulty;
   }
   return 'easy';
+}
+
+function normalizeHabitCompletionMode(completionMode: unknown): HabitCompletionMode {
+  return completionMode === 'atLeast' ? 'atLeast' : 'fixed';
 }
 
 function normalizeHabitCalendar(calendar: unknown): HabitCalendarDay[] {
@@ -738,7 +758,7 @@ export async function getHabits(): Promise<Habit[]> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('[Habits] plugin 未初始化');
+      console.error('[Habits] plugin is not initialized');
       return [];
     }
 
@@ -747,7 +767,7 @@ export async function getHabits(): Promise<Habit[]> {
 
     const parsedRaw: unknown = typeof data === 'string' ? JSON.parse(data) : data;
     if (!Array.isArray(parsedRaw)) {
-      console.error('[Habits] 数据格式错误，期望数组');
+      console.error('[Habits] Invalid data format, expected an array');
       return [];
     }
 
@@ -768,6 +788,7 @@ export async function getHabits(): Promise<Habit[]> {
         name: typeof habit.name === 'string' ? habit.name : '',
         difficulty: normalizeHabitDifficulty(habit.difficulty),
         frequency: normalizeHabitFrequency(habit.frequency),
+        completionMode: normalizeHabitCompletionMode(habit.completionMode),
         calendar,
         completedToday,
         currentStreak:
@@ -794,8 +815,8 @@ export async function saveHabits(habits: Habit[]): Promise<void> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('[Habits] plugin 未初始化');
-      throw new Error('plugin 未初始化');
+      console.error('[Habits] plugin is not initialized');
+      throw new Error(translate('api.errors.pluginNotInitialized', 'Plugin is not initialized'));
     }
 
     const todayStr = new Date().toISOString().split('T')[0];
@@ -815,6 +836,7 @@ export async function saveHabits(habits: Habit[]): Promise<void> {
           name: typeof habit.name === 'string' ? habit.name : '',
           difficulty: normalizeHabitDifficulty(habit.difficulty),
           frequency: normalizeHabitFrequency(habit.frequency),
+          completionMode: normalizeHabitCompletionMode(habit.completionMode),
           calendar,
           completedToday,
           currentStreak:
@@ -852,7 +874,7 @@ export async function getMoodData(): Promise<MoodData> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件未初始化，无法读取数据');
+      console.error('Plugin is not initialized, unable to read data');
       return {};
     }
     
@@ -875,8 +897,8 @@ export async function saveMoodData(moodData: MoodData): Promise<void> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件未初始化，无法保存数据');
-      throw new Error('插件未初始化，无法保存数据');
+      console.error('Plugin is not initialized, unable to save data');
+      throw new Error(translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to save data'));
     }
     
     // 直接保存对象，无需额外序列化
@@ -934,7 +956,7 @@ export async function getFocusTimerData(): Promise<FocusTimerData> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件未初始化，无法读取数据');
+      console.error('Plugin is not initialized, unable to read data');
       return { dailyRecords: [], sessionRecords: [] };
     }
     
@@ -1002,8 +1024,8 @@ export async function saveFocusTimerData(data: FocusTimerData): Promise<void> {
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      console.error('插件未初始化，无法保存数据');
-      throw new Error('插件未初始化，无法保存数据');
+      console.error('Plugin is not initialized, unable to save data');
+      throw new Error(translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to save data'));
     }
     
     // 直接保存对象，无需额外序列化
@@ -1118,6 +1140,82 @@ export async function addFocusSession(
   }
 }
 
+export async function upsertFocusSessionRecord(
+  sessionId: string,
+  duration: number,
+  target: FocusSessionTargetInput | null = null
+): Promise<void> {
+  try {
+    const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+    const minutes = Math.max(0, Math.floor(Number(duration) || 0));
+    if (!normalizedSessionId || minutes <= 0) {
+      return;
+    }
+
+    const data = await getFocusTimerData();
+    const today = new Date().toISOString().split('T')[0];
+    const now = Date.now();
+    const existingRecord = data.sessionRecords.find(record => record.id === normalizedSessionId);
+    const recordDate = existingRecord?.date || today;
+    const previousMinutes = existingRecord ? Math.max(0, Math.floor(Number(existingRecord.minutes) || 0)) : 0;
+    const minuteDelta = minutes - previousMinutes;
+
+    if (existingRecord && minuteDelta <= 0) {
+      existingRecord.timestamp = now;
+      existingRecord.targetType = target?.type ?? existingRecord.targetType ?? 'unlinked';
+      existingRecord.targetId = target?.id ?? existingRecord.targetId;
+      existingRecord.targetName = target?.name ?? existingRecord.targetName;
+      existingRecord.targetEmoji = target?.emoji ?? existingRecord.targetEmoji;
+      existingRecord.targetBlockId = target?.blockId ?? existingRecord.targetBlockId;
+      await saveFocusTimerData(data);
+      return;
+    }
+
+    let dailyRecord = data.dailyRecords.find(record => record.date === recordDate);
+    if (!dailyRecord) {
+      dailyRecord = {
+        date: recordDate,
+        sessions: 0,
+        minutes: 0,
+        timestamp: now
+      };
+      data.dailyRecords.push(dailyRecord);
+    }
+
+    if (existingRecord) {
+      existingRecord.minutes = minutes;
+      existingRecord.timestamp = now;
+      existingRecord.targetType = target?.type ?? existingRecord.targetType ?? 'unlinked';
+      existingRecord.targetId = target?.id ?? existingRecord.targetId;
+      existingRecord.targetName = target?.name ?? existingRecord.targetName;
+      existingRecord.targetEmoji = target?.emoji ?? existingRecord.targetEmoji;
+      existingRecord.targetBlockId = target?.blockId ?? existingRecord.targetBlockId;
+      dailyRecord.minutes += minuteDelta;
+      dailyRecord.timestamp = now;
+    } else {
+      data.sessionRecords.push({
+        id: normalizedSessionId,
+        date: recordDate,
+        minutes,
+        timestamp: now,
+        targetType: target?.type ?? 'unlinked',
+        targetId: target?.id,
+        targetName: target?.name,
+        targetEmoji: target?.emoji,
+        targetBlockId: target?.blockId
+      });
+      dailyRecord.sessions += 1;
+      dailyRecord.minutes += minutes;
+      dailyRecord.timestamp = now;
+    }
+
+    await saveFocusTimerData(data);
+  } catch (error) {
+    console.error('Error upserting focus session:', error);
+    throw error;
+  }
+}
+
 export async function getMonthlyRecords(year: number, month: number): Promise<DailyFocusRecord[]> {
   try {
     const data = await getFocusTimerData();
@@ -1175,13 +1273,14 @@ export interface BlockDOMResponse {
 const DEBUG = false;
 
 export const TASK_CONFIG = {
-  CACHE_VERSION: 8,
+  CACHE_VERSION: 11,
   CACHE_DURATION: 10 * 60 * 1000,
   BATCH_SIZE: 10,
   SQL_PAGE_SIZE: 1000,
   MAX_SQL_SCAN: 20000,
   MAX_SUBTASK_DEPTH: 10,
   MAX_DOM_ORDER_SYNC: 120,
+  PARENT_LOOKUP_BATCH_SIZE: 32,
   DEBOUNCE_DELAY: 2000,
   SKIP_DELAY: 500,
   MUTATION_SKIP_DURATION: 1000,
@@ -1216,7 +1315,7 @@ async function batchGetBlockAttrs(ids: string[]): Promise<Map<string, any>> {
   for (let i = 0; i < ids.length; i += batchSize) {
     const batch = ids.slice(i, i + batchSize);
     const promises = batch.map(id => getBlockAttrs(id).catch((error) => {
-      log_debug('获取块属性失败', { id, error });
+      log_debug('Failed to get block attrs', { id, error });
       return {};
     }));
     const attrsArray = await Promise.all(promises);
@@ -1393,7 +1492,7 @@ function normalizeTaskGroups(input: unknown): TaskGroup[] {
 export async function loadTaskGroups(): Promise<TaskGroup[]> {
   const plugin = usePlugin();
   if (!plugin) {
-    console.error('[TaskGroups] loadTaskGroups: plugin 未初始化');
+    console.error('[TaskGroups] loadTaskGroups: plugin is not initialized');
     return [];
   }
 
@@ -1411,7 +1510,7 @@ export async function loadTaskGroups(): Promise<TaskGroup[]> {
       return normalizeTaskGroups(storage.groups);
     }
   } catch (error) {
-    console.error('[TaskGroups] loadTaskGroups: 读取失败', error);
+    console.error('[TaskGroups] loadTaskGroups: failed to read data', error);
   }
 
   return [];
@@ -1420,7 +1519,7 @@ export async function loadTaskGroups(): Promise<TaskGroup[]> {
 export async function saveTaskGroups(groups: TaskGroup[]): Promise<void> {
   const plugin = usePlugin();
   if (!plugin) {
-    console.error('[TaskGroups] saveTaskGroups: plugin 未初始化');
+    console.error('[TaskGroups] saveTaskGroups: plugin is not initialized');
     return;
   }
 
@@ -1434,7 +1533,7 @@ export async function saveTaskGroups(groups: TaskGroup[]): Promise<void> {
   try {
     await plugin.saveData(TASK_GROUPS_STORAGE_KEY, payload);
   } catch (error) {
-    console.error('[TaskGroups] saveTaskGroups: 写入失败', error);
+    console.error('[TaskGroups] saveTaskGroups: failed to write data', error);
   }
 }
 
@@ -1444,6 +1543,29 @@ export interface TaskQueryScope {
   includeCompleted?: boolean;
   includeArchived?: boolean;
   archivedOnly?: boolean;
+}
+
+export interface TaskStatsSummary {
+  totalRows: number;
+  topLevelRows: number;
+  subtaskRows: number;
+  completedRows: number;
+  openRows: number;
+  archivedRows: number;
+  dueTodayRows: number;
+  overdueRows: number;
+  withDateRows: number;
+  byStatus: Record<string, number>;
+  byPriority: Record<string, number>;
+  elapsedMs: number;
+  indexElapsedMs?: number;
+  hierarchyElapsedMs?: number;
+  pageCount?: number;
+  totalScanned?: number;
+  partial?: boolean;
+  cached?: boolean;
+  changedRows?: number;
+  incremental?: boolean;
 }
 
 type TaskFetchDetailLevel = 'full' | 'light';
@@ -1485,6 +1607,8 @@ export interface TaskFetchOptions {
   detailLevel?: TaskFetchDetailLevel;
   materializeRepeats?: boolean;
   repeatWindow?: TaskRepeatWindow;
+  includeRepeatTemplateDate?: boolean;
+  constrainBaseTasksToRepeatWindow?: boolean;
 }
 
 function generateTaskId(): string {
@@ -1516,6 +1640,308 @@ export class TaskRepository {
   private static autoRecognizeTaskDateEnabled: boolean | null = null;
   private static readonly TASK_DATE_INFER_SESSION_STARTED_AT = Date.now();
   private static readonly TASK_DATE_INFER_SESSION_SKEW_MS = 5000;
+
+  private static stripTaskMarker(value: unknown): string {
+    const text = typeof value === 'string' ? value : '';
+    return text
+      .replace(/^\s*[-*+]\s*(?:\{:[^}]*\})?\s*\[[ xX]\]\s*/, '')
+      .replace(/^\s*(?:\{:[^}]*\})?\s*\[[ xX]\]\s*/, '')
+      .replace(/^\s*\[[ xX]\]\s*/, '')
+      .trim();
+  }
+
+  private static buildTaskTitleFromBlockText(markdown: unknown, content: unknown): string {
+    const markdownText = typeof markdown === 'string' ? markdown : '';
+    const firstLine = markdownText
+      .split('\n')
+      .map(line => line.trim())
+      .find(line => line.length > 0) || '';
+    const titleFromMarkdown = formatTaskTitleHtml(this.stripTaskMarker(firstLine));
+    if (titleFromMarkdown.length > 0) {
+      return titleFromMarkdown;
+    }
+
+    const contentText = typeof content === 'string' ? content.trim() : '';
+    return formatTaskTitleHtml(this.stripTaskMarker(contentText));
+  }
+
+  private static parseTaskTags(value: string | undefined): string[] {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === 'string')
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private static buildLightTaskFromKernelRow(row: Record<string, any>): Task {
+    const attrs: Record<string, string> = {
+      'custom-task-id': row.custom_task_id,
+      'custom-task-priority': row.custom_task_priority,
+      'custom-task-status': row.custom_task_status,
+      'custom-task-due-date': row.custom_task_due_date,
+      'custom-task-due-time': row.custom_task_due_time,
+      'custom-task-start-date': row.custom_task_start_date,
+      'custom-task-start-time': row.custom_task_start_time,
+      'custom-task-tags': row.custom_task_tags,
+      'custom-task-description': row.custom_task_description,
+      'custom-task-reminder-type': row.custom_task_reminder_type,
+      'custom-task-reminder-custom-time': row.custom_task_reminder_custom_time,
+      'custom-task-group': row.custom_task_group,
+      'custom-task-pinned': row.custom_task_pinned,
+      'custom-task-background-color': row.custom_task_background_color,
+      'custom-task-archived': row.custom_task_archived,
+      'custom-task-completed-at': row.custom_task_completed_at,
+      'custom-task-archived-at': row.custom_task_archived_at,
+      'custom-task-archive-reason': row.custom_task_archive_reason
+    };
+    const title = this.buildTaskTitleFromBlockText(row.markdown, row.content) || '(untitled)';
+    const status = this.parseTaskStatus(attrs, row.markdown || '', null);
+    const dateRange = this.resolveTaskDateRange(attrs, title, {
+      allowInferFromTitle: false,
+      createdAtRaw: row.created
+    });
+    const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
+
+    return {
+      id: attrs['custom-task-id'] || `block_${row.id}`,
+      type: 'block',
+      blockId: row.id,
+      rootId: row.root_id,
+      title,
+      status,
+      priority: attrs['custom-task-priority'] as TaskPriority || 'none',
+      pinned: this.parseTaskPinnedFlag(attrs['custom-task-pinned']),
+      dueDate: dateRange.dueDate,
+      dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
+      startDate: dateRange.startDate,
+      startTime: attrs['custom-task-start-time'] || dateRange.startTime,
+      tags: this.parseTaskTags(attrs['custom-task-tags']),
+      description: attrs['custom-task-description'] || '',
+      reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
+      reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
+      groupId: attrs['custom-task-group'] || undefined,
+      hPath: row.hpath,
+      notebookId: row.box,
+      icon: '\uD83D\uDCC4',
+      backgroundColor: attrs['custom-task-background-color'],
+      archived,
+      completedAt: this.resolveTaskCompletedAt(attrs, status, row.updated),
+      archivedAt: archived && attrs['custom-task-archived-at'] ? attrs['custom-task-archived-at'] : undefined,
+      archiveReason: archived ? this.normalizeTaskArchiveReason(attrs['custom-task-archive-reason']) : undefined,
+      createdAt: this.parseBlockDateTime(row.created),
+      updatedAt: this.parseBlockDateTime(row.updated)
+    };
+  }
+
+  private static isKernelSubtaskRow(row: Record<string, any>): boolean {
+    return row?.is_subtask === true || row?.is_subtask === 'true' || row?.is_subtask === 1 || Boolean(row?.parent_task_id);
+  }
+
+  private static mergeUniqueLightTasks(primaryTasks: Task[], extraTasks: Task[]): Task[] {
+    const merged: Task[] = [];
+    const seenKeys = new Set<string>();
+
+    for (const task of [...primaryTasks, ...extraTasks]) {
+      const key = task.blockId ? `block:${task.blockId}` : `task:${task.id}`;
+      if (seenKeys.has(key)) {
+        continue;
+      }
+      seenKeys.add(key);
+      merged.push(task);
+    }
+
+    return merged;
+  }
+
+  private static async getEnabledRepeatTemplateBlockIds(): Promise<string[]> {
+    const seriesList = (await loadRepeatSeries()).filter((series) => series.enabled);
+    return Array.from(new Set(
+      seriesList
+        .map((series) => typeof series.templateBlockId === 'string' ? series.templateBlockId.trim() : '')
+        .filter((blockId) => blockId.length > 0)
+    ));
+  }
+
+  static async getKernelLightTasks(
+    limit = 200,
+    scope?: TaskQueryScope | null,
+    options: { force?: boolean } = {}
+  ): Promise<{ tasks: Task[]; elapsedMs: number; cached?: boolean; indexElapsedMs?: number; pageCount?: number; partial?: boolean; changedRows?: number; incremental?: boolean }> {
+    const { getKernelTaskIndex } = await import('@/kernelRpc');
+    const startedAt = Date.now();
+    const result = await getKernelTaskIndex({
+      limit,
+      includeCompleted: scope?.includeCompleted,
+      includeArchived: scope?.includeArchived,
+      archivedOnly: scope?.archivedOnly,
+      notebookId: scope?.notebookId,
+      documentId: scope?.documentId,
+      force: options.force
+    });
+    const tasks = result.rows
+      .filter(row => !this.isKernelSubtaskRow(row))
+      .map(row => this.buildLightTaskFromKernelRow(row));
+    return {
+      tasks,
+      elapsedMs: Date.now() - startedAt,
+      cached: result.cached,
+      indexElapsedMs: result.indexElapsedMs,
+      pageCount: result.pageCount,
+      partial: result.partial,
+      changedRows: result.changedRows,
+      incremental: result.incremental
+    };
+  }
+
+  static async getKernelLightTasksByBlockIds(
+    blockIds: string[],
+    scope?: TaskQueryScope | null,
+    options: { includeSubtasks?: boolean; attachRepeatMetadata?: boolean } = {}
+  ): Promise<{ tasks: Task[]; elapsedMs: number; pageCount?: number; partial?: boolean }> {
+    const { getKernelTaskRowsByBlockIds } = await import('@/kernelRpc');
+    const startedAt = Date.now();
+    const result = await getKernelTaskRowsByBlockIds(blockIds, {
+      includeCompleted: scope?.includeCompleted,
+      includeArchived: scope?.includeArchived,
+      archivedOnly: scope?.archivedOnly,
+      notebookId: scope?.notebookId,
+      documentId: scope?.documentId,
+    });
+    const rows = options.includeSubtasks
+      ? result.rows
+      : result.rows.filter(row => !this.isKernelSubtaskRow(row));
+    const tasks = rows.map(row => this.buildLightTaskFromKernelRow(row));
+    return {
+      tasks: options.attachRepeatMetadata === false
+        ? tasks
+        : await attachRepeatMetadataToTasks(tasks),
+      elapsedMs: Date.now() - startedAt,
+      pageCount: result.pageCount,
+      partial: result.partial
+    };
+  }
+
+  static async getKernelLightTasksByDateRange(
+    startDate: string,
+    endDate: string,
+    scope?: TaskQueryScope | null,
+    options: { includeSubtasks?: boolean; materializeRepeats?: boolean; force?: boolean } = {}
+  ): Promise<{ tasks: Task[]; elapsedMs: number; cached?: boolean; indexElapsedMs?: number; pageCount?: number; partial?: boolean; totalMatched?: number }> {
+    const { getKernelTaskRowsByDateRange } = await import('@/kernelRpc');
+    const startedAt = Date.now();
+    const result = await getKernelTaskRowsByDateRange(startDate, endDate, {
+      limit: 5000,
+      includeCompleted: scope?.includeCompleted,
+      includeArchived: scope?.includeArchived,
+      archivedOnly: scope?.archivedOnly,
+      notebookId: scope?.notebookId,
+      documentId: scope?.documentId,
+      includeSubtasks: options.includeSubtasks,
+      force: options.force
+    });
+    const tasks = result.rows.map(row => this.buildLightTaskFromKernelRow(row));
+    let tasksForMaterialize = tasks;
+
+    if (options.materializeRepeats !== false) {
+      const existingBlockIds = new Set(tasks.map(task => task.blockId).filter((id): id is string => !!id));
+      const repeatTemplateBlockIds = (await this.getEnabledRepeatTemplateBlockIds())
+        .filter((blockId) => !existingBlockIds.has(blockId));
+
+      if (repeatTemplateBlockIds.length > 0) {
+        const templateResult = await this.getKernelLightTasksByBlockIds(
+          repeatTemplateBlockIds,
+          scope,
+          { includeSubtasks: false, attachRepeatMetadata: false }
+        );
+        tasksForMaterialize = this.mergeUniqueLightTasks(tasks, templateResult.tasks);
+      }
+    }
+
+    return {
+      tasks: options.materializeRepeats === false
+        ? tasks
+        : await materializeRepeatTasks(tasksForMaterialize, {
+            startDate,
+            endDate,
+            includeTemplateDate: true,
+            filterBaseTasksToRange: true
+          }),
+      elapsedMs: Date.now() - startedAt,
+      cached: result.cached,
+      indexElapsedMs: result.indexElapsedMs,
+      pageCount: result.pageCount,
+      partial: result.partial,
+      totalMatched: result.totalMatched
+    };
+  }
+
+  static async getKernelTaskStats(
+    scope?: TaskQueryScope | null,
+    options: { startDate?: string; endDate?: string; includeSubtasks?: boolean; force?: boolean } = {}
+  ): Promise<TaskStatsSummary> {
+    const { getKernelTaskStats } = await import('@/kernelRpc');
+    return getKernelTaskStats({
+      limit: 5000,
+      includeCompleted: scope?.includeCompleted,
+      includeArchived: scope?.includeArchived,
+      archivedOnly: scope?.archivedOnly,
+      notebookId: scope?.notebookId,
+      documentId: scope?.documentId,
+      startDate: options.startDate,
+      endDate: options.endDate,
+      includeSubtasks: options.includeSubtasks,
+      force: options.force
+    });
+  }
+
+  static async getKernelMaterializedTasks(
+    limit = 5000,
+    scope?: TaskQueryScope | null,
+    options: TaskFetchOptions & { force?: boolean } = {}
+  ): Promise<{ tasks: Task[]; elapsedMs: number; cached?: boolean; indexElapsedMs?: number; changedRows?: number; incremental?: boolean }> {
+    const result = await this.getKernelLightTasks(limit, scope, { force: options.force });
+    if (options.materializeRepeats === false) {
+      return result;
+    }
+
+    return {
+      ...result,
+      tasks: await materializeRepeatTasks(
+        result.tasks,
+        {
+          ...resolveTaskRepeatMaterializeOptions(options.repeatWindow),
+          includeTemplateDate: options.includeRepeatTemplateDate === true,
+          filterBaseTasksToRange: options.constrainBaseTasksToRepeatWindow === true
+        }
+      )
+    };
+  }
+
+  private static async tryGetKernelLightTasksForFetch(
+    useCache: boolean,
+    scope: TaskQueryScope | null,
+    options: TaskFetchOptions
+  ): Promise<Task[] | null> {
+    if (this.resolveTaskFetchDetailLevel(options) !== 'light' || options.useLiveDom !== false) {
+      return null;
+    }
+
+    try {
+      const result = await this.getKernelLightTasks(
+        5000,
+        scope,
+        { force: !useCache }
+      );
+      return result.tasks;
+    } catch (error) {
+      console.debug('[TaskRepository] kernel light task fetch skipped', error);
+      return null;
+    }
+  }
   
   private static readonly MEMORY_CACHE_DURATION = 5000; // 5 秒内存缓存
   private static readonly SCOPED_MEMORY_CACHE_DURATION = 60000; // 60 秒筛选范围缓存
@@ -1750,7 +2176,7 @@ export class TaskRepository {
         return !this.excludedNotebookIds.has(notebookId);
       });
     } catch (error) {
-      handleError('过滤排除笔记本 blockId 失败', error, { blockIds: normalizedBlockIds });
+      handleError('Failed to filter block IDs from excluded notebooks', error, { blockIds: normalizedBlockIds });
       return normalizedBlockIds;
     }
   }
@@ -1771,7 +2197,7 @@ export class TaskRepository {
       const notebookId = rows?.[0]?.box;
       return typeof notebookId === 'string' && this.excludedNotebookIds.has(notebookId);
     } catch (error) {
-      handleError('检查 blockId 是否属于排除笔记本失败', error, { blockId });
+      handleError('Failed to check whether blockId belongs to an excluded notebook', error, { blockId });
       return false;
     }
   }
@@ -1818,134 +2244,57 @@ export class TaskRepository {
     return fallback || undefined;
   }
 
-  private static formatDateString(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+  private static getTaskDateParserLocale(): string {
+    const siyuan = window.siyuan as any;
+    return siyuan?.config?.appearance?.lang
+      || siyuan?.config?.lang
+      || (typeof navigator !== 'undefined' ? navigator.language : 'zh_CN');
   }
 
-  private static buildValidDateString(year: number, month: number, day: number): string | null {
-    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-      return null;
+  private static getTaskDateRecognitionKeywords(): TaskDateKeywordConfig | undefined {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return undefined;
+      }
+      const raw = localStorage.getItem(this.SETTINGS_LOCAL_STORAGE_KEY);
+      if (!raw) {
+        return undefined;
+      }
+      const parsed = JSON.parse(raw);
+      const taskManager = parsed && typeof parsed === 'object'
+        ? (parsed as { taskManager?: unknown }).taskManager
+        : null;
+      if (!taskManager || typeof taskManager !== 'object') {
+        return undefined;
+      }
+      const keywords = (taskManager as { dateRecognitionKeywords?: unknown }).dateRecognitionKeywords;
+      return keywords && typeof keywords === 'object'
+        ? keywords as TaskDateKeywordConfig
+        : undefined;
+    } catch {
+      return undefined;
     }
-    if (month < 1 || month > 12 || day < 1 || day > 31) {
-      return null;
-    }
-    const candidate = new Date(year, month - 1, day);
-    if (
-      candidate.getFullYear() !== year
-      || candidate.getMonth() !== month - 1
-      || candidate.getDate() !== day
-    ) {
-      return null;
-    }
-    return this.formatDateString(candidate);
   }
 
   private static extractDateFromTaskTitle(title: string, now: Date = new Date()): string | null {
-    const normalizedTitle = (title || '')
-      .trim()
-      .replace(/\s+/g, '')
-      .replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
-      .replace(/／/g, '/')
-      .replace(/[－—–]/g, '-')
-      .replace(/．/g, '.');
-    if (!normalizedTitle) {
-      return null;
-    }
-
-    const buildRelativeDate = (days: number): string => {
-      const date = new Date(now);
-      date.setHours(0, 0, 0, 0);
-      date.setDate(date.getDate() + days);
-      return this.formatDateString(date);
-    };
-
-    if (normalizedTitle.includes('大后天')) return buildRelativeDate(3);
-    if (normalizedTitle.includes('后天')) return buildRelativeDate(2);
-    if (normalizedTitle.includes('明天')) return buildRelativeDate(1);
-    if (normalizedTitle.includes('今天')) return buildRelativeDate(0);
-
-    const weekdayMatch = normalizedTitle.match(
-      /(?:^|[^\d])(下下|下|本|这)?(?:周|星期|礼拜)(末|天|日|[1-7]|一|二|三|四|五|六)(?![一二三四五六日天末\d])/
-    );
-    if (weekdayMatch) {
-      const prefix = weekdayMatch[1] || '';
-      const weekdayToken = weekdayMatch[2];
-      const weekdayMap: Record<string, number> = {
-        '1': 1,
-        '2': 2,
-        '3': 3,
-        '4': 4,
-        '5': 5,
-        '6': 6,
-        '7': 0,
-        '一': 1,
-        '二': 2,
-        '三': 3,
-        '四': 4,
-        '五': 5,
-        '六': 6,
-        '日': 0,
-        '天': 0,
-        '末': 6
-      };
-      const targetWeekday = weekdayMap[weekdayToken];
-      if (typeof targetWeekday === 'number') {
-        const currentWeekday = now.getDay();
-        let daysUntil = (targetWeekday - currentWeekday + 7) % 7;
-        if (daysUntil === 0) {
-          daysUntil = 7;
-        }
-        if (prefix === '下') {
-          daysUntil += 7;
-        } else if (prefix === '下下') {
-          daysUntil += 14;
-        }
-        return buildRelativeDate(daysUntil);
-      }
-    }
-
-    const fullDateMatch = normalizedTitle.match(
-      /(?:^|[^\d])((?:19|20)\d{2})[年\-/.](1[0-2]|0?[1-9])[月\-/.](3[01]|[12]\d|0?[1-9])(?:日|号)?(?!\d)/
-    );
-    if (fullDateMatch) {
-      const year = Number(fullDateMatch[1]);
-      const month = Number(fullDateMatch[2]);
-      const day = Number(fullDateMatch[3]);
-      const parsed = this.buildValidDateString(year, month, day);
-      if (parsed) return parsed;
-    }
-
-    const monthDayChineseMatch = normalizedTitle.match(
-      /(?:^|[^\d])(1[0-2]|0?[1-9])月(3[01]|[12]\d|0?[1-9])(?:日|号)(?!\d)/
-    );
-    if (monthDayChineseMatch) {
-      const year = now.getFullYear();
-      const month = Number(monthDayChineseMatch[1]);
-      const day = Number(monthDayChineseMatch[2]);
-      const parsed = this.buildValidDateString(year, month, day);
-      if (parsed) return parsed;
-    }
-
-    const monthDaySlashMatch = normalizedTitle.match(
-      /(?:^|[^\d])(1[0-2]|0?[1-9])[\/.-](3[01]|[12]\d|0?[1-9])(?!\d)/
-    );
-    if (monthDaySlashMatch) {
-      const year = now.getFullYear();
-      const month = Number(monthDaySlashMatch[1]);
-      const day = Number(monthDaySlashMatch[2]);
-      const parsed = this.buildValidDateString(year, month, day);
-      if (parsed) return parsed;
-    }
-
-    return null;
+    return inferLocalizedTaskDateFromText(title, {
+      now,
+      locale: this.getTaskDateParserLocale(),
+      keywords: this.getTaskDateRecognitionKeywords()
+    });
   }
 
-  private static extractDateFromTaskText(title: string): string | null {
+  private static extractDateRangeFromTaskTitle(title: string, now: Date = new Date()): InferredTaskDateRange | null {
+    return inferTaskDateRangeFromText(title, {
+      now,
+      locale: this.getTaskDateParserLocale(),
+      keywords: this.getTaskDateRecognitionKeywords()
+    });
+  }
+
+  private static normalizeTaskTitleText(title: string): string | null {
     if (!title) return null;
-    const plainTitle = title
+    return title
       .replace(/<[^>]*>/g, ' ')
       .replace(/&nbsp;/gi, ' ')
       .replace(/&#(\d+);/g, (_, code) => {
@@ -1953,11 +2302,26 @@ export class TaskRepository {
         return Number.isNaN(parsed) ? '' : String.fromCharCode(parsed);
       })
       .trim();
+  }
+
+  private static extractDateFromTaskText(title: string): string | null {
+    const plainTitle = this.normalizeTaskTitleText(title);
+    if (!plainTitle) return null;
     return this.extractDateFromTaskTitle(plainTitle);
+  }
+
+  private static extractDateRangeFromTaskText(title: string): InferredTaskDateRange | null {
+    const plainTitle = this.normalizeTaskTitleText(title);
+    if (!plainTitle) return null;
+    return this.extractDateRangeFromTaskTitle(plainTitle);
   }
 
   static inferTaskDateFromText(title: string): string | null {
     return this.extractDateFromTaskText(title);
+  }
+
+  static inferTaskDateRangeFromText(title: string): InferredTaskDateRange | null {
+    return this.extractDateRangeFromTaskText(title);
   }
 
   static async recognizeDatesForUndatedTasks(): Promise<{
@@ -1995,21 +2359,31 @@ export class TaskRepository {
           continue;
         }
 
-        const inferredDate = this.inferTaskDateFromText(currentTask.title || '');
-        if (!inferredDate) {
+        const inferredDateRange = this.extractDateRangeFromTaskText(currentTask.title || '');
+        if (!inferredDateRange?.startDate && !inferredDateRange?.dueDate) {
           continue;
         }
 
         recognized += 1;
         try {
-          await setBlockAttrs(currentTask.blockId, {
-            'custom-task-start-date': inferredDate,
-            'custom-task-due-date': inferredDate
-          });
+          const attrsToPersist: Record<string, string> = {};
+          if (inferredDateRange.startDate) {
+            attrsToPersist['custom-task-start-date'] = inferredDateRange.startDate;
+          }
+          if (inferredDateRange.startTime) {
+            attrsToPersist['custom-task-start-time'] = inferredDateRange.startTime;
+          }
+          if (inferredDateRange.dueDate) {
+            attrsToPersist['custom-task-due-date'] = inferredDateRange.dueDate;
+          }
+          if (inferredDateRange.dueTime) {
+            attrsToPersist['custom-task-due-time'] = inferredDateRange.dueTime;
+          }
+          await setBlockAttrs(currentTask.blockId, attrsToPersist);
           updated += 1;
         } catch (error) {
           failed += 1;
-          handleError('全局识别任务日期并写入失败', error, {
+          handleError('Failed to recognize and persist task dates globally', error, {
             blockId: currentTask.blockId,
             taskId: currentTask.id
           });
@@ -2038,7 +2412,7 @@ export class TaskRepository {
       allowInferFromTitle?: boolean;
       createdAtRaw?: string | number;
     } = {}
-  ): { startDate?: string; dueDate?: string; inferredFromTitle: boolean } {
+  ): { startDate?: string; dueDate?: string; startTime?: string; dueTime?: string; inferredFromTitle: boolean } {
     const startDate = (attrs['custom-task-start-date'] || '').trim();
     const dueDate = (attrs['custom-task-due-date'] || '').trim();
     if (startDate || dueDate) {
@@ -2056,14 +2430,16 @@ export class TaskRepository {
       return { inferredFromTitle: false };
     }
 
-    const inferredDate = this.extractDateFromTaskText(title);
-    if (!inferredDate) {
+    const inferredDateRange = this.extractDateRangeFromTaskText(title);
+    if (!inferredDateRange?.startDate && !inferredDateRange?.dueDate) {
       return { inferredFromTitle: false };
     }
 
     return {
-      startDate: inferredDate,
-      dueDate: inferredDate,
+      startDate: inferredDateRange.startDate,
+      dueDate: inferredDateRange.dueDate,
+      startTime: inferredDateRange.startTime,
+      dueTime: inferredDateRange.dueTime,
       inferredFromTitle: true
     };
   }
@@ -2085,7 +2461,7 @@ export class TaskRepository {
 
   private static queuePersistInferredTaskDate(
     blockId: string,
-    dateRange: { startDate?: string; dueDate?: string; inferredFromTitle: boolean }
+    dateRange: { startDate?: string; dueDate?: string; startTime?: string; dueTime?: string; inferredFromTitle: boolean }
   ): void {
     if (!dateRange.inferredFromTitle) return;
     const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
@@ -2095,8 +2471,14 @@ export class TaskRepository {
     if (dateRange.startDate) {
       attrsToPersist['custom-task-start-date'] = dateRange.startDate;
     }
+    if (dateRange.startTime) {
+      attrsToPersist['custom-task-start-time'] = dateRange.startTime;
+    }
     if (dateRange.dueDate) {
       attrsToPersist['custom-task-due-date'] = dateRange.dueDate;
+    }
+    if (dateRange.dueTime) {
+      attrsToPersist['custom-task-due-time'] = dateRange.dueTime;
     }
     if (Object.keys(attrsToPersist).length === 0) return;
     if (this.inferredDatePersistingBlockIds.has(normalizedBlockId)) return;
@@ -2104,7 +2486,7 @@ export class TaskRepository {
     this.inferredDatePersistingBlockIds.add(normalizedBlockId);
     void setBlockAttrs(normalizedBlockId, attrsToPersist)
       .catch((error) => {
-        handleError('回写推断任务日期失败', error, { blockId: normalizedBlockId, attrs: attrsToPersist });
+        handleError('Failed to persist inferred task dates', error, { blockId: normalizedBlockId, attrs: attrsToPersist });
       })
       .finally(() => {
         this.inferredDatePersistingBlockIds.delete(normalizedBlockId);
@@ -2254,7 +2636,7 @@ export class TaskRepository {
         }
       }
     } catch (error) {
-      console.warn('[TaskRepository] 读取文档块元数据失败', error);
+      console.warn('[TaskRepository] Failed to read document block metadata', error);
     }
 
     return rootRowsById;
@@ -2310,7 +2692,7 @@ export class TaskRepository {
         }
       });
     } catch (error) {
-      console.warn('[TaskRepository] 读取文档属性图标失败，将尝试块属性或 DOM 图标', error);
+      console.warn('[TaskRepository] Failed to read document attribute icons, will try block attrs or DOM icons', error);
     }
 
     for (const rootId of staleRootIds) {
@@ -2328,7 +2710,7 @@ export class TaskRepository {
       try {
         fetchedDomMap = await batchGetBlockDOM(staleRootIds);
       } catch (error) {
-        console.warn('[TaskRepository] 读取文档 DOM 失败，回退至默认排序', error);
+        console.warn('[TaskRepository] Failed to read document DOM, falling back to default sorting', error);
         fetchedDomMap = new Map<string, BlockDOMResponse>();
       }
     }
@@ -2383,6 +2765,46 @@ export class TaskRepository {
     return undefined;
   }
 
+  private static getOwnTaskParagraph(root: Element | null, ownerId?: string): Element | null {
+    if (!root) return null;
+    const ownerListItem = root.getAttribute('data-type') === 'NodeListItem'
+      ? root
+      : root.closest('[data-type="NodeListItem"]');
+    const resolvedOwnerId = ownerId
+      || ownerListItem?.getAttribute('data-node-id')
+      || root.getAttribute('data-node-id')
+      || '';
+    const paragraphs: Element[] = [];
+    if (root.getAttribute('data-type') === 'NodeParagraph') {
+      paragraphs.push(root);
+    }
+    paragraphs.push(...Array.from(root.querySelectorAll('[data-type="NodeParagraph"]')));
+    for (const paragraph of paragraphs) {
+      const paragraphOwner = paragraph.closest('[data-type="NodeListItem"]');
+      if (resolvedOwnerId) {
+        if (paragraphOwner?.getAttribute('data-node-id') === resolvedOwnerId) {
+          return paragraph;
+        }
+      } else if (!ownerListItem || paragraphOwner === ownerListItem) {
+        return paragraph;
+      }
+    }
+    return null;
+  }
+
+  private static getTaskTitleHtmlFromElement(root: Element | null, ownerId?: string): string {
+    const paragraph = this.getOwnTaskParagraph(root, ownerId);
+    const editable = paragraph?.querySelector('[contenteditable="true"]');
+    const source = editable || paragraph;
+    if (!source) return '';
+
+    const clone = source.cloneNode(true) as Element;
+    clone.querySelectorAll('.list, [data-type="NodeList"], ul, ol, [data-type="NodeListItem"], .li, .protyle-action--task').forEach((node) => {
+      node.remove();
+    });
+    return clone.innerHTML || '';
+  }
+
   private static getTaskActionElement(root: Element | null, ownerId?: string): Element | null {
     if (!root) return null;
 
@@ -2431,9 +2853,7 @@ export class TaskRepository {
         const href = svg?.getAttribute('xlink:href') || svg?.getAttribute('href') || '';
         const completed = href === '#iconCheck';
 
-        const paragraph = item.querySelector('[data-type="NodeParagraph"]');
-        const editable = paragraph?.querySelector('[contenteditable="true"]');
-        const titleHtml = editable?.innerHTML || paragraph?.innerHTML || '';
+        const titleHtml = TaskRepository.getTaskTitleHtmlFromElement(item, nodeId);
         const title = cleanHtmlStyle(titleHtml) || 'Untitled';
 
         const directList = item.querySelector(':scope > .list');
@@ -2572,7 +2992,7 @@ export class TaskRepository {
         return blockIdById;
       }
     } catch (error) {
-      handleError('根据 taskId 解析 blockId 失败', error, { taskId: normalizedTaskId });
+      handleError('Failed to resolve blockId from taskId', error, { taskId: normalizedTaskId });
     }
 
     return null;
@@ -2606,7 +3026,11 @@ export class TaskRepository {
     if (options.materializeRepeats === false) {
       return blockTasks;
     }
-    return materializeRepeatTasks(blockTasks, resolveTaskRepeatMaterializeOptions(options.repeatWindow));
+    return materializeRepeatTasks(blockTasks, {
+      ...resolveTaskRepeatMaterializeOptions(options.repeatWindow),
+      includeTemplateDate: options.includeRepeatTemplateDate === true,
+      filterBaseTasksToRange: options.constrainBaseTasksToRepeatWindow === true
+    });
   }
 
   private static async getCachedBlockTasks(): Promise<Task[] | null> {
@@ -2666,7 +3090,11 @@ export class TaskRepository {
       return cachedBlockTasks;
     }
 
-    return materializeRepeatTasks(cachedBlockTasks, resolveTaskRepeatMaterializeOptions(options.repeatWindow));
+    return materializeRepeatTasks(cachedBlockTasks, {
+      ...resolveTaskRepeatMaterializeOptions(options.repeatWindow),
+      includeTemplateDate: options.includeRepeatTemplateDate === true,
+      filterBaseTasksToRange: options.constrainBaseTasksToRepeatWindow === true
+    });
   }
   
   static async getBlockTasks(
@@ -2714,7 +3142,8 @@ export class TaskRepository {
       }
 
       const scopedFetchPromise = (async () => {
-        const tasks = await this.fetchBlockTasks(normalizedScope, useLiveDom, detailLevel);
+        const kernelTasks = await this.tryGetKernelLightTasksForFetch(useCache, normalizedScope, options);
+        const tasks = kernelTasks ?? await this.fetchBlockTasks(normalizedScope, useLiveDom, detailLevel);
         if (useCache) {
           this.setScopedMemoryCache(scopedCacheKey, tasks, detailLevel);
         }
@@ -2741,7 +3170,8 @@ export class TaskRepository {
     }
 
     const globalFetchPromise = (async () => {
-      const tasks = await this.fetchBlockTasks(null, useLiveDom, detailLevel);
+      const kernelTasks = await this.tryGetKernelLightTasksForFetch(useCache, null, options);
+      const tasks = kernelTasks ?? await this.fetchBlockTasks(null, useLiveDom, detailLevel);
       if (detailLevel === 'full') {
         await this.saveBlockTasksCache(tasks);
       } else {
@@ -2848,12 +3278,10 @@ export class TaskRepository {
         const parentListItem =
           doc.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`) ||
           doc.querySelector(`[data-node-id="${row.id}"]`);
-        const parentParagraph = parentListItem?.querySelector('[data-type="NodeParagraph"]');
-        const titleFromApi = parentParagraph?.querySelector('[contenteditable="true"]')?.innerHTML
-          || parentParagraph?.innerHTML
-          || '';
+        const titleFromBlockText = this.buildTaskTitleFromBlockText(row.markdown, row.content);
+        const titleFromApi = this.getTaskTitleHtmlFromElement(parentListItem, row.id);
 
-        let title = titleFromApi;
+        let title = titleFromBlockText || titleFromApi;
         let completedByDOM: boolean | null = null;
         if (useLiveDom) {
           const currentElement =
@@ -2861,8 +3289,8 @@ export class TaskRepository {
             || protyleElement?.querySelector(`[data-node-id="${row.id}"]`)
             || document.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`)
             || document.querySelector(`[data-node-id="${row.id}"]`);
-          const currentParagraph = currentElement?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
-          title = currentParagraph?.innerHTML || titleFromApi;
+          const currentTitle = this.getTaskTitleHtmlFromElement(currentElement || null, row.id);
+          title = titleFromBlockText || currentTitle || titleFromApi;
 
           const currentAction = this.getTaskActionElement(currentElement, row.id);
           const currentSvg = currentAction?.querySelector('use');
@@ -2907,9 +3335,9 @@ export class TaskRepository {
           priority: attrs['custom-task-priority'] as TaskPriority || 'none',
           pinned,
           dueDate: dateRange.dueDate,
-          dueTime: attrs['custom-task-due-time'],
+          dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
           startDate: dateRange.startDate,
-          startTime: attrs['custom-task-start-time'],
+          startTime: attrs['custom-task-start-time'] || dateRange.startTime,
           tags,
           description: attrs['custom-task-description'] || '',
           reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
@@ -2931,7 +3359,7 @@ export class TaskRepository {
 
       return result;
     } catch (error) {
-      handleError('按 blockId 增量查询任务失败', error, { blockIds: uniqueIds });
+      handleError('Failed to query tasks incrementally by blockId', error, { blockIds: uniqueIds });
       return new Map();
     }
   }
@@ -2947,22 +3375,9 @@ export class TaskRepository {
     const shouldBuildNestedSubtasks = !useLiveDom && detailLevel === 'full';
     
     try {
-      const notebookScopeSql = this.buildNotebookScopeSql(null);
-      const taskScopeSql = this.buildTaskQueryScopeSql(scope, null);
-      const completionSqlForNodeLists = useLiveDom
-        ? this.buildTaskCompletionSql(scope?.includeCompleted, null)
-        : '';
       const completionSqlForTree = useLiveDom
         ? this.buildTaskCompletionSql(scope?.includeCompleted, 'b')
         : '';
-      const nodeListBlocksPromise = sql(`
-        SELECT id, parent_id, type
-        FROM blocks
-        WHERE type = 'l' AND subtype = 't'
-        ${notebookScopeSql}
-        ${taskScopeSql}
-        ${completionSqlForNodeLists}
-      `);
 
       const taskBlocks: SiyuanBlock[] = [];
       const pageSize = TASK_CONFIG.SQL_PAGE_SIZE;
@@ -3025,29 +3440,18 @@ export class TaskRepository {
         }
         cursorId = lastId;
 
-        if (page.length < limit) {
-          break;
-        }
       }
 
       if (taskBlocks.length >= maxScan) {
-        console.warn('[TaskRepository] 已触发任务扫描上限，可能仍有部分任务未加载', {
+        console.warn('[TaskRepository] Task scan limit reached; some tasks may still be unloaded', {
           scanned: taskBlocks.length,
           maxScan
         });
       }
 
-      const nodeListBlocks = await nodeListBlocksPromise;
       const allBlocks = taskBlocks;
-      const nodeListMap = new Map<string, string>();
       const rootIdSet = new Set<string>();
-      
-      nodeListBlocks.forEach((block: SiyuanBlock) => {
-        if (block.type === 'l') {
-          nodeListMap.set(block.id, block.parent_id);
-        }
-      });
-      
+
       allBlocks.forEach((block: SiyuanBlock) => {
         if (block.root_id) {
           rootIdSet.add(block.root_id);
@@ -3056,35 +3460,90 @@ export class TaskRepository {
       
       const processedIds = new Set<string>();
       const allBlockIds = new Set(allBlocks.map(b => b.id));
-      
-      const subtaskIds = new Set<string>();
-      
-      for (const block of allBlocks) {
-        const currentParentId = block.parent_id;
-        if (!currentParentId || currentParentId === '') continue;
-        
-        const nodeListParentId = nodeListMap.get(currentParentId);
-        
-        if (nodeListParentId && allBlockIds.has(nodeListParentId)) {
-          subtaskIds.add(block.id);
-          continue;
+      const ancestorParentById = new Map<string, string>();
+
+      allBlocks.forEach((block) => {
+        ancestorParentById.set(block.id, block.parent_id || '');
+      });
+
+      const fetchParentRowsByIds = async (ids: string[]): Promise<Array<{ id: string; parent_id: string }>> => {
+        const uniqueIds = Array.from(new Set(ids.filter(id => typeof id === 'string' && id.length > 0)));
+        if (uniqueIds.length === 0) {
+          return [];
         }
-        
-        let tempId = nodeListParentId;
+        const idsClause = uniqueIds
+          .map(id => `'${this.escapeSqlLiteral(id)}'`)
+          .join(',');
+        const rows = await sql(`
+          SELECT id, parent_id
+          FROM blocks
+          WHERE id IN (${idsClause})
+        `) as Array<{ id?: string; parent_id?: string }>;
+        const normalizedRows = Array.isArray(rows)
+          ? rows
+            .map((row) => ({
+              id: typeof row?.id === 'string' ? row.id : '',
+              parent_id: typeof row?.parent_id === 'string' ? row.parent_id : ''
+            }))
+            .filter(row => row.id.length > 0)
+          : [];
+
+        if (uniqueIds.length <= 1 || normalizedRows.length >= uniqueIds.length) {
+          return normalizedRows;
+        }
+
+        const midpoint = Math.ceil(uniqueIds.length / 2);
+        const leftRows = await fetchParentRowsByIds(uniqueIds.slice(0, midpoint));
+        const rightRows = await fetchParentRowsByIds(uniqueIds.slice(midpoint));
+        return [...leftRows, ...rightRows];
+      };
+
+      let ancestorLookupIds = Array.from(
+        new Set(allBlocks.map(block => block.parent_id || '').filter(id => id.length > 0))
+      );
+      for (let depth = 0; depth < TASK_CONFIG.MAX_SUBTASK_DEPTH && ancestorLookupIds.length > 0; depth++) {
+        const nextLookupIds = new Set<string>();
+        for (let i = 0; i < ancestorLookupIds.length; i += TASK_CONFIG.PARENT_LOOKUP_BATCH_SIZE) {
+          const batchIds = ancestorLookupIds
+            .slice(i, i + TASK_CONFIG.PARENT_LOOKUP_BATCH_SIZE)
+            .filter(id => !ancestorParentById.has(id));
+          if (batchIds.length === 0) continue;
+
+          const parentRows = await fetchParentRowsByIds(batchIds);
+          parentRows.forEach((row) => {
+            ancestorParentById.set(row.id, row.parent_id);
+            if (row.parent_id && !ancestorParentById.has(row.parent_id)) {
+              nextLookupIds.add(row.parent_id);
+            }
+          });
+        }
+        ancestorLookupIds = Array.from(nextLookupIds);
+      }
+
+      const resolveNearestTaskParentId = (block: SiyuanBlock): string | null => {
+        let currentParentId = block.parent_id || '';
+        const visited = new Set<string>([block.id]);
         let depth = 0;
-        const maxDepth = TASK_CONFIG.MAX_SUBTASK_DEPTH;
-        
-        while (tempId && depth < maxDepth) {
-          const nextNodeListParent = nodeListMap.get(tempId);
-          if (!nextNodeListParent) break;
-          
-          if (allBlockIds.has(nextNodeListParent)) {
-            subtaskIds.add(block.id);
-            break;
+
+        while (currentParentId && !visited.has(currentParentId) && depth < TASK_CONFIG.MAX_SUBTASK_DEPTH) {
+          if (allBlockIds.has(currentParentId)) {
+            return currentParentId;
           }
-          
-          tempId = nextNodeListParent;
+
+          visited.add(currentParentId);
+          currentParentId = ancestorParentById.get(currentParentId) || '';
           depth++;
+        }
+
+        return null;
+      };
+
+      const subtaskIds = new Set<string>();
+
+      for (const block of allBlocks) {
+        const parentTaskId = resolveNearestTaskParentId(block);
+        if (parentTaskId && parentTaskId !== block.id) {
+          subtaskIds.add(block.id);
         }
       }
       
@@ -3146,20 +3605,7 @@ export class TaskRepository {
       });
 
       const buildFastTitleFromBlock = (block: SiyuanBlock): string => {
-        const markdown = typeof block.markdown === 'string' ? block.markdown : '';
-        const firstLine = markdown
-          .split('\n')
-          .map(line => line.trim())
-          .find(line => line.length > 0) || '';
-        const titleFromMarkdown = formatTaskTitleHtml(firstLine
-          .replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| )\]\s*/i, '')
-          .trim());
-        if (titleFromMarkdown.length > 0) {
-          return titleFromMarkdown;
-        }
-
-        const contentTitle = typeof block.content === 'string' ? block.content.trim() : '';
-        return formatTaskTitleHtml(contentTitle);
+        return this.buildTaskTitleFromBlockText(block.markdown, block.content);
       };
 
       const appendSubtaskChild = (parentTaskId: string, childTaskId: string): void => {
@@ -3200,21 +3646,6 @@ export class TaskRepository {
         return left.id.localeCompare(right.id);
       };
 
-      const resolveNearestTaskParentId = (block: SiyuanBlock): string | null => {
-        let currentParentId = block.parent_id || '';
-        const visited = new Set<string>();
-        while (currentParentId && !visited.has(currentParentId)) {
-          visited.add(currentParentId);
-          if (allBlockIds.has(currentParentId)) {
-            return currentParentId;
-          }
-
-          const nextParentId = nodeListMap.get(currentParentId) || '';
-          currentParentId = nextParentId;
-        }
-        return null;
-      };
-
       if (shouldBuildNestedSubtasks) {
         for (const block of allBlocks) {
           const parentTaskId = resolveNearestTaskParentId(block);
@@ -3248,7 +3679,7 @@ export class TaskRepository {
               }
             }
           } catch (error) {
-            console.warn('[TaskRepository] 快速路径子任务顺序 DOM 对齐失败，回退到 SQL 排序', error);
+            console.warn('[TaskRepository] Failed to align subtask order with fast-path DOM, falling back to SQL sorting', error);
           }
         }
 
@@ -3366,8 +3797,8 @@ export class TaskRepository {
             groupId: groupId || undefined,
             startDate: dateRange.startDate,
             dueDate: dateRange.dueDate,
-            startTime: startTime || undefined,
-            dueTime: dueTime || undefined,
+            startTime: startTime || dateRange.startTime || undefined,
+            dueTime: dueTime || dateRange.dueTime || undefined,
             createdAt: this.parseBlockDateTime(childBlock.created),
             updatedAt: this.parseBlockDateTime(childBlock.updated),
             subtasks: nestedSubtasks.length > 0 ? nestedSubtasks : undefined
@@ -3446,17 +3877,16 @@ export class TaskRepository {
             const docIcon = detailLevel === 'full' && parentBlock.root_id
               ? rootIcons.get(parentBlock.root_id)
               : undefined;
-            const title = markdownHasInlineMemo(parentBlock.markdown || '')
+            const titleFromBlockText = buildFastTitleFromBlock(parentBlock);
+            const title = titleFromBlockText || (markdownHasInlineMemo(parentBlock.markdown || '')
               ? (() => {
                   const domEntry = domMap.get(parentBlock.id);
                   const domTitle = domEntry?.dom
                     ? extractTitleFromBlockDom(domEntry.dom, parentBlock.id)
                     : null;
-                  return (domTitle && domTitle.length > 0)
-                    ? domTitle
-                    : buildFastTitleFromBlock(parentBlock);
+                  return domTitle || '';
                 })()
-              : buildFastTitleFromBlock(parentBlock);
+              : '');
             const dateRange = this.resolveTaskDateRange(attrs, title, {
               allowInferFromTitle: true,
               createdAtRaw: parentBlock.created
@@ -3484,9 +3914,9 @@ export class TaskRepository {
               priority: attrs['custom-task-priority'] as any || 'none',
               pinned,
               dueDate: dateRange.dueDate,
-              dueTime: attrs['custom-task-due-time'],
+              dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
               startDate: dateRange.startDate,
-              startTime: attrs['custom-task-start-time'],
+              startTime: attrs['custom-task-start-time'] || dateRange.startTime,
               tags,
               groupId: attrs['custom-task-group'] || undefined,
               description: attrs['custom-task-description'] || '',
@@ -3508,7 +3938,7 @@ export class TaskRepository {
 
           const dom = domMap.get(parentBlock.id);
           if (!dom) {
-            log_debug('未获取到 DOM 数据', { blockId: parentBlock.id });
+            log_debug('DOM data not available', { blockId: parentBlock.id });
             return null;
           }
           
@@ -3528,8 +3958,7 @@ export class TaskRepository {
             // 使用当前编辑器里的元素；若拿不到则回退到全局查询结果
             const elementToUse = currentDomElement || fallbackElement;
             
-            const currentParagraph = elementToUse?.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
-            currentTitle = currentParagraph?.innerHTML || '';
+            currentTitle = this.getTaskTitleHtmlFromElement(elementToUse || null, parentBlock.id);
             
             const currentAction = this.getTaskActionElement(elementToUse, parentBlock.id);
             const currentSvg = currentAction?.querySelector('use');
@@ -3547,8 +3976,6 @@ export class TaskRepository {
           if (!parentListItem) {
             parentListItem = doc.querySelector(`[data-node-id="${parentBlock.id}"]`);
           }
-          
-          const parentParagraph = parentListItem?.querySelector('[data-type="NodeParagraph"]');
           
           const parentAction = this.getTaskActionElement(parentListItem, parentBlock.id);
           
@@ -3574,10 +4001,11 @@ export class TaskRepository {
           const subtasks = this.parseSubtasksFromParsedDoc(doc, parentBlock.id);
           collectSubtaskNodeIds(subtasks);
           
-          const titleHtml = parentParagraph?.querySelector('[contenteditable="true"]')?.innerHTML || '';
+          const titleHtml = this.getTaskTitleHtmlFromElement(parentListItem, parentBlock.id);
+          const titleFromBlockText = buildFastTitleFromBlock(parentBlock);
           const titleFromApi = cleanHtmlStyle(titleHtml);
           const currentTitleClean = cleanHtmlStyle(currentTitle);
-          const title = currentTitleClean || titleFromApi;
+          const title = titleFromBlockText || currentTitleClean || titleFromApi;
           const dateRange = this.resolveTaskDateRange(attrs, title, {
             allowInferFromTitle: true,
             createdAtRaw: parentBlock.created
@@ -3652,9 +4080,9 @@ export class TaskRepository {
             priority: attrs['custom-task-priority'] as any || 'none',
             pinned,
             dueDate: dateRange.dueDate,
-            dueTime: attrs['custom-task-due-time'],
+            dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
             startDate: dateRange.startDate,
-            startTime: attrs['custom-task-start-time'],
+            startTime: attrs['custom-task-start-time'] || dateRange.startTime,
             tags: attrs['custom-task-tags'] ? JSON.parse(attrs['custom-task-tags']) : [],
             groupId: attrs['custom-task-group'] || undefined,
             description: attrs['custom-task-description'] || '',
@@ -3673,7 +4101,7 @@ export class TaskRepository {
             updatedAt: this.parseBlockDateTime(parentBlock.updated)
           };
         } catch (error) {
-          handleError('处理任务块失败', error, { blockId: parentBlock.id });
+          handleError('Failed to process task block', error, { blockId: parentBlock.id });
           return null;
         }
       };
@@ -3701,10 +4129,7 @@ export class TaskRepository {
           const listItem =
             doc.querySelector(`[data-node-id="${blockId}"][data-type="NodeListItem"]`) ||
             doc.querySelector(`[data-node-id="${blockId}"]`);
-          const paragraph = listItem?.querySelector('[data-type="NodeParagraph"]');
-          const rawTitle = paragraph?.querySelector('[contenteditable="true"]')?.innerHTML
-            || paragraph?.innerHTML
-            || '';
+          const rawTitle = this.getTaskTitleHtmlFromElement(listItem, blockId);
           return rawTitle.replace(/\{:\s*[^}]*\}/g, '').trim();
         } catch {
           return null;
@@ -3724,7 +4149,7 @@ export class TaskRepository {
         tasks.push(...validResults);
       }
       } catch (error) {
-        handleError('获取任务列表失败', error);
+        handleError('Failed to get task list', error);
       }
       
       return shouldFilterTopLevelCompleted
@@ -3758,7 +4183,7 @@ export class TaskRepository {
   ): Promise<{ taskId: string; blockId: string }> {
     const trimmedTitle = task.title?.trim();
     if (!trimmedTitle) {
-      throw new Error('任务标题不能为空');
+      throw new Error(translate('api.errors.taskTitleRequired', 'Task title cannot be empty'));
     }
 
     const attrs: { [key: string]: string } = {
@@ -3773,12 +4198,16 @@ export class TaskRepository {
 
     let resolvedStartDate = normalizedStartDate;
     let resolvedDueDate = normalizedDueDate;
+    let resolvedStartTime = normalizedStartTime;
+    let resolvedDueTime = normalizedDueTime;
 
     if (!resolvedStartDate && !resolvedDueDate && this.isAutoRecognizeTaskDateEnabled()) {
-      const inferredDate = this.extractDateFromTaskTitle(trimmedTitle);
-      if (inferredDate) {
-        resolvedStartDate = inferredDate;
-        resolvedDueDate = inferredDate;
+      const inferredDateRange = this.extractDateRangeFromTaskTitle(trimmedTitle);
+      if (inferredDateRange?.startDate || inferredDateRange?.dueDate) {
+        resolvedStartDate = inferredDateRange.startDate || '';
+        resolvedDueDate = inferredDateRange.dueDate || '';
+        resolvedStartTime = inferredDateRange.startTime || '';
+        resolvedDueTime = inferredDateRange.dueTime || '';
       }
     }
 
@@ -3790,12 +4219,12 @@ export class TaskRepository {
       attrs['custom-task-due-date'] = resolvedDueDate;
     }
 
-    if (normalizedStartTime) {
-      attrs['custom-task-start-time'] = normalizedStartTime;
+    if (resolvedStartTime) {
+      attrs['custom-task-start-time'] = resolvedStartTime;
     }
 
-    if (normalizedDueTime) {
-      attrs['custom-task-due-time'] = normalizedDueTime;
+    if (resolvedDueTime) {
+      attrs['custom-task-due-time'] = resolvedDueTime;
     }
 
     if (task.groupId) {
@@ -3835,35 +4264,35 @@ export class TaskRepository {
     const taskMarkdown = task.status === 'completed' ? `- [x] ${trimmedTitle}` : `- [ ] ${trimmedTitle}`;
 
     try {
-      log_debug('创建块任务', { notebookId, docPath, taskMarkdown });
+      log_debug('Creating block task', { notebookId, docPath, taskMarkdown });
 
       const ids = await getIDsByHPath(notebookId, docPath);
-      log_debug('获取文档 ID', ids);
+      log_debug('Resolved document IDs', ids);
       
       if (!ids || ids.length === 0) {
-        throw new Error('文档不存在');
+        throw new Error(translate('api.errors.documentNotFound', 'Document not found'));
       }
 
       const rootId = ids[0];
-      log_debug('文档根 ID', rootId);
+      log_debug('Resolved document root ID', rootId);
 
       const containerListId = await this.resolveTaskContainerListId(rootId);
       const insertParentId = containerListId || rootId;
       const result = await appendBlock('markdown', taskMarkdown, insertParentId);
-      log_debug('appendBlock 霑泌屓扈捺棡', JSON.stringify(result, null, 2));
+      log_debug('appendBlock result', JSON.stringify(result, null, 2));
 
       if (result && result.length > 0) {
         let listItemBlockId = '';
 
-        log_debug('doOperations 数量', result[0].doOperations.length);
+        log_debug('doOperations count', result[0].doOperations.length);
         
         for (let i = 0; i < result[0].doOperations.length; i++) {
           const op = result[0].doOperations[i] as any;
-          log_debug(`遍历 doOperation[${i}]`, { id: op.id, objectType: op.objectType, type: op.type });
+          log_debug(`Inspecting doOperation[${i}]`, { id: op.id, objectType: op.objectType, type: op.type });
           
           if (op.objectType === 'NodeListItem') {
             listItemBlockId = op.id;
-            log_debug('检测到 NodeListItem', listItemBlockId);
+            log_debug('Detected NodeListItem', listItemBlockId);
             break;
           }
           
@@ -3875,7 +4304,7 @@ export class TaskRepository {
               const nodeId = listItem.getAttribute('data-node-id');
               if (nodeId) {
                 listItemBlockId = nodeId;
-                log_debug('从 data HTML 解析到 NodeListItem', listItemBlockId);
+                log_debug('Parsed NodeListItem from operation HTML', listItemBlockId);
                 break;
               }
             }
@@ -3883,7 +4312,7 @@ export class TaskRepository {
         }
 
         if (!listItemBlockId && insertParentId !== rootId) {
-          log_debug('回退到列表容器查询任务块', insertParentId);
+          log_debug('Falling back to query task block from list container', insertParentId);
           const childBlocks = await sql(`
             SELECT id, type, subtype
             FROM blocks
@@ -3893,16 +4322,16 @@ export class TaskRepository {
             ORDER BY created DESC
             LIMIT 1
           `);
-          log_debug('SQL譟･隸｢扈捺棡1', childBlocks);
+          log_debug('SQL fallback result 1', childBlocks);
           if (childBlocks && childBlocks.length > 0) {
             listItemBlockId = childBlocks[0].id;
-            log_debug('从列表容器查询到任务块', listItemBlockId);
+            log_debug('Resolved task block from list container', listItemBlockId);
           }
         }
 
         if (!listItemBlockId) {
           const parentBlockId = result[0].doOperations[result[0].doOperations.length - 1]?.id || result[0].doOperations[0].id;
-          log_debug('回退到父块查询子任务块', parentBlockId);
+          log_debug('Falling back to query child task block from parent block', parentBlockId);
           
           const childBlocks = await sql(`
             SELECT id, type, subtype
@@ -3913,16 +4342,16 @@ export class TaskRepository {
             ORDER BY created DESC
             LIMIT 1
           `);
-          log_debug('SQL譟･隸｢扈捺棡1', childBlocks);
+          log_debug('SQL fallback result 2', childBlocks);
 
           if (childBlocks && childBlocks.length > 0) {
             listItemBlockId = childBlocks[0].id;
-            log_debug('从父块查询到任务块', listItemBlockId);
+            log_debug('Resolved task block from parent block', listItemBlockId);
           }
         }
 
         if (!listItemBlockId) {
-          log_debug('回退到 root 查询最近任务块');
+          log_debug('Falling back to query the most recent task block from root');
           
           const childBlocks = await sql(`
             SELECT id, type, subtype
@@ -3933,7 +4362,7 @@ export class TaskRepository {
             ORDER BY created DESC
             LIMIT 3
           `);
-          log_debug('SQL譟･隸｢扈捺棡2', childBlocks);
+          log_debug('SQL fallback result 3', childBlocks);
 
           if (childBlocks && childBlocks.length > 0) {
             const now = Date.now();
@@ -3941,27 +4370,27 @@ export class TaskRepository {
               const blockTime = new Date(block.created || block.updated).getTime();
               if (now - blockTime < TASK_CONFIG.RECENT_TASK_WINDOW) {
                 listItemBlockId = block.id;
-                log_debug('命中最近创建的任务块', listItemBlockId);
+                log_debug('Matched a recently created task block', listItemBlockId);
                 break;
               }
             }
             
             if (!listItemBlockId && childBlocks.length > 0) {
               listItemBlockId = childBlocks[0].id;
-              log_debug('使用最新任务块作为兜底', listItemBlockId);
+              log_debug('Using the latest task block as fallback', listItemBlockId);
             }
           }
         }
 
-        log_debug('最终任务块 ID', listItemBlockId);
-        log_debug('准备写入属性', attrs);
+        log_debug('Final task block ID', listItemBlockId);
+        log_debug('Preparing to write attrs', attrs);
 
         if (listItemBlockId && Object.keys(attrs).length > 0) {
           await setBlockAttrs(listItemBlockId, attrs);
-          log_debug('任务属性写入成功');
+          log_debug('Task attrs written successfully');
           
           const verifyAttrs = await getBlockAttrs(listItemBlockId);
-          log_debug('写入后属性校验', verifyAttrs);
+          log_debug('Attr verification after write', verifyAttrs);
         }
 
         let resolvedListId = containerListId || '';
@@ -4007,7 +4436,7 @@ export class TaskRepository {
 
       throw new Error('Failed to create block');
     } catch (error) {
-      handleError('创建块任务失败', error, { notebookId, docPath, taskTitle: task.title });
+      handleError('Failed to create block task', error, { notebookId, docPath, taskTitle: task.title });
       throw error;
     }
   }
@@ -4117,11 +4546,15 @@ export class TaskRepository {
     await this.clearCache();
   }
 
-  static async setTaskRepeatRule(task: Task, frequency: RepeatFrequency): Promise<void> {
+  static async setTaskRepeatRule(task: Task, frequency: RepeatFrequency | RepeatRuleInput): Promise<void> {
     if (task.type !== 'block') {
       return;
     }
     await setTaskRepeatSeries(task, frequency);
+    const repeatFrequency = typeof frequency === 'string' ? frequency : frequency.frequency;
+    if (repeatFrequency !== 'none' && task.status === 'pending' && task.blockId) {
+      await setBlockAttrs(task.blockId, buildTaskStatusAttrs('in-progress'));
+    }
   }
 
   static async getTaskRepeatRule(task: Task): Promise<RepeatFrequency> {
@@ -4149,12 +4582,12 @@ export class TaskRepository {
     const normalizedTaskId = typeof taskId === 'string' ? taskId.trim() : '';
     const normalizedRootId = typeof targetRootId === 'string' ? targetRootId.trim() : '';
     if (!normalizedTaskId || !normalizedRootId) {
-      throw new Error('缺少移动任务所需的目标信息');
+      throw new Error(translate('api.errors.moveTaskTargetRequired', 'Missing target information required to move the task'));
     }
 
     const blockId = await this.resolveBlockIdByTaskId(normalizedTaskId);
     if (!blockId) {
-      throw new Error('未找到要移动的任务块');
+      throw new Error(translate('api.errors.moveTaskNotFound', 'Could not find the task block to move'));
     }
 
     const containerListId = await this.resolveTaskContainerListId(normalizedRootId);
@@ -4216,7 +4649,7 @@ export class TaskRepository {
       const taskMap = await this.getTasksByBlockIds([blockId], useCache, undefined, { useLiveDom: false });
       return taskMap.get(blockId) || null;
     } catch (error) {
-      handleError('按 blockId 获取任务失败', error, { blockId });
+      handleError('Failed to get task by blockId', error, { blockId });
       return null;
     }
   }
@@ -4266,6 +4699,28 @@ export class TaskRepository {
         }
       }
 
+      const detailLevel = this.resolveTaskFetchDetailLevel(options);
+      if (!useLiveDom && detailLevel === 'light') {
+        try {
+          const { tasks: kernelTasks } = await this.getKernelLightTasksByBlockIds(
+            scopedIds,
+            normalizedScope,
+            { attachRepeatMetadata: true }
+          );
+          if (kernelTasks.length > 0) {
+            const kernelTaskMap = new Map<string, Task>();
+            for (const task of kernelTasks) {
+              if (task.blockId) {
+                kernelTaskMap.set(task.blockId, task);
+              }
+            }
+            return kernelTaskMap;
+          }
+        } catch (error) {
+          console.debug('[TaskRepository] kernel block-id light fetch skipped', error);
+        }
+      }
+
       const taskMap = await this.fetchBlockTasksByIds(scopedIds, normalizedScope, useLiveDom);
       const enrichedTasks = await attachRepeatMetadataToTasks(Array.from(taskMap.values()));
       const enrichedTaskMap = new Map<string, Task>();
@@ -4298,7 +4753,7 @@ export class TaskRepository {
 
       return enrichedTaskMap;
     } catch (error) {
-      handleError('批量获取任务失败', error, { blockIds });
+      handleError('Failed to get tasks in batch', error, { blockIds });
       return new Map();
     }
   }
@@ -4333,7 +4788,7 @@ async function batchGetBlockDOM(ids: string[]): Promise<Map<string, BlockDOMResp
         (async () => {
           const domPromises = batch.map(id => 
             getBlockDOM(id).catch((error) => {
-              log_debug('获取块 DOM 失败', { id, error });
+              log_debug('Failed to get block DOM', { id, error });
               return null;
             })
           );

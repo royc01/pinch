@@ -4,6 +4,7 @@ import { loadGoals, saveGoals, type Goal } from '@/goalRepository';
 import { buildGoalProgressSummaries, type GoalProgressStatus } from '@/utils/goalProgress';
 import { loadGoalScopeDocuments, type GoalScopeDocument } from '@/utils/goalScopeDocuments';
 import { eventBus, Events } from '@/utils/eventBus';
+import { translate } from '@/composables/useI18n';
 
 export interface GoalListItem extends Goal {
   missingGroup?: boolean;
@@ -52,7 +53,9 @@ export const useGoals = () => {
       goalItems.value = buildGoalProgressSummaries(nextGoals, tasks).map((summary) => ({
         ...summary.goal,
         documentCount: summary.documentCount,
-        documentSummary: summary.documentCount > 0 ? `${summary.documentCount} 个文档` : '未选择文档',
+        documentSummary: summary.documentCount > 0
+          ? `${summary.documentCount} ${translate('goalPanel.documentCountSuffix')}`
+          : translate('goalPanel.noDocumentSelected'),
         totalTasks: summary.totalTasks,
         completedTasks: summary.completedTasks,
         remainingTasks: Math.max(0, summary.totalTasks - summary.completedTasks),
@@ -63,7 +66,7 @@ export const useGoals = () => {
       if (loadId !== latestLoadId) {
         return;
       }
-      goalsError.value = error instanceof Error ? error.message : '加载目标失败';
+      goalsError.value = error instanceof Error ? error.message : translate('goalPanel.loadFailed');
     } finally {
       if (loadId === latestLoadId) {
         goalsLoading.value = false;

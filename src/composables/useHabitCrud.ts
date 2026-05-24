@@ -33,13 +33,13 @@ export const useHabitCrud = ({
 }: UseHabitCrudOptions) => {
   const handleAddHabit = async (habitData: NewHabitFormState) => {
     if (!habitData.name.trim()) {
-      alert('请输入习惯名称');
+      alert(t('habitTracker.enterHabitName'));
       return;
     }
 
     const inputTimesPerDay = parseInt(String(habitData.timesPerDay), 10) || 1;
     if (inputTimesPerDay > 20) {
-      alert('每日打卡次数不能超过20次');
+      alert(t('habitTracker.timesPerDayMax'));
       return;
     }
 
@@ -51,6 +51,7 @@ export const useHabitCrud = ({
       emoji: habitData.emoji,
       difficulty: habitData.difficulty || 'medium',
       frequency: habitData.frequency as any,
+      completionMode: habitData.completionMode || 'fixed',
       timesPerDay,
       noteDocId: normalizeDocId(habitData.noteDocId || ''),
       completedToday: false,

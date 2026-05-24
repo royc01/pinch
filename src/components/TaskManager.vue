@@ -8,30 +8,94 @@
         <div class="title">{{ t('taskManager.title') }}</div>
       </div>
       <div class="header-actions">
-        <SyButton
-          size="small"
-          class="task-scope-button"
-          title="任务范围"
-          aria-label="任务范围"
-          @click="openTaskScopeDialog"
-        >
-          <Icon name="taskScope" width="24" height="24" class="icon refresh-icon" />
-        </SyButton>
+        <div ref="kernelDiagnosticsControlRef" class="kernel-diagnostics-control">
+          <SyButton
+            size="small"
+            class="task-kernel-status"
+            :class="{
+              active: kernelDiagnosticsVisible,
+              'is-connected': kernelDiagnostics.status === 'connected',
+              'is-error': kernelDiagnostics.status === 'error'
+            }"
+            :title="t('taskManager.kernelStatus')"
+            :aria-label="t('taskManager.kernelStatus')"
+            @click.stop="toggleKernelDiagnostics"
+          >
+            <Icon name="statsBar" width="20" height="20" class="icon" />
+          </SyButton>
+          <div
+            v-if="kernelDiagnosticsVisible"
+            class="kernel-diagnostics-popover"
+            @click.stop
+          >
+            <div class="kernel-diagnostics-head">
+              <span class="kernel-diagnostics-title">{{ t('taskManager.kernelStatus') }}</span>
+              <span
+                class="kernel-diagnostics-badge"
+                :class="`status-${kernelDiagnostics.status}`"
+              >
+                {{ kernelDiagnosticsStatusLabel }}
+              </span>
+            </div>
+            <div v-if="kernelDiagnostics.error" class="kernel-diagnostics-error">
+              {{ kernelDiagnostics.error }}
+            </div>
+            <div class="kernel-diagnostics-grid">
+              <span>{{ t('taskManager.source') }}</span>
+              <strong>{{ kernelDiagnosticsSourceLabel }}</strong>
+              <span>{{ t('taskManager.kernelRows') }}</span>
+              <strong>{{ formatKernelDiagnosticNumber(kernelDiagnostics.rows) }}</strong>
+              <span>{{ t('taskManager.kernelTopLevelSubtasks') }}</span>
+              <strong>{{ formatKernelDiagnosticNumber(kernelDiagnostics.topLevelRows) }} / {{ formatKernelDiagnosticNumber(kernelDiagnostics.subtaskRows) }}</strong>
+              <span>{{ t('taskManager.kernelPagesScanned') }}</span>
+              <strong>{{ formatKernelDiagnosticNumber(kernelDiagnostics.pageCount) }} / {{ formatKernelDiagnosticNumber(kernelDiagnostics.totalScanned) }}</strong>
+              <span>{{ t('taskManager.kernelQueryTime') }}</span>
+              <strong>{{ formatKernelDiagnosticMs(kernelDiagnostics.elapsedMs) }}</strong>
+              <span>{{ t('taskManager.kernelHierarchyTime') }}</span>
+              <strong>{{ formatKernelDiagnosticMs(kernelDiagnostics.hierarchyElapsedMs) }}</strong>
+              <span>Ping</span>
+              <strong>{{ formatKernelDiagnosticMs(kernelDiagnostics.pingMs) }}</strong>
+              <span>{{ t('taskManager.kernelCheckedAt') }}</span>
+              <strong>{{ kernelDiagnosticsCheckedAtText }}</strong>
+            </div>
+            <div v-if="kernelDiagnostics.partial" class="kernel-diagnostics-warning">
+              {{ t('taskManager.kernelPartialWarning') }}
+            </div>
+            <div class="kernel-diagnostics-actions">
+              <button
+                type="button"
+                class="kernel-diagnostics-action"
+                :disabled="kernelDiagnosticsChecking"
+                @click="checkKernelDiagnostics"
+              >
+                {{ t('taskManager.check') }}
+              </button>
+              <button
+                type="button"
+                class="kernel-diagnostics-action primary"
+                :disabled="kernelDiagnosticsChecking"
+                @click="rebuildKernelTaskIndex"
+              >
+                {{ t('taskManager.rebuildIndex') }}
+              </button>
+            </div>
+          </div>
+        </div>
         <SyButton
           size="small"
           class="task-refresh"
           :class="{ 'is-refreshing': isRefreshButtonSpinning }"
-          title="刷新任务"
-          aria-label="刷新任务"
+          :title="t('taskManager.refreshTasks')"
+          :aria-label="t('taskManager.refreshTasks')"
           @click="handleRefreshClick"
         >
           <Icon name="refresh" width="22" height="22" class="icon refresh-icon" />
         </SyButton>
-        <SyButton size="small" class="new-task-button" title="新建任务" aria-label="新建任务" @click="openTaskModal">
+        <SyButton size="small" class="new-task-button" :title="t('taskManager.newTask')" :aria-label="t('taskManager.newTask')" @click="openTaskModal">
           <Icon name="add" width="24" height="24" class="icon" />
         </SyButton>
-        <SyButton size="small" class="view-all-button" title="查看全部任务" aria-label="查看全部任务" @click="openKanbanView">
-          更多
+        <SyButton size="small" class="view-all-button" :title="t('app.openTaskView')" :aria-label="t('app.openTaskView')" @click="openKanbanView">
+          {{ t('taskManager.more') }}
         </SyButton>
     </div>
     </div>
@@ -41,8 +105,8 @@
         <div class="filter-group">
           <label
             class="task-manager-notebook-label"
-            title="来源"
-            aria-label="来源"
+            :title="t('taskManager.source')"
+            :aria-label="t('taskManager.source')"
           >
             <Icon name="source" width="16" height="16" class="task-manager-notebook-icon" />
           </label>
@@ -71,8 +135,8 @@
             type="button"
             class="task-search-btn"
             :class="{ active: taskSearchVisible }"
-            title="搜索任务"
-            aria-label="搜索任务"
+            :title="t('taskManager.searchTasks')"
+            :aria-label="t('taskManager.searchTasks')"
             @click.stop="toggleTaskSearch"
           >
             <Icon name="search" width="16" height="16" />
@@ -85,8 +149,8 @@
             :class="{
               active: taskFilterPopoverVisible || hasActiveTaskFilters
             }"
-            title="筛选任务"
-            aria-label="筛选任务"
+            :title="t('taskManager.filterTasks')"
+            :aria-label="t('taskManager.filterTasks')"
             @click.stop="toggleTaskFilterPopover"
           >
             <Icon name="filter" width="16" height="16" />
@@ -103,8 +167,8 @@
               active: taskGroupMenuVisible || taskListGroupBy !== 'none' || taskListViewMode !== 'kanban',
               'is-batch-active': isBatchEditMode
             }"
-            title="任务分组"
-            aria-label="任务分组"
+            :title="t('taskManager.groupTasks')"
+            :aria-label="t('taskManager.groupTasks')"
             @click.stop="toggleTaskGroupMenu"
           >
             <Icon name="moreVertical" width="16" height="16" />
@@ -148,7 +212,7 @@
               :class="{ active: isBatchEditMode }"
               @click.stop="toggleBatchEditModeFromMenu"
             >
-              <span>{{ isBatchEditMode ? '退出批量编辑' : '进入批量编辑' }}</span>
+              <span>{{ isBatchEditMode ? t('taskManager.exitBatchEdit') : t('taskManager.enterBatchEdit') }}</span>
               <span v-if="isBatchEditMode" class="task-group-menu-check">
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
@@ -158,7 +222,7 @@
               class="task-group-menu-item"
               @click.stop="openTaskGroupDialogFromMenu"
             >
-              <span>标签管理</span>
+              <span>{{ t('taskManager.tagManager') }}</span>
             </button>
             <div class="task-group-menu-divider"></div>
             <button
@@ -166,7 +230,7 @@
               class="task-group-menu-item"
               @click.stop="toggleTaskCardDetailsFromMenu"
             >
-              <span>{{ showTaskCardDetails ? '隐藏详细' : '显示详细' }}</span>
+              <span>{{ showTaskCardDetails ? t('taskManager.hideDetails') : t('taskManager.showDetails') }}</span>
             </button>
             <button
               type="button"
@@ -174,7 +238,7 @@
               :class="{ active: !showCompletedTasks }"
               @click.stop="toggleHideCompletedTasksFromMenu"
             >
-              <span>隐藏已完成任务</span>
+              <span>{{ t('taskManager.hideCompletedTasks') }}</span>
               <span v-if="!showCompletedTasks" class="task-group-menu-check">
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
@@ -185,7 +249,7 @@
               class="task-group-menu-item"
               @click.stop="toggleAllVisibleSubtasksFromMenu"
             >
-              <span>{{ areAllVisibleSubtasksExpanded ? '一键折叠详情' : '一键展开详情' }}</span>
+              <span>{{ areAllVisibleSubtasksExpanded ? t('taskManager.collapseAllDetails') : t('taskManager.expandAllDetails') }}</span>
             </button>
           </div>
         </div>
@@ -196,20 +260,20 @@
       <input
         ref="taskSearchInputRef"
         v-model="taskSearchQuery"
-        type="text"
-        class="task-search-input"
-        placeholder="搜索任务"
-        aria-label="搜索任务"
-        @keydown.esc.stop.prevent="closeTaskSearch"
-      />
+            type="text"
+            class="task-search-input"
+            :placeholder="t('taskManager.searchTasks')"
+            :aria-label="t('taskManager.searchTasks')"
+            @keydown.esc.stop.prevent="closeTaskSearch"
+          />
     </div>
 
     <div v-if="isBatchEditMode && !isTaskListCollapsed" class="task-batch-toolbar">
       <div class="task-batch-toolbar-header">
-        <span class="task-batch-selected-count">已选 {{ batchSelectedCount }} 项</span>
+        <span class="task-batch-selected-count">{{ t('taskManager.selectedCountPrefix') }} {{ batchSelectedCount }} {{ t('taskManager.selectedCountSuffix') }}</span>
         <div class="task-batch-toolbar-actions">
           <button type="button" class="task-batch-tool-btn" @click="toggleSelectAllVisibleTasks">
-            {{ allVisibleTasksSelected ? '取消全选' : '全选当前列表' }}
+            {{ allVisibleTasksSelected ? t('taskManager.cancelSelectAll') : t('taskManager.selectAllCurrentList') }}
           </button>
           <button
             type="button"
@@ -217,13 +281,13 @@
             :disabled="batchSelectedCount === 0"
             @click="clearBatchSelection"
           >
-            清空选择
+            {{ t('taskManager.clearSelection') }}
           </button>
         </div>
       </div>
       <div class="task-batch-edit-grid">
         <label class="task-batch-field">
-          <span>状态</span>
+          <span>{{ t('taskManager.status') }}</span>
           <SySelect
             :model-value="batchEditStatus"
             :options="batchEditStatusOptions"
@@ -231,7 +295,7 @@
           />
         </label>
         <label class="task-batch-field">
-          <span>优先级</span>
+          <span>{{ t('taskManager.priority') }}</span>
           <SySelect
             :model-value="batchEditPriority"
             :options="batchEditPriorityOptions"
@@ -239,7 +303,7 @@
           />
         </label>
         <label class="task-batch-field">
-          <span>标签</span>
+          <span>{{ t('taskManager.tags') }}</span>
           <SySelect
             :model-value="batchEditGroupId"
             :options="batchEditGroupOptions"
@@ -252,7 +316,7 @@
           :disabled="!canApplyBatchEdit"
           @click="applyBatchEdit"
         >
-          {{ isBatchApplying ? '应用中...' : '应用到已选' }}
+          {{ isBatchApplying ? t('taskManager.applying') : t('taskManager.applyToSelected') }}
         </button>
       </div>
     </div>
@@ -319,15 +383,18 @@
               :reminder-text="taskEditorReminderText"
               :has-reminder="taskEditorHasReminder"
               :status="activeTaskEditDraft.status"
+              :repeat-frequency="taskEditorRepeatFrequency"
+              :repeat-rule="taskEditorRepeatRule"
               :group-button-style="taskEditorGroupButtonStyle"
               :default-group-chip-color="defaultGroupChipColor"
-              description-placeholder="添加任务描述..."
+              :description-placeholder="t('taskManager.addTaskDescription')"
               @update:panel="taskEditorQuickPanel = $event"
               @update:description="handleTaskEditorDescriptionInput"
               @update-dates="handleTaskEditorDateFieldsUpdate"
               @select-group="selectTaskEditorGroup"
               @select-reminder="handleTaskEditorReminderSelect"
               @select-status="handleTaskEditorStatusSelect"
+              @save-repeat-rule="handleTaskEditorRepeatRuleSave"
               @commit-description="handleTaskEditorDescriptionCommit"
               @manage-groups="openTaskGroupDialog"
             />
@@ -339,12 +406,12 @@
           >
             <div class="task-move-dialog" @click.stop>
               <div class="task-move-dialog-header">
-                <span class="task-move-dialog-title">移动任务</span>
+                <span class="task-move-dialog-title">{{ t('taskManager.moveTask') }}</span>
                 <button
                   type="button"
                   class="task-move-dialog-close"
-                  title="关闭"
-                  aria-label="关闭"
+                  :title="t('common.close')"
+                  :aria-label="t('common.close')"
                   @click.stop="closeTaskMoveDialog"
                 >
                   <Icon name="close" width="16" height="16" />
@@ -352,7 +419,7 @@
               </div>
               <div class="task-move-dialog-body">
                 <div class="task-move-dialog-field">
-                  <label>笔记本</label>
+                  <label>{{ t('taskManager.notebook') }}</label>
                   <SySelect
                     :model-value="taskMoveSelectedNotebook"
                     :options="taskMoveNotebookOptions"
@@ -360,7 +427,7 @@
                   />
                 </div>
                 <div class="task-move-dialog-field">
-                  <label>文档</label>
+                  <label>{{ t('taskManager.document') }}</label>
                   <SySelect
                     :model-value="taskMoveSelectedDocument"
                     :options="taskMoveDocumentOptions"
@@ -368,10 +435,10 @@
                   />
                 </div>
                 <div v-if="taskMoveTargetUnchanged" class="task-move-dialog-hint">
-                  当前已经在这个文档中
+                  {{ t('taskManager.alreadyInDocument') }}
                 </div>
                 <div v-else-if="taskMoveDocumentOptions.length === 0" class="task-move-dialog-hint">
-                  当前笔记本下暂无可选文档
+                  {{ t('taskManager.noDocumentOptions') }}
                 </div>
               </div>
               <div class="task-move-dialog-actions">
@@ -380,7 +447,7 @@
                   class="task-move-dialog-btn"
                   @click.stop="closeTaskMoveDialog"
                 >
-                  取消
+                  {{ t('common.cancel') }}
                 </button>
                 <button
                   type="button"
@@ -388,7 +455,7 @@
                   :disabled="!canSubmitTaskMove"
                   @click.stop="handleTaskEditorMove"
                 >
-                  {{ isTaskMoveSubmitting ? '移动中...' : '移动' }}
+                  {{ isTaskMoveSubmitting ? t('taskManager.moving') : t('taskManager.move') }}
                 </button>
               </div>
             </div>
@@ -435,8 +502,8 @@
                   partial: isTaskGroupSectionBatchPartiallySelected(section),
                   'is-disabled': section.tasks.length === 0
                 }"
-                :title="isTaskGroupSectionBatchAllSelected(section) ? '取消全选该分组' : '全选该分组'"
-                :aria-label="isTaskGroupSectionBatchAllSelected(section) ? '取消全选该分组' : '全选该分组'"
+                :title="isTaskGroupSectionBatchAllSelected(section) ? t('taskManager.cancelSelectGroup') : t('taskManager.selectGroup')"
+                :aria-label="isTaskGroupSectionBatchAllSelected(section) ? t('taskManager.cancelSelectGroup') : t('taskManager.selectGroup')"
                 :aria-disabled="section.tasks.length === 0"
                 @click.stop="toggleTaskGroupSectionBatchSelection(section)"
               >
@@ -453,8 +520,8 @@
                 type="button"
                 class="task-group-section-toggle"
                 :class="{ collapsed: isTaskGroupSectionCollapsed(section.key) }"
-                :title="isTaskGroupSectionCollapsed(section.key) ? '展开分组' : '折叠分组'"
-                :aria-label="isTaskGroupSectionCollapsed(section.key) ? '展开分组' : '折叠分组'"
+                :title="isTaskGroupSectionCollapsed(section.key) ? t('taskManager.expandGroup') : t('taskManager.collapseGroup')"
+                :aria-label="isTaskGroupSectionCollapsed(section.key) ? t('taskManager.expandGroup') : t('taskManager.collapseGroup')"
                 @click.stop="toggleTaskGroupSectionCollapse(section.key)"
               >
                 <Icon name="chevronRight" width="14" height="14" />
@@ -491,7 +558,7 @@
                 :show-description="shouldShowTaskCardDetails"
                 :show-badges="shouldShowTaskCardDetails"
                 :show-subtasks="expandedSubtasks.has(task.id)"
-                :title-tooltip="isBatchEditMode ? '点击选择任务' : '点击编辑任务'"
+                :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
                 :disable-context-menu="shouldEnableMobileCalendarDrag()"
                 :ref="(el) => setTaskRowRef(task.id, el)"
                 @card-click="handleTaskCardClick"
@@ -544,7 +611,7 @@
             :show-description="shouldShowTaskCardDetails"
             :show-badges="shouldShowTaskCardDetails"
               :show-subtasks="expandedSubtasks.has(task.id)"
-              :title-tooltip="isBatchEditMode ? '点击选择任务' : '点击编辑任务'"
+              :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
               :disable-context-menu="shouldEnableMobileCalendarDrag()"
                 :ref="(el) => setTaskRowRef(task.id, el)"
                 @card-click="handleTaskCardClick"
@@ -567,7 +634,7 @@
         type="button"
         @click="showMoreCompletedTasks"
       >
-        更多已完成
+        {{ t('taskManager.moreCompleted') }}
       </button>
     </div>
     
@@ -594,20 +661,29 @@
       :show-scope-tab="true"
       :show-completed-tasks="showCompletedTasks"
       :auto-recognize-task-date="autoRecognizeTaskDate"
+      :date-recognition-keywords="userSettings.taskManager.dateRecognitionKeywords"
       :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
       :show-document-group-notebook-path="showDocumentGroupNotebookPath"
       :show-extra="false"
       :lock-close="requiresScopeInitialization"
-      :title="requiresScopeInitialization ? '初始化任务范围' : '任务范围'"
+      :title="requiresScopeInitialization ? t('taskManager.initScope') : t('taskScopeDialog.settings')"
       :hint="requiresScopeInitialization
-        ? '首次使用请先设置任务抓取范围。开关关闭表示排除该笔记本，开关开启表示参与任务抓取。'
-        : '开关关闭后将排除该笔记本，任务列表和看板不再抓取它的任务。'"
-      :confirm-text="requiresScopeInitialization ? '开始使用' : '保存'"
+        ? t('taskManager.initScopeHint')
+        : t('taskManager.scopeHint')"
+      :confirm-text="requiresScopeInitialization ? t('taskManager.startUsing') : t('common.save')"
+      :initial-tab="taskScopeDialogInitialTab"
       :document-groups="documentGroups"
       :document-group-documents="documentGroupDialogDocuments"
       :goals="goalDefinitions"
       :goal-documents="goalDocuments"
+      :task-view-options="taskScopeViewOptions"
+      :hidden-task-view-ids="userSettings.kanban.hiddenViewSwitcherIds"
+      :sidebar-section-options="taskScopeSidebarSectionOptions"
+      :hidden-sidebar-section-ids="userSettings.sidebar.hiddenSectionIds"
+      :sidebar-section-order="userSettings.sidebar.sectionOrder"
+      :default-task-create-target="userSettings.taskManager.defaultTaskCreateTarget"
+      :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
       @save="handleTaskScopeSave"
@@ -620,8 +696,8 @@
       :start-time="taskQuickDateDraft.startTime"
       :due-date="taskQuickDateDraft.dueDate"
       :due-time="taskQuickDateDraft.dueTime"
-      title="日期"
-      save-label="保存日期"
+      :title="t('taskManager.date')"
+      :save-label="t('taskManager.saveDate')"
       @update:startDate="taskQuickDateDraft.startDate = $event"
       @update:startTime="taskQuickDateDraft.startTime = $event"
       @update:dueDate="taskQuickDateDraft.dueDate = $event"
@@ -655,13 +731,14 @@ import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
 import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
-import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, lsNotebooks, createDocWithMd, getIDsByHPath, setBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, resolveTaskRepeatMaterializeOptions, type TaskQueryScope } from '@/api';
+import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, lsNotebooks, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, setBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
 import { syncTaskStatusAttrsIfNeeded, updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { openKanbanView, usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useGoals } from '@/composables/useGoals';
 import { useTaskFilters } from '@/composables/useTaskFilters';
 import { useTaskFilterState } from '@/composables/useTaskFilterState';
+import { useI18n } from '@/composables/useI18n';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { eventBus, Events } from '@/utils/eventBus';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
@@ -680,7 +757,9 @@ import { playTaskCompletionSound } from '@/utils/completionSound';
 import {
   applyRepeatRuleOptimisticToTasks,
   getDocumentCreationSortKey,
+  loadRootDocumentMetadata,
   normalizeNotebookIds,
+  resolveDocumentDisplayName,
   type RepeatRulePayload
 } from '@/utils/taskViewShared';
 import {
@@ -688,7 +767,7 @@ import {
   compareTaskCreatedAtDesc,
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
-import { rebuildAffectedRepeatTasks } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import {
   loadDocumentGroups,
   saveDocumentGroups,
@@ -702,10 +781,25 @@ import {
   parseDocumentSource
 } from '@/utils/documentGroupSource';
 import {
+  buildTaskQuickDateDraft,
+  normalizeQuickDateInputValue,
+  normalizeQuickTimeInputValue,
+  type TaskQuickDateDraft
+} from '@/utils/taskQuickDateDraft';
+import {
   getTaskHeadingGroupMeta,
   resolveTaskHeadingGroups,
   type TaskHeadingGroupMeta
 } from '@/utils/taskGrouping';
+import {
+  getKernelTaskIndex,
+  pingPinchKernel,
+  refreshKernelTaskIndex,
+  type KernelTaskIndexParams,
+  type KernelTaskRowsResult
+} from '@/kernelRpc';
+import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
+import type { SidebarSectionId, TaskViewSwitcherId } from '@/utils/userSettings';
 
 interface MobileCalendarDragEventPayload {
   task: Task;
@@ -746,39 +840,24 @@ const taskCompletionSoundEnabled = computed(() => userSettings.taskManager.taskC
 const showDocumentGroupNotebookPath = computed(() => userSettings.taskManager.showDocumentGroupNotebookPath !== false);
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 let repeatReconcileRequestId = 0;
-
-const t = (key: string) => {
-  const lang = window.siyuan?.languages || {};
-  const defaultLang: Record<string, string> = {
-    'taskManager.title': '任务管理',
-    'taskManager.status': '状态',
-    'taskManager.statusAll': '全部',
-    'taskManager.statusPending': '待处理',
-    'taskManager.statusInProgress': '进行中',
-    'taskManager.statusCompleted': '已完成',
-    'taskManager.statusCancelled': '已取消',
-    'taskManager.priority': '优先级',
-    'taskManager.priorityAll': '全部',
-    'taskManager.priorityHigh': '高',
-    'taskManager.priorityMedium': '中',
-    'taskManager.priorityLow': '低',
-    'taskManager.priorityNone': '无',
-    'taskManager.notebook': '笔记本',
-    'taskManager.all': '全部',
-    'taskManager.document': '文档',
-    'taskManager.filter': '筛选',
-    'taskManager.refresh': '刷新',
-    'taskManager.addTask': '新建任务',
-    'taskManager.expandAll': '展开全部',
-    'taskManager.collapseAll': '收起全部',
-    'taskManager.taskList': '任务列表',
-    'taskManager.noTasks': '暂无任务',
-    'taskManager.taskName': '任务名称',
-    'taskManager.dueDate': '截止日期',
-    'taskManager.save': '保存'
-  };
-  return (lang as Record<string, string>)[key] || defaultLang[key] || key;
-};
+const { t } = useI18n();
+const taskScopeViewOptions = computed<Array<{ id: TaskViewSwitcherId; label: string }>>(() => [
+  { id: 'kanban', label: t('kanbanView.viewKanban') },
+  { id: 'list', label: t('kanbanView.viewList') },
+  { id: 'table', label: t('kanbanView.viewTable') },
+  { id: 'month', label: t('kanbanView.viewMonth') },
+  { id: 'week', label: t('kanbanView.viewWeek') },
+  { id: 'three-day', label: t('kanbanView.viewThreeDay') },
+  { id: 'day', label: t('kanbanView.viewDay') },
+  { id: 'archive-table', label: t('kanbanView.viewArchive') },
+  { id: 'stats', label: t('kanbanView.viewStats') }
+]);
+const taskScopeSidebarSectionOptions = computed<Array<{ id: SidebarSectionId; label: string }>>(() => [
+  { id: 'week-dates', label: t('taskScopeDialog.sidebarWeekDates') },
+  { id: 'summary-card-grid', label: t('taskScopeDialog.sidebarSummaryCards') },
+  { id: 'habit-list', label: t('taskScopeDialog.sidebarHabitList') },
+  { id: 'stand-container', label: t('taskScopeDialog.sidebarStandContainer') }
+]);
 
 const TASK_MANAGER_CRDT_STORE_ID = 'task-manager';
 const crdtRepo = getCrdtRepository(TASK_MANAGER_CRDT_STORE_ID);
@@ -796,6 +875,8 @@ const loading = ref(false);
 const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
 const showTaskScopeDialog = ref(false);
+type TaskScopeDialogTab = 'scope' | 'task-settings' | 'document-groups' | 'goals' | 'display';
+const taskScopeDialogInitialTab = ref<TaskScopeDialogTab>('scope');
 const isGlobalDateRecognitionRunning = ref(false);
 const showTaskGroupDialog = ref(false);
 const requiresScopeInitialization = ref(false);
@@ -835,6 +916,29 @@ interface TaskGroupedSection {
   tasks: Task[];
   order: number;
 }
+
+type KernelDiagnosticsStatus = 'idle' | 'checking' | 'connected' | 'error';
+
+interface KernelDiagnosticsState {
+  status: KernelDiagnosticsStatus;
+  rows?: number;
+  topLevelRows?: number;
+  subtaskRows?: number;
+  cached?: boolean;
+  rebuilt?: boolean;
+  pageCount?: number;
+  totalScanned?: number;
+  elapsedMs?: number;
+  indexElapsedMs?: number;
+  hierarchyElapsedMs?: number;
+  pingMs?: number;
+  partial?: boolean;
+  checkedAt?: number;
+  refreshedAt?: number;
+  ageMs?: number;
+  error?: string;
+}
+
 const taskEditDraft = ref<TaskEditDraft | null>(null);
 const inlineEditingDescriptionTaskId = ref<string | null>(null);
 const inlineDescriptionDraftByTaskId = ref(new Map<string, string>());
@@ -847,10 +951,14 @@ const taskModalTeleportTarget = ref<HTMLElement | null>(null);
 const taskEditMenuTaskId = ref<string | null>(null);
 const taskFilterControlRef = ref<HTMLElement | null>(null);
 const taskGroupMenuControlRef = ref<HTMLElement | null>(null);
+const kernelDiagnosticsControlRef = ref<HTMLElement | null>(null);
 const taskFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
 const taskFilterPopoverStyle = ref<Record<string, string>>({});
 const taskSearchInputRef = ref<HTMLInputElement | null>(null);
 const taskGroupMenuVisible = ref(false);
+const kernelDiagnosticsVisible = ref(false);
+const kernelDiagnosticsChecking = ref(false);
+const kernelDiagnostics = ref<KernelDiagnosticsState>({ status: 'idle' });
 const taskSearchVisible = ref(false);
 const taskSearchQuery = ref('');
 const taskListViewMode = ref<TaskListViewMode>('kanban');
@@ -859,7 +967,7 @@ const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
 let taskEditorProtyle: Protyle | null = null;
 const openingTaskPopoverBlockIds = new Set<string>();
 const taskEditorSidebarVisible = ref(false);
-const taskEditorSidebarTitle = ref('编辑任务');
+const taskEditorSidebarTitle = ref(t('taskManager.editTask'));
 const taskEditorSidebarMountRef = ref<HTMLElement | null>(null);
 const taskEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
 const taskEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | 'status' | null>(null);
@@ -889,7 +997,7 @@ const taskQuickDateMenu = ref<{ show: boolean; x: number; y: number; task: Task 
   y: 0,
   task: null
 });
-const taskQuickDateDraft = ref<{ startDate: string; startTime: string; dueDate: string; dueTime: string }>({
+const taskQuickDateDraft = ref<TaskQuickDateDraft>({
   startDate: '',
   startTime: '',
   dueDate: '',
@@ -941,38 +1049,38 @@ function normalizeTaskGroupDialogOrderIds(input: unknown): string[] {
 
 let skipCleanupTimer: number | null = null;
 const taskListViewOptions: Array<{ value: TaskListViewMode; label: string }> = [
-  { value: 'kanban', label: '看板视图' },
-  { value: 'list', label: '列表视图' }
+  { value: 'kanban', label: t('taskManager.kanbanView') },
+  { value: 'list', label: t('taskManager.listView') }
 ];
 const taskListGroupOptions: Array<{ value: TaskListGroupMode; label: string }> = [
-  { value: 'none', label: '不分组' },
-  { value: 'status', label: '按状态分组' },
-  { value: 'date', label: '按日期分组' },
-  { value: 'group', label: '按标签分组' },
-  { value: 'heading', label: '按标题分组' }
+  { value: 'none', label: t('taskManager.groupByNone') },
+  { value: 'status', label: t('taskManager.groupByStatus') },
+  { value: 'date', label: t('taskManager.groupByDate') },
+  { value: 'group', label: t('taskManager.groupByTag') },
+  { value: 'heading', label: t('taskManager.groupByHeading') }
 ];
 const batchEditStatusOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: '状态（不修改）' },
-  { value: 'pending', text: '待处理' },
-  { value: 'in-progress', text: '进行中' },
-  { value: 'delayed', text: '延迟' },
-  { value: 'completed', text: '已完成' },
-  { value: 'cancelled', text: '已取消' }
+  { value: '', text: t('taskManager.statusNoChange') },
+  { value: 'pending', text: t('taskManager.statusPending') },
+  { value: 'in-progress', text: t('taskManager.statusInProgress') },
+  { value: 'delayed', text: t('taskManager.statusDelayed') },
+  { value: 'completed', text: t('taskManager.statusCompleted') },
+  { value: 'cancelled', text: t('taskManager.statusCancelled') }
 ];
 const batchEditPriorityOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: '优先级（不修改）' },
-  { value: 'none', text: '无' },
-  { value: 'low', text: '低' },
-  { value: 'medium', text: '中' },
-  { value: 'high', text: '高' }
+  { value: '', text: t('taskManager.priorityNoChange') },
+  { value: 'none', text: t('taskManager.priorityNone') },
+  { value: 'low', text: t('taskManager.priorityLow') },
+  { value: 'medium', text: t('taskManager.priorityMedium') },
+  { value: 'high', text: t('taskManager.priorityHigh') }
 ];
 const taskGroupStatusOrder: Task['status'][] = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
 const taskGroupStatusLabel: Record<Task['status'], string> = {
-  'pending': '待处理',
-  'in-progress': '进行中',
-  'delayed': '延迟',
-  'completed': '已完成',
-  'cancelled': '已取消'
+  'pending': t('taskManager.statusPending'),
+  'in-progress': t('taskManager.statusInProgress'),
+  'delayed': t('taskManager.statusDelayed'),
+  'completed': t('taskManager.statusCompleted'),
+  'cancelled': t('taskManager.statusCancelled')
 };
 
 const taskModalTeleportTo = computed(() => taskModalTeleportTarget.value || 'body');
@@ -988,6 +1096,8 @@ const activeTaskEditDraft = computed(() =>
     ? taskEditDraft.value
     : null
 );
+const taskEditorRepeatFrequency = ref<RepeatFrequency>('none');
+const taskEditorRepeatRule = ref<RepeatRule | null>(null);
 const batchSelectedCount = computed(() => batchSelectedTaskIds.value.size);
 const allVisibleTasksSelected = computed(() => {
   const currentTasks = displayedTasks.value;
@@ -997,11 +1107,11 @@ const allVisibleTasksSelected = computed(() => {
   return currentTasks.every(task => batchSelectedTaskIds.value.has(task.id));
 });
 const batchEditGroupOptions = computed(() => [
-  { value: '', text: '标签（不修改）' },
-  { value: TASK_GROUP_NONE_ID, text: '无标签' },
+  { value: '', text: t('taskManager.tagNoChange') },
+  { value: TASK_GROUP_NONE_ID, text: t('taskManager.noTag') },
   ...visibleTaskGroups.value.map(group => ({
     value: group.id,
-    text: group.name || '未命名标签'
+    text: group.name || t('taskManager.untitledTag')
   }))
 ]);
 const canApplyBatchEdit = computed(() => {
@@ -1363,7 +1473,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       .filter(id => id.length > 0);
     blockIdsToClear = Array.from(new Set([...sqlBlockIds, ...localBlockIds]));
   } catch (error) {
-    console.error('[TaskManager] 查询标签任务失败:', error);
+    console.error('[TaskManager] Failed to query tagged tasks:', error);
     blockIdsToClear = Array.from(new Set(localBlockIds));
   }
 
@@ -1373,7 +1483,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       await setBlockAttrs(blockId, { 'custom-task-group': '' });
       successBlockIds.push(blockId);
     } catch (error) {
-      console.error('[TaskManager] 清理任务标签属性失败:', error);
+      console.error('[TaskManager] Failed to clear task group attrs:', error);
     }
   }
 
@@ -1504,6 +1614,10 @@ function closeTaskGroupMenu(): void {
   taskGroupMenuVisible.value = false;
 }
 
+function closeKernelDiagnostics(): void {
+  kernelDiagnosticsVisible.value = false;
+}
+
 function closeTaskSearch(): void {
   taskSearchVisible.value = false;
   taskSearchQuery.value = '';
@@ -1512,6 +1626,7 @@ function closeTaskSearch(): void {
 function toggleTaskSearch(): void {
   closeTaskFilterPopover();
   closeTaskGroupMenu();
+  closeKernelDiagnostics();
   if (taskSearchVisible.value) {
     closeTaskSearch();
     return;
@@ -1525,6 +1640,7 @@ function toggleTaskSearch(): void {
 
 function toggleTaskFilterPopover(): void {
   closeTaskGroupMenu();
+  closeKernelDiagnostics();
   taskFilterPopoverVisible.value = !taskFilterPopoverVisible.value;
   if (taskFilterPopoverVisible.value) {
     void nextTick(updateTaskFilterPopoverPosition);
@@ -1533,7 +1649,162 @@ function toggleTaskFilterPopover(): void {
 
 function toggleTaskGroupMenu(): void {
   closeTaskFilterPopover();
+  closeKernelDiagnostics();
   taskGroupMenuVisible.value = !taskGroupMenuVisible.value;
+}
+
+function toggleKernelDiagnostics(): void {
+  closeTaskFilterPopover();
+  closeTaskGroupMenu();
+  kernelDiagnosticsVisible.value = !kernelDiagnosticsVisible.value;
+  if (kernelDiagnosticsVisible.value && kernelDiagnostics.value.status === 'idle') {
+    void checkKernelDiagnostics();
+  }
+}
+
+const kernelDiagnosticsStatusLabel = computed(() => {
+  if (kernelDiagnosticsChecking.value || kernelDiagnostics.value.status === 'checking') {
+    return t('taskManager.checking');
+  }
+  if (kernelDiagnostics.value.status === 'connected') {
+    return t('taskManager.connected');
+  }
+  if (kernelDiagnostics.value.status === 'error') {
+    return t('taskManager.error');
+  }
+  return t('taskManager.unchecked');
+});
+
+const kernelDiagnosticsSourceLabel = computed(() => {
+  const state = kernelDiagnostics.value;
+  if (state.status === 'error') {
+    return t('taskManager.unavailable');
+  }
+  if (state.rebuilt) {
+    return t('taskManager.rebuilt');
+  }
+  if (state.cached === true) {
+    return t('taskManager.cache');
+  }
+  if (state.cached === false && state.rows !== undefined) {
+    return t('taskManager.newIndex');
+  }
+  return t('taskManager.unchecked');
+});
+
+const kernelDiagnosticsCheckedAtText = computed(() => {
+  const checkedAt = kernelDiagnostics.value.checkedAt;
+  if (!checkedAt) {
+    return '--';
+  }
+  return new Date(checkedAt).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+});
+
+function formatKernelDiagnosticNumber(value: number | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? String(value)
+    : '--';
+}
+
+function formatKernelDiagnosticMs(value: number | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${Math.max(0, Math.round(value))}ms`
+    : '--';
+}
+
+function isKernelSubtaskRow(row: Record<string, unknown>): boolean {
+  return row?.is_subtask === true ||
+    row?.is_subtask === 'true' ||
+    row?.is_subtask === 1 ||
+    Boolean(row?.parent_task_id);
+}
+
+function buildKernelDiagnosticsParams(): KernelTaskIndexParams {
+  const scope = getCurrentTaskQueryScope();
+  return {
+    limit: 5000,
+    includeCompleted: scope?.includeCompleted,
+    includeArchived: scope?.includeArchived,
+    archivedOnly: scope?.archivedOnly,
+    notebookId: scope?.notebookId,
+    documentId: scope?.documentId
+  };
+}
+
+function buildKernelDiagnosticsState(
+  result: KernelTaskRowsResult,
+  pingMs: number,
+  rebuilt = false
+): KernelDiagnosticsState {
+  const rows = Array.isArray(result.rows) ? result.rows : [];
+  const subtaskRows = rows.filter(row => isKernelSubtaskRow(row)).length;
+  return {
+    status: 'connected',
+    rows: rows.length,
+    topLevelRows: Math.max(0, rows.length - subtaskRows),
+    subtaskRows,
+    cached: result.cached,
+    rebuilt,
+    pageCount: result.pageCount,
+    totalScanned: result.totalScanned,
+    elapsedMs: result.elapsedMs,
+    indexElapsedMs: result.indexElapsedMs,
+    hierarchyElapsedMs: result.hierarchyElapsedMs,
+    pingMs,
+    partial: result.partial,
+    checkedAt: Date.now(),
+    refreshedAt: result.refreshedAt,
+    ageMs: result.ageMs
+  };
+}
+
+async function runKernelDiagnostics(rebuild = false): Promise<void> {
+  if (kernelDiagnosticsChecking.value) {
+    return;
+  }
+  kernelDiagnosticsChecking.value = true;
+  kernelDiagnostics.value = {
+    ...kernelDiagnostics.value,
+    status: 'checking',
+    error: undefined
+  };
+
+  try {
+    const pingStartedAt = performance.now();
+    await pingPinchKernel();
+    const pingMs = performance.now() - pingStartedAt;
+    const params = buildKernelDiagnosticsParams();
+    const result = rebuild
+      ? await refreshKernelTaskIndex(params)
+      : await getKernelTaskIndex(params);
+    kernelDiagnostics.value = buildKernelDiagnosticsState(result, pingMs, rebuild);
+    if (rebuild) {
+      showMessage(t('taskManager.kernelIndexRebuilt'), 2200, 'info');
+    }
+  } catch (error) {
+    kernelDiagnostics.value = {
+      status: 'error',
+      checkedAt: Date.now(),
+      error: error instanceof Error ? error.message : t('taskManager.kernelDisconnected')
+    };
+    if (rebuild) {
+      showMessage(t('taskManager.kernelIndexRebuildFailed'), 3200, 'error');
+    }
+  } finally {
+    kernelDiagnosticsChecking.value = false;
+  }
+}
+
+function checkKernelDiagnostics(): void {
+  void runKernelDiagnostics(false);
+}
+
+function rebuildKernelTaskIndex(): void {
+  void runKernelDiagnostics(true);
 }
 
 function selectTaskListViewMode(mode: TaskListViewMode): void {
@@ -1641,13 +1912,14 @@ function sortDocumentGroups(groups: DocumentGroup[]): DocumentGroup[] {
 }
 
 function resolveDocumentEntryName(document: Pick<TaskDocument, 'id' | 'name' | 'path'>): string {
-  if (typeof document.name === 'string' && document.name.trim().length > 0) {
-    return document.name.trim();
-  }
-  if (typeof document.path === 'string' && document.path.trim().length > 0) {
-    return document.path.trim().split('/').pop() || document.path.trim();
-  }
-  return document.id;
+  return resolveDocumentDisplayName(document);
+}
+
+function getConfiguredDefaultTaskNotebook(): string {
+  const configured = typeof userSettings.taskManager.defaultTaskCreateNotebook === 'string'
+    ? userSettings.taskManager.defaultTaskCreateNotebook.trim()
+    : '';
+  return enabledNotebooks.value.some(notebook => notebook.id === configured) ? configured : '';
 }
 
 const taskModalDefaultNotebook = computed(() => {
@@ -1661,10 +1933,16 @@ const taskModalDefaultNotebook = computed(() => {
   if (parsedFilterSource.value.kind === 'group' || parsedFilterSource.value.kind === 'goal') {
     return sourceDocuments.value[0]?.notebookId || lastTaskNotebook.value || '';
   }
-  return lastTaskNotebook.value || '';
+  return getConfiguredDefaultTaskNotebook() || lastTaskNotebook.value || '';
 });
 
 const taskModalDefaultDocument = computed(() => {
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'daily-note') {
+    return PINCH_DAILY_NOTE_OPTION_ID;
+  }
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'inbox') {
+    return PINCH_INBOX_OPTION_ID;
+  }
   if (filterDocument.value !== 'all') {
     return filterDocument.value;
   }
@@ -1715,7 +1993,7 @@ const notebookOptions = computed(() => {
     })),
     ...activeGoalItems.value.map(goal => ({
       value: buildGoalDocumentSource(goal.id),
-      text: `${goal.emoji || '🎯'} ${goal.name || '未命名目标'}`
+      text: `${goal.emoji || '🎯'} ${goal.name || t('taskManager.untitledGoal')}`
     }))
   ];
 });
@@ -1742,7 +2020,7 @@ const taskMoveDocuments = computed(() => {
     const fallbackPath = typeof activeTask.hPath === 'string' ? activeTask.hPath : '';
     docs.unshift({
       id: activeRootId,
-      name: fallbackPath.split('/').pop() || fallbackPath || activeRootId,
+      name: resolveDocumentDisplayName({ id: activeRootId, path: fallbackPath }),
       notebookId,
       path: fallbackPath || undefined
     });
@@ -1775,7 +2053,7 @@ const canSubmitTaskMove = computed(() => {
 
 const taskGroupPickerOptions = computed(() => {
   const options = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, color: '', colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: t('taskManager.noTag'), special: true, color: '', colorCss: '', textColor: '' }
   ];
   visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -1799,10 +2077,10 @@ const taskEditorSelectedGroupId = computed(() => {
 const taskEditorGroupLabel = computed(() => {
   const groupId = (activeTaskEditDraft.value?.groupId || '').trim();
   if (!groupId) {
-    return '无标签';
+    return t('taskManager.noTag');
   }
   const group = taskGroups.value.find(item => item.id === groupId);
-  return group?.name || '标签';
+  return group?.name || t('taskManager.tags');
 });
 
 const taskEditorGroupColorValue = computed(() => {
@@ -1852,11 +2130,11 @@ let consecutiveFallbackFailures = 0;
 let lastMismatchForceRefreshAt = 0;
 const MISMATCH_FORCE_REFRESH_COOLDOWN = 500;
 let taskScopeRefreshTimer: number | null = null;
+let kernelTaskIndexRefreshTimer: number | null = null;
 let isHydratingFilters = true;
 let lastTaskDocumentOptionsRefreshAt = 0;
 const TASK_DOCUMENT_OPTIONS_CACHE_TTL = 60000;
 const FILTER_SWITCH_BROAD_LOAD_THRESHOLD = 5000;
-const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
 
 // Tracks tasks whose dates were just cleared, to prevent stale values from being written back by delayed events.
 const recentlyDeletedDates = ref(new Map<string, { startDate: null; dueDate: null; timestamp: number }>());
@@ -1919,21 +2197,11 @@ function getDocumentsForActiveSource(sourceValue: string): TaskDocument[] {
     seen.add(key);
 
     const existing = allDocumentsByKey.value.get(key);
-    if (existing) {
-      documents.push(existing);
+    if (!existing) {
       return;
     }
 
-    documents.push({
-      id: member.documentId,
-      name: resolveDocumentEntryName({
-        id: member.documentId,
-        name: member.name || '',
-        path: member.path
-      }),
-      notebookId: member.notebookId,
-      path: member.path
-    });
+    documents.push(existing);
   });
 
   return documents.sort((a, b) => {
@@ -2051,6 +2319,17 @@ function buildTaskDocumentCompletionSql(alias: string = 'b'): string {
   return ` AND ${alias}.markdown LIKE '%[ ]%'`;
 }
 
+function buildTaskDocumentArchiveSql(alias: string = 'b'): string {
+  const archivedValueSql = "('1', 'true', 'TRUE', 'yes', 'YES')";
+  return `
+        AND NOT EXISTS (
+          SELECT 1 FROM attributes archived_attr
+          WHERE archived_attr.block_id = ${alias}.id
+            AND archived_attr.name = 'custom-task-archived'
+            AND archived_attr.value IN ${archivedValueSql}
+        )`;
+}
+
 async function refreshTaskDocumentOptions(force = false): Promise<void> {
   if (
     !force &&
@@ -2068,9 +2347,15 @@ async function refreshTaskDocumentOptions(force = false): Promise<void> {
         ${buildTaskDocumentScopeSql('b')}
         AND b.subtype = 't'
         ${buildTaskDocumentCompletionSql('b')}
+        ${buildTaskDocumentArchiveSql('b')}
       GROUP BY b.box, b.root_id
       ORDER BY b.box, b.root_id
     `) as Array<{ box?: string; root_id?: string; hpath?: string }>;
+    const fallbackMetadataByRootId = await loadRootDocumentMetadata(
+      (rows || [])
+        .filter(row => typeof row?.hpath !== 'string' || row.hpath.trim().length === 0)
+        .map(row => typeof row?.root_id === 'string' ? row.root_id : '')
+    );
 
     const nextMap = new Map<string, TaskDocument[]>();
     for (const row of rows || []) {
@@ -2080,16 +2365,21 @@ async function refreshTaskDocumentOptions(force = false): Promise<void> {
         continue;
       }
 
+      const fallbackMetadata = fallbackMetadataByRootId.get(rootId);
       const rawPath = typeof row?.hpath === 'string' && row.hpath.trim().length > 0
-        ? row.hpath
-        : rootId;
-      const name = rawPath.split('/').pop() || rawPath;
+        ? row.hpath.trim()
+        : fallbackMetadata?.path || '';
+      const name = resolveDocumentDisplayName({
+        id: rootId,
+        name: fallbackMetadata?.name,
+        path: rawPath
+      });
       const docs = nextMap.get(notebookId) || [];
       docs.push({
         id: rootId,
         name,
         notebookId,
-        path: rawPath
+        path: rawPath || undefined
       });
       nextMap.set(notebookId, docs);
     }
@@ -2182,6 +2472,10 @@ watch(taskEditMenuTaskId, () => {
   taskEditorQuickPanel.value = null;
 });
 
+watch(activeTaskEditTask, (task) => {
+  syncTaskEditorRepeatState(task);
+}, { immediate: true });
+
 watch(taskFilterPopoverVisible, (visible) => {
   if (visible) {
     void nextTick(updateTaskFilterPopoverPosition);
@@ -2215,32 +2509,32 @@ watch([taskListViewMode, showTaskCardDetails], () => {
 
 const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
 const taskStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
-  { value: 'pending', label: '待处理' },
-  { value: 'in-progress', label: '进行中' },
-  { value: 'delayed', label: '延迟' },
-  { value: 'completed', label: '已完成' },
-  { value: 'cancelled', label: '已取消' }
+  { value: 'pending', label: t('taskManager.statusPending') },
+  { value: 'in-progress', label: t('taskManager.statusInProgress') },
+  { value: 'delayed', label: t('taskManager.statusDelayed') },
+  { value: 'completed', label: t('taskManager.statusCompleted') },
+  { value: 'cancelled', label: t('taskManager.statusCancelled') }
 ];
 const taskPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = [
-  { value: 'high', label: '高优先级' },
-  { value: 'medium', label: '中优先级' },
-  { value: 'low', label: '低优先级' },
-  { value: 'none', label: '无优先级' }
+  { value: 'high', label: t('taskManager.priorityHighLabel') },
+  { value: 'medium', label: t('taskManager.priorityMediumLabel') },
+  { value: 'low', label: t('taskManager.priorityLowLabel') },
+  { value: 'none', label: t('taskManager.priorityNoneLabel') }
 ];
 const taskDueFilterOptions: Array<{ value: TaskDueFilterKey; label: string }> = [
-  { value: 'overdue', label: '已逾期' },
-  { value: 'today', label: '今天到期' },
-  { value: 'next7Days', label: '未来 7 天' },
-  { value: 'noDueDate', label: '无截止日期' }
+  { value: 'overdue', label: t('taskManager.dueOverdue') },
+  { value: 'today', label: t('taskManager.dueToday') },
+  { value: 'next7Days', label: t('taskManager.dueNext7Days') },
+  { value: 'noDueDate', label: t('taskManager.noDueDate') }
 ];
 const taskUpdatedFilterOptions: Array<{ value: TaskUpdateFilterKey; label: string }> = [
-  { value: 'today', label: '今日' },
-  { value: 'thisWeek', label: '本周' },
-  { value: 'thisMonth', label: '本月' }
+  { value: 'today', label: t('taskManager.today') },
+  { value: 'thisWeek', label: t('taskManager.thisWeek') },
+  { value: 'thisMonth', label: t('taskManager.thisMonth') }
 ];
 const taskExtraFilterOptions: Array<{ value: TaskExtraFilterKey; label: string }> = [
-  { value: 'hasDescription', label: '有描述' },
-  { value: 'hasSubtasks', label: '有子任务' }
+  { value: 'hasDescription', label: t('taskManager.hasDescription') },
+  { value: 'hasSubtasks', label: t('taskManager.hasSubtasks') }
 ];
 const taskStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(taskStatusFilterOptions.map(option => option.value));
 const taskPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(taskPriorityFilterOptions.map(option => option.value));
@@ -2296,7 +2590,7 @@ function normalizeStoredGroupFilters(values: unknown): string[] {
 }
 const taskGroupFilterOptions = computed(() => {
   const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', style: {} }
+    { value: TASK_GROUP_NONE_ID, label: t('taskManager.noTag'), style: {} }
   ];
   visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -2478,10 +2772,10 @@ const taskEditPriorityOptions: Array<{
   background: string;
   color: string;
 }> = [
-  { value: 'high', label: '高优先级', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
-  { value: 'medium', label: '中优先级', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'low', label: '低优先级', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'none', label: '无优先级', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
+  { value: 'high', label: t('taskManager.priorityHighLabel'), background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
+  { value: 'medium', label: t('taskManager.priorityMediumLabel'), background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
+  { value: 'low', label: t('taskManager.priorityLowLabel'), background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
+  { value: 'none', label: t('taskManager.priorityNoneLabel'), background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
 ];
 const taskEditorPriorityOption = computed(() => {
   const current = activeTaskEditDraft.value?.priority || 'none';
@@ -2489,7 +2783,7 @@ const taskEditorPriorityOption = computed(() => {
 });
 const taskEditorDueText = computed(() => {
   const dueDate = activeTaskEditDraft.value?.dueDate || '';
-  if (!dueDate) return '未设置';
+  if (!dueDate) return t('taskManager.notSet');
   return formatMonthDay(dueDate);
 });
 const taskEditorHasDueDate = computed(() => {
@@ -2622,19 +2916,11 @@ function scheduleTaskScopeRefresh(delay = 100): void {
 }
 
 function normalizeDateInputValue(value: string): string {
-  const text = typeof value === 'string' ? value.trim() : '';
-  if (!text) {
-    return '';
-  }
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+  return normalizeQuickDateInputValue(value);
 }
 
 function normalizeTimeInputValue(value: string): string {
-  const text = typeof value === 'string' ? value.trim() : '';
-  if (!text) {
-    return '';
-  }
-  return /^\d{2}:\d{2}$/.test(text) ? text : '';
+  return normalizeQuickTimeInputValue(value);
 }
 
 function closeTaskQuickDateMenu(): void {
@@ -2652,30 +2938,38 @@ function closeTaskQuickDateMenu(): void {
   };
 }
 
-function seedTaskQuickDateDraft(task: Task): void {
-  const normalizedStartDate = normalizeDateInputValue((task.startDate || '').toString());
-  const normalizedDueDate = normalizeDateInputValue((task.dueDate || '').toString());
-  const normalizedStartTime = normalizeTimeInputValue((task.startTime || '').toString());
-  const normalizedDueTime = normalizeTimeInputValue((task.dueTime || '').toString());
+async function resolveTaskQuickDateRecognitionText(task: Task): Promise<string> {
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+  if (blockId) {
+    const liveTitle = getLiveTaskTitle(blockId);
+    if (liveTitle !== null) {
+      return liveTitle;
+    }
 
-  let resolvedStartDate = normalizedStartDate;
-  let resolvedDueDate = normalizedDueDate;
-  if (!resolvedStartDate && !resolvedDueDate) {
-    const inferredDate = normalizeDateInputValue(
-      TaskRepository.inferTaskDateFromText(typeof task.title === 'string' ? task.title : '') || ''
-    );
-    if (inferredDate) {
-      resolvedStartDate = inferredDate;
-      resolvedDueDate = inferredDate;
+    try {
+      const blockData = await getBlockDOM(blockId);
+      const dom = typeof blockData?.dom === 'string' ? blockData.dom : '';
+      if (dom) {
+        const parsedDoc = new DOMParser().parseFromString(dom, 'text/html');
+        const parsedTitle = parseTaskTitle(blockId, parsedDoc);
+        if (parsedTitle !== null) {
+          return parsedTitle;
+        }
+      }
+    } catch {
     }
   }
 
-  taskQuickDateDraft.value = {
-    startDate: resolvedStartDate,
-    startTime: normalizedStartTime,
-    dueDate: resolvedDueDate,
-    dueTime: normalizedDueTime
-  };
+  return typeof task.title === 'string' ? task.title : '';
+}
+
+async function seedTaskQuickDateDraft(task: Task): Promise<void> {
+  const recognitionText = await resolveTaskQuickDateRecognitionText(task);
+  const inferredDateRange = TaskRepository.inferTaskDateRangeFromText(recognitionText);
+  const repeatDateFields = isRepeatTaskForDateSave(task)
+    ? await getRepeatTaskDateFields(task).catch(() => null)
+    : null;
+  taskQuickDateDraft.value = buildTaskQuickDateDraft(repeatDateFields || task, inferredDateRange);
 }
 
 function buildTaskQuickMenuAnchorFromRect(rect: DOMRect | null | undefined): { x: number; y: number } | null {
@@ -2745,7 +3039,7 @@ function resolveTaskQuickMenuAnchor(blockId: string, anchorX?: unknown, anchorY?
   return getTaskBlockQuickMenuAnchor(blockId);
 }
 
-function openTaskQuickDateMenu(task: Task, anchorPosition?: { x: number; y: number } | null): void {
+async function openTaskQuickDateMenu(task: Task, anchorPosition?: { x: number; y: number } | null): Promise<void> {
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
   const menuWidth = 280;
@@ -2772,13 +3066,13 @@ function openTaskQuickDateMenu(task: Task, anchorPosition?: { x: number; y: numb
   x = Math.max(margin, Math.min(x, Math.max(margin, viewportWidth - menuWidth - margin)));
   y = Math.max(margin, Math.min(y, Math.max(margin, viewportHeight - estimatedHeight - margin)));
 
+  await seedTaskQuickDateDraft(task);
   taskQuickDateMenu.value = {
     show: true,
     x,
     y,
     task
   };
-  seedTaskQuickDateDraft(task);
 }
 
 function updateTaskFilterPopoverPosition(): void {
@@ -2885,6 +3179,33 @@ function isVirtualTaskForToday(task: Task): boolean {
     return rangeStart < todayEnd && taskRangeEnd > todayStart;
   }
   return false;
+}
+
+function formatTaskManagerRepeatWindowDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function resolveTaskManagerRepeatWindow(): TaskRepeatWindow {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setDate(start.getDate() - 14);
+  const end = new Date(today);
+  end.setDate(end.getDate() + 45);
+  return {
+    startDate: formatTaskManagerRepeatWindowDate(start),
+    endDate: formatTaskManagerRepeatWindowDate(end)
+  };
+}
+
+function resolveTaskManagerRepeatMaterializeOptions() {
+  return {
+    ...resolveTaskRepeatMaterializeOptions(resolveTaskManagerRepeatWindow()),
+    includeTemplateDate: true
+  };
 }
 
 function matchesTaskDueFilter(task: Task, filter: TaskDueFilterKey): boolean {
@@ -3286,7 +3607,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     if (pendingTasks.length > 0) {
       sections.push({
         key: 'list:pending',
-        label: '待处理',
+        label: t('taskManager.statusPending'),
         tasks: pendingTasks,
         order: 0
       });
@@ -3294,7 +3615,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     if (completedTasks.length > 0) {
       sections.push({
         key: 'list:completed',
-        label: '已完成',
+        label: t('taskManager.statusCompleted'),
         tasks: completedTasks,
         order: 1
       });
@@ -3312,7 +3633,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     }
     return [{
       key: 'pinned:top',
-      label: '置顶',
+      label: t('taskManager.pinned'),
       tasks: pinnedSectionTasks,
       order: -1
     }, ...sections];
@@ -3369,7 +3690,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     if (noneTasks.length > 0) {
       sections.push({
         key: `group:${TASK_GROUP_NONE_ID}`,
-        label: '无标签',
+        label: t('taskManager.noTag'),
         tasks: noneTasks,
         order: Number.MAX_SAFE_INTEGER
       });
@@ -3377,7 +3698,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     if (completedTasks.length > 0) {
       sections.push({
         key: 'completed:all',
-        label: '已完成',
+        label: t('taskManager.statusCompleted'),
         tasks: completedTasks,
         order: Number.MAX_SAFE_INTEGER
       });
@@ -3402,14 +3723,18 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 1).getTime();
 
     const dateSections = [
-      { key: 'overdue', label: '逾期' },
-      { key: 'today', label: '今日' },
-      { key: 'thisWeek', label: '本周' },
-      { key: 'thisMonth', label: '本月' },
-      { key: 'other', label: '其他' }
+      { key: 'overdue', label: t('taskManager.overdue') },
+      { key: 'today', label: t('taskManager.today') },
+      { key: 'thisWeek', label: t('taskManager.thisWeek') },
+      { key: 'thisMonth', label: t('taskManager.thisMonth') },
+      { key: 'other', label: t('taskManager.other') }
     ] as const;
     const grouped = new Map<(typeof dateSections)[number]['key'], Task[]>();
     dateSections.forEach((section) => grouped.set(section.key, []));
+    const dateTaskOriginalIndex = new Map<string, number>();
+    tasksWithoutPinnedSection.forEach((task, index) => {
+      dateTaskOriginalIndex.set(task.id, index);
+    });
     const todayVirtualSeriesIds = new Set<string>();
     tasksWithoutPinnedSection.forEach((task) => {
       if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
@@ -3439,11 +3764,49 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
       grouped.get(sectionKey)?.push(task);
     });
 
+    const isTimestampInDateSection = (
+      timestamp: number | null,
+      sectionKey: (typeof dateSections)[number]['key']
+    ): boolean => {
+      if (timestamp === null) {
+        return false;
+      }
+      if (sectionKey === 'overdue') {
+        return timestamp < todayStart;
+      }
+      if (sectionKey === 'today') {
+        return timestamp >= todayStart && timestamp < tomorrowStart;
+      }
+      if (sectionKey === 'thisWeek') {
+        return timestamp >= weekStartTimestamp && timestamp < weekEnd;
+      }
+      if (sectionKey === 'thisMonth') {
+        return timestamp >= monthStart && timestamp < monthEnd;
+      }
+      return false;
+    };
+
+    const compareTasksInDateSection = (
+      sectionKey: (typeof dateSections)[number]['key'],
+      left: Task,
+      right: Task
+    ): number => {
+      const leftDueInSection = isTimestampInDateSection(getTaskDueDateTimestamp(left), sectionKey);
+      const rightDueInSection = isTimestampInDateSection(getTaskDueDateTimestamp(right), sectionKey);
+      if (leftDueInSection !== rightDueInSection) {
+        return leftDueInSection ? -1 : 1;
+      }
+
+      return (dateTaskOriginalIndex.get(left.id) ?? 0) - (dateTaskOriginalIndex.get(right.id) ?? 0);
+    };
+
     return prependPinnedSection(dateSections
       .map((section, index) => ({
         key: `date:${section.key}`,
         label: section.label,
-        tasks: grouped.get(section.key) || [],
+        tasks: [...(grouped.get(section.key) || [])].sort((left, right) =>
+          compareTasksInDateSection(section.key, left, right)
+        ),
         order: index
       }))
       .filter(section => section.tasks.length > 0));
@@ -3460,7 +3823,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     const meta = getTaskHeadingGroupMeta(task, taskHeadingGroups.value);
     const headingKey = meta.key || `heading:${task.id}`;
     const sectionKey = `heading:${headingKey}`;
-    let label = (meta.label || '').trim() || '未命名标题';
+    let label = (meta.label || '').trim() || t('taskManager.untitledHeading');
     if (shouldHideDocumentPrefix && label.includes(' / ')) {
       label = label.split(' / ').slice(1).join(' / ');
     }
@@ -3492,7 +3855,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
   if (completedTasks.length > 0) {
     sections.push({
       key: 'completed:all',
-      label: '已完成',
+      label: t('taskManager.statusCompleted'),
       tasks: completedTasks,
       order: Number.MAX_SAFE_INTEGER
     });
@@ -3676,7 +4039,7 @@ async function hydrateVisibleTaskTitles(): Promise<void> {
       }
     });
   } catch (error) {
-    console.error('[TaskManager] 标题同步失败:', error);
+    console.error('[TaskManager] Failed to hydrate task titles:', error);
   } finally {
     isTaskTitleHydrating = false;
   }
@@ -3826,7 +4189,7 @@ async function applyRepeatRuleIncremental(payload: RepeatRulePayload, requestId:
     const { nextTasks, touched, handled } = await rebuildAffectedRepeatTasks(
       tasks.value,
       payload,
-      resolveTaskRepeatMaterializeOptions()
+      resolveTaskManagerRepeatMaterializeOptions()
     );
     if (requestId !== repeatReconcileRequestId) {
       return true;
@@ -3946,10 +4309,11 @@ function ensureActiveNotebookFilterInScope(): void {
   }
 }
 
-async function openTaskScopeDialog() {
+async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'scope') {
   if (notebooks.value.length === 0) {
     await loadNotebooks();
   }
+  taskScopeDialogInitialTab.value = initialTab;
   showTaskScopeDialog.value = true;
 }
 
@@ -3962,29 +4326,29 @@ async function handleGlobalRecognizeTaskDates(): Promise<void> {
   try {
     const result = await TaskRepository.recognizeDatesForUndatedTasks();
     if (result.scanned === 0) {
-      showMessage('未找到未设定起止日期的任务', 2200, 'info');
+      showMessage(t('taskManager.noUndatedTasks'), 2200, 'info');
       return;
     }
 
     if (result.updated > 0) {
       if (result.failed > 0) {
-        showMessage(`已写入 ${result.updated} 项日期，${result.failed} 项写入失败`, 3200, 'error');
+        showMessage(`${t('taskManager.dateWriteSuccessPrefix')} ${result.updated} ${t('taskManager.dateWriteSuccessMiddle')}，${result.failed} ${t('taskManager.dateWriteFailedSuffix')}`, 3200, 'error');
       } else {
-        showMessage(`已识别并写入 ${result.updated} 项任务日期`, 2200, 'info');
+        showMessage(`${t('taskManager.dateRecognizedWrittenPrefix')} ${result.updated} ${t('taskManager.dateRecognizedWrittenSuffix')}`, 2200, 'info');
       }
       await refreshTasks(true, { showLoading: false, compareExisting: false, source: 'global-date-recognize' });
       return;
     }
 
     if (result.recognized === 0) {
-      showMessage(`扫描 ${result.scanned} 项未设定任务，未识别到可写入日期`, 2800, 'info');
+      showMessage(`${t('taskManager.scannedPrefix')} ${result.scanned} ${t('taskManager.scannedNoWritableDateSuffix')}`, 2800, 'info');
       return;
     }
 
-    showMessage(`识别到 ${result.recognized} 项日期，写入失败 ${result.failed} 项`, 3200, 'error');
+    showMessage(`${t('taskManager.recognizedPrefix')} ${result.recognized} ${t('taskManager.recognizedMiddle')}，${t('taskManager.writeFailedPrefix')} ${result.failed} ${t('taskManager.itemSuffix')}`, 3200, 'error');
   } catch (error) {
-    console.error('[TaskManager] 全局识别任务日期失败:', error);
-    showMessage('全局识别任务日期失败，请稍后重试', 3200, 'error');
+    console.error('[TaskManager] Global task date recognition failed:', error);
+    showMessage(t('taskManager.globalDateRecognizeFailed'), 3200, 'error');
   } finally {
     isGlobalDateRecognitionRunning.value = false;
   }
@@ -3996,9 +4360,15 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     showCompletedTasks: nextShowCompletedTasks,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    dateRecognitionKeywords: nextDateRecognitionKeywords,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     documentGroups: nextDocumentGroupsPayload,
-    goals: nextGoals
+    goals: nextGoals,
+    hiddenTaskViewIds,
+    hiddenSidebarSectionIds,
+    sidebarSectionOrder,
+    defaultTaskCreateTarget,
+    defaultTaskCreateNotebook
   } = payload;
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
@@ -4022,9 +4392,19 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     excludedNotebookIds: mergedExcludedNotebookIds,
     showCompletedTasks: nextShowCompletedTasks,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
+    dateRecognitionKeywords: nextDateRecognitionKeywords,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
+    defaultTaskCreateTarget: defaultTaskCreateTarget as typeof userSettings.taskManager.defaultTaskCreateTarget,
+    defaultTaskCreateNotebook,
     ...(shouldFinalizeInit ? { scopeInitialized: true } : {})
+  });
+  await updateSettings('kanban', {
+    hiddenViewSwitcherIds: hiddenTaskViewIds as TaskViewSwitcherId[]
+  });
+  await updateSettings('sidebar', {
+    hiddenSectionIds: hiddenSidebarSectionIds as SidebarSectionId[],
+    sectionOrder: sidebarSectionOrder as SidebarSectionId[]
   });
   if (shouldFinalizeInit) {
     requiresScopeInitialization.value = false;
@@ -4038,6 +4418,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
 }
 async function handleRefreshClick() {
   if (requiresScopeInitialization.value) {
+    taskScopeDialogInitialTab.value = 'scope';
     showTaskScopeDialog.value = true;
     return;
   }
@@ -4113,7 +4494,11 @@ async function refreshTasks(
     const sqlTasks = await TaskRepository.getAllTasks(
       !force,
       loadScope,
-      { useLiveDom }
+      {
+        useLiveDom,
+        includeRepeatTemplateDate: true,
+        repeatWindow: resolveTaskManagerRepeatWindow()
+      }
     );
     if (!useLiveDom) {
       preserveInlineMemoTitles(sqlTasks, tasks.value);
@@ -4142,6 +4527,85 @@ async function refreshTasks(
   }
 }
 
+async function prefillKernelLightTasks(scope: TaskQueryScope | null | undefined): Promise<boolean> {
+  try {
+    const { tasks: lightTasks } = await TaskRepository.getKernelLightTasks(5000, scope || null);
+    if (lightTasks.length === 0) {
+      return false;
+    }
+    crdtRepo.syncFromSQLTasks(lightTasks);
+    tasks.value = crdtRepo.getTasks();
+    invalidateSortCache();
+    await nextTick();
+    updateTaskIndex();
+    return true;
+  } catch (error) {
+    console.debug('[TaskManager] kernel light prefill skipped', error);
+    return false;
+  }
+}
+
+function mergeKernelSyncedTasks(kernelTasks: Task[], currentTasks: Task[]): Task[] {
+  const currentById = new Map(currentTasks.map(task => [task.id, task]));
+  const currentByBlockId = new Map(
+    currentTasks
+      .filter(task => task.type === 'block' && !!task.blockId)
+      .map(task => [task.blockId as string, task])
+  );
+
+  const mergedById = new Map<string, Task>();
+  for (const task of currentTasks) {
+    mergedById.set(task.id, task);
+  }
+
+  for (const task of kernelTasks) {
+    const current = currentById.get(task.id) || (task.blockId ? currentByBlockId.get(task.blockId) : undefined);
+    if (!current) {
+      mergedById.set(task.id, task);
+      continue;
+    }
+
+    mergedById.set(task.id, {
+      ...current,
+      ...task,
+      subtasks: current.subtasks || task.subtasks,
+      description: task.description || current.description,
+      icon: task.icon || current.icon,
+      hPath: task.hPath || current.hPath
+    });
+  }
+
+  return Array.from(mergedById.values());
+}
+
+async function syncRepeatChangedFromKernel(): Promise<boolean> {
+  try {
+    const { tasks: kernelTasks } = await TaskRepository.getKernelMaterializedTasks(
+      5000,
+      getCurrentTaskQueryScope() || null,
+      {
+        force: true,
+        includeRepeatTemplateDate: true,
+        repeatWindow: resolveTaskManagerRepeatWindow()
+      }
+    );
+    if (kernelTasks.length === 0) {
+      return false;
+    }
+
+    crdtRepo.syncFromSQLTasks(mergeKernelSyncedTasks(kernelTasks, tasks.value));
+    tasks.value = crdtRepo.getTasks();
+    invalidateCache();
+    invalidateSortCache();
+    await nextTick();
+    updateTaskIndex();
+    return true;
+  } catch (error) {
+    console.debug('[TaskManager] kernel repeat sync skipped', error);
+    return false;
+  }
+}
+
 function scheduleFallbackRefresh(
   force = true,
   delay = 120,
@@ -4164,6 +4628,39 @@ function scheduleFallbackRefresh(
   fallbackRefreshTimer = window.setTimeout(async () => {
     fallbackRefreshTimer = null;
     await refreshTasks(force, { showLoading: false, compareExisting: true, source: 'fallback-refresh' });
+  }, delay);
+}
+
+function scheduleKernelTaskIndexRefresh(delay = 220): void {
+  if (kernelTaskIndexRefreshTimer !== null) {
+    clearTimeout(kernelTaskIndexRefreshTimer);
+  }
+  kernelTaskIndexRefreshTimer = window.setTimeout(async () => {
+    kernelTaskIndexRefreshTimer = null;
+    try {
+      await refreshKernelTaskIndex({ limit: 5000, includeArchived: true });
+    } catch (error) {
+      console.debug('[TaskManager] kernel task index refresh after date change skipped', error);
+    }
+  }, delay);
+}
+
+function scheduleRepeatChangedRefresh(delay = 120) {
+  if (fallbackRefreshTimer !== null) {
+    clearTimeout(fallbackRefreshTimer);
+  }
+
+  fallbackRefreshTimer = window.setTimeout(async () => {
+    fallbackRefreshTimer = null;
+    const syncedFromKernel = await syncRepeatChangedFromKernel();
+    if (!syncedFromKernel) {
+      await refreshTasks(true, {
+        showLoading: false,
+        compareExisting: true,
+        ignoreThrottle: true,
+        source: 'repeat-changed'
+      });
+    }
   }, delay);
 }
 
@@ -4352,7 +4849,7 @@ async function flushExternalTaskStatusAttrSync(blockIds: Iterable<string>): Prom
   const hasApplied = results.some(result => result.status === 'fulfilled' && result.value === true);
   results.forEach((result, index) => {
     if (result.status === 'rejected') {
-      console.warn('[TaskManager] 同步任务完成属性失败:', {
+      console.warn('[TaskManager] Failed to sync task completion attrs:', {
         blockId: entries[index]?.blockId,
         error: result.reason
       });
@@ -4397,8 +4894,10 @@ function setupEventListeners() {
         return;
       }
       if (!fastPathApplied) {
-        scheduleFallbackRefresh(true, 100, 'immediate');
+        scheduleFallbackRefresh(true, 60, 'immediate');
+        return;
       }
+      scheduleRepeatChangedRefresh(120);
       return;
     }
     if (payload?.blockId) {
@@ -4423,32 +4922,43 @@ function setupEventListeners() {
 
   const unsubscribeDateChanged = eventBus.on('task-date-changed', (updatedTask: Task) => {
     const now = Date.now();
+    const taskId = typeof updatedTask.id === 'string' ? updatedTask.id : '';
+    const blockId = typeof updatedTask.blockId === 'string' ? updatedTask.blockId.trim() : '';
+    const recordKey = taskId || blockId;
+    if (!recordKey) {
+      return;
+    }
     
     if (updatedTask.startDate === null && updatedTask.dueDate === null) {
-      recentlyDeletedDates.value.set(updatedTask.id, {
+      recentlyDeletedDates.value.set(recordKey, {
         startDate: null,
         dueDate: null,
         timestamp: now
       });
       
       setTimeout(() => {
-        recentlyDeletedDates.value.delete(updatedTask.id);
+        recentlyDeletedDates.value.delete(recordKey);
       }, 5000);
     } else if (updatedTask.startDate !== null || updatedTask.dueDate !== null) {
-      if (recentlyDeletedDates.value.has(updatedTask.id)) {
-        recentlyDeletedDates.value.delete(updatedTask.id);
+      if (recentlyDeletedDates.value.has(recordKey)) {
+        recentlyDeletedDates.value.delete(recordKey);
       }
     }
     
-    patchTask(tasks.value, updatedTask.id, (task) => {
-      task.startDate = updatedTask.startDate;
-      task.dueDate = updatedTask.dueDate;
-      task.startTime = updatedTask.startTime;
-      task.dueTime = updatedTask.dueTime;
+    const patchDates = (task: Task) => {
+      task.startDate = updatedTask.startDate || '';
+      task.dueDate = updatedTask.dueDate || '';
+      task.startTime = updatedTask.startTime || '';
+      task.dueTime = updatedTask.dueTime || '';
       if (updatedTask.backgroundColor !== undefined) {
         task.backgroundColor = updatedTask.backgroundColor;
       }
-    }, 'id');
+    };
+    const patched = (taskId ? patchTask(tasks.value, taskId, patchDates, 'id') : false)
+      || (blockId ? patchTask(tasks.value, blockId, patchDates, 'blockId') : false);
+    if (!patched && blockId) {
+      queueIncrementalUpdates([blockId], 80);
+    }
     invalidateSortCache();
   });
   
@@ -4886,6 +5396,33 @@ function getLiveTaskElement(blockId: string): Element | null {
   return null;
 }
 
+function getOwnTaskParagraph(root: Element | null, ownerId?: string): Element | null {
+  if (!root) return null;
+  const ownerListItem = root.getAttribute('data-type') === 'NodeListItem'
+    ? root
+    : root.closest('[data-type="NodeListItem"]');
+  const resolvedOwnerId = ownerId
+    || ownerListItem?.getAttribute('data-node-id')
+    || root.getAttribute('data-node-id')
+    || '';
+  const paragraphs: Element[] = [];
+  if (root.getAttribute('data-type') === 'NodeParagraph') {
+    paragraphs.push(root);
+  }
+  paragraphs.push(...Array.from(root.querySelectorAll('[data-type="NodeParagraph"]')));
+  for (const paragraph of paragraphs) {
+    const paragraphOwner = paragraph.closest('[data-type="NodeListItem"]');
+    if (resolvedOwnerId) {
+      if (paragraphOwner?.getAttribute('data-node-id') === resolvedOwnerId) {
+        return paragraph;
+      }
+    } else if (!ownerListItem || paragraphOwner === ownerListItem) {
+      return paragraph;
+    }
+  }
+  return null;
+}
+
 function getTaskElementFromDoc(doc: Document, blockId: string): Element | null {
   return doc.querySelector(`[data-node-id="${blockId}"][data-type="NodeListItem"]`)
     || doc.querySelector(`[data-node-id="${blockId}"]`);
@@ -4922,8 +5459,13 @@ function getLiveTaskTitle(blockId: string): string | null {
   for (const selector of selectors) {
     const currentElement = document.querySelector(selector);
     if (!currentElement) continue;
-    const currentParagraph = currentElement.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
+    const currentParagraph = getOwnTaskParagraph(currentElement, blockId);
+    const editable = currentParagraph?.querySelector('[contenteditable="true"]');
     const liveTitle = cleanTaskTitleHtml(currentParagraph?.innerHTML || '');
+    const editableTitle = cleanTaskTitleHtml(editable?.innerHTML || '');
+    if (editableTitle.length > 0) {
+      return editableTitle;
+    }
     if (liveTitle.length > 0) {
       return liveTitle;
     }
@@ -4998,9 +5540,9 @@ function hydrateMemoTitlesFromLiveDom(taskList: Task[], limit = TASK_TITLE_HYDRA
   }
 }
 
-function getTaskTitleFromElement(root: Element | null): string | null {
+function getTaskTitleFromElement(root: Element | null, ownerId?: string): string | null {
   if (!root) return null;
-  const paragraph = root.querySelector('[data-type="NodeParagraph"]');
+  const paragraph = getOwnTaskParagraph(root, ownerId);
   const editable = paragraph?.querySelector('[contenteditable="true"]');
   const rawTitle = editable?.innerHTML || paragraph?.innerHTML || '';
   const cleaned = cleanTaskTitleHtml(rawTitle);
@@ -5014,7 +5556,7 @@ function parseTaskTitle(blockId: string, parsedDoc?: Document | null): string | 
   }
 
   if (parsedDoc) {
-    const apiTitle = getTaskTitleFromElement(getTaskElementFromDoc(parsedDoc, blockId));
+    const apiTitle = getTaskTitleFromElement(getTaskElementFromDoc(parsedDoc, blockId), blockId);
     if (apiTitle !== null) {
       return apiTitle;
     }
@@ -5179,6 +5721,58 @@ function createTaskEditDraft(task: Task): TaskEditDraft {
   };
 }
 
+function normalizeRepeatFrequencyForEditor(frequency: RepeatFrequency | undefined): RepeatFrequency {
+  if (
+    frequency === 'none'
+    || frequency === 'daily'
+    || frequency === 'weekdays'
+    || frequency === 'weekend'
+    || frequency === 'weekly'
+    || frequency === 'custom'
+  ) {
+    return frequency;
+  }
+  return frequency ? 'weekly' : 'none';
+}
+
+function syncTaskEditorRepeatState(task: Task | null): void {
+  if (!task) {
+    taskEditorRepeatFrequency.value = 'none';
+    taskEditorRepeatRule.value = null;
+    return;
+  }
+
+  taskEditorRepeatFrequency.value = normalizeRepeatFrequencyForEditor(task.repeatFrequency as RepeatFrequency | undefined);
+  taskEditorRepeatRule.value = null;
+
+  const taskId = task.id;
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  if (isRepeatTask) {
+    getRepeatSeriesForTask(task)
+      .then((series) => {
+        if (!series || activeTaskEditTask.value?.id !== taskId) return;
+        taskEditorRepeatFrequency.value = normalizeRepeatFrequencyForEditor(series.frequency as RepeatFrequency);
+        taskEditorRepeatRule.value = series.rule || null;
+        const draft = activeTaskEditDraft.value;
+        if (draft?.taskId === taskId) {
+          draft.startDate = series.startDate || '';
+          draft.startTime = series.startTime || '';
+          draft.dueDate = series.endDate || '';
+          draft.dueTime = series.dueTime || '';
+        }
+      })
+      .catch(() => {});
+  }
+
+  TaskRepository.getTaskRepeatRule(task)
+    .then((frequency) => {
+      if (activeTaskEditTask.value?.id !== taskId) return;
+      if (frequency === 'none' && isRepeatTask) return;
+      taskEditorRepeatFrequency.value = normalizeRepeatFrequencyForEditor(frequency);
+    })
+    .catch(() => {});
+}
+
 function ensureTaskEditDraft(task: Task): TaskEditDraft | null {
   const taskId = typeof task.id === 'string' ? task.id : '';
   if (!taskId) {
@@ -5271,9 +5865,11 @@ async function handleSubtaskToggle(parentTaskId: string, subtask: any) {
   TaskRepository.updateSubtaskInCache(parentTaskId, subtask.id, newCompleted).catch(() => {});
 }
 
-function handleTaskClick(task: Task) {
-  if (task.type === 'block' && task.blockId) {
-    void openBlockById(task.blockId);
+async function handleTaskClick(task: Task): Promise<void> {
+  const targetTask = await resolveTaskEditorTargetTask(task);
+  const blockId = typeof targetTask.blockId === 'string' ? targetTask.blockId.trim() : '';
+  if (targetTask.type === 'block' && blockId) {
+    await openBlockById(blockId);
   }
 }
 
@@ -5467,6 +6063,15 @@ function handleTaskEditorStatusSelect(value: Task['status']): void {
   void quickSaveTaskStatus(activeTaskEditTask.value, value);
 }
 
+function handleTaskEditorRepeatRuleSave(value: RepeatFrequency | RepeatRuleInput): void {
+  if (!activeTaskEditTask.value) {
+    return;
+  }
+  taskEditorRepeatFrequency.value = typeof value === 'string' ? value : value.frequency;
+  taskEditorRepeatRule.value = typeof value === 'string' ? null : (value.rule || null);
+  void quickSaveTaskRepeatRule(activeTaskEditTask.value, value);
+}
+
 function handleTaskEditorDescriptionCommit(): void {
   if (!activeTaskEditTask.value || !activeTaskEditDraft.value) return;
   void quickSaveTaskDescription(activeTaskEditTask.value, activeTaskEditDraft.value.description || '');
@@ -5521,7 +6126,7 @@ async function handleTaskEditorDelete(): Promise<void> {
     return;
   }
 
-  if (!confirm('确认删除该任务？')) {
+  if (!confirm(t('taskManager.confirmDelete'))) {
     return;
   }
 
@@ -5621,6 +6226,18 @@ function handleTaskFilterOutsideClick(event: MouseEvent): void {
     }
   }
 
+  if (kernelDiagnosticsVisible.value) {
+    const isInsideKernelDiagnostics = path.some(node =>
+      node instanceof HTMLElement && (
+        node.classList.contains('kernel-diagnostics-control')
+        || node.classList.contains('kernel-diagnostics-popover')
+      )
+    );
+    if (!isInsideKernelDiagnostics && !kernelDiagnosticsControlRef.value?.contains(target)) {
+      closeKernelDiagnostics();
+    }
+  }
+
   if (taskQuickDateMenu.value.show) {
     const isInsideQuickDateMenu = path.some(node =>
       node instanceof HTMLElement && node.classList.contains('task-quick-date-menu')
@@ -5707,7 +6324,7 @@ async function openTaskEditorPopover(task: Task): Promise<void> {
   }
 
   openingTaskPopoverBlockIds.add(blockId);
-  taskEditorSidebarTitle.value = '编辑任务';
+  taskEditorSidebarTitle.value = t('taskManager.editTask');
   try {
     const opened = await openTaskEditorInSidebar(blockId, rootId);
     if (!opened) {
@@ -5737,19 +6354,46 @@ async function openTaskDateMenuFromExternalRequest(
   closeTaskEditMenu();
   taskEditDraft.value = null;
   const anchorPosition = resolveTaskQuickMenuAnchor(normalizedBlockId, payload?.anchorX, payload?.anchorY);
-  openTaskQuickDateMenu(loadedTask, anchorPosition);
+  await openTaskQuickDateMenu(loadedTask, anchorPosition);
 }
 
-function openTaskEditorFromMenu(task: Task): void {
-  const taskId = typeof task.id === 'string' ? task.id : '';
+async function resolveTaskEditorTargetTask(task: Task): Promise<Task> {
+  const isVirtualRepeatTask = !!task.isVirtual && !!task.repeatSeriesId;
+  if (!isVirtualRepeatTask) {
+    return task;
+  }
+
+  const series = await getRepeatSeriesForTask(task).catch(() => null);
+  const templateTask = series
+    ? tasks.value.find(item =>
+      !item.isVirtual
+      && (
+        item.id === series.templateTaskId
+        || (!!series.templateBlockId && item.blockId === series.templateBlockId)
+      )
+    )
+    : null;
+  if (templateTask) {
+    return templateTask;
+  }
+
+  const sameBlockTask = task.blockId
+    ? tasks.value.find(item => !item.isVirtual && item.blockId === task.blockId)
+    : null;
+  return sameBlockTask || task;
+}
+
+async function openTaskEditorFromMenu(task: Task): Promise<void> {
+  const targetTask = await resolveTaskEditorTargetTask(task);
+  const taskId = typeof targetTask.id === 'string' ? targetTask.id : '';
   if (!taskId) {
     return;
   }
-  if (!ensureTaskEditDraft(task)) {
+  if (!ensureTaskEditDraft(targetTask)) {
     return;
   }
   taskEditMenuTaskId.value = taskId;
-  void openTaskEditorPopover(task);
+  await openTaskEditorPopover(targetTask);
 }
 
 function handleTaskCardClick(task: Task): void {
@@ -5760,7 +6404,7 @@ function handleTaskCardClick(task: Task): void {
     toggleTaskBatchSelection(task.id);
     return;
   }
-  openTaskEditorFromMenu(task);
+  void openTaskEditorFromMenu(task);
 }
 
 function handleTaskCardOpenClick(task: Task): void {
@@ -5768,7 +6412,7 @@ function handleTaskCardOpenClick(task: Task): void {
     toggleTaskBatchSelection(task.id);
     return;
   }
-  handleTaskClick(task);
+  void handleTaskClick(task);
 }
 
 function handleTaskCardStartFocus(task: Task): void {
@@ -5893,15 +6537,16 @@ interface TaskEditorFieldUpdateOptions {
   syncCrdt: () => void;
   beforePersist?: (blockId: string) => Promise<void>;
   emitTaskChanged?: boolean;
+  refreshKernelIndex?: boolean;
 }
 
 async function applyTaskEditorFieldUpdate(
   task: Task,
   options: TaskEditorFieldUpdateOptions
-): Promise<void> {
+): Promise<boolean> {
   const editedTask = activeTaskEditDraft.value;
   if (!editedTask || editedTask.taskId !== task.id || options.isUnchanged(editedTask)) {
-    return;
+    return false;
   }
 
   options.syncDraft(editedTask);
@@ -5917,6 +6562,7 @@ async function applyTaskEditorFieldUpdate(
       if (options.beforePersist) {
         await options.beforePersist(blockId);
       }
+      await TaskRepository.clearCache();
     }
 
     options.syncCrdt();
@@ -5928,7 +6574,13 @@ async function applyTaskEditorFieldUpdate(
     if (options.emitTaskChanged && task.blockId) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
     }
-  } catch {
+    if (options.refreshKernelIndex) {
+      scheduleKernelTaskIndexRefresh();
+    }
+    return true;
+  } catch (error) {
+    console.error('[TaskManager] Failed to update task editor field:', error);
+    return false;
   }
 }
 
@@ -5943,10 +6595,7 @@ async function handleTaskQuickDateSave(): Promise<void> {
     || tasks.value.find(item => item.blockId && item.blockId === menuTask.blockId)
     || menuTask;
 
-  const currentStartDate = normalizeDateInputValue((task.startDate || '').toString());
-  const currentDueDate = normalizeDateInputValue((task.dueDate || '').toString());
-  const currentStartTime = normalizeTimeInputValue((task.startTime || '').toString());
-  const currentDueTime = normalizeTimeInputValue((task.dueTime || '').toString());
+  const currentFields = await resolveCurrentTaskDateFields(task);
 
   const nextStartDate = normalizeDateInputValue(taskQuickDateDraft.value.startDate || '');
   let nextDueDate = normalizeDateInputValue(taskQuickDateDraft.value.dueDate || '');
@@ -5955,19 +6604,28 @@ async function handleTaskQuickDateSave(): Promise<void> {
   }
   const nextStartTime = nextStartDate ? normalizeTimeInputValue(taskQuickDateDraft.value.startTime || '') : '';
   const nextDueTime = nextDueDate ? normalizeTimeInputValue(taskQuickDateDraft.value.dueTime || '') : '';
+  const nextFields: TaskEditorDateFields = {
+    startDate: nextStartDate,
+    startTime: nextStartTime,
+    dueDate: nextDueDate,
+    dueTime: nextDueTime
+  };
 
-  if (
-    currentStartDate === nextStartDate
-    && currentDueDate === nextDueDate
-    && currentStartTime === nextStartTime
-    && currentDueTime === nextDueTime
-  ) {
+  if (isSameTaskEditorDateFields(currentFields, nextFields)) {
     closeTaskQuickDateMenu();
     return;
   }
 
   const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
   try {
+    if (isRepeatTaskForDateSave(task)) {
+      const updatedRepeatTask = await saveRepeatTaskDateFields(task, nextFields);
+      if (updatedRepeatTask) {
+        closeTaskQuickDateMenu();
+        return;
+      }
+    }
+
     if (task.type === 'block' && blockId) {
       await setBlockAttrs(blockId, {
         'custom-task-start-date': nextStartDate || '',
@@ -5975,42 +6633,16 @@ async function handleTaskQuickDateSave(): Promise<void> {
         'custom-task-start-time': nextStartTime || '',
         'custom-task-due-time': nextDueTime || ''
       });
+      await TaskRepository.clearCache();
     }
 
     const nowIso = new Date().toISOString();
-    patchTask(tasks.value, task.id, (targetTask) => {
-      targetTask.startDate = nextStartDate || '';
-      targetTask.dueDate = nextDueDate || '';
-      targetTask.startTime = nextStartTime || '';
-      targetTask.dueTime = nextDueTime || '';
-      targetTask.updatedAt = nowIso;
-    }, 'id');
-
-    const activeDraft = activeTaskEditDraft.value;
-    if (activeDraft && activeDraft.taskId === task.id) {
-      activeDraft.startDate = nextStartDate || '';
-      activeDraft.dueDate = nextDueDate || '';
-      activeDraft.startTime = nextStartTime || '';
-      activeDraft.dueTime = nextDueTime || '';
-    }
-
-    crdtRepo.updateTaskField(task.id, 'startDate', nextStartDate || '');
-    crdtRepo.updateTaskField(task.id, 'dueDate', nextDueDate || '');
-    crdtRepo.updateTaskField(task.id, 'startTime', nextStartTime || '');
-    crdtRepo.updateTaskField(task.id, 'dueTime', nextDueTime || '');
-
-    const updatedTask = tasks.value.find(item => item.id === task.id) || {
-      ...task,
-      startDate: nextStartDate || '',
-      dueDate: nextDueDate || '',
-      startTime: nextStartTime || '',
-      dueTime: nextDueTime || '',
-      updatedAt: nowIso
-    };
+    const updatedTask = applyTaskDateFieldsLocally(task, nextFields, nowIso);
     eventBus.emit('task-date-changed', updatedTask);
     if (blockId) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
     }
+    scheduleKernelTaskIndexRefresh();
     await refreshInternalState();
     closeTaskQuickDateMenu();
   } catch {
@@ -6023,7 +6655,7 @@ async function applyBatchEdit(): Promise<void> {
   }
   const selectedIds = Array.from(batchSelectedTaskIds.value);
   if (selectedIds.length === 0) {
-    showMessage('请先选择任务', 2200, 'error');
+    showMessage(t('taskManager.selectTasksFirst'), 2200, 'error');
     return;
   }
 
@@ -6038,13 +6670,13 @@ async function applyBatchEdit(): Promise<void> {
     } else if (validGroupIds.has(rawGroupSelection)) {
       nextGroupId = rawGroupSelection;
     } else {
-      showMessage('请选择有效标签', 2200, 'error');
+      showMessage(t('taskManager.selectValidTag'), 2200, 'error');
       return;
     }
   }
 
   if (!nextStatus && !nextPriority && nextGroupId === null) {
-    showMessage('请选择要批量修改的字段', 2200, 'error');
+    showMessage(t('taskManager.selectBatchFields'), 2200, 'error');
     return;
   }
 
@@ -6106,7 +6738,7 @@ async function applyBatchEdit(): Promise<void> {
   }
 
   if (updates.length === 0) {
-    showMessage('未检测到可更新的任务', 2200, 'info');
+    showMessage(t('taskManager.noBatchUpdates'), 2200, 'info');
     return;
   }
 
@@ -6192,10 +6824,10 @@ async function applyBatchEdit(): Promise<void> {
     }
 
     if (successCount > 0) {
-      showMessage(`已批量更新 ${successCount} 项任务`, 2200, 'info');
+      showMessage(`${t('taskManager.batchUpdatedPrefix')} ${successCount} ${t('taskManager.batchUpdatedSuffix')}`, 2200, 'info');
     }
     if (failedCount > 0) {
-      showMessage(`有 ${failedCount} 项任务更新失败`, 3000, 'error');
+      showMessage(`${t('taskManager.batchUpdateFailedPrefix')} ${failedCount} ${t('taskManager.batchUpdateFailedSuffix')}`, 3000, 'error');
     }
   } finally {
     isBatchApplying.value = false;
@@ -6302,15 +6934,180 @@ function isSameTaskEditorDateFields(a: TaskEditorDateFields, b: TaskEditorDateFi
     && a.dueTime === b.dueTime;
 }
 
-async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields): Promise<void> {
-  const normalizedFields = normalizeTaskEditorDateFields(value);
-  const currentFields = normalizeTaskEditorDateFields({
+function isRepeatTaskForDateSave(task: Task | null | undefined): boolean {
+  return !!task && (!!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none'));
+}
+
+function getTaskDateFields(task: Task): TaskEditorDateFields {
+  return normalizeTaskEditorDateFields({
     startDate: (task.startDate || '').toString(),
     startTime: (task.startTime || '').toString(),
     dueDate: (task.dueDate || '').toString(),
     dueTime: (task.dueTime || '').toString()
   });
-  await applyTaskEditorFieldUpdate(task, {
+}
+
+async function getRepeatTaskDateFields(task: Task): Promise<TaskEditorDateFields | null> {
+  const series = await getRepeatSeriesForTask(task);
+  if (!series) {
+    return null;
+  }
+  return normalizeTaskEditorDateFields({
+    startDate: series.startDate || '',
+    startTime: series.startTime || '',
+    dueDate: series.endDate || '',
+    dueTime: series.dueTime || ''
+  });
+}
+
+async function resolveCurrentTaskDateFields(task: Task): Promise<TaskEditorDateFields> {
+  if (isRepeatTaskForDateSave(task)) {
+    const repeatFields = await getRepeatTaskDateFields(task).catch(() => null);
+    if (repeatFields) {
+      return repeatFields;
+    }
+  }
+  return getTaskDateFields(task);
+}
+
+function syncTaskEditorDraftDateFields(taskId: string, fields: TaskEditorDateFields): void {
+  const activeDraft = activeTaskEditDraft.value;
+  if (activeDraft && activeDraft.taskId === taskId) {
+    activeDraft.startDate = fields.startDate;
+    activeDraft.dueDate = fields.dueDate;
+    activeDraft.startTime = fields.startTime;
+    activeDraft.dueTime = fields.dueTime;
+  }
+}
+
+function syncTaskDateFieldsToCrdt(taskId: string, fields: TaskEditorDateFields): void {
+  crdtRepo.updateTaskField(taskId, 'startDate', fields.startDate);
+  crdtRepo.updateTaskField(taskId, 'startTime', fields.startTime);
+  crdtRepo.updateTaskField(taskId, 'dueDate', fields.dueDate);
+  crdtRepo.updateTaskField(taskId, 'dueTime', fields.dueTime);
+}
+
+function applyTaskDateFieldsLocally(
+  task: Task,
+  fields: TaskEditorDateFields,
+  nowIso: string,
+  repeatMeta: Partial<Pick<Task, 'repeatSeriesId' | 'repeatFrequency' | 'repeatInstanceDate' | 'isVirtual'>> = {}
+): Task {
+  patchTask(tasks.value, task.id, (targetTask) => {
+    targetTask.startDate = fields.startDate;
+    targetTask.startTime = fields.startTime;
+    targetTask.dueDate = fields.dueDate;
+    targetTask.dueTime = fields.dueTime;
+    if ('repeatSeriesId' in repeatMeta) targetTask.repeatSeriesId = repeatMeta.repeatSeriesId;
+    if ('repeatFrequency' in repeatMeta) targetTask.repeatFrequency = repeatMeta.repeatFrequency;
+    if ('repeatInstanceDate' in repeatMeta) targetTask.repeatInstanceDate = repeatMeta.repeatInstanceDate;
+    if ('isVirtual' in repeatMeta) targetTask.isVirtual = repeatMeta.isVirtual;
+    targetTask.updatedAt = nowIso;
+  }, 'id');
+
+  syncTaskEditorDraftDateFields(task.id, fields);
+  syncTaskDateFieldsToCrdt(task.id, fields);
+
+  const currentTask = tasks.value.find(item => item.id === task.id);
+  return {
+    ...(currentTask || task),
+    ...repeatMeta,
+    startDate: fields.startDate,
+    startTime: fields.startTime,
+    dueDate: fields.dueDate,
+    dueTime: fields.dueTime,
+    updatedAt: nowIso
+  };
+}
+
+async function saveRepeatTaskDateFields(
+  task: Task,
+  fields: TaskEditorDateFields
+): Promise<Task | null> {
+  if (!isRepeatTaskForDateSave(task)) {
+    return null;
+  }
+
+  const targetTask = await resolveTaskEditorTargetTask(task);
+  const updatedSeries = await updateRepeatSeriesDates(
+    targetTask,
+    fields.startDate || null,
+    fields.dueDate || null,
+    {
+      startTime: fields.startTime || null,
+      dueTime: fields.dueTime || null
+    },
+    { emitChange: false }
+  );
+  if (!updatedSeries) {
+    return null;
+  }
+
+  const persistedFields: TaskEditorDateFields = {
+    startDate: updatedSeries.startDate || '',
+    startTime: updatedSeries.startTime || '',
+    dueDate: updatedSeries.endDate || '',
+    dueTime: updatedSeries.dueTime || ''
+  };
+  const blockId = (typeof targetTask.blockId === 'string' ? targetTask.blockId.trim() : '')
+    || updatedSeries.templateBlockId
+    || '';
+  if (blockId) {
+    await setBlockAttrs(blockId, {
+      'custom-task-start-date': persistedFields.startDate,
+      'custom-task-due-date': persistedFields.dueDate,
+      'custom-task-start-time': persistedFields.startTime,
+      'custom-task-due-time': persistedFields.dueTime
+    });
+    await TaskRepository.clearCache();
+  }
+
+  const nowIso = new Date().toISOString();
+  const updatedTask = applyTaskDateFieldsLocally(targetTask, persistedFields, nowIso, {
+    repeatSeriesId: updatedSeries.id,
+    repeatFrequency: updatedSeries.frequency,
+    repeatInstanceDate: undefined,
+    isVirtual: false
+  });
+
+  eventBus.emit('task-date-changed', updatedTask);
+  notifyRepeatChanged({
+    blockId,
+    seriesId: updatedSeries.id,
+    frequency: updatedSeries.frequency
+  });
+  scheduleKernelTaskIndexRefresh();
+  await refreshInternalState();
+  return updatedTask;
+}
+
+async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields): Promise<void> {
+  const normalizedFields = normalizeTaskEditorDateFields(value);
+  const currentFields = await resolveCurrentTaskDateFields(task);
+  const activeDraft = activeTaskEditDraft.value;
+  const normalizedDraft = activeDraft?.taskId === task.id
+    ? normalizeTaskEditorDateFields(activeDraft)
+    : currentFields;
+  if (
+    isSameTaskEditorDateFields(normalizedDraft, normalizedFields)
+    && isSameTaskEditorDateFields(currentFields, normalizedFields)
+  ) {
+    return;
+  }
+
+  if (isRepeatTaskForDateSave(task)) {
+    try {
+      const updatedRepeatTask = await saveRepeatTaskDateFields(task, normalizedFields);
+      if (updatedRepeatTask) {
+        return;
+      }
+    } catch (error) {
+      console.error('[TaskManager] Failed to update repeat task dates:', error);
+      return;
+    }
+  }
+
+  const updated = await applyTaskEditorFieldUpdate(task, {
     attrs: {
       'custom-task-start-date': normalizedFields.startDate || '',
       'custom-task-due-date': normalizedFields.dueDate || '',
@@ -6340,8 +7137,49 @@ async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields):
       crdtRepo.updateTaskField(task.id, 'dueDate', normalizedFields.dueDate);
       crdtRepo.updateTaskField(task.id, 'dueTime', normalizedFields.dueTime);
     },
-    emitTaskChanged: true
+    emitTaskChanged: true,
+    refreshKernelIndex: true
   });
+  if (!updated) {
+    return;
+  }
+  const currentTask = tasks.value.find(item => item.id === task.id);
+  const updatedTask: Task = {
+    ...(currentTask || task),
+    startDate: normalizedFields.startDate,
+    startTime: normalizedFields.startTime,
+    dueDate: normalizedFields.dueDate,
+    dueTime: normalizedFields.dueTime,
+    updatedAt: currentTask?.updatedAt || new Date().toISOString()
+  };
+  eventBus.emit('task-date-changed', updatedTask);
+}
+
+async function quickSaveTaskRepeatRule(task: Task, repeat: RepeatFrequency | RepeatRuleInput): Promise<void> {
+  const frequency = typeof repeat === 'string' ? repeat : repeat.frequency;
+  if (frequency === 'none') {
+    patchTask(tasks.value, task.id, (targetTask) => {
+      targetTask.repeatFrequency = 'none';
+      targetTask.repeatSeriesId = undefined;
+      targetTask.repeatInstanceDate = undefined;
+      targetTask.isVirtual = false;
+      targetTask.updatedAt = new Date().toISOString();
+    }, 'id');
+  } else {
+    patchTask(tasks.value, task.id, (targetTask) => {
+      targetTask.repeatFrequency = frequency;
+      targetTask.updatedAt = new Date().toISOString();
+    }, 'id');
+  }
+  invalidateCache();
+  invalidateSortCache();
+  updateTaskIndex();
+
+  try {
+    await TaskRepository.setTaskRepeatRule(task, repeat);
+    await refreshInternalState();
+  } catch {
+  }
 }
 
 async function quickSaveTaskDescription(task: Task, description: string): Promise<void> {
@@ -6670,7 +7508,7 @@ function handleDocumentMobileTaskPointerCancel(event: PointerEvent): void {
 }
 
 async function ensureInboxDocument(notebookId: string): Promise<string> {
-  const inboxPath = '/pinch收集箱';
+  const inboxPath = PINCH_INBOX_PATH;
   
   try {
     const existingIds = await getIDsByHPath(notebookId, inboxPath);
@@ -6689,11 +7527,59 @@ async function ensureInboxDocument(notebookId: string): Promise<string> {
   }
 }
 
+function extractDailyNoteId(result: Awaited<ReturnType<typeof createDailyNote>>): string {
+  if (typeof result === 'string') {
+    return result;
+  }
+  if (result && typeof result === 'object') {
+    return result.id || result.rootId || '';
+  }
+  return '';
+}
+
+function normalizeNotebookDocPath(notebookId: string, hPath: string): string {
+  const notebook = notebooks.value.find(nb => nb.id === notebookId);
+  const normalizedHPath = hPath.startsWith('/') ? hPath : `/${hPath}`;
+  if (!notebook?.name) {
+    return normalizedHPath;
+  }
+  const notebookPrefix = `/${notebook.name}/`;
+  if (normalizedHPath.startsWith(notebookPrefix)) {
+    return `/${normalizedHPath.slice(notebookPrefix.length)}`;
+  }
+  return normalizedHPath;
+}
+
+async function ensureDailyNoteDocument(notebookId: string): Promise<string> {
+  const result = await createDailyNote(notebookId);
+  if (result && typeof result === 'object') {
+    const directPath = typeof result.path === 'string' && result.path.trim()
+      ? result.path.trim()
+      : typeof result.hPath === 'string' && result.hPath.trim()
+        ? result.hPath.trim()
+        : '';
+    if (directPath) {
+      return normalizeNotebookDocPath(notebookId, directPath);
+    }
+  }
+  const dailyNoteId = extractDailyNoteId(result);
+  if (!dailyNoteId) {
+    throw new Error('Failed to create daily note');
+  }
+  const hPath = await getHPathByID(dailyNoteId);
+  if (!hPath) {
+    throw new Error('Failed to resolve daily note path');
+  }
+  return normalizeNotebookDocPath(notebookId, hPath);
+}
+
 async function handleCreateTask(taskData: any, notebookId: string, documentId: string) {
   try {
     let docPath = '';
     
-    if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
+    if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
+      docPath = await ensureDailyNoteDocument(notebookId);
+    } else if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
       const selectedDoc = allDocuments.value.find(d => d.id === documentId && d.notebookId === notebookId);
       if (selectedDoc) {
         const notebook = notebooks.value.find(nb => nb.id === notebookId);
@@ -6737,6 +7623,10 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
     // Swallow create-task errors here; later refresh/retry will reconcile state.
   }
 }
+
+defineExpose({
+  openTaskScopeDialog
+});
 
 onMounted(async () => {
   resolveTaskModalTeleportTarget();
@@ -6790,6 +7680,7 @@ onMounted(async () => {
   const scopeInitialized = userSettings.taskManager.scopeInitialized === true;
   if (!scopeInitialized) {
     requiresScopeInitialization.value = true;
+    taskScopeDialogInitialTab.value = 'scope';
     showTaskScopeDialog.value = true;
     isHydratingFilters = false;
     return;
@@ -6798,13 +7689,20 @@ onMounted(async () => {
   loading.value = true;
   try {
     const cachedTasks = await TaskRepository.getCachedTasksOnly();
-    hydrateMemoTitlesFromLiveDom(cachedTasks, TASK_TITLE_HYDRATE_LIMIT);
-    crdtRepo.syncFromSQLTasks(cachedTasks);
-    tasks.value = crdtRepo.getTasks();
-    hydrateMemoTitlesFromLiveDom(tasks.value, TASK_TITLE_HYDRATE_LIMIT);
-    await refreshInternalState();
-    if (tasks.value.length > 0 && tasks.value.length <= FILTER_SWITCH_BROAD_LOAD_THRESHOLD) {
-      lastLoadedScope = { includeCompleted: showCompletedTasks.value, includeArchived: false };
+    if (cachedTasks.length > 0) {
+      hydrateMemoTitlesFromLiveDom(cachedTasks, TASK_TITLE_HYDRATE_LIMIT);
+      crdtRepo.syncFromSQLTasks(cachedTasks);
+      tasks.value = crdtRepo.getTasks();
+      hydrateMemoTitlesFromLiveDom(tasks.value, TASK_TITLE_HYDRATE_LIMIT);
+      await refreshInternalState();
+      if (tasks.value.length > 0 && tasks.value.length <= FILTER_SWITCH_BROAD_LOAD_THRESHOLD) {
+        lastLoadedScope = { includeCompleted: showCompletedTasks.value, includeArchived: false };
+      }
+    } else {
+      const prefilled = await prefillKernelLightTasks(getCurrentTaskQueryScope() || null);
+      if (prefilled) {
+        await refreshInternalState();
+      }
     }
   } finally {
     loading.value = false;
@@ -6870,6 +7768,10 @@ onUnmounted(() => {
     clearTimeout(taskScopeRefreshTimer);
     taskScopeRefreshTimer = null;
   }
+  if (kernelTaskIndexRefreshTimer !== null) {
+    clearTimeout(kernelTaskIndexRefreshTimer);
+    kernelTaskIndexRefreshTimer = null;
+  }
 });
 </script>
 
@@ -6923,11 +7825,12 @@ onUnmounted(() => {
 
 .header-actions {
   display: flex;
+  align-items: center;
 }
 
 .new-task-button,
 .task-refresh,
-.task-scope-button {
+.task-kernel-status {
   background: none;
   border: none;
   padding: 0;
@@ -6938,6 +7841,145 @@ onUnmounted(() => {
   
   svg {
     color: var(--b3-theme-on-background);
+  }
+}
+
+.kernel-diagnostics-control {
+  position: relative;
+  display: flex;
+}
+
+.task-kernel-status {
+  display: none;
+  &.active,
+  &.is-connected {
+    svg {
+      color: var(--b3-theme-primary);
+    }
+  }
+
+  &.is-error {
+    svg {
+      color: var(--b3-theme-error);
+    }
+  }
+}
+
+.kernel-diagnostics-popover {
+  position: absolute;
+  top: 30px;
+  right: 2px;
+  z-index: 20;
+  width: min(300px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-surface);
+  box-shadow: var(--b3-dialog-shadow);
+  color: var(--b3-theme-on-surface);
+}
+
+.kernel-diagnostics-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.kernel-diagnostics-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.kernel-diagnostics-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--b3-theme-on-surface);
+  background: var(--b3-list-hover);
+
+  &.status-connected {
+    color: var(--b3-theme-primary);
+    background: color-mix(in srgb, var(--b3-theme-primary) 14%, transparent);
+  }
+
+  &.status-error {
+    color: var(--b3-theme-error);
+    background: color-mix(in srgb, var(--b3-theme-error) 14%, transparent);
+  }
+}
+
+.kernel-diagnostics-grid {
+  display: grid;
+  grid-template-columns: minmax(76px, auto) 1fr;
+  gap: 7px 12px;
+  font-size: 12px;
+
+  span {
+    color: var(--b3-theme-on-surface-light);
+  }
+
+  strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-weight: 600;
+    color: var(--b3-theme-on-surface);
+    text-align: right;
+  }
+}
+
+.kernel-diagnostics-error,
+.kernel-diagnostics-warning {
+  margin-bottom: 10px;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.kernel-diagnostics-error {
+  color: var(--b3-theme-error);
+  background: color-mix(in srgb, var(--b3-theme-error) 12%, transparent);
+}
+
+.kernel-diagnostics-warning {
+  margin-top: 10px;
+  margin-bottom: 0;
+  color: var(--b3-theme-on-surface);
+  background: var(--b3-list-hover);
+}
+
+.kernel-diagnostics-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.kernel-diagnostics-action {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  &.primary {
+    border-color: var(--b3-theme-primary);
+    background: var(--b3-theme-primary);
+    color: var(--b3-theme-on-primary);
   }
 }
 

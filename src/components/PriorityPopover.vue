@@ -26,6 +26,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import Icon from './Icon.vue';
+import { useI18n } from '@/composables/useI18n';
 
 const props = withDefaults(defineProps<{
   show: boolean;
@@ -40,12 +41,14 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const priorityOptions = [
-  { value: 'high', label: '高优先级', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
-  { value: 'medium', label: '中优先级', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'low', label: '低优先级', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'none', label: '无优先级', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
-];
+const { t } = useI18n();
+
+const priorityOptions = computed(() => [
+  { value: 'high', label: t('taskManager.priorityHighLabel'), background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
+  { value: 'medium', label: t('taskManager.priorityMediumLabel'), background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
+  { value: 'low', label: t('taskManager.priorityLowLabel'), background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
+  { value: 'none', label: t('taskManager.priorityNoneLabel'), background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
+]);
 
 const popoverStyle = computed(() => ({
   left: `${props.position.x}px`,

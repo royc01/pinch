@@ -9,7 +9,6 @@ import {
   loadEnv,
 } from "vite"
 import { viteStaticCopy } from "vite-plugin-static-copy"
-import zipPack from "vite-plugin-zip-pack"
 
 const pluginInfo = require("./plugin.json")
 
@@ -35,7 +34,6 @@ export default defineConfig(({
 
   const args = minimist(process.argv.slice(2))
   const isWatch = args.watch || args.w || false
-  const shouldZipPackage = !isWatch && !siyuanWorkspacePath
   
   // 无论是否是watch模式，都使用相同的输出目录逻辑
   const distDir = siyuanWorkspacePath ? `${siyuanWorkspacePath}/data/plugins/${pluginInfo.name}` : (isWatch ? devDistDir : "./dist")
@@ -126,15 +124,7 @@ export default defineConfig(({
                   },
                 },
               ]
-            : (shouldZipPackage
-                ? [
-                    zipPack({
-                      inDir: "./dist",
-                      outDir: "./",
-                      outFileName: "package.zip",
-                    }),
-                  ]
-                : [])),
+            : []),
         ],
 
         // make sure to externalize deps that shouldn't be bundled

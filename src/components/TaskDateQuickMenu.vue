@@ -8,7 +8,7 @@
     <div class="context-menu-section">
       <div class="context-menu-date-grid">
         <div class="date-edit-field">
-          <label>开始日期</label>
+          <label>{{ t('taskManager.startDate') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="startDate"
@@ -20,8 +20,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeDatePopoverField === 'startDate' }"
-              title="选择开始日期"
-              aria-label="选择开始日期"
+              :title="t('taskManager.pickStartDate')"
+              :aria-label="t('taskManager.pickStartDate')"
               @click="toggleDatePopover('startDate')"
             >
               <Icon name="calendar" width="14" height="14" />
@@ -29,7 +29,7 @@
           </div>
         </div>
         <div class="date-edit-field">
-          <label>截止日期</label>
+          <label>{{ t('taskManager.dueDate') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="dueDate"
@@ -41,8 +41,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeDatePopoverField === 'dueDate' }"
-              title="选择截止日期"
-              aria-label="选择截止日期"
+              :title="t('taskManager.pickDueDate')"
+              :aria-label="t('taskManager.pickDueDate')"
               @click="toggleDatePopover('dueDate')"
             >
               <Icon name="calendar" width="14" height="14" />
@@ -50,7 +50,7 @@
           </div>
         </div>
         <div class="date-edit-field">
-          <label>开始时间</label>
+          <label>{{ t('taskManager.startTime') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="startTime"
@@ -62,8 +62,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeTimePopoverField === 'startTime' }"
-              title="选择开始时间"
-              aria-label="选择开始时间"
+              :title="t('taskManager.pickStartTime')"
+              :aria-label="t('taskManager.pickStartTime')"
               @click="toggleTimePopover('startTime')"
             >
               <Icon name="clock" width="14" height="14" />
@@ -71,7 +71,7 @@
           </div>
         </div>
         <div class="date-edit-field">
-          <label>截止时间</label>
+          <label>{{ t('taskManager.dueTime') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="dueTime"
@@ -83,8 +83,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeTimePopoverField === 'dueTime' }"
-              title="选择截止时间"
-              aria-label="选择截止时间"
+              :title="t('taskManager.pickDueTime')"
+              :aria-label="t('taskManager.pickDueTime')"
               @click="toggleTimePopover('dueTime')"
             >
               <Icon name="clock" width="14" height="14" />
@@ -92,7 +92,7 @@
           </div>
         </div>
       </div>
-      <button class="context-menu-date-save" @click="$emit('save')">{{ saveLabel }}</button>
+      <button class="context-menu-date-save" @click="$emit('save')">{{ resolvedSaveLabel }}</button>
     </div>
 
     <TaskDatePopover
@@ -138,6 +138,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskTimePopover from '@/components/TaskTimePopover.vue';
+import { useI18n } from '@/composables/useI18n';
 
 const props = withDefaults(defineProps<{
   show: boolean;
@@ -149,10 +150,10 @@ const props = withDefaults(defineProps<{
   dueTime: string;
   title?: string;
   saveLabel?: string;
-}>(), {
-  title: '日期',
-  saveLabel: '保存日期'
-});
+}>(), {});
+
+const { t } = useI18n();
+const resolvedSaveLabel = computed(() => props.saveLabel || t('taskManager.saveDate'));
 
 defineEmits<{
   (event: 'save'): void;

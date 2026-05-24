@@ -511,6 +511,32 @@ export function useTaskDrag(
     return { date: targetDate, element: columnElement, isTimedArea };
   }
 
+  function resolveTimedHourFromPoint(event: MouseEvent, dayColumn: HTMLElement): {
+    hourIndex: number;
+    startTime: string;
+    dueTime: string;
+  } {
+    const daysScrollElement = dayColumn.closest('.days-scroll') as HTMLElement | null;
+    const scrollRect = daysScrollElement?.getBoundingClientRect();
+    let hourIndex = 9;
+
+    if (daysScrollElement && scrollRect) {
+      const scrollTop = daysScrollElement.scrollTop;
+      const offsetY = event.clientY - scrollRect.top + scrollTop;
+      const inactiveOffsetMinutes = resolveInactiveHoursOffset() * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
+      const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT + inactiveOffsetMinutes;
+      hourIndex = Math.floor(totalMinutes / 60);
+    }
+
+    hourIndex = Math.max(0, Math.min(23, hourIndex));
+    const dueHour = (hourIndex + 1) % 24;
+    return {
+      hourIndex,
+      startTime: `${String(hourIndex).padStart(2, '0')}:00`,
+      dueTime: `${String(dueHour).padStart(2, '0')}:00`
+    };
+  }
+
   function resolveTimedTaskDropFromEvent(
     event: MouseEvent,
     payload: {
@@ -727,22 +753,13 @@ export function useTaskDrag(
     let timedDueTime = '10:00';
 
     if (targetData.isTimedArea) {
-      const target = event.target as HTMLElement;
-      const hourCell = target.closest('.hour-cell') as HTMLElement;
-      const dayColumn = target.closest('.day-column') as HTMLElement;
-
-      if (dayColumn && hourCell) {
-        const dayKey = dayColumn.getAttribute('data-day-key');
-        if (dayKey) {
-          const hourCells = Array.from(dayColumn.querySelectorAll('.hour-cell'));
-          const hourIndex = hourCells.indexOf(hourCell);
-          if (hourIndex !== -1) {
-            dragState.value.overHourCell = `${dayKey}-${hourIndex + 1}`;
-            timedStartTime = `${String(hourIndex).padStart(2, '0')}:00`;
-            const dueHour = (hourIndex + 1) % 24;
-            timedDueTime = `${String(dueHour).padStart(2, '0')}:00`;
-          }
-        }
+      const dayColumn = targetData.element;
+      const dayKey = dayColumn.getAttribute('data-day-key');
+      if (dayKey) {
+        const resolvedTime = resolveTimedHourFromPoint(event, dayColumn);
+        dragState.value.overHourCell = `${dayKey}-${resolvedTime.hourIndex + 1}`;
+        timedStartTime = resolvedTime.startTime;
+        timedDueTime = resolvedTime.dueTime;
       }
 
       dragState.value.overDayColumn = null;

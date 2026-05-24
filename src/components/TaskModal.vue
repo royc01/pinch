@@ -14,8 +14,8 @@
           v-show="show"
         >
           <div class="modal-header">
-            <h3>{{ tt('taskManager.newTask', '新建任务') }}</h3>
-            <button @click="emit('close')" class="icon-button" title="关闭" aria-label="关闭">
+            <h3>{{ tt('taskManager.newTask') }}</h3>
+            <button @click="emit('close')" class="icon-button" :title="tt('common.close')" :aria-label="tt('common.close')">
               <Icon name="close" width="16" height="16" class="icon" />
             </button>
           </div>
@@ -25,24 +25,24 @@
                 v-model="localTask.title"
                 class="task-title-input b3-text-field fn__flex-center"
                 rows="3"
-                :placeholder="tt('taskManager.taskTitlePlaceholder', '请输入任务标题')"
+                :placeholder="tt('taskManager.taskTitlePlaceholder')"
               ></textarea>
             </div>
             <div class="filters-row">
               <div class="form-group filter-group">
-                <label>{{ tt('taskManager.notebook', '笔记本') }}</label>
+                <label>{{ tt('taskManager.notebook') }}</label>
                 <SySelect v-model="selectedNotebook" :options="notebookOptions" @update:modelValue="handleNotebookChange" />
               </div>
               <div class="form-group filter-group" v-if="selectedNotebook">
-                <label>{{ tt('taskManager.document', '文档') }}</label>
+                <label>{{ tt('taskManager.document') }}</label>
                 <SySelect v-model="selectedDocument" :options="documentOptions" />
               </div>
             </div>
             <div v-if="taskModalQuickPanel === 'group'" class="task-modal-group-panel">
               <div class="task-modal-group-header">
-                <span class="task-modal-group-title">选择标签</span>
+                <span class="task-modal-group-title">{{ tt('taskManager.selectTag') }}</span>
                 <button type="button" class="task-modal-group-manage" @click.stop="emit('manage-groups')">
-                  管理
+                  {{ tt('taskManager.manage') }}
                 </button>
               </div>
               <div class="task-modal-group-chip-list">
@@ -68,7 +68,7 @@
                 v-model="localTask.description"
                 class="task-description-input b3-text-field"
                 rows="3"
-                :placeholder="tt('taskManager.taskDescriptionPlaceholder', '请输入任务描述（可选）')"
+                :placeholder="tt('taskManager.taskDescriptionPlaceholder')"
                 @blur="handleTaskModalDescriptionCommit"
                 @keydown.ctrl.enter.prevent="handleTaskModalDescriptionCommit"
               ></textarea>
@@ -79,8 +79,8 @@
                 class="task-modal-action-btn task-modal-group-btn"
                 :class="{ 'is-active': taskModalQuickPanel === 'group' }"
                 :style="taskModalGroupButtonStyle"
-                title="标签"
-                aria-label="标签"
+                :title="tt('taskManager.tags')"
+                :aria-label="tt('taskManager.tags')"
                 @click.stop="toggleTaskModalQuickPanel('group')"
               >
                 <Icon name="group" width="14" height="14" />
@@ -89,8 +89,8 @@
                 <button
                   type="button"
                   class="task-modal-action-btn task-modal-priority-btn"
-                  title="优先级"
-                  aria-label="优先级"
+                  :title="tt('taskManager.priority')"
+                  :aria-label="tt('taskManager.priority')"
                   @click.stop="toggleTaskModalPriorityPopover($event)"
                 >
                   <span
@@ -105,8 +105,8 @@
                   class="task-modal-action-btn"
                   :class="{ 'is-active': taskModalQuickPanel === 'due' }"
                   ref="taskModalDueButtonRef"
-                  title="截止日期"
-                  aria-label="截止日期"
+                  :title="tt('taskManager.dueDate')"
+                  :aria-label="tt('taskManager.dueDate')"
                   @click.stop="toggleTaskModalQuickPanel('due')"
                 >
                 <Icon name="calendar" width="14" height="14" />
@@ -117,8 +117,8 @@
                 class="task-modal-action-btn"
                 :class="{ 'is-active': taskModalQuickPanel === 'reminder' }"
                 ref="taskModalReminderButtonRef"
-                title="提醒"
-                aria-label="提醒"
+                :title="tt('taskManager.reminder')"
+                :aria-label="tt('taskManager.reminder')"
                 @click.stop="toggleTaskModalQuickPanel('reminder')"
               >
                 <Icon name="bell" width="14" height="14" />
@@ -128,8 +128,8 @@
                 type="button"
                 class="task-modal-action-btn"
                 :class="{ 'is-active': taskModalQuickPanel === 'description' }"
-                title="描述"
-                aria-label="描述"
+                :title="tt('taskManager.description')"
+                :aria-label="tt('taskManager.description')"
                 @click.stop="toggleTaskModalQuickPanel('description')"
               >
                 <Icon name="descriptionBubble" width="14" height="14" />
@@ -137,7 +137,7 @@
             </div>
           </div>
           <div class="modal-footer">
-            <SyButton @click="handleSubmit" class="confirm-button">{{ tt('taskManager.save', '保存') }}</SyButton>
+            <SyButton @click="handleSubmit" class="confirm-button">{{ tt('taskManager.save') }}</SyButton>
           </div>
         </div>
       </Transition>
@@ -179,6 +179,7 @@ import Icon from '@/components/Icon.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
+import { useI18n } from '@/composables/useI18n';
 import type { TaskPriority, TaskStatus, TaskGroup } from '@/api';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
@@ -187,6 +188,7 @@ import {
   type TaskReminderSelection,
   type TaskReminderType
 } from '@/utils/taskReminder';
+import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, isPinchInboxValue } from '@/utils/pinchInbox';
 
 export interface Notebook {
   id: string;
@@ -200,9 +202,8 @@ export interface Document {
   path?: string;
 }
 
-const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
-const PINCH_INBOX_OPTION_NAME = 'pinch收集箱';
 const TASK_GROUP_NONE_ID = '__none__';
+const { t: translate } = useI18n();
 interface NewTask {
   title: string;
   description: string;
@@ -306,10 +307,10 @@ const taskModalSelectedGroupId = computed(() => {
 const taskModalGroupLabel = computed(() => {
   const groupId = (localTask.value.groupId || '').trim();
   if (!groupId) {
-    return '无标签';
+    return tt('taskManager.noTag');
   }
   const group = (props.groups || []).find(item => item.id === groupId);
-  return group?.name || '标签';
+  return group?.name || tt('taskManager.tags');
 });
 
 const taskModalGroupColorValue = computed(() => {
@@ -334,7 +335,7 @@ const taskModalGroupButtonStyle = computed(() => {
 
 const taskModalGroupOptions = computed(() => {
   const options = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, color: '', colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: tt('taskManager.noTag'), special: true, color: '', colorCss: '', textColor: '' }
   ];
   (props.groups || []).forEach(group => {
     if (group.hidden === true) {
@@ -363,7 +364,7 @@ const notebookOptions = computed(() => {
 function isInboxDocument(doc: Document): boolean {
   const normalizedName = (doc.name || '').trim();
   const normalizedPath = (doc.path || '').replace(/^\/+/, '').trim();
-  return normalizedName === PINCH_INBOX_OPTION_NAME || normalizedPath === PINCH_INBOX_OPTION_NAME;
+  return isPinchInboxValue(normalizedName) || isPinchInboxValue(normalizedPath);
 }
 
 function getInboxDocumentValue(notebookId: string): string {
@@ -377,16 +378,19 @@ const documentOptions = computed(() => {
   const docs = props.documents.filter(d => d.notebookId === selectedNotebook.value);
   const hasInboxDoc = docs.some(isInboxDocument);
   const docOptions = docs.map(d => ({ value: d.id, text: d.name }));
+  const specialOptions = [
+    { value: PINCH_DAILY_NOTE_OPTION_ID, text: tt('taskManager.todayDailyNote') }
+  ];
   if (hasInboxDoc) {
-    return docOptions;
+    return [...specialOptions, ...docOptions];
   }
-  return [{ value: PINCH_INBOX_OPTION_ID, text: PINCH_INBOX_OPTION_NAME }, ...docOptions];
+  return [...specialOptions, { value: PINCH_INBOX_OPTION_ID, text: tt('taskManager.pinchInbox') }, ...docOptions];
 });
 
-function tt(key: string, fallback: string): string {
+function tt(key: string): string {
   const translated = props.t?.(key);
   if (!translated || translated === key) {
-    return fallback;
+    return translate(key);
   }
   return translated;
 }
@@ -396,7 +400,9 @@ function selectTaskModalGroup(value: string): void {
 }
 
 function handleNotebookChange() {
-  selectedDocument.value = getInboxDocumentValue(selectedNotebook.value);
+  selectedDocument.value = selectedDocument.value === PINCH_DAILY_NOTE_OPTION_ID
+    ? PINCH_DAILY_NOTE_OPTION_ID
+    : getInboxDocumentValue(selectedNotebook.value);
 }
 
 function toggleTaskModalPriorityPopover(event: MouseEvent) {
@@ -490,11 +496,14 @@ watch(() => props.show, (show) => {
 
     const docsForNotebook = props.documents.filter(d => d.notebookId === selectedNotebook.value);
     const fallbackDocumentValue = getInboxDocumentValue(selectedNotebook.value);
+    const preferredDocument = props.lastSelectedDocument === PINCH_INBOX_OPTION_ID
+      ? fallbackDocumentValue
+      : props.lastSelectedDocument;
+    const isSpecialDocument = preferredDocument === PINCH_DAILY_NOTE_OPTION_ID;
     const hasPreferredDocument = !!props.lastSelectedDocument
-      && props.lastSelectedDocument !== PINCH_INBOX_OPTION_ID
-      && docsForNotebook.some(doc => doc.id === props.lastSelectedDocument);
+      && (isSpecialDocument || docsForNotebook.some(doc => doc.id === preferredDocument));
     selectedDocument.value = hasPreferredDocument
-      ? props.lastSelectedDocument!
+      ? preferredDocument!
       : fallbackDocumentValue;
   }
 });

@@ -1,0 +1,158 @@
+const PINCH_KERNEL_PLUGIN_NAME = "pinch";
+
+type JsonRpcSuccess<T> = {
+  jsonrpc: "2.0";
+  result: T;
+  id: number;
+};
+
+type JsonRpcFailure = {
+  jsonrpc: "2.0";
+  error: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+  id?: number;
+};
+
+export type KernelPingResult = {
+  ok: boolean;
+  source: "kernel";
+  now: number;
+};
+
+export type KernelTaskRowsResult = {
+  rows: Array<Record<string, unknown>>;
+  elapsedMs: number;
+  indexElapsedMs?: number;
+  hierarchyElapsedMs?: number;
+  pageCount?: number;
+  totalScanned?: number;
+  partial?: boolean;
+  source: "kernel";
+  cached?: boolean;
+  refreshedAt?: number;
+  fullRefreshedAt?: number;
+  highWatermarkUpdated?: string;
+  ageMs?: number;
+  totalMatched?: number;
+  changedRows?: number;
+  incremental?: boolean;
+};
+
+export type KernelTaskStatsResult = {
+  totalRows: number;
+  topLevelRows: number;
+  subtaskRows: number;
+  completedRows: number;
+  openRows: number;
+  archivedRows: number;
+  dueTodayRows: number;
+  overdueRows: number;
+  withDateRows: number;
+  byStatus: Record<string, number>;
+  byPriority: Record<string, number>;
+  elapsedMs: number;
+  indexElapsedMs?: number;
+  hierarchyElapsedMs?: number;
+  pageCount?: number;
+  totalScanned?: number;
+  partial?: boolean;
+  source: "kernel";
+  cached?: boolean;
+  refreshedAt?: number;
+  fullRefreshedAt?: number;
+  highWatermarkUpdated?: string;
+  ageMs?: number;
+};
+
+export async function callPinchKernel<T>(method: string, params?: unknown): Promise<T> {
+  const id = Date.now();
+  const response = await fetch(`/api/plugin/rpc/${PINCH_KERNEL_PLUGIN_NAME}`, {
+    method: "POST",
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      method,
+      ...(params === undefined ? {} : { params }),
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Kernel RPC request failed: HTTP ${response.status}`);
+  }
+
+  const payload = await response.json() as JsonRpcSuccess<T> | JsonRpcFailure;
+  if ("error" in payload) {
+    throw new Error(payload.error?.message || "Kernel RPC failed");
+  }
+
+  return payload.result;
+}
+
+export function pingPinchKernel(): Promise<KernelPingResult> {
+  return callPinchKernel<KernelPingResult>("ping");
+}
+
+export type KernelTaskIndexParams = {
+  limit?: number;
+  includeCompleted?: boolean;
+  includeArchived?: boolean;
+  archivedOnly?: boolean;
+  notebookId?: string;
+  documentId?: string;
+  force?: boolean;
+  blockIds?: string[];
+  startDate?: string;
+  endDate?: string;
+  includeSubtasks?: boolean;
+  sinceUpdated?: string;
+};
+
+export function listKernelTaskRows(limit = 200): Promise<KernelTaskRowsResult> {
+  return callPinchKernel<KernelTaskRowsResult>("listTaskRows", { limit });
+}
+
+export function refreshKernelTaskIndex(params: KernelTaskIndexParams | number = { limit: 5000 }): Promise<KernelTaskRowsResult> {
+  const payload = typeof params === 'number' ? { limit: params } : params;
+  return callPinchKernel<KernelTaskRowsResult>("refreshTaskIndex", payload);
+}
+
+export function refreshKernelTaskIndexIncremental(params: KernelTaskIndexParams | number = { limit: 5000 }): Promise<KernelTaskRowsResult> {
+  const payload = typeof params === 'number' ? { limit: params } : params;
+  return callPinchKernel<KernelTaskRowsResult>("refreshTaskIndexIncremental", payload);
+}
+
+export function getKernelTaskIndex(params: KernelTaskIndexParams | number = { limit: 200 }): Promise<KernelTaskRowsResult> {
+  const payload = typeof params === 'number' ? { limit: params } : params;
+  return callPinchKernel<KernelTaskRowsResult>("getTaskIndex", payload);
+}
+
+export function getKernelTaskRowsByBlockIds(
+  blockIds: string[],
+  params: Omit<KernelTaskIndexParams, 'blockIds'> = {}
+): Promise<KernelTaskRowsResult> {
+  return callPinchKernel<KernelTaskRowsResult>("getTaskRowsByBlockIds", {
+    ...params,
+    blockIds
+  });
+}
+
+export function getKernelTaskRowsByDateRange(
+  startDate: string,
+  endDate: string,
+  params: Omit<KernelTaskIndexParams, 'startDate' | 'endDate' | 'blockIds'> = {}
+): Promise<KernelTaskRowsResult> {
+  return callPinchKernel<KernelTaskRowsResult>("getTaskRowsByDateRange", {
+    ...params,
+    startDate,
+    endDate
+  });
+}
+
+export function getKernelTaskStats(
+  params: Omit<KernelTaskIndexParams, 'blockIds'> = {}
+): Promise<KernelTaskStatsResult> {
+  return callPinchKernel<KernelTaskStatsResult>("getTaskStats", params);
+}

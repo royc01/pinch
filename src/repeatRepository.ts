@@ -1,10 +1,25 @@
 import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
 import { formatDate } from '@/composables/useDateUtils';
+import { translate } from '@/composables/useI18n';
 
-export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly';
+export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly' | 'custom';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
 type RepeatTaskStatus = 'pending' | 'in-progress' | 'delayed' | 'completed' | 'cancelled';
+export type RepeatRuleUnit = 'day' | 'week' | 'month';
+
+export interface RepeatRule {
+  unit: RepeatRuleUnit;
+  interval: number;
+  weekDays?: number[];
+  monthDay?: number;
+  monthMode?: 'day-of-month' | 'last-day';
+}
+
+export interface RepeatRuleInput {
+  frequency: RepeatFrequency;
+  rule?: RepeatRule;
+}
 
 const REPEAT_SERIES_FILE = 'Pinch-repeat-series.json';
 const REPEAT_RECORDS_FILE = 'Pinch-repeat-records.json';
@@ -17,6 +32,7 @@ export interface RepeatSeries {
   templateTaskId: string;
   templateBlockId?: string;
   frequency: ActiveRepeatFrequency;
+  rule?: RepeatRule;
   interval: number;
   weekDays?: number[];
   monthDay?: number;
@@ -80,6 +96,8 @@ export interface RepeatMaterializeOptions {
   futureDays?: number;
   startDate?: string;
   endDate?: string;
+  includeTemplateDate?: boolean;
+  filterBaseTasksToRange?: boolean;
 }
 
 let repeatSeriesCache: { value: RepeatSeries[]; timestamp: number } | null = null;
@@ -88,6 +106,12 @@ let repeatRecordsCache: { value: RepeatRecord[]; timestamp: number } | null = nu
 function cloneRepeatSeries(series: RepeatSeries): RepeatSeries {
   return {
     ...series,
+    rule: series.rule
+      ? {
+        ...series.rule,
+        weekDays: series.rule.weekDays ? [...series.rule.weekDays] : undefined
+      }
+      : undefined,
     weekDays: series.weekDays ? [...series.weekDays] : undefined,
     tags: Array.isArray(series.tags) ? [...series.tags] : []
   };
@@ -134,6 +158,7 @@ function normalizeFrequency(frequency: unknown): ActiveRepeatFrequency | null {
     || frequency === 'weekend'
     || frequency === 'weekly'
     || frequency === 'monthly'
+    || frequency === 'custom'
   ) {
     return frequency;
   }
@@ -163,6 +188,73 @@ function normalizeMonthDay(day: unknown): number | undefined {
   if (!Number.isInteger(monthDay)) return undefined;
   if (monthDay < 1 || monthDay > 31) return undefined;
   return monthDay;
+}
+
+function normalizeRepeatRule(raw: unknown): RepeatRule | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const item = raw as Partial<RepeatRule>;
+  const unit = item.unit === 'day' || item.unit === 'week' || item.unit === 'month' ? item.unit : undefined;
+  if (!unit) return undefined;
+
+  const rule: RepeatRule = {
+    unit,
+    interval: normalizeInterval(item.interval)
+  };
+
+  if (unit === 'week') {
+    rule.weekDays = normalizeWeekDays(item.weekDays);
+  }
+
+  if (unit === 'month') {
+    const monthMode = item.monthMode === 'last-day' ? 'last-day' : 'day-of-month';
+    rule.monthMode = monthMode;
+    rule.monthDay = monthMode === 'day-of-month' ? normalizeMonthDay(item.monthDay) : undefined;
+  }
+
+  return rule;
+}
+
+function buildDefaultRepeatRule(
+  frequency: ActiveRepeatFrequency,
+  baseDate: Date,
+  interval = 1,
+  weekDays?: number[],
+  monthDay?: number
+): RepeatRule {
+  if (frequency === 'daily') {
+    return { unit: 'day', interval };
+  }
+  if (frequency === 'weekdays') {
+    return { unit: 'week', interval: 1, weekDays: [1, 2, 3, 4, 5] };
+  }
+  if (frequency === 'weekend') {
+    return { unit: 'week', interval: 1, weekDays: [0, 6] };
+  }
+  if (frequency === 'monthly') {
+    return {
+      unit: 'month',
+      interval,
+      monthMode: 'day-of-month',
+      monthDay: monthDay || baseDate.getDate()
+    };
+  }
+  return {
+    unit: 'week',
+    interval,
+    weekDays: weekDays?.length ? weekDays : [baseDate.getDay()]
+  };
+}
+
+function normalizeRepeatRuleInput(
+  input: RepeatFrequency | RepeatRuleInput
+): { frequency: RepeatFrequency; rule?: RepeatRule } {
+  if (typeof input === 'string') {
+    return { frequency: input };
+  }
+  return {
+    frequency: input.frequency,
+    rule: normalizeRepeatRule(input.rule)
+  };
 }
 
 function normalizeSpanDays(spanDays: unknown): number {
@@ -232,11 +324,48 @@ function findTemplateTaskForSeries<T extends RepeatTaskLike>(baseTasks: T[], ser
       : undefined);
 }
 
+function getTaskDateRange(task: RepeatTaskLike): { start: Date; end: Date } | null {
+  const start = parseDate(task.startDate || task.repeatInstanceDate || task.dueDate);
+  const end = parseDate(task.dueDate || task.startDate || task.repeatInstanceDate);
+  if (!start && !end) return null;
+  const rangeStart = start || end!;
+  const rangeEnd = end || start!;
+  return rangeStart.getTime() <= rangeEnd.getTime()
+    ? { start: rangeStart, end: rangeEnd }
+    : { start: rangeEnd, end: rangeStart };
+}
+
+function isTaskInMaterializeRange(task: RepeatTaskLike, range: { start: Date; end: Date }): boolean {
+  const taskRange = getTaskDateRange(task);
+  if (!taskRange) return false;
+  return taskRange.start.getTime() <= range.end.getTime()
+    && taskRange.end.getTime() >= range.start.getTime();
+}
+
+function isRepeatTemplateTask(task: RepeatTaskLike, seriesList: RepeatSeries[]): boolean {
+  return seriesList.some((series) =>
+    series.templateTaskId === task.id
+    || (!!task.blockId && series.templateBlockId === task.blockId)
+  );
+}
+
+function filterBaseTasksForMaterializeRange<T extends RepeatTaskLike>(
+  baseTasks: T[],
+  seriesList: RepeatSeries[],
+  range: { start: Date; end: Date }
+): T[] {
+  return baseTasks.filter((task) =>
+    isTaskInMaterializeRange(task, range)
+    || isRepeatTemplateTask(task, seriesList)
+  );
+}
+
 function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
   series: RepeatSeries,
   templateTask: T,
   recordMap: Map<string, RepeatRecord>,
-  range: { start: Date; end: Date }
+  range: { start: Date; end: Date },
+  includeTemplateDate = false
 ): T[] {
   const seriesEndDate = parseDate(series.endDate);
   const effectiveRangeEnd = seriesEndDate || range.end;
@@ -253,14 +382,14 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
     }
 
     const instanceDate = formatDate(cursor);
-    if (instanceDate === series.startDate) {
+    if (!includeTemplateDate && instanceDate === series.startDate) {
       cursor.setDate(cursor.getDate() + 1);
       continue;
     }
 
     const recordKey = buildRecordKey(series.id, instanceDate);
     const record = recordMap.get(recordKey);
-    const status = record?.status || 'pending';
+    const status = record?.status || 'in-progress';
 
     const templateTitle = typeof templateTask.title === 'string' ? templateTask.title : '';
     const templateDescription = typeof templateTask.description === 'string' ? templateTask.description : '';
@@ -312,6 +441,11 @@ function matchesSeriesDate(series: RepeatSeries, date: Date): boolean {
   const diffDays = daysBetween(start, date);
   if (diffDays < 0) return false;
 
+  if (series.frequency === 'custom') {
+    const rule = series.rule || buildDefaultRepeatRule('weekly', start, series.interval, series.weekDays, series.monthDay);
+    return matchesRepeatRule(rule, start, date, diffDays);
+  }
+
   if (series.frequency === 'daily') {
     return diffDays % series.interval === 0;
   }
@@ -340,6 +474,32 @@ function matchesSeriesDate(series: RepeatSeries, date: Date): boolean {
 
   const monthDiff = (date.getFullYear() - start.getFullYear()) * 12 + (date.getMonth() - start.getMonth());
   return monthDiff >= 0 && monthDiff % series.interval === 0;
+}
+
+function matchesRepeatRule(rule: RepeatRule, start: Date, date: Date, diffDays: number): boolean {
+  const interval = normalizeInterval(rule.interval);
+
+  if (rule.unit === 'day') {
+    return diffDays % interval === 0;
+  }
+
+  if (rule.unit === 'week') {
+    const allowedDays = rule.weekDays?.length ? rule.weekDays : [start.getDay()];
+    if (!allowedDays.includes(date.getDay())) return false;
+    const diffWeeks = Math.floor(diffDays / 7);
+    return diffWeeks % interval === 0;
+  }
+
+  const monthDiff = (date.getFullYear() - start.getFullYear()) * 12 + (date.getMonth() - start.getMonth());
+  if (monthDiff < 0 || monthDiff % interval !== 0) return false;
+
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  if (rule.monthMode === 'last-day') {
+    return date.getDate() === lastDay;
+  }
+
+  const expectedDay = Math.min(rule.monthDay || start.getDate(), lastDay);
+  return date.getDate() === expectedDay;
 }
 
 async function loadData<T>(file: string, fallback: T): Promise<T> {
@@ -376,6 +536,14 @@ function normalizeSeries(raw: unknown): RepeatSeries | null {
   const normalizedWeekDays = normalizeWeekDays(item.weekDays);
   const normalizedSpanDays = normalizeSpanDays(item.spanDays);
   const rawEndDate = typeof item.endDate === 'string' ? parseDate(item.endDate) : null;
+  const normalizedRule = normalizeRepeatRule(item.rule)
+    || buildDefaultRepeatRule(
+      frequency,
+      startDate,
+      normalizeInterval(item.interval),
+      normalizedWeekDays,
+      normalizeMonthDay(item.monthDay)
+    );
   let normalizedEndDate: string | undefined;
   if (rawEndDate && rawEndDate.getTime() > startDate.getTime()) {
     normalizedEndDate = formatDate(rawEndDate);
@@ -390,17 +558,20 @@ function normalizeSeries(raw: unknown): RepeatSeries | null {
     templateTaskId,
     templateBlockId: typeof item.templateBlockId === 'string' ? item.templateBlockId : undefined,
     frequency,
-    interval: frequency === 'monthly' ? normalizeInterval(item.interval) : 1,
+    rule: normalizedRule,
+    interval: frequency === 'monthly' || frequency === 'custom' ? normalizeInterval(normalizedRule.interval) : 1,
     weekDays: frequency === 'weekly'
       ? normalizedWeekDays
       : (frequency === 'weekdays'
         ? [1, 2, 3, 4, 5]
-        : (frequency === 'weekend' ? [0, 6] : undefined)),
+        : (frequency === 'weekend'
+          ? [0, 6]
+          : (frequency === 'custom' && normalizedRule.unit === 'week' ? normalizedRule.weekDays : undefined))),
     monthDay: frequency === 'monthly' ? normalizeMonthDay(item.monthDay) : undefined,
     startDate: formatDate(startDate),
     endDate: normalizedEndDate,
     spanDays: normalizedSpanDays,
-    title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : '重复任务',
+    title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : translate('taskCard.repeatTask', 'Recurring task'),
     description: typeof item.description === 'string' ? item.description : '',
     priority: item.priority === 'high' || item.priority === 'medium' || item.priority === 'low' ? item.priority : 'none',
     tags: Array.isArray(item.tags) ? item.tags.filter((tag) => typeof tag === 'string') : [],
@@ -666,7 +837,8 @@ export function notifyRepeatChanged(payload: {
   emitRepeatChanged(payload);
 }
 
-export async function setTaskRepeatSeries(task: RepeatTaskLike, frequency: RepeatFrequency): Promise<RepeatSeries | null> {
+export async function setTaskRepeatSeries(task: RepeatTaskLike, repeat: RepeatFrequency | RepeatRuleInput): Promise<RepeatSeries | null> {
+  const { frequency, rule } = normalizeRepeatRuleInput(repeat);
   const seriesList = await loadRepeatSeries();
   const existing = findSeriesForTask(seriesList, task);
 
@@ -709,24 +881,36 @@ export async function setTaskRepeatSeries(task: RepeatTaskLike, frequency: Repea
   const normalizedEndDate = dueDateObj && dueDateObj.getTime() > baseDateObj.getTime()
     ? formatDate(dueDateObj)
     : undefined;
+  const nextRule = frequency === 'custom'
+    ? (rule || existing?.rule || buildDefaultRepeatRule('weekly', baseDateObj, 1, [baseDateObj.getDay()]))
+    : buildDefaultRepeatRule(
+      frequency,
+      baseDateObj,
+      frequency === 'monthly' ? (existing?.interval || 1) : 1,
+      frequency === 'weekly' ? [baseDateObj.getDay()] : undefined,
+      frequency === 'monthly' ? (existing?.monthDay || baseDateObj.getDate()) : undefined
+    );
   const nextSeries: RepeatSeries = {
     id: existing?.id || buildSeriesId(),
     templateTaskId: existing?.templateTaskId || task.id,
     templateBlockId: task.blockId || existing?.templateBlockId,
     frequency,
-    interval: frequency === 'monthly' ? (existing?.interval || 1) : 1,
+    rule: nextRule,
+    interval: frequency === 'monthly' || frequency === 'custom' ? nextRule.interval : 1,
     weekDays: frequency === 'weekly'
       ? [baseDateObj.getDay()]
       : (frequency === 'weekdays'
         ? [1, 2, 3, 4, 5]
-        : (frequency === 'weekend' ? [0, 6] : undefined)),
+        : (frequency === 'weekend'
+          ? [0, 6]
+          : (frequency === 'custom' && nextRule.unit === 'week' ? nextRule.weekDays : undefined))),
     monthDay: frequency === 'monthly'
       ? (existing?.monthDay || baseDateObj.getDate())
-      : undefined,
+      : (frequency === 'custom' && nextRule.unit === 'month' ? nextRule.monthDay : undefined),
     startDate: existing?.startDate || baseDate,
     endDate: normalizedEndDate,
     spanDays: calculateSpanDays(task),
-    title: task.title || existing?.title || '重复任务',
+    title: task.title || existing?.title || translate('taskCard.repeatTask', 'Recurring task'),
     description: task.description || '',
     priority: task.priority || existing?.priority || 'none',
     tags: Array.isArray(task.tags) ? [...task.tags] : [],
@@ -836,17 +1020,21 @@ export async function materializeRepeatTasks<T extends RepeatTaskLike>(
     return baseTasks;
   }
 
+  const range = getMaterializeRange(options);
+  const scopedBaseTasks = options.filterBaseTasksToRange === true
+    ? filterBaseTasksForMaterializeRange(baseTasks, seriesList, range)
+    : baseTasks;
+
   const records = await loadRepeatRecords();
   const recordMap = buildRepeatRecordMap(records);
-  const taskMapById = new Map(baseTasks.map((task) => [task.id, task]));
+  const taskMapById = new Map(scopedBaseTasks.map((task) => [task.id, task]));
   const taskMapByBlockId = new Map(
-    baseTasks
+    scopedBaseTasks
       .filter((task) => !!task.blockId)
       .map((task) => [task.blockId as string, task])
   );
 
-  const decoratedBaseTasks = await attachRepeatMetadataToTasks(baseTasks, seriesList);
-  const range = getMaterializeRange(options);
+  const decoratedBaseTasks = await attachRepeatMetadataToTasks(scopedBaseTasks, seriesList);
 
   const virtualTasks: T[] = [];
 
@@ -854,7 +1042,13 @@ export async function materializeRepeatTasks<T extends RepeatTaskLike>(
     const templateTask = taskMapById.get(series.templateTaskId)
       || (series.templateBlockId ? taskMapByBlockId.get(series.templateBlockId) : undefined);
     if (!templateTask) continue;
-    virtualTasks.push(...buildVirtualTasksForSeries(series, templateTask, recordMap, range));
+    virtualTasks.push(...buildVirtualTasksForSeries(
+      series,
+      templateTask,
+      recordMap,
+      range,
+      options.includeTemplateDate === true
+    ));
   }
 
   return [...decoratedBaseTasks, ...virtualTasks] as T[];
@@ -913,7 +1107,8 @@ export async function rebuildAffectedRepeatTasks<T extends RepeatTaskLike>(
     startDate: targetSeries.startDate,
     dueDate: targetSeries.endDate,
     startTime: targetSeries.startTime,
-    dueTime: targetSeries.dueTime
+    dueTime: targetSeries.dueTime,
+    status: templateTask.status === 'pending' ? 'in-progress' as const : templateTask.status
   } as T;
   const templateChanged = (
     templateTask.repeatSeriesId !== alignedTemplateTask.repeatSeriesId
@@ -925,7 +1120,13 @@ export async function rebuildAffectedRepeatTasks<T extends RepeatTaskLike>(
     || templateTask.startTime !== alignedTemplateTask.startTime
     || templateTask.dueTime !== alignedTemplateTask.dueTime
   );
-  const rebuiltVirtualTasks = buildVirtualTasksForSeries(targetSeries, alignedTemplateTask, recordMap, range);
+  const rebuiltVirtualTasks = buildVirtualTasksForSeries(
+    targetSeries,
+    alignedTemplateTask,
+    recordMap,
+    range,
+    options.includeTemplateDate === true
+  );
 
   let touched = templateChanged || rebuiltVirtualTasks.length > 0;
   const retainedTasks = taskList.filter((task) => {

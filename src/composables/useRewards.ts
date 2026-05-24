@@ -54,7 +54,7 @@ export const useRewards = () => {
           return awardTaskCompletion(task);
         })
         .catch((error) => {
-          console.error('[Rewards] 同步任务奖励失败:', error);
+          console.error('[Rewards] Failed to sync task rewards:', error);
         });
     }, BLOCK_REWARD_SYNC_DELAY_MS);
 
@@ -88,7 +88,7 @@ export const useRewards = () => {
           return awardTaskCompletion(task);
         })
         .catch((error) => {
-          console.error('[Rewards] 任务变更奖励同步失败:', error);
+          console.error('[Rewards] Failed to sync task-change rewards:', error);
         });
     }, TASK_CHANGE_REWARD_DELAY_MS);
 

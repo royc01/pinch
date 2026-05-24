@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue';
 import { openBlockById, type Habit } from '@/api';
+import { translate } from '@/composables/useI18n';
 
 const DOC_ID_PATTERN = /^\d{14}-[a-z0-9]{7}$/i;
 
@@ -53,11 +54,11 @@ export function useHabitDocBinding(habits: Ref<Habit[]>, options: UseHabitDocBin
 
     const docId = normalizeDocId(bindDocInput.value);
     if (!docId) {
-      showAlert('请输入文档 ID');
+      showAlert(translate('habitDocBind.enterDocId'));
       return;
     }
     if (!DOC_ID_PATTERN.test(docId)) {
-      showAlert('文档 ID 格式不正确');
+      showAlert(translate('habitDocBind.invalidDocId'));
       return;
     }
 

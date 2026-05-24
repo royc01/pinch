@@ -2,6 +2,7 @@ import { computed, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
 import { cleanExpiredCache, getCachedValue, setCachedValue } from '@/composables/useExpiringCache';
 import { getWeekStart, getWeeklyTarget, isSameWeek } from '@/composables/useHabitUtils';
+import { translate } from '@/composables/useI18n';
 
 const CACHE_TTL = 86400000;
 const MAX_CACHE_SIZE = 1000;
@@ -19,6 +20,13 @@ export const useHabitStatistics = ({
   formatDate,
   getToday
 }: UseHabitStatisticsOptions) => {
+  const formatTemplate = (key: string, values: Record<string, string | number>): string => {
+    return Object.entries(values).reduce(
+      (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+      translate(key)
+    );
+  };
+
   const streakCache = new Map<string, { result: number; timestamp: number }>();
   const longestStreakCache = new Map<
     string,
@@ -125,7 +133,7 @@ export const useHabitStatistics = ({
       const percentage = totalDays > 0 ? Math.round((monthCompletions / totalDays) * 100) : 0;
 
       monthlyData.push({
-        month: `${month + 1}月`,
+        month: formatTemplate('date.monthLabelTemplate', { month: month + 1 }),
         completions: monthCompletions,
         totalDays,
         percentage
@@ -419,7 +427,7 @@ export const useHabitStatistics = ({
   const calculateCommonTimeSlot = (habit: Habit) => {
     const completedRecordsWithTimestamp = habit.calendar.filter(record => record.completed && record.timestamp);
     if (completedRecordsWithTimestamp.length === 0) {
-      return '未打卡';
+      return translate('habitTracker.noCheckins');
     }
 
     const hourCounts: Record<number, number> = {};
@@ -443,10 +451,13 @@ export const useHabitStatistics = ({
     }
 
     if (mostCommonHour === -1) {
-      return '未打卡';
+      return translate('habitTracker.noCheckins');
     }
 
-    return `${mostCommonHour}~${mostCommonHour + 1}<span style="font-size: 12px;"> 点</span>`;
+    return formatTemplate('habitTracker.commonTimeSlotTemplate', {
+      start: mostCommonHour,
+      end: mostCommonHour + 1
+    });
   };
 
   const getHourDistribution = (habit: Habit | null) => {
@@ -759,7 +770,9 @@ export const useHabitStatistics = ({
       .sort((a, b) => a.position - b.position)
       .slice(1)
       .map(pos => ({
-        monthLabel: `${String(pos.month + 1).padStart(2, '0')}月`,
+        monthLabel: formatTemplate('date.monthLabelTemplate', {
+          month: String(pos.month + 1).padStart(2, '0')
+        }),
         offset: (pos.position / 17) * 100
       }));
 

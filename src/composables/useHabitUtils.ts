@@ -1,4 +1,5 @@
 import type { Habit } from '@/api';
+import { translate } from '@/composables/useI18n';
 
 export function formatTimelineDate(date: Date | null): string {
   if (!date) return '';
@@ -15,6 +16,13 @@ export function createNumberOptions(count: number, suffix: string): Array<{ valu
     value: String(index + 1),
     text: `${index + 1}${suffix}`
   }));
+}
+
+function formatTemplate(key: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    translate(key)
+  );
 }
 
 export function getWeeklyTarget(frequency: string): number {
@@ -79,16 +87,33 @@ export function getTodayCompletionCount(habit: Habit, getToday: () => string): n
 
 export function getFrequencyText(habit: Habit): string {
   const timesPerDay = habit.timesPerDay || 1;
-  if (!habit.frequency || habit.frequency === 'daily') return `每天${timesPerDay}次`;
+  const dailyTemplateKey = habit.completionMode === 'atLeast'
+    ? 'habitTracker.frequencyDailyAtLeastTemplate'
+    : 'habitTracker.frequencyDailyTemplate';
+  const weeklyTemplateKey = habit.completionMode === 'atLeast'
+    ? 'habitTracker.frequencyWeeklyAtLeastTemplate'
+    : 'habitTracker.frequencyWeeklyTemplate';
 
-  const match = habit.frequency.match(/weekly(\d)/);
-  if (match) return `每周${match[1]}天 | 每天${timesPerDay}次`;
-
-  if (habit.frequency === 'custom' && (habit as any).customFrequency) {
-    return `每周${(habit as any).customFrequency}天 | 每天${timesPerDay}次`;
+  if (!habit.frequency || habit.frequency === 'daily') {
+    return formatTemplate(dailyTemplateKey, { count: timesPerDay });
   }
 
-  return `每天${timesPerDay}次`;
+  const match = habit.frequency.match(/weekly(\d)/);
+  if (match) {
+    return formatTemplate(weeklyTemplateKey, {
+      days: match[1],
+      count: timesPerDay
+    });
+  }
+
+  if (habit.frequency === 'custom' && (habit as any).customFrequency) {
+    return formatTemplate(weeklyTemplateKey, {
+      days: (habit as any).customFrequency,
+      count: timesPerDay
+    });
+  }
+
+  return formatTemplate(dailyTemplateKey, { count: timesPerDay });
 }
 
 export function getCreatedDateText(habit: Habit): string {
@@ -97,5 +122,7 @@ export function getCreatedDateText(habit: Habit): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  return `创建于 ${year}-${month}-${day}`;
+  return formatTemplate('habitTracker.createdOnTemplate', {
+    date: `${year}-${month}-${day}`
+  });
 }

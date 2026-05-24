@@ -12,8 +12,8 @@
                   type="button"
                   class="mobile-view-switcher-btn"
                   :class="{ active: mobileViewSwitcherVisible }"
-                  :title="`切换视图（当前：${currentViewOption.text}）`"
-                  :aria-label="`切换视图（当前：${currentViewOption.text}）`"
+                  :title="formatTemplate('kanbanView.switchViewCurrentTemplate', { current: currentViewOption.text })"
+                  :aria-label="formatTemplate('kanbanView.switchViewCurrentTemplate', { current: currentViewOption.text })"
                   @click.stop="toggleMobileViewSwitcher"
                 >
                   <Icon v-if="currentView === 'stats'" name="statsBar" width="16" height="16" />
@@ -42,41 +42,15 @@
               </div>
             </template>
             <template v-else>
-              <button :class="['view-btn', { active: currentView === 'kanban' }]" @click="currentView = 'kanban'">
-                <Icon name="kanban" width="15" height="15" />
-                <span>看板</span>
-              </button>
-              <button :class="['view-btn', { active: currentView === 'list' }]" @click="currentView = 'list'">
-                <Icon name="card" width="15" height="15" />
-                <span>卡片</span>
-              </button>
-              <button :class="['view-btn', { active: currentView === 'table' }]" @click="currentView = 'table'">
-                <Icon name="table" width="15" height="15" />
-                <span>表格</span>
-              </button>
-              <button :class="['view-btn', { active: currentView === 'month' }]" @click="currentView = 'month'">
-                <Icon name="month" width="15" height="15" />
-                <span>月视图</span>
-              </button>
-              <button :class="['view-btn', { active: currentView === 'week' }]" @click="currentView = 'week'">
-                <Icon name="week" width="15" height="15" />
-                <span>周视图</span>
-              </button>
-              <button :class="['view-btn', { active: currentView === 'three-day' }]" @click="currentView = 'three-day'">
-                <Icon name="threeDay" width="15" height="15" />
-                <span>三日图</span>
-              </button>
-              <button :class="['view-btn', { active: currentView === 'day' }]" @click="currentView = 'day'">
-                <Icon name="day" width="15" height="15" />
-                <span>日视图</span>
-              </button>
-              <button :class="['view-btn', { active: currentView === 'archive-table' }]" @click="currentView = 'archive-table'">
-                <Icon name="archive" width="15" height="15" />
-                <span>归档</span>
-              </button>
-              <button :class="['view-btn', { active: currentView === 'stats' }]" @click="currentView = 'stats'">
-                <Icon name="statsBar" width="15" height="15" />
-                <span>统计</span>
+              <button
+                v-for="option in viewSwitcherOptions"
+                :key="option.value"
+                :class="['view-btn', { active: currentView === option.value }]"
+                @click="currentView = option.value"
+              >
+                <Icon v-if="option.value === 'stats'" name="statsBar" width="15" height="15" />
+                <Icon v-else :name="option.icon" width="15" height="15" />
+                <span>{{ option.text }}</span>
               </button>
             </template>
           </div>
@@ -85,10 +59,10 @@
         <div class="kanban-header-tools-module">
           <div v-if="currentView === 'kanban' || currentView === 'list'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('taskManager.source') }}:</label>
               <SySelect
-                :model-value="kanbanFilterType"
-                @update:model-value="kanbanFilterType = $event"
+                :model-value="activeBoardFilterType"
+                @update:model-value="activeBoardFilterType = String($event || 'all')"
                 :options="sourceOptions"
               />
             </div>
@@ -96,7 +70,7 @@
 
           <div v-if="currentView === 'table' || currentView === 'archive-table' || currentView === 'stats'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('taskManager.source') }}:</label>
               <SySelect
                 :model-value="tableFilterType"
                 @update:model-value="tableFilterType = $event"
@@ -105,9 +79,20 @@
             </div>
           </div>
 
+          <div v-if="currentView === 'gantt'" class="filter-bar-inline">
+            <div class="filter-group">
+              <label>{{ t('taskManager.source') }}:</label>
+              <SySelect
+                :model-value="ganttFilterType"
+                @update:model-value="ganttFilterType = $event"
+                :options="sourceOptions"
+              />
+            </div>
+          </div>
+
           <div v-if="currentView === 'month'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('taskManager.source') }}:</label>
               <SySelect
                 :model-value="monthFilterType"
                 @update:model-value="monthFilterType = $event"
@@ -118,7 +103,7 @@
 
           <div v-if="currentView === 'week'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('taskManager.source') }}:</label>
               <SySelect
                 :model-value="weekFilterType"
                 @update:model-value="weekFilterType = $event"
@@ -129,7 +114,7 @@
 
           <div v-if="currentView === 'day' || currentView === 'three-day'" class="filter-bar-inline">
             <div class="filter-group">
-              <label>来源:</label>
+              <label>{{ t('taskManager.source') }}:</label>
               <SySelect
                 :model-value="dayFilterType"
                 @update:model-value="dayFilterType = $event"
@@ -142,13 +127,13 @@
             <button
               type="button"
               class="scope-btn"
-              title="任务范围"
-              aria-label="任务范围"
+              :title="t('taskScopeDialog.settings')"
+              :aria-label="t('taskScopeDialog.settings')"
               @click="void openTaskScopeDialog()"
             >
               <Icon name="taskScope" width="24" height="24" />
             </button>
-            <button @click="refreshTasks" class="refresh-btn" title="刷新任务" aria-label="刷新任务">
+            <button @click="refreshTasks" class="refresh-btn" :title="t('taskManager.refreshTasks')" :aria-label="t('taskManager.refreshTasks')">
               <Icon name="refresh" width="24" height="24" />
             </button>
             <button
@@ -156,8 +141,8 @@
               type="button"
               class="mobile-calendar-task-drawer-btn"
               :class="{ active: mobileCalendarTaskDrawerVisible }"
-              title="打开任务库"
-              aria-label="打开任务库"
+              :title="t('kanbanView.openTaskLibrary')"
+              :aria-label="t('kanbanView.openTaskLibrary')"
               @click="toggleMobileCalendarTaskDrawer"
             >
               <Icon name="taskDrawer" width="21" height="21" />
@@ -166,8 +151,8 @@
               v-if="currentView === 'kanban' || currentView === 'list' || currentView === 'table'"
               type="button"
               class="new-task-btn"
-              title="新建任务"
-              aria-label="新建任务"
+              :title="t('taskManager.newTask')"
+              :aria-label="t('taskManager.newTask')"
               @click="openHeaderTaskModal"
             >
               <Icon name="add" width="24" height="24" />
@@ -176,7 +161,7 @@
         </div>
       </div>
       <div
-        v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'list' || currentView === 'table' || currentView === 'archive-table' || currentView === 'stats' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
+        v-if="showDocumentTabs || currentView === 'kanban' || currentView === 'list' || currentView === 'table' || currentView === 'archive-table' || currentView === 'stats' || currentView === 'gantt' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
         class="document-tabs-row"
       >
       <div
@@ -199,7 +184,7 @@
       </div>
       <div v-else class="document-tabs-placeholder"></div>
       <div
-        v-if="currentView === 'kanban' || currentView === 'list' || currentView === 'table' || currentView === 'archive-table' || currentView === 'stats' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
+        v-if="currentView === 'kanban' || currentView === 'list' || currentView === 'table' || currentView === 'archive-table' || currentView === 'stats' || currentView === 'gantt' || currentView === 'month' || currentView === 'week' || currentView === 'three-day' || currentView === 'day'"
         ref="documentTabsDropdownControlRef"
         class="document-tabs-dropdown"
       >
@@ -207,8 +192,8 @@
           type="button"
           class="document-tabs-dropdown-btn"
           :class="{ active: documentTabsDropdownVisible }"
-          title="文档标签列表"
-          aria-label="文档标签列表"
+          :title="t('kanbanView.documentTabList')"
+          :aria-label="t('kanbanView.documentTabList')"
           @click.stop="toggleDocumentTabsDropdown"
         >
           <Icon name="chevronDown" width="16" height="16" />
@@ -231,15 +216,15 @@
             <button
               type="button"
               class="document-tabs-visibility-btn"
-              :title="option.hidden ? '显示标签页' : '隐藏标签页'"
-              :aria-label="option.hidden ? '显示标签页' : '隐藏标签页'"
+              :title="getDocumentTabVisibilityLabel(option.hidden)"
+              :aria-label="getDocumentTabVisibilityLabel(option.hidden)"
               @click.stop="toggleDocumentTabVisibility(option.value)"
             >
               <Icon :name="option.hidden ? 'eyeOff' : 'eye'" width="16" height="16" />
             </button>
           </div>
           <div v-if="documentTabPopoverOptions.length === 0" class="document-tabs-dropdown-empty">
-            暂无文档标签
+            {{ t('kanbanView.noDocumentTabs') }}
           </div>
         </div>
       </div>
@@ -249,8 +234,8 @@
             type="button"
             class="task-filter-btn"
             :class="{ active: kanbanFilterPopoverVisible || hasActiveKanbanFilters }"
-            title="筛选任务"
-            aria-label="筛选任务"
+            :title="t('taskManager.filterTasks')"
+            :aria-label="t('taskManager.filterTasks')"
             @click.stop="toggleKanbanFilterPopover($event)"
           >
             <Icon name="filter" width="16" height="16" />
@@ -267,8 +252,8 @@
               active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks || currentView === 'list',
               'is-batch-active': currentView === 'kanban' && isKanbanBatchEditMode
             }"
-            title="视图设置"
-            aria-label="视图设置"
+            :title="t('kanbanView.viewSettings')"
+            :aria-label="t('kanbanView.viewSettings')"
             @click.stop="toggleTaskViewGroupMenu"
           >
             <Icon name="moreVertical" width="16" height="16" />
@@ -300,7 +285,7 @@
               :class="{ active: isKanbanBatchEditMode }"
               @click.stop="toggleKanbanBatchEditModeFromMenu"
             >
-              <span>{{ isKanbanBatchEditMode ? '退出批量编辑' : '进入批量编辑' }}</span>
+              <span>{{ isKanbanBatchEditMode ? t('taskManager.exitBatchEdit') : t('taskManager.enterBatchEdit') }}</span>
               <span v-if="isKanbanBatchEditMode" class="task-group-menu-check">
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
@@ -310,7 +295,7 @@
               class="task-group-menu-item"
               @click.stop="openTaskGroupDialogFromMenu"
             >
-              <span>标签管理</span>
+              <span>{{ t('taskManager.tagManager') }}</span>
             </button>
             <div class="task-group-menu-divider"></div>
             <button
@@ -319,7 +304,7 @@
               class="task-group-menu-item"
               @click.stop="toggleKanbanTaskCardDetailsFromMenu"
             >
-              <span>{{ showKanbanTaskCardDetails ? '隐藏详细' : '显示详细' }}</span>
+              <span>{{ showKanbanTaskCardDetails ? t('taskManager.hideDetails') : t('taskManager.showDetails') }}</span>
             </button>
             <button
               type="button"
@@ -327,7 +312,7 @@
               :class="{ active: !showCompletedTasks }"
               @click.stop="toggleHideCompletedTasksFromMenu"
             >
-              <span>隐藏已完成任务</span>
+              <span>{{ t('taskManager.hideCompletedTasks') }}</span>
               <span v-if="!showCompletedTasks" class="task-group-menu-check">
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
@@ -338,7 +323,7 @@
               class="task-group-menu-item"
               @click.stop="toggleAllVisibleKanbanDetailsFromMenu"
             >
-              <span>{{ areAllVisibleKanbanDetailsExpanded ? '一键折叠详情' : '一键展开详情' }}</span>
+              <span>{{ areAllVisibleKanbanDetailsExpanded ? t('taskManager.collapseAllDetails') : t('taskManager.expandAllDetails') }}</span>
             </button>
           </div>
         </div>
@@ -353,8 +338,8 @@
               <button
                 type="button"
                 class="task-search-toggle"
-                :title="isMobileTaskSearchCollapsed ? '展开搜索' : '搜索任务'"
-                :aria-label="isMobileTaskSearchCollapsed ? '展开搜索' : '搜索任务'"
+                :title="isMobileTaskSearchCollapsed ? t('kanbanView.expandSearch') : t('taskManager.searchTasks')"
+                :aria-label="isMobileTaskSearchCollapsed ? t('kanbanView.expandSearch') : t('taskManager.searchTasks')"
                 @click.stop="handleTaskSearchToggleClick"
               >
                 <Icon name="searchCompact" class="task-search-icon" width="14" height="14" />
@@ -364,15 +349,15 @@
                 ref="tableSearchInputRef"
                 v-model="tableSearchQuery"
                 type="search"
-                placeholder="搜索任务"
-                aria-label="搜索任务"
+                :placeholder="t('taskManager.searchTasks')"
+                :aria-label="t('taskManager.searchTasks')"
                 @keydown.esc.stop.prevent="handleTableSearchEscape"
               />
               <button
                 v-if="tableSearchQuery && !isMobileTaskSearchCollapsed"
                 type="button"
                 class="task-search-clear"
-                aria-label="清除搜索"
+                :aria-label="t('kanbanView.clearSearch')"
                 @click="tableSearchQuery = ''"
               >
                 ×
@@ -383,8 +368,8 @@
                 type="button"
                 class="task-filter-btn"
                 :class="{ active: tableFilterPopoverVisible || hasActiveTableFilters }"
-                title="筛选任务"
-                aria-label="筛选任务"
+                :title="t('taskManager.filterTasks')"
+                :aria-label="t('taskManager.filterTasks')"
                 @click.stop="toggleTableFilterPopover($event)"
               >
                 <Icon name="filter" width="16" height="16" />
@@ -398,8 +383,8 @@
                 type="button"
                 class="task-group-menu-btn"
                 :class="{ active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks }"
-                title="视图设置"
-                aria-label="视图设置"
+                :title="t('kanbanView.viewSettings')"
+                :aria-label="t('kanbanView.viewSettings')"
                 @click.stop="toggleTaskViewGroupMenu"
               >
                 <Icon name="moreVertical" width="16" height="16" />
@@ -430,7 +415,7 @@
                   :class="{ active: !showCompletedTasks }"
                   @click.stop="toggleHideCompletedTasksFromMenu"
                 >
-                  <span>隐藏已完成任务</span>
+                  <span>{{ t('taskManager.hideCompletedTasks') }}</span>
                   <span v-if="!showCompletedTasks" class="task-group-menu-check">
                     <Icon name="taskCheckboxChecked" width="12" height="12" />
                   </span>
@@ -446,10 +431,10 @@
       class="kanban-batch-toolbar"
     >
       <div class="kanban-batch-toolbar-header">
-        <span class="kanban-batch-selected-count">已选 {{ kanbanBatchSelectedCount }} 项</span>
+        <span class="kanban-batch-selected-count">{{ formatTemplate('kanbanView.selectedCountTemplate', { count: kanbanBatchSelectedCount }) }}</span>
         <div class="kanban-batch-toolbar-actions">
           <button type="button" class="kanban-batch-tool-btn" @click="toggleSelectAllVisibleKanbanTasks">
-            {{ allVisibleKanbanTasksSelected ? '取消全选' : '全选当前视图' }}
+            {{ allVisibleKanbanTasksSelected ? t('taskManager.cancelSelectAll') : t('kanbanView.selectAllCurrentView') }}
           </button>
           <button
             type="button"
@@ -457,13 +442,13 @@
             :disabled="kanbanBatchSelectedCount === 0"
             @click="clearKanbanBatchSelection"
           >
-            清空选择
+            {{ t('taskManager.clearSelection') }}
           </button>
         </div>
       </div>
       <div class="kanban-batch-edit-grid">
         <label class="kanban-batch-field">
-          <span>状态</span>
+          <span>{{ t('taskManager.status') }}</span>
           <SySelect
             :model-value="kanbanBatchEditStatus"
             :options="kanbanBatchStatusOptions"
@@ -471,7 +456,7 @@
           />
         </label>
         <label class="kanban-batch-field">
-          <span>优先级</span>
+          <span>{{ t('taskManager.priority') }}</span>
           <SySelect
             :model-value="kanbanBatchEditPriority"
             :options="kanbanBatchPriorityOptions"
@@ -479,7 +464,7 @@
           />
         </label>
         <label class="kanban-batch-field">
-          <span>标签</span>
+          <span>{{ t('taskManager.tags') }}</span>
           <SySelect
             :model-value="kanbanBatchEditGroupId"
             :options="kanbanBatchGroupOptions"
@@ -492,11 +477,11 @@
           :disabled="!canApplyKanbanBatchEdit"
           @click="applyKanbanBatchEdit"
         >
-          {{ isKanbanBatchApplying ? '应用中...' : '应用到已选' }}
+          {{ isKanbanBatchApplying ? t('taskManager.applying') : t('taskManager.applyToSelected') }}
         </button>
       </div>
     </div>
-    <div v-if="loading" class="loading">加载中...</div>
+    <div v-if="loading" class="loading">{{ t('taskManager.loading') }}</div>
     <div
       v-else-if="currentView === 'kanban' && isSettingsLoaded"
       ref="kanbanBoardRef"
@@ -559,8 +544,8 @@
                     partial: isKanbanColumnBatchPartiallySelected(column),
                     'is-disabled': getColumnTaskCount(column) === 0
                   }"
-                  :title="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
-                  :aria-label="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :title="getColumnBatchSelectionLabel(isKanbanColumnBatchAllSelected(column))"
+                  :aria-label="getColumnBatchSelectionLabel(isKanbanColumnBatchAllSelected(column))"
                   :aria-disabled="getColumnTaskCount(column) === 0"
                   @click.stop="toggleKanbanColumnBatchSelection(column)"
                 >
@@ -588,7 +573,7 @@
                   v-model="columnTitleDraft"
                   class="column-title-input"
                   type="text"
-                  :placeholder="column.type === 'group' ? '请输入标签名称' : '请输入标题名称'"
+                  :placeholder="getColumnTitlePlaceholder(column)"
                   :disabled="isSavingColumnTitle"
                   @keydown.enter.prevent.stop="submitColumnTitleEdit(column)"
                   @keydown.esc.prevent.stop="cancelColumnTitleEdit()"
@@ -599,7 +584,7 @@
                 v-else-if="canEditColumnTitle(column)"
                 type="button"
                 class="column-title column-title-button"
-                :title="column.type === 'group' ? '编辑标签名称' : '编辑标题名称'"
+                :title="getEditColumnTitleLabel(column)"
                 @click.stop="startColumnTitleEdit(column)"
               >
                 <span
@@ -609,8 +594,8 @@
                     partial: isKanbanColumnBatchPartiallySelected(column),
                     'is-disabled': getColumnTaskCount(column) === 0
                   }"
-                  :title="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
-                  :aria-label="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :title="getColumnBatchSelectionLabel(isKanbanColumnBatchAllSelected(column))"
+                  :aria-label="getColumnBatchSelectionLabel(isKanbanColumnBatchAllSelected(column))"
                   :aria-disabled="getColumnTaskCount(column) === 0"
                   @click.stop="toggleKanbanColumnBatchSelection(column)"
                 >
@@ -643,8 +628,8 @@
                     partial: isKanbanColumnBatchPartiallySelected(column),
                     'is-disabled': getColumnTaskCount(column) === 0
                   }"
-                  :title="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
-                  :aria-label="isKanbanColumnBatchAllSelected(column) ? '取消全选该列' : '全选该列'"
+                  :title="getColumnBatchSelectionLabel(isKanbanColumnBatchAllSelected(column))"
+                  :aria-label="getColumnBatchSelectionLabel(isKanbanColumnBatchAllSelected(column))"
                   :aria-disabled="getColumnTaskCount(column) === 0"
                   @click.stop="toggleKanbanColumnBatchSelection(column)"
                 >
@@ -731,9 +716,10 @@
                   :show-description="showKanbanTaskCardDetails"
                   :show-badges="showKanbanTaskCardDetails"
                   :show-document-title="!kanbanFilterDocument || kanbanFilterDocument === 'all'"
+                  :document-title-override="getTaskDocumentTitle(task)"
                   :document-icon-override="getTaskDocumentIcon(task)"
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
-                  :title-tooltip="isKanbanBatchEditMode ? '点击选择任务' : ''"
+                  :title-tooltip="isKanbanBatchEditMode ? t('taskManager.clickSelectTask') : ''"
                   @card-click="handleKanbanTaskCardClick"
                   @open-click="handleKanbanTaskOpenClick"
                   @start-focus="startFocusForTask"
@@ -750,7 +736,7 @@
               </div>
             </div>
             <div v-else class="empty-column">
-              暂无任务
+              {{ t('taskManager.noTasks') }}
             </div>
           </div>
         </template>
@@ -768,7 +754,7 @@
       @scroll="handleListViewScroll"
     >
       <div v-if="kanbanListSections.length === 0" class="empty-state">
-        暂无任务
+        {{ t('taskManager.noTasks') }}
       </div>
       <div v-else class="kanban-list-masonry">
         <div
@@ -782,7 +768,7 @@
           >
             <div class="kanban-list-action-body" @click="handleActionColumnClick(kanbanListGroupActionColumn)">
               <Icon name="add" width="16" height="16" />
-              <span>{{ kanbanListGroupActionColumn.actionKind === 'heading-add' ? '新建标题' : '新建标签' }}</span>
+              <span>{{ getActionColumnButtonLabel(kanbanListGroupActionColumn) }}</span>
             </div>
           </section>
           <section
@@ -844,8 +830,8 @@
                   type="button"
                   class="kanban-list-section-toggle"
                   :class="{ collapsed: isKanbanListSectionCollapsed(section.id) }"
-                  :title="isKanbanListSectionCollapsed(section.id) ? '展开分组' : '折叠分组'"
-                  :aria-label="isKanbanListSectionCollapsed(section.id) ? '展开分组' : '折叠分组'"
+                  :title="isKanbanListSectionCollapsed(section.id) ? t('taskManager.expandGroup') : t('taskManager.collapseGroup')"
+                  :aria-label="isKanbanListSectionCollapsed(section.id) ? t('taskManager.expandGroup') : t('taskManager.collapseGroup')"
                   :aria-expanded="!isKanbanListSectionCollapsed(section.id)"
                   @click.stop="toggleKanbanListSectionCollapse(section.id)"
                 >
@@ -861,15 +847,16 @@
               <div
                 v-for="task in getVisibleTasksForListSection(section)"
                 :key="task.id"
-                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id)]"
+                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, getTaskDocumentTitle(task), getTaskDocumentIcon(task), isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id)]"
                 class="kanban-list-task-item"
+                :data-task-id="task.id"
                 @contextmenu="handleKanbanTaskContextMenu(task, $event)"
               >
                 <TaskCard
                   :task="task"
                   variant="sidebar"
                   :task-groups="taskGroups"
-                  :show-status-badge="kanbanGroupBy !== 'status'"
+                  :show-status-badge="listGroupBy !== 'status'"
                   :completed="isTaskCompletedVisual(task)"
                   :draggable="!isMobileFrontend && kanbanSupportsDrag"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
@@ -878,7 +865,8 @@
                   :description-draft="getInlineDescriptionDraft(task)"
                   :show-description="showKanbanTaskCardDetails"
                   :show-badges="showKanbanTaskCardDetails"
-                  :show-document-title="!kanbanFilterDocument || kanbanFilterDocument === 'all'"
+                  :show-document-title="!listFilterDocument || listFilterDocument === 'all'"
+                  :document-title-override="getTaskDocumentTitle(task)"
                   :document-icon-override="getTaskDocumentIcon(task)"
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
                   @card-click="handleKanbanTaskCardClick"
@@ -933,10 +921,25 @@
       @start-time-update="handleStartTimeUpdate"
       @due-time-update="handleDueTimeUpdate"
     />
+    <GanttView
+      v-if="currentView === 'gantt'"
+      :tasks="ganttViewTasks"
+      :goals="goalDefinitions"
+      :task-groups="taskGroups"
+      :group-mode="ganttGroupMode"
+      :document-title-by-root-id="documentTitleByRootId"
+      @task-click="handleTaskClick"
+      @task-date-changed="handleGanttTaskDateChanged"
+      @start-focus="startFocusForTask"
+      @edit-task="handleGanttTaskEdit"
+      @status-toggle="toggleTaskStatus"
+      @manage-goals="void openTaskScopeDialog('goals')"
+    />
     <MonthView 
       ref="calendarMonthViewRef"
       v-if="currentView === 'month'" 
       :tasks="monthViewTasks"
+      :task-groups="taskGroups"
       @task-click="handleTaskClick"
       @task-edit="handleCalendarTaskEdit"
       @task-date-changed="handleTaskDateChanged"
@@ -947,6 +950,7 @@
       ref="calendarWeekViewRef"
       v-if="currentView === 'week'"
       :tasks="weekViewTasks"
+      :task-groups="taskGroups"
       @task-date-changed="handleTaskDateChanged"
       @task-click="handleTaskClick"
       @task-edit="handleCalendarTaskEdit"
@@ -957,6 +961,7 @@
       ref="calendarWeekViewRef"
       v-if="currentView === 'day'"
       :tasks="dayViewTasks"
+      :task-groups="taskGroups"
       :fixed-days-count="1"
       @task-date-changed="handleTaskDateChanged"
       @task-click="handleTaskClick"
@@ -968,6 +973,7 @@
       ref="calendarWeekViewRef"
       v-if="currentView === 'three-day'"
       :tasks="dayViewTasks"
+      :task-groups="taskGroups"
       :fixed-days-count="3"
       :fixed-center-today="true"
       @task-date-changed="handleTaskDateChanged"
@@ -995,18 +1001,18 @@
         <div class="mobile-calendar-task-drawer">
           <div class="mobile-calendar-task-drawer-grabber"></div>
           <div class="mobile-calendar-task-drawer-header">
-            <div class="mobile-calendar-task-drawer-title">任务库</div>
+            <div class="mobile-calendar-task-drawer-title">{{ t('kanbanView.taskLibrary') }}</div>
             <button
               type="button"
               class="mobile-calendar-task-drawer-close"
-              title="关闭任务库"
-              aria-label="关闭任务库"
+              :title="t('kanbanView.closeTaskLibrary')"
+              :aria-label="t('kanbanView.closeTaskLibrary')"
               @click="closeMobileCalendarTaskDrawer"
             >
               <Icon name="close" width="14" height="14" />
             </button>
           </div>
-          <div class="mobile-calendar-task-drawer-hint">长按任务后拖到日期或时间格</div>
+          <div class="mobile-calendar-task-drawer-hint">{{ t('kanbanView.mobileDrawerHint') }}</div>
           <div class="mobile-calendar-task-drawer-body">
             <TaskManager
               :enable-mobile-calendar-drag="true"
@@ -1079,7 +1085,7 @@
         ref="kanbanEditorPanelRef"
         mode="floating"
         :panel-style="kanbanEditorStyle"
-        title="编辑任务"
+        :title="t('taskManager.editTask')"
         :show-pin="!!activeKanbanEditTask"
         :pin-active="isActiveKanbanTaskPinned"
         :show-move="!!activeKanbanEditTask"
@@ -1121,15 +1127,18 @@
             :reminder-text="kanbanEditorReminderText"
             :has-reminder="kanbanEditorHasReminder"
             :status="activeKanbanEditDraft.status"
+            :repeat-frequency="kanbanEditorRepeatFrequency"
+            :repeat-rule="kanbanEditorRepeatRule"
             :group-button-style="kanbanEditorGroupButtonStyle"
             :default-group-chip-color="defaultGroupChipColor"
-            description-placeholder="添加任务描述..."
+            :description-placeholder="t('taskManager.addTaskDescription')"
             @update:panel="kanbanEditorQuickPanel = $event"
             @update:description="handleKanbanEditorDescriptionInput"
             @update-dates="handleKanbanEditorDateFieldsUpdate"
             @select-group="handleKanbanEditorGroupSelect"
             @select-reminder="handleKanbanEditorReminderSelect"
             @select-status="handleKanbanEditorStatusSelect"
+            @save-repeat-rule="handleKanbanEditorRepeatRuleSave"
             @commit-description="handleKanbanEditorDescriptionCommit"
             @manage-groups="openTaskGroupDialog"
           />
@@ -1141,12 +1150,12 @@
         >
           <div class="kanban-task-move-dialog" @click.stop>
             <div class="kanban-task-move-dialog-header">
-              <span class="kanban-task-move-dialog-title">移动任务</span>
+              <span class="kanban-task-move-dialog-title">{{ t('taskManager.moveTask') }}</span>
               <button
                 type="button"
                 class="kanban-task-move-dialog-close"
-                title="关闭"
-                aria-label="关闭"
+                :title="t('common.close')"
+                :aria-label="t('common.close')"
                 @click.stop="closeKanbanTaskMoveDialog"
               >
                 <Icon name="close" width="16" height="16" />
@@ -1154,7 +1163,7 @@
             </div>
             <div class="kanban-task-move-dialog-body">
               <div class="kanban-task-move-dialog-field">
-                <label>笔记本</label>
+                <label>{{ t('taskManager.notebook') }}</label>
                 <SySelect
                   :model-value="kanbanMoveSelectedNotebook"
                   :options="kanbanMoveNotebookOptions"
@@ -1162,7 +1171,7 @@
                 />
               </div>
               <div class="kanban-task-move-dialog-field">
-                <label>文档</label>
+                <label>{{ t('taskManager.document') }}</label>
                 <SySelect
                   :model-value="kanbanMoveSelectedDocument"
                   :options="kanbanMoveDocumentOptions"
@@ -1170,10 +1179,10 @@
                 />
               </div>
               <div v-if="kanbanMoveTargetUnchanged" class="kanban-task-move-dialog-hint">
-                任务已位于当前文档。
+                {{ t('taskManager.alreadyInDocument') }}
               </div>
               <div v-else-if="kanbanMoveDocumentOptions.length === 0" class="kanban-task-move-dialog-hint">
-                当前笔记本暂无可选文档，请先在目标笔记本创建文档。
+                {{ t('taskManager.noDocumentOptions') }}
               </div>
             </div>
             <div class="kanban-task-move-dialog-footer">
@@ -1182,7 +1191,7 @@
                 class="kanban-task-move-dialog-btn cancel"
                 @click.stop="closeKanbanTaskMoveDialog"
               >
-                取消
+                {{ t('common.cancel') }}
               </button>
               <button
                 type="button"
@@ -1190,7 +1199,7 @@
                 :disabled="!canSubmitKanbanMove"
                 @click.stop="handleKanbanEditorMove"
               >
-                {{ isKanbanTaskMoveSubmitting ? '移动中...' : '确认移动' }}
+                {{ isKanbanTaskMoveSubmitting ? t('taskManager.moving') : t('taskManager.move') }}
               </button>
             </div>
           </div>
@@ -1201,10 +1210,10 @@
     <div v-if="quickCreateDialog.show" class="quick-create-mask" @click="closeQuickCreateDialog">
       <div class="quick-create-dialog" @click.stop>
         <div class="quick-create-title">
-          {{ quickCreateDialog.mode === 'heading-task' ? '新建标题和任务' : '新建任务' }}
+          {{ getQuickCreateDialogTitle(quickCreateDialog.mode) }}
         </div>
         <div class="quick-create-row">
-          <label>笔记本</label>
+          <label>{{ t('taskManager.notebook') }}</label>
           <SySelect
             :model-value="quickCreateNotebookId"
             @update:model-value="quickCreateNotebookId = $event"
@@ -1212,7 +1221,7 @@
           />
         </div>
         <div class="quick-create-row">
-          <label>文档</label>
+          <label>{{ t('taskManager.document') }}</label>
           <SySelect
             :model-value="quickCreateDocumentId"
             @update:model-value="quickCreateDocumentId = $event"
@@ -1225,7 +1234,7 @@
           v-model="quickCreateDialog.headingTitle"
           class="quick-create-input"
           type="text"
-          placeholder="请输入标题名称"
+          :placeholder="t('kanbanView.enterHeadingName')"
           @keydown.enter.prevent="submitQuickCreateTask"
           @keydown.esc.prevent="closeQuickCreateDialog"
         />
@@ -1234,13 +1243,13 @@
           v-model="quickCreateDialog.title"
           class="quick-create-input"
           type="text"
-          :placeholder="quickCreateDialog.mode === 'heading-task' ? '请输入首个任务标题' : '请输入任务标题'"
+          :placeholder="getQuickCreateTaskPlaceholder(quickCreateDialog.mode)"
           @keydown.enter.prevent="submitQuickCreateTask"
           @keydown.esc.prevent="closeQuickCreateDialog"
         />
         <div class="quick-create-actions">
-          <button class="quick-create-btn cancel" @click="closeQuickCreateDialog">取消</button>
-          <button class="quick-create-btn confirm" @click="submitQuickCreateTask">创建</button>
+          <button class="quick-create-btn cancel" @click="closeQuickCreateDialog">{{ t('common.cancel') }}</button>
+          <button class="quick-create-btn confirm" @click="submitQuickCreateTask">{{ t('kanbanView.create') }}</button>
         </div>
       </div>
     </div>
@@ -1250,6 +1259,7 @@
       :excluded-notebook-ids="excludedNotebookIds"
       :show-scope-tab="true"
       :auto-recognize-task-date="autoRecognizeTaskDate"
+      :date-recognition-keywords="userSettings.taskManager.dateRecognitionKeywords"
       :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
       :show-document-group-notebook-path="showDocumentGroupNotebookPath"
@@ -1259,6 +1269,13 @@
       :document-group-documents="documentGroupDialogDocuments"
       :goals="goalDefinitions"
       :goal-documents="goalDocuments"
+      :task-view-options="taskScopeViewOptions"
+      :hidden-task-view-ids="userSettings.kanban.hiddenViewSwitcherIds"
+      :sidebar-section-options="taskScopeSidebarSectionOptions"
+      :hidden-sidebar-section-ids="userSettings.sidebar.hiddenSectionIds"
+      :sidebar-section-order="userSettings.sidebar.sectionOrder"
+      :default-task-create-target="userSettings.taskManager.defaultTaskCreateTarget"
+      :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
       @save="handleTaskScopeSave"
@@ -1272,7 +1289,7 @@
     >
       <div class="document-tab-context-menu-title">{{ documentTabContextMenu.text }}</div>
       <div class="document-tab-context-menu-subtitle">
-        {{ documentTabContextCurrentGroupId ? '修改分组' : '加入分组' }}
+        {{ documentTabContextCurrentGroupId ? t('kanbanView.changeGroup') : t('kanbanView.addToGroup') }}
       </div>
       <div v-if="sortedDocumentGroups.length > 0" class="document-tab-context-menu-list">
         <button
@@ -1281,7 +1298,7 @@
           :class="{ active: !documentTabContextCurrentGroupId }"
           @click="void updateDocumentTabGroupAssignment('')"
         >
-          <span>未分组</span>
+          <span>{{ t('kanbanView.ungrouped') }}</span>
           <span v-if="!documentTabContextCurrentGroupId" class="task-group-menu-check">
             <Icon name="check" width="12" height="12" />
           </span>
@@ -1300,13 +1317,13 @@
           </span>
         </button>
       </div>
-      <div v-else class="document-tab-context-menu-empty">暂无文档组</div>
+      <div v-else class="document-tab-context-menu-empty">{{ t('documentGroup.emptyGroups') }}</div>
       <button
         type="button"
         class="document-tab-context-menu-manage"
         @click="void openDocumentGroupManagerFromTabMenu()"
       >
-        管理分组
+        {{ t('kanbanView.manageGroups') }}
       </button>
     </div>
     <TaskGroupDialog
@@ -1324,7 +1341,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { Protyle, getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, getIDsByHPath, resolveTaskRepeatMaterializeOptions, type TaskRepeatWindow } from '../api';
+import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, resolveTaskRepeatMaterializeOptions, type TaskRepeatWindow } from '../api';
 import {
   extractDocumentIconFromBlockRow,
   extractDocumentIconFromDom,
@@ -1340,7 +1357,10 @@ import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
 import {
   applyRepeatRuleOptimisticToTasks,
   getDocumentCreationSortKey,
+  loadRootDocumentMetadata,
   normalizeNotebookIds,
+  resolveDocumentDisplayName,
+  type RootDocumentMetadata,
   type RepeatRulePayload
 } from '@/utils/taskViewShared';
 import {
@@ -1348,7 +1368,8 @@ import {
   compareTaskCreatedAtDesc,
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
-import { getRepeatSeriesForTask, rebuildAffectedRepeatTasks } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
+import { refreshKernelTaskIndex } from '@/kernelRpc';
 import {
   getTaskHeadingGroupMeta,
   resolveTaskHeadingDropTarget,
@@ -1366,8 +1387,10 @@ import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import { useTaskFilterState } from '@/composables/useTaskFilterState';
 import { useMobileTextInputActivation } from '@/composables/useMobileTextInputActivation';
+import { useI18n } from '@/composables/useI18n';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TableView from '@/components/TableView.vue';
+import GanttView from '@/components/GanttView.vue';
 import MonthView from '@/components/MonthView.vue';
 import WeekView from '@/components/WeekView.vue';
 import PersonalStatsView from '@/components/PersonalStatsView.vue';
@@ -1401,10 +1424,20 @@ import {
   buildNotebookDocumentSource,
   parseDocumentSource
 } from '@/utils/documentGroupSource';
+import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
+import type { SidebarSectionId, TaskViewSwitcherId } from '@/utils/userSettings';
 
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
+const { t } = useI18n();
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const { goalDefinitions, goalDocuments, goalItems, goalsLoading, saveGoalDefinitions } = useGoals();
+
+const formatTemplate = (key: string, values: Record<string, string | number>): string => {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    t(key)
+  );
+};
 
 const crdtRepo = getCrdtRepository();
 const { tasks, updateTasks, syncFromSQL } = useCrdtTasks();
@@ -1417,27 +1450,29 @@ try {
 }
 const loading = ref(false);
 const showTaskScopeDialog = ref(false);
-const taskScopeDialogInitialTab = ref<'scope' | 'document-groups' | 'goals'>('scope');
+type TaskScopeDialogTab = 'scope' | 'task-settings' | 'document-groups' | 'goals' | 'display';
+const taskScopeDialogInitialTab = ref<TaskScopeDialogTab>('task-settings');
 const isGlobalDateRecognitionRunning = ref(false);
 const showTaskGroupDialog = ref(false);
 const taskGroupDialogAutoAdd = ref(false);
 const excludedNotebookIds = ref<string[]>([]);
 const skipSet = new Set<string>();
 const kanbanGroupModeOptions = [
-  { value: 'status', text: '按状态分组' },
-  { value: 'date', text: '按日期分组' },
-  { value: 'group', text: '按标签分组' },
-  { value: 'heading', text: '按标题分组' }
+  { value: 'status', text: t('taskManager.groupByStatus') },
+  { value: 'date', text: t('taskManager.groupByDate') },
+  { value: 'group', text: t('taskManager.groupByTag') },
+  { value: 'heading', text: t('taskManager.groupByHeading') }
 ] as const;
 const tableGroupModeOptions = [
-  { value: 'status', text: '不分组' },
-  { value: 'date', text: '按日期分组' },
-  { value: 'group', text: '按标签分组' },
-  { value: 'heading', text: '按标题分组' }
+  { value: 'status', text: t('taskManager.groupByNone') },
+  { value: 'date', text: t('taskManager.groupByDate') },
+  { value: 'group', text: t('taskManager.groupByTag') },
+  { value: 'heading', text: t('taskManager.groupByHeading') }
 ] as const;
-type TaskViewMode = 'kanban' | 'list' | 'table' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
+type TaskViewMode = TaskViewSwitcherId;
 type TaskLoadMode = 'full' | 'light-with-repeats' | 'light-base';
 type CalendarTaskViewMode = Extract<TaskViewMode, 'month' | 'week' | 'three-day' | 'day'>;
+type GanttGroupMode = 'goal' | 'document' | 'none';
 type StatsDrilldownPayload = {
   title: string;
   target?: 'table' | 'archive-table';
@@ -1487,17 +1522,92 @@ type MobileCalendarDragSession = {
   clientX: number;
   clientY: number;
 };
-const viewSwitcherOptions: Array<{ value: TaskViewMode; text: string; icon: string }> = [
-  { value: 'kanban', text: '看板', icon: 'kanban' },
-  { value: 'list', text: '卡片', icon: 'card' },
-  { value: 'table', text: '表格', icon: 'table' },
-  { value: 'month', text: '月视图', icon: 'month' },
-  { value: 'week', text: '周视图', icon: 'week' },
-  { value: 'three-day', text: '三日图', icon: 'threeDay' },
-  { value: 'day', text: '日视图', icon: 'day' },
-  { value: 'archive-table', text: '归档', icon: 'archive' },
-  { value: 'stats', text: '统计', icon: 'stats' }
+const baseViewSwitcherOptions: Array<{ value: TaskViewMode; text: string; icon: string }> = [
+  { value: 'kanban', text: t('kanbanView.viewKanban'), icon: 'kanban' },
+  { value: 'list', text: t('kanbanView.viewList'), icon: 'card' },
+  { value: 'table', text: t('kanbanView.viewTable'), icon: 'table' },
+  { value: 'gantt', text: t('kanbanView.viewGantt'), icon: 'gantt' },
+  { value: 'month', text: t('kanbanView.viewMonth'), icon: 'month' },
+  { value: 'week', text: t('kanbanView.viewWeek'), icon: 'week' },
+  { value: 'three-day', text: t('kanbanView.viewThreeDay'), icon: 'threeDay' },
+  { value: 'day', text: t('kanbanView.viewDay'), icon: 'day' },
+  { value: 'archive-table', text: t('kanbanView.viewArchive'), icon: 'archive' },
+  { value: 'stats', text: t('kanbanView.viewStats'), icon: 'stats' }
 ];
+const viewSwitcherOptions = computed(() => {
+  const hidden = new Set(userSettings.kanban.hiddenViewSwitcherIds || []);
+  const visible = baseViewSwitcherOptions.filter(option => !hidden.has(option.value));
+  return visible.length > 0 ? visible : baseViewSwitcherOptions;
+});
+const taskScopeViewOptions = computed(() =>
+  baseViewSwitcherOptions.map(option => ({ id: option.value, label: option.text }))
+);
+const taskScopeSidebarSectionOptions = computed<Array<{ id: SidebarSectionId; label: string }>>(() => [
+  { id: 'week-dates', label: t('taskScopeDialog.sidebarWeekDates') },
+  { id: 'summary-card-grid', label: t('taskScopeDialog.sidebarSummaryCards') },
+  { id: 'habit-list', label: t('taskScopeDialog.sidebarHabitList') },
+  { id: 'stand-container', label: t('taskScopeDialog.sidebarStandContainer') }
+]);
+
+function getTaskViewLabel(view: TaskViewMode): string {
+  return baseViewSwitcherOptions.find(option => option.value === view)?.text || t('kanbanView.viewTable');
+}
+
+function getDocumentTabVisibilityLabel(hidden: boolean): string {
+  return hidden ? t('kanbanView.showDocumentTab') : t('kanbanView.hideDocumentTab');
+}
+
+function getColumnBatchSelectionLabel(allSelected: boolean): string {
+  return allSelected ? t('kanbanView.clearColumnSelection') : t('kanbanView.selectColumn');
+}
+
+function getColumnTitlePlaceholder(column: { type: string }): string {
+  return column.type === 'group' ? t('kanbanView.enterTagName') : t('kanbanView.enterHeadingName');
+}
+
+function getEditColumnTitleLabel(column: { type: string }): string {
+  return column.type === 'group' ? t('kanbanView.editTagName') : t('kanbanView.editHeadingTitle');
+}
+
+function getColumnTitleRequiredMessage(column: { type: string }): string {
+  return column.type === 'group' ? t('kanbanView.enterTagName') : t('kanbanView.enterHeadingName');
+}
+
+function getQuickCreateDialogTitle(mode: 'task' | 'heading-task'): string {
+  return mode === 'heading-task' ? t('kanbanView.newHeadingAndTask') : t('taskManager.newTask');
+}
+
+function getQuickCreateTaskPlaceholder(mode: 'task' | 'heading-task'): string {
+  return mode === 'heading-task' ? t('kanbanView.enterFirstTaskTitle') : t('kanbanView.enterTaskTitle');
+}
+
+function getCurrentGroupLabel(label?: string): string {
+  return (label || t('kanbanView.currentGroup')).trim() || t('kanbanView.currentGroup');
+}
+
+function getCurrentColumnLabel(title?: string): string {
+  return (title || t('kanbanView.currentColumn')).trim() || t('kanbanView.currentColumn');
+}
+
+function getArchiveGroupConfirmMessage(label: string, totalCount: number): string {
+  return formatTemplate('kanbanView.confirmArchiveGroupTasksTemplate', { label, totalCount });
+}
+
+function getArchivedGroupSuccessMessage(label: string, totalCount: number): string {
+  return formatTemplate('kanbanView.archivedGroupTasksTemplate', { label, totalCount });
+}
+
+function getArchiveColumnConfirmMessage(title: string, totalCount: number): string {
+  return formatTemplate('kanbanView.confirmArchiveColumnTasksTemplate', { title, totalCount });
+}
+
+function getArchivedColumnSuccessMessage(title: string, totalCount: number): string {
+  return formatTemplate('kanbanView.archivedColumnTasksTemplate', { title, totalCount });
+}
+
+function getArchivePartialMessage(successCount: number, totalCount: number): string {
+  return formatTemplate('kanbanView.archivePartialTemplate', { successCount, totalCount });
+}
 function normalizeTaskViewMode(value: unknown): TaskViewMode {
   if (
     value === 'kanban'
@@ -1505,6 +1615,7 @@ function normalizeTaskViewMode(value: unknown): TaskViewMode {
     || value === 'table'
     || value === 'archive-table'
     || value === 'stats'
+    || value === 'gantt'
     || value === 'month'
     || value === 'week'
     || value === 'three-day'
@@ -1575,12 +1686,19 @@ function doesTaskRepeatWindowCover(
   requested: TaskRepeatWindow | null
 ): boolean {
   if (!requested) {
-    return true;
+    return !available;
   }
   if (!available) {
     return false;
   }
   return available.startDate <= requested.startDate && available.endDate >= requested.endDate;
+}
+
+function isTaskLoadWindowSatisfied(
+  available: TaskRepeatWindow | null,
+  requested: TaskRepeatWindow | null
+): boolean {
+  return doesTaskRepeatWindowCover(available, requested);
 }
 
 function resolveTaskLoadModeForView(view: TaskViewMode): TaskLoadMode {
@@ -1614,6 +1732,58 @@ function isTaskLoadModeSatisfied(
   return getTaskLoadModeRank(available) >= getTaskLoadModeRank(requested);
 }
 
+function shouldPrefillWithLightTasks(mode: TaskLoadMode): boolean {
+  return mode === 'full';
+}
+
+function parseTaskWindowDate(value: string | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+  const [yearText, monthText, dayText] = value.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+  const date = new Date(year, month - 1, day);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function getCalendarLoadBufferDays(view: TaskViewMode): number {
+  if (view === 'month') {
+    return 42;
+  }
+  if (view === 'week') {
+    return 21;
+  }
+  if (view === 'three-day' || view === 'day') {
+    return 14;
+  }
+  return 0;
+}
+
+function expandRepeatWindowForCalendarLoad(
+  view: TaskViewMode,
+  repeatWindow: TaskRepeatWindow | null
+): TaskRepeatWindow | null {
+  if (!isCalendarTaskViewMode(view) || !repeatWindow) {
+    return repeatWindow;
+  }
+  const bufferDays = getCalendarLoadBufferDays(view);
+  if (bufferDays <= 0) {
+    return repeatWindow;
+  }
+  const start = parseTaskWindowDate(repeatWindow.startDate);
+  const end = parseTaskWindowDate(repeatWindow.endDate);
+  if (!start || !end) {
+    return repeatWindow;
+  }
+  return buildTaskRepeatWindow(addDays(start, -bufferDays), addDays(end, bufferDays));
+}
+
 function buildTaskFetchOptionsForLoadMode(mode: TaskLoadMode, repeatWindow: TaskRepeatWindow | null = null) {
   if (mode === 'light-base') {
     return {
@@ -1626,14 +1796,40 @@ function buildTaskFetchOptionsForLoadMode(mode: TaskLoadMode, repeatWindow: Task
     return {
       useLiveDom: false,
       detailLevel: 'light' as const,
-      repeatWindow: repeatWindow ?? undefined
+      repeatWindow: repeatWindow ?? undefined,
+      constrainBaseTasksToRepeatWindow: true
     };
   }
   return {
     useLiveDom: false,
     detailLevel: 'full' as const,
-    repeatWindow: repeatWindow ?? undefined
+    repeatWindow: repeatWindow ?? undefined,
+    includeRepeatTemplateDate: true
   };
+}
+
+function normalizeCalendarTaskDate(value: unknown): string {
+  return typeof value === 'string' ? value.trim().slice(0, 10) : '';
+}
+
+function doesTaskIntersectRepeatWindow(task: Task, repeatWindow: TaskRepeatWindow): boolean {
+  const startDate = normalizeCalendarTaskDate(task.startDate || task.repeatInstanceDate || task.dueDate);
+  const dueDate = normalizeCalendarTaskDate(task.dueDate || task.startDate || task.repeatInstanceDate);
+  if (!startDate && !dueDate) {
+    return false;
+  }
+  const rangeStart = startDate || dueDate;
+  const rangeEnd = dueDate || startDate;
+  const taskStart = rangeStart <= rangeEnd ? rangeStart : rangeEnd;
+  const taskEnd = rangeStart <= rangeEnd ? rangeEnd : rangeStart;
+  return taskStart <= repeatWindow.endDate && taskEnd >= repeatWindow.startDate;
+}
+
+function filterTasksForCalendarWindow(tasks: Task[], repeatWindow: TaskRepeatWindow | null): Task[] {
+  if (!repeatWindow) {
+    return tasks;
+  }
+  return tasks.filter(task => doesTaskIntersectRepeatWindow(task, repeatWindow));
 }
 
 let skipCleanupTimer: number | null = null;
@@ -1660,8 +1856,13 @@ function stopSkipSetCleanup() {
 const kanbanFilterType = ref('all');
 const kanbanFilterDocument = ref('all');
 const kanbanGroupBy = ref<TaskViewGroupMode>('status');
+const listFilterType = ref('all');
+const listFilterDocument = ref('all');
+const listGroupBy = ref<TaskViewGroupMode>('status');
 const kanbanGroupColumnOrder = ref<string[]>([]);
 const tableGroupBy = ref<TaskViewGroupMode>('status');
+const ganttFilterType = ref('all');
+const ganttFilterDocument = ref('all');
 const kanbanFilterPopoverVisible = ref(false);
 const kanbanFilterPopoverStyle = ref<Record<string, string>>({});
 const kanbanFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
@@ -1703,8 +1904,11 @@ const documentTabsDropdownPopoverStyle = ref<Record<string, string>>({});
 const documentTabContextMenu = ref<DocumentTabContextMenuState | null>(null);
 const documentTabContextMenuRef = ref<HTMLElement | null>(null);
 const documentIconByRootId = ref<Map<string, string>>(new Map());
+const documentMetadataByRootId = ref<Map<string, RootDocumentMetadata>>(new Map());
 let documentIconRefreshTimer: number | null = null;
 let documentIconRefreshSeq = 0;
+let documentMetadataRefreshTimer: number | null = null;
+let documentMetadataRefreshSeq = 0;
 const taskViewGroupMenuVisible = ref(false);
 const taskViewGroupMenuControlRef = ref<HTMLElement | null>(null);
 const taskViewGroupMenuPopoverRef = ref<HTMLElement | null>(null);
@@ -1793,16 +1997,30 @@ const archivingKanbanColumnIds = ref<Set<string>>(new Set());
 const kanbanColumnMetrics = ref<Record<string, { scrollTop: number; height: number }>>({});
 const isDropping = ref(false);
 const kanbanColumnElements = new Map<string, HTMLElement>();
+const pendingKanbanMetricColumnIds = new Set<string>();
 let kanbanMetricsRaf: number | null = null;
 const kanbanColumnEstimatedHeights = ref<Record<string, number>>({});
+const kanbanColumnTaskHeightCache = new Map<string, Map<string, number>>();
+const kanbanColumnHeightVersion = ref(0);
 const listViewRef = ref<HTMLElement | null>(null);
 const listViewMetrics = ref<{ scrollTop: number; height: number }>({ scrollTop: 0, height: 600 });
 let listViewMetricsRaf: number | null = null;
+const listViewTaskHeightCache = new Map<string, number>();
+const listViewTaskHeightVersion = ref(0);
 const LIST_VIRTUAL_CARD_HEIGHT = 56;
 const listViewEstimatedCardHeight = ref<number>(LIST_VIRTUAL_CARD_HEIGHT);
 const currentView = ref<TaskViewMode>(normalizeTaskViewMode(userSettings.kanban?.currentView));
 const currentViewOption = computed(() =>
-  viewSwitcherOptions.find(option => option.value === currentView.value) || viewSwitcherOptions[0]
+  viewSwitcherOptions.value.find(option => option.value === currentView.value) || viewSwitcherOptions.value[0]
+);
+watch(
+  viewSwitcherOptions,
+  (options) => {
+    if (options.length > 0 && !options.some(option => option.value === currentView.value)) {
+      currentView.value = options[0].value;
+    }
+  },
+  { deep: true }
 );
 const loadedTaskLoadMode = ref<TaskLoadMode | null>(null);
 const loadedRepeatWindow = ref<TaskRepeatWindow | null>(null);
@@ -1879,8 +2097,26 @@ const mobileCalendarTaskDragPreviewStyle = computed(() => ({
   left: `${Math.max(12, mobileCalendarTaskDrag.value.clientX + 14)}px`,
   top: `${Math.max(12, mobileCalendarTaskDrag.value.clientY - 18)}px`
 }));
+function resolveTaskCalendarPreviewColor(task: Task | null | undefined): string {
+  const taskColor = typeof task?.backgroundColor === 'string' ? task.backgroundColor.trim() : '';
+  if (taskColor) {
+    if (/^pinch-background(?:10|[1-9])$/.test(taskColor)) {
+      return `var(--${taskColor})`;
+    }
+    if (/^background(1[0-3]|[4-9])$/.test(taskColor)) {
+      return `var(--b3-font-${taskColor})`;
+    }
+    return taskColor;
+  }
+  const groupId = typeof task?.groupId === 'string' ? task.groupId.trim() : '';
+  if (!groupId) {
+    return '';
+  }
+  const group = taskGroups.value.find(item => item.id === groupId);
+  return resolveGroupColorCss(group?.color || '');
+}
 const mobileCalendarTaskDragPreviewColorStyle = computed<Record<string, string>>(() => {
-  const color = mobileCalendarTaskDrag.value.task?.backgroundColor?.trim();
+  const color = resolveTaskCalendarPreviewColor(mobileCalendarTaskDrag.value.task);
   if (!color) {
     return {};
   }
@@ -1926,6 +2162,8 @@ const kanbanEditorDraft = ref<{
   priority: Task['priority'];
 } | null>(null);
 const kanbanEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | 'status' | null>(null);
+const kanbanEditorRepeatFrequency = ref<RepeatFrequency>('none');
+const kanbanEditorRepeatRule = ref<RepeatRule | null>(null);
 const kanbanEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
 const showKanbanTaskMoveDialog = ref(false);
 const isKanbanTaskMoveSubmitting = ref(false);
@@ -1977,11 +2215,11 @@ const allVisibleKanbanTasksSelected = computed(() => {
   return currentTasks.every(task => kanbanBatchSelectedTaskIds.value.has(task.id));
 });
 const kanbanBatchGroupOptions = computed(() => [
-  { value: '', text: '标签（不修改）' },
-  { value: TASK_GROUP_NONE_ID, text: '无标签' },
+  { value: '', text: t('taskManager.tagNoChange') },
+  { value: TASK_GROUP_NONE_ID, text: t('taskManager.noTag') },
   ...visibleTaskGroups.value.map(group => ({
     value: group.id,
-    text: group.name || '未命名标签'
+    text: group.name || t('taskManager.untitledTag')
   }))
 ]);
 const canApplyKanbanBatchEdit = computed(() => {
@@ -2039,21 +2277,22 @@ type KanbanListMasonryColumn = {
 };
 
 const statusColumns: KanbanColumn[] = [
-  { id: 'status-pending', status: 'pending', title: '待处理', type: 'status' },
-  { id: 'status-in-progress', status: 'in-progress', title: '进行中', type: 'status' },
-  { id: 'status-completed', status: 'completed', title: '已完成', type: 'status' },
-  { id: 'status-delayed', status: 'delayed', title: '延迟', type: 'status' },
-  { id: 'status-cancelled', status: 'cancelled', title: '已取消', type: 'status' }
+  { id: 'status-pending', status: 'pending', title: t('taskManager.statusPending'), type: 'status' },
+  { id: 'status-in-progress', status: 'in-progress', title: t('taskManager.statusInProgress'), type: 'status' },
+  { id: 'status-completed', status: 'completed', title: t('taskManager.statusCompleted'), type: 'status' },
+  { id: 'status-delayed', status: 'delayed', title: t('taskManager.statusDelayed'), type: 'status' },
+  { id: 'status-cancelled', status: 'cancelled', title: t('taskManager.statusCancelled'), type: 'status' }
 ];
 const kanbanDateGroups: Array<{ key: KanbanDateGroupKey; title: string; dotColor: string }> = [
-  { key: 'overdue', title: '逾期', dotColor: '#ef4444' },
-  { key: 'today', title: '今日', dotColor: '#f59e0b' },
-  { key: 'thisWeek', title: '本周', dotColor: '#3b82f6' },
-  { key: 'thisMonth', title: '本月', dotColor: '#10b981' },
-  { key: 'other', title: '其他', dotColor: '#9ca3af' }
+  { key: 'overdue', title: t('taskManager.overdue'), dotColor: '#ef4444' },
+  { key: 'today', title: t('taskManager.today'), dotColor: '#f59e0b' },
+  { key: 'thisWeek', title: t('taskManager.thisWeek'), dotColor: '#3b82f6' },
+  { key: 'thisMonth', title: t('taskManager.thisMonth'), dotColor: '#10b981' },
+  { key: 'other', title: t('taskManager.other'), dotColor: '#9ca3af' }
 ];
 
 const KANBAN_VIRTUAL_CARD_HEIGHT = 110;
+const KANBAN_VIRTUAL_CARD_GAP = 8;
 const KANBAN_VIRTUAL_OVERSCAN = 6;
 const KANBAN_VIRTUAL_THRESHOLD = 120;
 const LIST_VIRTUAL_OVERSCAN = 8;
@@ -2106,13 +2345,13 @@ function resolveKanbanGroupColumnOrder(availableIds: string[], storedOrder: stri
 
 const baseGroupColumns = computed<KanbanColumn[]>(() => {
   const columns: KanbanColumn[] = [
-    { id: TASK_GROUP_NONE_ID, title: '无标签', type: 'group', groupId: '' }
+    { id: TASK_GROUP_NONE_ID, title: t('taskManager.noTag'), type: 'group', groupId: '' }
   ];
   for (const group of visibleTaskGroups.value) {
     if (!group || !group.id) continue;
     columns.push({
       id: group.id,
-      title: group.name?.trim() || '标签',
+      title: group.name?.trim() || t('taskManager.untitledTag'),
       type: 'group',
       groupId: group.id
     });
@@ -2153,7 +2392,7 @@ const headingColumns = computed<KanbanColumn[]>(() => {
 
   if (columnsByKey.size === 0) {
     return [
-      { id: '__heading-empty__', title: '标题归类', type: 'heading', headingKey: '__heading-empty__' }
+      { id: '__heading-empty__', title: t('kanbanView.headingGroup'), type: 'heading', headingKey: '__heading-empty__' }
     ];
   }
 
@@ -2177,19 +2416,19 @@ const dateColumns = computed<KanbanColumn[]>(() =>
 const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action', actionKind: 'group-add' };
 const addHeadingColumn: KanbanColumn = { id: ADD_HEADING_COLUMN_ID, title: '', type: 'action', actionKind: 'heading-add' };
 const kanbanListGroupActionColumn = computed<KanbanColumn | null>(() => {
-  if (kanbanGroupBy.value === 'group') return addGroupColumn;
-  if (kanbanGroupBy.value === 'heading') return addHeadingColumn;
+  if (activeBoardGroupBy.value === 'group') return addGroupColumn;
+  if (activeBoardGroupBy.value === 'heading') return addHeadingColumn;
   return null;
 });
-const kanbanSupportsDrag = computed(() => kanbanGroupBy.value !== 'date');
+const kanbanSupportsDrag = computed(() => activeBoardGroupBy.value !== 'date');
 const kanbanColumns = computed<KanbanColumn[]>(() => {
-  if (kanbanGroupBy.value === 'group') {
+  if (activeBoardGroupBy.value === 'group') {
     return [...groupColumns.value, addGroupColumn];
   }
-  if (kanbanGroupBy.value === 'heading') {
+  if (activeBoardGroupBy.value === 'heading') {
     return [...headingColumns.value, addHeadingColumn];
   }
-  if (kanbanGroupBy.value === 'date') {
+  if (activeBoardGroupBy.value === 'date') {
     return dateColumns.value;
   }
   return showCompletedTasks.value
@@ -2330,8 +2569,6 @@ const quickCreateDialog = ref<{
   payload: null,
   context: null
 });
-const PINCH_INBOX_OPTION_ID = '__pinch_inbox__';
-const PINCH_INBOX_PATH = '/pinch收集箱';
 const showTaskModal = ref(false);
 const taskModalDefaultNotebook = ref('');
 const taskModalDefaultDocument = ref(PINCH_INBOX_OPTION_ID);
@@ -2350,47 +2587,47 @@ interface TaskModalCreateTaskPayload {
 }
 
 const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
-  { value: 'pending', label: '待处理' },
-  { value: 'in-progress', label: '进行中' },
-  { value: 'delayed', label: '延迟' },
-  { value: 'completed', label: '已完成' },
-  { value: 'cancelled', label: '已取消' }
+  { value: 'pending', label: t('taskManager.statusPending') },
+  { value: 'in-progress', label: t('taskManager.statusInProgress') },
+  { value: 'delayed', label: t('taskManager.statusDelayed') },
+  { value: 'completed', label: t('taskManager.statusCompleted') },
+  { value: 'cancelled', label: t('taskManager.statusCancelled') }
 ];
 const kanbanPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = [
-  { value: 'high', label: '高优先级' },
-  { value: 'medium', label: '中优先级' },
-  { value: 'low', label: '低优先级' },
-  { value: 'none', label: '无优先级' }
+  { value: 'high', label: t('taskManager.priorityHighLabel') },
+  { value: 'medium', label: t('taskManager.priorityMediumLabel') },
+  { value: 'low', label: t('taskManager.priorityLowLabel') },
+  { value: 'none', label: t('taskManager.priorityNoneLabel') }
 ];
 const kanbanDueFilterOptions: Array<{ value: KanbanTaskDueFilterKey; label: string }> = [
-  { value: 'overdue', label: '已逾期' },
-  { value: 'today', label: '今天到期' },
-  { value: 'next7Days', label: '未来 7 天' },
-  { value: 'noDueDate', label: '无截止日期' }
+  { value: 'overdue', label: t('taskManager.dueOverdue') },
+  { value: 'today', label: t('taskManager.dueToday') },
+  { value: 'next7Days', label: t('taskManager.dueNext7Days') },
+  { value: 'noDueDate', label: t('taskManager.noDueDate') }
 ];
 const kanbanUpdatedFilterOptions: Array<{ value: KanbanTaskUpdateFilterKey; label: string }> = [
-  { value: 'today', label: '今日' },
-  { value: 'thisWeek', label: '本周' },
-  { value: 'thisMonth', label: '本月' }
+  { value: 'today', label: t('taskManager.today') },
+  { value: 'thisWeek', label: t('taskManager.thisWeek') },
+  { value: 'thisMonth', label: t('taskManager.thisMonth') }
 ];
 const kanbanExtraFilterOptions: Array<{ value: KanbanTaskExtraFilterKey; label: string }> = [
-  { value: 'hasDescription', label: '有描述' },
-  { value: 'hasSubtasks', label: '有子任务' }
+  { value: 'hasDescription', label: t('taskManager.hasDescription') },
+  { value: 'hasSubtasks', label: t('taskManager.hasSubtasks') }
 ];
 const kanbanBatchStatusOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: '状态（不修改）' },
-  { value: 'pending', text: '待处理' },
-  { value: 'in-progress', text: '进行中' },
-  { value: 'delayed', text: '延迟' },
-  { value: 'completed', text: '已完成' },
-  { value: 'cancelled', text: '已取消' }
+  { value: '', text: t('taskManager.statusNoChange') },
+  { value: 'pending', text: t('taskManager.statusPending') },
+  { value: 'in-progress', text: t('taskManager.statusInProgress') },
+  { value: 'delayed', text: t('taskManager.statusDelayed') },
+  { value: 'completed', text: t('taskManager.statusCompleted') },
+  { value: 'cancelled', text: t('taskManager.statusCancelled') }
 ];
 const kanbanBatchPriorityOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: '优先级（不修改）' },
-  { value: 'none', text: '无' },
-  { value: 'low', text: '低' },
-  { value: 'medium', text: '中' },
-  { value: 'high', text: '高' }
+  { value: '', text: t('taskManager.priorityNoChange') },
+  { value: 'none', text: t('taskManager.priorityNone') },
+  { value: 'low', text: t('taskManager.priorityLow') },
+  { value: 'medium', text: t('taskManager.priorityMedium') },
+  { value: 'high', text: t('taskManager.priorityHigh') }
 ];
 const kanbanStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(kanbanStatusFilterOptions.map(option => option.value));
 const kanbanPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(kanbanPriorityFilterOptions.map(option => option.value));
@@ -2473,13 +2710,41 @@ const documentGroupsById = computed(() =>
 const goalDefinitionsById = computed(() =>
   new Map(goalDefinitions.value.map(goal => [goal.id, goal]))
 );
+const documentTitleByRootId = computed(() => {
+  const titleByRootId = new Map<string, string>();
+  for (const task of tasks.value) {
+    if (task.type !== 'block' || !task.rootId) {
+      continue;
+    }
+    if (titleByRootId.has(task.rootId)) {
+      continue;
+    }
+    const fallbackMetadata = documentMetadataByRootId.value.get(task.rootId);
+    const hPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
+    titleByRootId.set(task.rootId, resolveDocumentDisplayName({
+      id: task.rootId,
+      path: hPath || fallbackMetadata?.path,
+      name: fallbackMetadata?.name
+    }));
+  }
+  documentMetadataByRootId.value.forEach((metadata, rootId) => {
+    if (!titleByRootId.has(rootId)) {
+      titleByRootId.set(rootId, resolveDocumentDisplayName({
+        id: rootId,
+        path: metadata.path,
+        name: metadata.name
+      }));
+    }
+  });
+  return titleByRootId;
+});
 const notebookOptions = computed(() => [
-  { value: 'all', text: '全部' },
+  { value: 'all', text: t('taskManager.all') },
   ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
 ]);
 
 const sourceOptions = computed(() => [
-  { value: 'all', text: '全部' },
+  { value: 'all', text: t('taskManager.all') },
   ...enabledNotebooks.value.map(nb => ({
     value: buildNotebookDocumentSource(nb.id),
     text: nb.name
@@ -2490,7 +2755,7 @@ const sourceOptions = computed(() => [
   })),
   ...goalItems.value.map(goal => ({
     value: buildGoalDocumentSource(goal.id),
-    text: `${goal.emoji || '🎯'} ${goal.name || '未命名目标'}`
+    text: `${goal.emoji || '🎯'} ${goal.name || t('taskManager.untitledGoal')}`
   }))
 ]);
 const taskModalNotebooks = computed<TaskModalNotebook[]>(() =>
@@ -2553,9 +2818,14 @@ const kanbanMoveDocuments = computed(() => {
     && !docs.some(doc => doc.id === activeRootId)
   ) {
     const fallbackPath = typeof activeTask.hPath === 'string' ? activeTask.hPath : '';
+    const fallbackMetadata = documentMetadataByRootId.value.get(activeRootId);
     docs.unshift({
       id: activeRootId,
-      name: fallbackPath.split('/').pop() || fallbackPath || activeRootId,
+      name: resolveDocumentDisplayName({
+        id: activeRootId,
+        path: fallbackPath || fallbackMetadata?.path || '',
+        name: fallbackMetadata?.name
+      }),
       notebookId
     });
   }
@@ -2590,7 +2860,7 @@ const canSubmitKanbanMove = computed(() => {
 
 const kanbanGroupPickerOptions = computed(() => {
   const options = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', special: true, colorCss: '', textColor: '' }
+    { value: TASK_GROUP_NONE_ID, label: t('taskManager.noTag'), special: true, colorCss: '', textColor: '' }
   ];
   visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -2607,7 +2877,7 @@ const kanbanGroupPickerOptions = computed(() => {
 
 const kanbanGroupFilterOptions = computed(() => {
   const options: Array<{ value: string; label: string; style: Record<string, string> }> = [
-    { value: TASK_GROUP_NONE_ID, label: '无标签', style: {} }
+    { value: TASK_GROUP_NONE_ID, label: t('taskManager.noTag'), style: {} }
   ];
   visibleTaskGroups.value.forEach(group => {
     const rawColor = group.color || '';
@@ -2697,11 +2967,11 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
 }
 
 function isKanbanHeadingColumn(column: KanbanColumn): boolean {
-  return column.type === 'heading' && kanbanGroupBy.value === 'heading';
+  return column.type === 'heading' && activeBoardGroupBy.value === 'heading';
 }
 
 function isKanbanGroupColumn(column: KanbanColumn): boolean {
-  return column.type === 'group' && kanbanGroupBy.value === 'group';
+  return column.type === 'group' && activeBoardGroupBy.value === 'group';
 }
 
 function getKanbanHeadingIconName(column: KanbanColumn): string {
@@ -2732,8 +3002,8 @@ function extractHeadingLeafTitleFromChainLabel(label: string): string {
 function getKanbanColumnTitleText(column: KanbanColumn): string {
   if (
     column.type === 'heading'
-    && kanbanGroupBy.value === 'heading'
-    && kanbanFilterDocument.value !== 'all'
+    && activeBoardGroupBy.value === 'heading'
+    && getBoardFilterDocumentForView(currentView.value) !== 'all'
   ) {
     return extractHeadingLeafTitleFromChainLabel(column.title || '');
   }
@@ -2872,7 +3142,7 @@ async function submitColumnTitleEdit(column: KanbanColumn): Promise<void> {
   );
 
   if (!nextTitle) {
-    await pushMsg(column.type === 'group' ? '标签名称不能为空' : '标题名称不能为空', 2000);
+    await pushMsg(getColumnTitleRequiredMessage(column), 2000);
     await nextTick();
     columnTitleInputRef.value?.focus();
     return;
@@ -2910,7 +3180,7 @@ async function submitColumnTitleEdit(column: KanbanColumn): Promise<void> {
         ? headingMeta.headingBlockId.trim()
         : '';
       if (!headingMeta || headingMeta.kind !== 'heading' || !headingBlockId) {
-        await pushMsg('当前分组不支持重命名', 2000);
+        await pushMsg(t('kanbanView.currentGroupRenameUnsupported'), 2000);
         cancelColumnTitleEdit(true);
         return;
       }
@@ -2921,8 +3191,8 @@ async function submitColumnTitleEdit(column: KanbanColumn): Promise<void> {
       scheduleRefreshTasks(120, 'full');
     }
   } catch (error) {
-    console.error('[KanbanView] 分组标题编辑失败:', error);
-    await pushMsg('保存失败，请稍后重试', 2600);
+    console.error('[KanbanView] Failed to edit group title:', error);
+    await pushMsg(t('kanbanView.saveFailedRetry'), 2600);
   } finally {
     isSavingColumnTitle.value = false;
   }
@@ -2939,16 +3209,10 @@ function canCreateTaskInColumn(column: KanbanColumn): boolean {
 }
 
 function getColumnCreateTaskLabel(column: KanbanColumn): string {
-  if (column.type === 'status') {
-    return `在“${column.title}”列新建任务`;
+  if (column.type === 'status' || column.type === 'group' || column.type === 'heading') {
+    return formatTemplate('kanbanView.createTaskInColumnTemplate', { title: column.title });
   }
-  if (column.type === 'group') {
-    return `在“${column.title}”列新建任务`;
-  }
-  if (column.type === 'heading') {
-    return `在“${column.title}”列新建任务`;
-  }
-  return '新建任务';
+  return t('taskManager.newTask');
 }
 
 function getDefaultCreateTaskPayload(): CreateTaskPayload {
@@ -3135,14 +3399,14 @@ function buildQuickCreateOptionsForTableGroup(payload: TableGroupActionPayload):
 async function handleTableGroupCreateTask(payload: TableGroupActionPayload): Promise<void> {
   const options = buildQuickCreateOptionsForTableGroup(payload);
   if (!options) {
-    await pushMsg('当前分组暂不支持新建任务', 2200);
+    await pushMsg(t('kanbanView.currentGroupCreateUnsupported'), 2200);
     return;
   }
   await handleTaskCreateRequested(getDefaultCreateTaskPayload(), options);
 }
 
 async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): Promise<void> {
-  const label = (payload.groupLabel || '当前分组').trim() || '当前分组';
+  const label = getCurrentGroupLabel(payload.groupLabel);
   const taskIds = Array.isArray(payload.taskIds) ? payload.taskIds : [];
   const tasksToArchive = taskIds
     .map(taskId => tasks.value.find(task => task.id === taskId))
@@ -3151,13 +3415,11 @@ async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): P
   const totalCount = tasksToArchive.length;
 
   if (totalCount === 0) {
-    await pushMsg('该分组暂无可归档任务', 2000);
+    await pushMsg(t('kanbanView.noGroupTasksToArchive'), 2000);
     return;
   }
 
-  const confirmed = window.confirm(
-    `确认归档“${label}”分组的全部 ${totalCount} 个任务吗？\n归档后可在「归档」视图查看。`
-  );
+  const confirmed = window.confirm(getArchiveGroupConfirmMessage(label, totalCount));
   if (!confirmed) {
     return;
   }
@@ -3182,7 +3444,7 @@ async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): P
       }
       successCount += 1;
     } catch (error) {
-      console.error('[KanbanView] 分组批量归档任务失败:', error);
+        console.error('[KanbanView] Failed to archive group tasks:', error);
     }
   }
 
@@ -3192,14 +3454,14 @@ async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): P
   invalidateTableFilters();
 
   if (successCount === totalCount) {
-    await pushMsg(`已归档“${label}”分组全部 ${totalCount} 个任务`, 2400);
+    await pushMsg(getArchivedGroupSuccessMessage(label, totalCount), 2400);
     return;
   }
   if (successCount > 0) {
-    await pushMsg(`已归档 ${successCount}/${totalCount} 个任务，部分归档失败`, 3000);
+    await pushMsg(getArchivePartialMessage(successCount, totalCount), 3000);
     return;
   }
-  await pushMsg('归档失败，请稍后重试', 3000);
+  await pushMsg(t('kanbanView.archiveFailedRetry'), 3000);
 }
 
 function getArchivableTasksForColumn(column: KanbanColumn): Task[] {
@@ -3218,12 +3480,12 @@ function canArchiveTasksInColumn(column: KanbanColumn): boolean {
 }
 
 function getColumnArchiveTasksLabel(column: KanbanColumn): string {
-  const title = (column.title || '当前').trim() || '当前';
+  const title = getCurrentColumnLabel(column.title);
   const taskCount = getArchivableTasksForColumn(column).length;
   if (taskCount > 0) {
-    return `归档“${title}”列全部 ${taskCount} 个任务`;
+    return formatTemplate('kanbanView.archiveColumnTasksTemplate', { title, taskCount });
   }
-  return `归档“${title}”列全部任务`;
+  return formatTemplate('kanbanView.archiveColumnTasksWithoutCountTemplate', { title });
 }
 
 function isKanbanColumnArchiving(columnId: string): boolean {
@@ -3251,14 +3513,12 @@ async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
   const tasksToArchive = getArchivableTasksForColumn(column);
   const totalCount = tasksToArchive.length;
   if (totalCount === 0) {
-    await pushMsg('该列暂无可归档任务', 2000);
+    await pushMsg(t('kanbanView.noColumnTasksToArchive'), 2000);
     return;
   }
 
-  const title = (column.title || '当前').trim() || '当前';
-  const confirmed = window.confirm(
-    `确认归档“${title}”列的全部 ${totalCount} 个任务吗？\n归档后可在「归档」视图查看。`
-  );
+  const title = getCurrentColumnLabel(column.title);
+  const confirmed = window.confirm(getArchiveColumnConfirmMessage(title, totalCount));
   if (!confirmed) {
     return;
   }
@@ -3285,7 +3545,7 @@ async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
         }
         successCount += 1;
       } catch (error) {
-        console.error('[KanbanView] 列批量归档任务失败:', error);
+        console.error('[KanbanView] Failed to archive column tasks:', error);
       }
     }
 
@@ -3295,14 +3555,14 @@ async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
     invalidateTableFilters();
 
     if (successCount === totalCount) {
-      await pushMsg(`已归档“${title}”列全部 ${totalCount} 个任务`, 2400);
+      await pushMsg(getArchivedColumnSuccessMessage(title, totalCount), 2400);
       return;
     }
     if (successCount > 0) {
-      await pushMsg(`已归档 ${successCount}/${totalCount} 个任务，部分归档失败`, 3000);
+      await pushMsg(getArchivePartialMessage(successCount, totalCount), 3000);
       return;
     }
-    await pushMsg('归档失败，请稍后重试', 3000);
+    await pushMsg(t('kanbanView.archiveFailedRetry'), 3000);
   } finally {
     setKanbanColumnArchiving(column.id, false);
   }
@@ -3316,10 +3576,10 @@ const kanbanEditorSelectedGroupId = computed(() => {
 const kanbanEditorGroupLabel = computed(() => {
   const groupId = (activeKanbanEditDraft.value?.groupId || '').trim();
   if (!groupId) {
-    return '无标签';
+    return t('taskManager.noTag');
   }
   const group = taskGroups.value.find(item => item.id === groupId);
-  return group?.name || '标签';
+  return group?.name || t('taskManager.tags');
 });
 
 const kanbanEditorGroupColorValue = computed(() => {
@@ -3348,10 +3608,10 @@ const kanbanEditPriorityOptions: Array<{
   background: string;
   color: string;
 }> = [
-  { value: 'high', label: '高优先级', background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
-  { value: 'medium', label: '中优先级', background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'low', label: '低优先级', background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'none', label: '无优先级', background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
+  { value: 'high', label: t('taskManager.priorityHighLabel'), background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
+  { value: 'medium', label: t('taskManager.priorityMediumLabel'), background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
+  { value: 'low', label: t('taskManager.priorityLowLabel'), background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
+  { value: 'none', label: t('taskManager.priorityNoneLabel'), background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
 ];
 
 const kanbanEditorPriorityOption = computed(() => {
@@ -3361,7 +3621,7 @@ const kanbanEditorPriorityOption = computed(() => {
 
 const kanbanEditorDueText = computed(() => {
   const dueDate = activeKanbanEditDraft.value?.dueDate || '';
-  if (!dueDate) return '未设置';
+  if (!dueDate) return t('taskManager.notSet');
   return formatMonthDay(dueDate);
 });
 
@@ -3382,6 +3642,58 @@ const kanbanEditorReminderText = computed(() => {
 const kanbanEditorHasReminder = computed(() => {
   return !!(activeKanbanEditDraft.value?.reminderType || '').trim();
 });
+
+function normalizeRepeatFrequencyForKanbanEditor(frequency: RepeatFrequency | undefined): RepeatFrequency {
+  if (
+    frequency === 'none'
+    || frequency === 'daily'
+    || frequency === 'weekdays'
+    || frequency === 'weekend'
+    || frequency === 'weekly'
+    || frequency === 'custom'
+  ) {
+    return frequency;
+  }
+  return frequency ? 'weekly' : 'none';
+}
+
+function syncKanbanEditorRepeatState(task: Task | null): void {
+  if (!task) {
+    kanbanEditorRepeatFrequency.value = 'none';
+    kanbanEditorRepeatRule.value = null;
+    return;
+  }
+
+  const taskId = task.id;
+  kanbanEditorRepeatFrequency.value = normalizeRepeatFrequencyForKanbanEditor(task.repeatFrequency as RepeatFrequency | undefined);
+  kanbanEditorRepeatRule.value = null;
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  if (isRepeatTask) {
+    getRepeatSeriesForTask(task)
+      .then((series) => {
+        if (!series || activeKanbanEditTask.value?.id !== taskId) return;
+        kanbanEditorRepeatFrequency.value = normalizeRepeatFrequencyForKanbanEditor(series.frequency as RepeatFrequency);
+        kanbanEditorRepeatRule.value = series.rule || null;
+        const draft = activeKanbanEditDraft.value;
+        if (draft?.taskId === taskId) {
+          draft.startDate = series.startDate || '';
+          draft.startTime = series.startTime || '';
+          draft.dueDate = series.endDate || '';
+          draft.dueTime = series.dueTime || '';
+        }
+      })
+      .catch(() => {});
+  }
+
+  TaskRepository.getTaskRepeatRule(task)
+    .then((frequency) => {
+      if (activeKanbanEditTask.value?.id !== taskId) return;
+      if (frequency === 'none' && isRepeatTask) return;
+      kanbanEditorRepeatFrequency.value = normalizeRepeatFrequencyForKanbanEditor(frequency);
+    })
+    .catch(() => {});
+}
 
 const {
   activeStatusFilters: activeKanbanStatusFilters,
@@ -3473,6 +3785,9 @@ function resetFiltersForExcludedNotebooks(): boolean {
   changed = resetSourceFilterIfNeeded(kanbanFilterType, kanbanFilterDocument, source =>
     source.kind === 'notebook' && excludedNotebookIdSet.has(source.id)
   ) || changed;
+  changed = resetSourceFilterIfNeeded(listFilterType, listFilterDocument, source =>
+    source.kind === 'notebook' && excludedNotebookIdSet.has(source.id)
+  ) || changed;
   changed = resetSourceFilterIfNeeded(tableFilterType, tableFilterDocument, source =>
     source.kind === 'notebook' && excludedNotebookIdSet.has(source.id)
   ) || changed;
@@ -3495,7 +3810,7 @@ function resetFiltersForExcludedNotebooks(): boolean {
   return changed;
 }
 
-async function openTaskScopeDialog(initialTab: 'scope' | 'document-groups' | 'goals' = 'scope') {
+async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'task-settings') {
   if (notebooks.value.length === 0) {
     await loadNotebooks();
   }
@@ -3620,7 +3935,7 @@ async function openHeadingAndTaskQuickCreate(): Promise<void> {
 }
 
 function getActionColumnButtonLabel(column: KanbanColumn): string {
-  return column.actionKind === 'heading-add' ? '新建标题' : '新建标签';
+  return column.actionKind === 'heading-add' ? t('kanbanView.newHeading') : t('kanbanView.newTag');
 }
 
 function handleActionColumnClick(column: KanbanColumn): void {
@@ -3704,7 +4019,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       .filter(id => id.length > 0);
     blockIdsToClear = Array.from(new Set([...sqlBlockIds, ...localBlockIds]));
   } catch (error) {
-    console.error('[KanbanView] 查询标签任务失败:', error);
+    console.error('[KanbanView] Failed to query tagged tasks:', error);
     blockIdsToClear = Array.from(new Set(localBlockIds));
   }
 
@@ -3714,7 +4029,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       await setBlockAttrs(blockId, { 'custom-task-group': '' });
       successBlockIds.push(blockId);
     } catch (error) {
-      console.error('[KanbanView] 清理任务标签属性失败:', error);
+      console.error('[KanbanView] Failed to clear task group attrs:', error);
     }
   }
 
@@ -3780,7 +4095,7 @@ async function handleTaskGroupSave(payload: TaskGroupDialogSavePayload): Promise
       );
     }
   } catch (error) {
-    console.error('[KanbanView] 保存标签失败:', error);
+    console.error('[KanbanView] Failed to save task groups:', error);
   }
 }
 
@@ -3805,10 +4120,16 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
   const {
     excludedNotebookIds: selectedVisibleExcludedNotebookIds,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
+    dateRecognitionKeywords: nextDateRecognitionKeywords,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     documentGroups: nextDocumentGroupsPayload,
-    goals: nextGoals
+    goals: nextGoals,
+    hiddenTaskViewIds,
+    hiddenSidebarSectionIds,
+    sidebarSectionOrder,
+    defaultTaskCreateTarget,
+    defaultTaskCreateNotebook
   } = payload;
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
@@ -3833,9 +4154,22 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
   await updateSettings('taskManager', {
     excludedNotebookIds: mergedExcludedNotebookIds,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
+    dateRecognitionKeywords: nextDateRecognitionKeywords,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
-    showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath
+    showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
+    defaultTaskCreateTarget: defaultTaskCreateTarget as typeof userSettings.taskManager.defaultTaskCreateTarget,
+    defaultTaskCreateNotebook
   });
+  await updateSettings('kanban', {
+    hiddenViewSwitcherIds: hiddenTaskViewIds as TaskViewSwitcherId[]
+  });
+  await updateSettings('sidebar', {
+    hiddenSectionIds: hiddenSidebarSectionIds as SidebarSectionId[],
+    sectionOrder: sidebarSectionOrder as SidebarSectionId[]
+  });
+  if (!viewSwitcherOptions.value.some(option => option.value === currentView.value)) {
+    currentView.value = viewSwitcherOptions.value[0]?.value || 'table';
+  }
   if (hasFilterChanges) {
     await saveUserSettings();
   }
@@ -3853,29 +4187,39 @@ async function handleGlobalRecognizeTaskDates(): Promise<void> {
   try {
     const result = await TaskRepository.recognizeDatesForUndatedTasks();
     if (result.scanned === 0) {
-      await pushMsg('未找到未设定起止日期的任务', 2200);
+      await pushMsg(t('taskManager.noUndatedTasks'), 2200);
       return;
     }
 
     if (result.updated > 0) {
       if (result.failed > 0) {
-        await pushMsg(`已写入 ${result.updated} 项日期，${result.failed} 项写入失败`, 3200);
+        await pushMsg(formatTemplate('kanbanView.dateWriteSuccessWithFailureTemplate', {
+          updated: result.updated,
+          failed: result.failed
+        }), 3200);
       } else {
-        await pushMsg(`已识别并写入 ${result.updated} 项任务日期`, 2200);
+        await pushMsg(formatTemplate('kanbanView.dateRecognizedWrittenTemplate', {
+          updated: result.updated
+        }), 2200);
       }
       await loadTasks(true, { silent: true });
       return;
     }
 
     if (result.recognized === 0) {
-      await pushMsg(`扫描 ${result.scanned} 项未设定任务，未识别到可写入日期`, 2800);
+      await pushMsg(formatTemplate('kanbanView.scannedNoWritableDateTemplate', {
+        scanned: result.scanned
+      }), 2800);
       return;
     }
 
-    await pushMsg(`识别到 ${result.recognized} 项日期，写入失败 ${result.failed} 项`, 3200);
+    await pushMsg(formatTemplate('kanbanView.recognizedWriteFailedTemplate', {
+      recognized: result.recognized,
+      failed: result.failed
+    }), 3200);
   } catch (error) {
-    console.error('[KanbanView] 全局识别任务日期失败:', error);
-    await pushMsg('全局识别任务日期失败，请稍后重试', 3200);
+    console.error('[KanbanView] Global task date recognition failed:', error);
+    await pushMsg(t('taskManager.globalDateRecognizeFailed'), 3200);
   } finally {
     isGlobalDateRecognitionRunning.value = false;
   }
@@ -3885,6 +4229,7 @@ let eventUnsubscribers: Array<() => void> = [];
 let saveSettingsTimer: number | null = null;
 let fallbackRefreshTimer: number | null = null;
 let kanbanTitleHydrateTimer: number | null = null;
+let kernelTaskIndexRefreshTimer: number | null = null;
 let isKanbanTitleHydrating = false;
 let queuedIncrementalAllowUnknown = false;
 const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 80;
@@ -3894,12 +4239,15 @@ let repeatReconcileRequestId = 0;
 function getCurrentFilterNotebookId(): string {
   switch (currentView.value) {
     case 'kanban':
-    case 'list':
       return kanbanFilterType.value;
+    case 'list':
+      return listFilterType.value;
     case 'table':
     case 'archive-table':
     case 'stats':
       return tableFilterType.value;
+    case 'gantt':
+      return ganttFilterType.value;
     case 'month':
       return monthFilterType.value;
     case 'week':
@@ -3912,8 +4260,42 @@ function getCurrentFilterNotebookId(): string {
   }
 }
 
+function getBoardFilterTypeForView(view: TaskViewMode): string {
+  return view === 'list' ? listFilterType.value : kanbanFilterType.value;
+}
+
+function getBoardFilterDocumentForView(view: TaskViewMode): string {
+  return view === 'list' ? listFilterDocument.value : kanbanFilterDocument.value;
+}
+
+const activeBoardFilterType = computed<string>({
+  get() {
+    return currentView.value === 'list' ? listFilterType.value : kanbanFilterType.value;
+  },
+  set(value) {
+    if (currentView.value === 'list') {
+      listFilterType.value = value;
+      return;
+    }
+    kanbanFilterType.value = value;
+  }
+});
+
+const activeBoardGroupBy = computed<TaskViewGroupMode>({
+  get() {
+    return currentView.value === 'list' ? listGroupBy.value : kanbanGroupBy.value;
+  },
+  set(value) {
+    if (currentView.value === 'list') {
+      listGroupBy.value = value;
+      return;
+    }
+    kanbanGroupBy.value = value;
+  }
+});
+
 function shouldHideCompletedOnlyDocumentTabs(view: TaskViewMode): boolean {
-  return !showCompletedTasks.value && (view === 'kanban' || view === 'list' || view === 'table');
+  return !showCompletedTasks.value && (view === 'kanban' || view === 'list' || view === 'table' || view === 'gantt');
 }
 
 type DocumentOptionsTaskMatcher = (task: Task) => boolean;
@@ -3951,7 +4333,11 @@ function matchesDateViewDocumentCandidate(task: Task, sourceValue: string): bool
   return true;
 }
 
-function matchesKanbanFiltersByDocumentScope(task: Task, includeDocumentFilter: boolean): boolean {
+function matchesKanbanFiltersByDocumentScope(
+  task: Task,
+  includeDocumentFilter: boolean,
+  view: TaskViewMode = currentView.value
+): boolean {
   if (!task.title || task.title.trim() === '') return false;
   if (task.type !== 'block') return false;
   if (task.archived) return false;
@@ -3961,8 +4347,8 @@ function matchesKanbanFiltersByDocumentScope(task: Task, includeDocumentFilter: 
   if (task.isVirtual && !isVirtualTaskForToday(task)) return false;
   if (!matchesTaskBySourceAndDocument(
     task,
-    kanbanFilterType.value,
-    includeDocumentFilter ? kanbanFilterDocument.value : 'all'
+    getBoardFilterTypeForView(view),
+    includeDocumentFilter ? getBoardFilterDocumentForView(view) : 'all'
   )) {
     return false;
   }
@@ -4014,7 +4400,7 @@ function getDocumentTabTaskMatcher(view: TaskViewMode): DocumentOptionsTaskMatch
   switch (view) {
     case 'kanban':
     case 'list':
-      return (task) => matchesKanbanFiltersByDocumentScope(task, false);
+      return (task) => matchesKanbanFiltersByDocumentScope(task, false, view);
     case 'table':
       return (task) => matchesTableFiltersByArchivedState(task, false, false);
     case 'archive-table':
@@ -4024,6 +4410,12 @@ function getDocumentTabTaskMatcher(view: TaskViewMode): DocumentOptionsTaskMatch
         task.type === 'block'
         && task.isVirtual !== true
         && matchesTaskBySourceAndDocument(task, tableFilterType.value);
+    case 'gantt':
+      return (task) =>
+        task.type === 'block'
+        && task.archived !== true
+        && (task.startDate || task.dueDate)
+        && matchesTaskBySourceAndDocument(task, ganttFilterType.value);
     case 'month':
       return (task) => matchesDateViewDocumentCandidate(task, monthFilterType.value);
     case 'week':
@@ -4046,7 +4438,7 @@ function getDocumentEntriesByNotebook(
   const notebookNameById = includeNotebookName
     ? new Map(notebooks.value.map(notebook => [notebook.id, notebook.name]))
     : null;
-  const docs = new Map<string, { hPath: string; notebookId: string; hasVisibleActiveTask: boolean }>();
+  const docs = new Map<string, { hPath: string; name: string; notebookId: string; hasVisibleActiveTask: boolean }>();
   for (const task of tasks.value) {
     if (task.type !== 'block' || !task.rootId) {
       continue;
@@ -4064,9 +4456,18 @@ function getDocumentEntriesByNotebook(
 
     let documentMeta = docs.get(task.rootId);
     if (!documentMeta) {
-      const hPath = task.hPath || task.rootId;
-      documentMeta = { hPath, notebookId: taskNotebookId, hasVisibleActiveTask: false };
+      const fallbackMetadata = documentMetadataByRootId.value.get(task.rootId);
+      const hPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
+      documentMeta = {
+        hPath: hPath || fallbackMetadata?.path || '',
+        name: fallbackMetadata?.name || '',
+        notebookId: taskNotebookId,
+        hasVisibleActiveTask: false
+      };
       docs.set(task.rootId, documentMeta);
+    }
+    if (!documentMeta.hPath && typeof task.hPath === 'string' && task.hPath.trim().length > 0) {
+      documentMeta.hPath = task.hPath.trim();
     }
 
     if (task.archived) {
@@ -4080,7 +4481,7 @@ function getDocumentEntriesByNotebook(
   return Array.from(docs.entries())
     .filter(([, meta]) => !excludeCompletedOnlyDocs || meta.hasVisibleActiveTask)
     .map(([id, meta]) => {
-      const documentName = meta.hPath.split('/').pop() || meta.hPath;
+      const documentName = resolveDocumentDisplayName({ id, path: meta.hPath, name: meta.name });
       const notebookName = notebookNameById?.get(meta.notebookId) || '';
       const name = includeNotebookName && notebookName
         ? `${notebookName} / ${documentName}`
@@ -4177,6 +4578,20 @@ function getTaskDocumentIcon(task: Task): string {
   return fallback || '📄';
 }
 
+function getTaskDocumentTitle(task: Task): string {
+  const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  if (rootId) {
+    const mapped = documentTitleByRootId.value.get(rootId);
+    if (mapped) {
+      return mapped;
+    }
+  }
+  const hPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
+  return hPath
+    ? resolveDocumentDisplayName({ id: rootId || task.id, path: hPath })
+    : '';
+}
+
 async function refreshTaskDocumentIcons(): Promise<void> {
   const seq = ++documentIconRefreshSeq;
   const rootIds = Array.from(new Set(
@@ -4259,6 +4674,38 @@ async function refreshTaskDocumentIcons(): Promise<void> {
   documentIconByRootId.value = nextMap;
 }
 
+async function refreshTaskDocumentMetadata(): Promise<void> {
+  const seq = ++documentMetadataRefreshSeq;
+  const unresolvedRootIds = Array.from(new Set(
+    tasks.value
+      .filter(task =>
+        task.type === 'block'
+        && typeof task.rootId === 'string'
+        && task.rootId.trim().length > 0
+        && (!task.hPath || task.hPath.trim().length === 0)
+      )
+      .map(task => task.rootId!.trim())
+  ));
+  if (unresolvedRootIds.length === 0) {
+    if (seq === documentMetadataRefreshSeq) {
+      documentMetadataByRootId.value = new Map();
+    }
+    return;
+  }
+
+  try {
+    const nextMap = await loadRootDocumentMetadata(unresolvedRootIds);
+    if (seq !== documentMetadataRefreshSeq) {
+      return;
+    }
+    documentMetadataByRootId.value = nextMap;
+  } catch {
+    if (seq === documentMetadataRefreshSeq) {
+      documentMetadataByRootId.value = new Map();
+    }
+  }
+}
+
 function scheduleTaskDocumentIconRefresh(delay = 80): void {
   if (documentIconRefreshTimer !== null) {
     clearTimeout(documentIconRefreshTimer);
@@ -4266,6 +4713,16 @@ function scheduleTaskDocumentIconRefresh(delay = 80): void {
   documentIconRefreshTimer = window.setTimeout(() => {
     documentIconRefreshTimer = null;
     void refreshTaskDocumentIcons();
+  }, delay);
+}
+
+function scheduleTaskDocumentMetadataRefresh(delay = 80): void {
+  if (documentMetadataRefreshTimer !== null) {
+    clearTimeout(documentMetadataRefreshTimer);
+  }
+  documentMetadataRefreshTimer = window.setTimeout(() => {
+    documentMetadataRefreshTimer = null;
+    void refreshTaskDocumentMetadata();
   }, delay);
 }
 
@@ -4277,7 +4734,7 @@ function toFilterDocumentOptions(
   const includeNotebookName = source.kind === 'all'
     || ((source.kind === 'group' || source.kind === 'goal') && showDocumentGroupNotebookPath.value);
   return [
-    { value: 'all', text: '全部' },
+    { value: 'all', text: t('taskManager.all') },
     ...getDocumentEntriesBySource(sourceValue, {
       includeNotebookName,
       excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs,
@@ -4293,7 +4750,7 @@ function toFilterDocumentOptions(
 
 function toQuickCreateDocumentOptions(notebookId: string): Array<{ value: string; text: string }> {
   if (notebookId === 'all') {
-    return [{ value: 'all', text: '全部' }];
+    return [{ value: 'all', text: t('taskManager.all') }];
   }
   return toFilterDocumentOptions(notebookId);
 }
@@ -4319,12 +4776,15 @@ const currentDocumentFilter = computed<string>({
   get() {
     switch (currentView.value) {
       case 'kanban':
-      case 'list':
         return kanbanFilterDocument.value;
+      case 'list':
+        return listFilterDocument.value;
       case 'table':
       case 'archive-table':
       case 'stats':
         return tableFilterDocument.value;
+      case 'gantt':
+        return ganttFilterDocument.value;
       case 'month':
         return monthFilterDocument.value;
       case 'week':
@@ -4339,13 +4799,18 @@ const currentDocumentFilter = computed<string>({
   set(value) {
     switch (currentView.value) {
       case 'kanban':
-      case 'list':
         kanbanFilterDocument.value = value;
+        break;
+      case 'list':
+        listFilterDocument.value = value;
         break;
       case 'table':
       case 'archive-table':
       case 'stats':
         tableFilterDocument.value = value;
+        break;
+      case 'gantt':
+        ganttFilterDocument.value = value;
         break;
       case 'month':
         monthFilterDocument.value = value;
@@ -4371,16 +4836,16 @@ const statsViewTasks = computed(() =>
   )
 );
 const statsViewSourceLabel = computed(() =>
-  sourceOptions.value.find(option => option.value === tableFilterType.value)?.text || '全部'
+  sourceOptions.value.find(option => option.value === tableFilterType.value)?.text || t('taskManager.all')
 );
 const statsViewDocumentLabel = computed(() => {
   if (tableFilterDocument.value === 'all') {
-    return '全部';
+    return t('taskManager.all');
   }
   const options = toFilterDocumentOptions(tableFilterType.value, {
     taskMatcher: getDocumentTabTaskMatcher('stats')
   });
-  return options.find(option => option.value === tableFilterDocument.value)?.text || '全部';
+  return options.find(option => option.value === tableFilterDocument.value)?.text || t('taskManager.all');
 });
 
 async function handleStatsDrilldown(payload: StatsDrilldownPayload): Promise<void> {
@@ -4432,7 +4897,7 @@ const documentTabContextMenuStyle = computed<Record<string, string>>(() => {
   };
 });
 const activeTaskViewGroupMode = computed<TaskViewGroupMode>(() =>
-  currentView.value === 'kanban' || currentView.value === 'list' ? kanbanGroupBy.value : tableGroupBy.value
+  currentView.value === 'kanban' || currentView.value === 'list' ? activeBoardGroupBy.value : tableGroupBy.value
 );
 const currentTaskViewGroupOptions = computed(() =>
   currentView.value === 'kanban' || currentView.value === 'list' ? kanbanGroupModeOptions : tableGroupModeOptions
@@ -4457,7 +4922,7 @@ function toggleTaskViewGroupMenu(): void {
 
 function selectTaskViewGroupMode(mode: TaskViewGroupMode): void {
   if (currentView.value === 'kanban' || currentView.value === 'list') {
-    kanbanGroupBy.value = mode;
+    activeBoardGroupBy.value = mode;
   } else if (currentView.value === 'table' || currentView.value === 'archive-table') {
     tableGroupBy.value = mode;
   }
@@ -4494,6 +4959,10 @@ function toggleKanbanTaskCardDetailsFromMenu(): void {
     inlineEditingDescriptionTaskId.value = null;
   }
   closeTaskViewGroupMenu();
+  nextTick(() => {
+    scheduleAllKanbanMetricsUpdates();
+    scheduleListViewMetricsUpdate();
+  });
 }
 
 function toggleAllVisibleKanbanDetails(): void {
@@ -4511,6 +4980,10 @@ function toggleAllVisibleKanbanDetails(): void {
     }
   }
   expandedKanbanTaskIds.value = next;
+  nextTick(() => {
+    scheduleAllKanbanMetricsUpdates();
+    scheduleListViewMetricsUpdate();
+  });
 }
 
 function toggleAllVisibleKanbanDetailsFromMenu(): void {
@@ -4814,7 +5287,9 @@ function setupFilterTypeWatcher(
 }
 
 setupFilterTypeWatcher(kanbanFilterType, kanbanFilterDocument, () => getDocumentTabTaskMatcher('kanban'));
+setupFilterTypeWatcher(listFilterType, listFilterDocument, () => getDocumentTabTaskMatcher('list'));
 setupFilterTypeWatcher(tableFilterType, tableFilterDocument, () => getDocumentTabTaskMatcher('table'));
+setupFilterTypeWatcher(ganttFilterType, ganttFilterDocument, () => getDocumentTabTaskMatcher('gantt'));
 setupFilterTypeWatcher(monthFilterType, monthFilterDocument, () => getDocumentTabTaskMatcher('month'));
 setupFilterTypeWatcher(weekFilterType, weekFilterDocument, () => getDocumentTabTaskMatcher('week'));
 setupFilterTypeWatcher(dayFilterType, dayFilterDocument, () => getDocumentTabTaskMatcher('day'));
@@ -4866,7 +5341,7 @@ function scheduleSaveUserSettings() {
 }
 
 const shouldLoadHeadingGroups = computed(() =>
-  kanbanGroupBy.value === 'heading' || tableGroupBy.value === 'heading'
+  kanbanGroupBy.value === 'heading' || listGroupBy.value === 'heading' || tableGroupBy.value === 'heading'
 );
 
 let taskHeadingGroupRequestId = 0;
@@ -4883,12 +5358,17 @@ async function refreshTaskHeadingGroups(): Promise<void> {
 watch([
   currentView,
   kanbanGroupBy,
+  listGroupBy,
   tableGroupBy,
   showKanbanTaskCardDetails,
   kanbanFilterType,
   kanbanFilterDocument,
+  listFilterType,
+  listFilterDocument,
   tableFilterType,
   tableFilterDocument,
+  ganttFilterType,
+  ganttFilterDocument,
   monthFilterType,
   monthFilterDocument,
   weekFilterType,
@@ -4964,6 +5444,12 @@ watch(kanbanGroupBy, async (mode) => {
   clearGroupColumnReorderDragState();
   await ensureTaskGroupsLoaded();
 });
+watch(listGroupBy, async (mode) => {
+  if (mode !== 'group') {
+    return;
+  }
+  await ensureTaskGroupsLoaded();
+});
 watch(tableGroupBy, async (mode) => {
   if (mode !== 'group') {
     return;
@@ -5001,8 +5487,91 @@ const activeOrArchiveTableViewTasks = computed(() =>
   currentView.value === 'archive-table' ? archivedTableViewTasks.value : tableViewTasks.value
 );
 
+const ganttGroupMode = computed<GanttGroupMode>(() => {
+  if (ganttFilterDocument.value !== 'all') {
+    return 'none';
+  }
+
+  const source = parseDocumentSource(ganttFilterType.value);
+  if (source.kind === 'all') {
+    return 'goal';
+  }
+  return 'document';
+});
+
+function isTaskInAnyGoalDefinition(task: Task): boolean {
+  const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+  const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  if (!notebookId || !rootId) return false;
+
+  return goalDefinitions.value.some(goal =>
+    goal.members.some(member => member.notebookId === notebookId && member.documentId === rootId)
+  );
+}
+
+function hasExplicitGanttRange(task: Task): boolean {
+  return Boolean(task.startDate && task.dueDate);
+}
+
+function collectCalendarSubtaskNodeIds(subtasks: SubTask[] | undefined, result: Set<string>): void {
+  if (!Array.isArray(subtasks) || subtasks.length === 0) {
+    return;
+  }
+  for (const subtask of subtasks) {
+    const nodeId = typeof subtask.nodeId === 'string' ? subtask.nodeId.trim() : '';
+    if (nodeId) {
+      result.add(nodeId);
+    }
+    collectCalendarSubtaskNodeIds(subtask.subtasks, result);
+  }
+}
+
+const calendarTopLevelTasks = computed(() => {
+  const subtaskNodeIds = new Set<string>();
+  tasks.value.forEach(task => collectCalendarSubtaskNodeIds(task.subtasks, subtaskNodeIds));
+
+  const subtaskRepeatSeriesIds = new Set<string>();
+  tasks.value.forEach((task) => {
+    const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+    const repeatSeriesId = typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+    if (!task.isVirtual && blockId && subtaskNodeIds.has(blockId) && repeatSeriesId) {
+      subtaskRepeatSeriesIds.add(repeatSeriesId);
+    }
+  });
+
+  return tasks.value.filter((task) => {
+    const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+    if (blockId && subtaskNodeIds.has(blockId)) {
+      return false;
+    }
+
+    const repeatSeriesId = typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+    if (task.isVirtual && repeatSeriesId && subtaskRepeatSeriesIds.has(repeatSeriesId)) {
+      return false;
+    }
+
+    return true;
+  });
+});
+
+const ganttViewTasks = computed(() => {
+  const source = parseDocumentSource(ganttFilterType.value);
+  return calendarTopLevelTasks.value.filter(task => {
+    if (task.type !== 'block') return false;
+    if (task.archived) return false;
+    const linkedToGoal = isTaskInAnyGoalDefinition(task);
+    if (!linkedToGoal && (source.kind !== 'all' || !hasExplicitGanttRange(task))) return false;
+    if (!showCompletedTasks.value && task.status === 'completed') return false;
+    if (!matchesTaskBySourceAndDocument(task, ganttFilterType.value, ganttFilterDocument.value)) {
+      return false;
+    }
+
+    return true;
+  });
+});
+
 const monthViewTasks = computed(() => {
-  return tasks.value.filter(task => {
+  return calendarTopLevelTasks.value.filter(task => {
     if (task.type !== 'block') return false;
     if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
@@ -5015,7 +5584,7 @@ const monthViewTasks = computed(() => {
 });
 
 const weekViewTasks = computed(() => {
-  return tasks.value.filter(task => {
+  return calendarTopLevelTasks.value.filter(task => {
     if (task.type !== 'block') return false;
     if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
@@ -5028,7 +5597,7 @@ const weekViewTasks = computed(() => {
 });
 
 const dayViewTasks = computed(() => {
-  return tasks.value.filter(task => {
+  return calendarTopLevelTasks.value.filter(task => {
     if (task.type !== 'block') return false;
     if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
@@ -5045,6 +5614,11 @@ watch(tasks, () => {
 }, { immediate: true });
 
 watch(visibleKanbanTasks, (nextTasks) => {
+  pruneVirtualHeightCaches(nextTasks);
+  nextTick(() => {
+    scheduleAllKanbanMetricsUpdates();
+    scheduleListViewMetricsUpdate();
+  });
   if (kanbanBatchSelectedTaskIds.value.size === 0) {
     return;
   }
@@ -5641,7 +6215,7 @@ async function applyKanbanBatchEdit(): Promise<void> {
   }
   const selectedIds = Array.from(kanbanBatchSelectedTaskIds.value);
   if (selectedIds.length === 0) {
-    await pushMsg('请先选择任务', 2200);
+    await pushMsg(t('taskManager.selectTasksFirst'), 2200);
     return;
   }
 
@@ -5656,13 +6230,13 @@ async function applyKanbanBatchEdit(): Promise<void> {
     } else if (validGroupIds.has(rawGroupSelection)) {
       nextGroupId = rawGroupSelection;
     } else {
-      await pushMsg('请选择有效标签', 2200);
+      await pushMsg(t('taskManager.selectValidTag'), 2200);
       return;
     }
   }
 
   if (!nextStatus && !nextPriority && nextGroupId === null) {
-    await pushMsg('请选择要批量修改的字段', 2200);
+    await pushMsg(t('taskManager.selectBatchFields'), 2200);
     return;
   }
 
@@ -5724,7 +6298,7 @@ async function applyKanbanBatchEdit(): Promise<void> {
   }
 
   if (updates.length === 0) {
-    await pushMsg('未检测到可更新的任务', 2200);
+    await pushMsg(t('taskManager.noBatchUpdates'), 2200);
     return;
   }
 
@@ -5792,10 +6366,10 @@ async function applyKanbanBatchEdit(): Promise<void> {
     }
 
     if (successCount > 0) {
-      await pushMsg(`已批量更新 ${successCount} 项任务`, 2200);
+      await pushMsg(`${t('taskManager.batchUpdatedPrefix')} ${successCount} ${t('taskManager.batchUpdatedSuffix')}`, 2200);
     }
     if (failedCount > 0) {
-      await pushMsg(`有 ${failedCount} 项任务更新失败`, 3000);
+      await pushMsg(`${t('taskManager.batchUpdateFailedPrefix')} ${failedCount} ${t('taskManager.batchUpdateFailedSuffix')}`, 3000);
     }
   } finally {
     isKanbanBatchApplying.value = false;
@@ -6016,7 +6590,15 @@ function matchesTableFiltersByArchivedState(
 ): boolean {
   if (task.type !== 'block') return false;
   if (archivedOnly ? !task.archived : task.archived) return false;
-  if (task.isVirtual) return false;
+  if (archivedOnly && task.isVirtual) return false;
+  if (!archivedOnly) {
+    if (!task.isVirtual && task.repeatSeriesId && todayVirtualSeriesIds.value.has(task.repeatSeriesId)) {
+      return false;
+    }
+    if (task.isVirtual && !isVirtualTaskForToday(task)) {
+      return false;
+    }
+  }
   if (!matchesTaskBySourceAndDocument(
     task,
     tableFilterType.value,
@@ -6102,9 +6684,41 @@ const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
     }
   }
 
+  const isTimestampInDateGroup = (timestamp: number | null, groupKey: KanbanDateGroupKey): boolean => {
+    if (timestamp === null) {
+      return false;
+    }
+    if (groupKey === 'overdue') {
+      return timestamp < todayStart;
+    }
+    if (groupKey === 'today') {
+      return timestamp >= todayStart && timestamp < tomorrowStart;
+    }
+    if (groupKey === 'thisWeek') {
+      return timestamp >= weekStartTimestamp && timestamp < weekEnd;
+    }
+    if (groupKey === 'thisMonth') {
+      return timestamp >= monthStart && timestamp < monthEnd;
+    }
+    return false;
+  };
+
   const sortContext = createSidebarSortContext();
-  for (const list of Object.values(grouped)) {
+  for (const groupKey of Object.keys(grouped) as KanbanDateGroupKey[]) {
+    const list = grouped[groupKey];
     sortTasksLikeSidebar(list, sortContext);
+    const originalIndex = new Map<string, number>();
+    list.forEach((task, index) => {
+      originalIndex.set(task.id, index);
+    });
+    list.sort((left, right) => {
+      const leftDueInGroup = isTimestampInDateGroup(getTaskDueDateTimestamp(left), groupKey);
+      const rightDueInGroup = isTimestampInDateGroup(getTaskDueDateTimestamp(right), groupKey);
+      if (leftDueInGroup !== rightDueInGroup) {
+        return leftDueInGroup ? -1 : 1;
+      }
+      return (originalIndex.get(left.id) ?? 0) - (originalIndex.get(right.id) ?? 0);
+    });
   }
 
   return grouped;
@@ -6239,26 +6853,91 @@ function shouldUseKanbanVirtualList(column: KanbanColumn, taskCount: number): bo
   if (taskCount <= KANBAN_VIRTUAL_THRESHOLD) {
     return false;
   }
-  return expandedKanbanTaskIds.value.size === 0;
+  return true;
 }
 
-function getKanbanVirtualRange(column: KanbanColumn, totalCount: number) {
+function findKanbanTaskIndexForOffset(offsets: number[], offset: number): number {
+  let low = 0;
+  let high = offsets.length - 1;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (offsets[mid] <= offset) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return Math.max(0, low - 1);
+}
+
+function countNestedSubtasks(subtasks: Task['subtasks'] | undefined): number {
+  if (!subtasks || subtasks.length === 0) return 0;
+  let count = 0;
+  const stack: Task['subtasks'][] = [subtasks];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    count += current.length;
+    for (const subtask of current) {
+      if (subtask.subtasks && subtask.subtasks.length > 0) {
+        stack.push(subtask.subtasks);
+      }
+    }
+  }
+  return count;
+}
+
+function estimateExpandedKanbanTaskHeight(baseHeight: number, task: Task): number {
+  if (!isKanbanTaskExpanded(task.id)) {
+    return baseHeight;
+  }
+  const subtaskCount = countNestedSubtasks(task.subtasks);
+  const subtaskBonus = Math.min(subtaskCount, 24) * 28 + (subtaskCount > 24 ? 56 : 0);
+  const descriptionBonus = showKanbanTaskCardDetails.value && task.description?.trim() ? 22 : 0;
+  return baseHeight + subtaskBonus + descriptionBonus;
+}
+
+function getKanbanTaskMeasuredHeight(columnId: string, taskId: string): number | undefined {
+  return kanbanColumnTaskHeightCache.get(columnId)?.get(taskId);
+}
+
+function getKanbanTaskEstimatedHeight(columnId: string, task: Task): number {
+  kanbanColumnHeightVersion.value;
+  return getKanbanTaskMeasuredHeight(columnId, task.id)
+    ?? estimateExpandedKanbanTaskHeight(kanbanColumnEstimatedHeights.value[columnId] || KANBAN_VIRTUAL_CARD_HEIGHT, task);
+}
+
+function getKanbanTaskHeightOffsets(column: KanbanColumn, tasks: Task[]): number[] {
+  const offsets = new Array(tasks.length + 1);
+  offsets[0] = 0;
+  for (let index = 0; index < tasks.length; index += 1) {
+    const task = tasks[index];
+    const gap = index < tasks.length - 1 ? KANBAN_VIRTUAL_CARD_GAP : 0;
+    offsets[index + 1] = offsets[index] + getKanbanTaskEstimatedHeight(column.id, task) + gap;
+  }
+  return offsets;
+}
+
+function getKanbanVirtualRange(column: KanbanColumn, tasks: Task[]) {
+  const totalCount = tasks.length;
   if (!shouldUseKanbanVirtualList(column, totalCount)) {
     return { start: 0, end: totalCount, top: 0, bottom: 0 };
   }
+  const offsets = getKanbanTaskHeightOffsets(column, tasks);
   const metrics = kanbanColumnMetrics.value[column.id];
   const scrollTop = metrics?.scrollTop || 0;
   const height = metrics?.height || 600;
-  const estimatedHeight = kanbanColumnEstimatedHeights.value[column.id] || KANBAN_VIRTUAL_CARD_HEIGHT;
   const startIndex = Math.max(
     0,
-    Math.floor(scrollTop / estimatedHeight) - KANBAN_VIRTUAL_OVERSCAN
+    findKanbanTaskIndexForOffset(offsets, scrollTop) - KANBAN_VIRTUAL_OVERSCAN
   );
-  const visibleCount = Math.ceil(height / estimatedHeight) + KANBAN_VIRTUAL_OVERSCAN * 2;
-  const endIndex = Math.min(totalCount, startIndex + visibleCount);
-  const topPadding = startIndex * estimatedHeight;
-  const totalHeight = totalCount * estimatedHeight;
-  const bottomPadding = Math.max(0, totalHeight - topPadding - (endIndex - startIndex) * KANBAN_VIRTUAL_CARD_HEIGHT);
+  const endIndex = Math.min(
+    totalCount,
+    findKanbanTaskIndexForOffset(offsets, scrollTop + height) + KANBAN_VIRTUAL_OVERSCAN + 1
+  );
+  const topPadding = offsets[startIndex] || 0;
+  const totalHeight = offsets[offsets.length - 1] || 0;
+  const bottomPadding = Math.max(0, totalHeight - (offsets[endIndex] || 0));
   return {
     start: startIndex,
     end: endIndex,
@@ -6269,7 +6948,7 @@ function getKanbanVirtualRange(column: KanbanColumn, totalCount: number) {
 
 function getVisibleTasksForColumn(column: KanbanColumn): Task[] {
   const tasks = getTasksForColumn(column);
-  const range = getKanbanVirtualRange(column, tasks.length);
+  const range = getKanbanVirtualRange(column, tasks);
   return tasks.slice(range.start, range.end);
 }
 
@@ -6278,7 +6957,7 @@ function getKanbanSpacerStyle(column: KanbanColumn): Record<string, string> {
   if (!shouldUseKanbanVirtualList(column, tasks.length)) {
     return {};
   }
-  const range = getKanbanVirtualRange(column, tasks.length);
+  const range = getKanbanVirtualRange(column, tasks);
   return {
     paddingTop: `${range.top}px`,
     paddingBottom: `${range.bottom}px`
@@ -6410,7 +7089,7 @@ async function hydrateVisibleKanbanTitles(): Promise<void> {
       invalidateTableFilters();
     }
   } catch (error) {
-    console.error('[KanbanView] 任务标题同步失败:', error);
+    console.error('[KanbanView] Failed to hydrate task titles:', error);
   } finally {
     isKanbanTitleHydrating = false;
   }
@@ -6432,22 +7111,54 @@ function updateKanbanColumnMetrics(columnId: string, el: HTMLElement): void {
 }
 
 function updateKanbanColumnEstimate(columnId: string, el: HTMLElement): void {
-  const card = el.querySelector<HTMLElement>('.kanban-task-card');
-  if (!card) return;
-  const height = Math.round(card.getBoundingClientRect().height);
-  if (!height) return;
-  const prev = kanbanColumnEstimatedHeights.value[columnId] || KANBAN_VIRTUAL_CARD_HEIGHT;
-  if (Math.abs(prev - height) < 4) {
+  const items = Array.from(el.querySelectorAll<HTMLElement>('.kanban-batch-item[data-task-id]'));
+  if (items.length === 0) return;
+
+  let changed = false;
+  const cache = kanbanColumnTaskHeightCache.get(columnId) || new Map<string, number>();
+  if (!kanbanColumnTaskHeightCache.has(columnId)) {
+    kanbanColumnTaskHeightCache.set(columnId, cache);
+  }
+
+  const collapsedHeights: number[] = [];
+  for (const item of items) {
+    const taskId = item.dataset.taskId;
+    if (!taskId) continue;
+    const height = Math.max(1, Math.round(item.getBoundingClientRect().height));
+    const previousHeight = cache.get(taskId);
+    if (previousHeight !== height) {
+      cache.set(taskId, height);
+      changed = true;
+    }
+    if (!expandedKanbanTaskIds.value.has(taskId)) {
+      collapsedHeights.push(height);
+    }
+  }
+
+  if (changed) {
+    kanbanColumnHeightVersion.value += 1;
+  }
+
+  if (collapsedHeights.length === 0) {
     return;
   }
-  kanbanColumnEstimatedHeights.value = {
-    ...kanbanColumnEstimatedHeights.value,
-    [columnId]: height
-  };
+  const averageHeight = Math.round(
+    collapsedHeights.reduce((total, height) => total + height, 0) / collapsedHeights.length
+  );
+  const prev = kanbanColumnEstimatedHeights.value[columnId] || KANBAN_VIRTUAL_CARD_HEIGHT;
+  if (averageHeight && Math.abs(prev - averageHeight) >= 4) {
+    kanbanColumnEstimatedHeights.value = {
+      ...kanbanColumnEstimatedHeights.value,
+      [columnId]: averageHeight
+    };
+  }
 }
 
 function setKanbanColumnTasksRef(columnId: string, el: HTMLElement | null): void {
-  if (!el) return;
+  if (!el) {
+    kanbanColumnElements.delete(columnId);
+    return;
+  }
   const current = kanbanColumnElements.get(columnId);
   if (current === el) {
     return;
@@ -6466,78 +7177,158 @@ function handleKanbanColumnScroll(event: Event, column: KanbanColumn): void {
 }
 
 function scheduleKanbanMetricsUpdate(columnId: string): void {
-  if (kanbanMetricsRaf !== null) {
-    cancelAnimationFrame(kanbanMetricsRaf);
-  }
+  pendingKanbanMetricColumnIds.add(columnId);
+  if (kanbanMetricsRaf !== null) return;
   kanbanMetricsRaf = requestAnimationFrame(() => {
     kanbanMetricsRaf = null;
-    const el = kanbanColumnElements.get(columnId);
-    if (!el) return;
-    updateKanbanColumnMetrics(columnId, el);
-    updateKanbanColumnEstimate(columnId, el);
+    const columnIds = Array.from(pendingKanbanMetricColumnIds);
+    pendingKanbanMetricColumnIds.clear();
+    for (const id of columnIds) {
+      const el = kanbanColumnElements.get(id);
+      if (!el) continue;
+      updateKanbanColumnMetrics(id, el);
+      updateKanbanColumnEstimate(id, el);
+    }
   });
+}
+
+function scheduleAllKanbanMetricsUpdates(): void {
+  for (const columnId of kanbanColumnElements.keys()) {
+    scheduleKanbanMetricsUpdate(columnId);
+  }
+}
+
+function scheduleKanbanMetricsUpdateForTask(taskId: string): void {
+  for (const column of kanbanColumns.value) {
+    if (column.type === 'action') continue;
+    const columnTasks = getTasksForColumn(column);
+    if (columnTasks.some(task => task.id === taskId)) {
+      scheduleKanbanMetricsUpdate(column.id);
+      return;
+    }
+  }
+  scheduleAllKanbanMetricsUpdates();
+}
+
+function pruneVirtualHeightCaches(currentTasks: Task[]): void {
+  const visibleIds = new Set(currentTasks.map(task => task.id));
+  let kanbanCacheChanged = false;
+  for (const [columnId, cache] of kanbanColumnTaskHeightCache.entries()) {
+    for (const taskId of cache.keys()) {
+      if (!visibleIds.has(taskId)) {
+        cache.delete(taskId);
+        kanbanCacheChanged = true;
+      }
+    }
+    if (cache.size === 0) {
+      kanbanColumnTaskHeightCache.delete(columnId);
+    }
+  }
+  if (kanbanCacheChanged) {
+    kanbanColumnHeightVersion.value += 1;
+  }
+
+  let listCacheChanged = false;
+  for (const taskId of listViewTaskHeightCache.keys()) {
+    if (!visibleIds.has(taskId)) {
+      listViewTaskHeightCache.delete(taskId);
+      listCacheChanged = true;
+    }
+  }
+  if (listCacheChanged) {
+    listViewTaskHeightVersion.value += 1;
+  }
 }
 
 function shouldUseListVirtualScroll(taskCount: number): boolean {
   if (taskCount <= LIST_VIRTUAL_THRESHOLD) return false;
-  if (expandedKanbanTaskIds.value.size > 0) return false;
   return true;
 }
 
-function getListSectionVirtualRange(sectionId: string, taskCount: number) {
+function getListTaskEstimatedHeight(task: Task): number {
+  listViewTaskHeightVersion.value;
+  return listViewTaskHeightCache.get(task.id)
+    ?? estimateExpandedKanbanTaskHeight(listViewEstimatedCardHeight.value || LIST_VIRTUAL_CARD_HEIGHT, task);
+}
+
+function getListSectionHeightOffsets(section: KanbanListSection): number[] {
+  const offsets = new Array(section.tasks.length + 1);
+  offsets[0] = 0;
+  for (let index = 0; index < section.tasks.length; index += 1) {
+    offsets[index + 1] = offsets[index] + getListTaskEstimatedHeight(section.tasks[index]);
+  }
+  return offsets;
+}
+
+function getListSectionEstimatedBodyHeight(section: KanbanListSection): number {
+  const offsets = getListSectionHeightOffsets(section);
+  return offsets[offsets.length - 1] || 0;
+}
+
+function getPreviousListSectionsInMasonryColumn(sectionId: string): KanbanListSection[] {
+  for (const column of kanbanListMasonryColumns.value) {
+    const sectionIndex = column.sections.findIndex(section => section.id === sectionId);
+    if (sectionIndex >= 0) {
+      return column.sections.slice(0, sectionIndex);
+    }
+  }
+  return [];
+}
+
+function getListSectionVirtualRange(section: KanbanListSection) {
+  const taskCount = section.tasks.length;
   if (!shouldUseListVirtualScroll(taskCount)) {
     return { start: 0, end: taskCount, top: 0, bottom: 0 };
   }
   const { scrollTop, height } = listViewMetrics.value;
-  const cardHeight = listViewEstimatedCardHeight.value;
+  const offsets = getListSectionHeightOffsets(section);
+  const totalHeight = offsets[offsets.length - 1] || 0;
+  const averageCardHeight = listViewEstimatedCardHeight.value || LIST_VIRTUAL_CARD_HEIGHT;
   const sectionHeaderHeight = 42;
   const sectionGap = 10;
-  const masonryColumnCount = kanbanListColumnCount.value || 1;
-  const sectionIndex = kanbanListSections.value.findIndex(s => s.id === sectionId);
-  if (sectionIndex < 0) {
-    return { start: 0, end: taskCount, top: 0, bottom: 0 };
-  }
-  const columnIndex = sectionIndex % masonryColumnCount;
   let estimatedTop = 0;
-  for (let i = 0; i < sectionIndex; i++) {
-    if (i % masonryColumnCount !== columnIndex) continue;
-    const prevSection = kanbanListSections.value[i];
+  for (const prevSection of getPreviousListSectionsInMasonryColumn(section.id)) {
     if (isKanbanListSectionCollapsed(prevSection.id)) {
       estimatedTop += sectionHeaderHeight + sectionGap;
     } else {
-      estimatedTop += sectionHeaderHeight + prevSection.tasks.length * cardHeight + sectionGap;
+      estimatedTop += sectionHeaderHeight + getListSectionEstimatedBodyHeight(prevSection) + sectionGap;
     }
   }
   const sectionBodyTop = estimatedTop + sectionHeaderHeight;
-  const sectionBodyBottom = sectionBodyTop + taskCount * cardHeight;
+  const sectionBodyBottom = sectionBodyTop + totalHeight;
   const viewTop = scrollTop;
   const viewBottom = scrollTop + height;
-  if (sectionBodyBottom < viewTop - cardHeight * LIST_VIRTUAL_OVERSCAN || sectionBodyTop > viewBottom + cardHeight * LIST_VIRTUAL_OVERSCAN) {
+  const overscanPx = averageCardHeight * LIST_VIRTUAL_OVERSCAN;
+  if (sectionBodyBottom < viewTop - overscanPx || sectionBodyTop > viewBottom + overscanPx) {
     return {
       start: 0,
       end: 0,
       top: 0,
-      bottom: taskCount * cardHeight
+      bottom: totalHeight
     };
   }
   const localScrollTop = Math.max(0, viewTop - sectionBodyTop);
-  const startIndex = Math.max(0, Math.floor(localScrollTop / cardHeight) - LIST_VIRTUAL_OVERSCAN);
-  const visibleCount = Math.ceil(height / cardHeight) + LIST_VIRTUAL_OVERSCAN * 2;
-  const endIndex = Math.min(taskCount, startIndex + visibleCount);
-  const topPadding = startIndex * cardHeight;
-  const totalHeight = taskCount * cardHeight;
-  const bottomPadding = Math.max(0, totalHeight - topPadding - (endIndex - startIndex) * cardHeight);
+  const startIndex = Math.max(
+    0,
+    findKanbanTaskIndexForOffset(offsets, localScrollTop) - LIST_VIRTUAL_OVERSCAN
+  );
+  const endIndex = Math.min(
+    taskCount,
+    findKanbanTaskIndexForOffset(offsets, localScrollTop + height) + LIST_VIRTUAL_OVERSCAN + 1
+  );
+  const topPadding = offsets[startIndex] || 0;
+  const bottomPadding = Math.max(0, totalHeight - (offsets[endIndex] || 0));
   return { start: startIndex, end: endIndex, top: topPadding, bottom: bottomPadding };
 }
 
 function getVisibleTasksForListSection(section: KanbanListSection): Task[] {
-  const range = getListSectionVirtualRange(section.id, section.tasks.length);
+  const range = getListSectionVirtualRange(section);
   return section.tasks.slice(range.start, range.end);
 }
 
 function getListSectionSpacerStyle(section: KanbanListSection): Record<string, string> {
   if (!shouldUseListVirtualScroll(section.tasks.length)) return {};
-  const range = getListSectionVirtualRange(section.id, section.tasks.length);
+  const range = getListSectionVirtualRange(section);
   if (range.top === 0 && range.bottom === 0) return {};
   const style: Record<string, string> = {};
   if (range.top > 0) style.paddingTop = `${range.top}px`;
@@ -6545,25 +7336,58 @@ function getListSectionSpacerStyle(section: KanbanListSection): Record<string, s
   return style;
 }
 
-function handleListViewScroll(): void {
+function updateListViewMetricsAndMeasurements(el: HTMLElement): void {
+  const next = { scrollTop: el.scrollTop, height: el.clientHeight };
+  if (listViewMetrics.value.scrollTop !== next.scrollTop || listViewMetrics.value.height !== next.height) {
+    listViewMetrics.value = next;
+  }
+
+  const items = Array.from(el.querySelectorAll<HTMLElement>('.kanban-list-task-item[data-task-id]'));
+  let changed = false;
+  const collapsedHeights: number[] = [];
+  for (const item of items) {
+    const taskId = item.dataset.taskId;
+    if (!taskId) continue;
+    const height = Math.max(1, Math.round(item.getBoundingClientRect().height));
+    const previousHeight = listViewTaskHeightCache.get(taskId);
+    if (previousHeight !== height) {
+      listViewTaskHeightCache.set(taskId, height);
+      changed = true;
+    }
+    if (!expandedKanbanTaskIds.value.has(taskId)) {
+      collapsedHeights.push(height);
+    }
+  }
+
+  if (changed) {
+    listViewTaskHeightVersion.value += 1;
+  }
+
+  if (collapsedHeights.length === 0) {
+    return;
+  }
+  const averageHeight = Math.round(
+    collapsedHeights.reduce((total, height) => total + height, 0) / collapsedHeights.length
+  );
+  if (averageHeight && Math.abs(listViewEstimatedCardHeight.value - averageHeight) > 4) {
+    listViewEstimatedCardHeight.value = averageHeight;
+  }
+}
+
+function scheduleListViewMetricsUpdate(): void {
   if (listViewMetricsRaf !== null) {
-    cancelAnimationFrame(listViewMetricsRaf);
+    return;
   }
   listViewMetricsRaf = requestAnimationFrame(() => {
     listViewMetricsRaf = null;
     const el = listViewRef.value;
     if (!el) return;
-    const next = { scrollTop: el.scrollTop, height: el.clientHeight };
-    if (listViewMetrics.value.scrollTop === next.scrollTop && listViewMetrics.value.height === next.height) return;
-    listViewMetrics.value = next;
-    const card = el.querySelector<HTMLElement>('.kanban-list-task-item');
-    if (card) {
-      const h = Math.round(card.getBoundingClientRect().height);
-      if (h && Math.abs(listViewEstimatedCardHeight.value - h) > 4) {
-        listViewEstimatedCardHeight.value = h;
-      }
-    }
+    updateListViewMetricsAndMeasurements(el);
   });
+}
+
+function handleListViewScroll(): void {
+  scheduleListViewMetricsUpdate();
 }
 
 async function loadTasks(
@@ -6576,6 +7400,9 @@ async function loadTasks(
     mode = resolveTaskLoadModeForView(currentView.value),
     repeatWindow = mode === 'light-with-repeats' ? resolveRequestedRepeatWindowForView(currentView.value) : null
   } = options;
+  const fetchRepeatWindow = mode === 'light-with-repeats'
+    ? expandRepeatWindowForCalendarLoad(currentView.value, repeatWindow)
+    : repeatWindow;
   const requestId = ++latestTaskLoadRequestId;
   if (!silent) {
     pendingVisibleTaskLoadCount += 1;
@@ -6585,26 +7412,62 @@ async function loadTasks(
     if (forceRefresh) {
       await TaskRepository.clearCache();
     }
-    const fetchOptions = buildTaskFetchOptionsForLoadMode(mode, repeatWindow);
-    const sqlTasks = await TaskRepository.getAllTasks(
-      !forceRefresh,
-      { includeArchived: true },
-      fetchOptions
-    );
+    if (!silent && !forceRefresh && tasks.value.length === 0 && shouldPrefillWithLightTasks(mode)) {
+      try {
+        const { tasks: lightTasks } = await TaskRepository.getKernelLightTasks(5000, { includeArchived: true });
+        if (lightTasks.length > 0 && requestId === latestTaskLoadRequestId) {
+          syncTaskSnapshot(lightTasks);
+          invalidateTableFilters();
+        }
+      } catch (error) {
+        console.debug('[KanbanView] kernel light prefill skipped', error);
+      }
+    }
+    const fetchOptions = buildTaskFetchOptionsForLoadMode(mode, fetchRepeatWindow);
+    let sqlTasks: Task[];
+    if (mode === 'light-with-repeats' && fetchRepeatWindow?.startDate && fetchRepeatWindow?.endDate) {
+      try {
+        const { tasks: rangedTasks } = await TaskRepository.getKernelLightTasksByDateRange(
+          fetchRepeatWindow.startDate,
+          fetchRepeatWindow.endDate,
+          { includeArchived: true },
+          {
+            materializeRepeats: true,
+            force: forceRefresh
+          }
+        );
+        sqlTasks = rangedTasks;
+      } catch (error) {
+        console.debug('[KanbanView] kernel date-range task fetch skipped', error);
+        sqlTasks = await TaskRepository.getAllTasks(
+          !forceRefresh,
+          { includeArchived: true },
+          fetchOptions
+        );
+      }
+    } else {
+      sqlTasks = await TaskRepository.getAllTasks(
+        !forceRefresh,
+        { includeArchived: true },
+        fetchOptions
+      );
+    }
     if (requestId !== latestTaskLoadRequestId) {
       return;
     }
-    hydrateKanbanMemoTitlesSync(sqlTasks, KANBAN_TITLE_HYDRATE_LIMIT);
-    syncFromSQL(sqlTasks);
-    tasks.value = applyDraggedStatusLocks(tasks.value);
+    const nextTasks = mode === 'light-with-repeats'
+      ? filterTasksForCalendarWindow(sqlTasks, fetchRepeatWindow)
+      : sqlTasks;
+    hydrateKanbanMemoTitlesSync(nextTasks, KANBAN_TITLE_HYDRATE_LIMIT);
+    syncTaskSnapshot(nextTasks);
     loadedTaskLoadMode.value = mode;
-    loadedRepeatWindow.value = repeatWindow;
+    loadedRepeatWindow.value = fetchRepeatWindow;
     if (validateSelection) {
       void validateDocumentSelection();
     }
     scheduleKanbanTitleHydration(120);
   } catch (error) {
-    console.error('[KanbanView] 加载任务失败:', error);
+    console.error('[KanbanView] Failed to load tasks:', error);
   } finally {
     if (!silent) {
       pendingVisibleTaskLoadCount = Math.max(0, pendingVisibleTaskLoadCount - 1);
@@ -6627,7 +7490,7 @@ async function ensureTasksLoadedForView(
   const repeatWindow = mode === 'light-with-repeats' ? resolveRequestedRepeatWindowForView(view) : null;
   if (
     isTaskLoadModeSatisfied(loadedTaskLoadMode.value, mode)
-    && doesTaskRepeatWindowCover(loadedRepeatWindow.value, repeatWindow)
+    && isTaskLoadWindowSatisfied(loadedRepeatWindow.value, repeatWindow)
   ) {
     return;
   }
@@ -6636,6 +7499,11 @@ async function ensureTasksLoadedForView(
     mode,
     repeatWindow
   });
+}
+
+function syncTaskSnapshot(nextTasks: Task[]): void {
+  syncFromSQL(nextTasks);
+  tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
 }
 
 function scheduleRefreshTasks(
@@ -6656,6 +7524,31 @@ function scheduleRefreshTasks(
       return;
     }
     await refreshTasks();
+  }, delay);
+}
+
+function scheduleKernelTaskIndexRefresh(delay = 220, reloadCalendarTasks = true): void {
+  if (kernelTaskIndexRefreshTimer !== null) {
+    clearTimeout(kernelTaskIndexRefreshTimer);
+  }
+  kernelTaskIndexRefreshTimer = window.setTimeout(async () => {
+    kernelTaskIndexRefreshTimer = null;
+    try {
+      await refreshKernelTaskIndex({ limit: 5000, includeArchived: true });
+      if (reloadCalendarTasks && isCalendarView.value) {
+        const mode = resolveTaskLoadModeForView(currentView.value);
+        await loadTasks(false, {
+          silent: true,
+          validateSelection: false,
+          mode,
+          repeatWindow: mode === 'light-with-repeats'
+            ? resolveRequestedRepeatWindowForView(currentView.value)
+            : null
+        });
+      }
+    } catch (error) {
+      console.debug('[KanbanView] kernel task index refresh after date change skipped', error);
+    }
   }, delay);
 }
 
@@ -6803,6 +7696,11 @@ function normalizeInvalidNotebookFilters(): boolean {
     || (source.kind === 'group' && !documentGroupsById.value.has(source.id))
     || (source.kind === 'goal' && !goalsLoading.value && !goalDefinitionsById.value.has(source.id))
   ) || changed;
+  changed = resetSourceFilterIfNeeded(listFilterType, listFilterDocument, source =>
+    (source.kind === 'notebook' && !enabledNotebookIds.has(source.id))
+    || (source.kind === 'group' && !documentGroupsById.value.has(source.id))
+    || (source.kind === 'goal' && !goalsLoading.value && !goalDefinitionsById.value.has(source.id))
+  ) || changed;
   changed = resetSourceFilterIfNeeded(tableFilterType, tableFilterDocument, source =>
     (source.kind === 'notebook' && !enabledNotebookIds.has(source.id))
     || (source.kind === 'group' && !documentGroupsById.value.has(source.id))
@@ -6842,6 +7740,12 @@ async function loadUserSettings() {
         : 'all');
     kanbanFilterDocument.value = settings.kanbanFilterDocument || 'all';
     kanbanGroupBy.value = resolveStoredTaskViewGroupMode(settings.kanbanGroupBy, settings.kanbanGroupMode, 'status');
+    listFilterType.value = settings.listFilterSource
+      || (settings.listFilterType && settings.listFilterType !== 'all'
+        ? buildNotebookDocumentSource(settings.listFilterType)
+        : 'all');
+    listFilterDocument.value = settings.listFilterDocument || 'all';
+    listGroupBy.value = resolveStoredTaskViewGroupMode(settings.listGroupBy, settings.listGroupMode, 'status');
     kanbanGroupColumnOrder.value = normalizeKanbanGroupColumnOrder(settings.kanbanGroupColumnOrder);
     tableGroupBy.value = resolveStoredTaskViewGroupMode(settings.tableGroupBy, settings.tableGroupMode, 'status');
     showKanbanTaskCardDetails.value = settings.showKanbanTaskCardDetails !== false;
@@ -6850,6 +7754,11 @@ async function loadUserSettings() {
         ? buildNotebookDocumentSource(settings.tableFilterType)
         : 'all');
     tableFilterDocument.value = settings.tableFilterDocument || 'all';
+    ganttFilterType.value = settings.ganttFilterSource
+      || (settings.ganttFilterType && settings.ganttFilterType !== 'all'
+        ? buildNotebookDocumentSource(settings.ganttFilterType)
+        : 'all');
+    ganttFilterDocument.value = settings.ganttFilterDocument || 'all';
     monthFilterType.value = settings.monthFilterSource
       || (settings.monthFilterType && settings.monthFilterType !== 'all'
         ? buildNotebookDocumentSource(settings.monthFilterType)
@@ -6879,7 +7788,8 @@ async function loadUserSettings() {
     const shouldPrimeHeadingGroups =
       tasks.value.length > 0
       && (
-        ((currentView.value === 'kanban' || currentView.value === 'list') && kanbanGroupBy.value === 'heading')
+        (currentView.value === 'kanban' && kanbanGroupBy.value === 'heading')
+        || (currentView.value === 'list' && listGroupBy.value === 'heading')
         || (
           (currentView.value === 'table' || currentView.value === 'archive-table')
           && tableGroupBy.value === 'heading'
@@ -6896,7 +7806,7 @@ async function loadUserSettings() {
       void saveUserSettings();
     }
   } catch (error) {
-    console.error('[KanbanView] 加载用户设置失败:', error);
+    console.error('[KanbanView] Failed to load user settings:', error);
   }
   isHydratingSettings.value = false;
 }
@@ -6904,26 +7814,36 @@ async function loadUserSettings() {
 async function saveUserSettings() {
   try {
     const kanbanSource = parseDocumentSource(kanbanFilterType.value);
+    const listSource = parseDocumentSource(listFilterType.value);
     const tableSource = parseDocumentSource(tableFilterType.value);
+    const ganttSource = parseDocumentSource(ganttFilterType.value);
     const monthSource = parseDocumentSource(monthFilterType.value);
     const weekSource = parseDocumentSource(weekFilterType.value);
     const daySource = parseDocumentSource(dayFilterType.value);
     await updateSettings('kanban', {
       currentView: currentView.value,
       kanbanGroupMode: kanbanGroupBy.value === 'group',
+      listGroupMode: listGroupBy.value === 'group',
       tableGroupMode: tableGroupBy.value === 'group',
       kanbanGroupBy: kanbanGroupBy.value,
+      listGroupBy: listGroupBy.value,
       tableGroupBy: tableGroupBy.value,
       showKanbanTaskCardDetails: showKanbanTaskCardDetails.value,
       kanbanFilterType: kanbanSource.kind === 'notebook' ? kanbanSource.id : 'all',
       kanbanFilterSource: kanbanFilterType.value,
       kanbanFilterDocument: kanbanFilterDocument.value,
+      listFilterType: listSource.kind === 'notebook' ? listSource.id : 'all',
+      listFilterSource: listFilterType.value,
+      listFilterDocument: listFilterDocument.value,
       kanbanGroupColumnOrder: hasLoadedTaskGroups.value
         ? [...resolvedKanbanGroupColumnOrder.value]
         : [...normalizeKanbanGroupColumnOrder(kanbanGroupColumnOrder.value)],
       tableFilterType: tableSource.kind === 'notebook' ? tableSource.id : 'all',
       tableFilterSource: tableFilterType.value,
       tableFilterDocument: tableFilterDocument.value,
+      ganttFilterType: ganttSource.kind === 'notebook' ? ganttSource.id : 'all',
+      ganttFilterSource: ganttFilterType.value,
+      ganttFilterDocument: ganttFilterDocument.value,
       monthFilterType: monthSource.kind === 'notebook' ? monthSource.id : 'all',
       monthFilterSource: monthFilterType.value,
       monthFilterDocument: monthFilterDocument.value,
@@ -6948,7 +7868,7 @@ async function saveUserSettings() {
       hiddenDocumentTabIds: normalizeNotebookIds(Array.from(hiddenDocumentTabIds.value), { sort: true })
     });
   } catch (error) {
-    console.error('[KanbanView] 保存用户设置失败:', error);
+    console.error('[KanbanView] Failed to save user settings:', error);
   }
 }
 
@@ -6962,6 +7882,17 @@ async function validateDocumentSelection() {
     });
     if (!availableDocIds.includes(kanbanFilterDocument.value)) {
       kanbanFilterDocument.value = 'all';
+      hasChanges = true;
+    }
+  }
+
+  if (listFilterDocument.value !== 'all' && !shouldDeferGoalSourceValidation(listFilterType.value)) {
+    const availableDocIds = getDocumentIdsBySource(listFilterType.value, {
+      excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('list'),
+      taskMatcher: getDocumentTabTaskMatcher('list')
+    });
+    if (!availableDocIds.includes(listFilterDocument.value)) {
+      listFilterDocument.value = 'all';
       hasChanges = true;
     }
   }
@@ -7061,7 +7992,7 @@ async function flushExternalTaskStatusAttrSync(blockIds: Iterable<string>): Prom
   const hasApplied = results.some(result => result.status === 'fulfilled' && result.value === true);
   results.forEach((result, index) => {
     if (result.status === 'rejected') {
-      console.warn('[KanbanView] 同步任务完成属性失败:', {
+      console.warn('[KanbanView] Failed to sync task completion attrs:', {
         blockId: entries[index]?.blockId,
         error: result.reason
       });
@@ -7121,7 +8052,9 @@ function setupEventListeners() {
       }
       if (!fastPathApplied) {
         scheduleRefreshTasks(100, 'silent-full');
+        return;
       }
+      scheduleRefreshTasks(140, 'silent-full');
       return;
     }
     if (payload?.blockId) {
@@ -7146,6 +8079,10 @@ function setupEventListeners() {
       return;
     }
     scheduleRefreshTasks(180, 'full');
+  });
+
+  const unsubscribeDateChanged = eventBus.on('task-date-changed', (updatedTask: Task) => {
+    applyExternalTaskDateChange(updatedTask);
   });
 
   const unsubscribeGroupsUpdated = eventBus.on(Events.TASK_GROUPS_UPDATED, (payload?: { groups?: TaskGroup[] }) => {
@@ -7189,12 +8126,24 @@ function setupEventListeners() {
         }
       }
       if (typeof payload?.source === 'string' && payload.source.trim().length > 0) {
-        kanbanFilterType.value = payload.source;
+        if (currentView.value === 'list') {
+          listFilterType.value = payload.source;
+        } else {
+          kanbanFilterType.value = payload.source;
+        }
       }
       if (typeof payload?.documentId === 'string' && payload.documentId.trim().length > 0) {
-        kanbanFilterDocument.value = payload.documentId;
+        if (currentView.value === 'list') {
+          listFilterDocument.value = payload.documentId;
+        } else {
+          kanbanFilterDocument.value = payload.documentId;
+        }
       } else if (payload?.source !== undefined) {
-        kanbanFilterDocument.value = 'all';
+        if (currentView.value === 'list') {
+          listFilterDocument.value = 'all';
+        } else {
+          kanbanFilterDocument.value = 'all';
+        }
       }
     }
   );
@@ -7204,6 +8153,7 @@ function setupEventListeners() {
     unsubscribeDeleted,
     unsubscribeUpdated,
     unsubscribeAdded,
+    unsubscribeDateChanged,
     unsubscribeGroupsUpdated,
     unsubscribeDocumentGroupsUpdated,
     unsubscribeViewSwitchRequested
@@ -7744,11 +8694,16 @@ async function incrementalUpdateTasks(
       return;
     }
     
+    const canUseLightIncremental =
+      loadedTaskLoadMode.value === 'light-base' ||
+      loadedTaskLoadMode.value === 'light-with-repeats';
     const updatedTasksMap = await TaskRepository.getTasksByBlockIds(
       Array.from(parentBlockIds),
       false,
       undefined,
-      { useLiveDom: true }
+      canUseLightIncremental
+        ? { useLiveDom: false, detailLevel: 'light' }
+        : { useLiveDom: true }
     );
     updatedTasksMap.forEach(task => {
       const forcedStatus = task.blockId ? patchedParentStatuses.get(task.blockId) : null;
@@ -7822,7 +8777,7 @@ async function incrementalUpdateTasks(
       await nextTick();
     }
   } catch (error) {
-    console.error('[KanbanView] 增量更新任务失败:', error);
+    console.error('[KanbanView] Failed to incrementally update tasks:', error);
     scheduleRefreshTasks(180, allowUnknown ? 'silent-full' : 'full');
   }
 }
@@ -7893,8 +8848,12 @@ async function ensureKanbanTaskSubtasks(task: Task): Promise<void> {
     refreshedTask.subtasks = mergeSubtaskCustomFields(task.subtasks, refreshedTask.subtasks);
     crdtRepo.syncIncrementalTasks([refreshedTask]);
     updateTasks();
+    nextTick(() => {
+      scheduleKanbanMetricsUpdateForTask(task.id);
+      scheduleListViewMetricsUpdate();
+    });
   } catch (error) {
-    console.warn('[KanbanView] 获取子任务失败:', error);
+    console.warn('[KanbanView] Failed to fetch subtasks:', error);
   } finally {
     kanbanSubtaskHydratingIds.delete(task.blockId);
   }
@@ -7910,6 +8869,10 @@ function toggleKanbanTaskExpand(task: Task): void {
     void ensureKanbanTaskSubtasks(task);
   }
   expandedKanbanTaskIds.value = next;
+  nextTick(() => {
+    scheduleKanbanMetricsUpdateForTask(taskId);
+    scheduleListViewMetricsUpdate();
+  });
 }
 
 function getInlineDescriptionDraft(task: Task): string {
@@ -7977,13 +8940,15 @@ async function saveInlineDescriptionEdit(task: Task): Promise<void> {
   }
 }
 
-function handleTaskClick(task: Task, event?: MouseEvent) {
+async function handleTaskClick(task: Task, event?: MouseEvent) {
   if (event && (currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'table' || currentView.value === 'archive-table')) {
     void openKanbanEditor(task, event);
     return;
   }
-  if (task.type === 'block' && task.blockId) {
-    void openBlockById(task.blockId);
+  const targetTask = await resolveKanbanEditorTargetTask(task);
+  const blockId = typeof targetTask?.blockId === 'string' ? targetTask.blockId.trim() : '';
+  if (targetTask?.type === 'block' && blockId) {
+    await openBlockById(blockId);
   }
 }
 
@@ -7996,6 +8961,15 @@ function handleCalendarTaskEdit(task: Task, anchor: { x: number; y: number }): v
     view: window
   });
   void openKanbanEditor(task, syntheticEvent);
+}
+
+function handleGanttTaskEdit(task: Task, event?: MouseEvent): void {
+  const editorEvent = event || new MouseEvent('click', {
+    clientX: Math.round(window.innerWidth / 2),
+    clientY: Math.round(window.innerHeight / 2),
+    view: window
+  });
+  void openKanbanEditor(task, editorEvent);
 }
 
 function toggleKanbanEditorPriorityPopover(event: MouseEvent): void {
@@ -8035,7 +9009,7 @@ async function handleKanbanEditorPinToggle(): Promise<void> {
     { 'custom-task-pinned': nextPinned ? '1' : '' },
     'pinned',
     nextPinned,
-    '更新任务置顶失败'
+    'Failed to update task pin'
   );
   invalidateTableFilters();
 }
@@ -8103,32 +9077,68 @@ function handleKanbanEditorDateFieldsUpdate(value: KanbanEditorDateFields): void
 
 async function saveKanbanEditorDateFields(task: Task, value: KanbanEditorDateFields): Promise<void> {
   const normalizedFields = normalizeKanbanEditorDateFields(value);
-  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
-  if (task.type !== 'block' || !blockId) {
+  const targetTask = await resolveKanbanEditorTargetTask(task);
+  const blockId = typeof targetTask?.blockId === 'string' ? targetTask.blockId.trim() : '';
+  if (!targetTask || targetTask.type !== 'block' || !blockId) {
     return;
   }
   try {
-    await setBlockAttrs(blockId, {
-      'custom-task-start-date': normalizedFields.startDate || '',
-      'custom-task-due-date': normalizedFields.dueDate || '',
-      'custom-task-start-time': normalizedFields.startTime || '',
-      'custom-task-due-time': normalizedFields.dueTime || ''
-    });
+    const isRepeatTask = !!targetTask.repeatSeriesId || (!!targetTask.repeatFrequency && targetTask.repeatFrequency !== 'none');
+    if (isRepeatTask) {
+      const updatedSeries = await updateRepeatSeriesDates(
+        targetTask,
+        normalizedFields.startDate || null,
+        normalizedFields.dueDate || null,
+        {
+          startTime: normalizedFields.startTime || null,
+          dueTime: normalizedFields.dueTime || null
+        },
+        { emitChange: false }
+      );
 
-    const taskIndex = tasks.value.findIndex(item => item.id === task.id);
-    if (taskIndex !== -1) {
-      const targetTask = tasks.value[taskIndex];
-      targetTask.startDate = normalizedFields.startDate || '';
-      targetTask.startTime = normalizedFields.startTime || '';
-      targetTask.dueDate = normalizedFields.dueDate || '';
-      targetTask.dueTime = normalizedFields.dueTime || '';
-      targetTask.updatedAt = new Date().toISOString();
+      if (updatedSeries) {
+        const updatedTask = {
+          ...targetTask,
+          startDate: updatedSeries.startDate || '',
+          startTime: updatedSeries.startTime || undefined,
+          dueDate: updatedSeries.endDate || '',
+          dueTime: updatedSeries.dueTime || undefined
+        };
+        await TaskRepository.updateTask(updatedTask.id, {
+          startDate: updatedTask.startDate,
+          startTime: updatedTask.startTime,
+          dueDate: updatedTask.dueDate,
+          dueTime: updatedTask.dueTime
+        });
+        handleTaskDateChanged(updatedTask);
+        notifyRepeatChanged({
+          blockId,
+          seriesId: updatedSeries.id,
+          frequency: updatedSeries.frequency
+        });
+        invalidateTableFilters();
+        return;
+      }
     }
 
+    const updatedTask = {
+      ...targetTask,
+      startDate: normalizedFields.startDate || '',
+      startTime: normalizedFields.startTime || undefined,
+      dueDate: normalizedFields.dueDate || '',
+      dueTime: normalizedFields.dueTime || undefined
+    };
+    await TaskRepository.updateTask(updatedTask.id, {
+      startDate: updatedTask.startDate,
+      startTime: updatedTask.startTime,
+      dueDate: updatedTask.dueDate,
+      dueTime: updatedTask.dueTime
+    });
+    handleTaskDateChanged(updatedTask);
     eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
     invalidateTableFilters();
   } catch (error) {
-    console.error('[KanbanView] 更新任务日期失败:', error);
+    console.error('[KanbanView] Failed to update task dates:', error);
   }
 }
 
@@ -8142,7 +9152,7 @@ async function handleKanbanEditorGroupSelect(value: string): Promise<void> {
     { 'custom-task-group': normalized || '' },
     'groupId',
     normalized || undefined,
-    '更新任务标签失败'
+    'Failed to update task group'
   );
   invalidateTableFilters();
 }
@@ -8160,7 +9170,7 @@ async function handleKanbanEditorReminderSelect(value: TaskReminderSelection): P
     buildTaskReminderAttrs(normalizedReminder),
     'reminderType',
     normalizedReminder.reminderType,
-    '更新任务提醒失败',
+    'Failed to update task reminder',
     () => {
       updateTaskLocalField(
         activeKanbanEditTask.value!.id,
@@ -8180,6 +9190,49 @@ async function handleKanbanEditorStatusSelect(status: Task['status']): Promise<v
   invalidateTableFilters();
 }
 
+async function handleKanbanEditorRepeatRuleSave(repeat: RepeatFrequency | RepeatRuleInput): Promise<void> {
+  const task = activeKanbanEditTask.value;
+  if (!task) {
+    return;
+  }
+
+  const frequency = typeof repeat === 'string' ? repeat : repeat.frequency;
+  kanbanEditorRepeatFrequency.value = normalizeRepeatFrequencyForKanbanEditor(frequency);
+  kanbanEditorRepeatRule.value = typeof repeat === 'string' ? null : (repeat.rule || null);
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const repeatSeries = isRepeatTask
+    ? await getRepeatSeriesForTask(task).catch(() => null)
+    : null;
+  const draft = activeKanbanEditDraft.value;
+  const taskForRepeatRule = {
+    ...task,
+    startDate: draft?.startDate || repeatSeries?.startDate || task.startDate,
+    startTime: draft?.startTime || repeatSeries?.startTime || task.startTime,
+    dueDate: draft?.dueDate || repeatSeries?.endDate || task.dueDate,
+    dueTime: draft?.dueTime || repeatSeries?.dueTime || task.dueTime
+  };
+
+  try {
+    await TaskRepository.setTaskRepeatRule(taskForRepeatRule, repeat);
+    const index = tasks.value.findIndex(item => item.id === task.id);
+    if (index >= 0) {
+      tasks.value[index] = {
+        ...tasks.value[index],
+        repeatFrequency: frequency,
+        repeatSeriesId: frequency === 'none' ? undefined : tasks.value[index].repeatSeriesId,
+        repeatInstanceDate: frequency === 'none' ? undefined : tasks.value[index].repeatInstanceDate,
+        isVirtual: frequency === 'none' ? false : tasks.value[index].isVirtual,
+        updatedAt: new Date().toISOString()
+      };
+    }
+    invalidateTableFilters();
+    scheduleKernelTaskIndexRefresh();
+  } catch (error) {
+    console.error('[KanbanView] Failed to update task repeat rule:', error);
+  }
+}
+
 function syncKanbanMoveSelectedDocument(preferredDocumentId?: string): void {
   const preferredId = typeof preferredDocumentId === 'string' ? preferredDocumentId.trim() : '';
   if (preferredId && kanbanMoveDocuments.value.some(doc => doc.id === preferredId)) {
@@ -8196,7 +9249,7 @@ async function openKanbanTaskMoveDialog(): Promise<void> {
   }
 
   if (task.type !== 'block' || !task.blockId) {
-    await pushMsg('该任务无法移动', 2000);
+    await pushMsg(t('kanbanView.taskCannotMove'), 2000);
     return;
   }
 
@@ -8241,9 +9294,9 @@ async function handleKanbanEditorMove(): Promise<void> {
     }
     scheduleRefreshTasks(120, 'silent-full');
   } catch (error) {
-    console.error('[KanbanView] 移动任务失败:', error);
+    console.error('[KanbanView] Failed to move task:', error);
     isKanbanTaskMoveSubmitting.value = false;
-    await pushMsg('移动任务失败，请稍后重试', 3000);
+    await pushMsg(t('kanbanView.moveTaskFailedRetry'), 3000);
   }
 }
 
@@ -8294,8 +9347,8 @@ async function handleKanbanEditorArchiveToggle(): Promise<void> {
       scheduleRefreshTasks(120, 'silent-full');
     }
   } catch (error) {
-    console.error('[KanbanView] 切换任务归档失败:', error);
-    await pushMsg('归档操作失败，请稍后重试', 3000);
+    console.error('[KanbanView] Failed to toggle task archive:', error);
+    await pushMsg(t('kanbanView.archiveOperationFailedRetry'), 3000);
   }
 }
 
@@ -8305,7 +9358,7 @@ async function handleKanbanEditorDelete(): Promise<void> {
     return;
   }
 
-  if (!window.confirm('确认删除该任务？')) {
+  if (!window.confirm(t('taskManager.confirmDelete'))) {
     return;
   }
 
@@ -8325,8 +9378,8 @@ async function handleKanbanEditorDelete(): Promise<void> {
       scheduleRefreshTasks(120, 'silent-full');
     }
   } catch (error) {
-    console.error('[KanbanView] 删除任务失败:', error);
-    await pushMsg('删除任务失败，请稍后重试', 3000);
+    console.error('[KanbanView] Failed to delete task:', error);
+    await pushMsg(t('kanbanView.deleteTaskFailedRetry'), 3000);
   }
 }
 
@@ -8336,6 +9389,8 @@ function closeKanbanEditor(): void {
   kanbanEditorTaskId.value = null;
   kanbanEditorDraft.value = null;
   kanbanEditorQuickPanel.value = null;
+  kanbanEditorRepeatFrequency.value = 'none';
+  kanbanEditorRepeatRule.value = null;
   kanbanEditorPriorityPopover.value = null;
   showKanbanTaskMoveDialog.value = false;
   isKanbanTaskMoveSubmitting.value = false;
@@ -8388,7 +9443,12 @@ function handleKanbanEditorOutsideClick(event: MouseEvent): void {
   );
   const isInsideDatePopover = path.some(node =>
     node instanceof HTMLElement
-    && (node.classList.contains('date-popover') || node.classList.contains('date-popover-overlay'))
+    && (
+      node.classList.contains('date-popover')
+      || node.classList.contains('date-popover-overlay')
+      || node.classList.contains('repeat-dialog')
+      || node.classList.contains('repeat-dialog-overlay')
+    )
   );
   if (isMobileFrontend && isMobileTableSearchExpanded.value) {
     const isInsideTaskSearch = path.some(node =>
@@ -8620,7 +9680,7 @@ async function resolveKanbanEditorTargetTask(task: Task): Promise<Task | null> {
       return fetchedTemplateTask;
     }
   } catch (error) {
-    console.warn('[KanbanView] 解析重复任务模板失败:', error);
+    console.warn('[KanbanView] Failed to parse repeat template:', error);
   }
 
   return null;
@@ -8630,7 +9690,7 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
   const targetTask = await resolveKanbanEditorTargetTask(task);
   const blockId = typeof targetTask?.blockId === 'string' ? targetTask.blockId.trim() : '';
   if (!targetTask || targetTask.type !== 'block' || !blockId) {
-    const message = task.isVirtual ? '未找到重复任务模板，无法编辑' : '该任务无法编辑';
+    const message = task.isVirtual ? t('kanbanView.repeatTemplateMissing') : t('kanbanView.taskCannotEdit');
     await pushMsg(message, 2000);
     return;
   }
@@ -8659,6 +9719,7 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
     groupId: typeof targetTask.groupId === 'string' ? targetTask.groupId : '',
     priority: targetTask.priority || 'none'
   };
+  syncKanbanEditorRepeatState(targetTask);
   kanbanEditorQuickPanel.value = null;
   kanbanEditorPriorityPopover.value = null;
   openingKanbanEditorBlockIds.add(blockId);
@@ -8672,7 +9733,7 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
   if (!plugin?.app || !mountElement) {
     openingKanbanEditorBlockIds.delete(blockId);
     closeKanbanEditor();
-    await pushMsg('编辑器初始化失败', 2000);
+    await pushMsg(t('kanbanView.editorInitFailed'), 2000);
     return;
   }
 
@@ -8707,16 +9768,84 @@ async function openKanbanEditor(task: Task, event: MouseEvent): Promise<void> {
   } catch {
     kanbanEditorProtyle = null;
     closeKanbanEditor();
-    await pushMsg('编辑器打开失败', 2000);
+    await pushMsg(t('kanbanView.editorOpenFailed'), 2000);
   } finally {
     openingKanbanEditorBlockIds.delete(blockId);
   }
 }
 
 async function handleTaskEditClick(task: Task): Promise<void> {
-  if (task.type === 'block' && task.blockId) {
-    await openBlockById(task.blockId);
+  const targetTask = await resolveKanbanEditorTargetTask(task);
+  const blockId = typeof targetTask?.blockId === 'string' ? targetTask.blockId.trim() : '';
+  if (targetTask?.type === 'block' && blockId) {
+    await openBlockById(blockId);
   }
+}
+
+function applyExternalTaskDateChange(updatedTask: Task): void {
+  if (!updatedTask?.id && !updatedTask?.blockId) {
+    return;
+  }
+
+  const existingTask = tasks.value.find(task => task.id === updatedTask.id)
+    || (updatedTask.blockId ? tasks.value.find(task => task.blockId === updatedTask.blockId) : null);
+  const taskId = existingTask?.id || updatedTask.id;
+  if (!taskId) {
+    return;
+  }
+  const hasOwn = (key: keyof Task) => Object.prototype.hasOwnProperty.call(updatedTask, key);
+  const nextStartDate = hasOwn('startDate') ? (updatedTask.startDate || '') : (existingTask?.startDate || '');
+  const nextDueDate = hasOwn('dueDate') ? (updatedTask.dueDate || '') : (existingTask?.dueDate || '');
+  const nextStartTime = hasOwn('startTime') ? (updatedTask.startTime || '') : (existingTask?.startTime || '');
+  const nextDueTime = hasOwn('dueTime') ? (updatedTask.dueTime || '') : (existingTask?.dueTime || '');
+  const nextTask: Task = {
+    ...(existingTask || updatedTask),
+    id: taskId,
+    blockId: existingTask?.blockId || updatedTask.blockId,
+    startDate: nextStartDate,
+    dueDate: nextDueDate,
+    startTime: nextStartTime,
+    dueTime: nextDueTime,
+    updatedAt: updatedTask.updatedAt || new Date().toISOString()
+  };
+
+  if (updatedTask.backgroundColor !== undefined) {
+    nextTask.backgroundColor = updatedTask.backgroundColor;
+  }
+
+  if (existingTask) {
+    const ts = Date.now();
+    crdtRepo.updateTaskField(taskId, 'startDate', nextStartDate, ts);
+    crdtRepo.updateTaskField(taskId, 'dueDate', nextDueDate, ts);
+    crdtRepo.updateTaskField(taskId, 'startTime', nextStartTime, ts);
+    crdtRepo.updateTaskField(taskId, 'dueTime', nextDueTime, ts);
+    if (updatedTask.backgroundColor !== undefined) {
+      crdtRepo.updateTaskField(taskId, 'backgroundColor', updatedTask.backgroundColor, ts);
+    }
+    updateTasks();
+    tasks.value = applyDraggedStatusLocks(tasks.value);
+  } else {
+    crdtRepo.syncIncrementalTasks([nextTask]);
+    tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
+  }
+
+  if (kanbanEditorDraft.value?.taskId === taskId) {
+    kanbanEditorDraft.value.startDate = nextTask.startDate || '';
+    kanbanEditorDraft.value.startTime = nextTask.startTime || '';
+    kanbanEditorDraft.value.dueDate = nextTask.dueDate || '';
+    kanbanEditorDraft.value.dueTime = nextTask.dueTime || '';
+  }
+
+  const blockId = typeof nextTask.blockId === 'string' ? nextTask.blockId.trim() : '';
+  if (blockId) {
+    queueIncrementalUpdates([blockId], { allowUnknown: true }, 80);
+  }
+  scheduleKernelTaskIndexRefresh(260);
+  invalidateTableFilters();
+  nextTick(() => {
+    scheduleAllKanbanMetricsUpdates();
+    scheduleListViewMetricsUpdate();
+  });
 }
 
 function handleTaskDateChanged(updatedTask: Task) {
@@ -8745,7 +9874,75 @@ function handleTaskDateChanged(updatedTask: Task) {
   }
   
   updateTasks();
+  scheduleKernelTaskIndexRefresh();
   eventBus.emit('task-date-changed', updatedTask);
+}
+
+async function handleGanttTaskDateChanged(updatedTask: Task) {
+  try {
+    const isRepeatTask = !!updatedTask.repeatSeriesId || (!!updatedTask.repeatFrequency && updatedTask.repeatFrequency !== 'none');
+    if (isRepeatTask) {
+      const nextStartDate = updatedTask.startDate || null;
+      let nextDueDate = updatedTask.dueDate || null;
+      const nextStartTime = updatedTask.startTime || null;
+      const nextDueTime = updatedTask.dueTime || null;
+      if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
+        nextDueDate = nextStartDate;
+      }
+
+      const updatedSeries = await updateRepeatSeriesDates(
+        updatedTask,
+        nextStartDate,
+        nextDueDate,
+        {
+          startTime: nextStartTime,
+          dueTime: nextDueTime
+        },
+        { emitChange: false }
+      );
+
+      if (updatedSeries) {
+        const templateTask = await resolveKanbanEditorTargetTask(updatedTask);
+        const templateUpdate = templateTask
+          ? {
+            ...templateTask,
+            startDate: updatedSeries.startDate || '',
+            startTime: updatedSeries.startTime || undefined,
+            dueDate: updatedSeries.endDate || '',
+            dueTime: updatedSeries.dueTime || undefined
+          }
+          : null;
+
+        if (templateUpdate) {
+          await TaskRepository.updateTask(templateUpdate.id, {
+            startDate: templateUpdate.startDate,
+            startTime: templateUpdate.startTime,
+            dueDate: templateUpdate.dueDate,
+            dueTime: templateUpdate.dueTime
+          });
+          handleTaskDateChanged(templateUpdate);
+        }
+
+        notifyRepeatChanged({
+          blockId: templateTask?.blockId || updatedSeries.templateBlockId,
+          seriesId: updatedSeries.id,
+          frequency: updatedSeries.frequency
+        });
+        return;
+      }
+    }
+
+    await TaskRepository.updateTask(updatedTask.id, {
+      startDate: updatedTask.startDate || '',
+      startTime: updatedTask.startTime || undefined,
+      dueDate: updatedTask.dueDate || '',
+      dueTime: updatedTask.dueTime || undefined
+    });
+    handleTaskDateChanged(updatedTask);
+  } catch (error) {
+    console.error('[GanttView] failed to update task dates', error);
+    pushMsg('Failed to update task dates');
+  }
 }
 
 function normalizeDocPath(notebookName: string, hPath: string): string {
@@ -8759,10 +9956,14 @@ function normalizeDocPath(notebookName: string, hPath: string): string {
 function getCurrentSidebarFilterSelection(): { sourceValue: string; documentId: string } {
   switch (currentView.value) {
     case 'kanban':
-    case 'list':
       return {
         sourceValue: kanbanFilterType.value,
         documentId: kanbanFilterDocument.value
+      };
+    case 'list':
+      return {
+        sourceValue: listFilterType.value,
+        documentId: listFilterDocument.value
       };
     case 'table':
     case 'archive-table':
@@ -8792,7 +9993,7 @@ function getCurrentSidebarFilterSelection(): { sourceValue: string; documentId: 
 }
 
 function taskModalTranslate(key: string): string {
-  return key;
+  return t(key);
 }
 
 function resolvePreferredTaskModalGroupId(): string {
@@ -8818,6 +10019,10 @@ function resolveTaskModalDefaults(): { notebookId: string; documentId: string; g
   const firstNotebookId = enabledNotebooks.value[0]?.id || '';
   const sidebarSource = parseDocumentSource(sidebarSelection.sourceValue);
   const sidebarSourceDocuments = getDocumentEntriesBySource(sidebarSelection.sourceValue);
+  const configuredDefaultNotebook = typeof userSettings.taskManager.defaultTaskCreateNotebook === 'string'
+    && enabledNotebookIdSet.has(userSettings.taskManager.defaultTaskCreateNotebook)
+    ? userSettings.taskManager.defaultTaskCreateNotebook
+    : '';
 
   let notebookId = '';
   if (sidebarSource.kind === 'group' || sidebarSource.kind === 'goal') {
@@ -8831,6 +10036,9 @@ function resolveTaskModalDefaults(): { notebookId: string; documentId: string; g
   } else if (sidebarSource.kind === 'notebook' && enabledNotebookIdSet.has(sidebarSource.id)) {
     notebookId = sidebarSource.id;
   }
+  if (!notebookId && configuredDefaultNotebook) {
+    notebookId = configuredDefaultNotebook;
+  }
   if (!notebookId && taskModalDefaultNotebook.value && enabledNotebookIdSet.has(taskModalDefaultNotebook.value)) {
     notebookId = taskModalDefaultNotebook.value;
   }
@@ -8840,7 +10048,11 @@ function resolveTaskModalDefaults(): { notebookId: string; documentId: string; g
 
   const documentIdSet = new Set(getDocumentEntriesByNotebook(notebookId).map(doc => doc.id));
   let documentId = PINCH_INBOX_OPTION_ID;
-  if (sidebarSource.kind === 'group' || sidebarSource.kind === 'goal') {
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'daily-note') {
+    documentId = PINCH_DAILY_NOTE_OPTION_ID;
+  } else if (userSettings.taskManager.defaultTaskCreateTarget === 'inbox') {
+    documentId = PINCH_INBOX_OPTION_ID;
+  } else if (sidebarSource.kind === 'group' || sidebarSource.kind === 'goal') {
     const preferredGroupDocument =
       sidebarSourceDocuments.find(doc => doc.id === sidebarSelection.documentId)
       || sidebarSourceDocuments.find(doc => doc.id === taskModalDefaultDocument.value)
@@ -8850,9 +10062,12 @@ function resolveTaskModalDefaults(): { notebookId: string; documentId: string; g
     }
   } else if (sidebarSelection.documentId !== 'all' && documentIdSet.has(sidebarSelection.documentId)) {
     documentId = sidebarSelection.documentId;
+  } else if (taskModalDefaultDocument.value === PINCH_DAILY_NOTE_OPTION_ID) {
+    documentId = PINCH_DAILY_NOTE_OPTION_ID;
   } else if (
     taskModalDefaultDocument.value
     && taskModalDefaultDocument.value !== PINCH_INBOX_OPTION_ID
+    && taskModalDefaultDocument.value !== PINCH_DAILY_NOTE_OPTION_ID
     && documentIdSet.has(taskModalDefaultDocument.value)
   ) {
     documentId = taskModalDefaultDocument.value;
@@ -8873,7 +10088,7 @@ function resolveTaskModalDefaults(): { notebookId: string; documentId: string; g
 
 async function openHeaderTaskModal(): Promise<void> {
   if (enabledNotebooks.value.length === 0) {
-    await pushMsg('暂无可用笔记本，请先在任务范围中启用笔记本', 3000);
+    await pushMsg(t('kanbanView.noAvailableNotebooks'), 3000);
     return;
   }
   await ensureTaskGroupsLoaded();
@@ -8898,6 +10113,52 @@ async function ensureInboxDocument(notebookId: string): Promise<string> {
   return PINCH_INBOX_PATH;
 }
 
+function extractDailyNoteId(result: Awaited<ReturnType<typeof createDailyNote>>): string {
+  if (typeof result === 'string') {
+    return result;
+  }
+  if (result && typeof result === 'object') {
+    return result.id || result.rootId || '';
+  }
+  return '';
+}
+
+function normalizeNotebookDocPathForCreate(notebookId: string, hPath: string): string {
+  const notebook = notebooks.value.find(nb => nb.id === notebookId);
+  const normalizedHPath = hPath.startsWith('/') ? hPath : `/${hPath}`;
+  if (!notebook?.name) {
+    return normalizedHPath;
+  }
+  const notebookPrefix = `/${notebook.name}/`;
+  if (normalizedHPath.startsWith(notebookPrefix)) {
+    return `/${normalizedHPath.slice(notebookPrefix.length)}`;
+  }
+  return normalizedHPath;
+}
+
+async function ensureDailyNoteDocument(notebookId: string): Promise<string> {
+  const result = await createDailyNote(notebookId);
+  if (result && typeof result === 'object') {
+    const directPath = typeof result.path === 'string' && result.path.trim()
+      ? result.path.trim()
+      : typeof result.hPath === 'string' && result.hPath.trim()
+        ? result.hPath.trim()
+        : '';
+    if (directPath) {
+      return normalizeNotebookDocPathForCreate(notebookId, directPath);
+    }
+  }
+  const dailyNoteId = extractDailyNoteId(result);
+  if (!dailyNoteId) {
+    throw new Error('Failed to create daily note');
+  }
+  const hPath = await getHPathByID(dailyNoteId);
+  if (!hPath) {
+    throw new Error('Failed to resolve daily note path');
+  }
+  return normalizeNotebookDocPathForCreate(notebookId, hPath);
+}
+
 async function handleTaskModalCreate(
   taskData: TaskModalCreateTaskPayload,
   notebookId: string,
@@ -8905,7 +10166,9 @@ async function handleTaskModalCreate(
 ): Promise<void> {
   try {
     let docPath = '';
-    if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
+    if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
+      docPath = await ensureDailyNoteDocument(notebookId);
+    } else if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
       const target = resolveCreateTarget(notebookId, documentId);
       docPath = target?.docPath || '';
     }
@@ -8946,8 +10209,8 @@ async function handleTaskModalCreate(
       scheduleRefreshTasks(180, 'silent-full');
     }
   } catch (error) {
-    console.error('[KanbanView] 通过弹窗创建任务失败:', error);
-    await pushMsg('创建任务失败，请稍后重试', 3000);
+    console.error('[KanbanView] Failed to create task via modal:', error);
+    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
   }
 }
 
@@ -9158,7 +10421,7 @@ async function ensureTaskListDropTarget(
     if (insertMeta.listItemId) {
       await deleteBlock(insertMeta.listItemId).catch(() => undefined);
     }
-    throw new Error('创建标题任务列表容器失败');
+    throw new Error('Failed to create task list container for heading');
   }
 
   return {
@@ -9171,7 +10434,7 @@ async function ensureTaskListDropTarget(
 async function moveTaskBlockToHeadingMeta(blockId: string, headingMeta: TaskHeadingGroupMeta): Promise<void> {
   const dropTarget = await resolveTaskHeadingDropTarget(headingMeta);
   if (!dropTarget) {
-    throw new Error('无法解析目标标题位置');
+    throw new Error('Failed to resolve target heading position');
   }
 
   let moveParentId = dropTarget.parentId;
@@ -9234,7 +10497,7 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
     show: true,
     mode,
     headingTitle: '',
-    title: mode === 'heading-task' ? '' : '新建任务',
+    title: mode === 'heading-task' ? '' : t('taskManager.newTask'),
     payload,
     context: options.context || null
   };
@@ -9328,17 +10591,17 @@ async function submitQuickCreateTask() {
   const trimmedTitle = quickCreateDialog.value.title.trim();
   if (!payload) return;
   if (isHeadingTaskMode && !headingTitle) {
-    await pushMsg('请输入标题名称', 2000);
+    await pushMsg(t('kanbanView.enterHeadingName'), 2000);
     return;
   }
   if (!trimmedTitle) {
-    await pushMsg('请输入任务标题', 2000);
+    await pushMsg(t('kanbanView.enterTaskTitle'), 2000);
     return;
   }
 
   const target = context?.fixedTarget || resolveCreateTarget(quickCreateNotebookId.value, quickCreateDocumentId.value);
   if (!target) {
-    await pushMsg('请先选择笔记本和文档', 3000);
+    await pushMsg(t('kanbanView.selectNotebookAndDocument'), 3000);
     return;
   }
 
@@ -9347,7 +10610,7 @@ async function submitQuickCreateTask() {
     if (isHeadingTaskMode) {
       const headingBlockId = await createQuickCreateHeading(target.documentId, headingTitle);
       if (!headingBlockId) {
-        await pushMsg('创建标题失败，请稍后重试', 3000);
+        await pushMsg(t('kanbanView.createHeadingFailedRetry'), 3000);
         return;
       }
       headingMetaForNewTask = {
@@ -9401,8 +10664,8 @@ async function submitQuickCreateTask() {
         try {
           await moveTaskBlockToHeadingMeta(created.blockId, targetHeadingMeta);
         } catch (error) {
-          console.error('[KanbanView] 新建任务后移动到标题失败:', error);
-          await pushMsg('任务已创建，但移动到标题失败', 3000);
+          console.error('[KanbanView] Failed to move new task to heading:', error);
+          await pushMsg(t('kanbanView.taskCreatedMoveHeadingFailed'), 3000);
         }
       }
     }
@@ -9434,8 +10697,8 @@ async function submitQuickCreateTask() {
       scheduleRefreshTasks(180, 'silent-full');
     }
   } catch (error) {
-    console.error('[KanbanView] 创建任务失败:', error);
-    await pushMsg('创建任务失败，请稍后重试', 3000);
+    console.error('[KanbanView] Failed to create task:', error);
+    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
   }
 }
 
@@ -9473,7 +10736,7 @@ async function toggleTaskStatus(task: Task) {
       }
     }
   } catch (error) {
-    console.error('[KanbanView] 切换任务状态失败:', error);
+    console.error('[KanbanView] Failed to toggle task status:', error);
   }
 }
 
@@ -9614,7 +10877,7 @@ async function handleSubtaskDescriptionUpdate(parentTask: Task, subtask: SubTask
       targetSubtask.description = normalizedDescription;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务描述失败'
+    'Failed to update subtask description'
   );
 }
 
@@ -9631,7 +10894,7 @@ async function handleSubtaskPriorityUpdate(parentTask: Task, subtask: SubTask, p
       targetSubtask.priority = normalizedPriority;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务优先级失败'
+    'Failed to update subtask priority'
   );
 }
 
@@ -9650,7 +10913,7 @@ async function handleSubtaskStatusUpdate(parentTask: Task, subtask: SubTask, sta
       targetSubtask.completed = normalizedStatus === 'completed';
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务状态失败',
+    'Failed to update subtask status',
     async (blockId) => {
       await updateTaskMarkdown(blockId, normalizedStatus === 'completed');
     }
@@ -9671,7 +10934,7 @@ async function handleSubtaskGroupUpdate(parentTask: Task, subtask: SubTask, grou
       targetSubtask.groupId = normalizedGroupId || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务标签失败'
+    'Failed to update subtask group'
   );
 }
 
@@ -9689,7 +10952,7 @@ async function handleSubtaskStartDateUpdate(parentTask: Task, subtask: SubTask, 
       targetSubtask.startDate = normalizedStartDate || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务开始日期失败'
+    'Failed to update subtask start date'
   );
 }
 
@@ -9707,7 +10970,7 @@ async function handleSubtaskDueDateUpdate(parentTask: Task, subtask: SubTask, du
       targetSubtask.dueDate = normalizedDueDate || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务截止日期失败'
+    'Failed to update subtask due date'
   );
 }
 
@@ -9725,7 +10988,7 @@ async function handleSubtaskStartTimeUpdate(parentTask: Task, subtask: SubTask, 
       targetSubtask.startTime = normalizedStartTime || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务开始时间失败'
+    'Failed to update subtask start time'
   );
 }
 
@@ -9743,7 +11006,7 @@ async function handleSubtaskDueTimeUpdate(parentTask: Task, subtask: SubTask, du
       targetSubtask.dueTime = normalizedDueTime || undefined;
       targetSubtask.updatedAt = new Date().toISOString();
     },
-    '更新子任务截止时间失败'
+    'Failed to update subtask due time'
   );
 }
 
@@ -9753,7 +11016,7 @@ async function handleDescriptionUpdate(task: Task, description: string) {
     { 'custom-task-description': description || '' },
     'description',
     description,
-    '更新任务描述失败'
+    'Failed to update task description'
   );
 }
 
@@ -9763,7 +11026,7 @@ async function handlePriorityUpdate(task: Task, priority: Task['priority']) {
     { 'custom-task-priority': priority },
     'priority',
     priority,
-    '更新任务优先级失败'
+    'Failed to update task priority'
   );
 }
 
@@ -9774,7 +11037,7 @@ async function handleStatusUpdate(task: Task, status: Task['status']) {
     { 'custom-task-status': status },
     'status',
     status,
-    '更新任务状态失败',
+    'Failed to update task status',
     async (blockId) => {
       await updateTaskMarkdown(blockId, status === 'completed');
     }
@@ -9794,7 +11057,7 @@ async function handleGroupUpdate(task: Task, groupId: string) {
     { 'custom-task-group': normalizedGroupId || '' },
     'groupId',
     normalizedGroupId || undefined,
-    '更新任务标签失败'
+    'Failed to update task group'
   );
   invalidateTableFilters();
 }
@@ -9805,7 +11068,7 @@ async function handleStartDateUpdate(task: Task, startDate: string) {
     { 'custom-task-start-date': startDate || '' },
     'startDate',
     startDate,
-    '更新开始日期失败'
+    'Failed to update start date'
   );
 }
 
@@ -9815,7 +11078,7 @@ async function handleDueDateUpdate(task: Task, dueDate: string) {
     { 'custom-task-due-date': dueDate || '' },
     'dueDate',
     dueDate,
-    '更新截止日期失败'
+    'Failed to update due date'
   );
 }
 
@@ -9830,7 +11093,7 @@ async function handleStartTimeUpdate(task: Task, startTime: string) {
     { 'custom-task-start-time': normalizedStartTime || '' },
     'startTime',
     normalizedStartTime || undefined,
-    '更新开始时间失败'
+    'Failed to update start time'
   );
 }
 
@@ -9845,7 +11108,7 @@ async function handleDueTimeUpdate(task: Task, dueTime: string) {
     { 'custom-task-due-time': normalizedDueTime || '' },
     'dueTime',
     normalizedDueTime || undefined,
-    '更新截止时间失败'
+    'Failed to update due time'
   );
 }
 
@@ -9854,8 +11117,14 @@ function updateTaskLocalField<K extends keyof Task>(taskId: string, field: K, va
   if (taskIndex === -1) {
     return;
   }
-  tasks.value[taskIndex][field] = value;
-  tasks.value[taskIndex].updatedAt = new Date().toISOString();
+  crdtRepo.updateTaskField(taskId, field as any, value);
+  updateTasks();
+  const updatedTaskIndex = tasks.value.findIndex(t => t.id === taskId);
+  if (updatedTaskIndex === -1) {
+    return;
+  }
+  tasks.value[updatedTaskIndex][field] = value;
+  tasks.value[updatedTaskIndex].updatedAt = new Date().toISOString();
 }
 
 function syncTaskLocalStatusState(taskId: string, status: Task['status']): void {
@@ -9865,7 +11134,16 @@ function syncTaskLocalStatusState(taskId: string, status: Task['status']): void 
   }
 
   const nowIso = new Date().toISOString();
-  const targetTask = tasks.value[taskIndex];
+  const nowTs = Date.now();
+  crdtRepo.updateTaskField(taskId, 'status', status, nowTs);
+  crdtRepo.updateTaskField(taskId, 'completedAt', status === 'completed' ? nowIso : undefined, nowTs);
+  updateTasks();
+  const updatedTaskIndex = tasks.value.findIndex(t => t.id === taskId);
+  if (updatedTaskIndex === -1) {
+    return;
+  }
+
+  const targetTask = tasks.value[updatedTaskIndex];
   targetTask.status = status;
   if (status === 'completed') {
     targetTask.completedAt = targetTask.completedAt || nowIso;
@@ -10041,8 +11319,8 @@ async function reorderTaskGroupsByColumnDrag(
     try {
       await saveUserSettings();
     } catch (error) {
-      console.error('[KanbanView] 标签列排序保存失败:', error);
-      await pushMsg('标签列排序保存失败，请稍后重试', 2600);
+      console.error('[KanbanView] Failed to save tag column order:', error);
+      await pushMsg(t('kanbanView.saveTagColumnOrderFailed'), 2600);
     }
     return;
   }
@@ -10066,8 +11344,8 @@ async function reorderTaskGroupsByColumnDrag(
     taskGroups.value = refreshedGroups;
     eventBus.emit(Events.TASK_GROUPS_UPDATED, { groups: refreshedGroups });
   } catch (error) {
-    console.error('[KanbanView] 标签列排序保存失败:', error);
-    await pushMsg('标签列排序保存失败，请稍后重试', 2600);
+    console.error('[KanbanView] Failed to save tag column order:', error);
+    await pushMsg(t('kanbanView.saveTagColumnOrderFailed'), 2600);
   }
 }
 
@@ -10171,7 +11449,7 @@ function handleDragOver(event: DragEvent, column: KanbanColumn) {
     return;
   }
 
-  if (kanbanGroupBy.value === 'group') {
+  if (activeBoardGroupBy.value === 'group') {
     if (column.type !== 'group') {
       return;
     }
@@ -10182,7 +11460,7 @@ function handleDragOver(event: DragEvent, column: KanbanColumn) {
     return;
   }
 
-  if (kanbanGroupBy.value === 'heading') {
+  if (activeBoardGroupBy.value === 'heading') {
     if (column.type !== 'heading' || !column.headingMeta) {
       return;
     }
@@ -10212,7 +11490,7 @@ async function handleDrop(event: DragEvent, column: KanbanColumn) {
   
   if (!draggedTask.value) return;
 
-  if (kanbanGroupBy.value === 'group') {
+  if (activeBoardGroupBy.value === 'group') {
     if (column.type !== 'group') {
       return;
     }
@@ -10220,7 +11498,7 @@ async function handleDrop(event: DragEvent, column: KanbanColumn) {
     return;
   }
 
-  if (kanbanGroupBy.value === 'heading') {
+  if (activeBoardGroupBy.value === 'heading') {
     if (column.type !== 'heading') {
       return;
     }
@@ -10281,7 +11559,7 @@ async function handleGroupDrop(column: KanbanColumn) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
     }
   } catch (error) {
-    console.error('[KanbanView] 拖拽更新任务标签失败:', error);
+    console.error('[KanbanView] Failed to update task group via drag:', error);
     if (droppedBlockId) {
       dragSyncSuppressUntil.delete(droppedBlockId);
     }
@@ -10311,7 +11589,7 @@ async function handleHeadingDrop(column: KanbanColumn) {
 
   const task = draggedTask.value;
   if (!(task.type === 'block' && task.blockId)) {
-    pushMsg('只有块任务支持按标题拖动');
+    pushMsg(t('kanbanView.headingDragBlockOnly'));
     draggedTask.value = null;
     dragOverColumnId.value = null;
     return;
@@ -10352,7 +11630,7 @@ async function handleHeadingDrop(column: KanbanColumn) {
       eventBus.emit(Events.TASK_CHANGED, { blockIds: [droppedBlockId] });
     }, 500);
   } catch (error) {
-    console.error('[KanbanView] 拖拽移动任务到标题失败:', error);
+    console.error('[KanbanView] Failed to move task to heading via drag:', error);
     dragSyncSuppressUntil.delete(droppedBlockId);
     const nextGroupMap = new Map(taskHeadingGroups.value);
     if (previousMeta) {
@@ -10361,7 +11639,7 @@ async function handleHeadingDrop(column: KanbanColumn) {
       nextGroupMap.delete(taskId);
     }
     taskHeadingGroups.value = nextGroupMap;
-    pushMsg('移动到标题失败');
+    pushMsg(t('kanbanView.moveToHeadingFailed'));
   } finally {
     isDropping.value = false;
   }
@@ -10420,7 +11698,7 @@ async function handleStatusDrop(targetStatus: Task['status']) {
       playTaskCompletionSound();
     }
   } catch (error) {
-    console.error('[KanbanView] 拖拽更新任务状态失败:', error);
+    console.error('[KanbanView] Failed to update task status via drag:', error);
     if (droppedBlockId) {
       unlockDraggedTaskStatus(droppedBlockId);
       dragSyncSuppressUntil.delete(droppedBlockId);
@@ -10451,9 +11729,14 @@ onMounted(async () => {
   await loadSettings();
   TaskRepository.setAutoRecognizeTaskDateEnabled(userSettings.taskManager.autoRecognizeTaskDate === true);
   applyExcludedNotebookScope(normalizeNotebookIds(userSettings.taskManager.excludedNotebookIds));
-  const initialView = normalizeTaskViewMode(userSettings.kanban?.currentView);
+  const storedInitialView = normalizeTaskViewMode(userSettings.kanban?.currentView);
+  const initialView = viewSwitcherOptions.value.some(option => option.value === storedInitialView)
+    ? storedInitialView
+    : viewSwitcherOptions.value[0]?.value || 'table';
   const initialLoadMode = resolveTaskLoadModeForView(initialView);
-  currentView.value = initialView;
+  currentView.value = viewSwitcherOptions.value.some(option => option.value === initialView)
+    ? initialView
+    : viewSwitcherOptions.value[0]?.value || 'table';
   const initialKanbanGroupMode = resolveStoredTaskViewGroupMode(
     userSettings.kanban?.kanbanGroupBy,
     userSettings.kanban?.kanbanGroupMode,
@@ -10486,11 +11769,17 @@ onMounted(async () => {
       const cachedTasks = await TaskRepository.getCachedTasksOnly();
       if (cachedTasks.length > 0) {
         hydrateKanbanMemoTitlesSync(cachedTasks, KANBAN_TITLE_HYDRATE_LIMIT);
-        syncFromSQL(cachedTasks);
-        tasks.value = applyDraggedStatusLocks(tasks.value);
+        syncTaskSnapshot(cachedTasks);
         loadedTaskLoadMode.value = 'full';
         scheduleKanbanTitleHydration(120);
         shouldRunMountedReconcile = true;
+      } else {
+        const { tasks: lightTasks } = await TaskRepository.getKernelLightTasks(5000, { includeArchived: true });
+        if (lightTasks.length > 0) {
+          syncTaskSnapshot(lightTasks);
+          loadedTaskLoadMode.value = 'light-base';
+          shouldRunMountedReconcile = true;
+        }
       }
     } catch {
       // Ignore cache read failures and fallback to view-specific load.
@@ -10510,7 +11799,7 @@ onMounted(async () => {
   await loadUserSettings();
   if (shouldAwaitTaskGroups) {
     // Task groups are already awaited above for the initial active view.
-  } else if (kanbanGroupBy.value === 'group' || tableGroupBy.value === 'group') {
+  } else if (kanbanGroupBy.value === 'group' || listGroupBy.value === 'group' || tableGroupBy.value === 'group') {
     void ensureTaskGroupsLoaded();
   }
   if (shouldRunMountedReconcile) {
@@ -10574,6 +11863,10 @@ onUnmounted(() => {
     clearTimeout(kanbanTitleHydrateTimer);
     kanbanTitleHydrateTimer = null;
   }
+  if (kernelTaskIndexRefreshTimer !== null) {
+    clearTimeout(kernelTaskIndexRefreshTimer);
+    kernelTaskIndexRefreshTimer = null;
+  }
   if (documentIconRefreshTimer !== null) {
     clearTimeout(documentIconRefreshTimer);
     documentIconRefreshTimer = null;
@@ -10599,7 +11892,10 @@ onUnmounted(() => {
     cancelAnimationFrame(listViewMetricsRaf);
     listViewMetricsRaf = null;
   }
+  pendingKanbanMetricColumnIds.clear();
   kanbanColumnElements.clear();
+  kanbanColumnTaskHeightCache.clear();
+  listViewTaskHeightCache.clear();
 });
 
 const taskDocumentIconWatchSignature = computed(() =>
@@ -10614,8 +11910,25 @@ const taskDocumentIconWatchSignature = computed(() =>
     .join('|')
 );
 
+const taskDocumentMetadataWatchSignature = computed(() =>
+  tasks.value
+    .filter(task => task.type === 'block')
+    .map(task => {
+      const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+      const hasPath = typeof task.hPath === 'string' && task.hPath.trim().length > 0 ? '1' : '0';
+      return rootId ? `${rootId}:${hasPath}` : '';
+    })
+    .filter(value => value.length > 0)
+    .sort()
+    .join('|')
+);
+
 watch(taskDocumentIconWatchSignature, () => {
   scheduleTaskDocumentIconRefresh();
+}, { immediate: true });
+
+watch(taskDocumentMetadataWatchSignature, () => {
+  scheduleTaskDocumentMetadataRefresh();
 }, { immediate: true });
 
 watch(documentTabPopoverOptions, () => {
@@ -10685,17 +11998,22 @@ watch(currentView, (nextView) => {
     closeKanbanEditor();
   }
   void ensureTasksLoadedForView(nextView, {
-    silent: true,
+    silent: nextView !== 'gantt',
     validateSelection: false
   });
   if (nextView === 'kanban' || nextView === 'list') {
     void ensureTaskGroupsLoaded();
     scheduleKanbanTitleHydration(120);
+    nextTick(() => {
+      scheduleAllKanbanMetricsUpdates();
+      scheduleListViewMetricsUpdate();
+    });
     if (nextView === 'list') {
       nextTick(() => {
         const el = listViewRef.value;
         if (el) {
           listViewMetrics.value = { scrollTop: el.scrollTop, height: el.clientHeight };
+          updateListViewMetricsAndMeasurements(el);
         }
       });
     }

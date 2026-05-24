@@ -4,14 +4,19 @@
       <Transition name="pop">
         <div class="modal-content" @click.stop v-show="show">
       <div class="modal-header">
-        <h3>心情打卡 - {{ selectedDate }}</h3>
-        <button @click="emit('close')" class="icon-button" title="关闭" aria-label="关闭">
+        <h3>{{ t('moodTracker.titlePrefix') }} - {{ selectedDate }}</h3>
+        <button
+          @click="emit('close')"
+          class="icon-button"
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
+        >
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>选择心情</label>
+          <label>{{ t('moodTracker.selectMood') }}</label>
           <div class="emoji-selector">
             <div class="mood-emoji-grid">
               <span 
@@ -26,13 +31,19 @@
           </div>
         </div>
         <div class="form-group">
-          <label>今日心情</label>
-          <SyTextarea v-model="localMoodEntry.note" placeholder="记录今天的心情或事件..." class="mood-input" />
+          <label>{{ t('moodTracker.todayMood') }}</label>
+          <SyTextarea
+            v-model="localMoodEntry.note"
+            :placeholder="t('moodTracker.notePlaceholder')"
+            class="mood-input"
+          />
         </div>
       </div>
       <div class="modal-footer">
-        <SyButton @click="handleDelete" class="danger-button" v-if="localMoodEntry.emoji || localMoodEntry.note">删除</SyButton>
-        <SyButton @click="handleSave" class="confirm-button">保存</SyButton>
+        <SyButton @click="handleDelete" class="danger-button" v-if="localMoodEntry.emoji || localMoodEntry.note">
+          {{ t('common.delete') }}
+        </SyButton>
+        <SyButton @click="handleSave" class="confirm-button">{{ t('common.save') }}</SyButton>
       </div>
         </div>
       </Transition>
@@ -45,6 +56,7 @@ import { ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue';
+import { useI18n } from '@/composables/useI18n';
 
 interface MoodEmoji {
   id: string;
@@ -66,6 +78,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   close: [];

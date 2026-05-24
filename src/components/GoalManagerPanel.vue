@@ -11,12 +11,12 @@
     <div class="goal-panel-body">
       <div class="goal-panel goal-list-panel">
         <div class="goal-panel-header">
-          <span>目标列表</span>
-          <SyButton class="goal-add-button" size="small" @click="addGoal">新增目标</SyButton>
+          <span>{{ t('goalManager.goalList') }}</span>
+          <SyButton class="goal-add-button" size="small" @click="addGoal">{{ t('goalManager.addGoal') }}</SyButton>
         </div>
 
         <div v-if="localGoals.length === 0" class="goal-empty">
-          还没有目标，先创建一个吧。
+          {{ t('goalManager.emptyGoals') }}
         </div>
         <div v-else class="goal-list">
           <button
@@ -31,8 +31,8 @@
               <button
                 type="button"
                 class="goal-emoji-btn"
-                aria-label="切换目标图标"
-                title="切换目标图标"
+                :aria-label="t('goalManager.switchGoalIcon')"
+                :title="t('goalManager.switchGoalIcon')"
                 @click.stop="openGoalEmojiPicker(goal.id, $event)"
               >
                 <span class="goal-emoji-display">{{ goal.emoji || '🎯' }}</span>
@@ -40,15 +40,15 @@
               <SyInput
                 class="goal-name-input"
                 :model-value="goal.name"
-                placeholder="输入目标名称"
+                :placeholder="t('goalManager.goalNamePlaceholder')"
                 @update:model-value="updateGoalName(goal.id, $event)"
               />
               <span class="goal-count">{{ goal.members.length }}</span>
               <button
                 type="button"
                 class="goal-delete"
-                aria-label="删除目标"
-                title="删除目标"
+                :aria-label="t('goalManager.deleteGoal')"
+                :title="t('goalManager.deleteGoal')"
                 @click.stop="removeGoal(goal.id)"
               >
                 <Icon name="trash" width="16" height="16" />
@@ -56,7 +56,7 @@
             </div>
             <div class="goal-item-footer">
               <div class="goal-due-date">
-                <label class="goal-due-date-label">截止日期</label>
+                <label class="goal-due-date-label">{{ t('taskManager.dueDate') }}</label>
                 <div class="goal-due-date-input-group">
                   <input
                     type="date"
@@ -69,8 +69,8 @@
                     :ref="el => setDueDateButtonRef(goal.id, el as HTMLElement)"
                     type="button"
                     class="goal-due-date-trigger"
-                    title="选择截止日期"
-                    aria-label="选择截止日期"
+                    :title="t('taskManager.pickDueDate')"
+                    :aria-label="t('taskManager.pickDueDate')"
                     @click.stop="openDueDatePopover(goal.id, goal.dueDate || '', $event)"
                   >
                     <Icon name="calendar" width="14" height="14" />
@@ -85,24 +85,24 @@
       <div class="goal-panel goal-document-panel">
         <div class="goal-panel-header">
           <div class="goal-panel-header-main">
-            <span>目标文档</span>
-            <span v-if="selectedGoal" class="goal-current">{{ selectedGoal.name || '未命名目标' }}</span>
+            <span>{{ t('goalManager.goalDocuments') }}</span>
+            <span v-if="selectedGoal" class="goal-current">{{ selectedGoal.name || t('taskManager.untitledGoal') }}</span>
           </div>
-          <span class="goal-panel-note">这里只显示当前已有任务的文档</span>
+          <span class="goal-panel-note">{{ t('goalManager.currentTaskDocumentsOnly') }}</span>
         </div>
 
         <div v-if="!selectedGoal" class="goal-empty">
-          先在左侧选中一个目标，再把文档加入它。
+          {{ t('goalManager.selectGoalFirst') }}
         </div>
         <template v-else>
           <SyInput
             class="goal-search-input"
             :model-value="documentSearch"
-            placeholder="搜索文档"
+            :placeholder="t('documentGroup.searchDocuments')"
             @update:model-value="documentSearch = $event"
           />
           <div v-if="filteredDocuments.length === 0" class="goal-empty">
-            当前没有可选文档。
+            {{ t('goalManager.noDocuments') }}
           </div>
           <div v-else class="goal-checkbox-list">
             <label
@@ -149,6 +149,7 @@ import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
 import type { Goal } from '@/goalRepository';
+import { useI18n } from '@/composables/useI18n';
 
 interface Props {
   goals: Goal[];
@@ -156,6 +157,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+const { t } = useI18n();
 
 const emit = defineEmits<{
   'update:goals': [goals: Goal[]];
@@ -314,7 +316,7 @@ function addGoal(): void {
   const nextGoal: Goal = {
     id: generateGoalId(),
     emoji: '🎯',
-    name: '新目标',
+    name: t('goalManager.newGoal'),
     members: [],
     order: localGoals.value.length,
     createdAt: nowIso,
@@ -332,7 +334,7 @@ function removeGoal(goalId: string): void {
     return;
   }
 
-  if (!confirm(`删除目标“${currentGoal.name || '未命名目标'}”？`)) {
+  if (!confirm(`${t('goalManager.confirmDeletePrefix')}“${currentGoal.name || t('taskManager.untitledGoal')}”？`)) {
     return;
   }
 

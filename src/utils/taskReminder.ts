@@ -1,3 +1,5 @@
+import { translate } from '@/composables/useI18n';
+
 export type TaskReminderType = 'due' | '5m' | '30m' | '60m' | '1d' | 'custom';
 
 export interface TaskReminderSelection {
@@ -33,11 +35,11 @@ const TASK_REMINDER_TYPE_SET = new Set<TaskReminderType>(['due', '5m', '30m', '6
 export const DEFAULT_TASK_REMINDER_DUE_TIME = '09:00';
 
 export const TASK_REMINDER_PRESET_OPTIONS: TaskReminderPresetOption[] = [
-  { value: 'due', label: '到点提醒', shortLabel: '到点' },
-  { value: '5m', label: '提前 5 分钟', shortLabel: '5 分钟前' },
-  { value: '30m', label: '提前 30 分钟', shortLabel: '30 分钟前' },
-  { value: '60m', label: '提前 60 分钟', shortLabel: '60 分钟前' },
-  { value: '1d', label: '提前 1 天', shortLabel: '1 天前' },
+  { value: 'due', label: translate('taskReminder.due'), shortLabel: translate('taskReminder.dueShort') },
+  { value: '5m', label: translate('taskReminder.before5m'), shortLabel: translate('taskReminder.before5mShort') },
+  { value: '30m', label: translate('taskReminder.before30m'), shortLabel: translate('taskReminder.before30mShort') },
+  { value: '60m', label: translate('taskReminder.before60m'), shortLabel: translate('taskReminder.before60mShort') },
+  { value: '1d', label: translate('taskReminder.before1d'), shortLabel: translate('taskReminder.before1dShort') },
 ];
 
 export function normalizeTaskReminderType(value?: string | null): TaskReminderType | undefined {
@@ -202,7 +204,7 @@ export function getTaskReminderLabel(reminderType?: string, reminderCustomTime?:
   }
 
   if (normalizedType === 'custom') {
-    return formatReminderDateTime(reminderCustomTime) || '自定义';
+    return formatReminderDateTime(reminderCustomTime) || translate('taskManager.custom');
   }
 
   return TASK_REMINDER_PRESET_OPTIONS.find(option => option.value === normalizedType)?.shortLabel || '';
@@ -215,7 +217,7 @@ export function getTaskReminderLongLabel(reminderType?: string, reminderCustomTi
   }
 
   if (normalizedType === 'custom') {
-    return formatReminderDateTime(reminderCustomTime) || '自定义提醒';
+    return formatReminderDateTime(reminderCustomTime) || translate('taskManager.customReminder');
   }
 
   return TASK_REMINDER_PRESET_OPTIONS.find(option => option.value === normalizedType)?.label || '';

@@ -2,24 +2,30 @@
   <div v-if="show" class="doc-bind-overlay" @click.self="emit('close')">
     <div class="doc-bind-dialog" @click.stop>
       <div class="doc-bind-header">
-        <div class="doc-bind-title">绑定备注文档</div>
-        <button type="button" class="icon-button" title="关闭" aria-label="关闭" @click="emit('close')">
+        <div class="doc-bind-title">{{ t('habitDocBind.title') }}</div>
+        <button
+          type="button"
+          class="icon-button"
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
+          @click="emit('close')"
+        >
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
       <div class="doc-bind-body">
-        <div class="doc-bind-label">文档 ID</div>
+        <div class="doc-bind-label">{{ t('habitDocBind.docId') }}</div>
         <input
           :value="docIdInput"
           class="doc-bind-input"
-          placeholder="请输入文档 ID，例如 20260222123000-abcdefg"
+          :placeholder="t('habitDocBind.placeholder')"
           @input="handleInput"
         />
       </div>
       <div class="doc-bind-actions">
-        <SyButton class="doc-bind-btn plain" @click="emit('close')">取消</SyButton>
-        <SyButton class="doc-bind-btn plain" @click="emit('clear')">清除绑定</SyButton>
-        <SyButton class="doc-bind-btn confirm" @click="emit('confirm')">保存绑定</SyButton>
+        <SyButton class="doc-bind-btn plain" @click="emit('close')">{{ t('common.cancel') }}</SyButton>
+        <SyButton class="doc-bind-btn plain" @click="emit('clear')">{{ t('habitDocBind.clear') }}</SyButton>
+        <SyButton class="doc-bind-btn confirm" @click="emit('confirm')">{{ t('habitDocBind.save') }}</SyButton>
       </div>
     </div>
   </div>
@@ -28,6 +34,7 @@
 <script setup lang="ts">
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import Icon from '@/components/Icon.vue';
+import { useI18n } from '@/composables/useI18n';
 
 interface Props {
   show: boolean;
@@ -35,6 +42,8 @@ interface Props {
 }
 
 defineProps<Props>();
+
+const { t } = useI18n();
 
 const emit = defineEmits<{
   close: [];

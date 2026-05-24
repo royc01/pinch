@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div
     class="week-view"
     :class="{
@@ -13,7 +13,7 @@
       </button>
       <div class="header-center">
         <div class="header-title">{{ displayWeekTitle }}</div>
-        <button class="today-btn" @click="goToToday">今天</button>
+        <button class="today-btn" @click="goToToday">{{ t('weekView.today') }}</button>
       </div>
       <div class="header-right">
         <button class="nav-btn" :title="nextNavLabel" :aria-label="nextNavLabel" @click="nextWeek">
@@ -31,7 +31,7 @@
       <div v-if="isMobileWeekGridMode" class="mobile-week-grid">
         <div class="mobile-week-cell mobile-month-cell">
           <div class="mobile-cell-header mobile-month-header">
-            <span class="mobile-cell-title">月历</span>
+            <span class="mobile-cell-title">{{ t('weekView.monthCalendar') }}</span>
             <span class="mobile-cell-date">{{ mobileCalendarTitle }}</span>
           </div>
           <div class="mobile-mini-calendar">
@@ -75,7 +75,7 @@
               v-for="task in getMobileDayTasks(day.key)"
               :key="task.id"
               class="mobile-task-chip"
-              :title="stripHtml(task.title)"
+              :title="getTaskDisplayTitle(task)"
               :class="[
                 `priority-${task.priority}`,
                 { 'task-completed': task.status === 'completed' }
@@ -91,12 +91,12 @@
               <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
                 <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
               </span>
-              <span class="mobile-task-chip-title">{{ stripHtml(task.title) }}</span>
+              <span class="mobile-task-chip-title">{{ getTaskDisplayTitle(task) }}</span>
               <span
                 v-if="task.priority !== 'none'"
                 class="task-priority-badge"
                 :class="`priority-${task.priority}`"
-                :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                :title="getPriorityTitle(task.priority)"
               >
                 <Icon name="flag" width="10" height="10" />
               </span>
@@ -104,7 +104,7 @@
                 <Icon name="open" width="14" height="14" />
               </span>
             </div>
-            <div v-if="getMobileDayTasks(day.key).length === 0" class="mobile-empty-tip">暂无任务</div>
+            <div v-if="getMobileDayTasks(day.key).length === 0" class="mobile-empty-tip">{{ t('taskManager.noTasks') }}</div>
           </div>
         </div>
       </div>
@@ -127,7 +127,7 @@
         </div>
         <div v-else class="weekday-header">
           <div class="all-day-label-cell">
-            <span class="all-day-label-text">全天</span>
+            <span class="all-day-label-text">{{ t('weekView.allDay') }}</span>
           </div>
           <div v-for="day in weekDays" :key="day.key" class="weekday-cell" :class="{ today: day.isToday }">
             <div class="weekday-name">{{ day.weekdayName }}</div>
@@ -170,7 +170,7 @@
                 v-for="task in visibleTasks"
                 :key="task.id"
                 class="all-day-task"
-                :title="stripHtml(task.title)"
+                :title="getTaskDisplayTitle(task)"
                 :class="[
                   `priority-${task.priority}`,
                   { 'task-completed': task.status === 'completed' },
@@ -205,12 +205,12 @@
                   >
                     <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                   </span>
-                  <span class="task-title-text">{{ stripHtml(task.title) }}</span>
+                  <span class="task-title-text">{{ getTaskDisplayTitle(task) }}</span>
                   <span
                     v-if="task.priority !== 'none'"
                     class="task-priority-badge"
                     :class="`priority-${task.priority}`"
-                    :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+                    :title="getPriorityTitle(task.priority)"
                   >
                     <Icon name="flag" width="10" height="10" />
                   </span>
@@ -240,8 +240,8 @@
             <button
               type="button"
               class="more-all-day-pill"
-              :title="`还有${hiddenTasksCount}个任务`"
-              :aria-label="`还有${hiddenTasksCount}个任务`"
+              :title="getHiddenTasksLabel(hiddenTasksCount)"
+              :aria-label="getHiddenTasksLabel(hiddenTasksCount)"
               @mousedown.stop
               @click.stop="showAllTasks"
             >
@@ -256,13 +256,13 @@
             @click.stop
           >
             <div class="day-expanded-header">
-              <span class="day-expanded-title">全天任务</span>
+              <span class="day-expanded-title">{{ t('weekView.allDayTasks') }}</span>
               <button
                 type="button"
                 class="day-expanded-close"
                 @click.stop="hideAllDayExpandedPanel"
               >
-                收起
+                {{ t('monthView.collapse') }}
               </button>
             </div>
             <div class="day-expanded-list">
@@ -270,7 +270,7 @@
                 v-for="task in allDayExpandedTasks"
                 :key="`expanded-all-day-${task.id}`"
                 class="day-expanded-chip"
-                :title="stripHtml(task.title)"
+                :title="getTaskDisplayTitle(task)"
                 :style="getExpandedAllDayChipStyle(task)"
                 :class="{ 'task-completed': task.status === 'completed' }"
                 @pointerdown="handleMobileTaskPointerDown($event, task)"
@@ -283,11 +283,11 @@
                   <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                 </span>
                 <span class="day-expanded-chip-title" @click.stop="handleTaskClick(task)">
-                  {{ stripHtml(task.title) }}
+                  {{ getTaskDisplayTitle(task) }}
                 </span>
               </div>
               <div v-if="allDayExpandedTasks.length === 0" class="day-expanded-empty">
-                暂无任务
+                {{ t('taskManager.noTasks') }}
               </div>
             </div>
           </div>
@@ -380,9 +380,9 @@
                 <div
                   v-for="item in (tasksByDay.get(day.key) || [])"
                   :key="item.task.id + '-' + item.renderDate"
-                  v-show="!isInactiveHoursCollapsed || item.renderStartTime >= '06:00'"
+                  v-show="shouldShowTimedTaskItem(item)"
                   class="timed-task"
-                  :title="stripHtml(item.task.title)"
+                  :title="getTaskDisplayTitle(item.task)"
                   :class="[
                     `priority-${item.task.priority}`,
                     { 'task-completed': item.task.status === 'completed' },
@@ -416,12 +416,12 @@
                       >
                         <TaskCheckbox :checked="item.task.status === 'completed'" :size="12" />
                       </span>
-                      <span class="task-title-text">{{ stripHtml(item.task.title) }}</span>
+                      <span class="task-title-text">{{ getTaskDisplayTitle(item.task) }}</span>
                       <span
                         v-if="item.task.priority !== 'none'"
                         class="task-priority-badge"
                         :class="`priority-${item.task.priority}`"
-                        :title="item.task.priority === 'high' ? '高优先级' : item.task.priority === 'medium' ? '中优先级' : '低优先级'"
+                        :title="getPriorityTitle(item.task.priority)"
                       >
                         <Icon name="flag" width="10" height="10" />
                       </span>
@@ -473,6 +473,7 @@
       :due-date="contextMenuDateDraft.dueDate"
       :due-time="contextMenuDateDraft.dueTime"
       :repeat-frequency="contextMenuRepeatFrequency"
+      :repeat-rule="contextMenuRepeatRule"
       @update:startDate="contextMenuDateDraft.startDate = $event"
       @update:startTime="contextMenuDateDraft.startTime = $event"
       @update:dueDate="contextMenuDateDraft.dueDate = $event"
@@ -499,21 +500,22 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
-import type { Task } from '@/api';
+import type { Task, TaskGroup } from '@/api';
 import { setBlockAttrs, TaskRepository } from '@/api';
 import { updateTaskMarkdown } from '@/utils/taskHelpers';
-import { stripHtml } from '@/composables/useTaskCommon';
-import { formatDate, formatTime, formatHour, formatChineseDate } from '@/composables/useDateUtils';
+import { getTaskDisplayTitle } from '@/composables/useTaskCommon';
+import { formatDate, formatTime, formatHour } from '@/composables/useDateUtils';
 import { CALENDAR_CONSTANTS } from '@/composables/useCalendarConstants';
 import { useDebouncedSave } from '@/composables/useDebouncedSave';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
-import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
+import { useI18n } from '@/composables/useI18n';
 import { openHabitTrackerFocusTimer } from '@/main';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 
@@ -521,6 +523,7 @@ interface Props {
   tasks: Task[];
   fixedDaysCount?: number;
   fixedCenterToday?: boolean;
+  taskGroups?: TaskGroup[];
 }
 
 interface WeekDay {
@@ -560,6 +563,68 @@ interface MobileMiniCalendarDay {
 }
 
 const props = defineProps<Props>();
+const { t } = useI18n();
+
+function formatTemplate(key: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    t(key)
+  );
+}
+
+function getLocaleTag(): string {
+  const siyuan = window.siyuan as any;
+  return String(
+    siyuan?.config?.appearance?.lang
+    || siyuan?.config?.lang
+    || navigator.language
+    || 'zh-CN'
+  ).replace('_', '-');
+}
+
+function formatLocaleWeekday(date: Date, width: 'narrow' | 'short'): string {
+  return new Intl.DateTimeFormat(getLocaleTag(), { weekday: width }).format(date);
+}
+
+function formatMonthDayLabel(date: Date): string {
+  return formatTemplate('weekView.monthDayTemplate', {
+    month: date.getMonth() + 1,
+    day: date.getDate()
+  });
+}
+
+function formatFullDateLabel(date: Date): string {
+  return formatTemplate('weekView.fullDateTemplate', {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate()
+  });
+}
+
+function formatYearMonthLabel(date: Date): string {
+  return formatTemplate('date.yearMonthTemplate', {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1
+  });
+}
+
+function formatDateRangeLabel(start: Date, end: Date, formatFn: (date: Date) => string): string {
+  return `${formatFn(start)} - ${formatFn(end)}`;
+}
+
+function getPriorityTitle(priority: Task['priority']): string {
+  if (priority === 'high') {
+    return t('taskManager.priorityHighLabel');
+  }
+  if (priority === 'medium') {
+    return t('taskManager.priorityMediumLabel');
+  }
+  return t('taskManager.priorityLowLabel');
+}
+
+function getHiddenTasksLabel(count: number): string {
+  return formatTemplate('monthView.moreTasksTemplate', { count });
+}
 
 const emit = defineEmits<{
   'taskDateChanged': [task: Task];
@@ -723,8 +788,22 @@ const MOBILE_DRAG_LONG_PRESS_MS = 280;
 const MOBILE_DRAG_MOVE_THRESHOLD_PX = 18;
 const MOBILE_TIMED_TASK_OPERATION_MOVE_THRESHOLD_PX = 10;
 const MOBILE_TIMED_TASK_SNAP_MINUTES = Math.min(CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES, 5);
-const mobileMiniWeekdayLabels = ['一', '二', '三', '四', '五', '六', '日'];
-const mobileWeekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const mobileMiniWeekdayLabels = computed(() => {
+  const monday = new Date(2024, 0, 1);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return formatLocaleWeekday(date, 'narrow');
+  });
+});
+const mobileWeekdayNames = computed(() => {
+  const monday = new Date(2024, 0, 1);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+    return formatLocaleWeekday(date, 'short');
+  });
+});
 const viewportWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth);
 const daysScrollRef = ref<HTMLElement | null>(null);
 const mobilePointerTaskDrag = ref<MobilePointerTaskDragSession | null>(null);
@@ -849,6 +928,7 @@ const contextMenuDateDraft = ref<{ startDate: string; startTime: string; dueDate
   dueTime: ''
 });
 const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
+const contextMenuRepeatRule = ref<RepeatRule | null>(null);
 let contextMenuOutsidePointerBound = false;
 
 function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined): RepeatFrequency {
@@ -858,6 +938,7 @@ function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined)
     || frequency === 'weekdays'
     || frequency === 'weekend'
     || frequency === 'weekly'
+    || frequency === 'custom'
   ) {
     return frequency;
   }
@@ -873,7 +954,7 @@ function handleContextMenuOutsidePointerDown(event: PointerEvent): void {
   if (menu && target instanceof Node && menu.contains(target)) {
     return;
   }
-  if (target instanceof Element && target.closest('.time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover')) {
+  if (target instanceof Element && target.closest('.time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog')) {
     return;
   }
   selectMobileAllDayTask(null);
@@ -919,25 +1000,55 @@ function pickRandomTaskBackgroundColor(): string {
   return weekDropColorValues[index];
 }
 
+function normalizeTaskBackgroundColorValue(backgroundColor?: string): string {
+  const raw = typeof backgroundColor === 'string' ? backgroundColor.trim() : '';
+  if (!raw) {
+    return '';
+  }
+  const cssVarMatch = raw.match(/^var\(--(pinch-background(?:10|[1-9]))\)$/);
+  if (cssVarMatch) {
+    return cssVarMatch[1];
+  }
+  return raw;
+}
+
+function resolveTaskGroupBackgroundColor(task: Pick<Task, 'groupId'>): string {
+  const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+  if (!groupId) {
+    return '';
+  }
+  const group = (props.taskGroups || []).find(item => item.id === groupId);
+  return normalizeTaskBackgroundColorValue(group?.color);
+}
+
+function resolveEffectiveTaskBackgroundColor(task: Pick<Task, 'backgroundColor' | 'groupId'>): string {
+  return normalizeTaskBackgroundColorValue(task.backgroundColor) || resolveTaskGroupBackgroundColor(task);
+}
+
 function resolveTaskBackgroundColor(backgroundColor?: string): string {
-  if (!backgroundColor || typeof backgroundColor !== 'string') {
+  const raw = normalizeTaskBackgroundColorValue(backgroundColor);
+  if (!raw) {
     return 'var(--b3-font-background9)';
   }
-  if (/^pinch-background(?:10|[1-9])$/.test(backgroundColor)) {
-    return `var(--${backgroundColor})`;
+  if (/^pinch-background(?:10|[1-9])$/.test(raw)) {
+    return `var(--${raw})`;
   }
-  return `var(--b3-font-${backgroundColor})`;
+  if (/^background(1[0-3]|[4-9])$/.test(raw)) {
+    return `var(--b3-font-${raw})`;
+  }
+  return raw;
 }
 
 function resolveTaskColorIndex(backgroundColor?: string): number | null {
-  if (!backgroundColor || typeof backgroundColor !== 'string') {
+  const raw = normalizeTaskBackgroundColorValue(backgroundColor);
+  if (!raw) {
     return null;
   }
-  const pinchMatch = backgroundColor.match(/^pinch-background(10|[1-9])$/);
+  const pinchMatch = raw.match(/^pinch-background(10|[1-9])$/);
   if (pinchMatch) {
     return Number(pinchMatch[1]);
   }
-  const legacyMatch = backgroundColor.match(/^background(1[0-3]|[4-9])$/);
+  const legacyMatch = raw.match(/^background(1[0-3]|[4-9])$/);
   if (legacyMatch) {
     return Number(legacyMatch[1]) - 3;
   }
@@ -995,7 +1106,7 @@ const isMobileTimedTaskInteractionEnabled = computed(() =>
   && (daysCount.value === 1 || daysCount.value === 3)
 );
 const mobileDragPreviewTitle = computed(() =>
-  mobileDragPreview.value.task ? stripHtml(mobileDragPreview.value.task.title) : ''
+  mobileDragPreview.value.task ? getTaskDisplayTitle(mobileDragPreview.value.task) : ''
 );
 const mobileDragPreviewStyle = computed(() => ({
   left: `${Math.max(12, mobileDragPreview.value.clientX + 10)}px`,
@@ -1165,35 +1276,42 @@ const navigationOffsetDays = computed(() => resolveNavigationOffsetDays());
 const previousNavLabel = computed(() => {
   const offset = navigationOffsetDays.value;
   if (offset === 1) {
-    return '上一天';
+    return t('weekView.previousDay');
   }
   if (offset === 7) {
-    return '上一周';
+    return t('weekView.previousWeek');
   }
-  return `前${offset}天`;
+  return formatTemplate('weekView.previousDaysTemplate', { count: offset });
 });
 const nextNavLabel = computed(() => {
   const offset = navigationOffsetDays.value;
   if (offset === 1) {
-    return '下一天';
+    return t('weekView.nextDay');
   }
   if (offset === 7) {
-    return '下一周';
+    return t('weekView.nextWeek');
   }
-  return `后${offset}天`;
+  return formatTemplate('weekView.nextDaysTemplate', { count: offset });
 });
 
 function getTasksHash(tasks: Task[]): string {
   return tasks.map(t => 
-    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime}:${t.dueTime}:${t.title}:${t.backgroundColor || ''}`
-  ).sort().join('|');
+    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime}:${t.dueTime}:${t.title}:${t.backgroundColor || ''}:${t.groupId || ''}`
+  ).join('|');
 }
 
 watch(() => props.tasks, (newTasks) => {
   taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
 }, { deep: true, immediate: true });
 
-const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const weekdays = computed(() => {
+  const sunday = new Date(2024, 0, 7);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(sunday);
+    date.setDate(sunday.getDate() + index);
+    return formatLocaleWeekday(date, 'short');
+  });
+});
 
 function timeToMinutes(time: string): number {
   const [hour, min] = time.split(':').map(Number);
@@ -1270,9 +1388,9 @@ const weekTitle = computed(() => {
   end.setDate(start.getDate() + daysCount.value - 1);
 
   if (daysCount.value === 1) {
-    return formatChineseDate(start);
+    return formatFullDateLabel(start);
   }
-  return `${formatChineseDate(start)} - ${formatChineseDate(end)}`;
+  return formatDateRangeLabel(start, end, formatFullDateLabel);
 });
 
 const weekDays = computed<WeekDay[]>(() => {
@@ -1294,7 +1412,7 @@ const weekDays = computed<WeekDay[]>(() => {
     days.push({
       key: `${year}-${month}-${day}`,
       date,
-      weekdayName: weekdays[dayOfWeek],
+      weekdayName: weekdays.value[dayOfWeek],
       dayNumber: date.getDate(),
       isToday: date.getTime() === today.getTime()
     });
@@ -1347,7 +1465,7 @@ const mobileDayWeekDates = computed(() => {
   const mondayStart = getMondayStart(selectedDate);
   const today = getTodayStart().getTime();
 
-  return mobileMiniWeekdayLabels.map((label, index) => {
+  return mobileMiniWeekdayLabels.value.map((label, index) => {
     const date = new Date(mondayStart);
     date.setDate(mondayStart.getDate() + index);
     date.setHours(0, 0, 0, 0);
@@ -1400,7 +1518,7 @@ const mobileWeekDays = computed<WeekDay[]>(() => {
     days.push({
       key,
       date,
-      weekdayName: mobileWeekdayNames[i],
+      weekdayName: mobileWeekdayNames.value[i],
       dayNumber: date.getDate(),
       isToday: date.getTime() === today
     });
@@ -1412,7 +1530,7 @@ const mobileWeekDays = computed<WeekDay[]>(() => {
 const mobileWeekDayKeySet = computed(() => new Set(mobileWeekDays.value.map(day => day.key)));
 
 function formatMonthDayWithoutYear(date: Date): string {
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
+  return formatMonthDayLabel(date);
 }
 
 const displayWeekTitle = computed(() => {
@@ -1423,7 +1541,7 @@ const displayWeekTitle = computed(() => {
     if (daysCount.value === 1) {
       return formatMonthDayWithoutYear(start);
     }
-    return `${formatMonthDayWithoutYear(start)} - ${formatMonthDayWithoutYear(end)}`;
+    return formatDateRangeLabel(start, end, formatMonthDayWithoutYear);
   }
   if (!isMobileWeekGridMode.value) {
     return weekTitle.value;
@@ -1431,12 +1549,12 @@ const displayWeekTitle = computed(() => {
   const start = new Date(mobileWeekStartDate.value);
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
-  return `${formatChineseDate(start)} - ${formatChineseDate(end)}`;
+  return formatDateRangeLabel(start, end, formatFullDateLabel);
 });
 
 const mobileCalendarTitle = computed(() => {
   const date = mobileWeekStartDate.value;
-  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+  return formatYearMonthLabel(date);
 });
 
 const mobileMiniCalendarDays = computed<MobileMiniCalendarDay[]>(() => {
@@ -1498,7 +1616,7 @@ function compareTasksForMobileDay(a: Task, b: Task): number {
     return aDue.localeCompare(bDue);
   }
 
-  return stripHtml(a.title).localeCompare(stripHtml(b.title), 'zh-Hans-CN');
+  return getTaskDisplayTitle(a).localeCompare(getTaskDisplayTitle(b), 'zh-Hans-CN');
 }
 
 const mobileTasksByDay = computed(() => {
@@ -1540,9 +1658,10 @@ function getMobileDayTasks(dayKey: string): Task[] {
 }
 
 function getMobileTaskChipStyle(task: Task): Record<string, string> {
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task);
   return {
-    backgroundColor: resolveTaskBackgroundColor(task.backgroundColor),
-    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
+    backgroundColor: resolveTaskBackgroundColor(effectiveBackgroundColor),
+    '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
 }
 
@@ -1572,9 +1691,13 @@ function getTaskDateRangeForRender(task: Task): { startDate: Date; endDate: Date
   return { startDate, endDate };
 }
 
+function getTaskRepeatSeriesId(task: Task): string {
+  return typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+}
+
 const normalizedTaskRanges = computed(() => {
   const { weekStart, weekEnd } = weekBounds.value;
-  return localTasks.value.flatMap((task) => {
+  const ranges = localTasks.value.flatMap((task) => {
     const range = getTaskDateRangeForRender(task);
     if (!range) return [];
     const { startDate, endDate } = range;
@@ -1589,6 +1712,25 @@ const normalizedTaskRanges = computed(() => {
       endDate,
       isTimed: Boolean(task.startTime || task.dueTime)
     }];
+  });
+
+  const virtualRepeatSeriesIds = new Set<string>();
+  for (const range of ranges) {
+    if (!range.task.isVirtual) continue;
+    const seriesId = getTaskRepeatSeriesId(range.task);
+    if (seriesId) {
+      virtualRepeatSeriesIds.add(seriesId);
+    }
+  }
+
+  if (virtualRepeatSeriesIds.size === 0) {
+    return ranges;
+  }
+
+  return ranges.filter((range) => {
+    if (range.task.isVirtual) return true;
+    const seriesId = getTaskRepeatSeriesId(range.task);
+    return !seriesId || !virtualRepeatSeriesIds.has(seriesId);
   });
 });
 
@@ -1734,7 +1876,7 @@ const allDayExpandedTasks = computed<WeekAllDayTask[]>(() => {
       if (startDelta !== 0) {
         return startDelta;
       }
-      return stripHtml(a.title).localeCompare(stripHtml(b.title), 'zh-Hans-CN');
+      return getTaskDisplayTitle(a).localeCompare(getTaskDisplayTitle(b), 'zh-Hans-CN');
     });
 });
 
@@ -1848,7 +1990,8 @@ function getAllDayTaskStyle(task: WeekAllDayTask) {
   const position = getVisibleTaskPosition(task);
   const widthOffset = 24 + getAllDayTaskMoreReserveWidth(task);
 
-  const bgColor = resolveTaskBackgroundColor(task.backgroundColor);
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task);
+  const bgColor = resolveTaskBackgroundColor(effectiveBackgroundColor);
 
   return {
     position: 'absolute' as const,
@@ -1857,14 +2000,15 @@ function getAllDayTaskStyle(task: WeekAllDayTask) {
     top: `${CALENDAR_CONSTANTS.LAYOUT.TASK_TOP_OFFSET + position * CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT}px`,
     height: '16px',
     backgroundColor: bgColor,
-    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
+    '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
 }
 
 function getExpandedAllDayChipStyle(task: WeekAllDayTask): Record<string, string> {
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task);
   return {
-    backgroundColor: resolveTaskBackgroundColor(task.backgroundColor),
-    '--pinch-task-chip-color': resolveTaskAccentColor(task.backgroundColor)
+    backgroundColor: resolveTaskBackgroundColor(effectiveBackgroundColor),
+    '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
 }
 
@@ -1994,7 +2138,7 @@ function handleGlobalPointerDown(event: PointerEvent): void {
   }
   const clickedInsidePanel = !!targetElement?.closest('.all-day-expanded-panel');
   const clickedExpandTrigger = !!targetElement?.closest('.more-all-day');
-  const clickedInsideContextMenu = !!targetElement?.closest('.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover');
+  const clickedInsideContextMenu = !!targetElement?.closest('.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog');
   if (clickedInsidePanel || clickedExpandTrigger || clickedInsideContextMenu) {
     return;
   }
@@ -2124,8 +2268,10 @@ async function applyRepeatSeriesDrop(
 async function applyTaskDropToDay(task: Task, day: WeekDay): Promise<void> {
   try {
     const dateStr = formatDate(day.date);
-    const hasBackgroundColor = typeof task.backgroundColor === 'string' && task.backgroundColor.trim().length > 0;
-    const assignedBackgroundColor = hasBackgroundColor ? undefined : pickRandomTaskBackgroundColor();
+    const existingBackgroundColor = normalizeTaskBackgroundColorValue(task.backgroundColor);
+    const assignedBackgroundColor = existingBackgroundColor
+      ? undefined
+      : (resolveTaskGroupBackgroundColor(task) || pickRandomTaskBackgroundColor());
     const handledBySeries = await applyRepeatSeriesDrop(task, {
       targetDate: dateStr,
       clearTime: true
@@ -2168,8 +2314,10 @@ async function applyTaskDropToHourCell(task: Task, day: WeekDay, hour: number): 
     const startTime = formatTime(date);
     const dueDate = formatDate(date);
     const dueTime = formatTime(new Date(date.getTime() + 60 * 60 * 1000));
-    const hasBackgroundColor = typeof task.backgroundColor === 'string' && task.backgroundColor.trim().length > 0;
-    const assignedBackgroundColor = hasBackgroundColor ? undefined : pickRandomTaskBackgroundColor();
+    const existingBackgroundColor = normalizeTaskBackgroundColorValue(task.backgroundColor);
+    const assignedBackgroundColor = existingBackgroundColor
+      ? undefined
+      : (resolveTaskGroupBackgroundColor(task) || pickRandomTaskBackgroundColor());
 
     const handledBySeries = await applyRepeatSeriesDrop(task, {
       targetDate: startDate,
@@ -2210,7 +2358,7 @@ function findWeekDayByKey(dayKey: string): WeekDay | null {
 }
 
 function formatExternalDropLabel(day: WeekDay, hour?: number): string {
-  const label = `${day.date.getMonth() + 1}/${day.date.getDate()}`;
+  const label = formatMonthDayLabel(day.date);
   if (typeof hour !== 'number') {
     return label;
   }
@@ -2341,8 +2489,10 @@ async function dropExternalTask(task: Task, point: ExternalTaskDropPoint): Promi
   }
 
   if (target.kind === 'timed') {
-    const hasBackgroundColor = typeof task.backgroundColor === 'string' && task.backgroundColor.trim().length > 0;
-    const assignedBackgroundColor = hasBackgroundColor ? undefined : pickRandomTaskBackgroundColor();
+    const existingBackgroundColor = normalizeTaskBackgroundColorValue(task.backgroundColor);
+    const assignedBackgroundColor = existingBackgroundColor
+      ? undefined
+      : (resolveTaskGroupBackgroundColor(task) || pickRandomTaskBackgroundColor());
     const handledBySeries = await applyRepeatSeriesDrop(task, {
       targetDate: target.day.key,
       startTime: target.startTime,
@@ -2627,14 +2777,21 @@ function getTimedTaskStyle(item: TimedTaskRenderItem) {
   
   const startMinutes = startHour * 60 + startMin;
   const endMinutes = endHour * 60 + endMin;
+  const visibleStartMinutes = isInactiveHoursCollapsed.value
+    ? timeToMinutes('06:00')
+    : 0;
+  const visibleEndMinutes = 24 * 60;
+  const clippedStartMinutes = Math.max(startMinutes, visibleStartMinutes);
+  const clippedEndMinutes = Math.min(Math.max(endMinutes, clippedStartMinutes + 1), visibleEndMinutes);
 
-  const rawTop = startMinutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
+  const rawTop = clippedStartMinutes * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60;
   const top = isInactiveHoursCollapsed.value
     ? Math.max(0, rawTop - INACTIVE_HOURS_OFFSET)
     : rawTop;
-  const height = Math.max(CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT, (endMinutes - startMinutes) * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60);
+  const height = Math.max(CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT, (clippedEndMinutes - clippedStartMinutes) * CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT / 60);
 
-  const bgColor = resolveTaskBackgroundColor(item.task.backgroundColor);
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(item.task);
+  const bgColor = resolveTaskBackgroundColor(effectiveBackgroundColor);
 
   const laneCount = Math.max(1, item.laneCount || 1);
   const laneIndex = Math.min(Math.max(0, item.laneIndex || 0), laneCount - 1);
@@ -2646,7 +2803,7 @@ function getTimedTaskStyle(item: TimedTaskRenderItem) {
     top: `${top}px`,
     height: `${height}px`,
     backgroundColor: bgColor,
-    '--pinch-task-chip-color': resolveTaskAccentColor(item.task.backgroundColor)
+    '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
 
   if (laneCount === 1) {
@@ -2666,6 +2823,17 @@ function getTaskTimeRange(item: TimedTaskRenderItem) {
   const startTime = item.renderStartTime;
   const endTime = item.renderDueTime;
   return `${startTime} - ${endTime}`;
+}
+
+function shouldShowTimedTaskItem(item: TimedTaskRenderItem): boolean {
+  if (!isInactiveHoursCollapsed.value) {
+    return true;
+  }
+
+  const visibleStartMinutes = timeToMinutes('06:00');
+  const startMinutes = timeToMinutes(item.renderStartTime);
+  const endMinutes = timeToMinutes(item.renderDueTime);
+  return endMinutes > visibleStartMinutes && startMinutes < 24 * 60;
 }
 
 function isMobileAllDayTaskSelected(taskId: string): boolean {
@@ -2975,7 +3143,7 @@ function resolveMobileAllDayTaskDropTarget(point: ExternalTaskDropPoint): Mobile
     return {
       day: allDayZone.day,
       dayKey: allDayZone.dayKey,
-      label: formatChineseDate(allDayZone.day.date)
+      label: formatFullDateLabel(allDayZone.day.date)
     };
   }
 
@@ -2984,7 +3152,7 @@ function resolveMobileAllDayTaskDropTarget(point: ExternalTaskDropPoint): Mobile
     return {
       day: timedZone.day,
       dayKey: timedZone.dayKey,
-      label: formatChineseDate(timedZone.day.date)
+      label: formatFullDateLabel(timedZone.day.date)
     };
   }
 
@@ -2998,7 +3166,7 @@ function resolveMobileAllDayTaskDropTarget(point: ExternalTaskDropPoint): Mobile
   return {
     day,
     dayKey,
-    label: formatChineseDate(day.date)
+    label: formatFullDateLabel(day.date)
   };
 }
 
@@ -3593,9 +3761,9 @@ function resolveTaskPersistBlockId(task: Task | null | undefined): string | null
 }
 
 function formatMobileTimedTaskDropLabel(day: WeekDay, startTime?: string, dueTime?: string): string {
-  const dateLabel = formatChineseDate(day.date);
+  const dateLabel = formatFullDateLabel(day.date);
   if (!startTime || !dueTime) {
-    return `${dateLabel} 全天`;
+    return `${dateLabel} ${t('weekView.allDay')}`;
   }
   return `${dateLabel} ${startTime} - ${dueTime}`;
 }
@@ -4662,6 +4830,7 @@ function showTaskContextMenu(
     dueTime: task.dueTime || ''
   };
   contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
+  contextMenuRepeatRule.value = null;
 
   const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
   if (isRepeatTask) {
@@ -4675,6 +4844,7 @@ function showTaskContextMenu(
           dueDate: series.endDate || '',
           dueTime: series.dueTime || ''
         };
+        contextMenuRepeatRule.value = series.rule || null;
       })
       .catch(() => {});
   }
@@ -4716,6 +4886,7 @@ function hideContextMenu() {
   };
   contextMenuDateDraft.value = { startDate: '', startTime: '', dueDate: '', dueTime: '' };
   contextMenuRepeatFrequency.value = 'none';
+  contextMenuRepeatRule.value = null;
 }
 
 function startFocusForTask(task: Task): void {
@@ -4810,6 +4981,61 @@ async function applyTaskDates(task: Task) {
 
 async function clearTaskDates(task: Task): Promise<void> {
   if (!task) return;
+
+  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  if (isRepeatTask) {
+    const seriesId = task.repeatSeriesId;
+    const templateTask = !task.isVirtual
+      ? task
+      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
+    const targetTask = templateTask || task;
+
+    localTasks.value = localTasks.value.filter(
+      item => !item.isVirtual || item.repeatSeriesId !== seriesId
+    );
+
+    notifyRepeatChanged({
+      blockId: targetTask.blockId,
+      seriesId: seriesId,
+      frequency: 'none'
+    });
+
+    const patchedTask = patchLocalTask(targetTask.id, {
+      repeatFrequency: 'none',
+      repeatSeriesId: undefined,
+      repeatInstanceDate: undefined,
+      isVirtual: false,
+      startDate: null,
+      dueDate: null,
+      startTime: undefined,
+      dueTime: undefined
+    });
+
+    if (patchedTask) {
+      emitTaskDateChanged(patchedTask);
+    }
+
+    if (targetTask.type === 'block' && targetTask.blockId) {
+      try {
+        await setBlockAttrs(targetTask.blockId, {
+          'custom-task-start-date': '',
+          'custom-task-due-date': '',
+          'custom-task-start-time': '',
+          'custom-task-due-time': ''
+        });
+      } catch (error) {
+      }
+    }
+
+    try {
+      await TaskRepository.setTaskRepeatRule(targetTask, 'none');
+    } catch (error) {
+    }
+
+    hideContextMenu();
+    return;
+  }
+
   contextMenuDateDraft.value = {
     startDate: '',
     startTime: '',
@@ -4819,8 +5045,9 @@ async function clearTaskDates(task: Task): Promise<void> {
   await applyTaskDates(task);
 }
 
-async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
+async function saveTaskRepeatRule(task: Task, repeat: RepeatFrequency | RepeatRuleInput) {
   if (!task) return;
+  const frequency = typeof repeat === 'string' ? repeat : repeat.frequency;
   contextMenuRepeatFrequency.value = frequency;
   if (frequency === 'none') {
     patchLocalTask(task.id, {
@@ -4833,7 +5060,7 @@ async function saveTaskRepeatRule(task: Task, frequency: RepeatFrequency) {
     patchLocalTask(task.id, { repeatFrequency: frequency });
   }
   try {
-    await TaskRepository.setTaskRepeatRule(task, frequency);
+    await TaskRepository.setTaskRepeatRule(task, repeat);
     hideContextMenu();
   } catch (error) {
   }
@@ -5587,6 +5814,11 @@ onUnmounted(() => {
 
 .task-chip-title.task-dragging {
   cursor: grabbing;
+}
+
+.all-day-task:has(.task-chip-title.task-dragging) {
+  opacity: 0.72;
+  box-shadow: 0 0 0 2px var(--pinch-task-chip-color, var(--pinch-color6));
 }
 
 .all-day-task.task-completed {

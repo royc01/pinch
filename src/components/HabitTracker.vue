@@ -17,62 +17,77 @@
             </div>
           </div>
           <div class="header-buttons">
-            <SyButton @click="openFocusTimer" id="focus-timer-btn" class="focus-timer-btn" title="专注计时">
+            <SyButton @click="openFocusTimer" id="focus-timer-btn" class="focus-timer-btn" :title="t('focusTimer.title')">
               <Icon name="timer" width="24" height="24" class="icon" />
             </SyButton>
             <SyButton
               @click="openPersonalStatsView"
               id="task-stats-btn"
               class="task-stats-btn"
-              title="统计视图"
-              aria-label="打开统计视图"
+              :title="t('habitTracker.statsView')"
+              :aria-label="t('habitTracker.openStatsView')"
             >
               <Icon name="stats" width="24" height="24" class="icon" />
             </SyButton>
-            <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn" title="情绪日历">
+            <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn" :title="t('habitTracker.moodCalendar')">
               <Icon name="smile" width="24" height="24" class="icon" />
+            </SyButton>
+            <SyButton
+              @click="openTaskSettings"
+              id="task-scope-button"
+              class="task-scope-button"
+              :title="t('taskScopeDialog.settings')"
+              :aria-label="t('taskScopeDialog.settings')"
+            >
+              <Icon name="taskScope" width="24" height="24" class="icon" />
             </SyButton>
           </div>
         </div>
       </div>
 
       <!-- 本周日期显示，从周一开始 -->
-      <WeekDates 
+      <WeekDates
+        v-if="isSidebarSectionVisible('week-dates')"
+        :style="getSidebarSectionStyle('week-dates')"
         :week-dates="weekDates"
         :mood-data="moodData"
         :open-mood-tracker="openMoodTracker"
         :get-small-mood-svg="getSmallMoodSvg"
       />
 
-      <div class="summary-card-grid">
+      <div
+        v-if="isSidebarSectionVisible('summary-card-grid')"
+        class="summary-card-grid"
+        :style="getSidebarSectionStyle('summary-card-grid')"
+      >
         <div class="reward-summary-card" @click="openRewardPage()">
-          <div class="reward-summary-main">
-            <div class="reward-summary-stats">
-              <div class="reward-summary-stat">
-                <div class="reward-summary-stat-value">{{ rewardSnapshot.availableCoins }}</div>
-                <div class="reward-summary-stat-label">趣币</div>
+            <div class="reward-summary-main">
+              <div class="reward-summary-stats">
+                <div class="reward-summary-stat">
+                  <div class="reward-summary-stat-value">{{ rewardSnapshot.availableCoins }}</div>
+                  <div class="reward-summary-stat-label">{{ t('habitTracker.rewardCoins') }}</div>
+                </div>
               </div>
-            </div>
-            <div v-if="latestRewardEntry" class="reward-summary-latest">
-              <span class="reward-summary-latest-title">{{ latestRewardEntry.title }}</span>
-              <span class="reward-summary-latest-points">
-                +{{ latestRewardEntry.xp }} 碎片<span v-if="latestRewardEntry.coins > 0"> · +{{ latestRewardEntry.coins }} 趣币</span>
-              </span>
-            </div>
-            <div v-else class="reward-summary-empty">
-              完成习惯、任务或专注后会在这里累计奖励
+              <div v-if="latestRewardEntry" class="reward-summary-latest">
+                <span class="reward-summary-latest-title">{{ latestRewardEntry.title }}</span>
+                <span class="reward-summary-latest-points">
+                +{{ latestRewardEntry.xp }} {{ t('habitTracker.rewardXp') }}<span v-if="latestRewardEntry.coins > 0"> · +{{ latestRewardEntry.coins }} {{ t('habitTracker.rewardCoins') }}</span>
+                </span>
+              </div>
+              <div v-else class="reward-summary-empty">
+              {{ t('habitTracker.rewardSummaryEmpty') }}
+              </div>
             </div>
           </div>
-        </div>
 
         <div class="goal-summary-card" @click="openGoalPage()">
-          <div class="goal-summary-main">
-            <div class="goal-summary-head">
-              <div class="goal-summary-level">
-                <div class="goal-summary-level-value">{{ goalSummaryValueText }}</div>
-                <div class="goal-summary-level-label">完成</div>
+            <div class="goal-summary-main">
+              <div class="goal-summary-head">
+                <div class="goal-summary-level">
+                  <div class="goal-summary-level-value">{{ goalSummaryValueText }}</div>
+                  <div class="goal-summary-level-label">{{ t('habitTracker.goalCompletedLabel') }}</div>
+                </div>
               </div>
-            </div>
             <div v-if="featuredGoal" class="goal-summary-latest">
               <span class="goal-summary-latest-title">{{ featuredGoal.name }}</span>
               <div class="goal-summary-latest-points" :title="featuredGoalText">
@@ -81,15 +96,19 @@
                 </span>
                 <span class="goal-summary-latest-points-text">{{ featuredGoalProgressText }}</span>
               </div>
-            </div>
-            <div v-else class="goal-summary-empty">
-              创建目标后会在这里汇总进度
+              </div>
+              <div v-else class="goal-summary-empty">
+              {{ t('habitTracker.goalSummaryEmpty') }}
+              </div>
             </div>
           </div>
-        </div>
       </div>
 
-      <div class="habit-list">
+      <div
+        v-if="isSidebarSectionVisible('habit-list')"
+        class="habit-list"
+        :style="getSidebarSectionStyle('habit-list')"
+      >
         <!-- 习惯打卡标题 -->
         <div class="habit-manager-header">
           <div class="header-left">
@@ -103,8 +122,8 @@
               @click="showHabitManagerPage = true"
               id="habit-manage-btn"
               class="habit-manage-btn"
-              title="习惯管理"
-              aria-label="习惯管理"
+              :title="t('habitTracker.manageHabits')"
+              :aria-label="t('habitTracker.manageHabits')"
             >
               <Icon name="taskScope" width="24" height="24" class="icon" />
             </SyButton>
@@ -142,16 +161,25 @@
           @pomodoro-stop="stopCurrentPomodoro"
         />
       </div>
+
+      <!-- 莉ｻ蜉｡邂｡逅・勣螳ｹ蝎ｨ -->
+      <div
+        v-show="isSidebarSectionVisible('stand-container')"
+        class="stand-container"
+        :style="getSidebarSectionStyle('stand-container')"
+      >
+        <TaskManager ref="taskManagerRef" @start-focus="openFocusTimerForTask" />
+      </div>
     </div>
 
     <div v-if="showHabitManagerPage" class="habit-manage-panel">
       <div class="habit-manage-panel-header">
-        <div class="habit-manage-panel-title">习惯管理</div>
+        <div class="habit-manage-panel-title">{{ t('habitTracker.manageHabits') }}</div>
         <button
           type="button"
           class="habit-manage-panel-close"
-          title="关闭"
-          aria-label="关闭"
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
           @click="showHabitManagerPage = false"
         >
           <Icon name="close" width="16" height="16" class="icon" />
@@ -248,6 +276,7 @@
       :habit="editedHabit"
       :difficulty-options="difficultyOptions"
       :frequency-options="frequencyOptions"
+      :completion-mode-options="completionModeOptions"
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
       :t="t"
@@ -262,6 +291,7 @@
       :habit="newHabit"
       :difficulty-options="difficultyOptions"
       :frequency-options="frequencyOptions"
+      :completion-mode-options="completionModeOptions"
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
       :t="t"
@@ -284,8 +314,12 @@
       :habit-emoji="checkinNoteHabit?.emoji"
       :is-edit="checkinNoteIsEdit"
       :initial-note="checkinNoteInitial"
+      :can-undo-once="canUndoCheckinOnce(checkinNoteHabit)"
+      :can-clear-today="canClearTodayCheckin(checkinNoteHabit)"
       @close="closeCheckinNoteDialog"
       @confirm="handleCheckinNoteConfirm"
+      @undo-once="handleCheckinNoteUndoOnce"
+      @clear-today="handleCheckinNoteClearToday"
     />
     
     <!-- 情绪打卡模态框 -->
@@ -318,9 +352,6 @@
     />
     
     <!-- 任务管理器容器 -->
-    <div class="stand-container">
-      <TaskManager @start-focus="openFocusTimerForTask" />
-    </div>
   </div>
 </template>
 
@@ -396,6 +427,8 @@ import { useHabitStatistics } from '@/composables/useHabitStatistics';
 import { useMoodTracker } from '@/composables/useMoodTracker';
 import { useGoals } from '@/composables/useGoals';
 import { useRewards } from '@/composables/useRewards';
+import { useUserSettings } from '@/composables/useUserSettings';
+import type { SidebarSectionId } from '@/utils/userSettings';
 import {
   eventBus,
   Events,
@@ -440,6 +473,43 @@ const {
 const { t } = useHabitI18n();
 const { rewardSnapshot } = useRewards();
 const { goalItems } = useGoals();
+const { data: userSettings, loadSettings } = useUserSettings();
+type TaskScopeDialogTab = 'scope' | 'task-settings' | 'document-groups' | 'goals' | 'display';
+type TaskManagerExpose = {
+  openTaskScopeDialog: (initialTab?: TaskScopeDialogTab) => Promise<void> | void;
+};
+const taskManagerRef = ref<TaskManagerExpose | null>(null);
+const defaultSidebarSectionOrder: SidebarSectionId[] = [
+  'week-dates',
+  'summary-card-grid',
+  'habit-list',
+  'stand-container'
+];
+const normalizedSidebarSectionOrder = computed<SidebarSectionId[]>(() => {
+  const allowed = new Set<SidebarSectionId>(defaultSidebarSectionOrder);
+  const stored = Array.isArray(userSettings.sidebar.sectionOrder)
+    ? userSettings.sidebar.sectionOrder.filter((id): id is SidebarSectionId => allowed.has(id as SidebarSectionId))
+    : [];
+  const uniqueStored = Array.from(new Set(stored));
+  return [
+    ...uniqueStored,
+    ...defaultSidebarSectionOrder.filter(id => !uniqueStored.includes(id))
+  ];
+});
+const visibleSidebarSectionIds = computed(() => {
+  const hidden = new Set(userSettings.sidebar.hiddenSectionIds || []);
+  return normalizedSidebarSectionOrder.value.filter(id => !hidden.has(id));
+});
+
+function isSidebarSectionVisible(id: SidebarSectionId): boolean {
+  return visibleSidebarSectionIds.value.includes(id);
+}
+
+function getSidebarSectionStyle(id: SidebarSectionId): { order: number } {
+  return {
+    order: normalizedSidebarSectionOrder.value.indexOf(id) + 1
+  };
+}
 const rewardLevelProgressStyle = computed(() => {
   const progress = Math.max(0, Math.min(100, Number(rewardSnapshot.value.levelProgressPercent) || 0));
   return {
@@ -449,7 +519,7 @@ const rewardLevelProgressStyle = computed(() => {
 });
 
 const rewardLevelProgressText = computed(
-  () => `${rewardSnapshot.value.currentLevelXp}/${rewardSnapshot.value.nextLevelXp} 碎片`
+  () => `${rewardSnapshot.value.currentLevelXp}/${rewardSnapshot.value.nextLevelXp} ${t('habitTracker.rewardXp')}`
 );
 
 // 防抖的保存函数 - 优化性能，减少频繁的存储操作
@@ -567,7 +637,7 @@ const {
   showAnimation,
   animationHabitId,
   playBubbleSound,
-  confirmUncheckMessage: '是否要取消打卡记录？'
+  confirmUncheckMessage: t('habitTracker.confirmUncheck')
 });
 const {
   activePomodoroHabit,
@@ -605,7 +675,7 @@ const {
   saveHabitsNow: immediateSaveHabits
 });
 
-const { writeCheckinLogToDoc, getExistingNote, getMonthCheckinNotes } = useHabitCheckinLog();
+const { writeCheckinLogToDoc, deleteCheckinLogFromDoc, getExistingNote, getMonthCheckinNotes } = useHabitCheckinLog();
 
 const showCheckinNoteDialog = ref(false);
 const checkinNoteHabit = ref<Habit | null>(null);
@@ -616,15 +686,16 @@ const statsMonthCheckinNotes = ref<{ date: string; note: string }[]>([]);
 const openCheckinNoteDialog = async (habit: Habit): Promise<void> => {
   checkinNoteHabit.value = habit;
 
-  if (habit.completedToday && habit.noteDocId) {
-    const today = getToday();
+  const today = getToday();
+  const todayRecord = habit.calendar.find(day => day.date === today);
+  const hasTodayCheckin = habit.completedToday || Boolean((todayRecord?.completedCount || 0) > 0);
+
+  if (hasTodayCheckin && habit.noteDocId) {
     const existingNote = await getExistingNote(habit.noteDocId, today, habit.id);
-    if (existingNote !== null) {
-      checkinNoteIsEdit.value = true;
-      checkinNoteInitial.value = existingNote;
-      showCheckinNoteDialog.value = true;
-      return;
-    }
+    checkinNoteIsEdit.value = true;
+    checkinNoteInitial.value = existingNote ?? '';
+    showCheckinNoteDialog.value = true;
+    return;
   }
 
   checkinNoteIsEdit.value = false;
@@ -637,6 +708,98 @@ const closeCheckinNoteDialog = (): void => {
   checkinNoteHabit.value = null;
   checkinNoteIsEdit.value = false;
   checkinNoteInitial.value = '';
+};
+
+const getTodayHabitRecord = (habit: Habit | null) => {
+  if (!habit) return null;
+  const today = getToday();
+  return habit.calendar.find(day => day.date === today) || null;
+};
+
+const getHabitTargetCount = (habit: Habit | null): number => {
+  if (!habit) return 1;
+  const todayRecord = getTodayHabitRecord(habit);
+  return Math.max(1, Number(todayRecord?.targetCount ?? habit.timesPerDay ?? 1) || 1);
+};
+
+const getHabitCompletedCount = (habit: Habit | null): number => {
+  const todayRecord = getTodayHabitRecord(habit);
+  return Math.max(0, Number(todayRecord?.completedCount || 0) || 0);
+};
+
+const canUndoCheckinOnce = (habit: Habit | null): boolean => {
+  return getHabitTargetCount(habit) > 1 && getHabitCompletedCount(habit) > 0;
+};
+
+const canClearTodayCheckin = (habit: Habit | null): boolean => {
+  const todayRecord = getTodayHabitRecord(habit);
+  return Boolean(todayRecord && ((todayRecord.completedCount || 0) > 0 || todayRecord.completed));
+};
+
+const refreshHabitAfterTodayRecordChange = (habit: Habit): void => {
+  const today = getToday();
+  const todayRecord = habit.calendar.find(day => day.date === today);
+  habit.completedToday = Boolean(todayRecord?.completed);
+  habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+  clearCurrentStreakCacheForHabit(habit.id);
+  clearWeeklyCompletionCacheForHabit(habit.id);
+  clearCompletionRateCacheForHabit(habit.id);
+  habit.currentStreak = calculateCurrentStreak(habit);
+  habits.value = [...habits.value];
+  triggerRef(habits);
+};
+
+const handleCheckinNoteUndoOnce = async (): Promise<void> => {
+  if (!checkinNoteHabit.value || !canUndoCheckinOnce(checkinNoteHabit.value)) return;
+
+  const habit = checkinNoteHabit.value;
+  const today = getToday();
+  const todayRecord = habit.calendar.find(day => day.date === today);
+  if (!todayRecord) return;
+
+  todayRecord.completedCount = Math.max(0, (Number(todayRecord.completedCount) || 0) - 1);
+  todayRecord.completed = todayRecord.completedCount >= getHabitTargetCount(habit);
+  if (!todayRecord.completed) {
+    delete todayRecord.timestamp;
+  }
+  if (todayRecord.completedCount <= 0) {
+    habit.calendar = habit.calendar.filter(day => day.date !== today);
+  }
+
+  refreshHabitAfterTodayRecordChange(habit);
+  await immediateSaveHabits(habits.value);
+
+  if (habit.noteDocId && todayRecord.completedCount > 0) {
+    await writeCheckinLogToDoc(habit.noteDocId, {
+      habit,
+      date: today,
+      note: checkinNoteInitial.value,
+      completedCount: todayRecord.completedCount,
+      targetCount: todayRecord.targetCount
+    });
+  } else if (habit.noteDocId) {
+    await deleteCheckinLogFromDoc(habit.noteDocId, today, habit.id);
+  }
+
+  closeCheckinNoteDialog();
+};
+
+const handleCheckinNoteClearToday = async (): Promise<void> => {
+  if (!checkinNoteHabit.value || !canClearTodayCheckin(checkinNoteHabit.value)) return;
+  if (!confirm(t('habitCheckinNote.confirmClearToday'))) return;
+
+  const habit = checkinNoteHabit.value;
+  const today = getToday();
+  habit.calendar = habit.calendar.filter(day => day.date !== today);
+
+  refreshHabitAfterTodayRecordChange(habit);
+  await immediateSaveHabits(habits.value);
+
+  if (habit.noteDocId) {
+    await deleteCheckinLogFromDoc(habit.noteDocId, today, habit.id);
+  }
+
+  closeCheckinNoteDialog();
 };
 
 const handleCheckinNoteConfirm = async (note: string): Promise<void> => {
@@ -741,6 +904,10 @@ function openPersonalStatsView(): void {
   void openTaskViewByRequest({ view: 'stats' });
 }
 
+function openTaskSettings(): void {
+  void taskManagerRef.value?.openTaskScopeDialog('display');
+}
+
 async function completeFocusLinkedHabit(habitId: string): Promise<void> {
   const habit = habits.value.find(item => item.id === habitId);
   if (!habit || habit.isPaused || habit.completedToday) {
@@ -751,6 +918,19 @@ async function completeFocusLinkedHabit(habitId: string): Promise<void> {
   const rewardPayload = toggleHabitCompletion(habit, getToday(), { source: 'pomodoro' });
   await immediateSaveHabits(habits.value);
   processRewardPayload(rewardPayload);
+
+  if (habit.noteDocId && habit.completedToday) {
+    const today = getToday();
+    const existingNote = await getExistingNote(habit.noteDocId, today, habit.id);
+    const dayRecord = habit.calendar.find(day => day.date === today);
+    await writeCheckinLogToDoc(habit.noteDocId, {
+      habit,
+      date: today,
+      note: existingNote ?? undefined,
+      completedCount: dayRecord?.completedCount,
+      targetCount: dayRecord?.targetCount
+    });
+  }
 }
 
 
@@ -783,7 +963,14 @@ watch(habits, (nextHabits) => {
   emitHabitsUpdated(nextHabits);
 });
 
-const { newHabit, difficultyOptions, frequencyOptions, timesPerDayOptions, pomodoroDurationOptions } = useHabitFormState(t);
+const {
+  newHabit,
+  difficultyOptions,
+  frequencyOptions,
+  completionModeOptions,
+  timesPerDayOptions,
+  pomodoroDurationOptions
+} = useHabitFormState(t);
 
 function handlePanelOpenRequest(payload?: HabitTrackerPanelOpenRequest): void {
   if (!payload) {
@@ -825,6 +1012,7 @@ function handleFocusTimerOpenRequest(payload?: FocusTimerPanelOpenRequest): void
 
 // 初始化数据
 onMounted(async () => {
+  await loadSettings();
   unsubscribePanelOpenRequest = eventBus.on(
     Events.HABIT_TRACKER_PANEL_OPEN_REQUEST,
     handlePanelOpenRequest
@@ -1017,10 +1205,10 @@ const featuredGoalText = computed(() => {
     return '';
   }
   if (featuredGoal.value.documentCount === 0) {
-    return '还没有选择文档';
+    return t('habitTracker.noDocumentSelectedLong');
   }
   if (featuredGoal.value.totalTasks === 0) {
-    return '当前暂无可统计任务';
+    return t('habitTracker.noTaskStatsAvailable');
   }
   return `${featuredGoal.value.progressPercent}% · ${featuredGoal.value.completedTasks}/${featuredGoal.value.totalTasks}`;
 });
@@ -1035,10 +1223,10 @@ const featuredGoalProgressText = computed(() => {
     return '';
   }
   if (featuredGoal.value.documentCount === 0) {
-    return '未选文档';
+    return t('goalPanel.noDocumentSelected');
   }
   if (featuredGoal.value.totalTasks === 0) {
-    return '暂无任务';
+    return t('taskManager.noTasks');
   }
   return `${featuredGoal.value.completedTasks}/${featuredGoal.value.totalTasks}`;
 });
@@ -1169,6 +1357,12 @@ watch(
   box-sizing: border-box;
   overflow-y: auto;
   padding: 4px;
+  background-color: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
+
+  .habit-list-container {
+    display: flex;
+    flex-direction: column;
+  }
   
   .Pinch-habit-header {
     display: flex;
@@ -1194,6 +1388,7 @@ watch(
       #habit-manage-btn,
       #task-stats-btn,
       #mood-calendar-btn,
+      #task-scope-button,
       #focus-timer-btn {
       background: none;
       border: none;
@@ -1216,6 +1411,7 @@ watch(
     }
 
     #mood-calendar-btn,
+    #task-scope-button,
     #focus-timer-btn,
     #task-stats-btn {
       width: 24px;
@@ -1320,6 +1516,7 @@ watch(
   }
 
   .header-buttons #mood-calendar-btn,
+  .header-buttons #task-scope-button,
   .header-buttons #focus-timer-btn,
   .header-buttons #task-stats-btn {
     margin-right: 0;

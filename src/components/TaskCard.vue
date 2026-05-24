@@ -17,7 +17,7 @@
           <TaskCheckbox :checked="isCompleted" :size="18" />
         </div>
         <div class="task-title-wrap" @click="handleCardClick">
-          <span v-if="isPinned" class="task-pinned-indicator" title="已置顶" aria-label="已置顶">
+          <span v-if="isPinned" class="task-pinned-indicator" :title="t('taskManager.pinned')" :aria-label="t('taskManager.pinned')">
             <Icon name="pinBadge" />
           </span>
           <div
@@ -31,7 +31,7 @@
             v-if="task.priority !== 'none'"
             class="task-priority-badge"
             :class="`priority-${task.priority}`"
-            :title="task.priority === 'high' ? '高优先级' : task.priority === 'medium' ? '中优先级' : '低优先级'"
+            :title="priorityTitle"
           >
             <Icon name="flag" width="10" height="10" />
           </span>
@@ -42,8 +42,8 @@
             type="button"
             class="task-card-action-btn task-card-open-btn"
             data-disable-description-contextmenu
-            title="跳转正文"
-            aria-label="跳转正文"
+            :title="t('taskCard.openContent')"
+            :aria-label="t('taskCard.openContent')"
             @mousedown.stop
             @click.stop.prevent="handleOpenClick"
           >
@@ -56,8 +56,8 @@
             class="task-card-action-btn task-card-expand-btn"
             data-disable-description-contextmenu
             :class="{ expanded: isExpanded }"
-            title="折叠/展开详情"
-            aria-label="折叠/展开详情"
+            :title="t('taskCard.toggleDetails')"
+            :aria-label="t('taskCard.toggleDetails')"
             @mousedown.stop
             @click.stop="handleToggleExpand"
           >
@@ -83,7 +83,7 @@
           data-disable-description-contextmenu
           rows="3"
           :value="descriptionDraftValue"
-          placeholder="添加任务描述..."
+          :placeholder="t('taskManager.addTaskDescription')"
           @click.stop
           @contextmenu.stop
           @input="handleDescriptionInput"
@@ -110,10 +110,10 @@
           v-if="task.dueDate"
           class="task-due-badge"
           :class="{ 'is-overdue': isOverdue }"
-          :title="`截止日期：${dueText}${isOverdue ? ' \u903E\u671F' : ''}`"
+          :title="dueBadgeTitle"
         >
           <Icon name="calendar" width="12" height="12" />
-          {{ dueText }}{{ isOverdue ? ' \u903E\u671F' : '' }}
+          {{ dueBadgeText }}
         </span>
         <span
           v-if="reminderText"
@@ -177,6 +177,7 @@ import type { Task, SubTask, TaskGroup } from '@/api';
 import Icon from '@/components/Icon.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubtaskItem from '@/components/SubtaskItem.vue';
+import { useI18n } from '@/composables/useI18n';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { sanitizeTaskHtml, sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
@@ -185,6 +186,8 @@ import { getTaskReminderLabel } from '@/utils/taskReminder';
 defineOptions({
   name: 'TaskCard'
 });
+
+const { t } = useI18n();
 
 const props = defineProps<{
   task: Task;
@@ -202,6 +205,7 @@ const props = defineProps<{
   showSubtasks?: boolean;
   titleTooltip?: string;
   showDocumentTitle?: boolean;
+  documentTitleOverride?: string;
   documentIconOverride?: string;
   disableContextMenu?: boolean;
 }>();
@@ -265,6 +269,11 @@ const titleTooltip = computed(() => props.titleTooltip || '');
 const titleHtml = computed(() => sanitizeTaskTitleHtml(task.value.title));
 const descriptionHtml = computed(() => sanitizeTaskHtml(task.value.description || ''));
 const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.value.description ?? '');
+const priorityTitle = computed(() => {
+  if (task.value.priority === 'high') return t('taskManager.priorityHighLabel');
+  if (task.value.priority === 'medium') return t('taskManager.priorityMediumLabel');
+  return t('taskManager.priorityLowLabel');
+});
 const dueTimeText = computed(() => {
   const rawDueTime = typeof task.value.dueTime === 'string' ? task.value.dueTime.trim() : '';
   return /^\d{2}:\d{2}$/.test(rawDueTime) ? rawDueTime : '';
@@ -281,7 +290,21 @@ const dueText = computed(() => {
 });
 const reminderText = computed(() => getTaskReminderLabel(task.value.reminderType, task.value.reminderCustomTime));
 const isPinned = computed(() => task.value.pinned === true);
+const dueBadgeText = computed(() => (
+  dueText.value ? `${dueText.value}${isOverdue.value ? ` ${t('taskManager.overdue')}` : ''}` : ''
+));
+const dueBadgeTitle = computed(() => (
+  dueText.value
+    ? t('taskCard.dueDateTitleTemplate')
+      .replace('{dueText}', dueText.value)
+      .replace('{overdueSuffix}', isOverdue.value ? ` ${t('taskManager.overdue')}` : '')
+    : ''
+));
 const documentTitleText = computed(() => {
+  const overrideTitle = typeof props.documentTitleOverride === 'string' ? props.documentTitleOverride.trim() : '';
+  if (overrideTitle) {
+    return overrideTitle;
+  }
   const rawPath = typeof task.value.hPath === 'string' ? task.value.hPath.trim() : '';
   if (!rawPath) {
     return '';
@@ -310,7 +333,6 @@ const documentIconText = computed(() => {
 });
 const isDocumentTitleVisible = computed(() => (
   props.showDocumentTitle === true
-  && isKanban.value
   && documentTitleText.value.length > 0
 ));
 const isRepeatBadgeVisible = computed(() => (
@@ -318,7 +340,7 @@ const isRepeatBadgeVisible = computed(() => (
   || (!!task.value.repeatFrequency && task.value.repeatFrequency !== 'none')
   || !!task.value.isVirtual
 ));
-const repeatBadgeTitle = computed(() => '重复任务');
+const repeatBadgeTitle = computed(() => t('taskCard.repeatTask'));
 const isOverdue = computed(() => {
   if (isCompleted.value) return false;
   const dueTimestamp = getTaskDateTimestamp(task.value.dueDate);
@@ -339,7 +361,7 @@ const groupLabel = computed(() => {
   if (!resolvedTaskGroup.value) {
     return '';
   }
-  return resolvedTaskGroup.value.name || '标签';
+  return resolvedTaskGroup.value.name || t('taskManager.tags');
 });
 const groupStyle = computed<Record<string, string>>(() => {
   if (!groupLabel.value) {
@@ -362,13 +384,13 @@ const statusBadgeText = computed(() => {
     return '';
   }
   if (task.value.status === 'in-progress') {
-    return '\u8FDB\u884C\u4E2D';
+    return t('taskManager.statusInProgress');
   }
   if (task.value.status === 'delayed') {
-    return '\u5EF6\u8FDF';
+    return t('taskManager.statusDelayed');
   }
   if (task.value.status === 'cancelled') {
-    return '\u5DF2\u53D6\u6D88';
+    return t('taskManager.statusCancelled');
   }
   return '';
 });
@@ -380,7 +402,7 @@ const showBadges = computed(() => {
     return false;
   }
   const due = !!task.value.dueDate;
-  return due || !!reminderText.value || !!groupLabel.value;
+  return due || !!reminderText.value || !!groupLabel.value || isRepeatBadgeVisible.value;
 });
 
 const subtaskStats = computed(() => countSubtasks(task.value.subtasks));

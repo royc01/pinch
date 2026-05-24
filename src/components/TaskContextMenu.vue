@@ -23,7 +23,7 @@
     <div class="context-menu-section">
       <div class="context-menu-date-grid">
         <div class="date-edit-field">
-          <label>开始日期</label>
+          <label>{{ t('taskManager.startDate') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="startDate"
@@ -35,8 +35,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeDatePopoverField === 'startDate' }"
-              title="选择开始日期"
-              aria-label="选择开始日期"
+              :title="t('taskManager.pickStartDate')"
+              :aria-label="t('taskManager.pickStartDate')"
               @click="toggleDatePopover('startDate')"
             >
               <Icon name="calendar" width="14" height="14" />
@@ -44,7 +44,7 @@
           </div>
         </div>
         <div class="date-edit-field">
-          <label>截止日期</label>
+          <label>{{ t('taskManager.dueDate') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="dueDate"
@@ -56,8 +56,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeDatePopoverField === 'dueDate' }"
-              title="选择截止日期"
-              aria-label="选择截止日期"
+              :title="t('taskManager.pickDueDate')"
+              :aria-label="t('taskManager.pickDueDate')"
               @click="toggleDatePopover('dueDate')"
             >
               <Icon name="calendar" width="14" height="14" />
@@ -65,7 +65,7 @@
           </div>
         </div>
         <div class="date-edit-field">
-          <label>开始时间</label>
+          <label>{{ t('taskManager.startTime') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="startTime"
@@ -77,8 +77,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeTimePopoverField === 'startTime' }"
-              title="选择开始时间"
-              aria-label="选择开始时间"
+              :title="t('taskManager.pickStartTime')"
+              :aria-label="t('taskManager.pickStartTime')"
               @click="toggleTimePopover('startTime')"
             >
               <Icon name="clock" width="14" height="14" />
@@ -86,7 +86,7 @@
           </div>
         </div>
         <div class="date-edit-field">
-          <label>截止时间</label>
+          <label>{{ t('taskManager.dueTime') }}</label>
           <div class="context-menu-date-input-group">
             <input
               :value="dueTime"
@@ -98,8 +98,8 @@
               type="button"
               class="context-menu-date-trigger"
               :class="{ active: activeTimePopoverField === 'dueTime' }"
-              title="选择截止时间"
-              aria-label="选择截止时间"
+              :title="t('taskManager.pickDueTime')"
+              :aria-label="t('taskManager.pickDueTime')"
               @click="toggleTimePopover('dueTime')"
             >
               <Icon name="clock" width="14" height="14" />
@@ -107,31 +107,26 @@
           </div>
         </div>
       </div>
-      <button class="context-menu-date-save" @click="$emit('saveDates')">保存日期</button>
-      <button class="context-menu-date-clear" @click="$emit('clearTaskDates')">清除任务</button>
+      <button class="context-menu-date-save" @click="$emit('saveDates')">{{ t('taskManager.saveDate') }}</button>
+      <button class="context-menu-date-clear" @click="$emit('clearTaskDates')">{{ t('taskManager.clearTaskDates') }}</button>
     </div>
 
-    <div class="context-menu-section">
-      <div class="repeat-edit-row">
-        <label>频率</label>
-        <select :value="repeatFrequency" @change="onRepeatChange">
-          <option value="none">不重复</option>
-          <option value="daily">每一天</option>
-          <option value="weekdays">工作日（周一到周五）</option>
-          <option value="weekend">周末</option>
-          <option value="weekly">每周一天（按第一天任务的星期几）</option>
-        </select>
-      </div>
-    </div>
+    <TaskRepeatEditor
+      class="context-menu-section"
+      :repeat-frequency="repeatFrequency"
+      :repeat-rule="repeatRule"
+      :base-date="startDate || dueDate"
+      @saveRepeatRule="$emit('saveRepeatRule', $event)"
+    />
 
     <div class="context-menu-divider"></div>
     <div class="context-menu-item" @click="$emit('startFocus')">
       <Icon name="timer" width="16" height="16" />
-      <span>开始专注</span>
+      <span>{{ t('taskManager.startFocus') }}</span>
     </div>
     <div class="context-menu-item edit-item" @click="$emit('editTask')">
       <Icon name="edit" width="16" height="16" />
-      <span>编辑任务</span>
+      <span>{{ t('taskManager.editTask') }}</span>
     </div>
 
     <TaskDatePopover
@@ -171,15 +166,18 @@
     />
   </div>
   </Teleport>
+
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { Task } from '@/api';
-import type { RepeatFrequency } from '@/repeatRepository';
+import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
 import Icon from '@/components/Icon.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
+import TaskRepeatEditor from '@/components/TaskRepeatEditor.vue';
 import TaskTimePopover from '@/components/TaskTimePopover.vue';
+import { useI18n } from '@/composables/useI18n';
 
 interface BackgroundColorOption {
   value: string;
@@ -197,9 +195,10 @@ const props = defineProps<{
   dueDate: string;
   dueTime: string;
   repeatFrequency: RepeatFrequency;
+  repeatRule?: RepeatRule | null;
 }>();
 
-const emit = defineEmits<{
+defineEmits<{
   (event: 'setColor', color: string): void;
   (event: 'saveDates'): void;
   (event: 'clearTaskDates'): void;
@@ -209,7 +208,7 @@ const emit = defineEmits<{
   (event: 'update:startTime', value: string): void;
   (event: 'update:dueDate', value: string): void;
   (event: 'update:dueTime', value: string): void;
-  (event: 'saveRepeatRule', value: RepeatFrequency): void;
+  (event: 'saveRepeatRule', value: RepeatFrequency | RepeatRuleInput): void;
 }>();
 
 const isMobileSheet = ref(false);
@@ -221,6 +220,7 @@ const startDateTriggerRef = ref<HTMLElement | null>(null);
 const dueDateTriggerRef = ref<HTMLElement | null>(null);
 const startTimeTriggerRef = ref<HTMLElement | null>(null);
 const dueTimeTriggerRef = ref<HTMLElement | null>(null);
+const { t } = useI18n();
 
 const menuStyle = computed<Record<string, string>>(() => {
   if (isMobileSheet.value) {
@@ -313,20 +313,6 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
   activeTimePopoverField.value = activeTimePopoverField.value === field ? null : field;
 }
 
-function onRepeatChange(event: Event): void {
-  const value = (event.target as HTMLSelectElement).value as RepeatFrequency;
-  if (
-    value === 'none'
-    || value === 'daily'
-    || value === 'weekdays'
-    || value === 'weekend'
-    || value === 'weekly'
-  ) {
-    emit('saveRepeatRule', value);
-    return;
-  }
-  emit('saveRepeatRule', props.repeatFrequency || 'none');
-}
 </script>
 
 <style scoped>
@@ -426,24 +412,8 @@ function onRepeatChange(event: Event): void {
   line-height: 1.2;
 }
 
-.repeat-edit-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.repeat-edit-row label {
-  width: 36px;
-  font-size: 12px;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.8;
-  flex-shrink: 0;
-}
-
 .date-edit-field input[type="date"],
-.date-edit-field input[type="time"],
-.repeat-edit-row select {
+.date-edit-field input[type="time"] {
   flex: 1;
   min-width: 0;
   padding: 6px 34px 6px 10px;

@@ -4,6 +4,7 @@ import {
   createTaskFocusTarget,
   type FocusTimerLinkedTarget
 } from '@/utils/focusTimerTarget';
+import { translate } from '@/composables/useI18n';
 
 export type FocusTargetPickerMode = 'habit' | 'task';
 
@@ -53,7 +54,7 @@ export function getFocusTargetDisplayLabel(
     return '';
   }
 
-  return `${target.type === 'task' ? '任务' : '习惯'}：${target.name}`;
+  return `${target.type === 'task' ? translate('focusTimer.task') : translate('focusTimer.habit')}：${target.name}`;
 }
 
 export function getFocusTargetEmoji(target: FocusTimerLinkedTarget | null | undefined): string {
