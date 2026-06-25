@@ -1,6 +1,6 @@
 import { computed, type ShallowRef, watch } from 'vue';
 import type { Habit } from '@/api';
-import { getTodayCompletionCount, getWeekCompletionData, getWeekStart } from '@/composables/useHabitUtils';
+import { getTodayCompletionCount, getWeekCompletionData, getWeekStart, isHabitScheduledOnDate } from '@/composables/useHabitUtils';
 import { translate } from '@/composables/useI18n';
 
 interface HabitCacheData {
@@ -143,6 +143,7 @@ export const useHabitViewData = ({
       isFuture: boolean;
       isToday: boolean;
       isCompletedByWeeklyRule: boolean;
+      isScheduled: boolean;
     }> = [];
 
     for (let i = 0; i < 7; i++) {
@@ -152,16 +153,18 @@ export const useHabitViewData = ({
       const dateStr = formatDate(currentDate);
       const calendarRecord = habit.calendar.find(day => day.date === dateStr);
       const actualCompleted = calendarRecord ? calendarRecord.completed : false;
+      const isScheduled = isHabitScheduledOnDate(habit, currentDate);
 
       weekData.push({
         date: dateStr,
-        completed: weekCompletionData.hasCompletedRequiredThisWeek ? true : actualCompleted,
+        completed: isScheduled && weekCompletionData.hasCompletedRequiredThisWeek ? true : actualCompleted,
         completedCount: calendarRecord ? calendarRecord.completedCount || 0 : 0,
         targetCount: calendarRecord ? calendarRecord.targetCount || 1 : 1,
         isPast: dateStr < todayLocalDateStr,
         isFuture: dateStr > todayLocalDateStr,
         isToday: isToday(dateStr),
-        isCompletedByWeeklyRule: weekCompletionData.hasCompletedRequiredThisWeek && !actualCompleted
+        isCompletedByWeeklyRule: isScheduled && weekCompletionData.hasCompletedRequiredThisWeek && !actualCompleted,
+        isScheduled
       });
     }
 

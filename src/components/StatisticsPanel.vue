@@ -3,7 +3,7 @@
     <div class="stats-header">
       <div class="stats-header-content">
         <div class="stats-title">{{ t('statisticsPanel.title') }}</div>
-        <button type="button" class="icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="emit('close')">
+        <button type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="emit('close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -49,9 +49,9 @@
               <div class="heatmap-week-row">
                 <template v-for="(day, dayIndex) in week" :key="dayIndex">
                   <div
-                    class="heatmap-day"
+                    class="heatmap-day ariaLabel"
                     :class="`intensity-${day.intensity}`"
-                    :title="formatTemplate('statisticsPanel.heatmapDayTitleTemplate', { date: day.date, count: day.count })"
+                    :aria-label="formatTemplate('statisticsPanel.heatmapDayTitleTemplate', { date: day.date, count: day.count })"
                   ></div>
                 </template>
               </div>
@@ -70,7 +70,7 @@
       <div class="habit-stat-item" v-for="habit in habits" :key="habit.id">
         <div class="habit-stat-content">
           <div class="habit-stat-header">
-            <div class="habit-emoji-large">{{ habit.emoji || '🌟' }}</div>
+            <div class="habit-emoji-large">{{ habit.emoji || '📝' }}</div>
             <span class="habit-name">{{ habit.name }}</span>
             <span class="habit-created">{{ getCreatedDateText(habit) }}</span>
           </div>
@@ -102,6 +102,7 @@
 import { computed } from 'vue';
 import type { Habit } from '@/api';
 import { useI18n } from '@/composables/useI18n';
+import { getSiyuanIntlLocaleTag } from '@/utils/locale';
 import Icon from './Icon.vue';
 
 interface HeatmapDay {
@@ -151,16 +152,8 @@ function formatTemplate(key: string, values: Record<string, string | number>): s
   );
 }
 
-function getLocaleTag(): string {
-  const siyuan = window.siyuan as any;
-  return siyuan?.config?.appearance?.lang
-    || siyuan?.config?.lang
-    || navigator.language
-    || 'zh-CN';
-}
-
 const weekdayLabels = computed(() => {
-  const formatter = new Intl.DateTimeFormat(getLocaleTag(), { weekday: 'narrow' });
+  const formatter = new Intl.DateTimeFormat(getSiyuanIntlLocaleTag(), { weekday: 'narrow' });
   const monday = new Date(Date.UTC(2024, 0, 1));
   return Array.from({ length: 7 }, (_, index) =>
     formatter.format(new Date(monday.getTime() + index * 24 * 60 * 60 * 1000))
@@ -175,6 +168,7 @@ const weekdayLabels = computed(() => {
   z-index: 2;
   box-sizing: border-box;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 12px;

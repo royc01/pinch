@@ -3,7 +3,7 @@
     <div class="task-group-dialog" @click.stop>
       <div class="task-group-header">
         <div class="task-group-title">{{ t('taskManager.tagManager') }}</div>
-        <button type="button" class="icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="emit('close')">
+        <button type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="emit('close')">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
@@ -31,9 +31,9 @@
               <div class="task-group-card-row">
                 <button
                   type="button"
-                  class="task-group-drag-handle"
+                  class="task-group-drag-handle ariaLabel"
                   draggable="true"
-                  :title="t('taskGroupDialog.dragToSort')"
+                 
                   :aria-label="t('taskGroupDialog.dragToSort')"
                   @dragstart="handleGroupCardDragStart($event, group)"
                   @dragend="handleGroupCardDragEnd"
@@ -68,9 +68,9 @@
                 <button
                   v-if="!isNoneOption(group)"
                   type="button"
-                  class="task-group-visibility"
+                  class="task-group-visibility ariaLabel"
                   :class="{ active: group.hidden === true }"
-                  :title="group.hidden ? t('taskGroupDialog.showTag') : t('taskGroupDialog.hideTag')"
+                 
                   :aria-label="group.hidden ? t('taskGroupDialog.showTag') : t('taskGroupDialog.hideTag')"
                   @click="toggleGroupHidden(index)"
                 >
@@ -79,7 +79,7 @@
                 <button
                   v-if="!isNoneOption(group)"
                   type="button"
-                  class="task-group-delete"
+                  class="task-group-delete ariaLabel"
                   :aria-label="t('taskGroupDialog.deleteTag')"
                   @click="removeGroup(index)"
                 >
@@ -105,7 +105,7 @@
       <div class="task-group-color-modal">
         <div class="task-group-color-modal-header">
           <span>{{ t('taskGroupDialog.pickColor') }}</span>
-          <button type="button" class="icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="closeColorPicker">
+          <button type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="closeColorPicker">
             <Icon name="close" width="12" height="12" class="icon" />
           </button>
         </div>
@@ -114,10 +114,10 @@
             v-for="option in groupColorOptions"
             :key="option.value"
             type="button"
-            class="task-group-color-swatch"
+            class="task-group-color-swatch ariaLabel"
             :class="{ active: option.value === activePickerColor }"
             :style="{ background: option.css }"
-            :title="option.value"
+            :aria-label="option.value"
             @click="selectPickerColor(option.value)"
           ></button>
         </div>
@@ -145,7 +145,7 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import Icon from '@/components/Icon.vue';
 import type { TaskGroup } from '@/api';
-import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
+import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { useI18n } from '@/composables/useI18n';
 
 interface Props {
@@ -495,11 +495,12 @@ function getGroupInputStyle(group: TaskGroupDialogItem): Record<string, string> 
   const rawColor = typeof group.color === 'string' ? group.color.trim() : '';
   if (!rawColor) return {};
   const background = resolveGroupColorCss(rawColor);
+  const border = resolveGroupColorLayerCss(rawColor);
   const color = resolveGroupTextColor(rawColor);
   return {
     '--group-input-bg': background,
     '--group-input-color': color,
-    '--group-input-border': background
+    '--group-input-border': border
   };
 }
 

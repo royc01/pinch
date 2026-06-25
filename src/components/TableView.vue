@@ -23,9 +23,9 @@
             <div ref="columnSettingsControlRef" class="table-column-settings">
               <button
                 type="button"
-                class="table-column-settings-btn"
+                class="table-column-settings-btn ariaLabel"
                 :class="{ active: columnSettingsVisible }"
-                :title="t('tableView.columnSettings')"
+               
                 :aria-label="t('tableView.columnSettings')"
                 @click.stop="toggleColumnSettings"
               >
@@ -74,10 +74,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'title' }"
                :aria-label="getColumnResizeAria(getTableColumnLabel('title'))"
-               :title="getColumnResizeTitle(getTableColumnLabel('title'))"
+              
               @mousedown.stop.prevent="startColumnResize('title', $event)"
               @dblclick.stop.prevent="resetColumnWidth('title')"
               @click.stop.prevent
@@ -87,10 +87,10 @@
             {{ getTableColumnLabel('description') }}
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'description' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('description'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('description'))"
+             
               @mousedown.stop.prevent="startColumnResize('description', $event)"
               @dblclick.stop.prevent="resetColumnWidth('description')"
               @click.stop.prevent
@@ -105,10 +105,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'priority' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('priority'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('priority'))"
+             
               @mousedown.stop.prevent="startColumnResize('priority', $event)"
               @dblclick.stop.prevent="resetColumnWidth('priority')"
               @click.stop.prevent
@@ -123,10 +123,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'statusText' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('statusText'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('statusText'))"
+             
               @mousedown.stop.prevent="startColumnResize('statusText', $event)"
               @dblclick.stop.prevent="resetColumnWidth('statusText')"
               @click.stop.prevent
@@ -136,10 +136,10 @@
             {{ getTableColumnLabel('group') }}
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'group' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('group'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('group'))"
+             
               @mousedown.stop.prevent="startColumnResize('group', $event)"
               @dblclick.stop.prevent="resetColumnWidth('group')"
               @click.stop.prevent
@@ -154,10 +154,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'startDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('startDate'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('startDate'))"
+             
               @mousedown.stop.prevent="startColumnResize('startDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('startDate')"
               @click.stop.prevent
@@ -169,10 +169,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'startTime' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('startTime'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('startTime'))"
+             
               @mousedown.stop.prevent="startColumnResize('startTime', $event)"
               @dblclick.stop.prevent="resetColumnWidth('startTime')"
               @click.stop.prevent
@@ -187,10 +187,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'dueDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('dueDate'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('dueDate'))"
+             
               @mousedown.stop.prevent="startColumnResize('dueDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('dueDate')"
               @click.stop.prevent
@@ -202,10 +202,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'dueTime' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('dueTime'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('dueTime'))"
+             
               @mousedown.stop.prevent="startColumnResize('dueTime', $event)"
               @dblclick.stop.prevent="resetColumnWidth('dueTime')"
               @click.stop.prevent
@@ -217,10 +217,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'focusDuration' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('focusDuration'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('focusDuration'))"
+             
               @mousedown.stop.prevent="startColumnResize('focusDuration', $event)"
               @dblclick.stop.prevent="resetColumnWidth('focusDuration')"
               @click.stop.prevent
@@ -235,10 +235,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'completedDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('completedDate'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('completedDate'))"
+             
               @mousedown.stop.prevent="startColumnResize('completedDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('completedDate')"
               @click.stop.prevent
@@ -253,10 +253,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'createdDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('createdDate'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('createdDate'))"
+             
               @mousedown.stop.prevent="startColumnResize('createdDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('createdDate')"
               @click.stop.prevent
@@ -271,10 +271,10 @@
             </div>
             <button
               type="button"
-              class="column-resize-handle"
+              class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'updatedDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('updatedDate'))"
-              :title="getColumnResizeTitle(getTableColumnLabel('updatedDate'))"
+             
               @mousedown.stop.prevent="startColumnResize('updatedDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('updatedDate')"
               @click.stop.prevent
@@ -316,8 +316,8 @@
                   <button
                     v-if="supportsGroupActions && canCreateTaskForGroup(row.group)"
                     type="button"
-                    class="column-add-task-btn"
-                    :title="getGroupCreateTaskLabel(row.group)"
+                    class="column-add-task-btn ariaLabel"
+                   
                     :aria-label="getGroupCreateTaskLabel(row.group)"
                     @click.stop="emitGroupCreateTask(row.group)"
                   >
@@ -326,8 +326,8 @@
                   <button
                     v-if="supportsGroupActions"
                     type="button"
-                    class="column-archive-tasks-btn"
-                    :title="getGroupArchiveTasksLabel(row.group)"
+                    class="column-archive-tasks-btn ariaLabel"
+                   
                     :aria-label="getGroupArchiveTasksLabel(row.group)"
                     :disabled="getGroupArchivableTaskCount(row.group) === 0"
                     @click.stop="emitGroupArchiveTasks(row.group)"
@@ -371,15 +371,15 @@
             <td class="col-title">
               <div class="title-wrapper">
                 <div class="title-main" @click="handleTaskClick(row.task, $event)">
-                  <span v-if="row.task.pinned === true" class="title-pinned-badge" :title="t('taskManager.pinned')" :aria-label="t('taskManager.pinned')">
+                  <span v-if="row.task.pinned === true" class="title-pinned-badge ariaLabel" :aria-label="t('taskManager.pinned')">
                     <Icon name="pinBadge" width="18" height="18" />
                   </span>
                   <div class="task-title" v-html="getTitleHtml(row.task.title)"></div>
                 </div>
                 <button
                   type="button"
-                  class="title-open-btn"
-                  :title="t('tableView.openTask')"
+                  class="title-open-btn ariaLabel"
+                 
                   :aria-label="t('tableView.openTask')"
                   @click.stop="handleOpenClick(row.task)"
                 >
@@ -418,9 +418,9 @@
               <div class="priority-content">
                 <span
                   v-if="row.task.priority !== 'none'"
-                  class="task-priority-badge"
+                  class="task-priority-badge ariaLabel"
                   :class="`priority-${row.task.priority}`"
-                  :title="getPriorityTitle(row.task.priority)"
+                  :aria-label="getPriorityTitle(row.task.priority)"
                 >
                   <Icon name="flag" width="12" height="12" />
                 </span>
@@ -432,13 +432,22 @@
               </span>
             </td>
             <td v-if="isTableColumnVisible('group')" class="col-group" @click.stop="toggleGroupPopover(row.task, $event)">
-              <span
-                v-if="getTaskGroupLabel(row.task)"
-                class="group-badge"
-                :style="getTaskGroupStyle(row.task)"
-              >
-                {{ getTaskGroupLabel(row.task) }}
-              </span>
+              <div v-if="getTaskGroupBadges(row.task).length > 0" class="group-badge-list">
+                <span
+                  v-for="badge in getVisibleTaskGroupBadges(row.task)"
+                  :key="badge.id"
+                  class="group-badge"
+                  :style="badge.style"
+                >
+                  {{ badge.label }}
+                </span>
+                <span
+                  v-if="getTaskGroupOverflowCount(row.task) > 0"
+                  class="group-badge"
+                >
+                  +{{ getTaskGroupOverflowCount(row.task) }}
+                </span>
+              </div>
             </td>
             <td v-if="isTableColumnVisible('startDate')" class="col-start-date" @click.stop="openDatePopover(row.task, 'startDate', $event)">
               <span class="date-display">{{ row.task.startDate ? formatLocaleDate(row.task.startDate) : '-' }}</span>
@@ -465,7 +474,7 @@
               <span class="date-display">{{ row.task.updatedAt ? formatLocaleDate(row.task.updatedAt, { includeTime: true }) : '-' }}</span>
             </td>
             <td v-if="isTableColumnVisible('location')" class="col-location">
-              <div class="location-cell task-document-title" :title="row.task.hPath || ''">
+              <div class="location-cell task-document-title ariaLabel" :aria-label="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
                   <img
                     v-if="getTaskDocumentIconImageSrc(row.task)"
@@ -540,9 +549,9 @@
               <div class="priority-content">
                 <span
                   v-if="getSubtaskPriority(row.subtask) !== 'none'"
-                  class="task-priority-badge"
+                  class="task-priority-badge ariaLabel"
                   :class="`priority-${getSubtaskPriority(row.subtask)}`"
-                  :title="getPriorityTitle(getSubtaskPriority(row.subtask))"
+                  :aria-label="getPriorityTitle(getSubtaskPriority(row.subtask))"
                 >
                   <Icon name="flag" width="12" height="12" />
                 </span>
@@ -587,7 +596,7 @@
               <span class="date-display">{{ row.subtask.updatedAt ? formatLocaleDate(row.subtask.updatedAt, { includeTime: true }) : '-' }}</span>
             </td>
             <td v-if="isTableColumnVisible('location')" class="col-location">
-              <div class="location-cell task-document-title" :title="row.task.hPath || ''">
+              <div class="location-cell task-document-title ariaLabel" :aria-label="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
                   <img
                     v-if="getTaskDocumentIconImageSrc(row.task)"
@@ -650,7 +659,7 @@
             :key="option.value"
             type="button"
             class="group-popover-chip"
-            :class="{ active: groupPopoverSelectedId === option.value, special: option.special }"
+            :class="{ active: isGroupPopoverOptionSelected(option.value), primary: isGroupPopoverPrimaryOption(option.value), special: option.special }"
             :style="{
               '--group-chip-bg': option.colorCss || 'var(--b3-list-hover)',
               '--group-chip-color': option.textColor || 'var(--b3-theme-on-surface)'
@@ -658,6 +667,9 @@
             @click="selectGroupFromPopover(option.value)"
           >
             <span class="group-popover-chip-label">{{ option.label }}</span>
+            <span v-if="isGroupPopoverPrimaryOption(option.value)" class="group-popover-chip-primary">
+              {{ t('taskManager.primaryTagShort') }}
+            </span>
           </button>
         </div>
       </div>
@@ -710,6 +722,11 @@ import {
 } from '@/utils/taskSortShared';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import {
+  areTaskTagIdsEqual,
+  resolveTaskTagIds,
+  toggleTaskTagSelection
+} from '@/utils/taskTags';
 import { useI18n } from '@/composables/useI18n';
 import { usePlugin } from '@/main';
 
@@ -983,6 +1000,7 @@ const emit = defineEmits<{
   priorityUpdate: [task: Task, priority: Task['priority']];
   statusUpdate: [task: Task, status: Task['status']];
   groupUpdate: [task: Task, groupId: string];
+  tagUpdate: [task: Task, tagIds: string[]];
   subtaskDescriptionUpdate: [task: Task, subtask: TableSubtask, description: string];
   subtaskPriorityUpdate: [task: Task, subtask: TableSubtask, priority: Task['priority']];
   subtaskStatusUpdate: [task: Task, subtask: TableSubtask, status: Task['status']];
@@ -1985,19 +2003,29 @@ const timePopoverValue = computed(() => {
     : normalizeTaskTimeValue(task.dueTime);
 });
 
-const groupPopoverSelectedId = computed(() => {
+const groupPopoverSelectedTagIds = computed(() => {
   const popover = groupPopover.value;
-  if (!popover) return TASK_GROUP_NONE_ID;
+  if (!popover) return [];
   const task = props.tasks.find(t => t.id === popover.taskId);
-  if (!task) return TASK_GROUP_NONE_ID;
+  if (!task) return [];
   if (popover.subtaskId) {
     const subtask = findSubtaskById(task.subtasks, popover.subtaskId);
     const subtaskGroupId = typeof subtask?.groupId === 'string' ? subtask.groupId.trim() : '';
-    return subtaskGroupId || TASK_GROUP_NONE_ID;
+    return subtaskGroupId ? [subtaskGroupId] : [];
   }
-  const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-  return groupId || TASK_GROUP_NONE_ID;
+  return resolveTaskTagIds(task.tags, task.groupId);
 });
+
+function isGroupPopoverOptionSelected(value: string): boolean {
+  if (value === TASK_GROUP_NONE_ID) {
+    return groupPopoverSelectedTagIds.value.length === 0;
+  }
+  return groupPopoverSelectedTagIds.value.includes(value);
+}
+
+function isGroupPopoverPrimaryOption(value: string): boolean {
+  return value !== TASK_GROUP_NONE_ID && groupPopoverSelectedTagIds.value[0] === value;
+}
 
 const groupPopoverStyle = computed(() => {
   if (!groupPopover.value) return {};
@@ -2571,21 +2599,27 @@ function getTaskGroupId(task: Task): string {
   return typeof task.groupId === 'string' ? task.groupId.trim() : '';
 }
 
-function getTaskGroupLabel(task: Task): string {
-  const groupId = getTaskGroupId(task);
-  if (!groupId) return '';
-  return groupLookup.value.get(groupId)?.name || '';
+function getTaskGroupBadges(task: Task): Array<{ id: string; label: string; style?: Record<string, string> }> {
+  return resolveTaskTagIds(task.tags, task.groupId).map((groupId) => {
+    const meta = groupLookup.value.get(groupId);
+    return {
+      id: groupId,
+      label: meta?.name || groupId,
+      style: meta?.background ? {
+        '--group-badge-bg': meta.background,
+        '--group-badge-color': meta.color
+      } : undefined
+    };
+  });
 }
 
-function getTaskGroupStyle(task: Task): Record<string, string> | undefined {
-  const groupId = getTaskGroupId(task);
-  if (!groupId) return undefined;
-  const meta = groupLookup.value.get(groupId);
-  if (!meta || !meta.background) return undefined;
-  return {
-    '--group-badge-bg': meta.background,
-    '--group-badge-color': meta.color
-  };
+function getVisibleTaskGroupBadges(task: Task): Array<{ id: string; label: string; style?: Record<string, string> }> {
+  return getTaskGroupBadges(task).slice(0, 2);
+}
+
+function getTaskGroupOverflowCount(task: Task): number {
+  const badges = getTaskGroupBadges(task);
+  return Math.max(0, badges.length - 2);
 }
 
 function getGroupKey(groupId: string): string {
@@ -3160,9 +3194,12 @@ function selectGroupFromPopover(value: string): void {
   const popover = groupPopover.value;
   if (!popover) return;
   const task = props.tasks.find(t => t.id === popover.taskId);
-  groupPopover.value = null;
-  if (!task) return;
+  if (!task) {
+    groupPopover.value = null;
+    return;
+  }
   if (popover.subtaskId) {
+    groupPopover.value = null;
     const subtask = findSubtaskById(task.subtasks, popover.subtaskId);
     if (!subtask) return;
     const nextGroupId = value === TASK_GROUP_NONE_ID ? '' : value;
@@ -3172,11 +3209,12 @@ function selectGroupFromPopover(value: string): void {
     emit('subtaskGroupUpdate', task, subtask, normalized);
     return;
   }
-  const nextGroupId = value === TASK_GROUP_NONE_ID ? '' : value;
-  const normalized = typeof nextGroupId === 'string' ? nextGroupId.trim() : '';
-  const currentGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-  if (normalized === currentGroupId) return;
-  emit('groupUpdate', task, normalized);
+  const currentTagIds = resolveTaskTagIds(task.tags, task.groupId);
+  const nextTagIds = value === TASK_GROUP_NONE_ID
+    ? []
+    : toggleTaskTagSelection(currentTagIds, value);
+  if (areTaskTagIdsEqual(currentTagIds, nextTagIds)) return;
+  emit('tagUpdate', task, nextTagIds);
 }
 
 function handleGroupManage(): void {
@@ -3987,6 +4025,14 @@ function toggleExpand(taskId: string) {
   cursor: pointer;
 }
 
+.group-badge-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  max-width: 100%;
+}
+
 .group-badge {
   display: inline-flex;
   align-items: center;
@@ -4291,6 +4337,21 @@ function toggleExpand(taskId: string) {
   background: #f98f7a;
   color: var(--b3-theme-background);
   box-shadow: none;
+}
+
+.group-popover-chip-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  color: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .group-popover-chip:hover {

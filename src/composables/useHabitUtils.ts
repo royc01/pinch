@@ -1,5 +1,6 @@
 import type { Habit } from '@/api';
 import { translate } from '@/composables/useI18n';
+import solarLunar from '@/utils/solarLunar.js';
 
 export function formatTimelineDate(date: Date | null): string {
   if (!date) return '';
@@ -76,6 +77,60 @@ export function getWeekCompletionData(habit: Habit, startOfWeek: Date): {
   };
 }
 
+function getLocalDateParts(date: Date): { dayOfWeek: number; dayOfMonth: number; monthDay: string } {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return {
+    dayOfWeek: date.getDay(),
+    dayOfMonth: date.getDate(),
+    monthDay: `${month}-${day}`
+  };
+}
+
+function getLunarDateParts(date: Date): { dayOfMonth: number; monthDay: string; isLeap: boolean } | null {
+  const lunarData = solarLunar.solar2lunar(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  if (lunarData === -1) {
+    return null;
+  }
+
+  const month = String(lunarData.lMonth).padStart(2, '0');
+  const day = String(lunarData.lDay).padStart(2, '0');
+  return {
+    dayOfMonth: lunarData.lDay,
+    monthDay: `${month}-${day}`,
+    isLeap: !!lunarData.isLeap
+  };
+}
+
+export function isHabitScheduledOnDate(habit: Habit, date: Date): boolean {
+  if (habit.frequency !== 'custom') {
+    return true;
+  }
+
+  const schedule = habit.customSchedule;
+  if (!schedule) {
+    return true;
+  }
+
+  const { dayOfWeek, dayOfMonth, monthDay } = getLocalDateParts(date);
+  const useLunar = schedule.calendar === 'lunar' && (schedule.type === 'month' || schedule.type === 'year');
+
+  if (schedule.type === 'month') {
+    const dateParts = useLunar ? getLunarDateParts(date) : { dayOfMonth };
+    return !!dateParts && Array.isArray(schedule.monthDays) && schedule.monthDays.includes(dateParts.dayOfMonth);
+  }
+
+  if (schedule.type === 'year') {
+    const dateParts = useLunar ? getLunarDateParts(date) : { monthDay, isLeap: false };
+    return !!dateParts
+      && !dateParts.isLeap
+      && Array.isArray(schedule.yearDays)
+      && schedule.yearDays.includes(dateParts.monthDay);
+  }
+
+  return Array.isArray(schedule.weekDays) && schedule.weekDays.includes(dayOfWeek);
+}
+
 export function getCompletionCount(habit: Habit, date: string): number {
   const dayRecord = habit.calendar.find(day => day.date === date);
   return dayRecord ? (dayRecord.completedCount || 0) : 0;
@@ -111,6 +166,14 @@ export function getFrequencyText(habit: Habit): string {
       days: (habit as any).customFrequency,
       count: timesPerDay
     });
+  }
+
+  if (habit.frequency === 'custom' && habit.customSchedule) {
+    const typeKey = `habitTracker.customScheduleType${habit.customSchedule.type[0].toUpperCase()}${habit.customSchedule.type.slice(1)}`;
+    const calendarText = habit.customSchedule.calendar === 'lunar'
+      ? `${translate('habitTracker.customScheduleCalendarLunar')} · `
+      : '';
+    return `${calendarText}${translate(typeKey)} | ${formatTemplate(dailyTemplateKey, { count: timesPerDay })}`;
   }
 
   return formatTemplate(dailyTemplateKey, { count: timesPerDay });

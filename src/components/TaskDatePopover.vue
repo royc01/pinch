@@ -19,11 +19,11 @@
         @click.stop
       >
         <div class="date-popover-header">
-          <button type="button" class="date-nav-btn" :title="t('date.previousMonth')" :aria-label="t('date.previousMonth')" @click="shiftMonth(-1)">
+          <button type="button" class="date-nav-btn ariaLabel" :aria-label="t('date.previousMonth')" @click="shiftMonth(-1)">
             <Icon name="chevronRight" width="16" height="16" class="icon flip" />
           </button>
           <div class="date-popover-title">{{ monthLabel }}</div>
-          <button type="button" class="date-nav-btn" :title="t('date.nextMonth')" :aria-label="t('date.nextMonth')" @click="shiftMonth(1)">
+          <button type="button" class="date-nav-btn ariaLabel" :aria-label="t('date.nextMonth')" @click="shiftMonth(1)">
             <Icon name="chevronRight" width="16" height="16" class="icon" />
           </button>
         </div>
@@ -78,8 +78,8 @@
                 />
                 <button
                   type="button"
-                  class="date-popover-input-trigger"
-                  :title="t('taskManager.pickStartDate')"
+                  class="date-popover-input-trigger ariaLabel"
+                 
                   :aria-label="t('taskManager.pickStartDate')"
                   @click="openInputPicker(startDateInputRef)"
                 >
@@ -99,8 +99,8 @@
                 />
                 <button
                   type="button"
-                  class="date-popover-input-trigger"
-                  :title="t('taskManager.pickDueDate')"
+                  class="date-popover-input-trigger ariaLabel"
+                 
                   :aria-label="t('taskManager.pickDueDate')"
                   @click="openInputPicker(dueDateInputRef)"
                 >
@@ -120,8 +120,8 @@
                 />
                 <button
                   type="button"
-                  class="date-popover-input-trigger"
-                  :title="t('taskManager.pickStartTime')"
+                  class="date-popover-input-trigger ariaLabel"
+                 
                   :aria-label="t('taskManager.pickStartTime')"
                   @click="openInputPicker(startTimeInputRef)"
                 >
@@ -141,8 +141,8 @@
                 />
                 <button
                   type="button"
-                  class="date-popover-input-trigger"
-                  :title="t('taskManager.pickDueTime')"
+                  class="date-popover-input-trigger ariaLabel"
+                 
                   :aria-label="t('taskManager.pickDueTime')"
                   @click="openInputPicker(dueTimeInputRef)"
                 >
@@ -537,6 +537,7 @@ onUnmounted(() => {
   width: 100%;
   max-width: 320px;
   box-shadow: none;
+  padding: 0;
 }
 
 .date-popover-inline.date-popover-detailed {

@@ -4,14 +4,14 @@
       <div class="stats-header-content">
         <button
           @click="handleEdit"
-          class="icon-button"
-          :title="t('habitTracker.editHabit')"
+          class="icon-button ariaLabel"
+         
           :aria-label="t('habitTracker.editHabit')"
         >
           <Icon name="edit" width="16" height="16" class="icon" />
         </button>
         <div class="stats-title">{{ habit.name }}</div>
-        <button @click="handleClose" class="icon-button" :title="t('common.close')" :aria-label="t('common.close')">
+        <button @click="handleClose" class="icon-button ariaLabel" :aria-label="t('common.close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -27,8 +27,8 @@
           <div class="calendar-navigation">
             <button
               @click="changeCalendarPeriod(-1)"
-              class="nav-btn"
-              :title="t('habitTracker.previousPeriod')"
+              class="nav-btn ariaLabel"
+             
               :aria-label="t('habitTracker.previousPeriod')"
             >
               <Icon name="left" width="16" height="16" class="icon" />
@@ -36,8 +36,8 @@
             <span class="current-period">{{ currentPeriodText }}</span>
             <button
               @click="changeCalendarPeriod(1)"
-              class="nav-btn"
-              :title="t('habitTracker.nextPeriod')"
+              class="nav-btn ariaLabel"
+             
               :aria-label="t('habitTracker.nextPeriod')"
             >
               <Icon name="right" width="16" height="16" class="icon" />
@@ -50,11 +50,11 @@
               <div v-for="day in weekdays" :key="day" class="weekday">{{ day }}</div>
             </div>
             <div class="month-grid">
-              <div 
+              <div class="ariaLabel" 
                 v-for="day in monthViewData" 
                 :key="day.date" 
                 :class="['day', { completed: day.completed, today: day.date === getToday(), 'not-current-month': !day.isCurrentMonth }]"
-                :title="day.date"
+                :aria-label="day.date"
                 @click="!habit.isPaused && toggleDayCompletion(day.date)"
               >
                 <span class="day-number">{{ day.date.split('-')[2] }}</span>
@@ -91,7 +91,17 @@
             >
               <div class="checkin-notes-date">{{ entry.date.split('-')[2] }}</div>
               <div class="checkin-notes-content">
-                <div class="checkin-notes-note">{{ entry.note }}</div>
+                <div v-if="entry.focusNotes?.length" class="checkin-focus-notes">
+                  <div
+                    v-for="focusNote in entry.focusNotes"
+                    :key="focusNote.sessionId"
+                    class="checkin-focus-note"
+                  >
+                    <div class="checkin-focus-note-label">{{ focusNote.label }}</div>
+                    <div class="checkin-notes-note">{{ focusNote.note }}</div>
+                  </div>
+                </div>
+                <div v-else class="checkin-notes-note">{{ entry.note }}</div>
               </div>
             </div>
           </div>
@@ -133,9 +143,9 @@
                   <div 
                     v-for="hourData in hourDistribution" 
                     :key="hourData.hour"
-                    class="hour-bar"
+                    class="hour-bar ariaLabel"
                     :style="{ height: calculateBarHeight(hourData.count) + '%' }"
-                    :title="getHourDistributionTitle(hourData)"
+                    :aria-label="getHourDistributionTitle(hourData)"
                   >
                   </div>
                 </div>
@@ -183,6 +193,12 @@ interface HourData {
 interface CheckinNote {
   date: string;
   note: string;
+  focusNotes?: Array<{
+    sessionId: string;
+    label: string;
+    minutes: number;
+    note: string;
+  }>;
 }
 
 interface LongestStreak {
@@ -492,6 +508,25 @@ const getToday = (): string => {
               border-radius: 12px;
               margin-top: -8px;
               padding: 8px;
+
+              .checkin-focus-notes {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              }
+
+              .checkin-focus-note {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+              }
+
+              .checkin-focus-note-label {
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--b3-theme-on-background);
+                line-height: 1.4;
+              }
               
               .checkin-notes-note {
                 font-size: 13px;

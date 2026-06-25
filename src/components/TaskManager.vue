@@ -11,13 +11,12 @@
         <div ref="kernelDiagnosticsControlRef" class="kernel-diagnostics-control">
           <SyButton
             size="small"
-            class="task-kernel-status"
+            class="task-kernel-status ariaLabel"
             :class="{
               active: kernelDiagnosticsVisible,
               'is-connected': kernelDiagnostics.status === 'connected',
               'is-error': kernelDiagnostics.status === 'error'
             }"
-            :title="t('taskManager.kernelStatus')"
             :aria-label="t('taskManager.kernelStatus')"
             @click.stop="toggleKernelDiagnostics"
           >
@@ -64,16 +63,18 @@
             <div class="kernel-diagnostics-actions">
               <button
                 type="button"
-                class="kernel-diagnostics-action"
+                class="kernel-diagnostics-action ariaLabel"
                 :disabled="kernelDiagnosticsChecking"
+                :aria-label="t('taskManager.check')"
                 @click="checkKernelDiagnostics"
               >
                 {{ t('taskManager.check') }}
               </button>
               <button
                 type="button"
-                class="kernel-diagnostics-action primary"
+                class="kernel-diagnostics-action primary ariaLabel"
                 :disabled="kernelDiagnosticsChecking"
+                :aria-label="t('taskManager.rebuildIndex')"
                 @click="rebuildKernelTaskIndex"
               >
                 {{ t('taskManager.rebuildIndex') }}
@@ -83,18 +84,17 @@
         </div>
         <SyButton
           size="small"
-          class="task-refresh"
+          class="task-refresh ariaLabel"
           :class="{ 'is-refreshing': isRefreshButtonSpinning }"
-          :title="t('taskManager.refreshTasks')"
           :aria-label="t('taskManager.refreshTasks')"
           @click="handleRefreshClick"
         >
           <Icon name="refresh" width="22" height="22" class="icon refresh-icon" />
         </SyButton>
-        <SyButton size="small" class="new-task-button" :title="t('taskManager.newTask')" :aria-label="t('taskManager.newTask')" @click="openTaskModal">
+        <SyButton size="small" class="new-task-button ariaLabel" :aria-label="t('taskManager.newTask')" @click="openTaskModal">
           <Icon name="add" width="24" height="24" class="icon" />
         </SyButton>
-        <SyButton size="small" class="view-all-button" :title="t('app.openTaskView')" :aria-label="t('app.openTaskView')" @click="openKanbanView">
+        <SyButton size="small" class="view-all-button ariaLabel" :aria-label="t('app.openTaskView')" @click="openKanbanView">
           {{ t('taskManager.more') }}
         </SyButton>
     </div>
@@ -104,8 +104,8 @@
       <div class="filters-bar">
         <div class="filter-group">
           <label
-            class="task-manager-notebook-label"
-            :title="t('taskManager.source')"
+            class="task-manager-notebook-label ariaLabel"
+           
             :aria-label="t('taskManager.source')"
           >
             <Icon name="source" width="16" height="16" class="task-manager-notebook-icon" />
@@ -133,9 +133,8 @@
         <div class="task-search-control">
           <button
             type="button"
-            class="task-search-btn"
+            class="task-search-btn ariaLabel"
             :class="{ active: taskSearchVisible }"
-            :title="t('taskManager.searchTasks')"
             :aria-label="t('taskManager.searchTasks')"
             @click.stop="toggleTaskSearch"
           >
@@ -145,11 +144,10 @@
         <div ref="taskFilterControlRef" class="task-filter-control">
           <button
             type="button"
-            class="task-filter-btn"
+            class="task-filter-btn ariaLabel"
             :class="{
               active: taskFilterPopoverVisible || hasActiveTaskFilters
             }"
-            :title="t('taskManager.filterTasks')"
             :aria-label="t('taskManager.filterTasks')"
             @click.stop="toggleTaskFilterPopover"
           >
@@ -162,12 +160,11 @@
         <div ref="taskGroupMenuControlRef" class="task-group-menu-control">
           <button
             type="button"
-            class="task-group-menu-btn"
+            class="task-group-menu-btn ariaLabel"
             :class="{
               active: taskGroupMenuVisible || taskListGroupBy !== 'none' || taskListViewMode !== 'kanban',
               'is-batch-active': isBatchEditMode
             }"
-            :title="t('taskManager.groupTasks')"
             :aria-label="t('taskManager.groupTasks')"
             @click.stop="toggleTaskGroupMenu"
           >
@@ -261,7 +258,7 @@
         ref="taskSearchInputRef"
         v-model="taskSearchQuery"
             type="text"
-            class="task-search-input"
+            class="task-search-input ariaLabel"
             :placeholder="t('taskManager.searchTasks')"
             :aria-label="t('taskManager.searchTasks')"
             @keydown.esc.stop.prevent="closeTaskSearch"
@@ -303,6 +300,14 @@
           />
         </label>
         <label class="task-batch-field">
+          <span>{{ t('taskManager.batchTagAction') }}</span>
+          <SySelect
+            :model-value="batchEditTagAction"
+            :options="batchEditTagActionOptions"
+            @update:model-value="setBatchEditTagAction"
+          />
+        </label>
+        <label class="task-batch-field">
           <span>{{ t('taskManager.tags') }}</span>
           <SySelect
             :model-value="batchEditGroupId"
@@ -338,67 +343,81 @@
           v-show="!isTaskListCollapsed && taskEditorSidebarVisible"
           mode="sidebar"
           :title="taskEditorSidebarTitle"
+          :overlay-style="taskEditorSidebarOverlayStyle"
+          :panel-style="taskEditorSidebarPanelStyle"
           :show-pin="!!activeTaskEditTask"
           :pin-active="isActiveTaskPinned"
           :show-move="!!activeTaskEditTask"
           :show-archive="!!activeTaskEditTask"
           :is-archived="isActiveTaskArchived"
           :show-delete="!!activeTaskEditTask"
-          :show-priority="!!(activeTaskEditTask && activeTaskEditDraft)"
           :show-focus="!!activeTaskEditTask"
-          :priority-style="{ background: taskEditorPriorityOption.background, color: taskEditorPriorityOption.color }"
           @backdrop-click="closeTaskEditorSidebar"
           @panel-mousedown="handleTaskEditorSidebarPanelMouseDown"
           @pin="handleTaskEditorPinToggle"
           @move="openTaskMoveDialog"
           @archive="handleTaskEditorArchiveToggle"
           @delete="handleTaskEditorDelete"
-          @priority="toggleTaskEditorPriorityPopover"
           @focus="handleTaskEditorStartFocus"
           @close="closeTaskEditorSidebar"
         >
-          <div
+          <TaskEditorProtyleBody
             ref="taskEditorSidebarMountRef"
-            class="task-editor-sidebar-body"
-          ></div>
-          <div
+            :show-description-control="!!(activeTaskEditTask && activeTaskEditDraft)"
+            :description="activeTaskEditDraft?.description || ''"
+            :has-description="taskEditorHasDescription"
+            :description-active="taskEditorQuickPanel === 'description'"
+            :description-placeholder="t('taskManager.addTaskDescription')"
+            :add-description-label="t('taskManager.addDescription', 'Add description')"
+            @open-description="taskEditorQuickPanel = 'description'"
+            @update:description="handleTaskEditorDescriptionInput"
+            @commit-description="handleTaskEditorDescriptionCommit"
+            @close-description="taskEditorQuickPanel = null"
+          />
+          <TaskEditorMetaPanel
             v-if="activeTaskEditTask && activeTaskEditDraft"
-            class="task-editor-sidebar-meta"
-          >
-            <TaskEditorMetaPanel
-              :panel="taskEditorQuickPanel"
-              :start-date="activeTaskEditDraft.startDate || ''"
-              :start-time="activeTaskEditDraft.startTime || ''"
-              :due-date="activeTaskEditDraft.dueDate || ''"
-              :due-time="activeTaskEditDraft.dueTime || ''"
-              :due-text="taskEditorDueText"
-              :has-due-date="taskEditorHasDueDate"
-              :description="activeTaskEditDraft.description || ''"
-              :has-description="taskEditorHasDescription"
-              :group-options="taskGroupPickerOptions"
-              :selected-group-id="taskEditorSelectedGroupId"
-              :group-label="taskEditorGroupLabel"
-              :reminder-type="activeTaskEditDraft.reminderType"
-              :reminder-custom-time="activeTaskEditDraft.reminderCustomTime || ''"
-              :reminder-text="taskEditorReminderText"
-              :has-reminder="taskEditorHasReminder"
-              :status="activeTaskEditDraft.status"
-              :repeat-frequency="taskEditorRepeatFrequency"
-              :repeat-rule="taskEditorRepeatRule"
-              :group-button-style="taskEditorGroupButtonStyle"
-              :default-group-chip-color="defaultGroupChipColor"
-              :description-placeholder="t('taskManager.addTaskDescription')"
-              @update:panel="taskEditorQuickPanel = $event"
-              @update:description="handleTaskEditorDescriptionInput"
-              @update-dates="handleTaskEditorDateFieldsUpdate"
-              @select-group="selectTaskEditorGroup"
-              @select-reminder="handleTaskEditorReminderSelect"
-              @select-status="handleTaskEditorStatusSelect"
-              @save-repeat-rule="handleTaskEditorRepeatRuleSave"
-              @commit-description="handleTaskEditorDescriptionCommit"
-              @manage-groups="openTaskGroupDialog"
-            />
-          </div>
+            :panel="taskEditorQuickPanel"
+            :start-date="activeTaskEditDraft.startDate || ''"
+            :start-time="activeTaskEditDraft.startTime || ''"
+            :due-date="activeTaskEditDraft.dueDate || ''"
+            :due-time="activeTaskEditDraft.dueTime || ''"
+            :due-text="taskEditorDueText"
+            :has-due-date="taskEditorHasDueDate"
+            :description="activeTaskEditDraft.description || ''"
+            :has-description="taskEditorHasDescription"
+            :group-options="taskGroupPickerOptions"
+            :goal-options="taskGoalPickerOptions"
+            :selected-group-id="taskEditorSelectedGroupId"
+            :selected-tag-ids="taskEditorSelectedTagIds"
+            :selected-goal-ids="taskEditorSelectedGoalIds"
+            :group-label="taskEditorGroupLabel"
+            :reminder-type="activeTaskEditDraft.reminderType"
+            :reminder-custom-time="activeTaskEditDraft.reminderCustomTime || ''"
+            :reminder-text="taskEditorReminderText"
+            :has-reminder="taskEditorHasReminder"
+            :status="activeTaskEditDraft.status"
+            :priority="activeTaskEditDraft.priority || 'none'"
+            :repeat-frequency="taskEditorRepeatFrequency"
+            :repeat-rule="taskEditorRepeatRule"
+            :group-button-style="taskEditorGroupButtonStyle"
+            :default-group-chip-color="defaultGroupChipColor"
+            :description-placeholder="t('taskManager.addTaskDescription')"
+            :show-description-control="false"
+            :show-priority-action="true"
+            layout="properties"
+            @update:panel="taskEditorQuickPanel = $event"
+            @update:description="handleTaskEditorDescriptionInput"
+            @update-dates="handleTaskEditorDateFieldsUpdate"
+            @select-group="selectTaskEditorGroup"
+            @select-goal="selectTaskEditorGoal"
+            @select-reminder="handleTaskEditorReminderSelect"
+            @select-status="handleTaskEditorStatusSelect"
+            @select-priority="handleTaskEditorPrioritySelect"
+            @save-repeat-rule="handleTaskEditorRepeatRuleSave"
+            @commit-description="handleTaskEditorDescriptionCommit"
+            @manage-groups="openTaskGroupDialog"
+            @manage-goals="void openTaskScopeDialog('goals')"
+          />
           <div
             v-if="showTaskMoveDialog"
             class="task-move-dialog-overlay"
@@ -409,8 +428,8 @@
                 <span class="task-move-dialog-title">{{ t('taskManager.moveTask') }}</span>
                 <button
                   type="button"
-                  class="task-move-dialog-close"
-                  :title="t('common.close')"
+                  class="task-move-dialog-close ariaLabel"
+                 
                   :aria-label="t('common.close')"
                   @click.stop="closeTaskMoveDialog"
                 >
@@ -464,14 +483,6 @@
       </Transition>
     </Teleport>
 
-    <PriorityPopover
-      v-if="taskEditorPriorityPopover"
-      :show="true"
-      :position="taskEditorPriorityPopover.position"
-      @select="handleTaskEditorPrioritySelect"
-      @close="taskEditorPriorityPopover = null"
-    />
-    
     <div v-if="loading" class="loading" v-show="!isTaskListCollapsed">{{ t('taskManager.loading') }}</div>
     <div
       v-else
@@ -497,12 +508,12 @@
             <span class="task-group-section-title">
               <span
                 v-if="isBatchEditMode"
-                class="task-group-section-batch-checkbox"
+                class="task-group-section-batch-checkbox ariaLabel"
                 :class="{
                   partial: isTaskGroupSectionBatchPartiallySelected(section),
                   'is-disabled': section.tasks.length === 0
                 }"
-                :title="isTaskGroupSectionBatchAllSelected(section) ? t('taskManager.cancelSelectGroup') : t('taskManager.selectGroup')"
+               
                 :aria-label="isTaskGroupSectionBatchAllSelected(section) ? t('taskManager.cancelSelectGroup') : t('taskManager.selectGroup')"
                 :aria-disabled="section.tasks.length === 0"
                 @click.stop="toggleTaskGroupSectionBatchSelection(section)"
@@ -518,9 +529,9 @@
               <span class="task-group-section-count">{{ section.tasks.length }}</span>
               <button
                 type="button"
-                class="task-group-section-toggle"
+                class="task-group-section-toggle ariaLabel"
                 :class="{ collapsed: isTaskGroupSectionCollapsed(section.key) }"
-                :title="isTaskGroupSectionCollapsed(section.key) ? t('taskManager.expandGroup') : t('taskManager.collapseGroup')"
+               
                 :aria-label="isTaskGroupSectionCollapsed(section.key) ? t('taskManager.expandGroup') : t('taskManager.collapseGroup')"
                 @click.stop="toggleTaskGroupSectionCollapse(section.key)"
               >
@@ -550,6 +561,7 @@
                 :completed="task.status === 'completed'"
                 variant="sidebar"
                 :task-groups="taskGroups"
+                :goals="goalDefinitions"
                 :show-status-badge="true"
                 :draggable="!isMobileFrontend && !isBatchEditMode"
                 :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
@@ -603,6 +615,7 @@
             :completed="task.status === 'completed'"
             variant="sidebar"
             :task-groups="taskGroups"
+            :goals="goalDefinitions"
             :show-status-badge="true"
             :draggable="!isMobileFrontend && !isBatchEditMode"
             :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
@@ -645,10 +658,12 @@
         :notebooks="enabledNotebooks"
         :documents="allDocuments"
         :groups="taskGroups"
+        :goals="goalDefinitions"
         :default-group-id="taskModalDefaultGroupId"
         :lastSelectedNotebook="taskModalDefaultNotebook"
         :lastSelectedDocument="taskModalDefaultDocument"
         presentation="center"
+        :overlay-style="taskModalOverlayStyle"
         @close="showTaskModal = false"
         @manage-groups="openTaskGroupDialog"
         @submit="handleCreateTask"
@@ -675,8 +690,9 @@
       :initial-tab="taskScopeDialogInitialTab"
       :document-groups="documentGroups"
       :document-group-documents="documentGroupDialogDocuments"
+      :documents-refreshing="taskScopeDocumentsRefreshing"
       :goals="goalDefinitions"
-      :goal-documents="goalDocuments"
+      :goal-documents="sidebarGoalDocuments"
       :task-view-options="taskScopeViewOptions"
       :hidden-task-view-ids="userSettings.kanban.hiddenViewSwitcherIds"
       :sidebar-section-options="taskScopeSidebarSectionOptions"
@@ -686,6 +702,7 @@
       :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
+      @refresh-documents="handleTaskScopeDocumentsRefresh"
       @save="handleTaskScopeSave"
     />
     <TaskDateQuickMenu
@@ -703,6 +720,32 @@
       @update:dueDate="taskQuickDateDraft.dueDate = $event"
       @update:dueTime="taskQuickDateDraft.dueTime = $event"
       @save="handleTaskQuickDateSave"
+    />
+    <TaskQuickMetaMenu
+      :show="taskQuickMetaMenu.show"
+      :x="taskQuickMetaMenu.x"
+      :y="taskQuickMetaMenu.y"
+      :priority="taskQuickMetaDraft.priority"
+      :tag-ids="taskQuickMetaDraft.tags"
+      :group-options="taskGroupPickerOptions"
+      :goal-options="taskGoalPickerOptions"
+      :selected-goal-ids="taskQuickMetaDraft.goalIds"
+      :start-date="taskQuickMetaDraft.startDate"
+      :start-time="taskQuickMetaDraft.startTime"
+      :due-date="taskQuickMetaDraft.dueDate"
+      :due-time="taskQuickMetaDraft.dueTime"
+      :reminder-type="taskQuickMetaDraft.reminderType"
+      :reminder-custom-time="taskQuickMetaDraft.reminderCustomTime"
+      @update:priority="taskQuickMetaDraft.priority = $event"
+      @update:startDate="taskQuickMetaDraft.startDate = $event"
+      @update:startTime="taskQuickMetaDraft.startTime = $event"
+      @update:dueDate="taskQuickMetaDraft.dueDate = $event"
+      @update:dueTime="taskQuickMetaDraft.dueTime = $event"
+      @update:reminder="handleTaskQuickMetaReminderUpdate"
+      @toggle-tag="handleTaskQuickMetaTagToggle"
+      @toggle-goal="handleTaskQuickMetaGoalToggle"
+      @save="handleTaskQuickMetaSave"
+      @close="closeTaskQuickMetaMenu"
     />
     <TaskGroupDialog
       :show="showTaskGroupDialog"
@@ -729,9 +772,10 @@ import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
 import Icon from '@/components/Icon.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
-import PriorityPopover from '@/components/PriorityPopover.vue';
+import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
 import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
-import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, lsNotebooks, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, setBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
+import TaskQuickMetaMenu from '@/components/TaskQuickMetaMenu.vue';
+import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, lsNotebooks, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
 import { syncTaskStatusAttrsIfNeeded, updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { openKanbanView, usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -739,7 +783,11 @@ import { useGoals } from '@/composables/useGoals';
 import { useTaskFilters } from '@/composables/useTaskFilters';
 import { useTaskFilterState } from '@/composables/useTaskFilterState';
 import { useI18n } from '@/composables/useI18n';
-import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
+import {
+  buildTaskDocumentPathLookup,
+  taskMatchesDocumentScope
+} from '@/utils/taskDocumentScope';
+import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { eventBus, Events } from '@/utils/eventBus';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
@@ -757,7 +805,6 @@ import { playTaskCompletionSound } from '@/utils/completionSound';
 import {
   applyRepeatRuleOptimisticToTasks,
   getDocumentCreationSortKey,
-  loadRootDocumentMetadata,
   normalizeNotebookIds,
   resolveDocumentDisplayName,
   type RepeatRulePayload
@@ -780,6 +827,7 @@ import {
   buildNotebookDocumentSource,
   parseDocumentSource
 } from '@/utils/documentGroupSource';
+import { useTaskScopeDocuments } from '@/composables/useTaskScopeDocuments';
 import {
   buildTaskQuickDateDraft,
   normalizeQuickDateInputValue,
@@ -799,6 +847,23 @@ import {
   type KernelTaskRowsResult
 } from '@/kernelRpc';
 import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
+import {
+  applyTaskTagBatchAction,
+  areTaskTagIdsEqual,
+  buildTaskTagAttrs,
+  buildTaskTagState,
+  matchesTaskTagFilter,
+  removeTaskTags,
+  resolveTaskTagIds,
+  toggleTaskTagSelection,
+  type TaskTagBatchAction
+} from '@/utils/taskTags';
+import {
+  getGoalIdsForTask,
+  isTaskDirectGoalMember,
+  setTaskGoalMembership,
+  toggleTaskGoalMembership
+} from '@/utils/goalTaskMembership';
 import type { SidebarSectionId, TaskViewSwitcherId } from '@/utils/userSettings';
 
 interface MobileCalendarDragEventPayload {
@@ -834,7 +899,15 @@ const emit = defineEmits<{
 }>();
 
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
-const { goalDefinitions, goalDocuments, goalItems, goalsLoading, saveGoalDefinitions } = useGoals();
+const {
+  goalDefinitions,
+  goalDocuments,
+  goalItems,
+  goalsLoading,
+  loadGoalsData,
+  refreshGoalDocuments,
+  saveGoalDefinitions
+} = useGoals();
 const autoRecognizeTaskDate = computed(() => userSettings.taskManager.autoRecognizeTaskDate === true);
 const taskCompletionSoundEnabled = computed(() => userSettings.taskManager.taskCompletionSoundEnabled !== false);
 const showDocumentGroupNotebookPath = computed(() => userSettings.taskManager.showDocumentGroupNotebookPath !== false);
@@ -875,6 +948,7 @@ const loading = ref(false);
 const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
 const showTaskScopeDialog = ref(false);
+const taskScopeDocumentsRefreshing = ref(false);
 type TaskScopeDialogTab = 'scope' | 'task-settings' | 'document-groups' | 'goals' | 'display';
 const taskScopeDialogInitialTab = ref<TaskScopeDialogTab>('scope');
 const isGlobalDateRecognitionRunning = ref(false);
@@ -902,9 +976,18 @@ interface TaskEditDraft {
   description: string;
   reminderType?: TaskReminderType;
   reminderCustomTime: string;
+  tags: string[];
   groupId: string;
 }
 type TaskEditorDateFields = Pick<TaskEditDraft, 'startDate' | 'startTime' | 'dueDate' | 'dueTime'>;
+interface TaskQuickMetaDraft extends TaskEditorDateFields {
+  priority: Task['priority'];
+  reminderType?: TaskReminderType;
+  reminderCustomTime: string;
+  tags: string[];
+  groupId: string;
+  goalIds: string[];
+}
 type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
 type TaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
 type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks';
@@ -968,8 +1051,16 @@ let taskEditorProtyle: Protyle | null = null;
 const openingTaskPopoverBlockIds = new Set<string>();
 const taskEditorSidebarVisible = ref(false);
 const taskEditorSidebarTitle = ref(t('taskManager.editTask'));
-const taskEditorSidebarMountRef = ref<HTMLElement | null>(null);
-const taskEditorPriorityPopover = ref<{ position: { x: number; y: number } } | null>(null);
+const taskEditorSidebarMountRef = ref<InstanceType<typeof TaskEditorProtyleBody> | null>(null);
+const taskEditorSidebarOverlayStyle = ref<Record<string, string>>({});
+const taskEditorSidebarPanelStyle = ref<Record<string, string>>({});
+const taskModalOverlayStyle = ref<Record<string, string>>({});
+let taskEditorHostResizeObserver: ResizeObserver | null = null;
+let observedTaskEditorHost: HTMLElement | null = null;
+let taskEditorSidebarPositionRaf: number | null = null;
+let taskEditorParentScrollHost: HTMLElement | null = null;
+let taskEditorParentPreviousOverflowY = '';
+let taskEditorParentLockedScrollTop = 0;
 const taskEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | 'status' | null>(null);
 const showTaskMoveDialog = ref(false);
 const isTaskMoveSubmitting = ref(false);
@@ -982,6 +1073,192 @@ const visibleTaskGroups = computed(() =>
 );
 const visibleTaskGroupIdSet = computed(() => new Set(visibleTaskGroups.value.map(group => group.id)));
 const taskGroupNameMap = computed(() => new Map(taskGroups.value.map(group => [group.id, group.name || ''])));
+
+function resolveTaskTagSummaryLabel(tagIds: string[]): string {
+  if (tagIds.length === 0) {
+    return t('taskManager.noTag');
+  }
+  const primaryLabel = taskGroupNameMap.value.get(tagIds[0] || '') || t('taskManager.tags');
+  return tagIds.length > 1 ? `${primaryLabel} +${tagIds.length - 1}` : primaryLabel;
+}
+
+function resolveTaskPrimaryTagColor(tagIds: string[]): string {
+  const primaryTagId = tagIds[0] || '';
+  if (!primaryTagId) {
+    return '';
+  }
+  return taskGroups.value.find(item => item.id === primaryTagId)?.color || '';
+}
+
+function getTaskEditorSidebarMountElement(): HTMLElement | null {
+  return taskEditorSidebarMountRef.value?.bodyEl ?? null;
+}
+
+function getTaskEditorHostVisibleRect(): DOMRect {
+  const host = taskModalTeleportTarget.value || taskManagerContainerRef.value || document.documentElement;
+  const rect = host.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || rect.width;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || rect.height;
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(viewportWidth, rect.right);
+  const bottom = Math.min(viewportHeight, rect.bottom);
+  return new DOMRect(
+    left,
+    top,
+    Math.max(0, right - left),
+    Math.max(0, bottom - top)
+  );
+}
+
+function updateTaskModalOverlayStyle(): void {
+  const hostRect = getTaskEditorHostVisibleRect();
+  if (hostRect.width <= 0 || hostRect.height <= 0) {
+    return;
+  }
+
+  taskModalOverlayStyle.value = {
+    '--modal-overlay-left': `${Math.round(hostRect.left)}px`,
+    '--modal-overlay-top': `${Math.round(hostRect.top)}px`,
+    '--modal-overlay-width': `${Math.round(hostRect.width)}px`,
+    '--modal-overlay-height': `${Math.round(hostRect.height)}px`
+  };
+}
+
+function updateTaskEditorSidebarPosition(): void {
+  if (taskEditorSidebarPositionRaf !== null) {
+    cancelAnimationFrame(taskEditorSidebarPositionRaf);
+    taskEditorSidebarPositionRaf = null;
+  }
+  if (!taskEditorSidebarVisible.value) {
+    return;
+  }
+
+  const hostRect = getTaskEditorHostVisibleRect();
+  if (hostRect.width <= 0 || hostRect.height <= 0) {
+    return;
+  }
+
+  const teleportHost = taskModalTeleportTarget.value;
+  if (teleportHost) {
+    const overlayTop = Math.max(0, Math.round(teleportHost.scrollTop || 0));
+    const overlayHeight = Math.max(0, Math.round(teleportHost.clientHeight || hostRect.height));
+    taskEditorSidebarOverlayStyle.value = {
+      position: 'absolute',
+      left: '0',
+      top: `${overlayTop}px`,
+      width: '100%',
+      height: `${overlayHeight}px`,
+      padding: '0',
+      overflow: 'hidden'
+    };
+    taskEditorSidebarPanelStyle.value = {
+      position: 'absolute',
+      left: '0',
+      bottom: '0',
+      width: '100%',
+      maxHeight: '100%',
+      overflowY: 'auto',
+      overscrollBehavior: 'contain'
+    };
+    return;
+  }
+
+  const panelWidth = Math.max(0, hostRect.width);
+  const panelMaxHeight = Math.max(240, hostRect.height);
+
+  const left = Math.round(hostRect.left);
+  const bottom = Math.max(0, Math.round((window.innerHeight || document.documentElement.clientHeight) - hostRect.bottom));
+
+  taskEditorSidebarOverlayStyle.value = {
+    left: `${Math.round(hostRect.left)}px`,
+    top: `${Math.round(hostRect.top)}px`,
+    width: `${Math.round(hostRect.width)}px`,
+    height: `${Math.round(hostRect.height)}px`
+  };
+  taskEditorSidebarPanelStyle.value = {
+    left: `${left}px`,
+    bottom: `${bottom}px`,
+    width: `${Math.round(panelWidth)}px`,
+    maxHeight: `${Math.round(panelMaxHeight)}px`
+  };
+}
+
+function scheduleTaskEditorSidebarPositionUpdate(): void {
+  if (!taskEditorSidebarVisible.value || taskEditorSidebarPositionRaf !== null) {
+    return;
+  }
+  taskEditorSidebarPositionRaf = requestAnimationFrame(() => {
+    taskEditorSidebarPositionRaf = null;
+    updateTaskEditorSidebarPosition();
+  });
+}
+
+function cancelTaskEditorSidebarPositionUpdate(): void {
+  if (taskEditorSidebarPositionRaf === null) {
+    return;
+  }
+  cancelAnimationFrame(taskEditorSidebarPositionRaf);
+  taskEditorSidebarPositionRaf = null;
+}
+
+function lockTaskEditorParentScroll(): void {
+  const host = taskModalTeleportTarget.value;
+  if (!host) {
+    unlockTaskEditorParentScroll();
+    return;
+  }
+  if (taskEditorParentScrollHost === host) {
+    return;
+  }
+
+  unlockTaskEditorParentScroll();
+  taskEditorParentScrollHost = host;
+  taskEditorParentPreviousOverflowY = host.style.overflowY;
+  taskEditorParentLockedScrollTop = host.scrollTop || 0;
+  host.style.overflowY = 'hidden';
+}
+
+function unlockTaskEditorParentScroll(): void {
+  const host = taskEditorParentScrollHost;
+  if (!host) {
+    return;
+  }
+  host.style.overflowY = taskEditorParentPreviousOverflowY;
+  host.scrollTop = taskEditorParentLockedScrollTop;
+  taskEditorParentScrollHost = null;
+  taskEditorParentPreviousOverflowY = '';
+  taskEditorParentLockedScrollTop = 0;
+}
+
+function syncTaskEditorHostResizeObserver(): void {
+  const host = taskModalTeleportTarget.value || taskManagerContainerRef.value;
+  if (host === observedTaskEditorHost) {
+    return;
+  }
+
+  taskEditorHostResizeObserver?.disconnect();
+  observedTaskEditorHost = host;
+  if (!host || typeof ResizeObserver === 'undefined') {
+    taskEditorHostResizeObserver = null;
+    return;
+  }
+
+  taskEditorHostResizeObserver = new ResizeObserver(() => {
+    scheduleTaskEditorSidebarPositionUpdate();
+    if (showTaskModal.value) {
+      updateTaskModalOverlayStyle();
+    }
+  });
+  taskEditorHostResizeObserver.observe(host);
+}
+
+function disconnectTaskEditorHostResizeObserver(): void {
+  taskEditorHostResizeObserver?.disconnect();
+  taskEditorHostResizeObserver = null;
+  observedTaskEditorHost = null;
+}
+
 const lastSelectedTaskGroupId = ref<string>('');
 const showTaskCardDetails = ref(true);
 const collapsedTaskGroupSectionKeys = ref<Set<string>>(new Set());
@@ -989,15 +1266,46 @@ const isBatchEditMode = ref(false);
 const batchSelectedTaskIds = ref<Set<string>>(new Set());
 const batchEditStatus = ref<string>('');
 const batchEditPriority = ref<string>('');
+const batchEditTagAction = ref<BatchTagActionSelection>('set-primary');
 const batchEditGroupId = ref<string>('');
 const isBatchApplying = ref(false);
-const taskQuickDateMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
+const taskQuickDateMenu = ref<{
+  show: boolean;
+  x: number;
+  y: number;
+  task: Task | null;
+}>({
   show: false,
   x: 0,
   y: 0,
   task: null
 });
+const taskQuickMetaMenu = ref<{
+  show: boolean;
+  x: number;
+  y: number;
+  task: Task | null;
+  removeTrigger?: (() => void) | null;
+}>({
+  show: false,
+  x: 0,
+  y: 0,
+  task: null,
+  removeTrigger: null
+});
 const taskQuickDateDraft = ref<TaskQuickDateDraft>({
+  startDate: '',
+  startTime: '',
+  dueDate: '',
+  dueTime: ''
+});
+const taskQuickMetaDraft = ref<TaskQuickMetaDraft>({
+  priority: 'none',
+  reminderType: undefined,
+  reminderCustomTime: '',
+  tags: [],
+  groupId: '',
+  goalIds: [],
   startDate: '',
   startTime: '',
   dueDate: '',
@@ -1022,6 +1330,7 @@ let taskHeadingGroupRequestId = 0;
 
 const TASK_GROUP_NONE_ID = '__none__';
 const defaultGroupChipColor = '#9aa0a6';
+type BatchTagActionSelection = TaskTagBatchAction | '';
 interface TaskGroupDialogSavePayload {
   groups: TaskGroup[];
   orderIds: string[];
@@ -1074,6 +1383,11 @@ const batchEditPriorityOptions: Array<{ value: string; text: string }> = [
   { value: 'medium', text: t('taskManager.priorityMedium') },
   { value: 'high', text: t('taskManager.priorityHigh') }
 ];
+const batchEditTagActionOptions: Array<{ value: TaskTagBatchAction; text: string }> = [
+  { value: 'set-primary', text: t('taskManager.batchSetPrimaryTag') },
+  { value: 'add', text: t('taskManager.batchAddTag') },
+  { value: 'remove', text: t('taskManager.batchRemoveTag') }
+];
 const taskGroupStatusOrder: Task['status'][] = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
 const taskGroupStatusLabel: Record<Task['status'], string> = {
   'pending': t('taskManager.statusPending'),
@@ -1108,7 +1422,9 @@ const allVisibleTasksSelected = computed(() => {
 });
 const batchEditGroupOptions = computed(() => [
   { value: '', text: t('taskManager.tagNoChange') },
-  { value: TASK_GROUP_NONE_ID, text: t('taskManager.noTag') },
+  ...(batchEditTagAction.value === 'set-primary'
+    ? [{ value: TASK_GROUP_NONE_ID, text: t('taskManager.noTag') }]
+    : []),
   ...visibleTaskGroups.value.map(group => ({
     value: group.id,
     text: group.name || t('taskManager.untitledTag')
@@ -1142,9 +1458,24 @@ function isBatchPriority(value: string): value is Task['priority'] {
     || value === 'high';
 }
 
+function normalizeBatchTagAction(value: unknown): TaskTagBatchAction {
+  return value === 'add' || value === 'remove' || value === 'set-primary'
+    ? value
+    : 'set-primary';
+}
+
+function setBatchEditTagAction(value: unknown): void {
+  const nextAction = normalizeBatchTagAction(value);
+  batchEditTagAction.value = nextAction;
+  if (nextAction !== 'set-primary' && batchEditGroupId.value === TASK_GROUP_NONE_ID) {
+    batchEditGroupId.value = '';
+  }
+}
+
 function resetBatchEditInputs(): void {
   batchEditStatus.value = '';
   batchEditPriority.value = '';
+  batchEditTagAction.value = 'set-primary';
   batchEditGroupId.value = '';
 }
 
@@ -1165,7 +1496,6 @@ function toggleBatchEditMode(): void {
   }
   closeTaskEditMenu();
   closeTaskEditorSidebar();
-  taskEditorPriorityPopover.value = null;
   taskEditorQuickPanel.value = null;
   isBatchEditMode.value = true;
 }
@@ -1265,9 +1595,17 @@ function resolveTaskModalTeleportTarget(): void {
   const localHost = taskManagerContainerRef.value;
   if (!localHost || typeof localHost.closest !== 'function') {
     taskModalTeleportTarget.value = null;
+    syncTaskEditorHostResizeObserver();
+    if (taskEditorSidebarVisible.value) {
+      unlockTaskEditorParentScroll();
+    }
     return;
   }
   taskModalTeleportTarget.value = localHost.closest('.Pinch-habit-container') as HTMLElement | null;
+  syncTaskEditorHostResizeObserver();
+  if (taskEditorSidebarVisible.value) {
+    lockTaskEditorParentScroll();
+  }
 }
 
 function resolveTaskScrollContainer(): HTMLElement | null {
@@ -1349,6 +1687,7 @@ function scheduleTaskVirtualUpdate(): void {
 function handleTaskListScroll(): void {
   scheduleTaskVirtualUpdate();
   scheduleTaskTitleHydration(160);
+  scheduleTaskEditorSidebarPositionUpdate();
 }
 
 function scheduleTaskRowMeasure(): void {
@@ -1448,8 +1787,8 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
 
   const removedSet = new Set(normalizedIds);
   const localAffectedTasks = tasks.value.filter(task => {
-    const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-    return groupId.length > 0 && removedSet.has(groupId);
+    const tagIds = resolveTaskTagIds(task.tags, task.groupId);
+    return tagIds.some(tagId => removedSet.has(tagId));
   });
 
   const localBlockIds = localAffectedTasks
@@ -1459,12 +1798,17 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
   let blockIdsToClear: string[] = [];
   try {
     const idsClause = normalizedIds.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
+    const likeClause = normalizedIds
+      .map(id => `a.value LIKE '%"${escapeSqlLiteral(id)}"%'`)
+      .join(' OR ');
     const rows = await sql(`
       SELECT DISTINCT a.block_id as id
       FROM attributes a
       JOIN blocks b ON b.id = a.block_id
-      WHERE a.name = 'custom-task-group'
-        AND a.value IN (${idsClause})
+      WHERE (
+          (a.name = 'custom-task-group' AND a.value IN (${idsClause}))
+          OR (a.name = 'custom-task-tags' AND (${likeClause}))
+        )
         AND (b.type = 'i' OR b.type = 'p')
         AND b.subtype = 't'
     `) as Array<{ id?: string }>;
@@ -1477,16 +1821,38 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
     blockIdsToClear = Array.from(new Set(localBlockIds));
   }
 
-  const successBlockIds: string[] = [];
+  const successUpdates = new Map<string, { tagIds: string[]; groupId: string }>();
   for (const blockId of blockIdsToClear) {
     try {
-      await setBlockAttrs(blockId, { 'custom-task-group': '' });
-      successBlockIds.push(blockId);
+      const localTask = localAffectedTasks.find(task => task.blockId === blockId) || null;
+      let currentTagState = localTask
+        ? buildTaskTagState(localTask.tags, localTask.groupId)
+        : buildTaskTagState([], '');
+      if (!localTask) {
+        const attrs = await getBlockAttrs(blockId);
+        let parsedTags: unknown = [];
+        if (attrs['custom-task-tags']) {
+          try {
+            parsedTags = JSON.parse(attrs['custom-task-tags']);
+          } catch {
+            parsedTags = [];
+          }
+        }
+        currentTagState = buildTaskTagState(parsedTags, attrs['custom-task-group']);
+      }
+      const nextTagIds = removeTaskTags(currentTagState.tagIds, removedSet);
+      const nextTagAttrs = buildTaskTagAttrs(nextTagIds);
+      await setBlockAttrs(blockId, nextTagAttrs.attrs);
+      successUpdates.set(blockId, {
+        tagIds: nextTagAttrs.tagIds,
+        groupId: nextTagAttrs.primaryTagId
+      });
     } catch (error) {
       console.error('[TaskManager] Failed to clear task group attrs:', error);
     }
   }
 
+  const successBlockIds = Array.from(successUpdates.keys());
   const successBlockIdSet = new Set(successBlockIds);
   const tasksToUpdate = localAffectedTasks.filter(task => {
     if (task.type !== 'block') return true;
@@ -1501,14 +1867,18 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       if (!idsToUpdate.has(task.id)) {
         return task;
       }
+      const nextTagState = task.blockId ? successUpdates.get(task.blockId) : null;
       return {
         ...task,
-        groupId: undefined,
+        tags: nextTagState ? [...nextTagState.tagIds] : task.tags,
+        groupId: nextTagState?.groupId || undefined,
         updatedAt: now
       };
     });
     idsToUpdate.forEach(taskId => {
-      crdtRepo.updateTaskField(taskId, 'groupId', undefined);
+      const updatedTask = tasks.value.find(task => task.id === taskId);
+      crdtRepo.updateTaskField(taskId, 'tags', [...(updatedTask?.tags || [])]);
+      crdtRepo.updateTaskField(taskId, 'groupId', updatedTask?.groupId || undefined);
     });
     await refreshInternalState();
   }
@@ -1856,8 +2226,81 @@ function selectTaskEditorGroup(value: string): void {
   if (!activeTaskEditTask.value || !activeTaskEditDraft.value) {
     return;
   }
-  const groupId = value === TASK_GROUP_NONE_ID ? '' : value;
-  void quickSaveTaskGroup(activeTaskEditTask.value, groupId);
+  const nextTagIds = value === TASK_GROUP_NONE_ID
+    ? []
+    : toggleTaskTagSelection(taskEditorSelectedTagIds.value, value);
+  void quickSaveTaskTags(activeTaskEditTask.value, nextTagIds);
+}
+
+function handleTaskQuickMetaTagToggle(value: string): void {
+  const nextTagIds = value === TASK_GROUP_NONE_ID
+    ? []
+    : toggleTaskTagSelection(taskQuickMetaDraft.value.tags, value);
+  const nextTagState = buildTaskTagState(nextTagIds);
+  taskQuickMetaDraft.value.tags = [...nextTagState.tagIds];
+  taskQuickMetaDraft.value.groupId = nextTagState.primaryTagId;
+}
+
+function handleTaskQuickMetaGoalToggle(value: string): void {
+  const normalizedGoalId = typeof value === 'string' ? value.trim() : '';
+  if (!normalizedGoalId || !goalDefinitionsById.value.has(normalizedGoalId)) {
+    return;
+  }
+  const currentGoalIds = new Set(taskQuickMetaDraft.value.goalIds);
+  if (currentGoalIds.has(normalizedGoalId)) {
+    currentGoalIds.delete(normalizedGoalId);
+  } else {
+    currentGoalIds.add(normalizedGoalId);
+  }
+  taskQuickMetaDraft.value.goalIds = Array.from(currentGoalIds);
+}
+
+function handleTaskQuickMetaReminderUpdate(value: TaskReminderSelection): void {
+  const normalizedReminder = normalizeTaskReminderSelection(value);
+  taskQuickMetaDraft.value.reminderType = normalizedReminder.reminderType;
+  taskQuickMetaDraft.value.reminderCustomTime = normalizedReminder.reminderCustomTime;
+}
+
+function normalizeTaskQuickGoalIds(input: unknown): string[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  input.forEach((item) => {
+    const value = typeof item === 'string' ? item.trim() : '';
+    if (!value || seen.has(value) || !goalDefinitionsById.value.has(value)) {
+      return;
+    }
+    seen.add(value);
+    normalized.push(value);
+  });
+  return normalized;
+}
+
+function areTaskQuickGoalIdsEqual(left: unknown, right: unknown): boolean {
+  const leftSet = new Set(normalizeTaskQuickGoalIds(left));
+  const rightSet = new Set(normalizeTaskQuickGoalIds(right));
+  if (leftSet.size !== rightSet.size) {
+    return false;
+  }
+  for (const goalId of leftSet) {
+    if (!rightSet.has(goalId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function selectTaskEditorGoal(value: string): Promise<void> {
+  const task = activeTaskEditTask.value;
+  if (!task) {
+    return;
+  }
+
+  const nextGoals = toggleTaskGoalMembership(goalDefinitions.value, task, value);
+  goalDefinitions.value = nextGoals;
+  await saveGoalDefinitions(nextGoals);
 }
 
 function startSkipSetCleanup() {
@@ -1915,42 +2358,6 @@ function resolveDocumentEntryName(document: Pick<TaskDocument, 'id' | 'name' | '
   return resolveDocumentDisplayName(document);
 }
 
-function getConfiguredDefaultTaskNotebook(): string {
-  const configured = typeof userSettings.taskManager.defaultTaskCreateNotebook === 'string'
-    ? userSettings.taskManager.defaultTaskCreateNotebook.trim()
-    : '';
-  return enabledNotebooks.value.some(notebook => notebook.id === configured) ? configured : '';
-}
-
-const taskModalDefaultNotebook = computed(() => {
-  const selectedDocument = sourceDocuments.value.find(doc => doc.id === filterDocument.value);
-  if (selectedDocument) {
-    return selectedDocument.notebookId;
-  }
-  if (parsedFilterSource.value.kind === 'notebook') {
-    return parsedFilterSource.value.id;
-  }
-  if (parsedFilterSource.value.kind === 'group' || parsedFilterSource.value.kind === 'goal') {
-    return sourceDocuments.value[0]?.notebookId || lastTaskNotebook.value || '';
-  }
-  return getConfiguredDefaultTaskNotebook() || lastTaskNotebook.value || '';
-});
-
-const taskModalDefaultDocument = computed(() => {
-  if (userSettings.taskManager.defaultTaskCreateTarget === 'daily-note') {
-    return PINCH_DAILY_NOTE_OPTION_ID;
-  }
-  if (userSettings.taskManager.defaultTaskCreateTarget === 'inbox') {
-    return PINCH_INBOX_OPTION_ID;
-  }
-  if (filterDocument.value !== 'all') {
-    return filterDocument.value;
-  }
-  if (parsedFilterSource.value.kind === 'group' || parsedFilterSource.value.kind === 'goal') {
-    return sourceDocuments.value[0]?.id || lastTaskDocument.value || '';
-  }
-  return lastTaskDocument.value || '';
-});
 let filterSettingsUpdateTimer: number | null = null;
 let taskPopoverFilterSettingsUpdateTimer: number | null = null;
 let taskListGroupSettingsUpdateTimer: number | null = null;
@@ -1979,6 +2386,7 @@ const activeGoalIds = computed(() =>
 );
 
 const parsedFilterSource = computed(() => parseDocumentSource(filterNotebook.value));
+const taskDocumentPathLookup = computed(() => buildTaskDocumentPathLookup(tasks.value));
 
 const notebookOptions = computed(() => {
   return [
@@ -2063,32 +2471,39 @@ const taskGroupPickerOptions = computed(() => {
       special: false,
       color: rawColor,
       colorCss: resolveGroupColorCss(rawColor),
+      borderColor: resolveGroupColorLayerCss(rawColor),
       textColor: resolveGroupTextColor(rawColor)
     });
   });
   return options;
 });
 
+const taskGoalPickerOptions = computed(() => (
+  goalDefinitions.value.map(goal => ({
+    value: goal.id,
+    label: goal.name || t('taskManager.untitledGoal'),
+    emoji: goal.emoji || ''
+  }))
+));
+
+const taskEditorSelectedTagIds = computed(() => (
+  buildTaskTagState(activeTaskEditDraft.value?.tags, activeTaskEditDraft.value?.groupId).tagIds
+));
+
+const taskEditorSelectedGoalIds = computed(() => (
+  activeTaskEditTask.value ? getGoalIdsForTask(goalDefinitions.value, activeTaskEditTask.value) : []
+));
+
 const taskEditorSelectedGroupId = computed(() => {
-  const groupId = (activeTaskEditDraft.value?.groupId || '').trim();
-  return groupId || TASK_GROUP_NONE_ID;
+  return taskEditorSelectedTagIds.value[0] || TASK_GROUP_NONE_ID;
 });
 
 const taskEditorGroupLabel = computed(() => {
-  const groupId = (activeTaskEditDraft.value?.groupId || '').trim();
-  if (!groupId) {
-    return t('taskManager.noTag');
-  }
-  const group = taskGroups.value.find(item => item.id === groupId);
-  return group?.name || t('taskManager.tags');
+  return resolveTaskTagSummaryLabel(taskEditorSelectedTagIds.value);
 });
 
 const taskEditorGroupColorValue = computed(() => {
-  const groupId = (activeTaskEditDraft.value?.groupId || '').trim();
-  if (!groupId) {
-    return '';
-  }
-  return taskGroups.value.find(item => item.id === groupId)?.color || '';
+  return resolveTaskPrimaryTagColor(taskEditorSelectedTagIds.value);
 });
 
 const taskEditorGroupButtonStyle = computed(() => {
@@ -2097,8 +2512,8 @@ const taskEditorGroupButtonStyle = computed(() => {
     return {};
   }
   return {
-    backgroundColor: resolveGroupColorCss(rawColor),
-    borderColor: resolveGroupColorCss(rawColor),
+    background: resolveGroupColorCss(rawColor),
+    borderColor: resolveGroupColorLayerCss(rawColor),
     color: resolveGroupTextColor(rawColor)
   };
 });
@@ -2132,8 +2547,6 @@ const MISMATCH_FORCE_REFRESH_COOLDOWN = 500;
 let taskScopeRefreshTimer: number | null = null;
 let kernelTaskIndexRefreshTimer: number | null = null;
 let isHydratingFilters = true;
-let lastTaskDocumentOptionsRefreshAt = 0;
-const TASK_DOCUMENT_OPTIONS_CACHE_TTL = 60000;
 const FILTER_SWITCH_BROAD_LOAD_THRESHOLD = 5000;
 
 // Tracks tasks whose dates were just cleared, to prevent stale values from being written back by delayed events.
@@ -2149,20 +2562,26 @@ interface TaskIndex {
 
 const blockIdToTaskIndex = new Map<string, TaskIndex>();
 const subtaskToParentMap = new Map<string, string>();
-const taskDocumentsByNotebook = ref<Map<string, TaskDocument[]>>(new Map());
+const {
+  taskDocumentsByNotebook,
+  allDocuments,
+  allDocumentsByKey,
+  documentGroupDialogDocuments,
+  goalScopeDocuments: sidebarGoalDocuments,
+  refreshTaskDocumentOptions,
+  scheduleTaskDocumentOptionsRefresh,
+  clearTaskDocumentOptionsRefreshTimer
+} = useTaskScopeDocuments({
+  excludedNotebookIds,
+  showCompletedTasks,
+  enabledNotebookNameById,
+  tasks,
+  goalDocuments,
+  resolveDocumentName: resolveDocumentEntryName,
+  logPrefix: '[TaskManager]'
+});
 
 // === Notebook/document option derivation and persisted filter selection ===
-const allDocuments = computed(() => {
-  return Array.from(taskDocumentsByNotebook.value.values()).flat();
-});
-
-const allDocumentsByKey = computed(() => {
-  const nextMap = new Map<string, TaskDocument>();
-  allDocuments.value.forEach((document) => {
-    nextMap.set(`${document.notebookId}:${document.id}`, document);
-  });
-  return nextMap;
-});
 
 function getDocumentsForActiveSource(sourceValue: string): TaskDocument[] {
   const parsed = parseDocumentSource(sourceValue);
@@ -2174,21 +2593,28 @@ function getDocumentsForActiveSource(sourceValue: string): TaskDocument[] {
     return [...(taskDocumentsByNotebook.value.get(parsed.id) || [])];
   }
 
+  const sourceGoal = parsed.kind === 'goal'
+    ? goalDefinitionsById.value.get(parsed.id) || null
+    : null;
   const sourceMembers: DocumentGroupMember[] =
     parsed.kind === 'group'
       ? (documentGroupsById.value.get(parsed.id)?.members || [])
-      : parsed.kind === 'goal'
-        ? (goalDefinitionsById.value.get(parsed.id)?.members || [])
-        : [];
-  if (sourceMembers.length === 0) {
+      : (sourceGoal?.members || []);
+  if (sourceMembers.length === 0 && !sourceGoal) {
     return [];
   }
 
   const documents: TaskDocument[] = [];
   const seen = new Set<string>();
-  sourceMembers.forEach((member) => {
-    const key = `${member.notebookId}:${member.documentId}`;
-    if (!enabledNotebookNameById.value.has(member.notebookId)) {
+
+  const addDocument = (notebookId: string | undefined, documentId: string | undefined): void => {
+    const normalizedNotebookId = typeof notebookId === 'string' ? notebookId.trim() : '';
+    const normalizedDocumentId = typeof documentId === 'string' ? documentId.trim() : '';
+    if (!normalizedNotebookId || !normalizedDocumentId) {
+      return;
+    }
+    const key = `${normalizedNotebookId}:${normalizedDocumentId}`;
+    if (!enabledNotebookNameById.value.has(normalizedNotebookId)) {
       return;
     }
     if (seen.has(key)) {
@@ -2202,7 +2628,22 @@ function getDocumentsForActiveSource(sourceValue: string): TaskDocument[] {
     }
 
     documents.push(existing);
+  };
+
+  sourceMembers.forEach((member) => {
+    addDocument(member.notebookId, member.documentId);
   });
+  if (sourceGoal) {
+    (sourceGoal.taskMembers || []).forEach((member) => {
+      addDocument(member.notebookId, member.rootId);
+    });
+    tasks.value.forEach((task) => {
+      if (!isTaskDirectGoalMember(sourceGoal, task)) {
+        return;
+      }
+      addDocument(task.notebookId, task.rootId);
+    });
+  }
 
   return documents.sort((a, b) => {
     const timeDiff = getDocumentCreationSortKey(b.id) - getDocumentCreationSortKey(a.id);
@@ -2221,27 +2662,41 @@ function getDocumentsForActiveSource(sourceValue: string): TaskDocument[] {
 
 const sourceDocuments = computed(() => getDocumentsForActiveSource(filterNotebook.value));
 
-const documentGroupDialogDocuments = computed(() => {
-  return [...allDocuments.value]
-    .map(document => ({
-      id: document.id,
-      name: resolveDocumentEntryName(document),
-      notebookId: document.notebookId,
-      notebookName: enabledNotebookNameById.value.get(document.notebookId) || document.notebookId,
-      path: document.path
-    }))
-    .sort((a, b) => {
-      const idA = a.id || '';
-      const idB = b.id || '';
-      if (idA !== idB) {
-        return idB.localeCompare(idA);
-      }
-      const notebookDiff = a.notebookName.localeCompare(b.notebookName, 'zh-CN');
-      if (notebookDiff !== 0) {
-        return notebookDiff;
-      }
-      return a.name.localeCompare(b.name, 'zh-CN');
-    });
+function getConfiguredDefaultTaskNotebook(): string {
+  const configured = typeof userSettings.taskManager.defaultTaskCreateNotebook === 'string'
+    ? userSettings.taskManager.defaultTaskCreateNotebook.trim()
+    : '';
+  return enabledNotebooks.value.some(notebook => notebook.id === configured) ? configured : '';
+}
+
+const taskModalDefaultNotebook = computed(() => {
+  const selectedDocument = sourceDocuments.value.find(doc => doc.id === filterDocument.value);
+  if (selectedDocument) {
+    return selectedDocument.notebookId;
+  }
+  if (parsedFilterSource.value.kind === 'notebook') {
+    return parsedFilterSource.value.id;
+  }
+  if (parsedFilterSource.value.kind === 'group' || parsedFilterSource.value.kind === 'goal') {
+    return sourceDocuments.value[0]?.notebookId || lastTaskNotebook.value || '';
+  }
+  return getConfiguredDefaultTaskNotebook() || lastTaskNotebook.value || '';
+});
+
+const taskModalDefaultDocument = computed(() => {
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'daily-note') {
+    return PINCH_DAILY_NOTE_OPTION_ID;
+  }
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'inbox') {
+    return PINCH_INBOX_OPTION_ID;
+  }
+  if (filterDocument.value !== 'all') {
+    return filterDocument.value;
+  }
+  if (parsedFilterSource.value.kind === 'group' || parsedFilterSource.value.kind === 'goal') {
+    return sourceDocuments.value[0]?.id || lastTaskDocument.value || '';
+  }
+  return lastTaskDocument.value || '';
 });
 
 const documentOptions = computed(() => {
@@ -2303,112 +2758,6 @@ function normalizeDocumentSelection(sourceValue: string): void {
   }
 }
 
-function buildTaskDocumentScopeSql(alias: string = 'b'): string {
-  const excluded = normalizeNotebookIds(excludedNotebookIds.value);
-  if (excluded.length === 0) {
-    return '';
-  }
-  const idsClause = excluded.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
-  return ` AND ${alias}.box NOT IN (${idsClause})`;
-}
-
-function buildTaskDocumentCompletionSql(alias: string = 'b'): string {
-  if (showCompletedTasks.value) {
-    return ` AND (${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[x]%' OR ${alias}.markdown LIKE '%[X]%')`;
-  }
-  return ` AND ${alias}.markdown LIKE '%[ ]%'`;
-}
-
-function buildTaskDocumentArchiveSql(alias: string = 'b'): string {
-  const archivedValueSql = "('1', 'true', 'TRUE', 'yes', 'YES')";
-  return `
-        AND NOT EXISTS (
-          SELECT 1 FROM attributes archived_attr
-          WHERE archived_attr.block_id = ${alias}.id
-            AND archived_attr.name = 'custom-task-archived'
-            AND archived_attr.value IN ${archivedValueSql}
-        )`;
-}
-
-async function refreshTaskDocumentOptions(force = false): Promise<void> {
-  if (
-    !force &&
-    taskDocumentsByNotebook.value.size > 0 &&
-    Date.now() - lastTaskDocumentOptionsRefreshAt < TASK_DOCUMENT_OPTIONS_CACHE_TTL
-  ) {
-    return;
-  }
-
-  try {
-    const rows = await sql(`
-      SELECT b.box, b.root_id, MIN(b.hpath) as hpath
-      FROM blocks b
-      WHERE (b.type = 'i' OR b.type = 'p')
-        ${buildTaskDocumentScopeSql('b')}
-        AND b.subtype = 't'
-        ${buildTaskDocumentCompletionSql('b')}
-        ${buildTaskDocumentArchiveSql('b')}
-      GROUP BY b.box, b.root_id
-      ORDER BY b.box, b.root_id
-    `) as Array<{ box?: string; root_id?: string; hpath?: string }>;
-    const fallbackMetadataByRootId = await loadRootDocumentMetadata(
-      (rows || [])
-        .filter(row => typeof row?.hpath !== 'string' || row.hpath.trim().length === 0)
-        .map(row => typeof row?.root_id === 'string' ? row.root_id : '')
-    );
-
-    const nextMap = new Map<string, TaskDocument[]>();
-    for (const row of rows || []) {
-      const notebookId = typeof row?.box === 'string' ? row.box : '';
-      const rootId = typeof row?.root_id === 'string' ? row.root_id : '';
-      if (!notebookId || !rootId) {
-        continue;
-      }
-
-      const fallbackMetadata = fallbackMetadataByRootId.get(rootId);
-      const rawPath = typeof row?.hpath === 'string' && row.hpath.trim().length > 0
-        ? row.hpath.trim()
-        : fallbackMetadata?.path || '';
-      const name = resolveDocumentDisplayName({
-        id: rootId,
-        name: fallbackMetadata?.name,
-        path: rawPath
-      });
-      const docs = nextMap.get(notebookId) || [];
-      docs.push({
-        id: rootId,
-        name,
-        notebookId,
-        path: rawPath || undefined
-      });
-      nextMap.set(notebookId, docs);
-    }
-
-    nextMap.forEach((docs, notebookId) => {
-      const dedupById = new Map<string, TaskDocument>();
-      for (const doc of docs) {
-        if (!dedupById.has(doc.id)) {
-          dedupById.set(doc.id, doc);
-        }
-      }
-      nextMap.set(
-        notebookId,
-        Array.from(dedupById.values()).sort((a, b) => {
-          const timeDiff = getDocumentCreationSortKey(b.id) - getDocumentCreationSortKey(a.id);
-          if (timeDiff !== 0) return timeDiff;
-          return a.name.localeCompare(b.name, 'zh-CN');
-        })
-      );
-    });
-
-    taskDocumentsByNotebook.value = nextMap;
-    lastTaskDocumentOptionsRefreshAt = Date.now();
-  } catch {
-    taskDocumentsByNotebook.value = new Map();
-    lastTaskDocumentOptionsRefreshAt = 0;
-  }
-}
-
 function scheduleFilterSettingsUpdate() {
   if (filterSettingsUpdateTimer !== null) {
     clearTimeout(filterSettingsUpdateTimer);
@@ -2466,15 +2815,29 @@ watch(showTaskModal, (show) => {
   if (show && !taskModalTeleportTarget.value) {
     resolveTaskModalTeleportTarget();
   }
+  if (show) {
+    void nextTick(updateTaskModalOverlayStyle);
+  }
 });
 
 watch(taskEditMenuTaskId, () => {
   taskEditorQuickPanel.value = null;
+  void nextTick(scheduleTaskEditorSidebarPositionUpdate);
 });
 
 watch(activeTaskEditTask, (task) => {
   syncTaskEditorRepeatState(task);
+  void nextTick(scheduleTaskEditorSidebarPositionUpdate);
 }, { immediate: true });
+
+watch(taskEditorSidebarVisible, (visible) => {
+  if (visible) {
+    lockTaskEditorParentScroll();
+    void nextTick(scheduleTaskEditorSidebarPositionUpdate);
+  } else {
+    unlockTaskEditorParentScroll();
+  }
+});
 
 watch(taskFilterPopoverVisible, (visible) => {
   if (visible) {
@@ -2766,21 +3129,6 @@ watch(
   }
 );
 
-const taskEditPriorityOptions: Array<{
-  value: Task['priority'];
-  label: string;
-  background: string;
-  color: string;
-}> = [
-  { value: 'high', label: t('taskManager.priorityHighLabel'), background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
-  { value: 'medium', label: t('taskManager.priorityMediumLabel'), background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'low', label: t('taskManager.priorityLowLabel'), background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'none', label: t('taskManager.priorityNoneLabel'), background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
-];
-const taskEditorPriorityOption = computed(() => {
-  const current = activeTaskEditDraft.value?.priority || 'none';
-  return taskEditPriorityOptions.find(option => option.value === current) || taskEditPriorityOptions[3];
-});
 const taskEditorDueText = computed(() => {
   const dueDate = activeTaskEditDraft.value?.dueDate || '';
   if (!dueDate) return t('taskManager.notSet');
@@ -2889,9 +3237,6 @@ function getCurrentTaskQueryScope(): TaskQueryScope | undefined {
   if (activeSource.kind === 'notebook') {
     scope.notebookId = activeSource.id;
   }
-  if (filterDocument.value !== 'all') {
-    scope.documentId = filterDocument.value;
-  }
   return scope;
 }
 
@@ -2938,6 +3283,28 @@ function closeTaskQuickDateMenu(): void {
   };
 }
 
+function closeTaskQuickMetaMenu(): void {
+  taskQuickMetaMenu.value = {
+    show: false,
+    x: 0,
+    y: 0,
+    task: null,
+    removeTrigger: null
+  };
+  taskQuickMetaDraft.value = {
+    priority: 'none',
+    reminderType: undefined,
+    reminderCustomTime: '',
+    tags: [],
+    groupId: '',
+    goalIds: [],
+    startDate: '',
+    startTime: '',
+    dueDate: '',
+    dueTime: ''
+  };
+}
+
 async function resolveTaskQuickDateRecognitionText(task: Task): Promise<string> {
   const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
   if (blockId) {
@@ -2970,6 +3337,24 @@ async function seedTaskQuickDateDraft(task: Task): Promise<void> {
     ? await getRepeatTaskDateFields(task).catch(() => null)
     : null;
   taskQuickDateDraft.value = buildTaskQuickDateDraft(repeatDateFields || task, inferredDateRange);
+}
+
+async function seedTaskQuickMetaDraft(task: Task): Promise<void> {
+  const repeatDateFields = isRepeatTaskForDateSave(task)
+    ? await getRepeatTaskDateFields(task).catch(() => null)
+    : null;
+  const dateDraft = buildTaskQuickDateDraft(repeatDateFields || task);
+  const tagState = buildTaskTagState(task.tags, task.groupId);
+  const reminderState = normalizeTaskReminderSelection(task);
+  taskQuickMetaDraft.value = {
+    ...dateDraft,
+    priority: task.priority || 'none',
+    reminderType: reminderState.reminderType,
+    reminderCustomTime: reminderState.reminderCustomTime,
+    tags: [...tagState.tagIds],
+    groupId: tagState.primaryTagId,
+    goalIds: getGoalIdsForTask(goalDefinitions.value, task)
+  };
 }
 
 function buildTaskQuickMenuAnchorFromRect(rect: DOMRect | null | undefined): { x: number; y: number } | null {
@@ -3039,7 +3424,10 @@ function resolveTaskQuickMenuAnchor(blockId: string, anchorX?: unknown, anchorY?
   return getTaskBlockQuickMenuAnchor(blockId);
 }
 
-async function openTaskQuickDateMenu(task: Task, anchorPosition?: { x: number; y: number } | null): Promise<void> {
+async function openTaskQuickDateMenu(
+  task: Task,
+  anchorPosition?: { x: number; y: number } | null
+): Promise<void> {
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
   const menuWidth = 280;
@@ -3072,6 +3460,51 @@ async function openTaskQuickDateMenu(task: Task, anchorPosition?: { x: number; y
     x,
     y,
     task
+  };
+}
+
+async function openTaskQuickMetaMenu(
+  task: Task,
+  anchorPosition?: { x: number; y: number } | null,
+  options: { removeTrigger?: (() => void) | null } = {}
+): Promise<void> {
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const menuWidth = 190;
+  const popoverWidth = 300;
+  const estimatedHeight = 330;
+  const popoverOverflow = Math.max(0, (popoverWidth - menuWidth) / 2);
+  const margin = 12;
+  const belowGap = 8;
+  const aboveGap = 4;
+  let x = Math.round((viewportWidth - menuWidth) / 2);
+  let y = Math.round(viewportHeight * 0.18);
+
+  if (anchorPosition) {
+    x = Math.round(anchorPosition.x - menuWidth / 2);
+    const belowY = Math.round(anchorPosition.y + belowGap);
+    const aboveY = Math.round(anchorPosition.y - estimatedHeight - aboveGap);
+    if (belowY + estimatedHeight <= viewportHeight - margin) {
+      y = belowY;
+    } else if (aboveY >= margin) {
+      y = aboveY;
+    } else {
+      y = Math.max(margin, Math.min(belowY, viewportHeight - estimatedHeight - margin));
+    }
+  }
+
+  const minX = margin + popoverOverflow;
+  const maxX = Math.max(minX, viewportWidth - menuWidth - margin - popoverOverflow);
+  x = Math.max(minX, Math.min(x, maxX));
+  y = Math.max(margin, Math.min(y, Math.max(margin, viewportHeight - estimatedHeight - margin)));
+
+  await seedTaskQuickMetaDraft(task);
+  taskQuickMetaMenu.value = {
+    show: true,
+    x,
+    y,
+    task,
+    removeTrigger: typeof options.removeTrigger === 'function' ? options.removeTrigger : null
   };
 }
 
@@ -3293,12 +3726,8 @@ function matchesTaskFilterChips(task: Task): boolean {
     return false;
   }
 
-  if (activeTaskGroupFilters.value.length > 0) {
-    const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-    const resolvedGroupId = groupId || TASK_GROUP_NONE_ID;
-    if (!activeTaskGroupFilters.value.includes(resolvedGroupId)) {
-      return false;
-    }
+  if (!matchesTaskTagFilter(task.tags, task.groupId, activeTaskGroupFilters.value, TASK_GROUP_NONE_ID)) {
+    return false;
   }
 
   if (activeTaskDueFilters.value.length > 0 && !activeTaskDueFilters.value.some(filter => matchesTaskDueFilter(task, filter))) {
@@ -3348,11 +3777,13 @@ function matchesTaskSearch(task: Task, keyword: string): boolean {
   if (!keyword) {
     return true;
   }
-  const groupName = task.groupId ? (taskGroupNameMap.value.get(task.groupId) || '') : '';
+  const tagNames = resolveTaskTagIds(task.tags, task.groupId)
+    .map(tagId => taskGroupNameMap.value.get(tagId) || '')
+    .filter(name => name.length > 0);
   return matchesTaskSearchValue(task.title, keyword)
     || matchesTaskSearchValue(task.description, keyword)
     || matchesTaskSearchValue(task.hPath, keyword)
-    || matchesTaskSearchValue(groupName, keyword)
+    || tagNames.some(name => matchesTaskSearchValue(name, keyword))
     || (Array.isArray(task.tags) && task.tags.some(tag => matchesTaskSearchValue(tag, keyword)))
     || matchesSubtaskSearch(task.subtasks, keyword);
 }
@@ -3376,6 +3807,32 @@ function patchTask(
   return false;
 }
 
+function syncRepeatTaskDescriptionLocally(task: Task, description: string): boolean {
+  const seriesId = getTaskRepeatSeriesId(task);
+  if (!seriesId) {
+    return false;
+  }
+
+  const nowIso = new Date().toISOString();
+  let touched = false;
+  tasks.value.forEach((item) => {
+    if (item.repeatSeriesId !== seriesId) {
+      return;
+    }
+    if (item.id !== task.id && !item.isVirtual) {
+      return;
+    }
+    if (item.description === description && item.updatedAt === nowIso) {
+      return;
+    }
+    item.description = description;
+    item.updatedAt = nowIso;
+    touched = true;
+  });
+
+  return touched;
+}
+
 async function refreshInternalState() {
   invalidateCache();
   invalidateSortCache();
@@ -3392,27 +3849,36 @@ const taskSortVersion = ref(0);
 const MAX_VISIBLE_COMPLETED_TASKS = 3;
 const showAllCompletedTasks = ref(false);
 
+function matchesTaskDocumentMemberScope(task: Task, member: DocumentGroupMember): boolean {
+  return taskMatchesDocumentScope(task, member.documentId, taskDocumentPathLookup.value, {
+    notebookId: member.notebookId,
+    path: member.path
+  });
+}
+
 function matchesActiveSourceFilter(task: Task): boolean {
   const activeSource = parsedFilterSource.value;
   if (activeSource.kind === 'notebook' && task.notebookId !== activeSource.id) {
     return false;
   }
-  if (filterDocument.value !== 'all' && task.rootId !== filterDocument.value) {
+  if (filterDocument.value !== 'all' && !taskMatchesDocumentScope(task, filterDocument.value, taskDocumentPathLookup.value)) {
     return false;
   }
   if (activeSource.kind !== 'group' && activeSource.kind !== 'goal') {
     return true;
   }
+  if (activeSource.kind === 'goal') {
+    const goal = goalDefinitionsById.value.get(activeSource.id);
+    return isTaskDirectGoalMember(goal, task)
+      || !!goal?.members.some(member => matchesTaskDocumentMemberScope(task, member));
+  }
+
   const sourceMembers =
-    activeSource.kind === 'group'
-      ? documentGroupsById.value.get(activeSource.id)?.members
-      : goalDefinitionsById.value.get(activeSource.id)?.members;
+    documentGroupsById.value.get(activeSource.id)?.members;
   if (!sourceMembers) {
     return false;
   }
-  return sourceMembers.some(member =>
-    member.documentId === task.rootId && member.notebookId === task.notebookId
-  );
+  return sourceMembers.some(member => matchesTaskDocumentMemberScope(task, member));
 }
 
 const filteredTasks = computed(() => {
@@ -4315,6 +4781,48 @@ async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'scope') {
   }
   taskScopeDialogInitialTab.value = initialTab;
   showTaskScopeDialog.value = true;
+  if (initialTab === 'scope' || initialTab === 'document-groups' || initialTab === 'goals') {
+    void refreshTaskScopeDocumentSourcesInBackground({ includeGoalsData: true });
+  }
+}
+
+async function refreshTaskScopeDocumentSources(
+  options: { includeGoalsData?: boolean } = {}
+): Promise<void> {
+  if (!requiresScopeInitialization.value) {
+    await refreshTasks(true, {
+      showLoading: false,
+      compareExisting: false,
+      source: 'manual-refresh'
+    });
+  }
+  const refreshGoals = options.includeGoalsData
+    ? loadGoalsData({ taskUseCache: false })
+    : refreshGoalDocuments({ taskUseCache: false });
+  await Promise.all([
+    refreshTaskDocumentOptions(true),
+    refreshGoals
+  ]);
+}
+
+async function handleTaskScopeDocumentsRefresh(): Promise<void> {
+  await refreshTaskScopeDocumentSourcesInBackground();
+}
+
+async function refreshTaskScopeDocumentSourcesInBackground(
+  options: { includeGoalsData?: boolean } = {}
+): Promise<void> {
+  if (taskScopeDocumentsRefreshing.value) {
+    return;
+  }
+  taskScopeDocumentsRefreshing.value = true;
+  try {
+    await refreshTaskScopeDocumentSources(options);
+  } catch (error) {
+    console.error('[TaskManager] Failed to refresh task scope document sources:', error);
+  } finally {
+    taskScopeDocumentsRefreshing.value = false;
+  }
 }
 
 async function handleGlobalRecognizeTaskDates(): Promise<void> {
@@ -4569,7 +5077,7 @@ function mergeKernelSyncedTasks(kernelTasks: Task[], currentTasks: Task[]): Task
       ...current,
       ...task,
       subtasks: current.subtasks || task.subtasks,
-      description: task.description || current.description,
+      description: typeof task.description === 'string' ? task.description : current.description,
       icon: task.icon || current.icon,
       hPath: task.hPath || current.hPath
     });
@@ -4784,11 +5292,14 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
         }
       }
 
-      if (liveTitle !== null && task.title !== liveTitle) {
+      if (liveTitle !== null) {
         const currentTitle = typeof task.title === 'string' ? task.title : '';
         if (!shouldSkipMemoTitleDowngrade(currentTitle, liveTitle)) {
-          task.title = liveTitle;
-          changed = true;
+          if (task.title !== liveTitle) {
+            task.title = liveTitle;
+            crdtRepo.updateTaskField(task.id, 'title', liveTitle);
+            changed = true;
+          }
         }
       }
     }, 'blockId');
@@ -4865,6 +5376,7 @@ async function flushExternalTaskStatusAttrSync(blockIds: Iterable<string>): Prom
 
 function setupEventListeners() {
   const unsubscribe = eventBus.on(Events.TASK_CHANGED, (data?: { blockIds?: string[] }) => {
+    scheduleTaskDocumentOptionsRefresh();
     if (data?.blockIds && data.blockIds.length > 0) {
       queueIncrementalUpdates(data.blockIds);
     } else {
@@ -4873,6 +5385,7 @@ function setupEventListeners() {
   });
 
   const unsubscribeDeleted = eventBus.on(Events.TASK_DELETED, ({ blockId }: { blockId: string }) => {
+    scheduleTaskDocumentOptionsRefresh(320);
     const taskIndex = blockIdToTaskIndex.get(blockId);
     if (taskIndex && !taskIndex.isSubtask) {
       tasks.value = tasks.value.filter(t => t.blockId !== blockId);
@@ -4883,10 +5396,12 @@ function setupEventListeners() {
   });
 
   const unsubscribeUpdated = eventBus.on(Events.TASK_UPDATED, ({ blockId }: { blockId: string }) => {
+    scheduleTaskDocumentOptionsRefresh();
     queueIncrementalUpdates([blockId]);
   });
 
   const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string }) => {
+    scheduleTaskDocumentOptionsRefresh();
     if (payload?.reason === 'repeat-changed' && payload.frequency) {
       const requestId = ++repeatReconcileRequestId;
       const fastPathApplied = await applyRepeatRuleIncremental(payload, requestId);
@@ -5008,6 +5523,13 @@ function setupEventListeners() {
     }
   );
 
+  const unsubscribeTaskQuickMetaOpenRequested = eventBus.on(
+    Events.TASK_QUICK_META_OPEN_REQUEST,
+    (payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null; removeTrigger?: () => void }) => {
+      void openTaskQuickMetaMenuFromExternalRequest(payload);
+    }
+  );
+
   eventUnsubscribers.push(
     unsubscribe,
     unsubscribeDeleted,
@@ -5016,7 +5538,8 @@ function setupEventListeners() {
     unsubscribeDateChanged,
     unsubscribeGroupsUpdated,
     unsubscribeDocumentGroupsUpdated,
-    unsubscribeTaskEditorOpenRequested
+    unsubscribeTaskEditorOpenRequested,
+    unsubscribeTaskQuickMetaOpenRequested
   );
 }
 
@@ -5033,7 +5556,7 @@ async function incrementalUpdateTasks(blockIds: string[]) {
   const ancestorContextRows = await queryAncestorContextRows(scopedBlockIds);
   await pruneInvalidParentsFromEvents(scopedBlockIds, ancestorContextRows);
 
-  const { unresolvedBlockIds, patchedParentStatuses } = await fastSyncTaskFromDom(scopedBlockIds);
+  const { unresolvedBlockIds, patchedParentStatuses, patchedParentTitles } = await fastSyncTaskFromDom(scopedBlockIds);
   const blockIdsForFullSync = unresolvedBlockIds.length > 0 ? unresolvedBlockIds : scopedBlockIds;
   const parentBlockIds = await resolveParentTaskBlockIds(blockIdsForFullSync, ancestorContextRows);
 
@@ -5069,6 +5592,7 @@ async function incrementalUpdateTasks(blockIds: string[]) {
   
     for (const [blockId, newTask] of taskMapBatch) {
       const forcedStatus = patchedParentStatuses.get(blockId);
+      const forcedTitle = patchedParentTitles.get(blockId);
       if (forcedStatus) {
         newTask.status = forcedStatus;
         if (forcedStatus === 'completed') {
@@ -5076,6 +5600,9 @@ async function incrementalUpdateTasks(blockIds: string[]) {
         } else {
           delete newTask.completedAt;
         }
+      }
+      if (forcedTitle) {
+        newTask.title = forcedTitle;
       }
       crdtRepo.syncIncrementalTasks([newTask]);
       updatedTasks.push(newTask);
@@ -5568,9 +6095,11 @@ function parseTaskTitle(blockId: string, parsedDoc?: Document | null): string | 
 async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
   unresolvedBlockIds: string[];
   patchedParentStatuses: Map<string, Task['status']>;
+  patchedParentTitles: Map<string, string>;
 }> {
   const unresolved: string[] = [];
   const patchedParentStatuses = new Map<string, Task['status']>();
+  const patchedParentTitles = new Map<string, string>();
   let hasPatched = false;
   const validBlockIds: string[] = [];
   const taskIndexMap = new Map<string, TaskIndex>();
@@ -5611,7 +6140,8 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
     try {
       const parsedDoc = dom ? parser.parseFromString(dom, 'text/html') : null;
       const completed = parseTaskCompleted(blockId, parsedDoc);
-      const title = parseTaskTitle(blockId, parsedDoc);
+      const liveTitle = getLiveTaskTitle(blockId);
+      const title = liveTitle ?? (parsedDoc ? getTaskTitleFromElement(getTaskElementFromDoc(parsedDoc, blockId), blockId) : null);
       if (completed === null) {
         unresolved.push(blockId);
         continue;
@@ -5668,11 +6198,15 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
           if (previousStatus !== task.status || previousCompletedAt !== task.completedAt) {
             queueExternalTaskStatusAttrSync(blockId, nextStatus, task.completedAt);
           }
-          if (title !== null && task.title !== title) {
+          if (title !== null) {
             const currentTitle = typeof task.title === 'string' ? task.title : '';
             if (!shouldSkipMemoTitleDowngrade(currentTitle, title)) {
-              task.title = title;
-              changed = true;
+              patchedParentTitles.set(blockId, title);
+              if (task.title !== title) {
+                task.title = title;
+                crdtRepo.updateTaskField(task.id, 'title', title);
+                changed = true;
+              }
             }
           }
         }, 'blockId');
@@ -5699,12 +6233,14 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
 
   return {
     unresolvedBlockIds: unresolved,
-    patchedParentStatuses
+    patchedParentStatuses,
+    patchedParentTitles
   };
 }
 
 function createTaskEditDraft(task: Task): TaskEditDraft {
   const normalizedReminder = normalizeTaskReminderSelection(task);
+  const tagState = buildTaskTagState(task.tags, task.groupId);
   return {
     taskId: task.id,
     status: task.status || 'pending',
@@ -5717,7 +6253,8 @@ function createTaskEditDraft(task: Task): TaskEditDraft {
     description: task.description || '',
     reminderType: normalizedReminder.reminderType,
     reminderCustomTime: normalizedReminder.reminderCustomTime,
-    groupId: task.groupId || ''
+    tags: tagState.tagIds,
+    groupId: tagState.primaryTagId
   };
 }
 
@@ -5791,6 +6328,7 @@ function cleanupEventListeners() {
     clearTimeout(fallbackRefreshTimer);
     fallbackRefreshTimer = null;
   }
+  clearTaskDocumentOptionsRefreshTimer();
   incrementalUpdateQueue.clear();
 }
 
@@ -5904,12 +6442,13 @@ async function focusTaskEditorSidebarBlock(
   intervalMs = 80
 ): Promise<boolean> {
   const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
-  if (!normalizedBlockId || !taskEditorProtyle || !taskEditorSidebarMountRef.value) {
+  const editorMountElement = getTaskEditorSidebarMountElement();
+  if (!normalizedBlockId || !taskEditorProtyle || !editorMountElement) {
     return false;
   }
 
   const tryFocus = (): boolean => {
-    const mountElement = taskEditorSidebarMountRef.value;
+    const mountElement = editorMountElement;
     const target = mountElement?.querySelector(`[data-node-id="${normalizedBlockId}"]`) as Element | null;
     if (target) {
       try {
@@ -5949,7 +6488,8 @@ async function focusTaskEditorSidebarBlock(
 
 function closeTaskEditorSidebar(): void {
   taskEditorSidebarVisible.value = false;
-  taskEditorPriorityPopover.value = null;
+  unlockTaskEditorParentScroll();
+  cancelTaskEditorSidebarPositionUpdate();
   taskEditorQuickPanel.value = null;
   showTaskMoveDialog.value = false;
   isTaskMoveSubmitting.value = false;
@@ -5960,8 +6500,9 @@ function closeTaskEditorSidebar(): void {
     }
     taskEditorProtyle = null;
   }
-  if (taskEditorSidebarMountRef.value) {
-    taskEditorSidebarMountRef.value.innerHTML = '';
+  const mountElement = getTaskEditorSidebarMountElement();
+  if (mountElement) {
+    mountElement.innerHTML = '';
   }
   closeTaskEditMenu();
 }
@@ -5986,7 +6527,6 @@ async function openTaskMoveDialog(): Promise<void> {
   }
   await refreshTaskDocumentOptions(true);
 
-  taskEditorPriorityPopover.value = null;
   taskEditorQuickPanel.value = null;
 
   const currentNotebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
@@ -6005,26 +6545,6 @@ function closeTaskMoveDialog(): void {
 function handleTaskMoveNotebookChange(value: string): void {
   taskMoveSelectedNotebook.value = typeof value === 'string' ? value : '';
   syncTaskMoveSelectedDocument();
-}
-
-function toggleTaskEditorPriorityPopover(event: MouseEvent): void {
-  if (!activeTaskEditTask.value || !activeTaskEditDraft.value) {
-    taskEditorPriorityPopover.value = null;
-    return;
-  }
-  if (taskEditorPriorityPopover.value) {
-    taskEditorPriorityPopover.value = null;
-    return;
-  }
-  const target = event.currentTarget as HTMLElement | null;
-  if (!target) return;
-  const rect = target.getBoundingClientRect();
-  taskEditorPriorityPopover.value = {
-    position: {
-      x: rect.left + rect.width / 2,
-      y: rect.bottom + 8
-    }
-  };
 }
 
 function handleTaskEditorPrioritySelect(value: string): void {
@@ -6177,16 +6697,6 @@ function handleTaskFilterOutsideClick(event: MouseEvent): void {
   }
 
   const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
-  const isInsidePriorityPopover = path.some(node =>
-    node instanceof HTMLElement && node.classList.contains('priority-popover')
-  );
-  const isInsidePriorityControl = path.some(node =>
-    node instanceof HTMLElement && node.classList.contains('task-editor-priority-btn')
-  );
-  if (taskEditorPriorityPopover.value && !isInsidePriorityPopover && !isInsidePriorityControl) {
-    taskEditorPriorityPopover.value = null;
-  }
-
   const resolvePopoverElement = (refValue: InstanceType<typeof TaskFilterPopover> | null): HTMLElement | null => {
     const exposed = refValue as { popoverEl?: HTMLElement | { value?: HTMLElement | null } } | null;
     const popoverEl = exposed?.popoverEl;
@@ -6238,20 +6748,32 @@ function handleTaskFilterOutsideClick(event: MouseEvent): void {
     }
   }
 
-  if (taskQuickDateMenu.value.show) {
-    const isInsideQuickDateMenu = path.some(node =>
-      node instanceof HTMLElement && node.classList.contains('task-quick-date-menu')
-    );
-    const isInsideQuickDatePopover = path.some(node =>
+  const isInsideQuickDateOrTimePopover = path.some(node =>
       node instanceof HTMLElement && (
         node.classList.contains('date-popover')
         || node.classList.contains('date-popover-overlay')
         || node.classList.contains('time-popover')
         || node.classList.contains('time-popover-overlay')
+        || node.classList.contains('task-reminder-popover')
+        || node.classList.contains('task-reminder-popover-overlay')
       )
+  );
+
+  if (taskQuickDateMenu.value.show) {
+    const isInsideQuickDateMenu = path.some(node =>
+      node instanceof HTMLElement && node.classList.contains('task-quick-date-menu')
     );
-    if (!isInsideQuickDateMenu && !isInsideQuickDatePopover) {
+    if (!isInsideQuickDateMenu && !isInsideQuickDateOrTimePopover) {
       closeTaskQuickDateMenu();
+    }
+  }
+
+  if (taskQuickMetaMenu.value.show) {
+    const isInsideQuickMetaMenu = path.some(node =>
+      node instanceof HTMLElement && node.classList.contains('task-quick-meta-menu')
+    );
+    if (!isInsideQuickMetaMenu && !isInsideQuickDateOrTimePopover) {
+      closeTaskQuickMetaMenu();
     }
   }
 
@@ -6272,8 +6794,9 @@ async function openTaskEditorInSidebar(blockId: string, preferredRootId?: string
 
   taskEditorSidebarVisible.value = true;
   await nextTick();
+  updateTaskEditorSidebarPosition();
 
-  const mountElement = taskEditorSidebarMountRef.value;
+  const mountElement = getTaskEditorSidebarMountElement();
   if (!mountElement) {
     return false;
   }
@@ -6335,26 +6858,59 @@ async function openTaskEditorPopover(task: Task): Promise<void> {
   }
 }
 
-async function openTaskDateMenuFromExternalRequest(
-  payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null }
-): Promise<void> {
+async function resolveTaskFromExternalRequest(
+  payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null; removeTrigger?: () => void }
+): Promise<{ task: Task; blockId: string; anchorPosition: { x: number; y: number } | null } | null> {
   const normalizedBlockId = typeof payload?.blockId === 'string' ? payload.blockId.trim() : '';
   if (!normalizedBlockId) {
-    return;
+    return null;
   }
 
   const payloadTask = payload?.task && typeof payload.task.id === 'string' ? payload.task : null;
   const localTask = tasks.value.find(item => item.blockId === normalizedBlockId) || null;
   const loadedTask = payloadTask || localTask || await TaskRepository.getTaskByBlockId(normalizedBlockId, true).catch(() => null);
   if (!loadedTask) {
+    return null;
+  }
+
+  const anchorPosition = resolveTaskQuickMenuAnchor(normalizedBlockId, payload?.anchorX, payload?.anchorY);
+  return {
+    task: loadedTask,
+    blockId: normalizedBlockId,
+    anchorPosition
+  };
+}
+
+async function openTaskDateMenuFromExternalRequest(
+  payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null }
+): Promise<void> {
+  const resolved = await resolveTaskFromExternalRequest(payload);
+  if (!resolved) {
     return;
   }
 
   closeTaskEditorSidebar();
   closeTaskEditMenu();
   taskEditDraft.value = null;
-  const anchorPosition = resolveTaskQuickMenuAnchor(normalizedBlockId, payload?.anchorX, payload?.anchorY);
-  await openTaskQuickDateMenu(loadedTask, anchorPosition);
+  closeTaskQuickMetaMenu();
+  await openTaskQuickDateMenu(resolved.task, resolved.anchorPosition);
+}
+
+async function openTaskQuickMetaMenuFromExternalRequest(
+  payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null; removeTrigger?: () => void }
+): Promise<void> {
+  const resolved = await resolveTaskFromExternalRequest(payload);
+  if (!resolved) {
+    return;
+  }
+
+  closeTaskEditorSidebar();
+  closeTaskEditMenu();
+  taskEditDraft.value = null;
+  closeTaskQuickDateMenu();
+  await openTaskQuickMetaMenu(resolved.task, resolved.anchorPosition, {
+    removeTrigger: payload?.removeTrigger
+  });
 }
 
 async function resolveTaskEditorTargetTask(task: Task): Promise<Task> {
@@ -6503,25 +7059,37 @@ async function saveInlineDescriptionEdit(task: Task): Promise<void> {
   }
 
   const description = inlineDescriptionDraftByTaskId.value.get(taskId) || '';
-  if (description === (task.description || '')) {
+  const targetTask = await resolveTaskEditorTargetTask(task);
+  const targetTaskId = targetTask.id;
+  if (description === (targetTask.description || '')) {
     clearInlineDescriptionEdit(taskId);
     return;
   }
 
   inlineDescriptionSavingTaskIds.add(taskId);
   try {
-    if (task.type === 'block' && task.blockId) {
-      await setBlockAttrs(task.blockId, {
+    const blockId = targetTask.type === 'block' && targetTask.blockId ? targetTask.blockId : '';
+    if (blockId) {
+      await setBlockAttrs(blockId, {
         'custom-task-description': description || ''
       });
+      await TaskRepository.clearCache();
     }
 
-    crdtRepo.updateTaskField(taskId, 'description', description);
-    patchTask(tasks.value, taskId, (targetTask) => {
-      targetTask.description = description;
-      targetTask.updatedAt = new Date().toISOString();
+    crdtRepo.updateTaskField(targetTaskId, 'description', description);
+    patchTask(tasks.value, targetTaskId, (item) => {
+      item.description = description;
+      item.updatedAt = new Date().toISOString();
     }, 'id');
+    const repeatTouched = syncRepeatTaskDescriptionLocally(targetTask, description);
     await refreshInternalState();
+    if (repeatTouched) {
+      notifyRepeatChanged({
+        blockId,
+        seriesId: getTaskRepeatSeriesId(targetTask),
+        frequency: targetTask.repeatFrequency
+      });
+    }
   } catch {
   } finally {
     inlineDescriptionSavingTaskIds.delete(taskId);
@@ -6584,6 +7152,18 @@ async function applyTaskEditorFieldUpdate(
   }
 }
 
+function consumeTaskQuickMetaTrigger(): void {
+  const removeTrigger = taskQuickMetaMenu.value.removeTrigger;
+  if (typeof removeTrigger !== 'function') {
+    return;
+  }
+  taskQuickMetaMenu.value.removeTrigger = null;
+  try {
+    removeTrigger();
+  } catch {
+  }
+}
+
 async function handleTaskQuickDateSave(): Promise<void> {
   const menuTask = taskQuickDateMenu.value.task;
   if (!menuTask) {
@@ -6596,20 +7176,7 @@ async function handleTaskQuickDateSave(): Promise<void> {
     || menuTask;
 
   const currentFields = await resolveCurrentTaskDateFields(task);
-
-  const nextStartDate = normalizeDateInputValue(taskQuickDateDraft.value.startDate || '');
-  let nextDueDate = normalizeDateInputValue(taskQuickDateDraft.value.dueDate || '');
-  if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
-    nextDueDate = nextStartDate;
-  }
-  const nextStartTime = nextStartDate ? normalizeTimeInputValue(taskQuickDateDraft.value.startTime || '') : '';
-  const nextDueTime = nextDueDate ? normalizeTimeInputValue(taskQuickDateDraft.value.dueTime || '') : '';
-  const nextFields: TaskEditorDateFields = {
-    startDate: nextStartDate,
-    startTime: nextStartTime,
-    dueDate: nextDueDate,
-    dueTime: nextDueTime
-  };
+  const nextFields = normalizeTaskEditorDateFields(taskQuickDateDraft.value);
 
   if (isSameTaskEditorDateFields(currentFields, nextFields)) {
     closeTaskQuickDateMenu();
@@ -6628,10 +7195,10 @@ async function handleTaskQuickDateSave(): Promise<void> {
 
     if (task.type === 'block' && blockId) {
       await setBlockAttrs(blockId, {
-        'custom-task-start-date': nextStartDate || '',
-        'custom-task-due-date': nextDueDate || '',
-        'custom-task-start-time': nextStartTime || '',
-        'custom-task-due-time': nextDueTime || ''
+        'custom-task-start-date': nextFields.startDate,
+        'custom-task-due-date': nextFields.dueDate,
+        'custom-task-start-time': nextFields.startTime,
+        'custom-task-due-time': nextFields.dueTime
       });
       await TaskRepository.clearCache();
     }
@@ -6645,7 +7212,131 @@ async function handleTaskQuickDateSave(): Promise<void> {
     scheduleKernelTaskIndexRefresh();
     await refreshInternalState();
     closeTaskQuickDateMenu();
-  } catch {
+  } catch (error) {
+    console.error('[TaskManager] Failed to update task quick date:', error);
+  }
+}
+
+async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
+  const menuTask = taskQuickMetaMenu.value.task;
+  if (!menuTask) {
+    if (closeAfterSave) {
+      closeTaskQuickMetaMenu();
+    }
+    return;
+  }
+
+  const task = tasks.value.find(item => item.id === menuTask.id)
+    || tasks.value.find(item => item.blockId && item.blockId === menuTask.blockId)
+    || menuTask;
+
+  const currentFields = await resolveCurrentTaskDateFields(task);
+  const nextFields = normalizeTaskEditorDateFields(taskQuickMetaDraft.value);
+  const datesChanged = !isSameTaskEditorDateFields(currentFields, nextFields);
+  const nextPriority = isBatchPriority(taskQuickMetaDraft.value.priority)
+    ? taskQuickMetaDraft.value.priority
+    : 'none';
+  const currentTagState = buildTaskTagState(task.tags, task.groupId);
+  const nextTagState = buildTaskTagState(taskQuickMetaDraft.value.tags, taskQuickMetaDraft.value.groupId);
+  const currentGoalIds = getGoalIdsForTask(goalDefinitions.value, task);
+  const nextGoalIds = normalizeTaskQuickGoalIds(taskQuickMetaDraft.value.goalIds);
+  const nextReminder = normalizeTaskReminderSelection(taskQuickMetaDraft.value);
+  const priorityChanged = task.priority !== nextPriority;
+  const tagsChanged = !areTaskTagIdsEqual(currentTagState.tagIds, nextTagState.tagIds)
+    || currentTagState.primaryTagId !== nextTagState.primaryTagId;
+  const goalsChanged = !areTaskQuickGoalIdsEqual(currentGoalIds, nextGoalIds);
+  const reminderChanged = !isSameTaskReminderSelection(task, nextReminder);
+
+  if (!datesChanged && !priorityChanged && !tagsChanged && !goalsChanged && !reminderChanged) {
+    if (closeAfterSave) {
+      consumeTaskQuickMetaTrigger();
+      closeTaskQuickMetaMenu();
+    }
+    return;
+  }
+
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+  try {
+    let dateSavedByRepeat = false;
+    if (datesChanged && isRepeatTaskForDateSave(task)) {
+      const updatedRepeatTask = await saveRepeatTaskDateFields(task, nextFields);
+      if (updatedRepeatTask) {
+        dateSavedByRepeat = true;
+      }
+    }
+
+    const attrsToPersist: Record<string, string> = {};
+    if (datesChanged && !dateSavedByRepeat) {
+      attrsToPersist['custom-task-start-date'] = nextFields.startDate;
+      attrsToPersist['custom-task-due-date'] = nextFields.dueDate;
+      attrsToPersist['custom-task-start-time'] = nextFields.startTime;
+      attrsToPersist['custom-task-due-time'] = nextFields.dueTime;
+    }
+    if (priorityChanged) {
+      attrsToPersist['custom-task-priority'] = nextPriority;
+    }
+    if (tagsChanged) {
+      Object.assign(attrsToPersist, buildTaskTagAttrs(nextTagState.tagIds).attrs);
+    }
+    if (reminderChanged) {
+      Object.assign(attrsToPersist, buildTaskReminderAttrs(nextReminder));
+    }
+
+    if (task.type === 'block' && blockId && Object.keys(attrsToPersist).length > 0) {
+      await setBlockAttrs(blockId, attrsToPersist);
+      await TaskRepository.clearCache();
+    }
+
+    const nowIso = new Date().toISOString();
+    if (datesChanged && !dateSavedByRepeat) {
+      const updatedTask = applyTaskDateFieldsLocally(task, nextFields, nowIso);
+      eventBus.emit('task-date-changed', updatedTask);
+    }
+    if (priorityChanged || tagsChanged || reminderChanged) {
+      if (priorityChanged) {
+        crdtRepo.updateTaskField(task.id, 'priority', nextPriority);
+      }
+      if (tagsChanged) {
+        crdtRepo.updateTaskField(task.id, 'tags', [...nextTagState.tagIds]);
+        crdtRepo.updateTaskField(task.id, 'groupId', nextTagState.primaryTagId || undefined);
+      }
+      if (reminderChanged) {
+        crdtRepo.updateTaskField(task.id, 'reminderType', nextReminder.reminderType);
+        crdtRepo.updateTaskField(task.id, 'reminderCustomTime', nextReminder.reminderCustomTimeValue);
+      }
+      patchTask(tasks.value, task.id, (targetTask) => {
+        if (priorityChanged) {
+          targetTask.priority = nextPriority;
+        }
+        if (tagsChanged) {
+          targetTask.tags = [...nextTagState.tagIds];
+          targetTask.groupId = nextTagState.primaryTagId || undefined;
+        }
+        if (reminderChanged) {
+          targetTask.reminderType = nextReminder.reminderType;
+          targetTask.reminderCustomTime = nextReminder.reminderCustomTimeValue;
+        }
+        targetTask.updatedAt = nowIso;
+      }, 'id');
+    }
+    if (goalsChanged) {
+      const nextGoals = setTaskGoalMembership(goalDefinitions.value, task, nextGoalIds);
+      goalDefinitions.value = nextGoals;
+      await saveGoalDefinitions(nextGoals);
+    }
+    if (blockId) {
+      eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
+    }
+    if (datesChanged) {
+      scheduleKernelTaskIndexRefresh();
+    }
+    await refreshInternalState();
+    if (closeAfterSave) {
+      consumeTaskQuickMetaTrigger();
+      closeTaskQuickMetaMenu();
+    }
+  } catch (error) {
+    console.error('[TaskManager] Failed to update task quick metadata:', error);
   }
 }
 
@@ -6661,21 +7352,26 @@ async function applyBatchEdit(): Promise<void> {
 
   const nextStatus = isBatchStatus(batchEditStatus.value) ? batchEditStatus.value : null;
   const nextPriority = isBatchPriority(batchEditPriority.value) ? batchEditPriority.value : null;
+  const nextTagAction = normalizeBatchTagAction(batchEditTagAction.value);
   const rawGroupSelection = typeof batchEditGroupId.value === 'string' ? batchEditGroupId.value.trim() : '';
   const validGroupIds = visibleTaskGroupIdSet.value;
-  let nextGroupId: string | null = null;
+  let nextTagSelection: { action: TaskTagBatchAction; tagId: string } | null = null;
   if (rawGroupSelection) {
     if (rawGroupSelection === TASK_GROUP_NONE_ID) {
-      nextGroupId = '';
+      if (nextTagAction !== 'set-primary') {
+        showMessage(t('taskManager.selectValidTag'), 2200, 'error');
+        return;
+      }
+      nextTagSelection = { action: nextTagAction, tagId: '' };
     } else if (validGroupIds.has(rawGroupSelection)) {
-      nextGroupId = rawGroupSelection;
+      nextTagSelection = { action: nextTagAction, tagId: rawGroupSelection };
     } else {
       showMessage(t('taskManager.selectValidTag'), 2200, 'error');
       return;
     }
   }
 
-  if (!nextStatus && !nextPriority && nextGroupId === null) {
+  if (!nextStatus && !nextPriority && nextTagSelection === null) {
     showMessage(t('taskManager.selectBatchFields'), 2200, 'error');
     return;
   }
@@ -6686,6 +7382,7 @@ async function applyBatchEdit(): Promise<void> {
     attrs: Record<string, string>;
     nextStatus: Task['status'] | null;
     nextPriority: Task['priority'] | null;
+    nextTagIds: string[] | null;
     nextGroupId: string | undefined | null;
   };
   const updates: BatchTaskUpdate[] = [];
@@ -6703,6 +7400,7 @@ async function applyBatchEdit(): Promise<void> {
     const attrs: Record<string, string> = {};
     let changedStatus: Task['status'] | null = null;
     let changedPriority: Task['priority'] | null = null;
+    let changedTagIds: string[] | null = null;
     let changedGroupId: string | undefined | null = null;
 
     if (nextStatus && task.status !== nextStatus) {
@@ -6715,11 +7413,21 @@ async function applyBatchEdit(): Promise<void> {
       changedPriority = nextPriority;
     }
 
-    if (nextGroupId !== null) {
-      const currentGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-      if (currentGroupId !== nextGroupId) {
-        attrs['custom-task-group'] = nextGroupId;
-        changedGroupId = nextGroupId || undefined;
+    if (nextTagSelection !== null) {
+      const currentTagState = buildTaskTagState(task.tags, task.groupId);
+      const nextTagIds = applyTaskTagBatchAction(
+        currentTagState.tagIds,
+        nextTagSelection.action,
+        nextTagSelection.tagId
+      );
+      const nextTagState = buildTaskTagState(nextTagIds);
+      if (
+        !areTaskTagIdsEqual(currentTagState.tagIds, nextTagState.tagIds)
+        || currentTagState.primaryTagId !== nextTagState.primaryTagId
+      ) {
+        Object.assign(attrs, buildTaskTagAttrs(nextTagState.tagIds).attrs);
+        changedTagIds = nextTagState.tagIds;
+        changedGroupId = nextTagState.primaryTagId || undefined;
       }
     }
 
@@ -6733,6 +7441,7 @@ async function applyBatchEdit(): Promise<void> {
       attrs,
       nextStatus: changedStatus,
       nextPriority: changedPriority,
+      nextTagIds: changedTagIds,
       nextGroupId: changedGroupId
     });
   }
@@ -6785,6 +7494,9 @@ async function applyBatchEdit(): Promise<void> {
         if (update.nextPriority) {
           targetTask.priority = update.nextPriority;
         }
+        if (update.nextTagIds !== null) {
+          targetTask.tags = [...update.nextTagIds];
+        }
         if (update.nextGroupId !== null) {
           targetTask.groupId = update.nextGroupId;
         }
@@ -6797,6 +7509,9 @@ async function applyBatchEdit(): Promise<void> {
       if (update.nextPriority) {
         crdtRepo.updateTaskField(update.task.id, 'priority', update.nextPriority);
       }
+      if (update.nextTagIds !== null) {
+        crdtRepo.updateTaskField(update.task.id, 'tags', [...update.nextTagIds]);
+      }
       if (update.nextGroupId !== null) {
         crdtRepo.updateTaskField(update.task.id, 'groupId', update.nextGroupId);
       }
@@ -6808,6 +7523,9 @@ async function applyBatchEdit(): Promise<void> {
         }
         if (update.nextPriority) {
           editedTask.priority = update.nextPriority;
+        }
+        if (update.nextTagIds !== null) {
+          editedTask.tags = [...update.nextTagIds];
         }
         if (update.nextGroupId !== null) {
           editedTask.groupId = update.nextGroupId || '';
@@ -7185,7 +7903,7 @@ async function quickSaveTaskRepeatRule(task: Task, repeat: RepeatFrequency | Rep
 async function quickSaveTaskDescription(task: Task, description: string): Promise<void> {
   const normalizedDescription = typeof description === 'string' ? description : '';
   const currentDescription = typeof task.description === 'string' ? task.description : '';
-  await applyTaskEditorFieldUpdate(task, {
+  const updated = await applyTaskEditorFieldUpdate(task, {
     attrs: {
       'custom-task-description': normalizedDescription || ''
     },
@@ -7200,6 +7918,19 @@ async function quickSaveTaskDescription(task: Task, description: string): Promis
       crdtRepo.updateTaskField(task.id, 'description', normalizedDescription);
     }
   });
+  if (!updated) {
+    return;
+  }
+
+  const repeatTouched = syncRepeatTaskDescriptionLocally(task, normalizedDescription);
+  if (repeatTouched) {
+    await refreshInternalState();
+    notifyRepeatChanged({
+      blockId: task.blockId,
+      seriesId: getTaskRepeatSeriesId(task),
+      frequency: task.repeatFrequency
+    });
+  }
 }
 
 async function quickSaveTaskReminder(task: Task, value: TaskReminderSelection): Promise<void> {
@@ -7226,22 +7957,28 @@ async function quickSaveTaskReminder(task: Task, value: TaskReminderSelection): 
   });
 }
 
-async function quickSaveTaskGroup(task: Task, groupId: string): Promise<void> {
-  const normalizedGroupId = typeof groupId === 'string' ? groupId.trim() : '';
-  const currentGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
+async function quickSaveTaskTags(task: Task, tagIds: string[]): Promise<void> {
+  const nextTagState = buildTaskTagState(tagIds);
+  const currentTagState = buildTaskTagState(task.tags, task.groupId);
   await applyTaskEditorFieldUpdate(task, {
-    attrs: {
-      'custom-task-group': normalizedGroupId || ''
-    },
-    isUnchanged: draft => draft.groupId === normalizedGroupId && currentGroupId === normalizedGroupId,
+    attrs: buildTaskTagAttrs(nextTagState.tagIds).attrs,
+    isUnchanged: draft => (
+      areTaskTagIdsEqual(draft.tags, nextTagState.tagIds)
+      && draft.groupId === nextTagState.primaryTagId
+      && areTaskTagIdsEqual(currentTagState.tagIds, nextTagState.tagIds)
+      && currentTagState.primaryTagId === nextTagState.primaryTagId
+    ),
     syncDraft: draft => {
-      draft.groupId = normalizedGroupId;
+      draft.tags = [...nextTagState.tagIds];
+      draft.groupId = nextTagState.primaryTagId;
     },
     syncTask: targetTask => {
-      targetTask.groupId = normalizedGroupId || undefined;
+      targetTask.tags = [...nextTagState.tagIds];
+      targetTask.groupId = nextTagState.primaryTagId || undefined;
     },
     syncCrdt: () => {
-      crdtRepo.updateTaskField(task.id, 'groupId', normalizedGroupId || undefined);
+      crdtRepo.updateTaskField(task.id, 'tags', [...nextTagState.tagIds]);
+      crdtRepo.updateTaskField(task.id, 'groupId', nextTagState.primaryTagId || undefined);
     }
   });
 }
@@ -7575,6 +8312,7 @@ async function ensureDailyNoteDocument(notebookId: string): Promise<string> {
 
 async function handleCreateTask(taskData: any, notebookId: string, documentId: string) {
   try {
+    const tagState = buildTaskTagState(taskData.tags, taskData.groupId);
     let docPath = '';
     
     if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
@@ -7596,7 +8334,7 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
       docPath = await ensureInboxDocument(notebookId);
     }
     
-    await TaskRepository.createBlockTask({
+    const created = await TaskRepository.createBlockTask({
       title: taskData.title,
       description: taskData.description,
       priority: taskData.priority,
@@ -7604,13 +8342,35 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
       dueDate: taskData.dueDate || undefined,
       reminderType: taskData.reminderType,
       reminderCustomTime: taskData.reminderCustomTime || undefined,
-      tags: taskData.tags || [],
-      groupId: taskData.groupId || undefined
+      tags: tagState.tagIds,
+      groupId: tagState.primaryTagId || undefined
     }, notebookId, docPath);
+
+    const selectedGoalIds = Array.isArray(taskData.goalIds)
+      ? taskData.goalIds
+        .map((goalId: unknown) => typeof goalId === 'string' ? goalId.trim() : '')
+        .filter((goalId: string) => goalId && goalDefinitionsById.value.has(goalId))
+      : [];
+    if (selectedGoalIds.length > 0 && created?.taskId) {
+      const createdRootId = documentId
+        && documentId !== PINCH_DAILY_NOTE_OPTION_ID
+        && documentId !== PINCH_INBOX_OPTION_ID
+        ? documentId
+        : undefined;
+      const nextGoals = setTaskGoalMembership(goalDefinitions.value, {
+        taskId: created.taskId,
+        blockId: created.blockId,
+        notebookId,
+        rootId: createdRootId,
+        title: taskData.title
+      }, selectedGoalIds);
+      goalDefinitions.value = nextGoals;
+      await saveGoalDefinitions(nextGoals);
+    }
     
     lastTaskNotebook.value = notebookId;
     lastTaskDocument.value = documentId;
-    const normalizedGroupId = typeof taskData.groupId === 'string' ? taskData.groupId.trim() : '';
+    const normalizedGroupId = tagState.primaryTagId;
     lastSelectedTaskGroupId.value = normalizedGroupId;
     await updateSettings('taskManager', {
       lastTaskNotebook: notebookId,
@@ -7639,6 +8399,8 @@ onMounted(async () => {
   document.addEventListener('touchend', handleDocumentMobileTaskTouchEnd);
   document.addEventListener('touchcancel', handleDocumentMobileTaskTouchCancel);
   window.addEventListener('resize', scheduleTaskVirtualUpdate, true);
+  window.addEventListener('resize', scheduleTaskEditorSidebarPositionUpdate, true);
+  window.addEventListener('resize', updateTaskModalOverlayStyle, true);
   document.addEventListener('mousedown', handleTaskFilterOutsideClick, true);
   window.addEventListener('resize', handleTaskFilterPopoverViewportChange, true);
   window.addEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
@@ -7730,6 +8492,10 @@ onUnmounted(() => {
   closeTaskEditorSidebar();
   taskScrollContainerRef.value?.removeEventListener('scroll', handleTaskListScroll);
   window.removeEventListener('resize', scheduleTaskVirtualUpdate, true);
+  window.removeEventListener('resize', scheduleTaskEditorSidebarPositionUpdate, true);
+  window.removeEventListener('resize', updateTaskModalOverlayStyle, true);
+  cancelTaskEditorSidebarPositionUpdate();
+  unlockTaskEditorParentScroll();
   if (taskVirtualRaf !== null) {
     cancelAnimationFrame(taskVirtualRaf);
     taskVirtualRaf = null;
@@ -7748,6 +8514,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleTaskFilterPopoverViewportChange, true);
   window.removeEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
   taskModalTeleportTarget.value?.removeEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
+  disconnectTaskEditorHostResizeObserver();
   if (filterSettingsUpdateTimer !== null) {
     clearTimeout(filterSettingsUpdateTimer);
     filterSettingsUpdateTimer = null;
@@ -7838,10 +8605,29 @@ onUnmounted(() => {
   cursor: pointer;
   width: 24px;
   height: 24px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   
   svg {
-    color: var(--b3-theme-on-background);
+    color: var(--b3-theme-on-surface);
+    width: 18px;
+    height: 18px;
+    margin: 0;
   }
+}
+
+.task-manager-header .header-actions .new-task-button:hover,
+.task-manager-header .header-actions .task-refresh:hover,
+.task-manager-header .header-actions .task-kernel-status:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-manager-header .header-actions .new-task-button .icon,
+.task-manager-header .header-actions .task-refresh .icon,
+.task-manager-header .header-actions .task-kernel-status .icon {
+  margin: 0;
 }
 
 .kernel-diagnostics-control {
@@ -8011,11 +8797,13 @@ onUnmounted(() => {
   padding: 0;
   margin: 0 6px 0 0;
   cursor: pointer;
-  height: 24px;
+  height: 22px;
   border-radius: 13px;
-  background-color: var(--b3-theme-on-background);
-  color: var(--b3-theme-background);
-  padding: 2px 10px;
+  background-color: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  padding: 1px 10px;
+  font-size: 14px;
+  box-shadow: var(--b3-border-color) 0px 0px 0 0.5px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
 }
 
 .filters-row {
@@ -8156,22 +8944,6 @@ onUnmounted(() => {
   transform: none;
 }
 
-.task-editor-sidebar-body {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 220px;
-  overflow: hidden;
-  padding: 4px;
-}
-
-.task-editor-sidebar-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  border-top: 1px solid var(--b3-theme-border);
-}
-
 .task-move-dialog-overlay {
   position: absolute;
   inset: 0;
@@ -8294,28 +9066,32 @@ onUnmounted(() => {
   min-height: 72px;
 }
 
-.task-editor-sidebar-body :deep(.protyle-content) {
-  overflow: auto;
-  border-radius: 4px;
-}
-
-.task-editor-sidebar-body :deep(.protyle-wysiwyg) {
-  padding: 10px !important;
-}
-
-.task-editor-sidebar-body :deep(.protyle-toolbar),
-.task-editor-sidebar-body :deep(.protyle-hint) {
-  z-index: 6;
-}
-
 .task-editor-overlay-enter-active,
 .task-editor-overlay-leave-active {
   transition: opacity 0.3s ease;
 }
 
+.task-editor-overlay-enter-active :deep(.task-editor-sidebar-panel.is-sidebar),
+.task-editor-overlay-leave-active :deep(.task-editor-sidebar-panel.is-sidebar) {
+  transition: opacity 0.24s ease, transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-origin: bottom center;
+}
+
 .task-editor-overlay-enter-from,
 .task-editor-overlay-leave-to {
   opacity: 0;
+}
+
+.task-editor-overlay-enter-from :deep(.task-editor-sidebar-panel.is-sidebar),
+.task-editor-overlay-leave-to :deep(.task-editor-sidebar-panel.is-sidebar) {
+  opacity: 0;
+  transform: translateY(calc(100% + 24px));
+}
+
+.task-editor-overlay-enter-to :deep(.task-editor-sidebar-panel.is-sidebar),
+.task-editor-overlay-leave-from :deep(.task-editor-sidebar-panel.is-sidebar) {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .filters-bar {
@@ -8587,6 +9363,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding-top: 1px;
+  padding-bottom: 3px;
 }
 
 .task-batch-item {
@@ -8991,3 +9769,8 @@ onUnmounted(() => {
 }
 
 </style>
+<div
+  class="task-title ariaLabel"
+  :aria-label="titleTooltip + (titleTooltip ? '<br>' : '') + t('taskCard.rightClickFillDescription')"
+  v-html="titleHtml"
+></div>

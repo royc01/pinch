@@ -44,4 +44,45 @@ describe('goal repository normalization', () => {
       }
     ]);
   });
+
+  it('normalizes direct task members on goals', () => {
+    const [goal] = normalizeGoals([
+      {
+        id: 'goal-2',
+        name: 'Task Goal',
+        members: [],
+        taskMembers: [
+          {
+            taskId: ' task-1 ',
+            blockId: ' block-1 ',
+            notebookId: ' nb-1 ',
+            rootId: ' doc-1 ',
+            title: ' Task title ',
+            addedAt: ' 2026-04-20T00:00:00.000Z '
+          },
+          {
+            taskId: 'task-1',
+            blockId: 'duplicate'
+          },
+          {
+            taskId: ''
+          },
+          {
+            blockId: 'block-only'
+          }
+        ]
+      }
+    ]);
+
+    expect(goal.taskMembers).toEqual([
+      {
+        taskId: 'task-1',
+        blockId: 'block-1',
+        notebookId: 'nb-1',
+        rootId: 'doc-1',
+        title: 'Task title',
+        addedAt: '2026-04-20T00:00:00.000Z'
+      }
+    ]);
+  });
 });

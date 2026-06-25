@@ -1,14 +1,26 @@
 :root {
-  --pinch-background1: #eae6e5;
-  --pinch-background2: #f9ecde;
-  --pinch-background3: #fcede2;
-  --pinch-background4: #f9f3de;
-  --pinch-background5: #eaf4e6;
-  --pinch-background6: #deedeb;
-  --pinch-background7: #deebf1;
-  --pinch-background8: #ebe5f2;
-  --pinch-background9: #f3dfec;
-  --pinch-background10: #fae5e5;
+  --pinch-background1-color: rgba(100, 71, 58, 0.15);
+  --pinch-background2-color: rgba(219, 124, 28, 0.15);
+  --pinch-background3-color: rgba(219, 124, 28, 0.15);
+  --pinch-background4-color: rgba(223, 171, 1, 0.15);
+  --pinch-background5-color: rgba(101, 184, 77, 0.15);
+  --pinch-background6-color: rgba(33, 133, 119, 0.15);
+  --pinch-background7-color: rgba(11, 110, 153, 0.15);
+  --pinch-background8-color: rgba(105, 64, 165, 0.15);
+  --pinch-background9-color: rgba(173, 26, 114, 0.15);
+  --pinch-background10-color: rgba(224, 62, 62, 0.15);
+  --pinch-background11-color: rgba(159, 216, 207, 0.2);
+  --pinch-background1: linear-gradient(var(--pinch-background1-color), var(--pinch-background1-color)), var(--b3-theme-background);
+  --pinch-background2: linear-gradient(var(--pinch-background2-color), var(--pinch-background2-color)), var(--b3-theme-background);
+  --pinch-background3: linear-gradient(var(--pinch-background3-color), var(--pinch-background3-color)), var(--b3-theme-background);
+  --pinch-background4: linear-gradient(var(--pinch-background4-color), var(--pinch-background4-color)), var(--b3-theme-background);
+  --pinch-background5: linear-gradient(var(--pinch-background5-color), var(--pinch-background5-color)), var(--b3-theme-background);
+  --pinch-background6: linear-gradient(var(--pinch-background6-color), var(--pinch-background6-color)), var(--b3-theme-background);
+  --pinch-background7: linear-gradient(var(--pinch-background7-color), var(--pinch-background7-color)), var(--b3-theme-background);
+  --pinch-background8: linear-gradient(var(--pinch-background8-color), var(--pinch-background8-color)), var(--b3-theme-background);
+  --pinch-background9: linear-gradient(var(--pinch-background9-color), var(--pinch-background9-color)), var(--b3-theme-background);
+  --pinch-background10: linear-gradient(var(--pinch-background10-color), var(--pinch-background10-color)), var(--b3-theme-background);
+  --pinch-background11: linear-gradient(var(--pinch-background11-color), var(--pinch-background11-color)), var(--b3-theme-background);
   --pinch-color1: #b9ada8;
   --pinch-color2: #e9bf95;
   --pinch-color3: #f5c4a1;
@@ -39,22 +51,24 @@
   --pinch-group-color8: #18003f;
   --pinch-group-color9: #360015;
   --pinch-group-color10: #4a0000;
+  --pinch-shadow: var(--b3-border-color) 0px 0px 0 0.5px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px, rgba(15, 15, 15, 0.05) 0px 2px 4px;
+  --pinch-menu-shadow: var(--b3-border-color) 0px 0px 0 0.5px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px, rgba(15, 15, 15, 0.2) 0px 9px 24px;
 }
 
 html[data-theme-mode='dark'],
 body[data-theme-mode='dark'],
 body.b3-theme-dark,
 .b3-theme-dark {
-  --pinch-background1: #38383a;
-  --pinch-background2: #4e3f30;
-  --pinch-background3: #4e4730;
-  --pinch-background4: #4e4e30;
-  --pinch-background5: #284749;
-  --pinch-background6: #274752;
-  --pinch-background7: #274052;
-  --pinch-background8: #363353;
-  --pinch-background9: #4a3048;
-  --pinch-background10: #4d3336;
+  --pinch-background1-color: rgba(147, 114, 100, 0.18);
+  --pinch-background2-color: rgba(239, 154, 66, 0.18);
+  --pinch-background3-color: rgba(255, 184, 73, 0.18);
+  --pinch-background4-color: rgba(208, 182, 67, 0.18);
+  --pinch-background5-color: rgba(77, 171, 154, 0.18);
+  --pinch-background6-color: rgba(82, 178, 202, 0.18);
+  --pinch-background7-color: rgba(82, 156, 202, 0.18);
+  --pinch-background8-color: rgba(154, 109, 215, 0.18);
+  --pinch-background9-color: rgba(209, 82, 150, 0.18);
+  --pinch-background10-color: rgba(255, 115, 105, 0.18);
   --pinch-color1: #645c5a;
   --pinch-color2: #886b4a;
   --pinch-color3: #88764a;
@@ -95,7 +109,7 @@ body.b3-theme-dark,
   display: none !important;
 }
 
-.pinch-mobile-kanban-dialog .header-actions .pinch-mobile-kanban-dialog-close-button {
+.pinch-mobile-kanban-dialog-close-button {
   position: static !important;
   inset: auto !important;
   width: 26px;
@@ -114,7 +128,7 @@ body.b3-theme-dark,
   flex: 0 0 auto;
 }
 
-.pinch-mobile-kanban-dialog .header-actions .pinch-mobile-kanban-dialog-close-button svg {
+.pinch-mobile-kanban-dialog-close-button svg {
   width: 24px;
   height: 24px;
 }

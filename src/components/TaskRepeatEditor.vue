@@ -2,23 +2,20 @@
   <div class="task-repeat-editor" v-bind="$attrs">
     <div class="repeat-edit-row">
       <label>{{ t('taskRepeat.frequency') }}</label>
-      <select :value="normalizedRepeatFrequency" @change="onRepeatChange">
-        <option value="none">{{ t('taskRepeat.none') }}</option>
-        <option value="daily">{{ t('taskRepeat.daily') }}</option>
-        <option value="weekdays">{{ t('taskRepeat.weekdays') }}</option>
-        <option value="weekend">{{ t('taskRepeat.weekend') }}</option>
-        <option value="weekly">{{ t('taskRepeat.weekly') }}</option>
-        <option value="custom">{{ t('taskRepeat.custom') }}</option>
-      </select>
+      <SySelect
+        class="repeat-frequency-select"
+        :model-value="normalizedRepeatFrequency"
+        :options="repeatFrequencyOptions"
+        @update:model-value="handleRepeatFrequencyUpdate"
+      />
       <button
         v-if="normalizedRepeatFrequency === 'custom'"
         type="button"
-        class="repeat-custom-edit"
-        :title="t('taskRepeat.editCustomRepeat')"
+        class="repeat-custom-edit ariaLabel"
         :aria-label="t('taskRepeat.editCustomRepeat')"
         @click="openCustomRepeatDialog"
       >
-        ...
+        <Icon name="moreVertical" width="16" height="16" />
       </button>
     </div>
     <div v-if="normalizedRepeatFrequency === 'custom'" class="repeat-rule-summary">
@@ -38,8 +35,8 @@
           <div class="repeat-dialog-title">{{ t('taskRepeat.customRepeat') }}</div>
           <button
             type="button"
-            class="repeat-dialog-close"
-            :title="t('common.close')"
+            class="repeat-dialog-close ariaLabel"
+           
             :aria-label="t('common.close')"
             @click.stop="closeCustomRepeatDialog"
           >
@@ -51,11 +48,12 @@
           <div class="repeat-dialog-row">
             <label>{{ t('taskRepeat.everyInterval') }}</label>
             <input v-model.number="customRepeatDraft.interval" type="number" min="1" max="999" />
-            <select v-model="customRepeatDraft.unit">
-              <option value="day">{{ t('taskRepeat.unitDay') }}</option>
-              <option value="week">{{ t('taskRepeat.unitWeek') }}</option>
-              <option value="month">{{ t('taskRepeat.unitMonth') }}</option>
-            </select>
+            <SySelect
+              class="repeat-dialog-select"
+              :model-value="customRepeatDraft.unit"
+              :options="repeatUnitOptions"
+              @update:model-value="handleCustomRepeatUnitUpdate"
+            />
           </div>
 
           <div v-if="customRepeatDraft.unit === 'week'" class="repeat-weekday-grid">
@@ -72,10 +70,12 @@
 
           <div v-if="customRepeatDraft.unit === 'month'" class="repeat-dialog-row">
             <label>{{ t('taskManager.date') }}</label>
-            <select v-model="customRepeatDraft.monthMode">
-              <option value="day-of-month">{{ t('taskRepeat.dayOfMonth') }}</option>
-              <option value="last-day">{{ t('taskRepeat.lastDayOfMonth') }}</option>
-            </select>
+            <SySelect
+              class="repeat-dialog-select"
+              :model-value="customRepeatDraft.monthMode"
+              :options="repeatMonthModeOptions"
+              @update:model-value="handleCustomRepeatMonthModeUpdate"
+            />
             <input
               v-if="customRepeatDraft.monthMode === 'day-of-month'"
               v-model.number="customRepeatDraft.monthDay"
@@ -112,6 +112,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
+import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput, RepeatRuleUnit } from '@/repeatRepository';
 import { useI18n } from '@/composables/useI18n';
 
@@ -135,6 +136,23 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const showCustomRepeatDialog = ref(false);
+const repeatFrequencyOptions = [
+  { value: 'none', text: t('taskRepeat.none') },
+  { value: 'daily', text: t('taskRepeat.daily') },
+  { value: 'weekdays', text: t('taskRepeat.weekdays') },
+  { value: 'weekend', text: t('taskRepeat.weekend') },
+  { value: 'weekly', text: t('taskRepeat.weekly') },
+  { value: 'custom', text: t('taskRepeat.custom') }
+];
+const repeatUnitOptions = [
+  { value: 'day', text: t('taskRepeat.unitDay') },
+  { value: 'week', text: t('taskRepeat.unitWeek') },
+  { value: 'month', text: t('taskRepeat.unitMonth') }
+];
+const repeatMonthModeOptions = [
+  { value: 'day-of-month', text: t('taskRepeat.dayOfMonth') },
+  { value: 'last-day', text: t('taskRepeat.lastDayOfMonth') }
+];
 const customRepeatDraft = ref<{
   unit: RepeatRuleUnit;
   interval: number;
@@ -202,12 +220,9 @@ watch(
   }
 );
 
-function onRepeatChange(event: Event): void {
-  const target = event.target as HTMLSelectElement;
-  const value = target.value as RepeatFrequency;
+function handleRepeatFrequencyUpdate(value: string): void {
   if (value === 'custom') {
     openCustomRepeatDialog();
-    target.value = normalizedRepeatFrequency.value || 'none';
     return;
   }
   if (
@@ -221,6 +236,18 @@ function onRepeatChange(event: Event): void {
     return;
   }
   emit('saveRepeatRule', normalizedRepeatFrequency.value || 'none');
+}
+
+function handleCustomRepeatUnitUpdate(value: string): void {
+  if (value === 'day' || value === 'week' || value === 'month') {
+    customRepeatDraft.value.unit = value;
+  }
+}
+
+function handleCustomRepeatMonthModeUpdate(value: string): void {
+  if (value === 'day-of-month' || value === 'last-day') {
+    customRepeatDraft.value.monthMode = value;
+  }
 }
 
 function getDraftBaseDate(): Date {
@@ -365,7 +392,6 @@ function saveCustomRepeatRule(): void {
 }
 
 .repeat-edit-row label {
-  width: 36px;
   font-size: 12px;
   color: var(--b3-theme-on-surface);
   opacity: 0.8;
@@ -375,10 +401,8 @@ function saveCustomRepeatRule(): void {
 .repeat-edit-row select {
   flex: 1;
   min-width: 0;
-  padding: 6px 34px 6px 10px;
   border: none;
   border-radius: 6px;
-  background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
   font-size: 12px;
   outline: none;
@@ -388,13 +412,22 @@ function saveCustomRepeatRule(): void {
   flex: 0 0 auto;
   width: 30px;
   height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: none;
   border-radius: 6px;
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
   cursor: pointer;
-  font-size: 13px;
   line-height: 1;
+}
+
+.repeat-custom-edit svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
 }
 
 .repeat-custom-edit:hover {

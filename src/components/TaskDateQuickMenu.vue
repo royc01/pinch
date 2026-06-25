@@ -18,9 +18,9 @@
             <button
               ref="startDateTriggerRef"
               type="button"
-              class="context-menu-date-trigger"
+              class="context-menu-date-trigger ariaLabel"
               :class="{ active: activeDatePopoverField === 'startDate' }"
-              :title="t('taskManager.pickStartDate')"
+             
               :aria-label="t('taskManager.pickStartDate')"
               @click="toggleDatePopover('startDate')"
             >
@@ -39,9 +39,9 @@
             <button
               ref="dueDateTriggerRef"
               type="button"
-              class="context-menu-date-trigger"
+              class="context-menu-date-trigger ariaLabel"
               :class="{ active: activeDatePopoverField === 'dueDate' }"
-              :title="t('taskManager.pickDueDate')"
+             
               :aria-label="t('taskManager.pickDueDate')"
               @click="toggleDatePopover('dueDate')"
             >
@@ -60,9 +60,9 @@
             <button
               ref="startTimeTriggerRef"
               type="button"
-              class="context-menu-date-trigger"
+              class="context-menu-date-trigger ariaLabel"
               :class="{ active: activeTimePopoverField === 'startTime' }"
-              :title="t('taskManager.pickStartTime')"
+             
               :aria-label="t('taskManager.pickStartTime')"
               @click="toggleTimePopover('startTime')"
             >
@@ -81,9 +81,9 @@
             <button
               ref="dueTimeTriggerRef"
               type="button"
-              class="context-menu-date-trigger"
+              class="context-menu-date-trigger ariaLabel"
               :class="{ active: activeTimePopoverField === 'dueTime' }"
-              :title="t('taskManager.pickDueTime')"
+             
               :aria-label="t('taskManager.pickDueTime')"
               @click="toggleTimePopover('dueTime')"
             >
@@ -294,14 +294,12 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 }
 
 .date-edit-field input[type="date"],
-.date-edit-field input[type="time"],
-.repeat-edit-row select {
+.date-edit-field input[type="time"]{
   flex: 1;
   min-width: 0;
   padding: 6px 34px 6px 10px;
   border: none;
   border-radius: 6px;
-  background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
   font-size: 12px;
   outline: none;

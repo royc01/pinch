@@ -29,9 +29,9 @@
               <span class="document-group-count">{{ group.members.length }}</span>
               <button
                 type="button"
-                class="document-group-delete"
+                class="document-group-delete ariaLabel"
                 :aria-label="t('documentGroup.deleteGroup')"
-                :title="t('documentGroup.deleteGroup')"
+               
                 @click.stop="removeGroup(group.id)"
               >
                 <Icon name="trash" width="16" height="16" />
@@ -43,8 +43,21 @@
 
       <div class="document-group-panel document-list-panel">
         <div class="document-group-panel-header">
-          <span>{{ t('documentGroup.documents') }}</span>
-          <span v-if="selectedGroup" class="document-group-current">{{ selectedGroup.name || t('documentGroup.untitledGroup') }}</span>
+          <div class="document-group-panel-header-main">
+            <span>{{ t('documentGroup.documents') }}</span>
+            <span v-if="selectedGroup" class="document-group-current">{{ selectedGroup.name || t('documentGroup.untitledGroup') }}</span>
+          </div>
+          <button
+            type="button"
+            class="document-panel-refresh ariaLabel"
+            :class="{ 'is-refreshing': documentsRefreshing }"
+           
+            :aria-label="t('taskScopeDialog.refreshDocuments')"
+            :disabled="documentsRefreshing"
+            @click.stop="emit('refresh-documents')"
+          >
+            <Icon name="refresh" width="14" height="14" class="refresh-icon" />
+          </button>
         </div>
 
         <div v-if="!selectedGroup" class="document-group-empty">
@@ -115,13 +128,16 @@ interface DocumentGroupManagerDocument {
 interface Props {
   groups: DocumentGroup[];
   documents: DocumentGroupManagerDocument[];
+  documentsRefreshing?: boolean;
 }
 
 const props = defineProps<Props>();
 const { t } = useI18n();
+const documentsRefreshing = computed(() => props.documentsRefreshing === true);
 
 const emit = defineEmits<{
   'update:groups': [groups: DocumentGroup[]];
+  'refresh-documents': [];
 }>();
 
 const localGroups = ref<DocumentGroup[]>([]);
@@ -303,6 +319,13 @@ watch(
   color: var(--b3-theme-on-background);
 }
 
+.document-group-panel-header-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .group-list-panel .document-group-panel-header > button {
   background: #f98f7a;
   color: #fff;
@@ -319,6 +342,50 @@ watch(
   font-size: 12px;
   font-weight: 500;
   color: var(--b3-theme-on-surface);
+}
+
+.document-panel-refresh {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.document-panel-refresh:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.document-panel-refresh:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.document-panel-refresh .refresh-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.document-panel-refresh.is-refreshing .refresh-icon {
+  animation: document-panel-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes document-panel-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .document-group-list,

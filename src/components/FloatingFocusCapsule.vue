@@ -13,9 +13,19 @@
       >
         <button
           type="button"
-          class="floating-focus__dot"
+          class="floating-focus__close ariaLabel"
           data-no-drag
-          :title="t('focusTimer.settings')"
+         
+          :aria-label="t('focusTimer.closeMiniFocus')"
+          @click.stop="closeInlineMiniFocus"
+        >
+          <Icon name="close" width="10" height="10" class="icon" />
+        </button>
+        <button
+          type="button"
+          class="floating-focus__dot ariaLabel"
+          data-no-drag
+         
           :aria-label="t('focusTimer.settings')"
           @click.stop="toggleSettings"
         >
@@ -24,9 +34,9 @@
         <button
           v-if="linkedTarget && canOpenLinkedTarget"
           type="button"
-          class="floating-focus__target"
+          class="floating-focus__target ariaLabel"
           data-no-drag
-          :title="linkedTargetLabel"
+         
           :aria-label="linkedTargetLabel"
           @click.stop="emit('open-linked-target', linkedTarget)"
         >
@@ -34,18 +44,18 @@
         </button>
         <span
           v-else-if="linkedTarget"
-          class="floating-focus__target-label"
-          :title="linkedTargetLabel"
+          class="floating-focus__target-label ariaLabel"
+          :aria-label="linkedTargetLabel"
         >
           {{ linkedTargetLabel }}
         </span>
         <button
           v-if="!isActive"
           type="button"
-          class="floating-focus__duration"
+          class="floating-focus__duration ariaLabel"
           data-no-drag
           :disabled="isTimerActive"
-          :title="t('focusTimer.cycleDuration')"
+          :aria-label="t('focusTimer.cycleDuration')"
           @click="cycleDuration"
         >
           {{ focusDurationButtonText }}
@@ -54,9 +64,9 @@
         <div class="floating-focus__actions">
           <button
             type="button"
-            class="floating-focus__action"
+            class="floating-focus__action ariaLabel"
             data-no-drag
-            :title="isStartBlockedByOther && !isActive ? t('focusTimer.panelFocusRunning') : actionTitle"
+           
             :aria-label="isStartBlockedByOther && !isActive ? t('focusTimer.panelFocusRunning') : actionTitle"
             :disabled="isStartBlockedByOther && !isActive"
             @click.stop="toggleStartPause"
@@ -66,9 +76,9 @@
           <button
             v-if="isActive"
             type="button"
-            class="floating-focus__action is-stop"
+            class="floating-focus__action is-stop ariaLabel"
             data-no-drag
-            :title="t('focusTimer.stop')"
+           
             :aria-label="t('focusTimer.stop')"
             @click.stop="stopTimer(true)"
           >
@@ -90,9 +100,9 @@
               <div v-if="linkedTarget" class="linked-habit-banner__chip-row">
                 <button
                   type="button"
-                  class="linked-habit-banner__chip"
+                  class="linked-habit-banner__chip ariaLabel"
                   :disabled="!canOpenLinkedTarget"
-                  :title="canOpenLinkedTarget ? `${t('focusTimer.openTargetPrefix')}${linkedTargetLabel}` : linkedTargetLabel"
+                 
                   :aria-label="linkedTargetLabel"
                   @click="openLinkedTarget"
                 >
@@ -102,9 +112,9 @@
                 </button>
                 <button
                   type="button"
-                  class="linked-habit-banner__clear"
+                  class="linked-habit-banner__clear ariaLabel"
                   :disabled="isLinkedTargetLocked"
-                  :title="t('focusTimer.clearLinkedTarget')"
+                 
                   :aria-label="t('focusTimer.clearLinkedTarget')"
                   @click="clearLinkedTarget"
                 >
@@ -134,8 +144,8 @@
                   <span>{{ targetPickerTitle }}</span>
                   <button
                     type="button"
-                    class="linked-habit-banner__picker-close"
-                    :title="t('common.close')"
+                    class="linked-habit-banner__picker-close ariaLabel"
+                   
                     :aria-label="t('common.close')"
                     @click="closeTargetPicker"
                   >
@@ -287,7 +297,9 @@ import {
   handoffDetachedFocusSession,
   isDetachedFocusWindowSupported,
   openDetachedFocusWindowSettings,
-  syncDetachedFocusWindow
+  subscribeDetachedFocusHostWindowState,
+  syncDetachedFocusWindow,
+  takeDetachedFocusSessionHandoff
 } from '@/utils/detachedFocusWindow';
 import type { FocusTimerLinkedTarget } from '@/utils/focusTimerTarget';
 import type { FocusTimerHandoffState } from '@/utils/focusTimerHandoff';
@@ -315,6 +327,8 @@ const emit = defineEmits<{
   'open-linked-target': [target: FocusTimerLinkedTarget];
   'update-linked-target': [target: FocusTimerLinkedTarget | null];
   'clear-linked-target': [];
+  'complete-linked-target': [target: FocusTimerLinkedTarget];
+  'disable-floating-focus': [];
 }>();
 const { t } = useI18n();
 
@@ -332,6 +346,11 @@ const isDragging = ref(false);
 const dragMoved = ref(false);
 const dragStart = ref({ x: 0, y: 0 });
 const dragOrigin = ref({ x: 0, y: 0 });
+const isHostWindowDetached = ref(false);
+const detachedFocusOwnsState = ref(false);
+let unsubscribeHostWindowState: (() => void) | null = null;
+let restoreDetachedFocusPromise: Promise<void> | null = null;
+let hasLoadedPosition = false;
 
 const durationMarks = [5, 10, 15, 25, 30, 45, 60];
 const durationOptions: DurationOption[] = [...durationMarks, 'unlimited'];
@@ -375,7 +394,10 @@ const habitTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
 const taskTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
 
 const teleportTarget = computed(() => containerEl.value || 'body');
-const shouldRenderInlineCapsule = computed(() => props.enabled && !supportsDetachedFocusWindow);
+const shouldUseDetachedFocusWindow = computed(() =>
+  props.enabled && supportsDetachedFocusWindow && isHostWindowDetached.value
+);
+const shouldRenderInlineCapsule = computed(() => props.enabled && !shouldUseDetachedFocusWindow.value);
 
 const durationMinutes = computed(() => selectedDuration.value);
 const isActive = computed(() => isRunning.value || isPaused.value);
@@ -574,6 +596,25 @@ const ensureContainer = () => {
   containerEl.value = document.body;
 };
 
+const observeInlineContainer = () => {
+  if (!containerEl.value || typeof ResizeObserver === 'undefined' || containerResizeObserver.value) {
+    return;
+  }
+
+  containerResizeObserver.value = new ResizeObserver(handleContainerResize);
+  containerResizeObserver.value.observe(containerEl.value);
+};
+
+const ensureInlineCapsuleHost = () => {
+  ensureContainer();
+  if (!hasLoadedPosition) {
+    loadPosition();
+    hasLoadedPosition = true;
+  }
+  observeInlineContainer();
+  initPosition();
+};
+
 const clearTimer = () => {
   if (timerInterval.value !== null) {
     clearInterval(timerInterval.value);
@@ -740,6 +781,9 @@ const completeTimer = async () => {
     } catch {
       // ignore recording errors
     }
+    if (linkedTarget.value) {
+      emit('complete-linked-target', linkedTarget.value);
+    }
 
     if (currentSet.value < pomodoroSets.value && pomodoroSets.value >= 2) {
       isBreakMode.value = true;
@@ -840,7 +884,33 @@ const toggleStartPause = () => {
   startTimer();
 };
 
-const acceptPanelHandoff = (state: FocusTimerHandoffState) => {
+const closeInlineMiniFocus = async () => {
+  showSettings.value = false;
+  closeTargetPicker();
+  await stopTimer(true);
+  detachedFocusOwnsState.value = false;
+  closeDetachedFocusWindow();
+  emit('disable-floating-focus');
+};
+
+const buildHandoffState = (): FocusTimerHandoffState => ({
+  timerMode: timerMode.value,
+  selectedDuration: selectedDuration.value,
+  durationIndex: durationIndex.value,
+  shortBreakDuration: shortBreakDuration.value,
+  shortBreakDurationIndex: shortBreakDurationIndex.value,
+  pomodoroSets: pomodoroSets.value,
+  phaseElapsedSeconds: phaseElapsedSeconds.value,
+  isRunning: isRunning.value,
+  isPaused: isPaused.value,
+  isBreakMode: isBreakMode.value,
+  currentSet: currentSet.value,
+  countupSessionId: countupSessionId.value,
+  savedCountupMinutes: savedCountupMinutes.value,
+  linkedTarget: linkedTarget.value ?? null
+});
+
+const applyHandoffState = (state: FocusTimerHandoffState) => {
   emit('update-linked-target', state.linkedTarget ?? null);
   clearTimer();
   releaseFocusSession();
@@ -866,13 +936,11 @@ const acceptPanelHandoff = (state: FocusTimerHandoffState) => {
   savedCountupMinutes.value = Number.isFinite(state.savedCountupMinutes) ? state.savedCountupMinutes : 0;
   showSettings.value = false;
   closeTargetPicker();
+};
 
+const activateInlineHandoffState = () => {
   if (supportsDetachedFocusWindow) {
-    syncDetachedFocusWindow(true, state.linkedTarget ?? null);
-    handoffDetachedFocusSession(state);
-    isRunning.value = false;
-    isPaused.value = false;
-    return;
+    closeDetachedFocusWindow();
   }
 
   if (isRunning.value || isPaused.value) {
@@ -886,6 +954,34 @@ const acceptPanelHandoff = (state: FocusTimerHandoffState) => {
   if (isRunning.value) {
     startPhaseTimer();
   }
+};
+
+const handoffInlineStateToDetached = (state: FocusTimerHandoffState = buildHandoffState()) => {
+  if (!supportsDetachedFocusWindow || !props.enabled) {
+    return;
+  }
+
+  syncDetachedFocusWindow(true, state.linkedTarget ?? null);
+  handoffDetachedFocusSession(state);
+  detachedFocusOwnsState.value = true;
+  clearTimer();
+  releaseFocusSession();
+  isRunning.value = false;
+  isPaused.value = false;
+  showSettings.value = false;
+  closeTargetPicker();
+};
+
+const acceptPanelHandoff = (state: FocusTimerHandoffState) => {
+  applyHandoffState(state);
+
+  if (shouldUseDetachedFocusWindow.value) {
+    handoffInlineStateToDetached(state);
+    return;
+  }
+
+  detachedFocusOwnsState.value = false;
+  activateInlineHandoffState();
 };
 
 const cycleDuration = () => {
@@ -1005,12 +1101,13 @@ const openSettingsPanel = () => {
 
   closeTargetPicker();
 
-  if (supportsDetachedFocusWindow) {
+  if (shouldUseDetachedFocusWindow.value) {
     syncDetachedFocusWindow(true, linkedTarget.value ?? null);
     openDetachedFocusWindowSettings();
     return;
   }
 
+  ensureInlineCapsuleHost();
   showSettings.value = true;
 };
 
@@ -1075,22 +1172,68 @@ const handleContainerResize = () => {
   handleResize();
 };
 
+const restoreDetachedStateToInline = () => {
+  if (restoreDetachedFocusPromise) {
+    return restoreDetachedFocusPromise;
+  }
+
+  restoreDetachedFocusPromise = (async () => {
+    const handoffState = await takeDetachedFocusSessionHandoff();
+    detachedFocusOwnsState.value = false;
+
+    if (!props.enabled) {
+      return;
+    }
+
+    if (handoffState) {
+      applyHandoffState(handoffState);
+      activateInlineHandoffState();
+    }
+
+    ensureInlineCapsuleHost();
+  })().finally(() => {
+    restoreDetachedFocusPromise = null;
+  });
+
+  return restoreDetachedFocusPromise;
+};
+
 const syncDetachedFocusWindowVisibility = () => {
   if (!supportsDetachedFocusWindow) {
+    closeDetachedFocusWindow();
+    if (props.enabled) {
+      ensureInlineCapsuleHost();
+    }
+    return;
+  }
+
+  if (!props.enabled) {
+    detachedFocusOwnsState.value = false;
     closeDetachedFocusWindow();
     return;
   }
 
-  if (props.enabled) {
+  if (shouldUseDetachedFocusWindow.value) {
+    if (!detachedFocusOwnsState.value) {
+      handoffInlineStateToDetached();
+      return;
+    }
+
     syncDetachedFocusWindow(true, linkedTarget.value ?? null);
     return;
   }
 
+  if (detachedFocusOwnsState.value) {
+    void restoreDetachedStateToInline();
+    return;
+  }
+
   closeDetachedFocusWindow();
+  ensureInlineCapsuleHost();
 };
 
 watch(linkedTarget, (nextTarget) => {
-  if (supportsDetachedFocusWindow && props.enabled) {
+  if (shouldUseDetachedFocusWindow.value) {
     syncDetachedFocusWindow(true, nextTarget ?? null);
   }
 
@@ -1117,10 +1260,11 @@ watch(() => props.enabled, (value) => {
   if (!value) {
     void stopTimer();
     showSettings.value = false;
-  } else if (!supportsDetachedFocusWindow) {
-    ensureContainer();
-    initPosition();
   }
+});
+
+watch(shouldUseDetachedFocusWindow, () => {
+  syncDetachedFocusWindowVisibility();
 });
 
 watch(showSettings, (visible) => {
@@ -1136,22 +1280,21 @@ watch(isLinkedTargetLocked, (locked) => {
 });
 
 onMounted(() => {
-  syncDetachedFocusWindowVisibility();
-
-  if (!supportsDetachedFocusWindow) {
-    ensureContainer();
-    loadPosition();
-    initPosition();
-    window.addEventListener('resize', handleResize);
-    if (containerEl.value && typeof ResizeObserver !== 'undefined') {
-      containerResizeObserver.value = new ResizeObserver(handleContainerResize);
-      containerResizeObserver.value.observe(containerEl.value);
-    }
-    document.addEventListener('mousedown', handleDocumentClick);
+  if (supportsDetachedFocusWindow) {
+    unsubscribeHostWindowState = subscribeDetachedFocusHostWindowState((detached) => {
+      isHostWindowDetached.value = detached;
+    });
   }
+
+  window.addEventListener('resize', handleResize);
+  document.addEventListener('mousedown', handleDocumentClick);
+
+  syncDetachedFocusWindowVisibility();
 });
 
 onBeforeUnmount(() => {
+  unsubscribeHostWindowState?.();
+  unsubscribeHostWindowState = null;
   window.removeEventListener('resize', handleResize);
   if (containerResizeObserver.value) {
     containerResizeObserver.value.disconnect();
@@ -1223,6 +1366,42 @@ defineExpose({
 
 .floating-focus__capsule.is-paused {
   opacity: 0.7;
+}
+
+.floating-focus__close {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--b3-theme-on-surface);
+  background: var(--b3-theme-background);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px) scale(0.92);
+  transition: opacity 0.16s ease, transform 0.16s ease, color 0.16s ease, background 0.16s ease;
+  box-shadow: var(--b3-point-shadow);
+  z-index: 2;
+}
+
+.floating-focus__capsule:hover .floating-focus__close,
+.floating-focus__close:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.floating-focus__close:hover {
+  color: var(--b3-theme-background);
+  background: var(--b3-theme-on-background);
+  opacity: 0.92;
 }
 
 .floating-focus__dot {

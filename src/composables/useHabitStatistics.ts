@@ -144,7 +144,6 @@ export const useHabitStatistics = ({
   };
 
   const calculateCompletionRate = (habit: Habit) => {
-    const perfStart = performance.now();
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
@@ -616,61 +615,6 @@ export const useHabitStatistics = ({
     const maxCount = heatmapData.length > 0 ? Math.max(...heatmapData.map(d => d.count), 1) : 1;
 
     return { data: heatmapData, maxCount };
-  };
-
-  const getHeatmapGridData = () => {
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const thisMonday = new Date(today);
-    thisMonday.setDate(today.getDate() - daysToSubtract);
-    const startMonday = new Date(thisMonday);
-    startMonday.setDate(thisMonday.getDate() - 17 * 7);
-
-    const { data: heatmapData, maxCount } = getHeatmapData();
-    const dateMap: Record<string, number> = {};
-    heatmapData.forEach(item => {
-      dateMap[item.date] = item.count;
-    });
-
-    const weeks: Array<
-      Array<{ date: string; count: number; intensity: number; isCurrentYear: boolean }>
-    > = [[], [], [], [], [], [], []];
-    const totalDays = 18 * 7;
-    const currentDate = new Date(startMonday);
-
-    for (let i = 0; i < totalDays; i++) {
-      currentDate.setHours(0, 0, 0, 0);
-      const dateStr = formatDate(currentDate);
-      const count = dateMap[dateStr] || 0;
-      const day = currentDate.getDay();
-      const dayIndex = day === 0 ? 6 : day - 1;
-
-      let intensity = 0;
-      if (maxCount > 0) {
-        if (count === 0) intensity = 0;
-        else if (count < maxCount * 0.25) intensity = 1;
-        else if (count < maxCount * 0.5) intensity = 2;
-        else if (count < maxCount * 0.75) intensity = 3;
-        else intensity = 4;
-      }
-
-      weeks[dayIndex].push({
-        date: dateStr,
-        count,
-        intensity,
-        isCurrentYear: currentDate.getFullYear() === today.getFullYear()
-      });
-
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    return {
-      weeks,
-      startDate: formatDate(startMonday),
-      endDate: formatDate(currentDate),
-      maxCount
-    };
   };
 
   // 聚合统计：一次遍历 habits + calendar，产出 totalCompletions、longestStreak、heatmap 等

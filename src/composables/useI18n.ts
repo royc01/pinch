@@ -58,13 +58,15 @@ function getCurrentLocale(): string {
 export function translate(key: string, fallback?: string): string {
   const siyuanMessages = window.siyuan?.languages as LocaleMessages | undefined;
   const currentLocale = getCurrentLocale();
+  const candidates = [
+    getMessageValue(siyuanMessages, key),
+    getMessageValue(bundledMessages[currentLocale], key),
+    getMessageValue(bundledMessages.zh_CN, key),
+    getMessageValue(bundledMessages.en_US, key),
+    fallback
+  ];
 
-  return getMessageValue(siyuanMessages, key)
-    || getMessageValue(bundledMessages[currentLocale], key)
-    || getMessageValue(bundledMessages.zh_CN, key)
-    || getMessageValue(bundledMessages.en_US, key)
-    || fallback
-    || key;
+  return candidates.find(candidate => candidate !== undefined) ?? key;
 }
 
 export function useI18n() {

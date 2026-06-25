@@ -1,5 +1,6 @@
 import { computed, ref, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
+import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 import { awardHabitRewards, type HabitRewardPayload } from '@/rewardRepository';
 
 type PomodoroAction = 'pause' | 'resume' | 'start' | 'stop';
@@ -28,6 +29,7 @@ export const useHabitPomodoro = ({
   const activePomodoroPaused = ref(false);
   const inlineRadius = ref(45);
   const inlineCircumference = computed(() => 2 * Math.PI * inlineRadius.value);
+  const { claimFocusSession, releaseFocusSession } = useFocusSessionLock('habit');
 
   const pomodoroTimers: Record<string, number> = {};
   const pomodoroDeadlines: Record<string, number> = {};
@@ -54,6 +56,7 @@ export const useHabitPomodoro = ({
       activePomodoroHabit.value = null;
       activePomodoroRemaining.value = undefined;
       activePomodoroPaused.value = false;
+      releaseFocusSession();
     }
 
     refreshHabits();
@@ -75,7 +78,11 @@ export const useHabitPomodoro = ({
     }
   };
 
-  const startPomodoroTimer = (habit: Habit) => {
+  const startPomodoroTimer = (habit: Habit): boolean => {
+    if (!claimFocusSession()) {
+      return false;
+    }
+
     clearPomodoroTimer(habit.id);
 
     const durationInMinutes = habit.pomodoroDuration || 25;
@@ -108,6 +115,7 @@ export const useHabitPomodoro = ({
           activePomodoroHabit.value = null;
           activePomodoroRemaining.value = undefined;
           activePomodoroPaused.value = false;
+          releaseFocusSession();
         }
       } else {
         remainingTime = timeLeft;
@@ -116,9 +124,14 @@ export const useHabitPomodoro = ({
         refreshHabits();
       }
     }, 100);
+    return true;
   };
 
-  const startPomodoroTimerWithRemainingTime = (habit: Habit, remainingTime: number) => {
+  const startPomodoroTimerWithRemainingTime = (habit: Habit, remainingTime: number): boolean => {
+    if (!claimFocusSession()) {
+      return false;
+    }
+
     clearPomodoroTimer(habit.id);
 
     habit.pomodoroRemaining = remainingTime;
@@ -144,6 +157,7 @@ export const useHabitPomodoro = ({
           activePomodoroHabit.value = null;
           activePomodoroRemaining.value = undefined;
           activePomodoroPaused.value = false;
+          releaseFocusSession();
         }
       } else {
         habit.pomodoroRemaining = timeLeft;
@@ -151,6 +165,7 @@ export const useHabitPomodoro = ({
         refreshHabits();
       }
     }, 100);
+    return true;
   };
 
   const controlPomodoro = async (action: PomodoroAction, habit?: Habit | null) => {
@@ -168,9 +183,15 @@ export const useHabitPomodoro = ({
         targetHabit.isPomodoroPaused = false;
         activePomodoroPaused.value = false;
         if (targetHabit.pomodoroRemaining !== undefined) {
-          startPomodoroTimerWithRemainingTime(targetHabit, targetHabit.pomodoroRemaining);
+          if (!startPomodoroTimerWithRemainingTime(targetHabit, targetHabit.pomodoroRemaining)) {
+            targetHabit.isPomodoroPaused = true;
+            activePomodoroPaused.value = true;
+          }
         } else {
-          startPomodoroTimer(targetHabit);
+          if (!startPomodoroTimer(targetHabit)) {
+            targetHabit.isPomodoroPaused = true;
+            activePomodoroPaused.value = true;
+          }
         }
         refreshHabits();
         break;
@@ -181,6 +202,10 @@ export const useHabitPomodoro = ({
         clearPomodoroForHabit(targetHabit);
         activePomodoroRemaining.value = undefined;
         activePomodoroPaused.value = false;
+        if (activePomodoroHabit.value?.id === targetHabit.id) {
+          activePomodoroHabit.value = null;
+        }
+        releaseFocusSession();
         break;
       default:
         break;
@@ -196,6 +221,7 @@ export const useHabitPomodoro = ({
     activePomodoroHabit.value = null;
     activePomodoroRemaining.value = undefined;
     activePomodoroPaused.value = false;
+    releaseFocusSession();
   };
 
   const togglePomodoroPause = async () => {
@@ -247,6 +273,10 @@ export const useHabitPomodoro = ({
       delete pomodoroTimers[habitId];
       delete pomodoroDeadlines[habitId];
     }
+    activePomodoroHabit.value = null;
+    activePomodoroRemaining.value = undefined;
+    activePomodoroPaused.value = false;
+    releaseFocusSession();
   };
 
   return {

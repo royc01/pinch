@@ -17,21 +17,21 @@
           <TaskCheckbox :checked="isCompleted" :size="18" />
         </div>
         <div class="task-title-wrap" @click="handleCardClick">
-          <span v-if="isPinned" class="task-pinned-indicator" :title="t('taskManager.pinned')" :aria-label="t('taskManager.pinned')">
+          <span v-if="isPinned" class="task-pinned-indicator ariaLabel" :aria-label="t('taskManager.pinned')">
             <Icon name="pinBadge" />
           </span>
           <div
-            class="task-title"
-            :title="titleTooltip"
+            class="task-title ariaLabel"
+            :aria-label="titleTooltip + (titleTooltip ? '<br>' : '') + t('taskCard.rightClickFillDescription') + '<br>' + t('taskCard.dragToCalendar')"
             v-html="titleHtml"
           ></div>
         </div>
         <div class="task-card-actions">
           <span
             v-if="task.priority !== 'none'"
-            class="task-priority-badge"
+            class="task-priority-badge ariaLabel"
             :class="`priority-${task.priority}`"
-            :title="priorityTitle"
+            :aria-label="priorityTitle"
           >
             <Icon name="flag" width="10" height="10" />
           </span>
@@ -40,9 +40,8 @@
           </span>
           <button
             type="button"
-            class="task-card-action-btn task-card-open-btn"
+            class="task-card-action-btn task-card-open-btn ariaLabel"
             data-disable-description-contextmenu
-            :title="t('taskCard.openContent')"
             :aria-label="t('taskCard.openContent')"
             @mousedown.stop
             @click.stop.prevent="handleOpenClick"
@@ -53,10 +52,9 @@
           <button
             v-if="canExpand"
             type="button"
-            class="task-card-action-btn task-card-expand-btn"
+            class="task-card-action-btn task-card-expand-btn ariaLabel"
             data-disable-description-contextmenu
             :class="{ expanded: isExpanded }"
-            :title="t('taskCard.toggleDetails')"
             :aria-label="t('taskCard.toggleDetails')"
             @mousedown.stop
             @click.stop="handleToggleExpand"
@@ -98,48 +96,77 @@
 
       <div v-show="showBadges" class="task-badges" @click="handleCardClick">
         <span
-          v-if="groupLabel"
-          class="task-group-badge"
-          :style="groupStyle"
-          :title="groupLabel"
+          v-for="group in visibleTaskTagBadges"
+          :key="group.id"
+          class="task-group-badge ariaLabel"
+          :style="group.style"
+          :aria-label="group.label"
         >
           <Icon name="group" width="12" height="12" />
-          {{ groupLabel }}
+          {{ group.label }}
+        </span>
+        <span
+          v-if="overflowTaskTagCount > 0"
+          class="task-group-badge task-group-badge-more ariaLabel"
+          :aria-label="`+${overflowTaskTagCount}`"
+        >
+          +{{ overflowTaskTagCount }}
+        </span>
+        <span
+          v-for="goal in visibleTaskGoalBadges"
+          :key="`goal:${goal.id}`"
+          class="task-group-badge task-goal-badge ariaLabel"
+          :aria-label="goal.label"
+        >
+          <span v-if="goal.emoji" class="task-goal-badge-emoji">{{ goal.emoji }}</span>
+          {{ goal.label }}
+        </span>
+        <span
+          v-if="overflowTaskGoalCount > 0"
+          class="task-group-badge task-group-badge-more task-goal-badge-more ariaLabel"
+          :aria-label="`+${overflowTaskGoalCount}`"
+        >
+          +{{ overflowTaskGoalCount }}
         </span>
         <span
           v-if="task.dueDate"
-          class="task-due-badge"
+          class="task-due-badge ariaLabel"
           :class="{ 'is-overdue': isOverdue }"
-          :title="dueBadgeTitle"
+          :aria-label="dueBadgeTitle"
         >
           <Icon name="calendar" width="12" height="12" />
           {{ dueBadgeText }}
         </span>
         <span
           v-if="reminderText"
-          class="task-reminder-badge"
-          :title="reminderText"
+          class="task-reminder-badge ariaLabel"
+          :aria-label="reminderText"
         >
           <Icon name="bell" width="12" height="12" />
           {{ reminderText }}
         </span>
         <span
           v-if="isRepeatBadgeVisible"
-          class="task-repeat-badge"
-          :title="repeatBadgeTitle"
+          class="task-repeat-badge ariaLabel"
+          :aria-label="repeatBadgeTitle"
         >
           <Icon name="repeat" class="task-repeat-icon" width="12" height="12" />
         </span>
       </div>
       <div
         v-if="isDocumentTitleVisible"
-        class="task-document-title"
-        :title="documentTitleText"
+        class="task-document-title ariaLabel"
+        :aria-label="documentTitleText"
         @click="handleCardClick"
       >
         <span class="task-document-icon" aria-hidden="true">
+          <span
+            v-if="documentIconSvg"
+            class="task-document-icon-svg"
+            v-html="documentIconSvg"
+          ></span>
           <img
-            v-if="documentIconImageSrc"
+            v-else-if="documentIconImageSrc"
             class="task-document-icon-image"
             :src="documentIconImageSrc"
             alt=""
@@ -180,18 +207,24 @@ import SubtaskItem from '@/components/SubtaskItem.vue';
 import { useI18n } from '@/composables/useI18n';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { sanitizeTaskHtml, sanitizeTaskTitleHtml } from '@/utils/taskHtml';
-import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
+import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { getTaskReminderLabel } from '@/utils/taskReminder';
+import { resolveTaskTagIds } from '@/utils/taskTags';
+import type { Goal } from '@/goalRepository';
+import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 
 defineOptions({
   name: 'TaskCard'
 });
 
 const { t } = useI18n();
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+const DUE_SOON_DAY_LIMIT = 7;
 
 const props = defineProps<{
   task: Task;
   taskGroups?: TaskGroup[];
+  goals?: Goal[];
   variant?: 'sidebar' | 'kanban';
   showStatusBadge?: boolean;
   draggable?: boolean;
@@ -207,6 +240,7 @@ const props = defineProps<{
   showDocumentTitle?: boolean;
   documentTitleOverride?: string;
   documentIconOverride?: string;
+  documentIconSvg?: string;
   disableContextMenu?: boolean;
 }>();
 
@@ -278,7 +312,7 @@ const dueTimeText = computed(() => {
   const rawDueTime = typeof task.value.dueTime === 'string' ? task.value.dueTime.trim() : '';
   return /^\d{2}:\d{2}$/.test(rawDueTime) ? rawDueTime : '';
 });
-const dueText = computed(() => {
+const dueDateText = computed(() => {
   if (!task.value.dueDate) {
     return '';
   }
@@ -286,20 +320,81 @@ const dueText = computed(() => {
   if (!dateText) {
     return '';
   }
-  return dueTimeText.value ? `${dateText} ${dueTimeText.value}` : dateText;
+  return dateText;
+});
+const dueText = computed(() => {
+  if (!dueDateText.value) {
+    return '';
+  }
+  return dueTimeText.value ? `${dueDateText.value} ${dueTimeText.value}` : dueDateText.value;
+});
+const formatTemplate = (key: string, values: Record<string, string | number>): string => {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    t(key)
+  );
+};
+const dueDateTimestamp = computed(() => getTaskDateTimestamp(task.value.dueDate));
+const todayTimestamp = computed(() => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today.getTime();
+});
+const overdueDays = computed(() => {
+  if (isCompleted.value) return 0;
+  const dueTimestamp = dueDateTimestamp.value;
+  if (dueTimestamp === null) return 0;
+  return Math.max(0, Math.floor((todayTimestamp.value - dueTimestamp) / MILLISECONDS_PER_DAY));
+});
+const overdueDaysText = computed(() => {
+  if (overdueDays.value <= 0) {
+    return '';
+  }
+  return formatTemplate('personalStats.overdueDaysTemplate', { days: overdueDays.value });
+});
+const remainingDays = computed(() => {
+  if (isCompleted.value) return null;
+  const dueTimestamp = dueDateTimestamp.value;
+  if (dueTimestamp === null) return null;
+  const days = Math.floor((dueTimestamp - todayTimestamp.value) / MILLISECONDS_PER_DAY);
+  return days >= 0 && days <= DUE_SOON_DAY_LIMIT ? days : null;
+});
+const remainingDaysText = computed(() => {
+  if (remainingDays.value === null) {
+    return '';
+  }
+  if (remainingDays.value === 0) {
+    return t('taskManager.dueToday');
+  }
+  if (remainingDays.value === 1) {
+    return t('taskCard.dueTomorrow');
+  }
+  return formatTemplate('taskCard.remainingDaysTemplate', { days: remainingDays.value });
 });
 const reminderText = computed(() => getTaskReminderLabel(task.value.reminderType, task.value.reminderCustomTime));
 const isPinned = computed(() => task.value.pinned === true);
-const dueBadgeText = computed(() => (
-  dueText.value ? `${dueText.value}${isOverdue.value ? ` ${t('taskManager.overdue')}` : ''}` : ''
-));
-const dueBadgeTitle = computed(() => (
-  dueText.value
-    ? t('taskCard.dueDateTitleTemplate')
-      .replace('{dueText}', dueText.value)
-      .replace('{overdueSuffix}', isOverdue.value ? ` ${t('taskManager.overdue')}` : '')
-    : ''
-));
+const dueBadgeText = computed(() => {
+  if (!dueDateText.value) {
+    return '';
+  }
+  if (overdueDaysText.value) {
+    return overdueDaysText.value;
+  }
+  if (remainingDaysText.value) {
+    return remainingDaysText.value;
+  }
+  return dueText.value;
+});
+const dueBadgeTitle = computed(() => {
+  if (!dueDateText.value) {
+    return '';
+  }
+  const titleDateText = overdueDaysText.value ? dueDateText.value : dueText.value;
+  const dueBadgeSuffix = overdueDaysText.value || remainingDaysText.value;
+  return t('taskCard.dueDateTitleTemplate')
+    .replace('{dueText}', titleDateText)
+    .replace('{overdueSuffix}', dueBadgeSuffix ? ` ${dueBadgeSuffix}` : '');
+});
 const documentTitleText = computed(() => {
   const overrideTitle = typeof props.documentTitleOverride === 'string' ? props.documentTitleOverride.trim() : '';
   if (overrideTitle) {
@@ -324,6 +419,10 @@ const documentIconRaw = computed(() => {
   const rawIcon = typeof task.value.icon === 'string' ? task.value.icon.trim() : '';
   return rawIcon;
 });
+const documentIconSvg = computed(() => {
+  const rawSvg = typeof props.documentIconSvg === 'string' ? props.documentIconSvg.trim() : '';
+  return rawSvg.startsWith('<svg') ? rawSvg : '';
+});
 const documentIconImageSrc = computed(() => resolveTaskDocumentIconImageSrc(documentIconRaw.value));
 const documentIconText = computed(() => {
   if (documentIconImageSrc.value) {
@@ -341,43 +440,38 @@ const isRepeatBadgeVisible = computed(() => (
   || !!task.value.isVirtual
 ));
 const repeatBadgeTitle = computed(() => t('taskCard.repeatTask'));
-const isOverdue = computed(() => {
-  if (isCompleted.value) return false;
-  const dueTimestamp = getTaskDateTimestamp(task.value.dueDate);
-  if (dueTimestamp === null) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return dueTimestamp < today.getTime();
-});
+const isOverdue = computed(() => overdueDays.value > 0);
 
-const resolvedTaskGroup = computed(() => {
-  const groupId = typeof task.value.groupId === 'string' ? task.value.groupId.trim() : '';
-  if (!groupId) {
-    return null;
-  }
-  return (props.taskGroups || []).find(item => item.id === groupId) || null;
+const resolvedTaskTagBadges = computed(() => (
+  resolveTaskTagIds(task.value.tags, task.value.groupId)
+    .map((tagId) => {
+      const group = (props.taskGroups || []).find(item => item.id === tagId) || null;
+      const rawColor = group?.color || '';
+      return {
+        id: tagId,
+        label: group?.name || t('taskManager.tags'),
+        style: rawColor ? {
+          background: resolveGroupColorCss(rawColor),
+          borderColor: resolveGroupColorLayerCss(rawColor),
+          color: resolveGroupTextColor(rawColor)
+        } : {}
+      };
+    })
+));
+const visibleTaskTagBadges = computed(() => resolvedTaskTagBadges.value.slice(0, 2));
+const overflowTaskTagCount = computed(() => Math.max(0, resolvedTaskTagBadges.value.length - visibleTaskTagBadges.value.length));
+const resolvedTaskGoalBadges = computed(() => {
+  const selectedGoalIds = new Set(getGoalIdsForTask(props.goals || [], task.value));
+  return (props.goals || [])
+    .filter(goal => selectedGoalIds.has(goal.id))
+    .map(goal => ({
+      id: goal.id,
+      label: goal.name || t('taskManager.untitledGoal'),
+      emoji: goal.emoji?.trim() || '\uD83C\uDFAF'
+    }));
 });
-const groupLabel = computed(() => {
-  if (!resolvedTaskGroup.value) {
-    return '';
-  }
-  return resolvedTaskGroup.value.name || t('taskManager.tags');
-});
-const groupStyle = computed<Record<string, string>>(() => {
-  if (!groupLabel.value) {
-    return {};
-  }
-  const rawColor = resolvedTaskGroup.value?.color || '';
-  if (!rawColor) {
-    return {};
-  }
-  const cssColor = resolveGroupColorCss(rawColor);
-  return {
-    backgroundColor: cssColor,
-    borderColor: cssColor,
-    color: resolveGroupTextColor(rawColor)
-  };
-});
+const visibleTaskGoalBadges = computed(() => resolvedTaskGoalBadges.value.slice(0, 2));
+const overflowTaskGoalCount = computed(() => Math.max(0, resolvedTaskGoalBadges.value.length - visibleTaskGoalBadges.value.length));
 
 const statusBadgeText = computed(() => {
   if (props.showStatusBadge !== true) {
@@ -402,7 +496,11 @@ const showBadges = computed(() => {
     return false;
   }
   const due = !!task.value.dueDate;
-  return due || !!reminderText.value || !!groupLabel.value || isRepeatBadgeVisible.value;
+  return due
+    || !!reminderText.value
+    || resolvedTaskTagBadges.value.length > 0
+    || resolvedTaskGoalBadges.value.length > 0
+    || isRepeatBadgeVisible.value;
 });
 
 const subtaskStats = computed(() => countSubtasks(task.value.subtasks));
@@ -637,7 +735,7 @@ function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
 <style scoped>
 .task-card {
   background: var(--b3-theme-background);
-  box-shadow: #0000000f 0 1px 5px;
+  box-shadow: var(--pinch-shadow);
   transition: box-shadow 0.2s, transform 0.2s;
   display: flex;
   align-items: flex-start;
@@ -838,6 +936,24 @@ function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
   border-radius: 2px;
 }
 
+.task-document-icon-svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+  color: currentColor;
+}
+
+.task-document-icon-svg :deep(svg) {
+  width: 12px;
+  height: 12px;
+  display: block;
+  fill: currentColor;
+}
+
+.task-document-icon-svg :deep(path) {
+  fill: currentColor;
+}
+
 .task-document-title-text {
   min-width: 0;
   white-space: nowrap;
@@ -994,6 +1110,24 @@ function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
   padding: 2px 4px;
   font-size: 10px;
   max-width: 120px;
+}
+
+.task-group-badge-more {
+  justify-content: center;
+}
+
+.task-goal-badge {
+  background: var(--pinch-background6);
+}
+
+.task-goal-badge-emoji {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.task-goal-badge-more {
+  color: var(--b3-theme-primary);
 }
 
 .task-progress-text {

@@ -47,6 +47,18 @@ export function resolveGroupColorCss(color?: string): string {
   return raw;
 }
 
+export function resolveGroupColorLayerCss(color?: string): string {
+  const raw = typeof color === 'string' ? color.trim() : '';
+  if (!raw) {
+    return '';
+  }
+  const index = parsePinchColorIndex(raw);
+  if (index) {
+    return `var(--pinch-background${index}-color)`;
+  }
+  return raw;
+}
+
 export function getReadableTextColor(color: string): string {
   const parsed = parseHexColor(color);
   if (!parsed) {

@@ -1,4 +1,4 @@
-import { lsNotebooks, sql } from '@/api';
+import { lsNotebooks, sql, type Task } from '@/api';
 import { loadRootDocumentMetadata, resolveDocumentDisplayName } from './taskViewShared';
 
 export interface GoalScopeDocument {
@@ -9,7 +9,72 @@ export interface GoalScopeDocument {
   path?: string;
 }
 
-export async function loadGoalScopeDocuments(): Promise<GoalScopeDocument[]> {
+function buildDocumentKey(notebookId: string, documentId: string): string {
+  return `${notebookId}:${documentId}`;
+}
+
+function sortGoalScopeDocuments(documents: GoalScopeDocument[]): GoalScopeDocument[] {
+  return documents.sort((left, right) => {
+    const idA = left.id || '';
+    const idB = right.id || '';
+    if (idA !== idB) {
+      return idB.localeCompare(idA);
+    }
+    const notebookDiff = left.notebookName.localeCompare(right.notebookName, 'zh-CN');
+    if (notebookDiff !== 0) {
+      return notebookDiff;
+    }
+    return left.name.localeCompare(right.name, 'zh-CN');
+  });
+}
+
+function upsertGoalScopeDocument(
+  documents: GoalScopeDocument[],
+  seen: Set<string>,
+  document: GoalScopeDocument
+): void {
+  const key = buildDocumentKey(document.notebookId, document.id);
+  if (seen.has(key)) {
+    return;
+  }
+  seen.add(key);
+  documents.push(document);
+}
+
+export function buildGoalScopeDocumentsFromTasks(
+  tasks: Task[],
+  notebookNameById: Map<string, string> = new Map()
+): GoalScopeDocument[] {
+  const documents: GoalScopeDocument[] = [];
+  const seen = new Set<string>();
+
+  for (const task of tasks || []) {
+    if (task.type !== 'block') {
+      continue;
+    }
+
+    const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+    const documentId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+    if (!notebookId || !documentId) {
+      continue;
+    }
+
+    const path = typeof task.hPath === 'string' && task.hPath.trim().length > 0
+      ? task.hPath.trim()
+      : '';
+    upsertGoalScopeDocument(documents, seen, {
+      id: documentId,
+      name: resolveDocumentDisplayName({ id: documentId, path }),
+      notebookId,
+      notebookName: notebookNameById.get(notebookId) || notebookId,
+      path: path || undefined
+    });
+  }
+
+  return sortGoalScopeDocuments(documents);
+}
+
+export async function loadGoalScopeDocuments(extraTasks: Task[] = []): Promise<GoalScopeDocument[]> {
   try {
     const [notebookResult, rows] = await Promise.all([
       lsNotebooks(),
@@ -43,17 +108,11 @@ export async function loadGoalScopeDocuments(): Promise<GoalScopeDocument[]> {
         continue;
       }
 
-      const key = `${notebookId}:${documentId}`;
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-
       const fallbackMetadata = fallbackMetadataByRootId.get(documentId);
       const path = typeof row?.hpath === 'string' && row.hpath.trim().length > 0
         ? row.hpath.trim()
         : fallbackMetadata?.path || '';
-      documents.push({
+      upsertGoalScopeDocument(documents, seen, {
         id: documentId,
         name: resolveDocumentDisplayName({ id: documentId, name: fallbackMetadata?.name, path }),
         notebookId,
@@ -62,20 +121,13 @@ export async function loadGoalScopeDocuments(): Promise<GoalScopeDocument[]> {
       });
     }
 
-    return documents.sort((left, right) => {
-      const idA = left.id || '';
-      const idB = right.id || '';
-      if (idA !== idB) {
-        return idB.localeCompare(idA);
-      }
-      const notebookDiff = left.notebookName.localeCompare(right.notebookName, 'zh-CN');
-      if (notebookDiff !== 0) {
-        return notebookDiff;
-      }
-      return left.name.localeCompare(right.name, 'zh-CN');
-    });
+    for (const document of buildGoalScopeDocumentsFromTasks(extraTasks, notebookNameById)) {
+      upsertGoalScopeDocument(documents, seen, document);
+    }
+
+    return sortGoalScopeDocuments(documents);
   } catch (error) {
     console.error('[Goals] loadGoalScopeDocuments: load failed', error);
-    return [];
+    return buildGoalScopeDocumentsFromTasks(extraTasks);
   }
 }

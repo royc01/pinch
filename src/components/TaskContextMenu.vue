@@ -14,7 +14,7 @@
           :key="color.value"
           class="color-option"
           :class="{ selected: task?.backgroundColor === color.value }"
-          :style="{ backgroundColor: color.css }"
+          :style="{ background: color.css }"
           @click="$emit('setColor', color.value)"
         ></div>
       </div>
@@ -33,9 +33,9 @@
             <button
               ref="startDateTriggerRef"
               type="button"
-              class="context-menu-date-trigger"
+              class="context-menu-date-trigger ariaLabel"
               :class="{ active: activeDatePopoverField === 'startDate' }"
-              :title="t('taskManager.pickStartDate')"
+             
               :aria-label="t('taskManager.pickStartDate')"
               @click="toggleDatePopover('startDate')"
             >
@@ -54,9 +54,9 @@
             <button
               ref="dueDateTriggerRef"
               type="button"
-              class="context-menu-date-trigger"
+              class="context-menu-date-trigger ariaLabel"
               :class="{ active: activeDatePopoverField === 'dueDate' }"
-              :title="t('taskManager.pickDueDate')"
+             
               :aria-label="t('taskManager.pickDueDate')"
               @click="toggleDatePopover('dueDate')"
             >
@@ -75,9 +75,9 @@
             <button
               ref="startTimeTriggerRef"
               type="button"
-              class="context-menu-date-trigger"
+              class="context-menu-date-trigger ariaLabel"
               :class="{ active: activeTimePopoverField === 'startTime' }"
-              :title="t('taskManager.pickStartTime')"
+             
               :aria-label="t('taskManager.pickStartTime')"
               @click="toggleTimePopover('startTime')"
             >
@@ -96,9 +96,9 @@
             <button
               ref="dueTimeTriggerRef"
               type="button"
-              class="context-menu-date-trigger"
+              class="context-menu-date-trigger ariaLabel"
               :class="{ active: activeTimePopoverField === 'dueTime' }"
-              :title="t('taskManager.pickDueTime')"
+             
               :aria-label="t('taskManager.pickDueTime')"
               @click="toggleTimePopover('dueTime')"
             >
@@ -503,7 +503,7 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 .context-menu-date-clear {
   width: 100%;
   border: 1px solid var(--pinch-color10);
-  background-color:  var(--pinch-background10);
+  background: var(--pinch-background10);
   color: var(--b3-theme-on-background);
   border-radius: 6px;
   font-size: 12px;

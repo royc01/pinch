@@ -1,5 +1,5 @@
 <template>
-  <div class="Pinch-habit-container">
+  <div ref="habitContainerRef" class="Pinch-habit-container">
     <!-- 习惯列表页面 -->
     <div class="habit-list-container">
       <div class="Pinch-habit-header">
@@ -8,8 +8,7 @@
             <span class="reward-summary-level">Lv {{ rewardSnapshot.level }}</span>
             <div class="reward-summary-progress">
               <div
-                class="reward-summary-progress-bar"
-                :title="rewardLevelProgressText"
+                class="reward-summary-progress-bar ariaLabel"
                 :aria-label="rewardLevelProgressText"
               >
                 <span class="reward-summary-progress-fill" :style="rewardLevelProgressStyle"></span>
@@ -17,29 +16,37 @@
             </div>
           </div>
           <div class="header-buttons">
-            <SyButton @click="openFocusTimer" id="focus-timer-btn" class="focus-timer-btn" :title="t('focusTimer.title')">
-              <Icon name="timer" width="24" height="24" class="icon" />
+            <SyButton
+              @click="openFocusTimer"
+              id="focus-timer-btn"
+              class="focus-timer-btn ariaLabel"
+              :aria-label="t('focusTimer.title')"
+            >
+              <Icon name="timer" width="18" height="18" class="icon" />
             </SyButton>
             <SyButton
               @click="openPersonalStatsView"
               id="task-stats-btn"
-              class="task-stats-btn"
-              :title="t('habitTracker.statsView')"
+              class="task-stats-btn ariaLabel"
               :aria-label="t('habitTracker.openStatsView')"
             >
-              <Icon name="stats" width="24" height="24" class="icon" />
+              <Icon name="stats" width="18" height="18" class="icon" />
             </SyButton>
-            <SyButton @click="showMoodCalendar = true" id="mood-calendar-btn" class="mood-calendar-btn" :title="t('habitTracker.moodCalendar')">
-              <Icon name="smile" width="24" height="24" class="icon" />
+            <SyButton
+              @click="showMoodCalendar = true"
+              id="mood-calendar-btn"
+              class="mood-calendar-btn ariaLabel"
+              :aria-label="t('habitTracker.moodCalendar')"
+            >
+              <Icon name="smile" width="18" height="18" class="icon" />
             </SyButton>
             <SyButton
               @click="openTaskSettings"
               id="task-scope-button"
-              class="task-scope-button"
-              :title="t('taskScopeDialog.settings')"
+              class="task-scope-button ariaLabel"
               :aria-label="t('taskScopeDialog.settings')"
             >
-              <Icon name="taskScope" width="24" height="24" class="icon" />
+              <Icon name="taskScope" width="18" height="18" class="icon" />
             </SyButton>
           </div>
         </div>
@@ -53,6 +60,7 @@
         :mood-data="moodData"
         :open-mood-tracker="openMoodTracker"
         :get-small-mood-svg="getSmallMoodSvg"
+        :empty-tooltip-label="t('moodTracker.addDailyRecordHint')"
       />
 
       <div
@@ -60,7 +68,7 @@
         class="summary-card-grid"
         :style="getSidebarSectionStyle('summary-card-grid')"
       >
-        <div class="reward-summary-card" @click="openRewardPage()">
+        <div class="reward-summary-card ariaLabel" @click="openRewardPage()" :aria-label="t('habitTracker.openRewardShop')">
             <div class="reward-summary-main">
               <div class="reward-summary-stats">
                 <div class="reward-summary-stat">
@@ -69,7 +77,7 @@
                 </div>
               </div>
               <div v-if="latestRewardEntry" class="reward-summary-latest">
-                <span class="reward-summary-latest-title">{{ latestRewardEntry.title }}</span>
+                <span class="reward-summary-latest-title">{{ latestRewardEntryTitle }}</span>
                 <span class="reward-summary-latest-points">
                 +{{ latestRewardEntry.xp }} {{ t('habitTracker.rewardXp') }}<span v-if="latestRewardEntry.coins > 0"> · +{{ latestRewardEntry.coins }} {{ t('habitTracker.rewardCoins') }}</span>
                 </span>
@@ -80,7 +88,7 @@
             </div>
           </div>
 
-        <div class="goal-summary-card" @click="openGoalPage()">
+        <div class="goal-summary-card ariaLabel" @click="openGoalPage()" :aria-label="t('habitTracker.openGoalManage')">
             <div class="goal-summary-main">
               <div class="goal-summary-head">
                 <div class="goal-summary-level">
@@ -90,7 +98,7 @@
               </div>
             <div v-if="featuredGoal" class="goal-summary-latest">
               <span class="goal-summary-latest-title">{{ featuredGoal.name }}</span>
-              <div class="goal-summary-latest-points" :title="featuredGoalText">
+              <div class="goal-summary-latest-points ariaLabel" :aria-label="featuredGoalText">
                 <span class="goal-summary-latest-points-bar">
                   <span :style="{ width: `${featuredGoalProgressPercent}%` }"></span>
                 </span>
@@ -115,22 +123,21 @@
             <div class="collapse-arrow" @click="toggleHabitListCollapsed" :class="{ collapsed: isHabitListCollapsed }">
               <Icon name="arrowDown" width="16" height="16" class="icon" />
             </div>
-            <div class="title">{{ t('habitTracker.title') }}</div>
+            <div class="title ariaLabel" :aria-label="t('habitTracker.calendarDisplayTip')">{{ t('habitTracker.title') }}</div>
           </div>
           <div class="header-actions">
             <SyButton
               @click="showHabitManagerPage = true"
               id="habit-manage-btn"
-              class="habit-manage-btn"
-              :title="t('habitTracker.manageHabits')"
+              class="habit-manage-btn ariaLabel"
               :aria-label="t('habitTracker.manageHabits')"
             >
               <Icon name="taskScope" width="24" height="24" class="icon" />
             </SyButton>
-            <SyButton @click="openTotalStatsPage" id="stats-btn" class="stats-btn">
+            <SyButton @click="openTotalStatsPage" id="stats-btn" class="stats-btn ariaLabel" :aria-label="t('habitTracker.openStatsView')">
               <Icon name="stats" width="24" height="24" class="icon" />
             </SyButton>
-            <SyButton @click="showAddHabitModal = true" id="add-habit-btn" class="add-habit-btn">
+            <SyButton @click="showAddHabitModal = true" id="add-habit-btn" class="add-habit-btn ariaLabel" :aria-label="t('habitTracker.addHabitAria')">
               <Icon name="add" width="24" height="24" class="icon" />
             </SyButton>
           </div>
@@ -147,6 +154,7 @@
           :t="t"
           :get-habit-cache="getHabitCache"
           :get-calendar-view-data="getCalendarViewData"
+          :is-habit-scheduled-today="isHabitScheduledToday"
           :pomodoro-state-class="pomodoroStateClass"
           :format-pomodoro-time="formatPomodoroTime"
             @show-stats="showHabitStats"
@@ -177,8 +185,7 @@
         <div class="habit-manage-panel-title">{{ t('habitTracker.manageHabits') }}</div>
         <button
           type="button"
-          class="habit-manage-panel-close"
-          :title="t('common.close')"
+          class="habit-manage-panel-close ariaLabel"
           :aria-label="t('common.close')"
           @click="showHabitManagerPage = false"
         >
@@ -197,6 +204,7 @@
           :t="t"
           :get-habit-cache="getHabitCache"
           :get-calendar-view-data="getCalendarViewData"
+          :is-habit-scheduled-today="isHabitScheduledToday"
           :pomodoro-state-class="pomodoroStateClass"
           :format-pomodoro-time="formatPomodoroTime"
           manage-mode
@@ -280,6 +288,7 @@
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
       :t="t"
+      :overlay-style="sidebarModalOverlayStyle"
       @close="closeEditHabitModal"
       @submit="saveEditedHabit"
     />
@@ -295,6 +304,7 @@
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
       :t="t"
+      :overlay-style="sidebarModalOverlayStyle"
       @close="showAddHabitModal = false"
       @submit="handleAddHabit"
     />
@@ -314,12 +324,15 @@
       :habit-emoji="checkinNoteHabit?.emoji"
       :is-edit="checkinNoteIsEdit"
       :initial-note="checkinNoteInitial"
+      :focus-notes="checkinFocusNoteItems"
+      :has-note-doc="!!checkinNoteHabit?.noteDocId"
       :can-undo-once="canUndoCheckinOnce(checkinNoteHabit)"
       :can-clear-today="canClearTodayCheckin(checkinNoteHabit)"
       @close="closeCheckinNoteDialog"
       @confirm="handleCheckinNoteConfirm"
       @undo-once="handleCheckinNoteUndoOnce"
       @clear-today="handleCheckinNoteClearToday"
+      @bind-doc="handleCheckinNoteBindDoc"
     />
     
     <!-- 情绪打卡模态框 -->
@@ -328,15 +341,17 @@
       :selectedDate="selectedDate"
       :moodEntry="moodEntry"
       :moodEmojis="moodEmojis"
+      :overlay-style="sidebarModalOverlayStyle"
       @close="closeMoodTracker"
       @save="handleSaveMoodEntry"
-      @delete="handleDeleteMoodEntry"
+      @clear-all="handleClearMoodEntry"
     />
     
     <!-- 情绪打卡月视图 -->
     <MoodCalendarPanel
       :show="showMoodCalendar"
       :mood-data="moodData"
+      :habits="habits"
       :current-month="moodCalendarCurrentMonth"
       :weekdays="weekdaysForCalendar"
       :generate-month-view-data="generateMonthViewData"
@@ -344,11 +359,13 @@
       @close="showMoodCalendar = false"
       @open-mood-tracker="openMoodTracker"
       @change-month="changeMoodCalendarMonth"
+      @mood-data-updated="moodData = $event"
     />
     
     <FocusTimerHost
       ref="focusTimerHostRef"
       @complete-linked-habit="completeFocusLinkedHabit"
+      @visibility-change="handleFocusTimerVisibilityChange"
     />
     
     <!-- 任务管理器容器 -->
@@ -394,7 +411,7 @@
 </style>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, shallowRef, triggerRef, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, shallowRef, triggerRef, watch, nextTick } from 'vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import Icon from '@/components/Icon.vue';
 import WeekDates from '@/components/WeekDates.vue';
@@ -420,13 +437,14 @@ import { useHabitI18n } from '@/composables/useHabitI18n';
 import { useHabitSorting } from '@/composables/useHabitSorting';
 import { useHabitViewData } from '@/composables/useHabitViewData';
 import { normalizeDocId, useHabitDocBinding } from '@/composables/useHabitDocBinding';
-import { useHabitCheckinLog } from '@/composables/useHabitCheckinLog';
+import { useHabitCheckinLog, type HabitFocusNoteItem, type HabitMonthCheckinNote } from '@/composables/useHabitCheckinLog';
 import { useHabitEmojis } from '@/composables/useHabitEmojis';
 import { useHabitPomodoro } from '@/composables/useHabitPomodoro';
 import { useHabitStatistics } from '@/composables/useHabitStatistics';
 import { useMoodTracker } from '@/composables/useMoodTracker';
 import { useGoals } from '@/composables/useGoals';
 import { useRewards } from '@/composables/useRewards';
+import { getLocalizedRewardEntryTitle } from '@/rewardRepository';
 import { useUserSettings } from '@/composables/useUserSettings';
 import type { SidebarSectionId } from '@/utils/userSettings';
 import {
@@ -443,10 +461,15 @@ import {
 import {
   formatTimelineDate,
   getCreatedDateText,
-  getFrequencyText
+  getFrequencyText,
+  isHabitScheduledOnDate
 } from '@/composables/useHabitUtils';
 
 const { getCachedDate, getCachedDateParse, getToday } = useHabitCache();
+
+const isHabitScheduledToday = (habit: Habit): boolean => {
+  return isHabitScheduledOnDate(habit, getCachedDateParse(getToday()));
+};
 
 const formatDate = getCachedDate;
 const parseDate = (dateStr: string): Date => {
@@ -479,6 +502,13 @@ type TaskManagerExpose = {
   openTaskScopeDialog: (initialTab?: TaskScopeDialogTab) => Promise<void> | void;
 };
 const taskManagerRef = ref<TaskManagerExpose | null>(null);
+const habitContainerRef = ref<HTMLElement | null>(null);
+const sidebarModalOverlayStyle = ref<Record<string, string>>({});
+let sidebarModalResizeObserver: ResizeObserver | null = null;
+let sidebarModalRaf: number | null = null;
+let panelLockedScrollTop = 0;
+let panelPreviousOverflowY = '';
+let panelScrollLockCount = 0;
 const defaultSidebarSectionOrder: SidebarSectionId[] = [
   'week-dates',
   'summary-card-grid',
@@ -496,6 +526,75 @@ const normalizedSidebarSectionOrder = computed<SidebarSectionId[]>(() => {
     ...defaultSidebarSectionOrder.filter(id => !uniqueStored.includes(id))
   ];
 });
+
+function updateSidebarModalOverlayStyle(): void {
+  if (sidebarModalRaf !== null) {
+    cancelAnimationFrame(sidebarModalRaf);
+    sidebarModalRaf = null;
+  }
+
+  const host = habitContainerRef.value;
+  if (!host) {
+    sidebarModalOverlayStyle.value = {};
+    return;
+  }
+
+  const rect = host.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || rect.width;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || rect.height;
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(viewportWidth, rect.right);
+  const bottom = Math.min(viewportHeight, rect.bottom);
+
+  sidebarModalOverlayStyle.value = {
+    '--modal-overlay-left': `${Math.round(left)}px`,
+    '--modal-overlay-top': `${Math.round(top)}px`,
+    '--modal-overlay-width': `${Math.round(Math.max(0, right - left))}px`,
+    '--modal-overlay-height': `${Math.round(Math.max(0, bottom - top))}px`
+  };
+}
+
+function scheduleSidebarModalOverlayStyleUpdate(): void {
+  if (sidebarModalRaf !== null) {
+    return;
+  }
+  sidebarModalRaf = requestAnimationFrame(updateSidebarModalOverlayStyle);
+}
+
+function cancelSidebarModalOverlayStyleUpdate(): void {
+  if (sidebarModalRaf === null) {
+    return;
+  }
+  cancelAnimationFrame(sidebarModalRaf);
+  sidebarModalRaf = null;
+}
+
+function lockPanelParentScroll(): void {
+  const host = habitContainerRef.value;
+  if (!host) {
+    return;
+  }
+  if (panelScrollLockCount === 0) {
+    panelLockedScrollTop = host.scrollTop;
+    panelPreviousOverflowY = host.style.overflowY;
+  }
+  panelScrollLockCount += 1;
+  host.style.overflowY = 'hidden';
+}
+
+function unlockPanelParentScroll(): void {
+  const host = habitContainerRef.value;
+  if (!host) {
+    return;
+  }
+  panelScrollLockCount = Math.max(0, panelScrollLockCount - 1);
+  if (panelScrollLockCount > 0) {
+    return;
+  }
+  host.style.overflowY = panelPreviousOverflowY;
+  host.scrollTop = panelLockedScrollTop;
+}
 const visibleSidebarSectionIds = computed(() => {
   const hidden = new Set(userSettings.sidebar.hiddenSectionIds || []);
   return normalizedSidebarSectionOrder.value.filter(id => !hidden.has(id));
@@ -531,6 +630,7 @@ const debouncedSaveHabits = async (habitsToSave: Habit[]) => {
   return new Promise<void>((resolve) => {
     saveDebounceTimer = setTimeout(async () => {
       await saveHabits(habitsToSave);
+      emitHabitsUpdated(habitsToSave);
       resolve();
     }, 300); // 300ms 防抖延迟
   });
@@ -543,6 +643,7 @@ const immediateSaveHabits = async (habitsToSave: Habit[]) => {
     saveDebounceTimer = null;
   }
   await saveHabits(habitsToSave);
+  emitHabitsUpdated(habitsToSave);
 };
 
 // 习惯数据
@@ -550,6 +651,7 @@ const habits = shallowRef<Habit[]>([]);
 
 function emitHabitsUpdated(nextHabits: Habit[] = habits.value): void {
   eventBus.emit(Events.HABITS_UPDATED, {
+    source: 'habit-tracker',
     habits: Array.isArray(nextHabits) ? [...nextHabits] : []
   });
 }
@@ -578,10 +680,42 @@ const {
   loadMoodData,
   openMoodTracker,
   handleSaveMoodEntry,
-  handleDeleteMoodEntry,
+  handleClearMoodEntry,
   closeMoodTracker,
   changeMoodCalendarMonth
 } = useMoodTracker();
+
+watch(showMoodCalendar, (visible) => {
+  if (visible) {
+    lockPanelParentScroll();
+  } else {
+    unlockPanelParentScroll();
+  }
+});
+
+function handleFocusTimerVisibilityChange(visible: boolean): void {
+  if (visible) {
+    lockPanelParentScroll();
+  } else {
+    unlockPanelParentScroll();
+  }
+}
+
+const hasTrackerOverlayPage = computed(() =>
+  showTotalStatsPage.value
+  || showRewardPage.value
+  || showGoalPage.value
+  || showHabitManagerPage.value
+);
+
+watch(hasTrackerOverlayPage, (visible) => {
+  if (visible) {
+    lockPanelParentScroll();
+  } else {
+    unlockPanelParentScroll();
+  }
+});
+
 const showAnimation = ref(false);
 const animationHabitId = ref<string | null>(null);
 // 存储动画期间的原始完成状态
@@ -633,6 +767,7 @@ const {
   debouncedSaveHabits,
   immediateSaveHabits,
   triggerHabitsRef: () => triggerRef(habits),
+  notifyHabitsChanged: emitHabitsUpdated,
   animationOriginalStatus,
   showAnimation,
   animationHabitId,
@@ -660,8 +795,7 @@ const {
 const toggleHabit = buildToggleHabit({
   activePomodoroHabit,
   startPomodoroTimer,
-  clearPomodoroForHabit,
-  startFocusTimerForHabit: openFocusTimerForHabit
+  clearPomodoroForHabit
 });
 const {
   showBindDocModal,
@@ -675,39 +809,67 @@ const {
   saveHabitsNow: immediateSaveHabits
 });
 
-const { writeCheckinLogToDoc, deleteCheckinLogFromDoc, getExistingNote, getMonthCheckinNotes } = useHabitCheckinLog();
+const {
+  writeCheckinLogToDoc,
+  deleteCheckinLogFromDoc,
+  getExistingNote,
+  getHabitFocusNoteItems,
+  getMonthCheckinNotes
+} = useHabitCheckinLog();
 
 const showCheckinNoteDialog = ref(false);
 const checkinNoteHabit = ref<Habit | null>(null);
 const checkinNoteIsEdit = ref(false);
 const checkinNoteInitial = ref('');
-const statsMonthCheckinNotes = ref<{ date: string; note: string }[]>([]);
+const checkinFocusNoteItems = ref<HabitFocusNoteItem[]>([]);
+const statsMonthCheckinNotes = ref<HabitMonthCheckinNote[]>([]);
+let checkinNoteOpenRequestId = 0;
 
 const openCheckinNoteDialog = async (habit: Habit): Promise<void> => {
+  const requestId = ++checkinNoteOpenRequestId;
+  showCheckinNoteDialog.value = false;
   checkinNoteHabit.value = habit;
+  checkinNoteIsEdit.value = false;
+  checkinNoteInitial.value = '';
+  checkinFocusNoteItems.value = [];
 
   const today = getToday();
   const todayRecord = habit.calendar.find(day => day.date === today);
   const hasTodayCheckin = habit.completedToday || Boolean((todayRecord?.completedCount || 0) > 0);
 
+  if (!hasTodayCheckin && !habit.noteDocId) {
+    openBindDocModal(habit);
+    return;
+  }
+
   if (hasTodayCheckin && habit.noteDocId) {
-    const existingNote = await getExistingNote(habit.noteDocId, today, habit.id);
+    const focusNoteItems = await getHabitFocusNoteItems(habit.noteDocId, habit, today);
+    const existingNote = focusNoteItems.length > 0
+      ? ''
+      : await getExistingNote(habit.noteDocId, today, habit);
+    if (requestId !== checkinNoteOpenRequestId || checkinNoteHabit.value?.id !== habit.id) {
+      return;
+    }
     checkinNoteIsEdit.value = true;
-    checkinNoteInitial.value = existingNote ?? '';
+    checkinNoteInitial.value = existingNote || '';
+    checkinFocusNoteItems.value = focusNoteItems;
     showCheckinNoteDialog.value = true;
     return;
   }
 
   checkinNoteIsEdit.value = false;
   checkinNoteInitial.value = '';
+  checkinFocusNoteItems.value = [];
   showCheckinNoteDialog.value = true;
 };
 
 const closeCheckinNoteDialog = (): void => {
+  checkinNoteOpenRequestId++;
   showCheckinNoteDialog.value = false;
   checkinNoteHabit.value = null;
   checkinNoteIsEdit.value = false;
   checkinNoteInitial.value = '';
+  checkinFocusNoteItems.value = [];
 };
 
 const getTodayHabitRecord = (habit: Habit | null) => {
@@ -736,6 +898,41 @@ const canClearTodayCheckin = (habit: Habit | null): boolean => {
   return Boolean(todayRecord && ((todayRecord.completedCount || 0) > 0 || todayRecord.completed));
 };
 
+const schedulePomodoroCheckinLogWrite = (habit: Habit): void => {
+  const habitId = habit.id;
+  const noteDocId = habit.noteDocId;
+  const today = getToday();
+
+  if (!noteDocId || !habit.completedToday) {
+    return;
+  }
+
+  window.setTimeout(async () => {
+    try {
+      const latestHabit = habits.value.find(item => item.id === habitId);
+      if (!latestHabit || latestHabit.isPaused || latestHabit.noteDocId !== noteDocId || !latestHabit.completedToday) {
+        return;
+      }
+
+      const dayRecord = latestHabit.calendar.find(day => day.date === today);
+      if (!dayRecord?.completed) {
+        return;
+      }
+
+      const existingNote = await getExistingNote(noteDocId, today, latestHabit);
+      await writeCheckinLogToDoc(noteDocId, {
+        habit: latestHabit,
+        date: today,
+        note: existingNote ?? undefined,
+        completedCount: dayRecord.completedCount,
+        targetCount: dayRecord.targetCount
+      });
+    } catch (error) {
+      console.error('[HabitTracker] Failed to write pomodoro checkin log:', error);
+    }
+  }, 800);
+};
+
 const refreshHabitAfterTodayRecordChange = (habit: Habit): void => {
   const today = getToday();
   const todayRecord = habit.calendar.find(day => day.date === today);
@@ -758,9 +955,13 @@ const handleCheckinNoteUndoOnce = async (): Promise<void> => {
   if (!todayRecord) return;
 
   todayRecord.completedCount = Math.max(0, (Number(todayRecord.completedCount) || 0) - 1);
+  if (Array.isArray(todayRecord.checkinTimestamps) && todayRecord.checkinTimestamps.length > 0) {
+    todayRecord.checkinTimestamps = todayRecord.checkinTimestamps.slice(0, -1);
+  }
   todayRecord.completed = todayRecord.completedCount >= getHabitTargetCount(habit);
-  if (!todayRecord.completed) {
+  if (todayRecord.completedCount <= 0) {
     delete todayRecord.timestamp;
+    delete todayRecord.checkinTimestamps;
   }
   if (todayRecord.completedCount <= 0) {
     habit.calendar = habit.calendar.filter(day => day.date !== today);
@@ -778,7 +979,7 @@ const handleCheckinNoteUndoOnce = async (): Promise<void> => {
       targetCount: todayRecord.targetCount
     });
   } else if (habit.noteDocId) {
-    await deleteCheckinLogFromDoc(habit.noteDocId, today, habit.id);
+    await deleteCheckinLogFromDoc(habit.noteDocId, today, habit);
   }
 
   closeCheckinNoteDialog();
@@ -796,13 +997,21 @@ const handleCheckinNoteClearToday = async (): Promise<void> => {
   await immediateSaveHabits(habits.value);
 
   if (habit.noteDocId) {
-    await deleteCheckinLogFromDoc(habit.noteDocId, today, habit.id);
+    await deleteCheckinLogFromDoc(habit.noteDocId, today, habit);
   }
 
   closeCheckinNoteDialog();
 };
 
-const handleCheckinNoteConfirm = async (note: string): Promise<void> => {
+const handleCheckinNoteBindDoc = (): void => {
+  const habit = checkinNoteHabit.value;
+  if (!habit) return;
+
+  closeCheckinNoteDialog();
+  openBindDocModal(habit);
+};
+
+const handleCheckinNoteConfirm = async (note: string, focusNotes: HabitFocusNoteItem[] = []): Promise<void> => {
   if (!checkinNoteHabit.value) return;
 
   const habit = checkinNoteHabit.value;
@@ -810,15 +1019,20 @@ const handleCheckinNoteConfirm = async (note: string): Promise<void> => {
   const isEdit = checkinNoteIsEdit.value;
 
   if (isEdit) {
+    const dayRecord = habit.calendar.find(day => day.date === today);
     if (habit.noteDocId) {
-      const dayRecord = habit.calendar.find(day => day.date === today);
       await writeCheckinLogToDoc(habit.noteDocId, {
         habit,
         date: today,
-        note,
+        note: focusNotes.length > 0 ? undefined : note,
+        focusNotes,
         completedCount: dayRecord?.completedCount,
         targetCount: dayRecord?.targetCount
       });
+      if (dayRecord?.note) {
+        delete dayRecord.note;
+        await immediateSaveHabits(habits.value);
+      }
     }
     closeCheckinNoteDialog();
     return;
@@ -837,12 +1051,13 @@ const handleCheckinNoteConfirm = async (note: string): Promise<void> => {
       await immediateSaveHabits(habits.value);
       processRewardPayload(rewardPayload);
       
-      if (habit.noteDocId && note) {
+      if (habit.noteDocId && (note || focusNotes.length > 0)) {
         const dayRecord = habit.calendar.find(day => day.date === today);
         await writeCheckinLogToDoc(habit.noteDocId, {
           habit,
           date: today,
-          note,
+          note: focusNotes.length > 0 ? undefined : note,
+          focusNotes,
           completedCount: dayRecord?.completedCount,
           targetCount: dayRecord?.targetCount
         });
@@ -856,12 +1071,13 @@ const handleCheckinNoteConfirm = async (note: string): Promise<void> => {
     await immediateSaveHabits(habits.value);
     processRewardPayload(rewardPayload);
     
-    if (habit.noteDocId && note) {
+    if (habit.noteDocId && (note || focusNotes.length > 0)) {
       const dayRecord = habit.calendar.find(day => day.date === today);
       await writeCheckinLogToDoc(habit.noteDocId, {
         habit,
         date: today,
-        note,
+        note: focusNotes.length > 0 ? undefined : note,
+        focusNotes,
         completedCount: dayRecord?.completedCount,
         targetCount: dayRecord?.targetCount
       });
@@ -919,18 +1135,7 @@ async function completeFocusLinkedHabit(habitId: string): Promise<void> {
   await immediateSaveHabits(habits.value);
   processRewardPayload(rewardPayload);
 
-  if (habit.noteDocId && habit.completedToday) {
-    const today = getToday();
-    const existingNote = await getExistingNote(habit.noteDocId, today, habit.id);
-    const dayRecord = habit.calendar.find(day => day.date === today);
-    await writeCheckinLogToDoc(habit.noteDocId, {
-      habit,
-      date: today,
-      note: existingNote ?? undefined,
-      completedCount: dayRecord?.completedCount,
-      targetCount: dayRecord?.targetCount
-    });
-  }
+  schedulePomodoroCheckinLogWrite(habit);
 }
 
 
@@ -958,10 +1163,34 @@ const { sortedHabits } = useHabitSorting({
 const visibleHabits = computed(() => sortedHabits.value.filter(habit => !habit.isPaused));
 let unsubscribePanelOpenRequest: (() => void) | null = null;
 let unsubscribeFocusTimerOpenRequest: (() => void) | null = null;
+let unsubscribeHabitUpdates: (() => void) | null = null;
 
-watch(habits, (nextHabits) => {
-  emitHabitsUpdated(nextHabits);
-});
+function normalizeLoadedHabitState(nextHabits: Habit[]): Habit[] {
+  const todayStr = getToday();
+  return nextHabits.map(habit => {
+    if (!habit || typeof habit !== 'object') return habit;
+    if (!Array.isArray(habit.calendar)) {
+      habit.calendar = [];
+    }
+    const todayRecord = habit.calendar.find(day => day.date === todayStr);
+    habit.completedToday = todayRecord ? Boolean(todayRecord.completed) : false;
+    return habit;
+  });
+}
+
+function handleHabitsUpdated(payload?: { source?: string; habits?: Habit[] }): void {
+  if (payload?.source === 'habit-tracker' || !Array.isArray(payload?.habits)) {
+    return;
+  }
+
+  habits.value = normalizeLoadedHabitState([...payload.habits]);
+  habits.value.forEach(habit => {
+    clearWeeklyCompletionCacheForHabit(habit.id);
+    clearCurrentStreakCacheForHabit(habit.id);
+    clearCompletionRateCacheForHabit(habit.id);
+  });
+  triggerRef(habits);
+}
 
 const {
   newHabit,
@@ -1012,6 +1241,14 @@ function handleFocusTimerOpenRequest(payload?: FocusTimerPanelOpenRequest): void
 
 // 初始化数据
 onMounted(async () => {
+  updateSidebarModalOverlayStyle();
+  window.addEventListener('resize', scheduleSidebarModalOverlayStyleUpdate, true);
+  window.addEventListener('scroll', scheduleSidebarModalOverlayStyleUpdate, true);
+  if (habitContainerRef.value && typeof ResizeObserver !== 'undefined') {
+    sidebarModalResizeObserver = new ResizeObserver(scheduleSidebarModalOverlayStyleUpdate);
+    sidebarModalResizeObserver.observe(habitContainerRef.value);
+  }
+
   await loadSettings();
   unsubscribePanelOpenRequest = eventBus.on(
     Events.HABIT_TRACKER_PANEL_OPEN_REQUEST,
@@ -1021,10 +1258,14 @@ onMounted(async () => {
     Events.FOCUS_TIMER_PANEL_OPEN_REQUEST,
     handleFocusTimerOpenRequest
   );
+  unsubscribeHabitUpdates = eventBus.on(
+    Events.HABITS_UPDATED,
+    handleHabitsUpdated
+  );
 
   try {
     const loadedHabits = await getHabits();
-    habits.value = Array.isArray(loadedHabits) ? loadedHabits : [];
+    habits.value = normalizeLoadedHabitState(Array.isArray(loadedHabits) ? loadedHabits : []);
     
     const todayStr = getToday();
 
@@ -1057,10 +1298,20 @@ onMounted(async () => {
 
 // 组件卸载时清理定时器
 onUnmounted(() => {
+  panelScrollLockCount = 1;
+  unlockPanelParentScroll();
+  window.removeEventListener('resize', scheduleSidebarModalOverlayStyleUpdate, true);
+  window.removeEventListener('scroll', scheduleSidebarModalOverlayStyleUpdate, true);
+  sidebarModalResizeObserver?.disconnect();
+  sidebarModalResizeObserver = null;
+  cancelSidebarModalOverlayStyleUpdate();
+
   unsubscribePanelOpenRequest?.();
   unsubscribePanelOpenRequest = null;
   unsubscribeFocusTimerOpenRequest?.();
   unsubscribeFocusTimerOpenRequest = null;
+  unsubscribeHabitUpdates?.();
+  unsubscribeHabitUpdates = null;
 
   // 清理主定时器
   if ((window as any).habitTrackerTimer) {
@@ -1191,12 +1442,13 @@ const statsHourDistribution = computed(() => {
   }
 });
 const latestRewardEntry = computed(() => rewardSnapshot.value.recentEntries[0] || null);
+const latestRewardEntryTitle = computed(() => latestRewardEntry.value ? getLocalizedRewardEntryTitle(latestRewardEntry.value) : '');
 const completedGoalCount = computed(() => goalItems.value.filter(goal => goal.status === 'completed').length);
 const goalSummaryValueText = computed(() => `${completedGoalCount.value}/${goalItems.value.length}`);
 const featuredGoal = computed(() =>
-  goalItems.value.find(goal => goal.documentCount > 0 && goal.status === 'in-progress')
-  || goalItems.value.find(goal => goal.documentCount > 0 && goal.status === 'completed')
-  || goalItems.value.find(goal => goal.documentCount > 0)
+  goalItems.value.find(goal => goal.scopeCount > 0 && goal.status === 'in-progress')
+  || goalItems.value.find(goal => goal.scopeCount > 0 && goal.status === 'completed')
+  || goalItems.value.find(goal => goal.scopeCount > 0)
   || goalItems.value[0]
   || null
 );
@@ -1204,7 +1456,7 @@ const featuredGoalText = computed(() => {
   if (!featuredGoal.value) {
     return '';
   }
-  if (featuredGoal.value.documentCount === 0) {
+  if (featuredGoal.value.scopeCount === 0) {
     return t('habitTracker.noDocumentSelectedLong');
   }
   if (featuredGoal.value.totalTasks === 0) {
@@ -1213,7 +1465,7 @@ const featuredGoalText = computed(() => {
   return `${featuredGoal.value.progressPercent}% · ${featuredGoal.value.completedTasks}/${featuredGoal.value.totalTasks}`;
 });
 const featuredGoalProgressPercent = computed(() => {
-  if (!featuredGoal.value || featuredGoal.value.documentCount === 0 || featuredGoal.value.totalTasks <= 0) {
+  if (!featuredGoal.value || featuredGoal.value.scopeCount === 0 || featuredGoal.value.totalTasks <= 0) {
     return 0;
   }
   return Math.max(0, Math.min(100, Number(featuredGoal.value.progressPercent) || 0));
@@ -1222,8 +1474,8 @@ const featuredGoalProgressText = computed(() => {
   if (!featuredGoal.value) {
     return '';
   }
-  if (featuredGoal.value.documentCount === 0) {
-    return t('goalPanel.noDocumentSelected');
+  if (featuredGoal.value.scopeCount === 0) {
+    return t('goalPanel.noScopeSelected');
   }
   if (featuredGoal.value.totalTasks === 0) {
     return t('taskManager.noTasks');
@@ -1326,7 +1578,7 @@ const loadMonthCheckinNotes = async (habit: Habit) => {
     const month = targetDate.getMonth() + 1;
 
     try {
-      const notes = await getMonthCheckinNotes(habit.noteDocId, habit.id, year, month);
+      const notes = await getMonthCheckinNotes(habit.noteDocId, habit, year, month);
       statsMonthCheckinNotes.value = notes;
     } catch (error) {
       console.error('[HabitTracker] Failed to load month checkin notes:', error);
@@ -1348,10 +1600,16 @@ watch(
 //   initializeStatsViewMode(habit);
 //   habit.statsViewMode = habit.statsViewMode === 'month' ? 'week' : 'month';
 // };
+watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showEdit, showMood]) => {
+  if (showAdd || showEdit || showMood) {
+    void nextTick(updateSidebarModalOverlayStyle);
+  }
+});
 </script>
 
 <style lang="scss" scoped>
 .Pinch-habit-container {
+  position: relative;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
@@ -1395,6 +1653,30 @@ watch(
       padding: 0;
       margin: 0 6px 0 0;
       cursor: pointer;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .header-buttons #mood-calendar-btn:hover,
+    .header-buttons #task-scope-button:hover,
+    .header-buttons #focus-timer-btn:hover,
+    .header-buttons #task-stats-btn:hover,
+    .habit-manager-header .header-actions #add-habit-btn:hover,
+    .habit-manager-header .header-actions #stats-btn:hover,
+    .habit-manager-header .header-actions #habit-manage-btn:hover {
+      background: var(--b3-list-hover);
+    }
+
+    .header-buttons #mood-calendar-btn .icon,
+    .header-buttons #task-scope-button .icon,
+    .header-buttons #focus-timer-btn .icon,
+    .header-buttons #task-stats-btn .icon,
+    .habit-manager-header .header-actions #add-habit-btn .icon,
+    .habit-manager-header .header-actions #stats-btn .icon,
+    .habit-manager-header .header-actions #habit-manage-btn .icon {
+      margin: 0;
     }
 
     #add-habit-btn,
@@ -1404,9 +1686,9 @@ watch(
       height: 24px;
 
       svg {
-        color: var(--b3-theme-on-background);
-        width: 24px;
-        height: 24px;
+        color: var(--b3-theme-on-surface);
+        width: 18px;
+        height: 18px;
       }
     }
 
@@ -1417,10 +1699,11 @@ watch(
       width: 24px;
       height: 24px;
 
-      svg {
-        color: var(--b3-theme-on-background);
-        width: 24px;
-        height: 24px;
+      svg { 
+        color: var(--b3-theme-on-surface);
+        width: 18px;
+        height: 18px;
+        margin: 0;
       }
     }
   .summary-card-grid {
@@ -1724,6 +2007,7 @@ watch(
     padding: 12px;
     display: flex;
     flex-direction: column;
+    overscroll-behavior: contain;
   }
 
   .habit-manage-panel-header {
@@ -1760,6 +2044,7 @@ watch(
     flex: 1;
     min-height: 0;
     overflow: auto;
+    overscroll-behavior: contain;
   }
 
 }

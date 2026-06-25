@@ -5,16 +5,16 @@
     @dragleave="handleExternalTaskDragLeave"
     @drop="handleExternalTaskDrop"
   >
-    <div ref="ganttShellRef" class="gantt-shell">
+    <div ref="ganttShellRef" class="gantt-shell" @scroll="handleGanttShellScroll">
       <div class="gantt-toolbar">
         <div class="gantt-range-nav">
-          <button type="button" class="gantt-toolbar-btn" :title="t('ganttView.previousRange')" @click="shiftTimeline(-1)">
+          <button type="button" class="gantt-toolbar-btn ariaLabel" :aria-label="t('ganttView.previousRange')" @click="shiftTimeline(-1)">
             <Icon name="chevronLeft" width="20" height="20" />
           </button>
           <button type="button" class="gantt-toolbar-btn today" @click="resetTimeline">
             {{ t('ganttView.today') }}
           </button>
-          <button type="button" class="gantt-toolbar-btn" :title="t('ganttView.nextRange')" @click="shiftTimeline(1)">
+          <button type="button" class="gantt-toolbar-btn ariaLabel" :aria-label="t('ganttView.nextRange')" @click="shiftTimeline(1)">
             <Icon name="chevronRight" width="20" height="20" />
           </button>
         </div>
@@ -31,7 +31,13 @@
           </button>
         </div>
       </div>
-      <div class="gantt-grid" :style="gridStyle">
+      <div
+        class="gantt-grid"
+        :style="gridStyle"
+        @pointermove="handleGanttGridPointerMove"
+        @pointerleave="clearGanttGridHover"
+      >
+        <div class="gantt-header-row-bg" :style="{ gridColumn: '1 / -1', gridRow: '1' }"></div>
         <div class="gantt-corner" :style="{ gridColumn: '1', gridRow: '1' }"></div>
         <div class="gantt-header-row-border" :style="{ gridColumn: '1 / -1', gridRow: '1' }"></div>
         <div
@@ -49,7 +55,8 @@
           v-for="group in renderGroups"
           :key="group.key"
           class="gantt-group-panel"
-          :class="{ 'group-start': group.offsetTop }"
+          :class="{ 'group-start': group.offsetTop, 'goal-drop-target': isGoalSectionDropTarget(group.sectionId) }"
+          :data-goal-section-id="group.sectionId || undefined"
           :style="{
             gridColumn: '1 / -1',
             gridRow: `${group.startRow} / span ${group.rowSpan}`
@@ -58,24 +65,35 @@
         <template v-for="group in renderGroups" :key="`${group.key}:deadline`">
           <div
             v-if="group.deadlineStyle"
-            class="gantt-deadline-marker"
+            class="gantt-deadline-marker ariaLabel"
             :style="group.deadlineStyle"
-            :title="group.deadlineTitle"
+            :aria-label="group.deadlineTitle"
           ></div>
         </template>
 
-        <template v-for="(row, rowIndex) in renderRows" :key="row.key">
-          <button
+        <template v-for="{ row, rowIndex } in visibleRenderRows" :key="row.key">
+          <div
             v-if="row.kind === 'section'"
-            type="button"
-            class="gantt-row-label gantt-section-label"
-            :class="{ collapsed: row.collapsed, 'group-start': shouldOffsetGroupStart(rowIndex) }"
-            :title="row.title"
+            class="gantt-row-label gantt-section-label ariaLabel"
+            :class="{
+              collapsed: row.collapsed,
+              'group-start': shouldOffsetGroupStart(rowIndex),
+              'goal-drop-target': isGoalRenderRowDropTarget(row),
+              'is-row-hovered': isRenderRowHovered(row)
+            }"
+            role="button"
+            tabindex="0"
+            :aria-label="row.title"
             :aria-expanded="!row.collapsed"
+            :data-goal-section-id="getGoalSectionIdForRenderRow(row) || undefined"
             :style="{ gridColumn: '1', gridRow: `${rowIndex + 2}` }"
             @click="toggleSection(row.sectionId)"
+            @keydown.enter.prevent="toggleSection(row.sectionId)"
+            @keydown.space.prevent="toggleSection(row.sectionId)"
           >
-            <span class="gantt-section-toggle" aria-hidden="true"></span>
+            <span class="gantt-section-toggle" aria-hidden="true">
+              <Icon name="chevronDown" width="16" height="16" />
+            </span>
             <span class="gantt-section-icon">{{ row.emoji }}</span>
             <button
               type="button"
@@ -94,20 +112,25 @@
               {{ row.dueDateLabel }}
             </span>
             <span class="gantt-section-count">{{ row.taskCount }}</span>
-          </button>
+          </div>
           <button
             v-else-if="row.kind === 'unscheduled-toggle'"
             type="button"
-            class="gantt-row-label gantt-unscheduled-row-label gantt-unscheduled-control-row"
-            :title="row.title"
+            class="gantt-row-label gantt-unscheduled-row-label gantt-unscheduled-control-row ariaLabel"
+            :class="{
+              'goal-drop-target': isGoalRenderRowDropTarget(row),
+              'is-row-hovered': isRenderRowHovered(row)
+            }"
+            :aria-label="row.title"
             :aria-expanded="row.expanded"
+            :data-goal-section-id="getGoalSectionIdForRenderRow(row) || undefined"
             :style="{ gridColumn: '1', gridRow: `${rowIndex + 2}` }"
-            @click="toggleUnscheduledRows(row.sectionId)"
+            @click="handleUnscheduledControlClick(row)"
           >
             <span class="gantt-unscheduled-control-inner">
               <span class="collapse-btn">
                 <Icon
-                  :name="row.expanded ? 'chevronsHorizontal' : 'chevronsVertical'"
+                  :name="row.action === 'collapse' ? 'chevronsHorizontal' : 'chevronsVertical'"
                   width="16"
                   height="16"
                 />
@@ -117,10 +140,21 @@
             </span>
           </button>
           <div
-            v-else
-            class="gantt-row-label"
-            :class="{ 'gantt-unscheduled-row-label': row.isUnscheduled }"
-            :title="row.title"
+            v-if="row.kind === 'unscheduled-toggle'"
+            class="gantt-unscheduled-control-row-divider"
+            :class="{ 'is-row-hovered': isRenderRowHovered(row) }"
+            :style="{ gridColumn: '1 / -1', gridRow: `${rowIndex + 2}` }"
+          ></div>
+          <div
+            v-if="row.kind === 'task'"
+            class="gantt-row-label ariaLabel"
+            :class="{
+              'gantt-unscheduled-row-label': row.isUnscheduled,
+              'goal-drop-target': isGoalRenderRowDropTarget(row),
+              'is-row-hovered': isRenderRowHovered(row)
+            }"
+            :aria-label="row.title"
+            :data-goal-section-id="getGoalSectionIdForRenderRow(row) || undefined"
             draggable="true"
             :style="{ gridColumn: '1', gridRow: `${rowIndex + 2}` }"
             @dragstart="handleRowLabelDragStart($event, row.primaryTask)"
@@ -146,16 +180,14 @@
             </button>
             <span
               v-if="isRepeatTask(row.primaryTask)"
-              class="gantt-row-repeat-badge"
-              :title="t('taskCard.repeatTask')"
+              class="gantt-row-repeat-badge ariaLabel"
               :aria-label="t('taskCard.repeatTask')"
             >
               <Icon name="repeat" width="12" height="12" />
             </span>
             <button
               type="button"
-              class="task-card-action-btn task-card-open-btn gantt-row-open-btn"
-              :title="t('taskCard.openContent')"
+              class="task-card-action-btn task-card-open-btn gantt-row-open-btn ariaLabel"
               :aria-label="t('taskCard.openContent')"
               @mousedown.stop
               @click.stop.prevent="emit('task-click', row.primaryTask)"
@@ -164,7 +196,6 @@
             </button>
           </div>
           <div
-            v-if="row.kind !== 'unscheduled-toggle'"
             v-for="(day, dayIndex) in timelineDays"
             :key="`${row.key}:${day.key}`"
             class="gantt-day-cell"
@@ -172,32 +203,58 @@
               today: day.isToday,
               weekend: day.isWeekend,
               section: row.kind === 'section',
+              'unscheduled-control': row.kind === 'unscheduled-toggle',
               'drop-target': dragOverDayKey === day.key,
-              'group-start': shouldOffsetGroupStart(rowIndex)
+              'goal-drop-target': isGoalRenderRowDropTarget(row),
+              'group-start': shouldOffsetGroupStart(rowIndex),
+              'is-row-hovered': isRenderRowHovered(row)
             }"
+            :data-goal-section-id="getGoalSectionIdForRenderRow(row) || undefined"
             :style="{ gridColumn: `${dayIndex + 2}`, gridRow: `${rowIndex + 2}` }"
           ></div>
           <div
             v-if="row.kind === 'section' && row.summaryBarStyle"
-            class="gantt-summary-bar"
-            :class="{ overdue: row.isOverdue, risk: row.hasScheduleRisk, completed: row.completedTasks >= row.taskCount, 'group-start': shouldOffsetGroupStart(rowIndex) }"
+            class="gantt-summary-bar ariaLabel"
+            :class="{
+              overdue: row.isOverdue,
+              risk: row.hasScheduleRisk,
+              completed: row.completedTasks >= row.taskCount,
+              'group-start': shouldOffsetGroupStart(rowIndex),
+              'goal-drop-target': isGoalRenderRowDropTarget(row),
+              'dragging-due-date': draggingGoalDueDateId === row.sectionId
+            }"
             :style="{
               ...row.summaryBarStyle,
               '--gantt-summary-progress': `${row.summaryProgress}%`
             }"
-            :title="row.summaryTitle"
+            :aria-label="row.summaryTitle"
+            :data-goal-section-id="getGoalSectionIdForRenderRow(row) || undefined"
           >
             <span class="gantt-summary-bar-fill" aria-hidden="true"></span>
             <span class="gantt-summary-bar-title">{{ row.summaryText }}</span>
+            <button
+              v-if="isGoalSummaryResizable(row)"
+              type="button"
+              class="gantt-summary-due-handle ariaLabel"
+              :class="{ 'handle-dragging': draggingGoalDueDateId === row.sectionId }"
+              :aria-label="t('taskManager.dueDate')"
+              @pointerdown.stop.prevent="handleGoalSummaryDueHandlePointerDown($event, row)"
+              @click.stop.prevent
+            ></button>
           </div>
           <button
             v-for="bar in row.kind === 'task' ? row.bars : []"
             :key="bar.key"
             type="button"
-            class="gantt-bar"
-            :class="[`priority-${bar.task.priority}`, { completed: bar.task.status === 'completed', dragging: draggingTaskId === bar.task.id, risk: bar.isBeyondSectionDue }]"
+            class="gantt-bar ariaLabel"
+            :class="[`priority-${bar.task.priority}`, {
+              completed: bar.task.status === 'completed',
+              dragging: draggingTaskId === bar.task.id,
+              risk: bar.isBeyondSectionDue
+            }]"
             :style="getTaskBarStyle(bar)"
-            :title="bar.title"
+            :aria-label="bar.title"
+            :data-goal-section-id="getGoalSectionIdForRenderRow(row) || undefined"
             @contextmenu="handleContextMenu($event, bar.task)"
             @pointerdown="handleTaskBarPointerDown($event, bar)"
           >
@@ -223,6 +280,11 @@
             ></span>
           </button>
         </template>
+        <div
+          v-if="renderRows.length > 0"
+          class="gantt-virtual-spacer"
+          :style="{ gridColumn: '1', gridRow: `${renderRows.length + 1}` }"
+        ></div>
         <template v-if="renderRows.length === 0">
           <div class="gantt-row-label gantt-empty-label" :style="{ gridColumn: '1', gridRow: '2' }">
             {{ t('ganttView.noScheduledTasks') }}
@@ -272,20 +334,30 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { TaskRepository } from '@/api';
+import { TaskRepository, setBlockAttrs } from '@/api';
 import type { Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
 import Icon from './Icon.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import { useI18n } from '@/composables/useI18n';
-import { getRepeatSeriesForTask } from '@/repeatRepository';
+import { getRepeatSeriesForTask, updateRepeatSeriesBackgroundColor } from '@/repeatRepository';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
+import { isTaskInGoalScope } from '@/utils/goalTaskMembership';
+import {
+  resolveEffectiveTaskBackgroundColor,
+  resolveTaskAccentColor,
+  resolveTaskBackgroundColor
+} from '@/utils/taskColor';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const GANTT_ROW_HEIGHT = 42;
 const LABEL_COLUMN_WIDTH = 240;
 const MIN_DAY_COLUMN_WIDTH = 46;
+const UNGROUPED_UNSCHEDULED_SECTION_ID = '__ungrouped_unscheduled__';
+const VIRTUAL_ROW_OVERSCAN = 12;
 const timelineWeekOptions = [2, 6, 12] as const;
+const GANTT_EN_MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const props = defineProps<{
   tasks: Task[];
@@ -298,10 +370,13 @@ const props = defineProps<{
 const emit = defineEmits<{
   'task-click': [task: Task];
   'task-date-changed': [task: Task];
+  'task-color-changed': [task: Task];
+  'goal-due-date-changed': [goalId: string, dueDate: string];
   'start-focus': [task: Task];
   'edit-task': [task: Task, event?: MouseEvent];
   'status-toggle': [task: Task];
   'manage-goals': [];
+  'task-goal-drop': [task: Task, goalId: string];
 }>();
 
 const { t } = useI18n();
@@ -312,17 +387,23 @@ const formatTemplate = (key: string, values: Record<string, string | number>): s
   );
 };
 const collapsedSectionIds = ref<Set<string>>(new Set());
-const expandedUnscheduledSectionIds = ref<Set<string>>(new Set());
+const unscheduledSectionModes = ref<Map<string, UnscheduledDisplayMode>>(new Map());
 const timelineAnchor = ref(startOfDay(new Date()));
 const timelineWeeks = ref<(typeof timelineWeekOptions)[number]>(6);
 const draggingTaskId = ref<string | null>(null);
 const dragDeltaDays = ref(0);
 const dragMode = ref<GanttDragMode | null>(null);
 const optimisticTaskDates = ref<Map<string, { startDate: string; dueDate: string }>>(new Map());
+const optimisticGoalDueDates = ref<Map<string, string>>(new Map());
 const dragOverDayKey = ref<string | null>(null);
+const dragOverGoalSectionId = ref<string | null>(null);
+const draggingGoalDueDateId = ref<string | null>(null);
 const externalDropTask = ref<Task | null>(null);
 const ganttShellRef = ref<HTMLElement | null>(null);
 const shellWidth = ref(0);
+const shellHeight = ref(0);
+const shellScrollTop = ref(0);
+const hoveredRenderRowKey = ref<string | null>(null);
 const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
   show: false,
   x: 0,
@@ -339,6 +420,7 @@ const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
 const contextMenuRepeatRule = ref<RepeatRule | null>(null);
 
 type GanttDragMode = 'move' | 'start' | 'end';
+type UnscheduledDisplayMode = 'collapsed' | 'incomplete' | 'all';
 
 interface GanttDragState {
   task: Task;
@@ -350,10 +432,20 @@ interface GanttDragState {
   hasMoved: boolean;
 }
 
+interface GoalDueDateDragState {
+  goalId: string;
+  startX: number;
+  originalDueDate: Date;
+  previewDueDate: Date;
+  hasMoved: boolean;
+}
+
 let dragState: GanttDragState | null = null;
+let goalDueDateDragState: GoalDueDateDragState | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let contextMenuOutsidePointerBound = false;
 const optimisticTaskDateTimers = new Map<string, number>();
+const optimisticGoalDueDateTimers = new Map<string, number>();
 
 const backgroundColors = [
   { value: 'pinch-background1', css: 'var(--pinch-background1)' },
@@ -430,6 +522,7 @@ type GanttRenderRow =
     summaryText: string;
     summaryTitle: string;
     summaryBarStyle: Record<string, string> | null;
+    summaryEndDate: Date | null;
     deadlineStyle: Record<string, string> | null;
     deadlineTitle: string;
     isOverdue: boolean;
@@ -440,14 +533,16 @@ type GanttRenderRow =
     kind: 'unscheduled-toggle';
     key: string;
     sectionId: string;
+    action: 'show-incomplete' | 'show-all' | 'collapse';
     title: string;
     taskCount: number;
     expanded: boolean;
   }
-  | (GanttRow & { kind: 'task' });
+  | (GanttRow & { kind: 'task'; sectionId?: string });
 
 interface GanttRenderGroup {
   key: string;
+  sectionId: string;
   startRow: number;
   rowSpan: number;
   offsetTop: boolean;
@@ -485,6 +580,25 @@ function formatMonthDay(date: Date): string {
   });
 }
 
+function isEnglishLocale(): boolean {
+  const siyuan = window.siyuan as any;
+  const locale = String(
+    siyuan?.config?.appearance?.lang
+      || siyuan?.config?.lang
+      || (typeof navigator !== 'undefined' ? navigator.language : '')
+  ).replace('-', '_').toLowerCase();
+  return locale.startsWith('en');
+}
+
+function formatGanttMonthLabel(date: Date): string {
+  if (isEnglishLocale()) {
+    return GANTT_EN_MONTH_LABELS[date.getMonth()] || '';
+  }
+  return formatTemplate('date.monthLabelTemplate', {
+    month: date.getMonth() + 1
+  });
+}
+
 function shiftDate(value: string | undefined, days: number): string {
   const date = parseTaskDate(value);
   if (!date) return value || '';
@@ -503,48 +617,6 @@ function parseTaskDate(value: string | undefined): Date | null {
 function stripHtml(value: string | undefined): string {
   if (!value) return '';
   return value.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-}
-
-function normalizeTaskBackgroundColorValue(backgroundColor?: string): string {
-  const raw = typeof backgroundColor === 'string' ? backgroundColor.trim() : '';
-  if (!raw) return '';
-  const cssVarMatch = raw.match(/^var\(--(pinch-background(?:10|[1-9]))\)$/);
-  if (cssVarMatch) return cssVarMatch[1];
-  return raw;
-}
-
-function resolveTaskGroupBackgroundColor(task: Pick<Task, 'groupId'>): string {
-  const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-  if (!groupId) return '';
-  const group = (props.taskGroups || []).find(item => item.id === groupId);
-  return normalizeTaskBackgroundColorValue(group?.color);
-}
-
-function resolveEffectiveTaskBackgroundColor(task: Pick<Task, 'backgroundColor' | 'groupId'>): string {
-  return normalizeTaskBackgroundColorValue(task.backgroundColor) || resolveTaskGroupBackgroundColor(task);
-}
-
-function resolveTaskBackgroundColor(backgroundColor?: string): string {
-  const raw = normalizeTaskBackgroundColorValue(backgroundColor);
-  if (!raw) return 'var(--b3-font-background9)';
-  if (/^pinch-background(?:10|[1-9])$/.test(raw)) return `var(--${raw})`;
-  if (/^background(1[0-3]|[4-9])$/.test(raw)) return `var(--b3-font-${raw})`;
-  return raw;
-}
-
-function resolveTaskColorIndex(backgroundColor?: string): number | null {
-  const raw = normalizeTaskBackgroundColorValue(backgroundColor);
-  if (!raw) return null;
-  const pinchMatch = raw.match(/^pinch-background(10|[1-9])$/);
-  if (pinchMatch) return Number(pinchMatch[1]);
-  const legacyMatch = raw.match(/^background(1[0-3]|[4-9])$/);
-  if (legacyMatch) return Number(legacyMatch[1]) - 3;
-  return null;
-}
-
-function resolveTaskAccentColor(backgroundColor?: string): string {
-  const index = resolveTaskColorIndex(backgroundColor) ?? 6;
-  return `var(--pinch-color${index})`;
 }
 
 function isRepeatTask(task: Task): boolean {
@@ -598,9 +670,9 @@ function buildDeadlineStyle(dueDate: Date | undefined, gridRow: number): Record<
 }
 
 function buildTaskColorStyle(task: Pick<Task, 'backgroundColor' | 'groupId'>): Record<string, string> {
-  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task);
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task, props.taskGroups);
   return {
-    backgroundColor: resolveTaskBackgroundColor(effectiveBackgroundColor),
+    background: resolveTaskBackgroundColor(effectiveBackgroundColor),
     '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
 }
@@ -765,13 +837,33 @@ function clearContextMenuDates(task: Task): void {
 
 async function setTaskBackgroundColor(task: Task, color: string): Promise<void> {
   if (!task) return;
+  const seriesId = typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+  const isRepeatTask = !!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const templateTask = isRepeatTask
+    ? (!task.isVirtual
+      ? task
+      : props.tasks.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId))
+    : undefined;
+  const persistenceTarget = templateTask || task;
   const updatedTask = { ...task, backgroundColor: color };
+
+  emit('task-color-changed', updatedTask);
+
   try {
-    await TaskRepository.updateTask(task.id, { backgroundColor: color });
+    if (persistenceTarget.type === 'block' && persistenceTarget.blockId) {
+      await setBlockAttrs(persistenceTarget.blockId, {
+        'custom-task-background-color': color
+      });
+    } else {
+      await TaskRepository.updateTask(persistenceTarget.id, { backgroundColor: color });
+    }
+
+    if (isRepeatTask) {
+      await updateRepeatSeriesBackgroundColor(persistenceTarget, color);
+    }
   } catch (error) {
     console.error('[GanttView] failed to update task color', error);
   }
-  emit('task-date-changed', updatedTask);
 }
 
 async function saveTaskRepeatRule(task: Task, repeat: RepeatFrequency | RepeatRuleInput): Promise<void> {
@@ -860,9 +952,15 @@ function clampDragDeltaDays(state: GanttDragState, deltaDays: number): number {
   return deltaDays;
 }
 
-function handleTaskBarPointerUp(): void {
+function handleTaskBarPointerUp(event: PointerEvent): void {
   if (!dragState) return;
   const state = dragState;
+
+  if (!state.hasMoved && state.mode === 'move') {
+    cleanupTaskBarDrag();
+    emit('edit-task', state.task, event);
+    return;
+  }
 
   if (!state.hasMoved || state.lastDeltaDays === 0) {
     cleanupTaskBarDrag();
@@ -927,14 +1025,102 @@ function cleanupTaskBarDrag(): void {
   dragMode.value = null;
 }
 
+function isGoalSummaryResizable(row: GanttRenderRow): row is Extract<GanttRenderRow, { kind: 'section' }> {
+  return row.kind === 'section'
+    && !!row.summaryBarStyle
+    && !!row.summaryEndDate
+    && isValidGoalSectionId(row.sectionId);
+}
+
+function setOptimisticGoalDueDate(goalId: string, dueDate: string, scheduleCleanup = false): void {
+  const next = new Map(optimisticGoalDueDates.value);
+  next.set(goalId, dueDate);
+  optimisticGoalDueDates.value = next;
+
+  if (!scheduleCleanup) return;
+
+  const existingTimer = optimisticGoalDueDateTimers.get(goalId);
+  if (existingTimer) {
+    window.clearTimeout(existingTimer);
+  }
+  optimisticGoalDueDateTimers.set(goalId, window.setTimeout(() => {
+    optimisticGoalDueDateTimers.delete(goalId);
+    const current = new Map(optimisticGoalDueDates.value);
+    if (current.delete(goalId)) {
+      optimisticGoalDueDates.value = current;
+    }
+  }, 3000));
+}
+
+function clearOptimisticGoalDueDate(goalId: string): void {
+  const next = new Map(optimisticGoalDueDates.value);
+  if (next.delete(goalId)) {
+    optimisticGoalDueDates.value = next;
+  }
+}
+
+function handleGoalSummaryDueHandlePointerDown(
+  event: PointerEvent,
+  row: Extract<GanttRenderRow, { kind: 'section' }>
+): void {
+  if (event.button !== 0 || !isGoalSummaryResizable(row) || !row.summaryEndDate) return;
+  const goalId = row.sectionId;
+  goalDueDateDragState = {
+    goalId,
+    startX: event.clientX,
+    originalDueDate: row.summaryEndDate,
+    previewDueDate: row.summaryEndDate,
+    hasMoved: false
+  };
+  draggingGoalDueDateId.value = goalId;
+  setOptimisticGoalDueDate(goalId, formatDate(row.summaryEndDate));
+  document.addEventListener('pointermove', handleGoalSummaryDueHandlePointerMove);
+  document.addEventListener('pointerup', handleGoalSummaryDueHandlePointerUp);
+}
+
+function handleGoalSummaryDueHandlePointerMove(event: PointerEvent): void {
+  if (!goalDueDateDragState) return;
+  const deltaPixels = event.clientX - goalDueDateDragState.startX;
+  const deltaDays = Math.round(deltaPixels / effectiveDayColumnWidth.value);
+  const previewDueDate = addDays(goalDueDateDragState.originalDueDate, deltaDays);
+  goalDueDateDragState.hasMoved = goalDueDateDragState.hasMoved || Math.abs(deltaPixels) > 3 || deltaDays !== 0;
+  goalDueDateDragState.previewDueDate = previewDueDate;
+  setOptimisticGoalDueDate(goalDueDateDragState.goalId, formatDate(previewDueDate));
+}
+
+function handleGoalSummaryDueHandlePointerUp(): void {
+  if (!goalDueDateDragState) return;
+
+  const state = goalDueDateDragState;
+  const nextDueDate = formatDate(state.previewDueDate);
+  const originalDueDate = formatDate(state.originalDueDate);
+  if (state.hasMoved && nextDueDate !== originalDueDate) {
+    setOptimisticGoalDueDate(state.goalId, nextDueDate, true);
+    emit('goal-due-date-changed', state.goalId, nextDueDate);
+  } else {
+    clearOptimisticGoalDueDate(state.goalId);
+  }
+  cleanupGoalDueDateDrag();
+}
+
+function cleanupGoalDueDateDrag(): void {
+  document.removeEventListener('pointermove', handleGoalSummaryDueHandlePointerMove);
+  document.removeEventListener('pointerup', handleGoalSummaryDueHandlePointerUp);
+  goalDueDateDragState = null;
+  draggingGoalDueDateId.value = null;
+}
+
 onBeforeUnmount(() => {
   cleanupTaskBarDrag();
+  cleanupGoalDueDateDrag();
   unbindContextMenuOutsidePointerDown();
   optimisticTaskDateTimers.forEach(timer => window.clearTimeout(timer));
   optimisticTaskDateTimers.clear();
+  optimisticGoalDueDateTimers.forEach(timer => window.clearTimeout(timer));
+  optimisticGoalDueDateTimers.clear();
   resizeObserver?.disconnect();
   resizeObserver = null;
-  window.removeEventListener('resize', updateShellWidth);
+  window.removeEventListener('resize', updateShellMetrics);
 });
 
 function parseExternalTask(event: DragEvent): Task | null {
@@ -956,6 +1142,36 @@ function hasExternalTaskDragData(event: DragEvent): boolean {
   if (externalDropTask.value) return true;
   const types = Array.from(event.dataTransfer?.types || []);
   return types.includes('application/json') || types.includes('text/plain');
+}
+
+function isValidGoalSectionId(sectionId: string): boolean {
+  const normalizedSectionId = sectionId.trim();
+  return props.groupMode === 'goal'
+    && normalizedSectionId.length > 0
+    && (props.goals || []).some(goal => goal.id === normalizedSectionId);
+}
+
+function getGoalSectionIdForRenderRow(row: GanttRenderRow): string | null {
+  const sectionId = typeof row.sectionId === 'string' ? row.sectionId.trim() : '';
+  return isValidGoalSectionId(sectionId) ? sectionId : null;
+}
+
+function isGoalSectionDropTarget(sectionId: string | null | undefined): boolean {
+  const normalizedSectionId = typeof sectionId === 'string' ? sectionId.trim() : '';
+  return normalizedSectionId.length > 0 && normalizedSectionId === dragOverGoalSectionId.value;
+}
+
+function isGoalRenderRowDropTarget(row: GanttRenderRow): boolean {
+  return isGoalSectionDropTarget(getGoalSectionIdForRenderRow(row));
+}
+
+function resolveExternalGoalDropTarget(event: DragEvent): string | null {
+  const target = event.target instanceof Element
+    ? event.target
+    : (event.target instanceof Node ? event.target.parentElement : null);
+  const goalElement = target?.closest('[data-goal-section-id]') as HTMLElement | null;
+  const sectionId = goalElement?.dataset.goalSectionId || '';
+  return isValidGoalSectionId(sectionId) ? sectionId : null;
 }
 
 function handleRowLabelDragStart(event: DragEvent, task: Task): void {
@@ -1007,12 +1223,14 @@ function resolveExternalDrop(event: DragEvent): ExternalDropResolution | null {
 
 function clearExternalDropState(): void {
   dragOverDayKey.value = null;
+  dragOverGoalSectionId.value = null;
   externalDropTask.value = null;
 }
 
 function handleExternalTaskDragOver(event: DragEvent): void {
   const day = resolveTimelineDayFromEvent(event);
-  if (!day || !hasExternalTaskDragData(event)) {
+  const goalSectionId = resolveExternalGoalDropTarget(event);
+  if ((!day && !goalSectionId) || !hasExternalTaskDragData(event)) {
     clearExternalDropState();
     return;
   }
@@ -1020,7 +1238,8 @@ function handleExternalTaskDragOver(event: DragEvent): void {
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'move';
   }
-  dragOverDayKey.value = formatDate(day);
+  dragOverDayKey.value = day ? formatDate(day) : null;
+  dragOverGoalSectionId.value = goalSectionId;
   externalDropTask.value = getDraggedTask(event);
 }
 
@@ -1039,14 +1258,21 @@ function handleExternalTaskDragLeave(event: DragEvent): void {
 
 function handleExternalTaskDrop(event: DragEvent): void {
   const resolution = resolveExternalDrop(event);
+  const goalSectionId = resolveExternalGoalDropTarget(event);
+  const task = resolution?.task || getDraggedTask(event);
   clearExternalDropState();
-  if (!resolution) return;
+  if (!resolution && (!task || !goalSectionId)) return;
   event.preventDefault();
-  emit('task-date-changed', {
-    ...resolution.task,
-    startDate: formatDate(resolution.startDate),
-    dueDate: formatDate(resolution.endDate)
-  });
+  if (task && goalSectionId) {
+    emit('task-goal-drop', task, goalSectionId);
+  }
+  if (resolution) {
+    emit('task-date-changed', {
+      ...resolution.task,
+      startDate: formatDate(resolution.startDate),
+      dueDate: formatDate(resolution.endDate)
+    });
+  }
 }
 
 const externalDropPreviewTitle = computed(() => {
@@ -1080,8 +1306,49 @@ const effectiveDayColumnWidth = computed(() => {
   return Math.max(MIN_DAY_COLUMN_WIDTH, Math.floor(availableTimelineWidth / timelineDayCount.value));
 });
 
+function updateShellMetrics(): void {
+  const shell = ganttShellRef.value;
+  shellWidth.value = shell?.clientWidth || 0;
+  shellHeight.value = shell?.clientHeight || 0;
+  shellScrollTop.value = shell?.scrollTop || 0;
+}
+
 function updateShellWidth(): void {
-  shellWidth.value = ganttShellRef.value?.clientWidth || 0;
+  updateShellMetrics();
+}
+
+function handleGanttShellScroll(): void {
+  shellScrollTop.value = ganttShellRef.value?.scrollTop || 0;
+  clearGanttGridHover();
+}
+
+function clearGanttGridHover(): void {
+  hoveredRenderRowKey.value = null;
+}
+
+function isRenderRowHovered(row: GanttRenderRow): boolean {
+  return hoveredRenderRowKey.value === row.key;
+}
+
+function handleGanttGridPointerMove(event: PointerEvent): void {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('.gantt-day-header, .gantt-corner, .gantt-header-row-bg, .gantt-header-row-border')) {
+    clearGanttGridHover();
+    return;
+  }
+
+  const grid = event.currentTarget as HTMLElement | null;
+  if (!grid) return;
+
+  const rect = grid.getBoundingClientRect();
+  const rowIndex = Math.floor((event.clientY - rect.top) / GANTT_ROW_HEIGHT) - 1;
+  const nextKey = rowIndex >= 0 && rowIndex < renderRows.value.length
+    ? renderRows.value[rowIndex]?.key || null
+    : null;
+
+  if (hoveredRenderRowKey.value !== nextKey) {
+    hoveredRenderRowKey.value = nextKey;
+  }
 }
 
 function getTodayColumnIndex(): number {
@@ -1117,12 +1384,12 @@ function scheduleScrollTodayIntoView(): void {
 
 onMounted(() => {
   void nextTick(() => {
-    updateShellWidth();
+    updateShellMetrics();
     if (typeof ResizeObserver !== 'undefined' && ganttShellRef.value) {
-      resizeObserver = new ResizeObserver(() => updateShellWidth());
+      resizeObserver = new ResizeObserver(() => updateShellMetrics());
       resizeObserver.observe(ganttShellRef.value);
     } else {
-      window.addEventListener('resize', updateShellWidth);
+      window.addEventListener('resize', updateShellMetrics);
     }
     scrollTodayIntoView();
   });
@@ -1161,6 +1428,34 @@ watch(
   { deep: true }
 );
 
+watch(
+  () => props.goals,
+  (goals) => {
+    if (optimisticGoalDueDates.value.size === 0) return;
+
+    const next = new Map(optimisticGoalDueDates.value);
+    (goals || []).forEach((goal) => {
+      const optimisticDueDate = next.get(goal.id);
+      if (!optimisticDueDate) return;
+
+      const dueDate = typeof goal.dueDate === 'string' ? goal.dueDate : '';
+      if (dueDate === optimisticDueDate) {
+        next.delete(goal.id);
+        const timer = optimisticGoalDueDateTimers.get(goal.id);
+        if (timer) {
+          window.clearTimeout(timer);
+          optimisticGoalDueDateTimers.delete(goal.id);
+        }
+      }
+    });
+
+    if (next.size !== optimisticGoalDueDates.value.size) {
+      optimisticGoalDueDates.value = next;
+    }
+  },
+  { deep: true }
+);
+
 const timelineDays = computed<TimelineDay[]>(() => {
   const todayKey = formatDateKey(today.value);
   return Array.from({ length: timelineDayCount.value }, (_, index) => {
@@ -1168,9 +1463,7 @@ const timelineDays = computed<TimelineDay[]>(() => {
     const weekday = date.getDay();
     return {
       key: formatDateKey(date),
-      monthLabel: formatTemplate('date.monthLabelTemplate', {
-        month: date.getMonth() + 1
-      }),
+      monthLabel: formatGanttMonthLabel(date),
       dayLabel: String(date.getDate()),
       isToday: formatDateKey(date) === todayKey,
       isWeekend: weekday === 0 || weekday === 6
@@ -1287,28 +1580,12 @@ const scheduledTaskRows = computed<GanttRow[]>(() => {
     });
 });
 
-function canRenderTaskAsBar(task: Task): boolean {
-  const dueDate = parseTaskDate(task.dueDate);
-  if (isRepeatTask(task) && !dueDate) return false;
-  return !!parseTaskDate(task.startDate || task.dueDate) && !!(dueDate || parseTaskDate(task.startDate));
-}
-
 function getRepeatSeriesId(task: Task): string {
   return typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
 }
 
 function isTaskInGoal(task: Task, goal: Goal): boolean {
-  const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
-  const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
-  if (!notebookId || !rootId) return false;
-
-  return goal.members.some((member) =>
-    member.notebookId === notebookId && member.documentId === rootId
-  );
-}
-
-function hasExplicitTaskRange(task: Task): boolean {
-  return !!parseTaskDate(task.startDate) && !!parseTaskDate(task.dueDate);
+  return isTaskInGoalScope(goal, task);
 }
 
 function isTaskInAnyGoal(task: Task, goals: Goal[]): boolean {
@@ -1325,10 +1602,16 @@ function buildUnscheduledTaskRow(task: Task): GanttRow {
   };
 }
 
-function buildGoalUnscheduledRows(goal: Goal, scheduledRows: GanttRow[]): GanttRow[] {
+function buildUnscheduledRows(
+  scheduledRows: GanttRow[],
+  matchesTask: (task: Task) => boolean
+): GanttRow[] {
+  const scheduledTaskIds = new Set<string>();
   const scheduledRepeatSeriesIds = new Set<string>();
   scheduledRows.forEach((row) => {
     row.bars.forEach((bar) => {
+      const taskId = typeof bar.task.id === 'string' ? bar.task.id.trim() : '';
+      if (taskId) scheduledTaskIds.add(taskId);
       const repeatSeriesId = getRepeatSeriesId(bar.task);
       if (repeatSeriesId) scheduledRepeatSeriesIds.add(repeatSeriesId);
     });
@@ -1336,10 +1619,12 @@ function buildGoalUnscheduledRows(goal: Goal, scheduledRows: GanttRow[]): GanttR
 
   const rowByKey = new Map<string, GanttRow>();
   props.tasks.forEach((task) => {
-    if (canRenderTaskAsBar(task) || !isTaskInGoal(task, goal)) return;
+    if (!matchesTask(task)) return;
 
     const repeatSeriesId = getRepeatSeriesId(task);
     if (repeatSeriesId && scheduledRepeatSeriesIds.has(repeatSeriesId)) return;
+    const taskId = typeof task.id === 'string' ? task.id.trim() : '';
+    if (!repeatSeriesId && taskId && scheduledTaskIds.has(taskId)) return;
 
     const row = buildUnscheduledTaskRow(task);
     if (!rowByKey.has(row.key)) {
@@ -1348,7 +1633,22 @@ function buildGoalUnscheduledRows(goal: Goal, scheduledRows: GanttRow[]): GanttR
   });
 
   return Array.from(rowByKey.values())
-    .sort((left, right) => left.title.localeCompare(right.title, 'zh-Hans-CN'));
+    .sort(compareUnscheduledRows);
+}
+
+function compareUnscheduledRows(left: GanttRow, right: GanttRow): number {
+  const leftCompleted = left.primaryTask.status === 'completed';
+  const rightCompleted = right.primaryTask.status === 'completed';
+  if (leftCompleted !== rightCompleted) return leftCompleted ? 1 : -1;
+  return left.title.localeCompare(right.title, 'zh-Hans-CN');
+}
+
+function buildGoalUnscheduledRows(goal: Goal, scheduledRows: GanttRow[]): GanttRow[] {
+  return buildUnscheduledRows(scheduledRows, task => isTaskInGoal(task, goal));
+}
+
+function buildDocumentUnscheduledRows(documentId: string, scheduledRows: GanttRow[]): GanttRow[] {
+  return buildUnscheduledRows(scheduledRows, task => getTaskDocumentId(task) === documentId);
 }
 
 function getRowTaskCount(row: GanttRow): number {
@@ -1393,7 +1693,8 @@ function buildGoalSections(): GanttSection[] {
     const summaryTasks = props.tasks.filter(task => isTaskInGoal(task, goal));
     if (rows.length === 0 && summaryTasks.length === 0) return;
 
-    const dueDate = parseTaskDate(goal.dueDate);
+    const effectiveDueDateValue = optimisticGoalDueDates.value.get(goal.id) ?? goal.dueDate;
+    const dueDate = parseTaskDate(effectiveDueDateValue);
     sections.push({
       id: goal.id,
       title: goal.name || t('taskManager.untitledGoal'),
@@ -1406,14 +1707,10 @@ function buildGoalSections(): GanttSection[] {
     });
   });
 
-  const unassignedSummaryTasks = props.tasks.filter(task =>
-    hasExplicitTaskRange(task) && !isTaskInAnyGoal(task, goals)
-  );
+  const unassignedSummaryTasks = props.tasks.filter(task => !isTaskInAnyGoal(task, goals));
   const unassignedRows = scheduledTaskRows.value
     .map<GanttRow | null>((row) => {
-      const bars = row.bars.filter(bar =>
-        hasExplicitTaskRange(bar.task) && !isTaskInAnyGoal(bar.task, goals)
-      );
+      const bars = row.bars.filter(bar => !isTaskInAnyGoal(bar.task, goals));
       if (bars.length === 0) return null;
       return {
         ...row,
@@ -1425,12 +1722,17 @@ function buildGoalSections(): GanttSection[] {
       };
     })
     .filter((row): row is GanttRow => row !== null);
-  if (unassignedRows.length > 0 || unassignedSummaryTasks.length > 0) {
+  const unassignedUnscheduledRows = buildUnscheduledRows(
+    unassignedRows,
+    task => !isTaskInAnyGoal(task, goals)
+  );
+  const unassignedSectionRows = [...unassignedRows, ...unassignedUnscheduledRows];
+  if (unassignedSectionRows.length > 0 || unassignedSummaryTasks.length > 0) {
     sections.push({
       id: 'unassigned',
       title: t('ganttView.unassignedGoal'),
       emoji: '•',
-      rows: unassignedRows,
+      rows: unassignedSectionRows,
       summaryTasks: unassignedSummaryTasks
     });
   }
@@ -1469,6 +1771,30 @@ function buildDocumentSections(): GanttSection[] {
     });
   });
 
+  summaryTasksByDocument.forEach((summaryTasks, id) => {
+    let section = sectionByDocument.get(id);
+    const unscheduledRows = buildDocumentUnscheduledRows(id, section?.rows || []);
+    if (!section && unscheduledRows.length === 0) {
+      return;
+    }
+
+    if (!section) {
+      const primaryTask = summaryTasks[0];
+      section = {
+        id,
+        title: primaryTask ? getTaskDocumentTitle(primaryTask) : t('ganttView.unassignedDocument'),
+        emoji: '📄',
+        rows: [],
+        summaryTasks
+      };
+      sectionByDocument.set(id, section);
+    }
+
+    if (unscheduledRows.length > 0) {
+      section.rows.push(...unscheduledRows);
+    }
+  });
+
   return Array.from(sectionByDocument.values()).sort((left, right) =>
     left.title.localeCompare(right.title, 'zh-Hans-CN')
   );
@@ -1477,7 +1803,7 @@ function buildDocumentSections(): GanttSection[] {
 function buildSectionSummary(
   section: GanttSection,
   gridRow: number
-): Pick<Extract<GanttRenderRow, { kind: 'section' }>, 'completedTasks' | 'summaryProgress' | 'summaryText' | 'summaryTitle' | 'summaryBarStyle' | 'deadlineStyle' | 'deadlineTitle' | 'isOverdue' | 'hasScheduleRisk'> {
+): Pick<Extract<GanttRenderRow, { kind: 'section' }>, 'completedTasks' | 'summaryProgress' | 'summaryText' | 'summaryTitle' | 'summaryBarStyle' | 'summaryEndDate' | 'deadlineStyle' | 'deadlineTitle' | 'isOverdue' | 'hasScheduleRisk'> {
   const sectionBars = section.rows.flatMap(row => row.bars);
   const sectionTasks = section.summaryTasks.length > 0
     ? section.summaryTasks
@@ -1498,6 +1824,7 @@ function buildSectionSummary(
       summaryText,
       summaryTitle,
       summaryBarStyle: null,
+      summaryEndDate: null,
       deadlineStyle: buildDeadlineStyle(section.hasDeadline ? section.dueDate : undefined, gridRow),
       deadlineTitle: section.dueDate ? `${section.title} ${formatMonthDay(section.dueDate)}` : '',
       isOverdue,
@@ -1525,6 +1852,7 @@ function buildSectionSummary(
     summaryText,
     summaryTitle,
     summaryBarStyle: buildClippedBarStyle(sectionStart, sectionEnd, gridRow),
+    summaryEndDate: sectionEnd,
     deadlineStyle: buildDeadlineStyle(section.hasDeadline ? section.dueDate : undefined, gridRow),
     deadlineTitle: section.dueDate ? `${section.title} ${formatMonthDay(section.dueDate)}` : '',
     isOverdue,
@@ -1542,14 +1870,30 @@ function toggleSection(sectionId: string): void {
   collapsedSectionIds.value = next;
 }
 
-function toggleUnscheduledRows(sectionId: string): void {
-  const next = new Set(expandedUnscheduledSectionIds.value);
-  if (next.has(sectionId)) {
+function getUnscheduledDisplayMode(sectionId: string): UnscheduledDisplayMode {
+  return unscheduledSectionModes.value.get(sectionId) || 'collapsed';
+}
+
+function setUnscheduledDisplayMode(sectionId: string, mode: UnscheduledDisplayMode): void {
+  const next = new Map(unscheduledSectionModes.value);
+  if (mode === 'collapsed') {
     next.delete(sectionId);
   } else {
-    next.add(sectionId);
+    next.set(sectionId, mode);
   }
-  expandedUnscheduledSectionIds.value = next;
+  unscheduledSectionModes.value = next;
+}
+
+function handleUnscheduledControlClick(row: Extract<GanttRenderRow, { kind: 'unscheduled-toggle' }>): void {
+  if (row.action === 'show-incomplete') {
+    setUnscheduledDisplayMode(row.sectionId, 'incomplete');
+    return;
+  }
+  if (row.action === 'show-all') {
+    setUnscheduledDisplayMode(row.sectionId, 'all');
+    return;
+  }
+  setUnscheduledDisplayMode(row.sectionId, 'collapsed');
 }
 
 const ganttSections = computed<GanttSection[]>(() => {
@@ -1563,6 +1907,73 @@ const ganttSections = computed<GanttSection[]>(() => {
 });
 
 const renderRows = computed<GanttRenderRow[]>(() => {
+  const pushUnscheduledControlRow = (
+    rows: GanttRenderRow[],
+    sectionId: string,
+    key: string,
+    action: Extract<GanttRenderRow, { kind: 'unscheduled-toggle' }>['action'],
+    title: string,
+    taskCount: number,
+    expanded: boolean
+  ): void => {
+    rows.push({
+      kind: 'unscheduled-toggle',
+      key,
+      sectionId,
+      action,
+      title,
+      taskCount,
+      expanded
+    });
+  };
+
+  const getUnscheduledControlTitle = (
+    action: Extract<GanttRenderRow, { kind: 'unscheduled-toggle' }>['action']
+  ): string => {
+    if (action === 'show-incomplete') return t('ganttView.showIncompleteUnscheduledTasks');
+    if (action === 'show-all') return t('ganttView.showAllUnscheduledTasks');
+    return t('ganttView.collapseUnscheduledTasks');
+  };
+
+  const pushCollapsedUnscheduledControlRow = (
+    rows: GanttRenderRow[],
+    sectionId: string,
+    keyPrefix: string,
+    unscheduledRows: GanttRow[],
+    incompleteRows: GanttRow[]
+  ): void => {
+    const hasIncompleteRows = incompleteRows.length > 0;
+    const action: Extract<GanttRenderRow, { kind: 'unscheduled-toggle' }>['action'] = hasIncompleteRows
+      ? 'show-incomplete'
+      : 'show-all';
+    pushUnscheduledControlRow(
+      rows,
+      sectionId,
+      `${keyPrefix}:unscheduled-toggle`,
+      action,
+      getUnscheduledControlTitle(action),
+      hasIncompleteRows ? incompleteRows.length : unscheduledRows.length,
+      false
+    );
+  };
+
+  const appendUnscheduledTaskRows = (
+    rows: GanttRenderRow[],
+    sectionId: string,
+    keyPrefix: string,
+    taskRows: GanttRow[]
+  ): void => {
+    taskRows.forEach((row) => {
+      rows.push({
+        ...row,
+        kind: 'task',
+        sectionId,
+        key: `${keyPrefix}:${row.key}`,
+        bars: []
+      });
+    });
+  };
+
   const appendSection = (rows: GanttRenderRow[], section: GanttSection): void => {
     const sectionGridRow = rows.length + 2;
     const collapsed = collapsedSectionIds.value.has(section.id);
@@ -1583,17 +1994,23 @@ const renderRows = computed<GanttRenderRow[]>(() => {
 
     const scheduledRows = section.rows.filter(row => !row.isUnscheduled);
     const unscheduledRows = section.rows.filter(row => row.isUnscheduled);
-    const unscheduledExpanded = expandedUnscheduledSectionIds.value.has(section.id);
-    const pushUnscheduledToggleRow = (): void => {
+    const incompleteUnscheduledRows = unscheduledRows.filter(row => row.primaryTask.status !== 'completed');
+    const unscheduledMode = getUnscheduledDisplayMode(section.id);
+    const pushUnscheduledToggleRow = (
+      action: Extract<GanttRenderRow, { kind: 'unscheduled-toggle' }>['action'],
+      taskCount: number,
+      expanded: boolean
+    ): void => {
       if (unscheduledRows.length === 0) return;
-      rows.push({
-        kind: 'unscheduled-toggle',
-        key: `${section.id}:unscheduled-toggle`,
-        sectionId: section.id,
-        title: t('ganttView.moreUnscheduledTasks'),
-        taskCount: unscheduledRows.length,
-        expanded: unscheduledExpanded
-      });
+      pushUnscheduledControlRow(
+        rows,
+        section.id,
+        `${section.id}:unscheduled-${action}`,
+        action,
+        getUnscheduledControlTitle(action),
+        taskCount,
+        expanded
+      );
     };
 
     scheduledRows.forEach((row) => {
@@ -1601,6 +2018,7 @@ const renderRows = computed<GanttRenderRow[]>(() => {
       rows.push({
         ...row,
         kind: 'task',
+        sectionId: section.id,
         key: `${section.id}:${row.key}`,
         bars: row.bars.map(bar => ({
           ...bar,
@@ -1615,35 +2033,88 @@ const renderRows = computed<GanttRenderRow[]>(() => {
       });
     });
 
-    if (!unscheduledExpanded) {
-      pushUnscheduledToggleRow();
+    if (unscheduledMode === 'collapsed') {
+      pushCollapsedUnscheduledControlRow(rows, section.id, section.id, unscheduledRows, incompleteUnscheduledRows);
       return;
     }
 
-    unscheduledRows.forEach((row) => {
-      rows.push({
-        ...row,
-        kind: 'task',
-        key: `${section.id}:${row.key}`,
-        bars: []
-      });
-    });
-    pushUnscheduledToggleRow();
+    if (unscheduledMode === 'incomplete') {
+      appendUnscheduledTaskRows(rows, section.id, section.id, incompleteUnscheduledRows);
+      pushUnscheduledToggleRow('show-all', unscheduledRows.length, true);
+      return;
+    }
+
+    appendUnscheduledTaskRows(rows, section.id, section.id, unscheduledRows);
+    pushUnscheduledToggleRow('collapse', unscheduledRows.length, true);
   };
 
   if (props.groupMode === 'none') {
-    const rows: GanttRenderRow[] = scheduledTaskRows.value.map((row, index) => ({
-      ...row,
-      kind: 'task',
-      key: row.key,
-      bars: row.bars.map(bar => ({
-        ...bar,
-        barStyle: {
-          ...bar.barStyle,
-          gridRow: `${index + 2}`
-        }
-      }))
-    }));
+    const rows: GanttRenderRow[] = [];
+    const unscheduledRows = buildUnscheduledRows(scheduledTaskRows.value, () => true);
+    const incompleteUnscheduledRows = unscheduledRows.filter(row => row.primaryTask.status !== 'completed');
+    const unscheduledMode = getUnscheduledDisplayMode(UNGROUPED_UNSCHEDULED_SECTION_ID);
+    const pushUnscheduledToggleRow = (
+      action: Extract<GanttRenderRow, { kind: 'unscheduled-toggle' }>['action'],
+      taskCount: number,
+      expanded: boolean
+    ): void => {
+      if (unscheduledRows.length === 0) return;
+      pushUnscheduledControlRow(
+        rows,
+        UNGROUPED_UNSCHEDULED_SECTION_ID,
+        `${UNGROUPED_UNSCHEDULED_SECTION_ID}:unscheduled-${action}`,
+        action,
+        getUnscheduledControlTitle(action),
+        taskCount,
+        expanded
+      );
+    };
+
+    scheduledTaskRows.value.forEach((row) => {
+      const gridRow = rows.length + 2;
+      rows.push({
+        ...row,
+        kind: 'task',
+        key: row.key,
+        bars: row.bars.map(bar => ({
+          ...bar,
+          barStyle: {
+            ...bar.barStyle,
+            gridRow: `${gridRow}`
+          }
+        }))
+      });
+    });
+
+    if (unscheduledMode === 'collapsed') {
+      pushCollapsedUnscheduledControlRow(
+        rows,
+        UNGROUPED_UNSCHEDULED_SECTION_ID,
+        UNGROUPED_UNSCHEDULED_SECTION_ID,
+        unscheduledRows,
+        incompleteUnscheduledRows
+      );
+      return rows;
+    }
+
+    if (unscheduledMode === 'incomplete') {
+      appendUnscheduledTaskRows(
+        rows,
+        UNGROUPED_UNSCHEDULED_SECTION_ID,
+        UNGROUPED_UNSCHEDULED_SECTION_ID,
+        incompleteUnscheduledRows
+      );
+      pushUnscheduledToggleRow('show-all', unscheduledRows.length, true);
+      return rows;
+    }
+
+    appendUnscheduledTaskRows(
+      rows,
+      UNGROUPED_UNSCHEDULED_SECTION_ID,
+      UNGROUPED_UNSCHEDULED_SECTION_ID,
+      unscheduledRows
+    );
+    pushUnscheduledToggleRow('collapse', unscheduledRows.length, true);
     return rows;
   }
 
@@ -1652,6 +2123,22 @@ const renderRows = computed<GanttRenderRow[]>(() => {
     appendSection(rows, section);
   });
   return rows;
+});
+
+const visibleRenderRows = computed<Array<{ row: GanttRenderRow; rowIndex: number }>>(() => {
+  const rows = renderRows.value;
+  if (rows.length === 0) return [];
+
+  const viewportHeight = shellHeight.value || GANTT_ROW_HEIGHT * 16;
+  const rawStart = Math.floor(Math.max(0, shellScrollTop.value - GANTT_ROW_HEIGHT * 2) / GANTT_ROW_HEIGHT);
+  const start = Math.max(0, rawStart - VIRTUAL_ROW_OVERSCAN);
+  const rawEnd = Math.ceil((shellScrollTop.value + viewportHeight + GANTT_ROW_HEIGHT * 2) / GANTT_ROW_HEIGHT);
+  const end = Math.min(rows.length, rawEnd + VIRTUAL_ROW_OVERSCAN);
+
+  return rows.slice(start, end).map((row, offset) => ({
+    row,
+    rowIndex: start + offset
+  }));
 });
 
 function isGroupStart(rowIndex: number): boolean {
@@ -1680,17 +2167,17 @@ const renderGroups = computed<GanttRenderGroup[]>(() => {
       && candidate.kind === 'unscheduled-toggle'
     );
     const markerStartIndex = index;
-    const markerEndIndex = unscheduledToggleIndex === -1 ? endIndex : unscheduledToggleIndex;
+    const markerEndIndex = unscheduledToggleIndex === -1 ? endIndex : unscheduledToggleIndex + 1;
     const markerRowSpan = Math.max(0, markerEndIndex - markerStartIndex);
     const deadlineStyle = row.deadlineStyle
       ? {
         ...row.deadlineStyle,
-        marginTop: shouldOffset ? '10px' : '0',
         gridRow: `${markerStartIndex + 2} / span ${markerRowSpan}`
       }
       : null;
     groups.push({
       key: `group-panel:${row.sectionId}`,
+      sectionId: getGoalSectionIdForRenderRow(row) || '',
       startRow: index + 2,
       rowSpan: Math.max(1, endIndex - index),
       offsetTop: shouldOffset,
@@ -1702,12 +2189,16 @@ const renderGroups = computed<GanttRenderGroup[]>(() => {
 });
 
 const gridStyle = computed(() => ({
-  gridTemplateColumns: `${LABEL_COLUMN_WIDTH}px repeat(${timelineDayCount.value}, ${effectiveDayColumnWidth.value}px)`
+  gridTemplateColumns: `${LABEL_COLUMN_WIDTH}px repeat(${timelineDayCount.value}, ${effectiveDayColumnWidth.value}px)`,
+  minHeight: `${(renderRows.value.length + 1) * GANTT_ROW_HEIGHT}px`
 }));
 </script>
 
 <style scoped>
 .gantt-view {
+  --gantt-toolbar-height: 41px;
+  --gantt-header-height: 42px;
+  --gantt-header-chip-offset: 6px;
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -1731,17 +2222,18 @@ const gridStyle = computed(() => ({
 
 .gantt-toolbar {
   position: sticky;
+  top: 0;
   left: 0;
-  z-index: 6;
+  z-index: 8;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   width: min(100vw, 100%);
   min-width: 0;
+  min-height: var(--gantt-toolbar-height);
   padding: 4px 10px;
-  border-bottom: 1px solid var(--b3-theme-border);
-  background: var(--b3-theme-surface);
+  background: linear-gradient(var(--b3-list-hover), var(--b3-list-hover)), var(--b3-theme-background);
   box-sizing: border-box;
 }
 
@@ -1799,25 +2291,44 @@ const gridStyle = computed(() => ({
   pointer-events: none;
 }
 
+.gantt-group-panel.goal-drop-target {
+  background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 20%, transparent);
+}
+
+.gantt-virtual-spacer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .gantt-corner,
 .gantt-day-header {
   position: sticky;
-  top: 0;
-  z-index: 3;
   background: var(--b3-theme-background);
 }
 
+.gantt-header-row-bg {
+  position: sticky;
+  top: var(--gantt-toolbar-height);
+  z-index: 3;
+  height: var(--gantt-header-height);
+  background: var(--b3-theme-background);
+  pointer-events: none;
+}
+
 .gantt-corner {
+  top: var(--gantt-toolbar-height);
   left: 0;
-  z-index: 5;
+  z-index: 6;
   border-bottom: 1px solid var(--b3-list-hover);
+  background: var(--b3-theme-background);
   box-sizing: border-box;
 }
 
 .gantt-header-row-border {
   position: sticky;
-  top: 41px;
-  z-index: 4;
+  top: calc(var(--gantt-toolbar-height) + var(--gantt-header-height) - 1px);
+  z-index: 7;
   align-self: end;
   height: 1px;
   background: var(--b3-list-hover);
@@ -1825,6 +2336,8 @@ const gridStyle = computed(() => ({
 }
 
 .gantt-day-header {
+  top: calc(var(--gantt-toolbar-height) + var(--gantt-header-chip-offset));
+  z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1855,15 +2368,15 @@ const gridStyle = computed(() => ({
   position: sticky;
   left: 0;
   z-index: 2;
+  --gantt-row-label-base-bg: var(--b3-theme-background);
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 14px;
   border: 0;
-  border-right: 1px solid var(--b3-theme-surface-lighter);
-  border-bottom: 1px solid var(--b3-theme-surface-lighter);
-  background: var(--b3-theme-background);
+  border-right: 2px solid var(--b3-theme-surface-lighter);
+  background: var(--gantt-row-label-base-bg);
   color: var(--b3-theme-on-background);
   text-align: left;
   cursor: default;
@@ -1871,11 +2384,21 @@ const gridStyle = computed(() => ({
 
 .gantt-row-label.group-start,
 .gantt-day-cell.group-start {
-  margin-top: 10px;
+  border-top: 1px solid var(--b3-theme-surface-lighter);
+  border-right: 2px solid var(--b3-theme-surface-lighter);
 }
 
 .gantt-row-label:hover {
-  background: var(--b3-list-hover);
+  background: linear-gradient(var(--b3-list-hover), var(--b3-list-hover)), var(--gantt-row-label-base-bg);
+}
+
+.gantt-row-label.is-row-hovered:not(.goal-drop-target) {
+  background: linear-gradient(var(--b3-list-hover), var(--b3-list-hover)), var(--gantt-row-label-base-bg);
+}
+
+.gantt-row-label.goal-drop-target {
+  background: color-mix(in srgb, var(--b3-theme-primary) 14%, var(--b3-theme-background));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--b3-theme-primary) 68%, transparent);
 }
 
 .gantt-row-label[draggable='true'] {
@@ -1905,6 +2428,10 @@ const gridStyle = computed(() => ({
 }
 
 .gantt-row-label:hover .task-card-action-btn {
+  opacity: 1;
+}
+
+.gantt-row-label.is-row-hovered .task-card-action-btn {
   opacity: 1;
 }
 
@@ -1955,14 +2482,24 @@ const gridStyle = computed(() => ({
   z-index: 2;
   width: 100%;
   border-right: 0;
-  border-bottom: 0;
-  padding: 6px 8px;
+  border-top: 0;
+  border-bottom: 1px solid var(--b3-theme-surface-lighter);
+  border-right: 2px solid var(--b3-theme-surface-lighter);
+  padding: 6px;
   background: var(--b3-theme-background);
   cursor: pointer;
 }
 
 .gantt-unscheduled-control-row:hover {
   background: var(--b3-theme-background);
+}
+
+.gantt-unscheduled-control-row-divider {
+  position: relative;
+  z-index: 3;
+  align-self: stretch;
+  border-bottom: 1px solid var(--b3-theme-surface-lighter);
+  pointer-events: none;
 }
 
 .gantt-unscheduled-control-inner {
@@ -1974,11 +2511,15 @@ const gridStyle = computed(() => ({
   height: 30px;
   padding: 0 8px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--b3-list-hover) 55%, var(--b3-theme-background));
+  background: var(--b3-list-hover);
   box-sizing: border-box;
 }
 
 .gantt-unscheduled-control-row:hover .gantt-unscheduled-control-inner {
+  background: var(--b3-list-hover);
+}
+
+.gantt-unscheduled-control-row.is-row-hovered .gantt-unscheduled-control-inner {
   background: var(--b3-list-hover);
 }
 
@@ -1998,6 +2539,11 @@ const gridStyle = computed(() => ({
   color: var(--b3-theme-on-background);
 }
 
+.gantt-unscheduled-control-row.is-row-hovered .collapse-btn {
+  background: var(--b3-theme-surface-lighter);
+  color: var(--b3-theme-on-background);
+}
+
 .gantt-empty-label {
   cursor: default;
   color: var(--b3-theme-on-surface-light);
@@ -2009,15 +2555,20 @@ const gridStyle = computed(() => ({
 }
 
 .gantt-section-label {
+  --gantt-row-label-base-bg: var(--b3-theme-background);
   gap: 10px;
   cursor: pointer;
   font-weight: 600;
   color: var(--b3-theme-on-background);
-  background: var(--b3-body-background);
+  border-top: 1px solid var(--b3-theme-surface-lighter);
 }
 
 .gantt-section-label:hover {
-  background: var(--b3-body-background);
+  background: linear-gradient(var(--b3-list-hover), var(--b3-list-hover)), var(--gantt-row-label-base-bg);
+}
+
+.gantt-section-label.is-row-hovered:not(.goal-drop-target) {
+  background: linear-gradient(var(--b3-list-hover), var(--b3-list-hover)), var(--gantt-row-label-base-bg);
 }
 
 .gantt-section-icon {
@@ -2028,17 +2579,26 @@ const gridStyle = computed(() => ({
 
 .gantt-section-toggle {
   flex: 0 0 auto;
-  width: 0;
-  height: 0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-left: 6px solid currentColor;
-  transform: rotate(90deg);
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: transform 0.16s ease;
 }
 
 .gantt-section-label.collapsed .gantt-section-toggle {
-  transform: rotate(0deg);
+  transform: rotate(-90deg);
+}
+
+.gantt-section-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .gantt-section-count {
@@ -2047,7 +2607,7 @@ const gridStyle = computed(() => ({
   height: 18px;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--b3-theme-background);
+  background: var(--b3-list-hover);
   color: var(--b3-theme-on-surface-light);
   font-size: 11px;
   font-weight: 500;
@@ -2098,7 +2658,6 @@ const gridStyle = computed(() => ({
   position: relative;
   z-index: 1;
   border-right: 1px solid var(--b3-list-hover);
-  border-bottom: 1px solid var(--b3-list-hover);
   background: var(--b3-theme-background);
 }
 
@@ -2111,10 +2670,40 @@ const gridStyle = computed(() => ({
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--b3-theme-primary) 32%, transparent);
 }
 
+.gantt-day-cell.goal-drop-target {
+  background: color-mix(in srgb, var(--b3-theme-primary) 10%, var(--b3-theme-background));
+}
+
+.gantt-day-cell.drop-target.goal-drop-target {
+  background: color-mix(in srgb, var(--b3-theme-primary) 18%, var(--b3-theme-background));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--b3-theme-primary) 42%, transparent);
+}
+
 .gantt-day-cell.section {
   border-right: 0;
-  background: var(--b3-list-hover);
   box-shadow: none;
+  border-top: 1px solid var(--b3-theme-surface-lighter);
+  border-right: 1px solid var(--b3-list-hover);
+}
+
+.gantt-day-cell.unscheduled-control {
+  border-bottom: 1px solid var(--b3-theme-surface-lighter);
+}
+
+.gantt-day-cell.is-row-hovered:not(.drop-target):not(.goal-drop-target) {
+  background: var(--b3-list-hover);
+}
+
+.gantt-day-cell.weekend.is-row-hovered:not(.drop-target):not(.goal-drop-target) {
+  background: var(--b3-list-hover);
+}
+
+.gantt-day-cell.today.is-row-hovered:not(.drop-target):not(.goal-drop-target) {
+  background: var(--b3-list-hover);
+}
+
+.gantt-day-cell.section.is-row-hovered:not(.drop-target):not(.goal-drop-target) {
+  background: var(--b3-list-hover);
 }
 
 .gantt-deadline-marker {
@@ -2129,53 +2718,64 @@ const gridStyle = computed(() => ({
   pointer-events: none;
 }
 
-.gantt-group-panel.group-start {
-  margin-top: 10px;
-}
-
 .gantt-summary-bar {
   z-index: 1;
   position: relative;
   align-self: center;
+  --gantt-summary-bg-color: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
+  --gantt-summary-stripe-color: color-mix(in srgb, var(--b3-theme-primary) 20%, var(--b3-theme-background));
+  --gantt-summary-fill-color: color-mix(in srgb, var(--b3-theme-primary) 52%, var(--b3-theme-background));
   min-width: 48px;
   height: 26px;
   margin: 0 3px;
   padding: 0 7px;
   border: 1px solid color-mix(in srgb, var(--b3-theme-primary) 28%, var(--b3-theme-background));
   border-radius: 6px;
-  background: color-mix(in srgb, var(--b3-theme-primary) 10%, var(--b3-theme-background));
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--gantt-summary-bg-color) 0,
+    var(--gantt-summary-bg-color) 8px,
+    var(--gantt-summary-stripe-color) 8px,
+    var(--gantt-summary-stripe-color) 10px
+  );
   color: var(--b3-theme-on-background);
   font-size: 11px;
   font-weight: 600;
   line-height: 26px;
   overflow: hidden;
-  pointer-events: none;
-  --gantt-summary-fill-color: color-mix(in srgb, var(--b3-theme-primary) 52%, var(--b3-theme-background));
+  pointer-events: auto;
 }
 
-.gantt-summary-bar.group-start {
-  transform: translateY(5px);
+.gantt-summary-bar.goal-drop-target {
+  border-color: color-mix(in srgb, var(--b3-theme-primary) 54%, var(--b3-theme-background));
+}
+
+.gantt-summary-bar.dragging-due-date {
+  z-index: 25;
 }
 
 .gantt-summary-bar.overdue {
   border-color: color-mix(in srgb, #f98f7a 48%, transparent);
-  background: color-mix(in srgb, #f98f7a 14%, var(--b3-theme-background));
   color: var(--pinch-font-color10);
+  --gantt-summary-bg-color: color-mix(in srgb, #f98f7a 10%, var(--b3-theme-background));
+  --gantt-summary-stripe-color: color-mix(in srgb, #f98f7a 24%, var(--b3-theme-background));
   --gantt-summary-fill-color: color-mix(in srgb, #f98f7a 62%, var(--b3-theme-background));
 }
 
 .gantt-summary-bar.risk:not(.completed) {
   border-color: color-mix(in srgb, var(--pinch-color6) 20%, transparent);
-  background: color-mix(in srgb, var(--pinch-color6) 12%, var(--b3-theme-background));
   color: var(--pinch-font-color6);
+  --gantt-summary-bg-color: color-mix(in srgb, var(--pinch-color6) 8%, var(--b3-theme-background));
+  --gantt-summary-stripe-color: color-mix(in srgb, var(--pinch-color6) 20%, var(--b3-theme-background));
   --gantt-summary-fill-color: color-mix(in srgb, var(--pinch-color6) 58%, var(--b3-theme-background));
 }
 
 .gantt-summary-bar.completed {
-  border-color: color-mix(in srgb, var(--pinch-background5) 48%, transparent);
-  background: color-mix(in srgb, var(--pinch-background5) 14%, var(--b3-theme-background));
+  border-color: color-mix(in srgb, var(--pinch-background5-color) 48%, transparent);
   color: var(--pinch-font-color5);
-  --gantt-summary-fill-color: color-mix(in srgb, var(--pinch-background5) 68%, var(--b3-theme-background));
+  --gantt-summary-bg-color: color-mix(in srgb, var(--pinch-background5-color) 10%, var(--b3-theme-background));
+  --gantt-summary-stripe-color: color-mix(in srgb, var(--pinch-background5-color) 24%, var(--b3-theme-background));
+  --gantt-summary-fill-color: color-mix(in srgb, var(--pinch-background5-color) 68%, var(--b3-theme-background));
 }
 
 .gantt-summary-bar-fill {
@@ -2200,6 +2800,39 @@ const gridStyle = computed(() => ({
   text-align: center;
 }
 
+.gantt-summary-due-handle {
+  position: absolute;
+  top: -3px;
+  right: -7px;
+  bottom: -3px;
+  z-index: 4;
+  width: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.gantt-summary-due-handle::after {
+  display: none;
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  width: 8px;
+  height: 22px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: color-mix(in srgb, var(--gantt-summary-fill-color) 72%, white 28%);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+}
+
+.gantt-summary-bar:hover .gantt-summary-due-handle::after,
+.gantt-summary-due-handle.handle-dragging::after {
+  display: block;
+}
+
 .gantt-bar {
   z-index: 1;
   display: flex;
@@ -2211,7 +2844,7 @@ const gridStyle = computed(() => ({
   padding: 0 9px 0 14px;
   border: 0;
   border-radius: 6px;
-  background: var(--b3-font-background9);
+  background: var(--pinch-background7);
   color: var(--b3-theme-on-background);
   font-size: 12px;
   line-height: 1;
@@ -2271,7 +2904,7 @@ const gridStyle = computed(() => ({
 }
 
 .gantt-bar.risk:not(.completed) {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pinch-background10) 62%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pinch-background10-color) 62%, transparent);
 }
 
 .gantt-bar.risk:not(.completed)::after {

@@ -1,5 +1,6 @@
 import { computed, type Ref } from 'vue';
 import type { Task } from '@/api';
+import { createTaskDocumentScopeMatcher } from '@/utils/taskDocumentScope';
 
 export interface TaskFilters {
   priority?: Ref<string>;
@@ -33,7 +34,8 @@ function getKanbanCacheKey(
 export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
   const filtered = computed(() => {
     const archiveMode = filters.archiveMode?.value || 'active';
-    const key = getTableCacheKey(filters.notebook.value, filters.document.value, archiveMode, tasks.value.length);
+    const documentScope = createTaskDocumentScopeMatcher(filters.document.value, tasks.value);
+    const key = getTableCacheKey(filters.notebook.value, documentScope.cacheKey, archiveMode, tasks.value.length);
     
     const cached = filterCache.get(key);
     if (cached && Array.isArray(cached)) {
@@ -47,7 +49,7 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
       if (filters.notebook.value !== 'all' && task.notebookId !== filters.notebook.value) {
         return false;
       }
-      if (filters.document.value !== 'all' && task.rootId !== filters.document.value) {
+      if (!documentScope.matches(task)) {
         return false;
       }
       return true;
@@ -66,10 +68,11 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
   const filteredByStatus = computed(() => {
     const priorityValue = filters.priority?.value ?? 'all';
     const archiveMode = filters.archiveMode?.value || 'active';
+    const documentScope = createTaskDocumentScopeMatcher(filters.document.value, tasks.value);
     const key = getKanbanCacheKey(
       priorityValue,
       filters.notebook.value,
-      filters.document.value,
+      documentScope.cacheKey,
       archiveMode,
       tasks.value.length
     );
@@ -94,7 +97,7 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
       if (archiveMode === 'archived' && !task.archived) continue;
       if (priorityValue !== 'all' && task.priority !== priorityValue) continue;
       if (filters.notebook.value !== 'all' && task.notebookId !== filters.notebook.value) continue;
-      if (filters.document.value !== 'all' && task.rootId !== filters.document.value) continue;
+      if (!documentScope.matches(task)) continue;
       
       if (result[task.status]) {
         result[task.status].push(task);

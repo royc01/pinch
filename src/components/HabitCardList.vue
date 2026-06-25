@@ -8,6 +8,7 @@
         v-for="habit in sortedHabits"
         :key="habit.id"
         :class="['habit-card', { completed: isHabitCompleted(habit), paused: habit.isPaused, 'drag-over': dragOverHabitId === habit.id }]"
+        :style="getHabitColorStyle(habit)"
         @dragover.prevent="handleHabitDragOver($event, habit)"
         @dragleave="handleHabitDragLeave"
         @drop.prevent="handleHabitDrop($event, habit)"
@@ -19,26 +20,32 @@
             </div>
             <div class="habit-info" @click="emit('show-stats', habit)">
               <div class="habit-title">
-                <span class="habit-name">{{ habit.name }}</span>
+                <span class="habit-name ariaLabel" :aria-label="t('habitTracker.viewHabitDetails')">{{ habit.name }}</span>
                 <button
                   type="button"
-                  class="habit-doc-btn"
-                  :title="habit.noteDocId ? t('habitTracker.openNoteDoc') : t('habitTracker.bindNoteDoc')"
+                  class="habit-doc-btn toolbar__item ariaLabel"
+                  :aria-label="habit.noteDocId ? t('habitTracker.openNoteDoc') : t('habitTracker.bindNoteDoc')"
                   @click.stop="emit('doc-button', habit)"
                   @contextmenu.prevent.stop="emit('open-bind-doc', habit)"
                 >
                   <Icon :name="habit.noteDocId ? 'open' : 'bindDoc'" width="12" height="12" class="icon" />
                 </button>
-                <button
-                  v-if="habit.usePomodoro"
+                <button class="ariaLabel"
                   type="button"
-                  class="pomodoro-indicator pomodoro-indicator--button"
+                  :class="[
+                    'pomodoro-indicator',
+                    'pomodoro-indicator--button',
+                    'ariaLabel',
+                    { 'pomodoro-indicator--hover-reveal': !habit.usePomodoro }
+                  ]"
                   :disabled="habit.isPaused"
-                  :title="t('habitTracker.startFocusTimer')"
                   :aria-label="t('habitTracker.startFocusTimer')"
                   @click.stop="emit('start-focus', habit)"
                 >
-                  {{ pomodoroIcon }} {{ habit.pomodoroDuration ? `${habit.pomodoroDuration}min` : '25min' }}
+                  <template v-if="habit.usePomodoro">
+                    {{ pomodoroIcon }} {{ habit.pomodoroDuration ? `${habit.pomodoroDuration}min` : '25min' }}
+                  </template>
+                  <template v-else>{{ pomodoroIcon }}</template>
                 </button>
               </div>
               <div v-if="manageMode" class="habit-status-text">
@@ -46,8 +53,8 @@
                   {{ habit.isPaused ? t('habitTracker.pausedStatus') : t('habitTracker.activeStatus') }}
                 </span>
               </div>
-              <div v-else class="week-checkboxes">
-                <div
+              <div v-else class="week-checkboxes ariaLabel" :aria-label="t('habitTracker.viewHabitDetails')">
+                <div class="ariaLabel"
                   v-for="day in getCalendarViewData(habit)"
                   :key="day.date"
                   :class="[
@@ -57,10 +64,11 @@
                       today: day.isToday,
                       past: day.isPast,
                       future: day.isFuture,
+                      'not-scheduled': !day.isScheduled,
                       'completed-by-weekly-rule': day.isCompletedByWeeklyRule
                     }
                   ]"
-                  :title="day.date"
+                  :aria-label="day.date"
                 >
                   <Icon
                     :name="day.completed ? 'squareCheck' : 'square'"
@@ -80,12 +88,12 @@
               <SyButton
                 v-else
                 @click="emit('toggle-habit', habit.id)"
-                @contextmenu.prevent="habit.noteDocId ? emit('toggle-habit-with-note', habit) : emit('open-bind-doc', habit)"
+                @contextmenu.prevent="emit('toggle-habit-with-note', habit)"
                 :type="isHabitCompleted(habit) ? 'success' : 'default'"
                 size="small"
-                :class="['check-in-btn', { 'success-animation': showAnimation && animationHabitId === habit.id }]"
-                :disabled="habit.isPaused"
-                :title="habit.usePomodoro && !isHabitCompleted(habit) ? t('habitTracker.startFocusTimer') : t('habitTracker.checkIn')"
+                :class="['check-in-btn', 'ariaLabel', { 'success-animation': showAnimation && animationHabitId === habit.id }]"
+                :disabled="habit.isPaused || !isHabitScheduledToday(habit)"
+                :aria-label="getCheckInButtonAriaLabel(habit)"
               >
                 <div v-if="showAnimation && animationHabitId === habit.id" class="rays-container">
                   <div class="ray"></div>
@@ -160,8 +168,7 @@
             <div class="pomodoro-controls-inline">
               <button
                 v-if="!habit.isPomodoroPaused"
-                class="pause-btn"
-                :title="t('habitTracker.pausePomodoro')"
+                class="pause-btn ariaLabel"
                 :aria-label="t('habitTracker.pausePomodoro')"
                 @click="emit('pomodoro-pause')"
               >
@@ -169,16 +176,14 @@
               </button>
               <button
                 v-if="habit.isPomodoroPaused"
-                class="resume-btn"
-                :title="t('habitTracker.resumePomodoro')"
+                class="resume-btn ariaLabel"
                 :aria-label="t('habitTracker.resumePomodoro')"
                 @click="emit('pomodoro-resume')"
               >
                 <Icon name="play" width="16" height="16" class="icon" />
               </button>
               <button
-                class="stop-btn"
-                :title="t('habitTracker.stopPomodoro')"
+                class="stop-btn ariaLabel"
                 :aria-label="t('habitTracker.stopPomodoro')"
                 @click="emit('pomodoro-stop')"
               >
@@ -198,6 +203,7 @@ import type { Habit } from '@/api';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
+import { buildHabitColorStyle, normalizeHabitEmojiColorIndex, resolveHabitEmojiColorIndex } from '@/utils/habitEmojiColor';
 
 interface HabitCacheData {
   weeklyCompleted: boolean;
@@ -212,6 +218,7 @@ interface CalendarDayData {
   isPast: boolean;
   isFuture: boolean;
   isCompletedByWeeklyRule: boolean;
+  isScheduled: boolean;
 }
 
 const props = withDefaults(defineProps<{
@@ -225,6 +232,7 @@ const props = withDefaults(defineProps<{
   t: (key: string) => string;
   getHabitCache: (habitId: string) => HabitCacheData;
   getCalendarViewData: (habit: Habit) => CalendarDayData[];
+  isHabitScheduledToday: (habit: Habit) => boolean;
   pomodoroStateClass: (state: string | undefined) => string;
   formatPomodoroTime: (seconds: number) => string;
   manageMode?: boolean;
@@ -252,15 +260,12 @@ const extractDocIdFromDragEvent = (event: DragEvent): string | null => {
   const dataTransfer = event.dataTransfer;
   if (!dataTransfer) return null;
 
-  console.log('[HabitCard] Drop event - dataTransfer.types:', dataTransfer.types);
-  
   // SiYuan uses the application/siyuan-file format.
   const formats = ['application/siyuan-file', 'text/plain', 'text/uri-list', 'text/html', 'application/x-siyuan-id'];
   let textData: string | null = null;
   
   for (const format of formats) {
     const data = dataTransfer.getData(format);
-    console.log(`[HabitCard] Data format ${format}:`, data);
     if (data) {
       textData = data;
       break;
@@ -271,7 +276,6 @@ const extractDocIdFromDragEvent = (event: DragEvent): string | null => {
 
   // Match the SiYuan document ID format: YYYYMMDDHHMMSS-xxxxxxx.
   const match = textData.match(/\d{14}-[a-z0-9]{7}/i);
-  console.log('[HabitCard] Extracted doc ID:', match ? match[0] : null);
   
   return match ? match[0] : null;
 };
@@ -281,8 +285,6 @@ const handleHabitDragOver = (event: DragEvent, habit: Habit): void => {
   const dataTransfer = event.dataTransfer;
   if (!dataTransfer) return;
 
-  console.log('[HabitCard] DragOver - types:', dataTransfer.types);
-  
   // Allow all supported drag payload types.
   dragOverHabitId.value = habit.id;
   dataTransfer.dropEffect = 'link';
@@ -305,6 +307,11 @@ const getRectClipId = (habitId: string) => `rect-clip-${habitId}`;
 const fallbackHabitEmoji = '\u{1F4DD}';
 const pomodoroIcon = '\u{1F345}';
 
+const getHabitColorStyle = (habit: Habit): Record<string, string> => {
+  const colorIndex = normalizeHabitEmojiColorIndex(habit.emojiColorIndex) ?? resolveHabitEmojiColorIndex(habit.emoji);
+  return buildHabitColorStyle(colorIndex);
+};
+
 const isHabitCompleted = (habit: Habit) => {
   const cache = props.getHabitCache(habit.id);
   return !!habit.completedToday || cache.weeklyCompleted;
@@ -319,6 +326,15 @@ const shouldShowProgressPie = (habit: Habit) => {
   return timesPerDay > 1 && count > 0 && count < timesPerDay;
 };
 
+const getCheckInButtonAriaLabel = (habit: Habit) => {
+  if (!props.isHabitScheduledToday(habit)) {
+    return props.t('habitTracker.notScheduledToday');
+  }
+  return (habit.usePomodoro && !isHabitCompleted(habit) ? props.t('habitTracker.startFocusTimer') : props.t('habitTracker.checkIn'))
+    + '<br>'
+    + props.t('habitTracker.rightClickFillNote');
+};
+
 const {
   sortedHabits,
   isHabitListCollapsed,
@@ -330,6 +346,7 @@ const {
   t,
   getHabitCache,
   getCalendarViewData,
+  isHabitScheduledToday,
   pomodoroStateClass,
   formatPomodoroTime,
   manageMode
@@ -355,15 +372,15 @@ const {
 
 .habit-card {
   background: var(--b3-theme-background);
-  border-radius: 15px;
-  box-shadow: rgba(0, 0, 0, 0.06) 0 1px 5px 0;
+  border-radius: 10px;
+  box-shadow: var(--pinch-shadow);
   transition: all 0.3s ease;
   transition-property: transform, opacity, height;
   will-change: transform;
 }
 
 .habit-card.completed {
-  box-shadow: inset 0 0 0 100px rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.06) 0 1px 5px 0;
+  box-shadow: inset 0 0 0 100px rgba(0, 0, 0, 0.03), var(--pinch-shadow);
 }
 
 .habit-card.drag-over {
@@ -444,6 +461,17 @@ const {
   transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
 }
 
+.pomodoro-indicator--hover-reveal {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.habit-card:hover .pomodoro-indicator--hover-reveal,
+.habit-card:focus-within .pomodoro-indicator--hover-reveal {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .pomodoro-indicator--button:hover:not(:disabled) {
   background-color: rgba(249, 143, 122, 0.16);
   color: #cf5c4b;
@@ -516,6 +544,15 @@ const {
   color: var(--b3-list-hover);
 }
 
+.day-checkbox.not-scheduled .day-checkbox-icon {
+  color: var(--b3-border-color);
+  opacity: 0.35;
+}
+
+.day-checkbox.not-scheduled.completed .day-checkbox-icon {
+  opacity: 1;
+}
+
 .habit-actions {
   display: flex;
   align-items: center;
@@ -547,6 +584,11 @@ const {
   transition: color 0.3s, fill 0.3s;
 }
 
+.check-in-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .check-in-btn[type='success'] {
   background-color: #f98f7a;
 }
@@ -567,7 +609,7 @@ const {
   left: 50%;
   width: 4px;
   height: 12px;
-  background: #f98f7a;
+  background: var(--pinch-habit-color);
   border-radius: 4px;
   transform-origin: bottom center;
   opacity: 0;

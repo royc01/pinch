@@ -1,11 +1,12 @@
 import { ref } from 'vue';
-import type { HabitCompletionMode, HabitDifficulty } from '@/api';
+import type { HabitCompletionMode, HabitCustomSchedule, HabitDifficulty } from '@/api';
 
 export interface NewHabitFormState {
   name: string;
   emoji: string;
   difficulty: HabitDifficulty;
-  frequency: 'daily' | 'weekly6' | 'weekly5' | 'weekly4' | 'weekly3' | 'weekly2' | 'weekly1';
+  frequency: 'daily' | 'custom' | 'weekly6' | 'weekly5' | 'weekly4' | 'weekly3' | 'weekly2' | 'weekly1';
+  customSchedule: HabitCustomSchedule;
   completionMode: HabitCompletionMode;
   noteDocId: string;
   timesPerDay: string;
@@ -18,6 +19,13 @@ export const createDefaultNewHabit = (): NewHabitFormState => ({
   emoji: '',
   difficulty: 'medium',
   frequency: 'daily',
+  customSchedule: {
+    type: 'week',
+    calendar: 'solar',
+    weekDays: [1],
+    monthDays: [1],
+    yearDays: ['01-01']
+  },
   completionMode: 'fixed',
   noteDocId: '',
   timesPerDay: '1',
@@ -40,7 +48,8 @@ export const useHabitFormState = (t: (key: string) => string) => {
     ...Array.from({ length: 6 }, (_, i) => ({
       value: `weekly${6 - i}`,
       text: formatTemplate('habitTracker.frequencyWeeklyOptionTemplate', { days: 6 - i })
-    }))
+    })),
+    { value: 'custom', text: t('habitTracker.custom') }
   ]);
 
   const timesPerDayOptions = ref(

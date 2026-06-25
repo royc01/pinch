@@ -1,11 +1,17 @@
 <template>
-  <Teleport to="body">
-    <div v-if="visible" class="task-reminder-popover-overlay" @mousedown="handleOverlayMouseDown">
+  <Teleport to="body" :disabled="!floating">
+    <div
+      v-if="visible"
+      :class="floating ? 'task-reminder-popover-overlay' : 'task-reminder-popover-inline-wrapper'"
+      @mousedown="handleOverlayMouseDown"
+    >
       <div
         ref="popoverRef"
         class="task-reminder-popover"
-        :style="popoverStyle"
+        :class="{ 'task-reminder-popover-inline': !floating }"
+        :style="floating ? popoverStyle : undefined"
         @mousedown.stop
+        @click.stop
       >
         <div class="task-reminder-popover-header">
           <span class="task-reminder-popover-title">{{ t('taskManager.reminder') }}</span>
@@ -17,10 +23,10 @@
             v-for="option in presetOptions"
             :key="option.value"
             type="button"
-            class="task-reminder-option-btn"
+            class="task-reminder-option-btn ariaLabel"
             :class="{ active: !presetDisabled && modelValue === option.value }"
             :disabled="presetDisabled"
-            :title="presetDisabled ? t('taskManager.setDueDateFirst') : option.label"
+            :aria-label="presetDisabled ? t('taskManager.setDueDateFirst') : option.label"
             @click="selectPreset(option.value)"
           >
             {{ option.label }}
@@ -68,14 +74,17 @@ import {
 } from '@/utils/taskReminder';
 import { useI18n } from '@/composables/useI18n';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean;
+  floating?: boolean;
   modelValue?: TaskReminderType;
   customTime?: string;
   dueDate?: string;
   dueTime?: string;
   anchorEl?: HTMLElement | null;
-}>();
+}>(), {
+  floating: true
+});
 
 const emit = defineEmits<{
   select: [value: TaskReminderSelection];
@@ -106,6 +115,10 @@ function updateCustomDraft(): void {
 }
 
 function updatePopoverPosition(): void {
+  if (!props.floating) {
+    popoverStyle.value = {};
+    return;
+  }
   const anchor = props.anchorEl;
   const popover = popoverRef.value;
   if (!anchor || !popover) {
@@ -167,7 +180,9 @@ function clearSelection(): void {
 }
 
 function handleOverlayMouseDown(): void {
-  emit('close');
+  if (props.floating) {
+    emit('close');
+  }
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -181,19 +196,23 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 
 function handleResize(): void {
-  if (props.visible) {
+  if (props.visible && props.floating) {
     updatePopoverPosition();
   }
 }
 
 watch(
-  () => [props.visible, props.customTime, props.dueDate, props.dueTime, props.anchorEl],
+  () => [props.visible, props.customTime, props.dueDate, props.dueTime, props.anchorEl, props.floating],
   ([visible]) => {
     if (!visible) {
       return;
     }
     updateCustomDraft();
-    void nextTick(updatePopoverPosition);
+    if (props.floating) {
+      void nextTick(updatePopoverPosition);
+    } else {
+      popoverStyle.value = {};
+    }
   },
   { immediate: true }
 );
@@ -217,6 +236,11 @@ onUnmounted(() => {
   background: transparent;
 }
 
+.task-reminder-popover-inline-wrapper {
+  position: relative;
+  width: 100%;
+}
+
 .task-reminder-popover {
   position: fixed;
   width: min(320px, calc(100vw - 24px));
@@ -229,6 +253,14 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 12px;
   box-sizing: border-box;
+}
+
+.task-reminder-popover-inline {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  box-shadow: none;
+  padding: 0;
 }
 
 .task-reminder-popover-header {

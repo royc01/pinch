@@ -81,6 +81,7 @@ type DetachedFocusRequest =
   | { type: 'open-linked-target' }
   | { type: 'load-target-options'; mode?: FocusTargetPickerMode }
   | { type: 'set-linked-target'; target?: FocusTimerLinkedTarget | null }
+  | { type: 'complete-linked-target'; target?: FocusTimerLinkedTarget | null }
   | { type: 'disable-floating-focus' }
   | { type: 'set-expanded'; expanded?: boolean };
 
@@ -89,6 +90,7 @@ const DETACHED_FOCUS_WINDOW_BOUNDS_KEY = 'pinch-detached-focus-window-bounds';
 const DETACHED_FOCUS_SESSION_EVENT = 'pinch-focus-session';
 const DETACHED_FOCUS_DISABLE_EVENT = 'pinch-detached-focus:disable';
 const DETACHED_FOCUS_LINKED_TARGET_EVENT = 'pinch-detached-focus:linked-target';
+const DETACHED_FOCUS_COMPLETE_LINKED_TARGET_EVENT = 'pinch-detached-focus:complete-linked-target';
 const DETACHED_FOCUS_WINDOW_TITLE = 'Pinch Focus Capsule';
 const DETACHED_FOCUS_WINDOW_WIDTH = 280;
 const DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT = 56;
@@ -155,6 +157,34 @@ export function subscribeDetachedFocusLinkedTargetChange(
   window.addEventListener(DETACHED_FOCUS_LINKED_TARGET_EVENT, handleLinkedTargetChange);
   return () => {
     window.removeEventListener(DETACHED_FOCUS_LINKED_TARGET_EVENT, handleLinkedTargetChange);
+  };
+}
+
+function notifyDetachedFocusCompleteLinkedTarget(target: FocusTimerLinkedTarget | null): void {
+  if (!target || typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(DETACHED_FOCUS_COMPLETE_LINKED_TARGET_EVENT, { detail: target }));
+}
+
+export function subscribeDetachedFocusCompleteLinkedTarget(
+  listener: (target: FocusTimerLinkedTarget) => void
+): () => void {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  const handleCompleteLinkedTarget = (event: Event) => {
+    const target = (event as CustomEvent<FocusTimerLinkedTarget | null>).detail;
+    if (target) {
+      listener(target);
+    }
+  };
+
+  window.addEventListener(DETACHED_FOCUS_COMPLETE_LINKED_TARGET_EVENT, handleCompleteLinkedTarget);
+  return () => {
+    window.removeEventListener(DETACHED_FOCUS_COMPLETE_LINKED_TARGET_EVENT, handleCompleteLinkedTarget);
   };
 }
 
@@ -322,7 +352,11 @@ export function subscribeDetachedFocusHostWindowState(
     }
 
     const notify = () => {
-      listener(!!currentWindow.isMinimized?.());
+      const minimized = !!currentWindow.isMinimized?.();
+      const hidden = typeof currentWindow.isVisible === 'function'
+        ? !currentWindow.isVisible()
+        : false;
+      listener(minimized || hidden);
     };
 
     currentWindow.on('minimize', notify);
@@ -1437,17 +1471,15 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       <button
         id="closeButton"
         type="button"
-        class="floating-focus__close"
+        class="floating-focus__close ariaLabel"
         data-no-drag
-        title="${htmlText.closeMiniFocus}"
         aria-label="${htmlText.closeMiniFocus}"
       >&times;</button>
       <button
         id="settingsToggle"
         type="button"
-        class="floating-focus__dot"
+        class="floating-focus__dot ariaLabel"
         data-no-drag
-        title="${htmlText.settings}"
         aria-label="${htmlText.settings}"
         aria-expanded="false"
       ></button>
@@ -1462,9 +1494,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       <button
         id="durationButton"
         type="button"
-        class="floating-focus__duration"
+        class="floating-focus__duration ariaLabel"
         data-no-drag
-        title="${htmlText.cycleDuration}"
+        aria-label="${htmlText.cycleDuration}"
       >
         ${htmlText.title} 25m
       </button>
@@ -1473,17 +1505,15 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         <button
           id="actionButton"
           type="button"
-          class="floating-focus__action"
+          class="floating-focus__action ariaLabel"
           data-no-drag
-          title="${htmlText.startFocus}"
           aria-label="${htmlText.startFocus}"
         ></button>
         <button
           id="stopButton"
           type="button"
-          class="floating-focus__action is-stop"
+          class="floating-focus__action is-stop ariaLabel"
           data-no-drag
-          title="${htmlText.stop}"
           aria-label="${htmlText.stop}"
           hidden
         ></button>
@@ -1498,7 +1528,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
               <button
                 id="linkedTargetChip"
                 type="button"
-                class="linked-habit-banner__chip"
+                class="linked-habit-banner__chip ariaLabel"
               >
                 <span id="linkedTargetEmoji" class="linked-habit-banner__emoji"></span>
                 <span id="linkedTargetName" class="linked-habit-banner__name"></span>
@@ -1506,8 +1536,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
               <button
                 id="clearLinkedTargetButton"
                 type="button"
-                class="linked-habit-banner__clear"
-                title="${htmlText.clearLinkedTarget}"
+                class="linked-habit-banner__clear ariaLabel"
                 aria-label="${htmlText.clearLinkedTarget}"
               ></button>
             </div>
@@ -1529,8 +1558,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
                 <button
                   id="targetPickerClose"
                   type="button"
-                  class="linked-habit-banner__picker-close"
-                  title="${htmlText.close}"
+                  class="linked-habit-banner__picker-close ariaLabel"
                   aria-label="${htmlText.close}"
                 ></button>
               </div>
@@ -1831,6 +1859,25 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       render();
     }
 
+    function buildHandoffState() {
+      return {
+        timerMode: state.timerMode,
+        selectedDuration: state.selectedDuration,
+        durationIndex: state.durationIndex,
+        shortBreakDuration: state.shortBreakDuration,
+        shortBreakDurationIndex: state.shortBreakDurationIndex,
+        pomodoroSets: state.pomodoroSets,
+        phaseElapsedSeconds: state.phaseElapsedSeconds,
+        isRunning: state.isRunning,
+        isPaused: state.isPaused,
+        isBreakMode: state.isBreakMode,
+        currentSet: state.currentSet,
+        countupSessionId: state.countupSessionId,
+        savedCountupMinutes: state.savedCountupMinutes,
+        linkedTarget: state.linkedTarget || null
+      };
+    }
+
     function acceptPanelHandoff(handoffState) {
       if (!handoffState) {
         return;
@@ -2121,8 +2168,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }
       if (linkedTargetChipEl) {
         linkedTargetChipEl.disabled = !canOpenLinkedTarget();
-        linkedTargetChipEl.title = canOpenLinkedTarget() ? I18N.openTargetPrefix + label : label;
-        linkedTargetChipEl.setAttribute('aria-label', label || I18N.linkedTarget);
+        linkedTargetChipEl.setAttribute('aria-label', canOpenLinkedTarget() ? I18N.openTargetPrefix + label : (label || I18N.linkedTarget));
       }
       if (linkedTargetEmojiEl) {
         linkedTargetEmojiEl.textContent = getTargetEmoji(state.linkedTarget);
@@ -2181,23 +2227,17 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
 
       actionButtonEl.disabled = blocked;
       actionButtonEl.innerHTML = iconMarkup(state.isRunning ? 'pause' : 'play', 12, 12);
-      actionButtonEl.title = actionTitle;
       actionButtonEl.setAttribute('aria-label', actionTitle);
       if (blocked) {
-        actionButtonEl.title = I18N.focusAlreadyRunning;
         actionButtonEl.setAttribute('aria-label', I18N.focusAlreadyRunning);
       } else if (active) {
-        actionButtonEl.title = I18N.stop;
         actionButtonEl.setAttribute('aria-label', I18N.stop);
       } else {
-        actionButtonEl.title = I18N.startFocus;
         actionButtonEl.setAttribute('aria-label', I18N.startFocus);
       }
       if (state.isRunning) {
-        actionButtonEl.title = I18N.pause;
         actionButtonEl.setAttribute('aria-label', I18N.pause);
       } else if (state.isPaused) {
-        actionButtonEl.title = I18N.continueFocus;
         actionButtonEl.setAttribute('aria-label', I18N.continueFocus);
       }
 
@@ -2208,11 +2248,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         : (state.isRunning
           ? I18N.pause
           : (state.isPaused ? I18N.continueFocus : I18N.startFocus));
-      actionButtonEl.title = normalizedActionTitle;
       actionButtonEl.setAttribute('aria-label', normalizedActionTitle);
       stopButtonEl.hidden = !active;
       stopButtonEl.style.display = active ? '' : 'none';
-      stopButtonEl.title = I18N.stop;
       stopButtonEl.setAttribute('aria-label', I18N.stop);
 
       focusDurationSliderEl.disabled = active;
@@ -2243,10 +2281,22 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       });
     }
 
+    async function completeLinkedTarget() {
+      if (!state.linkedTarget) {
+        return;
+      }
+      await request('complete-linked-target', {
+        target: state.linkedTarget
+      });
+    }
+
     async function completeTimer() {
       if (!state.isBreakMode) {
         try {
           await recordFocusSession(state.selectedDuration);
+        } catch {}
+        try {
+          await completeLinkedTarget();
         } catch {}
 
         if (state.currentSet < state.pomodoroSets && state.pomodoroSets >= 2) {
@@ -2450,6 +2500,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     window.__PINCH_DETACHED_FOCUS_UPDATE__ = updateFromHost;
     window.__PINCH_DETACHED_FOCUS_SET_OPTIONS__ = updateTargetOptionsFromHost;
     window.__PINCH_DETACHED_FOCUS_OPEN_SETTINGS__ = openSettingsPanel;
+    window.__PINCH_DETACHED_FOCUS_GET_HANDOFF__ = buildHandoffState;
     window.__PINCH_DETACHED_FOCUS_HANDOFF__ = acceptPanelHandoff;
 
     settingsToggleEl.addEventListener('click', (event) => {
@@ -2656,6 +2707,33 @@ export function handoffDetachedFocusSession(state: FocusTimerHandoffState): void
   flushDetachedFocusHandoff();
 }
 
+export async function takeDetachedFocusSessionHandoff(): Promise<FocusTimerHandoffState | null> {
+  if (!detachedFocusWindow || detachedFocusWindow.isDestroyed?.()) {
+    detachedFocusWindow = null;
+    detachedFocusWindowExpanded = false;
+    return null;
+  }
+
+  const webContents = detachedFocusWindow.webContents;
+  if (typeof webContents?.executeJavaScript !== 'function') {
+    closeDetachedFocusWindow();
+    return null;
+  }
+
+  try {
+    const handoffState = await webContents.executeJavaScript(
+      'window.__PINCH_DETACHED_FOCUS_GET_HANDOFF__?.() ?? null'
+    );
+    closeDetachedFocusWindow();
+    return handoffState && typeof handoffState === 'object'
+      ? handoffState as FocusTimerHandoffState
+      : null;
+  } catch {
+    closeDetachedFocusWindow();
+    return null;
+  }
+}
+
 function setDetachedFocusWindowExpanded(expanded: boolean): void {
   detachedFocusWindowExpanded = expanded;
   if (!detachedFocusWindow || detachedFocusWindow.isDestroyed?.()) {
@@ -2736,6 +2814,9 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
     case 'set-linked-target':
       notifyDetachedFocusLinkedTargetChange(request.target ?? null);
       syncDetachedFocusWindowState();
+      return true;
+    case 'complete-linked-target':
+      notifyDetachedFocusCompleteLinkedTarget(request.target || latestLinkedTarget);
       return true;
     case 'disable-floating-focus':
       notifyDetachedFocusDisableRequest();

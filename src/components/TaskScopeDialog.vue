@@ -3,7 +3,7 @@
     <div class="task-scope-dialog" :class="{ 'with-document-groups': hasWideLayout }" @click.stop>
       <div class="task-scope-header">
         <div class="task-scope-title">{{ dialogTitle }}</div>
-        <button v-if="!lockClose" type="button" class="icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="handleClose">
+        <button v-if="!lockClose" type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="handleClose">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
@@ -195,14 +195,18 @@
         <DocumentGroupManagerPanel
           :groups="localDocumentGroups"
           :documents="documentGroupDocuments"
+          :documents-refreshing="documentsRefreshing"
           @update:groups="localDocumentGroups = $event"
+          @refresh-documents="emit('refresh-documents')"
         />
       </div>
       <div v-else-if="activeTab === 'goals'" class="task-scope-content goals-tab-content">
         <GoalManagerPanel
           :goals="localGoals"
           :documents="goalDocuments"
+          :documents-refreshing="documentsRefreshing"
           @update:goals="localGoals = $event"
+          @refresh-documents="emit('refresh-documents')"
         />
       </div>
       <div v-else-if="activeTab === 'display'" class="task-scope-content display-tab-content">
@@ -234,8 +238,8 @@
             <div class="task-scope-display-controls">
               <button
                 type="button"
-                class="task-scope-order-btn up"
-                :title="t('taskScopeDialog.moveUp')"
+                class="task-scope-order-btn up ariaLabel"
+               
                 :aria-label="t('taskScopeDialog.moveUp')"
                 :disabled="index === 0"
                 @click="moveSidebarSection(section.id, -1)"
@@ -244,8 +248,8 @@
               </button>
               <button
                 type="button"
-                class="task-scope-order-btn"
-                :title="t('taskScopeDialog.moveDown')"
+                class="task-scope-order-btn ariaLabel"
+               
                 :aria-label="t('taskScopeDialog.moveDown')"
                 :disabled="index === orderedSidebarSections.length - 1"
                 @click="moveSidebarSection(section.id, 1)"
@@ -353,6 +357,7 @@ interface Props {
   initialTab?: TaskScopeDialogTab;
   documentGroups?: DocumentGroup[];
   documentGroupDocuments?: DocumentGroupScopeDocument[];
+  documentsRefreshing?: boolean;
   showDocumentGroupNotebookPath?: boolean;
   showDocumentGroupNotebookPathToggle?: boolean;
   showScopeTab?: boolean;
@@ -375,6 +380,7 @@ const emit = defineEmits<{
   close: [];
   save: [payload: TaskScopeDialogSavePayload];
   'global-recognize-date': [];
+  'refresh-documents': [];
 }>();
 
 const localExcludedNotebookIds = ref<string[]>([]);
@@ -397,6 +403,7 @@ const activeTab = ref<TaskScopeDialogTab>('scope');
 const lockClose = computed(() => props.lockClose === true);
 const showExtra = computed(() => props.showExtra !== false);
 const globalDateRecognizing = computed(() => props.globalDateRecognizing === true);
+const documentsRefreshing = computed(() => props.documentsRefreshing === true);
 const showScopeTab = computed(() => props.showScopeTab !== false);
 const showDocumentGroupNotebookPathToggle = computed(() => props.showDocumentGroupNotebookPathToggle !== false);
 const dialogTitle = computed(() => props.title || t('taskScopeDialog.settings'));
@@ -456,7 +463,8 @@ function cloneDocumentGroups(groups: DocumentGroup[]): DocumentGroup[] {
 function cloneGoals(goals: Goal[]): Goal[] {
   return (goals || []).map(goal => ({
     ...goal,
-    members: Array.isArray(goal.members) ? goal.members.map(member => ({ ...member })) : []
+    members: Array.isArray(goal.members) ? goal.members.map(member => ({ ...member })) : [],
+    taskMembers: Array.isArray(goal.taskMembers) ? goal.taskMembers.map(member => ({ ...member })) : []
   }));
 }
 

@@ -1,24 +1,40 @@
-<template>
+﻿<template>
   <div class="month-view">
     <div class="calendar-container">
-      <div class="calendar-header">
-        <button
-          class="nav-btn"
-          :title="t('date.previousMonth')"
-          :aria-label="t('date.previousMonth')"
-          @click="previousMonth"
-        >
-          <Icon name="chevronLeft" width="20" height="20" />
-        </button>
-        <div class="month-title">{{ monthTitle }}</div>
-        <button
-          class="nav-btn"
-          :title="t('date.nextMonth')"
-          :aria-label="t('date.nextMonth')"
-          @click="nextMonth"
-        >
-          <Icon name="chevronRight" width="20" height="20" />
-        </button>
+      <div class="calendar-toolbar">
+        <div v-if="calendarViewOptions.length > 0" class="calendar-view-switcher">
+          <button
+            v-for="option in calendarViewOptions"
+            :key="option.value"
+            type="button"
+            class="calendar-view-switcher-btn ariaLabel"
+            :class="{ active: currentCalendarView === option.value }"
+           
+            :aria-label="option.title"
+            @click="emit('calendarViewChange', option.value)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+        <div class="calendar-header">
+          <button
+            class="nav-btn ariaLabel"
+           
+            :aria-label="t('date.previousMonth')"
+            @click="previousMonth"
+          >
+            <Icon name="chevronLeft" width="20" height="20" />
+          </button>
+          <div class="month-title">{{ monthTitle }}</div>
+          <button
+            class="nav-btn ariaLabel"
+           
+            :aria-label="t('date.nextMonth')"
+            @click="nextMonth"
+          >
+            <Icon name="chevronRight" width="20" height="20" />
+          </button>
+        </div>
       </div>
       <div class="calendar-grid">
         <div class="weekday-header">
@@ -51,7 +67,47 @@
                 @drop="handleDrop(day)"
               >
                 <div class="day-info">
-                  <div class="day-number">{{ day.dayNumber }}</div>
+                  <div class="day-date-inline">
+                    <button
+                      type="button"
+                      class="day-number ariaLabel"
+                     
+                      :aria-label="t('monthView.lifelogOpen')"
+                      @mousedown.stop
+                      @click.stop="openLifelogDay(day.key)"
+                    >
+                      {{ day.dayNumber }}
+                    </button>
+                    <div
+                      v-if="(showLifelog && (getMoodDaySummary(day.key) || getManualNoteDaySummary(day.key) || getHabitCheckinDaySummary(day.key) || getTaskCompletedDaySummary(day.key))) || (showFocusRecords && getFocusDaySummary(day.key))"
+                      class="day-compact-lifelog-summary ariaLabel"
+                      :aria-label="getCompactLifelogSummaryTitle(day.key)"
+                      @mousedown.stop
+                      @click.stop="openLifelogDay(day.key)"
+                    >
+                      <span v-if="showFocusRecords && getFocusDaySummary(day.key)" class="day-focus-summary">
+                        <Icon name="timer" width="11" height="11" />
+                        <span>{{ formatFocusDaySummary(day.key) }}</span>
+                      </span>
+                      <span v-if="showLifelog && (getMoodDaySummary(day.key) || getManualNoteDaySummary(day.key))" class="day-mood-summary">
+                        <span
+                          v-if="getMoodDaySummarySvg(day.key)"
+                          class="day-mood-summary-icon"
+                          v-html="getMoodDaySummarySvg(day.key)"
+                        ></span>
+                        <span v-else-if="getMoodDaySummary(day.key)">{{ formatMoodDaySummary(day.key) }}</span>
+                        <span v-if="getManualNoteDaySummary(day.key)">{{ formatManualNoteDaySummary(day.key) }}</span>
+                      </span>
+                      <span v-if="showLifelog && getHabitCheckinDaySummary(day.key)" class="day-habit-summary">
+                        <Icon name="squareCheck" width="10" height="10" />
+                        <span>{{ formatHabitCheckinDaySummary(day.key) }}</span>
+                      </span>
+                      <span v-if="showLifelog && getTaskCompletedDaySummary(day.key)" class="day-task-summary">
+                        <Icon name="taskCheckboxChecked" width="10" height="10" />
+                        <span>{{ formatTaskCompletedDaySummary(day.key) }}</span>
+                      </span>
+                    </div>
+                  </div>
                   <div 
                     v-if="showLunarInfo && day.lunarInfo" 
                     class="day-lunar"
@@ -63,15 +119,15 @@
                     {{ day.lunarInfo.isFestival ? (day.lunarInfo.lunarFestival || day.lunarInfo.festival) : (day.lunarInfo.isTerm ? day.lunarInfo.term : day.lunarInfo.dayCn) }}
                   </div>
                 </div>
-                <div 
+                <div
                   v-if="shouldShowHiddenCountForDay(day, week) && !isDayExpanded(day.key)"
                   class="more-tasks-placeholder day-more"
                   :style="getDayMoreStyle(week)"
                 >
                   <button
                     type="button"
-                    class="more-tasks-pill"
-                    :title="getHiddenTasksLabel(getHiddenTaskCountForDay(day, week))"
+                    class="more-tasks-pill ariaLabel"
+                   
                     :aria-label="getHiddenTasksLabel(getHiddenTaskCountForDay(day, week))"
                     @mousedown.stop
                     @click.stop="expandDayTasks(day.key)"
@@ -99,20 +155,25 @@
                     <div
                       v-for="task in getExpandedTasksForDay(day, week)"
                       :key="`expanded-${day.key}-${task.id}`"
-                      class="day-expanded-chip"
-                      :title="getTaskDisplayTitle(task)"
+                      class="day-expanded-chip ariaLabel"
+                      :aria-label="getTaskDisplayTitle(task)"
                       :style="getExpandedTaskChipStyle(task)"
-                      :class="{ 'task-completed': task.status === 'completed' }"
-                      @pointerdown="handleMobileTaskPointerDown($event, task)"
+                      :class="{
+                        'task-completed': task.status === 'completed',
+                        'day-expanded-habit-task-chip': isHabitTaskChip(task)
+                      }"
+                      @pointerdown="!isHabitTaskChip(task) && handleMobileTaskPointerDown($event, task)"
                       @pointermove="handleMobileTaskPointerMove"
                       @pointerup="handleMobileTaskPointerUp"
                       @pointercancel="handleMobileTaskPointerCancel"
-                      @contextmenu="handleContextMenu($event, task)"
+                      @click="!isHabitTaskChip(task) && handleTaskClick(task, $event)"
+                      @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
                     >
                       <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
                         <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                       </span>
-                      <span class="day-expanded-chip-title" @click.stop="handleTaskClick(task)">
+                      <span class="day-expanded-chip-title" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)">
+                        <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
                         {{ getTaskDisplayTitle(task) }}
                       </span>
                     </div>
@@ -127,21 +188,22 @@
               <div 
                 v-for="task in getVisibleTasksForWeek(week)" 
                 :key="task.id"
-                class="task-chip"
-                :title="getTaskDisplayTitle(task)"
-                :class="{
+                class="ariaLabel"
+                :aria-label="getTaskDisplayTitle(task)"
+                :class="[isHabitTaskChip(task) ? 'habit-task-chip' : 'task-chip', {
                   'task-completed': task.status === 'completed',
-                  'mobile-selected': shouldShowMobileTaskChipControls(task.id)
-                }"
+                  'mobile-selected': !isHabitTaskChip(task) && shouldShowMobileTaskChipControls(task.id)
+                }]"
                 :style="getTaskStyle(task, week)"
-                @click="handleMobileTaskChipClick($event, task)"
-                @pointerdown="handleMobileTaskChipPointerDown($event, task)"
+                @click="!isHabitTaskChip(task) && handleMobileTaskChipClick($event, task)"
+                @pointerdown="!isHabitTaskChip(task) && handleMobileTaskChipPointerDown($event, task)"
                 @pointermove="handleMobileTaskChipPointerMove"
                 @pointerup="handleMobileTaskChipPointerUp"
                 @pointercancel="handleMobileTaskChipPointerCancel"
-                @contextmenu="handleContextMenu($event, task)"
+                @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
               >
                 <div 
+                  v-if="!isHabitTaskChip(task)"
                   class="task-handle task-handle-left"
                   :class="{
                     'handle-dragging': draggingHandle?.task.id === task.id && draggingHandle?.type === 'start',
@@ -153,7 +215,7 @@
                 <div 
                   class="task-chip-title"
                   :class="{ 'task-dragging': draggingTask?.task.id === task.id }"
-                  @mousedown="handleTaskMouseDown($event, task)"
+                  @mousedown="!isHabitTaskChip(task) && handleTaskMouseDown($event, task)"
                 >
                   <span
                     class="task-checkbox-wrapper"
@@ -162,20 +224,22 @@
                   >
                     <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                   </span>
-                  <span class="task-title-text">{{ getTaskDisplayTitle(task) }}</span>
+                  <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
+                  <span class="task-title-text" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)">{{ getTaskDisplayTitle(task) }}</span>
                   <span
-                    v-if="task.priority !== 'none'"
-                    class="task-priority-badge"
+                    v-if="!isHabitTaskChip(task) && task.priority !== 'none'"
+                    class="task-priority-badge ariaLabel"
                     :class="`priority-${task.priority}`"
-                    :title="getPriorityTitle(task.priority)"
+                    :aria-label="getPriorityTitle(task.priority)"
                   >
                     <Icon name="flag" width="10" height="10" />
                   </span>
-                  <span class="task-jump-btn" @click.stop="handleTaskClick(task)">
+                  <span v-if="!isHabitTaskChip(task)" class="task-jump-btn" @click.stop="handleTaskClick(task, $event)">
                     <Icon name="open" width="14" height="14" />
                   </span>
                 </div>
                 <div 
+                  v-if="!isHabitTaskChip(task)"
                   class="task-handle task-handle-right"
                   :class="{
                     'handle-dragging': draggingHandle?.task.id === task.id && draggingHandle?.type === 'end',
@@ -215,6 +279,34 @@
       @editTask="handleContextMenuEditTask(contextMenu.task!)"
     />
 
+    <LifelogTimelinePanel
+      :show="lifelogTimelinePanelOpen"
+      :title="lifelogTimelineDayTitle"
+      :subtitle="lifelogTimelineSubtitle"
+      :items="lifelogTimelineItems"
+      :empty-text="t('monthView.lifelogEmpty')"
+      :close-label="t('common.close')"
+      :delete-label="t('common.delete')"
+      :show-editor="Boolean(lifelogDayKey)"
+      :draft="lifelogTimelineDraft"
+      :editor-placeholder="t('monthView.lifelogManualPlaceholder')"
+      :save-label="t('common.save')"
+      :cancel-label="t('common.cancel')"
+      :delete-confirm-title="t('lifelogTimeline.deleteConfirmTitle')"
+      :delete-confirm-message="t('lifelogTimeline.deleteConfirmMessage')"
+      :date-strip-days="lifelogTimelineDateStripDays"
+      :current-period="monthTitle"
+      :previous-period-label="t('date.previousMonth')"
+      :next-period-label="t('date.nextMonth')"
+      @close="closeLifelogDay"
+      @change-period="changeLifelogTimelinePeriod"
+      @select-date="openLifelogDay"
+      @update:draft="updateLifelogTimelineDraft"
+      @save-draft="saveLifelogTimelineDraft"
+      @clear-draft="clearLifelogTimelineDraft"
+      @delete-item="deleteLifelogTimelineItem"
+    />
+
     <div
       v-if="mobileDragPreview.active && mobileDragPreview.task"
       class="mobile-drag-preview"
@@ -229,28 +321,86 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import type { Task, TaskGroup } from '@/api';
-import { setBlockAttrs, TaskRepository } from '@/api';
+import type { FocusSessionRecord, Habit, MoodData, MoodManualEntry, Task, TaskGroup } from '@/api';
+import type { Goal } from '@/goalRepository';
+import {
+  deleteFocusSessionRecord,
+  getFocusTimerData,
+  getHabits,
+  getMoodData,
+  saveHabits,
+  saveMoodData,
+  setBlockAttrs,
+  TaskRepository
+} from '@/api';
 import { updateTaskMarkdown } from '@/utils/taskHelpers';
 import { getTaskDisplayTitle } from '@/composables/useTaskCommon';
 import { formatDate } from '@/composables/useDateUtils';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
+import { useHabitEmojis } from '@/composables/useHabitEmojis';
 import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
+import {
+  normalizeTaskBackgroundColorValue,
+  resolveEffectiveTaskBackgroundColor,
+  resolveTaskAccentColor,
+  resolveTaskBackgroundColor,
+  resolveTaskGroupBackgroundColor
+} from '@/utils/taskColor';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
+import LifelogTimelinePanel, {
+  type LifelogTimelineDateStripDay,
+  type LifelogTimelinePanelItem
+} from './LifelogTimelinePanel.vue';
 import { openHabitTrackerFocusTimer } from '@/main';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 import { useI18n } from '@/composables/useI18n';
+import {
+  focusRecordsToLifelogEvents,
+  type FocusLifelogEvent,
+  type HabitCheckinLifelogEvent,
+  habitsToLifelogEvents,
+  type LifelogEventType,
+  moodDataToLifelogEvents,
+  moodManualEntriesToLifelogEvents,
+  type MoodLifelogEvent,
+  type ManualNoteLifelogEvent,
+  summarizeManualNoteLifelogEventsByDay,
+  summarizeFocusLifelogEventsByDay,
+  summarizeHabitCheckinLifelogEventsByDay,
+  summarizeMoodLifelogEventsByDay,
+  summarizeTaskCompletedLifelogEventsByDay,
+  type TaskCompletedLifelogEvent,
+  tasksToCompletedLifelogEvents
+} from '@/utils/lifelogEvents';
+import { eventBus, Events } from '@/utils/eventBus';
+import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/utils/habitTaskChips';
+import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
+import { resolveTaskTagIds } from '@/utils/taskTags';
 
 interface Props {
   tasks: Task[];
+  lifelogTasks?: Task[];
   taskGroups?: TaskGroup[];
+  goals?: Goal[];
+  calendarViewOptions?: CalendarViewOption[];
+  currentCalendarView?: CalendarViewMode;
+  showFocusRecords?: boolean;
+  showHabits?: boolean;
+  showLifelog?: boolean;
 }
+
+type CalendarViewMode = 'month' | 'week' | 'three-day' | 'day';
+type CalendarViewOption = {
+  value: CalendarViewMode;
+  label: string;
+  title: string;
+};
 
 interface MonthCalendarDay {
   key: string;
@@ -334,6 +484,11 @@ type PointerCaptureSession = {
 
 const props = defineProps<Props>();
 const { t } = useI18n();
+const { getMoodSvg } = useHabitEmojis();
+const calendarViewOptions = computed(() => props.calendarViewOptions || []);
+const showFocusRecords = computed(() => props.showFocusRecords !== false);
+const showHabits = computed(() => props.showHabits !== false);
+const showLifelog = computed(() => props.showLifelog !== false);
 
 const formatTemplate = (key: string, values: Record<string, string | number>): string => {
   return Object.entries(values).reduce(
@@ -359,6 +514,7 @@ const emit = defineEmits<{
   taskEdit: [task: Task, anchor: { x: number; y: number }];
   taskCreateRequested: [payload: { startDate: string; dueDate: string; allDay: boolean }];
   visibleRangeChange: [payload: { startDate: string; endDate: string }];
+  calendarViewChange: [view: CalendarViewMode];
 }>();
 
 type EventListener = (...args: any[]) => void;
@@ -409,6 +565,10 @@ let dragOverDayUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingDragOverDay: string | null = null;
 
 const localTasks = ref<Task[]>([]);
+const focusSessionRecords = ref<FocusSessionRecord[]>([]);
+const habitRecords = ref<Habit[]>([]);
+const moodRecords = ref<MoodData>({});
+const manualLifelogDrafts = ref<Record<string, string>>({});
 const mobilePointerTaskDrag = ref<MobilePointerTaskDragSession | null>(null);
 const mobileTaskChipGesture = ref<MobileTaskChipGesture | null>(null);
 const selectedMobileTaskChipId = ref<string | null>(null);
@@ -429,10 +589,68 @@ let contextMenuOutsidePointerBound = false;
 let monthDayHitZones: MonthDayHitZone[] | null = null;
 let mobileTaskPointerMoveRafId: number | null = null;
 let mobileTaskChipPointerMoveRafId: number | null = null;
+let unsubscribeHabitUpdates: (() => void) | null = null;
+let unsubscribeMoodUpdates: (() => void) | null = null;
 
 function syncCompactMobileLayout() {
   isCompactMobileLayout.value = window.innerWidth <= MOBILE_BREAKPOINT;
   invalidateMonthDropZoneCache();
+}
+
+function getLocalTodayKey(): string {
+  return formatDate(new Date());
+}
+
+async function toggleHabitTaskChipStatus(task: Task): Promise<void> {
+  const parsed = parseHabitTaskChipId(task.id);
+  if (!parsed) {
+    return;
+  }
+
+  const habit = habitRecords.value.find(item => item.id === parsed.habitId);
+  if (!habit) {
+    return;
+  }
+
+  const targetCount = Math.max(1, Math.round(Number(habit.timesPerDay ?? 1) || 1));
+  let record = habit.calendar.find(day => day.date === parsed.date);
+
+  if (record?.completed) {
+    record.completed = false;
+    record.completedCount = 0;
+    delete record.timestamp;
+    delete record.checkinTimestamps;
+    habit.calendar = habit.calendar.filter(day => day.date !== parsed.date);
+  } else {
+    if (!record) {
+      record = {
+        date: parsed.date,
+        completed: false,
+        completedCount: 0,
+        targetCount
+      };
+      habit.calendar.push(record);
+    }
+
+    const previousTimestamps = Array.isArray(record.checkinTimestamps)
+      ? record.checkinTimestamps
+      : [];
+    const now = Date.now();
+    record.targetCount = Math.max(1, Math.round(Number(record.targetCount ?? targetCount) || 1));
+    record.completedCount = Math.min(record.targetCount, Math.max(0, Math.round(Number(record.completedCount || 0) || 0)) + 1);
+    record.completed = record.completedCount >= record.targetCount;
+    record.checkinTimestamps = [...previousTimestamps, now];
+    record.timestamp ||= now;
+  }
+
+  habit.completedToday = Boolean(
+    habit.calendar.find(day => day.date === getLocalTodayKey() && day.completed)
+  );
+  habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+
+  habitRecords.value = [...habitRecords.value];
+  await saveHabits(habitRecords.value);
+  eventBus.emit(Events.HABITS_UPDATED, { source: 'month-view', habits: habitRecords.value });
 }
 
 function copyRectBounds(rect: DOMRect | DOMRectReadOnly): RectBounds {
@@ -552,6 +770,7 @@ function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined)
 const pendingDeletion = ref(new Set<string>());
 const weekRowHeights = ref<Record<string, number>>({});
 const expandedDayKeys = ref<Set<string>>(new Set());
+const lifelogDayKey = ref<string | null>(null);
 const taskSyncGuard = useTaskSyncGuard(localTasks);
 const {
   upsertTask: upsertLocalTask,
@@ -647,6 +866,218 @@ const backgroundColors = [
 ];
 const monthDropColorValues = backgroundColors.map(color => color.value);
 
+const focusLifelogEvents = computed(() =>
+  focusRecordsToLifelogEvents(focusSessionRecords.value, t('focusTimer.title'))
+);
+const focusSummariesByDay = computed(() => summarizeFocusLifelogEventsByDay(focusLifelogEvents.value));
+const habitCheckinLifelogEvents = computed(() => habitsToLifelogEvents(habitRecords.value));
+const habitCheckinSummariesByDay = computed(() =>
+  summarizeHabitCheckinLifelogEventsByDay(habitCheckinLifelogEvents.value)
+);
+const taskCompletedLifelogSourceTasks = computed(() => props.lifelogTasks || localTasks.value);
+const taskCompletedLifelogSourceTaskById = computed(() => {
+  const taskById = new Map<string, Task>();
+  for (const task of taskCompletedLifelogSourceTasks.value) {
+    if (task.id) {
+      taskById.set(task.id, task);
+    }
+  }
+  return taskById;
+});
+const taskCompletedLifelogSourceTaskByBlockId = computed(() => {
+  const taskByBlockId = new Map<string, Task>();
+  for (const task of taskCompletedLifelogSourceTasks.value) {
+    if (task.blockId) {
+      taskByBlockId.set(task.blockId, task);
+    }
+  }
+  return taskByBlockId;
+});
+const taskGroupNameById = computed(() =>
+  new Map((props.taskGroups || []).map(group => [group.id, group.name]))
+);
+const goalById = computed(() =>
+  new Map((props.goals || []).map(goal => [goal.id, goal]))
+);
+const taskCompletedLifelogEvents = computed(() =>
+  tasksToCompletedLifelogEvents(taskCompletedLifelogSourceTasks.value)
+);
+const taskCompletedSummariesByDay = computed(() =>
+  summarizeTaskCompletedLifelogEventsByDay(taskCompletedLifelogEvents.value)
+);
+const moodLifelogEvents = computed(() => moodDataToLifelogEvents(moodRecords.value));
+const moodSummariesByDay = computed(() => summarizeMoodLifelogEventsByDay(moodLifelogEvents.value));
+const manualNoteLifelogEvents = computed(() => moodManualEntriesToLifelogEvents(moodRecords.value));
+const manualNoteSummariesByDay = computed(() =>
+  summarizeManualNoteLifelogEventsByDay(manualNoteLifelogEvents.value)
+);
+
+async function refreshFocusSessions(): Promise<void> {
+  try {
+    const data = await getFocusTimerData();
+    focusSessionRecords.value = data.sessionRecords;
+  } catch (error) {
+    console.error('[MonthView] Failed to load focus sessions', error);
+  }
+}
+
+async function refreshHabitCheckins(): Promise<void> {
+  try {
+    habitRecords.value = await getHabits();
+  } catch (error) {
+    console.error('[MonthView] Failed to load habit checkins', error);
+  }
+}
+
+async function refreshMoodRecords(): Promise<void> {
+  try {
+    moodRecords.value = await getMoodData();
+  } catch (error) {
+    console.error('[MonthView] Failed to load mood records', error);
+  }
+}
+
+function handleFocusSessionUpdate(): void {
+  void refreshFocusSessions();
+}
+
+function handleHabitsUpdated(payload?: { source?: string; habits?: Habit[] }): void {
+  if (payload?.source === 'month-view') {
+    return;
+  }
+  if (Array.isArray(payload?.habits)) {
+    habitRecords.value = [...payload.habits];
+    return;
+  }
+  void refreshHabitCheckins();
+}
+
+function handleMoodUpdated(payload?: { moodData?: MoodData }): void {
+  if (payload?.moodData && typeof payload.moodData === 'object') {
+    moodRecords.value = { ...payload.moodData };
+    return;
+  }
+  void refreshMoodRecords();
+}
+
+function getFocusDaySummary(dayKey: string) {
+  return focusSummariesByDay.value.get(dayKey) || null;
+}
+
+function getHabitCheckinDaySummary(dayKey: string) {
+  return habitCheckinSummariesByDay.value.get(dayKey) || null;
+}
+
+function getTaskCompletedDaySummary(dayKey: string) {
+  return taskCompletedSummariesByDay.value.get(dayKey) || null;
+}
+
+function getMoodDaySummary(dayKey: string) {
+  return moodSummariesByDay.value.get(dayKey) || null;
+}
+
+function getManualNoteDaySummary(dayKey: string) {
+  return manualNoteSummariesByDay.value.get(dayKey) || null;
+}
+
+function formatFocusDaySummary(dayKey: string): string {
+  const summary = getFocusDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return `${summary.minutes}m`;
+}
+
+function getFocusDaySummaryTitle(dayKey: string): string {
+  const summary = getFocusDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return `${t('focusTimer.title')} · ${summary.sessions} · ${formatLifelogMinutes(summary.minutes)}`;
+}
+
+function formatHabitCheckinDaySummary(dayKey: string): string {
+  const summary = getHabitCheckinDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return `${summary.completed}`;
+}
+
+function getHabitCheckinDaySummaryTitle(dayKey: string): string {
+  const summary = getHabitCheckinDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return `${t('habitCheckinLog.habitLabel')} · ${summary.completed}/${summary.habits} · ${summary.checkins}${t('habitTracker.timesSuffix')}`;
+}
+
+function formatTaskCompletedDaySummary(dayKey: string): string {
+  const summary = getTaskCompletedDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return `${summary.tasks}`;
+}
+
+function getTaskCompletedDaySummaryTitle(dayKey: string): string {
+  const summary = getTaskCompletedDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return `${t('focusTimer.task')} · ${t('taskManager.statusCompleted')} · ${summary.tasks}`;
+}
+
+function formatMoodDaySummary(dayKey: string): string {
+  const summary = getMoodDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return summary.emoji;
+}
+
+function getMoodDaySummarySvg(dayKey: string): string {
+  const summary = getMoodDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return getMoodSvg(summary.emoji, 'large');
+}
+
+function formatManualNoteDaySummary(dayKey: string): string {
+  const summary = getManualNoteDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return `${summary.notes}`;
+}
+
+function getManualNoteDaySummaryTitle(dayKey: string): string {
+  const summary = getManualNoteDaySummary(dayKey);
+  if (!summary) {
+    return '';
+  }
+  return `${t('monthView.lifelogManualNote')} ${summary.notes}`;
+}
+
+function getCompactLifelogSummaryTitle(dayKey: string): string {
+  const timelineTitle = getLifelogTimelineItemsForDay(dayKey)
+    .map(formatCompactLifelogSummaryTitleLine)
+    .filter(Boolean)
+    .join('<br>');
+
+  if (timelineTitle) {
+    return timelineTitle;
+  }
+
+  return [
+    showFocusRecords.value && getFocusDaySummary(dayKey) ? getFocusDaySummaryTitle(dayKey) : '',
+    showLifelog.value && getManualNoteDaySummary(dayKey) ? getManualNoteDaySummaryTitle(dayKey) : '',
+    showLifelog.value && getHabitCheckinDaySummary(dayKey) ? getHabitCheckinDaySummaryTitle(dayKey) : '',
+    showLifelog.value && getTaskCompletedDaySummary(dayKey) ? getTaskCompletedDaySummaryTitle(dayKey) : ''
+  ].filter(Boolean).join(' · ');
+}
+
 function pickRandomTaskBackgroundColor(): string {
   if (monthDropColorValues.length === 0) {
     return 'pinch-background6';
@@ -655,71 +1086,15 @@ function pickRandomTaskBackgroundColor(): string {
   return monthDropColorValues[index];
 }
 
-function normalizeTaskBackgroundColorValue(backgroundColor?: string): string {
-  const raw = typeof backgroundColor === 'string' ? backgroundColor.trim() : '';
-  if (!raw) {
-    return '';
-  }
-  const cssVarMatch = raw.match(/^var\(--(pinch-background(?:10|[1-9]))\)$/);
-  if (cssVarMatch) {
-    return cssVarMatch[1];
-  }
-  return raw;
-}
-
-function resolveTaskGroupBackgroundColor(task: Pick<Task, 'groupId'>): string {
-  const groupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-  if (!groupId) {
-    return '';
-  }
-  const group = (props.taskGroups || []).find(item => item.id === groupId);
-  return normalizeTaskBackgroundColorValue(group?.color);
-}
-
-function resolveEffectiveTaskBackgroundColor(task: Pick<Task, 'backgroundColor' | 'groupId'>): string {
-  return normalizeTaskBackgroundColorValue(task.backgroundColor) || resolveTaskGroupBackgroundColor(task);
-}
-
-function resolveTaskBackgroundColor(backgroundColor?: string): string {
-  const raw = normalizeTaskBackgroundColorValue(backgroundColor);
-  if (!raw) {
-    return 'var(--b3-font-background9)';
-  }
-  if (/^pinch-background(?:10|[1-9])$/.test(raw)) {
-    return `var(--${raw})`;
-  }
-  if (/^background(1[0-3]|[4-9])$/.test(raw)) {
-    return `var(--b3-font-${raw})`;
-  }
-  return raw;
-}
-
-function resolveTaskColorIndex(backgroundColor?: string): number | null {
-  const raw = normalizeTaskBackgroundColorValue(backgroundColor);
-  if (!raw) {
-    return null;
-  }
-  const pinchMatch = raw.match(/^pinch-background(10|[1-9])$/);
-  if (pinchMatch) {
-    return Number(pinchMatch[1]);
-  }
-  const legacyMatch = raw.match(/^background(1[0-3]|[4-9])$/);
-  if (legacyMatch) {
-    return Number(legacyMatch[1]) - 3;
-  }
-  return null;
-}
-
-function resolveTaskAccentColor(backgroundColor?: string): string {
-  const index = resolveTaskColorIndex(backgroundColor) ?? 6;
-  return `var(--pinch-color${index})`;
-}
-
 function getTasksHash(tasks: Task[]): string {
   return tasks.map(t => 
     `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime || ''}:${t.dueTime || ''}:${t.title}:${t.backgroundColor || ''}:${t.groupId || ''}`
   ).join('|');
 }
+
+watch(() => props.tasks, (newTasks) => {
+  taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
+}, { deep: true });
 
 function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date } | null {
   const startValue = task.startDate || task.dueDate;
@@ -751,10 +1126,6 @@ type TaskRenderRange = {
   displayEndMs: number;
 };
 
-watch(() => props.tasks, (newTasks) => {
-  taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
-}, { deep: true, immediate: true });
-
 watch(isMobileTaskChipInteractionEnabled, (enabled) => {
   if (!enabled) {
     clearMobileTaskChipGesture({ restorePreview: true });
@@ -785,15 +1156,19 @@ const visibleCalendarRange = computed(() => {
   return { start, end };
 });
 
+function emitVisibleCalendarRange(): void {
+  const { start, end } = visibleCalendarRange.value;
+  emit('visibleRangeChange', {
+    startDate: formatDate(start),
+    endDate: formatDate(end)
+  });
+}
+
 watch(
   visibleCalendarRange,
-  ({ start, end }) => {
-    emit('visibleRangeChange', {
-      startDate: formatDate(start),
-      endDate: formatDate(end)
-    });
-  },
-  { immediate: true }
+  () => {
+    emitVisibleCalendarRange();
+  }
 );
 
 const normalizedTaskRanges = computed<TaskRenderRange[]>(() => {
@@ -843,11 +1218,53 @@ const normalizedTaskRanges = computed<TaskRenderRange[]>(() => {
   });
 });
 
+const habitTaskChipDates = computed(() =>
+  Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(visibleCalendarRange.value.start);
+    date.setDate(date.getDate() + index);
+    return {
+      key: formatDate(date),
+      date
+    };
+  })
+);
+
+const habitTaskChips = computed(() =>
+  showHabits.value ? buildHabitTaskChips(habitRecords.value, habitTaskChipDates.value) : []
+);
+
+function buildHabitTaskChipRanges(): TaskRenderRange[] {
+  return habitTaskChips.value
+    .map((task) => {
+      const range = getTaskDateRangeForRender(task);
+      if (!range) {
+        return null;
+      }
+
+      return {
+        task,
+        taskStart: range.taskStart,
+        taskEnd: range.taskEnd,
+        displayStart: new Date(range.taskStart),
+        displayEnd: new Date(range.taskEnd),
+        startMs: range.taskStart.getTime(),
+        endMs: range.taskEnd.getTime(),
+        displayEndMs: range.taskEnd.getTime()
+      };
+    })
+    .filter((range): range is TaskRenderRange =>
+      !!range && Number.isFinite(range.startMs) && Number.isFinite(range.endMs)
+    );
+}
+
 const taskPositionsMap = computed(() => {
   const positionMap = new Map<string, number>();
   const dailyPositionSlots = new Map<string, number[]>();
   
-  const sortedRanges = [...normalizedTaskRanges.value]
+  const sortedRanges = [
+    ...normalizedTaskRanges.value,
+    ...buildHabitTaskChipRanges()
+  ]
     .sort((a, b) => {
       const aStart = a.startMs;
       const bStart = b.startMs;
@@ -1091,7 +1508,24 @@ const weeklyTasks = computed(() => {
     const weekStartMs = weekStart.getTime();
     const weekEndMs = weekEnd.getTime();
     
-    for (const range of normalizedTaskRanges.value) {
+    const taskRanges = [
+      ...normalizedTaskRanges.value,
+      ...habitTaskChips.value.map(task => {
+        const taskStart = new Date(task.startDate || task.dueDate || '');
+        taskStart.setHours(0, 0, 0, 0);
+        const taskEnd = new Date(task.dueDate || task.startDate || '');
+        taskEnd.setHours(23, 59, 59, 999);
+        return {
+          task,
+          taskStart,
+          taskEnd,
+          startMs: taskStart.getTime(),
+          endMs: taskEnd.getTime()
+        };
+      }).filter(range => Number.isFinite(range.startMs) && Number.isFinite(range.endMs))
+    ];
+
+    for (const range of taskRanges) {
       if (range.taskEnd < weekStart || range.taskStart > weekEnd) continue;
 
       const effectiveStart = range.startMs < weekStartMs ? weekStart : range.taskStart;
@@ -1252,6 +1686,539 @@ function collapseDayTasks(dayKey: string): void {
   expandedDayKeys.value = next;
 }
 
+function openLifelogDay(dayKey: string): void {
+  if (!dayKey) return;
+  lifelogDayKey.value = dayKey;
+  expandedDayKeys.value = new Set();
+}
+
+function closeLifelogDay(): void {
+  lifelogDayKey.value = null;
+}
+
+const lifelogTimelinePanelOpen = computed(() => Boolean(lifelogDayKey.value));
+
+function formatLifelogDayTitle(dayKey: string): string {
+  const date = new Date(dayKey);
+  if (Number.isNaN(date.getTime())) {
+    return dayKey;
+  }
+  return formatTemplate('weekView.fullDateTemplate', {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate()
+  });
+}
+
+const lifelogTimelineDayTitle = computed(() => (
+  lifelogDayKey.value ? formatLifelogDayTitle(lifelogDayKey.value) : ''
+));
+
+const lifelogTimelineSubtitle = computed(() => formatTemplate('weekView.lifelogTimelineCountTemplate', {
+  count: lifelogTimelineItems.value.length
+}));
+
+const lifelogTimelineDateStripDays = computed<LifelogTimelineDateStripDay[]>(() => (
+  calendarDays.value.map(day => {
+    const weekdayIndex = (day.date.getDay() + 6) % 7;
+    const weekdayLabel = weekdays.value[weekdayIndex] || '';
+    const hasRecord = Boolean(
+      (showFocusRecords.value && getFocusDaySummary(day.key))
+      || (showLifelog.value && (
+        getMoodDaySummary(day.key)
+        || getManualNoteDaySummary(day.key)
+        || getHabitCheckinDaySummary(day.key)
+        || getTaskCompletedDaySummary(day.key)
+      ))
+    );
+
+    return {
+      date: day.key,
+      weekdayLabel,
+      dayNumber: day.dayNumber,
+      ariaLabel: `${weekdayLabel} ${day.key}`,
+      selected: day.key === lifelogDayKey.value,
+      today: day.isToday,
+      hasRecord,
+      moodSvg: showLifelog.value ? getMoodDaySummarySvg(day.key) : undefined
+    };
+  })
+));
+
+function getFocusEventsForDay(dayKey: string): FocusLifelogEvent[] {
+  return focusLifelogEvents.value
+    .filter(event => event.date === dayKey)
+    .sort((left, right) => {
+      if (left.startTime !== right.startTime) return left.startTime.localeCompare(right.startTime);
+      return left.title.localeCompare(right.title);
+    });
+}
+
+function getHabitEventsForDay(dayKey: string): HabitCheckinLifelogEvent[] {
+  return habitCheckinLifelogEvents.value
+    .filter(event => event.date === dayKey)
+    .sort((left, right) => {
+      const leftTimestamp = Number(left.checkinTimestamp || left.metadata?.timestamp || 0);
+      const rightTimestamp = Number(right.checkinTimestamp || right.metadata?.timestamp || 0);
+      if (Number.isFinite(leftTimestamp) && Number.isFinite(rightTimestamp) && leftTimestamp !== rightTimestamp) {
+        return leftTimestamp - rightTimestamp;
+      }
+      return left.title.localeCompare(right.title);
+    });
+}
+
+function getTaskEventsForDay(dayKey: string): TaskCompletedLifelogEvent[] {
+  return taskCompletedLifelogEvents.value
+    .filter(event => event.date === dayKey)
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.completedAt);
+      const rightTime = Date.parse(right.completedAt);
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+        return leftTime - rightTime;
+      }
+      return left.title.localeCompare(right.title);
+    });
+}
+
+function getManualNoteEventsForDay(dayKey: string): ManualNoteLifelogEvent[] {
+  return manualNoteLifelogEvents.value
+    .filter(event => event.date === dayKey)
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.createdAt);
+      const rightTime = Date.parse(right.createdAt);
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+        return leftTime - rightTime;
+      }
+      return left.id.localeCompare(right.id);
+    });
+}
+
+function timeToSortMinutes(value: string | undefined, fallbackMinutes: number): number {
+  if (!value) {
+    return fallbackMinutes;
+  }
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (match) {
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return fallbackMinutes;
+  }
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function timestampToSortMinutes(value: unknown, fallbackMinutes: number): number {
+  const rawTimestamp = typeof value === 'number'
+    ? value
+    : (typeof value === 'string' && value.trim() ? Number(value) : Number.NaN);
+  if (!Number.isFinite(rawTimestamp) || rawTimestamp <= 0) {
+    return fallbackMinutes;
+  }
+  const timestamp = rawTimestamp < 1_000_000_000_000 ? rawTimestamp * 1000 : rawTimestamp;
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return fallbackMinutes;
+  }
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function formatSortMinutes(minutes: number): string {
+  const normalized = Math.max(0, Math.min(24 * 60 - 1, Math.round(minutes)));
+  const hour = Math.floor(normalized / 60);
+  const minute = normalized % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function getLifelogTimelineIcon(type: LifelogEventType): string {
+  if (type === 'focus') return 'timer';
+  if (type === 'habit-checkin') return 'squareCheck';
+  if (type === 'task-completed') return 'taskCheckboxChecked';
+  if (type === 'mood') return 'smile';
+  return 'descriptionBubble';
+}
+
+function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePanelItem {
+  const sortMinutes = timeToSortMinutes(event.startTime, 8 * 60);
+  return {
+    id: `focus-${event.id}`,
+    sourceId: event.id,
+    type: event.type,
+    timeLabel: `${event.startTime} - ${event.endTime}`,
+    sortMinutes,
+    title: event.title,
+    meta: `${t('focusTimer.title')} · ${formatFocusLifelogDuration(event)} · ${formatFocusLifelogTarget(event)}`,
+    note: event.note || '',
+    icon: getLifelogTimelineIcon(event.type),
+    deletable: true
+  };
+}
+
+function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimelinePanelItem {
+  const sortMinutes = timestampToSortMinutes(event.checkinTimestamp || event.metadata?.timestamp, 7 * 60);
+  const statusText = event.completed ? t('habitTracker.checkedIn') : t('habitTracker.scheduledCheckin');
+  return {
+    id: `habit-${event.id}`,
+    sourceId: event.id,
+    type: event.type,
+    timeLabel: formatSortMinutes(sortMinutes),
+    sortMinutes,
+    title: event.title,
+    note: event.note || '',
+    meta: `${statusText} · ${formatHabitLifelogProgress(event)}`,
+    icon: event.completed ? getLifelogTimelineIcon(event.type) : 'square'
+  };
+}
+
+function getTaskCompletedSourceTask(event: TaskCompletedLifelogEvent): Task | null {
+  return taskCompletedLifelogSourceTaskById.value.get(event.taskId)
+    || (event.blockId ? taskCompletedLifelogSourceTaskByBlockId.value.get(event.blockId) : null)
+    || null;
+}
+
+function getTaskCompletedEventGroupId(event: TaskCompletedLifelogEvent): string {
+  const groupId = event.metadata?.groupId;
+  return typeof groupId === 'string' ? groupId.trim() : '';
+}
+
+function getTaskCompletedTagLabels(event: TaskCompletedLifelogEvent): string[] {
+  const sourceTask = getTaskCompletedSourceTask(event);
+  return resolveTaskTagIds(
+    sourceTask ? sourceTask.tags : event.tags,
+    sourceTask?.groupId || getTaskCompletedEventGroupId(event)
+  )
+    .map(tagId => taskGroupNameById.value.get(tagId) || '')
+    .filter(Boolean);
+}
+
+function formatTaskCompletedGoalLabel(goal: Goal): string {
+  const name = typeof goal.name === 'string' && goal.name.trim()
+    ? goal.name.trim()
+    : t('taskManager.untitledGoal');
+  const emoji = typeof goal.emoji === 'string' ? goal.emoji.trim() : '';
+  return emoji ? `${emoji} ${name}` : name;
+}
+
+function getTaskCompletedGoalLabels(event: TaskCompletedLifelogEvent): string[] {
+  const sourceTask = getTaskCompletedSourceTask(event);
+  const goalSource = sourceTask || {
+    id: event.taskId,
+    taskId: event.taskId,
+    blockId: event.blockId,
+    title: event.title
+  };
+  return getGoalIdsForTask(props.goals || [], goalSource)
+    .map(goalId => goalById.value.get(goalId))
+    .filter((goal): goal is Goal => Boolean(goal))
+    .map(formatTaskCompletedGoalLabel);
+}
+
+function formatTaskCompletedLifelogMeta(event: TaskCompletedLifelogEvent): string {
+  const detailLabels = [
+    ...getTaskCompletedTagLabels(event),
+    ...getTaskCompletedGoalLabels(event)
+  ];
+  return [
+    t('taskManager.statusCompleted'),
+    ...detailLabels
+  ].join(' · ');
+}
+
+function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimelinePanelItem {
+  const sortMinutes = timeToSortMinutes(event.completedAt, 20 * 60);
+  return {
+    id: `task-${event.id}`,
+    sourceId: event.taskId,
+    type: event.type,
+    timeLabel: formatTaskCompletedTime(event),
+    sortMinutes,
+    title: event.title,
+    meta: formatTaskCompletedLifelogMeta(event),
+    note: event.note || '',
+    icon: getLifelogTimelineIcon(event.type)
+  };
+}
+
+function manualNoteEventToTimelineItem(event: ManualNoteLifelogEvent): LifelogTimelinePanelItem {
+  const sortMinutes = timeToSortMinutes(event.createdAt || event.updatedAt, 21 * 60);
+  return {
+    id: `manual-${event.id}`,
+    sourceId: event.id,
+    type: event.type,
+    timeLabel: formatManualNoteTimestamp(event),
+    sortMinutes,
+    title: t('monthView.lifelogManualNote'),
+    meta: t('monthView.lifelogManualNote'),
+    note: event.text,
+    icon: getLifelogTimelineIcon(event.type),
+    emoji: event.emoji,
+    moodSvg: event.emoji ? getMoodSvg(event.emoji, 'large') : undefined,
+    deletable: true
+  };
+}
+
+function moodEventToTimelineItem(event: MoodLifelogEvent): LifelogTimelinePanelItem {
+  const sortMinutes = timestampToSortMinutes(event.moodTimestamp, 9 * 60);
+  return {
+    id: `mood-${event.id}`,
+    sourceId: event.sourceId,
+    type: event.type,
+    timeLabel: formatMoodTimestamp(event),
+    sortMinutes,
+    title: event.emoji,
+    meta: `${t('moodTracker.todayMood')} ﾂｷ ${event.emoji}`,
+    note: event.note || '',
+    icon: getLifelogTimelineIcon(event.type),
+    emoji: event.emoji,
+    moodSvg: event.emoji ? getMoodSvg(event.emoji, 'large') : undefined
+  };
+}
+
+function sortLifelogTimelineItems(items: LifelogTimelinePanelItem[]): LifelogTimelinePanelItem[] {
+  return items.sort((left, right) => {
+    if (left.sortMinutes !== right.sortMinutes) {
+      return left.sortMinutes - right.sortMinutes;
+    }
+    return left.title.localeCompare(right.title, 'zh-Hans-CN');
+  });
+}
+
+function getLifelogTimelineItemsForDay(dayKey: string, options: { includeMood?: boolean } = {}): LifelogTimelinePanelItem[] {
+  if (!dayKey) {
+    return [];
+  }
+
+  return sortLifelogTimelineItems([
+    ...(showFocusRecords.value ? getFocusEventsForDay(dayKey).map(focusEventToTimelineItem) : []),
+    ...(showLifelog.value && options.includeMood ? moodLifelogEvents.value.filter(event => event.date === dayKey).map(moodEventToTimelineItem) : []),
+    ...(showLifelog.value ? getHabitEventsForDay(dayKey).map(habitEventToTimelineItem) : []),
+    ...(showLifelog.value ? getTaskEventsForDay(dayKey).map(taskEventToTimelineItem) : []),
+    ...(showLifelog.value ? getManualNoteEventsForDay(dayKey).map(manualNoteEventToTimelineItem) : [])
+  ]);
+}
+
+function escapeCompactLifelogSummaryHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatCompactLifelogSummaryTitleLine(item: LifelogTimelinePanelItem): string {
+  const time = escapeCompactLifelogSummaryHtml(item.timeLabel);
+  const content = escapeCompactLifelogSummaryHtml(
+    item.type === 'manual-note'
+      ? item.note
+      : (item.type === 'task-completed' ? `${t('taskManager.statusCompleted')} · ${item.title}` : item.meta)
+  );
+  if (!time && !content) {
+    return '';
+  }
+  return `<small class='ft__on-surface'>${time}</small>${content}`;
+}
+
+const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
+  const dayKey = lifelogDayKey.value;
+  if (!dayKey) {
+    return [];
+  }
+
+  return getLifelogTimelineItemsForDay(dayKey);
+});
+
+const lifelogTimelineDraft = computed(() => (
+  lifelogDayKey.value ? getManualLifelogDraft(lifelogDayKey.value) : ''
+));
+
+function updateLifelogTimelineDraft(value: string): void {
+  if (!lifelogDayKey.value) {
+    return;
+  }
+  manualLifelogDrafts.value = {
+    ...manualLifelogDrafts.value,
+    [lifelogDayKey.value]: value
+  };
+}
+
+function saveLifelogTimelineDraft(): void {
+  if (lifelogDayKey.value) {
+    void saveManualLifelogDraft(lifelogDayKey.value);
+  }
+}
+
+function clearLifelogTimelineDraft(): void {
+  if (lifelogDayKey.value) {
+    clearManualLifelogDraft(lifelogDayKey.value);
+  }
+}
+
+async function deleteFocusLifelogSession(sessionId: string): Promise<void> {
+  if (!sessionId) {
+    return;
+  }
+
+  try {
+    const deleted = await deleteFocusSessionRecord(sessionId);
+    if (!deleted) {
+      return;
+    }
+    focusSessionRecords.value = focusSessionRecords.value.filter(record => record.id !== sessionId);
+    window.dispatchEvent(new CustomEvent('pinch-focus-session'));
+  } catch (error) {
+    console.error('[MonthView] Failed to delete focus session', error);
+  }
+}
+
+function deleteLifelogTimelineItem(item: LifelogTimelinePanelItem): void {
+  if (!item.sourceId) {
+    return;
+  }
+  if (item.type === 'focus') {
+    void deleteFocusLifelogSession(item.sourceId);
+    return;
+  }
+  void deleteManualLifelogEntry(item.sourceId);
+}
+
+function formatLifelogMinutes(minutes: number): string {
+  const roundedMinutes = Math.max(0, Math.round(Number(minutes) || 0));
+  if (roundedMinutes < 60) {
+    return t('habitCheckinLog.minutesTemplate').replace('{minutes}', String(roundedMinutes));
+  }
+
+  const hours = Math.floor(roundedMinutes / 60);
+  const restMinutes = roundedMinutes % 60;
+  if (restMinutes > 0) {
+    return t('habitCheckinLog.hoursMinutesTemplate')
+      .replace('{hours}', String(hours))
+      .replace('{minutes}', String(restMinutes));
+  }
+  return t('habitCheckinLog.hoursTemplate').replace('{hours}', String(hours));
+}
+
+function formatFocusLifelogDuration(event: FocusLifelogEvent): string {
+  return formatLifelogMinutes(event.minutes);
+}
+
+function formatFocusLifelogTarget(event: FocusLifelogEvent): string {
+  if (event.targetType === 'habit') {
+    return t('focusTimer.habit');
+  }
+  if (event.targetType === 'task') {
+    return t('focusTimer.task');
+  }
+  return t('focusTimer.title');
+}
+
+function formatHabitLifelogProgress(event: HabitCheckinLifelogEvent): string {
+  const checkinCount = event.checkinIndex || event.completedCount;
+  const progress = event.targetCount > 1 ? `${checkinCount}/${event.targetCount}` : (event.completed ? '1/1' : '0/1');
+  return `${progress}${t('habitTracker.timesSuffix')}`;
+}
+
+function formatTaskCompletedTime(event: TaskCompletedLifelogEvent): string {
+  const completedAt = new Date(event.completedAt);
+  if (Number.isNaN(completedAt.getTime())) {
+    return event.date;
+  }
+  return `${String(completedAt.getHours()).padStart(2, '0')}:${String(completedAt.getMinutes()).padStart(2, '0')}`;
+}
+
+function getManualLifelogDraft(dayKey: string): string {
+  return manualLifelogDrafts.value[dayKey] || '';
+}
+
+function clearManualLifelogDraft(dayKey: string): void {
+  const nextDrafts = { ...manualLifelogDrafts.value };
+  delete nextDrafts[dayKey];
+  manualLifelogDrafts.value = nextDrafts;
+}
+
+async function persistMoodRecords(nextMoodData: MoodData): Promise<void> {
+  await saveMoodData(nextMoodData);
+  moodRecords.value = nextMoodData;
+  eventBus.emit(Events.MOOD_UPDATED, { moodData: nextMoodData });
+}
+
+async function saveManualLifelogDraft(dayKey: string): Promise<void> {
+  const text = getManualLifelogDraft(dayKey).trim();
+  if (!dayKey || !text) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const entry: MoodManualEntry = {
+    id: `mood-entry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    text,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  try {
+    const existingEntry = moodRecords.value[dayKey] || { emoji: '', note: '', timestamp: now };
+    const nextMoodData: MoodData = {
+      ...moodRecords.value,
+      [dayKey]: {
+        ...existingEntry,
+        timestamp: existingEntry.timestamp || now,
+        entries: [...(existingEntry.entries || []), entry]
+      }
+    };
+    await persistMoodRecords(nextMoodData);
+    clearManualLifelogDraft(dayKey);
+  } catch (error) {
+    console.error('[MonthView] Failed to save manual lifelog entry', error);
+  }
+}
+
+async function deleteManualLifelogEntry(entryId: string): Promise<void> {
+  if (!entryId) {
+    return;
+  }
+  let changed = false;
+  const nextMoodData: MoodData = {};
+  for (const [date, entry] of Object.entries(moodRecords.value)) {
+    const entries = Array.isArray(entry.entries)
+      ? entry.entries.filter(item => item.id !== entryId)
+      : [];
+    if ((entry.entries || []).length !== entries.length) {
+      changed = true;
+    }
+    nextMoodData[date] = {
+      ...entry,
+      ...(entries.length > 0 ? { entries } : { entries: undefined })
+    };
+  }
+
+  if (!changed) {
+    return;
+  }
+
+  try {
+    await persistMoodRecords(nextMoodData);
+  } catch (error) {
+    console.error('[MonthView] Failed to delete manual lifelog entry', error);
+  }
+}
+
+function formatManualNoteTimestamp(event: ManualNoteLifelogEvent): string {
+  const timestamp = new Date(event.createdAt || event.updatedAt);
+  if (Number.isNaN(timestamp.getTime())) {
+    return event.date;
+  }
+  return `${String(timestamp.getHours()).padStart(2, '0')}:${String(timestamp.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatMoodTimestamp(event: MoodLifelogEvent): string {
+  const timestamp = new Date(event.moodTimestamp || '');
+  if (Number.isNaN(timestamp.getTime())) {
+    return formatSortMinutes(9 * 60);
+  }
+  return `${String(timestamp.getHours()).padStart(2, '0')}:${String(timestamp.getMinutes()).padStart(2, '0')}`;
+}
+
 function getExpandedTasksForDay(day: any, week: any[]): WeekTask[] {
   const weekKey = getWeekKey(week);
   const weekData = weekRenderDataMap.value.get(weekKey);
@@ -1287,7 +2254,7 @@ function getTaskStyle(task: any, week: any[]) {
   const leftPercent = (task.startDayOfWeek / 7) * 100;
   const widthPercent = (task.spanDays / 7) * 100;
   const widthOffset = (isCompactMobileLayout.value ? 6 : 24) + getTaskMoreReserveWidth(task, week);
-  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task);
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task, props.taskGroups);
   const bgColor = resolveTaskBackgroundColor(effectiveBackgroundColor);
   
   const position = task.position ?? (taskPositionsMap.value.get(task.id) ?? 0);
@@ -1298,15 +2265,15 @@ function getTaskStyle(task: any, week: any[]) {
       width: `calc(${widthPercent}% - ${widthOffset}px)`,
       top: `${TOP_OFFSET + position * TASK_POSITION_STEP}px`,
       height: `${TASK_CHIP_HEIGHT}px`,
-      backgroundColor: bgColor,
+      background: bgColor,
     '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
 }
 
 function getExpandedTaskChipStyle(task: WeekTask): Record<string, string> {
-  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task);
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task, props.taskGroups);
   return {
-    backgroundColor: resolveTaskBackgroundColor(effectiveBackgroundColor),
+    background: resolveTaskBackgroundColor(effectiveBackgroundColor),
     '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
 }
@@ -1758,7 +2725,7 @@ async function applyTaskDropToDay(task: Task, day: MonthCalendarDay): Promise<vo
     const existingBackgroundColor = normalizeTaskBackgroundColorValue(task.backgroundColor);
     const assignedBackgroundColor = existingBackgroundColor
       ? undefined
-      : (resolveTaskGroupBackgroundColor(task) || pickRandomTaskBackgroundColor());
+      : (resolveTaskGroupBackgroundColor(task, props.taskGroups) || pickRandomTaskBackgroundColor());
     
     if (pendingDeletion.value.has(task.id)) {
       pendingDeletion.value.delete(task.id);
@@ -1821,17 +2788,34 @@ async function handleDrop(day: MonthCalendarDay) {
 
 function previousMonth() {
   expandedDayKeys.value = new Set();
+  closeLifelogDay();
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() - 1, 1);
 }
 
 function nextMonth() {
   expandedDayKeys.value = new Set();
+  closeLifelogDay();
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + 1, 1);
 }
 
+function changeLifelogTimelinePeriod(offset: number): void {
+  expandedDayKeys.value = new Set();
+  const nextDate = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + (offset < 0 ? -1 : 1), 1);
+  baseDate.value = nextDate;
+  const year = nextDate.getFullYear();
+  const month = String(nextDate.getMonth() + 1).padStart(2, '0');
+  lifelogDayKey.value = `${year}-${month}-01`;
+}
+
 function handleWheel(event: WheelEvent) {
+  if (lifelogDayKey.value) {
+    event.stopPropagation();
+    return;
+  }
+
   event.preventDefault();
   expandedDayKeys.value = new Set();
+  closeLifelogDay();
   
   const daysToScroll = event.deltaY > 0 ? 7 : -7;
   const newDate = new Date(baseDate.value);
@@ -2469,6 +3453,7 @@ function handleDocumentMobileTaskChipPointerCancel(event: PointerEvent): void {
 
 function handleMobileTaskChipClick(event: MouseEvent, task: Task): void {
   if (!isMobileTaskChipInteractionEnabled.value) {
+    handleTaskClick(task, event);
     return;
   }
   if (shouldSuppressTaskClick(task.id)) {
@@ -2479,10 +3464,7 @@ function handleMobileTaskChipClick(event: MouseEvent, task: Task): void {
   event.preventDefault();
   event.stopPropagation();
   selectMobileTaskChip(null);
-  showTaskContextMenu(task, {
-    x: event.clientX,
-    y: event.clientY
-  });
+  handleTaskClick(task, event);
 }
 
 function handleContextMenuOutsidePointerDown(event: PointerEvent): void {
@@ -2581,7 +3563,7 @@ function handleGlobalClick(event: MouseEvent) {
   const targetElement = target instanceof Element ? target : null;
 
   if (selectedMobileTaskChipId.value) {
-    const clickedInsideInteractiveChip = !!targetElement?.closest('.task-chip, .context-menu, .mobile-drag-preview, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover');
+    const clickedInsideInteractiveChip = !!targetElement?.closest('.task-chip, .habit-task-chip, .context-menu, .mobile-drag-preview, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover');
     if (!clickedInsideInteractiveChip) {
       selectMobileTaskChip(null);
     }
@@ -2593,6 +3575,14 @@ function handleGlobalClick(event: MouseEvent) {
     const clickedInsideContextMenu = !!targetElement?.closest('.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog');
     if (!clickedInsideExpandedPanel && !clickedExpandTrigger && !clickedInsideContextMenu) {
       expandedDayKeys.value = new Set();
+    }
+  }
+
+  if (lifelogDayKey.value) {
+    const clickedInsideLifelogPanel = !!targetElement?.closest('.lifelog-timeline-panel');
+    const clickedLifelogTrigger = !!targetElement?.closest('.day-number, .day-focus-summary, .day-habit-summary, .day-task-summary, .day-compact-lifelog-summary, .day-mood-summary');
+    if (!clickedInsideLifelogPanel && !clickedLifelogTrigger) {
+      closeLifelogDay();
     }
   }
 
@@ -2864,6 +3854,8 @@ function updateWeekRowHeights() {
 let resizeObserver: ResizeObserver | null = null;
 
 onMounted(() => {
+  emitVisibleCalendarRange();
+  taskSyncGuard.syncTasks(props.tasks, false, getTasksHash);
   syncCompactMobileLayout();
   window.addEventListener('resize', syncCompactMobileLayout);
   document.addEventListener('pointermove', handleDocumentMobileTaskPointerMove);
@@ -2872,6 +3864,12 @@ onMounted(() => {
   document.addEventListener('pointermove', handleDocumentMobileTaskChipPointerMove);
   document.addEventListener('pointerup', handleDocumentMobileTaskChipPointerUp);
   document.addEventListener('pointercancel', handleDocumentMobileTaskChipPointerCancel);
+  window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
+  unsubscribeHabitUpdates = eventBus.on(Events.HABITS_UPDATED, handleHabitsUpdated);
+  unsubscribeMoodUpdates = eventBus.on(Events.MOOD_UPDATED, handleMoodUpdated);
+  void refreshFocusSessions();
+  void refreshHabitCheckins();
+  void refreshMoodRecords();
 
   const container = document.querySelector('.month-view');
   if (container) {
@@ -2895,6 +3893,11 @@ onMounted(() => {
 });
 
 async function toggleTaskStatus(task: Task) {
+  if (isHabitTaskChip(task)) {
+    await toggleHabitTaskChipStatus(task);
+    return;
+  }
+
   const currentTask = localTasks.value.find(t => t.id === task.id);
   if (!currentTask) return;
   const previousStatus = currentTask.status;
@@ -2974,11 +3977,17 @@ function finishCreateSelection() {
   });
 }
 
-function handleTaskClick(task: Task) {
+function handleTaskClick(task: Task, event?: MouseEvent) {
+  if (isHabitTaskChip(task)) {
+    return;
+  }
   if (shouldSuppressTaskClick(task.id)) {
     return;
   }
-  emit('taskClick', task);
+  emit('taskEdit', task, {
+    x: event?.clientX ?? window.innerWidth / 2,
+    y: event?.clientY ?? window.innerHeight / 2
+  });
 }
 
 function handleContextMenuEditTask(task: Task): void {
@@ -3008,6 +4017,11 @@ onUnmounted(() => {
   document.removeEventListener('pointerup', handleDocumentMobileTaskChipPointerUp);
   document.removeEventListener('pointercancel', handleDocumentMobileTaskChipPointerCancel);
   window.removeEventListener('resize', syncCompactMobileLayout);
+  window.removeEventListener('pinch-focus-session', handleFocusSessionUpdate);
+  unsubscribeHabitUpdates?.();
+  unsubscribeHabitUpdates = null;
+  unsubscribeMoodUpdates?.();
+  unsubscribeMoodUpdates = null;
   taskSyncGuard.clearAllTaskSyncLocks();
   removeEventListeners();
 
@@ -3046,27 +4060,73 @@ onUnmounted(() => {
   background: var(--b3-theme-background);
 }
 
-.calendar-header {
+.calendar-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   padding: 4px 10px;
-  background: var(--b3-theme-surface);
   border-bottom: 1px solid var(--b3-theme-border);
 }
 
+.calendar-header {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--b3-list-hover);
+}
+
+.calendar-view-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--b3-list-hover);
+  flex-shrink: 0;
+}
+
+.calendar-view-switcher-btn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.calendar-view-switcher-btn:hover {
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+}
+
+.calendar-view-switcher-btn.active {
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  box-shadow: var(--pinch-shadow);
+}
+
 .nav-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   background: var(--b3-theme-background);
-  border-radius: 4px;
+  border-radius: 7px;
   cursor: pointer;
   color: var(--b3-theme-on-background);
   transition: background-color 0.2s;
+  box-shadow: var(--pinch-shadow);
 }
 
 .nav-btn:hover {
@@ -3162,6 +4222,47 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.day-number:hover,
+.day-number:focus-visible {
+  background: var(--b3-list-hover);
+  outline: none;
+}
+
+.day-date-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.day-compact-lifelog-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
+  box-shadow: var(--pinch-shadow);
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font-size: 10px;
+  line-height: 16px;
+  box-sizing: border-box;
+  overflow: visible;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  flex-shrink: 0;
 }
 
 .day-lunar {
@@ -3182,6 +4283,102 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
+.day-focus-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  line-height: 16px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.day-focus-summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-habit-summary,
+.day-task-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  line-height: 16px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.day-habit-summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-task-summary {
+  border: 0;
+  background: transparent;
+}
+
+.day-habit-summary :deep(svg),
+.day-task-summary :deep(svg) {
+  color: #f98f7a;
+  stroke: #f98f7a;
+}
+
+.day-task-summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-mood-summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 16px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-mood-summary-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 14px;
+}
+
+.day-mood-summary-icon :deep(svg) {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
 
 .day-cell.drag-over {
   background: var(--b3-font-color2-1, #e3f2fd);
@@ -3238,6 +4435,29 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+.habit-task-chip {
+  padding: 3px 6px;
+  border-radius: 20px;
+  font-size: 11px;
+  cursor: default;
+  border: 1px solid var(--pinch-task-chip-color, var(--pinch-color6));
+  transition: background-color 0.15s;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  overflow: visible;
+  pointer-events: auto;
+  position: relative;
+  margin-left: 5px;
+}
+
+.habit-task-chip.task-completed {
+  opacity: 0.6;
+}
+
+.habit-task-chip .task-chip-title {
+  cursor: default;
+}
 .task-chip:hover {
   background: var(--b3-list-hover);
 }
@@ -3343,6 +4563,15 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+.habit-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-right: 3px;
+  line-height: 1;
 }
 
 .task-priority-badge {
@@ -3497,6 +4726,10 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+.day-expanded-habit-task-chip {
+  box-shadow: var(--pinch-shadow);
+}
+
 .day-expanded-chip.task-completed {
   opacity: 0.6;
 }
@@ -3585,6 +4818,7 @@ onUnmounted(() => {
 }
 
 .day-expanded-chip,
+.habit-task-chip,
 .task-chip,
 .task-chip-title {
   -webkit-touch-callout: none;
@@ -3597,7 +4831,7 @@ onUnmounted(() => {
     border: none;
   }
 
-  .calendar-header {
+  .calendar-toolbar {
     padding: 4px 8px;
   }
 
@@ -3631,7 +4865,8 @@ onUnmounted(() => {
     padding-left: 24px;
   }
 
-  .task-chip {
+  .task-chip,
+  .habit-task-chip {
     height: 12px !important;
     min-height: 12px;
     padding: 1px 4px;

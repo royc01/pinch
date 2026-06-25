@@ -1,5 +1,5 @@
 ﻿<template>
-  <div v-if="show" class="focus-timer-panel">
+  <div v-if="show" ref="focusTimerPanelRef" class="focus-timer-panel">
     <div class="timer-header">
       <div class="stats-header-content">
         <div class="stats-title">{{ t('focusTimer.title') }}</div>
@@ -11,7 +11,7 @@
               @update:model-value="emit('update:miniEnabled', $event)"
             />
           </div>
-          <button @click="handleClose" class="icon-button" :title="t('focusTimer.closeTimer')" :aria-label="t('focusTimer.closeTimer')">
+          <button @click="handleClose" class="icon-button ariaLabel" :aria-label="t('focusTimer.closeTimer')">
             <Icon name="close" width="16" height="16" class="icon" />
           </button>
         </div>
@@ -27,9 +27,9 @@
             <div v-if="linkedTarget" class="linked-habit-banner__chip-row">
               <button
                 type="button"
-                class="linked-habit-banner__chip"
+                class="linked-habit-banner__chip ariaLabel"
                 :disabled="!canOpenLinkedTarget"
-                :title="canOpenLinkedTarget ? `${t('focusTimer.openTargetPrefix')}${linkedTargetDisplayLabel}` : linkedTargetDisplayLabel"
+               
                 :aria-label="linkedTargetDisplayLabel"
                 @click="openLinkedTarget"
               >
@@ -39,9 +39,9 @@
               </button>
               <button
                 type="button"
-                class="linked-habit-banner__clear"
+                class="linked-habit-banner__clear ariaLabel"
                 :disabled="isLinkedTargetLocked"
-                :title="t('focusTimer.clearLinkedTarget')"
+               
                 :aria-label="t('focusTimer.clearLinkedTarget')"
                 @click="clearLinkedTarget"
               >
@@ -74,8 +74,8 @@
               <span>{{ targetPickerTitle }}</span>
               <button
                 type="button"
-                class="linked-habit-banner__picker-close"
-                :title="t('common.close')"
+                class="linked-habit-banner__picker-close ariaLabel"
+               
                 :aria-label="t('common.close')"
                 @click="closeTargetPicker"
               >
@@ -137,9 +137,9 @@
         <button
           v-if="!isRunning"
           @click="isPaused ? resumeTimer() : startTimer()"
-          class="control-btn start-btn"
+          class="control-btn start-btn ariaLabel"
           :disabled="isStartBlockedByOther && !isPaused"
-          :title="isStartBlockedByOther && !isPaused ? t('focusTimer.floatingFocusRunning') : undefined"
+          :aria-label="isStartBlockedByOther && !isPaused ? t('focusTimer.floatingFocusRunning') : undefined"
         >
           <Icon name="play" width="20" height="20" />
           <span>{{ isPaused ? t('focusTimer.continueFocus') : t('taskManager.startFocus') }}</span>
@@ -226,11 +226,11 @@
             </div>
           </div>
           <div class="sound-selector" :class="{ disabled: isDownloading || !enableAudio }">
-            <button v-for="sound in soundOptions" :key="sound.id"
+            <button class="ariaLabel" v-for="sound in soundOptions" :key="sound.id"
                     @click="selectSound(sound)"
                     :disabled="isDownloading || !enableAudio"
                     :class="['sound-btn', { active: selectedSound.id === sound.id }]"
-                    :title="`${t('focusTimer.pickSoundPrefix')}${sound.name}`"
+                   
                     :aria-label="`${t('focusTimer.pickSoundPrefix')}${sound.name}`">
               <Icon :name="sound.icon" width="80%" height="80%" />
             </button>
@@ -268,11 +268,20 @@
       <div class="timer-history">
         <div class="calendar-controls">
           <div class="calendar-navigation">
-            <button @click="changeMonth(-1)" class="nav-btn" :title="t('date.previousMonth')" :aria-label="t('date.previousMonth')">
+            <button @click="changeMonth(-1)" class="nav-btn ariaLabel" :aria-label="t('date.previousMonth')">
               <Icon name="left" width="16" height="16" class="icon" />
             </button>
-            <span class="current-period">{{ currentMonth.monthName }}</span>
-            <button @click="changeMonth(1)" class="nav-btn" :title="t('date.nextMonth')" :aria-label="t('date.nextMonth')">
+            <span class="current-period">
+              <span>{{ currentMonth.monthName }}</span>
+              <Icon
+                name="focusBackfillHint"
+                width="14"
+                height="14"
+                class="timer-history-hint ariaLabel"
+                :aria-label="t('focusTimer.backfillDateHint')"
+              />
+            </span>
+            <button @click="changeMonth(1)" class="nav-btn ariaLabel" :aria-label="t('date.nextMonth')">
               <Icon name="right" width="16" height="16" class="icon" />
             </button>
           </div>
@@ -283,19 +292,212 @@
               <div v-for="day in weekDayLabels" :key="day" class="weekday">{{ day }}</div>
             </div>
             <div class="month-grid">
-              <div v-for="(day, index) in calendarDays" :key="index" 
+              <button v-for="(day, index) in calendarDays" :key="index"
+                   type="button"
                    :class="['day', { 
                      'hasdata': day.record && day.record.minutes > 0,
                      'today': day.isToday,
                      'not-current-month': !day.date
-                   }]">
+                   }]"
+                   :disabled="!day.dateString"
+                   :aria-label="day.dateString ? `${t('focusTimer.backfillTitle', '补录专注')} ${day.dateString}` : undefined"
+                   @click="openBackfillDialog(day)">
                 <span class="day-number">{{ day.date ? day.date : '' }}</span>
                 <div class="day-duration">
                   {{ day.record && day.record.minutes > 0 ? formatTimeShort(day.record.minutes) : '--' }}
                 </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="showBackfillDialog"
+      class="focus-backfill-overlay"
+      :style="backfillOverlayStyle"
+      @click.self="closeBackfillDialog"
+    >
+      <div class="focus-backfill-dialog" role="dialog" aria-modal="true" :aria-label="t('focusTimer.backfillTitle', '补录专注')">
+        <div class="focus-backfill-header">
+          <div>
+            <div class="focus-backfill-title">{{ t('focusTimer.backfillTitle', '补录专注') }}</div>
+            <div class="focus-backfill-date">{{ backfillDate }}</div>
+          </div>
+          <button
+            type="button"
+            class="focus-backfill-close ariaLabel"
+            :aria-label="t('common.close')"
+            @click="closeBackfillDialog"
+          >
+            <Icon name="close" width="14" height="14" />
+          </button>
+        </div>
+
+        <div v-if="backfillFocusTimelineItems.length > 0" class="focus-backfill-records">
+          <div class="focus-backfill-records__title">
+            {{ t('focusTimer.backfillExistingRecords', '已有专注记录') }}
+          </div>
+          <div class="focus-backfill-records__list">
+            <div
+              v-for="item in backfillFocusTimelineItems"
+              :key="item.id"
+              class="lifelog-timeline-item is-focus"
+            >
+              <div class="lifelog-timeline-content">
+                <div class="lifelog-timeline-card">
+                  <div class="lifelog-timeline-card-header">
+                    <span class="lifelog-timeline-card-title">{{ item.timeLabel }}</span>
+                    <button
+                      type="button"
+                      class="lifelog-timeline-delete ariaLabel"
+                      :aria-label="`${t('common.delete')} ${item.timeLabel}`"
+                      :disabled="deletingBackfillSessionId === item.sourceId"
+                      @click.stop="deleteBackfillFocusSession(item.sourceId)"
+                    >
+                      <Icon name="trash" width="11" height="11" />
+                    </button>
+                  </div>
+                  <div class="lifelog-timeline-meta">{{ item.meta }}</div>
+                </div>
               </div>
             </div>
           </div>
+        </div>
+
+        <div class="focus-backfill-field">
+          <label>{{ t('focusTimer.focusDuration') }}</label>
+          <div class="focus-backfill-duration-row">
+            <button
+              v-for="minutes in backfillDurationOptions"
+              :key="minutes"
+              type="button"
+              class="focus-backfill-duration-chip"
+              :class="{ active: backfillDuration === minutes }"
+              @click="backfillDuration = minutes"
+            >
+              {{ minutes }}m
+            </button>
+          </div>
+          <input
+            v-model.number="backfillDuration"
+            class="focus-backfill-input"
+            type="number"
+            min="1"
+            max="720"
+            step="1"
+          />
+        </div>
+
+        <div class="focus-backfill-field">
+          <label>{{ t('focusTimer.backfillEndTime', '结束时间') }}</label>
+          <input
+            v-model="backfillEndTime"
+            class="focus-backfill-input"
+            type="time"
+          />
+        </div>
+
+        <div class="focus-backfill-target">
+          <div class="focus-backfill-target__row">
+            <span>{{ t('focusTimer.linkedTarget') }}</span>
+            <div v-if="backfillTarget" class="focus-backfill-target__chip-row">
+              <button
+                type="button"
+                class="focus-backfill-target__chip"
+                @click="openBackfillTargetPicker(backfillTarget.type)"
+              >
+                <span class="focus-backfill-target__emoji">{{ getTargetEmoji(backfillTarget) }}</span>
+                <span class="focus-backfill-target__name">{{ backfillTargetLabel }}</span>
+              </button>
+              <button
+                type="button"
+                class="focus-backfill-target__clear ariaLabel"
+                :aria-label="t('focusTimer.clearLinkedTarget')"
+                @click="clearBackfillTarget"
+              >
+                <Icon name="close" width="12" height="12" />
+              </button>
+            </div>
+            <div v-else class="focus-backfill-target__actions">
+              <button
+                type="button"
+                class="focus-backfill-target__action"
+                @click="openBackfillTargetPicker('habit')"
+              >
+                {{ t('focusTimer.selectHabit') }}
+              </button>
+              <button
+                type="button"
+                class="focus-backfill-target__action"
+                @click="openBackfillTargetPicker('task')"
+              >
+                {{ t('focusTimer.selectTask') }}
+              </button>
+            </div>
+          </div>
+          <div v-if="backfillTargetPickerMode" class="focus-backfill-picker">
+            <div class="focus-backfill-picker__header">
+              <span>{{ backfillTargetPickerTitle }}</span>
+              <button
+                type="button"
+                class="focus-backfill-picker__close ariaLabel"
+                :aria-label="t('common.close')"
+                @click="closeBackfillTargetPicker"
+              >
+                <Icon name="close" width="12" height="12" />
+              </button>
+            </div>
+            <input
+              v-model.trim="backfillTargetSearch"
+              class="focus-backfill-input"
+              type="text"
+              :placeholder="backfillTargetPickerPlaceholder"
+            />
+            <div v-if="isBackfillLoadingTargetOptions" class="focus-backfill-picker__state">
+              {{ t('taskManager.loading') }}
+            </div>
+            <div v-else-if="backfillTargetOptionsError" class="focus-backfill-picker__state is-error">
+              {{ backfillTargetOptionsError }}
+            </div>
+            <div v-else-if="filteredBackfillTargetOptions.length === 0" class="focus-backfill-picker__state">
+              {{ backfillTargetPickerEmptyText }}
+            </div>
+            <div v-else class="focus-backfill-picker__list">
+              <button
+                v-for="target in filteredBackfillTargetOptions"
+                :key="`${target.type}-${target.id}`"
+                type="button"
+                class="focus-backfill-picker__item"
+                @click="selectBackfillTarget(target)"
+              >
+                <span class="focus-backfill-picker__item-main">
+                  <span>{{ getTargetEmoji(target) }}</span>
+                  <span class="focus-backfill-picker__item-name">{{ target.name }}</span>
+                </span>
+                <span v-if="target.type === 'habit' && target.preferredDuration" class="focus-backfill-picker__item-meta">
+                  {{ target.preferredDuration }}m
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="backfillError" class="focus-backfill-error">{{ backfillError }}</div>
+
+        <div class="focus-backfill-actions">
+          <button type="button" class="focus-backfill-btn" @click="closeBackfillDialog">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="button"
+            class="focus-backfill-btn is-primary"
+            :disabled="isBackfillSaving"
+            @click="saveBackfillSession"
+          >
+            {{ isBackfillSaving ? t('taskManager.saving', '保存中') : t('common.save') }}
+          </button>
         </div>
       </div>
     </div>
@@ -305,7 +507,7 @@
       class="focus-exit-overlay"
       @click.self="cancelExitConfirm"
     >
-      <div class="focus-exit-dialog" role="dialog" aria-modal="true" :aria-label="t('focusTimer.closeTimer')">
+      <div class="focus-exit-dialog ariaLabel" role="dialog" aria-modal="true" :aria-label="t('focusTimer.closeTimer')">
         <div class="focus-exit-dialog__title">{{ t('focusTimer.closeTimer') }}</div>
         <div class="focus-exit-dialog__message">{{ t('focusTimer.exitConfirm') }}</div>
         <div class="focus-exit-dialog__actions">
@@ -325,17 +527,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, toRefs, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, toRefs, watch } from 'vue';
 import Icon from './Icon.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import {
   addFocusSession,
+  deleteFocusSessionRecord,
   getFocusStatsSummary,
-  getMonthlyRecords,
+  getFocusTimerData,
   getHabits,
+  getMonthlyRecords,
+  putFile,
+  readDir,
   TaskRepository,
   upsertFocusSessionRecord,
   type DailyFocusRecord,
+  type FocusSessionRecord,
   type FocusStatsSummary
 } from '@/api';
 import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
@@ -347,6 +554,10 @@ import {
   type FocusTimerLinkedTarget
 } from '@/utils/focusTimerTarget';
 import type { FocusTimerHandoffState } from '@/utils/focusTimerHandoff';
+import {
+  focusRecordToLifelogEvent,
+  type FocusLifelogEvent
+} from '@/utils/lifelogEvents';
 
 interface Props {
   show: boolean;
@@ -379,11 +590,26 @@ interface Sound {
 }
 type TimerMode = 'countdown' | 'countup';
 type DurationOption = number | 'unlimited';
+interface FocusCalendarDay {
+  date: number | null;
+  dateString: string;
+  record: DailyFocusRecord | null;
+  isToday: boolean;
+}
+interface FocusBackfillTimelineItem {
+  id: string;
+  sourceId: string;
+  timeLabel: string;
+  sortMinutes: number;
+  title: string;
+  meta: string;
+}
 
 const durationMarks = [5, 10, 15, 25, 30, 45, 60];
 const durationOptions: DurationOption[] = [...durationMarks, 'unlimited'];
 const shortBreakMarks = [1, 3, 5, 10, 15];
 const pomodoroSetMarks = [1, 2, 3, 4, 5, 6, 7, 8];
+const backfillDurationOptions = [15, 25, 45, 60];
 const FOCUS_SESSION_EVENT = 'pinch-focus-session';
 
 const soundOptions: Sound[] = [
@@ -444,6 +670,20 @@ const targetOptionsError = ref('');
 const habitTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
 const taskTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
 const showExitConfirmPanel = ref(false);
+const showBackfillDialog = ref(false);
+const focusTimerPanelRef = ref<HTMLElement | null>(null);
+const backfillOverlayStyle = ref<Record<string, string>>({});
+const backfillDate = ref('');
+const backfillDuration = ref(25);
+const backfillEndTime = ref('');
+const backfillError = ref('');
+const isBackfillSaving = ref(false);
+const deletingBackfillSessionId = ref('');
+const backfillTarget = ref<FocusTimerLinkedTarget | null>(null);
+const backfillTargetPickerMode = ref<'habit' | 'task' | null>(null);
+const backfillTargetSearch = ref('');
+const isBackfillLoadingTargetOptions = ref(false);
+const backfillTargetOptionsError = ref('');
 
 const stats = ref<FocusStatsSummary>({
   totalSessions: 0,
@@ -455,6 +695,7 @@ const stats = ref<FocusStatsSummary>({
 
 const currentMonthOffset = ref<number>(0);
 const monthlyRecords = ref<DailyFocusRecord[]>([]);
+const focusSessionRecords = ref<FocusSessionRecord[]>([]);
 const {
   isLockedByOther: isStartBlockedByOther,
   claimFocusSession,
@@ -491,8 +732,8 @@ const firstDayOfMonth = computed(() => {
   return new Date(year, month, 1).getDay();
 });
 
-const calendarDays = computed(() => {
-  const days = [];
+const calendarDays = computed<FocusCalendarDay[]>(() => {
+  const days: FocusCalendarDay[] = [];
   const { year, month } = currentMonth.value;
 
   let firstDay = firstDayOfMonth.value;
@@ -501,7 +742,7 @@ const calendarDays = computed(() => {
   const firstDayOfWeek = firstDay === 0 ? 6 : firstDay - 1;
 
   for (let i = 0; i < firstDayOfWeek; i++) {
-    days.push({ date: null, record: null, isToday: false });
+    days.push({ date: null, dateString: '', record: null, isToday: false });
   }
 
   for (let day = 1; day <= totalDays; day++) {
@@ -515,6 +756,7 @@ const calendarDays = computed(() => {
 
     days.push({
       date: day,
+      dateString: dateStr,
       record: record || null,
       isToday
     });
@@ -538,6 +780,14 @@ const isTimerActive = computed(() =>
 const isPomodoroSettingsLocked = computed(() =>
   isTimerActive.value || timerMode.value === 'countup'
 );
+const backfillTargetLabel = computed(() => {
+  if (!backfillTarget.value) {
+    return t('focusTimer.backfillNoTarget', '无关联');
+  }
+  const targetType = backfillTarget.value.type === 'task' ? t('focusTimer.task') : t('focusTimer.habit');
+  const targetName = `${backfillTarget.value.emoji ? `${backfillTarget.value.emoji} ` : ''}${backfillTarget.value.name}`;
+  return `${targetType}${t('focusTimer.typeSeparator')}${targetName}`;
+});
 const isLinkedTargetLocked = computed(() => isRunning.value || isPaused.value);
 const canOpenLinkedTarget = computed(() =>
   !!linkedTarget.value && (linkedTarget.value.type === 'habit' || !!linkedTarget.value.blockId)
@@ -574,6 +824,45 @@ const filteredTargetOptions = computed(() => {
   }
 
   return source.filter(target => target.name.toLowerCase().includes(keyword));
+});
+const backfillTargetPickerTitle = computed(() =>
+  backfillTargetPickerMode.value === 'habit' ? t('focusTimer.selectHabit') : t('focusTimer.selectTask')
+);
+const backfillTargetPickerPlaceholder = computed(() =>
+  backfillTargetPickerMode.value === 'habit' ? t('focusTimer.searchHabit') : t('focusTimer.searchTask')
+);
+const backfillTargetPickerEmptyText = computed(() =>
+  `${t('focusTimer.noLinkablePrefix')}${backfillTargetPickerMode.value === 'habit' ? t('focusTimer.habit') : t('focusTimer.task')}`
+);
+const filteredBackfillTargetOptions = computed(() => {
+  const source = backfillTargetPickerMode.value === 'habit'
+    ? habitTargetOptions.value
+    : taskTargetOptions.value;
+  const keyword = backfillTargetSearch.value.trim().toLowerCase();
+
+  if (!keyword) {
+    return source;
+  }
+
+  return source.filter(target => target.name.toLowerCase().includes(keyword));
+});
+const backfillFocusTimelineItems = computed<FocusBackfillTimelineItem[]>(() => {
+  const selectedDate = backfillDate.value;
+  if (!selectedDate) {
+    return [];
+  }
+
+  return focusSessionRecords.value
+    .filter(record => record.date === selectedDate)
+    .map(record => focusRecordToLifelogEvent(record, t('focusTimer.title')))
+    .filter((event): event is FocusLifelogEvent => Boolean(event))
+    .map(focusEventToBackfillTimelineItem)
+    .sort((left, right) => {
+      if (left.sortMinutes !== right.sortMinutes) {
+        return left.sortMinutes - right.sortMinutes;
+      }
+      return left.title.localeCompare(right.title, 'zh-Hans-CN');
+    });
 });
 
 const strokeDashoffset = computed(() => {
@@ -640,6 +929,12 @@ const closeTargetPicker = () => {
   targetOptionsError.value = '';
 };
 
+function closeBackfillTargetPicker(): void {
+  backfillTargetPickerMode.value = null;
+  backfillTargetSearch.value = '';
+  backfillTargetOptionsError.value = '';
+}
+
 const loadHabitTargetOptions = async () => {
   const habits = await getHabits();
   habitTargetOptions.value = habits
@@ -690,6 +985,25 @@ const openTargetPicker = async (mode: 'habit' | 'task') => {
   }
 };
 
+async function openBackfillTargetPicker(mode: 'habit' | 'task'): Promise<void> {
+  backfillTargetPickerMode.value = mode;
+  backfillTargetSearch.value = '';
+  backfillTargetOptionsError.value = '';
+  isBackfillLoadingTargetOptions.value = true;
+
+  try {
+    if (mode === 'habit') {
+      await loadHabitTargetOptions();
+    } else {
+      await loadTaskTargetOptions();
+    }
+  } catch (error) {
+    backfillTargetOptionsError.value = `${t('focusTimer.loadTargetFailedPrefix')}${mode === 'habit' ? t('focusTimer.habit') : t('focusTimer.task')}${t('focusTimer.loadTargetFailedSuffix')}`;
+  } finally {
+    isBackfillLoadingTargetOptions.value = false;
+  }
+}
+
 const selectLinkedTarget = (target: FocusTimerLinkedTarget) => {
   if (isLinkedTargetLocked.value) {
     return;
@@ -697,6 +1011,16 @@ const selectLinkedTarget = (target: FocusTimerLinkedTarget) => {
   emit('update-linked-target', target);
   closeTargetPicker();
 };
+
+function selectBackfillTarget(target: FocusTimerLinkedTarget): void {
+  backfillTarget.value = target;
+  closeBackfillTargetPicker();
+}
+
+function clearBackfillTarget(): void {
+  backfillTarget.value = null;
+  closeBackfillTargetPicker();
+}
 
 const clearLinkedTarget = () => {
   if (isLinkedTargetLocked.value) {
@@ -794,8 +1118,6 @@ const downloadAudioFiles = async () => {
   downloadProgress.value = 0;
 
   try {
-    const { readDir, putFile } = await import('@/api');
-
     const soundIds = ['rain', 'jungle', 'waves', 'campfire', 'river'];
     const total = soundIds.length;
     let downloadedCount = 0;
@@ -866,6 +1188,207 @@ const getElapsedFocusMinutes = () => {
 
   return Math.floor(phaseElapsedSeconds.value / 60);
 };
+
+function timeToSortMinutes(time: string, fallback: number): number {
+  const match = typeof time === 'string' ? time.match(/^(\d{2}):(\d{2})$/) : null;
+  if (!match) {
+    return fallback;
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return fallback;
+  }
+  return hour * 60 + minute;
+}
+
+function formatBackfillFocusTarget(event: FocusLifelogEvent): string {
+  if (event.targetType === 'habit') {
+    return t('focusTimer.habit');
+  }
+  if (event.targetType === 'task') {
+    return t('focusTimer.task');
+  }
+  return t('focusTimer.backfillNoTarget', '无关联');
+}
+
+function focusEventToBackfillTimelineItem(event: FocusLifelogEvent): FocusBackfillTimelineItem {
+  return {
+    id: `focus-${event.id}`,
+    sourceId: event.id,
+    timeLabel: `${event.startTime} - ${event.endTime}`,
+    sortMinutes: timeToSortMinutes(event.startTime, 8 * 60),
+    title: event.title,
+    meta: `${t('focusTimer.title')} · ${formatTimeShort(event.minutes)} · ${formatBackfillFocusTarget(event)}`
+  };
+}
+
+function getLocalDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function getTimeInputValue(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function getDefaultBackfillEndTime(dateString: string): string {
+  const now = new Date();
+  if (dateString === getLocalDateKey(now)) {
+    return getTimeInputValue(now);
+  }
+  return '20:00';
+}
+
+function parseBackfillTimestamp(dateString: string, timeString: string): number {
+  const dateMatch = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const timeMatch = timeString.match(/^(\d{2}):(\d{2})$/);
+  if (!dateMatch || !timeMatch) {
+    return Number.NaN;
+  }
+  const [, year, month, day] = dateMatch;
+  const [, hour, minute] = timeMatch;
+  const date = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute)
+  );
+  return date.getTime();
+}
+
+function syncBackfillOverlayBounds(): void {
+  const panel = focusTimerPanelRef.value;
+  if (!panel) {
+    backfillOverlayStyle.value = {};
+    return;
+  }
+
+  const rect = panel.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || rect.width;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || rect.height;
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(viewportWidth, rect.right);
+  const bottom = Math.min(viewportHeight, rect.bottom);
+
+  backfillOverlayStyle.value = {
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `${Math.max(0, right - left)}px`,
+    height: `${Math.max(0, bottom - top)}px`
+  };
+}
+
+function handleBackfillViewportResize(): void {
+  if (showBackfillDialog.value) {
+    syncBackfillOverlayBounds();
+  }
+}
+
+function openBackfillDialog(day: FocusCalendarDay): void {
+  if (!day.dateString) {
+    return;
+  }
+  syncBackfillOverlayBounds();
+  backfillDate.value = day.dateString;
+  backfillDuration.value = typeof selectedDuration.value === 'number' && Number.isFinite(selectedDuration.value)
+    ? selectedDuration.value
+    : 25;
+  backfillEndTime.value = getDefaultBackfillEndTime(day.dateString);
+  backfillError.value = '';
+  backfillTarget.value = linkedTarget.value ? { ...linkedTarget.value } : null;
+  closeBackfillTargetPicker();
+  showBackfillDialog.value = true;
+  void loadFocusSessionRecords();
+  void nextTick(syncBackfillOverlayBounds);
+}
+
+function closeBackfillDialog(): void {
+  if (isBackfillSaving.value) {
+    return;
+  }
+  showBackfillDialog.value = false;
+  backfillOverlayStyle.value = {};
+  backfillError.value = '';
+  closeBackfillTargetPicker();
+}
+
+async function deleteBackfillFocusSession(sessionId: string): Promise<void> {
+  const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+  if (!normalizedSessionId || deletingBackfillSessionId.value) {
+    return;
+  }
+
+  deletingBackfillSessionId.value = normalizedSessionId;
+  backfillError.value = '';
+
+  try {
+    const deleted = await deleteFocusSessionRecord(normalizedSessionId);
+    if (!deleted) {
+      return;
+    }
+    focusSessionRecords.value = focusSessionRecords.value.filter(record => record.id !== normalizedSessionId);
+    await loadStats();
+    await loadMonthlyRecords();
+    window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, {
+      detail: { sessionId: normalizedSessionId, date: backfillDate.value, deleted: true }
+    }));
+  } catch (error) {
+    backfillError.value = t('focusTimer.backfillDeleteFailed', '删除失败，请稍后重试');
+  } finally {
+    deletingBackfillSessionId.value = '';
+  }
+}
+
+async function saveBackfillSession(): Promise<void> {
+  const minutes = Math.max(0, Math.floor(Number(backfillDuration.value) || 0));
+  if (!backfillDate.value || minutes <= 0) {
+    backfillError.value = t('focusTimer.backfillInvalidDuration', '请输入有效的专注时长');
+    return;
+  }
+
+  const timestamp = parseBackfillTimestamp(backfillDate.value, backfillEndTime.value);
+  if (!Number.isFinite(timestamp)) {
+    backfillError.value = t('focusTimer.backfillInvalidTime', '请选择有效的结束时间');
+    return;
+  }
+
+  const sessionId = `focus-backfill-${timestamp}-${Math.random().toString(36).slice(2, 8)}`;
+  isBackfillSaving.value = true;
+  backfillError.value = '';
+  try {
+    const targetInput = backfillTarget.value ? {
+      type: backfillTarget.value.type,
+      id: backfillTarget.value.id,
+      name: backfillTarget.value.name,
+      emoji: backfillTarget.value.emoji,
+      blockId: backfillTarget.value.blockId
+    } : null;
+    await addFocusSession(minutes, targetInput, {
+      date: backfillDate.value,
+      timestamp,
+      sessionId
+    });
+    await awardFocusSession({
+      minutes,
+      sessionId,
+      source: 'panel'
+    }).catch(() => {});
+    await loadStats();
+    await loadMonthlyRecords();
+    await loadFocusSessionRecords();
+    window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, {
+      detail: { minutes, sessionId, date: backfillDate.value, backfilled: true }
+    }));
+    showBackfillDialog.value = false;
+    backfillOverlayStyle.value = {};
+  } catch (error) {
+    backfillError.value = t('focusTimer.backfillSaveFailed', '补录失败，请稍后重试');
+  } finally {
+    isBackfillSaving.value = false;
+  }
+}
 
 const persistFocusSession = async (minutes: number) => {
   const sessionId = `focus-panel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1190,9 +1713,18 @@ const loadMonthlyRecords = async () => {
   }
 };
 
+const loadFocusSessionRecords = async () => {
+  try {
+    const data = await getFocusTimerData();
+    focusSessionRecords.value = data.sessionRecords;
+  } catch (error) {
+  }
+};
+
 const handleExternalFocusSession = () => {
   void loadStats();
   void loadMonthlyRecords();
+  void loadFocusSessionRecords();
 };
 
 const changeMonth = (offset: number) => {
@@ -1271,11 +1803,13 @@ onUnmounted(() => {
   releaseFocusSession();
   void saveCountupCheckpoint(false);
   window.removeEventListener(FOCUS_SESSION_EVENT, handleExternalFocusSession);
+  window.removeEventListener('resize', handleBackfillViewportResize);
 });
 
 onMounted(async () => {
   try {
     window.addEventListener(FOCUS_SESSION_EVENT, handleExternalFocusSession);
+    window.addEventListener('resize', handleBackfillViewportResize);
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       try {
         await Notification.requestPermission();
@@ -1285,8 +1819,8 @@ onMounted(async () => {
 
     await loadStats();
     await loadMonthlyRecords();
+    await loadFocusSessionRecords();
 
-    const { readDir } = await import('@/api');
     const dirResult = await readDir('/data/plugins/pinch/audio');
     const existingFiles = Array.isArray(dirResult) ? dirResult.map((f: any) => f.name) : [];
 
@@ -1321,6 +1855,8 @@ watch(linkedTarget, (nextTarget) => {
 watch(() => props.show, (visible) => {
   if (!visible) {
     closeTargetPicker();
+    showBackfillDialog.value = false;
+    backfillOverlayStyle.value = {};
   }
 });
 
@@ -1334,13 +1870,11 @@ watch(isLinkedTargetLocked, (locked) => {
 <style scoped>
 .focus-timer-panel {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 2;
   box-sizing: border-box;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   padding: 10px;
   flex-direction: column;
@@ -2171,10 +2705,7 @@ input:checked + .slider:before {
   display: flex;
   justify-content: center;
   align-items: center;
-  margin-bottom: 16px;
-  padding: 8px;
-  background: var(--b3-list-background);
-  border-radius: 4px;
+  margin-bottom: 10px;
 }
 
 .calendar-navigation {
@@ -2211,10 +2742,19 @@ input:checked + .slider:before {
   }
 
   .current-period {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
     text-align: center;
     font-size: 14px;
     flex: 1;
     font-weight: 600;
+  }
+
+  .timer-history-hint {
+    color: var(--b3-theme-on-surface-light);
+    flex: 0 0 auto;
   }
 }
 
@@ -2249,16 +2789,31 @@ input:checked + .slider:before {
     align-items: center;
     justify-content: center;
     border-radius: 30%;
+    border: none;
     background: var(--b3-list-hover);
-    cursor: default;
+    cursor: pointer;
+    font: inherit;
     font-weight: 600;
     transition: background-color 0.2s;
     padding: 2px;
     color: var(--b3-theme-on-surface);
 
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--b3-theme-on-background) 12%, var(--b3-list-hover));
+    }
+
+    &:focus-visible {
+      outline: 2px solid #f98f7a;
+      outline-offset: 2px;
+    }
+
     &.hasdata {
       background: var(--b3-theme-on-background);
       color: var(--b3-theme-background);
+    }
+
+    &.hasdata:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--b3-theme-on-background) 86%, #f98f7a);
     }
 
     &.today:not(.hasdata) {
@@ -2267,6 +2822,7 @@ input:checked + .slider:before {
 
     &.not-current-month {
       opacity: 0;
+      cursor: default;
     }
 
     .day-number {
@@ -2281,6 +2837,428 @@ input:checked + .slider:before {
     }
   }
   
+}
+
+.focus-backfill-overlay {
+  position: fixed;
+  inset: auto;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.32);
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 768px) {
+  .focus-backfill-overlay {
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.focus-backfill-dialog {
+  width: min(360px, 100%);
+  max-height: 100%;
+  margin: auto 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  box-shadow: var(--b3-dialog-shadow);
+  border: 1px solid var(--b3-border-color);
+  box-sizing: border-box;
+}
+
+.focus-backfill-records {
+  margin: 0 0 14px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--b3-list-hover);
+}
+
+.focus-backfill-records__title {
+  margin-bottom: 8px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.focus-backfill-records__list {
+  max-height: 178px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.lifelog-timeline-item {
+  display: block;
+  position: relative;
+}
+
+.lifelog-timeline-item + .lifelog-timeline-item {
+  margin-top: 8px;
+}
+
+.lifelog-timeline-content {
+  min-width: 0;
+}
+
+.lifelog-timeline-card {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  box-shadow: var(--pinch-shadow);
+}
+
+.lifelog-timeline-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lifelog-timeline-card-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lifelog-timeline-meta {
+  margin-top: 4px;
+  color: var(--b3-theme-on-surface);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.lifelog-timeline-delete {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.lifelog-timeline-delete:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--b3-theme-background) 82%, #f98f7a);
+  color: var(--b3-theme-error);
+}
+
+.lifelog-timeline-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.focus-backfill-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.focus-backfill-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.focus-backfill-date {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.focus-backfill-close {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.focus-backfill-close:hover {
+  background: var(--b3-list-hover);
+}
+
+.focus-backfill-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.focus-backfill-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
+.focus-backfill-duration-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.focus-backfill-duration-chip {
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.focus-backfill-duration-chip:hover,
+.focus-backfill-duration-chip.active {
+  background: #f98f7a;
+  color: var(--b3-theme-background);
+}
+
+.focus-backfill-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  box-sizing: border-box;
+}
+
+.focus-backfill-input:focus {
+  outline: none;
+  border-color: #f98f7a;
+  box-shadow: 0 0 0 3px rgb(249 143 122 / 0.18);
+}
+
+.focus-backfill-target {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 14px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+}
+
+.focus-backfill-target__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.focus-backfill-target__chip-row,
+.focus-backfill-target__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.focus-backfill-target__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 220px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.focus-backfill-target__chip:hover,
+.focus-backfill-target__action:hover,
+.focus-backfill-target__clear:hover,
+.focus-backfill-picker__close:hover {
+  background: color-mix(in srgb, var(--b3-theme-background) 82%, #f98f7a);
+}
+
+.focus-backfill-target__emoji {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.focus-backfill-target__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.focus-backfill-target__action,
+.focus-backfill-target__clear,
+.focus-backfill-picker__close {
+  border: none;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.focus-backfill-target__action {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.focus-backfill-target__clear,
+.focus-backfill-picker__close {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.focus-backfill-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.focus-backfill-picker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.focus-backfill-picker__state {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+}
+
+.focus-backfill-picker__state.is-error {
+  color: var(--b3-theme-error);
+}
+
+.focus-backfill-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.focus-backfill-picker__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  text-align: left;
+}
+
+.focus-backfill-picker__item:hover {
+  background: color-mix(in srgb, var(--b3-theme-background) 84%, #f98f7a);
+}
+
+.focus-backfill-picker__item-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.focus-backfill-picker__item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.focus-backfill-picker__item-meta {
+  flex-shrink: 0;
+  color: var(--b3-theme-on-surface);
+  font-size: 11px;
+}
+
+.focus-backfill-error {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--b3-theme-error);
+}
+
+.focus-backfill-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.focus-backfill-btn {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-background);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.focus-backfill-btn:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+}
+
+.focus-backfill-btn.is-primary {
+  border-color: #f98f7a;
+  background: #f98f7a;
+  color: var(--b3-theme-background);
+  font-weight: 700;
+}
+
+.focus-backfill-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 .icon-button {
   background: none;

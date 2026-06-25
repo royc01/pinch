@@ -3,7 +3,7 @@
     <div class="goal-page-header">
       <div class="goal-page-header-content">
         <div class="goal-page-title">{{ t('goalPanel.title') }}</div>
-        <button type="button" class="icon-button" :title="t('common.close')" :aria-label="t('common.close')" @click="emit('close')">
+        <button type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="emit('close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
@@ -50,7 +50,7 @@
                 <span class="goal-card-flag" aria-hidden="true">{{ goal.emoji || '🎯' }}</span>
                 <span class="goal-card-title">{{ goal.name }}</span>
                 <span v-if="goal.status === 'completed'" class="goal-state-chip success">{{ t('taskManager.statusCompleted') }}</span>
-                <span v-else-if="goal.documentCount === 0" class="goal-state-chip muted">{{ t('goalPanel.noDocumentSelected') }}</span>
+                <span v-else-if="goal.scopeCount === 0" class="goal-state-chip muted">{{ t('goalPanel.noScopeSelected') }}</span>
                 <span v-else-if="goal.status === 'empty'" class="goal-state-chip muted">{{ t('taskManager.noTasks') }}</span>
                 <span v-else-if="isGoalOverdue(goal)" class="goal-state-chip danger">{{ t('taskManager.overdue') }}</span>
               </div>
@@ -89,10 +89,12 @@
       :initial-tab="goalManagerInitialTab"
       :document-groups="documentGroups"
       :document-group-documents="goalDocuments"
+      :documents-refreshing="goalDocumentsRefreshing"
       :goals="goalDefinitions"
       :goal-documents="goalDocuments"
       @close="showGoalManager = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
+      @refresh-documents="handleGoalDocumentsRefresh"
       @save="handleGoalSave"
     />
   </div>
@@ -133,10 +135,13 @@ const {
   goalItems,
   goalsLoading,
   goalsError,
+  loadGoalsData,
+  refreshGoalDocuments,
   saveGoalDefinitions
 } = useGoals();
 
 const showGoalManager = ref(false);
+const goalDocumentsRefreshing = ref(false);
 const goalManagerInitialTab = ref<'scope' | 'document-groups' | 'goals'>('goals');
 const documentGroups = ref<DocumentGroup[]>([]);
 const goalPagePanelRef = ref<HTMLElement | null>(null);
@@ -184,7 +189,20 @@ async function openGoalManager(initialTab: 'scope' | 'document-groups' | 'goals'
     loadTaskScopeState()
   ]);
   documentGroups.value = sortDocumentGroups(nextGroups);
+  await loadGoalsData({ taskUseCache: false });
   showGoalManager.value = true;
+}
+
+async function handleGoalDocumentsRefresh(): Promise<void> {
+  if (goalDocumentsRefreshing.value) {
+    return;
+  }
+  goalDocumentsRefreshing.value = true;
+  try {
+    await refreshGoalDocuments({ taskUseCache: false });
+  } finally {
+    goalDocumentsRefreshing.value = false;
+  }
 }
 
 async function handleGlobalRecognizeTaskDates(): Promise<void> {
@@ -224,8 +242,8 @@ async function handleGlobalRecognizeTaskDates(): Promise<void> {
 }
 
 function describeGoalProgress(goal: GoalListItem): string {
-  if (goal.documentCount === 0) {
-    return t('goalPanel.selectDocumentsFirst');
+  if (goal.scopeCount === 0) {
+    return t('goalPanel.selectScopeFirst');
   }
   if (goal.totalTasks === 0) {
     return t('goalPanel.noStatTasks');
@@ -330,6 +348,7 @@ watch([() => props.show, () => props.highlightGoalId, () => goalItems.value.leng
   z-index: 10;
   box-sizing: border-box;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 12px;

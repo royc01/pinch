@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 
-export type FocusSessionOwner = 'panel' | 'capsule';
+export type FocusSessionOwner = 'panel' | 'capsule' | 'habit';
 type FocusSessionListener = (owner: FocusSessionOwner | null) => void;
 
 const activeFocusSessionOwner = ref<FocusSessionOwner | null>(null);

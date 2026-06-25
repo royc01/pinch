@@ -747,7 +747,7 @@ async function getTaskIndex(params: KernelTaskListParams | number = {}) {
   const entry = taskIndexCache.get(cacheKey);
   const isFresh = entry && now - entry.refreshedAt < TASK_INDEX_TTL_MS;
   const needsFullRefresh = entry && now - entry.fullRefreshedAt >= TASK_INDEX_FULL_REFRESH_MS;
-  const hasEnoughRows = Boolean(entry && (entry.rows.length >= limit || entry.partial));
+  const hasEnoughRows = Boolean(entry && (!entry.partial || entry.rows.length >= limit));
 
   if (normalizedParams.force || !entry || needsFullRefresh || !hasEnoughRows) {
     return refreshTaskIndex(normalizedParams);
@@ -770,19 +770,6 @@ async function getTaskIndex(params: KernelTaskListParams | number = {}) {
     fullRefreshedAt: entry.fullRefreshedAt,
     highWatermarkUpdated: entry.highWatermarkUpdated,
     ageMs: now - entry.refreshedAt,
-  };
-}
-
-async function listTaskRows(params: KernelTaskListParams | number = {}) {
-  const result = await queryTaskRows(normalizeTaskListParams(params));
-  return {
-    rows: result.rows,
-    elapsedMs: result.elapsedMs,
-    hierarchyElapsedMs: result.hierarchyElapsedMs,
-    pageCount: result.pageCount,
-    totalScanned: result.totalScanned,
-    partial: result.partial,
-    source: "kernel",
   };
 }
 
@@ -905,7 +892,6 @@ siyuan.plugin.lifecycle.onload = async () => {
     now: Date.now(),
   }), "Check whether the Pinch kernel plugin is running");
 
-  await siyuan.rpc.bind("listTaskRows", listTaskRows, "List lightweight task block rows for performance trials");
   await siyuan.rpc.bind("refreshTaskIndex", refreshTaskIndex, "Refresh the cached lightweight task index");
   await siyuan.rpc.bind("refreshTaskIndexIncremental", refreshTaskIndexIncremental, "Incrementally refresh the cached lightweight task index");
   await siyuan.rpc.bind("getTaskIndex", getTaskIndex, "Get the cached lightweight task index");
@@ -914,12 +900,12 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind("getTaskStats", getTaskStats, "Get lightweight task statistics");
 };
 
-siyuan.plugin.lifecycle.onloaded = () => {};
-siyuan.plugin.lifecycle.onrunning = () => {};
+if ("onrunning" in siyuan.plugin.lifecycle) {
+  siyuan.plugin.lifecycle.onrunning = () => {};
+}
 
 siyuan.plugin.lifecycle.onunload = async () => {
   await siyuan.rpc.unbind("ping");
-  await siyuan.rpc.unbind("listTaskRows");
   await siyuan.rpc.unbind("refreshTaskIndex");
   await siyuan.rpc.unbind("refreshTaskIndexIncremental");
   await siyuan.rpc.unbind("getTaskIndex");

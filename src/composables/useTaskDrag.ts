@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue';
 import { getFrontend } from 'siyuan';
-import type { Task } from '@/api';
+import { setBlockAttrs, type Task } from '@/api';
+import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } from '@/repeatRepository';
 import { formatDate, formatTime } from './useDateUtils';
 import { CALENDAR_CONSTANTS } from './useCalendarConstants';
 import { useDebouncedSave } from './useDebouncedSave';
@@ -178,22 +179,6 @@ export function useTaskDrag(
 
   function isRepeatTask(task: Task): boolean {
     return !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-  }
-
-  function summarizeTask(task: Task | null | undefined) {
-    if (!task) return null;
-    return {
-      id: task.id,
-      blockId: task.blockId,
-      isVirtual: task.isVirtual,
-      repeatSeriesId: task.repeatSeriesId,
-      repeatFrequency: task.repeatFrequency,
-      repeatInstanceDate: task.repeatInstanceDate,
-      startDate: task.startDate,
-      dueDate: task.dueDate,
-      startTime: task.startTime,
-      dueTime: task.dueTime
-    };
   }
 
   function preventConcurrentDragStart(event: MouseEvent, task: Task, kind: string): boolean {
@@ -888,7 +873,6 @@ export function useTaskDrag(
             const deltaDays = getDayDelta(originalStart, targetDate);
 
             try {
-              const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
               const series = await getRepeatSeriesForTask(currentTask);
               if (series) {
                 const nextSeriesStart = shiftDate(series.startDate, deltaDays);
@@ -907,7 +891,6 @@ export function useTaskDrag(
                 const templateBlockId = series.templateBlockId
                   || localTasks.value.find(item => !item.isVirtual && item.repeatSeriesId === series.id)?.blockId;
                 if (templateBlockId) {
-                  const { setBlockAttrs } = await import('@/api');
                   await setBlockAttrs(templateBlockId, {
                     'custom-task-start-date': nextSeriesStart || '',
                     'custom-task-due-date': nextSeriesEnd || '',
@@ -956,7 +939,6 @@ export function useTaskDrag(
               }
             }
             try {
-              const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
               const series = await getRepeatSeriesForTask(currentTask);
               if (series) {
                 await updateRepeatSeriesDates(
@@ -985,7 +967,6 @@ export function useTaskDrag(
 
           if (persistTarget?.blockId) {
             try {
-              const { setBlockAttrs } = await import('@/api');
               const attrs: Record<string, string> = {
                 'custom-task-start-time': startTime,
                 'custom-task-due-time': dueTime
@@ -1001,7 +982,6 @@ export function useTaskDrag(
 
           if (scope === 'series' && currentTask.repeatSeriesId) {
             try {
-              const { getRepeatSeriesForTask, notifyRepeatChanged } = await import('@/repeatRepository');
               const series = await getRepeatSeriesForTask(currentTask);
               if (series) {
                 notifyRepeatChanged({
@@ -1052,7 +1032,6 @@ export function useTaskDrag(
             }
             if (task.type === 'block' && task.blockId) {
               try {
-                const { setBlockAttrs } = await import('@/api');
                 await setBlockAttrs(task.blockId, {
                   'custom-task-start-date': originalStartDate || '',
                   'custom-task-due-date': originalDueDate || ''
@@ -1069,7 +1048,6 @@ export function useTaskDrag(
 
             if (repeatSeriesSnapshot) {
               try {
-                const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
                 const series = await getRepeatSeriesForTask(currentTask);
                 if (series) {
                   const nextSeriesStart = shiftDate(series.startDate, deltaDays);
@@ -1082,7 +1060,6 @@ export function useTaskDrag(
                     { emitChange: false }
                   );
                   if (series.templateBlockId) {
-                    const { setBlockAttrs } = await import('@/api');
                     await setBlockAttrs(series.templateBlockId, {
                       'custom-task-start-date': nextSeriesStart || '',
                       'custom-task-due-date': nextSeriesEnd || ''
@@ -1117,7 +1094,6 @@ export function useTaskDrag(
                 }
               }
               try {
-                const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
                 const series = await getRepeatSeriesForTask(currentTask);
                 if (series) {
                   const nextSeriesStart = shiftDate(series.startDate, deltaDays);
@@ -1130,7 +1106,6 @@ export function useTaskDrag(
                     { emitChange: false }
                   );
                   if (series.templateBlockId) {
-                    const { setBlockAttrs } = await import('@/api');
                     await setBlockAttrs(series.templateBlockId, {
                       'custom-task-start-date': nextSeriesStart || '',
                       'custom-task-due-date': nextSeriesEnd || ''
@@ -1157,7 +1132,6 @@ export function useTaskDrag(
               }
             }
             try {
-              const { setBlockAttrs } = await import('@/api');
               await setBlockAttrs(task.blockId, {
                 'custom-task-start-date': currentStart || '',
                 'custom-task-due-date': currentDue || ''
@@ -1304,7 +1278,6 @@ export function useTaskDrag(
       if (timeChanged || dateChanged) {
         if (repeatSeriesSnapshot && isRepeatTask(currentTask)) {
           try {
-            const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
             const series = await getRepeatSeriesForTask(currentTask);
 
             if (series) {
@@ -1328,7 +1301,6 @@ export function useTaskDrag(
                 || localTasks.value.find(item => !item.isVirtual && item.repeatSeriesId === series.id)?.blockId;
               if (templateBlockId) {
                 try {
-                  const { setBlockAttrs } = await import('@/api');
                   await setBlockAttrs(templateBlockId, {
                     'custom-task-start-date': nextSeriesStart || '',
                     'custom-task-due-date': nextSeriesEnd || '',
@@ -1356,7 +1328,6 @@ export function useTaskDrag(
           }
         } else if (task.type === 'block' && task.blockId) {
           try {
-            const { setBlockAttrs } = await import('@/api');
             const attrs: Record<string, string> = {
               'custom-task-start-time': newStartTime,
               'custom-task-due-time': newEndTime
@@ -1579,7 +1550,6 @@ export function useTaskDrag(
 
       if (repeatSeriesSnapshot && isRepeatTask(currentTask)) {
         try {
-          const { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } = await import('@/repeatRepository');
           const series = await getRepeatSeriesForTask(currentTask);
           if (series) {
             const from = new Date(originalStartDate);
@@ -1603,7 +1573,6 @@ export function useTaskDrag(
             const templateBlockId = series.templateBlockId
               || localTasks.value.find(item => !item.isVirtual && item.repeatSeriesId === series.id)?.blockId;
             if (templateBlockId) {
-              const { setBlockAttrs } = await import('@/api');
               await setBlockAttrs(templateBlockId, {
                 'custom-task-start-date': nextSeriesStart || '',
                 'custom-task-due-date': nextSeriesEnd || '',
@@ -1648,7 +1617,6 @@ export function useTaskDrag(
 
         if (persistBlockId) {
           try {
-            const { setBlockAttrs } = await import('@/api');
             await setBlockAttrs(persistBlockId, {
               'custom-task-start-date': resolvedStartDate,
               'custom-task-due-date': resolvedDueDate,
@@ -1690,7 +1658,6 @@ export function useTaskDrag(
 
           if (persistBlockId) {
             try {
-              const { setBlockAttrs } = await import('@/api');
               await setBlockAttrs(persistBlockId, {
                 'custom-task-start-time': resolvedStartTime,
                 'custom-task-due-time': resolvedEndTime,

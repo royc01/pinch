@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted, ref } from 'vue';
-import { TaskRepository } from '@/api';
+import { TaskRepository, type Task } from '@/api';
 import { loadGoals, saveGoals, type Goal } from '@/goalRepository';
 import { buildGoalProgressSummaries, type GoalProgressStatus } from '@/utils/goalProgress';
 import { loadGoalScopeDocuments, type GoalScopeDocument } from '@/utils/goalScopeDocuments';
@@ -10,6 +10,8 @@ export interface GoalListItem extends Goal {
   missingGroup?: boolean;
   documentGroupName?: string;
   documentCount: number;
+  taskMemberCount: number;
+  scopeCount: number;
   documentSummary: string;
   totalTasks: number;
   completedTasks: number;
@@ -31,6 +33,19 @@ export const useGoals = () => {
   let latestLoadId = 0;
   const unsubscribers: Array<() => void> = [];
 
+  const buildGoalScopeSummary = (documentCount: number, taskMemberCount: number): string => {
+    const parts: string[] = [];
+    if (documentCount > 0) {
+      parts.push(`${documentCount} ${translate('goalPanel.documentCountSuffix')}`);
+    }
+    if (taskMemberCount > 0) {
+      parts.push(`${taskMemberCount} ${translate('goalPanel.taskCountSuffix', 'tasks')}`);
+    }
+    return parts.length > 0
+      ? parts.join(', ')
+      : translate('goalPanel.noScopeSelected', translate('goalPanel.noDocumentSelected'));
+  };
+
   const loadGoalsData = async (options: { taskUseCache?: boolean } = {}) => {
     const { taskUseCache = true } = options;
     const loadId = ++latestLoadId;
@@ -38,11 +53,11 @@ export const useGoals = () => {
     goalsError.value = '';
 
     try {
-      const [nextGoals, nextGoalDocuments, tasks] = await Promise.all([
+      const [nextGoals, tasks] = await Promise.all([
         loadGoals(),
-        loadGoalScopeDocuments(),
         TaskRepository.getBlockTasks(taskUseCache, undefined, { useLiveDom: false })
       ]);
+      const nextGoalDocuments = await loadGoalScopeDocuments(tasks);
 
       if (loadId !== latestLoadId) {
         return;
@@ -53,9 +68,9 @@ export const useGoals = () => {
       goalItems.value = buildGoalProgressSummaries(nextGoals, tasks).map((summary) => ({
         ...summary.goal,
         documentCount: summary.documentCount,
-        documentSummary: summary.documentCount > 0
-          ? `${summary.documentCount} ${translate('goalPanel.documentCountSuffix')}`
-          : translate('goalPanel.noDocumentSelected'),
+        taskMemberCount: summary.taskMemberCount,
+        scopeCount: summary.documentCount + summary.taskMemberCount,
+        documentSummary: buildGoalScopeSummary(summary.documentCount, summary.taskMemberCount),
         totalTasks: summary.totalTasks,
         completedTasks: summary.completedTasks,
         remainingTasks: Math.max(0, summary.totalTasks - summary.completedTasks),
@@ -72,6 +87,17 @@ export const useGoals = () => {
         goalsLoading.value = false;
       }
     }
+  };
+
+  const refreshGoalDocuments = async (options: { taskUseCache?: boolean } = {}) => {
+    const { taskUseCache = false } = options;
+    let tasks: Task[] = [];
+    try {
+      tasks = await TaskRepository.getBlockTasks(taskUseCache, undefined, { useLiveDom: false });
+    } catch (error) {
+      console.error('[Goals] refreshGoalDocuments: task refresh failed', error);
+    }
+    goalDocuments.value = await loadGoalScopeDocuments(tasks);
   };
 
   const scheduleRefresh = (taskUseCache: boolean, delay = 120) => {
@@ -121,6 +147,7 @@ export const useGoals = () => {
       }),
       eventBus.on(Events.TASK_CHANGED, () => {
         scheduleRefresh(false);
+        scheduleSettledRefresh();
       }),
       eventBus.on(Events.TASK_ADDED, () => {
         scheduleRefresh(false);
@@ -157,6 +184,7 @@ export const useGoals = () => {
     goalsLoading,
     goalsError,
     loadGoalsData,
+    refreshGoalDocuments,
     saveGoalDefinitions
   };
 };

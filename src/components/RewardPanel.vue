@@ -5,8 +5,8 @@
         <div class="reward-page-title">{{ t('rewardPanel.pageTitle') }}</div>
         <button
           type="button"
-          class="icon-button"
-          :title="t('common.close')"
+          class="icon-button ariaLabel"
+         
           :aria-label="t('common.close')"
           @click="emit('close')"
         >
@@ -62,8 +62,8 @@
               :data-reward-entry-id="entry.id"
             >
             <div class="reward-history-main">
-              <div class="reward-history-item-title">{{ entry.title }}</div>
-              <div v-if="entry.detail" class="reward-history-item-detail">{{ entry.detail }}</div>
+              <div class="reward-history-item-title">{{ getRewardEntryTitle(entry) }}</div>
+              <div v-if="getRewardEntryDetail(entry)" class="reward-history-item-detail">{{ getRewardEntryDetail(entry) }}</div>
             </div>
             <div class="reward-history-points">
               +{{ entry.xp }} {{ t('habitTracker.rewardXp') }}<span v-if="entry.coins > 0"> · +{{ entry.coins }} {{ t('habitTracker.rewardCoins') }}</span>
@@ -101,9 +101,9 @@
             <span>{{ t('rewardPanel.icon') }}</span>
             <button
               type="button"
-              class="shop-icon-picker-btn"
+              class="shop-icon-picker-btn ariaLabel"
               :aria-label="t('rewardPanel.switchItemIcon')"
-              :title="t('rewardPanel.switchItemIcon')"
+             
               @click="openShopIconPicker($event)"
             >
               <span class="shop-icon-picker-display">{{ shopForm.icon || '🎁' }}</span>
@@ -174,9 +174,9 @@
                 <span>{{ t('rewardPanel.icon') }}</span>
                 <button
                   type="button"
-                  class="shop-icon-picker-btn"
+                  class="shop-icon-picker-btn ariaLabel"
                   :aria-label="t('rewardPanel.switchItemIcon')"
-                  :title="t('rewardPanel.switchItemIcon')"
+                 
                   @click="openShopIconPicker($event)"
                 >
                   <span class="shop-icon-picker-display">{{ shopForm.icon || '🎁' }}</span>
@@ -231,6 +231,9 @@ import {
   deleteRewardShopItem,
   redeemRewardShopItem,
   updateRewardShopItem,
+  getLocalizedRewardEntryDetail,
+  getLocalizedRewardEntryTitle,
+  type RewardLedgerEntry,
   type RewardShopItem,
   type RewardSnapshot
 } from '@/rewardRepository';
@@ -277,6 +280,14 @@ function getLevelProgressText(): string {
     current: props.rewardSnapshot.currentLevelXp,
     next: props.rewardSnapshot.nextLevelXp
   });
+}
+
+function getRewardEntryTitle(entry: RewardLedgerEntry): string {
+  return getLocalizedRewardEntryTitle(entry);
+}
+
+function getRewardEntryDetail(entry: RewardLedgerEntry): string {
+  return getLocalizedRewardEntryDetail(entry);
 }
 
 function getShopToggleText(): string {
@@ -487,6 +498,7 @@ watch([() => props.show, () => props.highlightEntryId, () => props.rewardSnapsho
   z-index: 2;
   box-sizing: border-box;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 12px;

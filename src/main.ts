@@ -19,10 +19,10 @@ import {
   Events,
   type FocusTimerPanelOpenRequest,
   type HabitTrackerPanelOpenRequest,
+  type TaskQuickMetaOpenRequest,
   type TaskViewSwitchRequest
 } from '@/utils/eventBus';
 import { destroyDetachedFocusWindow } from '@/utils/detachedFocusWindow';
-import { getKernelTaskIndex, pingPinchKernel, refreshKernelTaskIndex } from '@/kernelRpc';
 
 // Ensure the data directory exists.
 import { ensureDataDir } from '@/utils';
@@ -34,6 +34,7 @@ let mobileTaskCreateDialog: Dialog | null = null;
 let mobileTaskCreateApp: any = null;
 let mobileSidebarPinchApp: any = null;
 let pinchDockModel: any = null;
+let pinchDockElement: HTMLElement | null = null;
 let unsubscribeMobileKanbanCloseRequest: (() => void) | null = null;
 let topBarViewButton: HTMLElement | null = null;
 const PINCH_DOCK_TYPE = 'Pinch-habit';
@@ -103,7 +104,6 @@ let mobileBreadcrumbObserver: MutationObserver | null = null;
 let mobileBreadcrumbRefreshRaf = 0;
 const MOBILE_PINCH_PANEL_TYPE = 'sidebar-pinch';
 const MOBILE_PINCH_PANEL_ATTR = 'data-pinch-mobile-sidebar-panel';
-const MOBILE_PINCH_APP_ID = 'Pinch-habit-app';
 
 function isMobileFrontend() {
   try {
@@ -256,6 +256,80 @@ function getCurrentContextMenuAnchor(protyle?: IProtyle): { x: number; y: number
   return null;
 }
 
+function getSelectionTriggerRangeForAt(editableRoot: HTMLElement): Range | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) {
+    return null;
+  }
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed) {
+    return null;
+  }
+  const container = range.startContainer;
+  const offset = range.startOffset;
+  if (container.nodeType !== Node.TEXT_NODE || offset <= 0) {
+    return null;
+  }
+  if (!editableRoot.contains(container)) {
+    return null;
+  }
+  const textNode = container as Text;
+  if (textNode.data.charAt(offset - 1) !== '@') {
+    return null;
+  }
+  const triggerRange = document.createRange();
+  triggerRange.setStart(textNode, offset - 1);
+  triggerRange.setEnd(textNode, offset);
+  return triggerRange;
+}
+
+function createRemoveAtTriggerCallback(triggerRange: Range, editableRoot: HTMLElement): () => void {
+  const textNode = triggerRange.startContainer;
+  const startOffset = triggerRange.startOffset;
+
+  return () => {
+    if (textNode.nodeType !== Node.TEXT_NODE || !textNode.isConnected) {
+      return;
+    }
+    const targetText = textNode as Text;
+    if (targetText.data.charAt(startOffset) !== '@') {
+      return;
+    }
+
+    const deleteRange = document.createRange();
+    deleteRange.setStart(targetText, startOffset);
+    deleteRange.setEnd(targetText, startOffset + 1);
+
+    const selection = window.getSelection();
+    try {
+      editableRoot.focus({ preventScroll: true });
+    } catch {
+      editableRoot.focus();
+    }
+    selection?.removeAllRanges();
+    selection?.addRange(deleteRange);
+
+    let deletedByEditor = false;
+    try {
+      deletedByEditor = document.execCommand('delete');
+    } catch {
+      deletedByEditor = false;
+    }
+
+    if (!deletedByEditor && targetText.data.charAt(startOffset) === '@') {
+      deleteRange.deleteContents();
+      try {
+        editableRoot.dispatchEvent(new InputEvent('input', {
+          bubbles: true,
+          inputType: 'deleteContentBackward'
+        }));
+      } catch {
+        editableRoot.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+  };
+}
+
 async function resolveNearestTaskBlockId(blockId: string): Promise<string | null> {
   const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
   if (!normalizedBlockId) {
@@ -309,19 +383,21 @@ async function openTaskEditorFromCurrentContext(protyle?: IProtyle): Promise<voi
 
   const menuAnchor = getCurrentContextMenuAnchor(protyle);
 
-  if (!isMobileFrontend()) {
-    openPinchDockView();
-  }
+  openPinchDockView();
 
   const task = await TaskRepository.getTaskByBlockId(taskBlockId, true).catch(() => null);
   const rootId = typeof task?.rootId === 'string' ? task.rootId.trim() : '';
-  eventBus.emit(Events.TASK_EDITOR_OPEN_REQUEST, {
+  const payload: TaskQuickMetaOpenRequest = {
     blockId: taskBlockId,
     rootId,
     anchorX: menuAnchor?.x,
     anchorY: menuAnchor?.y,
     task: task || undefined
-  });
+  };
+  eventBus.emit(Events.TASK_EDITOR_OPEN_REQUEST, payload);
+  window.setTimeout(() => {
+    eventBus.emit(Events.TASK_EDITOR_OPEN_REQUEST, payload);
+  }, 180);
 }
 
 async function openTaskDateMenuByBlockId(
@@ -339,19 +415,55 @@ async function openTaskDateMenuByBlockId(
     return;
   }
 
-  if (!isMobileFrontend()) {
-    openPinchDockView();
-  }
+  openPinchDockView();
 
   const task = await TaskRepository.getTaskByBlockId(taskBlockId, true).catch(() => null);
   const rootId = typeof task?.rootId === 'string' ? task.rootId.trim() : '';
-  eventBus.emit(Events.TASK_EDITOR_OPEN_REQUEST, {
+  const payload: TaskQuickMetaOpenRequest = {
     blockId: taskBlockId,
     rootId,
     anchorX: anchor?.x,
     anchorY: anchor?.y,
     task: task || undefined
-  });
+  };
+  eventBus.emit(Events.TASK_EDITOR_OPEN_REQUEST, payload);
+  window.setTimeout(() => {
+    eventBus.emit(Events.TASK_EDITOR_OPEN_REQUEST, payload);
+  }, 180);
+}
+
+async function openTaskQuickMetaMenuByBlockId(
+  blockId: string,
+  anchor?: { x: number; y: number } | null,
+  options: { removeTrigger?: () => void } = {}
+): Promise<void> {
+  const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+  if (!normalizedBlockId) {
+    return;
+  }
+
+  const taskBlockId = await resolveNearestTaskBlockId(normalizedBlockId);
+  if (!taskBlockId) {
+    showMessage(translate('message.currentBlockNotTask', 'Current block is not a task block'), 2000, 'error');
+    return;
+  }
+
+  openPinchDockView();
+
+  const task = await TaskRepository.getTaskByBlockId(taskBlockId, true).catch(() => null);
+  const rootId = typeof task?.rootId === 'string' ? task.rootId.trim() : '';
+  const payload: TaskQuickMetaOpenRequest = {
+    blockId: taskBlockId,
+    rootId,
+    anchorX: anchor?.x,
+    anchorY: anchor?.y,
+    task: task || undefined,
+    removeTrigger: options.removeTrigger
+  };
+  eventBus.emit(Events.TASK_QUICK_META_OPEN_REQUEST, payload);
+  window.setTimeout(() => {
+    eventBus.emit(Events.TASK_QUICK_META_OPEN_REQUEST, payload);
+  }, 180);
 }
 
 let taskBlockIconMenuListener: ((event: CustomEvent<{
@@ -362,6 +474,10 @@ let taskBlockIconMenuListener: ((event: CustomEvent<{
   }) => void };
   blockElements: HTMLElement[];
 }>) => void | Promise<void>) | null = null;
+let taskQuickMetaInputListener: ((event: Event) => void) | null = null;
+let taskQuickMetaCompositionStartListener: (() => void) | null = null;
+let taskQuickMetaCompositionEndListener: (() => void) | null = null;
+let isTaskQuickMetaComposing = false;
 
 function registerTaskBlockIconMenu(pluginInstance: Plugin): void {
   if (taskBlockIconMenuListener) {
@@ -401,10 +517,88 @@ function unregisterTaskBlockIconMenu(): void {
   taskBlockIconMenuListener = null;
 }
 
+function resolveEditableRootFromEventTarget(target: EventTarget | null): HTMLElement | null {
+  const element = target instanceof Element ? target : null;
+  return element?.closest('[contenteditable="true"]') as HTMLElement | null;
+}
+
+async function openTaskQuickMetaFromAtInput(editableRoot: HTMLElement): Promise<void> {
+  const triggerRange = getSelectionTriggerRangeForAt(editableRoot);
+  if (!triggerRange) {
+    return;
+  }
+
+  const anchorNode = triggerRange.startContainer;
+  const anchorElement = anchorNode instanceof Element ? anchorNode : anchorNode.parentElement;
+  const contextBlockId = getClosestBlockIdFromElement(anchorElement);
+  if (!contextBlockId) {
+    return;
+  }
+
+  const taskBlockId = await resolveNearestTaskBlockId(contextBlockId);
+  if (!taskBlockId) {
+    return;
+  }
+
+  const anchor = buildMenuAnchorFromRect(triggerRange.getBoundingClientRect())
+    || buildMenuAnchorFromRect(anchorElement?.getBoundingClientRect());
+  const removeTrigger = createRemoveAtTriggerCallback(triggerRange, editableRoot);
+  await openTaskQuickMetaMenuByBlockId(taskBlockId, anchor, { removeTrigger });
+}
+
+function registerTaskQuickMetaInputTrigger(): void {
+  unregisterTaskQuickMetaInputTrigger();
+
+  taskQuickMetaCompositionStartListener = () => {
+    isTaskQuickMetaComposing = true;
+  };
+  taskQuickMetaCompositionEndListener = () => {
+    isTaskQuickMetaComposing = false;
+  };
+  taskQuickMetaInputListener = (event: Event) => {
+    const inputEvent = event as InputEvent;
+    if (
+      isTaskQuickMetaComposing
+      || inputEvent.isComposing
+      || inputEvent.data !== '@'
+      || (inputEvent.inputType && inputEvent.inputType !== 'insertText')
+    ) {
+      return;
+    }
+
+    const editableRoot = resolveEditableRootFromEventTarget(event.target);
+    if (!editableRoot) {
+      return;
+    }
+
+    void openTaskQuickMetaFromAtInput(editableRoot);
+  };
+
+  document.addEventListener('compositionstart', taskQuickMetaCompositionStartListener, true);
+  document.addEventListener('compositionend', taskQuickMetaCompositionEndListener, true);
+  document.addEventListener('input', taskQuickMetaInputListener, true);
+}
+
+function unregisterTaskQuickMetaInputTrigger(): void {
+  if (taskQuickMetaCompositionStartListener) {
+    document.removeEventListener('compositionstart', taskQuickMetaCompositionStartListener, true);
+    taskQuickMetaCompositionStartListener = null;
+  }
+  if (taskQuickMetaCompositionEndListener) {
+    document.removeEventListener('compositionend', taskQuickMetaCompositionEndListener, true);
+    taskQuickMetaCompositionEndListener = null;
+  }
+  if (taskQuickMetaInputListener) {
+    document.removeEventListener('input', taskQuickMetaInputListener, true);
+    taskQuickMetaInputListener = null;
+  }
+  isTaskQuickMetaComposing = false;
+}
+
 function registerTaskEditorHotkeyCommand(pluginInstance: Plugin): void {
   pluginInstance.addCommand({
     langKey: 'pinchOpenTaskEditor',
-    langText: translate('command.openTaskEditor', 'Open current task date dialog'),
+    langText: translate('command.openTaskEditor', 'Open current task date popup'),
     hotkey: OPEN_TASK_EDITOR_HOTKEY,
     editorCallback: (protyle) => {
       void openTaskEditorFromCurrentContext(protyle as IProtyle);
@@ -463,29 +657,6 @@ function registerTaskViewHotkeyCommands(pluginInstance: Plugin): void {
   });
 }
 
-function registerKernelTrialCommand(pluginInstance: Plugin): void {
-  pluginInstance.addCommand({
-    langKey: 'pinchKernelTrial',
-    langText: translate('command.kernelTrial', 'Pinch kernel performance trial'),
-    globalCallback: async () => {
-      try {
-        const ping = await pingPinchKernel();
-        const refreshed = await refreshKernelTaskIndex();
-        const cached = await getKernelTaskIndex(200);
-        const lightTasks = await TaskRepository.getKernelLightTasks(200);
-        showMessage(
-          `${translate('kernelTrial.running', 'Kernel plugin running')}: ${ping.source}, ${translate('kernelTrial.refreshed', 'refreshed')} ${refreshed.rows.length} ${translate('kernelTrial.rowsElapsed', 'rows in')} ${refreshed.elapsedMs}ms, ${translate('kernelTrial.cacheRead', 'cached')} ${cached.rows.length} ${translate('kernelTrial.rowsElapsed', 'rows in')} ${cached.elapsedMs}ms, ${translate('kernelTrial.converted', 'converted')} ${lightTasks.tasks.length} ${translate('kernelTrial.rowsElapsed', 'rows in')} ${lightTasks.elapsedMs}ms`,
-          5000,
-          'info'
-        );
-      } catch (error) {
-        console.error('[Pinch Kernel Trial] failed', error);
-        showMessage(translate('kernelTrial.disconnected', 'Pinch kernel trial is unavailable. Please confirm your SiYuan build includes the kernel plugin system.'), 5000, 'error');
-      }
-    }
-  });
-}
-
 function createMobileBreadcrumbTaskButton() {
   let longPressTimer: number | null = null;
   let handledLongPress = false;
@@ -516,7 +687,6 @@ function createMobileBreadcrumbTaskButton() {
   button.dataset.pinchMobileTaskCreate = 'true';
   button.innerHTML = '<svg style="width:18px;height:18px;"><use xlink:href="#ht-custom-icon"></use></svg>';
   button.setAttribute('aria-label', translate('task.new', 'New task'));
-  button.setAttribute('title', translate('task.newLongPressOpenBoard', 'New task (long press to open Pinch board)'));
   button.addEventListener('pointerdown', (event) => {
     event.stopPropagation();
     startLongPress();
@@ -725,8 +895,8 @@ export function init(pluginInstance: Plugin) {
   registerTaskEditorHotkeyCommand(pluginInstance);
   registerGlobalTaskCreateCommand(pluginInstance);
   registerTaskViewHotkeyCommands(pluginInstance);
-  registerKernelTrialCommand(pluginInstance);
   registerTaskBlockIconMenu(pluginInstance);
+  registerTaskQuickMetaInputTrigger();
   startMobileBreadcrumbButtonObserver();
   startTaskReminderScheduler();
 
@@ -775,8 +945,12 @@ export function init(pluginInstance: Plugin) {
       app = createApp(App);
 
       if (dock.element) {
+        pinchDockElement = dock.element as HTMLElement;
         dock.element.innerHTML = '';
         dock.element.style.overflow = 'hidden';
+        if (window.getComputedStyle(dock.element).position === 'static') {
+          dock.element.style.position = 'relative';
+        }
         dock.element.appendChild(container);
         app.mount(container);
       }
@@ -789,6 +963,7 @@ export function init(pluginInstance: Plugin) {
       if (container) {
         container.remove();
       }
+      pinchDockElement = null;
     }
   });
   pinchDockModel = dockHandle?.model || null;
@@ -798,6 +973,7 @@ export function destroy() {
   stopTaskReminderScheduler();
   stopMobileBreadcrumbButtonObserver();
   unregisterTaskBlockIconMenu();
+  unregisterTaskQuickMetaInputTrigger();
   destroyDetachedFocusWindow();
   topBarViewButton?.remove();
   topBarViewButton = null;
@@ -810,6 +986,7 @@ export function destroy() {
   }
   closeMobileKanbanDialog();
   pinchDockModel = null;
+  pinchDockElement = null;
   const container = document.getElementById('Pinch-habit-app');
   if (container) {
     container.remove();
@@ -834,51 +1011,23 @@ function closeMobileKanbanDialog() {
   dialog.destroy();
 }
 
-function relocateMobileKanbanDialogCloseButton(dialog: Dialog, retryCount = 0) {
+function prepareMobileKanbanDialogChrome(dialog: Dialog) {
   const dialogRoot = dialog.element as HTMLElement | null;
   if (!dialogRoot) {
     return;
   }
 
-  const targetHeaderActions = dialogRoot.querySelector('.kanban-view .header-actions') as HTMLElement | null;
-  const refreshButton = targetHeaderActions?.querySelector('.refresh-btn') as HTMLElement | null;
-  const newTaskButton = targetHeaderActions?.querySelector('.new-task-btn') as HTMLElement | null;
   const header = dialogRoot.querySelector('.resize__move.b3-dialog__header') as HTMLElement | null;
   const closeButton = (header?.querySelector('.b3-dialog__close') as HTMLButtonElement | null)
     || (dialogRoot.querySelector('.b3-dialog__close') as HTMLButtonElement | null);
 
-  if (!targetHeaderActions || !closeButton) {
-    if (retryCount < 20 && mobileKanbanDialog === dialog) {
-      window.setTimeout(() => {
-        relocateMobileKanbanDialogCloseButton(dialog, retryCount + 1);
-      }, 50);
-    }
-    return;
-  }
-
-  if (!closeButton.dataset.pinchMobileKanbanCloseBound) {
+  if (closeButton && !closeButton.dataset.pinchMobileKanbanCloseBound) {
     closeButton.dataset.pinchMobileKanbanCloseBound = 'true';
     closeButton.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
       closeMobileKanbanDialog();
     });
-  }
-
-  closeButton.setAttribute('aria-label', translate('common.close', 'Close'));
-  closeButton.setAttribute('title', translate('common.close', 'Close'));
-  closeButton.classList.add('pinch-mobile-kanban-dialog-close-button');
-
-  if (newTaskButton && newTaskButton.parentElement === targetHeaderActions) {
-    newTaskButton.insertAdjacentElement('afterend', closeButton);
-  } else if (refreshButton && refreshButton.parentElement === targetHeaderActions) {
-    refreshButton.insertAdjacentElement('afterend', closeButton);
-  } else {
-    targetHeaderActions.append(closeButton);
-  }
-
-  if (header) {
-    header.remove();
   }
 }
 
@@ -906,10 +1055,13 @@ function openKanbanMobileDialog(): boolean {
       return false;
     }
 
-    mobileKanbanApp = createApp(KanbanView);
+    mobileKanbanApp = createApp(KanbanView, {
+      showDialogCloseButton: true,
+      onDialogClose: closeMobileKanbanDialog,
+    });
     mobileKanbanApp.mount(mountElement);
     mobileKanbanDialog = dialog;
-    relocateMobileKanbanDialogCloseButton(dialog);
+    prepareMobileKanbanDialogChrome(dialog);
     return true;
   } catch (error) {
     console.error('Failed to open mobile kanban dialog:', error);
@@ -948,6 +1100,25 @@ function isElementVisible(element: HTMLElement | null): boolean {
 
 function isPinchDockViewVisible(): boolean {
   return isElementVisible(document.getElementById('Pinch-habit-app') as HTMLElement | null);
+}
+
+export function getPinchDockElement(): HTMLElement | null {
+  if (pinchDockElement?.isConnected) {
+    return pinchDockElement;
+  }
+
+  const appElement = document.getElementById('Pinch-habit-app') as HTMLElement | null;
+  const dockElement = appElement?.parentElement as HTMLElement | null;
+  if (dockElement) {
+    pinchDockElement = dockElement;
+    if (window.getComputedStyle(dockElement).position === 'static') {
+      dockElement.style.position = 'relative';
+    }
+    return dockElement;
+  }
+
+  pinchDockElement = null;
+  return null;
 }
 
 function matchesPinchDockTrigger(element: HTMLElement): boolean {

@@ -11,7 +11,11 @@ export interface RewardLedgerEntry {
   source: RewardSource;
   kind: string;
   title: string;
+  titleKey?: string;
+  titleParams?: Record<string, string | number | boolean>;
   detail?: string;
+  detailKey?: string;
+  detailParams?: Record<string, string | number | boolean>;
   xp: number;
   coins: number;
   createdAt: string;
@@ -93,7 +97,11 @@ interface RewardAwardInput {
   source: RewardSource;
   kind: string;
   title: string;
+  titleKey?: string;
+  titleParams?: Record<string, string | number | boolean>;
   detail?: string;
+  detailKey?: string;
+  detailParams?: Record<string, string | number | boolean>;
   xp: number;
   coins: number;
   createdAt?: string;
@@ -410,6 +418,144 @@ function formatRewardMessage(
   return result;
 }
 
+function stripKnownPrefix(value: string, prefixes: string[]): string {
+  const text = value.trim();
+  const matchedPrefix = prefixes.find(prefix => text.startsWith(prefix));
+  return matchedPrefix ? text.slice(matchedPrefix.length).trim() : text;
+}
+
+function getLegacyRewardTitleParams(entry: RewardLedgerEntry): Record<string, string | number | boolean> | undefined {
+  if (entry.titleParams) {
+    return entry.titleParams;
+  }
+
+  switch (entry.kind) {
+    case 'habit-step':
+      return { title: stripKnownPrefix(entry.title, ['Habit progress: ', '推进习惯：']) };
+    case 'habit-target':
+      return { title: stripKnownPrefix(entry.title, ['Habit target reached: ', '习惯达标：']) };
+    case 'habit-weekly-target':
+      return { title: stripKnownPrefix(entry.title, ['Weekly target reached: ', '周目标达成：']) };
+    case 'habit-streak': {
+      const streak = Number(entry.meta?.streak);
+      const titleDayMatch = entry.title.match(/(\d+)/);
+      const fallbackDays = Number.isFinite(streak)
+        ? Math.floor(streak)
+        : (titleDayMatch ? Number(titleDayMatch[1]) : 0);
+      const title = entry.title
+        .replace(/^\d+-day streak:\s*/, '')
+        .replace(/^连续\s*\d+\s*天：/, '')
+        .trim();
+      return {
+        days: fallbackDays || 0,
+        title: title || entry.title
+      };
+    }
+    case 'task-complete':
+      return { title: stripKnownPrefix(entry.title, ['Task completed: ', '完成任务：']) };
+    case 'focus-session': {
+      const minutes = Number(entry.meta?.minutes);
+      const titleMinuteMatch = entry.title.match(/(\d+)/);
+      return {
+        minutes: Number.isFinite(minutes)
+          ? Math.floor(minutes)
+          : (titleMinuteMatch ? Number(titleMinuteMatch[1]) : stripKnownPrefix(entry.title, ['Focus session completed: ', '完成专注：']))
+      };
+    }
+    default:
+      return undefined;
+  }
+}
+
+function getRewardTitleKeyByKind(kind: string): string | undefined {
+  switch (kind) {
+    case 'habit-step':
+      return 'rewardRepository.habitStepTitleTemplate';
+    case 'habit-target':
+      return 'rewardRepository.habitTargetTitleTemplate';
+    case 'habit-weekly-target':
+      return 'rewardRepository.habitWeeklyTargetTitleTemplate';
+    case 'habit-streak':
+      return 'rewardRepository.habitStreakTitleTemplate';
+    case 'task-complete':
+      return 'rewardRepository.taskCompleteTitleTemplate';
+    case 'focus-session':
+      return 'rewardRepository.focusSessionTitleTemplate';
+    default:
+      return undefined;
+  }
+}
+
+function getRewardDetailKey(entry: RewardLedgerEntry): string | undefined {
+  if (entry.detailKey) {
+    return entry.detailKey;
+  }
+
+  if (entry.kind === 'habit-step') {
+    return 'rewardRepository.habitStepDetailTemplate';
+  }
+  if (entry.kind === 'habit-target') {
+    return entry.meta?.source === 'pomodoro'
+      ? 'rewardRepository.habitTargetDetailPomodoro'
+      : 'rewardRepository.habitTargetDetailDefault';
+  }
+  if (entry.kind === 'habit-weekly-target') {
+    return 'rewardRepository.habitWeeklyTargetDetail';
+  }
+  if (entry.kind === 'habit-streak') {
+    return 'rewardRepository.habitStreakDetail';
+  }
+  if (entry.kind === 'task-complete') {
+    if (entry.detail === 'Completed on time' || entry.detail === '按期完成') {
+      return 'rewardRepository.taskCompleteDetailOnTime';
+    }
+    if (entry.detail === 'Task completed after the due time' || entry.detail === '任务完成，但已逾期') {
+      return 'rewardRepository.taskCompleteDetailLate';
+    }
+    return 'rewardRepository.taskCompleteDetailDone';
+  }
+  if (entry.kind === 'focus-session') {
+    return entry.meta?.source === 'capsule'
+      ? 'rewardRepository.focusSessionDetailCapsule'
+      : 'rewardRepository.focusSessionDetailPanel';
+  }
+  return undefined;
+}
+
+function getLegacyRewardDetailParams(entry: RewardLedgerEntry): Record<string, string | number | boolean> | undefined {
+  if (entry.detailParams) {
+    return entry.detailParams;
+  }
+  if (entry.kind === 'habit-step') {
+    const count = Number(entry.meta?.count);
+    const target = Number(entry.meta?.targetCount);
+    return {
+      count: Number.isFinite(count) ? Math.floor(count) : 0,
+      target: Number.isFinite(target) ? Math.floor(target) : 1
+    };
+  }
+  return undefined;
+}
+
+export function getLocalizedRewardEntryTitle(entry: RewardLedgerEntry): string {
+  const key = entry.titleKey || getRewardTitleKeyByKind(entry.kind);
+  if (!key) {
+    return entry.title;
+  }
+  return formatRewardMessage(key, entry.title, getLegacyRewardTitleParams(entry));
+}
+
+export function getLocalizedRewardEntryDetail(entry: RewardLedgerEntry): string {
+  if (!entry.detail) {
+    return '';
+  }
+  const key = getRewardDetailKey(entry);
+  if (!key) {
+    return entry.detail;
+  }
+  return formatRewardMessage(key, entry.detail, getLegacyRewardDetailParams(entry));
+}
+
 function createEmptyRewardStats(): RewardStats {
   return {
     habitCompletionCount: 0,
@@ -489,6 +635,10 @@ function normalizeMeta(input: unknown): Record<string, string | number | boolean
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
+function normalizeTemplateValues(input: unknown): Record<string, string | number | boolean> | undefined {
+  return normalizeMeta(input);
+}
+
 function normalizeRewardEntry(input: unknown): RewardLedgerEntry | null {
   if (!input || typeof input !== 'object') {
     return null;
@@ -514,7 +664,11 @@ function normalizeRewardEntry(input: unknown): RewardLedgerEntry | null {
     source,
     kind,
     title,
+    titleKey: typeof raw.titleKey === 'string' ? raw.titleKey.trim() || undefined : undefined,
+    titleParams: normalizeTemplateValues(raw.titleParams),
     detail: typeof raw.detail === 'string' ? raw.detail : undefined,
+    detailKey: typeof raw.detailKey === 'string' ? raw.detailKey.trim() || undefined : undefined,
+    detailParams: normalizeTemplateValues(raw.detailParams),
     xp: typeof raw.xp === 'number' && Number.isFinite(raw.xp) ? Math.max(0, Math.floor(raw.xp)) : 0,
     coins: typeof raw.coins === 'number' && Number.isFinite(raw.coins) ? Math.max(0, Math.floor(raw.coins)) : 0,
     createdAt,
@@ -1052,7 +1206,11 @@ async function applyRewardBatch(inputs: RewardAwardInput[]): Promise<RewardBatch
         source: input.source,
         kind: input.kind,
         title: input.title,
+        titleKey: input.titleKey,
+        titleParams: input.titleParams ? { ...input.titleParams } : undefined,
         detail: input.detail,
+        detailKey: input.detailKey,
+        detailParams: input.detailParams ? { ...input.detailParams } : undefined,
         xp,
         coins,
         createdAt,
@@ -1314,11 +1472,15 @@ export async function awardHabitRewards(payload: HabitRewardPayload): Promise<Re
         'Habit progress: {title}',
         { title: habitName }
       ),
+      titleKey: 'rewardRepository.habitStepTitleTemplate',
+      titleParams: { title: habitName },
       detail: formatRewardMessage(
         'rewardRepository.habitStepDetailTemplate',
         '{count}/{target} times',
         { count: nextCount, target: safeTargetCount }
       ),
+      detailKey: 'rewardRepository.habitStepDetailTemplate',
+      detailParams: { count: nextCount, target: safeTargetCount },
       xp: 2,
       coins: 0,
       meta: {
@@ -1340,6 +1502,8 @@ export async function awardHabitRewards(payload: HabitRewardPayload): Promise<Re
         'Habit target reached: {title}',
         { title: habitName }
       ),
+      titleKey: 'rewardRepository.habitTargetTitleTemplate',
+      titleParams: { title: habitName },
       detail: payload.source === 'pomodoro'
         ? formatRewardMessage(
           'rewardRepository.habitTargetDetailPomodoro',
@@ -1349,6 +1513,9 @@ export async function awardHabitRewards(payload: HabitRewardPayload): Promise<Re
           'rewardRepository.habitTargetDetailDefault',
           'Completed today\'s target'
         ),
+      detailKey: payload.source === 'pomodoro'
+        ? 'rewardRepository.habitTargetDetailPomodoro'
+        : 'rewardRepository.habitTargetDetailDefault',
       xp: 6,
       coins: getHabitTargetCoinsByDifficulty(habitDifficulty),
       meta: {
@@ -1370,10 +1537,13 @@ export async function awardHabitRewards(payload: HabitRewardPayload): Promise<Re
         'Weekly target reached: {title}',
         { title: habitName }
       ),
+      titleKey: 'rewardRepository.habitWeeklyTargetTitleTemplate',
+      titleParams: { title: habitName },
       detail: formatRewardMessage(
         'rewardRepository.habitWeeklyTargetDetail',
         'This week\'s target is complete'
       ),
+      detailKey: 'rewardRepository.habitWeeklyTargetDetail',
       xp: 8,
       coins: 2,
       meta: {
@@ -1394,10 +1564,13 @@ export async function awardHabitRewards(payload: HabitRewardPayload): Promise<Re
         '{days}-day streak: {title}',
         { days: payload.nextStreak, title: habitName }
       ),
+      titleKey: 'rewardRepository.habitStreakTitleTemplate',
+      titleParams: { days: payload.nextStreak, title: habitName },
       detail: formatRewardMessage(
         'rewardRepository.habitStreakDetail',
         'Kept the streak going'
       ),
+      detailKey: 'rewardRepository.habitStreakDetail',
       xp: payload.nextStreak >= 100 ? 30 : (payload.nextStreak >= 30 ? 16 : 10),
       coins: payload.nextStreak >= 100 ? 12 : (payload.nextStreak >= 30 ? 5 : 3),
       meta: {
@@ -1478,6 +1651,8 @@ export async function awardTaskCompletion(
         'Task completed: {title}',
         { title }
       ),
+      titleKey: 'rewardRepository.taskCompleteTitleTemplate',
+      titleParams: { title },
       detail: onTime === true
         ? formatRewardMessage(
           'rewardRepository.taskCompleteDetailOnTime',
@@ -1492,6 +1667,11 @@ export async function awardTaskCompletion(
             'rewardRepository.taskCompleteDetailDone',
             'Task completed'
           )),
+      detailKey: onTime === true
+        ? 'rewardRepository.taskCompleteDetailOnTime'
+        : (onTime === false
+          ? 'rewardRepository.taskCompleteDetailLate'
+          : 'rewardRepository.taskCompleteDetailDone'),
       xp: baseReward.xp + (onTime === true ? 4 : 0),
       coins: baseReward.coins + (onTime === true ? 1 : 0),
       createdAt: task.completedAt || new Date().toISOString(),
@@ -1527,6 +1707,8 @@ export async function awardFocusSession(payload: FocusRewardPayload): Promise<Re
         'Focus session completed: {minutes} min',
         { minutes }
       ),
+      titleKey: 'rewardRepository.focusSessionTitleTemplate',
+      titleParams: { minutes },
       detail: payload.source === 'capsule'
         ? formatRewardMessage(
           'rewardRepository.focusSessionDetailCapsule',
@@ -1536,6 +1718,9 @@ export async function awardFocusSession(payload: FocusRewardPayload): Promise<Re
           'rewardRepository.focusSessionDetailPanel',
           'From focus panel'
         ),
+      detailKey: payload.source === 'capsule'
+        ? 'rewardRepository.focusSessionDetailCapsule'
+        : 'rewardRepository.focusSessionDetailPanel',
       xp,
       coins,
       meta: {

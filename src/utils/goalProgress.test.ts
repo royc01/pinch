@@ -89,9 +89,81 @@ describe('goal progress', () => {
     const [summary] = buildGoalProgressSummaries(goals, tasks);
 
     expect(summary.documentCount).toBe(2);
+    expect(summary.taskMemberCount).toBe(0);
     expect(summary.totalTasks).toBe(2);
     expect(summary.completedTasks).toBe(1);
     expect(summary.progressPercent).toBe(50);
+    expect(summary.status).toBe('in-progress');
+  });
+
+  it('counts direct task members without double-counting document tasks', () => {
+    const goals: Goal[] = [
+      {
+        id: 'goal-direct',
+        name: 'Direct Goal',
+        members: [
+          {
+            notebookId: 'nb-1',
+            documentId: 'doc-1'
+          }
+        ],
+        taskMembers: [
+          {
+            taskId: 'task-1'
+          },
+          {
+            taskId: 'task-3'
+          }
+        ]
+      }
+    ];
+
+    const tasks = [
+      {
+        id: 'task-1',
+        type: 'block',
+        title: 'Document and direct',
+        status: 'completed',
+        priority: 'none',
+        tags: [],
+        rootId: 'doc-1',
+        notebookId: 'nb-1',
+        createdAt: '2026-04-20T00:00:00.000Z',
+        updatedAt: '2026-04-20T00:00:00.000Z'
+      },
+      {
+        id: 'task-2',
+        type: 'block',
+        title: 'Document only',
+        status: 'pending',
+        priority: 'none',
+        tags: [],
+        rootId: 'doc-1',
+        notebookId: 'nb-1',
+        createdAt: '2026-04-20T00:00:00.000Z',
+        updatedAt: '2026-04-20T00:00:00.000Z'
+      },
+      {
+        id: 'task-3',
+        type: 'block',
+        title: 'Direct only',
+        status: 'completed',
+        priority: 'none',
+        tags: [],
+        rootId: 'doc-2',
+        notebookId: 'nb-1',
+        createdAt: '2026-04-20T00:00:00.000Z',
+        updatedAt: '2026-04-20T00:00:00.000Z'
+      }
+    ] as Task[];
+
+    const [summary] = buildGoalProgressSummaries(goals, tasks);
+
+    expect(summary.documentCount).toBe(1);
+    expect(summary.taskMemberCount).toBe(2);
+    expect(summary.totalTasks).toBe(3);
+    expect(summary.completedTasks).toBe(2);
+    expect(summary.progressPercent).toBe(67);
     expect(summary.status).toBe('in-progress');
   });
 
@@ -107,6 +179,7 @@ describe('goal progress', () => {
     const [summary] = buildGoalProgressSummaries(goals, []);
 
     expect(summary.documentCount).toBe(0);
+    expect(summary.taskMemberCount).toBe(0);
     expect(summary.totalTasks).toBe(0);
     expect(summary.completedTasks).toBe(0);
     expect(summary.progressPercent).toBe(0);

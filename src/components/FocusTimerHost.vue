@@ -18,7 +18,9 @@
     :linked-target="linkedTarget"
     @update-linked-target="linkedTarget = $event"
     @clear-linked-target="linkedTarget = null"
+    @complete-linked-target="handleCompleteLinkedTarget"
     @open-linked-target="handleOpenLinkedTarget"
+    @disable-floating-focus="floatingFocusEnabled = false"
   />
 </template>
 
@@ -28,6 +30,7 @@ import FocusTimer from '@/components/FocusTimer.vue';
 import FloatingFocusCapsule from '@/components/FloatingFocusCapsule.vue';
 import { hasActiveFocusSession } from '@/composables/useFocusSessionLock';
 import {
+  subscribeDetachedFocusCompleteLinkedTarget,
   subscribeDetachedFocusDisableRequest,
   subscribeDetachedFocusLinkedTargetChange
 } from '@/utils/detachedFocusWindow';
@@ -48,10 +51,12 @@ const floatingFocusCapsuleRef = ref<{
 } | null>(null);
 let unsubscribeDetachedFocusDisableRequest: (() => void) | null = null;
 let unsubscribeDetachedFocusLinkedTargetChange: (() => void) | null = null;
+let unsubscribeDetachedFocusCompleteLinkedTarget: (() => void) | null = null;
 
 const emit = defineEmits<{
   completeLinkedHabit: [habitId: string];
   completeLinkedTarget: [target: FocusTimerLinkedTarget];
+  visibilityChange: [visible: boolean];
 }>();
 
 function open(
@@ -112,12 +117,19 @@ watch(floatingFocusEnabled, (value) => {
   }
 });
 
+watch(showFocusTimer, (visible) => {
+  emit('visibilityChange', visible);
+});
+
 onMounted(() => {
   unsubscribeDetachedFocusDisableRequest = subscribeDetachedFocusDisableRequest(() => {
     floatingFocusEnabled.value = false;
   });
   unsubscribeDetachedFocusLinkedTargetChange = subscribeDetachedFocusLinkedTargetChange((target) => {
     linkedTarget.value = target;
+  });
+  unsubscribeDetachedFocusCompleteLinkedTarget = subscribeDetachedFocusCompleteLinkedTarget((target) => {
+    handleCompleteLinkedTarget(target);
   });
 
   try {
@@ -134,6 +146,8 @@ onBeforeUnmount(() => {
   unsubscribeDetachedFocusDisableRequest = null;
   unsubscribeDetachedFocusLinkedTargetChange?.();
   unsubscribeDetachedFocusLinkedTargetChange = null;
+  unsubscribeDetachedFocusCompleteLinkedTarget?.();
+  unsubscribeDetachedFocusCompleteLinkedTarget = null;
 });
 
 defineExpose({

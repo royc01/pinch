@@ -8,17 +8,34 @@
         </div>
         <button
           type="button"
-          class="icon-button"
-          :title="t('common.close')"
+          class="icon-button ariaLabel"
+         
           :aria-label="t('common.close')"
           @click="handleCancel"
         >
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
-      <div class="checkin-note-body">
+      <div v-if="hasNoteDoc" class="checkin-note-body">
         <div class="checkin-note-label">{{ t('habitCheckinNote.writeToDoc') }}</div>
+        <div v-if="focusNoteInputs.length > 0" class="checkin-focus-note-list">
+          <label
+            v-for="item in focusNoteInputs"
+            :key="item.sessionId"
+            class="checkin-focus-note-item"
+          >
+            <span class="checkin-focus-note-label">{{ item.label }}</span>
+            <textarea
+              v-model="item.note"
+              class="checkin-note-textarea"
+              :placeholder="t('habitCheckinNote.placeholder')"
+              rows="2"
+              @keydown.enter.ctrl="handleConfirm"
+            />
+          </label>
+        </div>
         <textarea
+          v-else
           v-model="noteInput"
           class="checkin-note-textarea"
           :placeholder="t('habitCheckinNote.placeholder')"
@@ -42,9 +59,16 @@
         >
           {{ t('habitCheckinNote.clearToday') }}
         </SyButton>
+        <SyButton
+          v-if="!hasNoteDoc"
+          class="checkin-note-btn plain"
+          @click="handleBindDoc"
+        >
+          {{ t('habitTracker.bindNoteDoc') }}
+        </SyButton>
         <span class="checkin-note-actions-spacer"></span>
         <SyButton class="checkin-note-btn plain" @click="handleCancel">{{ t('common.cancel') }}</SyButton>
-        <SyButton class="checkin-note-btn confirm" @click="handleConfirm">
+        <SyButton v-if="hasNoteDoc" class="checkin-note-btn confirm" @click="handleConfirm">
           {{ isEdit ? t('habitCheckinNote.saveEdit') : t('habitCheckinNote.saveAndCheckin') }}
         </SyButton>
       </div>
@@ -58,12 +82,21 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import Icon from '@/components/Icon.vue';
 import { useI18n } from '@/composables/useI18n';
 
+interface FocusNoteInput {
+  sessionId: string;
+  label: string;
+  minutes: number;
+  note: string;
+}
+
 interface Props {
   show: boolean;
   habitName: string;
   habitEmoji?: string;
   isEdit?: boolean;
   initialNote?: string;
+  focusNotes?: FocusNoteInput[];
+  hasNoteDoc?: boolean;
   canUndoOnce?: boolean;
   canClearToday?: boolean;
 }
@@ -72,6 +105,8 @@ const props = withDefaults(defineProps<Props>(), {
   habitEmoji: '',
   isEdit: false,
   initialNote: '',
+  focusNotes: () => [],
+  hasNoteDoc: false,
   canUndoOnce: false,
   canClearToday: false
 });
@@ -80,25 +115,39 @@ const { t } = useI18n();
 
 const emit = defineEmits<{
   close: [];
-  confirm: [note: string];
+  confirm: [note: string, focusNotes: FocusNoteInput[]];
   undoOnce: [];
   clearToday: [];
+  bindDoc: [];
 }>();
 
 const noteInput = ref('');
+const focusNoteInputs = ref<FocusNoteInput[]>([]);
 
-watch(() => props.show, (newVal) => {
-  if (newVal) {
-    noteInput.value = props.initialNote || '';
-  }
-});
+watch(
+  () => [props.show, props.hasNoteDoc, props.initialNote, props.habitName, props.focusNotes] as const,
+  ([show, hasNoteDoc, initialNote, habitName, focusNotes]) => {
+    if (!show || !hasNoteDoc) {
+      noteInput.value = '';
+      focusNoteInputs.value = [];
+      return;
+    }
+    noteInput.value = initialNote || '';
+    focusNoteInputs.value = focusNotes.map(item => ({ ...item }));
+  },
+  { immediate: true }
+);
 
 function handleCancel(): void {
   emit('close');
 }
 
 function handleConfirm(): void {
-  emit('confirm', noteInput.value.trim());
+  const focusNotes = focusNoteInputs.value.map(item => ({
+    ...item,
+    note: item.note.trim()
+  }));
+  emit('confirm', noteInput.value.trim(), focusNotes);
 }
 
 function handleUndoOnce(): void {
@@ -107,6 +156,10 @@ function handleUndoOnce(): void {
 
 function handleClearToday(): void {
   emit('clearToday');
+}
+
+function handleBindDoc(): void {
+  emit('bindDoc');
 }
 </script>
 
@@ -177,6 +230,24 @@ function handleClearToday(): void {
 
 .checkin-note-textarea:focus {
   border-color: var(--b3-theme-primary);
+}
+
+.checkin-focus-note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.checkin-focus-note-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.checkin-focus-note-label {
+  font-size: 12px;
+  color: var(--b3-theme-on-background);
+  font-weight: 600;
 }
 
 .checkin-note-hint {

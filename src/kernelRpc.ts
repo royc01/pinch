@@ -110,18 +110,9 @@ export type KernelTaskIndexParams = {
   sinceUpdated?: string;
 };
 
-export function listKernelTaskRows(limit = 200): Promise<KernelTaskRowsResult> {
-  return callPinchKernel<KernelTaskRowsResult>("listTaskRows", { limit });
-}
-
 export function refreshKernelTaskIndex(params: KernelTaskIndexParams | number = { limit: 5000 }): Promise<KernelTaskRowsResult> {
   const payload = typeof params === 'number' ? { limit: params } : params;
   return callPinchKernel<KernelTaskRowsResult>("refreshTaskIndex", payload);
-}
-
-export function refreshKernelTaskIndexIncremental(params: KernelTaskIndexParams | number = { limit: 5000 }): Promise<KernelTaskRowsResult> {
-  const payload = typeof params === 'number' ? { limit: params } : params;
-  return callPinchKernel<KernelTaskRowsResult>("refreshTaskIndexIncremental", payload);
 }
 
 export function getKernelTaskIndex(params: KernelTaskIndexParams | number = { limit: 200 }): Promise<KernelTaskRowsResult> {

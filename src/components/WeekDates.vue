@@ -1,11 +1,10 @@
 <template>
   <div class="week-dates">
-    <div 
+    <div class="ariaLabel" 
       v-for="date in weekDates" 
       :key="date.fullDate"
-      :class="['week-date-item', { today: date.isToday }]"
-      @mouseenter="showCustomTooltip(date.fullDate, $event)"
-      @mouseleave="hideCustomTooltip"
+      :class="['week-date-item', 'ariaLabel', { today: date.isToday }]"
+      :aria-label="getTooltipLabel(date.fullDate)"
       @click="openMoodTracker(date.fullDate)">
       <span class="weekday-name">{{ date.dayName }}</span>
       <span v-if="moodData[date.fullDate] && moodData[date.fullDate].emoji" class="mood-emoji">
@@ -13,17 +12,10 @@
       </span>
       <div class="week-date-number">{{ date.date }}</div>
     </div>
-    <div v-if="tooltipVisible && tooltipContent" 
-         class="custom-tooltip" 
-         :style="tooltipStyle">
-      {{ tooltipContent }}
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
-
 interface DateItem {
   date: string;
   dayName: string;
@@ -35,6 +27,13 @@ interface MoodData {
   [key: string]: {
     emoji: string;
     note?: string;
+    timestamp?: string;
+    entries?: Array<{
+      id: string;
+      text: string;
+      createdAt: string;
+      updatedAt: string;
+    }>;
   };
 }
 
@@ -43,32 +42,19 @@ interface Props {
   moodData: MoodData;
   openMoodTracker: (date: string) => void;
   getSmallMoodSvg: (emoji: string) => string;
+  emptyTooltipLabel: string;
 }
 
 const props = defineProps<Props>();
 
-const tooltipVisible = ref(false);
-const tooltipContent = ref('');
-const tooltipStyle = ref({
-  top: '0px',
-  left: '0px'
-});
-
-const showCustomTooltip = (date: string, event: MouseEvent) => {
+const getTooltipLabel = (date: string) => {
   const moodEntry = props.moodData[date];
-  if (moodEntry?.note) {
-    tooltipContent.value = moodEntry.note;
-    tooltipVisible.value = true;
-    tooltipStyle.value = {
-      top: event.clientY + 10 + 'px',
-      left: event.clientX + 10 + 'px'
-    };
-  }
-};
+  const records = [
+    ...(moodEntry?.note ? [moodEntry.note] : []),
+    ...((moodEntry?.entries || []).map(entry => entry.text))
+  ].filter(Boolean);
 
-const hideCustomTooltip = () => {
-  tooltipVisible.value = false;
-  tooltipContent.value = '';
+  return records.join('\n') || props.emptyTooltipLabel;
 };
 </script>
 
@@ -85,23 +71,29 @@ const hideCustomTooltip = () => {
   flex-direction: column;
   align-items: center;
   width: 38px;
+  min-height: 48px;
   padding: 6px;
-  border-radius: 14px;
-  box-shadow: rgba(0, 0, 0, 0.03) 0px 1px 5px 0px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 100px rgba(0, 0, 0, 0.07);
   overflow: hidden;
   position: relative;
   background-color: var(--b3-theme-background);
+  cursor: pointer;
   &:hover{
     background-color: var(--b3-list-hover)
   }
 }
 
+.week-date-item > * {
+  pointer-events: none;
+}
+
 .week-date-item.today {
   position: relative;
+  box-shadow: var(--b3-border-color) 0px 0px 0 0.5px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
 }
 
 .week-date-item.today .weekday-name {
-  color: #f98f7a;
   font-weight: 700;
 }
 
@@ -124,7 +116,7 @@ const hideCustomTooltip = () => {
 .weekday-name::after {
   content: '';
   position: absolute;
-  bottom: -8px;
+  bottom: -11px;
   left: 0;
   right: 0;
   height: 1px;
@@ -154,21 +146,7 @@ const hideCustomTooltip = () => {
 .week-date-number {
   font-size: 14px;
   z-index: 1;
-  margin-top: 15px;
+  margin-top: 18px;
 }
 
-.custom-tooltip {
-  position: fixed;
-  background-color: var(--b3-theme-background);
-  color: var(--b3-theme-on-background);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 14px;
-  max-width: 300px;
-  word-wrap: break-word;
-  z-index: 1000;
-  pointer-events: none;
-  backdrop-filter: blur(4px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
 </style>

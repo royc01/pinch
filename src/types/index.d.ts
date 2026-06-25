@@ -3,7 +3,7 @@
  */
 
 /**
- * Frequently used data structures in SiYuan
+ * Frequently used data structures in SiYuan.
  */
 type DocumentId = string;
 type BlockId = string;
@@ -93,8 +93,9 @@ type Block = {
   length: number;
   type: BlockType;
   subtype: BlockSubType;
-  /** string of { [key: string]: string }
-   * For instance: "{: custom-type=\"query-code\" id=\"20230613234017-zkw3pr0\" updated=\"20230613234509\"}"
+  /**
+   * String of attributes, for example:
+   * "{: custom-type=\"query-code\" id=\"20230613234017-zkw3pr0\" updated=\"20230613234509\"}"
    */
   ial?: string;
   sort: number;
@@ -127,58 +128,10 @@ interface Window {
   };
 }
 
-
 enum SyFrontendTypes {
-  // 桌面端
-  'desktop' = 'desktop',
-  'desktop-window' = 'desktop-window',
-  // 移动端
-  'mobile' = 'mobile',
-  // 浏览器 - 桌面端
-  'browser-desktop' = 'browser-desktop',
-  // 浏览器 - 移动端
-  'browser-mobile' = 'browser-mobile',
-}
-
-// 习惯追踪相关类型定义
-interface Habit {
-  id: string;
-  name: string;
-  frequency: 'daily' | 'weekly' | 'custom';
-  customFrequency?: number; // 每周天数
-  timesPerDay?: number; // 每天次数
-  completedToday: boolean;
-  currentStreak: number;
-  totalCompletions: number;
-  calendar: HabitCalendarDay[];
-  createdAt: string;
-  usePomodoro?: boolean; // 是否使用番茄钟
-  pomodoroDuration?: number; // 番茄钟时长（分钟）
-  pomodoroTimer?: number; // 番茄钟计时器ID
-  pomodoroRemaining?: number; // 番茄钟剩余时间（秒）
-  pomodoroState?: 'work' | 'shortBreak' | 'longBreak'; // 番茄钟状态：工作/短休息/长休息
-  isPaused?: boolean; // 习惯是否暂停
-  isPomodoroPaused?: boolean; // 番茄钟是否暂停
-}
-
-interface HabitCalendarDay {
-  date: string; // YYYY-MM-DD
-  completed: boolean;
-  completedCount: number; // 实际完成次数
-  targetCount: number; // 目标完成次数
-}
-
-// 情绪数据相关类型定义
-interface MoodData {
-  [date: string]: {
-    emoji: string;
-    note: string;
-    timestamp: string;
-  };
-}
-
-interface MoodStat {
-  emoji: string;
-  count: number;
-  percentage: number;
+  "desktop" = "desktop",
+  "desktop-window" = "desktop-window",
+  "mobile" = "mobile",
+  "browser-desktop" = "browser-desktop",
+  "browser-mobile" = "browser-mobile",
 }

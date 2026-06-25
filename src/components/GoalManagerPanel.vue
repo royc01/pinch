@@ -30,9 +30,9 @@
             <div class="goal-item-main">
               <button
                 type="button"
-                class="goal-emoji-btn"
+                class="goal-emoji-btn ariaLabel"
                 :aria-label="t('goalManager.switchGoalIcon')"
-                :title="t('goalManager.switchGoalIcon')"
+               
                 @click.stop="openGoalEmojiPicker(goal.id, $event)"
               >
                 <span class="goal-emoji-display">{{ goal.emoji || '🎯' }}</span>
@@ -43,12 +43,12 @@
                 :placeholder="t('goalManager.goalNamePlaceholder')"
                 @update:model-value="updateGoalName(goal.id, $event)"
               />
-              <span class="goal-count">{{ goal.members.length }}</span>
+              <span class="goal-count">{{ goal.members.length + (goal.taskMembers?.length || 0) }}</span>
               <button
                 type="button"
-                class="goal-delete"
+                class="goal-delete ariaLabel"
                 :aria-label="t('goalManager.deleteGoal')"
-                :title="t('goalManager.deleteGoal')"
+               
                 @click.stop="removeGoal(goal.id)"
               >
                 <Icon name="trash" width="16" height="16" />
@@ -68,8 +68,7 @@
                   <button
                     :ref="el => setDueDateButtonRef(goal.id, el as HTMLElement)"
                     type="button"
-                    class="goal-due-date-trigger"
-                    :title="t('taskManager.pickDueDate')"
+                    class="goal-due-date-trigger ariaLabel"
                     :aria-label="t('taskManager.pickDueDate')"
                     @click.stop="openDueDatePopover(goal.id, goal.dueDate || '', $event)"
                   >
@@ -88,7 +87,20 @@
             <span>{{ t('goalManager.goalDocuments') }}</span>
             <span v-if="selectedGoal" class="goal-current">{{ selectedGoal.name || t('taskManager.untitledGoal') }}</span>
           </div>
-          <span class="goal-panel-note">{{ t('goalManager.currentTaskDocumentsOnly') }}</span>
+          <div class="goal-panel-header-actions">
+            <span class="goal-panel-note">{{ t('goalManager.currentTaskDocumentsOnly') }}</span>
+            <button
+              type="button"
+              class="goal-document-refresh ariaLabel"
+              :class="{ 'is-refreshing': documentsRefreshing }"
+             
+              :aria-label="t('taskScopeDialog.refreshDocuments')"
+              :disabled="documentsRefreshing"
+              @click.stop="emit('refresh-documents')"
+            >
+              <Icon name="refresh" width="14" height="14" class="refresh-icon" />
+            </button>
+          </div>
         </div>
 
         <div v-if="!selectedGoal" class="goal-empty">
@@ -154,13 +166,16 @@ import { useI18n } from '@/composables/useI18n';
 interface Props {
   goals: Goal[];
   documents: GoalScopeDocument[];
+  documentsRefreshing?: boolean;
 }
 
 const props = defineProps<Props>();
 const { t } = useI18n();
+const documentsRefreshing = computed(() => props.documentsRefreshing === true);
 
 const emit = defineEmits<{
   'update:goals': [goals: Goal[]];
+  'refresh-documents': [];
 }>();
 
 const localGoals = ref<Goal[]>([]);
@@ -177,7 +192,8 @@ const dueDatePopover = reactive({
 function cloneGoals(goals: Goal[]): Goal[] {
   return (goals || []).map(goal => ({
     ...goal,
-    members: Array.isArray(goal.members) ? goal.members.map(member => ({ ...member })) : []
+    members: Array.isArray(goal.members) ? goal.members.map(member => ({ ...member })) : [],
+    taskMembers: Array.isArray(goal.taskMembers) ? goal.taskMembers.map(member => ({ ...member })) : []
   }));
 }
 
@@ -318,6 +334,7 @@ function addGoal(): void {
     emoji: '🎯',
     name: t('goalManager.newGoal'),
     members: [],
+    taskMembers: [],
     order: localGoals.value.length,
     createdAt: nowIso,
     updatedAt: nowIso
@@ -446,6 +463,14 @@ watch(
   min-width: 0;
 }
 
+.goal-panel-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
 .goal-current {
   min-width: 0;
   max-width: 220px;
@@ -458,8 +483,56 @@ watch(
 }
 
 .goal-panel-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   color: var(--b3-theme-on-surface-light);
+}
+
+.goal-document-refresh {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.goal-document-refresh:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.goal-document-refresh:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.goal-document-refresh .refresh-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.goal-document-refresh.is-refreshing .refresh-icon {
+  animation: goal-document-refresh-spin 0.8s linear infinite;
+}
+
+@keyframes goal-document-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .goal-add-button {
@@ -746,6 +819,11 @@ watch(
   .goal-panel-header-main {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .goal-panel-header-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 }
 </style>

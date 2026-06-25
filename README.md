@@ -1,6 +1,6 @@
 ## Pinch 
 
-**Pinch ** is a habit tracking and task management plugin deeply integrated with SiYuan Note. Following the design philosophy of "ultimate lightweight", it enables you to complete habit tracking, task management, focus timing, mood recording, and a series of productivity operations without leaving SiYuan Note.
+**Pinch** is a habit tracking and task management plugin deeply integrated with SiYuan Note. Following the design philosophy of "ultimate lightweight", it enables you to complete habit tracking, task management, focus timing, mood recording, and a series of productivity operations without leaving SiYuan Note.
 
 ## Core Philosophy
 
@@ -68,6 +68,56 @@
       💌 Feedback
   </a>
 </div>
+
+## v2.3.1
+
+* [Fixed] Performance issues in certain cases
+* [Fixed] Occasional errors when switching views
+* [Fixed] Occasional bugs when editing and updating task descriptions
+* [Fixed] Incorrect task document retrieval in Goal Management
+* [Fixed] Incorrect dropdown popover positioning for in-view tabs
+* [Fixed] Incorrect document tags when selecting goals as the Gantt chart source
+* [Fixed] Incorrect Gantt chart range retrieval
+* [Fixed] Frozen header row displacement when scrolling the Gantt chart
+* [Fixed] Mini Tomato auto check-in not taking effect after countdown completion
+* [Fixed] Page reload caused by focus ending in certain cases
+* [Optimized] Redesigned interface UI
+* [Optimized] Redesigned prompt system with richer operation guidance
+* [Optimized] Updated Pinch color system
+* [Optimized] Redesigned sidebar popup mechanism
+* [Optimized] Redesigned mood statistics page
+* [Optimized] Gantt chart unscheduled task button now applies to all groups
+* [Optimized] Added virtual rendering to the Gantt chart
+* [Optimized] Added refresh buttons for document groups and Goal Management
+* [Optimized] Starting a countdown after setting a habit check-in Pomodoro no longer jumps to the focus panel
+* [Optimized] Habit focus countdown is mutually exclusive with the focus panel and focus capsule
+* [Optimized] Mini Tomato creation mechanism
+* [Optimized] Renamed Gantt chart button text to Goal
+* [Optimized] Adjusted calendar view switching by moving date range switching into the view
+* [Optimized] Calendar view all-day area no longer has a height limit
+* [Optimized] Unscheduled task expand/collapse mechanism in Goal View
+* [Optimized] Improved Goal View smoothness
+* [New] Tags expanded into a multi-tag system; grouping uses the primary tag as the category, while additional tags only participate in filtering
+* [New] Bulk editing supports multiple tags
+* [New] Support for backfilling focus duration from the calendar in the focus page
+* [New] Support for clearing focus duration from the log page
+* [New] Habit shortcut button for jumping to focus
+* [New] Habit notes can be filled in by focus time group
+* [New] Calendar view displays focus time records
+* [New] Focus time records in calendar view support right-click note editing
+* [New] Calendar view displays operation log records
+* [New] Calendar view log side timeline
+* [New] Mood records are now daily records, with support for multiple entries per day
+* [New] Custom cycle patterns can be created for habits
+* [New] Habit custom cycle patterns can be displayed in calendar view
+* [New] Habit block colors in calendar view are automatically assigned based on emoji
+* [New] Individual tasks can be assigned to goal groups, no longer limited to document level
+* [New] Task quick edit menu, triggered by typing @ in task blocks inside documents
+* [New] Dragging sidebar tasks into Goal View directly adds them to groups
+* [New] Task deadline badges changed to N days left / N days overdue
+* [New] Goal progress bars in Goal View can adjust goal deadlines
+* [New] Clicking view tab filters displays tasks from descendant documents within the view
+* [New] Clicking modules in Goal View and Calendar View opens the sidebar editor
 
 ## v2.3.0
 

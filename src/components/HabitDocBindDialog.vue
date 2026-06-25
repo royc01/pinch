@@ -5,8 +5,8 @@
         <div class="doc-bind-title">{{ t('habitDocBind.title') }}</div>
         <button
           type="button"
-          class="icon-button"
-          :title="t('common.close')"
+          class="icon-button ariaLabel"
+         
           :aria-label="t('common.close')"
           @click="emit('close')"
         >

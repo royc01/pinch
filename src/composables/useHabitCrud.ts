@@ -1,6 +1,7 @@
 ﻿import { type Ref, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
 import { createDefaultNewHabit, type NewHabitFormState } from '@/composables/useHabitFormState';
+import { resolveHabitEmojiColorIndex } from '@/utils/habitEmojiColor';
 
 interface UseHabitCrudOptions {
   habits: ShallowRef<Habit[]>;
@@ -17,6 +18,16 @@ interface UseHabitCrudOptions {
 }
 
 const createCalendarData = (): any[] => [];
+
+const hasCustomScheduleSelection = (habit: Pick<Habit, 'frequency' | 'customSchedule'>): boolean => {
+  if (habit.frequency !== 'custom') return true;
+  const schedule = habit.customSchedule;
+  return (
+    (schedule?.type === 'month' && !!schedule.monthDays?.length)
+    || (schedule?.type === 'year' && !!schedule.yearDays?.length)
+    || ((schedule?.type === 'week' || !schedule?.type) && !!schedule?.weekDays?.length)
+  );
+};
 
 export const useHabitCrud = ({
   habits,
@@ -44,13 +55,21 @@ export const useHabitCrud = ({
     }
 
     const timesPerDay = Math.min(inputTimesPerDay, 20);
+    const customSchedule = habitData.frequency === 'custom' ? habitData.customSchedule : undefined;
+
+    if (!hasCustomScheduleSelection({ frequency: habitData.frequency as Habit['frequency'], customSchedule })) {
+      alert(t('habitTracker.customScheduleRequired'));
+      return;
+    }
 
     const habit: Habit = {
       id: Date.now().toString(),
       name: habitData.name,
       emoji: habitData.emoji,
+      emojiColorIndex: resolveHabitEmojiColorIndex(habitData.emoji),
       difficulty: habitData.difficulty || 'medium',
       frequency: habitData.frequency as any,
+      customSchedule,
       completionMode: habitData.completionMode || 'fixed',
       timesPerDay,
       noteDocId: normalizeDocId(habitData.noteDocId || ''),
@@ -97,6 +116,21 @@ export const useHabitCrud = ({
   const saveEditedHabit = async (habit: Habit) => {
     if (!selectedHabit.value) {
       return;
+    }
+
+    if (!hasCustomScheduleSelection(habit)) {
+      alert(t('habitTracker.customScheduleRequired'));
+      return;
+    }
+
+    if (habit.frequency !== 'custom') {
+      habit.customSchedule = undefined;
+    }
+
+    const previousEmoji = typeof selectedHabit.value.emoji === 'string' ? selectedHabit.value.emoji.trim() : '';
+    const nextEmoji = typeof habit.emoji === 'string' ? habit.emoji.trim() : '';
+    if (previousEmoji !== nextEmoji || !habit.emojiColorIndex) {
+      habit.emojiColorIndex = resolveHabitEmojiColorIndex(nextEmoji);
     }
 
     Object.assign(selectedHabit.value, habit);

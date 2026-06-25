@@ -70,18 +70,29 @@ export interface TaskViewSwitchRequest {
   documentId?: string;
 }
 
+export interface TaskQuickMetaOpenRequest {
+  blockId?: string;
+  rootId?: string;
+  anchorX?: number;
+  anchorY?: number;
+  task?: unknown;
+  removeTrigger?: () => void;
+}
+
 export const Events = {
   TASK_CHANGED: 'task-changed',
   TASK_ADDED: 'task-added',
   TASK_DELETED: 'task-deleted',
   TASK_UPDATED: 'task-updated',
   HABITS_UPDATED: 'habits-updated',
+  MOOD_UPDATED: 'mood-updated',
   REWARDS_UPDATED: 'rewards-updated',
   GOALS_UPDATED: 'goals-updated',
   TASK_GROUPS_UPDATED: 'task-groups-updated',
   DOCUMENT_GROUPS_UPDATED: 'document-groups-updated',
   TASK_TOGGLED: 'task-toggled',
   TASK_EDITOR_OPEN_REQUEST: 'task-editor-open-request',
+  TASK_QUICK_META_OPEN_REQUEST: 'task-quick-meta-open-request',
   KANBAN_VIEW_SWITCH_REQUEST: 'kanban-view-switch-request',
   MOBILE_KANBAN_DIALOG_CLOSE_REQUEST: 'mobile-kanban-dialog-close-request',
   HABIT_TRACKER_PANEL_OPEN_REQUEST: 'habit-tracker-panel-open-request',

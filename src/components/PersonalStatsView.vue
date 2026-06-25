@@ -10,7 +10,7 @@
           }) }}
         </p>
 
-        <div class="range-switch" role="tablist" :aria-label="t('personalStats.rangeSwitchAria')">
+        <div class="range-switch ariaLabel" role="tablist" :aria-label="t('personalStats.rangeSwitchAria')">
           <button
             v-for="option in rangeOptions"
             :key="option.value"
@@ -174,7 +174,7 @@
                   <div class="task-trend-chart-body">
                     <div class="task-trend-chart-plot">
                       <svg
-                      class="task-trend-chart-svg"
+                      class="task-trend-chart-svg ariaLabel"
                       :viewBox="taskTrendDesktopViewBox"
                       preserveAspectRatio="none"
                       role="img"
@@ -233,10 +233,10 @@
                         <span
                           v-for="point in series.points"
                           :key="`${series.key}-${point.key}-dot`"
-                          class="task-trend-dot"
+                          class="task-trend-dot ariaLabel"
                           :class="series.key"
                           :style="getTaskTrendPointStyle(point)"
-                          :title="formatTemplate('personalStats.taskPointTitleTemplate', {
+                          :aria-label="formatTemplate('personalStats.taskPointTitleTemplate', {
                             label: point.label,
                             series: series.label,
                             count: point.count
@@ -250,8 +250,8 @@
                       <div
                         v-for="point in taskTrendDesktopAxisPoints"
                         :key="point.key"
-                        class="task-trend-chart-label"
-                        :title="formatTemplate('personalStats.taskAxisTitleTemplate', {
+                        class="task-trend-chart-label ariaLabel"
+                        :aria-label="formatTemplate('personalStats.taskAxisTitleTemplate', {
                           label: point.label,
                           created: point.created,
                           completed: point.completed
@@ -291,7 +291,7 @@
             </div>
 
             <div class="task-trend-mobile">
-              <div class="mobile-trend-switch" role="tablist" :aria-label="t('personalStats.taskTrendPaginationAria')">
+              <div class="mobile-trend-switch ariaLabel" role="tablist" :aria-label="t('personalStats.taskTrendPaginationAria')">
                 <button
                   v-for="series in taskTrendSections"
                   :key="`mobile-${series.key}`"
@@ -317,8 +317,8 @@
                     <div
                       v-for="point in activeTaskTrendSection.points"
                       :key="`mobile-${activeTaskTrendSection.key}-${point.key}`"
-                      class="trend-row-bar"
-                      :title="formatTemplate('personalStats.taskPointTitleTemplate', {
+                      class="trend-row-bar ariaLabel"
+                      :aria-label="formatTemplate('personalStats.taskPointTitleTemplate', {
                         label: point.label,
                         series: activeTaskTrendSection.label,
                         count: point.count
@@ -539,8 +539,8 @@
                 <div
                   v-for="point in habitTrend"
                   :key="point.key"
-                  class="trend-bar-item"
-                  :title="formatTemplate('personalStats.habitTrendPointTitleTemplate', {
+                  class="trend-bar-item ariaLabel"
+                  :aria-label="formatTemplate('personalStats.habitTrendPointTitleTemplate', {
                     label: point.label,
                     count: point.count
                   })"
@@ -637,8 +637,8 @@
                 <div
                   v-for="point in focusTrend"
                   :key="point.key"
-                  class="trend-bar-item"
-                  :title="formatTemplate('personalStats.focusTrendPointTitleTemplate', {
+                  class="trend-bar-item ariaLabel"
+                  :aria-label="formatTemplate('personalStats.focusTrendPointTitleTemplate', {
                     label: point.label,
                     count: point.count
                   })"
@@ -805,7 +805,7 @@
                   @click="handleOpenDetail({ target: 'reward', rewardEntryId: entry.id })"
                 >
                   <div>
-                    <div class="event-title">{{ entry.title }}</div>
+                    <div class="event-title">{{ getRewardEntryTitle(entry) }}</div>
                     <div class="event-meta">{{ getRewardSourceText(entry.source) }}</div>
                   </div>
                   <span class="event-points">{{ getRewardEventPointsLabel(entry.xp) }}</span>
@@ -887,7 +887,7 @@
               </div>
               <div class="goal-item-foot">
                 <span>{{ getGoalTasksLabel(goal.completedTasks, goal.totalTasks) }}</span>
-                <span>{{ getGoalDocumentsLabel(goal.documentCount) }}</span>
+                <span>{{ getGoalScopeLabel(goal.documentCount, goal.taskMemberCount) }}</span>
               </div>
             </button>
           </div>
@@ -907,15 +907,24 @@ import {
   type DailyFocusRecord,
   type FocusSessionRecord,
   type Habit,
-  type Task
+  type Task,
+  type TaskGroup
 } from '@/api';
 import type { GoalListItem } from '@/composables/useGoals';
 import { getWeekStart, getWeeklyTarget } from '@/composables/useHabitUtils';
-import { createEmptyRewardSnapshot, getRewardSnapshot, type RewardSnapshot, type RewardSource } from '@/rewardRepository';
+import {
+  createEmptyRewardSnapshot,
+  getLocalizedRewardEntryTitle,
+  getRewardSnapshot,
+  type RewardLedgerEntry,
+  type RewardSnapshot,
+  type RewardSource
+} from '@/rewardRepository';
 import { useI18n } from '@/composables/useI18n';
 import { eventBus, Events } from '@/utils/eventBus';
 import { openTaskViewByRequest } from '@/main';
 import { buildGoalDocumentSource } from '@/utils/documentGroupSource';
+import { resolveTaskTagIds } from '@/utils/taskTags';
 
 type StatsRangeKey = 'today' | '7d' | '30d' | 'month';
 type StatsPanelKey = 'tasks' | 'habits' | 'focus' | 'rewards' | 'goals';
@@ -1149,12 +1158,29 @@ const getGoalDocumentsLabel = (count: number): string => (
   formatTemplate('personalStats.goalDocumentsTemplate', { count })
 );
 
+const getGoalDirectTasksLabel = (count: number): string => (
+  formatTemplate('personalStats.goalDirectTasksTemplate', { count })
+);
+
+const getGoalScopeLabel = (documentCount: number, taskMemberCount: number): string => {
+  const parts: string[] = [];
+  if (documentCount > 0) {
+    parts.push(getGoalDocumentsLabel(documentCount));
+  }
+  if (taskMemberCount > 0) {
+    parts.push(getGoalDirectTasksLabel(taskMemberCount));
+  }
+  return parts.length > 0 ? parts.join(', ') : getGoalDocumentsLabel(0);
+};
+
 const props = withDefaults(defineProps<{
   tasks: Task[];
+  taskGroups?: TaskGroup[];
   goalItems: GoalListItem[];
   sourceLabel?: string;
   documentLabel?: string;
 }>(), {
+  taskGroups: () => [],
   sourceLabel: '',
   documentLabel: ''
 });
@@ -1512,13 +1538,18 @@ const longestStuckTasks = computed<StuckTaskEntry[]>(() =>
     .slice(0, 5)
 );
 
+const taskGroupNameMap = computed(() => new Map((props.taskGroups || []).map(group => [group.id, group.name || ''])));
+
 const tagCompletionRates = computed<CompletionRateItem[]>(() =>
   buildCompletionRateItems(scopedTasks.value, (task) => {
-    const tags = Array.isArray(task.tags) ? task.tags.filter(tag => tag.trim().length > 0) : [];
+    const tags = resolveTaskTagIds(task.tags, task.groupId);
     if (tags.length === 0) {
       return [{ key: '__untagged__', label: t('personalStats.untagged') }];
     }
-    return tags.map(tag => ({ key: tag.trim(), label: tag.trim() }));
+    return tags.map(tagId => ({
+      key: tagId,
+      label: taskGroupNameMap.value.get(tagId) || tagId
+    }));
   })
     .sort((left, right) => {
       if (right.total !== left.total) {
@@ -2428,6 +2459,10 @@ function getRewardSourceText(source: RewardSource): string {
   return t('personalStats.rewardSourceSystem');
 }
 
+function getRewardEntryTitle(entry: RewardLedgerEntry): string {
+  return getLocalizedRewardEntryTitle(entry);
+}
+
 function buildTaskPeriodComparisonCard(label: string, current: number, previous: number): TaskPeriodComparisonCard {
   const delta = current - previous;
   const magnitude = Math.abs(delta);
@@ -3288,7 +3323,7 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
   border-radius: 999px;
   font-size: 12px;
   color: var(--b3-theme-on-background);
-  background: color-mix(in srgb, var(--pinch-background3) 46%, white 54%);
+  background: color-mix(in srgb, var(--pinch-background3-color) 46%, white 54%);
 }
 
 .list-block-head {
@@ -3432,7 +3467,7 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
   border-radius: 999px;
   cursor: pointer;
   font-size: 12px;
-  background: color-mix(in srgb, var(--pinch-background1) 48%, white 52%);
+  background: color-mix(in srgb, var(--pinch-background1-color) 48%, white 52%);
   color: var(--b3-theme-on-background);
 }
 
@@ -3442,19 +3477,19 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
 }
 
 .status-pill.pending {
-  background: color-mix(in srgb, var(--pinch-background3) 58%, white 42%);
+  background: color-mix(in srgb, var(--pinch-background3-color) 58%, white 42%);
 }
 
 .status-pill.progress {
-  background: color-mix(in srgb, var(--pinch-background7) 56%, white 44%);
+  background: color-mix(in srgb, var(--pinch-background7-color) 56%, white 44%);
 }
 
 .status-pill.delayed {
-  background: color-mix(in srgb, var(--pinch-background10) 52%, white 48%);
+  background: color-mix(in srgb, var(--pinch-background10-color) 52%, white 48%);
 }
 
 .status-pill.completed {
-  background: color-mix(in srgb, var(--pinch-background5) 52%, white 48%);
+  background: color-mix(in srgb, var(--pinch-background5-color) 52%, white 48%);
 }
 
 .status-pill.cancelled {
@@ -3835,7 +3870,7 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
   height: 12px;
   overflow: hidden;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--pinch-background1) 56%, white 44%);
+  background: color-mix(in srgb, var(--pinch-background1-color) 56%, white 44%);
 }
 
 .progress-fill.reward {

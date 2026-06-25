@@ -4,6 +4,7 @@
       v-show="show"
       class="modal-overlay"
       :class="{ 'is-centered': isCenteredPresentation }"
+      :style="overlayStyle"
       @click.self="emit('close')"
     >
       <Transition :name="contentTransitionName">
@@ -15,7 +16,7 @@
         >
           <div class="modal-header">
             <h3>{{ tt('taskManager.newTask') }}</h3>
-            <button @click="emit('close')" class="icon-button" :title="tt('common.close')" :aria-label="tt('common.close')">
+            <button @click="emit('close')" class="icon-button ariaLabel" :aria-label="tt('common.close')">
               <Icon name="close" width="16" height="16" class="icon" />
             </button>
           </div>
@@ -51,7 +52,7 @@
                   :key="option.value"
                   type="button"
                   class="task-modal-group-chip"
-                  :class="{ active: taskModalSelectedGroupId === option.value, special: option.special }"
+                  :class="{ active: isTaskModalGroupSelected(option.value), primary: isTaskModalPrimaryGroup(option.value), special: option.special }"
                   :style="{
                     '--group-chip-bg': option.colorCss || 'var(--b3-list-hover)',
                     '--group-chip-color': option.textColor || 'var(--b3-theme-on-surface)'
@@ -59,7 +60,26 @@
                   @click="selectTaskModalGroup(option.value)"
                 >
                   <span class="task-modal-group-chip-label">{{ option.label }}</span>
+                  <span v-if="isTaskModalPrimaryGroup(option.value)" class="task-modal-group-chip-primary">
+                    {{ tt('taskManager.primaryTagShort') }}
+                  </span>
                 </button>
+              </div>
+              <div v-if="taskModalGoalOptions.length > 0" class="task-modal-goal-section">
+                <div class="task-modal-goal-title">{{ tt('taskScopeDialog.goals') }}</div>
+                <div class="task-modal-group-chip-list">
+                  <button
+                    v-for="option in taskModalGoalOptions"
+                    :key="option.value"
+                    type="button"
+                    class="task-modal-group-chip task-modal-goal-chip"
+                    :class="{ active: isTaskModalGoalSelected(option.value) }"
+                    @click="selectTaskModalGoal(option.value)"
+                  >
+                    <span v-if="option.emoji" class="task-modal-goal-chip-emoji">{{ option.emoji }}</span>
+                    <span class="task-modal-group-chip-label">{{ option.label }}</span>
+                  </button>
+                </div>
               </div>
             </div>
             <div v-if="showTaskModalDescriptionPanel" class="task-modal-quick-panel">
@@ -76,20 +96,20 @@
             <div class="task-modal-action-bar">
               <button
                 type="button"
-                class="task-modal-action-btn task-modal-group-btn"
+                class="task-modal-action-btn task-modal-group-btn ariaLabel"
                 :class="{ 'is-active': taskModalQuickPanel === 'group' }"
                 :style="taskModalGroupButtonStyle"
-                :title="tt('taskManager.tags')"
+               
                 :aria-label="tt('taskManager.tags')"
                 @click.stop="toggleTaskModalQuickPanel('group')"
               >
                 <Icon name="group" width="14" height="14" />
-                <span v-if="taskModalSelectedGroupId !== TASK_GROUP_NONE_ID" class="task-modal-group-button-label">{{ taskModalGroupLabel }}</span>
+                <span v-if="taskModalHasGroupButtonLabel" class="task-modal-group-button-label">{{ taskModalGroupLabel }}</span>
               </button>
                 <button
                   type="button"
-                  class="task-modal-action-btn task-modal-priority-btn"
-                  :title="tt('taskManager.priority')"
+                  class="task-modal-action-btn task-modal-priority-btn ariaLabel"
+                 
                   :aria-label="tt('taskManager.priority')"
                   @click.stop="toggleTaskModalPriorityPopover($event)"
                 >
@@ -102,10 +122,10 @@
                 </button>
                 <button
                   type="button"
-                  class="task-modal-action-btn"
+                  class="task-modal-action-btn ariaLabel"
                   :class="{ 'is-active': taskModalQuickPanel === 'due' }"
                   ref="taskModalDueButtonRef"
-                  :title="tt('taskManager.dueDate')"
+                 
                   :aria-label="tt('taskManager.dueDate')"
                   @click.stop="toggleTaskModalQuickPanel('due')"
                 >
@@ -114,10 +134,10 @@
               </button>
               <button
                 type="button"
-                class="task-modal-action-btn"
+                class="task-modal-action-btn ariaLabel"
                 :class="{ 'is-active': taskModalQuickPanel === 'reminder' }"
                 ref="taskModalReminderButtonRef"
-                :title="tt('taskManager.reminder')"
+               
                 :aria-label="tt('taskManager.reminder')"
                 @click.stop="toggleTaskModalQuickPanel('reminder')"
               >
@@ -126,9 +146,9 @@
               </button>
               <button
                 type="button"
-                class="task-modal-action-btn"
+                class="task-modal-action-btn ariaLabel"
                 :class="{ 'is-active': taskModalQuickPanel === 'description' }"
-                :title="tt('taskManager.description')"
+               
                 :aria-label="tt('taskManager.description')"
                 @click.stop="toggleTaskModalQuickPanel('description')"
               >
@@ -182,13 +202,15 @@ import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
 import { useI18n } from '@/composables/useI18n';
 import type { TaskPriority, TaskStatus, TaskGroup } from '@/api';
 import { formatMonthDay } from '@/utils/dateHelpers';
-import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
+import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
+import { buildTaskTagState, toggleTaskTagSelection } from '@/utils/taskTags';
 import {
   getTaskReminderLabel,
   type TaskReminderSelection,
   type TaskReminderType
 } from '@/utils/taskReminder';
 import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, isPinchInboxValue } from '@/utils/pinchInbox';
+import type { Goal } from '@/goalRepository';
 
 export interface Notebook {
   id: string;
@@ -214,6 +236,7 @@ interface NewTask {
   reminderCustomTime?: string;
   tags: string[];
   groupId: string;
+  goalIds: string[];
 }
 
 interface Props {
@@ -224,8 +247,10 @@ interface Props {
   lastSelectedNotebook?: string;
   lastSelectedDocument?: string;
   groups?: TaskGroup[];
+  goals?: Goal[];
   defaultGroupId?: string;
   presentation?: 'sheet' | 'center';
+  overlayStyle?: Record<string, string>;
 }
 
 const props = defineProps<Props>();
@@ -245,7 +270,8 @@ const defaultTask: NewTask = {
   reminderType: undefined,
   reminderCustomTime: '',
   tags: [],
-  groupId: ''
+  groupId: '',
+  goalIds: []
 };
 
 const localTask = ref<NewTask>({ ...defaultTask });
@@ -299,22 +325,36 @@ const showTaskModalDescriptionPanel = computed(() => {
   return taskModalQuickPanel.value === 'description' || taskModalHasDescription.value;
 });
 
+const taskModalSelectedTagIds = computed(() => (
+  buildTaskTagState(localTask.value.tags, localTask.value.groupId).tagIds
+));
+
 const taskModalSelectedGroupId = computed(() => {
-  const groupId = (localTask.value.groupId || '').trim();
-  return groupId || TASK_GROUP_NONE_ID;
+  return taskModalSelectedTagIds.value[0] || TASK_GROUP_NONE_ID;
 });
 
 const taskModalGroupLabel = computed(() => {
-  const groupId = (localTask.value.groupId || '').trim();
-  if (!groupId) {
+  const tagIds = taskModalSelectedTagIds.value;
+  if (tagIds.length === 0) {
+    const goalLabels = taskModalSelectedGoalLabels.value;
+    if (goalLabels.length > 0) {
+      return goalLabels.length > 1 ? `${goalLabels[0]} +${goalLabels.length - 1}` : goalLabels[0];
+    }
     return tt('taskManager.noTag');
   }
-  const group = (props.groups || []).find(item => item.id === groupId);
-  return group?.name || tt('taskManager.tags');
+  const primaryTagId = tagIds[0] || '';
+  const group = (props.groups || []).find(item => item.id === primaryTagId);
+  const primaryLabel = group?.name || tt('taskManager.tags');
+  const extraCount = Math.max(0, tagIds.length - 1) + taskModalSelectedGoalLabels.value.length;
+  return extraCount > 0 ? `${primaryLabel} +${extraCount}` : primaryLabel;
 });
 
+const taskModalHasGroupButtonLabel = computed(() => (
+  taskModalSelectedGroupId.value !== TASK_GROUP_NONE_ID || localTask.value.goalIds.length > 0
+));
+
 const taskModalGroupColorValue = computed(() => {
-  const groupId = (localTask.value.groupId || '').trim();
+  const groupId = taskModalSelectedTagIds.value[0] || '';
   if (!groupId) {
     return '';
   }
@@ -327,8 +367,8 @@ const taskModalGroupButtonStyle = computed(() => {
     return {};
   }
   return {
-    backgroundColor: resolveGroupColorCss(rawColor),
-    borderColor: resolveGroupColorCss(rawColor),
+    background: resolveGroupColorCss(rawColor),
+    borderColor: resolveGroupColorLayerCss(rawColor),
     color: resolveGroupTextColor(rawColor)
   };
 });
@@ -353,6 +393,20 @@ const taskModalGroupOptions = computed(() => {
   });
   return options;
 });
+
+const taskModalGoalOptions = computed(() => (
+  (props.goals || []).map(goal => ({
+    value: goal.id,
+    label: goal.name || tt('taskManager.untitledGoal'),
+    emoji: goal.emoji || ''
+  }))
+));
+
+const taskModalSelectedGoalLabels = computed(() => (
+  taskModalGoalOptions.value
+    .filter(option => localTask.value.goalIds.includes(option.value))
+    .map(option => `${option.emoji ? `${option.emoji} ` : ''}${option.label}`)
+));
 
 const isCenteredPresentation = computed(() => props.presentation === 'center');
 const contentTransitionName = computed(() => isCenteredPresentation.value ? 'pop' : 'slide');
@@ -387,16 +441,52 @@ const documentOptions = computed(() => {
   return [...specialOptions, { value: PINCH_INBOX_OPTION_ID, text: tt('taskManager.pinchInbox') }, ...docOptions];
 });
 
-function tt(key: string): string {
+function tt(key: string, fallback?: string): string {
   const translated = props.t?.(key);
   if (!translated || translated === key) {
-    return translate(key);
+    return translate(key, fallback);
   }
   return translated;
 }
 
+function isTaskModalGroupSelected(value: string): boolean {
+  if (value === TASK_GROUP_NONE_ID) {
+    return taskModalSelectedTagIds.value.length === 0;
+  }
+  return taskModalSelectedTagIds.value.includes(value);
+}
+
+function isTaskModalPrimaryGroup(value: string): boolean {
+  return value !== TASK_GROUP_NONE_ID && taskModalSelectedTagIds.value[0] === value;
+}
+
 function selectTaskModalGroup(value: string): void {
-  localTask.value.groupId = value === TASK_GROUP_NONE_ID ? '' : value;
+  if (value === TASK_GROUP_NONE_ID) {
+    localTask.value.tags = [];
+    localTask.value.groupId = '';
+    return;
+  }
+  const nextTagIds = toggleTaskTagSelection(taskModalSelectedTagIds.value, value);
+  localTask.value.tags = nextTagIds;
+  localTask.value.groupId = nextTagIds[0] || '';
+}
+
+function isTaskModalGoalSelected(value: string): boolean {
+  return localTask.value.goalIds.includes(value);
+}
+
+function selectTaskModalGoal(value: string): void {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    return;
+  }
+  const current = new Set(localTask.value.goalIds);
+  if (current.has(normalized)) {
+    current.delete(normalized);
+  } else {
+    current.add(normalized);
+  }
+  localTask.value.goalIds = Array.from(current);
 }
 
 function handleNotebookChange() {
@@ -485,6 +575,7 @@ watch(() => props.show, (show) => {
   if (show) {
     localTask.value = { ...defaultTask };
     localTask.value.groupId = resolveDefaultGroupId();
+    localTask.value.tags = localTask.value.groupId ? [localTask.value.groupId] : [];
     taskModalQuickPanel.value = null;
     taskModalPriorityPopover.value = null;
 
@@ -519,20 +610,25 @@ onBeforeUnmount(() => {
 const handleSubmit = () => {
   const trimmedTitle = localTask.value.title.trim();
   if (trimmedTitle && selectedNotebook.value) {
-    const groupId = (localTask.value.groupId || '').trim();
-    emit('submit', { ...localTask.value, title: trimmedTitle, groupId }, selectedNotebook.value, selectedDocument.value);
+    const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
+    emit('submit', {
+      ...localTask.value,
+      title: trimmedTitle,
+      tags: tagState.tagIds,
+      groupId: tagState.primaryTagId,
+      goalIds: [...localTask.value.goalIds]
+    }, selectedNotebook.value, selectedDocument.value);
   }
 };
 </script>
 
 <style scoped>
 .modal-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  height: 100%;
+  position: fixed;
+  left: var(--modal-overlay-left, 0px);
+  top: var(--modal-overlay-top, 0px);
+  width: var(--modal-overlay-width, 100vw);
+  height: var(--modal-overlay-height, 100dvh);
   background-color: rgba(0, 0, 0, 0.5);
   display: flex;
   justify-content: center;
@@ -564,10 +660,6 @@ const handleSubmit = () => {
 
 @media (max-width: 768px) {
   .modal-overlay.is-centered {
-    position: fixed;
-    inset: 0;
-    width: auto;
-    height: auto;
     padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
     z-index: 80;
   }
@@ -816,6 +908,20 @@ const handleSubmit = () => {
   color: var(--b3-theme-on-background);
 }
 
+.task-modal-goal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.task-modal-goal-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--b3-theme-on-surface);
+}
+
 .task-modal-group-manage {
   border: none;
   background: none;
@@ -853,6 +959,29 @@ const handleSubmit = () => {
   background: #f98f7a;
   color: var(--b3-theme-background);
   box-shadow: none;
+}
+
+.task-modal-goal-chip {
+  background: var(--b3-theme-background);
+}
+
+.task-modal-goal-chip-emoji {
+  line-height: 1;
+}
+
+.task-modal-group-chip-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+  color: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .task-modal-group-chip:hover {

@@ -1,4 +1,4 @@
-import { ref, Ref } from 'vue';
+import { ref } from 'vue';
 
 export function useHabitCache() {
   const dateCache = ref(new Map<number, string>());

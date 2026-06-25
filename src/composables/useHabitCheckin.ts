@@ -2,6 +2,7 @@ import { nextTick, type Ref, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
 import { awardHabitRewards, type HabitRewardPayload } from '@/rewardRepository';
 import { translate } from '@/composables/useI18n';
+import { isHabitScheduledOnDate } from '@/composables/useHabitUtils';
 
 interface UseHabitCheckinOptions {
   habits: ShallowRef<Habit[]>;
@@ -18,6 +19,7 @@ interface UseHabitCheckinOptions {
   debouncedSaveHabits: (habitsToSave: Habit[]) => Promise<void>;
   immediateSaveHabits: (habitsToSave: Habit[]) => Promise<void>;
   triggerHabitsRef: () => void;
+  notifyHabitsChanged?: (habits: Habit[]) => void;
   animationOriginalStatus: Ref<Record<string, boolean>>;
   showAnimation: Ref<boolean>;
   animationHabitId: Ref<string | null>;
@@ -27,7 +29,7 @@ interface UseHabitCheckinOptions {
 
 interface HabitPomodoroControls {
   activePomodoroHabit: Ref<Habit | null>;
-  startPomodoroTimer: (habit: Habit) => void;
+  startPomodoroTimer: (habit: Habit) => boolean;
   clearPomodoroForHabit: (habit: Habit, options?: { clearActive?: boolean }) => void;
   startFocusTimerForHabit?: (habit: Habit) => void;
 }
@@ -47,6 +49,7 @@ export const useHabitCheckin = ({
   debouncedSaveHabits,
   immediateSaveHabits,
   triggerHabitsRef,
+  notifyHabitsChanged,
   animationOriginalStatus,
   showAnimation,
   animationHabitId,
@@ -61,6 +64,9 @@ export const useHabitCheckin = ({
     options: { source?: 'manual' | 'calendar' | 'pomodoro' } = {}
   ): HabitRewardPayload | null => {
     let dayRecord = habit.calendar.find(day => day.date === date);
+    if (!dayRecord && !isHabitScheduledOnDate(habit, parseDate(date))) {
+      return null;
+    }
     const previousCompletedCount = dayRecord?.completedCount || 0;
     const previousDayCompleted = dayRecord?.completed === true;
     const previousStreak = habit.currentStreak || 0;
@@ -92,6 +98,7 @@ export const useHabitCheckin = ({
         dayRecord.completedCount = 0;
         dayRecord.completed = false;
         delete dayRecord.timestamp;
+        delete dayRecord.checkinTimestamps;
 
         if (dayRecord.completedCount === 0) {
           habit.calendar = habit.calendar.filter(day => day.date !== date);
@@ -101,12 +108,20 @@ export const useHabitCheckin = ({
       }
     } else {
       if (isAtLeastCompletionMode(habit) || dayRecord.completedCount < targetCount) {
+        const previousTimestamps = Array.isArray(dayRecord.checkinTimestamps)
+          ? dayRecord.checkinTimestamps
+          : ((dayRecord.completedCount || 0) > 0 && dayRecord.timestamp ? [dayRecord.timestamp] : []);
         dayRecord.completedCount = (dayRecord.completedCount || 0) + 1;
+        const now = Date.now();
+        dayRecord.checkinTimestamps = [...previousTimestamps, now];
+        if (!dayRecord.timestamp) {
+          dayRecord.timestamp = now;
+        }
       }
       dayRecord.completed = dayRecord.completedCount >= targetCount;
 
-      if (dayRecord.completed && !dayRecord.timestamp) {
-        dayRecord.timestamp = Date.now();
+      if ((dayRecord.completedCount || 0) > 0 && !dayRecord.timestamp) {
+        dayRecord.timestamp = dayRecord.checkinTimestamps?.[0] || Date.now();
       }
     }
 
@@ -125,6 +140,7 @@ export const useHabitCheckin = ({
       : false;
     clearCompletionRateCacheForHabit(habit.id);
     triggerHabitsRef();
+    notifyHabitsChanged?.(habits.value);
 
     const nextCompletedCount = dayRecord.completedCount || 0;
     const becameCompleted = !previousDayCompleted && dayRecord.completed;
@@ -191,15 +207,21 @@ export const useHabitCheckin = ({
         return;
       }
 
+      const today = getToday();
+      if (!isHabitScheduledOnDate(habit, parseDate(today))) {
+        return;
+      }
+
       if (habit.usePomodoro) {
         if (habit.completedToday && !isAtLeastCompletionMode(habit)) {
           if (confirm(confirmUncheckMessage)) {
-            const today = getToday();
             const todayRecord = habit.calendar.find(day => day.date === today);
 
             if (todayRecord) {
               todayRecord.completed = false;
               todayRecord.completedCount = 0;
+              delete todayRecord.timestamp;
+              delete todayRecord.checkinTimestamps;
             }
 
             habit.completedToday = false;
@@ -235,8 +257,9 @@ export const useHabitCheckin = ({
           clearPomodoroForHabit(activePomodoroHabit.value, { clearActive: true });
         }
 
-        activePomodoroHabit.value = habit;
-        startPomodoroTimer(habit);
+        if (startPomodoroTimer(habit)) {
+          activePomodoroHabit.value = habit;
+        }
         return;
       }
 
@@ -279,6 +302,7 @@ export const useHabitCheckin = ({
               habit.completedToday = false;
             }
             delete lastCompletedDay.timestamp;
+            delete lastCompletedDay.checkinTimestamps;
             delete animationOriginalStatus.value[habit.id];
             triggerHabitsRef();
           }
@@ -296,7 +320,6 @@ export const useHabitCheckin = ({
         return;
       }
 
-      const today = getToday();
       const rewardPayload = toggleHabitCompletion(habit, today, { source: 'manual' });
 
       const completedToday = habit.completedToday;

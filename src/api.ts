@@ -47,6 +47,17 @@ import {
   type InferredTaskDateRange,
   type TaskDateKeywordConfig
 } from "@/utils/taskDateParser";
+import {
+  buildTaskTagAttrs,
+  buildTaskTagState,
+  normalizeTaskTagIds
+} from "@/utils/taskTags";
+import {
+  getKernelTaskIndex,
+  getKernelTaskRowsByBlockIds,
+  getKernelTaskRowsByDateRange,
+  getKernelTaskStats
+} from "@/kernelRpc";
 
 async function request(url: string, data: any) {
   let response: IWebSocketData = await fetchSyncPost(url, data);
@@ -81,8 +92,9 @@ async function closeOpenMobileKanbanDialogIfNeeded(): Promise<void> {
     return;
   }
 
-  const closeButton = dialog.querySelector(
-    ".pinch-mobile-kanban-dialog-close-button, .b3-dialog__close"
+  const closeButton = (
+    dialog.querySelector(".pinch-mobile-kanban-dialog-close-button")
+    || dialog.querySelector(".b3-dialog__close")
   ) as HTMLButtonElement | null;
 
   if (!closeButton) {
@@ -658,8 +670,10 @@ export interface Habit {
   id: string;
   name: string;
   emoji?: string;
+  emojiColorIndex?: number;
   difficulty: HabitDifficulty;
   frequency: 'daily' | 'weekly' | 'custom' | 'weekly1' | 'weekly2' | 'weekly3' | 'weekly4' | 'weekly5' | 'weekly6';
+  customSchedule?: HabitCustomSchedule;
   completionMode?: HabitCompletionMode;
   timesPerDay?: number;
   noteDocId?: string;
@@ -682,6 +696,16 @@ export interface Habit {
 
 export type HabitDifficulty = 'easy' | 'medium' | 'hard';
 export type HabitCompletionMode = 'fixed' | 'atLeast';
+export type HabitCustomScheduleType = 'week' | 'month' | 'year';
+export type HabitCustomScheduleCalendar = 'solar' | 'lunar';
+
+export interface HabitCustomSchedule {
+  type: HabitCustomScheduleType;
+  calendar?: HabitCustomScheduleCalendar;
+  weekDays?: number[];
+  monthDays?: number[];
+  yearDays?: string[];
+}
 
 export interface HabitCalendarDay {
   date: string;
@@ -689,6 +713,7 @@ export interface HabitCalendarDay {
   targetCount?: number;
   completedCount?: number;
   timestamp?: number;
+  checkinTimestamps?: number[];
   note?: string;
 }
 
@@ -722,6 +747,48 @@ function normalizeHabitCompletionMode(completionMode: unknown): HabitCompletionM
   return completionMode === 'atLeast' ? 'atLeast' : 'fixed';
 }
 
+function normalizeHabitEmojiColorIndex(value: unknown): number | undefined {
+  const index = Math.round(Number(value));
+  return Number.isFinite(index) && index >= 1 && index <= 10 ? index : undefined;
+}
+
+function normalizeHabitCustomScheduleCalendar(calendar: unknown): HabitCustomScheduleCalendar {
+  return calendar === 'lunar' ? 'lunar' : 'solar';
+}
+
+function normalizeNumberList(value: unknown, min: number, max: number): number[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(
+    value
+      .map(item => Math.round(Number(item)))
+      .filter(item => Number.isFinite(item) && item >= min && item <= max)
+  )).sort((a, b) => a - b);
+}
+
+function normalizeYearDayList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(
+    value
+      .map(item => (typeof item === 'string' ? item.trim() : ''))
+      .filter(item => /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(item))
+  )).sort();
+}
+
+function normalizeHabitCustomSchedule(schedule: unknown): HabitCustomSchedule | undefined {
+  if (!schedule || typeof schedule !== 'object') return undefined;
+  const raw = schedule as Partial<HabitCustomSchedule>;
+  const type: HabitCustomScheduleType =
+    raw.type === 'month' || raw.type === 'year' || raw.type === 'week' ? raw.type : 'week';
+
+  return {
+    type,
+    calendar: normalizeHabitCustomScheduleCalendar(raw.calendar),
+    weekDays: normalizeNumberList(raw.weekDays, 0, 6),
+    monthDays: normalizeNumberList(raw.monthDays, 1, 31),
+    yearDays: normalizeYearDayList(raw.yearDays)
+  };
+}
+
 function normalizeHabitCalendar(calendar: unknown): HabitCalendarDay[] {
   if (!Array.isArray(calendar)) return [];
 
@@ -745,6 +812,23 @@ function normalizeHabitCalendar(calendar: unknown): HabitCalendarDay[] {
     }
     if (typeof day.timestamp === 'number' && Number.isFinite(day.timestamp)) {
       normalizedDay.timestamp = day.timestamp;
+    }
+    if (Array.isArray(day.checkinTimestamps)) {
+      const checkinTimestamps = day.checkinTimestamps
+        .map(timestamp => Number(timestamp))
+        .filter(timestamp => Number.isFinite(timestamp) && timestamp > 0);
+      if (checkinTimestamps.length > 0) {
+        const completedCount = Math.max(0, Math.round(Number(normalizedDay.completedCount) || 0));
+        normalizedDay.checkinTimestamps = completedCount > 0
+          ? checkinTimestamps.slice(0, completedCount)
+          : checkinTimestamps;
+        if (!normalizedDay.timestamp) {
+          normalizedDay.timestamp = normalizedDay.checkinTimestamps[0];
+        }
+      }
+    }
+    if (typeof day.note === 'string' && day.note.trim().length > 0) {
+      normalizedDay.note = day.note.trim();
     }
 
     normalized.push(normalizedDay);
@@ -786,8 +870,11 @@ export async function getHabits(): Promise<Habit[]> {
         ...(habit as Habit),
         id: typeof habit.id === 'string' ? habit.id : `habit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         name: typeof habit.name === 'string' ? habit.name : '',
+        emoji: typeof habit.emoji === 'string' ? habit.emoji : undefined,
+        emojiColorIndex: normalizeHabitEmojiColorIndex(habit.emojiColorIndex),
         difficulty: normalizeHabitDifficulty(habit.difficulty),
         frequency: normalizeHabitFrequency(habit.frequency),
+        customSchedule: normalizeHabitCustomSchedule(habit.customSchedule),
         completionMode: normalizeHabitCompletionMode(habit.completionMode),
         calendar,
         completedToday,
@@ -834,8 +921,11 @@ export async function saveHabits(habits: Habit[]): Promise<void> {
           ...(habit as Habit),
           id: typeof habit.id === 'string' ? habit.id : `habit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           name: typeof habit.name === 'string' ? habit.name : '',
+          emoji: typeof habit.emoji === 'string' ? habit.emoji : undefined,
+          emojiColorIndex: normalizeHabitEmojiColorIndex(habit.emojiColorIndex),
           difficulty: normalizeHabitDifficulty(habit.difficulty),
           frequency: normalizeHabitFrequency(habit.frequency),
+          customSchedule: normalizeHabitCustomSchedule(habit.customSchedule),
           completionMode: normalizeHabitCompletionMode(habit.completionMode),
           calendar,
           completedToday,
@@ -863,13 +953,72 @@ export interface MoodEntry {
   emoji: string;
   note: string;
   timestamp: string;
+  entries?: MoodManualEntry[];
 }
 
 export interface MoodData {
   [date: string]: MoodEntry;
 }
 
+export interface MoodManualEntry {
+  id: string;
+  text: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // 获取情绪数据
+function normalizeMoodManualEntry(raw: unknown): MoodManualEntry | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const entry = raw as Partial<MoodManualEntry>;
+  const text = typeof entry.text === 'string' ? entry.text.trim() : '';
+  if (!text) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  return {
+    id: typeof entry.id === 'string' && entry.id.trim()
+      ? entry.id.trim()
+      : `mood-entry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    text,
+    createdAt: typeof entry.createdAt === 'string' && entry.createdAt.trim() ? entry.createdAt.trim() : now,
+    updatedAt: typeof entry.updatedAt === 'string' && entry.updatedAt.trim() ? entry.updatedAt.trim() : now
+  };
+}
+
+function normalizeMoodEntry(raw: unknown): MoodEntry | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const entry = raw as Partial<MoodEntry>;
+  const emoji = typeof entry.emoji === 'string' ? entry.emoji.trim() : '';
+  const note = typeof entry.note === 'string' ? entry.note.trim() : '';
+  const timestamp = typeof entry.timestamp === 'string' && entry.timestamp.trim()
+    ? entry.timestamp.trim()
+    : new Date().toISOString();
+  const entries = Array.isArray(entry.entries)
+    ? entry.entries
+      .map(normalizeMoodManualEntry)
+      .filter((item): item is MoodManualEntry => Boolean(item))
+    : [];
+
+  if (!emoji && !note && entries.length === 0) {
+    return null;
+  }
+
+  return {
+    emoji,
+    note,
+    timestamp,
+    ...(entries.length > 0 ? { entries } : {})
+  };
+}
+
 export async function getMoodData(): Promise<MoodData> {
   try {
     const plugin = usePlugin();
@@ -881,8 +1030,19 @@ export async function getMoodData(): Promise<MoodData> {
     const data = await plugin.loadData('Pinch-mood.json');
     
     if (data) {
-      const parsed: MoodData = typeof data === 'string' ? JSON.parse(data) : data;
-      return parsed;
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      if (!parsed || typeof parsed !== 'object') {
+        return {};
+      }
+      const normalized: MoodData = {};
+      for (const [date, entry] of Object.entries(parsed as Record<string, unknown>)) {
+        const dateKey = typeof date === 'string' ? date.trim() : '';
+        const normalizedEntry = normalizeMoodEntry(entry);
+        if (dateKey && normalizedEntry) {
+          normalized[dateKey] = normalizedEntry;
+        }
+      }
+      return normalized;
     } else {
       return {};
     }
@@ -902,7 +1062,15 @@ export async function saveMoodData(moodData: MoodData): Promise<void> {
     }
     
     // 直接保存对象，无需额外序列化
-    await plugin.saveData('Pinch-mood.json', moodData);
+    const normalized: MoodData = {};
+    for (const [date, entry] of Object.entries(moodData || {})) {
+      const dateKey = typeof date === 'string' ? date.trim() : '';
+      const normalizedEntry = normalizeMoodEntry(entry);
+      if (dateKey && normalizedEntry) {
+        normalized[dateKey] = normalizedEntry;
+      }
+    }
+    await plugin.saveData('Pinch-mood.json', normalized);
   } catch (error) {
     console.error('Error saving mood data:', error);
     throw error;
@@ -1100,21 +1268,28 @@ function normalizeFocusSessionRecords(records: unknown): FocusSessionRecord[] {
 
 export async function addFocusSession(
   duration: number,
-  target: FocusSessionTargetInput | null = null
+  target: FocusSessionTargetInput | null = null,
+  options: { date?: string; timestamp?: number; sessionId?: string } = {}
 ): Promise<void> {
   try {
     const data = await getFocusTimerData();
     const today = new Date().toISOString().split('T')[0];
-    const now = Date.now();
+    const date = typeof options.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(options.date)
+      ? options.date
+      : today;
+    const now = Number.isFinite(options.timestamp) ? Number(options.timestamp) : Date.now();
+    const sessionId = typeof options.sessionId === 'string' && options.sessionId.trim().length > 0
+      ? options.sessionId.trim()
+      : `focus-session-${now}-${Math.random().toString(36).slice(2, 8)}`;
 
-    let todayRecord = data.dailyRecords.find(record => record.date === today);
+    let todayRecord = data.dailyRecords.find(record => record.date === date);
     if (todayRecord) {
       todayRecord.sessions += 1;
       todayRecord.minutes += duration;
       todayRecord.timestamp = now;
     } else {
       data.dailyRecords.push({
-        date: today,
+        date,
         sessions: 1,
         minutes: duration,
         timestamp: now
@@ -1122,8 +1297,8 @@ export async function addFocusSession(
     }
 
     data.sessionRecords.push({
-      id: `focus-session-${now}-${Math.random().toString(36).slice(2, 8)}`,
-      date: today,
+      id: sessionId,
+      date,
       minutes: duration,
       timestamp: now,
       targetType: target?.type ?? 'unlinked',
@@ -1212,6 +1387,44 @@ export async function upsertFocusSessionRecord(
     await saveFocusTimerData(data);
   } catch (error) {
     console.error('Error upserting focus session:', error);
+    throw error;
+  }
+}
+
+export async function deleteFocusSessionRecord(sessionId: string): Promise<boolean> {
+  try {
+    const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+    if (!normalizedSessionId) {
+      return false;
+    }
+
+    const data = await getFocusTimerData();
+    const targetIndex = data.sessionRecords.findIndex(record => record.id === normalizedSessionId);
+    if (targetIndex < 0) {
+      return false;
+    }
+
+    const [removedRecord] = data.sessionRecords.splice(targetIndex, 1);
+    const recordDate = typeof removedRecord.date === 'string' ? removedRecord.date.trim() : '';
+    const removedMinutes = Math.max(0, Math.floor(Number(removedRecord.minutes) || 0));
+    const dailyRecord = recordDate
+      ? data.dailyRecords.find(record => record.date === recordDate)
+      : undefined;
+
+    if (dailyRecord) {
+      dailyRecord.sessions = Math.max(0, Math.floor(Number(dailyRecord.sessions) || 0) - 1);
+      dailyRecord.minutes = Math.max(0, Math.floor(Number(dailyRecord.minutes) || 0) - removedMinutes);
+      dailyRecord.timestamp = Date.now();
+
+      if (dailyRecord.sessions <= 0 && dailyRecord.minutes <= 0) {
+        data.dailyRecords = data.dailyRecords.filter(record => record !== dailyRecord);
+      }
+    }
+
+    await saveFocusTimerData(data);
+    return true;
+  } catch (error) {
+    console.error('Error deleting focus session:', error);
     throw error;
   }
 }
@@ -1669,9 +1882,7 @@ export class TaskRepository {
     if (!value) return [];
     try {
       const parsed = JSON.parse(value);
-      return Array.isArray(parsed)
-        ? parsed.filter((item): item is string => typeof item === 'string')
-        : [];
+      return normalizeTaskTagIds(parsed);
     } catch {
       return [];
     }
@@ -1706,6 +1917,11 @@ export class TaskRepository {
     });
     const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
 
+    const tagState = buildTaskTagState(
+      this.parseTaskTags(attrs['custom-task-tags']),
+      attrs['custom-task-group']
+    );
+
     return {
       id: attrs['custom-task-id'] || `block_${row.id}`,
       type: 'block',
@@ -1719,11 +1935,11 @@ export class TaskRepository {
       dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
       startDate: dateRange.startDate,
       startTime: attrs['custom-task-start-time'] || dateRange.startTime,
-      tags: this.parseTaskTags(attrs['custom-task-tags']),
+      tags: tagState.tagIds,
       description: attrs['custom-task-description'] || '',
       reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
       reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
-      groupId: attrs['custom-task-group'] || undefined,
+      groupId: tagState.primaryTagId || undefined,
       hPath: row.hpath,
       notebookId: row.box,
       icon: '\uD83D\uDCC4',
@@ -1771,7 +1987,6 @@ export class TaskRepository {
     scope?: TaskQueryScope | null,
     options: { force?: boolean } = {}
   ): Promise<{ tasks: Task[]; elapsedMs: number; cached?: boolean; indexElapsedMs?: number; pageCount?: number; partial?: boolean; changedRows?: number; incremental?: boolean }> {
-    const { getKernelTaskIndex } = await import('@/kernelRpc');
     const startedAt = Date.now();
     const result = await getKernelTaskIndex({
       limit,
@@ -1802,7 +2017,6 @@ export class TaskRepository {
     scope?: TaskQueryScope | null,
     options: { includeSubtasks?: boolean; attachRepeatMetadata?: boolean } = {}
   ): Promise<{ tasks: Task[]; elapsedMs: number; pageCount?: number; partial?: boolean }> {
-    const { getKernelTaskRowsByBlockIds } = await import('@/kernelRpc');
     const startedAt = Date.now();
     const result = await getKernelTaskRowsByBlockIds(blockIds, {
       includeCompleted: scope?.includeCompleted,
@@ -1831,7 +2045,6 @@ export class TaskRepository {
     scope?: TaskQueryScope | null,
     options: { includeSubtasks?: boolean; materializeRepeats?: boolean; force?: boolean } = {}
   ): Promise<{ tasks: Task[]; elapsedMs: number; cached?: boolean; indexElapsedMs?: number; pageCount?: number; partial?: boolean; totalMatched?: number }> {
-    const { getKernelTaskRowsByDateRange } = await import('@/kernelRpc');
     const startedAt = Date.now();
     const result = await getKernelTaskRowsByDateRange(startDate, endDate, {
       limit: 5000,
@@ -1883,7 +2096,6 @@ export class TaskRepository {
     scope?: TaskQueryScope | null,
     options: { startDate?: string; endDate?: string; includeSubtasks?: boolean; force?: boolean } = {}
   ): Promise<TaskStatsSummary> {
-    const { getKernelTaskStats } = await import('@/kernelRpc');
     return getKernelTaskStats({
       limit: 5000,
       includeCompleted: scope?.includeCompleted,
@@ -2551,20 +2763,6 @@ export class TaskRepository {
     }
     const normalized = String(value).trim();
     return normalized.length > 0 ? normalized : undefined;
-  }
-
-  private static async buildDocumentIconMap(
-    rootIds: string[],
-    preloadedDomMap?: Map<string, BlockDOMResponse>
-  ): Promise<Map<string, string>> {
-    return (await this.resolveRootTaskMetadata(rootIds, preloadedDomMap)).rootIcons;
-  }
-
-  private static async buildTaskDocumentOrderByRoots(
-    rootIds: string[],
-    preloadedDomMap?: Map<string, BlockDOMResponse>
-  ): Promise<Map<string, number>> {
-    return (await this.resolveRootTaskMetadata(rootIds, preloadedDomMap)).documentOrderByBlockId;
   }
 
   private static setRootTaskMetadataCacheEntry(rootId: string, entry: RootTaskMetadataCacheEntry): void {
@@ -3290,7 +3488,7 @@ export class TaskRepository {
             || document.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`)
             || document.querySelector(`[data-node-id="${row.id}"]`);
           const currentTitle = this.getTaskTitleHtmlFromElement(currentElement || null, row.id);
-          title = titleFromBlockText || currentTitle || titleFromApi;
+          title = currentTitle || titleFromBlockText || titleFromApi;
 
           const currentAction = this.getTaskActionElement(currentElement, row.id);
           const currentSvg = currentAction?.querySelector('use');
@@ -3307,14 +3505,10 @@ export class TaskRepository {
           .pop() || '';
         const archiveReason = this.normalizeTaskArchiveReason(attrs['custom-task-archive-reason']);
 
-        let tags: string[] = [];
-        if (attrs['custom-task-tags']) {
-          try {
-            tags = JSON.parse(attrs['custom-task-tags']);
-          } catch {
-            tags = [];
-          }
-        }
+        const tagState = buildTaskTagState(
+          this.parseTaskTags(attrs['custom-task-tags']),
+          attrs['custom-task-group']
+        );
 
         const subtasks = this.parseSubtasksFromParsedDoc(doc, row.id);
         const dateRange = this.resolveTaskDateRange(attrs, title, {
@@ -3338,11 +3532,11 @@ export class TaskRepository {
           dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
           startDate: dateRange.startDate,
           startTime: attrs['custom-task-start-time'] || dateRange.startTime,
-          tags,
+          tags: tagState.tagIds,
           description: attrs['custom-task-description'] || '',
           reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
           reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
-          groupId: attrs['custom-task-group'] || undefined,
+          groupId: tagState.primaryTagId || undefined,
           hPath: row.hpath,
           notebookId: row.box,
           icon: row.root_id ? (rootIcons.get(row.root_id) || '\uD83D\uDCC4') : '\uD83D\uDCC4',
@@ -3835,14 +4029,10 @@ export class TaskRepository {
         
         try {
           if (!useLiveDom) {
-            let tags: string[] = [];
-            if (attrs['custom-task-tags']) {
-              try {
-                tags = JSON.parse(attrs['custom-task-tags']);
-              } catch {
-                tags = [];
-              }
-            }
+            const tagState = buildTaskTagState(
+              this.parseTaskTags(attrs['custom-task-tags']),
+              attrs['custom-task-group']
+            );
 
             let markdownStatus: 'pending' | 'completed' | null = null;
             if (parentBlock.markdown) {
@@ -3917,8 +4107,8 @@ export class TaskRepository {
               dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
               startDate: dateRange.startDate,
               startTime: attrs['custom-task-start-time'] || dateRange.startTime,
-              tags,
-              groupId: attrs['custom-task-group'] || undefined,
+              tags: tagState.tagIds,
+              groupId: tagState.primaryTagId || undefined,
               description: attrs['custom-task-description'] || '',
               reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
               reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
@@ -4005,7 +4195,7 @@ export class TaskRepository {
           const titleFromBlockText = buildFastTitleFromBlock(parentBlock);
           const titleFromApi = cleanHtmlStyle(titleHtml);
           const currentTitleClean = cleanHtmlStyle(currentTitle);
-          const title = titleFromBlockText || currentTitleClean || titleFromApi;
+          const title = currentTitleClean || titleFromBlockText || titleFromApi;
           const dateRange = this.resolveTaskDateRange(attrs, title, {
             allowInferFromTitle: true,
             createdAtRaw: parentBlock.created
@@ -4083,8 +4273,16 @@ export class TaskRepository {
             dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
             startDate: dateRange.startDate,
             startTime: attrs['custom-task-start-time'] || dateRange.startTime,
-            tags: attrs['custom-task-tags'] ? JSON.parse(attrs['custom-task-tags']) : [],
-            groupId: attrs['custom-task-group'] || undefined,
+            ...(() => {
+              const tagState = buildTaskTagState(
+                this.parseTaskTags(attrs['custom-task-tags']),
+                attrs['custom-task-group']
+              );
+              return {
+                tags: tagState.tagIds,
+                groupId: tagState.primaryTagId || undefined
+              };
+            })(),
             description: attrs['custom-task-description'] || '',
             reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
             reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
@@ -4227,16 +4425,16 @@ export class TaskRepository {
       attrs['custom-task-due-time'] = resolvedDueTime;
     }
 
-    if (task.groupId) {
-      attrs['custom-task-group'] = task.groupId;
-    }
-
     if (task.pinned) {
       attrs['custom-task-pinned'] = '1';
     }
 
-    if (task.tags && task.tags.length > 0) {
-      attrs['custom-task-tags'] = JSON.stringify(task.tags);
+    const tagAttrs = buildTaskTagAttrs(task.tags, task.groupId);
+    if (tagAttrs.attrs['custom-task-group']) {
+      attrs['custom-task-group'] = tagAttrs.attrs['custom-task-group'];
+    }
+    if (tagAttrs.attrs['custom-task-tags']) {
+      attrs['custom-task-tags'] = tagAttrs.attrs['custom-task-tags'];
     }
 
     if (task.description && task.description.trim()) {
@@ -4468,11 +4666,10 @@ export class TaskRepository {
     if (updates.dueTime !== undefined) {
       attrsToUpdate['custom-task-due-time'] = updates.dueTime || '';
     }
-    if (updates.tags !== undefined) {
-      attrsToUpdate['custom-task-tags'] = JSON.stringify(updates.tags || []);
-    }
-    if (updates.groupId !== undefined) {
-      attrsToUpdate['custom-task-group'] = updates.groupId || '';
+    if (updates.tags !== undefined || updates.groupId !== undefined) {
+      const tagAttrs = buildTaskTagAttrs(updates.tags, updates.groupId);
+      attrsToUpdate['custom-task-tags'] = tagAttrs.attrs['custom-task-tags'];
+      attrsToUpdate['custom-task-group'] = tagAttrs.attrs['custom-task-group'];
     }
     if (updates.pinned !== undefined) {
       attrsToUpdate['custom-task-pinned'] = updates.pinned ? '1' : '';

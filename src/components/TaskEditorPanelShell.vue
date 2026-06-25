@@ -1,12 +1,14 @@
 <template>
   <div
-    v-if="mode === 'sidebar'"
     class="task-editor-sidebar-overlay"
-    @click.self="$emit('backdropClick')"
+    :class="`is-${mode}`"
+    :style="overlayStyle"
+    @click.self="handleBackdropClick"
   >
     <div
       ref="panelRef"
-      class="task-editor-sidebar-panel is-sidebar"
+      class="task-editor-sidebar-panel"
+      :class="`is-${mode}`"
       :style="panelStyle"
       @mousedown.capture="$emit('panelMousedown')"
       @click.stop
@@ -17,49 +19,17 @@
           <button
             v-if="showPin"
             type="button"
-            class="task-editor-sidebar-pin"
+            class="task-editor-sidebar-pin ariaLabel"
             :class="{ 'is-active': pinActive }"
-            :title="pinActive ? t('taskManager.unpinTask') : t('taskManager.pinTask')"
             :aria-label="pinActive ? t('taskManager.unpinTask') : t('taskManager.pinTask')"
             @click.stop="$emit('pin')"
           >
             <Icon name="pinTask" width="16" height="16" />
           </button>
           <button
-            v-if="showMove"
-            type="button"
-            class="task-editor-sidebar-move"
-            :title="t('taskManager.moveTask')"
-            :aria-label="t('taskManager.moveTask')"
-            @click.stop="$emit('move')"
-          >
-            <Icon name="moveTask" width="16" height="16" />
-          </button>
-          <button
-            v-if="showArchive"
-            type="button"
-            class="task-editor-sidebar-archive"
-            :title="isArchived ? t('taskManager.unarchiveTask') : t('taskManager.archiveTask')"
-            :aria-label="isArchived ? t('taskManager.unarchiveTask') : t('taskManager.archiveTask')"
-            @click.stop="$emit('archive')"
-          >
-            <Icon name="archive" width="16" height="16" />
-          </button>
-          <button
-            v-if="showDelete"
-            type="button"
-            class="task-editor-sidebar-delete"
-            :title="t('taskManager.deleteTask')"
-            :aria-label="t('taskManager.deleteTask')"
-            @click.stop="$emit('delete')"
-          >
-            <Icon name="trash" width="16" height="16" />
-          </button>
-          <button
             v-if="showPriority"
             type="button"
-            class="task-editor-priority-btn"
-            :title="t('taskManager.priority')"
+            class="task-editor-priority-btn ariaLabel"
             :aria-label="t('taskManager.priority')"
             @click.stop="handlePriorityClick"
           >
@@ -73,17 +43,70 @@
           <button
             v-if="showFocus"
             type="button"
-            class="task-editor-action-btn task-editor-focus-btn"
-            :title="t('taskManager.startFocus')"
+            class="task-editor-action-btn task-editor-focus-btn ariaLabel"
             :aria-label="t('taskManager.startFocus')"
             @click.stop="$emit('focus')"
           >
             <Icon name="timer" width="14" height="14" />
           </button>
+          <div
+            v-if="showMoreActions"
+            ref="moreMenuControlRef"
+            class="task-editor-sidebar-more-control"
+          >
+            <button
+              type="button"
+              class="task-editor-sidebar-more task-group-menu-btn ariaLabel"
+              :class="{ active: moreMenuVisible }"
+              :aria-label="t('taskManager.more')"
+              aria-haspopup="menu"
+              :aria-expanded="moreMenuVisible ? 'true' : 'false'"
+              @click.stop="toggleMoreMenu"
+              @keydown.esc.stop="closeMoreMenu"
+            >
+              <Icon name="moreVertical" width="16" height="16" />
+            </button>
+            <div
+              v-if="moreMenuVisible"
+              class="task-editor-sidebar-more-popover"
+              role="menu"
+              @click.stop
+            >
+              <button
+                v-if="showMove"
+                type="button"
+                class="task-editor-sidebar-more-item"
+                role="menuitem"
+                @click.stop="handleMoreAction('move')"
+              >
+                <Icon name="moveTask" width="15" height="15" />
+                <span>{{ t('taskManager.moveTask') }}</span>
+              </button>
+              <button
+                v-if="showArchive"
+                type="button"
+                class="task-editor-sidebar-more-item"
+                role="menuitem"
+                @click.stop="handleMoreAction('archive')"
+              >
+                <Icon name="archive" width="15" height="15" />
+                <span>{{ isArchived ? t('taskManager.unarchiveTask') : t('taskManager.archiveTask') }}</span>
+              </button>
+              <button
+                v-if="showDelete"
+                type="button"
+                class="task-editor-sidebar-more-item is-danger"
+                role="menuitem"
+                @click.stop="handleMoreAction('delete')"
+              >
+                <Icon name="trash" width="15" height="15" />
+                <span>{{ t('taskManager.deleteTask') }}</span>
+              </button>
+            </div>
+          </div>
           <button
             type="button"
-            class="task-editor-sidebar-close"
-            :title="t('taskManager.closeEditor')"
+            class="task-editor-sidebar-close ariaLabel"
             :aria-label="t('taskManager.closeEditor')"
             @click.stop="$emit('close')"
           >
@@ -94,108 +117,18 @@
       <slot />
     </div>
   </div>
-
-  <div
-    v-else
-    ref="panelRef"
-    class="task-editor-sidebar-panel is-floating"
-    :style="panelStyle"
-    @mousedown.capture="$emit('panelMousedown')"
-    @click.stop
-  >
-    <div class="task-editor-sidebar-header">
-      <span class="task-editor-sidebar-title">{{ title }}</span>
-      <div class="task-editor-sidebar-actions">
-        <button
-          v-if="showPin"
-          type="button"
-          class="task-editor-sidebar-pin"
-          :class="{ 'is-active': pinActive }"
-          :title="pinActive ? t('taskManager.unpinTask') : t('taskManager.pinTask')"
-          :aria-label="pinActive ? t('taskManager.unpinTask') : t('taskManager.pinTask')"
-          @click.stop="$emit('pin')"
-        >
-          <Icon name="pinTask" width="16" height="16" />
-        </button>
-        <button
-          v-if="showMove"
-          type="button"
-          class="task-editor-sidebar-move"
-          :title="t('taskManager.moveTask')"
-          :aria-label="t('taskManager.moveTask')"
-          @click.stop="$emit('move')"
-        >
-          <Icon name="moveTask" width="16" height="16" />
-        </button>
-        <button
-          v-if="showArchive"
-          type="button"
-          class="task-editor-sidebar-archive"
-          :title="isArchived ? t('taskManager.unarchiveTask') : t('taskManager.archiveTask')"
-          :aria-label="isArchived ? t('taskManager.unarchiveTask') : t('taskManager.archiveTask')"
-          @click.stop="$emit('archive')"
-        >
-          <Icon name="archive" width="16" height="16" />
-        </button>
-        <button
-          v-if="showDelete"
-          type="button"
-          class="task-editor-sidebar-delete"
-          :title="t('taskManager.deleteTask')"
-          :aria-label="t('taskManager.deleteTask')"
-          @click.stop="$emit('delete')"
-        >
-          <Icon name="trash" width="16" height="16" />
-        </button>
-        <button
-          v-if="showPriority"
-          type="button"
-          class="task-editor-priority-btn"
-          :title="t('taskManager.priority')"
-          :aria-label="t('taskManager.priority')"
-          @click.stop="handlePriorityClick"
-        >
-          <span
-            class="task-editor-priority-indicator"
-            :style="priorityStyle"
-          >
-            <Icon name="flag" width="14" height="14" />
-          </span>
-        </button>
-        <button
-          v-if="showFocus"
-          type="button"
-          class="task-editor-action-btn task-editor-focus-btn"
-          :title="t('taskManager.startFocus')"
-          :aria-label="t('taskManager.startFocus')"
-          @click.stop="$emit('focus')"
-        >
-          <Icon name="timer" width="14" height="14" />
-        </button>
-        <button
-          type="button"
-          class="task-editor-sidebar-close"
-          :title="t('taskManager.closeEditor')"
-          :aria-label="t('taskManager.closeEditor')"
-          @click.stop="$emit('close')"
-        >
-          <Icon name="close" width="16" height="16" />
-        </button>
-      </div>
-    </div>
-    <slot />
-  </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import { useI18n } from '@/composables/useI18n';
 
-withDefaults(defineProps<{
-  mode?: 'sidebar' | 'floating';
+const props = withDefaults(defineProps<{
+  mode?: 'sidebar' | 'floating' | 'dock';
   title: string;
   panelStyle?: Record<string, string>;
+  overlayStyle?: Record<string, string>;
   showPin?: boolean;
   pinActive?: boolean;
   showMove?: boolean;
@@ -208,6 +141,7 @@ withDefaults(defineProps<{
 }>(), {
   mode: 'sidebar',
   panelStyle: () => ({}),
+  overlayStyle: () => ({}),
   showPin: false,
   pinActive: false,
   showMove: false,
@@ -232,27 +166,83 @@ const emit = defineEmits<{
 }>();
 
 const panelRef = ref<HTMLElement | null>(null);
+const moreMenuControlRef = ref<HTMLElement | null>(null);
+const moreMenuVisible = ref(false);
 const { t } = useI18n();
 defineExpose({ panelEl: panelRef });
 
+const showMoreActions = computed(() => props.showMove || props.showArchive || props.showDelete);
+
+watch(showMoreActions, (visible) => {
+  if (!visible) {
+    closeMoreMenu();
+  }
+});
+
+onMounted(() => {
+  document.addEventListener('pointerdown', handleDocumentPointerDown, true);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
+});
+
 function handlePriorityClick(event: MouseEvent): void {
   emit('priority', event);
+}
+
+function handleBackdropClick(): void {
+  if (props.mode === 'sidebar') {
+    emit('backdropClick');
+  }
+}
+
+function toggleMoreMenu(): void {
+  moreMenuVisible.value = !moreMenuVisible.value;
+}
+
+function closeMoreMenu(): void {
+  moreMenuVisible.value = false;
+}
+
+function handleMoreAction(action: 'move' | 'archive' | 'delete'): void {
+  closeMoreMenu();
+  if (action === 'move') {
+    emit('move');
+    return;
+  }
+  if (action === 'archive') {
+    emit('archive');
+    return;
+  }
+  emit('delete');
+}
+
+function handleDocumentPointerDown(event: PointerEvent): void {
+  if (!moreMenuVisible.value) {
+    return;
+  }
+  const target = event.target;
+  if (!(target instanceof Node) || !moreMenuControlRef.value?.contains(target)) {
+    closeMoreMenu();
+  }
 }
 </script>
 
 <style scoped>
 .task-editor-sidebar-overlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: contents;
+}
+
+.task-editor-sidebar-overlay.is-sidebar {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: block;
   background-color: rgba(0, 0, 0, 0.5);
   box-sizing: border-box;
+  overflow: hidden;
+  border-radius: inherit;
 }
 
 .task-editor-sidebar-panel {
@@ -260,24 +250,21 @@ function handlePriorityClick(event: MouseEvent): void {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: 16px;
+  box-shadow: var(--pinch-menu-shadow);
+  box-sizing: border-box;
+  background: var(--b3-theme-background);
 }
 
 .task-editor-sidebar-panel.is-sidebar {
-  position: relative;
+  position: fixed;
   width: min(560px, 100%);
   min-width: 0;
-  border-radius: 16px;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
-  max-height: calc(100% - 40px);
-  box-sizing: border-box;
 }
 
 @media (max-width: 768px) {
-  .task-editor-sidebar-overlay {
-    position: fixed;
-    inset: 0;
+  .task-editor-sidebar-overlay.is-sidebar {
     padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
-    z-index: 80;
   }
 
   .task-editor-sidebar-panel.is-sidebar {
@@ -291,9 +278,21 @@ function handlePriorityClick(event: MouseEvent): void {
   width: 360px;
   max-width: calc(100vw - 24px);
   max-height: min(70vh, 520px);
-  border: 1px solid var(--b3-border-color);
-  border-radius: 10px;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
+}
+
+.task-editor-sidebar-panel.is-dock {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .task-editor-sidebar-header {
@@ -353,16 +352,18 @@ function handlePriorityClick(event: MouseEvent): void {
   align-items: center;
   justify-content: center;
   padding: 0;
+  background: transparent;
 }
 
 .task-editor-focus-btn:hover {
-  background: rgb(249 143 122 / 0.2);
+  background: var(--b3-list-hover);
 }
 
 .task-editor-sidebar-move,
 .task-editor-sidebar-pin,
 .task-editor-sidebar-archive,
 .task-editor-sidebar-delete,
+.task-editor-sidebar-more,
 .task-editor-sidebar-close {
   width: 24px;
   height: 24px;
@@ -372,33 +373,87 @@ function handlePriorityClick(event: MouseEvent): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--b3-theme-on-background);
+  color: var(--b3-theme-on-surface);
   background: transparent;
   padding: 0;
 }
 
-.task-editor-sidebar-move:hover {
-  background: var(--b3-list-hover);
-  color: #f98f7a;
+.task-editor-sidebar-more-control {
+  position: relative;
 }
 
-.task-editor-sidebar-pin:hover,
-.task-editor-sidebar-pin.is-active {
+.task-editor-sidebar-more:hover,
+.task-editor-sidebar-more.active {
   background: var(--b3-list-hover);
-  color: #f98f7a;
+  color: var(--b3-theme-on-background);
 }
 
-.task-editor-sidebar-archive:hover {
-  background: var(--b3-list-hover);
-  color: #f98f7a;
+.task-editor-sidebar-more svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
 }
 
-.task-editor-sidebar-delete:hover {
+.task-editor-sidebar-more-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 152px;
+  border-radius: 10px;
+  border: 1px solid var(--b3-theme-border);
+  background: var(--b3-theme-background);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-editor-sidebar-more-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.task-editor-sidebar-more-item:hover {
   background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.task-editor-sidebar-more-item.is-danger:hover {
   color: var(--b3-theme-error);
+}
+
+.task-editor-sidebar-more-item svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: currentColor;
+}
+
+.task-editor-sidebar-pin:hover{
+  background: var(--b3-list-hover);
+  color: #f98f7a;
+}
+.task-editor-sidebar-pin.is-active {
+  background: #f98f7a;
+  color: var(--b3-theme-background);
 }
 
 .task-editor-sidebar-close:hover {
   background: var(--b3-list-hover);
+  color: var(--b3-theme-error);
 }
 </style>

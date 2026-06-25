@@ -10,11 +10,7 @@ export interface GoalProgressSummary {
   progressPercent: number;
   status: GoalProgressStatus;
   documentCount: number;
-}
-
-interface GoalTaskCount {
-  total: number;
-  completed: number;
+  taskMemberCount: number;
 }
 
 function buildDocumentKey(notebookId: string, documentId: string): string {
@@ -36,28 +32,15 @@ function isTaskCountable(task: Task): boolean {
   return true;
 }
 
-function buildTaskCountByDocument(tasks: Task[]): Map<string, GoalTaskCount> {
-  const countByDocument = new Map<string, GoalTaskCount>();
-
+function buildCountableTasksById(tasks: Task[]): Map<string, Task> {
+  const countableTasks = new Map<string, Task>();
   tasks.forEach((task) => {
     if (!isTaskCountable(task)) {
       return;
     }
-
-    const notebookId = task.notebookId!.trim();
-    const rootId = task.rootId!.trim();
-    const key = buildDocumentKey(notebookId, rootId);
-    const current = countByDocument.get(key) || { total: 0, completed: 0 };
-
-    current.total += 1;
-    if (task.status === 'completed') {
-      current.completed += 1;
-    }
-
-    countByDocument.set(key, current);
+    countableTasks.set(task.id, task);
   });
-
-  return countByDocument;
+  return countableTasks;
 }
 
 function buildGoalDocumentKeys(goal: Goal): string[] {
@@ -83,25 +66,64 @@ function buildGoalDocumentKeys(goal: Goal): string[] {
   return keys;
 }
 
+function buildGoalTaskMemberIds(goal: Goal): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+
+  (goal.taskMembers || []).forEach((member) => {
+    const taskId = typeof member.taskId === 'string' ? member.taskId.trim() : '';
+    if (!taskId || seen.has(taskId)) {
+      return;
+    }
+    seen.add(taskId);
+    ids.push(taskId);
+  });
+
+  return ids;
+}
+
 export function buildGoalProgressSummaries(
   goals: Goal[],
   tasks: Task[]
 ): GoalProgressSummary[] {
-  const taskCountByDocument = buildTaskCountByDocument(tasks);
+  const countableTasksById = buildCountableTasksById(tasks);
 
   return goals.map((goal) => {
     const documentKeys = buildGoalDocumentKeys(goal);
+    const taskMemberIds = buildGoalTaskMemberIds(goal);
+    const matchedTaskIds = new Set<string>();
     let totalTasks = 0;
     let completedTasks = 0;
 
-    documentKeys.forEach((key) => {
-      const counts = taskCountByDocument.get(key);
-      if (!counts) {
+    countableTasksById.forEach((task) => {
+      const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+      const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+      if (!notebookId || !rootId) {
         return;
       }
 
-      totalTasks += counts.total;
-      completedTasks += counts.completed;
+      const key = buildDocumentKey(notebookId, rootId);
+      if (!documentKeys.includes(key)) {
+        return;
+      }
+      matchedTaskIds.add(task.id);
+    });
+
+    taskMemberIds.forEach((taskId) => {
+      if (countableTasksById.has(taskId)) {
+        matchedTaskIds.add(taskId);
+      }
+    });
+
+    matchedTaskIds.forEach((taskId) => {
+      const task = countableTasksById.get(taskId);
+      if (!task) {
+        return;
+      }
+      totalTasks += 1;
+      if (task.status === 'completed') {
+        completedTasks += 1;
+      }
     });
 
     const progressPercent = totalTasks > 0
@@ -117,7 +139,8 @@ export function buildGoalProgressSummaries(
       completedTasks,
       progressPercent,
       status,
-      documentCount: documentKeys.length
+      documentCount: documentKeys.length,
+      taskMemberCount: taskMemberIds.length
     };
   });
 }

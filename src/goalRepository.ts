@@ -1,11 +1,22 @@
-import type { DocumentGroup, DocumentGroupMember } from './documentGroupRepository';
+import { loadDocumentGroups, type DocumentGroup, type DocumentGroupMember } from './documentGroupRepository';
+import { usePlugin } from './main';
 import { eventBus, Events } from './utils/eventBus';
+
+export interface GoalTaskMember {
+  taskId: string;
+  blockId?: string;
+  notebookId?: string;
+  rootId?: string;
+  title?: string;
+  addedAt?: string;
+}
 
 export interface Goal {
   id: string;
   name: string;
   emoji?: string;
   members: DocumentGroupMember[];
+  taskMembers?: GoalTaskMember[];
   order?: number;
   dueDate?: string;
   createdAt?: string;
@@ -19,10 +30,14 @@ interface GoalStorage {
 }
 
 const GOALS_STORAGE_KEY = 'Pinch-goals.json';
-const GOALS_STORAGE_VERSION = 2;
+const GOALS_STORAGE_VERSION = 3;
 
 function cloneGoalMembers(members: DocumentGroupMember[]): DocumentGroupMember[] {
   return members.map(member => ({ ...member }));
+}
+
+function cloneGoalTaskMembers(members: GoalTaskMember[] | undefined): GoalTaskMember[] {
+  return normalizeGoalTaskMembers(members);
 }
 
 function normalizeGoalMembers(input: unknown): DocumentGroupMember[] {
@@ -63,6 +78,55 @@ function normalizeGoalMembers(input: unknown): DocumentGroupMember[] {
       notebookId,
       name,
       path
+    });
+  }
+
+  return normalized;
+}
+
+function normalizeGoalTaskMembers(input: unknown): GoalTaskMember[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const normalized: GoalTaskMember[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') {
+      continue;
+    }
+
+    const member = raw as Record<string, unknown>;
+    const taskId = typeof member.taskId === 'string' ? member.taskId.trim() : '';
+    if (!taskId || seen.has(taskId)) {
+      continue;
+    }
+    seen.add(taskId);
+
+    const blockId = typeof member.blockId === 'string' && member.blockId.trim().length > 0
+      ? member.blockId.trim()
+      : undefined;
+    const notebookId = typeof member.notebookId === 'string' && member.notebookId.trim().length > 0
+      ? member.notebookId.trim()
+      : undefined;
+    const rootId = typeof member.rootId === 'string' && member.rootId.trim().length > 0
+      ? member.rootId.trim()
+      : undefined;
+    const title = typeof member.title === 'string' && member.title.trim().length > 0
+      ? member.title.trim()
+      : undefined;
+    const addedAt = typeof member.addedAt === 'string' && member.addedAt.trim().length > 0
+      ? member.addedAt.trim()
+      : undefined;
+
+    normalized.push({
+      taskId,
+      blockId,
+      notebookId,
+      rootId,
+      title,
+      addedAt
     });
   }
 
@@ -111,6 +175,7 @@ function normalizeGoal(input: unknown, legacyGroupsById: Map<string, DocumentGro
     name,
     emoji: emoji || undefined,
     members,
+    taskMembers: normalizeGoalTaskMembers(raw.taskMembers),
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : undefined,
     dueDate: dueDate || undefined,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
@@ -145,7 +210,7 @@ function hasLegacyGoalShape(input: unknown): boolean {
 }
 
 async function persistGoals(goals: Goal[], emitEvent: boolean): Promise<Goal[]> {
-  const plugin = await import('./main').then(module => module.usePlugin());
+  const plugin = usePlugin();
   if (!plugin) {
     console.error('[Goals] persistGoals: plugin not ready');
     return normalizeGoals(goals);
@@ -155,6 +220,7 @@ async function persistGoals(goals: Goal[], emitEvent: boolean): Promise<Goal[]> 
   const normalizedGoals = normalizeGoals(goals).map((goal, index) => ({
     ...goal,
     members: cloneGoalMembers(goal.members),
+    taskMembers: cloneGoalTaskMembers(goal.taskMembers),
     order: index,
     createdAt: goal.createdAt || nowIso,
     updatedAt: nowIso
@@ -194,12 +260,13 @@ export function normalizeGoals(input: unknown, legacyGroups: DocumentGroup[] = [
     .map((goal, index) => ({
       ...goal,
       members: cloneGoalMembers(goal.members),
+      taskMembers: cloneGoalTaskMembers(goal.taskMembers),
       order: index
     }));
 }
 
 export async function loadGoals(): Promise<Goal[]> {
-  const plugin = await import('./main').then(module => module.usePlugin());
+  const plugin = usePlugin();
   if (!plugin) {
     console.error('[Goals] loadGoals: plugin not ready');
     return [];
@@ -222,7 +289,7 @@ export async function loadGoals(): Promise<Goal[]> {
       : 0;
     const needsLegacyGroups = parsedGoals.some(hasLegacyGoalShape);
     const legacyGroups = needsLegacyGroups
-      ? await import('./documentGroupRepository').then(module => module.loadDocumentGroups())
+      ? await loadDocumentGroups()
       : [];
     const normalizedGoals = normalizeGoals(parsedGoals, legacyGroups);
 
