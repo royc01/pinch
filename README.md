@@ -69,6 +69,12 @@
   </a>
 </div>
 
+## v2.3.2
+
+* [Fixed] Conflict between calendar view jump button and click-to-edit
+* [Fixed] Filtering of empty tasks in table view
+* [Fixed] Right-click flickering issue for tasks in card view
+
 ## v2.3.1
 
 * [Fixed] Performance issues in certain cases

@@ -234,7 +234,12 @@
                   >
                     <Icon name="flag" width="10" height="10" />
                   </span>
-                  <span v-if="!isHabitTaskChip(task)" class="task-jump-btn" @click.stop="handleTaskClick(task, $event)">
+                  <span
+                    v-if="!isHabitTaskChip(task)"
+                    class="task-jump-btn"
+                    @mousedown.stop
+                    @click.stop="handleTaskOpenClick(task, $event)"
+                  >
                     <Icon name="open" width="14" height="14" />
                   </span>
                 </div>
@@ -3988,6 +3993,15 @@ function handleTaskClick(task: Task, event?: MouseEvent) {
     x: event?.clientX ?? window.innerWidth / 2,
     y: event?.clientY ?? window.innerHeight / 2
   });
+}
+
+function handleTaskOpenClick(task: Task, event?: MouseEvent) {
+  if (isHabitTaskChip(task)) {
+    return;
+  }
+  event?.preventDefault();
+  event?.stopPropagation();
+  emit('taskClick', task);
 }
 
 function handleContextMenuEditTask(task: Task): void {

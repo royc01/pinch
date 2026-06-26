@@ -354,7 +354,7 @@
           >
             <td class="col-expand">
               <span
-                v-if="row.task.subtasks && row.task.subtasks.length > 0"
+                v-if="getVisibleSubtasks(row.task).length > 0"
                 class="expand-arrow"
                 :class="{ expanded: expandedTasks.has(row.task.id) }"
                 @click.stop="toggleExpand(row.task.id)"
@@ -691,7 +691,7 @@
       @close="closeTimePopover"
     />
     
-    <div v-if="tasks.length === 0" class="empty-state">
+    <div v-if="displayableTasks.length === 0" class="empty-state">
       {{ t('taskManager.noTasks') }}
     </div>
   </div>
@@ -722,6 +722,7 @@ import {
 } from '@/utils/taskSortShared';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 import {
   areTaskTagIdsEqual,
   resolveTaskTagIds,
@@ -1033,6 +1034,10 @@ const sortDirection = ref<'asc' | 'desc'>('asc');
 const tableContainerRef = ref<HTMLElement | null>(null);
 const defaultTableColumnWidths = ref<Partial<Record<TableColumnKey, number>>>({});
 const tableColumnWidths = ref<Partial<Record<TableColumnKey, number>>>({});
+
+const displayableTasks = computed(() =>
+  props.tasks.filter(task => hasVisibleTaskTitle(task.title))
+);
 const activeResizeColumn = ref<ResizableTableColumnKey | null>(null);
 const tableScrollTop = ref(0);
 const tableViewportHeight = ref(0);
@@ -1621,10 +1626,10 @@ const dateGroupOrder = computed<Array<{ id: TableDateGroupKey; label: string; st
 const sortedTasks = computed(() => {
   const domOrderMap = buildLiveTaskDomOrderMap();
   if (!sortColumn.value) {
-    return [...props.tasks].sort((a, b) => compareTasksDefault(a, b, domOrderMap));
+    return [...displayableTasks.value].sort((a, b) => compareTasksDefault(a, b, domOrderMap));
   }
 
-  const tasks = [...props.tasks];
+  const tasks = [...displayableTasks.value];
   tasks.sort((a, b) => {
     const isAPinned = a.pinned === true;
     const isBPinned = b.pinned === true;
@@ -1786,6 +1791,12 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
   return [];
 });
 
+function getVisibleSubtasks(task: Task): TableSubtask[] {
+  return Array.isArray(task.subtasks)
+    ? task.subtasks.filter(subtask => hasVisibleTaskTitle(subtask.title))
+    : [];
+}
+
 function buildTaskVirtualRows(task: Task): TableVirtualRow[] {
   const rows: TableVirtualRow[] = [
     {
@@ -1795,8 +1806,9 @@ function buildTaskVirtualRows(task: Task): TableVirtualRow[] {
       task
     }
   ];
-  if (task.subtasks && task.subtasks.length > 0 && expandedTasks.value.has(task.id)) {
-    for (const subtask of task.subtasks) {
+  const visibleSubtasks = getVisibleSubtasks(task);
+  if (visibleSubtasks.length > 0 && expandedTasks.value.has(task.id)) {
+    for (const subtask of visibleSubtasks) {
       rows.push({
         kind: 'subtask',
         key: `subtask:${task.id}:${subtask.id}`,
@@ -1810,10 +1822,11 @@ function buildTaskVirtualRows(task: Task): TableVirtualRow[] {
 }
 
 function isLastSubtaskRow(task: Task, subtask: TableSubtask): boolean {
-  if (!task.subtasks || task.subtasks.length === 0) {
+  const visibleSubtasks = getVisibleSubtasks(task);
+  if (visibleSubtasks.length === 0) {
     return false;
   }
-  return task.subtasks[task.subtasks.length - 1]?.id === subtask.id;
+  return visibleSubtasks[visibleSubtasks.length - 1]?.id === subtask.id;
 }
 
 const tableRows = computed<TableVirtualRow[]>(() => {

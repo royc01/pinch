@@ -1,6 +1,7 @@
 import { computed, type Ref } from 'vue';
 import type { Task } from '@/api';
 import { createTaskDocumentScopeMatcher } from '@/utils/taskDocumentScope';
+import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 
 export interface TaskFilters {
   priority?: Ref<string>;
@@ -16,9 +17,10 @@ function getTableCacheKey(
   notebook: string,
   document: string,
   archiveMode: 'active' | 'archived' | 'all',
-  tasksLength: number
+  tasksLength: number,
+  titleVisibilityKey: string
 ): string {
-  return `table:${notebook}:${document}:${archiveMode}:${tasksLength}:${cacheVersion}`;
+  return `table:${notebook}:${document}:${archiveMode}:${tasksLength}:${titleVisibilityKey}:${cacheVersion}`;
 }
 
 function getKanbanCacheKey(
@@ -26,16 +28,30 @@ function getKanbanCacheKey(
   notebook: string,
   document: string,
   archiveMode: 'active' | 'archived' | 'all',
-  tasksLength: number
+  tasksLength: number,
+  titleVisibilityKey: string
 ): string {
-  return `kanban:${priority}:${notebook}:${document}:${archiveMode}:${tasksLength}:${cacheVersion}`;
+  return `kanban:${priority}:${notebook}:${document}:${archiveMode}:${tasksLength}:${titleVisibilityKey}:${cacheVersion}`;
+}
+
+function getTitleVisibilityCacheKey(tasks: Task[]): string {
+  return tasks
+    .map(task => `${task.id}:${hasVisibleTaskTitle(task.title) ? 1 : 0}`)
+    .join('|');
 }
 
 export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
   const filtered = computed(() => {
     const archiveMode = filters.archiveMode?.value || 'active';
     const documentScope = createTaskDocumentScopeMatcher(filters.document.value, tasks.value);
-    const key = getTableCacheKey(filters.notebook.value, documentScope.cacheKey, archiveMode, tasks.value.length);
+    const titleVisibilityKey = getTitleVisibilityCacheKey(tasks.value);
+    const key = getTableCacheKey(
+      filters.notebook.value,
+      documentScope.cacheKey,
+      archiveMode,
+      tasks.value.length,
+      titleVisibilityKey
+    );
     
     const cached = filterCache.get(key);
     if (cached && Array.isArray(cached)) {
@@ -44,6 +60,7 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
 
     const result = tasks.value.filter(task => {
       if (task.type !== 'block') return false;
+      if (!hasVisibleTaskTitle(task.title)) return false;
       if (archiveMode === 'active' && task.archived) return false;
       if (archiveMode === 'archived' && !task.archived) return false;
       if (filters.notebook.value !== 'all' && task.notebookId !== filters.notebook.value) {
@@ -69,12 +86,14 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
     const priorityValue = filters.priority?.value ?? 'all';
     const archiveMode = filters.archiveMode?.value || 'active';
     const documentScope = createTaskDocumentScopeMatcher(filters.document.value, tasks.value);
+    const titleVisibilityKey = getTitleVisibilityCacheKey(tasks.value);
     const key = getKanbanCacheKey(
       priorityValue,
       filters.notebook.value,
       documentScope.cacheKey,
       archiveMode,
-      tasks.value.length
+      tasks.value.length,
+      titleVisibilityKey
     );
     
     const cached = filterCache.get(key);
@@ -91,7 +110,7 @@ export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
     };
     
     for (const task of tasks.value) {
-      if (!task.title || task.title.trim() === '') continue;
+      if (!hasVisibleTaskTitle(task.title)) continue;
       if (task.type !== 'block') continue;
       if (archiveMode === 'active' && task.archived) continue;
       if (archiveMode === 'archived' && !task.archived) continue;

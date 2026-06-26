@@ -22,7 +22,7 @@
           </span>
           <div
             class="task-title ariaLabel"
-            :aria-label="titleTooltip + (titleTooltip ? '<br>' : '') + t('taskCard.rightClickFillDescription') + '<br>' + t('taskCard.dragToCalendar')"
+            :aria-label="titleAriaLabel"
             v-html="titleHtml"
           ></div>
         </div>
@@ -242,6 +242,7 @@ const props = defineProps<{
   documentIconOverride?: string;
   documentIconSvg?: string;
   disableContextMenu?: boolean;
+  disableDescriptionContextMenu?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -301,6 +302,14 @@ const isCollapsed = computed(() => {
 
 const titleTooltip = computed(() => props.titleTooltip || '');
 const titleHtml = computed(() => sanitizeTaskTitleHtml(task.value.title));
+const titleAriaLabel = computed(() => {
+  const parts = [titleTooltip.value];
+  if (!props.disableDescriptionContextMenu && variant.value === 'sidebar') {
+    parts.push(t('taskCard.rightClickFillDescription'));
+  }
+  parts.push(t('taskCard.dragToCalendar'));
+  return parts.filter(Boolean).join('<br>');
+});
 const descriptionHtml = computed(() => sanitizeTaskHtml(task.value.description || ''));
 const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.value.description ?? '');
 const priorityTitle = computed(() => {
@@ -637,7 +646,7 @@ function handleContextMenu(event: MouseEvent) {
     event.stopPropagation();
     return;
   }
-  if (variant.value !== 'sidebar') {
+  if (props.disableDescriptionContextMenu || variant.value !== 'sidebar') {
     return;
   }
   const target = event.target instanceof Element

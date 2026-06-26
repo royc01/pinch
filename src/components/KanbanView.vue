@@ -685,6 +685,7 @@
                   :document-title-override="getTaskDocumentTitle(task)"
                   :document-icon-override="getTaskDocumentIcon(task)"
                   :document-icon-svg="getTaskDocumentIconSvg(task, kanbanFilterDocument)"
+                  :disable-description-context-menu="true"
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
                   :title-tooltip="isKanbanBatchEditMode ? t('taskManager.clickSelectTask') : ''"
                   @card-click="handleKanbanTaskCardClick"
@@ -830,6 +831,7 @@
                   :document-title-override="getTaskDocumentTitle(task)"
                   :document-icon-override="getTaskDocumentIcon(task)"
                   :document-icon-svg="getTaskDocumentIconSvg(task, listFilterDocument)"
+                  :disable-description-context-menu="true"
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
                   @card-click="handleKanbanTaskCardClick"
                   @open-click="handleKanbanTaskOpenClick"
@@ -913,7 +915,7 @@
       :show-lifelog="showCalendarLifelog"
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
-      @task-click="handleTaskClick"
+      @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
       @task-date-changed="handleTaskDateChanged"
       @task-create-requested="handleTaskCreateRequested"
@@ -933,7 +935,7 @@
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
-      @task-click="handleTaskClick"
+      @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
       @task-create-requested="handleTaskCreateRequested"
       @visible-range-change="handleWeekVisibleRangeChange"
@@ -954,7 +956,7 @@
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
-      @task-click="handleTaskClick"
+      @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
       @task-create-requested="handleTaskCreateRequested"
       @visible-range-change="handleWeekVisibleRangeChange"
@@ -976,7 +978,7 @@
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
-      @task-click="handleTaskClick"
+      @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
       @task-create-requested="handleTaskCreateRequested"
       @visible-range-change="handleWeekVisibleRangeChange"
@@ -1546,6 +1548,7 @@ import {
   compareTaskCreatedAtDesc,
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
+import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { refreshKernelTaskIndex } from '@/kernelRpc';
 import {
@@ -4994,7 +4997,7 @@ function matchesKanbanFiltersByDocumentScope(
   includeDocumentFilter: boolean,
   view: TaskViewMode = currentView.value
 ): boolean {
-  if (!task.title || task.title.trim() === '') return false;
+  if (!hasVisibleTaskTitle(task.title)) return false;
   if (task.type !== 'block') return false;
   if (task.archived) return false;
   if (!task.isVirtual && task.repeatSeriesId && todayVirtualSeriesIds.value.has(task.repeatSeriesId)) {
@@ -7505,6 +7508,7 @@ function matchesTableFiltersByArchivedState(
   archivedOnly: boolean,
   includeDocumentFilter: boolean = true
 ): boolean {
+  if (!hasVisibleTaskTitle(task.title)) return false;
   if (task.type !== 'block') return false;
   if (archivedOnly ? !task.archived : task.archived) return false;
   if (archivedOnly && task.isVirtual) return false;
@@ -10911,6 +10915,36 @@ async function focusKanbanEditorBlock(
   return false;
 }
 
+async function resolveKanbanEditorRootId(blockId: string, preferredRootId?: string): Promise<string> {
+  const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+  const normalizedPreferredRootId = typeof preferredRootId === 'string' ? preferredRootId.trim() : '';
+  if (!normalizedBlockId) {
+    return normalizedPreferredRootId;
+  }
+
+  try {
+    const rows = await sql(`
+      SELECT root_id
+      FROM blocks
+      WHERE id = '${escapeSqlLiteral(normalizedBlockId)}'
+      LIMIT 1
+    `) as Array<{ root_id?: string }>;
+    const rootId = typeof rows?.[0]?.root_id === 'string' ? rows[0].root_id.trim() : '';
+    return rootId || normalizedPreferredRootId;
+  } catch {
+    return normalizedPreferredRootId;
+  }
+}
+
+function scheduleKanbanEditorBlockRefocus(blockId: string, taskId: string): void {
+  window.setTimeout(() => {
+    if (!kanbanEditorVisible.value || kanbanEditorTaskId.value !== taskId) {
+      return;
+    }
+    void focusKanbanEditorBlock(blockId, 12, 100);
+  }, 160);
+}
+
 async function resolveKanbanEditorTargetTask(task: Task): Promise<Task | null> {
   if (task.type !== 'block') {
     return null;
@@ -10995,6 +11029,8 @@ async function openKanbanEditor(
     && kanbanEditorProtyle
   ) {
     resolveCalendarDockEditorTarget();
+    void focusKanbanEditorBlock(blockId);
+    scheduleKanbanEditorBlockRefocus(blockId, targetTask.id);
     return;
   }
   await ensureTaskGroupsLoaded();
@@ -11082,12 +11118,15 @@ async function openKanbanEditor(
         scroll: false
       }
     };
-    const rootId = typeof targetTask.rootId === 'string' ? targetTask.rootId.trim() : '';
+    const rootId = await resolveKanbanEditorRootId(blockId, targetTask.rootId);
     if (rootId) {
       options.rootId = rootId;
     }
     kanbanEditorProtyle = new Protyle(plugin.app, mountElement, options);
     await focusKanbanEditorBlock(blockId);
+    if (shouldUseCalendarDock) {
+      scheduleKanbanEditorBlockRefocus(blockId, targetTask.id);
+    }
     if (shouldUseCalendarDock) {
       resolveCalendarDockEditorTarget();
     } else {
