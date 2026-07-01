@@ -619,6 +619,12 @@ function stripHtml(value: string | undefined): string {
   return value.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
 }
 
+function hasVisibleTaskTitle(task: Task): boolean {
+  return stripHtml(task.title).length > 0;
+}
+
+const displayableTasks = computed(() => props.tasks.filter(hasVisibleTaskTitle));
+
 function isRepeatTask(task: Task): boolean {
   return !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none') || !!task.repeatInstanceDate || !!task.isVirtual;
 }
@@ -1493,7 +1499,7 @@ const scheduledTaskRows = computed<GanttRow[]>(() => {
   const start = timelineStart.value;
   const end = timelineEnd.value;
 
-  const bars = props.tasks
+  const bars = displayableTasks.value
     .map((task) => {
       const optimisticDates = optimisticTaskDates.value.get(task.id);
       const effectiveStartDate = optimisticDates?.startDate ?? task.startDate;
@@ -1618,7 +1624,7 @@ function buildUnscheduledRows(
   });
 
   const rowByKey = new Map<string, GanttRow>();
-  props.tasks.forEach((task) => {
+  displayableTasks.value.forEach((task) => {
     if (!matchesTask(task)) return;
 
     const repeatSeriesId = getRepeatSeriesId(task);
@@ -1690,7 +1696,7 @@ function buildGoalSections(): GanttSection[] {
     const scheduledRows = scheduledTaskRows.value.filter((row) => row.bars.some(bar => isTaskInGoal(bar.task, goal)));
     const unscheduledRows = buildGoalUnscheduledRows(goal, scheduledRows);
     const rows = [...scheduledRows, ...unscheduledRows];
-    const summaryTasks = props.tasks.filter(task => isTaskInGoal(task, goal));
+    const summaryTasks = displayableTasks.value.filter(task => isTaskInGoal(task, goal));
     if (rows.length === 0 && summaryTasks.length === 0) return;
 
     const effectiveDueDateValue = optimisticGoalDueDates.value.get(goal.id) ?? goal.dueDate;
@@ -1707,7 +1713,7 @@ function buildGoalSections(): GanttSection[] {
     });
   });
 
-  const unassignedSummaryTasks = props.tasks.filter(task => !isTaskInAnyGoal(task, goals));
+  const unassignedSummaryTasks = displayableTasks.value.filter(task => !isTaskInAnyGoal(task, goals));
   const unassignedRows = scheduledTaskRows.value
     .map<GanttRow | null>((row) => {
       const bars = row.bars.filter(bar => !isTaskInAnyGoal(bar.task, goals));
@@ -1744,7 +1750,7 @@ function buildDocumentSections(): GanttSection[] {
   const sectionByDocument = new Map<string, GanttSection>();
   const summaryTasksByDocument = new Map<string, Task[]>();
 
-  props.tasks.forEach((task) => {
+  displayableTasks.value.forEach((task) => {
     const id = getTaskDocumentId(task);
     const tasks = summaryTasksByDocument.get(id);
     if (tasks) {

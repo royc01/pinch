@@ -69,6 +69,11 @@
   </a>
 </div>
 
+## v2.3.3
+
+* [Fixed] Filtering of empty-text tasks in Goal View
+* [Fixed] Popup direction for tag and goal popovers in the task editor
+
 ## v2.3.2
 
 * [Fixed] Conflict between calendar view jump button and click-to-edit

@@ -751,7 +751,14 @@ function updatePropertyPopoverPosition(): void {
     return;
   }
   const rect = anchor.getBoundingClientRect();
+  const verticalGap = 6;
+  const viewportPadding = 8;
   const popoverWidth = Math.min(320, Math.max(240, rect.width));
+  const availableAbove = Math.max(
+    0,
+    rect.top - verticalGap - viewportPadding
+  );
+  const popoverMaxHeight = Math.min(320, window.innerHeight - viewportPadding * 2, availableAbove);
   const left = Math.min(
     window.innerWidth - popoverWidth - 8,
     Math.max(8, rect.right - popoverWidth)
@@ -759,8 +766,9 @@ function updatePropertyPopoverPosition(): void {
   propertyPopoverStyle.value = {
     position: 'fixed',
     left: `${Math.round(left)}px`,
-    top: `${Math.round(rect.bottom + 6)}px`,
-    width: `${Math.round(popoverWidth)}px`
+    bottom: `${Math.round(window.innerHeight - rect.top + verticalGap)}px`,
+    width: `${Math.round(popoverWidth)}px`,
+    maxHeight: `${Math.round(Math.max(80, popoverMaxHeight))}px`
   };
 }
 
