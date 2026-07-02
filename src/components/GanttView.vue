@@ -94,7 +94,7 @@
             <span class="gantt-section-toggle" aria-hidden="true">
               <Icon name="chevronDown" width="16" height="16" />
             </span>
-            <span class="gantt-section-icon">{{ row.emoji }}</span>
+            <EmojiIcon class="gantt-section-icon" :value="row.emoji" />
             <button
               type="button"
               class="gantt-row-title gantt-row-title-btn"
@@ -337,6 +337,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TaskRepository, setBlockAttrs } from '@/api';
 import type { Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from './Icon.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import TaskCheckbox from './TaskCheckbox.vue';

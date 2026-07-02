@@ -6085,54 +6085,53 @@ function startFocusForTask(task: Task): void {
 async function applyTaskDates(task: Task) {
   if (!task) return;
 
-  const nextStartDate = contextMenuDateDraft.value.startDate || null;
-  let nextDueDate = contextMenuDateDraft.value.dueDate || null;
-  const nextStartTime = contextMenuDateDraft.value.startTime || null;
-  const nextDueTime = contextMenuDateDraft.value.dueTime || null;
+  const nextStartDate = contextMenuDateDraft.value.startDate || '';
+  let nextDueDate = contextMenuDateDraft.value.dueDate || '';
+  const nextStartTime = contextMenuDateDraft.value.startTime || '';
+  const nextDueTime = contextMenuDateDraft.value.dueTime || '';
   if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
     nextDueDate = nextStartDate;
   }
 
   const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
   if (isRepeatTask) {
+    const seriesId = task.repeatSeriesId;
+    const templateTask = !task.isVirtual
+      ? task
+      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
+    const targetTask = templateTask || task;
     const updatedSeries = await updateRepeatSeriesDates(
-      task,
-      nextStartDate,
-      nextDueDate,
+      targetTask,
+      nextStartDate || null,
+      nextDueDate || null,
       {
-        startTime: nextStartTime,
-        dueTime: nextDueTime
+        startTime: nextStartTime || null,
+        dueTime: nextDueTime || null
       },
       { emitChange: false }
     );
     if (updatedSeries) {
-      const seriesId = task.repeatSeriesId;
-      const templateTask = !task.isVirtual
-        ? task
-        : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
-      if (templateTask) {
-        const updatedTask = patchLocalTask(templateTask.id, {
-          startDate: updatedSeries.startDate || null,
-          dueDate: updatedSeries.endDate || null,
+      const updatedTask = patchLocalTask(targetTask.id, {
+        startDate: updatedSeries.startDate || '',
+        dueDate: updatedSeries.endDate || '',
+        startTime: updatedSeries.startTime || undefined,
+        dueTime: updatedSeries.dueTime || undefined
+      });
+      try {
+        await TaskRepository.updateTask(targetTask.id, {
+          startDate: updatedSeries.startDate || '',
+          dueDate: updatedSeries.endDate || '',
           startTime: updatedSeries.startTime || undefined,
           dueTime: updatedSeries.dueTime || undefined
         });
-        if (updatedTask) {
-          emitTaskDateChanged(updatedTask);
-        }
-        if (templateTask.type === 'block' && templateTask.blockId) {
-          try {
-            await setBlockAttrs(templateTask.blockId, {
-              'custom-task-start-date': updatedSeries.startDate || '',
-              'custom-task-due-date': updatedSeries.endDate || '',
-              'custom-task-start-time': updatedSeries.startTime || '',
-              'custom-task-due-time': updatedSeries.dueTime || ''
-            });
-          } catch (error) {
-          }
-        }
+      } catch (error) {
+      }
+      if (updatedTask) {
+        emitTaskDateChanged(updatedTask);
+      }
+      if (targetTask.type === 'block' && targetTask.blockId) {
         notifyRepeatChanged({
-          blockId: templateTask.blockId,
+          blockId: targetTask.blockId,
           seriesId: updatedSeries.id,
           frequency: updatedSeries.frequency
         });
@@ -6148,20 +6147,19 @@ async function applyTaskDates(task: Task) {
     startTime: nextStartTime || undefined,
     dueTime: nextDueTime || undefined
   });
-  if (updatedTask) {
-    emitTaskDateChanged(updatedTask);
+
+  try {
+    await TaskRepository.updateTask(task.id, {
+      startDate: nextStartDate,
+      dueDate: nextDueDate,
+      startTime: nextStartTime || undefined,
+      dueTime: nextDueTime || undefined
+    });
+  } catch (error) {
   }
 
-  if (task.type === 'block' && task.blockId) {
-    try {
-      await setBlockAttrs(task.blockId, {
-        'custom-task-start-date': nextStartDate || '',
-        'custom-task-due-date': nextDueDate || '',
-        'custom-task-start-time': nextStartTime || '',
-        'custom-task-due-time': nextDueTime || ''
-      });
-    } catch (error) {
-    }
+  if (updatedTask) {
+    emitTaskDateChanged(updatedTask);
   }
 
   hideContextMenu();
@@ -6169,60 +6167,6 @@ async function applyTaskDates(task: Task) {
 
 async function clearTaskDates(task: Task): Promise<void> {
   if (!task) return;
-
-  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-  if (isRepeatTask) {
-    const seriesId = task.repeatSeriesId;
-    const templateTask = !task.isVirtual
-      ? task
-      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
-    const targetTask = templateTask || task;
-
-    localTasks.value = localTasks.value.filter(
-      item => !item.isVirtual || item.repeatSeriesId !== seriesId
-    );
-
-    notifyRepeatChanged({
-      blockId: targetTask.blockId,
-      seriesId: seriesId,
-      frequency: 'none'
-    });
-
-    const patchedTask = patchLocalTask(targetTask.id, {
-      repeatFrequency: 'none',
-      repeatSeriesId: undefined,
-      repeatInstanceDate: undefined,
-      isVirtual: false,
-      startDate: null,
-      dueDate: null,
-      startTime: undefined,
-      dueTime: undefined
-    });
-
-    if (patchedTask) {
-      emitTaskDateChanged(patchedTask);
-    }
-
-    if (targetTask.type === 'block' && targetTask.blockId) {
-      try {
-        await setBlockAttrs(targetTask.blockId, {
-          'custom-task-start-date': '',
-          'custom-task-due-date': '',
-          'custom-task-start-time': '',
-          'custom-task-due-time': ''
-        });
-      } catch (error) {
-      }
-    }
-
-    try {
-      await TaskRepository.setTaskRepeatRule(targetTask, 'none');
-    } catch (error) {
-    }
-
-    hideContextMenu();
-    return;
-  }
 
   contextMenuDateDraft.value = {
     startDate: '',

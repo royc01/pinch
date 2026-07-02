@@ -3,7 +3,7 @@
     <div class="checkin-note-dialog" @click.stop>
       <div class="checkin-note-header">
         <div class="checkin-note-title">
-          <span v-if="habitEmoji" class="habit-emoji-display">{{ habitEmoji }}</span>
+          <EmojiIcon v-if="habitEmoji" class="habit-emoji-display" :value="habitEmoji" />
           <span>{{ habitName }} - {{ isEdit ? t('habitCheckinNote.editTitleSuffix') : t('habitCheckinNote.createTitleSuffix') }}</span>
         </div>
         <button
@@ -78,6 +78,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import Icon from '@/components/Icon.vue';
 import { useI18n } from '@/composables/useI18n';

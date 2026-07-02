@@ -47,7 +47,7 @@
           <div class="goal-card-head">
             <div class="goal-card-main">
               <div class="goal-card-title-row">
-                <span class="goal-card-flag" aria-hidden="true">{{ goal.emoji || '🎯' }}</span>
+                <EmojiIcon class="goal-card-flag" :value="goal.emoji" fallback="🎯" aria-hidden="true" />
                 <span class="goal-card-title">{{ goal.name }}</span>
                 <span v-if="goal.status === 'completed'" class="goal-state-chip success">{{ t('taskManager.statusCompleted') }}</span>
                 <span v-else-if="goal.scopeCount === 0" class="goal-state-chip muted">{{ t('goalPanel.noScopeSelected') }}</span>
@@ -104,6 +104,7 @@
 import { nextTick, ref, watch } from 'vue';
 import { showMessage } from 'siyuan';
 import { TaskRepository, lsNotebooks } from '@/api';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import TaskScopeDialog, { type TaskScopeDialogSavePayload } from '@/components/TaskScopeDialog.vue';
 import { useGoals, type GoalListItem } from '@/composables/useGoals';
 import { useUserSettings } from '@/composables/useUserSettings';

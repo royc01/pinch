@@ -16,7 +16,7 @@
         <div class="habit-week-view">
           <div class="week-habit-item">
             <div class="emoji-section" @click="emit('show-stats', habit)">
-              <span class="habit-emoji">{{ habit.emoji || fallbackHabitEmoji }}</span>
+              <EmojiIcon class="habit-emoji" :value="habit.emoji" :fallback="fallbackHabitEmoji" />
             </div>
             <div class="habit-info" @click="emit('show-stats', habit)">
               <div class="habit-title">
@@ -200,6 +200,7 @@
 <script setup lang="ts">
 import { ref, toRefs } from 'vue';
 import type { Habit } from '@/api';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';

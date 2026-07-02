@@ -70,7 +70,7 @@
       <div class="habit-stat-item" v-for="habit in habits" :key="habit.id">
         <div class="habit-stat-content">
           <div class="habit-stat-header">
-            <div class="habit-emoji-large">{{ habit.emoji || '📝' }}</div>
+            <EmojiIcon class="habit-emoji-large" :value="habit.emoji" fallback="📝" />
             <span class="habit-name">{{ habit.name }}</span>
             <span class="habit-created">{{ getCreatedDateText(habit) }}</span>
           </div>
@@ -101,6 +101,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Habit } from '@/api';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import { useI18n } from '@/composables/useI18n';
 import { getSiyuanIntlLocaleTag } from '@/utils/locale';
 import Icon from './Icon.vue';

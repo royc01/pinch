@@ -106,7 +106,7 @@
              
               @click="openShopIconPicker($event)"
             >
-              <span class="shop-icon-picker-display">{{ shopForm.icon || '🎁' }}</span>
+              <EmojiIcon class="shop-icon-picker-display" :value="shopForm.icon" fallback="🎁" />
             </button>
           </label>
         </div>
@@ -136,7 +136,9 @@
         <div v-for="item in rewardSnapshot.shopItems" :key="item.id" class="shop-card-wrapper">
           <div class="shop-card">
             <div class="shop-card-head">
-              <div class="shop-card-icon">{{ item.icon || '🎁' }}</div>
+              <div class="shop-card-icon">
+                <EmojiIcon :value="item.icon" fallback="🎁" />
+              </div>
               <div class="shop-card-main">
                 <div class="shop-card-title">{{ item.title }}</div>
                 <div v-if="item.description" class="shop-card-description">{{ item.description }}</div>
@@ -179,7 +181,7 @@
                  
                   @click="openShopIconPicker($event)"
                 >
-                  <span class="shop-icon-picker-display">{{ shopForm.icon || '🎁' }}</span>
+                  <EmojiIcon class="shop-icon-picker-display" :value="shopForm.icon" fallback="🎁" />
                 </button>
               </label>
             </div>
@@ -226,6 +228,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
 import { openEmoji } from 'siyuan';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import {
   addRewardShopItem,
   deleteRewardShopItem,
@@ -361,8 +364,8 @@ function openShopIconPicker(event: MouseEvent): void {
     selectedCB: (emoji: string) => {
       shopForm.value.icon = normalizeEmojiValue(emoji);
     },
-    hideDynamicIcon: true,
-    hideCustomIcon: true
+    hideDynamicIcon: false,
+    hideCustomIcon: false
   });
 }
 

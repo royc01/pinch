@@ -280,6 +280,14 @@ export async function getHPathByID(id: BlockId): Promise<string> {
   return request(url, data);
 }
 
+export async function getPathByID(id: BlockId): Promise<{ notebook?: string; path?: string } | null> {
+  let data = {
+    id: id,
+  };
+  let url = "/api/filetree/getPathByID";
+  return request(url, data);
+}
+
 export async function getIDsByHPath(
   notebook: NotebookId,
   path: string

@@ -111,7 +111,7 @@
             <Icon name="source" width="16" height="16" class="task-manager-notebook-icon" />
           </label>
           <div class="filter-select-wrap">
-            <SySelect
+            <SourceFilterSelect
               :model-value="filterNotebook"
               @update:model-value="filterNotebook = $event"
               :options="notebookOptions"
@@ -769,6 +769,7 @@ import TaskModal, { type Notebook, type Document as TaskDocument } from '@/compo
 import TaskScopeDialog, { type TaskScopeDialogSavePayload } from '@/components/TaskScopeDialog.vue';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
+import SourceFilterSelect from '@/components/SourceFilterSelect.vue';
 import Icon from '@/components/Icon.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
@@ -2397,11 +2398,13 @@ const notebookOptions = computed(() => {
     })),
     ...sortDocumentGroups(documentGroups.value).map(group => ({
       value: buildGroupDocumentSource(group.id),
-      text: `🏷 ${group.name}`
+      text: group.name,
+      icon: '🏷'
     })),
     ...activeGoalItems.value.map(goal => ({
       value: buildGoalDocumentSource(goal.id),
-      text: `${goal.emoji || '🎯'} ${goal.name || t('taskManager.untitledGoal')}`
+      text: goal.name || t('taskManager.untitledGoal'),
+      icon: goal.emoji || '🎯'
     }))
   ];
 });

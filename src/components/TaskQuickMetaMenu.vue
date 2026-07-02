@@ -148,6 +148,7 @@
             :start-date="startDate"
             :start-time="startTime"
             :due-time="dueTime"
+            @update:dateFields="emitDateFields"
             @update:modelValue="emitDueDate"
             @update:startDate="emitStartDate"
             @update:startTime="emitStartTime"
@@ -321,6 +322,19 @@ function emitGoalToggle(goalId: string): void {
 
 function emitStartDate(value: string): void {
   emit('update:startDate', value);
+  saveWithoutClosing(160);
+}
+
+function emitDateFields(value: {
+  startDate: string;
+  startTime: string;
+  dueDate: string;
+  dueTime: string;
+}): void {
+  emit('update:startDate', value.startDate);
+  emit('update:startTime', value.startTime);
+  emit('update:dueDate', value.dueDate);
+  emit('update:dueTime', value.dueTime);
   saveWithoutClosing(160);
 }
 

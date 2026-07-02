@@ -69,6 +69,14 @@
   </a>
 </div>
 
+## v2.3.4
+
+* [New] Top-level document tabs are shown when descendant documents contain tasks, even if the current document has no task blocks
+* [New] Support for custom icons and dynamic icons
+* [Optimized] Changed the calendar view loading mechanism
+* [Fixed] Calendar view right-click date clearing bug
+* [Fixed] Quick date popover date clearing bug
+
 ## v2.3.3
 
 * [Fixed] Filtering of empty-text tasks in Goal View

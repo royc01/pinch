@@ -1,4 +1,5 @@
 const PINCH_KERNEL_PLUGIN_NAME = "pinch";
+const PINCH_KERNEL_RPC_TIMEOUT_MS = 12000;
 
 type JsonRpcSuccess<T> = {
   jsonrpc: "2.0";
@@ -69,15 +70,30 @@ export type KernelTaskStatsResult = {
 
 export async function callPinchKernel<T>(method: string, params?: unknown): Promise<T> {
   const id = Date.now();
-  const response = await fetch(`/api/plugin/rpc/${PINCH_KERNEL_PLUGIN_NAME}`, {
-    method: "POST",
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id,
-      method,
-      ...(params === undefined ? {} : { params }),
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => {
+    controller.abort();
+  }, PINCH_KERNEL_RPC_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`/api/plugin/rpc/${PINCH_KERNEL_PLUGIN_NAME}`, {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id,
+        method,
+        ...(params === undefined ? {} : { params }),
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if ((error as { name?: string })?.name === "AbortError") {
+      throw new Error(`Kernel RPC request timed out: ${method}`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     throw new Error(`Kernel RPC request failed: HTTP ${response.status}`);

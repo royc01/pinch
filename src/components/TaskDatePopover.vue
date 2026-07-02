@@ -175,6 +175,12 @@ import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepos
 import { useI18n } from '@/composables/useI18n';
 
 type DateQuickKey = 'today' | 'tomorrow' | 'weekend' | 'nextMonday' | 'thisWeek' | 'thisMonth' | 'thisYear';
+type TaskDateFields = {
+  startDate: string;
+  startTime: string;
+  dueDate: string;
+  dueTime: string;
+};
 type CalendarDay = {
   key: string;
   label: number;
@@ -213,6 +219,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
+  'update:dateFields': [value: TaskDateFields];
   'update:startDate': [value: string];
   'update:startTime': [value: string];
   'update:dueTime': [value: string];
@@ -431,6 +438,18 @@ function selectDate(dateStr: string): void {
 }
 
 function clearSelection(): void {
+  if (showTaskEditorDetails.value) {
+    emit('update:dateFields', {
+      startDate: '',
+      startTime: '',
+      dueDate: '',
+      dueTime: ''
+    });
+    if (props.autoClose) {
+      emit('close');
+    }
+    return;
+  }
   emitSelection('');
 }
 

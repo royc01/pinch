@@ -35,7 +35,7 @@
                
                 @click.stop="openGoalEmojiPicker(goal.id, $event)"
               >
-                <span class="goal-emoji-display">{{ goal.emoji || '🎯' }}</span>
+                <EmojiIcon class="goal-emoji-display" :value="goal.emoji" fallback="🎯" />
               </button>
               <SyInput
                 class="goal-name-input"
@@ -155,6 +155,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { openEmoji } from 'siyuan';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
@@ -322,8 +323,8 @@ function openGoalEmojiPicker(goalId: string, event: MouseEvent): void {
     selectedCB: (emoji: string) => {
       updateGoalEmoji(goalId, emoji);
     },
-    hideDynamicIcon: true,
-    hideCustomIcon: true
+    hideDynamicIcon: false,
+    hideCustomIcon: false
   });
 }
 

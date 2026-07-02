@@ -60,7 +60,7 @@
           <div v-if="showSourceFilterBar" class="filter-bar-inline">
             <div class="filter-group">
               <label>{{ t('taskManager.source') }}:</label>
-              <SySelect
+              <SourceFilterSelect
                 :model-value="activeSourceFilterType"
                 @update:model-value="activeSourceFilterType = String($event || 'all')"
                 :options="sourceOptions"
@@ -1516,7 +1516,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { Protyle, getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, resolveTaskRepeatMaterializeOptions, getHabits, saveHabits, type Habit, type TaskRepeatWindow } from '../api';
+import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getPathByID, getIDsByHPath, resolveTaskRepeatMaterializeOptions, getHabits, saveHabits, type Habit, type TaskRepeatWindow } from '../api';
 import {
   extractDocumentIconFromBlockRow,
   extractDocumentIconFromDom,
@@ -1561,6 +1561,7 @@ import {
   type TaskViewGroupMode
 } from '@/utils/taskGrouping';
 import Icon from '@/components/Icon.vue';
+import SourceFilterSelect from '@/components/SourceFilterSelect.vue';
 import CalendarTaskEditorPanel, { type CalendarTaskEditorColorOption } from '@/components/CalendarTaskEditorPanel.vue';
 import TaskCard from '@/components/TaskCard.vue';
 import TaskModal, { type Notebook as TaskModalNotebook, type Document as TaskModalDocument } from '@/components/TaskModal.vue';
@@ -1722,6 +1723,12 @@ type DocumentFilterOption = {
   text: string;
   notebookId?: string;
   notebookName?: string;
+};
+type TopLevelDocumentInfo = {
+  id: string;
+  name: string;
+  notebookId: string;
+  path?: string;
 };
 type DocumentTabContextMenuState = {
   x: number;
@@ -2299,10 +2306,13 @@ const documentTabContextMenu = ref<DocumentTabContextMenuState | null>(null);
 const documentTabContextMenuRef = ref<HTMLElement | null>(null);
 const documentIconByRootId = ref<Map<string, string>>(new Map());
 const documentMetadataByRootId = ref<Map<string, RootDocumentMetadata>>(new Map());
+const topLevelDocumentByTaskRootKey = ref<Map<string, TopLevelDocumentInfo>>(new Map());
 let documentIconRefreshTimer: number | null = null;
 let documentIconRefreshSeq = 0;
 let documentMetadataRefreshTimer: number | null = null;
 let documentMetadataRefreshSeq = 0;
+let topLevelDocumentRefreshTimer: number | null = null;
+let topLevelDocumentRefreshSeq = 0;
 const taskViewGroupMenuVisible = ref(false);
 const taskViewGroupMenuControlRef = ref<HTMLElement | null>(null);
 const taskViewGroupMenuPopoverRef = ref<HTMLElement | null>(null);
@@ -3201,6 +3211,19 @@ const documentGroupsById = computed(() =>
 const goalDefinitionsById = computed(() =>
   new Map(goalDefinitions.value.map(goal => [goal.id, goal]))
 );
+const documentScopeMetadataByRootId = computed(() => {
+  const metadataByRootId = new Map<string, RootDocumentMetadata>(documentMetadataByRootId.value);
+  topLevelDocumentByTaskRootKey.value.forEach((info) => {
+    if (!metadataByRootId.has(info.id)) {
+      metadataByRootId.set(info.id, {
+        id: info.id,
+        name: info.name,
+        path: info.path
+      });
+    }
+  });
+  return metadataByRootId;
+});
 const documentTitleByRootId = computed(() => {
   const titleByRootId = new Map<string, string>();
   for (const task of tasks.value) {
@@ -3218,7 +3241,7 @@ const documentTitleByRootId = computed(() => {
       name: fallbackMetadata?.name
     }));
   }
-  documentMetadataByRootId.value.forEach((metadata, rootId) => {
+  documentScopeMetadataByRootId.value.forEach((metadata, rootId) => {
     if (!titleByRootId.has(rootId)) {
       titleByRootId.set(rootId, resolveDocumentDisplayName({
         id: rootId,
@@ -3230,7 +3253,7 @@ const documentTitleByRootId = computed(() => {
   return titleByRootId;
 });
 const taskDocumentPathLookup = computed(() =>
-  buildTaskDocumentPathLookup(tasks.value, documentMetadataByRootId.value)
+  buildTaskDocumentPathLookup(tasks.value, documentScopeMetadataByRootId.value)
 );
 const notebookOptions = computed(() => [
   { value: 'all', text: t('taskManager.all') },
@@ -3245,11 +3268,13 @@ const sourceOptions = computed(() => [
   })),
   ...sortedDocumentGroups.value.map(group => ({
     value: buildGroupDocumentSource(group.id),
-    text: `🏷 ${group.name}`
+    text: group.name,
+    icon: '🏷'
   })),
   ...goalItems.value.map(goal => ({
     value: buildGoalDocumentSource(goal.id),
-    text: `${goal.emoji || '🎯'} ${goal.name || t('taskManager.untitledGoal')}`
+    text: goal.name || t('taskManager.untitledGoal'),
+    icon: goal.emoji || '🎯'
   }))
 ]);
 const taskModalNotebooks = computed<TaskModalNotebook[]>(() =>
@@ -5113,28 +5138,49 @@ function getDocumentEntriesByNotebook(
       continue;
     }
 
-    let documentMeta = docs.get(task.rootId);
-    if (!documentMeta) {
-      const fallbackMetadata = documentMetadataByRootId.value.get(task.rootId);
-      const hPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
-      documentMeta = {
-        hPath: hPath || fallbackMetadata?.path || '',
-        name: fallbackMetadata?.name || '',
-        notebookId: taskNotebookId,
-        hasVisibleActiveTask: false
-      };
-      docs.set(task.rootId, documentMeta);
-    }
-    if (!documentMeta.hPath && typeof task.hPath === 'string' && task.hPath.trim().length > 0) {
-      documentMeta.hPath = task.hPath.trim();
+    const hPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
+    const topLevelDocument = topLevelDocumentByTaskRootKey.value.get(`${taskNotebookId}:${task.rootId}`);
+    const visibleEntries: Array<{ id: string; path?: string; name?: string }> = [{
+      id: task.rootId,
+      path: hPath,
+      name: documentScopeMetadataByRootId.value.get(task.rootId)?.name
+    }];
+    if (topLevelDocument && topLevelDocument.id !== task.rootId) {
+      visibleEntries.push({
+        id: topLevelDocument.id,
+        path: topLevelDocument.path,
+        name: topLevelDocument.name
+      });
     }
 
-    if (task.archived) {
-      continue;
-    }
-    if (!excludeCompletedOnlyDocs || !isTaskCompletedVisual(task)) {
-      documentMeta.hasVisibleActiveTask = true;
-    }
+    const markVisibleActiveTask = !task.archived && (!excludeCompletedOnlyDocs || !isTaskCompletedVisual(task));
+    visibleEntries.forEach((entry) => {
+      const documentId = entry.id;
+      let documentMeta = docs.get(documentId);
+      if (!documentMeta) {
+        const fallbackMetadata = documentScopeMetadataByRootId.value.get(documentId);
+        documentMeta = {
+          hPath: entry.path || fallbackMetadata?.path || '',
+          name: entry.name || fallbackMetadata?.name || '',
+          notebookId: taskNotebookId,
+          hasVisibleActiveTask: false
+        };
+        docs.set(documentId, documentMeta);
+      }
+      if (!documentMeta.hPath && entry.path) {
+        documentMeta.hPath = entry.path;
+      }
+      const fallbackMetadata = documentScopeMetadataByRootId.value.get(documentId);
+      if (!documentMeta.hPath && fallbackMetadata?.path) {
+        documentMeta.hPath = fallbackMetadata.path;
+      }
+      if (!documentMeta.name && (entry.name || fallbackMetadata?.name)) {
+        documentMeta.name = entry.name || fallbackMetadata?.name || '';
+      }
+      if (markVisibleActiveTask) {
+        documentMeta.hasVisibleActiveTask = true;
+      }
+    });
   }
 
   if (excludeCompletedOnlyDocs) {
@@ -5215,20 +5261,28 @@ function getDocumentEntriesBySource(
     if (!normalizedNotebookId || !normalizedDocumentId) {
       return;
     }
-    const key = `${normalizedNotebookId}:${normalizedDocumentId}`;
-    if (!enabledNotebookNameById.value.has(normalizedNotebookId) || seen.has(key)) {
-      return;
-    }
-    const existing = allDocsByKey.get(key);
-    if (!existing) {
-      return;
-    }
-    seen.add(key);
-    const notebookName = enabledNotebookNameById.value.get(normalizedNotebookId) || normalizedNotebookId;
-    result.push({
-      id: existing.id,
-      notebookId: existing.notebookId,
-      name: includeNotebookName ? `${notebookName} / ${existing.name}` : existing.name
+    const topLevelDocument = topLevelDocumentByTaskRootKey.value.get(`${normalizedNotebookId}:${normalizedDocumentId}`);
+    const targetDocumentIds = [
+      topLevelDocument?.id,
+      normalizedDocumentId
+    ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+
+    targetDocumentIds.forEach((targetDocumentId) => {
+      const key = `${normalizedNotebookId}:${targetDocumentId}`;
+      if (!enabledNotebookNameById.value.has(normalizedNotebookId) || seen.has(key)) {
+        return;
+      }
+      const existing = allDocsByKey.get(key);
+      if (!existing) {
+        return;
+      }
+      seen.add(key);
+      const notebookName = enabledNotebookNameById.value.get(normalizedNotebookId) || normalizedNotebookId;
+      result.push({
+        id: existing.id,
+        notebookId: existing.notebookId,
+        name: includeNotebookName ? `${notebookName} / ${existing.name}` : existing.name
+      });
     });
   };
 
@@ -5406,6 +5460,98 @@ async function refreshTaskDocumentMetadata(): Promise<void> {
   }
 }
 
+function extractTopLevelDocumentIdFromStoragePath(path: unknown, fallbackId: string): string {
+  const normalizedPath = typeof path === 'string'
+    ? path.trim().replace(/\\/g, '/')
+    : '';
+  const firstSegment = normalizedPath
+    .split('/')
+    .map(segment => segment.trim())
+    .filter(segment => segment.length > 0)[0] || '';
+  const documentId = firstSegment.replace(/\.sy$/i, '').trim();
+  return documentId || fallbackId;
+}
+
+async function refreshTopLevelDocumentMetadata(): Promise<void> {
+  const seq = ++topLevelDocumentRefreshSeq;
+  const rootItemsByKey = new Map<string, { notebookId: string; rootId: string }>();
+  const addRootItem = (notebookId: unknown, rootId: unknown): void => {
+    const normalizedNotebookId = typeof notebookId === 'string' ? notebookId.trim() : '';
+    const normalizedRootId = typeof rootId === 'string' ? rootId.trim() : '';
+    if (!normalizedNotebookId || !normalizedRootId) {
+      return;
+    }
+    rootItemsByKey.set(`${normalizedNotebookId}:${normalizedRootId}`, {
+      notebookId: normalizedNotebookId,
+      rootId: normalizedRootId
+    });
+  };
+
+  tasks.value.forEach((task) => {
+    if (task.type === 'block') {
+      addRootItem(task.notebookId, task.rootId);
+    }
+  });
+  sortedDocumentGroups.value.forEach((group) => {
+    group.members.forEach(member => addRootItem(member.notebookId, member.documentId));
+  });
+  goalDefinitions.value.forEach((goal) => {
+    goal.members.forEach(member => addRootItem(member.notebookId, member.documentId));
+    (goal.taskMembers || []).forEach(member => addRootItem(member.notebookId, member.rootId));
+  });
+
+  const taskRoots = Array.from(rootItemsByKey.values());
+
+  if (taskRoots.length === 0) {
+    if (seq === topLevelDocumentRefreshSeq) {
+      topLevelDocumentByTaskRootKey.value = new Map();
+    }
+    return;
+  }
+
+  const pathResults = await Promise.all(taskRoots.map(async (item) => {
+    try {
+      const response = await getPathByID(item.rootId);
+      const notebookId = typeof response?.notebook === 'string' && response.notebook.trim().length > 0
+        ? response.notebook.trim()
+        : item.notebookId;
+      return {
+        ...item,
+        notebookId,
+        topLevelId: extractTopLevelDocumentIdFromStoragePath(response?.path, item.rootId)
+      };
+    } catch {
+      return {
+        ...item,
+        topLevelId: item.rootId
+      };
+    }
+  }));
+
+  const topLevelIds = Array.from(new Set(pathResults.map(item => item.topLevelId).filter(id => id.length > 0)));
+  const metadataByRootId = await loadRootDocumentMetadata(topLevelIds);
+  if (seq !== topLevelDocumentRefreshSeq) {
+    return;
+  }
+
+  const nextMap = new Map<string, TopLevelDocumentInfo>();
+  pathResults.forEach((item) => {
+    const metadata = metadataByRootId.get(item.topLevelId);
+    const path = metadata?.path || '';
+    nextMap.set(`${item.notebookId}:${item.rootId}`, {
+      id: item.topLevelId,
+      notebookId: item.notebookId,
+      name: resolveDocumentDisplayName({
+        id: item.topLevelId,
+        path,
+        name: metadata?.name
+      }),
+      path: path || undefined
+    });
+  });
+  topLevelDocumentByTaskRootKey.value = nextMap;
+}
+
 function scheduleTaskDocumentIconRefresh(delay = 80): void {
   if (documentIconRefreshTimer !== null) {
     clearTimeout(documentIconRefreshTimer);
@@ -5423,6 +5569,16 @@ function scheduleTaskDocumentMetadataRefresh(delay = 80): void {
   documentMetadataRefreshTimer = window.setTimeout(() => {
     documentMetadataRefreshTimer = null;
     void refreshTaskDocumentMetadata();
+  }, delay);
+}
+
+function scheduleTopLevelDocumentMetadataRefresh(delay = 80): void {
+  if (topLevelDocumentRefreshTimer !== null) {
+    clearTimeout(topLevelDocumentRefreshTimer);
+  }
+  topLevelDocumentRefreshTimer = window.setTimeout(() => {
+    topLevelDocumentRefreshTimer = null;
+    void refreshTopLevelDocumentMetadata();
   }, delay);
 }
 
@@ -13283,10 +13439,18 @@ onMounted(async () => {
   }
 
   if (!shouldRunMountedReconcile) {
-    await loadTasks(false, {
+    const shouldLoadInitialTasksInBackground = initialLoadMode === 'light-with-repeats';
+    const initialTaskLoadPromise = loadTasks(false, {
+      silent: shouldLoadInitialTasksInBackground,
       validateSelection: false,
-      mode: initialLoadMode
+      mode: initialLoadMode,
+      view: initialView
     });
+    if (shouldLoadInitialTasksInBackground) {
+      void initialTaskLoadPromise;
+    } else {
+      await initialTaskLoadPromise;
+    }
   }
   if (isCalendarTaskViewMode(currentView.value)) {
     void ensureCalendarLifelogTasksLoaded(true);
@@ -13393,6 +13557,10 @@ onUnmounted(() => {
     cancelAnimationFrame(listViewMetricsRaf);
     listViewMetricsRaf = null;
   }
+  if (topLevelDocumentRefreshTimer !== null) {
+    clearTimeout(topLevelDocumentRefreshTimer);
+    topLevelDocumentRefreshTimer = null;
+  }
   pendingKanbanMetricColumnIds.clear();
   kanbanColumnElements.clear();
   kanbanColumnTaskHeightCache.clear();
@@ -13424,12 +13592,39 @@ const taskDocumentMetadataWatchSignature = computed(() =>
     .join('|')
 );
 
+const topLevelDocumentMetadataWatchSignature = computed(() =>
+  [
+    ...tasks.value
+    .filter(task => task.type === 'block')
+    .map(task => {
+      const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+      const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+      const hPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
+      return notebookId && rootId ? `${notebookId}:${rootId}:${hPath}` : '';
+    }),
+    ...sortedDocumentGroups.value.flatMap(group =>
+      group.members.map(member => `${member.notebookId}:${member.documentId}:${member.path || ''}`)
+    ),
+    ...goalDefinitions.value.flatMap(goal => [
+      ...goal.members.map(member => `${member.notebookId}:${member.documentId}:${member.path || ''}`),
+      ...(goal.taskMembers || []).map(member => `${member.notebookId || ''}:${member.rootId || ''}`)
+    ])
+  ]
+    .filter(value => value.length > 0)
+    .sort()
+    .join('|')
+);
+
 watch(taskDocumentIconWatchSignature, () => {
   scheduleTaskDocumentIconRefresh();
 }, { immediate: true });
 
 watch(taskDocumentMetadataWatchSignature, () => {
   scheduleTaskDocumentMetadataRefresh();
+}, { immediate: true });
+
+watch(topLevelDocumentMetadataWatchSignature, () => {
+  scheduleTopLevelDocumentMetadataRefresh();
 }, { immediate: true });
 
 watch(documentTabPopoverOptions, () => {
@@ -14649,7 +14844,8 @@ watch(kanbanColumns, () => {
   flex-shrink: 0;
 }
 
-.filter-group select {
+.filter-group select,
+.filter-group :deep(.b3-select) {
   border-radius: 6px;
   color: var(--b3-theme-on-background);
   font-size: 14px;

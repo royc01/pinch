@@ -32,7 +32,7 @@
               type="default"
               size="small"
               class="emoji-picker-btn">
-              <span v-if="localHabit.emoji" class="emoji-display">{{ localHabit.emoji }}</span>
+              <EmojiIcon v-if="localHabit.emoji" class="emoji-display" :value="localHabit.emoji" />
               <span v-else>{{ t('habitTracker.selectIcon') }}</span>
             </SyButton>
           </div>
@@ -171,6 +171,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import { openEmoji } from 'siyuan';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
@@ -430,8 +431,8 @@ const openEmojiPicker = (event: MouseEvent) => {
         localHabit.value.emoji = normalizeEmojiValue(emoji);
       }
     },
-    hideDynamicIcon: true,
-    hideCustomIcon: true
+    hideDynamicIcon: false,
+    hideCustomIcon: false
   });
 };
 

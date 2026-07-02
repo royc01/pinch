@@ -15,7 +15,7 @@
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
-      <div class="stats-emoji">{{ habit.emoji || '📝' }}</div>
+      <EmojiIcon class="stats-emoji" :value="habit.emoji" fallback="📝" />
       <div class="habit-meta">
         <span class="habit-frequency">{{ getFrequencyText(habit) }}</span>
         <span class="habit-created">{{ getCreatedDateText(habit) }}</span>
@@ -168,6 +168,7 @@
 </template>
 
 <script setup lang="ts">
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from './Icon.vue';
 import SyButton from './SiyuanTheme/SyButton.vue';
 import type { Habit } from '@/api';

@@ -16,6 +16,7 @@
       :show-repeat-editor="true"
       :repeat-frequency="repeatFrequency"
       :repeat-rule="repeatRule"
+      @update:dateFields="handleDateFieldsUpdate"
       @update:modelValue="handleDueSelect"
       @update:startDate="handleStartDateUpdate"
       @update:startTime="handleStartTimeUpdate"
@@ -604,6 +605,10 @@ function toggleStatusPanel(): void {
 
 function handleDueSelect(value: string): void {
   emitDateFields({ dueDate: value });
+}
+
+function handleDateFieldsUpdate(value: TaskEditorDateFields): void {
+  emit('update-dates', value);
 }
 
 function handleStartDateUpdate(value: string): void {
