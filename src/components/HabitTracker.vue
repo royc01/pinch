@@ -2002,7 +2002,7 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
     right: 0;
     bottom: 0;
     z-index: 3;
-    background: var(--b3-theme-background);
+    background: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
     box-sizing: border-box;
     padding: 12px;
     display: flex;
@@ -2043,7 +2043,6 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
   .habit-manage-panel-body {
     flex: 1;
     min-height: 0;
-    overflow: auto;
     overscroll-behavior: contain;
   }
 

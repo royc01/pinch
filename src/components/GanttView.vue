@@ -827,7 +827,6 @@ function applyContextMenuDates(task: Task): void {
     dueDate,
     dueTime: contextMenuDateDraft.value.dueTime || undefined
   });
-  hideContextMenu();
 }
 
 function clearContextMenuDates(task: Task): void {
@@ -839,7 +838,6 @@ function clearContextMenuDates(task: Task): void {
     dueDate: '',
     dueTime: undefined
   });
-  hideContextMenu();
 }
 
 async function setTaskBackgroundColor(task: Task, color: string): Promise<void> {

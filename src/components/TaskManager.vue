@@ -3891,10 +3891,14 @@ const filteredTasks = computed(() => {
   const includeCompleted = mode === 'active' ? showCompletedTasks.value : true;
   const searchKeyword = taskSearchQuery.value.trim().toLocaleLowerCase();
   const todayStart = getTodayStartTimestamp();
+  const virtualRepeatSeriesIds = new Set<string>();
   const todayVirtualSeriesIds = new Set<string>();
   for (const task of baseFilteredTasks.value) {
-    if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
-      todayVirtualSeriesIds.add(task.repeatSeriesId);
+    if (task.isVirtual && task.repeatSeriesId) {
+      virtualRepeatSeriesIds.add(task.repeatSeriesId);
+      if (isVirtualTaskForToday(task)) {
+        todayVirtualSeriesIds.add(task.repeatSeriesId);
+      }
     }
   }
   let domOrderMap: Map<string, number> | undefined;
@@ -3905,7 +3909,7 @@ const filteredTasks = computed(() => {
     return domOrderMap;
   };
   const baseFiltered = baseFilteredTasks.value.filter(task => {
-    if (!task.isVirtual && task.repeatSeriesId && todayVirtualSeriesIds.has(task.repeatSeriesId)) {
+    if (!task.isVirtual && task.repeatSeriesId && virtualRepeatSeriesIds.has(task.repeatSeriesId)) {
       return false;
     }
     if (task.isVirtual && !isVirtualTaskForToday(task)) {
@@ -5442,6 +5446,11 @@ function setupEventListeners() {
     const now = Date.now();
     const taskId = typeof updatedTask.id === 'string' ? updatedTask.id : '';
     const blockId = typeof updatedTask.blockId === 'string' ? updatedTask.blockId.trim() : '';
+    const existingTask = tasks.value.find(task => task.id === taskId)
+      || (blockId ? tasks.value.find(task => task.blockId === blockId) : undefined);
+    const previousRepeatSeriesId = typeof existingTask?.repeatSeriesId === 'string'
+      ? existingTask.repeatSeriesId.trim()
+      : '';
     const recordKey = taskId || blockId;
     if (!recordKey) {
       return;
@@ -5471,11 +5480,33 @@ function setupEventListeners() {
       if (updatedTask.backgroundColor !== undefined) {
         task.backgroundColor = updatedTask.backgroundColor;
       }
+      if (updatedTask.repeatFrequency !== undefined) {
+        task.repeatFrequency = updatedTask.repeatFrequency;
+      }
+      if (updatedTask.repeatSeriesId !== task.repeatSeriesId) {
+        task.repeatSeriesId = updatedTask.repeatSeriesId;
+      }
+      if (updatedTask.repeatInstanceDate !== task.repeatInstanceDate) {
+        task.repeatInstanceDate = updatedTask.repeatInstanceDate;
+      }
+      if (updatedTask.isVirtual !== undefined) {
+        task.isVirtual = updatedTask.isVirtual;
+      }
     };
     const patched = (taskId ? patchTask(tasks.value, taskId, patchDates, 'id') : false)
       || (blockId ? patchTask(tasks.value, blockId, patchDates, 'blockId') : false);
     if (!patched && blockId) {
       queueIncrementalUpdates([blockId], 80);
+    }
+    if (updatedTask.repeatFrequency === 'none' && previousRepeatSeriesId) {
+      const nextTasks = tasks.value.filter(task =>
+        !(task.isVirtual === true && task.repeatSeriesId === previousRepeatSeriesId)
+      );
+      if (nextTasks.length !== tasks.value.length) {
+        crdtRepo.syncFromSQLTasks(nextTasks);
+        tasks.value = crdtRepo.getTasks();
+        updateTaskIndex();
+      }
     }
     invalidateSortCache();
   });
@@ -6290,7 +6321,8 @@ function syncTaskEditorRepeatState(task: Task | null): void {
   if (isRepeatTask) {
     getRepeatSeriesForTask(task)
       .then((series) => {
-        if (!series || activeTaskEditTask.value?.id !== taskId) return;
+        const currentTask = activeTaskEditTask.value;
+        if (!series || currentTask?.id !== taskId || !isRepeatTaskForDateSave(currentTask)) return;
         taskEditorRepeatFrequency.value = normalizeRepeatFrequencyForEditor(series.frequency as RepeatFrequency);
         taskEditorRepeatRule.value = series.rule || null;
         const draft = activeTaskEditDraft.value;
@@ -6568,7 +6600,9 @@ function handleTaskEditorDescriptionInput(value: string): void {
 
 function handleTaskEditorDateFieldsUpdate(value: TaskEditorDateFields): void {
   if (!activeTaskEditTask.value || !activeTaskEditDraft.value) return;
-  void quickSaveTaskDateFields(activeTaskEditTask.value, value);
+  const normalizedFields = normalizeTaskEditorDateFields(value);
+  syncTaskEditorDraftDateFields(activeTaskEditTask.value.id, normalizedFields);
+  void quickSaveTaskDateFields(activeTaskEditTask.value, normalizedFields);
 }
 
 function handleTaskEditorReminderSelect(value: TaskReminderSelection): void {
@@ -7750,6 +7784,43 @@ async function saveRepeatTaskDateFields(
   }
 
   const targetTask = await resolveTaskEditorTargetTask(task);
+  const blockId = typeof targetTask.blockId === 'string' ? targetTask.blockId.trim() : '';
+  const repeatSeriesId = targetTask.repeatSeriesId;
+  const repeatPersistenceTarget = { ...targetTask };
+  const shouldClearRepeatDates = !fields.startDate && !fields.startTime && !fields.dueDate && !fields.dueTime;
+  if (shouldClearRepeatDates) {
+    const nowIso = new Date().toISOString();
+    const updatedTask = applyTaskDateFieldsLocally(targetTask, fields, nowIso, {
+      repeatSeriesId: undefined,
+      repeatFrequency: 'none',
+      repeatInstanceDate: undefined,
+      isVirtual: false
+    });
+    taskEditorRepeatFrequency.value = 'none';
+    taskEditorRepeatRule.value = null;
+    eventBus.emit('task-date-changed', updatedTask);
+
+    if (blockId) {
+      await TaskRepository.updateTask(targetTask.id, {
+        startDate: '',
+        startTime: undefined,
+        dueDate: '',
+        dueTime: undefined
+      });
+      await TaskRepository.clearCache();
+    }
+    await TaskRepository.setTaskRepeatRule(repeatPersistenceTarget, 'none');
+
+    notifyRepeatChanged({
+      blockId,
+      seriesId: repeatSeriesId,
+      frequency: 'none'
+    });
+    scheduleKernelTaskIndexRefresh();
+    await refreshInternalState();
+    return updatedTask;
+  }
+
   const updatedSeries = await updateRepeatSeriesDates(
     targetTask,
     fields.startDate || null,
@@ -7770,11 +7841,11 @@ async function saveRepeatTaskDateFields(
     dueDate: updatedSeries.endDate || '',
     dueTime: updatedSeries.dueTime || ''
   };
-  const blockId = (typeof targetTask.blockId === 'string' ? targetTask.blockId.trim() : '')
+  const persistedBlockId = blockId
     || updatedSeries.templateBlockId
     || '';
-  if (blockId) {
-    await setBlockAttrs(blockId, {
+  if (persistedBlockId) {
+    await setBlockAttrs(persistedBlockId, {
       'custom-task-start-date': persistedFields.startDate,
       'custom-task-due-date': persistedFields.dueDate,
       'custom-task-start-time': persistedFields.startTime,
@@ -7793,7 +7864,7 @@ async function saveRepeatTaskDateFields(
 
   eventBus.emit('task-date-changed', updatedTask);
   notifyRepeatChanged({
-    blockId,
+    blockId: persistedBlockId,
     seriesId: updatedSeries.id,
     frequency: updatedSeries.frequency
   });

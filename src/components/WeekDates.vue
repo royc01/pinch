@@ -74,12 +74,12 @@ const getTooltipLabel = (date: string) => {
   min-height: 48px;
   padding: 6px;
   border-radius: 10px;
-  box-shadow: inset 0 0 0 100px rgba(0, 0, 0, 0.07);
   overflow: hidden;
   position: relative;
-  background-color: var(--b3-theme-background);
+  background-color: var(--b3-list-hover);
   cursor: pointer;
   &:hover{
+    box-shadow: inset 0 0 0 100px var(--b3-list-hover);
     background-color: var(--b3-list-hover)
   }
 }
@@ -90,6 +90,7 @@ const getTooltipLabel = (date: string) => {
 
 .week-date-item.today {
   position: relative;
+  background-color: var(--b3-theme-background);
   box-shadow: var(--b3-border-color) 0px 0px 0 0.5px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
 }
 

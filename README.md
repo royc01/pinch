@@ -69,6 +69,16 @@
   </a>
 </div>
 
+## v2.3.5
+
+* [Optimized] Redesigned the calendar view editing panel
+* [Optimized] Adjusted recurring task rendering in calendar view
+* [Fixed] Recurring task date clearing bug
+* [Fixed] Recurring task rendering in Goal View and other views
+* [Fixed] Incorrect display of custom and dynamic goal icons
+* [Fixed] Habit Management page styling
+
+
 ## v2.3.4
 
 * [New] Top-level document tabs are shown when descendant documents contain tasks, even if the current document has no task blocks

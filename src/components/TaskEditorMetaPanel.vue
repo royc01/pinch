@@ -90,7 +90,11 @@
             :class="{ active: isGoalOptionSelected(option.value) }"
             @click="emitSelectGoal(option.value)"
           >
-            <span v-if="option.emoji" class="task-goal-chip-emoji">{{ option.emoji }}</span>
+            <EmojiIcon
+              v-if="option.emoji"
+              class="task-goal-chip-emoji"
+              :value="option.emoji"
+            />
             <span class="task-group-chip-label">{{ option.label }}</span>
           </button>
           <span v-if="goalOptions.length === 0" class="task-editor-property-placeholder">
@@ -141,7 +145,11 @@
             :class="{ active: isGoalOptionSelected(option.value) }"
             @click="emitSelectGoal(option.value)"
           >
-            <span v-if="option.emoji" class="task-goal-chip-emoji">{{ option.emoji }}</span>
+            <EmojiIcon
+              v-if="option.emoji"
+              class="task-goal-chip-emoji"
+              :value="option.emoji"
+            />
             <span class="task-group-chip-label">{{ option.label }}</span>
           </button>
         </div>
@@ -249,7 +257,11 @@
               :key="item.key"
               class="task-editor-property-pill is-goal"
             >
-              <span v-if="item.emoji" class="task-editor-group-button-emoji">{{ item.emoji }}</span>
+              <EmojiIcon
+                v-if="item.emoji"
+                class="task-editor-group-button-emoji"
+                :value="item.emoji"
+              />
               <span>{{ item.label }}</span>
             </span>
           </template>
@@ -321,7 +333,11 @@
           :aria-label="groupButtonAriaLabel"
           @click.stop="togglePanel('group')"
         >
-          <span v-if="item.kind === 'goal' && item.emoji" class="task-editor-group-button-emoji">{{ item.emoji }}</span>
+          <EmojiIcon
+            v-if="item.kind === 'goal' && item.emoji"
+            class="task-editor-group-button-emoji"
+            :value="item.emoji"
+          />
           <Icon v-else name="group" width="14" height="14" />
           <span class="task-editor-group-button-label">{{ item.label }}</span>
         </button>
@@ -382,6 +398,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { Task } from '@/api';
 import Icon from '@/components/Icon.vue';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
 import StatusPopover from '@/components/StatusPopover.vue';

@@ -110,102 +110,14 @@
         </div>
       </div>
 
-      <div class="calendar-editor-section">
-        <div class="calendar-editor-section-heading">
-          <div class="calendar-editor-section-title">{{ t('taskManager.date') }}</div>
-          <div class="calendar-editor-date-actions">
-            <button
-              type="button"
-              class="calendar-editor-date-btn"
-              @click="$emit('clearDates')"
-            >
-              {{ t('taskManager.clearTaskDates') }}
-            </button>
-          </div>
-        </div>
-        <div class="calendar-editor-date-grid">
-          <div class="calendar-editor-date-field">
-            <label>{{ t('taskManager.startDate') }}</label>
-            <div class="calendar-editor-date-input-group">
-              <input
-                :value="startDate"
-                type="date"
-                @input="emitDateUpdate({ startDate: ($event.target as HTMLInputElement).value })"
-              />
-              <button
-                ref="startDateTriggerRef"
-                type="button"
-                class="calendar-editor-date-trigger ariaLabel"
-                :class="{ active: activeDatePopoverField === 'startDate' }"
-                :aria-label="t('taskManager.pickStartDate')"
-                @click="toggleDatePopover('startDate')"
-              >
-                <Icon name="calendar" width="14" height="14" />
-              </button>
-            </div>
-          </div>
-          <div class="calendar-editor-date-field">
-            <label>{{ t('taskManager.dueDate') }}</label>
-            <div class="calendar-editor-date-input-group">
-              <input
-                :value="dueDate"
-                type="date"
-                @input="emitDateUpdate({ dueDate: ($event.target as HTMLInputElement).value })"
-              />
-              <button
-                ref="dueDateTriggerRef"
-                type="button"
-                class="calendar-editor-date-trigger ariaLabel"
-                :class="{ active: activeDatePopoverField === 'dueDate' }"
-                :aria-label="t('taskManager.pickDueDate')"
-                @click="toggleDatePopover('dueDate')"
-              >
-                <Icon name="calendar" width="14" height="14" />
-              </button>
-            </div>
-          </div>
-          <div class="calendar-editor-date-field">
-            <label>{{ t('taskManager.startTime') }}</label>
-            <div class="calendar-editor-date-input-group">
-              <input
-                :value="startTime"
-                type="time"
-                @input="emitDateUpdate({ startTime: ($event.target as HTMLInputElement).value })"
-              />
-              <button
-                ref="startTimeTriggerRef"
-                type="button"
-                class="calendar-editor-date-trigger ariaLabel"
-                :class="{ active: activeTimePopoverField === 'startTime' }"
-                :aria-label="t('taskManager.pickStartTime')"
-                @click="toggleTimePopover('startTime')"
-              >
-                <Icon name="clock" width="14" height="14" />
-              </button>
-            </div>
-          </div>
-          <div class="calendar-editor-date-field">
-            <label>{{ t('taskManager.dueTime') }}</label>
-            <div class="calendar-editor-date-input-group">
-              <input
-                :value="dueTime"
-                type="time"
-                @input="emitDateUpdate({ dueTime: ($event.target as HTMLInputElement).value })"
-              />
-              <button
-                ref="dueTimeTriggerRef"
-                type="button"
-                class="calendar-editor-date-trigger ariaLabel"
-                :class="{ active: activeTimePopoverField === 'dueTime' }"
-                :aria-label="t('taskManager.pickDueTime')"
-                @click="toggleTimePopover('dueTime')"
-              >
-                <Icon name="clock" width="14" height="14" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <CalendarTaskDateSection
+        :start-date="startDate"
+        :start-time="startTime"
+        :due-date="dueDate"
+        :due-time="dueTime"
+        @update-dates="emit('quickUpdateDates', $event)"
+        @clear-dates="emit('clearDates')"
+      />
 
       <TaskRepeatEditor
         class="calendar-editor-section calendar-editor-repeat"
@@ -235,38 +147,6 @@
 
     <slot name="move-dialog" />
 
-    <TaskDatePopover
-      v-if="activeDatePopoverField === 'startDate'"
-      :visible="true"
-      :model-value="startDate"
-      :anchor-el="startDateTriggerRef"
-      @update:modelValue="emitDateUpdate({ startDate: $event })"
-      @close="activeDatePopoverField = null"
-    />
-    <TaskDatePopover
-      v-if="activeDatePopoverField === 'dueDate'"
-      :visible="true"
-      :model-value="dueDate"
-      :anchor-el="dueDateTriggerRef"
-      @update:modelValue="emitDateUpdate({ dueDate: $event })"
-      @close="activeDatePopoverField = null"
-    />
-    <TaskTimePopover
-      v-if="activeTimePopoverField === 'startTime'"
-      :visible="true"
-      :model-value="startTime"
-      :anchor-el="startTimeTriggerRef"
-      @update:modelValue="emitDateUpdate({ startTime: $event })"
-      @close="activeTimePopoverField = null"
-    />
-    <TaskTimePopover
-      v-if="activeTimePopoverField === 'dueTime'"
-      :visible="true"
-      :model-value="dueTime"
-      :anchor-el="dueTimeTriggerRef"
-      @update:modelValue="emitDateUpdate({ dueTime: $event })"
-      @close="activeTimePopoverField = null"
-    />
     <TaskReminderPopover
       v-if="task && mode === 'dock' && panel === 'reminder'"
       :visible="true"
@@ -285,14 +165,13 @@
 import { computed, ref } from 'vue';
 import type { Task } from '@/api';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
+import CalendarTaskDateSection from '@/components/CalendarTaskDateSection.vue';
 import Icon from '@/components/Icon.vue';
-import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
 import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
 import TaskRepeatEditor from '@/components/TaskRepeatEditor.vue';
-import TaskTimePopover from '@/components/TaskTimePopover.vue';
 import { useI18n } from '@/composables/useI18n';
 import { resolveTaskAccentColor } from '@/utils/taskColor';
 import {
@@ -425,12 +304,6 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const shellRef = ref<InstanceType<typeof TaskEditorPanelShell> | null>(null);
 const bodyRef = ref<InstanceType<typeof TaskEditorProtyleBody> | null>(null);
-const activeDatePopoverField = ref<'startDate' | 'dueDate' | null>(null);
-const activeTimePopoverField = ref<'startTime' | 'dueTime' | null>(null);
-const startDateTriggerRef = ref<HTMLElement | null>(null);
-const dueDateTriggerRef = ref<HTMLElement | null>(null);
-const startTimeTriggerRef = ref<HTMLElement | null>(null);
-const dueTimeTriggerRef = ref<HTMLElement | null>(null);
 const reminderButtonRef = ref<HTMLElement | null>(null);
 
 const defaultPanelStyle = computed<Record<string, string>>(() => {
@@ -457,12 +330,6 @@ const resolvedPanelStyle = computed<Record<string, string>>(() => ({
   ...props.panelStyle
 }));
 
-const currentDateFields = computed<CalendarTaskEditorDateFields>(() => ({
-  startDate: props.startDate || '',
-  startTime: props.startTime || '',
-  dueDate: props.dueDate || '',
-  dueTime: props.dueTime || ''
-}));
 const reminderDisplayText = computed(() => {
   if (!props.hasReminder) {
     return '';
@@ -516,26 +383,7 @@ const exposedBodyEl = computed<HTMLElement | null>(() => {
   return null;
 });
 
-function emitDateUpdate(partialValue: Partial<CalendarTaskEditorDateFields>): void {
-  emit('quickUpdateDates', {
-    ...currentDateFields.value,
-    ...partialValue
-  });
-}
-
-function toggleDatePopover(field: 'startDate' | 'dueDate'): void {
-  activeTimePopoverField.value = null;
-  activeDatePopoverField.value = activeDatePopoverField.value === field ? null : field;
-}
-
-function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
-  activeDatePopoverField.value = null;
-  activeTimePopoverField.value = activeTimePopoverField.value === field ? null : field;
-}
-
 function toggleReminderPanel(): void {
-  activeDatePopoverField.value = null;
-  activeTimePopoverField.value = null;
   emit('update:panel', props.panel === 'reminder' ? null : 'reminder');
 }
 

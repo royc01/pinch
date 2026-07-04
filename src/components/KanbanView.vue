@@ -918,6 +918,7 @@
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
       @task-date-changed="handleTaskDateChanged"
+      @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-create-requested="handleTaskCreateRequested"
       @visible-range-change="handleMonthVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
@@ -935,6 +936,7 @@
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
+      @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
       @task-create-requested="handleTaskCreateRequested"
@@ -956,6 +958,7 @@
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
+      @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
       @task-create-requested="handleTaskCreateRequested"
@@ -978,6 +981,7 @@
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
+      @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
       @task-create-requested="handleTaskCreateRequested"
@@ -2514,7 +2518,10 @@ function resolveCurrentRepeatMaterializeOptions() {
   if (loadedTaskLoadMode.value === 'light-base') {
     return null;
   }
-  return resolveTaskRepeatMaterializeOptions(loadedRepeatWindow.value);
+  return {
+    ...resolveTaskRepeatMaterializeOptions(loadedRepeatWindow.value),
+    includeTemplateDate: true
+  };
 }
 
 function handleCalendarVisibleRangeChange(view: CalendarTaskViewMode, repeatWindow: TaskRepeatWindow): void {
@@ -2655,6 +2662,16 @@ const todayVirtualSeriesIds = computed(() => {
   const set = new Set<string>();
   for (const task of tasks.value) {
     if (task.isVirtual && task.repeatSeriesId && isVirtualTaskForToday(task)) {
+      set.add(task.repeatSeriesId);
+    }
+  }
+  return set;
+});
+
+const virtualRepeatSeriesIds = computed(() => {
+  const set = new Set<string>();
+  for (const task of tasks.value) {
+    if (task.isVirtual && task.repeatSeriesId) {
       set.add(task.repeatSeriesId);
     }
   }
@@ -5025,7 +5042,7 @@ function matchesKanbanFiltersByDocumentScope(
   if (!hasVisibleTaskTitle(task.title)) return false;
   if (task.type !== 'block') return false;
   if (task.archived) return false;
-  if (!task.isVirtual && task.repeatSeriesId && todayVirtualSeriesIds.value.has(task.repeatSeriesId)) {
+  if (!task.isVirtual && task.repeatSeriesId && virtualRepeatSeriesIds.value.has(task.repeatSeriesId)) {
     return false;
   }
   if (task.isVirtual && !isVirtualTaskForToday(task)) return false;
@@ -5108,6 +5125,9 @@ function matchesGanttDocumentCandidate(task: Task, sourceValue: string): boolean
   if (task.type !== 'block') return false;
   if (task.archived) return false;
   if (!isGanttTopLevelTask(task)) return false;
+  if (!task.isVirtual && task.repeatSeriesId && virtualRepeatSeriesIds.value.has(task.repeatSeriesId)) {
+    return false;
+  }
 
   return matchesTaskBySourceAndDocument(task, sourceValue);
 }
@@ -7669,7 +7689,7 @@ function matchesTableFiltersByArchivedState(
   if (archivedOnly ? !task.archived : task.archived) return false;
   if (archivedOnly && task.isVirtual) return false;
   if (!archivedOnly) {
-    if (!task.isVirtual && task.repeatSeriesId && todayVirtualSeriesIds.value.has(task.repeatSeriesId)) {
+    if (!task.isVirtual && task.repeatSeriesId && virtualRepeatSeriesIds.value.has(task.repeatSeriesId)) {
       return false;
     }
     if (task.isVirtual && !isVirtualTaskForToday(task)) {
@@ -10425,6 +10445,18 @@ function handleKanbanEditorDateFieldsUpdate(value: KanbanEditorDateFields): void
   void saveKanbanEditorDateFields(activeKanbanEditTask.value, normalizedFields);
 }
 
+function handleCalendarTaskDateSaveRequested(payload: {
+  task: Task;
+  fields: KanbanEditorDateFields;
+  repeatPersistenceTarget?: Task;
+  optimisticApplied?: boolean;
+}): void {
+  void saveKanbanEditorDateFields(payload.task, payload.fields, {
+    repeatPersistenceTarget: payload.repeatPersistenceTarget,
+    optimisticApplied: payload.optimisticApplied === true
+  });
+}
+
 function handleCalendarEditorDateClear(): void {
   handleKanbanEditorDateFieldsUpdate({
     startDate: '',
@@ -10434,9 +10466,19 @@ function handleCalendarEditorDateClear(): void {
   });
 }
 
-async function saveKanbanEditorDateFields(task: Task, value: KanbanEditorDateFields): Promise<void> {
+async function saveKanbanEditorDateFields(
+  task: Task,
+  value: KanbanEditorDateFields,
+  options: { repeatPersistenceTarget?: Task; optimisticApplied?: boolean } = {}
+): Promise<void> {
   const normalizedFields = normalizeKanbanEditorDateFields(value);
-  const targetTask = await resolveKanbanEditorTargetTask(task);
+  const shouldClearRepeatDates = !normalizedFields.startDate
+    && !normalizedFields.startTime
+    && !normalizedFields.dueDate
+    && !normalizedFields.dueTime;
+  const targetTask = shouldClearRepeatDates && options.repeatPersistenceTarget
+    ? { ...options.repeatPersistenceTarget }
+    : await resolveKanbanEditorTargetTask(task);
   const blockId = typeof targetTask?.blockId === 'string' ? targetTask.blockId.trim() : '';
   if (!targetTask || targetTask.type !== 'block' || !blockId) {
     return;
@@ -10444,6 +10486,39 @@ async function saveKanbanEditorDateFields(task: Task, value: KanbanEditorDateFie
   try {
     const isRepeatTask = !!targetTask.repeatSeriesId || (!!targetTask.repeatFrequency && targetTask.repeatFrequency !== 'none');
     if (isRepeatTask) {
+      if (shouldClearRepeatDates) {
+        const repeatSeriesId = targetTask.repeatSeriesId;
+        const repeatPersistenceTarget = { ...targetTask };
+        const updatedTask = {
+          ...targetTask,
+          startDate: '',
+          startTime: undefined,
+          dueDate: '',
+          dueTime: undefined,
+          repeatFrequency: 'none' as const,
+          repeatSeriesId: undefined,
+          repeatInstanceDate: undefined,
+          isVirtual: false
+        };
+        if (!options.optimisticApplied) {
+          handleTaskDateChanged(updatedTask);
+        }
+        await TaskRepository.updateTask(updatedTask.id, {
+          startDate: '',
+          startTime: undefined,
+          dueDate: '',
+          dueTime: undefined
+        });
+        await TaskRepository.setTaskRepeatRule(repeatPersistenceTarget, 'none');
+        notifyRepeatChanged({
+          blockId,
+          seriesId: repeatSeriesId,
+          frequency: 'none'
+        });
+        invalidateTableFilters();
+        return;
+      }
+
       const updatedSeries = await updateRepeatSeriesDates(
         targetTask,
         normalizedFields.startDate || null,
@@ -11316,6 +11391,9 @@ function applyExternalTaskDateChange(updatedTask: Task): void {
   if (!taskId) {
     return;
   }
+  const previousRepeatSeriesId = typeof existingTask?.repeatSeriesId === 'string'
+    ? existingTask.repeatSeriesId.trim()
+    : '';
   const hasOwn = (key: keyof Task) => Object.prototype.hasOwnProperty.call(updatedTask, key);
   const nextStartDate = hasOwn('startDate') ? (updatedTask.startDate || '') : (existingTask?.startDate || '');
   const nextDueDate = hasOwn('dueDate') ? (updatedTask.dueDate || '') : (existingTask?.dueDate || '');
@@ -11332,6 +11410,19 @@ function applyExternalTaskDateChange(updatedTask: Task): void {
     updatedAt: updatedTask.updatedAt || new Date().toISOString()
   };
 
+  if (hasOwn('repeatFrequency')) {
+    nextTask.repeatFrequency = updatedTask.repeatFrequency;
+  }
+  if (hasOwn('repeatSeriesId')) {
+    nextTask.repeatSeriesId = updatedTask.repeatSeriesId;
+  }
+  if (hasOwn('repeatInstanceDate')) {
+    nextTask.repeatInstanceDate = updatedTask.repeatInstanceDate;
+  }
+  if (hasOwn('isVirtual')) {
+    nextTask.isVirtual = updatedTask.isVirtual;
+  }
+
   if (updatedTask.backgroundColor !== undefined) {
     nextTask.backgroundColor = updatedTask.backgroundColor;
   }
@@ -11345,11 +11436,18 @@ function applyExternalTaskDateChange(updatedTask: Task): void {
     if (updatedTask.backgroundColor !== undefined) {
       crdtRepo.updateTaskField(taskId, 'backgroundColor', updatedTask.backgroundColor, ts);
     }
+    if (hasOwn('repeatFrequency') || hasOwn('repeatSeriesId') || hasOwn('repeatInstanceDate') || hasOwn('isVirtual')) {
+      crdtRepo.syncIncrementalTasks([nextTask]);
+    }
     updateTasks();
     tasks.value = applyDraggedStatusLocks(tasks.value);
   } else {
     crdtRepo.syncIncrementalTasks([nextTask]);
     tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
+  }
+
+  if (updatedTask.repeatFrequency === 'none' && previousRepeatSeriesId) {
+    removeVirtualRepeatTasksLocally(previousRepeatSeriesId);
   }
 
   if (kanbanEditorDraft.value?.taskId === taskId) {
@@ -11371,32 +11469,83 @@ function applyExternalTaskDateChange(updatedTask: Task): void {
   });
 }
 
+function removeVirtualRepeatTasksLocally(seriesId: string): void {
+  const normalizedSeriesId = typeof seriesId === 'string' ? seriesId.trim() : '';
+  if (!normalizedSeriesId) {
+    return;
+  }
+  const nextTasks = tasks.value.filter(task =>
+    !(task.isVirtual === true && task.repeatSeriesId === normalizedSeriesId)
+  );
+  if (nextTasks.length === tasks.value.length) {
+    return;
+  }
+  crdtRepo.syncFromSQLTasks(nextTasks);
+  tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
+}
+
 function handleTaskDateChanged(updatedTask: Task) {
   const task = tasks.value.find(t => t.id === updatedTask.id);
   if (!task) return;
+  let repeatMetadataChanged = false;
+  const previousRepeatSeriesId = typeof task.repeatSeriesId === 'string'
+    ? task.repeatSeriesId.trim()
+    : '';
   
   if (updatedTask.startDate !== task.startDate) {
     crdtRepo.updateTaskField(task.id, 'startDate', updatedTask.startDate);
+    task.startDate = updatedTask.startDate;
   }
   
   if (updatedTask.dueDate !== task.dueDate) {
     crdtRepo.updateTaskField(task.id, 'dueDate', updatedTask.dueDate);
+    task.dueDate = updatedTask.dueDate;
   }
   
   if (updatedTask.startTime !== task.startTime) {
     crdtRepo.updateTaskField(task.id, 'startTime', updatedTask.startTime);
+    task.startTime = updatedTask.startTime;
   }
   
   if (updatedTask.dueTime !== task.dueTime) {
     crdtRepo.updateTaskField(task.id, 'dueTime', updatedTask.dueTime);
+    task.dueTime = updatedTask.dueTime;
+  }
+
+  if (updatedTask.repeatFrequency !== undefined && updatedTask.repeatFrequency !== task.repeatFrequency) {
+    task.repeatFrequency = updatedTask.repeatFrequency;
+    repeatMetadataChanged = true;
+  }
+
+  if (updatedTask.repeatSeriesId !== task.repeatSeriesId) {
+    task.repeatSeriesId = updatedTask.repeatSeriesId;
+    repeatMetadataChanged = true;
+  }
+
+  if (updatedTask.repeatInstanceDate !== task.repeatInstanceDate) {
+    task.repeatInstanceDate = updatedTask.repeatInstanceDate;
+    repeatMetadataChanged = true;
+  }
+
+  if (updatedTask.isVirtual !== undefined && updatedTask.isVirtual !== task.isVirtual) {
+    task.isVirtual = updatedTask.isVirtual;
+    repeatMetadataChanged = true;
   }
 
   if (updatedTask.backgroundColor !== undefined && updatedTask.backgroundColor !== task.backgroundColor) {
     crdtRepo.updateTaskField(task.id, 'backgroundColor', updatedTask.backgroundColor);
     task.backgroundColor = updatedTask.backgroundColor;
   }
+
+  if (repeatMetadataChanged) {
+    task.updatedAt = updatedTask.updatedAt || new Date().toISOString();
+    crdtRepo.syncIncrementalTasks([task]);
+  }
   
   updateTasks();
+  if (updatedTask.repeatFrequency === 'none' && previousRepeatSeriesId) {
+    removeVirtualRepeatTasksLocally(previousRepeatSeriesId);
+  }
   scheduleKernelTaskIndexRefresh();
   eventBus.emit('task-date-changed', updatedTask);
 }

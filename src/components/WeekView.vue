@@ -628,7 +628,7 @@ import { useDebouncedSave } from '@/composables/useDebouncedSave';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
-import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
@@ -838,6 +838,7 @@ function getHiddenTasksLabel(count: number): string {
 
 const emit = defineEmits<{
   'taskDateChanged': [task: Task];
+  'taskDateSaveRequested': [payload: { task: Task; fields: { startDate: string; startTime: string; dueDate: string; dueTime: string }; repeatPersistenceTarget?: Task; optimisticApplied?: boolean }];
   'taskClick': [task: Task];
   'taskEdit': [task: Task, anchor: { x: number; y: number }];
   'taskCreateRequested': [payload: { startDate: string; dueDate: string; startTime?: string; dueTime?: string; allDay: boolean }];
@@ -1515,7 +1516,7 @@ const nextNavLabel = computed(() => {
 
 function getTasksHash(tasks: Task[]): string {
   return tasks.map(t => 
-    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime}:${t.dueTime}:${t.title}:${t.backgroundColor || ''}:${t.groupId || ''}`
+    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime}:${t.dueTime}:${t.repeatSeriesId || ''}:${t.repeatFrequency || ''}:${t.repeatInstanceDate || ''}:${t.isVirtual === true ? '1' : '0'}:${t.title}:${t.backgroundColor || ''}:${t.groupId || ''}`
   ).join('|');
 }
 
@@ -6093,76 +6094,59 @@ async function applyTaskDates(task: Task) {
     nextDueDate = nextStartDate;
   }
 
-  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-  if (isRepeatTask) {
+  const fields = {
+    startDate: nextStartDate,
+    startTime: nextStartTime,
+    dueDate: nextDueDate,
+    dueTime: nextDueTime
+  };
+  let updatedTask: Task | null = null;
+  let repeatPersistenceTarget: Task | undefined;
+  const requestIsRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  if (requestIsRepeatTask) {
     const seriesId = task.repeatSeriesId;
     const templateTask = !task.isVirtual
       ? task
       : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
     const targetTask = templateTask || task;
-    const updatedSeries = await updateRepeatSeriesDates(
-      targetTask,
-      nextStartDate || null,
-      nextDueDate || null,
-      {
-        startTime: nextStartTime || null,
-        dueTime: nextDueTime || null
-      },
-      { emitChange: false }
-    );
-    if (updatedSeries) {
-      const updatedTask = patchLocalTask(targetTask.id, {
-        startDate: updatedSeries.startDate || '',
-        dueDate: updatedSeries.endDate || '',
-        startTime: updatedSeries.startTime || undefined,
-        dueTime: updatedSeries.dueTime || undefined
+    repeatPersistenceTarget = { ...targetTask };
+    if (!nextStartDate && !nextDueDate && !nextStartTime && !nextDueTime) {
+      taskSyncGuard.suppressRepeatSeriesSync(seriesId || '', targetTask.id);
+      updatedTask = {
+        ...targetTask,
+        repeatFrequency: 'none',
+        repeatSeriesId: undefined,
+        repeatInstanceDate: undefined,
+        isVirtual: false,
+        startDate: '',
+        dueDate: '',
+        startTime: undefined,
+        dueTime: undefined
+      };
+      localTasks.value = localTasks.value.flatMap((item) => {
+        if (item.id === targetTask.id) {
+          return [updatedTask as Task];
+        }
+        if (item.isVirtual && item.repeatSeriesId === seriesId) {
+          return [];
+        }
+        return [item];
       });
-      try {
-        await TaskRepository.updateTask(targetTask.id, {
-          startDate: updatedSeries.startDate || '',
-          dueDate: updatedSeries.endDate || '',
-          startTime: updatedSeries.startTime || undefined,
-          dueTime: updatedSeries.dueTime || undefined
-        });
-      } catch (error) {
-      }
-      if (updatedTask) {
-        emitTaskDateChanged(updatedTask);
-      }
-      if (targetTask.type === 'block' && targetTask.blockId) {
-        notifyRepeatChanged({
-          blockId: targetTask.blockId,
-          seriesId: updatedSeries.id,
-          frequency: updatedSeries.frequency
-        });
-      }
-      hideContextMenu();
-      return;
+    } else {
+      updatedTask = patchLocalTask(targetTask.id, {
+        startDate: nextStartDate,
+        dueDate: nextDueDate,
+        startTime: nextStartTime || undefined,
+        dueTime: nextDueTime || undefined
+      });
     }
+  } else {
+    updatedTask = null;
   }
-
-  const updatedTask = patchLocalTask(task.id, {
-    startDate: nextStartDate,
-    dueDate: nextDueDate,
-    startTime: nextStartTime || undefined,
-    dueTime: nextDueTime || undefined
-  });
-
-  try {
-    await TaskRepository.updateTask(task.id, {
-      startDate: nextStartDate,
-      dueDate: nextDueDate,
-      startTime: nextStartTime || undefined,
-      dueTime: nextDueTime || undefined
-    });
-  } catch (error) {
-  }
-
   if (updatedTask) {
     emitTaskDateChanged(updatedTask);
   }
-
-  hideContextMenu();
+  emit('taskDateSaveRequested', { task, fields, repeatPersistenceTarget, optimisticApplied: !!updatedTask });
 }
 
 async function clearTaskDates(task: Task): Promise<void> {
@@ -6192,7 +6176,26 @@ async function saveTaskRepeatRule(task: Task, repeat: RepeatFrequency | RepeatRu
     patchLocalTask(task.id, { repeatFrequency: frequency });
   }
   try {
-    await TaskRepository.setTaskRepeatRule(task, repeat);
+    const updatedSeries = await TaskRepository.setTaskRepeatRule(task, repeat);
+    if (updatedSeries && frequency !== 'none') {
+      const { weekStart, weekEnd } = weekBounds.value;
+      const { nextTasks, touched, handled } = await rebuildAffectedRepeatTasks(
+        localTasks.value,
+        {
+          blockId: task.blockId || updatedSeries.templateBlockId,
+          seriesId: updatedSeries.id,
+          frequency: updatedSeries.frequency
+        },
+        {
+          startDate: formatDate(weekStart),
+          endDate: formatDate(weekEnd),
+          includeTemplateDate: true
+        }
+      );
+      if (handled && touched) {
+        localTasks.value = nextTasks;
+      }
+    }
     hideContextMenu();
   } catch (error) {
   }

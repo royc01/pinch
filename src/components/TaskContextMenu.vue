@@ -9,107 +9,28 @@
   >
     <div class="context-menu-section">
       <div class="task-color-picker">
-        <div
+        <button
           v-for="color in backgroundColors"
           :key="color.value"
+          type="button"
           class="color-option"
           :class="{ selected: task?.backgroundColor === color.value }"
-          :style="{ background: color.css }"
+          :style="getColorOptionStyle(color)"
+          :aria-label="color.value"
           @click="$emit('setColor', color.value)"
-        ></div>
+        ></button>
       </div>
     </div>
 
-    <div class="context-menu-section">
-      <div class="context-menu-date-grid">
-        <div class="date-edit-field">
-          <label>{{ t('taskManager.startDate') }}</label>
-          <div class="context-menu-date-input-group">
-            <input
-              :value="startDate"
-              type="date"
-              @input="$emit('update:startDate', ($event.target as HTMLInputElement).value)"
-            />
-            <button
-              ref="startDateTriggerRef"
-              type="button"
-              class="context-menu-date-trigger ariaLabel"
-              :class="{ active: activeDatePopoverField === 'startDate' }"
-             
-              :aria-label="t('taskManager.pickStartDate')"
-              @click="toggleDatePopover('startDate')"
-            >
-              <Icon name="calendar" width="14" height="14" />
-            </button>
-          </div>
-        </div>
-        <div class="date-edit-field">
-          <label>{{ t('taskManager.dueDate') }}</label>
-          <div class="context-menu-date-input-group">
-            <input
-              :value="dueDate"
-              type="date"
-              @input="$emit('update:dueDate', ($event.target as HTMLInputElement).value)"
-            />
-            <button
-              ref="dueDateTriggerRef"
-              type="button"
-              class="context-menu-date-trigger ariaLabel"
-              :class="{ active: activeDatePopoverField === 'dueDate' }"
-             
-              :aria-label="t('taskManager.pickDueDate')"
-              @click="toggleDatePopover('dueDate')"
-            >
-              <Icon name="calendar" width="14" height="14" />
-            </button>
-          </div>
-        </div>
-        <div class="date-edit-field">
-          <label>{{ t('taskManager.startTime') }}</label>
-          <div class="context-menu-date-input-group">
-            <input
-              :value="startTime"
-              type="time"
-              @input="$emit('update:startTime', ($event.target as HTMLInputElement).value)"
-            />
-            <button
-              ref="startTimeTriggerRef"
-              type="button"
-              class="context-menu-date-trigger ariaLabel"
-              :class="{ active: activeTimePopoverField === 'startTime' }"
-             
-              :aria-label="t('taskManager.pickStartTime')"
-              @click="toggleTimePopover('startTime')"
-            >
-              <Icon name="clock" width="14" height="14" />
-            </button>
-          </div>
-        </div>
-        <div class="date-edit-field">
-          <label>{{ t('taskManager.dueTime') }}</label>
-          <div class="context-menu-date-input-group">
-            <input
-              :value="dueTime"
-              type="time"
-              @input="$emit('update:dueTime', ($event.target as HTMLInputElement).value)"
-            />
-            <button
-              ref="dueTimeTriggerRef"
-              type="button"
-              class="context-menu-date-trigger ariaLabel"
-              :class="{ active: activeTimePopoverField === 'dueTime' }"
-             
-              :aria-label="t('taskManager.pickDueTime')"
-              @click="toggleTimePopover('dueTime')"
-            >
-              <Icon name="clock" width="14" height="14" />
-            </button>
-          </div>
-        </div>
-      </div>
-      <button class="context-menu-date-save" @click="$emit('saveDates')">{{ t('taskManager.saveDate') }}</button>
-      <button class="context-menu-date-clear" @click="$emit('clearTaskDates')">{{ t('taskManager.clearTaskDates') }}</button>
-    </div>
+    <CalendarTaskDateSection
+      class="context-menu-date-section"
+      :start-date="startDate"
+      :start-time="startTime"
+      :due-date="dueDate"
+      :due-time="dueTime"
+      @update-dates="emitDateUpdate"
+      @clear-dates="$emit('clearTaskDates')"
+    />
 
     <TaskRepeatEditor
       class="context-menu-section"
@@ -129,41 +50,6 @@
       <span>{{ t('taskManager.editTask') }}</span>
     </div>
 
-    <TaskDatePopover
-      v-if="activeDatePopoverField === 'startDate'"
-      :visible="true"
-      :model-value="startDate"
-      :anchor-el="startDateTriggerRef"
-      @update:modelValue="$emit('update:startDate', $event)"
-      @close="activeDatePopoverField = null"
-    />
-
-    <TaskDatePopover
-      v-if="activeDatePopoverField === 'dueDate'"
-      :visible="true"
-      :model-value="dueDate"
-      :anchor-el="dueDateTriggerRef"
-      @update:modelValue="$emit('update:dueDate', $event)"
-      @close="activeDatePopoverField = null"
-    />
-
-    <TaskTimePopover
-      v-if="activeTimePopoverField === 'startTime'"
-      :visible="true"
-      :model-value="startTime"
-      :anchor-el="startTimeTriggerRef"
-      @update:modelValue="$emit('update:startTime', $event)"
-      @close="activeTimePopoverField = null"
-    />
-
-    <TaskTimePopover
-      v-if="activeTimePopoverField === 'dueTime'"
-      :visible="true"
-      :model-value="dueTime"
-      :anchor-el="dueTimeTriggerRef"
-      @update:modelValue="$emit('update:dueTime', $event)"
-      @close="activeTimePopoverField = null"
-    />
   </div>
   </Teleport>
 
@@ -173,11 +59,11 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { Task } from '@/api';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
+import CalendarTaskDateSection, { type CalendarTaskDateFields } from '@/components/CalendarTaskDateSection.vue';
 import Icon from '@/components/Icon.vue';
-import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskRepeatEditor from '@/components/TaskRepeatEditor.vue';
-import TaskTimePopover from '@/components/TaskTimePopover.vue';
 import { useI18n } from '@/composables/useI18n';
+import { resolveTaskAccentColor } from '@/utils/taskColor';
 
 interface BackgroundColorOption {
   value: string;
@@ -198,7 +84,7 @@ const props = defineProps<{
   repeatRule?: RepeatRule | null;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (event: 'setColor', color: string): void;
   (event: 'saveDates'): void;
   (event: 'clearTaskDates'): void;
@@ -214,12 +100,6 @@ defineEmits<{
 const isMobileSheet = ref(false);
 const menuRef = ref<HTMLElement | null>(null);
 const menuPosition = ref<{ x: number; y: number }>({ x: 0, y: 0 });
-const activeDatePopoverField = ref<'startDate' | 'dueDate' | null>(null);
-const activeTimePopoverField = ref<'startTime' | 'dueTime' | null>(null);
-const startDateTriggerRef = ref<HTMLElement | null>(null);
-const dueDateTriggerRef = ref<HTMLElement | null>(null);
-const startTimeTriggerRef = ref<HTMLElement | null>(null);
-const dueTimeTriggerRef = ref<HTMLElement | null>(null);
 const { t } = useI18n();
 
 const menuStyle = computed<Record<string, string>>(() => {
@@ -295,22 +175,25 @@ watch(
   () => [props.show, props.x, props.y, isMobileSheet.value] as const,
   ([show]) => {
     if (!show) {
-      activeDatePopoverField.value = null;
-      activeTimePopoverField.value = null;
       return;
     }
     syncMenuPosition();
   }
 );
 
-function toggleDatePopover(field: 'startDate' | 'dueDate'): void {
-  activeTimePopoverField.value = null;
-  activeDatePopoverField.value = activeDatePopoverField.value === field ? null : field;
+function emitDateUpdate(value: CalendarTaskDateFields): void {
+  emit('update:startDate', value.startDate);
+  emit('update:startTime', value.startTime);
+  emit('update:dueDate', value.dueDate);
+  emit('update:dueTime', value.dueTime);
+  emit('saveDates');
 }
 
-function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
-  activeDatePopoverField.value = null;
-  activeTimePopoverField.value = activeTimePopoverField.value === field ? null : field;
+function getColorOptionStyle(color: BackgroundColorOption): Record<string, string> {
+  return {
+    background: color.css,
+    '--calendar-editor-color-accent': resolveTaskAccentColor(color.value)
+  };
 }
 
 </script>
@@ -318,7 +201,7 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 <style scoped>
 .context-menu {
   position: fixed;
-  background: var(--b3-theme-surface);
+  background: var(--b3-theme-background);
   border: 1px solid var(--b3-border-color);
   border-radius: 8px;
   box-shadow: 0 12px 28px #0000002e;
@@ -377,19 +260,22 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 }
 
 .color-option {
-  width: 100%;
-  max-width: 22px;
-  aspect-ratio: 1 / 1;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
   border-radius: 999px;
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
   justify-self: center;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
 .color-option:hover,
 .color-option.selected {
-  border-color: var(--b3-border-color);
+  border-color: var(--calendar-editor-color-accent, var(--pinch-color6));
+  box-shadow: 0 0 0 1px var(--calendar-editor-color-accent, var(--pinch-color6));
 }
 
 .context-menu-date-grid {
@@ -482,22 +368,6 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 .context-menu-date-trigger.active {
   color: var(--b3-theme-primary);
   background: var(--b3-list-hover);
-}
-
-.context-menu-date-save {
-  width: 100%;
-  border: none;
-  background-color: #f98f7a;
-  color: var(--b3-theme-background);
-  border-radius: 6px;
-  font-size: 12px;
-  padding: 6px 8px;
-  cursor: pointer;
-}
-
-.context-menu-date-save:hover {
-  background-color: #f98f7a;
-  color: var(--b3-theme-background);
 }
 
 .context-menu-date-clear {

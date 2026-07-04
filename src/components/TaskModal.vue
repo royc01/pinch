@@ -76,7 +76,11 @@
                     :class="{ active: isTaskModalGoalSelected(option.value) }"
                     @click="selectTaskModalGoal(option.value)"
                   >
-                    <span v-if="option.emoji" class="task-modal-goal-chip-emoji">{{ option.emoji }}</span>
+                    <EmojiIcon
+                      v-if="option.emoji"
+                      class="task-modal-goal-chip-emoji"
+                      :value="option.emoji"
+                    />
                     <span class="task-modal-group-chip-label">{{ option.label }}</span>
                   </button>
                 </div>
@@ -196,6 +200,7 @@ import { ref, watch, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import Icon from '@/components/Icon.vue';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskReminderPopover from '@/components/TaskReminderPopover.vue';

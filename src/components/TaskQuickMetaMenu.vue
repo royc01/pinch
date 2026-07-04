@@ -131,7 +131,11 @@
               :class="{ active: selectedGoalIds.includes(goal.value) }"
               @click="emitGoalToggle(goal.value)"
             >
-              <span v-if="goal.emoji" class="task-quick-pill-emoji">{{ goal.emoji }}</span>
+              <EmojiIcon
+                v-if="goal.emoji"
+                class="task-quick-pill-emoji"
+                :value="goal.emoji"
+              />
               <span class="task-quick-pill-label">{{ goal.label }}</span>
             </button>
           </div>
@@ -178,6 +182,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from './Icon.vue';
+import EmojiIcon from './EmojiIcon.vue';
 import TaskDatePopover from './TaskDatePopover.vue';
 import TaskReminderPopover from './TaskReminderPopover.vue';
 import { useI18n } from '@/composables/useI18n';

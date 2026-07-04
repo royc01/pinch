@@ -9,6 +9,9 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
   const lockMs = options.lockMs ?? 1500;
   const taskSyncLocks = new Map<string, string>();
   const taskSyncLockTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const repeatSeriesClearLocks = new Set<string>();
+  const repeatSeriesClearTaskIds = new Set<string>();
+  const repeatSeriesClearLockTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let tasksSyncRequestId = 0;
   let tasksSyncAppliedId = 0;
   let lastTasksHash = '';
@@ -19,6 +22,10 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
       task.dueDate || '',
       task.startTime || '',
       task.dueTime || '',
+      task.repeatSeriesId || '',
+      task.repeatFrequency || '',
+      task.repeatInstanceDate || '',
+      task.isVirtual === true ? '1' : '0',
       task.reminderType || '',
       task.reminderCustomTime || '',
       task.backgroundColor || '',
@@ -92,10 +99,27 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
     taskSyncLocks.delete(taskId);
   }
 
+  function clearRepeatSeriesClearLock(seriesId: string): void {
+    const timer = repeatSeriesClearLockTimers.get(seriesId);
+    if (timer) {
+      clearTimeout(timer);
+      repeatSeriesClearLockTimers.delete(seriesId);
+    }
+    repeatSeriesClearLocks.delete(seriesId);
+  }
+
+  function clearRepeatSeriesClearTaskLock(taskId: string): void {
+    repeatSeriesClearTaskIds.delete(taskId);
+  }
+
   function clearAllTaskSyncLocks(): void {
     for (const taskId of Array.from(taskSyncLockTimers.keys())) {
       clearTaskSyncLock(taskId);
     }
+    for (const seriesId of Array.from(repeatSeriesClearLockTimers.keys())) {
+      clearRepeatSeriesClearLock(seriesId);
+    }
+    repeatSeriesClearTaskIds.clear();
   }
 
   function lockTaskSync(task: Task): void {
@@ -109,6 +133,25 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
   function emitTaskDateChanged(task: Task, emitTaskChanged: (nextTask: Task) => void): void {
     lockTaskSync(task);
     emitTaskChanged(task);
+  }
+
+  function suppressRepeatSeriesSync(seriesId: string, taskId?: string): void {
+    const normalizedSeriesId = typeof seriesId === 'string' ? seriesId.trim() : '';
+    if (!normalizedSeriesId) {
+      return;
+    }
+    const normalizedTaskId = typeof taskId === 'string' ? taskId.trim() : '';
+    clearRepeatSeriesClearLock(normalizedSeriesId);
+    repeatSeriesClearLocks.add(normalizedSeriesId);
+    if (normalizedTaskId) {
+      repeatSeriesClearTaskIds.add(normalizedTaskId);
+    }
+    repeatSeriesClearLockTimers.set(normalizedSeriesId, setTimeout(() => {
+      clearRepeatSeriesClearLock(normalizedSeriesId);
+      if (normalizedTaskId) {
+        clearRepeatSeriesClearTaskLock(normalizedTaskId);
+      }
+    }, lockMs));
   }
 
   function mergeIncomingTasks(newTasks: Task[]): Task[] {
@@ -125,6 +168,22 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
     }
 
     for (const incomingTask of newTasks) {
+      if (repeatSeriesClearTaskIds.has(incomingTask.id)) {
+        incomingTaskIds.add(incomingTask.id);
+        const localTask = localTaskMap.get(incomingTask.id);
+        if (localTask) {
+          merged.push({ ...localTask });
+          continue;
+        }
+      }
+
+      const incomingRepeatSeriesId = typeof incomingTask.repeatSeriesId === 'string'
+        ? incomingTask.repeatSeriesId.trim()
+        : '';
+      if (incomingRepeatSeriesId && repeatSeriesClearLocks.has(incomingRepeatSeriesId)) {
+        continue;
+      }
+
       incomingTaskIds.add(incomingTask.id);
       const expectedFingerprint = taskSyncLocks.get(incomingTask.id);
       if (!expectedFingerprint) {
@@ -193,6 +252,7 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
 
   return {
     emitTaskDateChanged,
+    suppressRepeatSeriesSync,
     syncTasks,
     clearAllTaskSyncLocks
   };

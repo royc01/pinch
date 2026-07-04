@@ -118,7 +118,11 @@
           class="task-group-badge task-goal-badge ariaLabel"
           :aria-label="goal.label"
         >
-          <span v-if="goal.emoji" class="task-goal-badge-emoji">{{ goal.emoji }}</span>
+          <EmojiIcon
+            v-if="goal.emoji"
+            class="task-goal-badge-emoji"
+            :value="goal.emoji"
+          />
           {{ goal.label }}
         </span>
         <span
@@ -202,6 +206,7 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { Task, SubTask, TaskGroup } from '@/api';
 import Icon from '@/components/Icon.vue';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubtaskItem from '@/components/SubtaskItem.vue';
 import { useI18n } from '@/composables/useI18n';
