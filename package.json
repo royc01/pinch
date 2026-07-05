@@ -9,13 +9,16 @@
   "homepage": "",
   "repository": "",
   "scripts": {
-    "dev": "vite build --watch",
+    "dev": "node ./scripts/dev.mjs",
+    "dev:frontend": "vite build --watch",
+    "dev:kernel": "vite build --config vite.kernel.config.ts --watch",
     "release": "node ./release.js",
     "release:manual": "node ./release.js --mode=manual",
     "release:patch": "node ./release.js --mode=patch",
     "release:minor": "node ./release.js --mode=minor",
     "release:major": "node ./release.js --mode=major",
     "build": "vite build && vite build --config vite.kernel.config.ts",
+    "build:siyuan": "set \"VITE_SIYUAN_WORKSPACE_PATH=C:\\Users\\Administrator\\SiYuan\" && npm run build",
     "test": "vitest",
     "test:run": "vitest run",
     "test:ui": "vitest --ui"

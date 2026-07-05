@@ -34,7 +34,8 @@ import {
   setRepeatInstanceStatus,
   type RepeatFrequency,
   type RepeatRuleInput,
-  type RepeatMaterializeOptions
+  type RepeatMaterializeOptions,
+  type RepeatSeries
 } from "@/repeatRepository";
 import {
   extractDocumentIconFromBlockRow,
@@ -56,7 +57,8 @@ import {
   getKernelTaskIndex,
   getKernelTaskRowsByBlockIds,
   getKernelTaskRowsByDateRange,
-  getKernelTaskStats
+  getKernelTaskStats,
+  isKernelRpcUnavailable
 } from "@/kernelRpc";
 
 async function request(url: string, data: any) {
@@ -1625,6 +1627,8 @@ async function syncTaskListItemMarkerByStatus(
 
 export interface Task {
   id: string;
+  taskId?: string;
+  sourceBlockId?: string;
   type: TaskType;
   title: string;
   status: TaskStatus;
@@ -2158,7 +2162,9 @@ export class TaskRepository {
       );
       return result.tasks;
     } catch (error) {
-      console.debug('[TaskRepository] kernel light task fetch skipped', error);
+      if (!isKernelRpcUnavailable(error)) {
+        console.debug('[TaskRepository] kernel light task fetch skipped', error);
+      }
       return null;
     }
   }
@@ -4751,15 +4757,16 @@ export class TaskRepository {
     await this.clearCache();
   }
 
-  static async setTaskRepeatRule(task: Task, frequency: RepeatFrequency | RepeatRuleInput): Promise<void> {
+  static async setTaskRepeatRule(task: Task, frequency: RepeatFrequency | RepeatRuleInput): Promise<RepeatSeries | null> {
     if (task.type !== 'block') {
-      return;
+      return null;
     }
-    await setTaskRepeatSeries(task, frequency);
+    const series = await setTaskRepeatSeries(task, frequency);
     const repeatFrequency = typeof frequency === 'string' ? frequency : frequency.frequency;
     if (repeatFrequency !== 'none' && task.status === 'pending' && task.blockId) {
       await setBlockAttrs(task.blockId, buildTaskStatusAttrs('in-progress'));
     }
+    return series;
   }
 
   static async getTaskRepeatRule(task: Task): Promise<RepeatFrequency> {
@@ -4922,7 +4929,9 @@ export class TaskRepository {
             return kernelTaskMap;
           }
         } catch (error) {
-          console.debug('[TaskRepository] kernel block-id light fetch skipped', error);
+          if (!isKernelRpcUnavailable(error)) {
+            console.debug('[TaskRepository] kernel block-id light fetch skipped', error);
+          }
         }
       }
 

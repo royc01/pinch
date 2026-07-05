@@ -43,6 +43,7 @@ export interface RepeatSeries {
   description?: string;
   priority: 'none' | 'high' | 'medium' | 'low';
   tags: string[];
+  groupId?: string;
   startTime?: string;
   dueTime?: string;
   notebookId?: string;
@@ -66,6 +67,8 @@ export interface RepeatRecord {
 
 export interface RepeatTaskLike {
   id: string;
+  taskId?: string;
+  sourceBlockId?: string;
   type: 'standalone' | 'block';
   title: string;
   status: RepeatTaskStatus;
@@ -75,6 +78,7 @@ export interface RepeatTaskLike {
   dueTime?: string;
   startTime?: string;
   tags: string[];
+  groupId?: string;
   description?: string;
   blockId?: string;
   rootId?: string;
@@ -400,10 +404,17 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
       || templateTask.priority === 'none'
     ) ? templateTask.priority : undefined;
     const templateTags = Array.isArray(templateTask.tags) ? [...templateTask.tags] : [];
+    const templateGroupId = typeof templateTask.groupId === 'string' && templateTask.groupId.trim()
+      ? templateTask.groupId.trim()
+      : (typeof series.groupId === 'string' && series.groupId.trim()
+        ? series.groupId.trim()
+        : (Array.isArray(series.tags) ? series.tags.find(tag => typeof tag === 'string' && tag.trim())?.trim() : undefined));
 
     virtualTasks.push({
       ...templateTask,
       id: buildVirtualTaskId(series.id, instanceDate),
+      taskId: templateTask.taskId || templateTask.id,
+      sourceBlockId: templateTask.sourceBlockId || templateTask.blockId || series.templateBlockId,
       isVirtual: true,
       repeatSeriesId: series.id,
       repeatFrequency: series.frequency,
@@ -417,7 +428,8 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
       title: templateTitle || series.title || '\u91cd\u590d\u4efb\u52a1',
       description: templateDescription,
       priority: templatePriority || series.priority || 'none',
-      tags: templateTags,
+      tags: templateTags.length > 0 ? templateTags : [...series.tags],
+      groupId: templateGroupId,
       backgroundColor: templateTask.backgroundColor || series.backgroundColor,
       blockId: undefined,
       completedAt: record?.completedAt,
@@ -575,6 +587,9 @@ function normalizeSeries(raw: unknown): RepeatSeries | null {
     description: typeof item.description === 'string' ? item.description : '',
     priority: item.priority === 'high' || item.priority === 'medium' || item.priority === 'low' ? item.priority : 'none',
     tags: Array.isArray(item.tags) ? item.tags.filter((tag) => typeof tag === 'string') : [],
+    groupId: typeof item.groupId === 'string' && item.groupId.trim()
+      ? item.groupId.trim()
+      : undefined,
     startTime: typeof item.startTime === 'string' ? item.startTime : undefined,
     dueTime: typeof item.dueTime === 'string' ? item.dueTime : undefined,
     notebookId: typeof item.notebookId === 'string' ? item.notebookId : undefined,
@@ -914,6 +929,9 @@ export async function setTaskRepeatSeries(task: RepeatTaskLike, repeat: RepeatFr
     description: task.description || '',
     priority: task.priority || existing?.priority || 'none',
     tags: Array.isArray(task.tags) ? [...task.tags] : [],
+    groupId: typeof task.groupId === 'string' && task.groupId.trim()
+      ? task.groupId.trim()
+      : existing?.groupId,
     startTime: task.startTime || existing?.startTime,
     dueTime: task.dueTime || existing?.dueTime,
     notebookId: task.notebookId || existing?.notebookId,

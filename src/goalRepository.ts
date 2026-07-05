@@ -5,6 +5,7 @@ import { eventBus, Events } from './utils/eventBus';
 export interface GoalTaskMember {
   taskId: string;
   blockId?: string;
+  repeatSeriesId?: string;
   notebookId?: string;
   rootId?: string;
   title?: string;
@@ -17,6 +18,7 @@ export interface Goal {
   emoji?: string;
   members: DocumentGroupMember[];
   taskMembers?: GoalTaskMember[];
+  excludedTaskMembers?: GoalTaskMember[];
   order?: number;
   dueDate?: string;
   createdAt?: string;
@@ -107,6 +109,9 @@ function normalizeGoalTaskMembers(input: unknown): GoalTaskMember[] {
     const blockId = typeof member.blockId === 'string' && member.blockId.trim().length > 0
       ? member.blockId.trim()
       : undefined;
+    const repeatSeriesId = typeof member.repeatSeriesId === 'string' && member.repeatSeriesId.trim().length > 0
+      ? member.repeatSeriesId.trim()
+      : undefined;
     const notebookId = typeof member.notebookId === 'string' && member.notebookId.trim().length > 0
       ? member.notebookId.trim()
       : undefined;
@@ -123,6 +128,7 @@ function normalizeGoalTaskMembers(input: unknown): GoalTaskMember[] {
     normalized.push({
       taskId,
       blockId,
+      repeatSeriesId,
       notebookId,
       rootId,
       title,
@@ -176,6 +182,7 @@ function normalizeGoal(input: unknown, legacyGroupsById: Map<string, DocumentGro
     emoji: emoji || undefined,
     members,
     taskMembers: normalizeGoalTaskMembers(raw.taskMembers),
+    excludedTaskMembers: normalizeGoalTaskMembers(raw.excludedTaskMembers),
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : undefined,
     dueDate: dueDate || undefined,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
@@ -221,6 +228,7 @@ async function persistGoals(goals: Goal[], emitEvent: boolean): Promise<Goal[]> 
     ...goal,
     members: cloneGoalMembers(goal.members),
     taskMembers: cloneGoalTaskMembers(goal.taskMembers),
+    excludedTaskMembers: cloneGoalTaskMembers(goal.excludedTaskMembers),
     order: index,
     createdAt: goal.createdAt || nowIso,
     updatedAt: nowIso

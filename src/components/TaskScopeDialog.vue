@@ -204,6 +204,7 @@
         <GoalManagerPanel
           :goals="localGoals"
           :documents="goalDocuments"
+          :tasks="goalTasks"
           :documents-refreshing="documentsRefreshing"
           @update:goals="localGoals = $event"
           @refresh-documents="emit('refresh-documents')"
@@ -299,6 +300,7 @@ import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import DocumentGroupManagerPanel from '@/components/DocumentGroupManagerPanel.vue';
 import GoalManagerPanel from '@/components/GoalManagerPanel.vue';
+import type { Task } from '@/api';
 import type { DocumentGroup } from '@/documentGroupRepository';
 import type { Goal } from '@/goalRepository';
 import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
@@ -363,6 +365,7 @@ interface Props {
   showScopeTab?: boolean;
   goals?: Goal[];
   goalDocuments?: GoalScopeDocument[];
+  goalTasks?: Task[];
   taskViewOptions?: TaskScopeDisplayOption[];
   hiddenTaskViewIds?: string[];
   sidebarSectionOptions?: TaskScopeDisplayOption[];
@@ -441,6 +444,7 @@ const availableTabs = computed<TaskScopeDialogTab[]>(() => {
 const showTabs = computed(() => availableTabs.value.length > 1);
 const documentGroupDocuments = computed(() => props.documentGroupDocuments || []);
 const goalDocuments = computed(() => props.goalDocuments || []);
+const goalTasks = computed(() => props.goalTasks || []);
 const activeHint = computed(() =>
   activeTab.value === 'scope'
     ? dialogHint.value
@@ -464,7 +468,8 @@ function cloneGoals(goals: Goal[]): Goal[] {
   return (goals || []).map(goal => ({
     ...goal,
     members: Array.isArray(goal.members) ? goal.members.map(member => ({ ...member })) : [],
-    taskMembers: Array.isArray(goal.taskMembers) ? goal.taskMembers.map(member => ({ ...member })) : []
+    taskMembers: Array.isArray(goal.taskMembers) ? goal.taskMembers.map(member => ({ ...member })) : [],
+    excludedTaskMembers: Array.isArray(goal.excludedTaskMembers) ? goal.excludedTaskMembers.map(member => ({ ...member })) : []
   }));
 }
 

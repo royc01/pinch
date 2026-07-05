@@ -693,6 +693,7 @@
       :documents-refreshing="taskScopeDocumentsRefreshing"
       :goals="goalDefinitions"
       :goal-documents="sidebarGoalDocuments"
+      :goal-tasks="tasks"
       :task-view-options="taskScopeViewOptions"
       :hidden-task-view-ids="userSettings.kanban.hiddenViewSwitcherIds"
       :sidebar-section-options="taskScopeSidebarSectionOptions"
@@ -844,6 +845,7 @@ import {
   getKernelTaskIndex,
   pingPinchKernel,
   refreshKernelTaskIndex,
+  isKernelRpcUnavailable,
   type KernelTaskIndexParams,
   type KernelTaskRowsResult
 } from '@/kernelRpc';
@@ -860,6 +862,7 @@ import {
   type TaskTagBatchAction
 } from '@/utils/taskTags';
 import {
+  getEffectiveGoalIdsForTask,
   getGoalIdsForTask,
   isTaskDirectGoalMember,
   setTaskGoalMembership,
@@ -936,6 +939,11 @@ const taskScopeSidebarSectionOptions = computed<Array<{ id: SidebarSectionId; la
 const TASK_MANAGER_CRDT_STORE_ID = 'task-manager';
 const crdtRepo = getCrdtRepository(TASK_MANAGER_CRDT_STORE_ID);
 const { tasks } = useCrdtTasks(TASK_MANAGER_CRDT_STORE_ID);
+type LocalTaskFieldOverride = {
+  values: Partial<Task>;
+  expiresAt: number;
+};
+const localTaskFieldOverrides = new Map<string, LocalTaskFieldOverride>();
 let isMobileFrontend = false;
 try {
   const frontend = getFrontend();
@@ -2494,7 +2502,7 @@ const taskEditorSelectedTagIds = computed(() => (
 ));
 
 const taskEditorSelectedGoalIds = computed(() => (
-  activeTaskEditTask.value ? getGoalIdsForTask(goalDefinitions.value, activeTaskEditTask.value) : []
+  activeTaskEditTask.value ? getEffectiveGoalIdsForTask(goalDefinitions.value, activeTaskEditTask.value) : []
 ));
 
 const taskEditorSelectedGroupId = computed(() => {
@@ -3356,7 +3364,7 @@ async function seedTaskQuickMetaDraft(task: Task): Promise<void> {
     reminderCustomTime: reminderState.reminderCustomTime,
     tags: [...tagState.tagIds],
     groupId: tagState.primaryTagId,
-    goalIds: getGoalIdsForTask(goalDefinitions.value, task)
+    goalIds: getEffectiveGoalIdsForTask(goalDefinitions.value, task)
   };
 }
 
@@ -3808,6 +3816,134 @@ function patchTask(
     }
   }
   return false;
+}
+
+function normalizeTaskDateIdentityValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function collectTaskDateIdentity(task: Partial<Task> | null | undefined): {
+  taskIds: Set<string>;
+  blockIds: Set<string>;
+  repeatSeriesId: string;
+} {
+  const taskIds = new Set<string>();
+  const blockIds = new Set<string>();
+  const addTaskId = (value: unknown): void => {
+    const normalizedValue = normalizeTaskDateIdentityValue(value);
+    if (normalizedValue) {
+      taskIds.add(normalizedValue);
+    }
+  };
+  const addBlockId = (value: unknown): void => {
+    const normalizedValue = normalizeTaskDateIdentityValue(value);
+    if (normalizedValue) {
+      blockIds.add(normalizedValue);
+    }
+  };
+
+  addTaskId(task?.id);
+  addTaskId(task?.taskId);
+  addBlockId(task?.blockId);
+  addBlockId(task?.sourceBlockId);
+
+  return {
+    taskIds,
+    blockIds,
+    repeatSeriesId: normalizeTaskDateIdentityValue(task?.repeatSeriesId)
+  };
+}
+
+function areTaskDateIdentitiesRelated(
+  left: Partial<Task> | null | undefined,
+  right: Partial<Task> | null | undefined
+): boolean {
+  if (!left || !right) {
+    return false;
+  }
+  const leftIdentity = collectTaskDateIdentity(left);
+  const rightIdentity = collectTaskDateIdentity(right);
+  for (const taskId of leftIdentity.taskIds) {
+    if (rightIdentity.taskIds.has(taskId)) {
+      return true;
+    }
+  }
+  for (const blockId of leftIdentity.blockIds) {
+    if (rightIdentity.blockIds.has(blockId)) {
+      return true;
+    }
+  }
+  return !!leftIdentity.repeatSeriesId
+    && leftIdentity.repeatSeriesId === rightIdentity.repeatSeriesId;
+}
+
+function patchTaskByDateIdentity(
+  taskList: Task[],
+  updatedTask: Task,
+  patch: (task: Task) => void
+): boolean {
+  let touched = false;
+  for (const task of taskList) {
+    if (areTaskDateIdentitiesRelated(task, updatedTask)) {
+      patch(task);
+      touched = true;
+    }
+    if (Array.isArray(task.subtasks) && patchTaskByDateIdentity(task.subtasks as unknown as Task[], updatedTask, patch)) {
+      touched = true;
+    }
+  }
+  return touched;
+}
+
+function rememberLocalTaskFieldOverride<K extends keyof Task>(
+  taskId: string,
+  field: K,
+  value: Task[K],
+  ttlMs = 8000
+): void {
+  const normalizedTaskId = normalizeTaskDateIdentityValue(taskId);
+  if (!normalizedTaskId) {
+    return;
+  }
+  const existing = localTaskFieldOverrides.get(normalizedTaskId);
+  localTaskFieldOverrides.set(normalizedTaskId, {
+    values: {
+      ...(existing?.values || {}),
+      [field]: value
+    } as Partial<Task>,
+    expiresAt: Date.now() + ttlMs
+  });
+}
+
+function applyLocalTaskFieldOverrides(task: Task): Task {
+  const override = localTaskFieldOverrides.get(task.id);
+  if (!override) {
+    return task;
+  }
+  if (override.expiresAt <= Date.now()) {
+    localTaskFieldOverrides.delete(task.id);
+    return task;
+  }
+  return {
+    ...task,
+    ...override.values
+  };
+}
+
+function applyLocalTaskFieldOverridesToList(taskList: Task[]): Task[] {
+  if (localTaskFieldOverrides.size === 0) {
+    return taskList;
+  }
+  return taskList.map(task => applyLocalTaskFieldOverrides(task));
+}
+
+function getTasksWithLocalOverrides(): Task[] {
+  return applyLocalTaskFieldOverridesToList(crdtRepo.getTasks());
+}
+
+function syncTaskSnapshotWithLocalOverrides(taskList: Task[]): Task[] {
+  crdtRepo.syncFromSQLTasks(applyLocalTaskFieldOverridesToList(taskList));
+  return getTasksWithLocalOverrides();
 }
 
 function syncRepeatTaskDescriptionLocally(task: Task, description: string): boolean {
@@ -4674,8 +4810,7 @@ async function applyRepeatRuleIncremental(payload: RepeatRulePayload, requestId:
       return true;
     }
 
-    crdtRepo.syncFromSQLTasks(nextTasks);
-    tasks.value = crdtRepo.getTasks();
+    tasks.value = syncTaskSnapshotWithLocalOverrides(nextTasks);
     invalidateCache();
     invalidateSortCache();
     updateTaskIndex();
@@ -5020,8 +5155,7 @@ async function refreshTasks(
       hydrateMemoTitlesFromLiveDom(sqlTasks, TASK_TITLE_HYDRATE_LIMIT);
     }
 
-    crdtRepo.syncFromSQLTasks(sqlTasks);
-    const newTasks = crdtRepo.getTasks();
+    const newTasks = syncTaskSnapshotWithLocalOverrides(sqlTasks);
 
     if (!compareExisting || force || hasTasksChanged(tasks.value, newTasks)) {
       invalidateCache();
@@ -5048,14 +5182,15 @@ async function prefillKernelLightTasks(scope: TaskQueryScope | null | undefined)
     if (lightTasks.length === 0) {
       return false;
     }
-    crdtRepo.syncFromSQLTasks(lightTasks);
-    tasks.value = crdtRepo.getTasks();
+    tasks.value = syncTaskSnapshotWithLocalOverrides(lightTasks);
     invalidateSortCache();
     await nextTick();
     updateTaskIndex();
     return true;
   } catch (error) {
-    console.debug('[TaskManager] kernel light prefill skipped', error);
+    if (!isKernelRpcUnavailable(error)) {
+      console.debug('[TaskManager] kernel light prefill skipped', error);
+    }
     return false;
   }
 }
@@ -5108,15 +5243,16 @@ async function syncRepeatChangedFromKernel(): Promise<boolean> {
       return false;
     }
 
-    crdtRepo.syncFromSQLTasks(mergeKernelSyncedTasks(kernelTasks, tasks.value));
-    tasks.value = crdtRepo.getTasks();
+    tasks.value = syncTaskSnapshotWithLocalOverrides(mergeKernelSyncedTasks(kernelTasks, tasks.value));
     invalidateCache();
     invalidateSortCache();
     await nextTick();
     updateTaskIndex();
     return true;
   } catch (error) {
-    console.debug('[TaskManager] kernel repeat sync skipped', error);
+    if (!isKernelRpcUnavailable(error)) {
+      console.debug('[TaskManager] kernel repeat sync skipped', error);
+    }
     return false;
   }
 }
@@ -5155,7 +5291,9 @@ function scheduleKernelTaskIndexRefresh(delay = 220): void {
     try {
       await refreshKernelTaskIndex({ limit: 5000, includeArchived: true });
     } catch (error) {
-      console.debug('[TaskManager] kernel task index refresh after date change skipped', error);
+      if (!isKernelRpcUnavailable(error)) {
+        console.debug('[TaskManager] kernel task index refresh after date change skipped', error);
+      }
     }
   }, delay);
 }
@@ -5447,7 +5585,8 @@ function setupEventListeners() {
     const taskId = typeof updatedTask.id === 'string' ? updatedTask.id : '';
     const blockId = typeof updatedTask.blockId === 'string' ? updatedTask.blockId.trim() : '';
     const existingTask = tasks.value.find(task => task.id === taskId)
-      || (blockId ? tasks.value.find(task => task.blockId === blockId) : undefined);
+      || (blockId ? tasks.value.find(task => task.blockId === blockId) : undefined)
+      || tasks.value.find(task => areTaskDateIdentitiesRelated(task, updatedTask));
     const previousRepeatSeriesId = typeof existingTask?.repeatSeriesId === 'string'
       ? existingTask.repeatSeriesId.trim()
       : '';
@@ -5493,8 +5632,33 @@ function setupEventListeners() {
         task.isVirtual = updatedTask.isVirtual;
       }
     };
-    const patched = (taskId ? patchTask(tasks.value, taskId, patchDates, 'id') : false)
+    const hasOwn = (key: keyof Task) => Object.prototype.hasOwnProperty.call(updatedTask, key);
+    const patched = patchTaskByDateIdentity(tasks.value, updatedTask, patchDates)
+      || (taskId ? patchTask(tasks.value, taskId, patchDates, 'id') : false)
       || (blockId ? patchTask(tasks.value, blockId, patchDates, 'blockId') : false);
+    const rememberPatchedTask = (task: Task): void => {
+      rememberLocalTaskFieldOverride(task.id, 'startDate', task.startDate || '');
+      rememberLocalTaskFieldOverride(task.id, 'dueDate', task.dueDate || '');
+      rememberLocalTaskFieldOverride(task.id, 'startTime', task.startTime || '');
+      rememberLocalTaskFieldOverride(task.id, 'dueTime', task.dueTime || '');
+      if (hasOwn('repeatFrequency')) {
+        rememberLocalTaskFieldOverride(task.id, 'repeatFrequency', task.repeatFrequency);
+      }
+      if (hasOwn('repeatSeriesId')) {
+        rememberLocalTaskFieldOverride(task.id, 'repeatSeriesId', task.repeatSeriesId);
+      }
+      if (hasOwn('repeatInstanceDate')) {
+        rememberLocalTaskFieldOverride(task.id, 'repeatInstanceDate', task.repeatInstanceDate);
+      }
+      if (hasOwn('isVirtual')) {
+        rememberLocalTaskFieldOverride(task.id, 'isVirtual', task.isVirtual);
+      }
+    };
+    tasks.value.forEach(task => {
+      if (areTaskDateIdentitiesRelated(task, updatedTask)) {
+        rememberPatchedTask(task);
+      }
+    });
     if (!patched && blockId) {
       queueIncrementalUpdates([blockId], 80);
     }
@@ -5503,12 +5667,15 @@ function setupEventListeners() {
         !(task.isVirtual === true && task.repeatSeriesId === previousRepeatSeriesId)
       );
       if (nextTasks.length !== tasks.value.length) {
-        crdtRepo.syncFromSQLTasks(nextTasks);
-        tasks.value = crdtRepo.getTasks();
+        tasks.value = syncTaskSnapshotWithLocalOverrides(nextTasks);
         updateTaskIndex();
       }
     }
     invalidateSortCache();
+    if (patched) {
+      tasks.value = [...tasks.value];
+      updateTaskIndex();
+    }
   });
   
   watch(
@@ -5664,10 +5831,9 @@ async function incrementalUpdateTasks(blockIds: string[]) {
       if (removedTaskIds.size > 0) {
         nextTasks = nextTasks.filter(task => !removedTaskIds.has(task.id));
         // Keep CRDT store aligned with scoped list without writing tombstones.
-        crdtRepo.syncFromSQLTasks(nextTasks);
-        nextTasks = crdtRepo.getTasks();
+        nextTasks = syncTaskSnapshotWithLocalOverrides(nextTasks);
       }
-      tasks.value = nextTasks;
+      tasks.value = applyLocalTaskFieldOverridesToList(nextTasks);
       await updateTaskIndex(); 
       consecutiveFallbackFailures = 0;
 
@@ -5781,7 +5947,7 @@ async function pruneInvalidParentsFromEvents(
     if (removed) {
       invalidateCache();
       invalidateSortCache();
-      tasks.value = crdtRepo.getTasks();
+      tasks.value = getTasksWithLocalOverrides();
       await updateTaskIndex();
     }
     return removedBlockIds.length;
@@ -7275,7 +7441,7 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
     : 'none';
   const currentTagState = buildTaskTagState(task.tags, task.groupId);
   const nextTagState = buildTaskTagState(taskQuickMetaDraft.value.tags, taskQuickMetaDraft.value.groupId);
-  const currentGoalIds = getGoalIdsForTask(goalDefinitions.value, task);
+  const currentGoalIds = getEffectiveGoalIdsForTask(goalDefinitions.value, task);
   const nextGoalIds = normalizeTaskQuickGoalIds(taskQuickMetaDraft.value.goalIds);
   const nextReminder = normalizeTaskReminderSelection(taskQuickMetaDraft.value);
   const priorityChanged = task.priority !== nextPriority;
@@ -8527,8 +8693,7 @@ onMounted(async () => {
     const cachedTasks = await TaskRepository.getCachedTasksOnly();
     if (cachedTasks.length > 0) {
       hydrateMemoTitlesFromLiveDom(cachedTasks, TASK_TITLE_HYDRATE_LIMIT);
-      crdtRepo.syncFromSQLTasks(cachedTasks);
-      tasks.value = crdtRepo.getTasks();
+      tasks.value = syncTaskSnapshotWithLocalOverrides(cachedTasks);
       hydrateMemoTitlesFromLiveDom(tasks.value, TASK_TITLE_HYDRATE_LIMIT);
       await refreshInternalState();
       if (tasks.value.length > 0 && tasks.value.length <= FILTER_SWITCH_BROAD_LOAD_THRESHOLD) {

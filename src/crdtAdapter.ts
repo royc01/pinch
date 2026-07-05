@@ -95,6 +95,7 @@ export class CRDTTaskRepository {
   private engine: TaskCRDTEngine;
   private nodeId: string;
   private subtasksMap: Map<string, Task['subtasks']> = new Map();
+  private pendingLocalFields: Map<string, Map<string, { value: any; expiresAt: number }>> = new Map();
 
   constructor(nodeId: string = 'local') {
     this.nodeId = nodeId;
@@ -107,8 +108,9 @@ export class CRDTTaskRepository {
 
   private ensureRemoteTaskTs(crdtTask: CRDTTask): CRDTTask {
     const existing = this.engine.getTask(crdtTask.id);
+    const guardedTask = this.applyPendingLocalFields(crdtTask, existing);
     if (!existing || crdtTask.updatedAt > existing.updatedAt) {
-      return crdtTask;
+      return guardedTask;
     }
 
     const nextTs = existing.updatedAt + 1;
@@ -118,27 +120,89 @@ export class CRDTTaskRepository {
     });
 
     return {
-      ...crdtTask,
-      title: withTs(crdtTask.title),
-      status: withTs(crdtTask.status),
-      priority: withTs(crdtTask.priority),
-      pinned: withTs(crdtTask.pinned),
-      dueDate: withTs(crdtTask.dueDate),
-      startDate: withTs(crdtTask.startDate),
-      startTime: withTs(crdtTask.startTime),
-      dueTime: withTs(crdtTask.dueTime),
-      description: withTs(crdtTask.description),
-      reminderType: withTs(crdtTask.reminderType),
-      reminderCustomTime: withTs(crdtTask.reminderCustomTime),
-      tags: withTs(crdtTask.tags),
-      groupId: withTs(crdtTask.groupId),
-      backgroundColor: withTs(crdtTask.backgroundColor),
-      archived: withTs(crdtTask.archived),
-      completedAt: withTs(crdtTask.completedAt),
-      archivedAt: withTs(crdtTask.archivedAt),
-      archiveReason: withTs(crdtTask.archiveReason),
+      ...guardedTask,
+      title: withTs(guardedTask.title),
+      status: withTs(guardedTask.status),
+      priority: withTs(guardedTask.priority),
+      pinned: withTs(guardedTask.pinned),
+      dueDate: withTs(guardedTask.dueDate),
+      startDate: withTs(guardedTask.startDate),
+      startTime: withTs(guardedTask.startTime),
+      dueTime: withTs(guardedTask.dueTime),
+      description: withTs(guardedTask.description),
+      reminderType: withTs(guardedTask.reminderType),
+      reminderCustomTime: withTs(guardedTask.reminderCustomTime),
+      tags: withTs(guardedTask.tags),
+      groupId: withTs(guardedTask.groupId),
+      backgroundColor: withTs(guardedTask.backgroundColor),
+      archived: withTs(guardedTask.archived),
+      completedAt: withTs(guardedTask.completedAt),
+      archivedAt: withTs(guardedTask.archivedAt),
+      archiveReason: withTs(guardedTask.archiveReason),
       updatedAt: nextTs
     };
+  }
+
+  private arePendingValuesEqual(left: any, right: any): boolean {
+    if (Object.is(left, right)) {
+      return true;
+    }
+    if (Array.isArray(left) && Array.isArray(right)) {
+      return left.length === right.length && left.every((item, index) => Object.is(item, right[index]));
+    }
+    return false;
+  }
+
+  private rememberPendingLocalField(
+    taskId: string,
+    field: keyof Omit<CRDTTask, 'id' | 'updatedAt'>,
+    value: any
+  ): void {
+    if (field === 'metadata' || field === 'deleted') {
+      return;
+    }
+    const fields = this.pendingLocalFields.get(taskId) || new Map<string, { value: any; expiresAt: number }>();
+    fields.set(String(field), {
+      value,
+      expiresAt: Date.now() + 5000
+    });
+    this.pendingLocalFields.set(taskId, fields);
+  }
+
+  private applyPendingLocalFields(crdtTask: CRDTTask, existing?: CRDTTask): CRDTTask {
+    const fields = this.pendingLocalFields.get(crdtTask.id);
+    if (!fields || fields.size === 0) {
+      return crdtTask;
+    }
+
+    let guardedTask = crdtTask;
+    const now = Date.now();
+    fields.forEach((pending, field) => {
+      const remoteField = (guardedTask as any)[field] as CRDTField<any> | undefined;
+      if (!remoteField || pending.expiresAt <= now) {
+        fields.delete(field);
+        return;
+      }
+      if (this.arePendingValuesEqual(remoteField.value, pending.value)) {
+        fields.delete(field);
+        return;
+      }
+
+      const existingField = existing ? ((existing as any)[field] as CRDTField<any> | undefined) : undefined;
+      guardedTask = {
+        ...guardedTask,
+        [field]: existingField || {
+          value: pending.value,
+          ts: guardedTask.updatedAt,
+          node: this.nodeId
+        }
+      };
+    });
+
+    if (fields.size === 0) {
+      this.pendingLocalFields.delete(crdtTask.id);
+    }
+    return guardedTask;
   }
 
   syncFromSQLTasks(tasks: Task[]): void {
@@ -203,6 +267,7 @@ export class CRDTTaskRepository {
     value: any,
     ts?: number
   ): TaskEvent {
+    this.rememberPendingLocalField(taskId, field, value);
     return this.engine.applyLocalUpdate(taskId, field, value, ts);
   }
 

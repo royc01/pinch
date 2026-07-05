@@ -6,7 +6,7 @@
         <button
           type="button"
           class="calendar-editor-date-btn"
-          @click="emit('clearDates')"
+          @click="clearDateFields"
         >
           {{ t('taskManager.clearTaskDates') }}
         </button>
@@ -166,6 +166,15 @@ function emitDateUpdate(partialValue: Partial<CalendarTaskDateFields>): void {
     dueDate: props.dueDate,
     dueTime: props.dueTime,
     ...partialValue
+  });
+}
+
+function clearDateFields(): void {
+  emit('updateDates', {
+    startDate: '',
+    startTime: '',
+    dueDate: '',
+    dueTime: ''
   });
 }
 

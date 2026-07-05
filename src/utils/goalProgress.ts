@@ -1,5 +1,6 @@
 import type { Task } from '@/api';
 import type { Goal } from '@/goalRepository';
+import { isTaskInGoalScope } from '@/utils/goalTaskMembership';
 
 export type GoalProgressStatus = 'empty' | 'in-progress' | 'completed';
 
@@ -27,6 +28,9 @@ function isTaskCountable(task: Task): boolean {
     return false;
   }
   if (task.status === 'cancelled') {
+    return false;
+  }
+  if (task.isVirtual) {
     return false;
   }
   return true;
@@ -96,22 +100,8 @@ export function buildGoalProgressSummaries(
     let completedTasks = 0;
 
     countableTasksById.forEach((task) => {
-      const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
-      const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
-      if (!notebookId || !rootId) {
-        return;
-      }
-
-      const key = buildDocumentKey(notebookId, rootId);
-      if (!documentKeys.includes(key)) {
-        return;
-      }
-      matchedTaskIds.add(task.id);
-    });
-
-    taskMemberIds.forEach((taskId) => {
-      if (countableTasksById.has(taskId)) {
-        matchedTaskIds.add(taskId);
+      if (isTaskInGoalScope(goal, task)) {
+        matchedTaskIds.add(task.id);
       }
     });
 

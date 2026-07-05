@@ -185,4 +185,69 @@ describe('goal progress', () => {
     expect(summary.progressPercent).toBe(0);
     expect(summary.status).toBe('empty');
   });
+
+  it('counts recurring task templates without counting virtual instances', () => {
+    const goals: Goal[] = [
+      {
+        id: 'goal-repeat',
+        name: 'Repeat Goal',
+        members: [
+          {
+            notebookId: 'nb-1',
+            documentId: 'doc-1'
+          }
+        ],
+        taskMembers: [
+          {
+            taskId: 'template-task-1',
+            blockId: 'template-block-1'
+          }
+        ]
+      }
+    ];
+
+    const tasks = [
+      {
+        id: 'template-task-1',
+        type: 'block',
+        title: 'Daily review',
+        status: 'completed',
+        priority: 'none',
+        tags: [],
+        blockId: 'template-block-1',
+        rootId: 'doc-1',
+        notebookId: 'nb-1',
+        repeatSeriesId: 'series-1',
+        repeatFrequency: 'daily',
+        isVirtual: false,
+        createdAt: '2026-07-05T00:00:00.000Z',
+        updatedAt: '2026-07-05T00:00:00.000Z'
+      },
+      {
+        id: 'series-1:2026-07-06',
+        taskId: 'template-task-1',
+        sourceBlockId: 'template-block-1',
+        type: 'block',
+        title: 'Daily review',
+        status: 'in-progress',
+        priority: 'none',
+        tags: [],
+        rootId: 'doc-1',
+        notebookId: 'nb-1',
+        repeatSeriesId: 'series-1',
+        repeatFrequency: 'daily',
+        repeatInstanceDate: '2026-07-06',
+        isVirtual: true,
+        createdAt: '2026-07-05T00:00:00.000Z',
+        updatedAt: '2026-07-05T00:00:00.000Z'
+      }
+    ] as Task[];
+
+    const [summary] = buildGoalProgressSummaries(goals, tasks);
+
+    expect(summary.totalTasks).toBe(1);
+    expect(summary.completedTasks).toBe(1);
+    expect(summary.progressPercent).toBe(100);
+    expect(summary.status).toBe('completed');
+  });
 });

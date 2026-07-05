@@ -43,7 +43,9 @@
                 :placeholder="t('goalManager.goalNamePlaceholder')"
                 @update:model-value="updateGoalName(goal.id, $event)"
               />
-              <span class="goal-count">{{ goal.members.length + (goal.taskMembers?.length || 0) }}</span>
+              <span class="goal-count">
+                {{ goal.members.length }}/{{ goal.taskMembers?.length || 0 }}
+              </span>
               <button
                 type="button"
                 class="goal-delete ariaLabel"
@@ -117,34 +119,80 @@
             {{ t('goalManager.noDocuments') }}
           </div>
           <div v-else class="goal-checkbox-list">
-            <label
+            <div
               v-for="document in filteredDocuments"
               :key="document.key"
-              class="goal-checkbox-item"
+              class="goal-document-card"
+              :class="{ selected: isDocumentSelected(document) }"
             >
-              <span
-                :class="[
-                  'day-checkbox',
-                  { completed: isDocumentSelected(document) }
-                ]"
+              <label class="goal-checkbox-item goal-document-row">
+                <span
+                  :class="[
+                    'day-checkbox',
+                    { completed: isDocumentSelected(document) }
+                  ]"
+                >
+                  <Icon
+                    :name="isDocumentSelected(document) ? 'squareCheck' : 'square'"
+                    :completed="isDocumentSelected(document)"
+                    class="day-checkbox-icon"
+                  />
+                </span>
+                <span class="goal-checkbox-text">
+                  <span class="goal-checkbox-name">{{ document.name }}</span>
+                  <span class="goal-checkbox-meta">
+                    {{ document.notebookName }}
+                    <span class="goal-document-task-count">{{ getDocumentTasks(document).length }}</span>
+                  </span>
+                </span>
+                <input
+                  class="goal-checkbox-input"
+                  type="checkbox"
+                  :checked="isDocumentSelected(document)"
+                  @change="toggleDocumentMembership(document, ($event.target as HTMLInputElement).checked)"
+                >
+              </label>
+              <button
+                type="button"
+                class="goal-document-expand"
+                :class="{ expanded: isDocumentExpanded(document) }"
+                @click.stop="toggleDocumentExpanded(document)"
               >
-                <Icon
-                  :name="isDocumentSelected(document) ? 'squareCheck' : 'square'"
-                  :completed="isDocumentSelected(document)"
-                  class="day-checkbox-icon"
-                />
-              </span>
-              <span class="goal-checkbox-text">
-                <span class="goal-checkbox-name">{{ document.name }}</span>
-                <span class="goal-checkbox-meta">{{ document.notebookName }}</span>
-              </span>
-              <input
-                class="goal-checkbox-input"
-                type="checkbox"
-                :checked="isDocumentSelected(document)"
-                @change="toggleDocumentMembership(document, ($event.target as HTMLInputElement).checked)"
-              >
-            </label>
+                <Icon name="chevronRight" width="14" height="14" />
+              </button>
+              <div v-if="isDocumentExpanded(document)" class="goal-document-task-list">
+                <div v-if="getDocumentTasks(document).length === 0" class="goal-document-task-empty">
+                  {{ t('goalManager.noDocumentTasks') }}
+                </div>
+                <label
+                  v-for="task in getDocumentTasks(document)"
+                  :key="task.id"
+                  class="goal-document-task-item"
+                >
+                  <span
+                    :class="[
+                      'day-checkbox',
+                      { completed: isTaskChecked(task) }
+                    ]"
+                  >
+                    <Icon
+                      :name="isTaskChecked(task) ? 'squareCheck' : 'square'"
+                      :completed="isTaskChecked(task)"
+                      class="day-checkbox-icon"
+                    />
+                  </span>
+                  <span class="goal-document-task-text">
+                    <span class="goal-document-task-title" v-html="getTaskTitleHtml(task)"></span>
+                  </span>
+                  <input
+                    class="goal-checkbox-input"
+                    type="checkbox"
+                    :checked="isTaskChecked(task)"
+                    @change="toggleTaskMembership(task, ($event.target as HTMLInputElement).checked)"
+                  >
+                </label>
+              </div>
+            </div>
           </div>
         </template>
       </div>
@@ -160,13 +208,22 @@ import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
+import type { Task } from '@/api';
 import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
 import type { Goal } from '@/goalRepository';
+import {
+  buildGoalTaskMember,
+  isTaskDirectGoalMember,
+  isTaskExcludedFromGoal
+} from '@/utils/goalTaskMembership';
+import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 import { useI18n } from '@/composables/useI18n';
 
 interface Props {
   goals: Goal[];
   documents: GoalScopeDocument[];
+  tasks?: Task[];
   documentsRefreshing?: boolean;
 }
 
@@ -182,6 +239,7 @@ const emit = defineEmits<{
 const localGoals = ref<Goal[]>([]);
 const selectedGoalId = ref('');
 const documentSearch = ref('');
+const expandedDocumentKeys = ref(new Set<string>());
 const dueDateButtonRefs = new Map<string, HTMLElement>();
 const dueDatePopover = reactive({
   visible: false,
@@ -194,7 +252,8 @@ function cloneGoals(goals: Goal[]): Goal[] {
   return (goals || []).map(goal => ({
     ...goal,
     members: Array.isArray(goal.members) ? goal.members.map(member => ({ ...member })) : [],
-    taskMembers: Array.isArray(goal.taskMembers) ? goal.taskMembers.map(member => ({ ...member })) : []
+    taskMembers: Array.isArray(goal.taskMembers) ? goal.taskMembers.map(member => ({ ...member })) : [],
+    excludedTaskMembers: Array.isArray(goal.excludedTaskMembers) ? goal.excludedTaskMembers.map(member => ({ ...member })) : []
   }));
 }
 
@@ -233,6 +292,72 @@ const filteredDocuments = computed(() => {
     return haystack.includes(keyword);
   });
 });
+
+function isTaskInDocument(task: Task, document: GoalScopeDocument): boolean {
+  return task.notebookId === document.notebookId && task.rootId === document.id;
+}
+
+function isTaskInSelectedDocumentScope(task: Task): boolean {
+  const activeGoal = selectedGoal.value;
+  if (!activeGoal) {
+    return false;
+  }
+  return activeGoal.members.some(member =>
+    member.notebookId === task.notebookId && member.documentId === task.rootId
+  );
+}
+
+function getDocumentTasks(document: GoalScopeDocument): Task[] {
+  return (props.tasks || [])
+    .filter(task =>
+      task.type === 'block'
+      && !task.archived
+      && !task.isVirtual
+      && hasVisibleTaskTitle(task.title)
+      && isTaskInDocument(task, document)
+    )
+    .sort((left, right) => {
+      const leftCompleted = left.status === 'completed' ? 1 : 0;
+      const rightCompleted = right.status === 'completed' ? 1 : 0;
+      if (leftCompleted !== rightCompleted) {
+        return leftCompleted - rightCompleted;
+      }
+      return (left.title || '').localeCompare(right.title || '', 'zh-CN');
+    });
+}
+
+function isDocumentExpanded(document: GoalScopeDocument): boolean {
+  return expandedDocumentKeys.value.has(`${document.notebookId}:${document.id}`);
+}
+
+function toggleDocumentExpanded(document: GoalScopeDocument): void {
+  const key = `${document.notebookId}:${document.id}`;
+  const next = new Set(expandedDocumentKeys.value);
+  if (next.has(key)) {
+    next.delete(key);
+  } else {
+    next.add(key);
+  }
+  expandedDocumentKeys.value = next;
+}
+
+function isTaskChecked(task: Task): boolean {
+  const activeGoal = selectedGoal.value;
+  if (!activeGoal) {
+    return false;
+  }
+  if (isTaskDirectGoalMember(activeGoal, task)) {
+    return true;
+  }
+  if (isTaskExcludedFromGoal(activeGoal, task)) {
+    return false;
+  }
+  return isTaskInSelectedDocumentScope(task);
+}
+
+function getTaskTitleHtml(task: Task): string {
+  return sanitizeTaskTitleHtml(task.title || '');
+}
 
 function updateGoalName(goalId: string, value: string): void {
   emitGoals(localGoals.value.map(goal => (
@@ -395,6 +520,40 @@ function toggleDocumentMembership(document: GoalScopeDocument, checked: boolean)
     return {
       ...goal,
       members: nextMembers
+    };
+  }));
+}
+
+function toggleTaskMembership(task: Task, checked: boolean): void {
+  const activeGoal = selectedGoal.value;
+  const taskMember = buildGoalTaskMember(task);
+  if (!activeGoal || !taskMember) {
+    return;
+  }
+
+  const inherited = isTaskInSelectedDocumentScope(task);
+  emitGoals(localGoals.value.map(goal => {
+    if (goal.id !== activeGoal.id) {
+      return goal;
+    }
+
+    const directMembers = (goal.taskMembers || [])
+      .filter(member => member.taskId !== taskMember.taskId);
+    const excludedMembers = (goal.excludedTaskMembers || [])
+      .filter(member => member.taskId !== taskMember.taskId);
+
+    if (checked) {
+      return {
+        ...goal,
+        taskMembers: inherited ? directMembers : [...directMembers, taskMember],
+        excludedTaskMembers: excludedMembers
+      };
+    }
+
+    return {
+      ...goal,
+      taskMembers: directMembers,
+      excludedTaskMembers: inherited ? [...excludedMembers, taskMember] : excludedMembers
     };
   }));
 }
@@ -576,6 +735,106 @@ watch(
   flex-direction: column;
   gap: 6px;
   padding-right: 2px;
+}
+
+.goal-document-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.goal-document-row {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.goal-document-expand {
+  grid-column: 2;
+  width: 28px;
+  min-height: 38px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.goal-document-expand:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.goal-document-expand svg {
+  fill: currentColor;
+  transition: transform 0.16s ease;
+}
+
+.goal-document-expand.expanded svg {
+  transform: rotate(90deg);
+}
+
+.goal-document-task-list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 2px 24px;
+}
+
+.goal-document-task-empty {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+}
+
+.goal-document-task-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  cursor: pointer;
+}
+
+.goal-document-task-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.goal-document-task-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+}
+
+.goal-document-task-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  font-size: 11px;
 }
 
 .goal-item {

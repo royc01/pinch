@@ -94,7 +94,7 @@
             <span class="gantt-section-toggle" aria-hidden="true">
               <Icon name="chevronDown" width="16" height="16" />
             </span>
-            <EmojiIcon class="gantt-section-icon" :value="row.emoji" />
+            <EmojiIcon v-if="row.emoji" class="gantt-section-icon" :value="row.emoji" />
             <button
               type="button"
               class="gantt-row-title gantt-row-title-btn"
@@ -111,7 +111,19 @@
             >
               {{ row.dueDateLabel }}
             </span>
-            <span class="gantt-section-count">{{ row.taskCount }}</span>
+            <span
+              class="gantt-section-count is-progress"
+              :class="{
+                overdue: row.isOverdue,
+                risk: row.hasScheduleRisk,
+                completed: row.completedTasks >= row.taskCount
+              }"
+              :style="{ '--gantt-section-progress': `${row.summaryProgress}%` }"
+              :title="row.summaryTitle"
+            >
+              <span class="gantt-section-progress-text">{{ row.summaryProgress }} %</span>
+              <span class="gantt-section-progress-ring" aria-hidden="true"></span>
+            </span>
           </div>
           <button
             v-else-if="row.kind === 'unscheduled-toggle'"
@@ -366,6 +378,7 @@ const props = defineProps<{
   taskGroups?: TaskGroup[];
   groupMode?: GanttGroupMode;
   documentTitleByRootId?: Map<string, string>;
+  autoExpandUnscheduledTasks?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -1736,7 +1749,7 @@ function buildGoalSections(): GanttSection[] {
     sections.push({
       id: 'unassigned',
       title: t('ganttView.unassignedGoal'),
-      emoji: '•',
+      emoji: '',
       rows: unassignedSectionRows,
       summaryTasks: unassignedSummaryTasks
     });
@@ -1876,6 +1889,9 @@ function toggleSection(sectionId: string): void {
 }
 
 function getUnscheduledDisplayMode(sectionId: string): UnscheduledDisplayMode {
+  if (props.autoExpandUnscheduledTasks) {
+    return 'all';
+  }
   return unscheduledSectionModes.value.get(sectionId) || 'collapsed';
 }
 
@@ -2050,7 +2066,9 @@ const renderRows = computed<GanttRenderRow[]>(() => {
     }
 
     appendUnscheduledTaskRows(rows, section.id, section.id, unscheduledRows);
-    pushUnscheduledToggleRow('collapse', unscheduledRows.length, true);
+    if (!props.autoExpandUnscheduledTasks) {
+      pushUnscheduledToggleRow('collapse', unscheduledRows.length, true);
+    }
   };
 
   if (props.groupMode === 'none') {
@@ -2119,7 +2137,9 @@ const renderRows = computed<GanttRenderRow[]>(() => {
       UNGROUPED_UNSCHEDULED_SECTION_ID,
       unscheduledRows
     );
-    pushUnscheduledToggleRow('collapse', unscheduledRows.length, true);
+    if (!props.autoExpandUnscheduledTasks) {
+      pushUnscheduledToggleRow('collapse', unscheduledRows.length, true);
+    }
     return rows;
   }
 
@@ -2618,6 +2638,46 @@ const gridStyle = computed(() => ({
   font-weight: 500;
   line-height: 18px;
   text-align: center;
+}
+
+.gantt-section-count.is-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 48px;
+  padding: 0;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.gantt-section-count.is-progress.overdue {
+  color: var(--pinch-font-color10);
+}
+
+.gantt-section-count.is-progress.risk:not(.completed) {
+  color: var(--pinch-font-color6);
+}
+
+.gantt-section-count.is-progress.completed {
+  color: var(--pinch-font-color5);
+}
+
+.gantt-section-progress-text {
+  flex: 0 0 auto;
+  line-height: 18px;
+}
+
+.gantt-section-progress-ring {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle closest-side, var(--b3-theme-background) 62%, transparent 64%),
+    conic-gradient(currentColor var(--gantt-section-progress, 0%), color-mix(in srgb, currentColor 18%, transparent) 0);
 }
 
 .gantt-section-label .goal-due-date-info {

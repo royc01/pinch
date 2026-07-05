@@ -1,5 +1,9 @@
 const PINCH_KERNEL_PLUGIN_NAME = "pinch";
 const PINCH_KERNEL_RPC_TIMEOUT_MS = 12000;
+const PINCH_KERNEL_RPC_RETRY_AFTER_MS = 30000;
+
+let kernelRpcUnavailableUntil = 0;
+let lastKernelRpcUnavailableReason = "";
 
 type JsonRpcSuccess<T> = {
   jsonrpc: "2.0";
@@ -68,7 +72,28 @@ export type KernelTaskStatsResult = {
   ageMs?: number;
 };
 
+export class KernelRpcUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "KernelRpcUnavailableError";
+  }
+}
+
+function markKernelRpcUnavailable(error: unknown): void {
+  kernelRpcUnavailableUntil = Date.now() + PINCH_KERNEL_RPC_RETRY_AFTER_MS;
+  lastKernelRpcUnavailableReason = error instanceof Error ? error.message : String(error || "Kernel RPC unavailable");
+}
+
+export function isKernelRpcUnavailable(error: unknown): boolean {
+  return error instanceof KernelRpcUnavailableError ||
+    (error instanceof Error && error.name === "KernelRpcUnavailableError");
+}
+
 export async function callPinchKernel<T>(method: string, params?: unknown): Promise<T> {
+  if (Date.now() < kernelRpcUnavailableUntil) {
+    throw new KernelRpcUnavailableError(lastKernelRpcUnavailableReason || "Kernel RPC is temporarily unavailable");
+  }
+
   const id = Date.now();
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => {
@@ -88,15 +113,20 @@ export async function callPinchKernel<T>(method: string, params?: unknown): Prom
     });
   } catch (error) {
     if ((error as { name?: string })?.name === "AbortError") {
-      throw new Error(`Kernel RPC request timed out: ${method}`);
+      const timeoutError = new KernelRpcUnavailableError(`Kernel RPC request timed out: ${method}`);
+      markKernelRpcUnavailable(timeoutError);
+      throw timeoutError;
     }
+    markKernelRpcUnavailable(error);
     throw error;
   } finally {
     window.clearTimeout(timeoutId);
   }
 
   if (!response.ok) {
-    throw new Error(`Kernel RPC request failed: HTTP ${response.status}`);
+    const error = new KernelRpcUnavailableError(`Kernel RPC request failed: HTTP ${response.status}`);
+    markKernelRpcUnavailable(error);
+    throw error;
   }
 
   const payload = await response.json() as JsonRpcSuccess<T> | JsonRpcFailure;

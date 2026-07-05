@@ -115,7 +115,7 @@
         <span
           v-for="goal in visibleTaskGoalBadges"
           :key="`goal:${goal.id}`"
-          class="task-group-badge task-goal-badge ariaLabel"
+          class="task-editor-property-pill is-goal task-group-badge task-goal-badge ariaLabel"
           :aria-label="goal.label"
         >
           <EmojiIcon
@@ -216,7 +216,7 @@ import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor 
 import { getTaskReminderLabel } from '@/utils/taskReminder';
 import { resolveTaskTagIds } from '@/utils/taskTags';
 import type { Goal } from '@/goalRepository';
-import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
+import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
 
 defineOptions({
   name: 'TaskCard'
@@ -230,6 +230,7 @@ const props = defineProps<{
   task: Task;
   taskGroups?: TaskGroup[];
   goals?: Goal[];
+  selectedGoalIds?: string[];
   variant?: 'sidebar' | 'kanban';
   showStatusBadge?: boolean;
   draggable?: boolean;
@@ -475,7 +476,14 @@ const resolvedTaskTagBadges = computed(() => (
 const visibleTaskTagBadges = computed(() => resolvedTaskTagBadges.value.slice(0, 2));
 const overflowTaskTagCount = computed(() => Math.max(0, resolvedTaskTagBadges.value.length - visibleTaskTagBadges.value.length));
 const resolvedTaskGoalBadges = computed(() => {
-  const selectedGoalIds = new Set(getGoalIdsForTask(props.goals || [], task.value));
+  const externalGoalIds = Array.isArray(props.selectedGoalIds)
+    ? props.selectedGoalIds.filter(goalId => typeof goalId === 'string' && goalId.trim().length > 0)
+    : [];
+  const selectedGoalIds = new Set(
+    externalGoalIds.length > 0
+      ? externalGoalIds
+      : getEffectiveGoalIdsForTask(props.goals || [], task.value)
+  );
   return (props.goals || [])
     .filter(goal => selectedGoalIds.has(goal.id))
     .map(goal => ({
@@ -1132,6 +1140,13 @@ function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
 
 .task-goal-badge {
   background: var(--pinch-background6);
+  color: var(--b3-theme-on-background);
+}
+
+.task-editor-property-pill.is-goal.task-goal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .task-goal-badge-emoji {
