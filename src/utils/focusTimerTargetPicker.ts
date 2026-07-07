@@ -44,7 +44,10 @@ export function filterFocusTargetOptions(
     return options;
   }
 
-  return options.filter(target => target.name.toLowerCase().includes(normalizedKeyword));
+  return options.filter(target => {
+    const searchText = target.searchText || target.name;
+    return searchText.toLowerCase().includes(normalizedKeyword);
+  });
 }
 
 export function getFocusTargetDisplayLabel(

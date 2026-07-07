@@ -1841,7 +1841,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         return options;
       }
 
-      return options.filter((target) => String(target.name || '').toLowerCase().includes(keyword));
+      return options.filter((target) => String(target.searchText || target.name || '').toLowerCase().includes(keyword));
     }
 
     function closeTargetPicker() {

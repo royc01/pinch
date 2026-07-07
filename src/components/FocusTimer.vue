@@ -558,6 +558,7 @@ import {
   focusRecordToLifelogEvent,
   type FocusLifelogEvent
 } from '@/utils/lifelogEvents';
+import { filterFocusTargetOptions } from '@/utils/focusTimerTargetPicker';
 
 interface Props {
   show: boolean;
@@ -817,13 +818,7 @@ const filteredTargetOptions = computed(() => {
   const source = targetPickerMode.value === 'habit'
     ? habitTargetOptions.value
     : taskTargetOptions.value;
-  const keyword = targetSearch.value.trim().toLowerCase();
-
-  if (!keyword) {
-    return source;
-  }
-
-  return source.filter(target => target.name.toLowerCase().includes(keyword));
+  return filterFocusTargetOptions(source, targetSearch.value);
 });
 const backfillTargetPickerTitle = computed(() =>
   backfillTargetPickerMode.value === 'habit' ? t('focusTimer.selectHabit') : t('focusTimer.selectTask')
@@ -838,13 +833,7 @@ const filteredBackfillTargetOptions = computed(() => {
   const source = backfillTargetPickerMode.value === 'habit'
     ? habitTargetOptions.value
     : taskTargetOptions.value;
-  const keyword = backfillTargetSearch.value.trim().toLowerCase();
-
-  if (!keyword) {
-    return source;
-  }
-
-  return source.filter(target => target.name.toLowerCase().includes(keyword));
+  return filterFocusTargetOptions(source, backfillTargetSearch.value);
 });
 const backfillFocusTimelineItems = computed<FocusBackfillTimelineItem[]>(() => {
   const selectedDate = backfillDate.value;

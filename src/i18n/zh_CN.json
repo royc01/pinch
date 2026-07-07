@@ -888,6 +888,7 @@
     "tableView.columnPriority":  "优先级",
     "tableView.columnStatus":  "状态",
     "tableView.columnGroup":  "标签",
+    "tableView.columnGoal":  "目标",
     "tableView.columnStartDate":  "开始日期",
     "tableView.columnStartTime":  "开始时间",
     "tableView.columnDueDate":  "截止日期",

@@ -647,6 +647,7 @@ function registerTaskViewHotkeyCommands(pluginInstance: Plugin): void {
     pluginInstance.addCommand({
       langKey: command.langKey,
       langText: translate(command.langTextKey, command.fallback),
+      hotkey: '',
       editorCallback: () => {
         void openTaskViewByMode(command.view);
       },
@@ -834,6 +835,7 @@ function closeMobileTaskCreateDialog() {
 
   const dialog = mobileTaskCreateDialog;
   mobileTaskCreateDialog = null;
+  cleanupMobileTaskCreateApp();
   dialog.destroy();
 }
 
@@ -1008,6 +1010,7 @@ function closeMobileKanbanDialog() {
 
   const dialog = mobileKanbanDialog;
   mobileKanbanDialog = null;
+  cleanupMobileKanbanApp();
   dialog.destroy();
 }
 

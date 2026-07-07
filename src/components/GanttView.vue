@@ -346,7 +346,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { TaskRepository, setBlockAttrs } from '@/api';
+import { TaskRepository } from '@/api';
 import type { Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
 import EmojiIcon from '@/components/EmojiIcon.vue';
@@ -354,9 +354,10 @@ import Icon from './Icon.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import { useI18n } from '@/composables/useI18n';
-import { getRepeatSeriesForTask, updateRepeatSeriesBackgroundColor } from '@/repeatRepository';
+import { getRepeatSeriesForTask } from '@/repeatRepository';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
 import { isTaskInGoalScope } from '@/utils/goalTaskMembership';
+import { persistTaskBackgroundColor } from '@/utils/taskBackgroundColorPersistence';
 import {
   resolveEffectiveTaskBackgroundColor,
   resolveTaskAccentColor,
@@ -855,32 +856,18 @@ function clearContextMenuDates(task: Task): void {
 
 async function setTaskBackgroundColor(task: Task, color: string): Promise<void> {
   if (!task) return;
-  const seriesId = typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
-  const isRepeatTask = !!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-  const templateTask = isRepeatTask
-    ? (!task.isVirtual
-      ? task
-      : props.tasks.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId))
-    : undefined;
-  const persistenceTarget = templateTask || task;
-  const updatedTask = { ...task, backgroundColor: color };
-
-  emit('task-color-changed', updatedTask);
-
-  try {
-    if (persistenceTarget.type === 'block' && persistenceTarget.blockId) {
-      await setBlockAttrs(persistenceTarget.blockId, {
-        'custom-task-background-color': color
-      });
-    } else {
-      await TaskRepository.updateTask(persistenceTarget.id, { backgroundColor: color });
-    }
-
-    if (isRepeatTask) {
-      await updateRepeatSeriesBackgroundColor(persistenceTarget, color);
-    }
-  } catch (error) {
+  const result = await persistTaskBackgroundColor(task, color, props.tasks).catch((error) => {
     console.error('[GanttView] failed to update task color', error);
+    return null;
+  });
+  if (result) {
+    if (contextMenu.value.task?.id === task.id) {
+      contextMenu.value = {
+        ...contextMenu.value,
+        task: { ...contextMenu.value.task, backgroundColor: result.color }
+      };
+    }
+    emit('task-color-changed', result.updatedTask);
   }
 }
 
@@ -2645,7 +2632,6 @@ const gridStyle = computed(() => ({
   align-items: center;
   gap: 8px;
   margin-left: auto;
-  min-width: 48px;
   padding: 0;
   background: transparent;
   color: var(--b3-theme-on-background);

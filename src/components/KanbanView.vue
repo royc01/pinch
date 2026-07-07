@@ -243,6 +243,38 @@
         </div>
       </div>
       <div v-if="isBoardTaskView" class="document-tabs-actions">
+        <div
+          ref="tableSearchControlRef"
+          class="task-search"
+          :class="{ 'is-mobile-collapsed': isMobileTaskSearchCollapsed }"
+        >
+          <button
+            type="button"
+            class="task-search-toggle ariaLabel"
+            :aria-label="isMobileTaskSearchCollapsed ? t('kanbanView.expandSearch') : t('taskManager.searchTasks')"
+            @click.stop="handleTaskSearchToggleClick"
+          >
+            <Icon name="searchCompact" class="task-search-icon" width="14" height="14" />
+          </button>
+          <input class="ariaLabel"
+            v-show="!isMobileTaskSearchCollapsed"
+            ref="tableSearchInputRef"
+            v-model="tableSearchQuery"
+            type="search"
+            :placeholder="t('taskManager.searchTasks')"
+            :aria-label="t('taskManager.searchTasks')"
+            @keydown.esc.stop.prevent="handleTableSearchEscape"
+          />
+          <button
+            v-if="tableSearchQuery && !isMobileTaskSearchCollapsed"
+            type="button"
+            class="task-search-clear ariaLabel"
+            :aria-label="t('kanbanView.clearSearch')"
+            @click="tableSearchQuery = ''"
+          >
+            ×
+          </button>
+        </div>
         <div ref="kanbanFilterControlRef" class="task-filter-control">
           <button
             type="button"
@@ -859,6 +891,7 @@
       v-if="isTableTaskView"
       :tasks="activeOrArchiveTableViewTasks"
       :task-groups="taskGroups"
+      :goals="goalDefinitions"
       :group-mode="tableGroupBy"
       :heading-groups="taskHeadingGroups"
       :document-icon-by-root-id="documentIconByRootId"
@@ -883,6 +916,8 @@
       @group-create-task="handleTableGroupCreateTask"
       @group-archive-tasks="handleTableGroupArchiveTasks"
       @manage-groups="openTaskGroupDialog"
+      @manage-goals="void openTaskScopeDialog('goals')"
+      @goal-update="handleTableGoalUpdate"
       @start-date-update="handleStartDateUpdate"
       @due-date-update="handleDueDateUpdate"
       @start-time-update="handleStartTimeUpdate"
@@ -921,6 +956,7 @@
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
       @task-date-changed="handleTaskDateChanged"
+      @task-color-changed="handleGanttTaskColorChanged"
       @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-create-requested="handleTaskCreateRequested"
       @visible-range-change="handleMonthVisibleRangeChange"
@@ -939,6 +975,7 @@
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
+      @task-color-changed="handleGanttTaskColorChanged"
       @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
@@ -961,6 +998,7 @@
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
+      @task-color-changed="handleGanttTaskColorChanged"
       @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
@@ -984,6 +1022,7 @@
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
+      @task-color-changed="handleGanttTaskColorChanged"
       @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
@@ -1557,7 +1596,8 @@ import {
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
-import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
+import { persistTaskBackgroundColor } from '@/utils/taskBackgroundColorPersistence';
 import { isKernelRpcUnavailable, refreshKernelTaskIndex } from '@/kernelRpc';
 import {
   getTaskHeadingGroupMeta,
@@ -1941,20 +1981,63 @@ function isPrimaryViewOptionActive(option: PrimaryViewSwitcherOption): boolean {
   return option.isCalendarGroup ? isCalendarTaskViewMode(currentView.value) : currentView.value === option.value;
 }
 
+function prepareForTaskViewChange(nextView: TaskViewMode): void {
+  closeDocumentTabsDropdown();
+  closeMobileViewSwitcher();
+  closeDocumentTabContextMenu();
+  closeTaskViewGroupMenu();
+  closeCalendarDisplayMenu();
+  closeKanbanFilterPopover();
+  closeTableFilterPopover();
+  closeMobileTableSearch(true);
+  closeMobileCalendarTaskDrawer();
+  cancelMobileCalendarTaskDrag();
+  cancelColumnTitleEdit(true);
+  clearGroupColumnReorderDragState();
+  resetKanbanBatchLasso();
+  removeKanbanBatchLassoListeners();
+  if (quickCreateDialog.value.show) {
+    closeQuickCreateDialog();
+  }
+  if (currentView.value !== nextView && kanbanEditorVisible.value) {
+    closeKanbanEditor();
+  }
+  if (kanbanMetricsRaf !== null) {
+    cancelAnimationFrame(kanbanMetricsRaf);
+    kanbanMetricsRaf = null;
+  }
+  if (listViewMetricsRaf !== null) {
+    cancelAnimationFrame(listViewMetricsRaf);
+    listViewMetricsRaf = null;
+  }
+  pendingKanbanMetricColumnIds.clear();
+}
+
 function selectPrimaryView(option: PrimaryViewSwitcherOption): void {
+  let nextView: TaskViewMode | null = null;
   if (option.isCalendarGroup) {
     const calendarEntryView = getCalendarEntryView();
     if (calendarEntryView) {
-      currentView.value = calendarEntryView;
+      nextView = calendarEntryView;
     }
+  } else {
+    nextView = option.value;
+  }
+  if (!nextView) {
     return;
   }
-  currentView.value = option.value;
+  prepareForTaskViewChange(nextView);
+  if (currentView.value !== nextView) {
+    currentView.value = nextView;
+  }
 }
 
 function handleCalendarViewChange(view: CalendarTaskViewMode): void {
   if (viewSwitcherOptions.value.some(option => option.value === view)) {
-    currentView.value = view;
+    prepareForTaskViewChange(view);
+    if (currentView.value !== view) {
+      currentView.value = view;
+    }
   }
 }
 
@@ -2378,6 +2461,7 @@ const isCompactViewSwitcher = ref(false);
 const kanbanListColumnCount = ref(1);
 const COMPACT_VIEW_SWITCHER_BREAKPOINT = 980;
 let kanbanViewResizeObserver: ResizeObserver | null = null;
+let isKanbanViewMounted = false;
 
 interface TaskGroupDialogSavePayload {
   groups: TaskGroup[];
@@ -2452,6 +2536,8 @@ async function ensureTaskGroupsLoaded(): Promise<TaskGroup[]> {
   return taskGroupsLoadingPromise;
 }
 const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
+const pendingTaskHeadingGroups = new Map<string, { meta: TaskHeadingGroupMeta; expiresAt: number }>();
+const PENDING_TASK_HEADING_GROUP_TTL_MS = 8000;
 const draggedTask = ref<Task | null>(null);
 const dragOverColumnId = ref<string | null>(null);
 const draggedGroupColumnId = ref<string | null>(null);
@@ -3060,7 +3146,7 @@ interface TableGroupActionPayload {
 
 const quickCreateHeadingInputRef = ref<HTMLInputElement | null>(null);
 const quickCreateInputRef = ref<HTMLInputElement | null>(null);
-const columnTitleInputRef = ref<HTMLInputElement | null>(null);
+const columnTitleInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 const editingColumnTitleId = ref<string>('');
 const columnTitleDraft = ref<string>('');
 const editingColumnOriginalTitle = ref<string>('');
@@ -3625,6 +3711,27 @@ function isColumnTitleEditing(column: KanbanColumn): boolean {
   return !!key && key === editingColumnTitleId.value;
 }
 
+function getActiveColumnTitleInput(): HTMLInputElement | null {
+  const inputRef = columnTitleInputRef.value;
+  const inputs = Array.isArray(inputRef) ? inputRef : [inputRef];
+  return inputs.find((input): input is HTMLInputElement => (
+    input instanceof HTMLInputElement
+    && input.isConnected
+    && !input.disabled
+  )) || null;
+}
+
+function focusColumnTitleInput(options: { select?: boolean } = {}): void {
+  const input = getActiveColumnTitleInput();
+  if (!input) {
+    return;
+  }
+  input.focus();
+  if (options.select) {
+    input.select();
+  }
+}
+
 async function startColumnTitleEdit(column: KanbanColumn): Promise<void> {
   if (!canEditColumnTitle(column) || isSavingColumnTitle.value) {
     return;
@@ -3640,8 +3747,7 @@ async function startColumnTitleEdit(column: KanbanColumn): Promise<void> {
   columnTitleDraft.value = fallbackTitle;
   editingColumnOriginalTitle.value = fallbackTitle;
   await nextTick();
-  columnTitleInputRef.value?.focus();
-  columnTitleInputRef.value?.select();
+  focusColumnTitleInput({ select: true });
 
   if (column.type === 'heading') {
     const resolvedTitle = await resolveEditableColumnTitle(column);
@@ -3653,8 +3759,7 @@ async function startColumnTitleEdit(column: KanbanColumn): Promise<void> {
       columnTitleDraft.value = resolvedTitle;
       editingColumnOriginalTitle.value = resolvedTitle;
       await nextTick();
-      columnTitleInputRef.value?.focus();
-      columnTitleInputRef.value?.select();
+      focusColumnTitleInput({ select: true });
     }
   }
 }
@@ -3681,7 +3786,7 @@ async function submitColumnTitleEdit(column: KanbanColumn): Promise<void> {
   if (!nextTitle) {
     await pushMsg(getColumnTitleRequiredMessage(column), 2000);
     await nextTick();
-    columnTitleInputRef.value?.focus();
+    focusColumnTitleInput();
     return;
   }
 
@@ -6457,7 +6562,7 @@ async function refreshTaskHeadingGroups(): Promise<void> {
   if (requestId !== taskHeadingGroupRequestId) {
     return;
   }
-  taskHeadingGroups.value = resolvedGroups;
+  taskHeadingGroups.value = applyPendingTaskHeadingGroupOverrides(resolvedGroups);
 }
 
 watch([
@@ -6685,10 +6790,15 @@ watch(tasks, () => {
 
 watch(visibleKanbanTasks, (nextTasks) => {
   pruneVirtualHeightCaches(nextTasks);
-  nextTick(() => {
-    scheduleAllKanbanMetricsUpdates();
-    scheduleListViewMetricsUpdate();
-  });
+  if (currentView.value === 'kanban' || currentView.value === 'list') {
+    nextTick(() => {
+      if (currentView.value === 'kanban') {
+        scheduleAllKanbanMetricsUpdates();
+      } else if (currentView.value === 'list') {
+        scheduleListViewMetricsUpdate();
+      }
+    });
+  }
   if (kanbanBatchSelectedTaskIds.value.size === 0) {
     return;
   }
@@ -7708,7 +7818,7 @@ function matchesTableSearch(task: Task): boolean {
 }
 
 function matchesKanbanFilters(task: Task): boolean {
-  return matchesKanbanFiltersByDocumentScope(task, true);
+  return matchesKanbanFiltersByDocumentScope(task, true) && matchesTableSearch(task);
 }
 
 function matchesTableFiltersByArchivedState(
@@ -7790,6 +7900,118 @@ function getGroupColumnIdForTask(task: Task): string {
 
 function getHeadingColumnIdForTask(task: Task): string {
   return getTaskHeadingGroupMeta(task, taskHeadingGroups.value).key;
+}
+
+function normalizeTaskIdentityId(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function getTaskHeadingIdentityIds(task: Task): string[] {
+  return Array.from(new Set([
+    normalizeTaskIdentityId(task.id),
+    normalizeTaskIdentityId(task.taskId),
+    normalizeTaskIdentityId(task.blockId),
+    normalizeTaskIdentityId(task.sourceBlockId)
+  ].filter(Boolean)));
+}
+
+function rememberPendingTaskHeadingGroupMetaForIds(
+  taskIds: string[],
+  meta: TaskHeadingGroupMeta | null | undefined
+): void {
+  if (!meta) {
+    return;
+  }
+  const expiresAt = Date.now() + PENDING_TASK_HEADING_GROUP_TTL_MS;
+  taskIds
+    .map(normalizeTaskIdentityId)
+    .filter(Boolean)
+    .forEach(taskId => {
+      pendingTaskHeadingGroups.set(taskId, { meta: { ...meta }, expiresAt });
+    });
+}
+
+function forgetPendingTaskHeadingGroupMetaForIds(taskIds: string[]): void {
+  taskIds
+    .map(normalizeTaskIdentityId)
+    .filter(Boolean)
+    .forEach(taskId => {
+      pendingTaskHeadingGroups.delete(taskId);
+    });
+}
+
+function getPendingTaskHeadingGroupMetaForTask(
+  task: Task,
+  now: number
+): TaskHeadingGroupMeta | null {
+  for (const taskId of getTaskHeadingIdentityIds(task)) {
+    const pending = pendingTaskHeadingGroups.get(taskId);
+    if (!pending) {
+      continue;
+    }
+    if (pending.expiresAt <= now) {
+      pendingTaskHeadingGroups.delete(taskId);
+      continue;
+    }
+    return pending.meta;
+  }
+  return null;
+}
+
+function applyPendingTaskHeadingGroupOverrides(
+  resolvedGroups: Map<string, TaskHeadingGroupMeta>
+): Map<string, TaskHeadingGroupMeta> {
+  if (pendingTaskHeadingGroups.size === 0) {
+    return resolvedGroups;
+  }
+
+  const now = Date.now();
+  pendingTaskHeadingGroups.forEach((pending, taskId) => {
+    if (pending.expiresAt <= now) {
+      pendingTaskHeadingGroups.delete(taskId);
+    }
+  });
+  if (pendingTaskHeadingGroups.size === 0) {
+    return resolvedGroups;
+  }
+
+  const nextGroupMap = new Map(resolvedGroups);
+  for (const task of tasks.value) {
+    const pendingMeta = getPendingTaskHeadingGroupMetaForTask(task, now);
+    if (!pendingMeta) {
+      continue;
+    }
+    getTaskHeadingIdentityIds(task).forEach(taskId => {
+      nextGroupMap.set(taskId, { ...pendingMeta });
+    });
+  }
+  return nextGroupMap;
+}
+
+function setTaskHeadingGroupMetaForIds(
+  taskIds: string[],
+  meta: TaskHeadingGroupMeta | null | undefined,
+  options: { rememberPending?: boolean } = {}
+): void {
+  if (!meta) {
+    return;
+  }
+  const normalizedIds = Array.from(new Set(
+    taskIds
+      .map(id => typeof id === 'string' ? id.trim() : '')
+      .filter(Boolean)
+  ));
+  if (normalizedIds.length === 0) {
+    return;
+  }
+  const nextGroupMap = new Map(taskHeadingGroups.value);
+  normalizedIds.forEach(taskId => {
+    nextGroupMap.set(taskId, { ...meta });
+  });
+  taskHeadingGroups.value = nextGroupMap;
+  if (options.rememberPending === true) {
+    rememberPendingTaskHeadingGroupMetaForIds(normalizedIds, meta);
+  }
 }
 
 const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
@@ -8311,15 +8533,22 @@ function handleKanbanColumnScroll(event: Event, column: KanbanColumn): void {
 }
 
 function scheduleKanbanMetricsUpdate(columnId: string): void {
+  if (!isKanbanViewMounted || currentView.value !== 'kanban') {
+    return;
+  }
   pendingKanbanMetricColumnIds.add(columnId);
   if (kanbanMetricsRaf !== null) return;
   kanbanMetricsRaf = requestAnimationFrame(() => {
     kanbanMetricsRaf = null;
+    if (!isKanbanViewMounted || currentView.value !== 'kanban') {
+      pendingKanbanMetricColumnIds.clear();
+      return;
+    }
     const columnIds = Array.from(pendingKanbanMetricColumnIds);
     pendingKanbanMetricColumnIds.clear();
     for (const id of columnIds) {
       const el = kanbanColumnElements.get(id);
-      if (!el) continue;
+      if (!el || !el.isConnected) continue;
       updateKanbanColumnMetrics(id, el);
       updateKanbanColumnEstimate(id, el);
     }
@@ -8327,6 +8556,9 @@ function scheduleKanbanMetricsUpdate(columnId: string): void {
 }
 
 function scheduleAllKanbanMetricsUpdates(): void {
+  if (!isKanbanViewMounted || currentView.value !== 'kanban') {
+    return;
+  }
   for (const columnId of kanbanColumnElements.keys()) {
     scheduleKanbanMetricsUpdate(columnId);
   }
@@ -8509,13 +8741,19 @@ function updateListViewMetricsAndMeasurements(el: HTMLElement): void {
 }
 
 function scheduleListViewMetricsUpdate(): void {
+  if (!isKanbanViewMounted || currentView.value !== 'list') {
+    return;
+  }
   if (listViewMetricsRaf !== null) {
     return;
   }
   listViewMetricsRaf = requestAnimationFrame(() => {
     listViewMetricsRaf = null;
+    if (!isKanbanViewMounted || currentView.value !== 'list') {
+      return;
+    }
     const el = listViewRef.value;
-    if (!el) return;
+    if (!el || !el.isConnected) return;
     updateListViewMetricsAndMeasurements(el);
   });
 }
@@ -8677,6 +8915,9 @@ function scheduleRefreshTasks(
   }
   fallbackRefreshTimer = window.setTimeout(async () => {
     fallbackRefreshTimer = null;
+    if (!isKanbanViewMounted) {
+      return;
+    }
     if (mode === 'light') {
       await loadTasks(false, { silent: true });
       return;
@@ -10010,11 +10251,22 @@ async function incrementalUpdateTasks(
         const taskToApply = applyLocalTaskFieldOverrides(updatedTask);
         if (oldIndex !== undefined) {
           const currentTask = tasks.value[oldIndex];
+          const optimisticHeadingMeta = currentTask ? taskHeadingGroups.value.get(currentTask.id) : undefined;
+          const hasPendingHeadingMeta = currentTask
+            ? getTaskHeadingIdentityIds(currentTask).some(taskId => pendingTaskHeadingGroups.has(taskId))
+            : false;
           taskToApply.subtasks = mergeSubtaskCustomFields(currentTask?.subtasks, taskToApply.subtasks);
           if (currentTask) {
             Object.assign(currentTask, taskToApply);
           } else {
             tasks.value[oldIndex] = taskToApply;
+          }
+          if (optimisticHeadingMeta) {
+            setTaskHeadingGroupMetaForIds(
+              [currentTask?.id || '', taskToApply.id, taskToApply.blockId || ''],
+              optimisticHeadingMeta,
+              { rememberPending: hasPendingHeadingMeta }
+            );
           }
         } else {
           tasks.value.push(taskToApply);
@@ -10433,47 +10685,19 @@ async function handleCalendarEditorColorSelect(color: string): Promise<void> {
   if (!sourceTask) {
     return;
   }
-  const targetTask = await resolveKanbanEditorTargetTask(sourceTask);
-  const normalizedColor = typeof color === 'string' ? color.trim() : '';
-  if (!targetTask || !normalizedColor) {
+  const result = await persistTaskBackgroundColor(sourceTask, color, tasks.value).catch((error) => {
+    console.error('[KanbanView] Failed to update task background color:', error);
+    return null;
+  });
+  if (!result) {
     return;
   }
 
-  const seriesId = typeof targetTask.repeatSeriesId === 'string'
-    ? targetTask.repeatSeriesId.trim()
-    : '';
-  const isRepeatTask = !!seriesId || (!!targetTask.repeatFrequency && targetTask.repeatFrequency !== 'none');
-  const targetIds = isRepeatTask && seriesId
-    ? tasks.value
-      .filter(task => task.repeatSeriesId === seriesId)
-      .map(task => task.id)
-    : [targetTask.id];
   const nowTs = Date.now();
-  targetIds.forEach((taskId) => {
-    crdtRepo.updateTaskField(taskId, 'backgroundColor', normalizedColor, nowTs);
+  result.updatedTasks.forEach((task) => {
+    crdtRepo.updateTaskField(task.id, 'backgroundColor', result.color, nowTs);
   });
   updateTasks();
-
-  const persistenceTarget = targetTask;
-  const blockId = typeof persistenceTarget.blockId === 'string' ? persistenceTarget.blockId.trim() : '';
-  if (blockId) {
-    try {
-      await setBlockAttrs(blockId, {
-        'custom-task-background-color': normalizedColor
-      });
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
-    } catch (error) {
-      console.error('[KanbanView] Failed to update task background color:', error);
-    }
-  }
-
-  if (isRepeatTask) {
-    try {
-      await updateRepeatSeriesBackgroundColor(persistenceTarget, normalizedColor);
-    } catch (error) {
-      console.error('[KanbanView] Failed to update repeat background color:', error);
-    }
-  }
   invalidateTableFilters();
 }
 
@@ -10702,6 +10926,18 @@ async function handleKanbanEditorGoalSelect(value: string): Promise<void> {
   }
 
   const nextGoals = toggleTaskGoalMembership(goalDefinitions.value, task, value);
+  goalDefinitions.value = nextGoals;
+  await saveGoalDefinitions(nextGoals);
+  invalidateTableFilters();
+}
+
+async function handleTableGoalUpdate(task: Task, goalId: string): Promise<void> {
+  const normalizedGoalId = typeof goalId === 'string' ? goalId.trim() : '';
+  if (!task || !normalizedGoalId || !goalDefinitionsById.value.has(normalizedGoalId)) {
+    return;
+  }
+
+  const nextGoals = toggleTaskGoalMembership(goalDefinitions.value, task, normalizedGoalId);
   goalDefinitions.value = nextGoals;
   await saveGoalDefinitions(nextGoals);
   invalidateTableFilters();
@@ -12575,6 +12811,7 @@ async function submitQuickCreateTask() {
       groupId: normalizedGroupId || undefined
     }, target.notebookId, target.docPath);
 
+    let appliedHeadingMetaForNewTask: TaskHeadingGroupMeta | null = null;
     if (created?.blockId) {
       const createDateAttrs: Record<string, string> = {};
       if (payload.startDate) {
@@ -12598,6 +12835,12 @@ async function submitQuickCreateTask() {
       if (targetHeadingMeta) {
         try {
           await moveTaskBlockToHeadingMeta(created.blockId, targetHeadingMeta);
+          appliedHeadingMetaForNewTask = targetHeadingMeta;
+          setTaskHeadingGroupMetaForIds(
+            [created.blockId, created.taskId],
+            targetHeadingMeta,
+            { rememberPending: true }
+          );
         } catch (error) {
           console.error('[KanbanView] Failed to move new task to heading:', error);
           await pushMsg(t('kanbanView.taskCreatedMoveHeadingFailed'), 3000);
@@ -12616,6 +12859,11 @@ async function submitQuickCreateTask() {
         normalizedGroupId
       );
       upsertOptimisticQuickCreatedTask(optimisticTask);
+      setTaskHeadingGroupMetaForIds(
+        [createdBlockId, created?.taskId || '', optimisticTask.id],
+        appliedHeadingMetaForNewTask,
+        { rememberPending: true }
+      );
     }
 
     closeQuickCreateDialog();
@@ -13627,9 +13875,10 @@ async function handleHeadingDrop(column: KanbanColumn) {
   const droppedBlockId = task.blockId;
   const previousMeta = taskHeadingGroups.value.get(taskId);
   const nextMeta = column.headingMeta;
+  const headingIdentityIds = getTaskHeadingIdentityIds(task);
 
   suppressDragTaskSync(droppedBlockId, 2200);
-  taskHeadingGroups.value = new Map(taskHeadingGroups.value).set(taskId, { ...nextMeta });
+  setTaskHeadingGroupMetaForIds(headingIdentityIds, nextMeta, { rememberPending: true });
 
   // End drag visual state immediately to avoid long "dragging" flicker while async sync is running.
   draggedTask.value = null;
@@ -13645,6 +13894,7 @@ async function handleHeadingDrop(column: KanbanColumn) {
   } catch (error) {
     console.error('[KanbanView] Failed to move task to heading via drag:', error);
     dragSyncSuppressUntil.delete(droppedBlockId);
+    forgetPendingTaskHeadingGroupMetaForIds(headingIdentityIds);
     const nextGroupMap = new Map(taskHeadingGroups.value);
     if (previousMeta) {
       nextGroupMap.set(taskId, previousMeta);
@@ -13738,6 +13988,7 @@ async function handleStatusDrop(targetStatus: Task['status']) {
 }
 
 onMounted(async () => {
+  isKanbanViewMounted = true;
   setupEventListeners();
   await loadSettings();
   TaskRepository.setAutoRecognizeTaskDateEnabled(userSettings.taskManager.autoRecognizeTaskDate === true);
@@ -13873,6 +14124,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  isKanbanViewMounted = false;
   closeMobileCalendarTaskDrawer();
   cleanupEventListeners();
   stopSkipSetCleanup();
@@ -14227,7 +14479,6 @@ watch(kanbanColumns, () => {
   display: flex;
   align-items: center;
   gap: 9px;
-  flex-wrap: wrap;
   justify-content: flex-end;
 }
 
@@ -15285,13 +15536,13 @@ watch(kanbanColumns, () => {
     transform: translateY(-1px);
   }
 
-  .table-document-actions .task-search {
+  .document-tabs-actions .task-search {
     flex: 0 1 110px;
     max-width: 140px;
     transition: max-width 0.18s ease, width 0.18s ease, padding 0.18s ease, gap 0.18s ease;
   }
 
-  .table-document-actions .task-search.is-mobile-collapsed {
+  .document-tabs-actions .task-search.is-mobile-collapsed {
     flex: 0 0 30px;
     width: 30px;
     min-width: 30px;
@@ -15301,13 +15552,13 @@ watch(kanbanColumns, () => {
     justify-content: center;
   }
 
-  .table-document-actions .task-search input {
+  .document-tabs-actions .task-search input {
     width: 80px;
     min-width: 48px;
   }
 
-  .table-document-actions .task-search.is-mobile-collapsed input,
-  .table-document-actions .task-search.is-mobile-collapsed .task-search-clear {
+  .document-tabs-actions .task-search.is-mobile-collapsed input,
+  .document-tabs-actions .task-search.is-mobile-collapsed .task-search-clear {
     display: none;
   }
 

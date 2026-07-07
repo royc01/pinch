@@ -6,6 +6,7 @@ export interface FocusTimerLinkedTarget {
   type: 'habit' | 'task';
   id: string;
   name: string;
+  searchText?: string;
   emoji?: string;
   preferredDuration?: number;
   blockId?: string;
@@ -31,12 +32,15 @@ export function createHabitFocusTarget(
 }
 
 export function createTaskFocusTarget(
-  task: Pick<Task, 'id' | 'title' | 'blockId'>
+  task: Pick<Task, 'id' | 'title' | 'blockId' | 'description'>
 ): FocusTimerLinkedTarget {
+  const name = stripFocusTargetText(task.title || '') || translate('focusTimer.untitledTask');
+  const description = stripFocusTargetText(task.description || '');
   return {
     type: 'task',
     id: task.id,
-    name: stripFocusTargetText(task.title || '') || translate('focusTimer.untitledTask'),
+    name,
+    searchText: [name, description].filter(Boolean).join(' '),
     blockId: task.blockId
   };
 }

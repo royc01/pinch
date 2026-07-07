@@ -129,12 +129,22 @@
                 <span
                   :class="[
                     'day-checkbox',
-                    { completed: isDocumentSelected(document) }
+                    {
+                      completed: isDocumentFullyChecked(document),
+                      partial: hasDocumentPartialTaskSelection(document)
+                    }
                   ]"
                 >
+                  <span
+                    v-if="hasDocumentPartialTaskSelection(document)"
+                    class="day-checkbox-count"
+                  >
+                    {{ getDocumentCheckedTaskCount(document) }}
+                  </span>
                   <Icon
-                    :name="isDocumentSelected(document) ? 'squareCheck' : 'square'"
-                    :completed="isDocumentSelected(document)"
+                    v-else
+                    :name="isDocumentFullyChecked(document) ? 'squareCheck' : 'square'"
+                    :completed="isDocumentFullyChecked(document)"
                     class="day-checkbox-icon"
                   />
                 </span>
@@ -216,6 +226,7 @@ import {
   isTaskDirectGoalMember,
   isTaskExcludedFromGoal
 } from '@/utils/goalTaskMembership';
+import { isDocumentPathInScope } from '@/utils/taskDocumentScope';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 import { useI18n } from '@/composables/useI18n';
@@ -294,7 +305,13 @@ const filteredDocuments = computed(() => {
 });
 
 function isTaskInDocument(task: Task, document: GoalScopeDocument): boolean {
-  return task.notebookId === document.notebookId && task.rootId === document.id;
+  if (task.notebookId !== document.notebookId) {
+    return false;
+  }
+  if (task.rootId === document.id) {
+    return true;
+  }
+  return isDocumentPathInScope(task.hPath || '', document.path || '');
 }
 
 function isTaskInSelectedDocumentScope(task: Task): boolean {
@@ -302,9 +319,15 @@ function isTaskInSelectedDocumentScope(task: Task): boolean {
   if (!activeGoal) {
     return false;
   }
-  return activeGoal.members.some(member =>
-    member.notebookId === task.notebookId && member.documentId === task.rootId
-  );
+  return activeGoal.members.some((member) => {
+    if (member.notebookId !== task.notebookId) {
+      return false;
+    }
+    if (member.documentId === task.rootId) {
+      return true;
+    }
+    return isDocumentPathInScope(task.hPath || '', member.path || '');
+  });
 }
 
 function getDocumentTasks(document: GoalScopeDocument): Task[] {
@@ -353,6 +376,27 @@ function isTaskChecked(task: Task): boolean {
     return false;
   }
   return isTaskInSelectedDocumentScope(task);
+}
+
+function getDocumentCheckedTaskCount(document: GoalScopeDocument): number {
+  return getDocumentTasks(document).filter(task => isTaskChecked(task)).length;
+}
+
+function isDocumentFullyChecked(document: GoalScopeDocument): boolean {
+  const tasks = getDocumentTasks(document);
+  if (tasks.length === 0) {
+    return isDocumentSelected(document);
+  }
+  return tasks.every(task => isTaskChecked(task));
+}
+
+function hasDocumentPartialTaskSelection(document: GoalScopeDocument): boolean {
+  const tasks = getDocumentTasks(document);
+  if (tasks.length === 0) {
+    return false;
+  }
+  const checkedCount = tasks.filter(task => isTaskChecked(task)).length;
+  return checkedCount > 0 && checkedCount < tasks.length;
 }
 
 function getTaskTitleHtml(task: Task): string {
@@ -1063,6 +1107,20 @@ watch(
 
 .day-checkbox.completed .day-checkbox-icon {
   color: #f98f7a;
+}
+
+.day-checkbox-count {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: #f98f7a;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 @media (max-width: 720px) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Goal } from '../goalRepository';
-import { getGoalIdsForTask, setTaskGoalMembership } from './goalTaskMembership';
+import { getGoalIdsForTask, isTaskInGoalScope, setTaskGoalMembership } from './goalTaskMembership';
 
 describe('goal task membership', () => {
   it('maps virtual repeat instances back to the template task member', () => {
@@ -143,5 +143,66 @@ describe('goal task membership', () => {
       title: 'Daily review',
       isVirtual: true
     })).toEqual(['goal-repeat']);
+  });
+
+  it('includes tasks from descendant documents when a goal member stores the parent path', () => {
+    const goal: Goal = {
+      id: 'goal-parent-doc',
+      name: 'Parent Document Goal',
+      members: [
+        {
+          notebookId: 'nb-1',
+          documentId: 'doc-parent',
+          path: '/Projects/Alpha'
+        }
+      ]
+    };
+
+    expect(isTaskInGoalScope(goal, {
+      id: 'task-child',
+      type: 'block',
+      title: 'Child document task',
+      status: 'pending',
+      priority: 'none',
+      tags: [],
+      notebookId: 'nb-1',
+      rootId: 'doc-child',
+      hPath: '/Projects/Alpha/Child',
+      createdAt: '2026-07-06T00:00:00.000Z',
+      updatedAt: '2026-07-06T00:00:00.000Z'
+    })).toBe(true);
+  });
+
+  it('lets excluded task members override descendant document scope', () => {
+    const goal: Goal = {
+      id: 'goal-parent-doc',
+      name: 'Parent Document Goal',
+      members: [
+        {
+          notebookId: 'nb-1',
+          documentId: 'doc-parent',
+          path: '/Projects/Alpha'
+        }
+      ],
+      excludedTaskMembers: [
+        {
+          taskId: 'task-child'
+        }
+      ]
+    };
+
+    expect(isTaskInGoalScope(goal, {
+      id: 'task-child',
+      type: 'block',
+      title: 'Child document task',
+      status: 'pending',
+      priority: 'none',
+      tags: [],
+      notebookId: 'nb-1',
+      rootId: 'doc-child',
+      hPath: '/Projects/Alpha/Child',
+      createdAt: '2026-07-06T00:00:00.000Z',
+      updatedAt: '2026-07-06T00:00:00.000Z'
+    })).toBe(false);
   });
 });

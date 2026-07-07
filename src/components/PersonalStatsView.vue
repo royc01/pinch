@@ -903,6 +903,7 @@ import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import {
   getFocusTimerData,
   getHabits,
+  loadTaskGroups,
   openBlockById,
   type DailyFocusRecord,
   type FocusSessionRecord,
@@ -1203,6 +1204,7 @@ const mobileTaskTrendKey = ref<TaskTrendMetricKey>('created');
 const habits = shallowRef<Habit[]>([]);
 const focusRecords = shallowRef<DailyFocusRecord[]>([]);
 const focusSessionRecords = shallowRef<FocusSessionRecord[]>([]);
+const fallbackTaskGroups = shallowRef<TaskGroup[]>([]);
 const habitsLoading = ref(false);
 const focusLoading = ref(false);
 const rewardsLoading = ref(false);
@@ -1538,7 +1540,19 @@ const longestStuckTasks = computed<StuckTaskEntry[]>(() =>
     .slice(0, 5)
 );
 
-const taskGroupNameMap = computed(() => new Map((props.taskGroups || []).map(group => [group.id, group.name || ''])));
+const effectiveTaskGroups = computed(() => {
+  const merged = new Map<string, TaskGroup>();
+  fallbackTaskGroups.value.forEach((group) => {
+    merged.set(group.id, group);
+  });
+  (props.taskGroups || []).forEach((group) => {
+    merged.set(group.id, group);
+  });
+  return Array.from(merged.values());
+});
+const taskGroupNameMap = computed(() =>
+  new Map(effectiveTaskGroups.value.map(group => [group.id, group.name || '']))
+);
 
 const tagCompletionRates = computed<CompletionRateItem[]>(() =>
   buildCompletionRateItems(scopedTasks.value, (task) => {
@@ -1858,6 +1872,11 @@ async function loadFocusData(): Promise<void> {
   }
 }
 
+async function loadFallbackTaskGroups(): Promise<void> {
+  const groups = await loadTaskGroups();
+  fallbackTaskGroups.value = Array.isArray(groups) ? groups : [];
+}
+
 async function loadRewardData(forceRefresh: boolean = false): Promise<void> {
   rewardsLoading.value = true;
   try {
@@ -1952,6 +1971,7 @@ onMounted(() => {
   }
   void loadHabitData();
   void loadFocusData();
+  void loadFallbackTaskGroups();
   void loadRewardData(true);
 });
 
@@ -3128,14 +3148,16 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
   gap: 12px;
 }
 
-.focus-association-grid {
-  grid-template-columns: 1fr;
+.review-detail-grid.focus-association-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  min-width: 0;
 }
 
 .review-detail-block {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
   padding: 14px;
   border-radius: 18px;
   background: var(--b3-list-hover);;
@@ -3499,9 +3521,12 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
 .trend-bars {
   display: flex;
   align-items: end;
-  gap: 10px;
+  gap: clamp(4px, 1.2vw, 10px);
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   min-height: 140px;
-  padding: 14px 10px 0;
+  padding: 14px clamp(4px, 1.2vw, 10px) 0;
   border-radius: 18px;
   background: var(--b3-list-hover);
 }
@@ -3509,6 +3534,7 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
 .trend-bar-item {
   display: flex;
   flex: 1 1 0;
+  min-width: 0;
   flex-direction: column;
   align-items: center;
   gap: 8px;
@@ -3518,10 +3544,10 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
   position: relative;
   display: flex;
   align-items: end;
-  width: 100%;
+  width: clamp(10px, 100%, 28px);
   max-width: 28px;
   height: 88px;
-  padding: 4px;
+  padding: clamp(2px, 0.7vw, 4px);
   border-radius: 999px;
   background: var(--b3-theme-background);
 }
@@ -3543,14 +3569,24 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
 }
 
 .trend-bar-value {
+  max-width: 100%;
+  overflow: hidden;
   font-size: 12px;
+  line-height: 1.2;
   color: var(--b3-theme-on-background);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .trend-bar-label {
+  max-width: 100%;
+  overflow: hidden;
   font-size: 11px;
   height: 40px;
   color: var(--b3-theme-on-surface-light);
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
 }
 
 .trend-row {
@@ -3895,10 +3931,13 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
 
 .focus-target-item {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 12px 14px;
   border: 0;
   border-radius: 16px;
@@ -3929,8 +3968,13 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
   min-width: 0;
 }
 
+.focus-target-main {
+  flex: 1 1 140px;
+}
+
 .focus-target-side {
-  flex: 0 0 124px;
+  flex: 1 1 96px;
+  max-width: 124px;
   align-items: flex-end;
 }
 
@@ -3960,8 +4004,12 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
 }
 
 .focus-target-badge {
+  max-width: 100%;
+  overflow: hidden;
   font-size: 12px;
   color: var(--b3-theme-on-background);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .goal-item-head,
@@ -4053,15 +4101,11 @@ function buildTaskTrendAreaPath(points: TaskTrendDesktopPoint[]): string {
   }
 
   .trend-bars {
-    gap: 12px;
-    overflow-x: auto;
-    scroll-snap-type: x proximity;
+    gap: clamp(3px, 1vw, 8px);
   }
 
   .trend-bar-item {
-    flex: 0 0 48px;
-    min-width: 48px;
-    scroll-snap-align: start;
+    flex: 1 1 0;
   }
 
   .task-trend-desktop {

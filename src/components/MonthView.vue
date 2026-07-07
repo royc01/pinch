@@ -345,8 +345,9 @@ import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
 import { useHabitEmojis } from '@/composables/useHabitEmojis';
-import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesBackgroundColor, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
+import { persistTaskBackgroundColor } from '@/utils/taskBackgroundColorPersistence';
 import {
   normalizeTaskBackgroundColorValue,
   resolveEffectiveTaskBackgroundColor,
@@ -515,6 +516,7 @@ const showLunarInfo = computed(() => {
 
 const emit = defineEmits<{
   taskDateChanged: [task: Task];
+  taskColorChanged: [task: Task];
   taskDateSaveRequested: [payload: { task: Task; fields: { startDate: string; startTime: string; dueDate: string; dueTime: string }; repeatPersistenceTarget?: Task; optimisticApplied?: boolean }];
   taskClick: [task: Task];
   taskEdit: [task: Task, anchor: { x: number; y: number }];
@@ -796,6 +798,12 @@ const createSelection = ref<{
 function emitTaskDateChanged(task: Task): void {
   taskSyncGuard.emitTaskDateChanged(task, (nextTask) => {
     emit('taskDateChanged', nextTask);
+  });
+}
+
+function emitTaskColorChanged(task: Task): void {
+  taskSyncGuard.emitTaskDateChanged(task, (nextTask) => {
+    emit('taskColorChanged', nextTask);
   });
 }
 
@@ -3718,50 +3726,28 @@ async function saveTaskRepeatRule(task: Task, repeat: RepeatFrequency | RepeatRu
 }
 
 async function setTaskBackgroundColor(task: Task, color: string) {
-  const seriesId = task.repeatSeriesId;
-  const isRepeatTask = !!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-  const templateTask = isRepeatTask
-    ? (!task.isVirtual
-      ? task
-      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId))
-    : undefined;
+  const result = await persistTaskBackgroundColor(task, color, localTasks.value).catch((error) => {
+    console.error('[MonthView] failed to update task color', error);
+    return null;
+  });
+  if (!result) {
+    return;
+  }
 
-  let updatedTask: Task | null = null;
-  if (isRepeatTask && seriesId) {
-    localTasks.value = localTasks.value.map((item) => (
-      item.repeatSeriesId === seriesId
-        ? { ...item, backgroundColor: color }
-        : item
-    ));
-    updatedTask = (templateTask && localTasks.value.find(item => item.id === templateTask.id))
-      || localTasks.value.find(item => item.id === task.id)
-      || null;
+  if (result.isRepeatTask) {
+    const updatedById = new Map(result.updatedTasks.map(item => [item.id, item]));
+    localTasks.value = localTasks.value.map(item => updatedById.get(item.id) || item);
   } else {
-    updatedTask = patchLocalTask(task.id, { backgroundColor: color });
+    patchLocalTask(task.id, { backgroundColor: result.color });
+  }
+  if (contextMenu.value.task?.id === task.id) {
+    contextMenu.value = {
+      ...contextMenu.value,
+      task: { ...contextMenu.value.task, backgroundColor: result.color }
+    };
   }
 
-  if (updatedTask) {
-    emitTaskDateChanged(updatedTask);
-  }
-
-  const persistenceTarget = templateTask || task;
-  if (persistenceTarget.type === 'block' && persistenceTarget.blockId) {
-    try {
-      await setBlockAttrs(persistenceTarget.blockId, {
-        'custom-task-background-color': color
-      });
-    } catch (error) {
-      // setTaskBackgroundColor error
-    }
-  }
-
-  if (isRepeatTask) {
-    try {
-      await updateRepeatSeriesBackgroundColor(persistenceTarget, color);
-    } catch (error) {
-      // updateRepeatSeriesBackgroundColor error
-    }
-  }
+  emitTaskColorChanged(result.updatedTask);
 }
 
 

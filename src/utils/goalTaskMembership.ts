@@ -1,5 +1,6 @@
 import type { Task } from '@/api';
 import type { Goal, GoalTaskMember } from '@/goalRepository';
+import { isDocumentPathInScope } from '@/utils/taskDocumentScope';
 
 export interface GoalTaskSource {
   id?: string;
@@ -157,9 +158,15 @@ export function isTaskInGoalScope(goal: Goal | undefined | null, task: Task): bo
     return false;
   }
 
-  return goal.members.some(member =>
-    normalizeId(member.documentId) === rootId && normalizeId(member.notebookId) === notebookId
-  );
+  return goal.members.some((member) => {
+    if (normalizeId(member.notebookId) !== notebookId) {
+      return false;
+    }
+    if (normalizeId(member.documentId) === rootId) {
+      return true;
+    }
+    return isDocumentPathInScope(task.hPath || '', member.path || '');
+  });
 }
 
 export function getEffectiveGoalIdsForTask(goals: Goal[], task: Task): string[] {

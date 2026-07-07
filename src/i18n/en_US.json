@@ -891,6 +891,7 @@
   "tableView.columnPriority": "Priority",
   "tableView.columnStatus": "Status",
   "tableView.columnGroup": "Tag",
+  "tableView.columnGoal": "Goal",
   "tableView.columnStartDate": "Start date",
   "tableView.columnStartTime": "Start time",
   "tableView.columnDueDate": "Due date",

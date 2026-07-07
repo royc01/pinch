@@ -145,6 +145,19 @@
               @click.stop.prevent
             ></button>
           </th>
+          <th v-if="isTableColumnVisible('goal')" class="col-goal is-resizable">
+            {{ getTableColumnLabel('goal') }}
+            <button
+              type="button"
+              class="column-resize-handle ariaLabel"
+              :class="{ 'is-active': activeResizeColumn === 'goal' }"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('goal'))"
+             
+              @mousedown.stop.prevent="startColumnResize('goal', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('goal')"
+              @click.stop.prevent
+            ></button>
+          </th>
           <th v-if="isTableColumnVisible('startDate')" class="col-start-date sortable is-resizable" :class="{ active: sortColumn === 'startDate' }" @click="toggleSort('startDate')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('startDate') }}</span>
@@ -449,6 +462,29 @@
                 </span>
               </div>
             </td>
+            <td v-if="isTableColumnVisible('goal')" class="col-goal" @click.stop="toggleGoalPopover(row.task, $event)">
+              <div v-if="getTaskGoalBadges(row.task).length > 0" class="goal-badge-list">
+                <span
+                  v-for="badge in getVisibleTaskGoalBadges(row.task)"
+                  :key="badge.id"
+                  class="goal-badge"
+                >
+                  <EmojiIcon
+                    v-if="badge.emoji"
+                    class="goal-badge-emoji"
+                    :value="badge.emoji"
+                    aria-hidden="true"
+                  />
+                  <span class="goal-badge-label">{{ badge.label }}</span>
+                </span>
+                <span
+                  v-if="getTaskGoalOverflowCount(row.task) > 0"
+                  class="goal-badge"
+                >
+                  +{{ getTaskGoalOverflowCount(row.task) }}
+                </span>
+              </div>
+            </td>
             <td v-if="isTableColumnVisible('startDate')" class="col-start-date" @click.stop="openDatePopover(row.task, 'startDate', $event)">
               <span class="date-display">{{ row.task.startDate ? formatLocaleDate(row.task.startDate) : '-' }}</span>
             </td>
@@ -571,6 +607,7 @@
                 {{ getSubtaskGroupLabel(row.subtask) }}
               </span>
             </td>
+            <td v-if="isTableColumnVisible('goal')" class="col-goal"></td>
             <td v-if="isTableColumnVisible('startDate')" class="col-start-date" @click.stop="openSubtaskDatePopover(row.task, row.subtask, 'startDate', $event)">
               <span class="date-display">{{ row.subtask.startDate ? formatLocaleDate(row.subtask.startDate) : '-' }}</span>
             </td>
@@ -675,6 +712,47 @@
       </div>
     </Teleport>
 
+    <Teleport to="body">
+      <div
+        v-if="goalPopover"
+        class="task-editor-property-popover table-goal-popover"
+        :style="goalPopoverStyle"
+        @click.stop
+        @mousedown.stop
+      >
+        <div class="task-editor-property-popover-header">
+          <span>{{ t('taskScopeDialog.goals') }}</span>
+          <button
+            type="button"
+            class="task-group-manage-btn"
+            @click.stop="handleGoalManage"
+          >
+            {{ t('taskManager.manage') }}
+          </button>
+        </div>
+        <div class="task-group-chip-list">
+          <button
+            v-for="option in goalPopoverOptions"
+            :key="option.value"
+            type="button"
+            class="task-group-chip task-goal-chip"
+            :class="{ active: isGoalPopoverOptionSelected(option.value) }"
+            @click="selectGoalFromPopover(option.value)"
+          >
+            <EmojiIcon
+              v-if="option.emoji"
+              class="task-goal-chip-emoji"
+              :value="option.emoji"
+            />
+            <span class="task-group-chip-label">{{ option.label }}</span>
+          </button>
+          <span v-if="goalPopoverOptions.length === 0" class="task-editor-property-placeholder">
+            {{ t('taskManager.notSet') }}
+          </span>
+        </div>
+      </div>
+    </Teleport>
+
     <TaskDatePopover
       :visible="datePopoverVisible"
       :anchor-el="datePopoverAnchorRef"
@@ -703,6 +781,7 @@ import { getFocusTimerData, Task, TaskGroup, type FocusSessionRecord } from '@/a
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubtaskProgress from '@/components/SubtaskProgress.vue';
 import Icon from '@/components/Icon.vue';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
@@ -730,10 +809,13 @@ import {
 } from '@/utils/taskTags';
 import { useI18n } from '@/composables/useI18n';
 import { usePlugin } from '@/main';
+import type { Goal } from '@/goalRepository';
+import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
 
 interface Props {
   tasks: Task[];
   taskGroups?: TaskGroup[];
+  goals?: Goal[];
   groupMode?: TaskViewGroupMode;
   headingGroups?: Map<string, TaskHeadingGroupMeta>;
   documentIconByRootId?: Map<string, string>;
@@ -788,6 +870,7 @@ type ResizableTableColumnKey =
   | 'priority'
   | 'statusText'
   | 'group'
+  | 'goal'
   | 'startDate'
   | 'startTime'
   | 'dueDate'
@@ -833,6 +916,8 @@ function getTableColumnLabel(column: TableColumnKey): string {
       return t('tableView.columnStatus');
     case 'group':
       return t('tableView.columnGroup');
+    case 'goal':
+      return t('tableView.columnGoal');
     case 'startDate':
       return t('tableView.columnStartDate');
     case 'startTime':
@@ -902,6 +987,7 @@ const TABLE_COLUMNS: readonly TableColumnDefinition[] = [
   { key: 'priority', className: 'col-priority' },
   { key: 'statusText', className: 'col-status-text' },
   { key: 'group', className: 'col-group' },
+  { key: 'goal', className: 'col-goal' },
   { key: 'startDate', className: 'col-start-date' },
   { key: 'startTime', className: 'col-start-time' },
   { key: 'dueDate', className: 'col-due-date' },
@@ -921,6 +1007,7 @@ const TABLE_CONFIGURABLE_COLUMNS: readonly ConfigurableTableColumnKey[] = [
   'priority',
   'statusText',
   'group',
+  'goal',
   'startDate',
   'startTime',
   'dueDate',
@@ -939,7 +1026,8 @@ const tableColumnSettingGroups = computed<TableColumnSettingGroup[]>(() => [
       { key: 'description', label: getTableColumnLabel('description') },
       { key: 'priority', label: getTableColumnLabel('priority') },
       { key: 'statusText', label: getTableColumnLabel('statusText') },
-      { key: 'group', label: getTableColumnLabel('group') }
+      { key: 'group', label: getTableColumnLabel('group') },
+      { key: 'goal', label: getTableColumnLabel('goal') }
     ]
   },
   {
@@ -969,6 +1057,7 @@ const TABLE_COLUMN_MIN_WIDTHS: Record<ResizableTableColumnKey, number> = {
   priority: 60,
   statusText: 60,
   group: 110,
+  goal: 120,
   startDate: 80,
   startTime: 80,
   dueDate: 80,
@@ -1006,11 +1095,13 @@ const emit = defineEmits<{
   subtaskPriorityUpdate: [task: Task, subtask: TableSubtask, priority: Task['priority']];
   subtaskStatusUpdate: [task: Task, subtask: TableSubtask, status: Task['status']];
   subtaskGroupUpdate: [task: Task, subtask: TableSubtask, groupId: string];
+  goalUpdate: [task: Task, goalId: string];
   subtaskStartDateUpdate: [task: Task, subtask: TableSubtask, startDate: string];
   subtaskDueDateUpdate: [task: Task, subtask: TableSubtask, dueDate: string];
   subtaskStartTimeUpdate: [task: Task, subtask: TableSubtask, startTime: string];
   subtaskDueTimeUpdate: [task: Task, subtask: TableSubtask, dueTime: string];
   'manage-groups': [];
+  'manage-goals': [];
   groupCreateTask: [payload: { mode: 'group' | 'heading'; groupId: string; groupLabel: string; sampleTaskId?: string }];
   groupArchiveTasks: [payload: { mode: 'group' | 'heading'; groupId: string; groupLabel: string; taskIds: string[] }];
   startDateUpdate: [task: Task, startDate: string];
@@ -1027,6 +1118,7 @@ const subtaskDescriptionDraftByKey = ref(new Map<string, string>());
 const priorityPopover = ref<TablePopoverTarget | null>(null);
 const statusPopover = ref<TablePopoverTarget | null>(null);
 const groupPopover = ref<TablePopoverTarget | null>(null);
+const goalPopover = ref<TablePopoverTarget | null>(null);
 type SortableColumn = 'priority' | 'status' | 'startDate' | 'dueDate' | 'completedAt' | 'createdAt' | 'updatedAt';
 
 const sortColumn = ref<SortableColumn | null>(null);
@@ -1594,6 +1686,25 @@ const customGroupOrder = computed(() => {
   }
   return order;
 });
+
+const goalPopoverOptions = computed(() => (
+  (props.goals || []).map(goal => ({
+    value: goal.id,
+    label: goal.name?.trim() || t('taskManager.untitledGoal'),
+    emoji: typeof goal.emoji === 'string' ? goal.emoji.trim() : ''
+  }))
+));
+
+const goalLookup = computed(() => {
+  const map = new Map<string, { name: string; emoji: string }>();
+  for (const goal of props.goals || []) {
+    if (!goal || !goal.id) continue;
+    const name = goal.name?.trim() || t('taskManager.untitledGoal');
+    const emoji = typeof goal.emoji === 'string' ? goal.emoji.trim() : '';
+    map.set(goal.id, { name, emoji });
+  }
+  return map;
+});
 type TableDateGroupKey = 'overdue' | 'today' | 'thisWeek' | 'thisMonth' | 'other';
 const dateGroupOrder = computed<Array<{ id: TableDateGroupKey; label: string; style: Record<string, string> }>>(() => [
   {
@@ -2049,6 +2160,26 @@ const groupPopoverStyle = computed(() => {
   };
 });
 
+const goalPopoverSelectedGoalIds = computed(() => {
+  const popover = goalPopover.value;
+  if (!popover) return [];
+  const task = props.tasks.find(t => t.id === popover.taskId);
+  return task ? getEffectiveGoalIdsForTask(props.goals || [], task) : [];
+});
+
+function isGoalPopoverOptionSelected(value: string): boolean {
+  return goalPopoverSelectedGoalIds.value.includes(value);
+}
+
+const goalPopoverStyle = computed(() => {
+  if (!goalPopover.value) return {};
+  return {
+    left: `${goalPopover.value.position.x}px`,
+    top: `${goalPopover.value.position.y}px`,
+    transform: 'translateX(-50%)'
+  };
+});
+
 const visibleTableColumns = computed(() => TABLE_COLUMNS.filter(column => isTableColumnVisible(column.key)));
 const tableColumnCount = computed(() => visibleTableColumns.value.length);
 const hasManualColumnWidths = computed(() => Object.keys(tableColumnWidths.value).length > 0);
@@ -2327,6 +2458,9 @@ function startColumnResize(column: ResizableTableColumnKey, event: MouseEvent): 
   if (groupPopover.value) {
     groupPopover.value = null;
   }
+  if (goalPopover.value) {
+    goalPopover.value = null;
+  }
   if (datePopoverVisible.value) {
     closeDatePopover();
   }
@@ -2375,6 +2509,7 @@ function resetColumnWidth(column: ResizableTableColumnKey): void {
 
 function openDatePopover(task: Task, field: DateField, event: MouseEvent): void {
   groupPopover.value = null;
+  goalPopover.value = null;
   priorityPopover.value = null;
   statusPopover.value = null;
   closeTimePopover();
@@ -2387,6 +2522,7 @@ function openDatePopover(task: Task, field: DateField, event: MouseEvent): void 
 
 function openSubtaskDatePopover(task: Task, subtask: TableSubtask, field: DateField, event: MouseEvent): void {
   groupPopover.value = null;
+  goalPopover.value = null;
   priorityPopover.value = null;
   statusPopover.value = null;
   closeTimePopover();
@@ -2406,6 +2542,7 @@ function closeDatePopover(): void {
 
 function openTimePopover(task: Task, field: TimeField, event: MouseEvent): void {
   groupPopover.value = null;
+  goalPopover.value = null;
   priorityPopover.value = null;
   statusPopover.value = null;
   closeDatePopover();
@@ -2418,6 +2555,7 @@ function openTimePopover(task: Task, field: TimeField, event: MouseEvent): void 
 
 function openSubtaskTimePopover(task: Task, subtask: TableSubtask, field: TimeField, event: MouseEvent): void {
   groupPopover.value = null;
+  goalPopover.value = null;
   priorityPopover.value = null;
   statusPopover.value = null;
   closeDatePopover();
@@ -2507,6 +2645,9 @@ function handleTableScroll(): void {
   }
   if (groupPopover.value) {
     groupPopover.value = null;
+  }
+  if (goalPopover.value) {
+    goalPopover.value = null;
   }
   if (columnSettingsVisible.value) {
     columnSettingsVisible.value = false;
@@ -2632,6 +2773,26 @@ function getVisibleTaskGroupBadges(task: Task): Array<{ id: string; label: strin
 
 function getTaskGroupOverflowCount(task: Task): number {
   const badges = getTaskGroupBadges(task);
+  return Math.max(0, badges.length - 2);
+}
+
+function getTaskGoalBadges(task: Task): Array<{ id: string; label: string; emoji: string }> {
+  return getEffectiveGoalIdsForTask(props.goals || [], task).map((goalId) => {
+    const meta = goalLookup.value.get(goalId);
+    return {
+      id: goalId,
+      label: meta?.name || goalId,
+      emoji: meta?.emoji || ''
+    };
+  });
+}
+
+function getVisibleTaskGoalBadges(task: Task): Array<{ id: string; label: string; emoji: string }> {
+  return getTaskGoalBadges(task).slice(0, 2);
+}
+
+function getTaskGoalOverflowCount(task: Task): number {
+  const badges = getTaskGoalBadges(task);
   return Math.max(0, badges.length - 2);
 }
 
@@ -2950,6 +3111,7 @@ function cancelSubtaskDescriptionEdit(task: Task, subtask: TableSubtask): void {
 
 function toggleSubtaskPriorityEdit(task: Task, subtask: TableSubtask, event: MouseEvent): void {
   groupPopover.value = null;
+  goalPopover.value = null;
   closeDatePopover();
   closeTimePopover();
   const existing = priorityPopover.value;
@@ -2974,6 +3136,7 @@ function toggleSubtaskPriorityEdit(task: Task, subtask: TableSubtask, event: Mou
 
 function toggleSubtaskStatusEdit(task: Task, subtask: TableSubtask, event: MouseEvent): void {
   groupPopover.value = null;
+  goalPopover.value = null;
   closeDatePopover();
   closeTimePopover();
   const existing = statusPopover.value;
@@ -3007,6 +3170,7 @@ function toggleSubtaskGroupPopover(task: Task, subtask: TableSubtask, event: Mou
   }
   priorityPopover.value = null;
   statusPopover.value = null;
+  goalPopover.value = null;
   closeDatePopover();
   closeTimePopover();
   const target = event.currentTarget as HTMLElement | null;
@@ -3090,6 +3254,7 @@ function cancelDescriptionEdit(taskId: string) {
 
 function togglePriorityEdit(task: Task, event: MouseEvent) {
   groupPopover.value = null;
+  goalPopover.value = null;
   closeDatePopover();
   closeTimePopover();
   const existing = priorityPopover.value;
@@ -3132,6 +3297,7 @@ function handlePrioritySelect(priority: string): void {
 
 function toggleStatusEdit(task: Task, event: MouseEvent) {
   groupPopover.value = null;
+  goalPopover.value = null;
   closeDatePopover();
   closeTimePopover();
   const existing = statusPopover.value;
@@ -3189,6 +3355,7 @@ function toggleGroupPopover(task: Task, event: MouseEvent): void {
   }
   priorityPopover.value = null;
   statusPopover.value = null;
+  goalPopover.value = null;
   closeDatePopover();
   closeTimePopover();
   const target = event.currentTarget as HTMLElement | null;
@@ -3235,8 +3402,50 @@ function handleGroupManage(): void {
   emit('manage-groups');
 }
 
+function toggleGoalPopover(task: Task, event: MouseEvent): void {
+  const existing = goalPopover.value;
+  const isSame = !!existing
+    && existing.taskId === task.id
+    && !existing.subtaskId;
+  if (isSame) {
+    goalPopover.value = null;
+    return;
+  }
+  priorityPopover.value = null;
+  statusPopover.value = null;
+  groupPopover.value = null;
+  closeDatePopover();
+  closeTimePopover();
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  goalPopover.value = {
+    taskId: task.id,
+    position: {
+      x: rect.left + rect.width / 2,
+      y: rect.bottom + 6
+    }
+  };
+}
+
+function selectGoalFromPopover(value: string): void {
+  const popover = goalPopover.value;
+  if (!popover) return;
+  const task = props.tasks.find(t => t.id === popover.taskId);
+  if (!task) {
+    goalPopover.value = null;
+    return;
+  }
+  emit('goalUpdate', task, value);
+}
+
+function handleGoalManage(): void {
+  goalPopover.value = null;
+  emit('manage-goals');
+}
+
 function handleDocumentMouseDown(event: MouseEvent): void {
-  if (!groupPopover.value && !priorityPopover.value && !statusPopover.value && !datePopoverVisible.value && !timePopoverVisible.value && !columnSettingsVisible.value) {
+  if (!groupPopover.value && !goalPopover.value && !priorityPopover.value && !statusPopover.value && !datePopoverVisible.value && !timePopoverVisible.value && !columnSettingsVisible.value) {
     return;
   }
   const target = event.target as HTMLElement | null;
@@ -3246,6 +3455,7 @@ function handleDocumentMouseDown(event: MouseEvent): void {
   }
   if (
     target.closest('.group-popover') ||
+    target.closest('.task-editor-property-popover') ||
     target.closest('.priority-popover') ||
     target.closest('.status-popover') ||
     target.closest('.date-popover') ||
@@ -3255,6 +3465,7 @@ function handleDocumentMouseDown(event: MouseEvent): void {
   }
   if (
     target.closest('.col-group') ||
+    target.closest('.col-goal') ||
     target.closest('.col-priority') ||
     target.closest('.col-status-text') ||
     target.closest('.col-start-date') ||
@@ -3265,6 +3476,7 @@ function handleDocumentMouseDown(event: MouseEvent): void {
     return;
   }
   groupPopover.value = null;
+  goalPopover.value = null;
   priorityPopover.value = null;
   statusPopover.value = null;
   columnSettingsVisible.value = false;
@@ -4038,7 +4250,18 @@ function toggleExpand(taskId: string) {
   cursor: pointer;
 }
 
-.group-badge-list {
+.col-goal {
+  width: var(--table-col-goal-width, 120px);
+  min-width: var(--table-col-goal-width, 120px);
+  text-align: center;
+}
+
+.tasks-table td.col-goal {
+  cursor: pointer;
+}
+
+.group-badge-list,
+.goal-badge-list {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -4046,7 +4269,8 @@ function toggleExpand(taskId: string) {
   max-width: 100%;
 }
 
-.group-badge {
+.group-badge,
+.goal-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4060,6 +4284,113 @@ function toggleExpand(taskId: string) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.goal-badge {
+  gap: 3px;
+  color: var(--b3-theme-primary);
+  background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
+}
+
+.goal-badge-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.goal-badge-emoji {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.table-goal-popover.task-editor-property-popover {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: max-content;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(320px, calc(100vh - 24px));
+  padding: 10px;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  box-shadow: var(--pinch-menu-shadow);
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+.table-goal-popover .task-editor-property-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.table-goal-popover .task-group-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.table-goal-popover .task-group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: none;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.table-goal-popover .task-group-chip.active {
+  background: #f98f7a;
+  color: var(--b3-theme-background);
+  box-shadow: none;
+}
+
+.table-goal-popover .task-group-chip:hover {
+  color: var(--b3-theme-on-background);
+}
+
+.table-goal-popover .task-goal-chip-emoji {
+  flex: 0 0 auto;
+  line-height: 1;
+}
+
+.table-goal-popover .task-group-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-goal-popover .task-group-manage-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.table-goal-popover .task-group-manage-btn:hover {
+  color: var(--b3-theme-on-background);
+}
+
+.table-goal-popover .task-editor-property-placeholder {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
 }
 
 .tasks-table td.col-group:hover .group-badge.is-empty {
