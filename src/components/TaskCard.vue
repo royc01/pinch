@@ -873,7 +873,7 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .task-title {
   font-size: 14px;
   color: var(--b3-theme-on-background);
-  line-height: 1.4;
+  line-height: 1.6;
   display: block;
   flex: 1;
   min-width: 0;
@@ -885,6 +885,10 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .task-title :deep(*) {
   display: inline;
   white-space: nowrap;
+}
+
+.task-title :deep([data-type~="a"]) {
+  border-bottom: 1px solid var(--b3-theme-on-background);
 }
 
 .task-title :deep(br) {

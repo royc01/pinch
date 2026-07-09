@@ -26,6 +26,16 @@ function convertMarkdownStrong(text: string): string {
     .replace(/__([^_]+)__/g, '<span data-type="strong">$1</span>');
 }
 
+function convertMarkdownEm(text: string): string {
+  return text
+    .replace(/(^|[^*])\*([^*\n]+)\*(?=$|[^*]|\*[^*])/g, '$1<span data-type="em">$2</span>')
+    .replace(/(^|[^_])_([^_\n]+)_(?=$|[^_]|_[^_])/g, '$1<span data-type="em">$2</span>');
+}
+
+function convertMarkdownStrikethrough(text: string): string {
+  return text.replace(/~~([^~\n]+)~~/g, '<span data-type="s">$1</span>');
+}
+
 function convertSiyuanMarks(text: string): string {
   return text.replace(/==([^=\n]+)==/g, '<span data-type="mark">$1</span>');
 }
@@ -89,7 +99,9 @@ export function formatTaskTitleHtml(text: string): string {
   const linkConverted = convertMarkdownLinks(withTokens);
   const markConverted = convertSiyuanMarks(linkConverted);
   const tagConverted = convertSiyuanTags(markConverted);
-  const strongConverted = convertMarkdownStrong(tagConverted);
-  const memoConverted = convertInlineMemos(strongConverted);
+  const strikethroughConverted = convertMarkdownStrikethrough(tagConverted);
+  const strongConverted = convertMarkdownStrong(strikethroughConverted);
+  const emConverted = convertMarkdownEm(strongConverted);
+  const memoConverted = convertInlineMemos(emConverted);
   return restoreBlockRefs(memoConverted, tokens);
 }

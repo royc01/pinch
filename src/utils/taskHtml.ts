@@ -2,6 +2,74 @@ import { formatTaskTitleHtml } from '@/utils/taskTitleFormat';
 
 const sanitizedHtmlCache = new Map<string, string>();
 
+function mergeDataTypeValues(...values: string[]): string {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  values
+    .join(' ')
+    .split(/\s+/)
+    .map(value => value.trim())
+    .filter(Boolean)
+    .forEach((value) => {
+      if (!seen.has(value)) {
+        seen.add(value);
+        merged.push(value);
+      }
+    });
+  return merged.join(' ');
+}
+
+function normalizeInlineFormatElements(container: HTMLElement): void {
+  const formatElementType: Record<string, string> = {
+    B: 'strong',
+    DEL: 's',
+    EM: 'em',
+    I: 'em',
+    S: 's',
+    STRIKE: 's',
+    STRONG: 'strong',
+    U: 'u'
+  };
+
+  container.querySelectorAll('b, strong, em, i, s, del, strike, u').forEach((el) => {
+    const type = formatElementType[el.tagName];
+    if (!type || !el.parentNode) {
+      return;
+    }
+    const span = document.createElement('span');
+    span.setAttribute('data-type', type);
+    span.innerHTML = el.innerHTML;
+    el.parentNode.replaceChild(span, el);
+  });
+}
+
+function mergeNestedInlineDataTypes(container: HTMLElement): void {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const spans = Array.from(container.querySelectorAll('span[data-type]'));
+    for (const span of spans) {
+      const childElements = Array.from(span.children);
+      const hasTextOutsideChild = Array.from(span.childNodes).some(node =>
+        node.nodeType === Node.TEXT_NODE && (node.textContent || '').trim().length > 0
+      );
+      if (hasTextOutsideChild || childElements.length !== 1) {
+        continue;
+      }
+      const child = childElements[0];
+      if (!(child instanceof HTMLElement) || child.tagName !== 'SPAN' || !child.hasAttribute('data-type')) {
+        continue;
+      }
+      child.setAttribute('data-type', mergeDataTypeValues(
+        span.getAttribute('data-type') || '',
+        child.getAttribute('data-type') || ''
+      ));
+      span.parentNode?.replaceChild(child, span);
+      changed = true;
+    }
+  }
+}
+
 export function sanitizeTaskHtml(rawHtml?: string): string {
   if (!rawHtml) return '';
 
@@ -12,6 +80,9 @@ export function sanitizeTaskHtml(rawHtml?: string): string {
 
   const container = document.createElement('div');
   container.innerHTML = rawHtml;
+
+  normalizeInlineFormatElements(container);
+  mergeNestedInlineDataTypes(container);
 
   const dangerousNodes = container.querySelectorAll('script, iframe, object, embed, link, meta');
   dangerousNodes.forEach((el) => el.remove());

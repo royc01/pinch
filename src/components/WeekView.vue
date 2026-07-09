@@ -6237,7 +6237,10 @@ async function setTaskBackgroundColor(task: Task, color: string) {
   }
 
   if (result.isRepeatTask) {
-    const updatedById = new Map(result.updatedTasks.map(item => [item.id, item]));
+    const updatedById = new Map<string, Task>();
+    result.updatedTasks.forEach(item => {
+      updatedById.set(item.id, item);
+    });
     localTasks.value = localTasks.value.map(item => updatedById.get(item.id) || item);
   } else {
     patchLocalTask(task.id, { backgroundColor: result.color });
