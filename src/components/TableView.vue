@@ -806,7 +806,7 @@ import {
   resolveTaskTagIds,
   toggleTaskTagSelection
 } from '@/utils/taskTags';
-import { resolveHabitEmojiColorIndex } from '@/utils/habitEmojiColor';
+import { resolveDocumentIconColorIndex } from '@/utils/documentIconColor';
 import { useI18n } from '@/composables/useI18n';
 import { usePlugin } from '@/main';
 import type { Goal } from '@/goalRepository';
@@ -1669,6 +1669,7 @@ const groupPopoverOptions = computed(() => {
 const resolvedGroupMode = computed(() => normalizeTaskViewGroupMode(props.groupMode, 'status'));
 const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date', 'document'].includes(resolvedGroupMode.value));
 const supportsGroupActions = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
+const documentIconColorVersion = ref(0);
 const customGroupOrder = computed(() => {
   const order: Array<{ id: string; label: string; style?: Record<string, string> }> = [
     { id: '', label: getNoGroupLabel() }
@@ -1763,7 +1764,10 @@ function getTaskDocumentGroupStyle(task: Task): Record<string, string> | undefin
   if (!icon) {
     return undefined;
   }
-  const colorIndex = resolveHabitEmojiColorIndex(icon);
+  documentIconColorVersion.value;
+  const colorIndex = resolveDocumentIconColorIndex(icon, () => {
+    documentIconColorVersion.value += 1;
+  });
   const colorKey = `pinch-background${colorIndex}`;
   return {
     '--group-badge-bg': resolveGroupColorCss(colorKey),

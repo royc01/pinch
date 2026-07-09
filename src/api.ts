@@ -2178,7 +2178,43 @@ export class TaskRepository {
   private static readonly SCOPED_CACHE_MAX_ENTRIES = 30;
   private static readonly ROOT_TASK_METADATA_CACHE_MAX_ENTRIES = 500;
   private static readonly TASK_CONTAINER_ATTR = 'custom-task-container';
+  private static readonly BLOCK_TASKS_CACHE_STORAGE_KEY = 'pinch:block-tasks-cache';
   private static readonly SETTINGS_LOCAL_STORAGE_KEY = 'siyuan-stand-settings';
+
+  private static loadLocalBlockTasksCache(): any | null {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return null;
+      }
+      const raw = localStorage.getItem(this.BLOCK_TASKS_CACHE_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      console.debug('[TaskRepository] local task cache read skipped', error);
+      return null;
+    }
+  }
+
+  private static saveLocalBlockTasksCache(value: unknown): void {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+      localStorage.setItem(this.BLOCK_TASKS_CACHE_STORAGE_KEY, JSON.stringify(value));
+    } catch (error) {
+      console.debug('[TaskRepository] local task cache write skipped', error);
+    }
+  }
+
+  private static clearLocalBlockTasksCache(): void {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+      localStorage.removeItem(this.BLOCK_TASKS_CACHE_STORAGE_KEY);
+    } catch (error) {
+      console.debug('[TaskRepository] local task cache clear skipped', error);
+    }
+  }
 
   private static resolveAutoRecognizeTaskDateEnabled(): boolean {
     let enabledFromStorage: boolean | null = null;
@@ -3259,8 +3295,7 @@ export class TaskRepository {
       return this.memoryCache.tasks;
     }
 
-    const plugin = usePlugin();
-    const cachedData = await plugin.loadData('stand-block-tasks-cache.json');
+    const cachedData = this.loadLocalBlockTasksCache();
     if (!cachedData) {
       return null;
     }
@@ -4374,8 +4409,7 @@ export class TaskRepository {
     }
 
   public static async saveBlockTasksCache(tasks: Task[]): Promise<void> {
-    const plugin = usePlugin();
-    await plugin.saveData('stand-block-tasks-cache.json', {
+    this.saveLocalBlockTasksCache({
       version: TASK_CONFIG.CACHE_VERSION,
       tasks,
       excludedNotebookIds: this.getExcludedNotebookIdsSorted(),
@@ -4385,8 +4419,7 @@ export class TaskRepository {
   }
   
   static async clearCache(): Promise<void> {
-    const plugin = usePlugin();
-    await plugin.saveData('stand-block-tasks-cache.json', {});
+    this.clearLocalBlockTasksCache();
     this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
     this.scopedMemoryCache.clear();
     this.scopedBlockTasksFetchPromises.clear();
@@ -4834,8 +4867,7 @@ export class TaskRepository {
       : null;
 
     if (!cachedTasks) {
-      const plugin = usePlugin();
-      const cachedData = await plugin.loadData('stand-block-tasks-cache.json');
+      const cachedData = this.loadLocalBlockTasksCache();
       const parsed = typeof cachedData === 'string' ? JSON.parse(cachedData) : cachedData;
       if (parsed && Array.isArray(parsed.tasks)) {
         cachedTasks = parsed.tasks as Task[];

@@ -15482,7 +15482,7 @@ watch(kanbanColumns, () => {
   justify-content: flex-end;
   flex-shrink: 0;
   margin-left: auto;
-  gap: 7px;
+  gap: 6px;
 }
 
 .kanban-group-switch {
@@ -15507,7 +15507,7 @@ watch(kanbanColumns, () => {
 .mobile-calendar-task-drawer-btn {
   background: none;
   border: none;
-  padding: 0;
+  padding: 4px;
   cursor: pointer;
   width: 26px;
   height: 26px;
@@ -15517,6 +15517,10 @@ watch(kanbanColumns, () => {
 
   svg {
     color: var(--b3-theme-on-background);
+  }
+  &:hover {
+    background: var(--b3-list-hover);
+    border-radius: 7px;
   }
 }
 
