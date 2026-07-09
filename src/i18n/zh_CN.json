@@ -238,6 +238,7 @@
     "taskManager.filterTasks":  "筛选任务",
     "taskManager.globalDateRecognizeFailed":  "全局识别任务日期失败，请稍后重试",
     "taskManager.groupByDate":  "按日期分组",
+    "taskManager.groupByDocument":  "按文档分组",
     "taskManager.groupByHeading":  "按标题分组",
     "taskManager.groupByNone":  "不分组",
     "taskManager.groupByStatus":  "按状态分组",

@@ -881,19 +881,20 @@ watch(
   font-size: 11px;
 }
 
-.goal-item {
+.goal-item{
   width: 100%;
   padding: 8px;
-  border: 1px solid var(--b3-border-color);
+  border: none;
   border-radius: 10px;
-  background: var(--b3-theme-background);
+  background: var(--b3-list-hover);
   cursor: pointer;
   text-align: left;
   box-sizing: border-box;
 }
 
-.goal-item.active {
-  border-color: #f98f7a;
+.goal-item.active,.goal-item:hover {
+  background: var(--b3-theme-background);
+  box-shadow: var(--pinch-shadow);
 }
 
 .goal-item-main {

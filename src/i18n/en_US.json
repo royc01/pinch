@@ -238,6 +238,7 @@
   "taskManager.filterTasks": "Filter tasks",
   "taskManager.globalDateRecognizeFailed": "Failed to recognize task dates globally. Please try again later.",
   "taskManager.groupByDate": "Group by date",
+  "taskManager.groupByDocument": "Group by document",
   "taskManager.groupByHeading": "Group by heading",
   "taskManager.groupByNone": "No grouping",
   "taskManager.groupByStatus": "Group by status",

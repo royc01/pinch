@@ -114,7 +114,34 @@
                   <Icon name="trash" width="11" height="11" />
                 </button>
               </div>
-              <div v-if="item.type !== 'manual-note'" class="lifelog-timeline-meta">{{ item.meta }}</div>
+              <div
+                v-if="item.type !== 'manual-note'"
+                class="lifelog-timeline-meta"
+              >
+                <span v-if="item.meta" class="lifelog-timeline-meta-text">{{ item.meta }}</span>
+                <span
+                  v-for="badge in item.badges || []"
+                  :key="`${badge.type}-${badge.label}`"
+                  :class="getBadgeClass(badge)"
+                  :style="badge.style"
+                  :aria-label="badge.label"
+                  :title="badge.label"
+                >
+                  <Icon
+                    v-if="badge.type === 'tag'"
+                    name="group"
+                    width="12"
+                    height="12"
+                    aria-hidden="true"
+                  />
+                  <EmojiIcon
+                    v-else-if="badge.emoji"
+                    class="task-goal-badge-emoji"
+                    :value="badge.emoji"
+                  />
+                  <span class="lifelog-timeline-badge-label">{{ badge.label }}</span>
+                </span>
+              </div>
               <div v-if="item.note" class="lifelog-timeline-note">{{ item.note }}</div>
             </div>
           </div>
@@ -179,6 +206,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import type { LifelogEventType } from '@/utils/lifelogEvents';
+import EmojiIcon from './EmojiIcon.vue';
 import Icon from './Icon.vue';
 
 export interface LifelogTimelinePanelItem {
@@ -195,6 +223,14 @@ export interface LifelogTimelinePanelItem {
   emoji?: string;
   moodSvg?: string;
   deletable?: boolean;
+  badges?: LifelogTimelinePanelBadge[];
+}
+
+export interface LifelogTimelinePanelBadge {
+  type: 'tag' | 'goal';
+  label: string;
+  style?: Record<string, string>;
+  emoji?: string;
 }
 
 export interface LifelogTimelineDateStripDay {
@@ -257,6 +293,24 @@ const isDraftEmpty = computed(() => !props.draft.trim());
 const dateStripRef = ref<HTMLElement | null>(null);
 const selectedDateStripKey = computed(() => props.dateStripDays.find(day => day.selected)?.date || '');
 const pendingDeleteItem = ref<LifelogTimelinePanelItem | null>(null);
+
+function getBadgeClass(badge: LifelogTimelinePanelBadge): string[] {
+  if (badge.type === 'goal') {
+    return [
+      'lifelog-timeline-badge',
+      'task-editor-property-pill',
+      'is-goal',
+      'task-group-badge',
+      'task-goal-badge',
+      'ariaLabel'
+    ];
+  }
+  return [
+    'lifelog-timeline-badge',
+    'task-group-badge',
+    'ariaLabel'
+  ];
+}
 
 function scrollSelectedDateIntoView(): void {
   void nextTick(() => {
@@ -699,9 +753,67 @@ function handleBackdropMouseDown(): void {
 
 .lifelog-timeline-meta {
   margin-top: 3px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
   color: var(--b3-theme-on-surface);
   font-size: 11px;
   opacity: 0.8;
+}
+
+.lifelog-timeline-meta-text {
+  margin-right: 1px;
+}
+
+.lifelog-timeline-badge {
+  min-width: 0;
+}
+
+.lifelog-timeline-badge.task-group-badge {
+  display: flex;
+  align-items: center;
+  max-width: 120px;
+  gap: 2px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.lifelog-timeline-badge.task-group-badge svg {
+  flex: 0 0 auto;
+}
+
+.lifelog-timeline-badge.task-goal-badge {
+  background: var(--pinch-background6);
+  color: var(--b3-theme-on-background);
+}
+
+.lifelog-timeline-badge.task-editor-property-pill.is-goal.task-goal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lifelog-timeline-badge .task-goal-badge-emoji {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.lifelog-timeline-badge-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lifelog-timeline-note {

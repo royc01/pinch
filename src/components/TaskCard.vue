@@ -135,7 +135,7 @@
         <span
           v-if="task.dueDate"
           class="task-due-badge ariaLabel"
-          :class="{ 'is-overdue': isOverdue }"
+          :class="{ 'is-overdue': isOverdue, 'is-due-soon': isDueSoon }"
           :aria-label="dueBadgeTitle"
         >
           <Icon name="calendar" width="12" height="12" />
@@ -169,15 +169,12 @@
             class="task-document-icon-svg"
             v-html="documentIconSvg"
           ></span>
-          <img
-            v-else-if="documentIconImageSrc"
-            class="task-document-icon-image"
-            :src="documentIconImageSrc"
-            alt=""
-            loading="lazy"
-            decoding="async"
+          <EmojiIcon
+            v-else
+            class="task-document-emoji-icon"
+            :value="documentIconRaw"
+            fallback="📄"
           />
-          <span v-else>{{ documentIconText }}</span>
         </span>
         <span class="task-document-title-text">{{ documentTitleText }}</span>
       </div>
@@ -438,13 +435,6 @@ const documentIconSvg = computed(() => {
   const rawSvg = typeof props.documentIconSvg === 'string' ? props.documentIconSvg.trim() : '';
   return rawSvg.startsWith('<svg') ? rawSvg : '';
 });
-const documentIconImageSrc = computed(() => resolveTaskDocumentIconImageSrc(documentIconRaw.value));
-const documentIconText = computed(() => {
-  if (documentIconImageSrc.value) {
-    return '';
-  }
-  return documentIconRaw.value || '\uD83D\uDCC4';
-});
 const isDocumentTitleVisible = computed(() => (
   props.showDocumentTitle === true
   && documentTitleText.value.length > 0
@@ -456,6 +446,7 @@ const isRepeatBadgeVisible = computed(() => (
 ));
 const repeatBadgeTitle = computed(() => t('taskCard.repeatTask'));
 const isOverdue = computed(() => overdueDays.value > 0);
+const isDueSoon = computed(() => remainingDays.value !== null && remainingDays.value <= DUE_SOON_DAY_LIMIT);
 
 const resolvedTaskTagBadges = computed(() => (
   resolveTaskTagIds(task.value.tags, task.value.groupId)
@@ -730,28 +721,6 @@ function getTaskDateTimestamp(value: unknown): number | null {
   return parsedDate.getTime();
 }
 
-function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
-  if (!rawIcon) {
-    return '';
-  }
-
-  const decoded = rawIcon.replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
-  const urlMatch = decoded.match(/^(?:background-image\s*:\s*)?url\((.+)\)\s*;?$/i);
-  const candidate = (urlMatch ? urlMatch[1] : decoded).trim().replace(/^['"]+|['"]+$/g, '');
-  if (!candidate) {
-    return '';
-  }
-
-  if (
-    /^(?:https?:\/\/|\/|data:image\/|assets\/|\.{1,2}\/)/i.test(candidate)
-    || /\.(?:png|svg|jpe?g|gif|webp)(?:[?#].*)?$/i.test(candidate)
-  ) {
-    return candidate;
-  }
-
-  return '';
-}
-
 </script>
 
 <style scoped>
@@ -950,12 +919,10 @@ function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
   line-height: 1;
 }
 
-.task-document-icon-image {
+.task-document-emoji-icon {
   width: 12px;
   height: 12px;
-  display: block;
-  object-fit: cover;
-  border-radius: 2px;
+  font-size: 12px;
 }
 
 .task-document-icon-svg {
@@ -1101,6 +1068,10 @@ function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
 .task-due-badge.is-overdue {
   background: #f98f7a;
   color: var(--b3-theme-background);
+}
+
+.task-due-badge.is-due-soon svg{
+  color: #f98f7a;
 }
 
 .task-repeat-badge {

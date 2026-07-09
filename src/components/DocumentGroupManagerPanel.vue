@@ -405,15 +405,16 @@ watch(
 .document-group-item {
   width: 100%;
   padding: 4px;
-  border: 1px solid var(--b3-border-color);
+  border: none;
   border-radius: 10px;
-  background: var(--b3-theme-background);
+  background: var(--b3-list-hover);
   cursor: pointer;
   text-align: left;
 }
 
-.document-group-item.active {
-  border-color: #f98f7a;
+.document-group-item.active,.document-group-item:hover {
+  background: var(--b3-theme-background);
+  box-shadow: var(--pinch-shadow);
 }
 
 .document-group-item-main {

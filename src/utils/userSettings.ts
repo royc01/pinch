@@ -80,7 +80,7 @@ export interface UserSettings {
     defaultTaskCreateTarget?: TaskCreateDefaultTarget;
     defaultTaskCreateNotebook?: string;
     selectedGroupId?: string;
-    taskListGroupBy?: 'none' | TaskViewGroupMode | 'date';
+    taskListGroupBy?: 'none' | TaskViewGroupMode;
     taskListViewMode?: 'kanban' | 'list';
     showTaskCardDetails?: boolean;
     taskStatusFilters?: string[];

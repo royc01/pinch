@@ -599,6 +599,8 @@
                   :batch-label="getColumnBatchSelectionLabel(isKanbanColumnBatchAllSelected(column))"
                   :heading="isKanbanHeadingColumn(column)"
                   :group="isKanbanGroupColumn(column)"
+                  :document="isKanbanDocumentColumn(column)"
+                  :document-icon="getKanbanColumnDocumentIcon(column)"
                   :dot-style="getKanbanColumnDotStyle(column)"
                   :heading-icon-name="getKanbanHeadingIconName(column)"
                   @toggle-batch="toggleKanbanColumnBatchSelection(column)"
@@ -630,6 +632,8 @@
                   :batch-label="getColumnBatchSelectionLabel(isKanbanColumnBatchAllSelected(column))"
                   :heading="isKanbanHeadingColumn(column)"
                   :group="isKanbanGroupColumn(column)"
+                  :document="isKanbanDocumentColumn(column)"
+                  :document-icon="getKanbanColumnDocumentIcon(column)"
                   :dot-style="getKanbanColumnDotStyle(column)"
                   :heading-icon-name="getKanbanHeadingIconName(column)"
                   @toggle-batch="toggleKanbanColumnBatchSelection(column)"
@@ -645,6 +649,8 @@
                   :batch-label="getColumnBatchSelectionLabel(isKanbanColumnBatchAllSelected(column))"
                   :heading="isKanbanHeadingColumn(column)"
                   :group="isKanbanGroupColumn(column)"
+                  :document="isKanbanDocumentColumn(column)"
+                  :document-icon="getKanbanColumnDocumentIcon(column)"
                   :dot-style="getKanbanColumnDotStyle(column)"
                   :heading-icon-name="getKanbanHeadingIconName(column)"
                   @toggle-batch="toggleKanbanColumnBatchSelection(column)"
@@ -714,7 +720,7 @@
                   :description-draft="getInlineDescriptionDraft(task)"
                   :show-description="showKanbanTaskCardDetails"
                   :show-badges="showKanbanTaskCardDetails"
-                  :show-document-title="shouldShowTaskDocumentTitle(task, kanbanFilterDocument)"
+                  :show-document-title="shouldShowBoardTaskDocumentTitle(task, kanbanFilterDocument)"
                   :document-title-override="getTaskDocumentTitle(task)"
                   :document-icon-override="getTaskDocumentIcon(task)"
                   :document-icon-svg="getTaskDocumentIconSvg(task, kanbanFilterDocument)"
@@ -792,6 +798,8 @@
                 <KanbanColumnTitlePrefix
                   :heading="isKanbanHeadingColumn(section.column)"
                   :group="isKanbanGroupColumn(section.column)"
+                  :document="isKanbanDocumentColumn(section.column)"
+                  :document-icon="getKanbanColumnDocumentIcon(section.column)"
                   :dot-style="getKanbanColumnDotStyle(section.column)"
                   :heading-icon-name="getKanbanHeadingIconName(section.column)"
                 />
@@ -841,7 +849,7 @@
               <div
                 v-for="task in getVisibleTasksForListSection(section)"
                 :key="task.id"
-                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, (task.tags || []).join(','), task.isVirtual, task.taskId, task.blockId, task.sourceBlockId, task.repeatSeriesId, goalDefinitions, getKanbanTaskCardGoalIds(task).join(','), getTaskDocumentTitle(task), getTaskDocumentIcon(task), getTaskDocumentIconSvg(task, listFilterDocument), shouldShowTaskDocumentTitle(task, listFilterDocument), isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id)]"
+                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, (task.tags || []).join(','), task.isVirtual, task.taskId, task.blockId, task.sourceBlockId, task.repeatSeriesId, goalDefinitions, getKanbanTaskCardGoalIds(task).join(','), getTaskDocumentTitle(task), getTaskDocumentIcon(task), getTaskDocumentIconSvg(task, listFilterDocument), shouldShowBoardTaskDocumentTitle(task, listFilterDocument), activeBoardGroupBy, isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id)]"
                 class="kanban-list-task-item"
                 :data-task-id="task.id"
                 @contextmenu="handleKanbanTaskContextMenu(task, $event)"
@@ -861,7 +869,7 @@
                   :description-draft="getInlineDescriptionDraft(task)"
                   :show-description="showKanbanTaskCardDetails"
                   :show-badges="showKanbanTaskCardDetails"
-                  :show-document-title="shouldShowTaskDocumentTitle(task, listFilterDocument)"
+                  :show-document-title="shouldShowBoardTaskDocumentTitle(task, listFilterDocument)"
                   :document-title-override="getTaskDocumentTitle(task)"
                   :document-icon-override="getTaskDocumentIcon(task)"
                   :document-icon-svg="getTaskDocumentIconSvg(task, listFilterDocument)"
@@ -895,6 +903,7 @@
       :group-mode="tableGroupBy"
       :heading-groups="taskHeadingGroups"
       :document-icon-by-root-id="documentIconByRootId"
+      :document-title-by-root-id="documentTitleByRootId"
       @task-click="handleTaskClick"
       @open-click="handleTaskEditClick"
       @start-focus="startFocusForTask"
@@ -1746,12 +1755,14 @@ const skipSet = new Set<string>();
 const kanbanGroupModeOptions = [
   { value: 'status', text: t('taskManager.groupByStatus') },
   { value: 'date', text: t('taskManager.groupByDate') },
+  { value: 'document', text: t('taskManager.groupByDocument') },
   { value: 'group', text: t('taskManager.groupByTag') },
   { value: 'heading', text: t('taskManager.groupByHeading') }
 ] as const;
 const tableGroupModeOptions = [
   { value: 'status', text: t('taskManager.groupByNone') },
   { value: 'date', text: t('taskManager.groupByDate') },
+  { value: 'document', text: t('taskManager.groupByDocument') },
   { value: 'group', text: t('taskManager.groupByTag') },
   { value: 'heading', text: t('taskManager.groupByHeading') }
 ] as const;
@@ -2240,6 +2251,7 @@ function matchesCalendarLifelogTask(
   sourceValue: string,
   documentId: string
 ): boolean {
+  if (!isTaskIncludedByNotebookScope(task)) return false;
   if (task.type !== 'block') return false;
   if (task.isVirtual === true) return false;
   if (!hasTaskCompletionRecord(task)) return false;
@@ -2268,7 +2280,7 @@ async function ensureCalendarLifelogTasksLoaded(forceRefresh: boolean = false): 
     ) {
       return;
     }
-    calendarLifelogTasks.value = allTasks;
+    calendarLifelogTasks.value = filterTasksByNotebookScope(allTasks);
   } catch (error) {
     console.warn('[KanbanView] Failed to load calendar lifelog tasks:', error);
   }
@@ -2778,7 +2790,7 @@ const activeKanbanEditDraft = computed(() =>
     : null
 );
 const visibleKanbanTasks = computed(() =>
-  tasks.value.filter(task => matchesKanbanFilters(task))
+  tasks.value.filter(task => isTaskIncludedByNotebookScope(task) && matchesKanbanFilters(task))
 );
 const visibleKanbanExpandableTaskIds = computed(() =>
   visibleKanbanTasks.value
@@ -2854,13 +2866,15 @@ type KanbanDateGroupKey = 'overdue' | 'today' | 'thisWeek' | 'thisMonth' | 'othe
 type KanbanColumn = {
   id: string;
   title: string;
-  type: 'status' | 'group' | 'heading' | 'date' | 'action';
+  type: 'status' | 'group' | 'heading' | 'date' | 'document' | 'action';
   actionKind?: 'group-add' | 'heading-add';
   status?: Task['status'];
   groupId?: string;
   headingKey?: string;
   headingMeta?: TaskHeadingGroupMeta;
   dateGroupKey?: KanbanDateGroupKey;
+  documentId?: string;
+  notebookId?: string;
 };
 
 type KanbanListSection = {
@@ -3012,6 +3026,53 @@ const dateColumns = computed<KanbanColumn[]>(() =>
   }))
 );
 
+function getDocumentColumnIdForTask(task: Task): string {
+  const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  if (!rootId) {
+    return 'document:unknown';
+  }
+  const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+  return `document:${notebookId || '*'}:${rootId}`;
+}
+
+function resolveDocumentColumnTitle(task: Task): string {
+  const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  if (!rootId) {
+    return t('personalStats.unlocatedDocument');
+  }
+  return getTaskDocumentTitle(task) || rootId;
+}
+
+const documentColumns = computed<KanbanColumn[]>(() => {
+  const columnsById = new Map<string, KanbanColumn & { order: number }>();
+  for (const task of visibleKanbanTasks.value) {
+    const columnId = getDocumentColumnIdForTask(task);
+    if (columnsById.has(columnId)) {
+      continue;
+    }
+    const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+    const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+    columnsById.set(columnId, {
+      id: columnId,
+      title: resolveDocumentColumnTitle(task),
+      type: 'document',
+      documentId: rootId,
+      notebookId,
+      order: rootId ? -getDocumentCreationSortKey(rootId) : Number.MAX_SAFE_INTEGER
+    });
+  }
+  return Array.from(columnsById.values()).sort((a, b) => {
+    if (a.order !== b.order) {
+      return a.order - b.order;
+    }
+    const labelDiff = a.title.localeCompare(b.title, 'zh-CN');
+    if (labelDiff !== 0) {
+      return labelDiff;
+    }
+    return a.id.localeCompare(b.id);
+  });
+});
+
 const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action', actionKind: 'group-add' };
 const addHeadingColumn: KanbanColumn = { id: ADD_HEADING_COLUMN_ID, title: '', type: 'action', actionKind: 'heading-add' };
 const kanbanListGroupActionColumn = computed<KanbanColumn | null>(() => {
@@ -3019,7 +3080,7 @@ const kanbanListGroupActionColumn = computed<KanbanColumn | null>(() => {
   if (activeBoardGroupBy.value === 'heading') return addHeadingColumn;
   return null;
 });
-const kanbanSupportsDrag = computed(() => activeBoardGroupBy.value !== 'date');
+const kanbanSupportsDrag = computed(() => activeBoardGroupBy.value !== 'date' && activeBoardGroupBy.value !== 'document');
 const kanbanColumns = computed<KanbanColumn[]>(() => {
   if (activeBoardGroupBy.value === 'group') {
     return [...groupColumns.value, addGroupColumn];
@@ -3029,6 +3090,9 @@ const kanbanColumns = computed<KanbanColumn[]>(() => {
   }
   if (activeBoardGroupBy.value === 'date') {
     return dateColumns.value;
+  }
+  if (activeBoardGroupBy.value === 'document') {
+    return documentColumns.value;
   }
   return showCompletedTasks.value
     ? statusColumns
@@ -3586,6 +3650,13 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
     return { backgroundColor: dateMeta?.dotColor || '#9ca3af' };
   }
 
+  if (column.type === 'document') {
+    return {
+      backgroundColor: 'var(--b3-theme-background)',
+      color: 'var(--b3-theme-on-background)'
+    };
+  }
+
   return { backgroundColor: 'transparent' };
 }
 
@@ -3595,6 +3666,94 @@ function isKanbanHeadingColumn(column: KanbanColumn): boolean {
 
 function isKanbanGroupColumn(column: KanbanColumn): boolean {
   return column.type === 'group' && activeBoardGroupBy.value === 'group';
+}
+
+function isKanbanDocumentColumn(column: KanbanColumn): boolean {
+  return column.type === 'document' && activeBoardGroupBy.value === 'document';
+}
+
+function getKanbanColumnDocumentIcon(column: KanbanColumn): string {
+  if (!isKanbanDocumentColumn(column)) {
+    return '';
+  }
+  const documentId = typeof column.documentId === 'string' ? column.documentId.trim() : '';
+  if (!documentId) {
+    return '📄';
+  }
+  const mapped = documentIconByRootId.value.get(documentId);
+  if (typeof mapped === 'string' && mapped.trim().length > 0) {
+    return mapped.trim();
+  }
+  return resolveDocumentTabHeaderIcon(column) || '📄';
+}
+
+function normalizeDocumentTabMatchText(value: unknown): string {
+  return typeof value === 'string'
+    ? value.trim().replace(/\\/g, '/').replace(/\/+$/g, '')
+    : '';
+}
+
+function getDocumentTabTitleCandidates(column: KanbanColumn): Set<string> {
+  const candidates = new Set<string>();
+  const documentId = typeof column.documentId === 'string' ? column.documentId.trim() : '';
+  const addCandidate = (value: unknown): void => {
+    const normalized = normalizeDocumentTabMatchText(value);
+    if (!normalized) {
+      return;
+    }
+    candidates.add(normalized);
+    const leaf = normalized.split('/').filter(Boolean).pop() || '';
+    if (leaf) {
+      candidates.add(leaf);
+    }
+  };
+
+  addCandidate(column.title);
+  addCandidate(documentId);
+  if (documentId) {
+    const metadata = documentMetadataByRootId.value.get(documentId)
+      || documentScopeMetadataByRootId.value.get(documentId);
+    addCandidate(metadata?.name);
+    addCandidate(metadata?.path);
+    addCandidate(documentTitleByRootId.value.get(documentId));
+  }
+  return candidates;
+}
+
+function isDocumentTabHeaderMatch(tabHeader: HTMLElement, candidates: Set<string>): boolean {
+  if (candidates.size === 0) {
+    return false;
+  }
+  const tabTitle = normalizeDocumentTabMatchText(tabHeader.querySelector('.item__text')?.textContent || '');
+  const ariaLabel = normalizeDocumentTabMatchText(tabHeader.getAttribute('aria-label') || '');
+  for (const candidate of candidates) {
+    if (tabTitle === candidate || ariaLabel === candidate) {
+      return true;
+    }
+    if (ariaLabel && (ariaLabel.endsWith(`/${candidate}`) || ariaLabel.endsWith(candidate))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveDocumentTabHeaderIcon(column: KanbanColumn): string {
+  if (typeof document === 'undefined') {
+    return '';
+  }
+  const candidates = getDocumentTabTitleCandidates(column);
+  const tabHeaders = Array.from(document.querySelectorAll<HTMLElement>('li[data-type="tab-header"]'));
+  for (const tabHeader of tabHeaders) {
+    if (!isDocumentTabHeaderMatch(tabHeader, candidates)) {
+      continue;
+    }
+    const iconImage = tabHeader.querySelector<HTMLImageElement>('.item__icon img[src], .item__graphic img[src], img[src]');
+    const icon = normalizeDocumentIconValue(iconImage?.getAttribute('src'));
+    if (icon) {
+      return icon;
+    }
+  }
+  return '';
 }
 
 function getKanbanHeadingIconName(column: KanbanColumn): string {
@@ -3841,7 +4000,7 @@ async function submitColumnTitleEdit(column: KanbanColumn): Promise<void> {
 }
 
 function canCreateTaskInColumn(column: KanbanColumn): boolean {
-  if (column.type === 'status' || column.type === 'group') {
+  if (column.type === 'status' || column.type === 'group' || column.type === 'document') {
     return true;
   }
   if (column.type === 'heading') {
@@ -3851,7 +4010,7 @@ function canCreateTaskInColumn(column: KanbanColumn): boolean {
 }
 
 function getColumnCreateTaskLabel(column: KanbanColumn): string {
-  if (column.type === 'status' || column.type === 'group' || column.type === 'heading') {
+  if (column.type === 'status' || column.type === 'group' || column.type === 'heading' || column.type === 'document') {
     return formatTemplate('kanbanView.createTaskInColumnTemplate', { title: column.title });
   }
   return t('taskManager.newTask');
@@ -4416,6 +4575,12 @@ function applyExcludedNotebookScope(ids: string[]): void {
   const normalized = normalizeNotebookIds(ids);
   excludedNotebookIds.value = normalized;
   TaskRepository.setExcludedNotebookIds(normalized);
+  const scopedTasks = filterTasksByNotebookScope(tasks.value);
+  if (scopedTasks.length !== tasks.value.length) {
+    syncTaskSnapshot(scopedTasks);
+    invalidateTableFilters();
+  }
+  calendarLifelogTasks.value = filterTasksByNotebookScope(calendarLifelogTasks.value);
 }
 
 function resetSourceFilterIfNeeded(
@@ -4865,6 +5030,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
 
   applyExcludedNotebookScope(mergedExcludedNotebookIds);
   applyExternalDocumentGroups(nextDocumentGroups);
+  eventBus.emit(Events.TASK_SCOPE_UPDATED, { excludedNotebookIds: mergedExcludedNotebookIds });
   eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
   TaskRepository.setAutoRecognizeTaskDateEnabled(nextAutoRecognizeTaskDate);
   await saveDocumentGroups(nextDocumentGroups);
@@ -5003,6 +5169,13 @@ function shouldShowTaskDocumentTitle(task: Task, documentId: string): boolean {
     && taskMatchesDocumentScope(task, normalizedDocumentId, taskDocumentPathLookup.value);
 }
 
+function shouldShowBoardTaskDocumentTitle(task: Task, documentId: string): boolean {
+  if (activeBoardGroupBy.value === 'document') {
+    return false;
+  }
+  return shouldShowTaskDocumentTitle(task, documentId);
+}
+
 function getTaskDocumentIconSvg(task: Task, documentId: string): string {
   const normalizedDocumentId = typeof documentId === 'string' && documentId.trim().length > 0
     ? documentId.trim()
@@ -5092,6 +5265,9 @@ function matchesTaskDocumentMemberScope(task: Task, member: DocumentGroupMember)
 }
 
 function matchesTaskBySourceAndDocument(task: Task, sourceValue: string, documentId: string = 'all'): boolean {
+  if (!isTaskIncludedByNotebookScope(task)) {
+    return false;
+  }
   const source = parseDocumentSource(sourceValue);
   if (source.kind === 'notebook' && task.notebookId !== source.id) {
     return false;
@@ -8183,6 +8359,24 @@ const kanbanTasksByDate = computed<Record<KanbanDateGroupKey, Task[]>>(() => {
   return grouped;
 });
 
+const kanbanTasksByDocument = computed<Record<string, Task[]>>(() => {
+  const grouped: Record<string, Task[]> = {};
+  for (const task of visibleKanbanTasks.value) {
+    const documentKey = getDocumentColumnIdForTask(task);
+    if (!grouped[documentKey]) {
+      grouped[documentKey] = [];
+    }
+    grouped[documentKey].push(task);
+  }
+
+  const sortContext = createSidebarSortContext();
+  for (const list of Object.values(grouped)) {
+    sortTasksLikeSidebar(list, sortContext);
+  }
+
+  return grouped;
+});
+
 function getFilteredTasksForStatus(status?: string): Task[] {
   if (!status) return [];
   return kanbanTasksByVisualStatus.value[status] || [];
@@ -8199,11 +8393,14 @@ function getTasksForColumn(column: KanbanColumn): Task[] {
     const dateGroupKey = column.dateGroupKey;
     return dateGroupKey ? (kanbanTasksByDate.value[dateGroupKey] || []) : [];
   }
+  if (column.type === 'document') {
+    return kanbanTasksByDocument.value[column.id] || [];
+  }
   return kanbanTasksByGroup.value[column.id] || [];
 }
 
 function shouldUseKanbanVirtualList(column: KanbanColumn, taskCount: number): boolean {
-  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading' && column.type !== 'date') {
+  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading' && column.type !== 'date' && column.type !== 'document') {
     return false;
   }
   if (taskCount <= KANBAN_VIRTUAL_THRESHOLD) {
@@ -8902,8 +9099,8 @@ async function ensureTasksLoadedForView(
 }
 
 function syncTaskSnapshot(nextTasks: Task[]): void {
-  syncFromSQL(applyLocalTaskFieldOverridesToList(nextTasks));
-  tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
+  syncFromSQL(filterTasksByNotebookScope(applyLocalTaskFieldOverridesToList(nextTasks)));
+  tasks.value = filterTasksByNotebookScope(applyDraggedStatusLocks(crdtRepo.getTasks()));
 }
 
 function scheduleRefreshTasks(
@@ -9108,6 +9305,18 @@ function applyLocalTaskFieldOverridesToList(taskList: Task[]): Task[] {
     return filteredTasks;
   }
   return filteredTasks.map(task => applyLocalTaskFieldOverrides(task));
+}
+
+function isTaskIncludedByNotebookScope(task: Task): boolean {
+  const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+  return !notebookId || !excludedNotebookIds.value.includes(notebookId);
+}
+
+function filterTasksByNotebookScope(taskList: Task[]): Task[] {
+  if (excludedNotebookIds.value.length === 0) {
+    return taskList;
+  }
+  return taskList.filter(task => isTaskIncludedByNotebookScope(task));
 }
 
 function suppressDragTaskSync(blockId: string, ttlMs = 1400): void {
@@ -9633,6 +9842,29 @@ function setupEventListeners() {
       })();
     }
   );
+  const unsubscribeTaskScopeUpdated = eventBus.on(
+    Events.TASK_SCOPE_UPDATED,
+    (payload?: { excludedNotebookIds?: string[] }) => {
+      if (!payload || !Array.isArray(payload.excludedNotebookIds)) {
+        return;
+      }
+      const normalized = normalizeNotebookIds(payload.excludedNotebookIds);
+      const current = normalizeNotebookIds(excludedNotebookIds.value);
+      const isSame = normalized.length === current.length
+        && normalized.every((id, index) => id === current[index]);
+      if (isSame) {
+        return;
+      }
+      applyExcludedNotebookScope(normalized);
+      if (resetFiltersForExcludedNotebooks() || normalizeInvalidNotebookFilters()) {
+        void saveUserSettings();
+      }
+      void loadTasks(true, { silent: true, validateSelection: true });
+      if (isCalendarTaskViewMode(currentView.value)) {
+        void ensureCalendarLifelogTasksLoaded(true);
+      }
+    }
+  );
   const unsubscribeViewSwitchRequested = eventBus.on(
     Events.KANBAN_VIEW_SWITCH_REQUEST,
     (payload?: TaskViewSwitchRequest) => {
@@ -9673,6 +9905,7 @@ function setupEventListeners() {
     unsubscribeDateChanged,
     unsubscribeGroupsUpdated,
     unsubscribeDocumentGroupsUpdated,
+    unsubscribeTaskScopeUpdated,
     unsubscribeViewSwitchRequested
   );
 }

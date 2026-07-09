@@ -32,7 +32,16 @@ const titleText = computed(() => displayText.value || undefined);
 const imageSrc = computed(() => resolveEmojiImageSrc(displayText.value));
 
 function normalizeIconValue(value: string | undefined): string {
-  return typeof value === 'string' ? value.trim() : '';
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, '\'')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .trim();
 }
 
 function resolveEmojiImageSrc(value: string): string {

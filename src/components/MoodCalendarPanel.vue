@@ -112,21 +112,27 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import LifelogTimelinePanel, {
   type LifelogTimelineDateStripDay,
+  type LifelogTimelinePanelBadge,
   type LifelogTimelinePanelItem
 } from './LifelogTimelinePanel.vue';
 import { useI18n } from '@/composables/useI18n';
 import {
   deleteFocusSessionRecord,
   getFocusTimerData,
+  loadTaskGroups,
   saveMoodData,
   TaskRepository,
   type FocusSessionRecord,
   type Habit,
   type MoodData,
   type MoodManualEntry,
-  type Task
+  type Task,
+  type TaskGroup
 } from '@/api';
+import { loadGoals, type Goal } from '@/goalRepository';
 import { eventBus, Events } from '@/utils/eventBus';
+import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
+import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import {
   focusRecordsToLifelogEvents,
   type FocusLifelogEvent,
@@ -137,6 +143,7 @@ import {
   type TaskCompletedLifelogEvent,
   tasksToCompletedLifelogEvents
 } from '@/utils/lifelogEvents';
+import { resolveTaskTagIds } from '@/utils/taskTags';
 
 interface MoodStatItem {
   type: string;
@@ -182,7 +189,10 @@ const selectedLifelogDate = ref('');
 const manualLifelogDrafts = ref<Record<string, string>>({});
 const focusSessionRecords = ref<FocusSessionRecord[]>([]);
 const lifelogTasks = ref<Task[]>([]);
+const lifelogTaskGroups = ref<TaskGroup[]>([]);
+const lifelogGoals = ref<Goal[]>([]);
 let lifelogTasksLoadRequestId = 0;
+let lifelogMetadataLoadRequestId = 0;
 
 const formatTemplate = (key: string, values: Record<string, string | number>): string => {
   return Object.entries(values).reduce(
@@ -375,10 +385,28 @@ async function refreshLifelogTasks(forceRefresh: boolean = false): Promise<void>
   }
 }
 
+async function refreshLifelogMetadata(): Promise<void> {
+  const requestId = ++lifelogMetadataLoadRequestId;
+  try {
+    const [taskGroups, goals] = await Promise.all([
+      loadTaskGroups(),
+      loadGoals()
+    ]);
+    if (requestId !== lifelogMetadataLoadRequestId) {
+      return;
+    }
+    lifelogTaskGroups.value = taskGroups;
+    lifelogGoals.value = goals;
+  } catch (error) {
+    console.warn('[MoodCalendarPanel] Failed to load lifelog metadata', error);
+  }
+}
+
 async function refreshLifelogSources(forceRefreshTasks: boolean = false): Promise<void> {
   await Promise.all([
     refreshFocusSessions(),
-    refreshLifelogTasks(forceRefreshTasks)
+    refreshLifelogTasks(forceRefreshTasks),
+    refreshLifelogMetadata()
   ]);
 }
 
@@ -392,12 +420,42 @@ function handleTaskUpdate(): void {
   }
 }
 
+function handleLifelogMetadataUpdate(): void {
+  if (props.show) {
+    void refreshLifelogMetadata();
+  }
+}
+
 const manualNoteLifelogEvents = computed(() => moodManualEntriesToLifelogEvents(props.moodData));
 const focusLifelogEvents = computed(() =>
   focusRecordsToLifelogEvents(focusSessionRecords.value, t('focusTimer.title'))
 );
 const habitCheckinLifelogEvents = computed(() => habitsToLifelogEvents(props.habits || []));
 const taskCompletedLifelogEvents = computed(() => tasksToCompletedLifelogEvents(lifelogTasks.value));
+const taskCompletedLifelogSourceTaskById = computed(() => {
+  const taskById = new Map<string, Task>();
+  for (const task of lifelogTasks.value) {
+    if (task.id) {
+      taskById.set(task.id, task);
+    }
+  }
+  return taskById;
+});
+const taskCompletedLifelogSourceTaskByBlockId = computed(() => {
+  const taskByBlockId = new Map<string, Task>();
+  for (const task of lifelogTasks.value) {
+    if (task.blockId) {
+      taskByBlockId.set(task.blockId, task);
+    }
+  }
+  return taskByBlockId;
+});
+const taskGroupById = computed(() =>
+  new Map(lifelogTaskGroups.value.map(group => [group.id, group]))
+);
+const goalById = computed(() =>
+  new Map(lifelogGoals.value.map(goal => [goal.id, goal]))
+);
 
 function timeToSortMinutes(value: string | undefined, fallbackMinutes: number): number {
   if (!value) {
@@ -476,19 +534,6 @@ function formatHabitLifelogProgress(event: HabitCheckinLifelogEvent): string {
   return `${progress}${t('habitTracker.timesSuffix')}`;
 }
 
-function getTaskPriorityTitle(priority: Task['priority']): string {
-  if (priority === 'high') {
-    return t('taskManager.priorityHighLabel');
-  }
-  if (priority === 'medium') {
-    return t('taskManager.priorityMediumLabel');
-  }
-  if (priority === 'low') {
-    return t('taskManager.priorityLowLabel');
-  }
-  return t('taskManager.priorityNoneLabel');
-}
-
 function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timeToSortMinutes(event.startTime, 8 * 60);
   return {
@@ -520,6 +565,56 @@ function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimel
   };
 }
 
+function getTaskCompletedSourceTask(event: TaskCompletedLifelogEvent): Task | null {
+  return taskCompletedLifelogSourceTaskById.value.get(event.taskId)
+    || (event.blockId ? taskCompletedLifelogSourceTaskByBlockId.value.get(event.blockId) : null)
+    || null;
+}
+
+function getTaskCompletedEventGroupId(event: TaskCompletedLifelogEvent): string {
+  const groupId = event.metadata?.groupId;
+  return typeof groupId === 'string' ? groupId.trim() : '';
+}
+
+function getTaskCompletedTagBadges(event: TaskCompletedLifelogEvent): LifelogTimelinePanelBadge[] {
+  const sourceTask = getTaskCompletedSourceTask(event);
+  return resolveTaskTagIds(
+    sourceTask ? sourceTask.tags : event.tags,
+    sourceTask?.groupId || getTaskCompletedEventGroupId(event)
+  )
+    .map(tagId => taskGroupById.value.get(tagId))
+    .filter((group): group is TaskGroup => Boolean(group))
+    .map(group => ({
+      type: 'tag',
+      label: group.name,
+      style: group.color ? {
+        background: resolveGroupColorCss(group.color),
+        borderColor: resolveGroupColorLayerCss(group.color),
+        color: resolveGroupTextColor(group.color)
+      } : {}
+    }));
+}
+
+function getTaskCompletedGoalBadges(event: TaskCompletedLifelogEvent): LifelogTimelinePanelBadge[] {
+  const sourceTask = getTaskCompletedSourceTask(event);
+  const goalSource = sourceTask || {
+    id: event.taskId,
+    taskId: event.taskId,
+    blockId: event.blockId,
+    title: event.title
+  };
+  return getGoalIdsForTask(lifelogGoals.value, goalSource)
+    .map(goalId => goalById.value.get(goalId))
+    .filter((goal): goal is Goal => Boolean(goal))
+    .map(goal => ({
+      type: 'goal',
+      label: typeof goal.name === 'string' && goal.name.trim()
+        ? goal.name.trim()
+        : t('taskManager.untitledGoal'),
+      emoji: typeof goal.emoji === 'string' ? goal.emoji.trim() : ''
+    }));
+}
+
 function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timeToSortMinutes(event.completedAt, 20 * 60);
   return {
@@ -529,9 +624,13 @@ function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimel
     timeLabel: formatTimestamp(event.completedAt, event.date),
     sortMinutes,
     title: event.title,
-    meta: `${t('taskManager.statusCompleted')} · ${getTaskPriorityTitle(event.priority)}`,
+    meta: t('taskManager.statusCompleted'),
     note: event.note || '',
-    icon: 'taskCheckboxChecked'
+    icon: 'taskCheckboxChecked',
+    badges: [
+      ...getTaskCompletedTagBadges(event),
+      ...getTaskCompletedGoalBadges(event)
+    ]
   };
 }
 
@@ -797,6 +896,8 @@ let unsubscribeTaskAdded: (() => void) | null = null;
 let unsubscribeTaskDeleted: (() => void) | null = null;
 let unsubscribeTaskUpdated: (() => void) | null = null;
 let unsubscribeTaskToggled: (() => void) | null = null;
+let unsubscribeTaskGroupsUpdated: (() => void) | null = null;
+let unsubscribeGoalsUpdated: (() => void) | null = null;
 
 onMounted(() => {
   window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
@@ -805,6 +906,8 @@ onMounted(() => {
   unsubscribeTaskDeleted = eventBus.on(Events.TASK_DELETED, handleTaskUpdate);
   unsubscribeTaskUpdated = eventBus.on(Events.TASK_UPDATED, handleTaskUpdate);
   unsubscribeTaskToggled = eventBus.on(Events.TASK_TOGGLED, handleTaskUpdate);
+  unsubscribeTaskGroupsUpdated = eventBus.on(Events.TASK_GROUPS_UPDATED, handleLifelogMetadataUpdate);
+  unsubscribeGoalsUpdated = eventBus.on(Events.GOALS_UPDATED, handleLifelogMetadataUpdate);
 });
 
 onUnmounted(() => {
@@ -814,6 +917,8 @@ onUnmounted(() => {
   unsubscribeTaskDeleted?.();
   unsubscribeTaskUpdated?.();
   unsubscribeTaskToggled?.();
+  unsubscribeTaskGroupsUpdated?.();
+  unsubscribeGoalsUpdated?.();
 });
 
 </script>

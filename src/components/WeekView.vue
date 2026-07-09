@@ -111,7 +111,7 @@
                 <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
               </span>
               <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
-              <span class="mobile-task-chip-title">{{ getTaskDisplayTitle(task) }}</span>
+              <span class="mobile-task-chip-title" v-html="getTaskTitleHtml(task)"></span>
               <span
                 v-if="!isHabitTaskChip(task) && task.priority !== 'none'"
                 class="task-priority-badge ariaLabel"
@@ -240,7 +240,7 @@
                     <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                   </span>
                   <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
-                  <span class="task-title-text" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)">{{ getTaskDisplayTitle(task) }}</span>
+                  <span class="task-title-text" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)" v-html="getTaskTitleHtml(task)"></span>
                   <span
                     v-if="!isHabitTaskChip(task) && task.priority !== 'none'"
                     class="task-priority-badge ariaLabel"
@@ -329,7 +329,7 @@
                 </span>
                 <span class="day-expanded-chip-title" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)">
                   <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
-                  {{ getTaskDisplayTitle(task) }}
+                  <span v-html="getTaskTitleHtml(task)"></span>
                 </span>
               </div>
               <div v-if="allDayExpandedTasks.length === 0" class="day-expanded-empty">
@@ -492,7 +492,7 @@
                       >
                         <TaskCheckbox :checked="item.task.status === 'completed'" :size="12" />
                       </span>
-                      <span class="task-title-text" @click.stop="handleTaskClick(item.task, $event)">{{ getTaskDisplayTitle(item.task) }}</span>
+                      <span class="task-title-text" @click.stop="handleTaskClick(item.task, $event)" v-html="getTaskTitleHtml(item.task)"></span>
                       <span
                         v-if="item.task.priority !== 'none'"
                         class="task-priority-badge ariaLabel"
@@ -622,6 +622,7 @@ import {
 } from '@/api';
 import { updateTaskMarkdown } from '@/utils/taskHelpers';
 import { getTaskDisplayTitle } from '@/composables/useTaskCommon';
+import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { formatDate, formatTime, formatHour } from '@/composables/useDateUtils';
 import { CALENDAR_CONSTANTS } from '@/composables/useCalendarConstants';
 import { useDebouncedSave } from '@/composables/useDebouncedSave';
@@ -635,6 +636,7 @@ import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import LifelogTimelinePanel, {
+  type LifelogTimelinePanelBadge,
   type LifelogTimelineDateStripDay,
   type LifelogTimelinePanelItem
 } from './LifelogTimelinePanel.vue';
@@ -666,6 +668,7 @@ import {
   resolveTaskBackgroundColor,
   resolveTaskGroupBackgroundColor
 } from '@/utils/taskColor';
+import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 
 interface Props {
   tasks: Task[];
@@ -778,8 +781,8 @@ const taskCompletedLifelogSourceTaskByBlockId = computed(() => {
   }
   return taskByBlockId;
 });
-const taskGroupNameById = computed(() =>
-  new Map((props.taskGroups || []).map(group => [group.id, group.name]))
+const taskGroupById = computed(() =>
+  new Map((props.taskGroups || []).map(group => [group.id, group]))
 );
 const goalById = computed(() =>
   new Map((props.goals || []).map(goal => [goal.id, goal]))
@@ -1218,6 +1221,10 @@ const contextMenuDateDraft = ref<{ startDate: string; startTime: string; dueDate
 const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
 const contextMenuRepeatRule = ref<RepeatRule | null>(null);
 let contextMenuOutsidePointerBound = false;
+
+function getTaskTitleHtml(task: Task): string {
+  return sanitizeTaskTitleHtml(task.title || '');
+}
 
 function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined): RepeatFrequency {
   if (
@@ -3376,25 +3383,26 @@ function getTaskCompletedEventGroupId(event: TaskCompletedLifelogEvent): string 
   return typeof groupId === 'string' ? groupId.trim() : '';
 }
 
-function getTaskCompletedTagLabels(event: TaskCompletedLifelogEvent): string[] {
+function getTaskCompletedTagBadges(event: TaskCompletedLifelogEvent): LifelogTimelinePanelBadge[] {
   const sourceTask = getTaskCompletedSourceTask(event);
   return resolveTaskTagIds(
     sourceTask ? sourceTask.tags : event.tags,
     sourceTask?.groupId || getTaskCompletedEventGroupId(event)
   )
-    .map(tagId => taskGroupNameById.value.get(tagId) || '')
-    .filter(Boolean);
+    .map(tagId => taskGroupById.value.get(tagId))
+    .filter((group): group is TaskGroup => Boolean(group))
+    .map(group => ({
+      type: 'tag',
+      label: group.name,
+      style: group.color ? {
+        background: resolveGroupColorCss(group.color),
+        borderColor: resolveGroupColorLayerCss(group.color),
+        color: resolveGroupTextColor(group.color)
+      } : {}
+    }));
 }
 
-function formatTaskCompletedGoalLabel(goal: Goal): string {
-  const name = typeof goal.name === 'string' && goal.name.trim()
-    ? goal.name.trim()
-    : t('taskManager.untitledGoal');
-  const emoji = typeof goal.emoji === 'string' ? goal.emoji.trim() : '';
-  return emoji ? `${emoji} ${name}` : name;
-}
-
-function getTaskCompletedGoalLabels(event: TaskCompletedLifelogEvent): string[] {
+function getTaskCompletedGoalBadges(event: TaskCompletedLifelogEvent): LifelogTimelinePanelBadge[] {
   const sourceTask = getTaskCompletedSourceTask(event);
   const goalSource = sourceTask || {
     id: event.taskId,
@@ -3405,14 +3413,18 @@ function getTaskCompletedGoalLabels(event: TaskCompletedLifelogEvent): string[] 
   return getGoalIdsForTask(props.goals || [], goalSource)
     .map(goalId => goalById.value.get(goalId))
     .filter((goal): goal is Goal => Boolean(goal))
-    .map(formatTaskCompletedGoalLabel);
+    .map(goal => ({
+      type: 'goal',
+      label: typeof goal.name === 'string' && goal.name.trim()
+        ? goal.name.trim()
+        : t('taskManager.untitledGoal'),
+      emoji: typeof goal.emoji === 'string' ? goal.emoji.trim() : ''
+    }));
 }
 
 function formatTaskCompletedLifelogMeta(event: TaskCompletedLifelogEvent): string {
-  const detailLabels = [
-    ...getTaskCompletedTagLabels(event),
-    ...getTaskCompletedGoalLabels(event)
-  ];
+  void event;
+  const detailLabels: string[] = [];
   return [
     t('taskManager.statusCompleted'),
     ...detailLabels
@@ -3435,7 +3447,7 @@ function getLifelogTimelineMeta(event: WeekLifelogEvent): string {
       : t('habitTracker.checkedIn');
   }
   if (event.type === 'task-completed') {
-    return formatTaskCompletedLifelogMeta(event);
+    return t('taskManager.statusCompleted');
   }
   return t('monthView.lifelogManualNote');
 }
@@ -3464,7 +3476,13 @@ function lifelogEventToTimelineListItem(event: WeekLifelogEvent): LifelogTimelin
     emoji: event.type === 'manual-note' ? event.emoji : undefined,
     moodSvg: event.type === 'manual-note' && event.emoji ? getMoodSvg(event.emoji, 'large') : undefined,
     sourceId: event.type === 'manual-note' ? event.id : event.sourceId,
-    deletable: event.type === 'manual-note' || event.type === 'focus'
+    deletable: event.type === 'manual-note' || event.type === 'focus',
+    badges: event.type === 'task-completed'
+      ? [
+        ...getTaskCompletedTagBadges(event),
+        ...getTaskCompletedGoalBadges(event)
+      ]
+      : undefined
   };
 }
 
@@ -6980,6 +6998,17 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+.task-title-text :deep(*) {
+  display: inline;
+  white-space: nowrap;
+}
+
+.mobile-task-chip-title :deep(*),
+.day-expanded-chip-title :deep(*) {
+  display: inline;
+  white-space: nowrap;
 }
 
 .habit-emoji {

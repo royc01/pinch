@@ -2006,6 +2006,7 @@ export class TaskRepository {
       includeArchived: scope?.includeArchived,
       archivedOnly: scope?.archivedOnly,
       notebookId: scope?.notebookId,
+      excludedNotebookIds: this.getExcludedNotebookIdsSorted(),
       documentId: scope?.documentId,
       force: options.force
     });
@@ -2035,6 +2036,7 @@ export class TaskRepository {
       includeArchived: scope?.includeArchived,
       archivedOnly: scope?.archivedOnly,
       notebookId: scope?.notebookId,
+      excludedNotebookIds: this.getExcludedNotebookIdsSorted(),
       documentId: scope?.documentId,
     });
     const rows = options.includeSubtasks
@@ -2064,6 +2066,7 @@ export class TaskRepository {
       includeArchived: scope?.includeArchived,
       archivedOnly: scope?.archivedOnly,
       notebookId: scope?.notebookId,
+      excludedNotebookIds: this.getExcludedNotebookIdsSorted(),
       documentId: scope?.documentId,
       includeSubtasks: options.includeSubtasks,
       force: options.force
@@ -2114,6 +2117,7 @@ export class TaskRepository {
       includeArchived: scope?.includeArchived,
       archivedOnly: scope?.archivedOnly,
       notebookId: scope?.notebookId,
+      excludedNotebookIds: this.getExcludedNotebookIdsSorted(),
       documentId: scope?.documentId,
       startDate: options.startDate,
       endDate: options.endDate,

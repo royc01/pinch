@@ -2,7 +2,7 @@ import type { Task } from '@/api';
 import { getBlockDOM, sql } from '@/api';
 import { translate } from '@/composables/useI18n';
 
-export type TaskViewGroupMode = 'status' | 'group' | 'heading' | 'date';
+export type TaskViewGroupMode = 'status' | 'group' | 'heading' | 'date' | 'document';
 export type TaskHeadingGroupKind = 'standalone' | 'document-root' | 'heading';
 
 export interface TaskHeadingGroupMeta {
@@ -39,7 +39,7 @@ interface HeadingStackEntry {
   order: number;
 }
 
-const TASK_VIEW_GROUP_MODES: TaskViewGroupMode[] = ['status', 'group', 'heading', 'date'];
+const TASK_VIEW_GROUP_MODES: TaskViewGroupMode[] = ['status', 'group', 'heading', 'date', 'document'];
 
 function isTaskViewGroupMode(value: unknown): value is TaskViewGroupMode {
   return typeof value === 'string' && TASK_VIEW_GROUP_MODES.includes(value as TaskViewGroupMode);

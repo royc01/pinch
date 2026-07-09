@@ -38,6 +38,7 @@ type KernelTaskListParams = {
   includeArchived?: boolean;
   archivedOnly?: boolean;
   notebookId?: string;
+  excludedNotebookIds?: string[];
   documentId?: string;
   force?: boolean;
   blockIds?: string[];
@@ -165,6 +166,20 @@ function normalizeBlockIds(value: unknown): string[] {
   return ids.slice(0, MAX_TASK_LIMIT);
 }
 
+function normalizeNotebookIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        .map(id => id.trim())
+    )
+  ).sort();
+}
+
 function toSqlStringList(values: string[]): string {
   return values.map(value => `'${escapeSqlLiteral(value)}'`).join(", ");
 }
@@ -174,6 +189,7 @@ function buildTaskIndexCacheKey(params: KernelTaskListParams = {}): string {
     params.includeCompleted === false ? "open" : "all-status",
     params.archivedOnly ? "archived-only" : (params.includeArchived ? "include-archived" : "active-only"),
     normalizeScopeValue(params.notebookId) || "*",
+    normalizeNotebookIds(params.excludedNotebookIds).join(",") || "*",
     normalizeScopeValue(params.documentId) || "*",
   ].join("|");
 }
@@ -229,6 +245,9 @@ function doesTaskRowMatchParams(row: KernelTaskRow, params: KernelTaskListParams
     return false;
   }
   if (params.notebookId && row.box !== normalizeScopeValue(params.notebookId)) {
+    return false;
+  }
+  if (normalizeNotebookIds(params.excludedNotebookIds).includes(row.box)) {
     return false;
   }
   if (params.documentId && row.root_id !== normalizeScopeValue(params.documentId)) {
@@ -318,6 +337,7 @@ function buildTaskFilters(params: KernelTaskListParams = {}): string[] {
     ? "b.markdown LIKE '%[ ]%'"
     : "(b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%' OR b.markdown LIKE '%[X]%')";
   const notebookId = normalizeScopeValue(params.notebookId);
+  const excludedNotebookIds = normalizeNotebookIds(params.excludedNotebookIds);
   const documentId = normalizeScopeValue(params.documentId);
   const archivedValueSql = "('1', 'true', 'TRUE', 'yes', 'YES')";
   const filters = [
@@ -328,6 +348,9 @@ function buildTaskFilters(params: KernelTaskListParams = {}): string[] {
 
   if (notebookId) {
     filters.push(`b.box = '${escapeSqlLiteral(notebookId)}'`);
+  }
+  if (excludedNotebookIds.length > 0) {
+    filters.push(`b.box NOT IN (${toSqlStringList(excludedNotebookIds)})`);
   }
   if (documentId) {
     filters.push(`b.root_id = '${escapeSqlLiteral(documentId)}'`);
@@ -617,9 +640,13 @@ async function queryChangedTaskRows(params: KernelTaskListParams = {}): Promise<
     `b.updated >= '${escapeSqlLiteral(sinceUpdated)}'`,
   ];
   const notebookId = normalizeScopeValue(params.notebookId);
+  const excludedNotebookIds = normalizeNotebookIds(params.excludedNotebookIds);
   const documentId = normalizeScopeValue(params.documentId);
   if (notebookId) {
     filters.push(`b.box = '${escapeSqlLiteral(notebookId)}'`);
+  }
+  if (excludedNotebookIds.length > 0) {
+    filters.push(`b.box NOT IN (${toSqlStringList(excludedNotebookIds)})`);
   }
   if (documentId) {
     filters.push(`b.root_id = '${escapeSqlLiteral(documentId)}'`);

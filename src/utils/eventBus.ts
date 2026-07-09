@@ -90,6 +90,7 @@ export const Events = {
   GOALS_UPDATED: 'goals-updated',
   TASK_GROUPS_UPDATED: 'task-groups-updated',
   DOCUMENT_GROUPS_UPDATED: 'document-groups-updated',
+  TASK_SCOPE_UPDATED: 'task-scope-updated',
   TASK_TOGGLED: 'task-toggled',
   TASK_EDITOR_OPEN_REQUEST: 'task-editor-open-request',
   TASK_QUICK_META_OPEN_REQUEST: 'task-quick-meta-open-request',

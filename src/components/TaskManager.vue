@@ -1001,7 +1001,7 @@ type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
 type TaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
 type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks';
 type TaskListViewMode = 'kanban' | 'list';
-type TaskListGroupMode = 'none' | 'status' | 'group' | 'heading' | 'date';
+type TaskListGroupMode = 'none' | 'status' | 'group' | 'heading' | 'date' | 'document';
 interface TaskGroupedSection {
   key: string;
   label: string;
@@ -1374,6 +1374,7 @@ const taskListGroupOptions: Array<{ value: TaskListGroupMode; label: string }> =
   { value: 'none', label: t('taskManager.groupByNone') },
   { value: 'status', label: t('taskManager.groupByStatus') },
   { value: 'date', label: t('taskManager.groupByDate') },
+  { value: 'document', label: t('taskManager.groupByDocument') },
   { value: 'group', label: t('taskManager.groupByTag') },
   { value: 'heading', label: t('taskManager.groupByHeading') }
 ];
@@ -2334,7 +2335,7 @@ function stopSkipSetCleanup() {
 type TaskArchiveViewMode = 'active' | 'archived' | 'all';
 
 function normalizeTaskListGroupMode(value: unknown): TaskListGroupMode {
-  if (value === 'status' || value === 'group' || value === 'heading' || value === 'date' || value === 'none') {
+  if (value === 'status' || value === 'group' || value === 'heading' || value === 'date' || value === 'document' || value === 'none') {
     return value;
   }
   return 'none';
@@ -2365,6 +2366,41 @@ function sortDocumentGroups(groups: DocumentGroup[]): DocumentGroup[] {
 
 function resolveDocumentEntryName(document: Pick<TaskDocument, 'id' | 'name' | 'path'>): string {
   return resolveDocumentDisplayName(document);
+}
+
+function resolveTaskDocumentGroup(task: Task): { key: string; label: string; order: number } {
+  const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+  if (!rootId) {
+    return {
+      key: 'document:unknown',
+      label: t('personalStats.unlocatedDocument'),
+      order: Number.MAX_SAFE_INTEGER
+    };
+  }
+
+  const documentKey = notebookId ? `${notebookId}:${rootId}` : '';
+  const documents = allDocuments.value;
+  const exactDocument = documentKey ? allDocumentsByKey.value.get(documentKey) : undefined;
+  const documentIndex = documents.findIndex(document =>
+    document.id === rootId && (!notebookId || document.notebookId === notebookId)
+  );
+  const documentEntry = exactDocument || (documentIndex >= 0 ? documents[documentIndex] : undefined);
+  const label = documentEntry
+    ? resolveDocumentEntryName(documentEntry)
+    : resolveDocumentDisplayName({
+      id: rootId,
+      path: typeof task.hPath === 'string' ? task.hPath : ''
+    });
+  const creationOrder = getDocumentCreationSortKey(rootId);
+
+  return {
+    key: `document:${notebookId || '*'}:${rootId}`,
+    label: label || rootId,
+    order: documentIndex >= 0
+      ? documentIndex
+      : (creationOrder > 0 ? -creationOrder : Number.MAX_SAFE_INTEGER)
+  };
 }
 
 let filterSettingsUpdateTimer: number | null = null;
@@ -3937,12 +3973,24 @@ function applyLocalTaskFieldOverridesToList(taskList: Task[]): Task[] {
   return taskList.map(task => applyLocalTaskFieldOverrides(task));
 }
 
+function isTaskIncludedByNotebookScope(task: Task): boolean {
+  const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+  return !notebookId || !excludedNotebookIds.value.includes(notebookId);
+}
+
+function filterTasksByNotebookScope(taskList: Task[]): Task[] {
+  if (excludedNotebookIds.value.length === 0) {
+    return taskList;
+  }
+  return taskList.filter(task => isTaskIncludedByNotebookScope(task));
+}
+
 function getTasksWithLocalOverrides(): Task[] {
-  return applyLocalTaskFieldOverridesToList(crdtRepo.getTasks());
+  return filterTasksByNotebookScope(applyLocalTaskFieldOverridesToList(crdtRepo.getTasks()));
 }
 
 function syncTaskSnapshotWithLocalOverrides(taskList: Task[]): Task[] {
-  crdtRepo.syncFromSQLTasks(applyLocalTaskFieldOverridesToList(taskList));
+  crdtRepo.syncFromSQLTasks(filterTasksByNotebookScope(applyLocalTaskFieldOverridesToList(taskList)));
   return getTasksWithLocalOverrides();
 }
 
@@ -4045,6 +4093,9 @@ const filteredTasks = computed(() => {
     return domOrderMap;
   };
   const baseFiltered = baseFilteredTasks.value.filter(task => {
+    if (!isTaskIncludedByNotebookScope(task)) {
+      return false;
+    }
     if (!task.isVirtual && task.repeatSeriesId && virtualRepeatSeriesIds.has(task.repeatSeriesId)) {
       return false;
     }
@@ -4419,6 +4470,38 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
         order: index
       }))
       .filter(section => section.tasks.length > 0));
+  }
+
+  if (mode === 'document') {
+    const documentSections = new Map<string, TaskGroupedSection>();
+    tasksWithoutPinnedSection.forEach((task, index) => {
+      const documentGroup = resolveTaskDocumentGroup(task);
+      const existing = documentSections.get(documentGroup.key);
+      if (existing) {
+        existing.tasks.push(task);
+        existing.order = Math.min(existing.order, documentGroup.order);
+        return;
+      }
+      documentSections.set(documentGroup.key, {
+        key: documentGroup.key,
+        label: documentGroup.label,
+        tasks: [task],
+        order: Number.isFinite(documentGroup.order) ? documentGroup.order : index
+      });
+    });
+
+    const sections = Array.from(documentSections.values())
+      .sort((a, b) => {
+        if (a.order !== b.order) {
+          return a.order - b.order;
+        }
+        const labelDiff = a.label.localeCompare(b.label, 'zh-CN');
+        if (labelDiff !== 0) {
+          return labelDiff;
+        }
+        return a.key.localeCompare(b.key);
+      });
+    return prependPinnedSection(sections);
   }
 
   const headingSections = new Map<string, TaskGroupedSection>();
@@ -4907,6 +4990,14 @@ function applyExcludedNotebookScope(ids: string[]): void {
   const normalized = normalizeNotebookIds(ids);
   excludedNotebookIds.value = normalized;
   TaskRepository.setExcludedNotebookIds(normalized);
+  const scopedTasks = filterTasksByNotebookScope(tasks.value);
+  if (scopedTasks.length !== tasks.value.length) {
+    tasks.value = syncTaskSnapshotWithLocalOverrides(scopedTasks);
+    invalidateCache();
+    invalidateSortCache();
+    updateTaskIndex();
+  }
+  lastLoadedScope = null;
 }
 
 function ensureActiveNotebookFilterInScope(): void {
@@ -5033,6 +5124,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
 
   applyExcludedNotebookScope(mergedExcludedNotebookIds);
   applyExternalDocumentGroups(nextDocumentGroups);
+  eventBus.emit(Events.TASK_SCOPE_UPDATED, { excludedNotebookIds: mergedExcludedNotebookIds });
   eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
   showCompletedTasks.value = nextShowCompletedTasks;
   TaskRepository.setAutoRecognizeTaskDateEnabled(nextAutoRecognizeTaskDate);
@@ -5061,10 +5153,11 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
   }
   await saveGoalDefinitions(nextGoals);
   showTaskScopeDialog.value = false;
-  await refreshTaskDocumentOptions(true);
   ensureActiveNotebookFilterInScope();
   normalizeDocumentSelection(filterNotebook.value);
   await refreshTasks(true, { showLoading: false, compareExisting: false, source: 'scope-save' });
+  await refreshTaskDocumentOptions(true);
+  normalizeDocumentSelection(filterNotebook.value);
 }
 async function handleRefreshClick() {
   if (requiresScopeInitialization.value) {
@@ -5717,6 +5810,27 @@ function setupEventListeners() {
     }
   );
 
+  const unsubscribeTaskScopeUpdated = eventBus.on(
+    Events.TASK_SCOPE_UPDATED,
+    (payload?: { excludedNotebookIds?: string[] }) => {
+      if (!payload || !Array.isArray(payload.excludedNotebookIds)) {
+        return;
+      }
+      const normalized = normalizeNotebookIds(payload.excludedNotebookIds);
+      const current = normalizeNotebookIds(excludedNotebookIds.value);
+      const isSame = normalized.length === current.length
+        && normalized.every((id, index) => id === current[index]);
+      if (isSame) {
+        return;
+      }
+      applyExcludedNotebookScope(normalized);
+      ensureActiveNotebookFilterInScope();
+      normalizeDocumentSelection(filterNotebook.value);
+      void refreshTasks(true, { showLoading: false, compareExisting: false, source: 'scope-external' });
+      void refreshTaskDocumentOptions(true);
+    }
+  );
+
   const unsubscribeTaskEditorOpenRequested = eventBus.on(
     Events.TASK_EDITOR_OPEN_REQUEST,
     (payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null }) => {
@@ -5739,6 +5853,7 @@ function setupEventListeners() {
     unsubscribeDateChanged,
     unsubscribeGroupsUpdated,
     unsubscribeDocumentGroupsUpdated,
+    unsubscribeTaskScopeUpdated,
     unsubscribeTaskEditorOpenRequested,
     unsubscribeTaskQuickMetaOpenRequested
   );

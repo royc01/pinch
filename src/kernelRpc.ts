@@ -147,6 +147,7 @@ export type KernelTaskIndexParams = {
   includeArchived?: boolean;
   archivedOnly?: boolean;
   notebookId?: string;
+  excludedNotebookIds?: string[];
   documentId?: string;
   force?: boolean;
   blockIds?: string[];

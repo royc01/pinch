@@ -26,6 +26,14 @@ function convertMarkdownStrong(text: string): string {
     .replace(/__([^_]+)__/g, '<span data-type="strong">$1</span>');
 }
 
+function convertSiyuanMarks(text: string): string {
+  return text.replace(/==([^=\n]+)==/g, '<span data-type="mark">$1</span>');
+}
+
+function convertSiyuanTags(text: string): string {
+  return text.replace(/#([^#\s][^#\n]*?)#/g, '<span data-type="tag">$1</span>\u200B');
+}
+
 function convertMarkdownLinks(text: string): string {
   return text.replace(/\[([^\]]+?)\]\(([^)]+?)\)/g, (match, label: string, rawHref: string) => {
     const trimmed = rawHref.trim();
@@ -79,7 +87,9 @@ export function formatTaskTitleHtml(text: string): string {
   if (!cleaned) return '';
   const { text: withTokens, tokens } = replaceBlockRefs(cleaned);
   const linkConverted = convertMarkdownLinks(withTokens);
-  const strongConverted = convertMarkdownStrong(linkConverted);
+  const markConverted = convertSiyuanMarks(linkConverted);
+  const tagConverted = convertSiyuanTags(markConverted);
+  const strongConverted = convertMarkdownStrong(tagConverted);
   const memoConverted = convertInlineMemos(strongConverted);
   return restoreBlockRefs(memoConverted, tokens);
 }

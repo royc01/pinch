@@ -40,17 +40,19 @@ export function normalizeDocumentIconValue(value: unknown): string | undefined {
     return undefined;
   }
 
+  const isDocumentIconAssetPath = (candidate: string): boolean => (
+    /^(?:https?:\/\/|\/|data:image\/|assets\/|api\/|emojis\/|\.{1,2}\/)/i.test(candidate)
+    || /\.(?:png|svg|jpe?g|gif|webp)(?:[?#].*)?$/i.test(candidate)
+  );
+
   const directUrlMatch = unquoted.match(/^(?:background-image\s*:\s*)?url\((.+)\)\s*;?$/i);
   if (directUrlMatch) {
     const rawUrl = (directUrlMatch[1] || '').trim().replace(/^['"]+|['"]+$/g, '');
-    if (rawUrl) {
+    if (rawUrl && isDocumentIconAssetPath(rawUrl)) {
       return rawUrl;
     }
   }
-  if (
-    /^(?:https?:\/\/|\/|data:image\/|assets\/|\.{1,2}\/)/i.test(unquoted)
-    || /\.(?:png|svg|jpe?g|gif|webp)(?:[?#].*)?$/i.test(unquoted)
-  ) {
+  if (isDocumentIconAssetPath(unquoted)) {
     return unquoted;
   }
 

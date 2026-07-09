@@ -14,7 +14,8 @@
     class="column-title-dot"
     :class="{
       'is-heading-icon-dot': heading,
-      'is-group-icon-dot': group
+      'is-group-icon-dot': group,
+      'is-document-icon-dot': document
     }"
     :style="dotStyle"
   >
@@ -22,11 +23,18 @@
       <use :xlink:href="`#${headingIconName}`"></use>
     </svg>
     <Icon v-else-if="group" name="group" width="12" height="12" class="column-title-dot-icon" />
+    <EmojiIcon
+      v-else-if="document"
+      class="column-title-document-icon"
+      :value="documentIcon"
+      fallback="📄"
+    />
   </span>
 </template>
 
 <script setup lang="ts">
 import Icon from '@/components/Icon.vue';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 
 withDefaults(defineProps<{
@@ -37,6 +45,8 @@ withDefaults(defineProps<{
   batchLabel?: string;
   heading?: boolean;
   group?: boolean;
+  document?: boolean;
+  documentIcon?: string;
   dotStyle?: Record<string, string>;
   headingIconName?: string;
 }>(), {
@@ -47,6 +57,8 @@ withDefaults(defineProps<{
   batchLabel: '',
   heading: false,
   group: false,
+  document: false,
+  documentIcon: '',
   dotStyle: () => ({}),
   headingIconName: ''
 });
@@ -69,7 +81,8 @@ const emit = defineEmits<{
 }
 
 .column-title-dot.is-heading-icon-dot,
-.column-title-dot.is-group-icon-dot {
+.column-title-dot.is-group-icon-dot,
+.column-title-dot.is-document-icon-dot {
   width: 22px;
   height: 22px;
   border-radius: 6px;
@@ -85,6 +98,12 @@ const emit = defineEmits<{
   height: 12px;
   display: block;
   fill: currentColor;
+}
+
+.column-title-document-icon {
+  width: 16px;
+  height: 16px;
+  font-size: 15px;
 }
 
 .column-batch-checkbox-btn {

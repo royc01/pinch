@@ -77,7 +77,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'title' }"
                :aria-label="getColumnResizeAria(getTableColumnLabel('title'))"
-              
+               :title="getColumnResizeTitle(getTableColumnLabel('title'))"
               @mousedown.stop.prevent="startColumnResize('title', $event)"
               @dblclick.stop.prevent="resetColumnWidth('title')"
               @click.stop.prevent
@@ -90,7 +90,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'description' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('description'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('description'))"
               @mousedown.stop.prevent="startColumnResize('description', $event)"
               @dblclick.stop.prevent="resetColumnWidth('description')"
               @click.stop.prevent
@@ -108,7 +108,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'priority' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('priority'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('priority'))"
               @mousedown.stop.prevent="startColumnResize('priority', $event)"
               @dblclick.stop.prevent="resetColumnWidth('priority')"
               @click.stop.prevent
@@ -126,7 +126,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'statusText' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('statusText'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('statusText'))"
               @mousedown.stop.prevent="startColumnResize('statusText', $event)"
               @dblclick.stop.prevent="resetColumnWidth('statusText')"
               @click.stop.prevent
@@ -139,7 +139,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'group' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('group'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('group'))"
               @mousedown.stop.prevent="startColumnResize('group', $event)"
               @dblclick.stop.prevent="resetColumnWidth('group')"
               @click.stop.prevent
@@ -152,7 +152,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'goal' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('goal'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('goal'))"
               @mousedown.stop.prevent="startColumnResize('goal', $event)"
               @dblclick.stop.prevent="resetColumnWidth('goal')"
               @click.stop.prevent
@@ -170,7 +170,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'startDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('startDate'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('startDate'))"
               @mousedown.stop.prevent="startColumnResize('startDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('startDate')"
               @click.stop.prevent
@@ -185,7 +185,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'startTime' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('startTime'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('startTime'))"
               @mousedown.stop.prevent="startColumnResize('startTime', $event)"
               @dblclick.stop.prevent="resetColumnWidth('startTime')"
               @click.stop.prevent
@@ -203,7 +203,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'dueDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('dueDate'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('dueDate'))"
               @mousedown.stop.prevent="startColumnResize('dueDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('dueDate')"
               @click.stop.prevent
@@ -218,7 +218,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'dueTime' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('dueTime'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('dueTime'))"
               @mousedown.stop.prevent="startColumnResize('dueTime', $event)"
               @dblclick.stop.prevent="resetColumnWidth('dueTime')"
               @click.stop.prevent
@@ -233,7 +233,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'focusDuration' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('focusDuration'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('focusDuration'))"
               @mousedown.stop.prevent="startColumnResize('focusDuration', $event)"
               @dblclick.stop.prevent="resetColumnWidth('focusDuration')"
               @click.stop.prevent
@@ -251,7 +251,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'completedDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('completedDate'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('completedDate'))"
               @mousedown.stop.prevent="startColumnResize('completedDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('completedDate')"
               @click.stop.prevent
@@ -269,7 +269,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'createdDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('createdDate'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('createdDate'))"
               @mousedown.stop.prevent="startColumnResize('createdDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('createdDate')"
               @click.stop.prevent
@@ -287,7 +287,7 @@
               class="column-resize-handle ariaLabel"
               :class="{ 'is-active': activeResizeColumn === 'updatedDate' }"
               :aria-label="getColumnResizeAria(getTableColumnLabel('updatedDate'))"
-             
+              :title="getColumnResizeTitle(getTableColumnLabel('updatedDate'))"
               @mousedown.stop.prevent="startColumnResize('updatedDate', $event)"
               @dblclick.stop.prevent="resetColumnWidth('updatedDate')"
               @click.stop.prevent
@@ -320,6 +320,13 @@
               >
                 <span class="group-row-arrow" :class="{ collapsed: isGroupCollapsed(row.group.id) }" aria-hidden="true">
                   <Icon name="chevronDown" width="16" height="16" />
+                </span>
+                <span v-if="row.group.mode === 'document'" class="group-row-document-icon" aria-hidden="true">
+                  <EmojiIcon
+                    class="group-row-document-emoji-icon"
+                    :value="getTaskDocumentGroupIconRaw(row.group)"
+                    fallback="📄"
+                  />
                 </span>
                 <span class="group-row-title">
                   <span class="group-row-label">{{ row.group.label }}</span>
@@ -512,15 +519,11 @@
             <td v-if="isTableColumnVisible('location')" class="col-location">
               <div class="location-cell task-document-title ariaLabel" :aria-label="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
-                  <img
-                    v-if="getTaskDocumentIconImageSrc(row.task)"
-                    class="task-document-icon-image"
-                    :src="getTaskDocumentIconImageSrc(row.task)"
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
+                  <EmojiIcon
+                    class="task-document-emoji-icon"
+                    :value="getTaskDocumentIconRaw(row.task)"
+                    fallback="📄"
                   />
-                  <span v-else>{{ getTaskDocumentIconText(row.task) }}</span>
                 </span>
                 <span class="task-document-title-text">{{ getTaskDocumentTitleText(row.task) }}</span>
               </div>
@@ -635,15 +638,11 @@
             <td v-if="isTableColumnVisible('location')" class="col-location">
               <div class="location-cell task-document-title ariaLabel" :aria-label="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
-                  <img
-                    v-if="getTaskDocumentIconImageSrc(row.task)"
-                    class="task-document-icon-image"
-                    :src="getTaskDocumentIconImageSrc(row.task)"
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
+                  <EmojiIcon
+                    class="task-document-emoji-icon"
+                    :value="getTaskDocumentIconRaw(row.task)"
+                    fallback="📄"
                   />
-                  <span v-else>{{ getTaskDocumentIconText(row.task) }}</span>
                 </span>
                 <span class="task-document-title-text">{{ getTaskDocumentTitleText(row.task) }}</span>
               </div>
@@ -807,10 +806,12 @@ import {
   resolveTaskTagIds,
   toggleTaskTagSelection
 } from '@/utils/taskTags';
+import { resolveHabitEmojiColorIndex } from '@/utils/habitEmojiColor';
 import { useI18n } from '@/composables/useI18n';
 import { usePlugin } from '@/main';
 import type { Goal } from '@/goalRepository';
 import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
+import { getDocumentCreationSortKey } from '@/utils/taskViewShared';
 
 interface Props {
   tasks: Task[];
@@ -819,12 +820,13 @@ interface Props {
   groupMode?: TaskViewGroupMode;
   headingGroups?: Map<string, TaskHeadingGroupMeta>;
   documentIconByRootId?: Map<string, string>;
+  documentTitleByRootId?: Map<string, string>;
 }
 
 type TableTaskGroupSection = {
   key: string;
   id: string;
-  mode: 'group' | 'heading' | 'date';
+  mode: 'group' | 'heading' | 'date' | 'document';
   label: string;
   tasks: Task[];
   style?: Record<string, string>;
@@ -1138,6 +1140,7 @@ const tableVisibleRowElements = new Map<string, HTMLTableRowElement>();
 let tableMetricsRaf: number | null = null;
 let tableMeasureRaf: number | null = null;
 let tableScrollSettleTimer: number | null = null;
+let tableContainerResizeObserver: ResizeObserver | null = null;
 let isTableScrollActive = false;
 let activeColumnResize: {
   column: ResizableTableColumnKey;
@@ -1664,7 +1667,7 @@ const groupPopoverOptions = computed(() => {
   return options;
 });
 const resolvedGroupMode = computed(() => normalizeTaskViewGroupMode(props.groupMode, 'status'));
-const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date'].includes(resolvedGroupMode.value));
+const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date', 'document'].includes(resolvedGroupMode.value));
 const supportsGroupActions = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
 const customGroupOrder = computed(() => {
   const order: Array<{ id: string; label: string; style?: Record<string, string> }> = [
@@ -1733,6 +1736,40 @@ const dateGroupOrder = computed<Array<{ id: TableDateGroupKey; label: string; st
     style: { '--group-badge-bg': 'rgba(156, 163, 175, 0.16)', '--group-badge-color': '#4b5563' }
   }
 ]);
+
+function getTaskDocumentGroupKey(task: Task): string {
+  const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  if (!rootId) {
+    return 'document:unknown';
+  }
+  const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+  return `document:${notebookId || '*'}:${rootId}`;
+}
+
+function getTaskDocumentGroupLabel(task: Task): string {
+  const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  if (!rootId) {
+    return t('personalStats.unlocatedDocument');
+  }
+  const mappedTitle = props.documentTitleByRootId?.get(rootId)?.trim();
+  if (mappedTitle) {
+    return mappedTitle;
+  }
+  return getTaskDocumentTitleText(task) || rootId;
+}
+
+function getTaskDocumentGroupStyle(task: Task): Record<string, string> | undefined {
+  const icon = getTaskDocumentIconRaw(task);
+  if (!icon) {
+    return undefined;
+  }
+  const colorIndex = resolveHabitEmojiColorIndex(icon);
+  const colorKey = `pinch-background${colorIndex}`;
+  return {
+    '--group-badge-bg': resolveGroupColorCss(colorKey),
+    '--group-badge-color': resolveGroupTextColor(colorKey)
+  };
+}
 
 const sortedTasks = computed(() => {
   const domOrderMap = buildLiveTaskDomOrderMap();
@@ -1897,6 +1934,46 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
         tasks: buckets.get(group.id) || []
       }))
       .filter(group => group.tasks.length > 0);
+  }
+
+  if (resolvedGroupMode.value === 'document') {
+    const buckets = new Map<string, { label: string; tasks: Task[]; order: number; style?: Record<string, string> }>();
+    for (const task of sortedTasks.value) {
+      const key = getTaskDocumentGroupKey(task);
+      if (!buckets.has(key)) {
+        const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+        const creationOrder = rootId ? getDocumentCreationSortKey(rootId) : 0;
+        buckets.set(key, {
+          label: getTaskDocumentGroupLabel(task),
+          tasks: [],
+          order: creationOrder > 0 ? -creationOrder : Number.MAX_SAFE_INTEGER,
+          style: getTaskDocumentGroupStyle(task)
+        });
+      }
+      buckets.get(key)!.tasks.push(task);
+    }
+
+    return Array.from(buckets.entries())
+      .map(([key, group]) => ({
+        key,
+        id: key,
+        mode: 'document' as const,
+        label: group.label,
+        tasks: group.tasks,
+        order: group.order,
+        style: group.style
+      }))
+      .sort((a, b) => {
+        if (a.order !== b.order) {
+          return a.order - b.order;
+        }
+        const labelDiff = a.label.localeCompare(b.label, 'zh-CN');
+        if (labelDiff !== 0) {
+          return labelDiff;
+        }
+        return a.key.localeCompare(b.key);
+      })
+      .map(({ order: _order, ...group }) => group);
   }
 
   return [];
@@ -2183,10 +2260,8 @@ const goalPopoverStyle = computed(() => {
 const visibleTableColumns = computed(() => TABLE_COLUMNS.filter(column => isTableColumnVisible(column.key)));
 const tableColumnCount = computed(() => visibleTableColumns.value.length);
 const hasManualColumnWidths = computed(() => Object.keys(tableColumnWidths.value).length > 0);
-const effectiveTableColumnWidths = computed<Partial<Record<TableColumnKey, number>>>(() =>
-  hasManualColumnWidths.value ? tableColumnWidths.value : defaultTableColumnWidths.value
-);
-const hasStableColumnWidths = computed(() => Object.keys(effectiveTableColumnWidths.value).length > 0);
+const effectiveTableColumnWidths = computed<Partial<Record<TableColumnKey, number>>>(() => tableColumnWidths.value);
+const hasStableColumnWidths = computed(() => hasManualColumnWidths.value);
 
 const tableColumnCssVars = computed<Record<string, string>>(() => {
   const cssVars: Record<string, string> = {};
@@ -2200,8 +2275,9 @@ const tableColumnCssVars = computed<Record<string, string>>(() => {
     cssVars[`--table-col-${cssKey}-width`] = `${Math.round(width)}px`;
     totalWidth += Math.round(width);
   }
-  if (hasStableColumnWidths.value && totalWidth > 0) {
-    cssVars.width = `${totalWidth}px`;
+  if (hasManualColumnWidths.value && totalWidth > 0) {
+    cssVars.width = '100%';
+    cssVars.minWidth = `${totalWidth}px`;
   }
   return cssVars;
 });
@@ -2694,6 +2770,10 @@ onMounted(() => {
     scheduleTableRowMeasurement();
     syncDefaultTableColumnWidths();
   });
+  if (tableContainerRef.value && typeof ResizeObserver !== 'undefined') {
+    tableContainerResizeObserver = new ResizeObserver(handleTableViewportResize);
+    tableContainerResizeObserver.observe(tableContainerRef.value);
+  }
   window.addEventListener('resize', handleTableViewportResize);
   window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
   document.addEventListener('mousedown', handleDocumentMouseDown);
@@ -2717,6 +2797,8 @@ onUnmounted(() => {
     clearTimeout(tableScrollSettleTimer);
     tableScrollSettleTimer = null;
   }
+  tableContainerResizeObserver?.disconnect();
+  tableContainerResizeObserver = null;
   window.removeEventListener('resize', handleTableViewportResize);
   window.removeEventListener('pinch-focus-session', handleFocusSessionUpdate);
   document.removeEventListener('mousedown', handleDocumentMouseDown);
@@ -2912,28 +2994,6 @@ function getTitleHtml(title?: string): string {
   return sanitizeTaskTitleHtml(title || '');
 }
 
-function resolveTaskDocumentIconImageSrc(rawIcon: string): string {
-  if (!rawIcon) {
-    return '';
-  }
-
-  const decoded = rawIcon.replace(/&quot;/g, '"').replace(/&amp;/g, '&').trim();
-  const urlMatch = decoded.match(/^(?:background-image\s*:\s*)?url\((.+)\)\s*;?$/i);
-  const candidate = (urlMatch ? urlMatch[1] : decoded).trim().replace(/^['"]+|['"]+$/g, '');
-  if (!candidate) {
-    return '';
-  }
-
-  if (
-    /^(?:https?:\/\/|\/|data:image\/|assets\/|\.{1,2}\/)/i.test(candidate)
-    || /\.(?:png|svg|jpe?g|gif|webp)(?:[?#].*)?$/i.test(candidate)
-  ) {
-    return candidate;
-  }
-
-  return '';
-}
-
 function getTaskDocumentIconRaw(task: Task): string {
   const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
   if (rootId) {
@@ -2945,8 +3005,12 @@ function getTaskDocumentIconRaw(task: Task): string {
   return typeof task.icon === 'string' ? task.icon.trim() : '';
 }
 
-function getTaskDocumentIconImageSrc(task: Task): string {
-  return resolveTaskDocumentIconImageSrc(getTaskDocumentIconRaw(task));
+function getTaskDocumentGroupIconRaw(group: TableTaskGroupSection): string {
+  if (group.mode !== 'document') {
+    return '';
+  }
+  const firstTask = group.tasks[0];
+  return firstTask ? getTaskDocumentIconRaw(firstTask) : '';
 }
 
 function getTaskDocumentTitleText(task: Task): string {
@@ -2960,14 +3024,6 @@ function getTaskDocumentTitleText(task: Task): string {
   }
   const parts = normalizedPath.split('/').filter(part => part.length > 0);
   return parts[parts.length - 1] || normalizedPath;
-}
-
-function getTaskDocumentIconText(task: Task): string {
-  const rawIcon = getTaskDocumentIconRaw(task);
-  if (getTaskDocumentIconImageSrc(task)) {
-    return '';
-  }
-  return rawIcon || '\uD83D\uDCC4';
 }
 
 function handleOpenClick(task: Task) {
@@ -3940,6 +3996,25 @@ function toggleExpand(taskId: string) {
   stroke-linejoin: round;
 }
 
+.group-row-document-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.group-row-document-emoji-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
 .group-row-label {
   font-size: 13px;
 }
@@ -4288,8 +4363,8 @@ function toggleExpand(taskId: string) {
 
 .goal-badge {
   gap: 3px;
-  color: var(--b3-theme-primary);
-  background: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
+  background: var(--pinch-background6);
+  color: var(--b3-theme-on-background);
 }
 
 .goal-badge-label {
@@ -4558,7 +4633,7 @@ function toggleExpand(taskId: string) {
   line-height: 1;
 }
 
-.location-cell .task-document-icon-image {
+.location-cell .task-document-emoji-icon {
   width: 12px;
   height: 12px;
   display: block;
