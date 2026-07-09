@@ -1,6 +1,5 @@
 import { TaskRepository, openBlockById, pushMsg, type Task } from '@/api';
 import { translate } from '@/composables/useI18n';
-import { usePlugin } from '@/main';
 import { stripHtml } from '@/composables/useTaskCommon';
 import { eventBus, Events } from '@/utils/eventBus';
 import { getFrontend } from 'siyuan';
@@ -44,8 +43,8 @@ type PlatformUtilsLike = {
   cancelNotification?: (notificationId: MobileNotificationId) => void;
 };
 
-const FIRED_REMINDER_STORAGE_FILE = 'pinch-task-reminders-fired.json';
-const MOBILE_NOTIFICATION_STORAGE_FILE = 'pinch-mobile-task-notification-ids.json';
+const FIRED_REMINDER_LOCAL_STORAGE_KEY = 'pinch:task-reminders-fired';
+const MOBILE_NOTIFICATION_LOCAL_STORAGE_KEY = 'pinch:mobile-task-notification-ids';
 const FIRED_REMINDER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MISSED_REMINDER_GRACE_MS = 15 * 60 * 1000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -118,6 +117,28 @@ function shouldUseMobileNativeNotifications(): boolean {
   return isMobileFrontend() && !!getPlatformUtils()?.sendNotification;
 }
 
+function readLocalJson(key: string): unknown | null {
+  try {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalJson(key: string, value: unknown): void {
+  try {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+  }
+}
+
 function getTaskIdentity(task: Pick<Task, 'id' | 'blockId'> | null | undefined): string {
   return typeof task?.blockId === 'string' && task.blockId.trim().length > 0
     ? task.blockId.trim()
@@ -185,13 +206,8 @@ function normalizeMobileNotificationRecord(value: unknown): MobileNotificationRe
 }
 
 async function loadMobileNotificationRecordMap(): Promise<MobileNotificationRecordMap> {
-  const plugin = usePlugin();
-  if (!plugin) {
-    return {};
-  }
-
   try {
-    const raw = await plugin.loadData(MOBILE_NOTIFICATION_STORAGE_FILE);
+    const raw = readLocalJson(MOBILE_NOTIFICATION_LOCAL_STORAGE_KEY);
     if (!raw || typeof raw !== 'object') {
       return {};
     }
@@ -215,12 +231,7 @@ async function loadMobileNotificationRecordMap(): Promise<MobileNotificationReco
 }
 
 async function saveMobileNotificationRecordMap(recordMap: MobileNotificationRecordMap): Promise<void> {
-  const plugin = usePlugin();
-  if (!plugin) {
-    return;
-  }
-
-  await plugin.saveData(MOBILE_NOTIFICATION_STORAGE_FILE, recordMap);
+  writeLocalJson(MOBILE_NOTIFICATION_LOCAL_STORAGE_KEY, recordMap);
 }
 
 function cancelMobileSystemNotification(notificationId: MobileNotificationId): void {
@@ -249,13 +260,9 @@ async function loadFiredReminderMap(): Promise<void> {
   }
 
   firedReminderLoaded = true;
-  const plugin = usePlugin();
-  if (!plugin) {
-    return;
-  }
 
   try {
-    const raw = await plugin.loadData(FIRED_REMINDER_STORAGE_FILE);
+    const raw = readLocalJson(FIRED_REMINDER_LOCAL_STORAGE_KEY);
     if (raw && typeof raw === 'object') {
       const nextMap: FiredReminderMap = {};
       Object.entries(raw as Record<string, unknown>).forEach(([key, value]) => {
@@ -295,11 +302,7 @@ function schedulePersistFiredReminderMap(): void {
 
   persistTimer = window.setTimeout(() => {
     persistTimer = null;
-    const plugin = usePlugin();
-    if (!plugin) {
-      return;
-    }
-    void plugin.saveData(FIRED_REMINDER_STORAGE_FILE, firedReminderMap);
+    writeLocalJson(FIRED_REMINDER_LOCAL_STORAGE_KEY, firedReminderMap);
   }, 160);
 }
 
@@ -309,12 +312,7 @@ function persistFiredReminderMapNow(): void {
     persistTimer = null;
   }
 
-  const plugin = usePlugin();
-  if (!plugin) {
-    return;
-  }
-
-  void plugin.saveData(FIRED_REMINDER_STORAGE_FILE, firedReminderMap);
+  writeLocalJson(FIRED_REMINDER_LOCAL_STORAGE_KEY, firedReminderMap);
 }
 
 function markReminderHandled(occurrenceKey: string, options?: { immediate?: boolean }): void {
@@ -895,10 +893,7 @@ export function stopTaskReminderScheduler(): void {
   if (persistTimer !== null) {
     window.clearTimeout(persistTimer);
     persistTimer = null;
-    const plugin = usePlugin();
-    if (plugin) {
-      void plugin.saveData(FIRED_REMINDER_STORAGE_FILE, firedReminderMap);
-    }
+    writeLocalJson(FIRED_REMINDER_LOCAL_STORAGE_KEY, firedReminderMap);
   }
 
   pendingBlockIds.clear();
