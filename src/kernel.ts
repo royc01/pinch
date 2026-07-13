@@ -23,6 +23,7 @@ type KernelTaskRow = {
   custom_task_description?: string;
   custom_task_reminder_type?: string;
   custom_task_reminder_custom_time?: string;
+  custom_task_focus_estimate?: string;
   custom_task_group?: string;
   custom_task_pinned?: string;
   custom_task_background_color?: string;
@@ -310,6 +311,7 @@ function normalizeTaskRow(row: any): KernelTaskRow {
     custom_task_description: row?.custom_task_description || undefined,
     custom_task_reminder_type: row?.custom_task_reminder_type || undefined,
     custom_task_reminder_custom_time: row?.custom_task_reminder_custom_time || undefined,
+    custom_task_focus_estimate: row?.custom_task_focus_estimate || undefined,
     custom_task_group: row?.custom_task_group || undefined,
     custom_task_pinned: row?.custom_task_pinned || undefined,
     custom_task_background_color: row?.custom_task_background_color || undefined,
@@ -386,9 +388,10 @@ function buildTaskRowsSql(filters: string[], orderBy: string, limit: number): st
            MAX(CASE WHEN a.name = 'custom-task-start-time' THEN a.value END) AS custom_task_start_time,
            MAX(CASE WHEN a.name = 'custom-task-tags' THEN a.value END) AS custom_task_tags,
            MAX(CASE WHEN a.name = 'custom-task-description' THEN a.value END) AS custom_task_description,
-           MAX(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) AS custom_task_reminder_type,
-           MAX(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) AS custom_task_reminder_custom_time,
-           MAX(CASE WHEN a.name = 'custom-task-group' THEN a.value END) AS custom_task_group,
+            MAX(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) AS custom_task_reminder_type,
+            MAX(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) AS custom_task_reminder_custom_time,
+            MAX(CASE WHEN a.name = 'custom-task-focus-estimate' THEN a.value END) AS custom_task_focus_estimate,
+            MAX(CASE WHEN a.name = 'custom-task-group' THEN a.value END) AS custom_task_group,
            MAX(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) AS custom_task_pinned,
            MAX(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) AS custom_task_background_color,
            MAX(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) AS custom_task_archived,

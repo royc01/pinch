@@ -132,3 +132,18 @@ body.b3-theme-dark,
   width: 24px;
   height: 24px;
 }
+
+.task-priority-badge.priority-high {
+  background: var(--pinch-background10);
+  color: var(--pinch-font-color10);
+}
+
+.task-priority-badge.priority-medium {
+  background: var(--pinch-background3);
+  color: var(--pinch-font-color3);
+}
+
+.task-priority-badge.priority-low {
+  background: var(--pinch-background7);
+  color: var(--pinch-font-color7);
+}

@@ -1,4 +1,3 @@
-const INLINE_ATTR_MARKER_REGEX = /\s*\{:\s*[^}]*\}\s*/g;
 const BLOCK_REF_REGEX = /\(\(([0-9]{14}-[a-z0-9]{7,})(?:\s+(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'))?\)\)/gi;
 
 type BlockRefToken = { token: string; html: string };
@@ -93,7 +92,7 @@ function convertInlineMemos(text: string): string {
 }
 
 export function formatTaskTitleHtml(text: string): string {
-  const cleaned = text.replace(INLINE_ATTR_MARKER_REGEX, ' ').trim();
+  const cleaned = text.trim();
   if (!cleaned) return '';
   const { text: withTokens, tokens } = replaceBlockRefs(cleaned);
   const linkConverted = convertMarkdownLinks(withTokens);

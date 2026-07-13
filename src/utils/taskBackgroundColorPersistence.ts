@@ -1,6 +1,5 @@
 import { TaskRepository, setBlockAttrs, type Task } from '@/api';
 import { getRepeatSeriesForTask, updateRepeatSeriesBackgroundColor } from '@/repeatRepository';
-import { eventBus, Events } from '@/utils/eventBus';
 
 export interface PersistTaskBackgroundColorResult {
   color: string;
@@ -92,7 +91,6 @@ export async function persistTaskBackgroundColor(
     await setBlockAttrs(persistenceTarget.blockId, {
       'custom-task-background-color': normalizedColor
     });
-    eventBus.emit(Events.TASK_CHANGED, { blockIds: [persistenceTarget.blockId] });
   } else {
     await TaskRepository.updateTask(persistenceTarget.id, { backgroundColor: normalizedColor });
   }

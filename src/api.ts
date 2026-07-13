@@ -15,6 +15,8 @@ import {
   type TProtyleAction
 } from "siyuan";
 import { eventBus, Events } from "@/utils/eventBus";
+import { publishTaskChange } from "@/utils/taskChangeCoordinator";
+import { applyTaskAttributeMutation } from "@/utils/taskMutationService";
 import { normalizeNotebookIds } from "@/utils/notebookIds";
 import {
   normalizeTaskReminderCustomTime,
@@ -449,6 +451,7 @@ export async function updateTaskListItemMarker(
   if (result === null) {
     throw new Error(`updateTaskListItemMarker failed for block ${id}`);
   }
+  publishTaskChange([id]);
   return result;
 }
 
@@ -462,7 +465,9 @@ export async function setBlockAttrs(
     attrs: attrs,
   };
   let url = "/api/attr/setBlockAttrs";
-  return request(url, data);
+  const result = await request(url, data);
+  applyTaskAttributeMutation(id, attrs);
+  return result;
 }
 
 export async function getBlockAttrs(
@@ -1643,6 +1648,7 @@ export interface Task {
   description?: string;
   reminderType?: TaskReminderType;
   reminderCustomTime?: string;
+  focusEstimate?: TaskFocusEstimate;
   subtasks?: SubTask[];
   blockId?: string;
   blockSort?: string;
@@ -1662,6 +1668,29 @@ export interface Task {
   repeatFrequency?: RepeatFrequency;
   repeatInstanceDate?: string;
   isVirtual?: boolean;
+}
+
+export interface TaskFocusEstimate {
+  unit: 'minutes' | 'pomodoros';
+  value: number;
+}
+
+export function parseTaskFocusEstimate(value: unknown): TaskFocusEstimate | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    const amount = Number(parsed?.value);
+    if ((parsed?.unit === 'minutes' || parsed?.unit === 'pomodoros') && Number.isFinite(amount) && amount > 0) {
+      return { unit: parsed.unit, value: Math.min(9999, Math.round(amount)) };
+    }
+  } catch {
+    // Ignore malformed attribute values.
+  }
+  return undefined;
+}
+
+export function serializeTaskFocusEstimate(value: TaskFocusEstimate | undefined): string {
+  return value ? JSON.stringify(value) : '';
 }
 
 export interface TaskGroup {
@@ -1830,6 +1859,7 @@ export function resolveTaskRepeatMaterializeOptions(
 export interface TaskFetchOptions {
   useLiveDom?: boolean;
   detailLevel?: TaskFetchDetailLevel;
+  forceFresh?: boolean;
   materializeRepeats?: boolean;
   repeatWindow?: TaskRepeatWindow;
   includeRepeatTemplateDate?: boolean;
@@ -1859,6 +1889,7 @@ export class TaskRepository {
     promise: Promise<Task[]>;
     detailLevel: TaskFetchDetailLevel;
   }>();
+  private static incrementalTaskFetchPromises = new Map<string, Promise<Map<string, Task>>>();
   private static rootTaskMetadataCache = new Map<string, RootTaskMetadataCacheEntry>();
   private static excludedNotebookIds = new Set<string>();
   private static inferredDatePersistingBlockIds = new Set<string>();
@@ -1913,6 +1944,7 @@ export class TaskRepository {
       'custom-task-description': row.custom_task_description,
       'custom-task-reminder-type': row.custom_task_reminder_type,
       'custom-task-reminder-custom-time': row.custom_task_reminder_custom_time,
+      'custom-task-focus-estimate': row.custom_task_focus_estimate,
       'custom-task-group': row.custom_task_group,
       'custom-task-pinned': row.custom_task_pinned,
       'custom-task-background-color': row.custom_task_background_color,
@@ -1951,6 +1983,7 @@ export class TaskRepository {
       description: attrs['custom-task-description'] || '',
       reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
       reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
+      focusEstimate: parseTaskFocusEstimate(attrs['custom-task-focus-estimate']),
       groupId: tagState.primaryTagId || undefined,
       hPath: row.hpath,
       notebookId: row.box,
@@ -2370,6 +2403,35 @@ export class TaskRepository {
     return `${notebookKey}|${documentKey}|${includeCompletedKey}|${archiveKey}|${excludedKey}|${domKey}|${detailLevel}`;
   }
 
+  private static buildIncrementalTaskFetchKey(
+    blockIds: string[],
+    scope: TaskQueryScope | null,
+    useLiveDom: boolean,
+    detailLevel: TaskFetchDetailLevel
+  ): string {
+    const blockIdsKey = Array.from(new Set(blockIds)).sort().join(',');
+    return `${this.buildScopeCacheKey(scope, useLiveDom, detailLevel)}|${blockIdsKey}`;
+  }
+
+  private static cloneSubtasksForSharedFetch(subtasks?: SubTask[]): SubTask[] | undefined {
+    return subtasks?.map(subtask => ({
+      ...subtask,
+      subtasks: this.cloneSubtasksForSharedFetch(subtask.subtasks)
+    }));
+  }
+
+  private static cloneTaskMapForSharedFetch(taskMap: Map<string, Task>): Map<string, Task> {
+    const cloned = new Map<string, Task>();
+    taskMap.forEach((task, blockId) => {
+      cloned.set(blockId, {
+        ...task,
+        tags: Array.isArray(task.tags) ? [...task.tags] : [],
+        subtasks: this.cloneSubtasksForSharedFetch(task.subtasks)
+      });
+    });
+    return cloned;
+  }
+
   private static setScopedMemoryCache(
     key: string,
     tasks: Task[],
@@ -2402,6 +2464,7 @@ export class TaskRepository {
     this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
     this.scopedMemoryCache.clear();
     this.scopedBlockTasksFetchPromises.clear();
+    this.incrementalTaskFetchPromises.clear();
   }
 
   static getExcludedNotebookIds(): string[] {
@@ -3376,7 +3439,7 @@ export class TaskRepository {
 
     if (isScopedQuery) {
       const scopedCacheKey = this.buildScopeCacheKey(normalizedScope, useLiveDom, detailLevel);
-      if (useCache) {
+      if (useCache && options.forceFresh !== true) {
         const scopedCached = this.scopedMemoryCache.get(scopedCacheKey);
         if (
           scopedCached &&
@@ -3464,8 +3527,9 @@ export class TaskRepository {
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-tags' THEN a.value END) as custom_task_tags,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-description' THEN a.value END) as custom_task_description,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) as custom_task_reminder_type,
-               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) as custom_task_reminder_custom_time,
-               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
+                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) as custom_task_reminder_custom_time,
+                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-focus-estimate' THEN a.value END) as custom_task_focus_estimate,
+                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) as custom_task_pinned,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) as custom_task_archived,
@@ -3474,7 +3538,7 @@ export class TaskRepository {
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
          FROM blocks b
          LEFT JOIN attributes a ON b.id = a.block_id
-          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
+          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
         WHERE b.id IN (${idsClause})
           ${this.buildNotebookScopeSql('b')}
           ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -3512,6 +3576,7 @@ export class TaskRepository {
           'custom-task-description': row.custom_task_description,
           'custom-task-reminder-type': row.custom_task_reminder_type,
           'custom-task-reminder-custom-time': row.custom_task_reminder_custom_time,
+          'custom-task-focus-estimate': row.custom_task_focus_estimate,
           'custom-task-group': row.custom_task_group,
           'custom-task-pinned': row.custom_task_pinned,
           'custom-task-background-color': row.custom_task_background_color,
@@ -3532,7 +3597,7 @@ export class TaskRepository {
         const titleFromBlockText = this.buildTaskTitleFromBlockText(row.markdown, row.content);
         const titleFromApi = this.getTaskTitleHtmlFromElement(parentListItem, row.id);
 
-        let title = titleFromBlockText || titleFromApi;
+        let title = titleFromApi || titleFromBlockText;
         let completedByDOM: boolean | null = null;
         if (useLiveDom) {
           const currentElement =
@@ -3589,6 +3654,7 @@ export class TaskRepository {
           description: attrs['custom-task-description'] || '',
           reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
           reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
+          focusEstimate: parseTaskFocusEstimate(attrs['custom-task-focus-estimate']),
           groupId: tagState.primaryTagId || undefined,
           hPath: row.hpath,
           notebookId: row.box,
@@ -3652,6 +3718,7 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-description' THEN a.value END) as custom_task_description,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-type' THEN a.value END) as custom_task_reminder_type,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-reminder-custom-time' THEN a.value END) as custom_task_reminder_custom_time,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-focus-estimate' THEN a.value END) as custom_task_focus_estimate,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) as custom_task_pinned,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
@@ -3661,7 +3728,7 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
           FROM blocks b
           LEFT JOIN attributes a ON b.id = a.block_id
-            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
+            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
           WHERE (b.type = 'i' OR b.type = 'p')
             ${this.buildNotebookScopeSql('b')}
             ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -3823,6 +3890,7 @@ export class TaskRepository {
           'custom-task-description': block.custom_task_description,
           'custom-task-reminder-type': block.custom_task_reminder_type,
           'custom-task-reminder-custom-time': block.custom_task_reminder_custom_time,
+          'custom-task-focus-estimate': block.custom_task_focus_estimate,
           'custom-task-group': block.custom_task_group,
           'custom-task-pinned': block.custom_task_pinned,
           'custom-task-background-color': block.custom_task_background_color,
@@ -4165,6 +4233,7 @@ export class TaskRepository {
               description: attrs['custom-task-description'] || '',
               reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
               reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
+              focusEstimate: parseTaskFocusEstimate(attrs['custom-task-focus-estimate']),
               hPath: parentBlock.hpath,
               notebookId: parentBlock.box,
               icon: docIcon || '📄',
@@ -4248,7 +4317,7 @@ export class TaskRepository {
           const titleFromBlockText = buildFastTitleFromBlock(parentBlock);
           const titleFromApi = cleanHtmlStyle(titleHtml);
           const currentTitleClean = cleanHtmlStyle(currentTitle);
-          const title = currentTitleClean || titleFromBlockText || titleFromApi;
+          const title = currentTitleClean || titleFromApi || titleFromBlockText;
           const dateRange = this.resolveTaskDateRange(attrs, title, {
             allowInferFromTitle: true,
             createdAtRaw: parentBlock.created
@@ -4339,6 +4408,7 @@ export class TaskRepository {
             description: attrs['custom-task-description'] || '',
             reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
             reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
+            focusEstimate: parseTaskFocusEstimate(attrs['custom-task-focus-estimate']),
             hPath: parentBlock.hpath,
             notebookId: parentBlock.box,
             icon: docIcon || '📄',
@@ -4423,6 +4493,7 @@ export class TaskRepository {
     this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
     this.scopedMemoryCache.clear();
     this.scopedBlockTasksFetchPromises.clear();
+    this.incrementalTaskFetchPromises.clear();
   }
   
   static async createBlockTask(
@@ -4901,6 +4972,68 @@ export class TaskRepository {
       return null;
     }
   }
+
+  private static async fetchIncrementalTasksByBlockIds(
+    scopedIds: string[],
+    scope: TaskQueryScope | null,
+    useLiveDom: boolean,
+    detailLevel: TaskFetchDetailLevel
+  ): Promise<Map<string, Task>> {
+    if (!useLiveDom && detailLevel === 'light') {
+      try {
+        const { tasks: kernelTasks } = await this.getKernelLightTasksByBlockIds(
+          scopedIds,
+          scope,
+          { attachRepeatMetadata: true }
+        );
+        if (kernelTasks.length > 0) {
+          const kernelTaskMap = new Map<string, Task>();
+          for (const task of kernelTasks) {
+            if (task.blockId) {
+              kernelTaskMap.set(task.blockId, task);
+            }
+          }
+          return kernelTaskMap;
+        }
+      } catch (error) {
+        if (!isKernelRpcUnavailable(error)) {
+          console.debug('[TaskRepository] kernel block-id light fetch skipped', error);
+        }
+      }
+    }
+
+    const taskMap = await this.fetchBlockTasksByIds(scopedIds, scope, useLiveDom);
+    const enrichedTasks = await attachRepeatMetadataToTasks(Array.from(taskMap.values()));
+    const enrichedTaskMap = new Map<string, Task>();
+    enrichedTasks.forEach((task) => {
+      if (task.blockId) {
+        enrichedTaskMap.set(task.blockId, task);
+      }
+    });
+
+    if (
+      enrichedTaskMap.size > 0 &&
+      this.memoryCache.tasks &&
+      this.memoryCache.detailLevel === 'full'
+    ) {
+      const cachedMap = new Map<string, Task>();
+      for (const task of this.memoryCache.tasks) {
+        if (task.type === 'block' && task.blockId) {
+          cachedMap.set(task.blockId, task);
+        }
+      }
+      enrichedTaskMap.forEach((task, blockId) => {
+        cachedMap.set(blockId, task);
+      });
+      this.memoryCache = {
+        tasks: Array.from(cachedMap.values()),
+        timestamp: Date.now(),
+        detailLevel: 'full'
+      };
+    }
+
+    return enrichedTaskMap;
+  }
   
   static async getTasksByBlockIds(
     blockIds: string[],
@@ -4920,7 +5053,7 @@ export class TaskRepository {
         return new Map();
       }
 
-      if (useCache) {
+      if (useCache && options.forceFresh !== true) {
         const now = Date.now();
         if (
           this.memoryCache.tasks &&
@@ -4948,60 +5081,39 @@ export class TaskRepository {
       }
 
       const detailLevel = this.resolveTaskFetchDetailLevel(options);
-      if (!useLiveDom && detailLevel === 'light') {
-        try {
-          const { tasks: kernelTasks } = await this.getKernelLightTasksByBlockIds(
-            scopedIds,
-            normalizedScope,
-            { attachRepeatMetadata: true }
-          );
-          if (kernelTasks.length > 0) {
-            const kernelTaskMap = new Map<string, Task>();
-            for (const task of kernelTasks) {
-              if (task.blockId) {
-                kernelTaskMap.set(task.blockId, task);
-              }
-            }
-            return kernelTaskMap;
-          }
-        } catch (error) {
-          if (!isKernelRpcUnavailable(error)) {
-            console.debug('[TaskRepository] kernel block-id light fetch skipped', error);
-          }
-        }
+      const fetchKey = this.buildIncrementalTaskFetchKey(
+        scopedIds,
+        normalizedScope,
+        useLiveDom,
+        detailLevel
+      );
+      const inFlight = options.forceFresh === true
+        ? undefined
+        : this.incrementalTaskFetchPromises.get(fetchKey);
+      if (inFlight) {
+        return this.cloneTaskMapForSharedFetch(await inFlight);
       }
 
-      const taskMap = await this.fetchBlockTasksByIds(scopedIds, normalizedScope, useLiveDom);
-      const enrichedTasks = await attachRepeatMetadataToTasks(Array.from(taskMap.values()));
-      const enrichedTaskMap = new Map<string, Task>();
-      enrichedTasks.forEach((task) => {
-        if (task.blockId) {
-          enrichedTaskMap.set(task.blockId, task);
-        }
-      });
-
-      if (
-        enrichedTaskMap.size > 0 &&
-        this.memoryCache.tasks &&
-        this.memoryCache.detailLevel === 'full'
-      ) {
-        const cachedMap = new Map<string, Task>();
-        for (const task of this.memoryCache.tasks) {
-          if (task.type === 'block' && task.blockId) {
-            cachedMap.set(task.blockId, task);
-          }
-        }
-        enrichedTaskMap.forEach((task, blockId) => {
-          cachedMap.set(blockId, task);
-        });
-        this.memoryCache = {
-          tasks: Array.from(cachedMap.values()),
-          timestamp: Date.now(),
-          detailLevel: 'full'
-        };
+      const fetchPromise = this.fetchIncrementalTasksByBlockIds(
+        scopedIds,
+        normalizedScope,
+        useLiveDom,
+        detailLevel
+      );
+      if (options.forceFresh !== true) {
+        this.incrementalTaskFetchPromises.set(fetchKey, fetchPromise);
       }
 
-      return enrichedTaskMap;
+      try {
+        return this.cloneTaskMapForSharedFetch(await fetchPromise);
+      } finally {
+        if (
+          options.forceFresh !== true
+          && this.incrementalTaskFetchPromises.get(fetchKey) === fetchPromise
+        ) {
+          this.incrementalTaskFetchPromises.delete(fetchKey);
+        }
+      }
     } catch (error) {
       handleError('Failed to get tasks in batch', error, { blockIds });
       return new Map();

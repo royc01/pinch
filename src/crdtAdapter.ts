@@ -1,5 +1,5 @@
 import { TaskCRDTEngine, CRDTTask, CRDTField, TaskEvent } from './crdt';
-import { Task } from './api';
+import type { Task } from './api';
 
 export function taskToCRDT(task: Task, nodeId: string = 'db'): CRDTTask {
   const parseTimestamp = (dateStr?: string): number => {
@@ -49,6 +49,7 @@ export function taskToCRDT(task: Task, nodeId: string = 'db'): CRDTTask {
       repeatFrequency: task.repeatFrequency,
       repeatInstanceDate: task.repeatInstanceDate,
       isVirtual: task.isVirtual,
+      focusEstimate: task.focusEstimate,
       createdAt: task.createdAt
     }
   };
@@ -86,6 +87,7 @@ export function crdtToTask(crdtTask: CRDTTask): Task {
     repeatFrequency: crdtTask.metadata.repeatFrequency as Task['repeatFrequency'],
     repeatInstanceDate: crdtTask.metadata.repeatInstanceDate,
     isVirtual: crdtTask.metadata.isVirtual,
+    focusEstimate: crdtTask.metadata.focusEstimate,
     createdAt: crdtTask.metadata.createdAt || new Date(crdtTask.updatedAt).toISOString(),
     updatedAt: new Date(crdtTask.updatedAt).toISOString()
   };

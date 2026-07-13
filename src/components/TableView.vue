@@ -391,8 +391,8 @@
             <td class="col-title">
               <div class="title-wrapper">
                 <div class="title-main" @click="handleTaskClick(row.task, $event)">
-                  <span v-if="row.task.pinned === true" class="title-pinned-badge ariaLabel" :aria-label="t('taskManager.pinned')">
-                    <Icon name="pinBadge" width="18" height="18" />
+                  <span v-if="row.task.pinned === true" class="task-pinned-indicator ariaLabel" :aria-label="t('taskManager.pinned')">
+                    <Icon name="pinTaskActive" width="16" height="16" />
                   </span>
                   <div class="task-title" v-html="getTitleHtml(row.task.title)"></div>
                 </div>
@@ -799,7 +799,13 @@ import {
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
 import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor';
+import {
+  TASK_GROUP_NONE_ID,
+  buildTaskGroupBadges,
+  buildTaskGroupOptions
+} from '@/utils/taskGroupShared';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { getTaskPriorityLabel } from '@/utils/taskPriority';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 import {
   areTaskTagIdsEqual,
@@ -956,13 +962,7 @@ function getColumnResizeTitle(label: string): string {
 }
 
 function getPriorityTitle(priority: Task['priority']): string {
-  if (priority === 'high') {
-    return t('taskManager.priorityHighLabel');
-  }
-  if (priority === 'medium') {
-    return t('taskManager.priorityMediumLabel');
-  }
-  return t('taskManager.priorityLowLabel');
+  return getTaskPriorityLabel(priority, t);
 }
 
 function getGroupItemCountLabel(count: number): string {
@@ -1075,7 +1075,6 @@ const TABLE_FIXED_COLUMN_WIDTHS: Partial<Record<TableColumnKey, number>> = {
   status: 40
 };
 
-const TASK_GROUP_NONE_ID = '__none__';
 type TableSubtask = NonNullable<Task['subtasks']>[number];
 type TablePopoverTarget = {
   taskId: string;
@@ -1648,24 +1647,10 @@ const groupLookup = computed(() => {
   return map;
 });
 
-const groupPopoverOptions = computed(() => {
-  const options: Array<{ value: string; label: string; special?: boolean; colorCss?: string; textColor?: string }> = [
-    { value: TASK_GROUP_NONE_ID, label: getNoGroupLabel(), special: true, colorCss: '', textColor: '' }
-  ];
-  for (const group of props.taskGroups || []) {
-    if (!group || !group.id) continue;
-    if (group.hidden === true) continue;
-    const rawColor = group.color || '';
-    options.push({
-      value: group.id,
-      label: group.name?.trim() || getGroupFallbackLabel(),
-      special: false,
-      colorCss: resolveGroupColorCss(rawColor),
-      textColor: resolveGroupTextColor(rawColor)
-    });
-  }
-  return options;
-});
+const groupPopoverOptions = computed(() => buildTaskGroupOptions(props.taskGroups || [], {
+  none: getNoGroupLabel(),
+  fallback: getGroupFallbackLabel()
+}));
 const resolvedGroupMode = computed(() => normalizeTaskViewGroupMode(props.groupMode, 'status'));
 const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date', 'document'].includes(resolvedGroupMode.value));
 const supportsGroupActions = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
@@ -2840,17 +2825,7 @@ function getTaskGroupId(task: Task): string {
 }
 
 function getTaskGroupBadges(task: Task): Array<{ id: string; label: string; style?: Record<string, string> }> {
-  return resolveTaskTagIds(task.tags, task.groupId).map((groupId) => {
-    const meta = groupLookup.value.get(groupId);
-    return {
-      id: groupId,
-      label: meta?.name || groupId,
-      style: meta?.background ? {
-        '--group-badge-bg': meta.background,
-        '--group-badge-color': meta.color
-      } : undefined
-    };
-  });
+  return buildTaskGroupBadges(resolveTaskTagIds(task.tags, task.groupId), groupLookup.value);
 }
 
 function getVisibleTaskGroupBadges(task: Task): Array<{ id: string; label: string; style?: Record<string, string> }> {
@@ -4133,17 +4108,17 @@ function toggleExpand(taskId: string) {
   cursor: pointer;
 }
 
-.title-pinned-badge {
-  width: 18px;
-  height: 18px;
+.task-pinned-indicator {
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  color: #f98f7a;
+  color: #ffcc4d;
 }
 
-.title-pinned-badge svg {
+.task-pinned-indicator svg {
   width: 100%;
   height: 100%;
   display: block;
@@ -4284,20 +4259,6 @@ function toggleExpand(taskId: string) {
   border-radius: 6px;
 }
 
-.task-priority-badge.priority-high {
-  background: var(--pinch-background10);
-  color: var(--pinch-font-color10);
-}
-
-.task-priority-badge.priority-medium {
-  background: var(--pinch-background3);
-  color: var(--pinch-font-color3);
-}
-
-.task-priority-badge.priority-low {
-  background: var(--pinch-background7);
-  color: var(--pinch-font-color7);
-}
 .priority-select {
   width: 100%;
   font-size: 12px;

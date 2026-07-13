@@ -146,6 +146,11 @@ import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import Icon from '@/components/Icon.vue';
 import type { TaskGroup } from '@/api';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
+import {
+  TASK_BACKGROUND_COLOR_OPTIONS,
+  TASK_GROUP_NONE_ID,
+  normalizeTaskGroupOrderIds
+} from '@/utils/taskGroupShared';
 import { useI18n } from '@/composables/useI18n';
 
 interface Props {
@@ -169,19 +174,7 @@ const emit = defineEmits<{
   save: [payload: TaskGroupDialogSavePayload];
 }>();
 
-const groupColorOptions = [
-  { value: 'pinch-background1', css: 'var(--pinch-background1)' },
-  { value: 'pinch-background2', css: 'var(--pinch-background2)' },
-  { value: 'pinch-background3', css: 'var(--pinch-background3)' },
-  { value: 'pinch-background4', css: 'var(--pinch-background4)' },
-  { value: 'pinch-background5', css: 'var(--pinch-background5)' },
-  { value: 'pinch-background6', css: 'var(--pinch-background6)' },
-  { value: 'pinch-background7', css: 'var(--pinch-background7)' },
-  { value: 'pinch-background8', css: 'var(--pinch-background8)' },
-  { value: 'pinch-background9', css: 'var(--pinch-background9)' },
-  { value: 'pinch-background10', css: 'var(--pinch-background10)' }
-];
-const TASK_GROUP_NONE_ID = '__none__';
+const groupColorOptions = TASK_BACKGROUND_COLOR_OPTIONS;
 
 type TaskGroupDialogItem = TaskGroup & {
   special?: 'none';
@@ -199,26 +192,6 @@ function generateGroupId(): string {
 
 function isNoneOption(group: TaskGroupDialogItem): boolean {
   return group.special === 'none' || resolveGroupId(group) === TASK_GROUP_NONE_ID;
-}
-
-function normalizeOrderIds(input: unknown): string[] {
-  if (!Array.isArray(input)) {
-    return [];
-  }
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  input.forEach((item) => {
-    if (typeof item !== 'string') {
-      return;
-    }
-    const value = item.trim();
-    if (!value || seen.has(value)) {
-      return;
-    }
-    seen.add(value);
-    normalized.push(value);
-  });
-  return normalized;
 }
 
 function buildNoneOptionItem(): TaskGroupDialogItem {
@@ -241,7 +214,7 @@ function resolveDialogOrderIds(groups: TaskGroupDialogItem[], orderIds: string[]
     return groupIds;
   }
 
-  const normalizedOrderIds = normalizeOrderIds(orderIds);
+  const normalizedOrderIds = normalizeTaskGroupOrderIds(orderIds);
   const groupIdSet = new Set(groupIds);
   const noneIndex = normalizedOrderIds.indexOf(TASK_GROUP_NONE_ID);
   const noneSlot = noneIndex >= 0

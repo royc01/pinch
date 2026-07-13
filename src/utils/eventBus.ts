@@ -81,6 +81,7 @@ export interface TaskQuickMetaOpenRequest {
 
 export const Events = {
   TASK_CHANGED: 'task-changed',
+  TASK_DATE_CHANGED: 'task-date-changed',
   TASK_ADDED: 'task-added',
   TASK_DELETED: 'task-deleted',
   TASK_UPDATED: 'task-updated',
@@ -92,6 +93,8 @@ export const Events = {
   DOCUMENT_GROUPS_UPDATED: 'document-groups-updated',
   TASK_SCOPE_UPDATED: 'task-scope-updated',
   TASK_TOGGLED: 'task-toggled',
+  LIFELOG_TASKS_UPDATED: 'lifelog-tasks-updated',
+  LIFELOG_TIMELINE_UPDATED: 'lifelog-timeline-updated',
   TASK_EDITOR_OPEN_REQUEST: 'task-editor-open-request',
   TASK_QUICK_META_OPEN_REQUEST: 'task-quick-meta-open-request',
   KANBAN_VIEW_SWITCH_REQUEST: 'kanban-view-switch-request',

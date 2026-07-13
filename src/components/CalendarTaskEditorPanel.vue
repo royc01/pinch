@@ -12,6 +12,7 @@
     :show-delete="showDelete"
     :show-priority="showPriority && mode !== 'dock'"
     :show-focus="showFocus"
+    :show-open-content="showOpenContent"
     :priority-style="priorityStyle"
     @panel-mousedown="$emit('panelMousedown')"
     @pin="$emit('pin')"
@@ -20,6 +21,7 @@
     @delete="$emit('delete')"
     @priority="$emit('priority', $event)"
     @focus="$emit('focus')"
+    @open-content="$emit('openContent')"
     @close="$emit('close')"
   >
     <TaskEditorProtyleBody
@@ -223,6 +225,7 @@ const props = withDefaults(defineProps<{
   showDelete?: boolean;
   showPriority?: boolean;
   showFocus?: boolean;
+  showOpenContent?: boolean;
   priorityStyle?: Record<string, string>;
   backgroundColors: CalendarTaskEditorColorOption[];
   startDate: string;
@@ -260,6 +263,7 @@ const props = withDefaults(defineProps<{
   showDelete: false,
   showPriority: false,
   showFocus: false,
+  showOpenContent: false,
   priorityStyle: () => ({}),
   goalOptions: () => [],
   selectedTagIds: () => [],
@@ -284,6 +288,7 @@ const emit = defineEmits<{
   delete: [];
   priority: [event: MouseEvent];
   focus: [];
+  openContent: [];
   close: [];
   setColor: [color: string];
   clearDates: [];

@@ -17,6 +17,7 @@ import {
 } from '@/utils/focusTimerTargetPicker';
 import { translate } from '@/composables/useI18n';
 import type { FocusTimerHandoffState } from '@/utils/focusTimerHandoff';
+import { userSettings, DEFAULT_SETTINGS } from '@/utils/userSettings';
 
 type ElectronLike = {
   ipcMain: {
@@ -58,6 +59,7 @@ type DetachedFocusWindowState = {
   linkedTarget: FocusTimerLinkedTarget | null;
   activeOwner: FocusSessionOwner | null;
   theme: DetachedFocusTheme;
+  iconBaseUrl: string;
 };
 
 type DetachedFocusRequest =
@@ -83,7 +85,12 @@ type DetachedFocusRequest =
   | { type: 'set-linked-target'; target?: FocusTimerLinkedTarget | null }
   | { type: 'complete-linked-target'; target?: FocusTimerLinkedTarget | null }
   | { type: 'disable-floating-focus' }
-  | { type: 'set-expanded'; expanded?: boolean };
+  | { type: 'set-expanded'; expanded?: boolean }
+  | { type: 'set-compact'; compact?: boolean }
+  | { type: 'set-progress-only'; progressOnly?: boolean }
+  | { type: 'get-micro-break-settings' }
+  | { type: 'show-micro-break-dialog'; duration?: number }
+  | { type: 'hide-micro-break-dialog' };
 
 const DETACHED_FOCUS_REQUEST_CHANNEL = 'pinch-detached-focus:request';
 const DETACHED_FOCUS_WINDOW_BOUNDS_KEY = 'pinch-detached-focus-window-bounds';
@@ -92,15 +99,20 @@ const DETACHED_FOCUS_DISABLE_EVENT = 'pinch-detached-focus:disable';
 const DETACHED_FOCUS_LINKED_TARGET_EVENT = 'pinch-detached-focus:linked-target';
 const DETACHED_FOCUS_COMPLETE_LINKED_TARGET_EVENT = 'pinch-detached-focus:complete-linked-target';
 const DETACHED_FOCUS_WINDOW_TITLE = 'Pinch Focus Capsule';
-const DETACHED_FOCUS_WINDOW_WIDTH = 280;
-const DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT = 56;
-const DETACHED_FOCUS_WINDOW_EXPANDED_HEIGHT = 420;
+const DETACHED_FOCUS_WINDOW_WIDTH = 185;
+const DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT = 65;
+const DETACHED_FOCUS_WINDOW_COMPACT_HEIGHT = 47;
+const DETACHED_FOCUS_WINDOW_PROGRESS_ONLY_HEIGHT = 55;
+const DETACHED_FOCUS_WINDOW_EXPANDED_HEIGHT = 460;
+const DETACHED_FOCUS_WINDOW_EXPANDED_WIDTH = 280;
 const DETACHED_FOCUS_WINDOW_MARGIN = 24;
 const DETACHED_FOCUS_DEFAULT_FONT_FAMILY = '"Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
 const DETACHED_FOCUS_COUNTUP_AUTOSAVE_INTERVAL_MS = 60_000;
 
 let detachedFocusWindow: any | null = null;
 let detachedFocusWindowExpanded = false;
+let detachedFocusWindowCompact = false;
+let detachedFocusWindowProgressOnly = false;
 let ipcHandlerRegistered = false;
 let focusSessionUnsubscribe: (() => void) | null = null;
 let latestLinkedTarget: FocusTimerLinkedTarget | null = null;
@@ -110,6 +122,7 @@ let latestTaskTargetOptions: FocusTimerLinkedTarget[] = [];
 let targetOptionsRefreshPromise: Promise<void> | null = null;
 let pendingDetachedFocusOpenSettings = false;
 let pendingDetachedFocusHandoff: FocusTimerHandoffState | null = null;
+let detachedMicroBreakWindow: any | null = null;
 
 function notifyDetachedFocusDisableRequest(): void {
   if (typeof window === 'undefined') {
@@ -673,7 +686,8 @@ function getDetachedFocusWindowState(): DetachedFocusWindowState {
   return {
     linkedTarget: latestLinkedTarget,
     activeOwner: getActiveFocusSessionOwner(),
-    theme: latestThemeSnapshot
+    theme: latestThemeSnapshot,
+    iconBaseUrl: window.location.origin
   };
 }
 
@@ -874,7 +888,7 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: transparent;
+       background: transparent;
       font-family: var(--pinch-font-family);
       color: var(--b3-theme-on-background);
       user-select: none;
@@ -884,6 +898,7 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
       display: flex;
       align-items: flex-end;
       justify-content: flex-end;
+      padding: 0 4px 4px 0;
     }
 
     .floating-focus {
@@ -898,68 +913,50 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
 
     .floating-focus__capsule {
       position: relative;
-      display: inline-flex;
+      display: grid;
+      grid-template-columns: 17px minmax(44px, 1fr) 22px auto;
+      grid-template-rows: minmax(53px, 1fr) 17px;
       align-items: center;
-      gap: 6px;
-      min-width: 120px;
+      gap: 0 4px;
+      width: 165px;
+      height: 83px;
+      box-sizing: border-box;
+      padding: 5px;
       max-width: 100%;
-      min-height: 24px;
-      padding: 7px 10px 9px;
-      border-radius: 999px;
-      border: 1px solid var(--b3-border-color);
+      border-radius: 18px;
+      border: 1px solid color-mix(in srgb, var(--b3-border-color) 65%, transparent);
       background: var(--b3-theme-background);
-      box-shadow: var(--b3-point-shadow);
+      box-shadow: var(--b3-border-color) 0px 0px 0 .5px, rgba(0, 0, 0, .05) 0px 1px 2px 0px, rgba(15, 15, 15, .05) 0px 2px 4px;
       color: var(--b3-theme-on-background);
       font-size: 12px;
       font-weight: 600;
       user-select: none;
       pointer-events: auto;
-      --progress: 0;
-      --progress-color: var(--pinch-focus-accent);
       -webkit-app-region: drag;
-    }
-
-    .floating-focus__capsule::after {
-      content: '';
-      position: absolute;
-      left: 12px;
-      right: 12px;
-      bottom: 4px;
-      height: 2px;
-      border-radius: 999px;
-      background: var(--progress-color);
-      transform: scaleX(var(--progress));
-      transform-origin: left;
-      opacity: 0.6;
-      pointer-events: none;
-    }
-
-    .floating-focus__capsule.is-paused {
-      opacity: 0.7;
     }
 
     .floating-focus__close {
       position: absolute;
-      top: -6px;
-      right: 0;
-      width: 18px;
-      height: 18px;
+      top: -4px;
+      right: -4px;
+      width: 16px;
+      height: 16px;
       padding: 0;
-      border: 1px solid var(--b3-border-color);
+      border: none;
       border-radius: 999px;
-      background: var(--b3-theme-on-background);
-      color: var(--b3-theme-background);
+      background: var(--b3-theme-background);
+      color: var(--b3-theme-on-surface);
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 14px;
+      font-size: 8px;
       line-height: 1;
       cursor: pointer;
       opacity: 0;
       pointer-events: none;
       transform: translateY(-2px) scale(0.92);
       transition: opacity 0.16s ease, transform 0.16s ease, color 0.16s ease, background 0.16s ease;
-      box-shadow: none;
+      box-shadow: var(--b3-point-shadow);
       z-index: 2;
       -webkit-app-region: no-drag;
     }
@@ -1012,8 +1009,10 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
     }
 
     .floating-focus__dot {
-      width: 22px;
-      height: 22px;
+      grid-column: 1;
+      grid-row: 2;
+      width: 17px;
+      height: 17px;
       border-radius: 999px;
       background: transparent;
       color: var(--b3-theme-on-background);
@@ -1023,11 +1022,19 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
       cursor: pointer;
     }
 
-    .floating-focus__duration {
-      min-width: 0;
+    .floating-focus__duration,
+    .floating-focus__time {
+      grid-column: 1 / -1;
+      grid-row: 1;
+      justify-self: center;
       background: transparent;
       color: inherit;
       white-space: nowrap;
+      font-size: 38px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -2px;
+      line-height: .95;
       cursor: pointer;
     }
 
@@ -1037,10 +1044,7 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
     }
 
     .floating-focus__time {
-      font-variant-numeric: tabular-nums;
-      letter-spacing: 0.4px;
-      line-height: 1.1;
-      white-space: nowrap;
+      cursor: default;
     }
 
     .floating-focus__content {
@@ -1053,19 +1057,26 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
 
     .floating-focus__target,
     .floating-focus__target-label {
-      flex: 1 1 auto;
+      grid-column: 2 / 4;
+      grid-row: 2;
       min-width: 0;
-      max-width: 120px;
+      max-width: 100%;
+      height: 16px;
+      padding: 0 6px;
+      box-sizing: border-box;
+      border-radius: 6px;
+      background: transparent;
+      justify-self: start;
+      z-index: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 10px;
-      line-height: 1.1;
-      color: var(--b3-theme-on-surface);
+      font-size: 6px;
+      line-height: 16px;
+      color: #38201d;
     }
 
     .floating-focus__target {
-      background: transparent;
       text-align: left;
       cursor: pointer;
     }
@@ -1075,7 +1086,8 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
     }
 
     .floating-focus__actions {
-      margin-left: auto;
+      grid-column: 4;
+      grid-row: 2;
       display: flex;
       gap: 4px;
       pointer-events: auto;
@@ -1083,8 +1095,8 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
     }
 
     .floating-focus__action {
-      width: 22px;
-      height: 22px;
+      width: 17px;
+      height: 17px;
       border-radius: 999px;
       display: inline-flex;
       align-items: center;
@@ -1095,8 +1107,8 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
     }
 
     .floating-focus__action.is-stop {
-      background: var(--pinch-stop-bg);
-      color: var(--pinch-stop-text);
+      background: var(--b3-list-hover);
+      color: var(--b3-theme-on-background);
     }
 
     .floating-focus__action:hover {
@@ -1108,6 +1120,24 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
       opacity: 0.45;
       filter: none;
     }
+
+    .floating-focus__capsule { display: block; width: 180px; height: 60px; padding: 0; border-radius: 35px; --progress: 0; --progress-color: var(--pinch-focus-accent); }
+    .floating-focus__capsule.is-compact { height: 42px; border-radius: 24px; }
+    .floating-focus__capsule.is-progress-only { height: 50px; border-radius: 29px; }
+    .floating-focus__capsule::before, .floating-focus__capsule::after { display: none; }
+    .floating-focus__progress-track { position: absolute; left: 18px; right: 18px; bottom: 5px; height: 6px; overflow: hidden; border-radius: 3px; background: var(--b3-list-hover); }
+    .floating-focus__progress-fill { position: absolute; inset: 0 auto 0 0; width: calc(var(--progress) * 100%); border-radius: inherit; background: var(--progress-color); }
+    .floating-focus__dot, .floating-focus__action { position: absolute; z-index: 2; top: 8px; width: 23px; height: 23px; pointer-events: auto; }
+    .floating-focus__dot { left: 17.5px; background: transparent; }
+    .floating-focus__duration, .floating-focus__time { position: absolute; top: 4px; left: 50%; width: auto; transform: translateX(-50%); font-family: var(--pinch-font-family); font-size: 31px; letter-spacing: 0; text-align: center; }
+    .floating-focus__capsule.has-linked-target .floating-focus__duration, .floating-focus__capsule.has-linked-target .floating-focus__time { top: 14px; }
+    .floating-focus__capsule.has-linked-target .floating-focus__dot, .floating-focus__capsule.has-linked-target .floating-focus__action { top: 18px; }
+    .floating-focus__target, .floating-focus__target-label { position: absolute; z-index: 1; top: 2px; left: 0; width: 100%; max-width: none; height: 11px; padding: 0; border-radius: 0; background: transparent; font-size: 8px; line-height: 11px; text-align: center; }
+    .floating-focus__actions { display: contents; pointer-events: none; }
+    .floating-focus__action { right: 17.5px; }
+    .floating-focus__action.is-stop { left: 17.5px; right: auto; }
+    .floating-focus__dot svg,
+    .floating-focus__action svg { width: 14px; height: 14px; }
 
     .floating-focus__popover {
       position: absolute;
@@ -1336,6 +1366,8 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
 
     .linked-habit-banner__search {
       width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
       border: 1px solid var(--b3-border-color);
       border-radius: 10px;
       padding: 8px 10px;
@@ -1498,17 +1530,13 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         data-no-drag
         aria-label="${htmlText.cycleDuration}"
       >
-        ${htmlText.title} 25m
+        25:00
       </button>
       <span id="timeOnly" class="floating-focus__time" hidden>00:00</span>
-      <div class="floating-focus__actions" data-no-drag>
-        <button
-          id="actionButton"
-          type="button"
-          class="floating-focus__action ariaLabel"
-          data-no-drag
-          aria-label="${htmlText.startFocus}"
-        ></button>
+      <div id="progressTrack" class="floating-focus__progress-track" aria-hidden="true">
+        <span class="floating-focus__progress-fill"></span>
+      </div>
+      <div class="floating-focus__actions">
         <button
           id="stopButton"
           type="button"
@@ -1516,6 +1544,13 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
           data-no-drag
           aria-label="${htmlText.stop}"
           hidden
+        ></button>
+        <button
+          id="actionButton"
+          type="button"
+          class="floating-focus__action ariaLabel"
+          data-no-drag
+          aria-label="${htmlText.startFocus}"
         ></button>
       </div>
       <div id="popover" class="floating-focus__popover" data-no-drag>
@@ -1616,6 +1651,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       linkedTarget: null,
       activeOwner: null,
       theme: null,
+      iconBaseUrl: '',
       durationMarks: [5, 10, 15, 25, 30, 45, 60],
       durationOptions: [5, 10, 15, 25, 30, 45, 60, 'unlimited'],
       shortBreakMarks: [1, 3, 5, 10, 15],
@@ -1655,6 +1691,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     const durationButtonEl = document.getElementById('durationButton');
     const contentEl = document.getElementById('content');
     const timeOnlyEl = document.getElementById('timeOnly');
+    const progressTrackEl = document.getElementById('progressTrack');
     const timeLabelEl = document.getElementById('timeLabel');
     const targetButtonEl = document.getElementById('targetButton');
     const targetLabelEl = document.getElementById('targetLabel');
@@ -1683,6 +1720,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     const targetSearchInputEl = document.getElementById('targetSearchInput');
     const targetPickerStateEl = document.getElementById('targetPickerState');
     const targetPickerListEl = document.getElementById('targetPickerList');
+    let reportedSettingsExpanded = null;
+    let reportedCapsuleCompact = null;
+    let reportedCapsuleProgressOnly = null;
 
     function iconMarkup(name, width, height) {
       const icon = ICONS[name];
@@ -1706,6 +1746,41 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
 
     function request(type, payload = {}) {
       return ipcRenderer.invoke(CHANNEL, { type, ...payload });
+    }
+
+    let microBreakTimer = null;
+    let microBreakSettings = null;
+
+    function stopMicroBreakReminder() {
+      if (microBreakTimer !== null) {
+        clearTimeout(microBreakTimer);
+        microBreakTimer = null;
+      }
+      request('hide-micro-break-dialog').catch(() => {});
+    }
+
+    async function startMicroBreakReminder() {
+      stopMicroBreakReminder();
+      try {
+        microBreakSettings = await request('get-micro-break-settings');
+      } catch {
+        microBreakSettings = null;
+      }
+      const settings = microBreakSettings || {};
+      if (settings.microBreakEnabled !== true || !state.isRunning || state.isBreakMode) {
+        return;
+      }
+      const min = Math.max(1, Number(settings.microBreakMinIntervalMinutes) || 3);
+      const max = Math.max(min, Number(settings.microBreakMaxIntervalMinutes) || 5);
+      microBreakTimer = setTimeout(() => {
+        if (!state.isRunning || state.isBreakMode || settings.microBreakEnabled !== true) return;
+        const duration = Math.max(1, Number(settings.microBreakDurationSeconds) || 10);
+        if (settings.microBreakSound !== false) {
+          try { const audio = new Audio('/plugins/pinch/audio/correct.mp3'); audio.volume = 0.3; audio.play().catch(() => {}); } catch {}
+        }
+        request('show-micro-break-dialog', { duration }).catch(() => {});
+        microBreakTimer = setTimeout(() => startMicroBreakReminder(), duration * 1000);
+      }, (min + Math.random() * (max - min)) * 60 * 1000);
     }
 
     function ensureEmojiFontResources(theme) {
@@ -1826,6 +1901,36 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }
 
       return target.type === 'task' ? '✅' : '📝';
+    }
+
+    function isImageIcon(icon) {
+      if (typeof icon !== 'string') {
+        return false;
+      }
+
+      const value = icon.trim();
+      return /^(?:https?:)?\\/\\//i.test(value)
+        || /^data:image\\//i.test(value)
+        || /^(?:\\.?\\.?\\/|\\/)?(?:api\\/icon\\/|assets\\/|emojis\\/)/i.test(value)
+        || /\\.(?:avif|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i.test(value);
+    }
+
+    function renderTargetIcon(container, target) {
+      const icon = getTargetEmoji(target);
+      container.replaceChildren();
+
+      if (!isImageIcon(icon)) {
+        container.textContent = icon;
+        return;
+      }
+
+      const image = document.createElement('img');
+      image.src = state.iconBaseUrl && !/^(?:https?:)?\\/\\//i.test(icon) && !/^data:/i.test(icon)
+        ? new URL(icon, state.iconBaseUrl).toString()
+        : icon;
+      image.alt = '';
+      image.style.cssText = 'display:block;width:1em;height:1em;object-fit:contain';
+      container.appendChild(image);
     }
 
     function getTargetOptions() {
@@ -2051,12 +2156,6 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     }
 
     function updateProgressVisual() {
-      const total = phaseDurationSeconds();
-      const elapsed = total > 0 ? Math.min(Math.max(state.phaseElapsedSeconds, 0), total) : 0;
-      const progress = total > 0 ? elapsed / total : 0;
-      const color = state.isBreakMode ? 'var(--pinch-break-accent)' : 'var(--pinch-focus-accent)';
-      capsuleEl.style.setProperty('--progress', String(progress));
-      capsuleEl.style.setProperty('--progress-color', color);
     }
 
     function setTargetPickerState(message, isError) {
@@ -2087,7 +2186,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
 
         const emoji = document.createElement('span');
         emoji.className = 'linked-habit-banner__emoji';
-        emoji.textContent = getTargetEmoji(target);
+        renderTargetIcon(emoji, target);
 
         const name = document.createElement('span');
         name.className = 'linked-habit-banner__picker-item-name';
@@ -2132,6 +2231,19 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       updateProgressVisual();
 
       const active = isActive();
+      const compact = !state.linkedTarget && !active;
+      const progressOnly = !state.linkedTarget && active;
+      capsuleEl.classList.toggle('is-compact', compact);
+      capsuleEl.classList.toggle('is-progress-only', progressOnly);
+      capsuleEl.classList.toggle('has-linked-target', !!state.linkedTarget);
+      if (reportedCapsuleCompact !== compact) {
+        reportedCapsuleCompact = compact;
+        request('set-compact', { compact: compact }).catch(() => {});
+      }
+      if (reportedCapsuleProgressOnly !== progressOnly) {
+        reportedCapsuleProgressOnly = progressOnly;
+        request('set-progress-only', { progressOnly: progressOnly }).catch(() => {});
+      }
       const pomodoroSettingsLocked = active || state.timerMode === 'countup';
       const label = linkedTargetLabel();
       const blocked = isLockedByOther() && !active;
@@ -2140,10 +2252,12 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         : (state.isRunning ? I18N.pause : (state.isPaused ? I18N.continueFocus : I18N.startFocus));
 
       durationButtonEl.hidden = active;
-      durationButtonEl.textContent = state.timerMode === 'countup' ? I18N.title + ' ∞' : I18N.title + ' ' + state.selectedDuration + 'm';
+      durationButtonEl.textContent = state.timerMode === 'countup' ? '00:00' : String(state.selectedDuration).padStart(2, '0') + ':00';
       durationButtonEl.disabled = active;
       durationButtonEl.title = I18N.cycleDuration;
       settingsToggleEl.setAttribute('aria-expanded', state.showSettings ? 'true' : 'false');
+      settingsToggleEl.hidden = active;
+      progressTrackEl.hidden = !state.linkedTarget && !active;
 
       if (contentEl) {
         contentEl.hidden = !state.linkedTarget;
@@ -2171,7 +2285,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         linkedTargetChipEl.setAttribute('aria-label', canOpenLinkedTarget() ? I18N.openTargetPrefix + label : (label || I18N.linkedTarget));
       }
       if (linkedTargetEmojiEl) {
-        linkedTargetEmojiEl.textContent = getTargetEmoji(state.linkedTarget);
+        renderTargetIcon(linkedTargetEmojiEl, state.linkedTarget);
       }
       if (linkedTargetNameEl) {
         linkedTargetNameEl.textContent = label;
@@ -2253,6 +2367,11 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       stopButtonEl.style.display = active ? '' : 'none';
       stopButtonEl.setAttribute('aria-label', I18N.stop);
 
+      const total = phaseDurationSeconds();
+      const elapsed = total > 0 ? Math.min(Math.max(state.phaseElapsedSeconds, 0), total) : 0;
+      capsuleEl.style.setProperty('--progress', String(total > 0 ? elapsed / total : 0));
+      capsuleEl.style.setProperty('--progress-color', state.isBreakMode ? 'var(--pinch-break-accent)' : 'var(--pinch-focus-accent)');
+
       focusDurationSliderEl.disabled = active;
       breakDurationSliderEl.disabled = pomodoroSettingsLocked;
       setCountSliderEl.disabled = pomodoroSettingsLocked;
@@ -2266,7 +2385,10 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       setCountValueEl.textContent = state.pomodoroSets + I18N.setSuffix;
 
       popoverEl.classList.toggle('is-visible', state.showSettings);
-      request('set-expanded', { expanded: state.showSettings }).catch(() => {});
+      if (reportedSettingsExpanded !== state.showSettings) {
+        reportedSettingsExpanded = state.showSettings;
+        request('set-expanded', { expanded: state.showSettings }).catch(() => {});
+      }
     }
 
     async function recordFocusSession(minutes) {
@@ -2382,6 +2504,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       clearTimer();
       state.isRunning = true;
       state.isPaused = false;
+      void startMicroBreakReminder();
       startPhaseTimer();
       render();
     }
@@ -2392,6 +2515,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }
       void saveCountupCheckpoint(false);
       clearTimer();
+      stopMicroBreakReminder();
       state.isRunning = false;
       state.isPaused = true;
       render();
@@ -2404,6 +2528,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       state.isRunning = true;
       state.isPaused = false;
       state.activeOwner = 'capsule';
+      void startMicroBreakReminder();
       startPhaseTimer();
       render();
     }
@@ -2411,6 +2536,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     async function stopTimer(recordCurrentSession = false) {
       const elapsedMinutes = recordCurrentSession ? getElapsedFocusMinutes() : 0;
       clearTimer();
+      stopMicroBreakReminder();
       state.isRunning = false;
       state.isPaused = false;
       state.isBreakMode = false;
@@ -2488,6 +2614,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         return;
       }
       state.activeOwner = hostState.activeOwner ?? null;
+      state.iconBaseUrl = hostState.iconBaseUrl || state.iconBaseUrl;
       applyTheme(hostState.theme);
       if (!isActive()) {
         applyLinkedTarget(hostState.linkedTarget || null);
@@ -2747,21 +2874,43 @@ function setDetachedFocusWindowExpanded(expanded: boolean): void {
 
   const nextHeight = expanded
     ? DETACHED_FOCUS_WINDOW_EXPANDED_HEIGHT
-    : DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT;
-  if (bounds.height === nextHeight && bounds.width === DETACHED_FOCUS_WINDOW_WIDTH) {
+    : (detachedFocusWindowCompact
+      ? DETACHED_FOCUS_WINDOW_COMPACT_HEIGHT
+      : (detachedFocusWindowProgressOnly
+        ? DETACHED_FOCUS_WINDOW_PROGRESS_ONLY_HEIGHT
+        : DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT));
+  const nextWidth = expanded
+    ? DETACHED_FOCUS_WINDOW_EXPANDED_WIDTH
+    : DETACHED_FOCUS_WINDOW_WIDTH;
+  if (bounds.height === nextHeight && bounds.width === nextWidth) {
     return;
   }
 
-  // Keep the capsule anchored in place while the detached window grows upward.
+  // Keep the capsule anchored in place while the detached window grows upward and leftward.
+  const nextX = bounds.x + (bounds.width - nextWidth);
   const nextY = bounds.y + (bounds.height - nextHeight);
 
   detachedFocusWindow.setBounds?.({
-    x: bounds.x,
+    x: nextX,
     y: nextY,
-    width: DETACHED_FOCUS_WINDOW_WIDTH,
+    width: nextWidth,
     height: nextHeight
-  }, true);
+  }, false);
   saveDetachedWindowBounds(detachedFocusWindow);
+}
+
+function setDetachedFocusWindowCompact(compact: boolean): void {
+  detachedFocusWindowCompact = compact;
+  if (!detachedFocusWindowExpanded) {
+    setDetachedFocusWindowExpanded(false);
+  }
+}
+
+function setDetachedFocusWindowProgressOnly(progressOnly: boolean): void {
+  detachedFocusWindowProgressOnly = progressOnly;
+  if (!detachedFocusWindowExpanded) {
+    setDetachedFocusWindowExpanded(false);
+  }
 }
 
 async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFocusRequest): Promise<unknown> {
@@ -2770,6 +2919,39 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
   }
 
   switch (request.type) {
+    case 'get-micro-break-settings': {
+      const settings = await userSettings.load();
+      return settings.focus;
+    }
+    case 'show-micro-break-dialog': {
+      const remote = getRemote();
+      if (!remote) {
+        return false;
+      }
+      if (detachedMicroBreakWindow && !detachedMicroBreakWindow.isDestroyed?.()) {
+        closeBrowserWindow(detachedMicroBreakWindow);
+      }
+      const theme = latestThemeSnapshot || getThemeSnapshot();
+      const duration = Math.max(1, Math.floor(request.duration || DEFAULT_SETTINGS.focus.microBreakDurationSeconds || 10));
+      const title = escapeHtml(translate('focusTimer.microBreakActiveTitle'));
+      const body = escapeHtml(translate('focusTimer.microBreakActiveBody'));
+      const secondSuffix = escapeHtml(translate('focusTimer.secondSuffix'));
+      const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;display:grid;place-items:center;min-height:100vh;background:transparent;font-family:${theme.fontFamily};}main{width:280px;padding:24px;border:1px solid ${theme.border};border-radius:12px;background:${theme.background};box-shadow:${theme.shadow};text-align:center;color:${theme.text}}h1{margin:0;color:${theme.accent};font-size:18px}p{margin:8px 0 0}strong{display:block;margin-top:16px;color:${theme.accent};font-size:28px}</style></head><body><main><h1>${title}</h1><p>${body}</p><strong id="count">${duration}${secondSuffix}</strong></main><script>let n=${duration};setInterval(()=>{n-=1;document.getElementById('count').textContent=n+'${secondSuffix}';if(n<=0)window.close()},1000)</script></body></html>`;
+      detachedMicroBreakWindow = new remote.BrowserWindow({
+        width: 328, height: 190, center: true, frame: false, transparent: true,
+        resizable: false, alwaysOnTop: true, skipTaskbar: true, show: false,
+        webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
+      });
+      detachedMicroBreakWindow.setAlwaysOnTop?.(true, 'screen-saver');
+      detachedMicroBreakWindow.on?.('closed', () => { detachedMicroBreakWindow = null; });
+      const loaded = detachedMicroBreakWindow.loadURL?.(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`);
+      Promise.resolve(loaded).then(() => detachedMicroBreakWindow?.showInactive?.()).catch(() => {});
+      return true;
+    }
+    case 'hide-micro-break-dialog':
+      closeBrowserWindow(detachedMicroBreakWindow);
+      detachedMicroBreakWindow = null;
+      return true;
     case 'get-state':
       return getDetachedFocusWindowState();
     case 'claim-focus-session': {
@@ -2825,6 +3007,12 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
     case 'set-expanded':
       setDetachedFocusWindowExpanded(request.expanded === true);
       return true;
+    case 'set-compact':
+      setDetachedFocusWindowCompact(request.compact === true);
+      return true;
+    case 'set-progress-only':
+      setDetachedFocusWindowProgressOnly(request.progressOnly === true);
+      return true;
     default:
       return null;
   }
@@ -2865,14 +3053,16 @@ function ensureDetachedFocusBridgeRegistered(): void {
 function createDetachedFocusWindow(): void {
   const remote = getRemote();
   if (!remote) {
+    console.warn('[Pinch focus capsule] Cannot create detached window: @electron/remote is unavailable');
     return;
   }
 
-  const savedBounds = getDetachedWindowBounds();
   const defaultBounds = getDefaultDetachedWindowBounds();
-  const initialBounds = savedBounds || defaultBounds;
+  const initialBounds = getDetachedWindowBounds() ?? defaultBounds;
   const initialState = getDetachedFocusWindowState();
 
+  detachedFocusWindowCompact = !latestLinkedTarget && !getActiveFocusSessionOwner();
+  detachedFocusWindowProgressOnly = !latestLinkedTarget && !!getActiveFocusSessionOwner();
   detachedFocusWindowExpanded = initialBounds.height > DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT;
   detachedFocusWindow = new remote.BrowserWindow({
     x: initialBounds.x,
@@ -2880,7 +3070,11 @@ function createDetachedFocusWindow(): void {
     width: DETACHED_FOCUS_WINDOW_WIDTH,
     height: detachedFocusWindowExpanded
       ? DETACHED_FOCUS_WINDOW_EXPANDED_HEIGHT
-      : DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT,
+      : (detachedFocusWindowCompact
+        ? DETACHED_FOCUS_WINDOW_COMPACT_HEIGHT
+        : (detachedFocusWindowProgressOnly
+          ? DETACHED_FOCUS_WINDOW_PROGRESS_ONLY_HEIGHT
+          : DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT)),
     frame: false,
     transparent: true,
     resizable: false,
@@ -2901,9 +3095,16 @@ function createDetachedFocusWindow(): void {
 
   detachedFocusWindow.setAlwaysOnTop?.(true, 'screen-saver');
   detachedFocusWindow.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreen: true });
-  detachedFocusWindow.loadURL?.(
+  const loadResult = detachedFocusWindow.loadURL?.(
     `data:text/html;charset=UTF-8,${encodeURIComponent(buildDetachedFocusWindowHtmlV2(initialState))}`
   );
+  Promise.resolve(loadResult).catch((error) => {
+    console.error('[Pinch focus capsule] Failed to load detached focus window', error);
+  });
+  detachedFocusWindow.showInactive?.();
+  if (!detachedFocusWindow.isVisible?.()) {
+    detachedFocusWindow.show?.();
+  }
 
   detachedFocusWindow.webContents?.on?.('did-finish-load', () => {
     detachedFocusWindow.showInactive?.();
@@ -2947,6 +3148,7 @@ export function syncDetachedFocusWindow(
   latestLinkedTarget = linkedTarget;
 
   if (!isDetachedFocusWindowSupported()) {
+    console.warn('[Pinch focus capsule] Detached focus window is not supported');
     return;
   }
 

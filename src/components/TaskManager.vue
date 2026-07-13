@@ -352,6 +352,7 @@
           :is-archived="isActiveTaskArchived"
           :show-delete="!!activeTaskEditTask"
           :show-focus="!!activeTaskEditTask"
+          :show-open-content="!!activeTaskEditTask"
           @backdrop-click="closeTaskEditorSidebar"
           @panel-mousedown="handleTaskEditorSidebarPanelMouseDown"
           @pin="handleTaskEditorPinToggle"
@@ -359,6 +360,7 @@
           @archive="handleTaskEditorArchiveToggle"
           @delete="handleTaskEditorDelete"
           @focus="handleTaskEditorStartFocus"
+          @open-content="handleTaskEditorOpenContent"
           @close="closeTaskEditorSidebar"
         >
           <TaskEditorProtyleBody
@@ -395,6 +397,9 @@
             :reminder-custom-time="activeTaskEditDraft.reminderCustomTime || ''"
             :reminder-text="taskEditorReminderText"
             :has-reminder="taskEditorHasReminder"
+            :focus-estimate="activeTaskEditDraft.focusEstimate"
+            :actual-focus-minutes="taskEditorActualFocus.minutes"
+            :actual-focus-sessions="taskEditorActualFocus.sessions"
             :status="activeTaskEditDraft.status"
             :priority="activeTaskEditDraft.priority || 'none'"
             :repeat-frequency="taskEditorRepeatFrequency"
@@ -412,6 +417,8 @@
             @select-goal="selectTaskEditorGoal"
             @select-reminder="handleTaskEditorReminderSelect"
             @select-status="handleTaskEditorStatusSelect"
+            @save-focus-estimate="handleTaskEditorFocusEstimateSave"
+            @open-focus-estimate="void refreshTaskEditorActualFocus()"
             @select-priority="handleTaskEditorPrioritySelect"
             @save-repeat-rule="handleTaskEditorRepeatRuleSave"
             @commit-description="handleTaskEditorDescriptionCommit"
@@ -574,7 +581,6 @@
                 :disable-context-menu="shouldEnableMobileCalendarDrag()"
                 :ref="(el) => setTaskRowRef(task.id, el)"
                 @card-click="handleTaskCardClick"
-                @open-click="handleTaskCardOpenClick"
                 @start-focus="handleTaskCardStartFocus"
                 @toggle-status="handleTaskCardToggleStatus"
                 @toggle-expand="handleCardToggleExpand"
@@ -628,7 +634,6 @@
               :disable-context-menu="shouldEnableMobileCalendarDrag()"
                 :ref="(el) => setTaskRowRef(task.id, el)"
                 @card-click="handleTaskCardClick"
-                @open-click="handleTaskCardOpenClick"
                 @start-focus="handleTaskCardStartFocus"
                 @toggle-status="handleTaskCardToggleStatus"
                 @toggle-expand="handleCardToggleExpand"
@@ -777,8 +782,8 @@ import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
 import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
 import TaskQuickMetaMenu from '@/components/TaskQuickMetaMenu.vue';
-import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, lsNotebooks, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
-import { syncTaskStatusAttrsIfNeeded, updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
+import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
+import { updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { openKanbanView, usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useGoals } from '@/composables/useGoals';
@@ -790,7 +795,23 @@ import {
   taskMatchesDocumentScope
 } from '@/utils/taskDocumentScope';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
+import {
+  TASK_GROUP_NONE_ID,
+  buildTaskGroupOptions,
+  getTaskGroupColorValue,
+  normalizeTaskGroupOrderIds
+} from '@/utils/taskGroupShared';
+import { buildTaskPriorityOptions } from '@/utils/taskPriority';
+import {
+  TASK_STATUS_VALUES,
+  buildTaskStatusFilterOptions,
+  buildTaskStatusSelectOptions,
+  getTaskStatusLabel
+} from '@/utils/taskStatus';
 import { eventBus, Events } from '@/utils/eventBus';
+import { publishTaskChange, type TaskChangePayload } from '@/utils/taskChangeCoordinator';
+import { syncTaskEditorDraftFromAttributeChanges } from '@/utils/taskEditorDraftSync';
+import { createTaskStatusAttributeSync } from '@/utils/taskStatusAttributeSync';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { formatMonthDay } from '@/utils/dateHelpers';
@@ -987,6 +1008,7 @@ interface TaskEditDraft {
   reminderCustomTime: string;
   tags: string[];
   groupId: string;
+  focusEstimate?: NonNullable<Task['focusEstimate']>;
 }
 type TaskEditorDateFields = Pick<TaskEditDraft, 'startDate' | 'startTime' | 'dueDate' | 'dueTime'>;
 interface TaskQuickMetaDraft extends TaskEditorDateFields {
@@ -999,7 +1021,7 @@ interface TaskQuickMetaDraft extends TaskEditorDateFields {
 }
 type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
 type TaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
-type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks';
+type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks' | 'hasFocusEstimate';
 type TaskListViewMode = 'kanban' | 'list';
 type TaskListGroupMode = 'none' | 'status' | 'group' | 'heading' | 'date' | 'document';
 interface TaskGroupedSection {
@@ -1032,6 +1054,7 @@ interface KernelDiagnosticsState {
 }
 
 const taskEditDraft = ref<TaskEditDraft | null>(null);
+const taskEditorActualFocus = ref({ minutes: 0, sessions: 0 });
 const inlineEditingDescriptionTaskId = ref<string | null>(null);
 const inlineDescriptionDraftByTaskId = ref(new Map<string, string>());
 const inlineDescriptionSavingTaskIds = new Set<string>();
@@ -1092,11 +1115,7 @@ function resolveTaskTagSummaryLabel(tagIds: string[]): string {
 }
 
 function resolveTaskPrimaryTagColor(tagIds: string[]): string {
-  const primaryTagId = tagIds[0] || '';
-  if (!primaryTagId) {
-    return '';
-  }
-  return taskGroups.value.find(item => item.id === primaryTagId)?.color || '';
+  return getTaskGroupColorValue(taskGroups.value, tagIds[0] || '');
 }
 
 function getTaskEditorSidebarMountElement(): HTMLElement | null {
@@ -1337,32 +1356,11 @@ let taskTitleHydrateTimer: number | null = null;
 let isTaskTitleHydrating = false;
 let taskHeadingGroupRequestId = 0;
 
-const TASK_GROUP_NONE_ID = '__none__';
 const defaultGroupChipColor = '#9aa0a6';
 type BatchTagActionSelection = TaskTagBatchAction | '';
 interface TaskGroupDialogSavePayload {
   groups: TaskGroup[];
   orderIds: string[];
-}
-
-function normalizeTaskGroupDialogOrderIds(input: unknown): string[] {
-  if (!Array.isArray(input)) {
-    return [];
-  }
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  input.forEach((item) => {
-    if (typeof item !== 'string') {
-      return;
-    }
-    const value = item.trim();
-    if (!value || seen.has(value)) {
-      return;
-    }
-    seen.add(value);
-    normalized.push(value);
-  });
-  return normalized;
 }
 
 let skipCleanupTimer: number | null = null;
@@ -1378,14 +1376,7 @@ const taskListGroupOptions: Array<{ value: TaskListGroupMode; label: string }> =
   { value: 'group', label: t('taskManager.groupByTag') },
   { value: 'heading', label: t('taskManager.groupByHeading') }
 ];
-const batchEditStatusOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: t('taskManager.statusNoChange') },
-  { value: 'pending', text: t('taskManager.statusPending') },
-  { value: 'in-progress', text: t('taskManager.statusInProgress') },
-  { value: 'delayed', text: t('taskManager.statusDelayed') },
-  { value: 'completed', text: t('taskManager.statusCompleted') },
-  { value: 'cancelled', text: t('taskManager.statusCancelled') }
-];
+const batchEditStatusOptions = buildTaskStatusSelectOptions(t);
 const batchEditPriorityOptions: Array<{ value: string; text: string }> = [
   { value: '', text: t('taskManager.priorityNoChange') },
   { value: 'none', text: t('taskManager.priorityNone') },
@@ -1398,14 +1389,7 @@ const batchEditTagActionOptions: Array<{ value: TaskTagBatchAction; text: string
   { value: 'add', text: t('taskManager.batchAddTag') },
   { value: 'remove', text: t('taskManager.batchRemoveTag') }
 ];
-const taskGroupStatusOrder: Task['status'][] = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
-const taskGroupStatusLabel: Record<Task['status'], string> = {
-  'pending': t('taskManager.statusPending'),
-  'in-progress': t('taskManager.statusInProgress'),
-  'delayed': t('taskManager.statusDelayed'),
-  'completed': t('taskManager.statusCompleted'),
-  'cancelled': t('taskManager.statusCancelled')
-};
+const taskGroupStatusOrder: Task['status'][] = [...TASK_STATUS_VALUES];
 
 const taskModalTeleportTo = computed(() => taskModalTeleportTarget.value || 'body');
 const activeTaskEditTask = computed(() =>
@@ -1893,14 +1877,11 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
     await refreshInternalState();
   }
 
-  if (successBlockIds.length > 0) {
-    eventBus.emit(Events.TASK_CHANGED, { blockIds: successBlockIds });
-  }
 }
 
 async function handleTaskGroupSave(payload: TaskGroupDialogSavePayload): Promise<void> {
   const groups = Array.isArray(payload?.groups) ? payload.groups : [];
-  const orderIds = normalizeTaskGroupDialogOrderIds(payload?.orderIds);
+  const orderIds = normalizeTaskGroupOrderIds(payload?.orderIds);
   const removedGroupIds = collectRemovedGroupIds(taskGroups.value, groups);
   let saved = false;
   const nextGroups = (groups || []).map(group => ({ ...group }));
@@ -2506,24 +2487,17 @@ const canSubmitTaskMove = computed(() => {
     && !isTaskMoveSubmitting.value;
 });
 
-const taskGroupPickerOptions = computed(() => {
-  const options = [
-    { value: TASK_GROUP_NONE_ID, label: t('taskManager.noTag'), special: true, color: '', colorCss: '', textColor: '' }
-  ];
-  visibleTaskGroups.value.forEach(group => {
-    const rawColor = group.color || '';
-    options.push({
-      value: group.id,
-      label: group.name,
-      special: false,
-      color: rawColor,
-      colorCss: resolveGroupColorCss(rawColor),
-      borderColor: resolveGroupColorLayerCss(rawColor),
-      textColor: resolveGroupTextColor(rawColor)
-    });
-  });
-  return options;
-});
+const taskGroupPickerOptions = computed(() => buildTaskGroupOptions(
+  visibleTaskGroups.value,
+  {
+    none: t('taskManager.noTag'),
+    fallback: t('taskManager.untitledTag')
+  },
+  {
+    includeColor: true,
+    includeBorderColor: true
+  }
+));
 
 const taskGoalPickerOptions = computed(() => (
   goalDefinitions.value.map(goal => ({
@@ -2582,6 +2556,7 @@ let lastRefreshTime = 0;
 
 let eventUnsubscribers: Array<() => void> = [];
 const processingBlockIds = new Set<string>();
+const queuedIncrementalForceFreshBlockIds = new Set<string>();
 let fallbackRefreshTimer: number | null = null;
 const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 120;
 const INCREMENTAL_QUEUE_DELAY_MS = 8;
@@ -2918,19 +2893,8 @@ watch([taskListViewMode, showTaskCardDetails], () => {
 });
 
 const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
-const taskStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
-  { value: 'pending', label: t('taskManager.statusPending') },
-  { value: 'in-progress', label: t('taskManager.statusInProgress') },
-  { value: 'delayed', label: t('taskManager.statusDelayed') },
-  { value: 'completed', label: t('taskManager.statusCompleted') },
-  { value: 'cancelled', label: t('taskManager.statusCancelled') }
-];
-const taskPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = [
-  { value: 'high', label: t('taskManager.priorityHighLabel') },
-  { value: 'medium', label: t('taskManager.priorityMediumLabel') },
-  { value: 'low', label: t('taskManager.priorityLowLabel') },
-  { value: 'none', label: t('taskManager.priorityNoneLabel') }
-];
+const taskStatusFilterOptions: Array<{ value: Task['status']; label: string }> = buildTaskStatusFilterOptions(t);
+const taskPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = buildTaskPriorityOptions(t);
 const taskDueFilterOptions: Array<{ value: TaskDueFilterKey; label: string }> = [
   { value: 'overdue', label: t('taskManager.dueOverdue') },
   { value: 'today', label: t('taskManager.dueToday') },
@@ -2944,7 +2908,8 @@ const taskUpdatedFilterOptions: Array<{ value: TaskUpdateFilterKey; label: strin
 ];
 const taskExtraFilterOptions: Array<{ value: TaskExtraFilterKey; label: string }> = [
   { value: 'hasDescription', label: t('taskManager.hasDescription') },
-  { value: 'hasSubtasks', label: t('taskManager.hasSubtasks') }
+  { value: 'hasSubtasks', label: t('taskManager.hasSubtasks') },
+  { value: 'hasFocusEstimate', label: t('taskManager.hasFocusEstimate') }
 ];
 const taskStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(taskStatusFilterOptions.map(option => option.value));
 const taskPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(taskPriorityFilterOptions.map(option => option.value));
@@ -3788,16 +3753,15 @@ function matchesTaskFilterChips(task: Task): boolean {
   if (activeTaskExtraFilters.value.length > 0) {
     const wantsDescription = activeTaskExtraFilters.value.includes('hasDescription');
     const wantsSubtasks = activeTaskExtraFilters.value.includes('hasSubtasks');
+    const wantsFocusEstimate = activeTaskExtraFilters.value.includes('hasFocusEstimate');
     const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
     const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
+    const hasFocusEstimate = !!task.focusEstimate;
 
-    if (wantsDescription && wantsSubtasks) {
-      if (!hasDescription && !hasSubtasks) {
-        return false;
-      }
-    } else if (wantsDescription && !hasDescription) {
-      return false;
-    } else if (wantsSubtasks && !hasSubtasks) {
+    if ((wantsDescription && hasDescription) || (wantsSubtasks && hasSubtasks) || (wantsFocusEstimate && hasFocusEstimate)) {
+      return true;
+    }
+    if (wantsDescription || wantsSubtasks || wantsFocusEstimate) {
       return false;
     }
   }
@@ -4309,7 +4273,7 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
     return prependPinnedSection(taskGroupStatusOrder
       .map((status, index) => ({
         key: `status:${status}`,
-        label: taskGroupStatusLabel[status],
+        label: getTaskStatusLabel(status, t),
         tasks: grouped.get(status) || [],
         order: index
       }))
@@ -5419,6 +5383,10 @@ function isDeepEqual(oldItem: any, newItem: any, options: { checkUpdatedAt?: boo
   if (parentFields.some(f => oldItem[f] !== newItem[f])) {
     return false;
   }
+
+  if (JSON.stringify(oldItem.focusEstimate) !== JSON.stringify(newItem.focusEstimate)) {
+    return false;
+  }
   
   if (oldItem.startDate !== newItem.startDate || oldItem.dueDate !== newItem.dueDate) {
     return false;
@@ -5464,7 +5432,13 @@ const incrementalUpdateQueue = createBlockIdBatchQueue({
   flushDelayMs: INCREMENTAL_QUEUE_DELAY_MS,
   followupDelayMs: INCREMENTAL_QUEUE_DELAY_MS,
   onFlushBatch: async (blockIds) => {
-    await incrementalUpdateTasks(blockIds);
+    let forceFresh = false;
+    blockIds.forEach((blockId) => {
+      if (queuedIncrementalForceFreshBlockIds.delete(blockId)) {
+        forceFresh = true;
+      }
+    });
+    await incrementalUpdateTasks(blockIds, { forceFresh });
   }
 });
 
@@ -5552,71 +5526,56 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
   return changed;
 }
 
-function queueIncrementalUpdates(blockIds: string[], delay = INCREMENTAL_QUEUE_DELAY_MS): void {
+function queueIncrementalUpdates(
+  blockIds: string[],
+  delay = INCREMENTAL_QUEUE_DELAY_MS,
+  forceFresh = false
+): void {
   if (!Array.isArray(blockIds) || blockIds.length === 0) {
     return;
+  }
+  if (forceFresh) {
+    blockIds.forEach((blockId) => {
+      if (typeof blockId === 'string' && blockId.length > 0) {
+        queuedIncrementalForceFreshBlockIds.add(blockId);
+      }
+    });
   }
   applyImmediateLiveDomTaskPatch(blockIds);
   incrementalUpdateQueue.enqueue(blockIds, delay);
 }
 
-const pendingExternalTaskStatusAttrSync = new Map<string, { status: Task['status']; completedAt?: string }>();
-
-function queueExternalTaskStatusAttrSync(
-  blockId: string,
-  status: Task['status'],
-  completedAt?: string
-): void {
-  if (typeof blockId !== 'string' || blockId.trim().length === 0) {
-    return;
+const {
+  queue: queueExternalTaskStatusAttrSync,
+  flush: flushExternalTaskStatusAttrSync
+} = createTaskStatusAttributeSync({
+  onApplied: () => TaskRepository.clearCache(),
+  onError: (blockId, error) => {
+    console.warn('[TaskManager] Failed to sync task completion attrs:', { blockId, error });
   }
-  pendingExternalTaskStatusAttrSync.set(blockId, {
-    status,
-    completedAt: typeof completedAt === 'string' && completedAt.trim().length > 0
-      ? completedAt.trim()
-      : undefined
-  });
-}
-
-async function flushExternalTaskStatusAttrSync(blockIds: Iterable<string>): Promise<void> {
-  const entries = Array.from(new Set(Array.from(blockIds)))
-    .map((blockId) => {
-      const sync = pendingExternalTaskStatusAttrSync.get(blockId);
-      return sync ? { blockId, ...sync } : null;
-    })
-    .filter((entry): entry is { blockId: string; status: Task['status']; completedAt?: string } => !!entry);
-
-  if (entries.length === 0) {
-    return;
-  }
-
-  entries.forEach(entry => pendingExternalTaskStatusAttrSync.delete(entry.blockId));
-
-  const results = await Promise.allSettled(entries.map((entry) =>
-    syncTaskStatusAttrsIfNeeded(entry.blockId, entry.status, entry.completedAt)
-  ));
-  const hasApplied = results.some(result => result.status === 'fulfilled' && result.value === true);
-  results.forEach((result, index) => {
-    if (result.status === 'rejected') {
-      console.warn('[TaskManager] Failed to sync task completion attrs:', {
-        blockId: entries[index]?.blockId,
-        error: result.reason
-      });
-    }
-  });
-
-  if (hasApplied) {
-    await TaskRepository.clearCache();
-  }
-}
+});
 
 
 
 function setupEventListeners() {
-  const unsubscribe = eventBus.on(Events.TASK_CHANGED, (data?: { blockIds?: string[] }) => {
+  const unsubscribe = eventBus.on(Events.TASK_CHANGED, (data?: TaskChangePayload) => {
     scheduleTaskDocumentOptionsRefresh();
     if (data?.blockIds && data.blockIds.length > 0) {
-      queueIncrementalUpdates(data.blockIds);
+      if (data.attributeChanges) {
+        syncTaskEditorDraftFromAttributeChanges(
+          activeTaskEditTask.value,
+          activeTaskEditDraft.value,
+          data.attributeChanges
+        );
+        invalidateCache();
+        invalidateSortCache();
+        updateTaskIndex();
+      }
+      queueIncrementalUpdates(
+        data.blockIds,
+        INCREMENTAL_QUEUE_DELAY_MS,
+        data.forceRefresh === true
+      );
     } else {
       scheduleFallbackRefresh(true, IMMEDIATE_FALLBACK_DELAY_MS, 'immediate');
     }
@@ -5673,7 +5632,7 @@ function setupEventListeners() {
   
   
 
-  const unsubscribeDateChanged = eventBus.on('task-date-changed', (updatedTask: Task) => {
+  const unsubscribeDateChanged = eventBus.on(Events.TASK_DATE_CHANGED, (updatedTask: Task) => {
     const now = Date.now();
     const taskId = typeof updatedTask.id === 'string' ? updatedTask.id : '';
     const blockId = typeof updatedTask.blockId === 'string' ? updatedTask.blockId.trim() : '';
@@ -5859,7 +5818,10 @@ function setupEventListeners() {
   );
 }
 
-async function incrementalUpdateTasks(blockIds: string[]) { 
+async function incrementalUpdateTasks(
+  blockIds: string[],
+  options: { forceFresh?: boolean } = {}
+) { 
   if (requiresScopeInitialization.value) {
     return;
   }
@@ -5898,7 +5860,7 @@ async function incrementalUpdateTasks(blockIds: string[]) {
       uniqueBlockIds,
       false,
       getCurrentTaskQueryScope(),
-      { useLiveDom: true }
+      { useLiveDom: true, forceFresh: options.forceFresh === true }
     );
     
     const updatedTasks: Task[] = [];
@@ -6569,7 +6531,8 @@ function createTaskEditDraft(task: Task): TaskEditDraft {
     reminderType: normalizedReminder.reminderType,
     reminderCustomTime: normalizedReminder.reminderCustomTime,
     tags: tagState.tagIds,
-    groupId: tagState.primaryTagId
+    groupId: tagState.primaryTagId,
+    focusEstimate: task.focusEstimate
   };
 }
 
@@ -6646,6 +6609,7 @@ function cleanupEventListeners() {
   }
   clearTaskDocumentOptionsRefreshTimer();
   incrementalUpdateQueue.clear();
+  queuedIncrementalForceFreshBlockIds.clear();
 }
 
 async function toggleTaskStatus(task: Task) {
@@ -6686,8 +6650,8 @@ async function toggleTaskStatus(task: Task) {
     
     await refreshInternalState();
     
-    if (!isVirtualRepeatTask) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: task.blockId ? [task.blockId] : [] });
+    if (!isVirtualRepeatTask && !(task.type === 'block' && task.blockId)) {
+      publishTaskChange(task.blockId ? [task.blockId] : []);
     }
     if (shouldPlayCompletionSound && taskCompletionSoundEnabled.value) {
       playTaskCompletionSound();
@@ -6922,7 +6886,6 @@ async function handleTaskEditorArchiveToggle(): Promise<void> {
     return;
   }
 
-  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
   const shouldUnarchive = task.archived === true;
   const nowIso = new Date().toISOString();
 
@@ -6936,9 +6899,6 @@ async function handleTaskEditorArchiveToggle(): Promise<void> {
         currentTask.updatedAt = nowIso;
       }, 'id');
       await refreshInternalState();
-      if (blockId) {
-        eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
-      }
       return;
     }
 
@@ -6951,9 +6911,6 @@ async function handleTaskEditorArchiveToggle(): Promise<void> {
     }, 'id');
     await refreshInternalState();
     closeTaskEditorSidebar();
-    if (blockId) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
-    }
   } catch {
   }
 }
@@ -7259,6 +7216,7 @@ async function resolveTaskEditorTargetTask(task: Task): Promise<Task> {
 
 async function openTaskEditorFromMenu(task: Task): Promise<void> {
   const targetTask = await resolveTaskEditorTargetTask(task);
+  await hydrateTaskFocusEstimate(targetTask);
   const taskId = typeof targetTask.id === 'string' ? targetTask.id : '';
   if (!taskId) {
     return;
@@ -7279,14 +7237,6 @@ function handleTaskCardClick(task: Task): void {
     return;
   }
   void openTaskEditorFromMenu(task);
-}
-
-function handleTaskCardOpenClick(task: Task): void {
-  if (isBatchEditMode.value) {
-    toggleTaskBatchSelection(task.id);
-    return;
-  }
-  void handleTaskClick(task);
 }
 
 function handleTaskCardStartFocus(task: Task): void {
@@ -7322,6 +7272,43 @@ function handleTaskEditorStartFocus(): void {
 
   closeTaskEditorSidebar();
   emit('startFocus', task);
+}
+
+async function hydrateTaskFocusEstimate(task: Task): Promise<void> {
+  const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+  if (!blockId) return;
+  try {
+    const attrs = await getBlockAttrs(blockId);
+    const focusEstimate = parseTaskFocusEstimate(attrs['custom-task-focus-estimate']);
+    task.focusEstimate = focusEstimate;
+    patchTask(tasks.value, task.id, item => { item.focusEstimate = focusEstimate; }, 'id');
+  } catch {
+    // The editor can still open when attributes are temporarily unavailable.
+  }
+}
+
+function handleTaskEditorFocusEstimateSave(value: Task['focusEstimate']): void {
+  if (!activeTaskEditTask.value || !activeTaskEditDraft.value) return;
+  void quickSaveTaskFocusEstimate(activeTaskEditTask.value, value);
+}
+
+async function refreshTaskEditorActualFocus(): Promise<void> {
+  const task = activeTaskEditTask.value;
+  if (!task) return;
+  const data = await getFocusTimerData();
+  const records = data.sessionRecords.filter(record => record.targetType === 'task' && (record.targetId === task.id || record.targetBlockId === task.blockId));
+  taskEditorActualFocus.value = {
+    minutes: records.reduce((total, record) => total + Math.max(0, record.minutes || 0), 0),
+    sessions: records.length
+  };
+}
+
+function handleTaskEditorOpenContent(): void {
+  const task = activeTaskEditTask.value;
+  if (!task) {
+    return;
+  }
+  void handleTaskClick(task);
 }
 
 function handleTaskCardToggleStatus(task: Task): void {
@@ -7422,7 +7409,6 @@ interface TaskEditorFieldUpdateOptions {
   syncTask: (task: Task) => void;
   syncCrdt: () => void;
   beforePersist?: (blockId: string) => Promise<void>;
-  emitTaskChanged?: boolean;
   refreshKernelIndex?: boolean;
 }
 
@@ -7457,9 +7443,6 @@ async function applyTaskEditorFieldUpdate(
       targetTask.updatedAt = new Date().toISOString();
     }, 'id');
     await refreshInternalState();
-    if (options.emitTaskChanged && task.blockId) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
-    }
     if (options.refreshKernelIndex) {
       scheduleKernelTaskIndexRefresh();
     }
@@ -7523,10 +7506,7 @@ async function handleTaskQuickDateSave(): Promise<void> {
 
     const nowIso = new Date().toISOString();
     const updatedTask = applyTaskDateFieldsLocally(task, nextFields, nowIso);
-    eventBus.emit('task-date-changed', updatedTask);
-    if (blockId) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
-    }
+    eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
     scheduleKernelTaskIndexRefresh();
     await refreshInternalState();
     closeTaskQuickDateMenu();
@@ -7600,7 +7580,8 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
       Object.assign(attrsToPersist, buildTaskReminderAttrs(nextReminder));
     }
 
-    if (task.type === 'block' && blockId && Object.keys(attrsToPersist).length > 0) {
+    const hasPersistedTaskAttrs = Object.keys(attrsToPersist).length > 0;
+    if (task.type === 'block' && blockId && hasPersistedTaskAttrs) {
       await setBlockAttrs(blockId, attrsToPersist);
       await TaskRepository.clearCache();
     }
@@ -7608,7 +7589,7 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
     const nowIso = new Date().toISOString();
     if (datesChanged && !dateSavedByRepeat) {
       const updatedTask = applyTaskDateFieldsLocally(task, nextFields, nowIso);
-      eventBus.emit('task-date-changed', updatedTask);
+      eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
     }
     if (priorityChanged || tagsChanged || reminderChanged) {
       if (priorityChanged) {
@@ -7642,8 +7623,8 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
       goalDefinitions.value = nextGoals;
       await saveGoalDefinitions(nextGoals);
     }
-    if (blockId) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
+    if (blockId && !hasPersistedTaskAttrs) {
+      publishTaskChange([blockId]);
     }
     if (datesChanged) {
       scheduleKernelTaskIndexRefresh();
@@ -7781,7 +7762,6 @@ async function applyBatchEdit(): Promise<void> {
     );
 
     const nowIso = new Date().toISOString();
-    const changedBlockIds: string[] = [];
     let successCount = 0;
     let failedCount = 0;
     let hasNewlyCompletedTask = false;
@@ -7797,7 +7777,6 @@ async function applyBatchEdit(): Promise<void> {
       }
 
       successCount += 1;
-      changedBlockIds.push(update.blockId);
 
       patchTask(tasks.value, update.task.id, (targetTask) => {
         if (update.nextStatus) {
@@ -7852,9 +7831,6 @@ async function applyBatchEdit(): Promise<void> {
     });
 
     await refreshInternalState();
-    if (changedBlockIds.length > 0) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: changedBlockIds });
-    }
     if (hasNewlyCompletedTask && taskCompletionSoundEnabled.value) {
       playTaskCompletionSound();
     }
@@ -7893,8 +7869,7 @@ async function quickSaveTaskStatus(task: Task, status: Task['status']): Promise<
     },
     beforePersist: async (blockId) => {
       await updateTaskMarkdown(blockId, status === 'completed');
-    },
-    emitTaskChanged: true
+    }
   });
 
   if (!wasCompleted && status === 'completed' && taskCompletionSoundEnabled.value) {
@@ -7923,6 +7898,17 @@ async function quickSaveTaskPriority(task: Task, priority: Task['priority']): Pr
   });
 }
 
+async function quickSaveTaskFocusEstimate(task: Task, focusEstimate: Task['focusEstimate']): Promise<void> {
+  await applyTaskEditorFieldUpdate(task, {
+    attrs: { 'custom-task-focus-estimate': serializeTaskFocusEstimate(focusEstimate) },
+    isUnchanged: draft => JSON.stringify(draft.focusEstimate) === JSON.stringify(focusEstimate) && JSON.stringify(task.focusEstimate) === JSON.stringify(focusEstimate),
+    syncDraft: draft => { draft.focusEstimate = focusEstimate; },
+    syncTask: targetTask => { targetTask.focusEstimate = focusEstimate; },
+    // focusEstimate is stored as a block attribute; snapshots retain it in CRDT metadata.
+    syncCrdt: () => {}
+  });
+}
+
 async function quickSaveTaskPinned(task: Task, pinned: boolean): Promise<void> {
   await applyTaskEditorFieldUpdate(task, {
     attrs: {
@@ -7937,8 +7923,7 @@ async function quickSaveTaskPinned(task: Task, pinned: boolean): Promise<void> {
     },
     syncCrdt: () => {
       crdtRepo.updateTaskField(task.id, 'pinned', pinned);
-    },
-    emitTaskChanged: true
+    }
   });
 }
 
@@ -8079,7 +8064,7 @@ async function saveRepeatTaskDateFields(
     });
     taskEditorRepeatFrequency.value = 'none';
     taskEditorRepeatRule.value = null;
-    eventBus.emit('task-date-changed', updatedTask);
+    eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
 
     if (blockId) {
       await TaskRepository.updateTask(targetTask.id, {
@@ -8143,7 +8128,7 @@ async function saveRepeatTaskDateFields(
     isVirtual: false
   });
 
-  eventBus.emit('task-date-changed', updatedTask);
+  eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
   notifyRepeatChanged({
     blockId: persistedBlockId,
     seriesId: updatedSeries.id,
@@ -8210,7 +8195,6 @@ async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields):
       crdtRepo.updateTaskField(task.id, 'dueDate', normalizedFields.dueDate);
       crdtRepo.updateTaskField(task.id, 'dueTime', normalizedFields.dueTime);
     },
-    emitTaskChanged: true,
     refreshKernelIndex: true
   });
   if (!updated) {
@@ -8225,7 +8209,7 @@ async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields):
     dueTime: normalizedFields.dueTime,
     updatedAt: currentTask?.updatedAt || new Date().toISOString()
   };
-  eventBus.emit('task-date-changed', updatedTask);
+  eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
 }
 
 async function quickSaveTaskRepeatRule(task: Task, repeat: RepeatFrequency | RepeatRuleInput): Promise<void> {
@@ -8307,8 +8291,7 @@ async function quickSaveTaskReminder(task: Task, value: TaskReminderSelection): 
     syncCrdt: () => {
       crdtRepo.updateTaskField(task.id, 'reminderType', normalizedReminder.reminderType);
       crdtRepo.updateTaskField(task.id, 'reminderCustomTime', normalizedReminder.reminderCustomTimeValue);
-    },
-    emitTaskChanged: true
+    }
   });
 }
 

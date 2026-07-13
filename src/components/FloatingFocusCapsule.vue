@@ -4,7 +4,13 @@
       <div
         ref="capsuleRef"
         class="floating-focus__capsule"
-        :class="{ 'is-paused': isPaused, 'is-dragging': isDragging }"
+        :class="{
+          'is-paused': isPaused,
+          'is-dragging': isDragging,
+          'is-compact': !linkedTarget && !isActive,
+          'is-progress-only': !linkedTarget && isActive,
+          'has-linked-target': !!linkedTarget
+        }"
         :style="progressStyle"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
@@ -19,9 +25,10 @@
           :aria-label="t('focusTimer.closeMiniFocus')"
           @click.stop="closeInlineMiniFocus"
         >
-          <Icon name="close" width="10" height="10" class="icon" />
+          <Icon name="close" width="8" height="8" class="icon" />
         </button>
         <button
+          v-if="!isActive"
           type="button"
           class="floating-focus__dot ariaLabel"
           data-no-drag
@@ -61,7 +68,20 @@
           {{ focusDurationButtonText }}
         </button>
         <span v-else class="floating-focus__time">{{ displayTime }}</span>
+        <div v-if="linkedTarget || isActive" class="floating-focus__progress-track" aria-hidden="true">
+          <span class="floating-focus__progress-fill"></span>
+        </div>
         <div class="floating-focus__actions">
+          <button
+            v-if="isActive"
+            type="button"
+            class="floating-focus__action is-stop ariaLabel"
+            data-no-drag
+            :aria-label="t('focusTimer.stop')"
+            @click.stop="stopTimer(true)"
+          >
+            <Icon name="stop" width="12" height="12" class="icon" />
+          </button>
           <button
             type="button"
             class="floating-focus__action ariaLabel"
@@ -72,17 +92,6 @@
             @click.stop="toggleStartPause"
           >
             <Icon :name="actionIcon" width="12" height="12" class="icon" />
-          </button>
-          <button
-            v-if="isActive"
-            type="button"
-            class="floating-focus__action is-stop ariaLabel"
-            data-no-drag
-           
-            :aria-label="t('focusTimer.stop')"
-            @click.stop="stopTimer(true)"
-          >
-            <Icon name="stop" width="12" height="12" class="icon" />
           </button>
         </div>
         <div
@@ -106,7 +115,7 @@
                   :aria-label="linkedTargetLabel"
                   @click="openLinkedTarget"
                 >
-                  <span class="linked-habit-banner__emoji">{{ linkedTargetDisplayEmoji }}</span>
+                  <FocusTargetIcon class="linked-habit-banner__emoji" :icon="linkedTargetDisplayEmoji" />
                   <span class="linked-habit-banner__name">{{ linkedTargetLabel }}</span>
                   <Icon v-if="canOpenLinkedTarget" name="open" width="12" height="12" class="icon" />
                 </button>
@@ -176,7 +185,7 @@
                     @click="selectLinkedTarget(target)"
                   >
                     <span class="linked-habit-banner__picker-item-main">
-                      <span class="linked-habit-banner__emoji">{{ getTargetEmoji(target) }}</span>
+                      <FocusTargetIcon class="linked-habit-banner__emoji" :icon="getTargetEmoji(target)" />
                       <span class="linked-habit-banner__picker-item-name">{{ target.name }}</span>
                     </span>
                     <span
@@ -288,9 +297,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
+import FocusTargetIcon from '@/components/FocusTargetIcon.vue';
 import { addFocusSession, upsertFocusSessionRecord } from '@/api';
 import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 import { useI18n } from '@/composables/useI18n';
+import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
+import { useUserSettings } from '@/composables/useUserSettings';
+import { playTaskCompletionSound, prepareTaskCompletionSound } from '@/utils/completionSound';
 import { awardFocusSession } from '@/rewardRepository';
 import {
   closeDetachedFocusWindow,
@@ -329,8 +342,10 @@ const emit = defineEmits<{
   'clear-linked-target': [];
   'complete-linked-target': [target: FocusTimerLinkedTarget];
   'disable-floating-focus': [];
+  'micro-break-change': [visible: boolean, remainingSeconds: number];
 }>();
 const { t } = useI18n();
+const { data: userSettings, loadSettings } = useUserSettings();
 
 const STORAGE_KEY = 'pinch-floating-focus-position';
 const EDGE_PADDING = 12;
@@ -350,6 +365,7 @@ const isHostWindowDetached = ref(false);
 const detachedFocusOwnsState = ref(false);
 let unsubscribeHostWindowState: (() => void) | null = null;
 let restoreDetachedFocusPromise: Promise<void> | null = null;
+let hostWindowSyncTimer: number | null = null;
 let hasLoadedPosition = false;
 
 const durationMarks = [5, 10, 15, 25, 30, 45, 60];
@@ -393,6 +409,33 @@ const targetOptionsError = ref('');
 const habitTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
 const taskTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
 
+const showMicroBreakNotification = (title: string, body: string) => {
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    new Notification(title, { body, icon: '☕' });
+  }
+};
+
+const {
+  isMicroBreakVisible,
+  remainingMicroBreakSeconds,
+  startMicroBreakReminder,
+  stopMicroBreakReminder
+} = useMicroBreakReminder({
+  settings: computed(() => userSettings.focus),
+  notify: showMicroBreakNotification,
+  playSound: () => playTaskCompletionSound(0.3),
+  getText: (key) => ({
+    startTitle: t('focusTimer.microBreakStartTitle'),
+    startBody: t('focusTimer.microBreakStartBody'),
+    endTitle: t('focusTimer.microBreakEndTitle'),
+    endBody: t('focusTimer.microBreakEndBody')
+  })[key]
+});
+
+watch([isMicroBreakVisible, remainingMicroBreakSeconds], ([visible, remainingSeconds]) => {
+  emit('micro-break-change', visible, remainingSeconds);
+}, { immediate: true });
+
 const teleportTarget = computed(() => containerEl.value || 'body');
 const shouldUseDetachedFocusWindow = computed(() =>
   props.enabled && supportsDetachedFocusWindow && isHostWindowDetached.value
@@ -409,7 +452,7 @@ const focusDurationValueText = computed(() =>
   timerMode.value === 'countup' ? t('focusTimer.countup') : `${selectedDuration.value}${t('focusTimer.minuteSuffix')}`
 );
 const focusDurationButtonText = computed(() =>
-  timerMode.value === 'countup' ? `${t('focusTimer.title')} ${t('focusTimer.infinity')}` : `${t('focusTimer.title')} ${durationMinutes.value}m`
+  timerMode.value === 'countup' ? '00:00' : `${String(durationMinutes.value).padStart(2, '0')}:00`
 );
 const isLinkedTargetLocked = computed(() => isRunning.value || isPaused.value);
 const linkedTargetLabel = computed(() => {
@@ -456,15 +499,12 @@ const progress = computed(() => {
   if (!isActive.value) return 0;
   const total = phaseDurationSeconds.value;
   if (!total) return 0;
-  const elapsed = Math.min(Math.max(phaseElapsedSeconds.value, 0), total);
-  return elapsed / total;
+  return Math.min(Math.max(phaseElapsedSeconds.value, 0), total) / total;
 });
-
-const progressColor = computed(() => (isBreakMode.value ? '#4dab9a' : '#f98f7a'));
 
 const progressStyle = computed(() => ({
   '--progress': progress.value.toString(),
-  '--progress-color': progressColor.value
+  '--progress-color': isBreakMode.value ? '#4dab9a' : '#f98f7a'
 }));
 
 const wrapperStyle = computed(() => ({
@@ -775,6 +815,7 @@ const startPhaseTimer = () => {
 };
 
 const completeTimer = async () => {
+  stopMicroBreakReminder();
   if (!isBreakMode.value) {
     try {
       await recordFocusSession(selectedDuration.value);
@@ -814,6 +855,8 @@ const startTimer = () => {
   clearTimer();
   isRunning.value = true;
   isPaused.value = false;
+  prepareTaskCompletionSound();
+  startMicroBreakReminder();
   startPhaseTimer();
 };
 
@@ -821,6 +864,7 @@ const pauseTimer = () => {
   if (!isRunning.value) return;
   void saveCountupCheckpoint(false);
   clearTimer();
+  stopMicroBreakReminder();
   isRunning.value = false;
   isPaused.value = true;
 };
@@ -829,6 +873,8 @@ const resumeTimer = () => {
   if (!isPaused.value) return;
   isRunning.value = true;
   isPaused.value = false;
+  prepareTaskCompletionSound();
+  startMicroBreakReminder();
   startPhaseTimer();
 };
 
@@ -841,6 +887,7 @@ const stopTimer = async (recordCurrentSession: boolean = false) => {
   }
 
   clearTimer();
+  stopMicroBreakReminder();
   isRunning.value = false;
   isPaused.value = false;
   isBreakMode.value = false;
@@ -1172,6 +1219,14 @@ const handleContainerResize = () => {
   handleResize();
 };
 
+const handleDocumentVisibilityChange = () => {
+  if (!supportsDetachedFocusWindow) return;
+  const detached = document.hidden;
+  if (detached === isHostWindowDetached.value) return;
+  isHostWindowDetached.value = detached;
+  syncDetachedFocusWindowVisibility();
+};
+
 const restoreDetachedStateToInline = () => {
   if (restoreDetachedFocusPromise) {
     return restoreDetachedFocusPromise;
@@ -1193,6 +1248,7 @@ const restoreDetachedStateToInline = () => {
     ensureInlineCapsuleHost();
   })().finally(() => {
     restoreDetachedFocusPromise = null;
+    syncDetachedFocusWindowVisibility();
   });
 
   return restoreDetachedFocusPromise;
@@ -1279,14 +1335,27 @@ watch(isLinkedTargetLocked, (locked) => {
   }
 });
 
-onMounted(() => {
+onMounted(async () => {
+  await loadSettings();
   if (supportsDetachedFocusWindow) {
     unsubscribeHostWindowState = subscribeDetachedFocusHostWindowState((detached) => {
       isHostWindowDetached.value = detached;
+      syncDetachedFocusWindowVisibility();
+
+      if (hostWindowSyncTimer !== null) {
+        window.clearTimeout(hostWindowSyncTimer);
+      }
+      hostWindowSyncTimer = window.setTimeout(() => {
+        hostWindowSyncTimer = null;
+        if (isHostWindowDetached.value && props.enabled) {
+          syncDetachedFocusWindowVisibility();
+        }
+      }, 250);
     });
   }
 
   window.addEventListener('resize', handleResize);
+  document.addEventListener('visibilitychange', handleDocumentVisibilityChange);
   document.addEventListener('mousedown', handleDocumentClick);
 
   syncDetachedFocusWindowVisibility();
@@ -1295,7 +1364,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   unsubscribeHostWindowState?.();
   unsubscribeHostWindowState = null;
+  if (hostWindowSyncTimer !== null) {
+    window.clearTimeout(hostWindowSyncTimer);
+    hostWindowSyncTimer = null;
+  }
   window.removeEventListener('resize', handleResize);
+  document.removeEventListener('visibilitychange', handleDocumentVisibilityChange);
   if (containerResizeObserver.value) {
     containerResizeObserver.value.disconnect();
     containerResizeObserver.value = null;
@@ -1325,16 +1399,19 @@ defineExpose({
 
 .floating-focus__capsule {
   position: relative;
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 17px minmax(44px, 1fr) 22px auto;
+  grid-template-rows: minmax(53px, 1fr) 17px;
   align-items: center;
-  gap: 6px;
-  min-width: 120px;
-  min-height: 24px;
-  padding: 7px 10px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--b3-border-color);
+  gap: 0 4px;
+  width: 165px;
+  height: 83px;
+  padding: 5px;
+  box-sizing: border-box;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--b3-border-color) 65%, transparent);
   background: var(--b3-theme-background);
-  box-shadow: var(--b3-point-shadow);
+  box-shadow: var(--pinch-shadow);
   color: var(--b3-theme-on-background);
   font-size: 12px;
   font-weight: 600;
@@ -1342,38 +1419,18 @@ defineExpose({
   cursor: grab;
   touch-action: none;
   pointer-events: auto;
-  --progress: 0;
-  --progress-color: #f98f7a;
 }
 
 .floating-focus__capsule.is-dragging {
   cursor: grabbing;
 }
 
-.floating-focus__capsule::after {
-  content: '';
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 4px;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--progress-color);
-  transform: scaleX(var(--progress));
-  transform-origin: left;
-  opacity: 0.6;
-}
-
-.floating-focus__capsule.is-paused {
-  opacity: 0.7;
-}
-
 .floating-focus__close {
   position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 18px;
-  height: 18px;
+  top: -4px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
   border: none;
   border-radius: 999px;
   display: inline-flex;
@@ -1405,11 +1462,13 @@ defineExpose({
 }
 
 .floating-focus__dot {
-  width: 22px;
-  height: 22px;
+  grid-column: 1;
+  grid-row: 2;
+  width: 17px;
+  height: 17px;
   border: none;
   border-radius: 999px;
-  background: transparent;
+  background: #f98f7a;
   color: var(--b3-theme-on-background);
   display: inline-flex;
   align-items: center;
@@ -1418,12 +1477,21 @@ defineExpose({
   padding: 0;
 }
 
-.floating-focus__duration {
+.floating-focus__duration,
+.floating-focus__time {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: center;
   border: none;
   background: transparent;
   padding: 0;
-  font: inherit;
   color: inherit;
+  font-family: inherit;
+  font-size: 38px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0px;
+  line-height: .95;
   cursor: pointer;
 }
 
@@ -1433,9 +1501,7 @@ defineExpose({
 }
 
 .floating-focus__time {
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.4px;
-  line-height: 1.1;
+  cursor: default;
 }
 
 .floating-focus__content {
@@ -1447,21 +1513,27 @@ defineExpose({
 
 .floating-focus__target,
 .floating-focus__target-label {
-  flex: 1 1 auto;
+  grid-column: 2 / 4;
+  grid-row: 2;
   min-width: 0;
-  max-width: 120px;
+  max-width: 100%;
+  height: 16px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: transparent;
+  justify-self: start;
+  z-index: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
-  line-height: 1.1;
-  color: var(--b3-theme-on-surface);
+  font-size: 6px;
+  line-height: 16px;
+  color: #38201d;
 }
 
 .floating-focus__target {
   border: none;
-  padding: 0;
-  background: transparent;
   text-align: left;
   cursor: pointer;
 }
@@ -1471,16 +1543,17 @@ defineExpose({
 }
 
 .floating-focus__actions {
-  margin-left: auto;
+  grid-column: 4;
+  grid-row: 2;
   display: flex;
   gap: 4px;
 }
 
 .floating-focus__action {
-  width: 22px;
-  height: 22px;
+  width: 17px;
+  height: 17px;
   border: none;
-  border-radius: 999px;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1491,8 +1564,8 @@ defineExpose({
 }
 
 .floating-focus__action.is-stop {
-  background: rgba(231, 76, 60, 0.16);
-  color: #e74c3c;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
 }
 
 .floating-focus__action:hover {
@@ -1531,6 +1604,96 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.setting-description {
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.switch-container {
+  display: flex;
+  align-items: center;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+.slider {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background-color: var(--b3-border-color);
+  transition: .4s;
+}
+
+.slider::before {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background-color: white;
+  content: '';
+  transition: .4s;
+}
+
+.switch input:checked + .slider {
+  background-color: #f98f7a;
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(20px);
+}
+
+.micro-break-overlay {
+  position: fixed;
+  z-index: 10001;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.micro-break-dialog {
+  width: min(280px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 12px;
+  background: var(--b3-theme-surface);
+  box-shadow: var(--b3-dialog-shadow);
+  text-align: center;
+}
+
+.micro-break-dialog__title {
+  color: var(--b3-theme-primary);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.micro-break-dialog__message {
+  margin-top: 8px;
+  color: var(--b3-theme-on-surface);
+  font-size: 13px;
+}
+
+.micro-break-dialog__countdown {
+  margin-top: 12px;
+  color: var(--b3-theme-primary);
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
 }
 
 .linked-target-setting {
@@ -1719,6 +1882,8 @@ defineExpose({
 
 .linked-habit-banner__search {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--b3-border-color);
   border-radius: 10px;
   padding: 8px 10px;
@@ -1785,4 +1950,22 @@ defineExpose({
   font-size: 11px;
   color: var(--b3-theme-on-surface);
 }
+
+.floating-focus__capsule { display: block; width: 180px; height: 60px; padding: 0; border-radius: 35px; --progress: 0; --progress-color: #f98f7a; }
+.floating-focus__capsule.is-compact { height: 42px; border-radius: 24px; }
+.floating-focus__capsule.is-progress-only { height: 50px; border-radius: 29px; }
+.floating-focus__capsule::before, .floating-focus__capsule::after { display: none; }
+.floating-focus__progress-track { position: absolute; left: 18px; right: 18px; bottom: 5px; height: 6px; overflow: hidden; border-radius: 3px; background: var(--b3-list-hover); }
+.floating-focus__progress-fill { position: absolute; inset: 0 auto 0 0; width: calc(var(--progress) * 100%); border-radius: inherit; background: var(--progress-color); }
+.floating-focus__dot, .floating-focus__action { position: absolute; z-index: 2; top: 8px; width: 23px; height: 23px; pointer-events: auto; }
+.floating-focus__dot { left: 17.5px; background: transparent; }
+.floating-focus__duration, .floating-focus__time { position: absolute; top: 4px; left: 50%; width: auto; transform: translateX(-50%); font-family: inherit; font-size: 31px; letter-spacing: 0; text-align: center; }
+.floating-focus__capsule.has-linked-target .floating-focus__duration, .floating-focus__capsule.has-linked-target .floating-focus__time { top: 14px; }
+.floating-focus__capsule.has-linked-target .floating-focus__dot, .floating-focus__capsule.has-linked-target .floating-focus__action { top: 18px; }
+.floating-focus__target, .floating-focus__target-label { position: absolute; z-index: 1; top: 2px; left: 0; width: 100%; max-width: none; height: 11px; padding: 0; border-radius: 0; background: transparent; font-size: 8px; line-height: 11px; text-align: center; }
+.floating-focus__actions { position: absolute; inset: 0; pointer-events: none; }
+.floating-focus__action { right: 17.5px; }
+.floating-focus__action.is-stop { left: 17.5px; right: auto; }
+.floating-focus__dot .icon { width: 14px; height: 14px; }
+.floating-focus__action .icon { width: 14px; height: 14px; }
 </style>

@@ -5,7 +5,7 @@ import {
 import "@/index.scss";
 import PluginInfoString from '@/../plugin.json'
 import { destroy, init } from '@/main'
-import { eventBus } from '@/utils/eventBus'
+import { publishTaskChange, resetTaskChangeCoordinator } from '@/utils/taskChangeCoordinator'
 
 let PluginInfo = {
   version: '',
@@ -148,7 +148,7 @@ export default class HabitTrackerPlugin extends Plugin {
     }
 
     if (changedIds.size > 0) {
-      eventBus.emit('task-changed', { blockIds: Array.from(changedIds) });
+      publishTaskChange(changedIds, 'ws');
     }
 
     if (this.pendingTransactionBatches.length > 0 && this.debounceTimer === null) {
@@ -160,6 +160,7 @@ export default class HabitTrackerPlugin extends Plugin {
   }
 
   onunload() {
+    resetTaskChangeCoordinator()
     destroy()
   }
 }

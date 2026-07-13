@@ -27,6 +27,7 @@
 import { computed } from 'vue';
 import Icon from './Icon.vue';
 import { useI18n } from '@/composables/useI18n';
+import { buildTaskPriorityOptions } from '@/utils/taskPriority';
 
 const props = withDefaults(defineProps<{
   show: boolean;
@@ -43,12 +44,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const priorityOptions = computed(() => [
-  { value: 'high', label: t('taskManager.priorityHighLabel'), background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' },
-  { value: 'medium', label: t('taskManager.priorityMediumLabel'), background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'low', label: t('taskManager.priorityLowLabel'), background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'none', label: t('taskManager.priorityNoneLabel'), background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' }
-]);
+const priorityOptions = computed(() => buildTaskPriorityOptions(t));
 
 const popoverStyle = computed(() => ({
   left: `${props.position.x}px`,

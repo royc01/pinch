@@ -15,6 +15,7 @@ export interface FocusTimerLinkedTarget {
 export function stripFocusTargetText(value: string): string {
   return value
     .replace(/<[^>]*>/g, ' ')
+    .replace(/\{:\s*[^{}]*\}/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

@@ -49,6 +49,7 @@ import { useMobileTextInputActivation } from '@/composables/useMobileTextInputAc
 import { useUserSettings } from '@/composables/useUserSettings';
 import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
 import type { TaskReminderType } from '@/utils/taskReminder';
+import { normalizeTaskGroupOrderIds } from '@/utils/taskGroupShared';
 import { getDocumentCreationSortKey, loadRootDocumentMetadata, normalizeNotebookIds, resolveDocumentDisplayName } from '@/utils/taskViewShared';
 
 interface NewTaskPayload {
@@ -66,26 +67,6 @@ interface NewTaskPayload {
 interface TaskGroupDialogSavePayload {
   groups: TaskGroup[];
   orderIds: string[];
-}
-
-function normalizeTaskGroupDialogOrderIds(input: unknown): string[] {
-  if (!Array.isArray(input)) {
-    return [];
-  }
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  input.forEach((item) => {
-    if (typeof item !== 'string') {
-      return;
-    }
-    const value = item.trim();
-    if (!value || seen.has(value)) {
-      return;
-    }
-    seen.add(value);
-    normalized.push(value);
-  });
-  return normalized;
 }
 
 const { t } = useI18n();
@@ -367,7 +348,7 @@ async function handleCreateTask(taskData: NewTaskPayload, notebookId: string, do
 
 async function handleTaskGroupSave(payload: TaskGroupDialogSavePayload): Promise<void> {
   const groups = Array.isArray(payload?.groups) ? payload.groups : [];
-  const orderIds = normalizeTaskGroupDialogOrderIds(payload?.orderIds);
+  const orderIds = normalizeTaskGroupOrderIds(payload?.orderIds);
   await saveTaskGroups(groups);
   taskGroups.value = groups;
   await updateSettings('kanban', { kanbanGroupColumnOrder: orderIds });

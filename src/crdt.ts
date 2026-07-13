@@ -41,6 +41,10 @@ export interface CRDTTask {
     repeatFrequency?: string;
     repeatInstanceDate?: string;
     isVirtual?: boolean;
+    focusEstimate?: {
+      unit: 'minutes' | 'pomodoros';
+      value: number;
+    };
     createdAt?: string;
   };
 }
@@ -98,6 +102,7 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
     repeatFrequency: b.metadata.repeatFrequency,
     repeatInstanceDate: b.metadata.repeatInstanceDate,
     isVirtual: b.metadata.isVirtual,
+    focusEstimate: b.metadata.focusEstimate,
     createdAt
   };
 

@@ -288,6 +288,39 @@
         </span>
       </button>
 
+      <div class="task-editor-focus-estimate">
+        <button
+          ref="focusEstimateButtonRef"
+          type="button"
+          class="task-editor-property-row ariaLabel"
+          :class="{ 'is-active': focusEstimateOpen }"
+          :aria-label="t('taskManager.focusEstimate')"
+          @click.stop="toggleFocusEstimate"
+        >
+          <span class="task-editor-property-label"><Icon class="task-editor-focus-estimate-icon" name="focusEstimate" width="15" height="15" /><span>{{ t('taskManager.focusEstimate') }}</span></span>
+          <span class="task-editor-property-value"><span v-if="focusEstimate" class="task-editor-property-pill">{{ focusEstimateText }}</span><span v-else class="task-editor-property-placeholder">{{ t('taskManager.notSet') }}</span></span>
+        </button>
+      </div>
+
+      <Teleport to="body">
+        <div v-if="focusEstimateOpen" class="task-editor-focus-estimate-backdrop" @mousedown.stop="closeFocusEstimate">
+          <section ref="focusEstimatePopoverRef" class="task-editor-focus-estimate-dialog" role="dialog" :aria-label="t('taskManager.focusEstimate')" :style="focusEstimatePopoverStyle" @mousedown.stop>
+            <div class="task-editor-focus-estimate-tabs">
+              <button v-for="option in focusEstimateUnitOptions" :key="option.value" type="button" :class="{ active: focusEstimateDraftUnit === option.value }" @click="focusEstimateDraftUnit = option.value">{{ option.label }}</button>
+            </div>
+            <input v-model="focusEstimateDraftValue" class="b3-text-field task-editor-focus-estimate-input" type="number" min="1" max="9999" step="1" :placeholder="t('taskManager.focusEstimatePlaceholder')" @keydown.enter.prevent="saveFocusEstimate" />
+            <div class="task-editor-focus-estimate-summary">
+              <div><span>{{ t('taskManager.focusEstimate') }}</span><strong>{{ draftFocusEstimateText }}</strong></div>
+              <div><span>{{ t('taskManager.focusActual') }}</span><strong>{{ actualFocusText }}</strong></div>
+            </div>
+            <div class="task-editor-focus-estimate-actions">
+              <button type="button" class="task-editor-focus-estimate-clear" :disabled="!focusEstimate" @click="clearFocusEstimate">{{ t('taskManager.clear') }}</button>
+              <button type="button" class="task-editor-focus-estimate-save" @click="saveFocusEstimate">{{ t('taskManager.save') }}</button>
+            </div>
+          </section>
+        </div>
+      </Teleport>
+
       <button
         v-if="showReminderControl"
         ref="reminderButtonRef"
@@ -405,9 +438,13 @@ import StatusPopover from '@/components/StatusPopover.vue';
 import { useI18n } from '@/composables/useI18n';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
 import type { TaskReminderSelection, TaskReminderType } from '@/utils/taskReminder';
+import { TASK_GROUP_NONE_ID, type TaskGroupOption } from '@/utils/taskGroupShared';
+import { buildTaskPriorityShortOptions } from '@/utils/taskPriority';
+import { getTaskStatusLabel } from '@/utils/taskStatus';
 
 type TaskStatus = Task['status'];
 type TaskEditorPanel = 'due' | 'description' | 'group' | 'reminder' | 'status' | null;
+type TaskFocusEstimate = NonNullable<Task['focusEstimate']>;
 type TaskEditorMetaLayout = 'actions' | 'properties';
 type TaskEditorPropertyPicker = 'tags' | 'goals' | null;
 type TaskEditorDateFields = {
@@ -415,14 +452,6 @@ type TaskEditorDateFields = {
   startTime: string;
   dueDate: string;
   dueTime: string;
-};
-
-type TaskGroupOption = {
-  value: string;
-  label: string;
-  special?: boolean;
-  colorCss?: string;
-  textColor?: string;
 };
 
 type TaskGoalOption = {
@@ -438,8 +467,6 @@ type TaskEditorGroupButtonItem = {
   emoji?: string;
   style: Record<string, string>;
 };
-
-const TASK_GROUP_NONE_ID = '__none__';
 
 const props = withDefaults(defineProps<{
   panel: TaskEditorPanel;
@@ -461,6 +488,9 @@ const props = withDefaults(defineProps<{
   reminderCustomTime?: string;
   reminderText?: string;
   hasReminder?: boolean;
+  focusEstimate?: TaskFocusEstimate;
+  actualFocusMinutes?: number;
+  actualFocusSessions?: number;
   status?: TaskStatus;
   priority?: Task['priority'];
   priorityStyle?: Record<string, string>;
@@ -509,6 +539,8 @@ const emit = defineEmits<{
   'select-goal': [value: string];
   'select-reminder': [value: TaskReminderSelection];
   'select-status': [value: TaskStatus];
+  'save-focus-estimate': [value: TaskFocusEstimate | undefined];
+  'open-focus-estimate': [];
   priority: [event: MouseEvent];
   'select-priority': [value: Task['priority']];
   'save-repeat-rule': [value: RepeatFrequency | RepeatRuleInput];
@@ -518,6 +550,8 @@ const emit = defineEmits<{
 }>();
 
 const dueButtonRef = ref<HTMLElement | null>(null);
+const focusEstimateButtonRef = ref<HTMLElement | null>(null);
+const focusEstimatePopoverRef = ref<HTMLElement | null>(null);
 const { t } = useI18n();
 const reminderButtonRef = ref<HTMLElement | null>(null);
 const statusButtonRef = ref<HTMLElement | null>(null);
@@ -527,28 +561,30 @@ const descriptionRef = ref<HTMLTextAreaElement | null>(null);
 const statusPopoverPosition = ref({ x: 0, y: 0 });
 const propertyPicker = ref<TaskEditorPropertyPicker>(null);
 const propertyPopoverStyle = ref<Record<string, string>>({});
+const focusEstimateOpen = ref(false);
+const focusEstimateDraftUnit = ref<TaskFocusEstimate['unit']>('minutes');
+const focusEstimateDraftValue = ref('');
+const focusEstimatePopoverStyle = ref<Record<string, string>>({});
 
 const showDescriptionPanel = computed(() => props.panel === 'description' || props.hasDescription);
-const statusLabelMap: Record<TaskStatus, string> = {
-  pending: t('taskManager.statusPending'),
-  'in-progress': t('taskManager.statusInProgress'),
-  delayed: t('taskManager.statusDelayed'),
-  completed: t('taskManager.statusCompleted'),
-  cancelled: t('taskManager.statusCancelled')
-};
 const normalizedStatus = computed<TaskStatus>(() => normalizeStatusValue(props.status));
-const statusBadgeText = computed(() => statusLabelMap[normalizedStatus.value]);
-const priorityOptions = computed<Array<{
-  value: Task['priority'];
-  shortLabel: string;
-  label: string;
-  background: string;
-  color: string;
-}>>(() => [
-  { value: 'low', shortLabel: t('taskManager.priorityLow'), label: t('taskManager.priorityLowLabel'), background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' },
-  { value: 'medium', shortLabel: t('taskManager.priorityMedium'), label: t('taskManager.priorityMediumLabel'), background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' },
-  { value: 'high', shortLabel: t('taskManager.priorityHigh'), label: t('taskManager.priorityHighLabel'), background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' }
+const statusBadgeText = computed(() => getTaskStatusLabel(normalizedStatus.value, t));
+const priorityOptions = computed(() => buildTaskPriorityShortOptions(t));
+const focusEstimateUnitOptions = computed(() => [
+  { value: 'minutes' as const, label: t('taskManager.focusEstimateMinutes') },
+  { value: 'pomodoros' as const, label: t('taskManager.focusEstimatePomodoros') }
 ]);
+const focusEstimateText = computed(() => !props.focusEstimate ? '' : props.focusEstimate.unit === 'minutes'
+  ? `${props.focusEstimate.value} ${t('focusTimer.minuteSuffix')}`
+  : `${props.focusEstimate.value} ${t('taskManager.focusPomodoroUnit')}`);
+const draftFocusEstimateText = computed(() => {
+  const value = Math.round(Number(focusEstimateDraftValue.value));
+  if (!Number.isFinite(value) || value < 1) return t('taskManager.notSet');
+  return focusEstimateDraftUnit.value === 'minutes'
+    ? `${value} ${t('focusTimer.minuteSuffix')}`
+    : `${value} ${t('taskManager.focusPomodoroUnit')}`;
+});
+const actualFocusText = computed(() => `${Math.max(0, Math.round(props.actualFocusMinutes || 0))} ${t('focusTimer.minuteSuffix')} · ${Math.max(0, props.actualFocusSessions || 0)} ${t('focusTimer.totalSessions')}`);
 const selectedTagButtonItems = computed<TaskEditorGroupButtonItem[]>(() => {
   const optionByValue = new Map(props.groupOptions.map(option => [option.value, option]));
   return props.selectedTagIds
@@ -607,7 +643,50 @@ function emitPanelUpdate(value: TaskEditorPanel): void {
 
 function togglePanel(panel: Exclude<TaskEditorPanel, null>): void {
   closePropertyPicker();
+  focusEstimateOpen.value = false;
   emitPanelUpdate(props.panel === panel ? null : panel);
+}
+
+function toggleFocusEstimate(): void {
+  closePropertyPicker();
+  emitPanelUpdate(null);
+  focusEstimateOpen.value = !focusEstimateOpen.value;
+  if (focusEstimateOpen.value) {
+    focusEstimateDraftUnit.value = props.focusEstimate?.unit || 'minutes';
+    focusEstimateDraftValue.value = props.focusEstimate ? String(props.focusEstimate.value) : '';
+    emit('open-focus-estimate');
+    void nextTick(updateFocusEstimatePopoverPosition);
+  }
+}
+
+function closeFocusEstimate(): void {
+  focusEstimateOpen.value = false;
+}
+
+function updateFocusEstimatePopoverPosition(): void {
+  const anchor = focusEstimateButtonRef.value;
+  const popover = focusEstimatePopoverRef.value;
+  if (!anchor || !popover) return;
+  const anchorRect = anchor.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const margin = 12;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  const left = Math.min(Math.max(margin, anchorRect.right - popoverRect.width), viewportWidth - popoverRect.width - margin);
+  const top = Math.max(margin, Math.min(anchorRect.top - popoverRect.height - 8, viewportHeight - popoverRect.height - margin));
+  focusEstimatePopoverStyle.value = { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` };
+}
+
+function saveFocusEstimate(): void {
+  const value = Math.round(Number(focusEstimateDraftValue.value));
+  if (!Number.isFinite(value) || value < 1) return;
+  emit('save-focus-estimate', { unit: focusEstimateDraftUnit.value, value: Math.min(9999, value) });
+  focusEstimateOpen.value = false;
+}
+
+function clearFocusEstimate(): void {
+  emit('save-focus-estimate', undefined);
+  focusEstimateOpen.value = false;
 }
 
 function toggleStatusPanel(): void {
@@ -833,6 +912,9 @@ function handleViewportChange(): void {
   if (propertyPicker.value) {
     updatePropertyPopoverPosition();
   }
+  if (focusEstimateOpen.value) {
+    updateFocusEstimatePopoverPosition();
+  }
 }
 
 watch(
@@ -1019,6 +1101,17 @@ onUnmounted(() => {
   font-size: 12px;
   opacity: 0.62;
 }
+
+.task-editor-focus-estimate-icon { flex: 0 0 auto; color: var(--b3-theme-on-surface); opacity: .72; }
+.task-editor-focus-estimate-backdrop { position: fixed; z-index: 60; inset: 0; background: transparent; }
+.task-editor-focus-estimate-dialog { position: fixed; width: min(240px, calc(100vw - 24px)); padding: 14px; border: 1px solid var(--b3-theme-border); border-radius: 10px; background: var(--b3-theme-background); box-shadow: 0 12px 28px rgb(0 0 0 / 18%); }
+.task-editor-focus-estimate-tabs { display: flex; border-bottom: 1px solid var(--b3-theme-border); margin-bottom: 14px; }
+.task-editor-focus-estimate-tabs button { flex: 1; padding: 7px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--b3-theme-on-surface); cursor: pointer; font: inherit; }
+.task-editor-focus-estimate-tabs button.active { border-bottom-color: #f98f7a; color: var(--b3-theme-on-background); font-weight: 600; }
+.task-editor-focus-estimate-input { box-sizing: border-box; width: 100%; padding: 7px 9px; }
+.task-editor-focus-estimate-summary { display: grid; gap: 7px; margin: 14px 0; padding: 10px; border-radius: 7px; background: var(--b3-list-hover); font-size: 13px; }
+.task-editor-focus-estimate-summary div { display: flex; justify-content: space-between; gap: 12px; }.task-editor-focus-estimate-summary span { color: var(--b3-theme-on-surface); }.task-editor-focus-estimate-summary strong { font-weight: 600; }
+.task-editor-focus-estimate-actions { display: flex; justify-content: space-between; gap: 8px; }.task-editor-focus-estimate-save, .task-editor-focus-estimate-clear { padding: 6px 12px; border: 0; border-radius: 6px; cursor: pointer; font: inherit; }.task-editor-focus-estimate-save { background: #f98f7a; color: #fff; }.task-editor-focus-estimate-clear { background: var(--b3-list-hover); color: var(--b3-theme-on-background); }.task-editor-focus-estimate-clear:disabled { opacity: .45; cursor: default; }
 
 .task-editor-action-bar {
   display: flex;

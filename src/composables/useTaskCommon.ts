@@ -2,18 +2,10 @@ import { ref } from 'vue';
 import { lsNotebooks } from '@/api';
 import type { SubTask, Task } from '@/api';
 import { translate } from '@/composables/useI18n';
-
-const STATUS_LABEL_KEYS: Record<string, string> = {
-  'pending': 'taskManager.statusPending',
-  'in-progress': 'taskManager.statusInProgress',
-  'delayed': 'taskManager.statusDelayed',
-  'completed': 'taskManager.statusCompleted',
-  'cancelled': 'taskManager.statusCancelled'
-};
+import { getTaskStatusLabel } from '@/utils/taskStatus';
 
 export function getStatusLabel(status: string): string {
-  const key = STATUS_LABEL_KEYS[status];
-  return key ? translate(key, status) : status;
+  return getTaskStatusLabel(status, key => translate(key, status));
 }
 
 export function formatLocaleDate(dateStr: string, options?: { includeTime?: boolean }): string {

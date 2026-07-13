@@ -1,6 +1,19 @@
 import { formatTaskTitleHtml } from '@/utils/taskTitleFormat';
 
+const TASK_HTML_CACHE_LIMIT = 500;
 const sanitizedHtmlCache = new Map<string, string>();
+const sanitizedTaskTitleHtmlCache = new Map<string, string>();
+
+function cacheHtml(cache: Map<string, string>, key: string, value: string): string {
+  if (!cache.has(key) && cache.size >= TASK_HTML_CACHE_LIMIT) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) {
+      cache.delete(oldestKey);
+    }
+  }
+  cache.set(key, value);
+  return value;
+}
 
 function mergeDataTypeValues(...values: string[]): string {
   const seen = new Set<string>();
@@ -17,6 +30,33 @@ function mergeDataTypeValues(...values: string[]): string {
       }
     });
   return merged.join(' ');
+}
+
+function applyInlineAttributeMarkers(container: HTMLElement): void {
+  const markerPattern = /^\s*\{:\s*([^}]*)\}\s*$/;
+  const stylePattern = /(?:^|\s)style\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+
+  for (const node of Array.from(container.childNodes)) {
+    if (node.nodeType !== Node.TEXT_NODE) {
+      continue;
+    }
+
+    const marker = (node.textContent || '').match(markerPattern);
+    if (!marker) {
+      continue;
+    }
+
+    const previous = node.previousElementSibling;
+    const style = marker[1].match(stylePattern)?.slice(1).find(value => value !== undefined);
+    if (previous instanceof HTMLElement && style) {
+      previous.setAttribute('style', style);
+      if (previous.tagName === 'SPAN') {
+        const dataType = previous.getAttribute('data-type') || '';
+        previous.setAttribute('data-type', mergeDataTypeValues(dataType, 'text'));
+      }
+    }
+    node.remove();
+  }
 }
 
 function normalizeInlineFormatElements(container: HTMLElement): void {
@@ -82,6 +122,7 @@ export function sanitizeTaskHtml(rawHtml?: string): string {
   container.innerHTML = rawHtml;
 
   normalizeInlineFormatElements(container);
+  applyInlineAttributeMarkers(container);
   mergeNestedInlineDataTypes(container);
 
   const dangerousNodes = container.querySelectorAll('script, iframe, object, embed, link, meta');
@@ -153,17 +194,19 @@ export function sanitizeTaskHtml(rawHtml?: string): string {
   });
 
   const sanitized = container.innerHTML;
-  if (sanitizedHtmlCache.size > 500) {
-    sanitizedHtmlCache.clear();
-  }
-  sanitizedHtmlCache.set(rawHtml, sanitized);
-  return sanitized;
+  return cacheHtml(sanitizedHtmlCache, rawHtml, sanitized);
 }
 
 export function sanitizeTaskTitleHtml(rawHtml?: string): string {
-  const normalized = formatTaskTitleHtml(rawHtml || '');
+  const title = rawHtml || '';
+  const cached = sanitizedTaskTitleHtmlCache.get(title);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const normalized = formatTaskTitleHtml(title);
   const sanitized = sanitizeTaskHtml(normalized);
-  return stripTaskPrefix(sanitized);
+  return cacheHtml(sanitizedTaskTitleHtmlCache, title, stripTaskPrefix(sanitized));
 }
 
 function stripTaskPrefix(text: string): string {

@@ -728,7 +728,6 @@
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
                   :title-tooltip="isKanbanBatchEditMode ? t('taskManager.clickSelectTask') : ''"
                   @card-click="handleKanbanTaskCardClick"
-                  @open-click="handleKanbanTaskOpenClick"
                   @start-focus="startFocusForTask"
                   @toggle-status="handleKanbanTaskToggleStatus"
                   @toggle-expand="toggleKanbanTaskExpand"
@@ -849,7 +848,7 @@
               <div
                 v-for="task in getVisibleTasksForListSection(section)"
                 :key="task.id"
-                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, (task.tags || []).join(','), task.isVirtual, task.taskId, task.blockId, task.sourceBlockId, task.repeatSeriesId, goalDefinitions, getKanbanTaskCardGoalIds(task).join(','), getTaskDocumentTitle(task), getTaskDocumentIcon(task), getTaskDocumentIconSvg(task, listFilterDocument), shouldShowBoardTaskDocumentTitle(task, listFilterDocument), activeBoardGroupBy, isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id)]"
+                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, (task.tags || []).join(','), task.focusEstimate?.unit, task.focusEstimate?.value, task.isVirtual, task.taskId, task.blockId, task.sourceBlockId, task.repeatSeriesId, goalDefinitions, getKanbanTaskCardGoalIds(task).join(','), getTaskDocumentTitle(task), getTaskDocumentIcon(task), getTaskDocumentIconSvg(task, listFilterDocument), shouldShowBoardTaskDocumentTitle(task, listFilterDocument), activeBoardGroupBy, isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id)]"
                 class="kanban-list-task-item"
                 :data-task-id="task.id"
                 @contextmenu="handleKanbanTaskContextMenu(task, $event)"
@@ -876,7 +875,6 @@
                   :disable-description-context-menu="true"
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
                   @card-click="handleKanbanTaskCardClick"
-                  @open-click="handleKanbanTaskOpenClick"
                   @start-focus="startFocusForTask"
                   @toggle-status="handleKanbanTaskToggleStatus"
                   @toggle-expand="toggleKanbanTaskExpand"
@@ -1145,12 +1143,14 @@
         :is-archived="isActiveKanbanTaskArchived"
         :show-delete="!!activeKanbanEditTask"
         :show-focus="!!activeKanbanEditTask"
+        :show-open-content="!!activeKanbanEditTask"
         @panel-mousedown="handleKanbanEditorPanelMouseDown"
         @pin="handleKanbanEditorPinToggle"
         @move="openKanbanTaskMoveDialog"
         @archive="handleKanbanEditorArchiveToggle"
         @delete="handleKanbanEditorDelete"
         @focus="handleKanbanEditorStartFocus"
+        @open-content="handleKanbanEditorOpenContent"
         @close="closeKanbanEditor"
       >
         <TaskEditorProtyleBody
@@ -1301,6 +1301,7 @@
             :show-delete="!!activeKanbanEditTask"
             :show-priority="!!(activeKanbanEditTask && activeKanbanEditDraft)"
             :show-focus="!!activeKanbanEditTask"
+            :show-open-content="!!activeKanbanEditTask"
             :background-colors="calendarTaskEditorBackgroundColors"
             :start-date="activeKanbanEditDraft?.startDate || ''"
             :start-time="activeKanbanEditDraft?.startTime || ''"
@@ -1332,6 +1333,7 @@
             @archive="handleKanbanEditorArchiveToggle"
             @delete="handleKanbanEditorDelete"
             @focus="handleKanbanEditorStartFocus"
+            @open-content="handleKanbanEditorOpenContent"
             @close="closeKanbanEditor"
             @set-color="handleCalendarEditorColorSelect"
             @clear-dates="handleCalendarEditorDateClear"
@@ -1578,7 +1580,21 @@ import {
   extractDocumentIconFromDom,
   normalizeDocumentIconValue
 } from '@/utils/documentIcon';
-import { syncTaskStatusAttrsIfNeeded, updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
+import {
+  TASK_BACKGROUND_COLOR_OPTIONS,
+  TASK_GROUP_NONE_ID,
+  buildTaskGroupOptions,
+  getTaskGroupColorValue,
+  normalizeTaskGroupOrderIds
+} from '@/utils/taskGroupShared';
+import { buildTaskPriorityOptions } from '@/utils/taskPriority';
+import {
+  buildTaskStatusFilterOptions,
+  buildTaskStatusSelectOptions,
+  getTaskStatusLabel,
+  type TaskStatusValue
+} from '@/utils/taskStatus';
+import { updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useNotebooks, stripHtml } from '@/composables/useTaskCommon';
@@ -1588,6 +1604,12 @@ import {
   taskMatchesDocumentScope
 } from '@/utils/taskDocumentScope';
 import { eventBus, Events, type TaskViewSwitchRequest } from '../utils/eventBus';
+import {
+  publishTaskChange,
+  type TaskChangePayload
+} from '@/utils/taskChangeCoordinator';
+import { syncTaskEditorDraftFromAttributeChanges } from '@/utils/taskEditorDraftSync';
+import { createTaskStatusAttributeSync } from '@/utils/taskStatusAttributeSync';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
 import {
@@ -1983,6 +2005,11 @@ function getCalendarEntryView(): CalendarTaskViewMode | null {
   ) {
     return currentView.value;
   }
+  if (
+    viewSwitcherOptions.value.some(option => option.value === lastCalendarView.value)
+  ) {
+    return lastCalendarView.value;
+  }
   return calendarViewOrder.find(view =>
     viewSwitcherOptions.value.some(option => option.value === view)
   ) || null;
@@ -2045,6 +2072,7 @@ function selectPrimaryView(option: PrimaryViewSwitcherOption): void {
 
 function handleCalendarViewChange(view: CalendarTaskViewMode): void {
   if (viewSwitcherOptions.value.some(option => option.value === view)) {
+    lastCalendarView.value = view;
     prepareForTaskViewChange(view);
     if (currentView.value !== view) {
       currentView.value = view;
@@ -2482,7 +2510,7 @@ interface TaskGroupDialogSavePayload {
 
 type KanbanTaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
 type KanbanTaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
-type KanbanTaskExtraFilterKey = 'hasDescription' | 'hasSubtasks';
+type KanbanTaskExtraFilterKey = 'hasDescription' | 'hasSubtasks' | 'hasFocusEstimate';
 const tableFilterType = ref('all');
 const tableFilterDocument = ref('all');
 const tableSearchQuery = ref('');
@@ -2572,6 +2600,7 @@ const listViewTaskHeightVersion = ref(0);
 const LIST_VIRTUAL_CARD_HEIGHT = 56;
 const listViewEstimatedCardHeight = ref<number>(LIST_VIRTUAL_CARD_HEIGHT);
 const currentView = ref<TaskViewMode>(normalizeTaskViewMode(userSettings.kanban?.currentView));
+const lastCalendarView = ref<CalendarTaskViewMode>('month');
 const isBoardTaskView = computed(() => currentView.value === 'kanban' || currentView.value === 'list');
 const isTableTaskView = computed(() => currentView.value === 'table' || currentView.value === 'archive-table');
 const showHeaderNewTaskButton = computed(() => isBoardTaskView.value || currentView.value === 'table');
@@ -2844,22 +2873,10 @@ const kanbanBatchLassoStyle = computed<Record<string, string>>(() => {
   };
 });
 
-const TASK_GROUP_NONE_ID = '__none__';
 const defaultGroupChipColor = '#9aa0a6';
 const ADD_GROUP_COLUMN_ID = '__add-group__';
 const ADD_HEADING_COLUMN_ID = '__add-heading__';
-const calendarTaskEditorBackgroundColors: CalendarTaskEditorColorOption[] = [
-  { value: 'pinch-background1', css: 'var(--pinch-background1)' },
-  { value: 'pinch-background2', css: 'var(--pinch-background2)' },
-  { value: 'pinch-background3', css: 'var(--pinch-background3)' },
-  { value: 'pinch-background4', css: 'var(--pinch-background4)' },
-  { value: 'pinch-background5', css: 'var(--pinch-background5)' },
-  { value: 'pinch-background6', css: 'var(--pinch-background6)' },
-  { value: 'pinch-background7', css: 'var(--pinch-background7)' },
-  { value: 'pinch-background8', css: 'var(--pinch-background8)' },
-  { value: 'pinch-background9', css: 'var(--pinch-background9)' },
-  { value: 'pinch-background10', css: 'var(--pinch-background10)' }
-];
+const calendarTaskEditorBackgroundColors: CalendarTaskEditorColorOption[] = TASK_BACKGROUND_COLOR_OPTIONS;
 type BatchTagActionSelection = TaskTagBatchAction | '';
 type KanbanDateGroupKey = 'overdue' | 'today' | 'thisWeek' | 'thisMonth' | 'other';
 
@@ -2889,13 +2906,13 @@ type KanbanListMasonryColumn = {
   heightScore: number;
 };
 
-const statusColumns: KanbanColumn[] = [
-  { id: 'status-pending', status: 'pending', title: t('taskManager.statusPending'), type: 'status' },
-  { id: 'status-in-progress', status: 'in-progress', title: t('taskManager.statusInProgress'), type: 'status' },
-  { id: 'status-completed', status: 'completed', title: t('taskManager.statusCompleted'), type: 'status' },
-  { id: 'status-delayed', status: 'delayed', title: t('taskManager.statusDelayed'), type: 'status' },
-  { id: 'status-cancelled', status: 'cancelled', title: t('taskManager.statusCancelled'), type: 'status' }
-];
+const kanbanStatusColumnOrder: TaskStatusValue[] = ['pending', 'in-progress', 'completed', 'delayed', 'cancelled'];
+const statusColumns: KanbanColumn[] = kanbanStatusColumnOrder.map(status => ({
+  id: `status-${status}`,
+  status,
+  title: getTaskStatusLabel(status, t),
+  type: 'status'
+}));
 const kanbanDateGroups: Array<{ key: KanbanDateGroupKey; title: string; dotColor: string }> = [
   { key: 'overdue', title: t('taskManager.overdue'), dotColor: '#ef4444' },
   { key: 'today', title: t('taskManager.today'), dotColor: '#f59e0b' },
@@ -2919,28 +2936,8 @@ const taskGroupIdSet = computed(() => {
   return new Set(taskGroups.value.map(group => group.id));
 });
 
-function normalizeKanbanGroupColumnOrder(input: unknown): string[] {
-  if (!Array.isArray(input)) {
-    return [];
-  }
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  input.forEach((item) => {
-    if (typeof item !== 'string') {
-      return;
-    }
-    const value = item.trim();
-    if (!value || seen.has(value)) {
-      return;
-    }
-    seen.add(value);
-    normalized.push(value);
-  });
-  return normalized;
-}
-
 function resolveKanbanGroupColumnOrder(availableIds: string[], storedOrder: string[]): string[] {
-  const normalizedStoredOrder = normalizeKanbanGroupColumnOrder(storedOrder);
+  const normalizedStoredOrder = normalizeTaskGroupOrderIds(storedOrder);
   const visibleGroupIds = availableIds.filter(id => id !== TASK_GROUP_NONE_ID);
   const visibleGroupIdSet = new Set(visibleGroupIds);
   const noneIndex = normalizedStoredOrder.indexOf(TASK_GROUP_NONE_ID);
@@ -3250,19 +3247,8 @@ interface TaskModalCreateTaskPayload {
   goalIds?: string[];
 }
 
-const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = [
-  { value: 'pending', label: t('taskManager.statusPending') },
-  { value: 'in-progress', label: t('taskManager.statusInProgress') },
-  { value: 'delayed', label: t('taskManager.statusDelayed') },
-  { value: 'completed', label: t('taskManager.statusCompleted') },
-  { value: 'cancelled', label: t('taskManager.statusCancelled') }
-];
-const kanbanPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = [
-  { value: 'high', label: t('taskManager.priorityHighLabel') },
-  { value: 'medium', label: t('taskManager.priorityMediumLabel') },
-  { value: 'low', label: t('taskManager.priorityLowLabel') },
-  { value: 'none', label: t('taskManager.priorityNoneLabel') }
-];
+const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = buildTaskStatusFilterOptions(t);
+const kanbanPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = buildTaskPriorityOptions(t);
 const kanbanDueFilterOptions: Array<{ value: KanbanTaskDueFilterKey; label: string }> = [
   { value: 'overdue', label: t('taskManager.dueOverdue') },
   { value: 'today', label: t('taskManager.dueToday') },
@@ -3276,16 +3262,10 @@ const kanbanUpdatedFilterOptions: Array<{ value: KanbanTaskUpdateFilterKey; labe
 ];
 const kanbanExtraFilterOptions: Array<{ value: KanbanTaskExtraFilterKey; label: string }> = [
   { value: 'hasDescription', label: t('taskManager.hasDescription') },
-  { value: 'hasSubtasks', label: t('taskManager.hasSubtasks') }
+  { value: 'hasSubtasks', label: t('taskManager.hasSubtasks') },
+  { value: 'hasFocusEstimate', label: t('taskManager.hasFocusEstimate') }
 ];
-const kanbanBatchStatusOptions: Array<{ value: string; text: string }> = [
-  { value: '', text: t('taskManager.statusNoChange') },
-  { value: 'pending', text: t('taskManager.statusPending') },
-  { value: 'in-progress', text: t('taskManager.statusInProgress') },
-  { value: 'delayed', text: t('taskManager.statusDelayed') },
-  { value: 'completed', text: t('taskManager.statusCompleted') },
-  { value: 'cancelled', text: t('taskManager.statusCancelled') }
-];
+const kanbanBatchStatusOptions = buildTaskStatusSelectOptions(t);
 const kanbanBatchPriorityOptions: Array<{ value: string; text: string }> = [
   { value: '', text: t('taskManager.priorityNoChange') },
   { value: 'none', text: t('taskManager.priorityNone') },
@@ -3537,22 +3517,10 @@ const canSubmitKanbanMove = computed(() => {
     && !isKanbanTaskMoveSubmitting.value;
 });
 
-const kanbanGroupPickerOptions = computed(() => {
-  const options = [
-    { value: TASK_GROUP_NONE_ID, label: t('taskManager.noTag'), special: true, colorCss: '', textColor: '' }
-  ];
-  visibleTaskGroups.value.forEach(group => {
-    const rawColor = group.color || '';
-    options.push({
-      value: group.id,
-      label: group.name,
-      special: false,
-      colorCss: resolveGroupColorCss(rawColor),
-      textColor: resolveGroupTextColor(rawColor)
-    });
-  });
-  return options;
-});
+const kanbanGroupPickerOptions = computed(() => buildTaskGroupOptions(visibleTaskGroups.value, {
+  none: t('taskManager.noTag'),
+  fallback: t('taskManager.untitledTag')
+}));
 
 const kanbanGoalPickerOptions = computed(() => (
   goalDefinitions.value.map(goal => ({
@@ -3632,9 +3600,9 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
         color: 'var(--b3-theme-on-background)'
       };
     }
-    const group = taskGroups.value.find(item => item.id === groupId);
-    const backgroundColor = resolveGroupColorCss(group?.color || '');
-    const textColor = resolveGroupTextColor(group?.color || '');
+    const groupColor = getTaskGroupColorValue(taskGroups.value, groupId);
+    const backgroundColor = resolveGroupColorCss(groupColor);
+    const textColor = resolveGroupTextColor(groupColor);
     return {
       background: backgroundColor || 'var(--b3-theme-background)',
       color: backgroundColor ? (textColor || 'var(--b3-theme-on-surface)') : 'var(--b3-theme-on-background)'
@@ -4226,7 +4194,6 @@ async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): P
   }
 
   let successCount = 0;
-  const changedBlockIdSet = new Set<string>();
 
   for (const task of tasksToArchive) {
     try {
@@ -4240,18 +4207,12 @@ async function handleTableGroupArchiveTasks(payload: TableGroupActionPayload): P
         target.archiveReason = 'manual';
         target.updatedAt = nowIso;
       }
-      if (task.blockId) {
-        changedBlockIdSet.add(task.blockId);
-      }
       successCount += 1;
     } catch (error) {
         console.error('[KanbanView] Failed to archive group tasks:', error);
     }
   }
 
-  if (changedBlockIdSet.size > 0) {
-    eventBus.emit(Events.TASK_CHANGED, { blockIds: Array.from(changedBlockIdSet) });
-  }
   invalidateTableFilters();
 
   if (successCount === totalCount) {
@@ -4326,7 +4287,6 @@ async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
 
   setKanbanColumnArchiving(column.id, true);
   let successCount = 0;
-  const changedBlockIdSet = new Set<string>();
 
   try {
     for (const task of tasksToArchive) {
@@ -4341,18 +4301,12 @@ async function archiveColumnTasks(column: KanbanColumn): Promise<void> {
           target.archiveReason = 'manual';
           target.updatedAt = nowIso;
         }
-        if (task.blockId) {
-          changedBlockIdSet.add(task.blockId);
-        }
         successCount += 1;
       } catch (error) {
         console.error('[KanbanView] Failed to archive column tasks:', error);
       }
     }
 
-    if (changedBlockIdSet.size > 0) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: Array.from(changedBlockIdSet) });
-    }
     invalidateTableFilters();
 
     if (successCount === totalCount) {
@@ -4945,14 +4899,11 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
     invalidateTableFilters();
   }
 
-  if (successBlockIds.length > 0) {
-    eventBus.emit(Events.TASK_CHANGED, { blockIds: successBlockIds });
-  }
 }
 
 async function handleTaskGroupSave(payload: TaskGroupDialogSavePayload): Promise<void> {
   const groups = Array.isArray(payload?.groups) ? payload.groups : [];
-  kanbanGroupColumnOrder.value = normalizeKanbanGroupColumnOrder(payload?.orderIds);
+  kanbanGroupColumnOrder.value = normalizeTaskGroupOrderIds(payload?.orderIds);
   const removedGroupIds = collectRemovedGroupIds(taskGroups.value, groups);
   // Optimistically update so UI reflects changes immediately
   const nextGroups = (groups || []).map(group => ({ ...group }));
@@ -5119,6 +5070,7 @@ let kanbanTitleHydrateTimer: number | null = null;
 let kernelTaskIndexRefreshTimer: number | null = null;
 let isKanbanTitleHydrating = false;
 let queuedIncrementalAllowUnknown = false;
+const queuedIncrementalForceFreshBlockIds = new Set<string>();
 const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 80;
 const dragStatusLocks = new Map<string, Task['status']>();
 const dragSyncSuppressUntil = new Map<string, number>();
@@ -5390,16 +5342,15 @@ function matchesKanbanFiltersByDocumentScope(
   if (activeKanbanExtraFilters.value.length > 0) {
     const wantsDescription = activeKanbanExtraFilters.value.includes('hasDescription');
     const wantsSubtasks = activeKanbanExtraFilters.value.includes('hasSubtasks');
+    const wantsFocusEstimate = activeKanbanExtraFilters.value.includes('hasFocusEstimate');
     const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
     const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
+    const hasFocusEstimate = !!task.focusEstimate;
 
-    if (wantsDescription && wantsSubtasks) {
-      if (!hasDescription && !hasSubtasks) {
-        return false;
-      }
-    } else if (wantsDescription && !hasDescription) {
-      return false;
-    } else if (wantsSubtasks && !hasSubtasks) {
+    if ((wantsDescription && hasDescription) || (wantsSubtasks && hasSubtasks) || (wantsFocusEstimate && hasFocusEstimate)) {
+      return true;
+    }
+    if (wantsDescription || wantsSubtasks || wantsFocusEstimate) {
       return false;
     }
   }
@@ -7527,17 +7478,6 @@ function handleKanbanTaskContextMenu(task: Task, event: MouseEvent): void {
   void openKanbanEditor(task, event);
 }
 
-function handleKanbanTaskOpenClick(task: Task): void {
-  if (isKanbanBatchEditMode.value) {
-    if (isKanbanBatchCardClickSuppressed()) {
-      return;
-    }
-    toggleKanbanTaskBatchSelection(task.id);
-    return;
-  }
-  void handleTaskEditClick(task);
-}
-
 function handleKanbanTaskToggleStatus(task: Task): void {
   if (isKanbanBatchEditMode.value) {
     if (isKanbanBatchCardClickSuppressed()) {
@@ -7578,6 +7518,14 @@ function handleKanbanEditorStartFocus(): void {
   }
 
   startFocusForTask(task);
+}
+
+function handleKanbanEditorOpenContent(): void {
+  const task = activeKanbanEditTask.value;
+  if (!task) {
+    return;
+  }
+  void handleTaskEditClick(task);
 }
 
 async function applyKanbanBatchEdit(): Promise<void> {
@@ -7703,7 +7651,6 @@ async function applyKanbanBatchEdit(): Promise<void> {
     );
 
     const nowIso = new Date().toISOString();
-    const changedBlockIds: string[] = [];
     let successCount = 0;
     let failedCount = 0;
     let hasNewlyCompletedTask = false;
@@ -7719,7 +7666,6 @@ async function applyKanbanBatchEdit(): Promise<void> {
       }
 
       successCount += 1;
-      changedBlockIds.push(update.blockId);
 
       const taskIndex = tasks.value.findIndex(item => item.id === update.task.id);
       if (taskIndex !== -1) {
@@ -7766,9 +7712,6 @@ async function applyKanbanBatchEdit(): Promise<void> {
     });
 
     invalidateTableFilters();
-    if (changedBlockIds.length > 0) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: changedBlockIds });
-    }
     if (hasNewlyCompletedTask && taskCompletionSoundEnabled.value) {
       playTaskCompletionSound();
     }
@@ -8042,16 +7985,15 @@ function matchesTableFiltersByArchivedState(
   if (activeTableExtraFilters.value.length > 0) {
     const wantsDescription = activeTableExtraFilters.value.includes('hasDescription');
     const wantsSubtasks = activeTableExtraFilters.value.includes('hasSubtasks');
+    const wantsFocusEstimate = activeTableExtraFilters.value.includes('hasFocusEstimate');
     const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
     const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
+    const hasFocusEstimate = !!task.focusEstimate;
 
-    if (wantsDescription && wantsSubtasks) {
-      if (!hasDescription && !hasSubtasks) {
-        return false;
-      }
-    } else if (wantsDescription && !hasDescription) {
-      return false;
-    } else if (wantsSubtasks && !hasSubtasks) {
+    if ((wantsDescription && hasDescription) || (wantsSubtasks && hasSubtasks) || (wantsFocusEstimate && hasFocusEstimate)) {
+      return true;
+    }
+    if (wantsDescription || wantsSubtasks || wantsFocusEstimate) {
       return false;
     }
   }
@@ -9338,11 +9280,6 @@ function filterSuppressedBlockIds(blockIds: string[]): string[] {
   return blockIds.filter(id => typeof id === 'string' && id.length > 0 && !isDragTaskSyncSuppressed(id));
 }
 
-function hasSuppressedBlockId(blockIds: string[]): boolean {
-  if (!blockIds.length) return false;
-  return blockIds.some(id => typeof id === 'string' && id.length > 0 && isDragTaskSyncSuppressed(id));
-}
-
 function getTaskRepeatSeriesId(task: Task | null | undefined): string {
   return typeof task?.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
 }
@@ -9453,6 +9390,13 @@ async function loadUserSettings() {
   isHydratingSettings.value = true;
   try {
     const settings = userSettings.kanban;
+    const storedLastCalendarView = normalizeTaskViewMode(settings.lastCalendarView);
+    const storedCurrentView = normalizeTaskViewMode(settings.currentView);
+    if (isCalendarTaskViewMode(storedLastCalendarView)) {
+      lastCalendarView.value = storedLastCalendarView;
+    } else if (isCalendarTaskViewMode(storedCurrentView)) {
+      lastCalendarView.value = storedCurrentView;
+    }
     kanbanFilterType.value = settings.kanbanFilterSource
       || (settings.kanbanFilterType && settings.kanbanFilterType !== 'all'
         ? buildNotebookDocumentSource(settings.kanbanFilterType)
@@ -9465,7 +9409,7 @@ async function loadUserSettings() {
         : 'all');
     listFilterDocument.value = settings.listFilterDocument || 'all';
     listGroupBy.value = resolveStoredTaskViewGroupMode(settings.listGroupBy, settings.listGroupMode, 'status');
-    kanbanGroupColumnOrder.value = normalizeKanbanGroupColumnOrder(settings.kanbanGroupColumnOrder);
+    kanbanGroupColumnOrder.value = normalizeTaskGroupOrderIds(settings.kanbanGroupColumnOrder);
     tableGroupBy.value = resolveStoredTaskViewGroupMode(settings.tableGroupBy, settings.tableGroupMode, 'status');
     showKanbanTaskCardDetails.value = settings.showKanbanTaskCardDetails !== false;
     tableFilterType.value = settings.tableFilterSource
@@ -9541,6 +9485,7 @@ async function saveUserSettings() {
     const daySource = parseDocumentSource(dayFilterType.value);
     await updateSettings('kanban', {
       currentView: currentView.value,
+      lastCalendarView: lastCalendarView.value,
       kanbanGroupMode: kanbanGroupBy.value === 'group',
       listGroupMode: listGroupBy.value === 'group',
       tableGroupMode: tableGroupBy.value === 'group',
@@ -9556,7 +9501,7 @@ async function saveUserSettings() {
       listFilterDocument: listFilterDocument.value,
       kanbanGroupColumnOrder: hasLoadedTaskGroups.value
         ? [...resolvedKanbanGroupColumnOrder.value]
-        : [...normalizeKanbanGroupColumnOrder(kanbanGroupColumnOrder.value)],
+        : [...normalizeTaskGroupOrderIds(kanbanGroupColumnOrder.value)],
       tableFilterType: tableSource.kind === 'notebook' ? tableSource.id : 'all',
       tableFilterSource: tableFilterType.value,
       tableFilterDocument: tableFilterDocument.value,
@@ -9664,70 +9609,43 @@ async function validateDocumentSelection() {
 
 function queueIncrementalUpdates(
   blockIds: string[],
-  options: { allowUnknown?: boolean } = {},
+  options: { allowUnknown?: boolean; forceFresh?: boolean } = {},
   delay = 24
 ): void {
   if (options.allowUnknown) {
     queuedIncrementalAllowUnknown = true;
   }
+  if (options.forceFresh) {
+    blockIds.forEach((blockId) => {
+      if (typeof blockId === 'string' && blockId.length > 0) {
+        queuedIncrementalForceFreshBlockIds.add(blockId);
+      }
+    });
+  }
   incrementalUpdateQueue.enqueue(blockIds, delay);
 }
 
-const pendingExternalTaskStatusAttrSync = new Map<string, { status: Task['status']; completedAt?: string }>();
-
-function queueExternalTaskStatusAttrSync(
-  blockId: string,
-  status: Task['status'],
-  completedAt?: string
-): void {
-  if (typeof blockId !== 'string' || blockId.trim().length === 0) {
-    return;
+const {
+  queue: queueExternalTaskStatusAttrSync,
+  flush: flushExternalTaskStatusAttrSync
+} = createTaskStatusAttributeSync({
+  onApplied: () => TaskRepository.clearCache(),
+  onError: (blockId, error) => {
+    console.warn('[KanbanView] Failed to sync task completion attrs:', { blockId, error });
   }
-  pendingExternalTaskStatusAttrSync.set(blockId, {
-    status,
-    completedAt: typeof completedAt === 'string' && completedAt.trim().length > 0
-      ? completedAt.trim()
-      : undefined
-  });
-}
-
-async function flushExternalTaskStatusAttrSync(blockIds: Iterable<string>): Promise<void> {
-  const entries = Array.from(new Set(Array.from(blockIds)))
-    .map((blockId) => {
-      const sync = pendingExternalTaskStatusAttrSync.get(blockId);
-      return sync ? { blockId, ...sync } : null;
-    })
-    .filter((entry): entry is { blockId: string; status: Task['status']; completedAt?: string } => !!entry);
-
-  if (entries.length === 0) {
-    return;
-  }
-
-  entries.forEach(entry => pendingExternalTaskStatusAttrSync.delete(entry.blockId));
-
-  const results = await Promise.allSettled(entries.map((entry) =>
-    syncTaskStatusAttrsIfNeeded(entry.blockId, entry.status, entry.completedAt)
-  ));
-  const hasApplied = results.some(result => result.status === 'fulfilled' && result.value === true);
-  results.forEach((result, index) => {
-    if (result.status === 'rejected') {
-      console.warn('[KanbanView] Failed to sync task completion attrs:', {
-        blockId: entries[index]?.blockId,
-        error: result.reason
-      });
-    }
-  });
-
-  if (hasApplied) {
-    await TaskRepository.clearCache();
-  }
-}
+});
 
 const incrementalUpdateQueue = createBlockIdBatchQueue({
   maxBatchSize: MAX_INCREMENTAL_BLOCKS_PER_FLUSH,
   onFlushBatch: async (blockIds, remainingCount) => {
     const allowUnknown = queuedIncrementalAllowUnknown;
-    await incrementalUpdateTasks(blockIds, { allowUnknown });
+    let forceFresh = false;
+    blockIds.forEach((blockId) => {
+      if (queuedIncrementalForceFreshBlockIds.delete(blockId)) {
+        forceFresh = true;
+      }
+    });
+    await incrementalUpdateTasks(blockIds, { allowUnknown, forceFresh });
     if (remainingCount === 0) {
       queuedIncrementalAllowUnknown = false;
     }
@@ -9735,14 +9653,25 @@ const incrementalUpdateQueue = createBlockIdBatchQueue({
 });
 
 function setupEventListeners() {
-  const unsubscribeChanged = eventBus.on(Events.TASK_CHANGED, (data?: { blockIds?: string[] }) => {
+  const unsubscribeChanged = eventBus.on(Events.TASK_CHANGED, (data?: TaskChangePayload) => {
     if (data?.blockIds && data.blockIds.length > 0) {
-      if (hasSuppressedBlockId(data.blockIds)) {
-        return;
+      if (data.attributeChanges) {
+        syncTaskEditorDraftFromAttributeChanges(
+          activeKanbanEditTask.value,
+          activeKanbanEditDraft.value,
+          data.attributeChanges
+        );
+        invalidateTableFilters();
+        void nextTick(() => {
+          scheduleAllKanbanMetricsUpdates();
+          scheduleListViewMetricsUpdate();
+        });
       }
-      const blockIds = filterSuppressedBlockIds(data.blockIds);
+      const blockIds = data.forceRefresh === true
+        ? data.blockIds
+        : filterSuppressedBlockIds(data.blockIds);
       if (blockIds.length > 0) {
-        queueIncrementalUpdates(blockIds);
+        queueIncrementalUpdates(blockIds, { forceFresh: data.forceRefresh === true });
         if (isCalendarTaskViewMode(currentView.value)) {
           void ensureCalendarLifelogTasksLoaded(true);
         }
@@ -9807,7 +9736,7 @@ function setupEventListeners() {
     scheduleRefreshTasks(180, 'full');
   });
 
-  const unsubscribeDateChanged = eventBus.on('task-date-changed', (updatedTask: Task) => {
+  const unsubscribeDateChanged = eventBus.on(Events.TASK_DATE_CHANGED, (updatedTask: Task) => {
     applyExternalTaskDateChange(updatedTask);
   });
 
@@ -9915,6 +9844,7 @@ function cleanupEventListeners() {
   eventUnsubscribers = [];
   incrementalUpdateQueue.clear();
   queuedIncrementalAllowUnknown = false;
+  queuedIncrementalForceFreshBlockIds.clear();
 }
 
 interface AncestorContextRow {
@@ -10256,6 +10186,20 @@ function getTaskElementFromDoc(doc: Document, blockId: string): Element | null {
     || doc.querySelector(`[data-node-id="${blockId}"]`);
 }
 
+function getTaskTitleFromElement(root: Element | null): string | null {
+  if (!root) {
+    return null;
+  }
+  const paragraph = root.matches('[data-type="NodeParagraph"]')
+    ? root
+    : root.querySelector('[data-type="NodeParagraph"]');
+  const editable = paragraph?.matches('[contenteditable="true"]')
+    ? paragraph
+    : paragraph?.querySelector('[contenteditable="true"]');
+  const title = cleanTaskTitleHtml(editable?.innerHTML || paragraph?.innerHTML || '');
+  return title.length > 0 ? title : null;
+}
+
 function parseTaskCompleted(blockId: string, parsedDoc?: Document | null): boolean | null {
   const liveCompleted = parseTaskCompletedFromElement(getLiveTaskElement(blockId), blockId);
   if (liveCompleted !== null) {
@@ -10279,10 +10223,12 @@ async function fastSyncTaskFromDom(
 ): Promise<{
   unresolvedBlockIds: string[];
   patchedParentStatuses: Map<string, Task['status']>;
+  patchedParentTitles: Map<string, string>;
   hasPatched: boolean;
 }> {
   const unresolved: string[] = [];
   const patchedParentStatuses = new Map<string, Task['status']>();
+  const patchedParentTitles = new Map<string, string>();
   let hasPatched = false;
   const validBlockIds: string[] = [];
 
@@ -10295,7 +10241,7 @@ async function fastSyncTaskFromDom(
   }
 
   if (validBlockIds.length === 0) {
-    return { unresolvedBlockIds: unresolved, patchedParentStatuses, hasPatched };
+    return { unresolvedBlockIds: unresolved, patchedParentStatuses, patchedParentTitles, hasPatched };
   }
 
   const blockSnapshots = await Promise.all(validBlockIds.map(async (blockId) => {
@@ -10318,6 +10264,8 @@ async function fastSyncTaskFromDom(
 
     const parsedDoc = dom ? parser.parseFromString(dom, 'text/html') : null;
     const completed = parseTaskCompleted(blockId, parsedDoc);
+    const title = getLiveKanbanTaskTitle(blockId)
+      ?? (parsedDoc ? getTaskTitleFromElement(getTaskElementFromDoc(parsedDoc, blockId)) : null);
     if (completed === null) {
       unresolved.push(blockId);
       continue;
@@ -10356,6 +10304,14 @@ async function fastSyncTaskFromDom(
       if (previousStatus !== task.status || previousCompletedAt !== task.completedAt) {
         queueExternalTaskStatusAttrSync(blockId, nextStatus, task.completedAt);
       }
+      if (title !== null) {
+        patchedParentTitles.set(blockId, title);
+        if (task.title !== title) {
+          task.title = title;
+          crdtRepo.updateTaskField(task.id, 'title', title);
+          changed = true;
+        }
+      }
       patchedParentStatuses.set(blockId, nextStatus);
       if (changed) {
         task.updatedAt = new Date().toISOString();
@@ -10370,6 +10326,10 @@ async function fastSyncTaskFromDom(
         subtaskEntry.subtask.completed = completed;
         hasPatched = true;
       }
+      if (title !== null && subtaskEntry.subtask.title !== title) {
+        subtaskEntry.subtask.title = title;
+        hasPatched = true;
+      }
       continue;
     }
 
@@ -10379,15 +10339,16 @@ async function fastSyncTaskFromDom(
   return {
     unresolvedBlockIds: unresolved,
     patchedParentStatuses,
+    patchedParentTitles,
     hasPatched
   };
 }
 
 async function incrementalUpdateTasks(
   blockIds: string[],
-  options: { allowUnknown?: boolean } = {}
+  options: { allowUnknown?: boolean; forceFresh?: boolean } = {}
 ) {
-  const { allowUnknown = false } = options;
+  const { allowUnknown = false, forceFresh = false } = options;
   if (isDropping.value) {
     return;
   }
@@ -10404,7 +10365,7 @@ async function incrementalUpdateTasks(
     }
 
     const { taskIndexMap, subtaskNodeMap } = buildTaskLookup();
-    const { patchedParentStatuses, hasPatched } = await fastSyncTaskFromDom(
+    const { patchedParentStatuses, patchedParentTitles, hasPatched } = await fastSyncTaskFromDom(
       scopedBlockIds,
       taskIndexMap,
       subtaskNodeMap
@@ -10452,8 +10413,8 @@ async function incrementalUpdateTasks(
       false,
       undefined,
       canUseLightIncremental
-        ? { useLiveDom: false, detailLevel: 'light' }
-        : { useLiveDom: true }
+        ? { useLiveDom: false, detailLevel: 'light', forceFresh }
+        : { useLiveDom: true, forceFresh }
     );
     updatedTasksMap.forEach(task => {
       const forcedStatus = task.blockId ? patchedParentStatuses.get(task.blockId) : null;
@@ -10465,6 +10426,10 @@ async function incrementalUpdateTasks(
           delete task.completedAt;
         }
         task.updatedAt = new Date().toISOString();
+      }
+      const forcedTitle = task.blockId ? patchedParentTitles.get(task.blockId) : null;
+      if (forcedTitle) {
+        task.title = forcedTitle;
       }
       const lockedStatus = task.blockId ? getLockedDraggedTaskStatus(task.blockId) : null;
       if (lockedStatus) {
@@ -11133,7 +11098,6 @@ async function saveKanbanEditorDateFields(
       dueTime: updatedTask.dueTime
     });
     applyKanbanEditorTaskDateChange(updatedTask);
-    eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
     invalidateTableFilters();
   } catch (error) {
     console.error('[KanbanView] Failed to update task dates:', error);
@@ -11350,7 +11314,7 @@ async function handleKanbanEditorMove(): Promise<void> {
     closeKanbanTaskMoveDialog();
     closeKanbanEditor();
     if (moveResult.blockId) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [moveResult.blockId] });
+      publishTaskChange([moveResult.blockId]);
     }
     scheduleRefreshTasks(120, 'silent-full');
   } catch (error) {
@@ -11382,9 +11346,7 @@ async function handleKanbanEditorArchiveToggle(): Promise<void> {
         currentTask.updatedAt = nowIso;
       }
       invalidateTableFilters();
-      if (blockId) {
-        eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
-      } else {
+      if (!blockId) {
         scheduleRefreshTasks(120, 'silent-full');
       }
       return;
@@ -11401,9 +11363,7 @@ async function handleKanbanEditorArchiveToggle(): Promise<void> {
     }
     invalidateTableFilters();
     closeKanbanEditor();
-    if (blockId) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [blockId] });
-    } else {
+    if (!blockId) {
       scheduleRefreshTasks(120, 'silent-full');
     }
   } catch (error) {
@@ -12149,7 +12109,7 @@ function syncActiveKanbanEditorDraftDateFields(task: Task): void {
 
 function applyKanbanEditorTaskDateChange(updatedTask: Task): void {
   applyExternalTaskDateChange(updatedTask);
-  eventBus.emit('task-date-changed', updatedTask);
+  eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
 }
 
 function removeVirtualRepeatTasksLocally(seriesId: string): void {
@@ -12230,7 +12190,7 @@ function handleTaskDateChanged(updatedTask: Task) {
     removeVirtualRepeatTasksLocally(previousRepeatSeriesId);
   }
   scheduleKernelTaskIndexRefresh();
-  eventBus.emit('task-date-changed', updatedTask);
+  eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
 }
 
 function handleGanttTaskColorChanged(updatedTask: Task): void {
@@ -13145,7 +13105,6 @@ async function toggleTaskStatus(task: Task) {
       await updateTaskMarkdown(task.blockId, newStatus === 'completed', true);
       crdtRepo.updateTaskField(task.id, 'status', newStatus);
       syncTaskLocalStatusState(task.id, newStatus);
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
       invalidateTableFilters();
       if (shouldPlayCompletionSound && taskCompletionSoundEnabled.value) {
         playTaskCompletionSound();
@@ -13271,7 +13230,7 @@ async function applySubtaskFieldUpdate(
     const changedBlockIds = [parentTask.blockId, subtaskBlockId]
       .filter((id): id is string => typeof id === 'string' && id.length > 0);
     if (changedBlockIds.length > 0) {
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: changedBlockIds });
+      publishTaskChange(changedBlockIds);
     }
     invalidateTableFilters();
   } catch (error) {
@@ -13651,7 +13610,6 @@ async function applyBlockTaskFieldUpdate<K extends keyof Task>(
       if (field !== 'status') {
         suppressDragTaskSync(task.blockId, 1200);
       }
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
     } catch (error) {
       console.error(`[KanbanView] ${errorMessage}:`, error);
     }
@@ -13669,7 +13627,6 @@ async function applyBlockTaskTagUpdate(
   try {
     await setBlockAttrs(task.blockId, buildTaskTagAttrs(tagIds).attrs);
     updateTaskLocalTagState(task.id, tagIds);
-    eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
   } catch (error) {
     console.error(`[KanbanView] ${errorMessage}:`, error);
   }
@@ -14044,7 +14001,6 @@ async function handleGroupDrop(column: KanbanColumn) {
   try {
     if (task.type === 'block' && task.blockId) {
       await setBlockAttrs(task.blockId, buildTaskTagAttrs(nextTagState.tagIds).attrs);
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [task.blockId] });
     }
   } catch (error) {
     console.error('[KanbanView] Failed to update task group via drag:', error);
@@ -14122,7 +14078,7 @@ async function handleHeadingDrop(column: KanbanColumn) {
 
     window.setTimeout(() => {
       dragSyncSuppressUntil.delete(droppedBlockId);
-      eventBus.emit(Events.TASK_CHANGED, { blockIds: [droppedBlockId] });
+      publishTaskChange([droppedBlockId]);
     }, 500);
   } catch (error) {
     console.error('[KanbanView] Failed to move task to heading via drag:', error);
@@ -14516,6 +14472,7 @@ watch(currentView, (nextView) => {
   closeTaskViewGroupMenu();
   cancelMobileCalendarTaskDrag();
   if (isCalendarTaskViewMode(nextView)) {
+    lastCalendarView.value = nextView;
     calendarRepeatWindowByView.value[nextView] = resolveDefaultRepeatWindowForView(nextView);
     void ensureCalendarLifelogTasksLoaded(true);
   }

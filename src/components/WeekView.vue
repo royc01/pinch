@@ -623,6 +623,7 @@ import {
 import { updateTaskMarkdown } from '@/utils/taskHelpers';
 import { getTaskDisplayTitle } from '@/composables/useTaskCommon';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { getTaskPriorityLabel } from '@/utils/taskPriority';
 import { formatDate, formatTime, formatHour } from '@/composables/useDateUtils';
 import { CALENDAR_CONSTANTS } from '@/composables/useCalendarConstants';
 import { useDebouncedSave } from '@/composables/useDebouncedSave';
@@ -658,6 +659,8 @@ import {
 } from '@/utils/lifelogEvents';
 import { HABIT_CHECKIN_LOG_CHANGE_EVENT, useHabitCheckinLog } from '@/composables/useHabitCheckinLog';
 import { eventBus, Events } from '@/utils/eventBus';
+import { publishLifelogTaskSnapshot } from '@/utils/lifelogTaskSnapshot';
+import { publishLifelogTimelineSnapshot } from '@/utils/lifelogTimelineSnapshot';
 import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/utils/habitTaskChips';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveTaskTagIds } from '@/utils/taskTags';
@@ -669,6 +672,10 @@ import {
   resolveTaskGroupBackgroundColor
 } from '@/utils/taskColor';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
+import {
+  TASK_BACKGROUND_COLOR_OPTIONS,
+  TASK_BACKGROUND_COLOR_VALUES
+} from '@/utils/taskGroupShared';
 
 interface Props {
   tasks: Task[];
@@ -762,7 +769,16 @@ const calendarViewOptions = computed(() => props.calendarViewOptions || []);
 const showFocusRecords = computed(() => props.showFocusRecords !== false);
 const showHabits = computed(() => props.showHabits !== false);
 const showLifelog = computed(() => props.showLifelog !== false);
-const taskCompletedLifelogSourceTasks = computed(() => props.lifelogTasks || localTasks.value);
+const taskCompletedLifelogSourceTasks = computed(() => {
+  const tasksById = new Map<string, Task>();
+  for (const task of props.lifelogTasks || []) {
+    tasksById.set(task.id, task);
+  }
+  for (const task of localTasks.value) {
+    tasksById.set(task.id, task);
+  }
+  return Array.from(tasksById.values());
+});
 const taskCompletedLifelogSourceTaskById = computed(() => {
   const taskById = new Map<string, Task>();
   for (const task of taskCompletedLifelogSourceTasks.value) {
@@ -827,13 +843,7 @@ function formatDateRangeLabel(start: Date, end: Date, formatFn: (date: Date) => 
 }
 
 function getPriorityTitle(priority: Task['priority']): string {
-  if (priority === 'high') {
-    return t('taskManager.priorityHighLabel');
-  }
-  if (priority === 'medium') {
-    return t('taskManager.priorityMediumLabel');
-  }
-  return t('taskManager.priorityLowLabel');
+  return getTaskPriorityLabel(priority, t);
 }
 
 function getHiddenTasksLabel(count: number): string {
@@ -1081,6 +1091,11 @@ async function centerCurrentTimeInViewport(behavior: ScrollBehavior = 'auto'): P
 }
 
 const localTasks = ref<Task[]>([]);
+watch(
+  taskCompletedLifelogSourceTasks,
+  (tasks) => publishLifelogTaskSnapshot(tasks),
+  { deep: true, immediate: true }
+);
 const focusSessionRecords = ref<FocusSessionRecord[]>([]);
 const habitRecords = ref<Habit[]>([]);
 const moodRecords = ref<MoodData>({});
@@ -1273,19 +1288,8 @@ function unbindContextMenuOutsidePointerDown(): void {
   contextMenuOutsidePointerBound = false;
 }
 
-const backgroundColors = [
-  { value: 'pinch-background1', css: 'var(--pinch-background1)' },
-  { value: 'pinch-background2', css: 'var(--pinch-background2)' },
-  { value: 'pinch-background3', css: 'var(--pinch-background3)' },
-  { value: 'pinch-background4', css: 'var(--pinch-background4)' },
-  { value: 'pinch-background5', css: 'var(--pinch-background5)' },
-  { value: 'pinch-background6', css: 'var(--pinch-background6)' },
-  { value: 'pinch-background7', css: 'var(--pinch-background7)' },
-  { value: 'pinch-background8', css: 'var(--pinch-background8)' },
-  { value: 'pinch-background9', css: 'var(--pinch-background9)' },
-  { value: 'pinch-background10', css: 'var(--pinch-background10)' }
-];
-const weekDropColorValues = backgroundColors.map(color => color.value);
+const backgroundColors = TASK_BACKGROUND_COLOR_OPTIONS;
+const weekDropColorValues = TASK_BACKGROUND_COLOR_VALUES;
 
 function pickRandomTaskBackgroundColor(): string {
   if (weekDropColorValues.length === 0) {
@@ -3250,7 +3254,7 @@ const focusSessionsByDay = computed(() => {
 
 const allWeekLifelogEvents = computed<WeekLifelogEvent[]>(() => [
   ...(showFocusRecords.value ? Array.from(focusSessionsByDay.value.values()).flat() : []),
-  ...(showLifelog.value && showHabits.value ? habitsToLifelogEvents(habitRecords.value) : []),
+  ...(showLifelog.value ? habitsToLifelogEvents(habitRecords.value) : []),
   ...(showLifelog.value ? tasksToCompletedLifelogEvents(taskCompletedLifelogSourceTasks.value) : []),
   ...(showLifelog.value ? moodManualEntriesToLifelogEvents(moodRecords.value) : [])
 ]);
@@ -3507,6 +3511,15 @@ const lifelogTimelineItems = computed(() => {
       return left.title.localeCompare(right.title, 'zh-Hans-CN');
     });
 });
+watch(
+  [lifelogTimelineDayKey, lifelogTimelineItems],
+  ([dayKey, items]) => {
+    if (dayKey) {
+      publishLifelogTimelineSnapshot(dayKey, items);
+    }
+  },
+  { deep: true }
+);
 
 const lifelogTimelineDayTitle = computed(() => {
   const day = lifelogTimelineDayKey.value ? weekDays.value.find(item => item.key === lifelogTimelineDayKey.value) : null;
@@ -7032,21 +7045,6 @@ onUnmounted(() => {
   border-radius: 2px;
   margin-left: 3px;
   flex-shrink: 0;
-}
-
-.task-priority-badge.priority-high {
-  background: var(--pinch-background10);
-  color: var(--pinch-font-color10);
-}
-
-.task-priority-badge.priority-medium {
-  background: var(--pinch-background3);
-  color: var(--pinch-font-color3);
-}
-
-.task-priority-badge.priority-low {
-  background: var(--pinch-background7);
-  color: var(--pinch-font-color7);
 }
 
 .task-jump-btn {

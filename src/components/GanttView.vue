@@ -52,7 +52,7 @@
         </div>
 
         <div
-          v-for="group in renderGroups"
+          v-for="group in visibleRenderGroups"
           :key="group.key"
           class="gantt-group-panel"
           :class="{ 'group-start': group.offsetTop, 'goal-drop-target': isGoalSectionDropTarget(group.sectionId) }"
@@ -62,7 +62,7 @@
             gridRow: `${group.startRow} / span ${group.rowSpan}`
           }"
         ></div>
-        <template v-for="group in renderGroups" :key="`${group.key}:deadline`">
+        <template v-for="group in visibleRenderGroups" :key="`${group.key}:deadline`">
           <div
             v-if="group.deadlineStyle"
             class="gantt-deadline-marker ariaLabel"
@@ -363,6 +363,7 @@ import {
   resolveTaskAccentColor,
   resolveTaskBackgroundColor
 } from '@/utils/taskColor';
+import { TASK_BACKGROUND_COLOR_OPTIONS } from '@/utils/taskGroupShared';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GANTT_ROW_HEIGHT = 42;
@@ -372,6 +373,7 @@ const UNGROUPED_UNSCHEDULED_SECTION_ID = '__ungrouped_unscheduled__';
 const VIRTUAL_ROW_OVERSCAN = 12;
 const timelineWeekOptions = [2, 6, 12] as const;
 const GANTT_EN_MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const EMPTY_GOAL_IDS = new Set<string>();
 
 const props = defineProps<{
   tasks: Task[];
@@ -462,18 +464,7 @@ let contextMenuOutsidePointerBound = false;
 const optimisticTaskDateTimers = new Map<string, number>();
 const optimisticGoalDueDateTimers = new Map<string, number>();
 
-const backgroundColors = [
-  { value: 'pinch-background1', css: 'var(--pinch-background1)' },
-  { value: 'pinch-background2', css: 'var(--pinch-background2)' },
-  { value: 'pinch-background3', css: 'var(--pinch-background3)' },
-  { value: 'pinch-background4', css: 'var(--pinch-background4)' },
-  { value: 'pinch-background5', css: 'var(--pinch-background5)' },
-  { value: 'pinch-background6', css: 'var(--pinch-background6)' },
-  { value: 'pinch-background7', css: 'var(--pinch-background7)' },
-  { value: 'pinch-background8', css: 'var(--pinch-background8)' },
-  { value: 'pinch-background9', css: 'var(--pinch-background9)' },
-  { value: 'pinch-background10', css: 'var(--pinch-background10)' }
-];
+const backgroundColors = TASK_BACKGROUND_COLOR_OPTIONS;
 
 interface ExternalDropResolution {
   task: Task;
@@ -1593,8 +1584,35 @@ function isTaskInGoal(task: Task, goal: Goal): boolean {
   return isTaskInGoalScope(goal, task);
 }
 
-function isTaskInAnyGoal(task: Task, goals: Goal[]): boolean {
-  return goals.some(goal => isTaskInGoal(task, goal));
+const goalTaskMembership = computed(() => {
+  const goals = Array.isArray(props.goals) ? props.goals : [];
+  const goalIdsByTaskId = new Map<string, Set<string>>();
+  const taskIdsByGoalId = new Map<string, Set<string>>();
+
+  goals.forEach((goal) => {
+    taskIdsByGoalId.set(goal.id, new Set());
+  });
+
+  displayableTasks.value.forEach((task) => {
+    const taskId = typeof task.id === 'string' ? task.id.trim() : '';
+    if (!taskId) return;
+
+    goals.forEach((goal) => {
+      if (!isTaskInGoal(task, goal)) return;
+
+      const goalIds = goalIdsByTaskId.get(taskId) || new Set<string>();
+      goalIds.add(goal.id);
+      goalIdsByTaskId.set(taskId, goalIds);
+      taskIdsByGoalId.get(goal.id)?.add(taskId);
+    });
+  });
+
+  return { goalIdsByTaskId, taskIdsByGoalId };
+});
+
+function getGanttTaskGoalIds(task: Task): ReadonlySet<string> {
+  const taskId = typeof task.id === 'string' ? task.id.trim() : '';
+  return taskId ? goalTaskMembership.value.goalIdsByTaskId.get(taskId) || EMPTY_GOAL_IDS : EMPTY_GOAL_IDS;
 }
 
 function buildUnscheduledTaskRow(task: Task): GanttRow {
@@ -1648,10 +1666,6 @@ function compareUnscheduledRows(left: GanttRow, right: GanttRow): number {
   return left.title.localeCompare(right.title, 'zh-Hans-CN');
 }
 
-function buildGoalUnscheduledRows(goal: Goal, scheduledRows: GanttRow[]): GanttRow[] {
-  return buildUnscheduledRows(scheduledRows, task => isTaskInGoal(task, goal));
-}
-
 function buildDocumentUnscheduledRows(documentId: string, scheduledRows: GanttRow[]): GanttRow[] {
   return buildUnscheduledRows(scheduledRows, task => getTaskDocumentId(task) === documentId);
 }
@@ -1692,10 +1706,11 @@ function buildGoalSections(): GanttSection[] {
   const sections: GanttSection[] = [];
 
   goals.forEach((goal) => {
-    const scheduledRows = scheduledTaskRows.value.filter((row) => row.bars.some(bar => isTaskInGoal(bar.task, goal)));
-    const unscheduledRows = buildGoalUnscheduledRows(goal, scheduledRows);
+    const goalTaskIds = goalTaskMembership.value.taskIdsByGoalId.get(goal.id) || EMPTY_GOAL_IDS;
+    const scheduledRows = scheduledTaskRows.value.filter(row => row.bars.some(bar => goalTaskIds.has(bar.task.id)));
+    const unscheduledRows = buildUnscheduledRows(scheduledRows, task => goalTaskIds.has(task.id));
     const rows = [...scheduledRows, ...unscheduledRows];
-    const summaryTasks = displayableTasks.value.filter(task => isTaskInGoal(task, goal));
+    const summaryTasks = displayableTasks.value.filter(task => goalTaskIds.has(task.id));
     if (rows.length === 0 && summaryTasks.length === 0) return;
 
     const effectiveDueDateValue = optimisticGoalDueDates.value.get(goal.id) ?? goal.dueDate;
@@ -1712,10 +1727,10 @@ function buildGoalSections(): GanttSection[] {
     });
   });
 
-  const unassignedSummaryTasks = displayableTasks.value.filter(task => !isTaskInAnyGoal(task, goals));
+  const unassignedSummaryTasks = displayableTasks.value.filter(task => getGanttTaskGoalIds(task).size === 0);
   const unassignedRows = scheduledTaskRows.value
     .map<GanttRow | null>((row) => {
-      const bars = row.bars.filter(bar => !isTaskInAnyGoal(bar.task, goals));
+      const bars = row.bars.filter(bar => getGanttTaskGoalIds(bar.task).size === 0);
       if (bars.length === 0) return null;
       return {
         ...row,
@@ -1729,7 +1744,7 @@ function buildGoalSections(): GanttSection[] {
     .filter((row): row is GanttRow => row !== null);
   const unassignedUnscheduledRows = buildUnscheduledRows(
     unassignedRows,
-    task => !isTaskInAnyGoal(task, goals)
+    task => getGanttTaskGoalIds(task).size === 0
   );
   const unassignedSectionRows = [...unassignedRows, ...unassignedUnscheduledRows];
   if (unassignedSectionRows.length > 0 || unassignedSummaryTasks.length > 0) {
@@ -2165,20 +2180,27 @@ function shouldOffsetGroupStart(rowIndex: number): boolean {
 const renderGroups = computed<GanttRenderGroup[]>(() => {
   if (props.groupMode === 'none') return [];
 
+  const rows = renderRows.value;
+  const sectionIndexes: number[] = [];
+  rows.forEach((row, index) => {
+    if (row.kind === 'section') {
+      sectionIndexes.push(index);
+    }
+  });
+
   const groups: GanttRenderGroup[] = [];
-  renderRows.value.forEach((row, index) => {
-    if (row.kind !== 'section') return;
-    const nextSectionIndex = renderRows.value.findIndex((candidate, candidateIndex) =>
-      candidateIndex > index && candidate.kind === 'section'
-    );
-    const endIndex = nextSectionIndex === -1 ? renderRows.value.length : nextSectionIndex;
-    const shouldOffset = index > 0;
-    const unscheduledToggleIndex = renderRows.value.findIndex((candidate, candidateIndex) =>
-      candidateIndex > index
-      && candidateIndex < endIndex
-      && candidate.kind === 'unscheduled-toggle'
-    );
-    const markerStartIndex = index;
+  sectionIndexes.forEach((sectionIndex, sectionPosition) => {
+    const row = rows[sectionIndex];
+    const endIndex = sectionIndexes[sectionPosition + 1] ?? rows.length;
+    const shouldOffset = sectionIndex > 0;
+    let unscheduledToggleIndex = -1;
+    for (let index = sectionIndex + 1; index < endIndex; index += 1) {
+      if (rows[index].kind === 'unscheduled-toggle') {
+        unscheduledToggleIndex = index;
+        break;
+      }
+    }
+    const markerStartIndex = sectionIndex;
     const markerEndIndex = unscheduledToggleIndex === -1 ? endIndex : unscheduledToggleIndex + 1;
     const markerRowSpan = Math.max(0, markerEndIndex - markerStartIndex);
     const deadlineStyle = row.deadlineStyle
@@ -2190,14 +2212,27 @@ const renderGroups = computed<GanttRenderGroup[]>(() => {
     groups.push({
       key: `group-panel:${row.sectionId}`,
       sectionId: getGoalSectionIdForRenderRow(row) || '',
-      startRow: index + 2,
-      rowSpan: Math.max(1, endIndex - index),
+      startRow: sectionIndex + 2,
+      rowSpan: Math.max(1, endIndex - sectionIndex),
       offsetTop: shouldOffset,
       deadlineStyle: markerRowSpan > 0 ? deadlineStyle : null,
       deadlineTitle: row.deadlineTitle
     });
   });
   return groups;
+});
+
+const visibleRenderGroups = computed(() => {
+  const visibleRows = visibleRenderRows.value;
+  if (visibleRows.length === 0) return [];
+
+  const firstVisibleIndex = visibleRows[0].rowIndex;
+  const lastVisibleIndex = visibleRows[visibleRows.length - 1].rowIndex + 1;
+  return renderGroups.value.filter(group => {
+    const groupStartIndex = group.startRow - 2;
+    const groupEndIndex = groupStartIndex + group.rowSpan;
+    return groupStartIndex < lastVisibleIndex && groupEndIndex > firstVisibleIndex;
+  });
 });
 
 const gridStyle = computed(() => ({

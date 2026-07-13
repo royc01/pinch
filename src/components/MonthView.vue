@@ -341,6 +341,7 @@ import {
 import { updateTaskMarkdown } from '@/utils/taskHelpers';
 import { getTaskDisplayTitle } from '@/composables/useTaskCommon';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { getTaskPriorityLabel } from '@/utils/taskPriority';
 import { formatDate } from '@/composables/useDateUtils';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
@@ -357,6 +358,10 @@ import {
   resolveTaskGroupBackgroundColor
 } from '@/utils/taskColor';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
+import {
+  TASK_BACKGROUND_COLOR_OPTIONS,
+  TASK_BACKGROUND_COLOR_VALUES
+} from '@/utils/taskGroupShared';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
@@ -388,6 +393,8 @@ import {
   tasksToCompletedLifelogEvents
 } from '@/utils/lifelogEvents';
 import { eventBus, Events } from '@/utils/eventBus';
+import { publishLifelogTaskSnapshot } from '@/utils/lifelogTaskSnapshot';
+import { publishLifelogTimelineSnapshot } from '@/utils/lifelogTimelineSnapshot';
 import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/utils/habitTaskChips';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveTaskTagIds } from '@/utils/taskTags';
@@ -873,19 +880,8 @@ function getLunarDate(year: number, month: number, day: number): LunarInfo | nul
   return result;
 }
 
-const backgroundColors = [
-  { value: 'pinch-background1', css: 'var(--pinch-background1)' },
-  { value: 'pinch-background2', css: 'var(--pinch-background2)' },
-  { value: 'pinch-background3', css: 'var(--pinch-background3)' },
-  { value: 'pinch-background4', css: 'var(--pinch-background4)' },
-  { value: 'pinch-background5', css: 'var(--pinch-background5)' },
-  { value: 'pinch-background6', css: 'var(--pinch-background6)' },
-  { value: 'pinch-background7', css: 'var(--pinch-background7)' },
-  { value: 'pinch-background8', css: 'var(--pinch-background8)' },
-  { value: 'pinch-background9', css: 'var(--pinch-background9)' },
-  { value: 'pinch-background10', css: 'var(--pinch-background10)' }
-];
-const monthDropColorValues = backgroundColors.map(color => color.value);
+const backgroundColors = TASK_BACKGROUND_COLOR_OPTIONS;
+const monthDropColorValues = TASK_BACKGROUND_COLOR_VALUES;
 
 const focusLifelogEvents = computed(() =>
   focusRecordsToLifelogEvents(focusSessionRecords.value, t('focusTimer.title'))
@@ -895,7 +891,21 @@ const habitCheckinLifelogEvents = computed(() => habitsToLifelogEvents(habitReco
 const habitCheckinSummariesByDay = computed(() =>
   summarizeHabitCheckinLifelogEventsByDay(habitCheckinLifelogEvents.value)
 );
-const taskCompletedLifelogSourceTasks = computed(() => props.lifelogTasks || localTasks.value);
+const taskCompletedLifelogSourceTasks = computed(() => {
+  const tasksById = new Map<string, Task>();
+  for (const task of props.lifelogTasks || []) {
+    tasksById.set(task.id, task);
+  }
+  for (const task of localTasks.value) {
+    tasksById.set(task.id, task);
+  }
+  return Array.from(tasksById.values());
+});
+watch(
+  taskCompletedLifelogSourceTasks,
+  (tasks) => publishLifelogTaskSnapshot(tasks),
+  { deep: true, immediate: true }
+);
 const taskCompletedLifelogSourceTaskById = computed(() => {
   const taskById = new Map<string, Task>();
   for (const task of taskCompletedLifelogSourceTasks.value) {
@@ -1649,9 +1659,7 @@ function getHiddenTasksLabel(count: number): string {
 }
 
 function getPriorityTitle(priority: string | undefined): string {
-  if (priority === 'high') return t('taskManager.priorityHighLabel');
-  if (priority === 'medium') return t('taskManager.priorityMediumLabel');
-  return t('taskManager.priorityLowLabel');
+  return getTaskPriorityLabel(priority, t);
 }
 
 function getDayMoreStyle(week: any[]): Record<string, string> {
@@ -2048,6 +2056,15 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
 
   return getLifelogTimelineItemsForDay(dayKey);
 });
+watch(
+  [lifelogDayKey, lifelogTimelineItems],
+  ([dayKey, items]) => {
+    if (dayKey) {
+      publishLifelogTimelineSnapshot(dayKey, items);
+    }
+  },
+  { deep: true }
+);
 
 const lifelogTimelineDraft = computed(() => (
   lifelogDayKey.value ? getManualLifelogDraft(lifelogDayKey.value) : ''
@@ -4531,21 +4548,6 @@ onUnmounted(() => {
   border-radius: 2px;
   margin-left: 3px;
   flex-shrink: 0;
-}
-
-.task-priority-badge.priority-high {
-  background: var(--pinch-background10);
-  color: var(--pinch-font-color10);
-}
-
-.task-priority-badge.priority-medium {
-  background: var(--pinch-background3);
-  color: var(--pinch-font-color3);
-}
-
-.task-priority-badge.priority-low {
-  background: var(--pinch-background7);
-  color: var(--pinch-font-color7);
 }
 
 .placeholder-text {

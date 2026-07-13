@@ -24,7 +24,7 @@
             :aria-label="pinActive ? t('taskManager.unpinTask') : t('taskManager.pinTask')"
             @click.stop="$emit('pin')"
           >
-            <Icon name="pinTask" width="16" height="16" />
+            <Icon :name="pinActive ? 'pinTaskActive' : 'pinTask'" width="16" height="16" />
           </button>
           <button
             v-if="showPriority"
@@ -48,6 +48,30 @@
             @click.stop="$emit('focus')"
           >
             <Icon name="timer" width="14" height="14" />
+          </button>
+          <button
+            v-if="showOpenContent"
+            type="button"
+            class="task-editor-action-btn task-editor-open-btn ariaLabel"
+            :aria-label="t('taskCard.openContent')"
+            @click.stop="$emit('openContent')"
+          >
+            <svg
+              viewBox="0 0 1024 1024"
+              width="14"
+              height="14"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M762.16587005 783.91942371c0 16.31516594-10.87677684 27.19194278-27.1919428 27.1919428H240.08057629c-16.31516594 0-27.19194278-10.87677684-27.1919428-27.1919428V289.02607275c0-16.31516594 10.87677684-27.19194278 27.1919428-27.1919428h179.4668199V180.25830298H240.08057629c-59.8222733 0-108.76776977 48.94549646-108.76776977 108.76776977V783.91942371c0 59.8222733 48.94549646 108.76776977 108.76776977 108.76776977h494.89335096c59.8222733 0 108.76776977-48.94549646 108.76776977-108.76776977v-179.4668199h-81.57582697V783.91942371z"
+                fill="currentColor"
+              />
+              <path
+                d="M832.86492018 142.18958335h-239.2890932c-21.75355367 0-43.50710736 16.31516594-43.50710735 43.50710875s16.31516594 43.50710736 43.50710735 43.50710733h141.39810027l-244.72748092 244.72748094c-16.31516594 16.31516594-16.31516594 43.50710736 0 59.8222733s43.50710736 16.31516594 59.8222733 0l244.72748094-244.72748092v141.39810027c0 21.75355367 16.31516594 43.50710736 43.50710733 43.50710735s43.50710736-16.31516594 43.50710875-43.50710735V185.6966921c-10.87677684-21.75355367-27.19194278-43.50710736-48.94549647-43.50710875z"
+                fill="currentColor"
+              />
+            </svg>
           </button>
           <div
             v-if="showMoreActions"
@@ -137,6 +161,7 @@ const props = withDefaults(defineProps<{
   showDelete?: boolean;
   showPriority?: boolean;
   showFocus?: boolean;
+  showOpenContent?: boolean;
   priorityStyle?: Record<string, string>;
 }>(), {
   mode: 'sidebar',
@@ -150,6 +175,7 @@ const props = withDefaults(defineProps<{
   showDelete: false,
   showPriority: false,
   showFocus: false,
+  showOpenContent: false,
   priorityStyle: () => ({})
 });
 
@@ -162,6 +188,7 @@ const emit = defineEmits<{
   delete: [];
   priority: [event: MouseEvent];
   focus: [];
+  openContent: [];
   close: [];
 }>();
 
@@ -342,7 +369,8 @@ function handleDocumentPointerDown(event: PointerEvent): void {
   background-color: var(--b3-list-hover);
 }
 
-.task-editor-focus-btn {
+.task-editor-focus-btn,
+.task-editor-open-btn {
   width: 24px;
   height: 24px;
   border: none;
@@ -355,7 +383,8 @@ function handleDocumentPointerDown(event: PointerEvent): void {
   background: transparent;
 }
 
-.task-editor-focus-btn:hover {
+.task-editor-focus-btn:hover,
+.task-editor-open-btn:hover {
   background: var(--b3-list-hover);
 }
 
@@ -445,11 +474,9 @@ function handleDocumentPointerDown(event: PointerEvent): void {
 
 .task-editor-sidebar-pin:hover{
   background: var(--b3-list-hover);
-  color: #f98f7a;
 }
 .task-editor-sidebar-pin.is-active {
-  background: #f98f7a;
-  color: var(--b3-theme-background);
+  color: #ffcc4d;
 }
 
 .task-editor-sidebar-close:hover {

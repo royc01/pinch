@@ -21,13 +21,16 @@
     @complete-linked-target="handleCompleteLinkedTarget"
     @open-linked-target="handleOpenLinkedTarget"
     @disable-floating-focus="floatingFocusEnabled = false"
+    @micro-break-change="handleCapsuleMicroBreakChange"
   />
+  <MicroBreakDialog :visible="capsuleMicroBreakVisible" :remaining-seconds="capsuleMicroBreakRemainingSeconds" />
 </template>
 
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import FocusTimer from '@/components/FocusTimer.vue';
 import FloatingFocusCapsule from '@/components/FloatingFocusCapsule.vue';
+import MicroBreakDialog from '@/components/MicroBreakDialog.vue';
 import { hasActiveFocusSession } from '@/composables/useFocusSessionLock';
 import {
   subscribeDetachedFocusCompleteLinkedTarget,
@@ -45,6 +48,8 @@ const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 const showFocusTimer = ref(false);
 const floatingFocusEnabled = ref(false);
 const linkedTarget = ref<FocusTimerLinkedTarget | null>(null);
+const capsuleMicroBreakVisible = ref(false);
+const capsuleMicroBreakRemainingSeconds = ref(0);
 const floatingFocusCapsuleRef = ref<{
   openSettingsPanel: () => void;
   acceptPanelHandoff: (state: FocusTimerHandoffState) => void;
@@ -108,6 +113,11 @@ function handleHandoffToMini(state: FocusTimerHandoffState): void {
   void nextTick(() => {
     floatingFocusCapsuleRef.value?.acceptPanelHandoff(state);
   });
+}
+
+function handleCapsuleMicroBreakChange(visible: boolean, remainingSeconds: number): void {
+  capsuleMicroBreakVisible.value = visible;
+  capsuleMicroBreakRemainingSeconds.value = remainingSeconds;
 }
 
 watch(floatingFocusEnabled, (value) => {

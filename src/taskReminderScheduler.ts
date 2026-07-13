@@ -858,7 +858,7 @@ export function startTaskReminderScheduler(): void {
         queueFullRefresh();
       }
     }),
-    eventBus.on('task-date-changed', (task?: Task) => {
+    eventBus.on(Events.TASK_DATE_CHANGED, (task?: Task) => {
       if (!task) {
         return;
       }

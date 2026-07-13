@@ -18,7 +18,7 @@
         </div>
         <div class="task-title-wrap" @click="handleCardClick">
           <span v-if="isPinned" class="task-pinned-indicator ariaLabel" :aria-label="t('taskManager.pinned')">
-            <Icon name="pinBadge" />
+            <Icon name="pinTaskActive" />
           </span>
           <div
             class="task-title ariaLabel"
@@ -35,19 +35,16 @@
           >
             <Icon name="flag" width="10" height="10" />
           </span>
+          <span
+            v-if="isRepeatBadgeVisible"
+            class="task-repeat-badge ariaLabel"
+            :aria-label="repeatBadgeTitle"
+          >
+            <Icon name="repeat" class="task-repeat-icon" width="12" height="12" />
+          </span>
           <span v-if="showStatusBadge" class="status-badge" :class="`status-${task.status}`">
             {{ statusBadgeText }}
           </span>
-          <button
-            type="button"
-            class="task-card-action-btn task-card-open-btn ariaLabel"
-            data-disable-description-contextmenu
-            :aria-label="t('taskCard.openContent')"
-            @mousedown.stop
-            @click.stop.prevent="handleOpenClick"
-          >
-            <Icon name="moreHorizontal" width="14" height="14" />
-          </button>
           <span v-if="showProgressText" class="task-progress-text">{{ progressText }}</span>
           <button
             v-if="canExpand"
@@ -149,13 +146,31 @@
           <Icon name="bell" width="12" height="12" />
           {{ reminderText }}
         </span>
-        <span
-          v-if="isRepeatBadgeVisible"
-          class="task-repeat-badge ariaLabel"
-          :aria-label="repeatBadgeTitle"
+      </div>
+      <div
+        v-if="showFocusProgress"
+        class="task-focus-progress ariaLabel"
+        :aria-label="focusProgressAriaLabel"
+        @click="handleCardClick"
+      >
+        <button
+          type="button"
+          class="task-focus-progress-icon ariaLabel"
+          :aria-label="t('taskManager.startFocus')"
+          @click.stop="handleStartFocus"
         >
-          <Icon name="repeat" class="task-repeat-icon" width="12" height="12" />
-        </span>
+          <Icon name="timer" width="14" height="14" />
+        </button>
+        <div
+          class="task-focus-progress-track"
+          role="progressbar"
+          :aria-valuemin="0"
+          :aria-valuemax="100"
+          :aria-valuenow="focusProgressPercent"
+        >
+          <span class="task-focus-progress-fill" :style="{ width: `${focusProgressFillPercent}%` }"></span>
+        </div>
+        <span class="task-focus-progress-value">{{ focusProgressPercent }}%</span>
       </div>
       <div
         v-if="isDocumentTitleVisible"
@@ -209,11 +224,14 @@ import SubtaskItem from '@/components/SubtaskItem.vue';
 import { useI18n } from '@/composables/useI18n';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { sanitizeTaskHtml, sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { getTaskPriorityLabel } from '@/utils/taskPriority';
+import { getTaskStatusLabel } from '@/utils/taskStatus';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { getTaskReminderLabel } from '@/utils/taskReminder';
 import { resolveTaskTagIds } from '@/utils/taskTags';
 import type { Goal } from '@/goalRepository';
 import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
+import { useTaskFocusProgress } from '@/composables/useTaskFocusProgress';
 
 defineOptions({
   name: 'TaskCard'
@@ -250,7 +268,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   cardClick: [task: Task, event?: MouseEvent];
-  openClick: [task: Task, event?: MouseEvent];
+  startFocus: [task: Task];
   toggleExpand: [task: Task];
   toggleStatus: [task: Task];
   descriptionStartEdit: [task: Task];
@@ -265,6 +283,7 @@ const emit = defineEmits<{
 const variant = computed(() => props.variant ?? 'sidebar');
 const isKanban = computed(() => variant.value === 'kanban');
 const task = computed(() => props.task);
+const { actualFocus } = useTaskFocusProgress(task);
 const isCompleted = computed(() => props.completed ?? task.value.status === 'completed');
 const isExpanded = computed(() => !!props.expanded);
 const isDragging = computed(() => !!props.dragging);
@@ -315,11 +334,7 @@ const titleAriaLabel = computed(() => {
 });
 const descriptionHtml = computed(() => sanitizeTaskHtml(task.value.description || ''));
 const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.value.description ?? '');
-const priorityTitle = computed(() => {
-  if (task.value.priority === 'high') return t('taskManager.priorityHighLabel');
-  if (task.value.priority === 'medium') return t('taskManager.priorityMediumLabel');
-  return t('taskManager.priorityLowLabel');
-});
+const priorityTitle = computed(() => getTaskPriorityLabel(task.value.priority, t));
 const dueTimeText = computed(() => {
   const rawDueTime = typeof task.value.dueTime === 'string' ? task.value.dueTime.trim() : '';
   return /^\d{2}:\d{2}$/.test(rawDueTime) ? rawDueTime : '';
@@ -490,14 +505,8 @@ const statusBadgeText = computed(() => {
   if (props.showStatusBadge !== true) {
     return '';
   }
-  if (task.value.status === 'in-progress') {
-    return t('taskManager.statusInProgress');
-  }
-  if (task.value.status === 'delayed') {
-    return t('taskManager.statusDelayed');
-  }
-  if (task.value.status === 'cancelled') {
-    return t('taskManager.statusCancelled');
+  if (['in-progress', 'delayed', 'cancelled'].includes(task.value.status)) {
+    return getTaskStatusLabel(task.value.status, t);
   }
   return '';
 });
@@ -515,6 +524,37 @@ const showBadges = computed(() => {
     || resolvedTaskGoalBadges.value.length > 0
     || isRepeatBadgeVisible.value;
 });
+const focusEstimate = computed(() => task.value.focusEstimate);
+const focusProgressActual = computed(() => (
+  focusEstimate.value?.unit === 'pomodoros'
+    ? actualFocus.value.sessions
+    : actualFocus.value.minutes
+));
+const focusProgressPercent = computed(() => {
+  const estimate = focusEstimate.value?.value || 0;
+  if (estimate <= 0) return 0;
+  return Math.round((focusProgressActual.value / estimate) * 100);
+});
+const focusProgressFillPercent = computed(() => Math.min(100, Math.max(0, focusProgressPercent.value)));
+const focusProgressActualText = computed(() => {
+  const unit = focusEstimate.value?.unit;
+  return unit === 'pomodoros'
+    ? `${focusProgressActual.value} ${t('taskManager.focusPomodoroUnit')}`
+    : `${Math.round(focusProgressActual.value)} ${t('focusTimer.minuteSuffix')}`;
+});
+const focusProgressEstimateText = computed(() => {
+  const estimate = focusEstimate.value;
+  if (!estimate) return '';
+  return estimate.unit === 'pomodoros'
+    ? `${estimate.value} ${t('taskManager.focusPomodoroUnit')}`
+    : `${estimate.value} ${t('focusTimer.minuteSuffix')}`;
+});
+const focusProgressAriaLabel = computed(() => formatTemplate('taskManager.focusProgressTemplate', {
+  actual: focusProgressActualText.value,
+  estimate: focusProgressEstimateText.value,
+  progress: focusProgressPercent.value
+}));
+const showFocusProgress = computed(() => props.showBadges !== false && !!focusEstimate.value);
 
 const subtaskStats = computed(() => countSubtasks(task.value.subtasks));
 const progressText = computed(() => {
@@ -616,8 +656,8 @@ function handleCardClick(event: MouseEvent) {
   emit('cardClick', task.value, event);
 }
 
-function handleOpenClick(event: MouseEvent) {
-  emit('openClick', task.value, event);
+function handleStartFocus() {
+  emit('startFocus', task.value);
 }
 
 function handleToggleExpand() {
@@ -800,21 +840,6 @@ function getTaskDateTimestamp(value: unknown): number | null {
   flex-shrink: 0;
 }
 
-.task-priority-badge.priority-high {
-  background: var(--pinch-background10);
-  color: var(--pinch-font-color10);
-}
-
-.task-priority-badge.priority-medium {
-  background: var(--pinch-background3);
-  color: var(--pinch-font-color3);
-}
-
-.task-priority-badge.priority-low {
-  background: var(--pinch-background7);
-  color: var(--pinch-font-color7);
-}
-
 .task-pinned-indicator {
   width: 18px;
   height: 18px;
@@ -822,7 +847,7 @@ function getTaskDateTimestamp(value: unknown): number | null {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #f98f7a;
+  color: #ffcc4d;
 }
 
 .task-pinned-indicator svg {
@@ -854,12 +879,6 @@ function getTaskDateTimestamp(value: unknown): number | null {
 
 .task-card-action-btn:hover {
   background: var(--b3-list-hover);
-}
-
-.task-card-open-btn svg {
-  width: 14px;
-  height: 14px;
-  fill: currentColor;
 }
 
 .task-card-expand-btn svg {
@@ -902,6 +921,55 @@ function getTaskDateTimestamp(value: unknown): number | null {
   flex-wrap: wrap;
   margin-top: 6px;
   margin-left: 26px;
+}
+
+.task-focus-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 7px 0 0 26px;
+  color: var(--b3-theme-on-surface);
+}
+
+.task-focus-progress-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  flex: 0 0 auto;
+  color: var(--b3-theme-on-background);
+}
+
+.task-focus-progress-icon:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-focus-progress-track {
+  height: 7px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+}
+
+.task-focus-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #f98f7a;
+  transition: width 0.2s ease;
+}
+
+.task-focus-progress-value {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--b3-theme-on-background);
 }
 
 .task-document-title {
@@ -1030,23 +1098,25 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .task-reminder-badge {
   display: flex;
   align-items: center;
-  border-radius: 4px;
+  border-radius: 6px;
   font-weight: 500;
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-surface);
   gap: 2px;
-  padding: 2px 4px;
+  padding: 1px 4px;
   font-size: 10px;
+  min-height: 16px;
 }
 
 .status-badge {
   display: flex;
   align-items: center;
-  border-radius: 4px;
+  border-radius: 6px;
   font-weight: 500;
   gap: 2px;
-  padding: 2px 4px;
+  padding: 1px 4px;
   font-size: 10px;
+  min-height: 16px;
 }
 
 .status-badge.status-in-progress {
@@ -1082,12 +1152,14 @@ function getTaskDateTimestamp(value: unknown): number | null {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 6px;
   font-weight: 500;
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-surface);
   padding: 2px;
   line-height: 0;
+  height: 14px;
+  width: 14px;
 }
 
 .task-repeat-icon {
@@ -1097,16 +1169,17 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .task-group-badge {
   display: flex;
   align-items: center;
-  border-radius: 4px;
+  border-radius: 6px;
   font-weight: 500;
   background: var(--b3-list-hover);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   gap: 2px;
-  padding: 2px 4px;
+  padding: 1px 4px;
   font-size: 10px;
   max-width: 120px;
+  min-height: 16px;
 }
 
 .task-group-badge-more {

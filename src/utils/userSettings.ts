@@ -8,8 +8,18 @@ export type SidebarSectionId = 'week-dates' | 'summary-card-grid' | 'habit-list'
 export type TaskCreateDefaultTarget = 'last' | 'inbox' | 'daily-note';
 
 export interface UserSettings {
+  focus: {
+    microBreakEnabled?: boolean;
+    microBreakSystemNotification?: boolean;
+    microBreakPopup?: boolean;
+    microBreakSound?: boolean;
+    microBreakMinIntervalMinutes?: number;
+    microBreakMaxIntervalMinutes?: number;
+    microBreakDurationSeconds?: number;
+  };
   kanban: {
     currentView?: TaskViewSwitcherId;
+    lastCalendarView?: 'month' | 'week' | 'three-day' | 'day';
     filterType: string;
     filterSource?: string;
     filterDocument: string;
@@ -99,8 +109,18 @@ export interface UserSettings {
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
+  focus: {
+    microBreakEnabled: false,
+    microBreakSystemNotification: false,
+    microBreakPopup: true,
+    microBreakSound: true,
+    microBreakMinIntervalMinutes: 3,
+    microBreakMaxIntervalMinutes: 5,
+    microBreakDurationSeconds: 10
+  },
   kanban: {
     currentView: 'table',
+    lastCalendarView: 'month',
     filterType: 'all',
     filterSource: 'all',
     filterDocument: 'all',
@@ -210,6 +230,11 @@ function normalizeStringArray(input: unknown): string[] {
   return normalized;
 }
 
+function normalizePositiveInteger(input: unknown, fallback: number): number {
+  const value = typeof input === 'number' ? Math.floor(input) : Number(input);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 function normalizeDateRecognitionKeywords(input: unknown): TaskDateKeywordConfig {
   const raw = input && typeof input === 'object' ? input as TaskDateKeywordConfig : {};
   return {
@@ -266,11 +291,28 @@ const TASK_CREATE_DEFAULT_TARGETS: readonly TaskCreateDefaultTarget[] = ['last',
 
 function mergeWithDefaults(input: unknown): UserSettings {
   const raw = input && typeof input === 'object' ? (input as Partial<UserSettings>) : {};
+  const rawFocus = raw.focus && typeof raw.focus === 'object' ? raw.focus : {};
   const rawKanban = raw.kanban && typeof raw.kanban === 'object' ? raw.kanban : {};
   const rawTaskManager = raw.taskManager && typeof raw.taskManager === 'object' ? raw.taskManager : {};
   const rawSidebar = raw.sidebar && typeof raw.sidebar === 'object' ? raw.sidebar : {};
 
   return {
+    focus: {
+      ...DEFAULT_SETTINGS.focus,
+      ...rawFocus,
+      microBreakMinIntervalMinutes: normalizePositiveInteger(
+        (rawFocus as { microBreakMinIntervalMinutes?: unknown }).microBreakMinIntervalMinutes,
+        DEFAULT_SETTINGS.focus.microBreakMinIntervalMinutes
+      ),
+      microBreakMaxIntervalMinutes: normalizePositiveInteger(
+        (rawFocus as { microBreakMaxIntervalMinutes?: unknown }).microBreakMaxIntervalMinutes,
+        DEFAULT_SETTINGS.focus.microBreakMaxIntervalMinutes
+      ),
+      microBreakDurationSeconds: normalizePositiveInteger(
+        (rawFocus as { microBreakDurationSeconds?: unknown }).microBreakDurationSeconds,
+        DEFAULT_SETTINGS.focus.microBreakDurationSeconds
+      )
+    },
     kanban: {
       ...DEFAULT_SETTINGS.kanban,
       ...rawKanban,

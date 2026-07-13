@@ -131,6 +131,14 @@ import {
 } from '@/api';
 import { loadGoals, type Goal } from '@/goalRepository';
 import { eventBus, Events } from '@/utils/eventBus';
+import {
+  getLifelogTaskSnapshot,
+  patchLifelogTaskSnapshotByBlockId
+} from '@/utils/lifelogTaskSnapshot';
+import {
+  getLifelogTimelineSnapshot,
+  type LifelogTimelineSnapshot
+} from '@/utils/lifelogTimelineSnapshot';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import {
@@ -189,10 +197,13 @@ const selectedLifelogDate = ref('');
 const manualLifelogDrafts = ref<Record<string, string>>({});
 const focusSessionRecords = ref<FocusSessionRecord[]>([]);
 const lifelogTasks = ref<Task[]>([]);
+const sharedLifelogTasks = ref<Task[]>(getLifelogTaskSnapshot());
+const sharedLifelogTimelineSnapshot = ref<LifelogTimelineSnapshot | null>(getLifelogTimelineSnapshot());
 const lifelogTaskGroups = ref<TaskGroup[]>([]);
 const lifelogGoals = ref<Goal[]>([]);
 let lifelogTasksLoadRequestId = 0;
 let lifelogMetadataLoadRequestId = 0;
+let lifelogTaskRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 const formatTemplate = (key: string, values: Record<string, string | number>): string => {
   return Object.entries(values).reduce(
@@ -216,6 +227,19 @@ const monthYear = computed(() => {
     year: targetDate.getFullYear(),
     month: targetDate.getMonth() + 1
   });
+});
+
+const lifelogRepeatWindow = computed(() => {
+  const today = new Date();
+  const targetDate = new Date(today.getFullYear(), today.getMonth() + props.currentMonth, 1);
+  const year = targetDate.getFullYear();
+  const month = targetDate.getMonth();
+  const formatDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+  return {
+    startDate: formatDateKey(new Date(year, month, 1)),
+    endDate: formatDateKey(new Date(year, month + 1, 0))
+  };
 });
 
 const moodStatsData = computed<MoodStatsData>(() => {
@@ -349,10 +373,21 @@ watch(
   () => props.show,
   (show) => {
     if (show) {
-      void refreshLifelogSources();
+      sharedLifelogTasks.value = getLifelogTaskSnapshot();
+      sharedLifelogTimelineSnapshot.value = getLifelogTimelineSnapshot();
+      void refreshLifelogSources(true);
     }
   },
   { immediate: true }
+);
+
+watch(
+  () => props.currentMonth,
+  () => {
+    if (props.show) {
+      void refreshLifelogTasks(true);
+    }
+  }
 );
 
 async function refreshFocusSessions(): Promise<void> {
@@ -372,8 +407,9 @@ async function refreshLifelogTasks(forceRefresh: boolean = false): Promise<void>
       { includeArchived: true },
       {
         useLiveDom: false,
-        detailLevel: 'light',
-        materializeRepeats: false
+        detailLevel: 'full',
+        materializeRepeats: true,
+        repeatWindow: lifelogRepeatWindow.value
       }
     );
     if (requestId !== lifelogTasksLoadRequestId) {
@@ -414,10 +450,76 @@ function handleFocusSessionUpdate(): void {
   void refreshFocusSessions();
 }
 
+function scheduleLifelogTaskRefresh(): void {
+  if (lifelogTaskRefreshTimer) {
+    clearTimeout(lifelogTaskRefreshTimer);
+  }
+  lifelogTaskRefreshTimer = setTimeout(() => {
+    lifelogTaskRefreshTimer = null;
+    if (props.show) {
+      void refreshLifelogTasks(true);
+    }
+  }, 300);
+}
+
 function handleTaskUpdate(): void {
   if (props.show) {
-    void refreshLifelogTasks(true);
+    scheduleLifelogTaskRefresh();
   }
+}
+
+function handleLifelogTasksUpdated(payload?: { tasks?: Task[] }): void {
+  if (Array.isArray(payload?.tasks)) {
+    sharedLifelogTasks.value = payload.tasks.map(task => ({ ...task }));
+  }
+}
+
+function handleLifelogTimelineUpdated(payload?: LifelogTimelineSnapshot | null): void {
+  if (payload?.date && Array.isArray(payload.items)) {
+    sharedLifelogTimelineSnapshot.value = {
+      date: payload.date,
+      items: payload.items.map(item => ({ ...item }))
+    };
+  }
+}
+
+function handleTaskBlockUpdate(event: Event): void {
+  if (!props.show) {
+    return;
+  }
+
+  const detail = (event as CustomEvent<{ id?: unknown; completed?: unknown }>).detail;
+  const blockId = typeof detail?.id === 'string' ? detail.id.trim() : '';
+  if (!blockId || typeof detail?.completed !== 'boolean') {
+    return;
+  }
+
+  const completedAt = detail.completed ? new Date().toISOString() : undefined;
+  sharedLifelogTimelineSnapshot.value = null;
+  const sharedSnapshotUpdated = patchLifelogTaskSnapshotByBlockId(
+    blockId,
+    detail.completed,
+    completedAt
+  );
+  let updated = false;
+  lifelogTasks.value = lifelogTasks.value.map((task) => {
+    if (task.blockId !== blockId) {
+      return task;
+    }
+    updated = true;
+    return {
+      ...task,
+      status: detail.completed ? 'completed' : 'pending',
+      completedAt
+    };
+  });
+
+  if (!updated && !sharedSnapshotUpdated) {
+    void refreshLifelogTasks(true);
+    return;
+  }
+
+  scheduleLifelogTaskRefresh();
 }
 
 function handleLifelogMetadataUpdate(): void {
@@ -431,10 +533,20 @@ const focusLifelogEvents = computed(() =>
   focusRecordsToLifelogEvents(focusSessionRecords.value, t('focusTimer.title'))
 );
 const habitCheckinLifelogEvents = computed(() => habitsToLifelogEvents(props.habits || []));
-const taskCompletedLifelogEvents = computed(() => tasksToCompletedLifelogEvents(lifelogTasks.value));
+const taskCompletedLifelogSourceTasks = computed(() => {
+  const tasksById = new Map<string, Task>();
+  for (const task of lifelogTasks.value) {
+    tasksById.set(task.id, task);
+  }
+  for (const task of sharedLifelogTasks.value) {
+    tasksById.set(task.id, task);
+  }
+  return Array.from(tasksById.values());
+});
+const taskCompletedLifelogEvents = computed(() => tasksToCompletedLifelogEvents(taskCompletedLifelogSourceTasks.value));
 const taskCompletedLifelogSourceTaskById = computed(() => {
   const taskById = new Map<string, Task>();
-  for (const task of lifelogTasks.value) {
+  for (const task of taskCompletedLifelogSourceTasks.value) {
     if (task.id) {
       taskById.set(task.id, task);
     }
@@ -443,7 +555,7 @@ const taskCompletedLifelogSourceTaskById = computed(() => {
 });
 const taskCompletedLifelogSourceTaskByBlockId = computed(() => {
   const taskByBlockId = new Map<string, Task>();
-  for (const task of lifelogTasks.value) {
+  for (const task of taskCompletedLifelogSourceTasks.value) {
     if (task.blockId) {
       taskByBlockId.set(task.blockId, task);
     }
@@ -656,6 +768,11 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
   const dayKey = selectedLifelogDate.value;
   if (!dayKey) {
     return [];
+  }
+
+  const sharedSnapshot = sharedLifelogTimelineSnapshot.value;
+  if (sharedSnapshot?.date === dayKey) {
+    return sharedSnapshot.items;
   }
 
   return [
@@ -896,27 +1013,39 @@ let unsubscribeTaskAdded: (() => void) | null = null;
 let unsubscribeTaskDeleted: (() => void) | null = null;
 let unsubscribeTaskUpdated: (() => void) | null = null;
 let unsubscribeTaskToggled: (() => void) | null = null;
+let unsubscribeLifelogTasksUpdated: (() => void) | null = null;
+let unsubscribeLifelogTimelineUpdated: (() => void) | null = null;
 let unsubscribeTaskGroupsUpdated: (() => void) | null = null;
 let unsubscribeGoalsUpdated: (() => void) | null = null;
 
 onMounted(() => {
   window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
+  window.addEventListener('siyuan-block-update', handleTaskBlockUpdate);
   unsubscribeTaskChanged = eventBus.on(Events.TASK_CHANGED, handleTaskUpdate);
   unsubscribeTaskAdded = eventBus.on(Events.TASK_ADDED, handleTaskUpdate);
   unsubscribeTaskDeleted = eventBus.on(Events.TASK_DELETED, handleTaskUpdate);
   unsubscribeTaskUpdated = eventBus.on(Events.TASK_UPDATED, handleTaskUpdate);
   unsubscribeTaskToggled = eventBus.on(Events.TASK_TOGGLED, handleTaskUpdate);
+  unsubscribeLifelogTasksUpdated = eventBus.on(Events.LIFELOG_TASKS_UPDATED, handleLifelogTasksUpdated);
+  unsubscribeLifelogTimelineUpdated = eventBus.on(Events.LIFELOG_TIMELINE_UPDATED, handleLifelogTimelineUpdated);
   unsubscribeTaskGroupsUpdated = eventBus.on(Events.TASK_GROUPS_UPDATED, handleLifelogMetadataUpdate);
   unsubscribeGoalsUpdated = eventBus.on(Events.GOALS_UPDATED, handleLifelogMetadataUpdate);
 });
 
 onUnmounted(() => {
   window.removeEventListener('pinch-focus-session', handleFocusSessionUpdate);
+  window.removeEventListener('siyuan-block-update', handleTaskBlockUpdate);
+  if (lifelogTaskRefreshTimer) {
+    clearTimeout(lifelogTaskRefreshTimer);
+    lifelogTaskRefreshTimer = null;
+  }
   unsubscribeTaskChanged?.();
   unsubscribeTaskAdded?.();
   unsubscribeTaskDeleted?.();
   unsubscribeTaskUpdated?.();
   unsubscribeTaskToggled?.();
+  unsubscribeLifelogTasksUpdated?.();
+  unsubscribeLifelogTimelineUpdated?.();
   unsubscribeTaskGroupsUpdated?.();
   unsubscribeGoalsUpdated?.();
 });

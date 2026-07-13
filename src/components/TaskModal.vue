@@ -208,6 +208,11 @@ import { useI18n } from '@/composables/useI18n';
 import type { TaskPriority, TaskStatus, TaskGroup } from '@/api';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
+import {
+  TASK_GROUP_NONE_ID,
+  buildTaskGroupOptions
+} from '@/utils/taskGroupShared';
+import { TASK_PRIORITY_STYLES } from '@/utils/taskPriority';
 import { buildTaskTagState, toggleTaskTagSelection } from '@/utils/taskTags';
 import {
   getTaskReminderLabel,
@@ -229,7 +234,6 @@ export interface Document {
   path?: string;
 }
 
-const TASK_GROUP_NONE_ID = '__none__';
 const { t: translate } = useI18n();
 interface NewTask {
   title: string;
@@ -291,19 +295,9 @@ const taskModalDescriptionRef = ref<HTMLTextAreaElement | null>(null);
 const taskModalDueButtonRef = ref<HTMLButtonElement | null>(null);
 const taskModalReminderButtonRef = ref<HTMLButtonElement | null>(null);
 
-const taskModalPriorityStyle = computed(() => {
-  switch (localTask.value.priority) {
-    case 'high':
-      return { background: 'var(--pinch-background10)', color: 'var(--pinch-font-color10)' };
-    case 'medium':
-      return { background: 'var(--pinch-background3)', color: 'var(--pinch-font-color3)' };
-    case 'low':
-      return { background: 'var(--pinch-background7)', color: 'var(--pinch-font-color7)' };
-    case 'none':
-    default:
-      return { background: 'var(--b3-list-hover)', color: 'var(--b3-theme-on-surface)' };
-  }
-});
+const taskModalPriorityStyle = computed(() =>
+  TASK_PRIORITY_STYLES[localTask.value.priority] || TASK_PRIORITY_STYLES.none
+);
 
 const taskModalHasDueDate = computed(() => {
   return !!(localTask.value.dueDate || '').trim();
@@ -378,26 +372,14 @@ const taskModalGroupButtonStyle = computed(() => {
   };
 });
 
-const taskModalGroupOptions = computed(() => {
-  const options = [
-    { value: TASK_GROUP_NONE_ID, label: tt('taskManager.noTag'), special: true, color: '', colorCss: '', textColor: '' }
-  ];
-  (props.groups || []).forEach(group => {
-    if (group.hidden === true) {
-      return;
-    }
-    const rawColor = group.color || '';
-    options.push({
-      value: group.id,
-      label: group.name,
-      special: false,
-      color: rawColor,
-      colorCss: resolveGroupColorCss(rawColor),
-      textColor: resolveGroupTextColor(rawColor)
-    });
-  });
-  return options;
-});
+const taskModalGroupOptions = computed(() => buildTaskGroupOptions(
+  props.groups || [],
+  {
+    none: tt('taskManager.noTag'),
+    fallback: tt('taskManager.untitledTag')
+  },
+  { includeColor: true }
+));
 
 const taskModalGoalOptions = computed(() => (
   (props.goals || []).map(goal => ({
