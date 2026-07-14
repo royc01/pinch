@@ -814,6 +814,7 @@ import { syncTaskEditorDraftFromAttributeChanges } from '@/utils/taskEditorDraft
 import { createTaskStatusAttributeSync } from '@/utils/taskStatusAttributeSync';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
+import { applyTaskAttributeMutation } from '@/utils/taskMutationService';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
 import {
@@ -7422,6 +7423,12 @@ async function applyTaskEditorFieldUpdate(
   }
 
   options.syncDraft(editedTask);
+  // Reflect editor changes in task cards before the block-attribute request
+  // finishes. In particular, a newly added focus estimate controls whether
+  // the focus-progress badge is rendered.
+  patchTask(tasks.value, task.id, (targetTask) => {
+    options.syncTask(targetTask);
+  }, 'id');
 
   try {
     const blockId = task.type === 'block' && task.blockId ? task.blockId.trim() : '';
@@ -7430,6 +7437,7 @@ async function applyTaskEditorFieldUpdate(
       const attrsToPersist = nextStatus
         ? { ...options.attrs, ...buildTaskStatusAttrs(nextStatus, task.completedAt) }
         : options.attrs;
+      applyTaskAttributeMutation(blockId, attrsToPersist);
       await setBlockAttrs(blockId, attrsToPersist);
       if (options.beforePersist) {
         await options.beforePersist(blockId);
@@ -7439,7 +7447,6 @@ async function applyTaskEditorFieldUpdate(
 
     options.syncCrdt();
     patchTask(tasks.value, task.id, (targetTask) => {
-      options.syncTask(targetTask);
       targetTask.updatedAt = new Date().toISOString();
     }, 'id');
     await refreshInternalState();

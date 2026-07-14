@@ -31,6 +31,7 @@ export function taskToCRDT(task: Task, nodeId: string = 'db'): CRDTTask {
     tags: baseField(task.tags || [], updatedAt),
     groupId: baseField(task.groupId, updatedAt),
     backgroundColor: baseField(task.backgroundColor, updatedAt),
+    focusEstimate: baseField(task.focusEstimate, updatedAt),
     archived: baseField(task.archived === true, updatedAt),
     completedAt: baseField(task.completedAt, updatedAt),
     archivedAt: baseField(task.archivedAt, updatedAt),
@@ -87,7 +88,7 @@ export function crdtToTask(crdtTask: CRDTTask): Task {
     repeatFrequency: crdtTask.metadata.repeatFrequency as Task['repeatFrequency'],
     repeatInstanceDate: crdtTask.metadata.repeatInstanceDate,
     isVirtual: crdtTask.metadata.isVirtual,
-    focusEstimate: crdtTask.metadata.focusEstimate,
+    focusEstimate: crdtTask.focusEstimate?.value,
     createdAt: crdtTask.metadata.createdAt || new Date(crdtTask.updatedAt).toISOString(),
     updatedAt: new Date(crdtTask.updatedAt).toISOString()
   };
@@ -137,6 +138,7 @@ export class CRDTTaskRepository {
       tags: withTs(guardedTask.tags),
       groupId: withTs(guardedTask.groupId),
       backgroundColor: withTs(guardedTask.backgroundColor),
+      focusEstimate: withTs(guardedTask.focusEstimate),
       archived: withTs(guardedTask.archived),
       completedAt: withTs(guardedTask.completedAt),
       archivedAt: withTs(guardedTask.archivedAt),

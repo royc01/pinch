@@ -23,6 +23,7 @@ export interface CRDTTask {
   tags: CRDTField<string[]>;
   groupId: CRDTField<string | undefined>;
   backgroundColor: CRDTField<string | undefined>;
+  focusEstimate: CRDTField<{ unit: 'minutes' | 'pomodoros'; value: number } | undefined>;
   archived: CRDTField<boolean>;
   completedAt: CRDTField<string | undefined>;
   archivedAt: CRDTField<string | undefined>;
@@ -122,6 +123,7 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
     tags: mergeField(a.tags, b.tags),
     groupId: mergeField(a.groupId, b.groupId),
     backgroundColor: mergeField(a.backgroundColor || b.backgroundColor, b.backgroundColor || a.backgroundColor),
+    focusEstimate: mergeField(a.focusEstimate, b.focusEstimate),
     archived: mergeField(a.archived || b.archived, b.archived || a.archived),
     completedAt: mergeField(a.completedAt || b.completedAt, b.completedAt || a.completedAt),
     archivedAt: mergeField(a.archivedAt || b.archivedAt, b.archivedAt || a.archivedAt),
@@ -159,6 +161,7 @@ export class TaskCRDTEngine {
       tags: this.baseField([]),
       groupId: base,
       backgroundColor: base,
+      focusEstimate: base,
       archived: this.baseField(false),
       completedAt: base,
       archivedAt: base,

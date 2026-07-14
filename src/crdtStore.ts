@@ -46,6 +46,22 @@ function parseTaskBooleanAttribute(value: string): boolean {
     .some(token => token === '1' || token === 'true' || token === 'yes');
 }
 
+function parseTaskFocusEstimateAttribute(value: string): Task['focusEstimate'] {
+  if (!value.trim()) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    const amount = Number(parsed?.value);
+    if ((parsed?.unit === 'minutes' || parsed?.unit === 'pomodoros') && Number.isFinite(amount) && amount > 0) {
+      return { unit: parsed.unit, value: Math.min(9999, Math.round(amount)) };
+    }
+  } catch {
+    // Ignore malformed focus-estimate attributes.
+  }
+  return undefined;
+}
+
 function getDefaultNodeId(storeId: string): string {
   return storeId === 'global' ? 'local' : storeId;
 }
@@ -92,10 +108,11 @@ export function applyTaskAttributeChanges(
   const hasReminderType = hasTaskAttribute(attrs, 'custom-task-reminder-type');
   const hasReminderCustomTime = hasTaskAttribute(attrs, 'custom-task-reminder-custom-time');
   const hasBackgroundColor = hasTaskAttribute(attrs, 'custom-task-background-color');
+  const hasFocusEstimate = hasTaskAttribute(attrs, 'custom-task-focus-estimate');
   if (!(
     hasPriority || hasStatus || hasCompletedAt || hasTags || hasGroup || hasPinned || hasDescription
     || hasStartDate || hasStartTime || hasDueDate || hasDueTime
-    || hasReminderType || hasReminderCustomTime || hasBackgroundColor
+    || hasReminderType || hasReminderCustomTime || hasBackgroundColor || hasFocusEstimate
   )) {
     return false;
   }
@@ -161,6 +178,9 @@ export function applyTaskAttributeChanges(
       }
       if (hasBackgroundColor) {
         updateField(task.id, 'backgroundColor', attrs['custom-task-background-color'] || undefined);
+      }
+      if (hasFocusEstimate) {
+        updateField(task.id, 'focusEstimate', parseTaskFocusEstimateAttribute(attrs['custom-task-focus-estimate'] || ''));
       }
     });
 

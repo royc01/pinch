@@ -63,4 +63,18 @@ describe('shared task attribute changes', () => {
       groupId: 'tag-c'
     });
   });
+
+  it('updates focus estimates in every active task store', () => {
+    const { syncFromSQL: syncGlobalTasks, tasks: globalTasks } = useCrdtTasks();
+    const { syncFromSQL: syncSidebarTasks, tasks: sidebarTasks } = useCrdtTasks('task-manager');
+    syncGlobalTasks([{ ...task }]);
+    syncSidebarTasks([{ ...task }]);
+
+    expect(applyTaskAttributeChanges('block-1', {
+      'custom-task-focus-estimate': '{"unit":"minutes","value":30}'
+    })).toBe(true);
+
+    expect(globalTasks.value[0].focusEstimate).toEqual({ unit: 'minutes', value: 30 });
+    expect(sidebarTasks.value[0].focusEstimate).toEqual({ unit: 'minutes', value: 30 });
+  });
 });

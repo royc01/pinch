@@ -60,7 +60,10 @@ function replaceBlockRefs(text: string): { text: string; tokens: BlockRefToken[]
     const rawAlias = aliasDouble ?? aliasSingle ?? '';
     const alias = rawAlias.length > 0 ? unescapeQuotedText(rawAlias) : id;
     const html = `<span data-type="block-ref" data-subtype="s" data-id="${escapeHtmlAttr(id)}">${escapeHtml(alias)}</span>`;
-    const token = `__PINCH_BLOCK_REF_${index++}__`;
+    // Keep the reference opaque while the surrounding Markdown is parsed. An
+    // underscore-based token is itself valid Markdown emphasis syntax, so a
+    // reference following formatted text could be split before restoration.
+    const token = `\uE000PINCHBLOCKREF${index++}\uE001`;
     tokens.push({ token, html });
     return token;
   });
