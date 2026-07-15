@@ -8,6 +8,7 @@
     @update-linked-target="linkedTarget = $event"
     @clear-linked-target="linkedTarget = null"
     @open-linked-target="handleOpenLinkedTarget"
+    @open-settings="emit('openSettings')"
     @handoff-to-mini="handleHandoffToMini"
     @close="showFocusTimer = false"
   />
@@ -62,6 +63,7 @@ const emit = defineEmits<{
   completeLinkedHabit: [habitId: string];
   completeLinkedTarget: [target: FocusTimerLinkedTarget];
   visibilityChange: [visible: boolean];
+  openSettings: [];
 }>();
 
 function open(

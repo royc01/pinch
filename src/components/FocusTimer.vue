@@ -6,11 +6,19 @@
         <div class="stats-header-actions">
           <div class="mini-focus-toggle">
             <span class="mini-focus-label">{{ t('focusTimer.enableMini') }}</span>
-            <SyCheckbox
+           <SyCheckbox
               :model-value="miniEnabled"
               @update:model-value="emit('update:miniEnabled', $event)"
             />
           </div>
+          <button
+            type="button"
+            class="icon-button ariaLabel"
+            :aria-label="t('focusTimer.settings')"
+            @click="emit('open-settings')"
+          >
+            <Icon name="timer" width="16" height="16" class="icon" />
+          </button>
           <button @click="handleClose" class="icon-button ariaLabel" :aria-label="t('focusTimer.closeTimer')">
             <Icon name="close" width="16" height="16" class="icon" />
           </button>
@@ -215,117 +223,6 @@
           </div>
         </div>
 
-        <div class="setting-section micro-break-settings">
-          <div class="setting-label micro-break-settings__header">
-            <span>{{ t('focusTimer.microBreak') }}</span>
-            <Icon
-              name="focusBackfillHint"
-              width="14"
-              height="14"
-              class="timer-history-hint ariaLabel"
-              :aria-label="t('focusTimer.microBreakDescription')"
-            />
-            <div class="switch-container">
-              <label class="switch">
-                <input
-                  type="checkbox"
-                  :checked="userSettings.focus.microBreakEnabled === true"
-                  @change="updateMicroBreakSetting('microBreakEnabled', ($event.target as HTMLInputElement).checked)"
-                />
-                <span class="slider round"></span>
-              </label>
-            </div>
-          </div>
-          <div v-if="userSettings.focus.microBreakEnabled" class="micro-break-settings__options">
-            <div class="micro-break-settings__controls">
-              <div class="micro-break-settings__toggle">
-                <SyButton
-                  type="button"
-                  size="small"
-                  :class="['check-in-btn', 'ariaLabel', { 'is-active': userSettings.focus.microBreakPopup !== false }]"
-                  :aria-label="t('focusTimer.microBreakPopup')"
-                  :aria-pressed="userSettings.focus.microBreakPopup !== false"
-                  @click="updateMicroBreakSetting('microBreakPopup', userSettings.focus.microBreakPopup === false)"
-                >
-                  <Icon name="check" width="16" height="16" class="icon" />
-                </SyButton>
-                <span>{{ t('focusTimer.microBreakPopup') }}</span>
-              </div>
-              <div class="micro-break-settings__toggle">
-                <SyButton
-                  type="button"
-                  size="small"
-                  :class="['check-in-btn', 'ariaLabel', { 'is-active': userSettings.focus.microBreakSystemNotification === true }]"
-                  :aria-label="t('focusTimer.microBreakSystemNotification')"
-                  :aria-pressed="userSettings.focus.microBreakSystemNotification === true"
-                  @click="updateMicroBreakSetting('microBreakSystemNotification', userSettings.focus.microBreakSystemNotification !== true)"
-                >
-                  <Icon name="check" width="16" height="16" class="icon" />
-                </SyButton>
-                <span>{{ t('focusTimer.microBreakSystemNotification') }}</span>
-              </div>
-              <div class="micro-break-settings__toggle">
-                <SyButton
-                  type="button"
-                  size="small"
-                  :class="['check-in-btn', 'ariaLabel', { 'is-active': userSettings.focus.microBreakSound !== false }]"
-                  :aria-label="t('focusTimer.microBreakSound')"
-                  :aria-pressed="userSettings.focus.microBreakSound !== false"
-                  @click="updateMicroBreakSetting('microBreakSound', userSettings.focus.microBreakSound === false)"
-                >
-                  <Icon name="check" width="16" height="16" class="icon" />
-                </SyButton>
-                <span>{{ t('focusTimer.microBreakSound') }}</span>
-              </div>
-            </div>
-            <div class="micro-break-settings__interval">
-              <div class="setting-label">
-                <span>{{ t('focusTimer.microBreakInterval') }}</span>
-                <span class="duration-value">{{ microBreakIntervalText }}{{ t('focusTimer.microBreakRest') }}</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="300"
-                  :value="userSettings.focus.microBreakDurationSeconds"
-                  @change="updateMicroBreakNumberSetting('microBreakDurationSeconds', $event)"
-                />
-                <span class="duration-value">{{ t('focusTimer.secondSuffix') }}</span>
-              </div>
-              <div class="micro-break-range">
-                <div class="micro-break-range__track">
-                  <span class="micro-break-range__fill" :style="microBreakRangeFillStyle"></span>
-                </div>
-                <input
-                  class="micro-break-range__input"
-                  type="range"
-                  min="0"
-                  :max="microBreakIntervalMarks.length - 1"
-                  :value="microBreakMinIntervalIndex"
-                  @input="updateMicroBreakInterval('min', $event)"
-                />
-                <input
-                  class="micro-break-range__input"
-                  type="range"
-                  min="0"
-                  :max="microBreakIntervalMarks.length - 1"
-                  :value="microBreakMaxIntervalIndex"
-                  @input="updateMicroBreakInterval('max', $event)"
-                />
-              </div>
-              <div class="duration-marks micro-break-range__marks">
-                <span
-                  v-for="(mark, index) in microBreakIntervalMarks"
-                  :key="mark"
-                  class="duration-mark"
-                  :style="{ left: `${(index / (microBreakIntervalMarks.length - 1)) * 100}%` }"
-                >
-                  {{ mark }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div class="setting-section">
           <div class="setting-label">
             <span>{{ t('focusTimer.whiteNoise') }}</span>
@@ -344,6 +241,19 @@
                    
                     :aria-label="`${t('focusTimer.pickSoundPrefix')}${sound.name}`">
               <Icon :name="sound.icon" width="80%" height="80%" />
+            </button>
+            <button
+              v-if="userSettings.focus.customWhiteNoiseFile"
+              type="button"
+              class="sound-btn ariaLabel"
+              :class="{ active: selectedSound.id === 'custom' }"
+              :disabled="isDownloading || !enableAudio"
+              :aria-label="t('taskScopeDialog.customWhiteNoise')"
+              @click="selectSound({ id: 'custom', name: t('taskScopeDialog.customWhiteNoise'), emoji: '🎵', icon: 'soundOff' })"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21.65,2.24a1,1,0,0,0-.8-.23l-13,2A1,1,0,0,0,7,5V15.35A3.45,3.45,0,0,0,5.5,15,3.5,3.5,0,1,0,9,18.5V10.86L20,9.17v4.18A3.45,3.45,0,0,0,18.5,13,3.5,3.5,0,1,0,22,16.5V3A1,1,0,0,0,21.65,2.24ZM5.5,20A1.5,1.5,0,1,1,7,18.5,1.5,1.5,0,0,1,5.5,20Zm13-2A1.5,1.5,0,1,1,20,16.5,1.5,1.5,0,0,1,18.5,18ZM20,7.14,9,8.83v-3L20,4.17Z" />
+              </svg>
             </button>
           </div>
           <div class="volume-control" v-if="selectedSound.id !== 'none' && enableAudio">
@@ -643,7 +553,6 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, toRefs, watch } from 'vue';
 import Icon from './Icon.vue';
 import MicroBreakDialog from '@/components/MicroBreakDialog.vue';
-import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import {
   addFocusSession,
@@ -664,8 +573,7 @@ import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 import { useI18n } from '@/composables/useI18n';
 import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
 import { useUserSettings } from '@/composables/useUserSettings';
-import { playTaskCompletionSound, prepareTaskCompletionSound } from '@/utils/completionSound';
-import type { UserSettings } from '@/utils/userSettings';
+import { getCustomFocusAudioUrl, playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
 import { awardFocusSession } from '@/rewardRepository';
 import FocusTargetIcon from '@/components/FocusTargetIcon.vue';
 import {
@@ -699,10 +607,11 @@ const emit = defineEmits<{
   'update-linked-target': [target: FocusTimerLinkedTarget | null];
   'clear-linked-target': [];
   'open-linked-target': [target: FocusTimerLinkedTarget];
+  'open-settings': [];
 }>();
 
 const { t } = useI18n();
-const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
+const { data: userSettings, loadSettings } = useUserSettings();
 
 interface Sound {
   id: string;
@@ -730,7 +639,6 @@ interface FocusBackfillTimelineItem {
 const durationMarks = [5, 10, 15, 25, 30, 45, 60];
 const durationOptions: DurationOption[] = [...durationMarks, 'unlimited'];
 const shortBreakMarks = [1, 3, 5, 10, 15];
-const microBreakIntervalMarks = [1, 3, 5, 7, 9, 11, 13, 15];
 const pomodoroSetMarks = [1, 2, 3, 4, 5, 6, 7, 8];
 const backfillDurationOptions = [15, 25, 45, 60];
 const FOCUS_SESSION_EVENT = 'pinch-focus-session';
@@ -903,34 +811,6 @@ const isTimerActive = computed(() =>
 const isPomodoroSettingsLocked = computed(() =>
   isTimerActive.value || timerMode.value === 'countup'
 );
-const getMicroBreakIntervalIndex = (value: number | undefined) => {
-  const normalized = Number(value);
-  const exactIndex = microBreakIntervalMarks.indexOf(normalized);
-  if (exactIndex >= 0) {
-    return exactIndex;
-  }
-  return microBreakIntervalMarks.reduce((closestIndex, mark, index) => (
-    Math.abs(mark - normalized) < Math.abs(microBreakIntervalMarks[closestIndex] - normalized)
-      ? index
-      : closestIndex
-  ), 0);
-};
-const microBreakMinIntervalIndex = computed(() =>
-  getMicroBreakIntervalIndex(userSettings.focus.microBreakMinIntervalMinutes)
-);
-const microBreakMaxIntervalIndex = computed(() => Math.max(
-  microBreakMinIntervalIndex.value,
-  getMicroBreakIntervalIndex(userSettings.focus.microBreakMaxIntervalMinutes)
-));
-const microBreakIntervalText = computed(() =>
-  `${microBreakIntervalMarks[microBreakMinIntervalIndex.value]}-${microBreakIntervalMarks[microBreakMaxIntervalIndex.value]}${t('focusTimer.minuteSuffix')}`
-);
-const microBreakRangeFillStyle = computed(() => {
-  const lastIndex = microBreakIntervalMarks.length - 1;
-  const start = (microBreakMinIntervalIndex.value / lastIndex) * 100;
-  const end = 100 - (microBreakMaxIntervalIndex.value / lastIndex) * 100;
-  return { left: `${start}%`, right: `${end}%` };
-});
 const backfillTargetLabel = computed(() => {
   if (!backfillTarget.value) {
     return t('focusTimer.backfillNoTarget', '无关联');
@@ -1238,7 +1118,11 @@ const playAudio = () => {
     stopAudio();
   }
 
-  audio.value = new Audio(audioFiles[selectedSound.value.id]);
+  const source = selectedSound.value.id === 'custom'
+    ? getCustomFocusAudioUrl(userSettings.focus.customWhiteNoiseFile)
+    : audioFiles[selectedSound.value.id];
+  if (!source) return;
+  audio.value = new Audio(source);
   audio.value.loop = true;
   audio.value.volume = volume.value;
 
@@ -1328,7 +1212,9 @@ const {
 } = useMicroBreakReminder({
   settings: computed(() => userSettings.focus),
   notify: (title, body) => showNotification(title, body, '☕'),
-  playSound: () => playTaskCompletionSound(0.3),
+  playSound: () => {
+    if (!playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, 0.3)) playTaskCompletionSound(0.3);
+  },
   getText: (key) => ({
     startTitle: t('focusTimer.microBreakStartTitle'),
     startBody: t('focusTimer.microBreakStartBody'),
@@ -1336,47 +1222,6 @@ const {
     endBody: t('focusTimer.microBreakEndBody')
   })[key]
 });
-
-async function updateMicroBreakSetting<K extends keyof UserSettings['focus']>(
-  key: K,
-  value: UserSettings['focus'][K]
-): Promise<void> {
-  await updateSettings('focus', { [key]: value });
-  if (isRunning.value && !isBreakMode.value) {
-    startMicroBreakReminder();
-  }
-}
-
-function updateMicroBreakNumberSetting(
-  key: 'microBreakDurationSeconds',
-  event: Event
-): void {
-  const value = Math.max(1, Math.floor(Number((event.target as HTMLInputElement).value) || 1));
-  void updateMicroBreakSetting(key, value);
-}
-
-function updateMicroBreakInterval(boundary: 'min' | 'max', event: Event): void {
-  const target = event.target as HTMLInputElement;
-  const selectedIndex = Math.max(0, Math.min(
-    microBreakIntervalMarks.length - 1,
-    Math.floor(Number(target.value) || 0)
-  ));
-  const nextMinIndex = boundary === 'min'
-    ? Math.min(selectedIndex, microBreakMaxIntervalIndex.value)
-    : microBreakMinIntervalIndex.value;
-  const nextMaxIndex = boundary === 'max'
-    ? Math.max(selectedIndex, microBreakMinIntervalIndex.value)
-    : microBreakMaxIntervalIndex.value;
-  target.value = String(boundary === 'min' ? nextMinIndex : nextMaxIndex);
-  void updateSettings('focus', {
-    microBreakMinIntervalMinutes: microBreakIntervalMarks[nextMinIndex],
-    microBreakMaxIntervalMinutes: microBreakIntervalMarks[nextMaxIndex]
-  }).then(() => {
-    if (isRunning.value && !isBreakMode.value) {
-      startMicroBreakReminder();
-    }
-  });
-}
 
 const getElapsedFocusMinutes = () => {
   if (isBreakMode.value || timerMode.value !== 'countup') {
@@ -1731,6 +1576,7 @@ const startPhaseTimer = () => {
 };
 
 const playCompleteSound = async () => {
+  if (playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, 0.3)) return;
   try {
     await initAudioContext();
 
@@ -1755,7 +1601,8 @@ const playCompleteSound = async () => {
     playTone(523.25, now, 0.2);
     playTone(659.25, now + 0.15, 0.2);
     playTone(783.99, now + 0.3, 0.3);
-  } catch (err) {
+  } catch {
+    // Ignore unavailable Web Audio environments.
   }
 };
 
@@ -1782,6 +1629,8 @@ const startTimer = () => {
 
   initAudioContext().catch(() => {});
   prepareTaskCompletionSound();
+  prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
+  prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
 
   startMicroBreakReminder();
   startPhaseTimer();
@@ -1801,6 +1650,8 @@ const resumeTimer = () => {
   isRunning.value = true;
   isPaused.value = false;
   prepareTaskCompletionSound();
+  prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
+  prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
 
   startMicroBreakReminder();
   startPhaseTimer();
@@ -2595,159 +2446,6 @@ watch(isLinkedTargetLocked, (locked) => {
   line-height: 1.5;
 }
 
-.micro-break-settings__options {
-  display: grid;
-  gap: 10px;
-  margin-top: 4px;
-}
-
-.micro-break-settings__header {
-  justify-content: flex-start;
-  gap: 4px;
-}
-
-.micro-break-settings__header .switch-container {
-  margin-left: auto;
-}
-
-.micro-break-settings__controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 14px;
-  padding: 8px;
-  background-color: var(--b3-theme-background);
-  border-radius: 16px;
-}
-
-.micro-break-settings__toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--b3-theme-on-surface);
-  font-size: 13px;
-}
-
-.micro-break-settings__toggle .check-in-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  min-width: auto;
-  padding: 0;
-  border: none;
-  border-radius: 5px;
-  background-color: var(--b3-list-hover);
-}
-
-.micro-break-settings__toggle .check-in-btn.is-active {
-  background-color: #f98f7a;
-}
-
-.micro-break-settings__toggle .check-in-btn .icon {
-  width: 10px;
-  height: 10px;
-  color: var(--b3-theme-background);
-}
-
-.micro-break-settings__interval .setting-label input {
-  width: 2ch;
-  padding: 2px 4px;
-  border: 1px solid var(--b3-border-color);
-  border-radius: 6px;
-  background: var(--b3-list-hover);
-  color: var(--b3-theme-on-background);
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.micro-break-settings__interval .setting-label input::-webkit-inner-spin-button,
-.micro-break-settings__interval .setting-label input::-webkit-outer-spin-button {
-  margin: 0;
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-.micro-break-settings__interval {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.micro-break-settings__interval .setting-label {
-  justify-content: flex-start;
-  gap: 8px;
-}
-
-.micro-break-settings__interval .duration-value {
-  margin-left: auto;
-}
-
-.micro-break-settings__interval .setting-label > .duration-value:last-child {
-  margin-left: 0px;
-}
-
-.micro-break-range {
-  position: relative;
-  height: 20px;
-}
-
-.micro-break-range__track,
-.micro-break-range__fill {
-  position: absolute;
-  top: 50%;
-  height: 4px;
-  transform: translateY(-50%);
-  border-radius: 999px;
-}
-
-.micro-break-range__track {
-  right: 0;
-  left: 0;
-  background: var(--b3-list-hover);
-}
-
-.micro-break-range__fill {
-  background: var(--b3-theme-on-background);
-}
-
-.micro-break-range__input {
-  position: absolute;
-  z-index: 1;
-  width: 100%;
-  height: 20px;
-  margin: 0;
-  pointer-events: none;
-  appearance: none;
-  background: transparent;
-}
-
-.micro-break-range__input::-webkit-slider-thumb {
-  width: 16px;
-  height: 16px;
-  pointer-events: auto;
-  appearance: none;
-  border: 0;
-  border-radius: 50%;
-  background: var(--b3-theme-on-background);
-  cursor: pointer;
-}
-
-.micro-break-range__input::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  pointer-events: auto;
-  border: 0;
-  border-radius: 50%;
-  background: var(--b3-theme-on-background);
-  cursor: pointer;
-}
-
-.micro-break-range__marks {
-  width: 100%;
-}
-
 .micro-break-overlay {
   position: fixed;
   z-index: 10001;
@@ -2914,6 +2612,12 @@ watch(isLinkedTargetLocked, (locked) => {
   color: var(--b3-theme-on-background);
   flex: 1;
   aspect-ratio: 1;
+
+  svg {
+    width: 80%;
+    height: 80%;
+    fill: currentColor;
+  }
 
   &.active {
     background: var(--b3-theme-on-background);

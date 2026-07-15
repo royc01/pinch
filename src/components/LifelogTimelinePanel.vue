@@ -142,7 +142,28 @@
                   <span class="lifelog-timeline-badge-label">{{ badge.label }}</span>
                 </span>
               </div>
-              <div v-if="item.note" class="lifelog-timeline-note">{{ item.note }}</div>
+              <template v-if="item.note">
+                <textarea
+                  v-if="editingItemId === item.id"
+                  v-model="editingText"
+                  class="lifelog-timeline-note-input"
+                  rows="3"
+                  autofocus
+                  @keydown.ctrl.enter.prevent="saveItemEdit(item)"
+                  @keydown.esc.prevent="cancelItemEdit"
+                  @blur="saveItemEdit(item)"
+                  @mousedown.stop
+                  @click.stop
+                />
+                <button
+                  v-else-if="item.editable"
+                  type="button"
+                  class="lifelog-timeline-note is-editable"
+                  :aria-label="item.note"
+                  @click.stop="startItemEdit(item)"
+                >{{ item.note }}</button>
+                <div v-else class="lifelog-timeline-note">{{ item.note }}</div>
+              </template>
             </div>
           </div>
         </div>
@@ -223,6 +244,7 @@ export interface LifelogTimelinePanelItem {
   emoji?: string;
   moodSvg?: string;
   deletable?: boolean;
+  editable?: boolean;
   badges?: LifelogTimelinePanelBadge[];
 }
 
@@ -287,12 +309,15 @@ const emit = defineEmits<{
   'save-draft': [];
   'clear-draft': [];
   'delete-item': [item: LifelogTimelinePanelItem];
+  'update-item': [item: LifelogTimelinePanelItem, text: string];
 }>();
 
 const isDraftEmpty = computed(() => !props.draft.trim());
 const dateStripRef = ref<HTMLElement | null>(null);
 const selectedDateStripKey = computed(() => props.dateStripDays.find(day => day.selected)?.date || '');
 const pendingDeleteItem = ref<LifelogTimelinePanelItem | null>(null);
+const editingItemId = ref<string | null>(null);
+const editingText = ref('');
 
 function getBadgeClass(badge: LifelogTimelinePanelBadge): string[] {
   if (badge.type === 'goal') {
@@ -326,6 +351,7 @@ watch(
       scrollSelectedDateIntoView();
     } else {
       pendingDeleteItem.value = null;
+      cancelItemEdit();
     }
   },
   { immediate: true }
@@ -365,6 +391,29 @@ function confirmDeleteItem(): void {
   }
   pendingDeleteItem.value = null;
   emit('delete-item', item);
+}
+
+function startItemEdit(item: LifelogTimelinePanelItem): void {
+  if (!item.editable) {
+    return;
+  }
+  editingItemId.value = item.id;
+  editingText.value = item.note;
+}
+
+function cancelItemEdit(): void {
+  editingItemId.value = null;
+  editingText.value = '';
+}
+
+function saveItemEdit(item: LifelogTimelinePanelItem): void {
+  const text = editingText.value.trim();
+  if (!text || text === item.note) {
+    cancelItemEdit();
+    return;
+  }
+  emit('update-item', item, text);
+  cancelItemEdit();
 }
 
 function handleBackdropMouseDown(): void {
@@ -823,6 +872,35 @@ function handleBackdropMouseDown(): void {
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.lifelog-timeline-note.is-editable {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: text;
+}
+
+.lifelog-timeline-note.is-editable:hover {
+  color: var(--b3-theme-primary);
+}
+
+.lifelog-timeline-note-input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 6px;
+  border: 1px solid var(--b3-theme-primary);
+  border-radius: 5px;
+  outline: none;
+  resize: vertical;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font: inherit;
+  line-height: 1.45;
 }
 
 .lifelog-timeline-editor {

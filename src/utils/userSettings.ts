@@ -16,6 +16,9 @@ export interface UserSettings {
     microBreakMinIntervalMinutes?: number;
     microBreakMaxIntervalMinutes?: number;
     microBreakDurationSeconds?: number;
+    customWhiteNoiseFile?: string;
+    customCompletionSoundFile?: string;
+    customMicroBreakSoundFile?: string;
   };
   kanban: {
     currentView?: TaskViewSwitcherId;

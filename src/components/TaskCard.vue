@@ -27,6 +27,17 @@
           ></div>
         </div>
         <div class="task-card-actions">
+          <button
+            v-if="showOpenContent"
+            type="button"
+            class="task-card-action-btn task-card-open-content-btn ariaLabel"
+            data-disable-description-contextmenu
+            :aria-label="t('taskCard.openContent')"
+            @mousedown.stop
+            @click.stop="handleOpenContent"
+          >
+            <Icon name="moreHorizontal" width="14" height="14" />
+          </button>
           <span
             v-if="task.priority !== 'none'"
             class="task-priority-badge ariaLabel"
@@ -259,6 +270,7 @@ const props = defineProps<{
   showSubtasks?: boolean;
   titleTooltip?: string;
   showDocumentTitle?: boolean;
+  showOpenContent?: boolean;
   documentTitleOverride?: string;
   documentIconOverride?: string;
   documentIconSvg?: string;
@@ -268,6 +280,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   cardClick: [task: Task, event?: MouseEvent];
+  openContent: [task: Task];
   startFocus: [task: Task];
   toggleExpand: [task: Task];
   toggleStatus: [task: Task];
@@ -283,6 +296,7 @@ const emit = defineEmits<{
 const variant = computed(() => props.variant ?? 'sidebar');
 const isKanban = computed(() => variant.value === 'kanban');
 const task = computed(() => props.task);
+const showOpenContent = computed(() => props.showOpenContent === true);
 const { actualFocus } = useTaskFocusProgress(task);
 const isCompleted = computed(() => props.completed ?? task.value.status === 'completed');
 const isExpanded = computed(() => !!props.expanded);
@@ -654,6 +668,10 @@ function updateDescriptionExpandability(): void {
 
 function handleCardClick(event: MouseEvent) {
   emit('cardClick', task.value, event);
+}
+
+function handleOpenContent() {
+  emit('openContent', task.value);
 }
 
 function handleStartFocus() {

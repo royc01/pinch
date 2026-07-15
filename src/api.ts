@@ -26,6 +26,7 @@ import {
 import { formatTaskTitleHtml } from "@/utils/taskTitleFormat";
 import { usePlugin } from "@/main";
 import { translate } from "@/composables/useI18n";
+import { formatDate as formatLocalDate } from "@/composables/useDateUtils";
 import { awardTaskCompletion } from "@/rewardRepository";
 import {
   attachRepeatMetadataToTasks,
@@ -119,7 +120,7 @@ async function closeOpenMobileKanbanDialogIfNeeded(): Promise<void> {
 
 export async function openBlockById(
   blockId: string,
-  options: { focus?: boolean } = {}
+  options: { focus?: boolean; position?: "right" | "bottom" } = {}
 ): Promise<boolean> {
   const normalizedId = typeof blockId === "string" ? blockId.trim() : "";
   if (!normalizedId) return false;
@@ -149,7 +150,8 @@ export async function openBlockById(
       doc: {
         id: normalizedId,
         action
-      }
+      },
+      position: options.position
     });
     return true;
   } catch (error) {
@@ -870,7 +872,7 @@ export async function getHabits(): Promise<Habit[]> {
       return [];
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = formatLocalDate(new Date());
     const parsed: Habit[] = [];
 
     for (const raw of parsedRaw) {
@@ -921,7 +923,7 @@ export async function saveHabits(habits: Habit[]): Promise<void> {
       throw new Error(translate('api.errors.pluginNotInitialized', 'Plugin is not initialized'));
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = formatLocalDate(new Date());
     const source = Array.isArray(habits) ? habits : [];
 
     const habitsToSave: Habit[] = source
@@ -1168,7 +1170,7 @@ export async function getFocusTimerData(): Promise<FocusTimerData> {
 export async function getFocusStatsSummary(): Promise<FocusStatsSummary> {
   try {
     const data = await getFocusTimerData();
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatLocalDate(new Date());
 
     const totalSessions = data.dailyRecords.reduce((sum, record) => sum + record.sessions, 0);
     const totalMinutes = data.dailyRecords.reduce((sum, record) => sum + record.minutes, 0);
@@ -1288,7 +1290,7 @@ export async function addFocusSession(
 ): Promise<void> {
   try {
     const data = await getFocusTimerData();
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatLocalDate(new Date());
     const date = typeof options.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(options.date)
       ? options.date
       : today;
@@ -1343,7 +1345,7 @@ export async function upsertFocusSessionRecord(
     }
 
     const data = await getFocusTimerData();
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatLocalDate(new Date());
     const now = Date.now();
     const existingRecord = data.sessionRecords.find(record => record.id === normalizedSessionId);
     const recordDate = existingRecord?.date || today;

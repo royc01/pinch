@@ -592,6 +592,7 @@
       @save-draft="saveLifelogTimelineDraft"
       @clear-draft="clearLifelogTimelineDraft"
       @delete-item="deleteLifelogTimelineItem"
+      @update-item="updateLifelogTimelineItem"
     />
 
     <div
@@ -3481,6 +3482,7 @@ function lifelogEventToTimelineListItem(event: WeekLifelogEvent): LifelogTimelin
     moodSvg: event.type === 'manual-note' && event.emoji ? getMoodSvg(event.emoji, 'large') : undefined,
     sourceId: event.type === 'manual-note' ? event.id : event.sourceId,
     deletable: event.type === 'manual-note' || event.type === 'focus',
+    editable: event.type === 'manual-note',
     badges: event.type === 'task-completed'
       ? [
         ...getTaskCompletedTagBadges(event),
@@ -3674,6 +3676,29 @@ function deleteLifelogTimelineItem(item: LifelogTimelinePanelItem): void {
     return;
   }
   void deleteManualLifelogEntry(item.sourceId);
+}
+
+async function updateLifelogTimelineItem(item: LifelogTimelinePanelItem, text: string): Promise<void> {
+  if (item.type !== 'manual-note' || !item.sourceId) return;
+  const now = new Date().toISOString();
+  let changed = false;
+  const nextMoodData: MoodData = {};
+  for (const [date, entry] of Object.entries(moodRecords.value)) {
+    const entries = Array.isArray(entry.entries)
+      ? entry.entries.map(entryItem => {
+        if (entryItem.id !== item.sourceId) return entryItem;
+        changed = true;
+        return { ...entryItem, text, updatedAt: now };
+      })
+      : [];
+    nextMoodData[date] = { ...entry, ...(entries.length > 0 ? { entries } : { entries: undefined }) };
+  }
+  if (!changed) return;
+  try {
+    await persistMoodRecords(nextMoodData);
+  } catch (error) {
+    console.error('[WeekView] Failed to update manual lifelog entry', error);
+  }
 }
 
 function openLifelogTimeline(dayKey: string): void {

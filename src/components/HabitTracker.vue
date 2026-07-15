@@ -366,6 +366,7 @@
       ref="focusTimerHostRef"
       @complete-linked-habit="completeFocusLinkedHabit"
       @visibility-change="handleFocusTimerVisibilityChange"
+      @open-settings="openFocusTimerSettings"
     />
     
     <!-- 任务管理器容器 -->
@@ -497,7 +498,7 @@ const { t } = useHabitI18n();
 const { rewardSnapshot } = useRewards();
 const { goalItems } = useGoals();
 const { data: userSettings, loadSettings } = useUserSettings();
-type TaskScopeDialogTab = 'scope' | 'task-settings' | 'document-groups' | 'goals' | 'display';
+type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
 type TaskManagerExpose = {
   openTaskScopeDialog: (initialTab?: TaskScopeDialogTab) => Promise<void> | void;
 };
@@ -898,39 +899,37 @@ const canClearTodayCheckin = (habit: Habit | null): boolean => {
   return Boolean(todayRecord && ((todayRecord.completedCount || 0) > 0 || todayRecord.completed));
 };
 
-const schedulePomodoroCheckinLogWrite = (habit: Habit): void => {
+const writePomodoroCheckinLog = async (habit: Habit): Promise<void> => {
   const habitId = habit.id;
   const noteDocId = habit.noteDocId;
   const today = getToday();
 
-  if (!noteDocId || !habit.completedToday) {
+  if (!noteDocId) {
     return;
   }
 
-  window.setTimeout(async () => {
-    try {
-      const latestHabit = habits.value.find(item => item.id === habitId);
-      if (!latestHabit || latestHabit.isPaused || latestHabit.noteDocId !== noteDocId || !latestHabit.completedToday) {
-        return;
-      }
-
-      const dayRecord = latestHabit.calendar.find(day => day.date === today);
-      if (!dayRecord?.completed) {
-        return;
-      }
-
-      const existingNote = await getExistingNote(noteDocId, today, latestHabit);
-      await writeCheckinLogToDoc(noteDocId, {
-        habit: latestHabit,
-        date: today,
-        note: existingNote ?? undefined,
-        completedCount: dayRecord.completedCount,
-        targetCount: dayRecord.targetCount
-      });
-    } catch (error) {
-      console.error('[HabitTracker] Failed to write pomodoro checkin log:', error);
+  try {
+    const latestHabit = habits.value.find(item => item.id === habitId);
+    if (!latestHabit || latestHabit.isPaused || latestHabit.noteDocId !== noteDocId) {
+      return;
     }
-  }, 800);
+
+    const dayRecord = latestHabit.calendar.find(day => day.date === today);
+    if (!dayRecord?.completed) {
+      return;
+    }
+
+    const existingNote = await getExistingNote(noteDocId, today, latestHabit);
+    await writeCheckinLogToDoc(noteDocId, {
+      habit: latestHabit,
+      date: today,
+      note: existingNote ?? undefined,
+      completedCount: dayRecord.completedCount,
+      targetCount: dayRecord.targetCount
+    });
+  } catch (error) {
+    console.error('[HabitTracker] Failed to write pomodoro checkin log:', error);
+  }
 };
 
 const refreshHabitAfterTodayRecordChange = (habit: Habit): void => {
@@ -1108,6 +1107,10 @@ function openFocusTimer(): void {
   focusTimerHostRef.value?.open(null);
 }
 
+function openFocusTimerSettings(): void {
+  void taskManagerRef.value?.openTaskScopeDialog('pomodoro-settings');
+}
+
 function openFocusTimerForHabit(habit: Habit): void {
   focusTimerHostRef.value?.open(createHabitFocusTarget(habit));
 }
@@ -1135,7 +1138,7 @@ async function completeFocusLinkedHabit(habitId: string): Promise<void> {
   await immediateSaveHabits(habits.value);
   processRewardPayload(rewardPayload);
 
-  schedulePomodoroCheckinLogWrite(habit);
+  await writePomodoroCheckinLog(habit);
 }
 
 

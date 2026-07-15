@@ -292,6 +292,27 @@
       </div>
     </div>
   </Teleport>
+  <Teleport v-if="showCloseConfirm" to="body">
+    <div class="mini-focus-exit-overlay" @click.self="cancelCloseMiniFocus">
+      <div
+        class="mini-focus-exit-dialog ariaLabel"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="t('focusTimer.closeMiniFocus')"
+      >
+        <div class="mini-focus-exit-dialog__title">{{ t('focusTimer.closeMiniFocus') }}</div>
+        <div class="mini-focus-exit-dialog__message">{{ t('focusTimer.miniExitConfirm') }}</div>
+        <div class="mini-focus-exit-dialog__actions">
+          <button type="button" class="mini-focus-exit-dialog__btn" @click="cancelCloseMiniFocus">
+            {{ t('common.cancel') }}
+          </button>
+          <button type="button" class="mini-focus-exit-dialog__btn is-danger" @click="confirmCloseMiniFocus">
+            {{ t('focusTimer.stopAndExit') }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -303,7 +324,7 @@ import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 import { useI18n } from '@/composables/useI18n';
 import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
 import { useUserSettings } from '@/composables/useUserSettings';
-import { playTaskCompletionSound, prepareTaskCompletionSound } from '@/utils/completionSound';
+import { playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
 import { awardFocusSession } from '@/rewardRepository';
 import {
   closeDetachedFocusWindow,
@@ -391,6 +412,7 @@ const supportsDetachedFocusWindow = isDetachedFocusWindowSupported();
 const phaseElapsedSeconds = ref(0);
 const isRunning = ref(false);
 const isPaused = ref(false);
+const showCloseConfirm = ref(false);
 const isBreakMode = ref(false);
 const currentSet = ref(1);
 const timerInterval = ref<number | null>(null);
@@ -423,7 +445,9 @@ const {
 } = useMicroBreakReminder({
   settings: computed(() => userSettings.focus),
   notify: showMicroBreakNotification,
-  playSound: () => playTaskCompletionSound(0.3),
+  playSound: () => {
+    if (!playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, 0.3)) playTaskCompletionSound(0.3);
+  },
   getText: (key) => ({
     startTitle: t('focusTimer.microBreakStartTitle'),
     startBody: t('focusTimer.microBreakStartBody'),
@@ -814,8 +838,47 @@ const startPhaseTimer = () => {
   }, 200);
 };
 
+let completeSoundAudioContext: AudioContext | null = null;
+
+async function prepareCompleteSound(): Promise<void> {
+  if (!completeSoundAudioContext) {
+    completeSoundAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  }
+  if (completeSoundAudioContext.state === 'suspended') {
+    await completeSoundAudioContext.resume();
+  }
+}
+
+async function playCompleteSound(): Promise<void> {
+  try {
+    if (playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, 0.3)) return;
+    await prepareCompleteSound();
+    const context = completeSoundAudioContext;
+    if (!context) return;
+    const playTone = (frequency: number, startTime: number, duration: number) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.type = 'sine';
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.2, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+      oscillator.start(startTime);
+      oscillator.stop(startTime + duration);
+    };
+    const now = context.currentTime;
+    playTone(523.25, now, 0.2);
+    playTone(659.25, now + 0.15, 0.2);
+    playTone(783.99, now + 0.3, 0.3);
+  } catch {
+    // Ignore unavailable Web Audio environments.
+  }
+}
+
 const completeTimer = async () => {
   stopMicroBreakReminder();
+  void playCompleteSound();
   if (!isBreakMode.value) {
     try {
       await recordFocusSession(selectedDuration.value);
@@ -855,7 +918,10 @@ const startTimer = () => {
   clearTimer();
   isRunning.value = true;
   isPaused.value = false;
+  void prepareCompleteSound();
   prepareTaskCompletionSound();
+  prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
+  prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
   startMicroBreakReminder();
   startPhaseTimer();
 };
@@ -873,7 +939,10 @@ const resumeTimer = () => {
   if (!isPaused.value) return;
   isRunning.value = true;
   isPaused.value = false;
+  void prepareCompleteSound();
   prepareTaskCompletionSound();
+  prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
+  prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
   startMicroBreakReminder();
   startPhaseTimer();
 };
@@ -931,7 +1000,20 @@ const toggleStartPause = () => {
   startTimer();
 };
 
-const closeInlineMiniFocus = async () => {
+const closeInlineMiniFocus = () => {
+  if (isTimerActive.value) {
+    showCloseConfirm.value = true;
+    return;
+  }
+  void confirmCloseMiniFocus();
+};
+
+const cancelCloseMiniFocus = () => {
+  showCloseConfirm.value = false;
+};
+
+const confirmCloseMiniFocus = async () => {
+  showCloseConfirm.value = false;
   showSettings.value = false;
   closeTargetPicker();
   await stopTimer(true);
@@ -1943,6 +2025,66 @@ defineExpose({
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+}
+
+.mini-focus-exit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.mini-focus-exit-dialog {
+  width: min(340px, 100%);
+  padding: 16px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  box-shadow: var(--b3-dialog-shadow, 0 12px 36px rgba(0, 0, 0, 0.2));
+}
+
+.mini-focus-exit-dialog__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mini-focus-exit-dialog__message {
+  margin-top: 8px;
+  line-height: 1.5;
+  font-size: 13px;
+  color: var(--b3-theme-on-surface);
+}
+
+.mini-focus-exit-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.mini-focus-exit-dialog__btn {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.mini-focus-exit-dialog__btn:hover {
+  background: var(--b3-list-hover);
+}
+
+.mini-focus-exit-dialog__btn.is-danger {
+  border-color: color-mix(in srgb, var(--b3-theme-error) 35%, var(--b3-border-color));
+  color: var(--b3-theme-error);
 }
 
 .linked-habit-banner__picker-item-meta {

@@ -31,6 +31,14 @@
           {{ t('taskScopeDialog.taskSettings') }}
         </button>
         <button
+          type="button"
+          class="task-scope-tab"
+          :class="{ active: activeTab === 'pomodoro-settings' }"
+          @click="activeTab = 'pomodoro-settings'"
+        >
+          {{ t('taskScopeDialog.pomodoroSettings') }}
+        </button>
+        <button
           v-if="hasGoalTab"
           type="button"
           class="task-scope-tab"
@@ -191,6 +199,90 @@
         </div>
       </div>
 
+      <div v-else-if="activeTab === 'pomodoro-settings'" class="task-scope-content pomodoro-settings-tab-content">
+        <div class="task-scope-display-section">
+          <div class="task-scope-display-title">{{ t('focusTimer.microBreak') }}</div>
+          <div class="task-scope-auto-item">
+            <div class="task-scope-auto-main">
+              <span class="task-scope-extra-label">{{ t('focusTimer.microBreak') }}</span>
+              <div class="task-scope-auto-desc">{{ t('focusTimer.microBreakDescription') }}</div>
+            </div>
+            <SyCheckbox class="task-scope-toggle" :model-value="localMicroBreakEnabled" @update:model-value="localMicroBreakEnabled = $event" />
+          </div>
+          <div v-if="localMicroBreakEnabled" class="micro-break-options">
+            <label class="micro-break-option">
+              <span>{{ t('focusTimer.microBreakPopup') }}</span>
+              <SyCheckbox class="task-scope-toggle" :model-value="localMicroBreakPopup" @update:model-value="localMicroBreakPopup = $event" />
+            </label>
+            <label class="micro-break-option">
+              <span>{{ t('focusTimer.microBreakSystemNotification') }}</span>
+              <SyCheckbox class="task-scope-toggle" :model-value="localMicroBreakSystemNotification" @update:model-value="localMicroBreakSystemNotification = $event" />
+            </label>
+            <label class="micro-break-option">
+              <span>{{ t('focusTimer.microBreakSound') }}</span>
+              <SyCheckbox class="task-scope-toggle" :model-value="localMicroBreakSound" @update:model-value="localMicroBreakSound = $event" />
+            </label>
+            <label class="micro-break-number">
+              <span>{{ t('focusTimer.microBreakDuration') }}</span>
+              <input v-model.number="localMicroBreakDurationSeconds" type="number" min="1" max="300" />
+            </label>
+            <div class="micro-break-interval">
+              <div class="micro-break-number">
+                <span>{{ t('focusTimer.microBreakInterval') }}</span>
+                <span>{{ localMicroBreakMinIntervalMinutes }}-{{ localMicroBreakMaxIntervalMinutes }}{{ t('focusTimer.minuteSuffix') }}</span>
+              </div>
+              <div class="micro-break-range">
+                <div class="micro-break-range__track">
+                  <span class="micro-break-range__fill" :style="microBreakRangeFillStyle"></span>
+                </div>
+                <input class="micro-break-range__input" type="range" min="0" :max="microBreakIntervalMarks.length - 1" :value="microBreakMinIntervalIndex" @input="updateMicroBreakInterval('min', $event)" />
+                <input class="micro-break-range__input" type="range" min="0" :max="microBreakIntervalMarks.length - 1" :value="microBreakMaxIntervalIndex" @input="updateMicroBreakInterval('max', $event)" />
+              </div>
+              <div class="duration-marks micro-break-range__marks">
+                <span
+                  v-for="(mark, index) in microBreakIntervalMarks"
+                  :key="mark"
+                  class="duration-mark"
+                  :style="{ left: `${(index / (microBreakIntervalMarks.length - 1)) * 100}%` }"
+                >
+                  {{ mark }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="task-scope-display-section custom-audio-settings">
+          <div class="task-scope-display-title">{{ t('taskScopeDialog.customAudio') }}</div>
+          <div class="custom-audio-setting">
+            <span>{{ t('taskScopeDialog.customWhiteNoise') }}</span>
+            <div class="custom-audio-setting__controls">
+              <span class="custom-audio-setting__name">{{ localCustomWhiteNoiseFile || t('taskScopeDialog.useDefaultSound') }}</span>
+              <input type="file" accept="audio/*" @change="uploadCustomAudio('whiteNoise', $event)" />
+              <button type="button" :disabled="!localCustomWhiteNoiseFile" @click="toggleCustomAudioPreview(localCustomWhiteNoiseFile)">{{ previewingAudioFile && previewingAudioFile === localCustomWhiteNoiseFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
+              <button type="button" :disabled="!localCustomWhiteNoiseFile" @click="localCustomWhiteNoiseFile = ''">{{ t('taskScopeDialog.clearCustomSound') }}</button>
+            </div>
+          </div>
+          <div class="custom-audio-setting">
+            <span>{{ t('taskScopeDialog.customCompletionSound') }}</span>
+            <div class="custom-audio-setting__controls">
+              <span class="custom-audio-setting__name">{{ localCustomCompletionSoundFile || t('taskScopeDialog.useDefaultSound') }}</span>
+              <input type="file" accept="audio/*" @change="uploadCustomAudio('completion', $event)" />
+              <button type="button" :disabled="!localCustomCompletionSoundFile" @click="toggleCustomAudioPreview(localCustomCompletionSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomCompletionSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
+              <button type="button" :disabled="!localCustomCompletionSoundFile" @click="localCustomCompletionSoundFile = ''">{{ t('taskScopeDialog.clearCustomSound') }}</button>
+            </div>
+          </div>
+          <div class="custom-audio-setting">
+            <span>{{ t('taskScopeDialog.customMicroBreakSound') }}</span>
+            <div class="custom-audio-setting__controls">
+              <span class="custom-audio-setting__name">{{ localCustomMicroBreakSoundFile || t('taskScopeDialog.useDefaultSound') }}</span>
+              <input type="file" accept="audio/*" @change="uploadCustomAudio('microBreak', $event)" />
+              <button type="button" :disabled="!localCustomMicroBreakSoundFile" @click="toggleCustomAudioPreview(localCustomMicroBreakSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomMicroBreakSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
+              <button type="button" :disabled="!localCustomMicroBreakSoundFile" @click="localCustomMicroBreakSoundFile = ''">{{ t('taskScopeDialog.clearCustomSound') }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-else-if="activeTab === 'document-groups'" class="task-scope-content document-groups-tab-content">
         <DocumentGroupManagerPanel
           :groups="localDocumentGroups"
@@ -307,6 +399,9 @@ import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
 import { normalizeNotebookIds } from '@/utils/taskViewShared';
 import { useI18n } from '@/composables/useI18n';
 import type { TaskDateKeywordConfig } from '@/utils/taskDateParser';
+import type { UserSettings } from '@/utils/userSettings';
+import { putFile } from '@/api';
+import { getCustomFocusAudioUrl } from '@/utils/completionSound';
 
 interface NotebookItem {
   id: string;
@@ -335,6 +430,7 @@ export interface TaskScopeDialogSavePayload {
   sidebarSectionOrder: string[];
   defaultTaskCreateTarget: string;
   defaultTaskCreateNotebook: string;
+  focusSettings: UserSettings['focus'];
 }
 
 export interface TaskScopeDisplayOption {
@@ -373,11 +469,12 @@ interface Props {
   sidebarSectionOrder?: string[];
   defaultTaskCreateTarget?: string;
   defaultTaskCreateNotebook?: string;
+  focusSettings?: UserSettings['focus'];
 }
 
 const props = defineProps<Props>();
 const { t } = useI18n();
-type TaskScopeDialogTab = 'scope' | 'task-settings' | 'document-groups' | 'goals' | 'display';
+type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
 
 const emit = defineEmits<{
   close: [];
@@ -402,6 +499,19 @@ const localHiddenSidebarSectionIds = ref<string[]>([]);
 const localSidebarSectionOrder = ref<string[]>([]);
 const localDefaultTaskCreateTarget = ref('last');
 const localDefaultTaskCreateNotebook = ref('');
+const localMicroBreakEnabled = ref(false);
+const localMicroBreakPopup = ref(true);
+const localMicroBreakSystemNotification = ref(false);
+const localMicroBreakSound = ref(true);
+const localMicroBreakMinIntervalMinutes = ref(3);
+const localMicroBreakMaxIntervalMinutes = ref(5);
+const localMicroBreakDurationSeconds = ref(10);
+const microBreakIntervalMarks = [1, 3, 5, 7, 9, 11, 13, 15];
+const localCustomWhiteNoiseFile = ref('');
+const localCustomCompletionSoundFile = ref('');
+const localCustomMicroBreakSoundFile = ref('');
+const previewAudio = ref<HTMLAudioElement | null>(null);
+const previewingAudioFile = ref('');
 const activeTab = ref<TaskScopeDialogTab>('scope');
 const lockClose = computed(() => props.lockClose === true);
 const showExtra = computed(() => props.showExtra !== false);
@@ -409,6 +519,25 @@ const globalDateRecognizing = computed(() => props.globalDateRecognizing === tru
 const documentsRefreshing = computed(() => props.documentsRefreshing === true);
 const showScopeTab = computed(() => props.showScopeTab !== false);
 const showDocumentGroupNotebookPathToggle = computed(() => props.showDocumentGroupNotebookPathToggle !== false);
+const getMicroBreakIntervalIndex = (value: number) => {
+  const exactIndex = microBreakIntervalMarks.indexOf(value);
+  if (exactIndex >= 0) return exactIndex;
+  return microBreakIntervalMarks.reduce((closestIndex, mark, index) => (
+    Math.abs(mark - value) < Math.abs(microBreakIntervalMarks[closestIndex] - value) ? index : closestIndex
+  ), 0);
+};
+const microBreakMinIntervalIndex = computed(() => getMicroBreakIntervalIndex(localMicroBreakMinIntervalMinutes.value));
+const microBreakMaxIntervalIndex = computed(() => Math.max(
+  microBreakMinIntervalIndex.value,
+  getMicroBreakIntervalIndex(localMicroBreakMaxIntervalMinutes.value)
+));
+const microBreakRangeFillStyle = computed(() => {
+  const lastIndex = microBreakIntervalMarks.length - 1;
+  return {
+    left: `${(microBreakMinIntervalIndex.value / lastIndex) * 100}%`,
+    right: `${100 - (microBreakMaxIntervalIndex.value / lastIndex) * 100}%`
+  };
+});
 const dialogTitle = computed(() => props.title || t('taskScopeDialog.settings'));
 const dialogHint = computed(() => props.hint || t('taskManager.scopeHint'));
 const confirmText = computed(() => props.confirmText || t('common.save'));
@@ -430,6 +559,7 @@ const availableTabs = computed<TaskScopeDialogTab[]>(() => {
     tabs.push('display');
   }
   tabs.push('task-settings');
+  tabs.push('pomodoro-settings');
   if (hasGoalTab.value) {
     tabs.push('goals');
   }
@@ -450,6 +580,8 @@ const activeHint = computed(() =>
     ? dialogHint.value
     : activeTab.value === 'task-settings'
       ? t('taskScopeDialog.taskSettingsHint')
+      : activeTab.value === 'pomodoro-settings'
+        ? t('taskScopeDialog.pomodoroSettingsHint')
       : activeTab.value === 'document-groups'
         ? t('taskScopeDialog.documentGroupsHint')
         : activeTab.value === 'goals'
@@ -557,7 +689,93 @@ function syncLocalSelection(): void {
   localSidebarSectionOrder.value = normalizeOptionIds(props.sidebarSectionOrder || [], sidebarSectionOptions.value);
   localDefaultTaskCreateTarget.value = normalizeDefaultTaskCreateTarget(props.defaultTaskCreateTarget);
   localDefaultTaskCreateNotebook.value = normalizeDefaultTaskCreateNotebook(props.defaultTaskCreateNotebook);
+  localMicroBreakEnabled.value = props.focusSettings?.microBreakEnabled === true;
+  localMicroBreakPopup.value = props.focusSettings?.microBreakPopup !== false;
+  localMicroBreakSystemNotification.value = props.focusSettings?.microBreakSystemNotification === true;
+  localMicroBreakSound.value = props.focusSettings?.microBreakSound !== false;
+  localMicroBreakMinIntervalMinutes.value = normalizeMicroBreakInterval(props.focusSettings?.microBreakMinIntervalMinutes, 3);
+  localMicroBreakMaxIntervalMinutes.value = normalizeMicroBreakInterval(props.focusSettings?.microBreakMaxIntervalMinutes, 5);
+  localMicroBreakDurationSeconds.value = normalizeMicroBreakDuration(props.focusSettings?.microBreakDurationSeconds);
+  localCustomWhiteNoiseFile.value = props.focusSettings?.customWhiteNoiseFile || '';
+  localCustomCompletionSoundFile.value = props.focusSettings?.customCompletionSoundFile || '';
+  localCustomMicroBreakSoundFile.value = props.focusSettings?.customMicroBreakSoundFile || '';
+  normalizeMicroBreakIntervals();
   activeTab.value = resolveInitialTab();
+}
+
+function normalizeMicroBreakInterval(value: number | undefined, fallback: number): number {
+  return Math.max(1, Math.min(15, Math.round(Number(value) || fallback)));
+}
+
+function normalizeMicroBreakDuration(value: number | undefined): number {
+  return Math.max(1, Math.min(300, Math.floor(Number(value) || 10)));
+}
+
+function normalizeMicroBreakIntervals(): void {
+  localMicroBreakMinIntervalMinutes.value = normalizeMicroBreakInterval(localMicroBreakMinIntervalMinutes.value, 3);
+  localMicroBreakMaxIntervalMinutes.value = Math.max(
+    localMicroBreakMinIntervalMinutes.value,
+    normalizeMicroBreakInterval(localMicroBreakMaxIntervalMinutes.value, 5)
+  );
+}
+
+function updateMicroBreakInterval(boundary: 'min' | 'max', event: Event): void {
+  const selectedIndex = Math.max(0, Math.min(
+    microBreakIntervalMarks.length - 1,
+    Math.floor(Number((event.target as HTMLInputElement).value) || 0)
+  ));
+  const nextMinIndex = boundary === 'min'
+    ? Math.min(selectedIndex, microBreakMaxIntervalIndex.value)
+    : microBreakMinIntervalIndex.value;
+  const nextMaxIndex = boundary === 'max'
+    ? Math.max(selectedIndex, microBreakMinIntervalIndex.value)
+    : microBreakMaxIntervalIndex.value;
+  localMicroBreakMinIntervalMinutes.value = microBreakIntervalMarks[nextMinIndex];
+  localMicroBreakMaxIntervalMinutes.value = microBreakIntervalMarks[nextMaxIndex];
+}
+
+type CustomAudioKind = 'whiteNoise' | 'completion' | 'microBreak';
+const CUSTOM_AUDIO_DIRECTORY = '/data/plugins/pinch/audio/custom';
+
+async function uploadCustomAudio(kind: CustomAudioKind, event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file || !file.type.startsWith('audio/')) return;
+
+  const extension = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')).toLowerCase() : '';
+  const fileName = `${kind}-${Date.now()}${extension}`;
+  await putFile(CUSTOM_AUDIO_DIRECTORY, true, new File([], '.keep'));
+  await putFile(`${CUSTOM_AUDIO_DIRECTORY}/${fileName}`, false, file);
+
+  if (kind === 'whiteNoise') localCustomWhiteNoiseFile.value = fileName;
+  if (kind === 'completion') localCustomCompletionSoundFile.value = fileName;
+  if (kind === 'microBreak') localCustomMicroBreakSoundFile.value = fileName;
+}
+
+function stopCustomAudioPreview(): void {
+  if (previewAudio.value) {
+    previewAudio.value.pause();
+    previewAudio.value.currentTime = 0;
+    previewAudio.value = null;
+  }
+  previewingAudioFile.value = '';
+}
+
+function toggleCustomAudioPreview(fileName: string): void {
+  if (previewingAudioFile.value === fileName) {
+    stopCustomAudioPreview();
+    return;
+  }
+  stopCustomAudioPreview();
+  const url = getCustomFocusAudioUrl(fileName);
+  if (!url) return;
+  const audio = new Audio(url);
+  audio.volume = 0.3;
+  audio.addEventListener('ended', stopCustomAudioPreview, { once: true });
+  previewAudio.value = audio;
+  previewingAudioFile.value = fileName;
+  void audio.play().catch(stopCustomAudioPreview);
 }
 
 function normalizeDefaultTaskCreateTarget(value: string | undefined): string {
@@ -642,10 +860,12 @@ function handleClose(): void {
   if (lockClose.value) {
     return;
   }
+  stopCustomAudioPreview();
   emit('close');
 }
 
 function save(): void {
+  stopCustomAudioPreview();
   emit('save', {
     excludedNotebookIds: normalizeNotebookIds(localExcludedNotebookIds.value),
     showCompletedTasks: localShowCompletedTasks.value,
@@ -661,7 +881,19 @@ function save(): void {
       .filter(id => localHiddenSidebarSectionIds.value.includes(id)),
     sidebarSectionOrder: normalizeOptionIds(localSidebarSectionOrder.value, sidebarSectionOptions.value),
     defaultTaskCreateTarget: normalizeDefaultTaskCreateTarget(localDefaultTaskCreateTarget.value),
-    defaultTaskCreateNotebook: normalizeDefaultTaskCreateNotebook(localDefaultTaskCreateNotebook.value)
+    defaultTaskCreateNotebook: normalizeDefaultTaskCreateNotebook(localDefaultTaskCreateNotebook.value),
+    focusSettings: {
+      microBreakEnabled: localMicroBreakEnabled.value,
+      microBreakPopup: localMicroBreakPopup.value,
+      microBreakSystemNotification: localMicroBreakSystemNotification.value,
+      microBreakSound: localMicroBreakSound.value,
+      microBreakMinIntervalMinutes: normalizeMicroBreakInterval(localMicroBreakMinIntervalMinutes.value, 3),
+      microBreakMaxIntervalMinutes: Math.max(localMicroBreakMinIntervalMinutes.value, normalizeMicroBreakInterval(localMicroBreakMaxIntervalMinutes.value, 5)),
+      microBreakDurationSeconds: normalizeMicroBreakDuration(localMicroBreakDurationSeconds.value),
+      customWhiteNoiseFile: localCustomWhiteNoiseFile.value || undefined,
+      customCompletionSoundFile: localCustomCompletionSoundFile.value || undefined,
+      customMicroBreakSoundFile: localCustomMicroBreakSoundFile.value || undefined
+    }
   });
 }
 
@@ -685,7 +917,8 @@ watch(
     () => props.hiddenSidebarSectionIds,
     () => props.sidebarSectionOrder,
     () => props.defaultTaskCreateTarget,
-    () => props.defaultTaskCreateNotebook
+    () => props.defaultTaskCreateNotebook,
+    () => props.focusSettings
   ],
   ([show]) => {
     if (show) {
@@ -820,6 +1053,193 @@ watch(
   overflow-y: auto;
 }
 
+.pomodoro-settings-tab-content {
+  gap: 12px;
+  padding: 8px 14px 12px;
+  overflow-y: auto;
+}
+
+.micro-break-options {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.micro-break-option,
+.micro-break-number {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--b3-theme-on-background);
+}
+
+.micro-break-number input {
+  width: 64px;
+  box-sizing: border-box;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+}
+
+.micro-break-interval {
+  display: grid;
+  gap: 8px;
+}
+
+.duration-slider-container {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.duration-slider {
+  width: 100%;
+  height: 3px;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 3px;
+  background: var(--b3-list-hover);
+  cursor: pointer;
+}
+
+.duration-slider::-webkit-slider-thumb {
+  width: 20px;
+  height: 20px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 50%;
+  background: #ffcb4c;
+  cursor: pointer;
+}
+
+.duration-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: #ffcb4c;
+  cursor: pointer;
+}
+
+.duration-marks {
+  position: relative;
+  width: calc(100% - 16px);
+  height: 20px;
+  margin: 0 auto;
+}
+
+.duration-mark {
+  position: absolute;
+  transform: translateX(-50%);
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.micro-break-range {
+  position: relative;
+  height: 20px;
+}
+
+.micro-break-range__track,
+.micro-break-range__fill {
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+}
+
+.micro-break-range__track {
+  right: 0;
+  left: 0;
+  background: var(--b3-list-hover);
+}
+
+.micro-break-range__fill {
+  background: var(--b3-theme-on-background);
+}
+
+.micro-break-range__input {
+  position: absolute;
+  z-index: 1;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  pointer-events: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+.micro-break-range__input::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  pointer-events: auto;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 50%;
+  background: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.micro-break-range__input::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  pointer-events: auto;
+  border: 0;
+  border-radius: 50%;
+  background: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.micro-break-range__marks {
+  width: 100%;
+}
+
+.custom-audio-setting {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  color: var(--b3-theme-on-background);
+  font-size: 13px;
+}
+
+.custom-audio-setting + .custom-audio-setting {
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.custom-audio-setting__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.custom-audio-setting__name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--b3-theme-on-surface);
+}
+
+.custom-audio-setting button {
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  padding: 3px 7px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
 .task-settings-tab-content .task-scope-auto-setting {
   border: 1px solid var(--b3-border-color);
   border-radius: 8px;
@@ -934,7 +1354,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 10px;
 }
 
 .task-scope-auto-item + .task-scope-auto-item {

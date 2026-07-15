@@ -310,6 +310,7 @@
       @save-draft="saveLifelogTimelineDraft"
       @clear-draft="clearLifelogTimelineDraft"
       @delete-item="deleteLifelogTimelineItem"
+      @update-item="updateLifelogTimelineItem"
     />
 
     <div
@@ -1982,7 +1983,8 @@ function manualNoteEventToTimelineItem(event: ManualNoteLifelogEvent): LifelogTi
     icon: getLifelogTimelineIcon(event.type),
     emoji: event.emoji,
     moodSvg: event.emoji ? getMoodSvg(event.emoji, 'large') : undefined,
-    deletable: true
+    deletable: true,
+    editable: true
   };
 }
 
@@ -2118,6 +2120,31 @@ function deleteLifelogTimelineItem(item: LifelogTimelinePanelItem): void {
     return;
   }
   void deleteManualLifelogEntry(item.sourceId);
+}
+
+async function updateLifelogTimelineItem(item: LifelogTimelinePanelItem, text: string): Promise<void> {
+  if (item.type !== 'manual-note' || !item.sourceId) {
+    return;
+  }
+  const now = new Date().toISOString();
+  let changed = false;
+  const nextMoodData: MoodData = {};
+  for (const [date, entry] of Object.entries(moodRecords.value)) {
+    const entries = Array.isArray(entry.entries)
+      ? entry.entries.map(entryItem => {
+        if (entryItem.id !== item.sourceId) return entryItem;
+        changed = true;
+        return { ...entryItem, text, updatedAt: now };
+      })
+      : [];
+    nextMoodData[date] = { ...entry, ...(entries.length > 0 ? { entries } : { entries: undefined }) };
+  }
+  if (!changed) return;
+  try {
+    await persistMoodRecords(nextMoodData);
+  } catch (error) {
+    console.error('[MonthView] Failed to update manual lifelog entry', error);
+  }
 }
 
 function formatLifelogMinutes(minutes: number): string {

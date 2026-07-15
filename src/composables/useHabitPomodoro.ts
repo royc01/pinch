@@ -1,7 +1,7 @@
 import { computed, ref, type ShallowRef } from 'vue';
-import type { Habit } from '@/api';
+import { addFocusSession, type Habit } from '@/api';
 import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
-import { awardHabitRewards, type HabitRewardPayload } from '@/rewardRepository';
+import { awardFocusSession, awardHabitRewards, type HabitRewardPayload } from '@/rewardRepository';
 
 type PomodoroAction = 'pause' | 'resume' | 'start' | 'stop';
 
@@ -33,6 +33,7 @@ export const useHabitPomodoro = ({
 
   const pomodoroTimers: Record<string, number> = {};
   const pomodoroDeadlines: Record<string, number> = {};
+  const FOCUS_SESSION_EVENT = 'pinch-focus-session';
 
   const refreshHabits = () => {
     habits.value = [...habits.value];
@@ -62,8 +63,33 @@ export const useHabitPomodoro = ({
     refreshHabits();
   };
 
-  const completeHabitAfterPomodoro = async (habit: Habit) => {
+  const recordCompletedPomodoroFocus = async (habit: Habit, minutes: number): Promise<void> => {
+    const normalizedMinutes = Math.max(1, Math.round(minutes));
+    const sessionId = `habit-pomodoro-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    await addFocusSession(normalizedMinutes, {
+      type: 'habit',
+      id: habit.id,
+      name: habit.name,
+      emoji: habit.emoji
+    }, { sessionId });
+    await awardFocusSession({
+      minutes: normalizedMinutes,
+      sessionId,
+      source: 'panel'
+    }).catch(() => {});
+    window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, {
+      detail: { minutes: normalizedMinutes, sessionId }
+    }));
+  };
+
+  const completeHabitAfterPomodoro = async (habit: Habit, durationInMinutes: number) => {
     playBubbleSound?.();
+    try {
+      await recordCompletedPomodoroFocus(habit, durationInMinutes);
+    } catch (error) {
+      console.error('[HabitPomodoro] Failed to record completed focus session:', error);
+    }
     const today = getToday();
     const rewardPayload = toggleHabitCompletion(habit, today, { source: 'pomodoro' });
     clearPomodoroForHabit(habit);
@@ -109,7 +135,7 @@ export const useHabitPomodoro = ({
         refreshHabits();
 
         clearPomodoroTimer(habit.id);
-        void completeHabitAfterPomodoro(habit);
+        void completeHabitAfterPomodoro(habit, durationInMinutes);
 
         if (activePomodoroHabit.value?.id === habit.id) {
           activePomodoroHabit.value = null;
@@ -151,7 +177,7 @@ export const useHabitPomodoro = ({
         refreshHabits();
 
         clearPomodoroTimer(habit.id);
-        void completeHabitAfterPomodoro(habit);
+        void completeHabitAfterPomodoro(habit, habit.pomodoroDuration || 25);
 
         if (activePomodoroHabit.value?.id === habit.id) {
           activePomodoroHabit.value = null;

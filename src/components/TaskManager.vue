@@ -706,6 +706,7 @@
       :sidebar-section-order="userSettings.sidebar.sectionOrder"
       :default-task-create-target="userSettings.taskManager.defaultTaskCreateTarget"
       :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
+      :focus-settings="userSettings.focus"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
       @refresh-documents="handleTaskScopeDocumentsRefresh"
@@ -980,7 +981,7 @@ const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
 const showTaskScopeDialog = ref(false);
 const taskScopeDocumentsRefreshing = ref(false);
-type TaskScopeDialogTab = 'scope' | 'task-settings' | 'document-groups' | 'goals' | 'display';
+type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
 const taskScopeDialogInitialTab = ref<TaskScopeDialogTab>('scope');
 const isGlobalDateRecognitionRunning = ref(false);
 const showTaskGroupDialog = ref(false);
@@ -1020,7 +1021,7 @@ interface TaskQuickMetaDraft extends TaskEditorDateFields {
   groupId: string;
   goalIds: string[];
 }
-type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
+type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'allScheduled' | 'thisWeekend' | 'noDueDate';
 type TaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
 type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks' | 'hasFocusEstimate';
 type TaskListViewMode = 'kanban' | 'list';
@@ -2900,6 +2901,8 @@ const taskDueFilterOptions: Array<{ value: TaskDueFilterKey; label: string }> = 
   { value: 'overdue', label: t('taskManager.dueOverdue') },
   { value: 'today', label: t('taskManager.dueToday') },
   { value: 'next7Days', label: t('taskManager.dueNext7Days') },
+  { value: 'allScheduled', label: t('taskManager.allScheduledTasks') },
+  { value: 'thisWeekend', label: t('taskManager.thisWeekend') },
   { value: 'noDueDate', label: t('taskManager.noDueDate') }
 ];
 const taskUpdatedFilterOptions: Array<{ value: TaskUpdateFilterKey; label: string }> = [
@@ -3662,6 +3665,9 @@ function matchesTaskDueFilter(task: Task, filter: TaskDueFilterKey): boolean {
   if (dueTimestamp === null) {
     return false;
   }
+  if (filter === 'allScheduled') {
+    return true;
+  }
 
   const dayMs = 24 * 60 * 60 * 1000;
   const today = new Date();
@@ -3676,6 +3682,13 @@ function matchesTaskDueFilter(task: Task, filter: TaskDueFilterKey): boolean {
       return dueTimestamp >= todayStart && dueTimestamp < tomorrowStart;
     case 'next7Days':
       return dueTimestamp >= tomorrowStart && dueTimestamp < todayStart + dayMs * 8;
+    case 'thisWeekend': {
+      const saturday = new Date(today);
+      const mondayBasedDay = (today.getDay() + 6) % 7;
+      saturday.setDate(today.getDate() + 5 - mondayBasedDay);
+      const weekendStart = saturday.getTime();
+      return dueTimestamp >= weekendStart && dueTimestamp < weekendStart + dayMs * 2;
+    }
   }
 }
 
@@ -5074,7 +5087,8 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     hiddenSidebarSectionIds,
     sidebarSectionOrder,
     defaultTaskCreateTarget,
-    defaultTaskCreateNotebook
+    defaultTaskCreateNotebook,
+    focusSettings
   } = payload;
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
@@ -5113,6 +5127,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     hiddenSectionIds: hiddenSidebarSectionIds as SidebarSectionId[],
     sectionOrder: sidebarSectionOrder as SidebarSectionId[]
   });
+  await updateSettings('focus', focusSettings);
   if (shouldFinalizeInit) {
     requiresScopeInitialization.value = false;
   }

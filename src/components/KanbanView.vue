@@ -721,6 +721,7 @@
                   :show-description="showKanbanTaskCardDetails"
                   :show-badges="showKanbanTaskCardDetails"
                   :show-document-title="shouldShowBoardTaskDocumentTitle(task, kanbanFilterDocument)"
+                  :show-open-content="task.type === 'block'"
                   :document-title-override="getTaskDocumentTitle(task)"
                   :document-icon-override="getTaskDocumentIcon(task)"
                   :document-icon-svg="getTaskDocumentIconSvg(task, kanbanFilterDocument)"
@@ -728,6 +729,7 @@
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
                   :title-tooltip="isKanbanBatchEditMode ? t('taskManager.clickSelectTask') : ''"
                   @card-click="handleKanbanTaskCardClick"
+                  @open-content="openKanbanTaskContentInRight"
                   @start-focus="startFocusForTask"
                   @toggle-status="handleKanbanTaskToggleStatus"
                   @toggle-expand="toggleKanbanTaskExpand"
@@ -869,12 +871,14 @@
                   :show-description="showKanbanTaskCardDetails"
                   :show-badges="showKanbanTaskCardDetails"
                   :show-document-title="shouldShowBoardTaskDocumentTitle(task, listFilterDocument)"
+                  :show-open-content="task.type === 'block'"
                   :document-title-override="getTaskDocumentTitle(task)"
                   :document-icon-override="getTaskDocumentIcon(task)"
                   :document-icon-svg="getTaskDocumentIconSvg(task, listFilterDocument)"
                   :disable-description-context-menu="true"
                   :show-subtasks="isKanbanTaskExpanded(task.id)"
                   @card-click="handleKanbanTaskCardClick"
+                  @open-content="openKanbanTaskContentInRight"
                   @start-focus="startFocusForTask"
                   @toggle-status="handleKanbanTaskToggleStatus"
                   @toggle-expand="toggleKanbanTaskExpand"
@@ -903,7 +907,7 @@
       :document-icon-by-root-id="documentIconByRootId"
       :document-title-by-root-id="documentTitleByRootId"
       @task-click="handleTaskClick"
-      @open-click="handleTaskEditClick"
+      @open-click="openKanbanTaskContentInRight"
       @start-focus="startFocusForTask"
       @status-toggle="toggleTaskStatus"
       @subtask-toggle="handleSubtaskToggle"
@@ -938,7 +942,7 @@
       :group-mode="ganttGroupMode"
       :document-title-by-root-id="documentTitleByRootId"
       :auto-expand-unscheduled-tasks="currentDocumentFilter !== 'all'"
-      @task-click="handleTaskClick"
+      @task-click="openKanbanTaskContentInRight"
       @task-date-changed="handleGanttTaskDateChanged"
       @task-color-changed="handleGanttTaskColorChanged"
       @start-focus="startFocusForTask"
@@ -1488,6 +1492,7 @@
       :sidebar-section-order="userSettings.sidebar.sectionOrder"
       :default-task-create-target="userSettings.taskManager.defaultTaskCreateTarget"
       :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
+      :focus-settings="userSettings.focus"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
       @refresh-documents="handleTaskScopeDocumentsRefresh"
@@ -1767,7 +1772,7 @@ const calendarLifelogTasks = ref<Task[]>([]);
 let calendarLifelogLoadRequestId = 0;
 const showTaskScopeDialog = ref(false);
 const taskScopeDocumentsRefreshing = ref(false);
-type TaskScopeDialogTab = 'scope' | 'task-settings' | 'document-groups' | 'goals' | 'display';
+type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
 const taskScopeDialogInitialTab = ref<TaskScopeDialogTab>('task-settings');
 const isGlobalDateRecognitionRunning = ref(false);
 const showTaskGroupDialog = ref(false);
@@ -2508,7 +2513,7 @@ interface TaskGroupDialogSavePayload {
   orderIds: string[];
 }
 
-type KanbanTaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'noDueDate';
+type KanbanTaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'allScheduled' | 'thisWeekend' | 'noDueDate';
 type KanbanTaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
 type KanbanTaskExtraFilterKey = 'hasDescription' | 'hasSubtasks' | 'hasFocusEstimate';
 const tableFilterType = ref('all');
@@ -3253,6 +3258,8 @@ const kanbanDueFilterOptions: Array<{ value: KanbanTaskDueFilterKey; label: stri
   { value: 'overdue', label: t('taskManager.dueOverdue') },
   { value: 'today', label: t('taskManager.dueToday') },
   { value: 'next7Days', label: t('taskManager.dueNext7Days') },
+  { value: 'allScheduled', label: t('taskManager.allScheduledTasks') },
+  { value: 'thisWeekend', label: t('taskManager.thisWeekend') },
   { value: 'noDueDate', label: t('taskManager.noDueDate') }
 ];
 const kanbanUpdatedFilterOptions: Array<{ value: KanbanTaskUpdateFilterKey; label: string }> = [
@@ -4966,7 +4973,8 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     hiddenSidebarSectionIds,
     sidebarSectionOrder,
     defaultTaskCreateTarget,
-    defaultTaskCreateNotebook
+    defaultTaskCreateNotebook,
+    focusSettings
   } = payload;
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
@@ -5005,6 +5013,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     hiddenSectionIds: hiddenSidebarSectionIds as SidebarSectionId[],
     sectionOrder: sidebarSectionOrder as SidebarSectionId[]
   });
+  await updateSettings('focus', focusSettings);
   if (!viewSwitcherOptions.value.some(option => option.value === currentView.value)) {
     currentView.value = viewSwitcherOptions.value[0]?.value || 'table';
   }
@@ -7528,6 +7537,10 @@ function handleKanbanEditorOpenContent(): void {
   void handleTaskEditClick(task);
 }
 
+function openKanbanTaskContentInRight(task: Task): void {
+  void openKanbanTaskContent(task, 'right');
+}
+
 async function applyKanbanBatchEdit(): Promise<void> {
   if (isKanbanBatchApplying.value) {
     return;
@@ -7804,6 +7817,9 @@ function matchesKanbanDueFilter(task: Task, filter: KanbanTaskDueFilterKey): boo
   if (dueTimestamp === null) {
     return false;
   }
+  if (filter === 'allScheduled') {
+    return true;
+  }
 
   const dayMs = 24 * 60 * 60 * 1000;
   const today = new Date();
@@ -7818,6 +7834,13 @@ function matchesKanbanDueFilter(task: Task, filter: KanbanTaskDueFilterKey): boo
       return dueTimestamp >= todayStart && dueTimestamp < tomorrowStart;
     case 'next7Days':
       return dueTimestamp >= tomorrowStart && dueTimestamp < todayStart + dayMs * 8;
+    case 'thisWeekend': {
+      const saturday = new Date(today);
+      const mondayBasedDay = (today.getDay() + 6) % 7;
+      saturday.setDate(today.getDate() + 5 - mondayBasedDay);
+      const weekendStart = saturday.getTime();
+      return dueTimestamp >= weekendStart && dueTimestamp < weekendStart + dayMs * 2;
+    }
   }
 }
 
@@ -11912,10 +11935,14 @@ async function openKanbanEditor(
 }
 
 async function handleTaskEditClick(task: Task): Promise<void> {
+  await openKanbanTaskContent(task);
+}
+
+async function openKanbanTaskContent(task: Task, position?: 'right' | 'bottom'): Promise<void> {
   const targetTask = await resolveKanbanEditorTargetTask(task);
   const blockId = typeof targetTask?.blockId === 'string' ? targetTask.blockId.trim() : '';
   if (targetTask?.type === 'block' && blockId) {
-    await openBlockById(blockId);
+    await openBlockById(blockId, { position });
   }
 }
 

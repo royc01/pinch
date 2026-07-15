@@ -1449,6 +1449,7 @@ function buildDetachedFocusWindowHtmlV2(initialState: DetachedFocusWindowState):
   const serializedCountupAutosaveInterval = serializeForScript(DETACHED_FOCUS_COUNTUP_AUTOSAVE_INTERVAL_MS);
   const detachedText = {
     closeMiniFocus: translate('focusTimer.closeMiniFocus'),
+    miniExitConfirm: translate('focusTimer.miniExitConfirm'),
     settings: translate('focusTimer.settings'),
     cycleDuration: translate('focusTimer.cycleDuration'),
     title: translate('focusTimer.title'),
@@ -1466,6 +1467,7 @@ function buildDetachedFocusWindowHtmlV2(initialState: DetachedFocusWindowState):
     loading: translate('taskManager.loading'),
     focusDuration: translate('focusTimer.focusDuration'),
     minuteSuffix: translate('focusTimer.minuteSuffix'),
+    secondSuffix: translate('focusTimer.secondSuffix'),
     shortBreakDuration: translate('focusTimer.shortBreakDuration'),
     focusSets: translate('focusTimer.focusSets'),
     setSuffix: translate('focusTimer.setSuffix'),
@@ -1748,6 +1750,64 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       return ipcRenderer.invoke(CHANNEL, { type, ...payload });
     }
 
+    let completeSoundAudioContext = null;
+    let customCompletionAudio = null;
+
+    function prepareCustomCompletionSound(fileName) {
+      if (!fileName) return;
+      customCompletionAudio = new Audio('/plugins/pinch/audio/custom/' + encodeURIComponent(fileName));
+      customCompletionAudio.preload = 'auto';
+      customCompletionAudio.muted = true;
+      customCompletionAudio.play().then(() => {
+        customCompletionAudio.pause();
+        customCompletionAudio.currentTime = 0;
+        customCompletionAudio.muted = false;
+      }).catch(() => {
+        if (customCompletionAudio) customCompletionAudio.muted = false;
+      });
+    }
+
+    async function prepareCompleteSound() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      if (!completeSoundAudioContext) {
+        completeSoundAudioContext = new AudioContextClass();
+      }
+      if (completeSoundAudioContext.state === 'suspended') {
+        await completeSoundAudioContext.resume();
+      }
+    }
+
+    async function playCompleteSound() {
+      try {
+        if (customCompletionAudio) {
+          customCompletionAudio.muted = false;
+          customCompletionAudio.volume = 0.3;
+          customCompletionAudio.currentTime = 0;
+          await customCompletionAudio.play();
+          return;
+        }
+        await prepareCompleteSound();
+        if (!completeSoundAudioContext) return;
+        const playTone = (frequency, startTime, duration) => {
+          const oscillator = completeSoundAudioContext.createOscillator();
+          const gain = completeSoundAudioContext.createGain();
+          oscillator.connect(gain);
+          gain.connect(completeSoundAudioContext.destination);
+          oscillator.type = 'sine';
+          oscillator.frequency.value = frequency;
+          gain.gain.setValueAtTime(0.2, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+          oscillator.start(startTime);
+          oscillator.stop(startTime + duration);
+        };
+        const now = completeSoundAudioContext.currentTime;
+        playTone(523.25, now, 0.2);
+        playTone(659.25, now + 0.15, 0.2);
+        playTone(783.99, now + 0.3, 0.3);
+      } catch {}
+    }
+
     let microBreakTimer = null;
     let microBreakSettings = null;
 
@@ -1767,6 +1827,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         microBreakSettings = null;
       }
       const settings = microBreakSettings || {};
+      prepareCustomCompletionSound(settings.customCompletionSoundFile);
       if (settings.microBreakEnabled !== true || !state.isRunning || state.isBreakMode) {
         return;
       }
@@ -1776,7 +1837,12 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         if (!state.isRunning || state.isBreakMode || settings.microBreakEnabled !== true) return;
         const duration = Math.max(1, Number(settings.microBreakDurationSeconds) || 10);
         if (settings.microBreakSound !== false) {
-          try { const audio = new Audio('/plugins/pinch/audio/correct.mp3'); audio.volume = 0.3; audio.play().catch(() => {}); } catch {}
+          try {
+            const source = settings.customMicroBreakSoundFile
+              ? '/plugins/pinch/audio/custom/' + encodeURIComponent(settings.customMicroBreakSoundFile)
+              : '/plugins/pinch/audio/correct.mp3';
+            const audio = new Audio(source); audio.volume = 0.3; audio.play().catch(() => {});
+          } catch {}
         }
         request('show-micro-break-dialog', { duration }).catch(() => {});
         microBreakTimer = setTimeout(() => startMicroBreakReminder(), duration * 1000);
@@ -2413,6 +2479,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     }
 
     async function completeTimer() {
+      void playCompleteSound();
       if (!state.isBreakMode) {
         try {
           await recordFocusSession(state.selectedDuration);
@@ -2504,6 +2571,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       clearTimer();
       state.isRunning = true;
       state.isPaused = false;
+      void prepareCompleteSound();
       void startMicroBreakReminder();
       startPhaseTimer();
       render();
@@ -2528,6 +2596,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       state.isRunning = true;
       state.isPaused = false;
       state.activeOwner = 'capsule';
+      void prepareCompleteSound();
       void startMicroBreakReminder();
       startPhaseTimer();
       render();
@@ -2642,6 +2711,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     closeButtonEl?.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (isActive() && !window.confirm(I18N.miniExitConfirm)) {
+        return;
+      }
       void request('disable-floating-focus');
     });
 
