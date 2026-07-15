@@ -3,7 +3,7 @@ import { normalizeNotebookIds } from './taskViewShared';
 import type { TaskViewGroupMode } from './taskGrouping';
 import type { TaskDateKeywordConfig } from './taskDateParser';
 
-export type TaskViewSwitcherId = 'kanban' | 'list' | 'table' | 'gantt' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
+export type TaskViewSwitcherId = 'kanban' | 'list' | 'table' | 'quadrant' | 'gantt' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
 export type SidebarSectionId = 'week-dates' | 'summary-card-grid' | 'habit-list' | 'stand-container';
 export type TaskCreateDefaultTarget = 'last' | 'inbox' | 'daily-note';
 
@@ -42,6 +42,7 @@ export interface UserSettings {
     listGroupBy?: TaskViewGroupMode;
     tableGroupBy?: TaskViewGroupMode;
     showKanbanTaskCardDetails?: boolean;
+    quadrantUrgentDays?: 1 | 3 | 7 | 10 | 15;
     tableFilterUpdatedRange: string;
     tableFilterType: string;
     tableFilterSource?: string;
@@ -143,6 +144,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     listGroupBy: 'status',
     tableGroupBy: 'status',
     showKanbanTaskCardDetails: true,
+    quadrantUrgentDays: 7,
     tableFilterUpdatedRange: 'all',
     tableFilterType: 'all',
     tableFilterSource: 'all',
@@ -275,6 +277,7 @@ const TASK_VIEW_SWITCHER_IDS: readonly TaskViewSwitcherId[] = [
   'kanban',
   'list',
   'table',
+  'quadrant',
   'gantt',
   'month',
   'week',
@@ -319,6 +322,11 @@ function mergeWithDefaults(input: unknown): UserSettings {
     kanban: {
       ...DEFAULT_SETTINGS.kanban,
       ...rawKanban,
+      quadrantUrgentDays: ([1, 3, 7, 10, 15] as const).includes(
+        (rawKanban as { quadrantUrgentDays?: unknown }).quadrantUrgentDays as 1 | 3 | 7 | 10 | 15
+      )
+        ? (rawKanban as { quadrantUrgentDays: 1 | 3 | 7 | 10 | 15 }).quadrantUrgentDays
+        : DEFAULT_SETTINGS.kanban.quadrantUrgentDays,
       hiddenDocumentTabIds: normalizeNotebookIds((rawKanban as { hiddenDocumentTabIds?: unknown }).hiddenDocumentTabIds),
       kanbanGroupColumnOrder: normalizeStringArray((rawKanban as { kanbanGroupColumnOrder?: unknown }).kanbanGroupColumnOrder),
       kanbanStatusFilters: normalizeStringArray((rawKanban as { kanbanStatusFilters?: unknown }).kanbanStatusFilters),

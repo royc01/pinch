@@ -33,16 +33,18 @@ export function createHabitFocusTarget(
 }
 
 export function createTaskFocusTarget(
-  task: Pick<Task, 'id' | 'title' | 'blockId' | 'description'>
+  task: Pick<Task, 'id' | 'taskId' | 'title' | 'blockId' | 'sourceBlockId' | 'description' | 'isVirtual'>
 ): FocusTimerLinkedTarget {
   const name = stripFocusTargetText(task.title || '') || translate('focusTimer.untitledTask');
   const description = stripFocusTargetText(task.description || '');
   return {
     type: 'task',
-    id: task.id,
+    // Virtual repeat instances must share one focus target with their template.
+    // This keeps focus time continuous across every occurrence in the series.
+    id: task.isVirtual ? (task.taskId || task.id) : task.id,
     name,
     searchText: [name, description].filter(Boolean).join(' '),
-    blockId: task.blockId
+    blockId: task.isVirtual ? (task.sourceBlockId || task.blockId) : task.blockId
   };
 }
 

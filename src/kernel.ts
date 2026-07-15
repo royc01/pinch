@@ -27,6 +27,7 @@ type KernelTaskRow = {
   custom_task_group?: string;
   custom_task_pinned?: string;
   custom_task_background_color?: string;
+  custom_task_urgent?: string;
   custom_task_archived?: string;
   custom_task_completed_at?: string;
   custom_task_archived_at?: string;
@@ -315,6 +316,7 @@ function normalizeTaskRow(row: any): KernelTaskRow {
     custom_task_group: row?.custom_task_group || undefined,
     custom_task_pinned: row?.custom_task_pinned || undefined,
     custom_task_background_color: row?.custom_task_background_color || undefined,
+    custom_task_urgent: row?.custom_task_urgent || undefined,
     custom_task_archived: row?.custom_task_archived || undefined,
     custom_task_completed_at: row?.custom_task_completed_at || undefined,
     custom_task_archived_at: row?.custom_task_archived_at || undefined,
@@ -394,6 +396,7 @@ function buildTaskRowsSql(filters: string[], orderBy: string, limit: number): st
             MAX(CASE WHEN a.name = 'custom-task-group' THEN a.value END) AS custom_task_group,
            MAX(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) AS custom_task_pinned,
            MAX(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) AS custom_task_background_color,
+           MAX(CASE WHEN a.name = 'custom-task-urgent' THEN a.value END) AS custom_task_urgent,
            MAX(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) AS custom_task_archived,
            MAX(CASE WHEN a.name = 'custom-task-completed-at' THEN a.value END) AS custom_task_completed_at,
            MAX(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) AS custom_task_archived_at,

@@ -436,6 +436,8 @@ export interface TaskScopeDialogSavePayload {
 export interface TaskScopeDisplayOption {
   id: string;
   label: string;
+  /** IDs persisted when this display option is hidden. */
+  hiddenIds?: string[];
 }
 
 interface Props {
@@ -548,6 +550,9 @@ const hasGoalTab = computed(() =>
   Array.isArray(props.goals) && Array.isArray(props.goalDocuments)
 );
 const taskViewOptions = computed(() => props.taskViewOptions || []);
+const taskViewOptionIds = computed(() =>
+  Array.from(new Set(taskViewOptions.value.flatMap(option => option.hiddenIds?.length ? option.hiddenIds : [option.id])))
+);
 const sidebarSectionOptions = computed(() => props.sidebarSectionOptions || []);
 const hasDisplayTab = computed(() =>
   taskViewOptions.value.length > 0 || sidebarSectionOptions.value.length > 0
@@ -682,7 +687,7 @@ function syncLocalSelection(): void {
   localShowDocumentGroupNotebookPath.value = props.showDocumentGroupNotebookPath !== false;
   localDocumentGroups.value = cloneDocumentGroups(props.documentGroups || []);
   localGoals.value = cloneGoals(props.goals || []);
-  localHiddenTaskViewIds.value = normalizeOptionIds(props.hiddenTaskViewIds || [], taskViewOptions.value)
+  localHiddenTaskViewIds.value = normalizeOptionIds(props.hiddenTaskViewIds || [], taskViewOptionIds.value.map(id => ({ id, label: id })))
     .filter(id => (props.hiddenTaskViewIds || []).includes(id));
   localHiddenSidebarSectionIds.value = normalizeOptionIds(props.hiddenSidebarSectionIds || [], sidebarSectionOptions.value)
     .filter(id => (props.hiddenSidebarSectionIds || []).includes(id));
@@ -805,20 +810,28 @@ function clearExcluded(): void {
   localExcludedNotebookIds.value = [];
 }
 
+function getTaskViewHiddenIds(id: string): string[] {
+  const option = taskViewOptions.value.find(item => item.id === id);
+  return option?.hiddenIds?.length ? option.hiddenIds : [id];
+}
+
 function isTaskViewVisible(id: string): boolean {
-  return !localHiddenTaskViewIds.value.includes(id);
+  return getTaskViewHiddenIds(id).some(hiddenId => !localHiddenTaskViewIds.value.includes(hiddenId));
 }
 
 function toggleTaskViewVisible(id: string, visible: boolean): void {
   const current = new Set(localHiddenTaskViewIds.value);
+  const hiddenIds = getTaskViewHiddenIds(id);
   if (visible) {
-    current.delete(id);
+    hiddenIds.forEach(hiddenId => current.delete(hiddenId));
   } else {
-    const visibleCount = taskViewOptions.value.filter(option => !current.has(option.id)).length;
+    const visibleCount = taskViewOptions.value.filter(option =>
+      getTaskViewHiddenIds(option.id).some(hiddenId => !current.has(hiddenId))
+    ).length;
     if (visibleCount <= 1) {
       return;
     }
-    current.add(id);
+    hiddenIds.forEach(hiddenId => current.add(hiddenId));
   }
   localHiddenTaskViewIds.value = Array.from(current);
 }
@@ -875,7 +888,7 @@ function save(): void {
     showDocumentGroupNotebookPath: localShowDocumentGroupNotebookPath.value,
     documentGroups: cloneDocumentGroups(localDocumentGroups.value),
     goals: cloneGoals(localGoals.value),
-    hiddenTaskViewIds: normalizeOptionIds(localHiddenTaskViewIds.value, taskViewOptions.value)
+    hiddenTaskViewIds: normalizeOptionIds(localHiddenTaskViewIds.value, taskViewOptionIds.value.map(id => ({ id, label: id })))
       .filter(id => localHiddenTaskViewIds.value.includes(id)),
     hiddenSidebarSectionIds: normalizeOptionIds(localHiddenSidebarSectionIds.value, sidebarSectionOptions.value)
       .filter(id => localHiddenSidebarSectionIds.value.includes(id)),

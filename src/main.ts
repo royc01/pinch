@@ -117,10 +117,11 @@ function isMobileFrontend() {
 // SiYuan command hotkey prefers symbol format, which is adapted per platform.
 const OPEN_TASK_EDITOR_HOTKEY = '⌥Q';
 const OPEN_GLOBAL_TASK_CREATE_HOTKEY = '';
-type QuickTaskViewMode = 'kanban' | 'table' | 'gantt' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table';
+type QuickTaskViewMode = 'kanban' | 'table' | 'quadrant' | 'gantt' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table';
 const QUICK_TASK_VIEW_COMMANDS: Array<{ langKey: string; langTextKey: string; fallback: string; view: QuickTaskViewMode }> = [
   { langKey: 'pinchOpenKanbanView', langTextKey: 'command.openKanbanView', fallback: 'Quick open kanban view', view: 'kanban' },
   { langKey: 'pinchOpenTableView', langTextKey: 'command.openTableView', fallback: 'Quick open table view', view: 'table' },
+  { langKey: 'pinchOpenQuadrantView', langTextKey: 'command.openQuadrantView', fallback: 'Quick open quadrant view', view: 'quadrant' },
   { langKey: 'pinchOpenGanttView', langTextKey: 'command.openGanttView', fallback: 'Quick open gantt view', view: 'gantt' },
   { langKey: 'pinchOpenDayView', langTextKey: 'command.openDayView', fallback: 'Quick open day view', view: 'day' },
   { langKey: 'pinchOpenThreeDayView', langTextKey: 'command.openThreeDayView', fallback: 'Quick open three-day view', view: 'three-day' },

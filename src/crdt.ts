@@ -12,6 +12,7 @@ export interface CRDTTask {
   title: CRDTField<string>;
   status: CRDTField<string>;
   priority: CRDTField<string>;
+  urgent: CRDTField<boolean>;
   pinned: CRDTField<boolean>;
   dueDate: CRDTField<string | undefined>;
   startDate: CRDTField<string | undefined>;
@@ -31,7 +32,9 @@ export interface CRDTTask {
   deleted: CRDTField<boolean>;
   updatedAt: Timestamp;
   metadata: {
+    taskId?: string;
     blockId?: string;
+    sourceBlockId?: string;
     blockSort?: string;
     documentOrder?: number;
     rootId?: string;
@@ -91,7 +94,9 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
   }
 
   const metadata = {
+    taskId: b.metadata.taskId,
     blockId: b.metadata.blockId || a.metadata.blockId,
+    sourceBlockId: b.metadata.sourceBlockId,
     blockSort: b.metadata.blockSort || a.metadata.blockSort,
     documentOrder: typeof b.metadata.documentOrder === 'number' ? b.metadata.documentOrder : a.metadata.documentOrder,
     rootId: b.metadata.rootId || a.metadata.rootId,
@@ -112,6 +117,7 @@ export function mergeTask(a: CRDTTask, b: CRDTTask): CRDTTask {
     title: mergeField(a.title, b.title),
     status: mergeField(a.status, b.status),
     priority: mergeField(a.priority, b.priority),
+    urgent: mergeField(a.urgent || { value: false, ts: 0, node: '' }, b.urgent || { value: false, ts: 0, node: '' }),
     pinned: mergeField(a.pinned, b.pinned),
     dueDate: mergeField(a.dueDate, b.dueDate),
     startDate: mergeField(a.startDate, b.startDate),
@@ -150,6 +156,7 @@ export class TaskCRDTEngine {
       title: this.baseField(''),
       status: this.baseField('pending'),
       priority: this.baseField('none'),
+      urgent: this.baseField(false),
       pinned: this.baseField(false),
       dueDate: base,
       startDate: base,
@@ -192,7 +199,7 @@ export class TaskCRDTEngine {
 
     switch (event.type) {
       case 'update_field': {
-        const currentField = task[event.field] as CRDTField<any>;
+        const currentField = task[event.field] as CRDTField<any> | undefined;
 
         const incoming: CRDTField<any> = {
           value: event.value,
@@ -200,7 +207,7 @@ export class TaskCRDTEngine {
           node: event.node
         };
 
-        task[event.field] = mergeField(currentField, incoming);
+        task[event.field] = currentField ? mergeField(currentField, incoming) : incoming;
         break;
       }
 

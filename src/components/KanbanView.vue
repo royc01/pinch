@@ -308,22 +308,25 @@
             v-if="taskViewGroupMenuVisible"
             ref="taskViewGroupMenuPopoverRef"
             class="task-group-menu-popover"
+            :class="{ 'quadrant-settings-popover': currentView === 'quadrant' }"
             @click.stop
           >
-            <button
-              v-for="option in currentTaskViewGroupOptions"
-              :key="`task-group:${option.value}`"
-              type="button"
-              class="task-group-menu-item"
-              :class="{ active: activeTaskViewGroupMode === option.value }"
-              @click.stop="selectTaskViewGroupMode(option.value)"
-            >
-              <span>{{ option.text }}</span>
-              <span v-if="activeTaskViewGroupMode === option.value" class="task-group-menu-check">
-                <Icon name="taskCheckboxChecked" width="12" height="12" />
-              </span>
-            </button>
-            <div class="task-group-menu-divider"></div>
+            <template v-if="currentTaskViewGroupOptions.length">
+              <button
+                v-for="option in currentTaskViewGroupOptions"
+                :key="`task-group:${option.value}`"
+                type="button"
+                class="task-group-menu-item"
+                :class="{ active: activeTaskViewGroupMode === option.value }"
+                @click.stop="selectTaskViewGroupMode(option.value)"
+              >
+                <span>{{ option.text }}</span>
+                <span v-if="activeTaskViewGroupMode === option.value" class="task-group-menu-check">
+                  <Icon name="taskCheckboxChecked" width="12" height="12" />
+                </span>
+              </button>
+              <div class="task-group-menu-divider"></div>
+            </template>
             <button
               v-if="currentView === 'kanban'"
               type="button"
@@ -336,14 +339,34 @@
                 <Icon name="taskCheckboxChecked" width="12" height="12" />
               </span>
             </button>
-            <button
-              type="button"
-              class="task-group-menu-item"
-              @click.stop="openTaskGroupDialogFromMenu"
-            >
-              <span>{{ t('taskManager.tagManager') }}</span>
-            </button>
-            <div class="task-group-menu-divider"></div>
+            <div v-if="currentView === 'kanban'" class="task-group-menu-divider"></div>
+            <div v-if="currentView === 'quadrant'" class="quadrant-urgency-setting">
+              <label for="quadrant-urgency-days">
+                <span>{{ t('quadrantView.urgencyWindow') }}</span>
+                <strong>{{ formatTemplate('quadrantView.urgencyWindowValue', { days: quadrantUrgentDays }) }}</strong>
+              </label>
+              <input
+                id="quadrant-urgency-days"
+                v-model.number="quadrantUrgencyDayIndex"
+                type="range"
+                min="0"
+                :max="QUADRANT_URGENCY_DAY_OPTIONS.length - 1"
+                step="1"
+                :style="{
+                  '--quadrant-urgency-progress': `${(quadrantUrgencyDayIndex / (QUADRANT_URGENCY_DAY_OPTIONS.length - 1)) * 100}%`
+                }"
+                @change="saveQuadrantUrgencyDays"
+              />
+              <div class="quadrant-urgency-anchors" aria-hidden="true">
+                <span
+                  v-for="(days, index) in QUADRANT_URGENCY_DAY_OPTIONS"
+                  :key="days"
+                  :style="{
+                    left: `calc(${(index / (QUADRANT_URGENCY_DAY_OPTIONS.length - 1)) * 100}% + ${9 - (index / (QUADRANT_URGENCY_DAY_OPTIONS.length - 1)) * 18}px)`
+                  }"
+                >{{ days }}</span>
+              </div>
+            </div>
             <button
               v-if="isBoardTaskView"
               type="button"
@@ -370,6 +393,14 @@
               @click.stop="toggleAllVisibleKanbanDetailsFromMenu"
             >
               <span>{{ areAllVisibleKanbanDetailsExpanded ? t('taskManager.collapseAllDetails') : t('taskManager.expandAllDetails') }}</span>
+            </button>
+            <div class="task-group-menu-divider"></div>
+            <button
+              type="button"
+              class="task-group-menu-item"
+              @click.stop="openTaskGroupDialogFromMenu"
+            >
+              <span>{{ t('taskManager.tagManager') }}</span>
             </button>
           </div>
         </div>
@@ -754,6 +785,73 @@
         class="kanban-batch-lasso"
         :style="kanbanBatchLassoStyle"
       ></div>
+    </div>
+    <div
+      v-else-if="currentView === 'quadrant' && isSettingsLoaded"
+      class="quadrant-board"
+    >
+      <section
+        v-for="quadrant in quadrantSections"
+        :key="quadrant.id"
+        class="quadrant-section"
+        :class="[`quadrant-${quadrant.id}`, { 'is-drag-over': quadrantDragOverId === quadrant.id }]"
+        @dragover.prevent="handleQuadrantDragOver(quadrant.id)"
+        @dragleave="handleQuadrantDragLeave($event)"
+        @drop.prevent="void handleQuadrantDrop(quadrant.id)"
+      >
+        <header class="quadrant-section-header">
+          <h3>{{ quadrant.title }}</h3>
+          <span class="quadrant-section-count">{{ quadrant.tasks.length }}</span>
+        </header>
+        <div
+          class="quadrant-section-tasks"
+          :ref="(el) => setQuadrantSectionTasksRef(quadrant.id, el as HTMLElement | null)"
+          @scroll="handleQuadrantSectionScroll($event, quadrant.id)"
+        >
+          <div
+            v-if="quadrant.tasks.length > 0"
+            class="quadrant-task-spacer"
+            :style="getQuadrantSpacerStyle(quadrant.id, quadrant.tasks)"
+          >
+            <div
+              v-for="task in getVisibleQuadrantTasks(quadrant.id, quadrant.tasks)"
+              :key="task.id"
+              class="quadrant-task"
+              @contextmenu="handleKanbanTaskContextMenu(task, $event)"
+            >
+            <TaskCard
+              :task="task"
+              variant="kanban"
+              :task-groups="taskGroups"
+              :goals="goalDefinitions"
+              :selected-goal-ids="getKanbanTaskCardGoalIds(task)"
+              :show-status-badge="true"
+              :completed="isTaskCompletedVisual(task)"
+              :draggable="!isMobileFrontend && !task.isVirtual"
+              :expanded="isKanbanTaskExpanded(task.id)"
+              :show-description="showKanbanTaskCardDetails"
+              :show-badges="showKanbanTaskCardDetails"
+              :show-document-title="shouldShowBoardTaskDocumentTitle(task, kanbanFilterDocument)"
+              :show-open-content="task.type === 'block'"
+              :document-title-override="getTaskDocumentTitle(task)"
+              :document-icon-override="getTaskDocumentIcon(task)"
+              :document-icon-svg="getTaskDocumentIconSvg(task, kanbanFilterDocument)"
+              :show-subtasks="isKanbanTaskExpanded(task.id)"
+              @card-click="handleKanbanTaskCardClick"
+              @open-content="openKanbanTaskContentInRight"
+              @start-focus="startFocusForTask"
+              @toggle-status="handleKanbanTaskToggleStatus"
+              @toggle-expand="toggleKanbanTaskExpand"
+              @dragstart="handleQuadrantDragStart"
+              @dragend="handleQuadrantDragEnd"
+            />
+            </div>
+          </div>
+          <div v-if="quadrant.tasks.length === 0" class="quadrant-empty">
+            {{ t('quadrantView.empty') }}
+          </div>
+        </div>
+      </section>
     </div>
     <div
       v-else-if="currentView === 'list' && isSettingsLoaded"
@@ -1147,6 +1245,8 @@
         :is-archived="isActiveKanbanTaskArchived"
         :show-delete="!!activeKanbanEditTask"
         :show-focus="!!activeKanbanEditTask"
+        :show-urgent="!!activeKanbanEditTask"
+        :urgent-active="activeKanbanEditTask?.urgent === true"
         :show-open-content="!!activeKanbanEditTask"
         @panel-mousedown="handleKanbanEditorPanelMouseDown"
         @pin="handleKanbanEditorPinToggle"
@@ -1154,6 +1254,7 @@
         @archive="handleKanbanEditorArchiveToggle"
         @delete="handleKanbanEditorDelete"
         @focus="handleKanbanEditorStartFocus"
+        @urgent="handleKanbanEditorUrgentToggle"
         @open-content="handleKanbanEditorOpenContent"
         @close="closeKanbanEditor"
       >
@@ -1611,6 +1712,7 @@ import {
 import { eventBus, Events, type TaskViewSwitchRequest } from '../utils/eventBus';
 import {
   publishTaskChange,
+  publishTaskAttributeChange,
   type TaskChangePayload
 } from '@/utils/taskChangeCoordinator';
 import { syncTaskEditorDraftFromAttributeChanges } from '@/utils/taskEditorDraftSync';
@@ -1632,6 +1734,7 @@ import {
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
+import { getTaskQuadrant, TASK_QUADRANT_ORDER, type TaskQuadrantId } from '@/utils/taskQuadrant';
 import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { persistTaskBackgroundColor } from '@/utils/taskBackgroundColorPersistence';
 import { isKernelRpcUnavailable, refreshKernelTaskIndex } from '@/kernelRpc';
@@ -1860,6 +1963,7 @@ const baseViewSwitcherOptions: ViewSwitcherOption[] = [
   { value: 'kanban', text: t('kanbanView.viewKanban'), icon: 'kanban' },
   { value: 'list', text: t('kanbanView.viewList'), icon: 'card' },
   { value: 'table', text: t('kanbanView.viewTable'), icon: 'table' },
+  { value: 'quadrant', text: t('kanbanView.viewQuadrant'), icon: 'quadrant' },
   { value: 'gantt', text: t('kanbanView.viewGantt'), icon: 'gantt' },
   { value: 'month', text: t('kanbanView.viewMonth'), icon: 'month' },
   { value: 'week', text: t('kanbanView.viewWeek'), icon: 'week' },
@@ -1986,6 +2090,7 @@ function normalizeTaskViewMode(value: unknown): TaskViewMode {
     value === 'kanban'
     || value === 'list'
     || value === 'table'
+    || value === 'quadrant'
     || value === 'archive-table'
     || value === 'stats'
     || value === 'gantt'
@@ -2606,7 +2711,9 @@ const LIST_VIRTUAL_CARD_HEIGHT = 56;
 const listViewEstimatedCardHeight = ref<number>(LIST_VIRTUAL_CARD_HEIGHT);
 const currentView = ref<TaskViewMode>(normalizeTaskViewMode(userSettings.kanban?.currentView));
 const lastCalendarView = ref<CalendarTaskViewMode>('month');
-const isBoardTaskView = computed(() => currentView.value === 'kanban' || currentView.value === 'list');
+const isBoardTaskView = computed(() =>
+  currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'quadrant'
+);
 const isTableTaskView = computed(() => currentView.value === 'table' || currentView.value === 'archive-table');
 const showHeaderNewTaskButton = computed(() => isBoardTaskView.value || currentView.value === 'table');
 const currentViewOption = computed(() =>
@@ -2728,6 +2835,9 @@ const mobileCalendarTaskDragPreviewColorStyle = computed<Record<string, string>>
 });
 const expandedKanbanTaskIds = ref(new Set<string>());
 const showKanbanTaskCardDetails = ref(userSettings.kanban?.showKanbanTaskCardDetails !== false);
+const QUADRANT_URGENCY_DAY_OPTIONS = [1, 3, 7, 10, 15] as const;
+const quadrantUrgencyDayIndex = ref(QUADRANT_URGENCY_DAY_OPTIONS.indexOf(userSettings.kanban?.quadrantUrgentDays || 7));
+const quadrantUrgentDays = computed(() => QUADRANT_URGENCY_DAY_OPTIONS[quadrantUrgencyDayIndex.value] || 7);
 const showCompletedTasks = computed(() => userSettings.taskManager.showCompletedTasks !== false);
 const autoRecognizeTaskDate = computed(() => userSettings.taskManager.autoRecognizeTaskDate === true);
 const taskCompletionSoundEnabled = computed(() => userSettings.taskManager.taskCompletionSoundEnabled !== false);
@@ -2811,12 +2921,48 @@ const virtualRepeatSeriesIds = computed(() => {
   return set;
 });
 
+// Keep one actionable virtual instance per repeat series in non-calendar views.
+// Prefer today's occurrence; otherwise retain the most recent overdue occurrence.
+const visibleVirtualRepeatTaskIds = computed(() => {
+  const todayStart = getStartOfDay(new Date()).getTime();
+  const todayEnd = todayStart + 24 * 60 * 60 * 1000;
+  const todayIds = new Set<string>();
+  const latestOverdueBySeries = new Map<string, { id: string; date: number }>();
+
+  for (const task of tasks.value) {
+    if (!task.isVirtual || !task.repeatSeriesId) continue;
+    const taskDate = getTaskDueDateTimestamp(task) ?? getTaskStartDateTimestamp(task);
+    if (taskDate === null) continue;
+    if (taskDate >= todayStart && taskDate < todayEnd) {
+      todayIds.add(task.id);
+      continue;
+    }
+    if (taskDate < todayStart) {
+      const current = latestOverdueBySeries.get(task.repeatSeriesId);
+      if (!current || taskDate > current.date) {
+        latestOverdueBySeries.set(task.repeatSeriesId, { id: task.id, date: taskDate });
+      }
+    }
+  }
+
+  const seriesWithTodayInstance = new Set(
+    tasks.value
+      .filter(task => task.isVirtual && task.repeatSeriesId && todayIds.has(task.id))
+      .map(task => task.repeatSeriesId as string)
+  );
+  for (const [seriesId, instance] of latestOverdueBySeries) {
+    if (!seriesWithTodayInstance.has(seriesId)) todayIds.add(instance.id);
+  }
+  return todayIds;
+});
+
 const activeKanbanEditTask = computed(() =>
   kanbanEditorTaskId.value
     ? (tasks.value.find(task => task.id === kanbanEditorTaskId.value) || null)
     : null
 );
 const isActiveKanbanTaskPinned = computed(() => activeKanbanEditTask.value?.pinned === true);
+const isActiveKanbanTaskUrgent = computed(() => activeKanbanEditTask.value?.urgent === true);
 const isActiveKanbanTaskArchived = computed(() => activeKanbanEditTask.value?.archived === true);
 const activeKanbanEditDraft = computed(() =>
   kanbanEditorTaskId.value && kanbanEditorDraft.value?.taskId === kanbanEditorTaskId.value
@@ -2826,6 +2972,87 @@ const activeKanbanEditDraft = computed(() =>
 const visibleKanbanTasks = computed(() =>
   tasks.value.filter(task => isTaskIncludedByNotebookScope(task) && matchesKanbanFilters(task))
 );
+const quadrantTitles: Record<TaskQuadrantId, string> = {
+  'important-urgent': t('quadrantView.importantUrgent'),
+  'important-not-urgent': t('quadrantView.importantNotUrgent'),
+  'not-important-urgent': t('quadrantView.notImportantUrgent'),
+  'not-important-not-urgent': t('quadrantView.notImportantNotUrgent')
+};
+const quadrantSections = computed(() => {
+  const sections = TASK_QUADRANT_ORDER.map(id => ({
+    id,
+    title: quadrantTitles[id],
+    tasks: [] as Task[]
+  }));
+  const sectionsById = new Map(sections.map(section => [section.id, section]));
+  for (const task of visibleKanbanTasks.value) {
+    sectionsById.get(getTaskQuadrant(task, new Date(), quadrantUrgentDays.value).id)?.tasks.push(task);
+  }
+  const sortContext = createSidebarSortContext();
+  for (const section of sections) {
+    sortTasksLikeSidebar(section.tasks, sortContext);
+  }
+  return sections;
+});
+const quadrantDraggedTask = ref<Task | null>(null);
+const quadrantDragOverId = ref<TaskQuadrantId | null>(null);
+const quadrantSectionMetrics = ref<Record<string, { scrollTop: number; height: number }>>({});
+const QUADRANT_VIRTUAL_THRESHOLD = 60;
+const QUADRANT_VIRTUAL_CARD_HEIGHT = 110;
+const QUADRANT_VIRTUAL_CARD_GAP = 8;
+const QUADRANT_VIRTUAL_OVERSCAN = 6;
+
+function getQuadrantVirtualRange(quadrantId: string, quadrantTasks: Task[]) {
+  const totalCount = quadrantTasks.length;
+  if (totalCount <= QUADRANT_VIRTUAL_THRESHOLD) {
+    return { start: 0, end: totalCount, top: 0, bottom: 0 };
+  }
+  const metrics = quadrantSectionMetrics.value[quadrantId];
+  const scrollTop = metrics?.scrollTop || 0;
+  const viewportHeight = metrics?.height || 480;
+  const rowHeight = QUADRANT_VIRTUAL_CARD_HEIGHT + QUADRANT_VIRTUAL_CARD_GAP;
+  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - QUADRANT_VIRTUAL_OVERSCAN);
+  const end = Math.min(
+    totalCount,
+    Math.ceil((scrollTop + viewportHeight) / rowHeight) + QUADRANT_VIRTUAL_OVERSCAN
+  );
+  return {
+    start,
+    end,
+    top: start * rowHeight,
+    bottom: Math.max(0, (totalCount - end) * rowHeight)
+  };
+}
+
+function getVisibleQuadrantTasks(quadrantId: string, quadrantTasks: Task[]): Task[] {
+  const range = getQuadrantVirtualRange(quadrantId, quadrantTasks);
+  return quadrantTasks.slice(range.start, range.end);
+}
+
+function getQuadrantSpacerStyle(quadrantId: string, quadrantTasks: Task[]): Record<string, string> {
+  if (quadrantTasks.length <= QUADRANT_VIRTUAL_THRESHOLD) return {};
+  const range = getQuadrantVirtualRange(quadrantId, quadrantTasks);
+  return {
+    paddingTop: `${range.top}px`,
+    paddingBottom: `${range.bottom}px`
+  };
+}
+
+function updateQuadrantSectionMetrics(quadrantId: string, element: HTMLElement): void {
+  const next = { scrollTop: element.scrollTop, height: element.clientHeight };
+  const previous = quadrantSectionMetrics.value[quadrantId];
+  if (previous?.scrollTop === next.scrollTop && previous.height === next.height) return;
+  quadrantSectionMetrics.value = { ...quadrantSectionMetrics.value, [quadrantId]: next };
+}
+
+function setQuadrantSectionTasksRef(quadrantId: string, element: HTMLElement | null): void {
+  if (element) updateQuadrantSectionMetrics(quadrantId, element);
+}
+
+function handleQuadrantSectionScroll(event: Event, quadrantId: string): void {
+  const element = event.target as HTMLElement | null;
+  if (element) updateQuadrantSectionMetrics(quadrantId, element);
+}
 const visibleKanbanExpandableTaskIds = computed(() =>
   visibleKanbanTasks.value
     .filter(task => Array.isArray(task.subtasks) && task.subtasks.length > 0)
@@ -5087,6 +5314,7 @@ let repeatReconcileRequestId = 0;
 function getCurrentFilterNotebookId(): string {
   switch (currentView.value) {
     case 'kanban':
+    case 'quadrant':
       return kanbanFilterType.value;
     case 'list':
       return listFilterType.value;
@@ -5152,6 +5380,7 @@ function getTaskDocumentIconSvg(task: Task, documentId: string): string {
 const sourceFilterViewModes = new Set<TaskViewMode>([
   'kanban',
   'list',
+  'quadrant',
   'table',
   'archive-table',
   'stats',
@@ -5172,6 +5401,7 @@ const activeSourceFilterType = computed<string>({
     const nextValue = String(value || 'all');
     switch (currentView.value) {
       case 'kanban':
+      case 'quadrant':
         kanbanFilterType.value = nextValue;
         break;
       case 'list':
@@ -5213,7 +5443,7 @@ const activeBoardGroupBy = computed<TaskViewGroupMode>({
 });
 
 function shouldHideCompletedOnlyDocumentTabs(view: TaskViewMode): boolean {
-  return !showCompletedTasks.value && (view === 'kanban' || view === 'list' || view === 'table' || view === 'gantt');
+  return !showCompletedTasks.value && (view === 'kanban' || view === 'list' || view === 'quadrant' || view === 'table' || view === 'gantt');
 }
 
 type DocumentOptionsTaskMatcher = (task: Task) => boolean;
@@ -5319,7 +5549,7 @@ function matchesKanbanFiltersByDocumentScope(
   if (!task.isVirtual && task.repeatSeriesId && virtualRepeatSeriesIds.value.has(task.repeatSeriesId)) {
     return false;
   }
-  if (task.isVirtual && !isVirtualTaskForToday(task)) return false;
+  if (task.isVirtual && !visibleVirtualRepeatTaskIds.value.has(task.id)) return false;
   if (!matchesTaskBySourceAndDocument(
     task,
     getBoardFilterTypeForView(view),
@@ -5369,6 +5599,7 @@ function matchesKanbanFiltersByDocumentScope(
 function getDocumentTabTaskMatcher(view: TaskViewMode): DocumentOptionsTaskMatcher {
   switch (view) {
     case 'kanban':
+    case 'quadrant':
     case 'list':
       return (task) => matchesKanbanFiltersByDocumentScope(task, false, view);
     case 'table':
@@ -5925,6 +6156,7 @@ const currentDocumentFilter = computed<string>({
   get() {
     switch (currentView.value) {
       case 'kanban':
+      case 'quadrant':
         return kanbanFilterDocument.value;
       case 'list':
         return listFilterDocument.value;
@@ -5948,6 +6180,7 @@ const currentDocumentFilter = computed<string>({
   set(value) {
     switch (currentView.value) {
       case 'kanban':
+      case 'quadrant':
         kanbanFilterDocument.value = value;
         break;
       case 'list':
@@ -6050,9 +6283,12 @@ const documentTabContextMenuStyle = computed<Record<string, string>>(() => {
 const activeTaskViewGroupMode = computed<TaskViewGroupMode>(() =>
   isBoardTaskView.value ? activeBoardGroupBy.value : tableGroupBy.value
 );
-const currentTaskViewGroupOptions = computed(() =>
-  isBoardTaskView.value ? kanbanGroupModeOptions : tableGroupModeOptions
-);
+const currentTaskViewGroupOptions = computed(() => {
+  if (currentView.value === 'quadrant') {
+    return [];
+  }
+  return isBoardTaskView.value ? kanbanGroupModeOptions : tableGroupModeOptions;
+});
 
 function closeTaskViewGroupMenu(): void {
   taskViewGroupMenuVisible.value = false;
@@ -6309,7 +6545,7 @@ async function toggleHideCompletedTasksFromMenu(): Promise<void> {
 }
 
 function toggleKanbanTaskCardDetailsFromMenu(): void {
-  if (currentView.value !== 'kanban' && currentView.value !== 'list') {
+  if (!isBoardTaskView.value) {
     return;
   }
   showKanbanTaskCardDetails.value = !showKanbanTaskCardDetails.value;
@@ -6345,7 +6581,7 @@ function toggleAllVisibleKanbanDetails(): void {
 }
 
 function toggleAllVisibleKanbanDetailsFromMenu(): void {
-  if (currentView.value !== 'kanban' && currentView.value !== 'list') {
+  if (!isBoardTaskView.value) {
     return;
   }
   toggleAllVisibleKanbanDetails();
@@ -7537,6 +7773,12 @@ function handleKanbanEditorOpenContent(): void {
   void handleTaskEditClick(task);
 }
 
+async function saveQuadrantUrgencyDays(): Promise<void> {
+  const index = Math.max(0, Math.min(QUADRANT_URGENCY_DAY_OPTIONS.length - 1, quadrantUrgencyDayIndex.value));
+  quadrantUrgencyDayIndex.value = index;
+  await updateSettings('kanban', { quadrantUrgentDays: quadrantUrgentDays.value });
+}
+
 function openKanbanTaskContentInRight(task: Task): void {
   void openKanbanTaskContent(task, 'right');
 }
@@ -7976,7 +8218,7 @@ function matchesTableFiltersByArchivedState(
     if (!task.isVirtual && task.repeatSeriesId && virtualRepeatSeriesIds.value.has(task.repeatSeriesId)) {
       return false;
     }
-    if (task.isVirtual && !isVirtualTaskForToday(task)) {
+    if (task.isVirtual && !visibleVirtualRepeatTaskIds.value.has(task.id)) {
       return false;
     }
   }
@@ -8955,7 +9197,13 @@ async function loadTasks(
     }
     if (!silent && !forceRefresh && tasks.value.length === 0 && shouldPrefillWithLightTasks(mode)) {
       try {
-        const { tasks: lightTasks } = await TaskRepository.getKernelLightTasks(5000, { includeArchived: true });
+        // Keep the fast first paint consistent with the full load: repeat
+        // instances must already include their persisted completion records.
+        const { tasks: lightTasks } = await TaskRepository.getKernelMaterializedTasks(
+          5000,
+          { includeArchived: true },
+          { includeRepeatTemplateDate: true }
+        );
         if (lightTasks.length > 0 && requestId === latestTaskLoadRequestId) {
           syncTaskSnapshot(lightTasks);
           invalidateTableFilters();
@@ -9092,14 +9340,14 @@ function scheduleRefreshTasks(
   }, delay);
 }
 
-function scheduleKernelTaskIndexRefresh(delay = 220, reloadCalendarTasks = true): void {
+function scheduleKernelTaskIndexRefresh(delay = 220, reloadCalendarTasks = true, force = false): void {
   if (kernelTaskIndexRefreshTimer !== null) {
     clearTimeout(kernelTaskIndexRefreshTimer);
   }
   kernelTaskIndexRefreshTimer = window.setTimeout(async () => {
     kernelTaskIndexRefreshTimer = null;
     try {
-      await refreshKernelTaskIndex({ limit: 5000, includeArchived: true });
+      await refreshKernelTaskIndex({ limit: 5000, includeArchived: true, force });
       if (reloadCalendarTasks && isCalendarView.value) {
         const mode = resolveTaskLoadModeForView(currentView.value);
         await loadTasks(false, {
@@ -9435,6 +9683,8 @@ async function loadUserSettings() {
     kanbanGroupColumnOrder.value = normalizeTaskGroupOrderIds(settings.kanbanGroupColumnOrder);
     tableGroupBy.value = resolveStoredTaskViewGroupMode(settings.tableGroupBy, settings.tableGroupMode, 'status');
     showKanbanTaskCardDetails.value = settings.showKanbanTaskCardDetails !== false;
+    const urgencyIndex = QUADRANT_URGENCY_DAY_OPTIONS.indexOf(settings.quadrantUrgentDays || 7);
+    quadrantUrgencyDayIndex.value = urgencyIndex >= 0 ? urgencyIndex : QUADRANT_URGENCY_DAY_OPTIONS.indexOf(7);
     tableFilterType.value = settings.tableFilterSource
       || (settings.tableFilterType && settings.tableFilterType !== 'all'
         ? buildNotebookDocumentSource(settings.tableFilterType)
@@ -9516,6 +9766,7 @@ async function saveUserSettings() {
       listGroupBy: listGroupBy.value,
       tableGroupBy: tableGroupBy.value,
       showKanbanTaskCardDetails: showKanbanTaskCardDetails.value,
+      quadrantUrgentDays: quadrantUrgentDays.value,
       kanbanFilterType: kanbanSource.kind === 'notebook' ? kanbanSource.id : 'all',
       kanbanFilterSource: kanbanFilterType.value,
       kanbanFilterDocument: kanbanFilterDocument.value,
@@ -10862,7 +11113,13 @@ async function handleTaskClick(task: Task, event?: MouseEvent) {
     void openKanbanEditor(task, editorEvent, { calendarDock: true });
     return;
   }
-  if (event && (currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'table' || currentView.value === 'archive-table')) {
+  if (event && (
+    currentView.value === 'kanban'
+    || currentView.value === 'list'
+    || currentView.value === 'quadrant'
+    || currentView.value === 'table'
+    || currentView.value === 'archive-table'
+  )) {
     void openKanbanEditor(task, event);
     return;
   }
@@ -11938,6 +12195,20 @@ async function handleTaskEditClick(task: Task): Promise<void> {
   await openKanbanTaskContent(task);
 }
 
+async function handleKanbanEditorUrgentToggle(): Promise<void> {
+  const task = activeKanbanEditTask.value;
+  if (!task) return;
+  const nextUrgent = !isActiveKanbanTaskUrgent.value;
+  await applyBlockTaskFieldUpdate(
+    task,
+    { 'custom-task-urgent': nextUrgent ? 'true' : '' },
+    'urgent',
+    nextUrgent,
+    'Failed to update task urgency'
+  );
+  invalidateTableFilters();
+}
+
 async function openKanbanTaskContent(task: Task, position?: 'right' | 'bottom'): Promise<void> {
   const targetTask = await resolveKanbanEditorTargetTask(task);
   const blockId = typeof targetTask?.blockId === 'string' ? targetTask.blockId.trim() : '';
@@ -12324,6 +12595,7 @@ function normalizeDocPath(notebookName: string, hPath: string): string {
 function getCurrentSidebarFilterSelection(): { sourceValue: string; documentId: string } {
   switch (currentView.value) {
     case 'kanban':
+    case 'quadrant':
       return {
         sourceValue: kanbanFilterType.value,
         documentId: kanbanFilterDocument.value
@@ -13946,6 +14218,96 @@ function handleDragLeave() {
   dragOverColumnId.value = null;
 }
 
+function handleQuadrantDragStart(event: DragEvent, task: Task): void {
+  if (isMobileFrontend || task.isVirtual) return;
+  quadrantDraggedTask.value = task;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', task.id);
+  }
+}
+
+function handleQuadrantDragEnd(): void {
+  quadrantDraggedTask.value = null;
+  quadrantDragOverId.value = null;
+}
+
+function handleQuadrantDragOver(quadrantId: TaskQuadrantId): void {
+  if (quadrantDraggedTask.value) {
+    quadrantDragOverId.value = quadrantId;
+  }
+}
+
+function handleQuadrantDragLeave(event: DragEvent): void {
+  const section = event.currentTarget as HTMLElement | null;
+  const nextTarget = event.relatedTarget as Node | null;
+  // dragleave bubbles while moving over cards inside the same quadrant.
+  if (section && nextTarget && section.contains(nextTarget)) {
+    return;
+  }
+  quadrantDragOverId.value = null;
+}
+
+async function handleQuadrantDrop(quadrantId: TaskQuadrantId): Promise<void> {
+  const dragged = quadrantDraggedTask.value;
+  handleQuadrantDragEnd();
+  if (!dragged || dragged.isVirtual) return;
+
+  const taskIndex = tasks.value.findIndex(task => task.id === dragged.id);
+  if (taskIndex === -1) return;
+
+  const targetImportant = quadrantId === 'important-urgent' || quadrantId === 'important-not-urgent';
+  const targetUrgent = quadrantId === 'important-urgent' || quadrantId === 'not-important-urgent';
+  const currentTask = tasks.value[taskIndex];
+  const nextPriority: Task['priority'] = targetImportant ? 'high' : 'low';
+  const nextUrgent = targetUrgent;
+  if (currentTask.priority === nextPriority && currentTask.urgent === nextUrgent) return;
+
+  const previousTask = currentTask;
+  const updatedTask = { ...currentTask, priority: nextPriority, urgent: nextUrgent };
+  tasks.value = [
+    ...tasks.value.slice(0, taskIndex),
+    updatedTask,
+    ...tasks.value.slice(taskIndex + 1)
+  ];
+  crdtRepo.updateTaskField(updatedTask.id, 'priority', nextPriority);
+  crdtRepo.updateTaskField(updatedTask.id, 'urgent', nextUrgent);
+  invalidateTableFilters();
+
+  try {
+    // Quadrant tasks already carry their source block id. Write the attributes directly
+    // instead of resolving a task id again, so legacy tasks without custom-task-id persist too.
+    if (!updatedTask.blockId) {
+      throw new Error('Task block id is unavailable');
+    }
+    await setBlockAttrs(updatedTask.blockId, {
+      'custom-task-priority': nextPriority,
+      'custom-task-urgent': nextUrgent ? 'true' : ''
+    });
+    publishTaskAttributeChange(updatedTask.blockId, {
+      'custom-task-priority': nextPriority,
+      'custom-task-urgent': nextUrgent ? 'true' : ''
+    });
+    // The task view normally reads from the kernel index. Refresh it after the
+    // attribute write so a subsequent reload does not restore stale index data.
+    scheduleKernelTaskIndexRefresh(0, false, true);
+    scheduleRefreshTasks(360, 'silent-full');
+  } catch (error) {
+    console.error('[KanbanView] Failed to update quadrant task fields:', error);
+    const currentIndex = tasks.value.findIndex(task => task.id === updatedTask.id);
+    if (currentIndex !== -1) {
+      tasks.value = [
+        ...tasks.value.slice(0, currentIndex),
+        previousTask,
+        ...tasks.value.slice(currentIndex + 1)
+      ];
+      crdtRepo.updateTaskField(previousTask.id, 'priority', previousTask.priority);
+      crdtRepo.updateTaskField(previousTask.id, 'urgent', previousTask.urgent);
+      invalidateTableFilters();
+    }
+  }
+}
+
 async function handleDrop(event: DragEvent, column: KanbanColumn) {
   if (isMobileFrontend) return;
 
@@ -14246,7 +14608,9 @@ onMounted(async () => {
   let shouldRunMountedReconcile = false;
   if (initialLoadMode === 'full') {
     try {
-      const cachedTasks = await TaskRepository.getCachedTasksOnly();
+      const cachedTasks = await TaskRepository.getCachedTasksOnly({
+        includeRepeatTemplateDate: true
+      });
       if (cachedTasks.length > 0) {
         hydrateKanbanMemoTitlesSync(cachedTasks, KANBAN_TITLE_HYDRATE_LIMIT);
         syncTaskSnapshot(cachedTasks);
@@ -14254,7 +14618,11 @@ onMounted(async () => {
         scheduleKanbanTitleHydration(120);
         shouldRunMountedReconcile = true;
       } else {
-        const { tasks: lightTasks } = await TaskRepository.getKernelLightTasks(5000, { includeArchived: true });
+        const { tasks: lightTasks } = await TaskRepository.getKernelMaterializedTasks(
+          5000,
+          { includeArchived: true },
+          { includeRepeatTemplateDate: true }
+        );
         if (lightTasks.length > 0) {
           syncTaskSnapshot(lightTasks);
           loadedTaskLoadMode.value = 'light-base';
@@ -14751,7 +15119,7 @@ watch(kanbanColumns, () => {
   overflow-x: hidden;
   overflow-y: auto;
   padding: 6px;
-  border: 1px solid var(--b3-border-color);
+  border: 2px solid var(--b3-border-color);
   border-radius: 10px;
   background: var(--b3-theme-background);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
@@ -16483,5 +16851,198 @@ watch(kanbanColumns, () => {
   color: var(--b3-theme-on-surface);
   opacity: 0.5;
   font-size: 14px;
+}
+
+.task-group-menu-popover.quadrant-settings-popover {
+  width: 220px;
+}
+
+.quadrant-urgency-setting {
+  padding: 7px 10px 5px;
+}
+
+.quadrant-urgency-setting label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.quadrant-urgency-setting strong {
+  color: var(--b3-theme-on-background);
+  font-weight: 600;
+}
+
+.quadrant-urgency-setting input {
+  width: 100%;
+  height: 6px;
+  margin: 8px 0;
+  padding: 0;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  outline: 0;
+  background: linear-gradient(
+    to right,
+    #f98f7a 0 var(--quadrant-urgency-progress),
+    var(--b3-list-hover) var(--quadrant-urgency-progress) 100%
+  );
+}
+
+.quadrant-urgency-setting input::-webkit-slider-runnable-track {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.quadrant-urgency-setting input::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  appearance: none;
+  border: 0;
+  border-radius: 50%;
+  background: #f98f7a;
+}
+
+.quadrant-urgency-setting input::-moz-range-track {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+}
+
+.quadrant-urgency-setting input::-moz-range-progress {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: #f98f7a;
+}
+
+.quadrant-urgency-setting input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: #f98f7a;
+}
+
+.quadrant-urgency-anchors {
+  position: relative;
+  height: 16px;
+  color: var(--b3-theme-on-surface);
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.quadrant-urgency-anchors span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.quadrant-board {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 10px 10px;
+  overflow: auto;
+}
+
+.quadrant-section {
+  min-width: 0;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--b3-theme-surface);
+}
+
+.quadrant-section.is-drag-over {
+  border-color: var(--b3-theme-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
+}
+
+.quadrant-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 11px;
+}
+
+.quadrant-section-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.quadrant-section-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+  background: var(--b3-list-hover);
+}
+
+.quadrant-important-urgent .quadrant-section-header h3 { color: var(--pinch-group-color10); }
+.quadrant-important-not-urgent .quadrant-section-header h3 { color: var(--pinch-group-color4
+  ); }
+.quadrant-not-important-urgent .quadrant-section-header h3 { color: var(--pinch-group-color7); }
+.quadrant-not-important-not-urgent .quadrant-section-header h3 { color: var(--pinch-group-color5); }
+
+.quadrant-important-urgent { background: color-mix(in srgb, var(--pinch-background10-color) 50%, var(--b3-theme-background)); }
+.quadrant-important-not-urgent { background: color-mix(in srgb, var(--pinch-background4-color) 50%, var(--b3-theme-background)); }
+.quadrant-not-important-urgent { background: color-mix(in srgb, var(--pinch-background7-color) 50%, var(--b3-theme-background)); }
+.quadrant-not-important-not-urgent { background: color-mix(in srgb, var(--pinch-background5-color) 50%, var(--b3-theme-background)); }
+
+.quadrant-important-urgent { border-color: var(--pinch-color10); }
+.quadrant-important-not-urgent { border-color: var(--pinch-color3); }
+.quadrant-not-important-urgent { border-color: var(--pinch-color7); }
+.quadrant-not-important-not-urgent { border-color: var(--pinch-color5); }
+
+.quadrant-section-tasks {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  overflow: auto;
+}
+
+.quadrant-task-spacer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.quadrant-empty {
+  padding: 22px 10px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.55;
+}
+
+@media (max-width: 700px) {
+  .quadrant-board {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .quadrant-section {
+    min-height: 180px;
+  }
 }
 </style>

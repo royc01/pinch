@@ -773,7 +773,7 @@ import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TaskCard from '@/components/TaskCard.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import TaskModal, { type Notebook, type Document as TaskDocument } from '@/components/TaskModal.vue';
-import TaskScopeDialog, { type TaskScopeDialogSavePayload } from '@/components/TaskScopeDialog.vue';
+import TaskScopeDialog, { type TaskScopeDialogSavePayload, type TaskScopeDisplayOption } from '@/components/TaskScopeDialog.vue';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
 import SourceFilterSelect from '@/components/SourceFilterSelect.vue';
@@ -783,7 +783,7 @@ import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
 import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
 import TaskQuickMetaMenu from '@/components/TaskQuickMetaMenu.vue';
-import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
+import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { openKanbanView, usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -941,14 +941,18 @@ const showDocumentGroupNotebookPath = computed(() => userSettings.taskManager.sh
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 let repeatReconcileRequestId = 0;
 const { t } = useI18n();
-const taskScopeViewOptions = computed<Array<{ id: TaskViewSwitcherId; label: string }>>(() => [
+// Use the same eight primary entries as KanbanView's header switcher.
+const taskScopeViewOptions = computed<TaskScopeDisplayOption[]>(() => [
   { id: 'kanban', label: t('kanbanView.viewKanban') },
   { id: 'list', label: t('kanbanView.viewList') },
   { id: 'table', label: t('kanbanView.viewTable') },
-  { id: 'month', label: t('kanbanView.viewMonth') },
-  { id: 'week', label: t('kanbanView.viewWeek') },
-  { id: 'three-day', label: t('kanbanView.viewThreeDay') },
-  { id: 'day', label: t('kanbanView.viewDay') },
+  { id: 'quadrant', label: t('kanbanView.viewQuadrant') },
+  { id: 'gantt', label: t('kanbanView.viewGantt') },
+  {
+    id: 'calendar',
+    label: t('kanbanView.viewCalendar'),
+    hiddenIds: ['month', 'week', 'three-day', 'day']
+  },
   { id: 'archive-table', label: t('kanbanView.viewArchive') },
   { id: 'stats', label: t('kanbanView.viewStats') }
 ]);
@@ -3641,9 +3645,9 @@ function resolveTaskManagerRepeatWindow(): TaskRepeatWindow {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const start = new Date(today);
-  start.setDate(start.getDate() - 14);
+  start.setDate(start.getDate() - DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS.pastDays);
   const end = new Date(today);
-  end.setDate(end.getDate() + 45);
+  end.setDate(end.getDate() + DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS.futureDays);
   return {
     startDate: formatTaskManagerRepeatWindowDate(start),
     endDate: formatTaskManagerRepeatWindowDate(end)
@@ -4054,14 +4058,28 @@ const filteredTasks = computed(() => {
   const searchKeyword = taskSearchQuery.value.trim().toLocaleLowerCase();
   const todayStart = getTodayStartTimestamp();
   const virtualRepeatSeriesIds = new Set<string>();
+  const visibleVirtualRepeatTaskIds = new Set<string>();
   const todayVirtualSeriesIds = new Set<string>();
+  const latestOverdueVirtualBySeries = new Map<string, { id: string; date: number }>();
   for (const task of baseFilteredTasks.value) {
     if (task.isVirtual && task.repeatSeriesId) {
       virtualRepeatSeriesIds.add(task.repeatSeriesId);
       if (isVirtualTaskForToday(task)) {
         todayVirtualSeriesIds.add(task.repeatSeriesId);
+        visibleVirtualRepeatTaskIds.add(task.id);
+        continue;
+      }
+      const taskDate = getTaskDueDateTimestamp(task) ?? getTaskStartDateTimestamp(task);
+      if (taskDate !== null && taskDate < todayStart) {
+        const current = latestOverdueVirtualBySeries.get(task.repeatSeriesId);
+        if (!current || taskDate > current.date) {
+          latestOverdueVirtualBySeries.set(task.repeatSeriesId, { id: task.id, date: taskDate });
+        }
       }
     }
+  }
+  for (const [seriesId, instance] of latestOverdueVirtualBySeries) {
+    if (!todayVirtualSeriesIds.has(seriesId)) visibleVirtualRepeatTaskIds.add(instance.id);
   }
   let domOrderMap: Map<string, number> | undefined;
   const resolveDomOrderMap = () => {
@@ -4077,7 +4095,7 @@ const filteredTasks = computed(() => {
     if (!task.isVirtual && task.repeatSeriesId && virtualRepeatSeriesIds.has(task.repeatSeriesId)) {
       return false;
     }
-    if (task.isVirtual && !isVirtualTaskForToday(task)) {
+    if (task.isVirtual && !visibleVirtualRepeatTaskIds.has(task.id)) {
       return false;
     }
     if (mode === 'active' && task.archived) {
@@ -5251,7 +5269,16 @@ async function refreshTasks(
 
 async function prefillKernelLightTasks(scope: TaskQueryScope | null | undefined): Promise<boolean> {
   try {
-    const { tasks: lightTasks } = await TaskRepository.getKernelLightTasks(5000, scope || null);
+    // Materialize repeats even for the fast first paint so completed virtual
+    // instances never flash as pending before the full reconciliation arrives.
+    const { tasks: lightTasks } = await TaskRepository.getKernelMaterializedTasks(
+      5000,
+      scope || null,
+      {
+        includeRepeatTemplateDate: true,
+        repeatWindow: resolveTaskManagerRepeatWindow()
+      }
+    );
     if (lightTasks.length === 0) {
       return false;
     }
@@ -8810,7 +8837,10 @@ onMounted(async () => {
 
   loading.value = true;
   try {
-    const cachedTasks = await TaskRepository.getCachedTasksOnly();
+    const cachedTasks = await TaskRepository.getCachedTasksOnly({
+      includeRepeatTemplateDate: true,
+      repeatWindow: resolveTaskManagerRepeatWindow()
+    });
     if (cachedTasks.length > 0) {
       hydrateMemoTitlesFromLiveDom(cachedTasks, TASK_TITLE_HYDRATE_LIMIT);
       tasks.value = syncTaskSnapshotWithLocalOverrides(cachedTasks);

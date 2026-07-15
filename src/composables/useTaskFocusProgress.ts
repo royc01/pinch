@@ -31,10 +31,24 @@ function handleFocusSessionUpdate(): void {
 export function useTaskFocusProgress(task: Ref<Task>) {
   const actualFocus = computed(() => {
     const taskId = task.value.id.trim();
+    const linkedTaskId = task.value.taskId?.trim() || '';
     const blockId = task.value.blockId?.trim() || '';
+    const sourceBlockId = task.value.sourceBlockId?.trim() || '';
+    const repeatSeriesId = task.value.isVirtual ? task.value.repeatSeriesId?.trim() || '' : '';
+    const taskIds = new Set([taskId, linkedTaskId].filter(Boolean));
+    const blockIds = new Set([blockId, sourceBlockId].filter(Boolean));
+    const virtualInstancePrefix = repeatSeriesId
+      ? `repeat_${repeatSeriesId}_`.replace(/[^a-zA-Z0-9_-]/g, '_')
+      : '';
     const records = focusSessionRecords.value.filter(record => (
       record.targetType === 'task'
-      && (record.targetId === taskId || (!!blockId && record.targetBlockId === blockId))
+      && (
+        (!!record.targetId && (
+          taskIds.has(record.targetId)
+          || (!!virtualInstancePrefix && record.targetId.startsWith(virtualInstancePrefix))
+        ))
+        || (!!record.targetBlockId && blockIds.has(record.targetBlockId))
+      )
     ));
 
     return {

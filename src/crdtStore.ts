@@ -108,11 +108,12 @@ export function applyTaskAttributeChanges(
   const hasReminderType = hasTaskAttribute(attrs, 'custom-task-reminder-type');
   const hasReminderCustomTime = hasTaskAttribute(attrs, 'custom-task-reminder-custom-time');
   const hasBackgroundColor = hasTaskAttribute(attrs, 'custom-task-background-color');
+  const hasUrgent = hasTaskAttribute(attrs, 'custom-task-urgent');
   const hasFocusEstimate = hasTaskAttribute(attrs, 'custom-task-focus-estimate');
   if (!(
     hasPriority || hasStatus || hasCompletedAt || hasTags || hasGroup || hasPinned || hasDescription
     || hasStartDate || hasStartTime || hasDueDate || hasDueTime
-    || hasReminderType || hasReminderCustomTime || hasBackgroundColor || hasFocusEstimate
+    || hasReminderType || hasReminderCustomTime || hasBackgroundColor || hasUrgent || hasFocusEstimate
   )) {
     return false;
   }
@@ -178,6 +179,9 @@ export function applyTaskAttributeChanges(
       }
       if (hasBackgroundColor) {
         updateField(task.id, 'backgroundColor', attrs['custom-task-background-color'] || undefined);
+      }
+      if (hasUrgent) {
+        updateField(task.id, 'urgent', parseTaskBooleanAttribute(attrs['custom-task-urgent'] || ''));
       }
       if (hasFocusEstimate) {
         updateField(task.id, 'focusEstimate', parseTaskFocusEstimateAttribute(attrs['custom-task-focus-estimate'] || ''));

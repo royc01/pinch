@@ -1660,6 +1660,7 @@ export interface Task {
   notebookId?: string;
   icon?: string;
   backgroundColor?: string;
+  urgent?: boolean;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
@@ -1950,6 +1951,7 @@ export class TaskRepository {
       'custom-task-group': row.custom_task_group,
       'custom-task-pinned': row.custom_task_pinned,
       'custom-task-background-color': row.custom_task_background_color,
+      'custom-task-urgent': row.custom_task_urgent,
       'custom-task-archived': row.custom_task_archived,
       'custom-task-completed-at': row.custom_task_completed_at,
       'custom-task-archived-at': row.custom_task_archived_at,
@@ -1991,6 +1993,7 @@ export class TaskRepository {
       notebookId: row.box,
       icon: '\uD83D\uDCC4',
       backgroundColor: attrs['custom-task-background-color'],
+      urgent: attrs['custom-task-urgent'] === 'true',
       archived,
       completedAt: this.resolveTaskCompletedAt(attrs, status, row.updated),
       archivedAt: archived && attrs['custom-task-archived-at'] ? attrs['custom-task-archived-at'] : undefined,
@@ -3534,13 +3537,14 @@ export class TaskRepository {
                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) as custom_task_pinned,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-urgent' THEN a.value END) as custom_task_urgent,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) as custom_task_archived,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-completed-at' THEN a.value END) as custom_task_completed_at,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) as custom_task_archived_at,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
          FROM blocks b
          LEFT JOIN attributes a ON b.id = a.block_id
-          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
+          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-urgent', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
         WHERE b.id IN (${idsClause})
           ${this.buildNotebookScopeSql('b')}
           ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -3582,6 +3586,7 @@ export class TaskRepository {
           'custom-task-group': row.custom_task_group,
           'custom-task-pinned': row.custom_task_pinned,
           'custom-task-background-color': row.custom_task_background_color,
+          'custom-task-urgent': row.custom_task_urgent,
           'custom-task-archived': row.custom_task_archived,
           'custom-task-completed-at': row.custom_task_completed_at,
           'custom-task-archived-at': row.custom_task_archived_at,
@@ -3662,6 +3667,7 @@ export class TaskRepository {
           notebookId: row.box,
           icon: row.root_id ? (rootIcons.get(row.root_id) || '\uD83D\uDCC4') : '\uD83D\uDCC4',
           backgroundColor: attrs['custom-task-background-color'],
+          urgent: attrs['custom-task-urgent'] === 'true',
           subtasks: subtasks.length > 0 ? subtasks : undefined,
           archived,
           completedAt: this.resolveTaskCompletedAt(attrs, status, row.updated),
@@ -3724,13 +3730,14 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-group' THEN a.value END) as custom_task_group,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-pinned' THEN a.value END) as custom_task_pinned,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-background-color' THEN a.value END) as custom_task_background_color,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-urgent' THEN a.value END) as custom_task_urgent,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived' THEN a.value END) as custom_task_archived,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-completed-at' THEN a.value END) as custom_task_completed_at,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) as custom_task_archived_at,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
           FROM blocks b
           LEFT JOIN attributes a ON b.id = a.block_id
-            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
+            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-urgent', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
           WHERE (b.type = 'i' OR b.type = 'p')
             ${this.buildNotebookScopeSql('b')}
             ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -3896,6 +3903,7 @@ export class TaskRepository {
           'custom-task-group': block.custom_task_group,
           'custom-task-pinned': block.custom_task_pinned,
           'custom-task-background-color': block.custom_task_background_color,
+          'custom-task-urgent': block.custom_task_urgent,
           'custom-task-archived': block.custom_task_archived,
           'custom-task-completed-at': block.custom_task_completed_at,
           'custom-task-archived-at': block.custom_task_archived_at,
@@ -4240,6 +4248,7 @@ export class TaskRepository {
               notebookId: parentBlock.box,
               icon: docIcon || '📄',
               backgroundColor: attrs['custom-task-background-color'],
+              urgent: attrs['custom-task-urgent'] === 'true',
               subtasks,
               archived,
               completedAt: this.resolveTaskCompletedAt(attrs, status, parentBlock.updated),
@@ -4415,6 +4424,7 @@ export class TaskRepository {
             notebookId: parentBlock.box,
             icon: docIcon || '📄',
             backgroundColor: attrs['custom-task-background-color'],
+            urgent: attrs['custom-task-urgent'] === 'true',
             subtasks: subtasks.length > 0 ? subtasks : undefined,
             archived,
             completedAt: this.resolveTaskCompletedAt(attrs, status, parentBlock.updated),
@@ -4813,6 +4823,9 @@ export class TaskRepository {
     }
     if (updates.backgroundColor !== undefined) {
       attrsToUpdate['custom-task-background-color'] = updates.backgroundColor || '';
+    }
+    if (updates.urgent !== undefined) {
+      attrsToUpdate['custom-task-urgent'] = updates.urgent ? 'true' : '';
     }
     if (updates.archived !== undefined) {
       attrsToUpdate['custom-task-archived'] = updates.archived ? '1' : '';
