@@ -68,10 +68,11 @@ function normalizeInlineFormatElements(container: HTMLElement): void {
     S: 's',
     STRIKE: 's',
     STRONG: 'strong',
+    SUB: 'sub',
     U: 'u'
   };
 
-  container.querySelectorAll('b, strong, em, i, s, del, strike, u').forEach((el) => {
+  container.querySelectorAll('b, strong, em, i, s, del, strike, sub, u').forEach((el) => {
     const type = formatElementType[el.tagName];
     if (!type || !el.parentNode) {
       return;
@@ -110,6 +111,53 @@ function mergeNestedInlineDataTypes(container: HTMLElement): void {
   }
 }
 
+/**
+ * SiYuan may serialize a mark that wraps an inline link as text delimiters on
+ * either side of the rendered link: ==<span data-type="a">…</span>==.
+ * Markdown parsing cannot safely match across that HTML because its attributes
+ * contain `=`, so restore the mark after the HTML has been parsed.
+ */
+function applyMarkDelimitersAroundInlineElements(container: HTMLElement): void {
+  const parents = [container, ...Array.from(container.querySelectorAll<HTMLElement>('*'))];
+
+  for (const parent of parents) {
+    const nodes = Array.from(parent.childNodes);
+    for (let index = 0; index + 2 < nodes.length; index += 1) {
+      const opening = nodes[index];
+      const inline = nodes[index + 1];
+      const closing = nodes[index + 2];
+      if (
+        opening.nodeType !== Node.TEXT_NODE
+        || !(inline instanceof HTMLElement)
+        || closing.nodeType !== Node.TEXT_NODE
+      ) {
+        continue;
+      }
+
+      const openingText = opening.textContent || '';
+      const closingText = closing.textContent || '';
+      if (!openingText.endsWith('==') || !closingText.startsWith('==')) {
+        continue;
+      }
+
+      opening.textContent = openingText.slice(0, -2);
+      closing.textContent = closingText.slice(2);
+      if (!opening.textContent) opening.remove();
+      if (!closing.textContent) closing.remove();
+
+      if (inline.tagName === 'SPAN') {
+        inline.setAttribute('data-type', mergeDataTypeValues(inline.getAttribute('data-type') || '', 'mark'));
+        continue;
+      }
+
+      const mark = document.createElement('span');
+      mark.setAttribute('data-type', 'mark');
+      inline.parentNode?.replaceChild(mark, inline);
+      mark.appendChild(inline);
+    }
+  }
+}
+
 export function sanitizeTaskHtml(rawHtml?: string): string {
   if (!rawHtml) return '';
 
@@ -123,6 +171,7 @@ export function sanitizeTaskHtml(rawHtml?: string): string {
 
   normalizeInlineFormatElements(container);
   applyInlineAttributeMarkers(container);
+  applyMarkDelimitersAroundInlineElements(container);
   mergeNestedInlineDataTypes(container);
 
   const dangerousNodes = container.querySelectorAll('script, iframe, object, embed, link, meta');

@@ -1,4 +1,8 @@
 const BLOCK_REF_REGEX = /\(\(([0-9]{14}-[a-z0-9]{7,})(?:\s+(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'))?\)\)/gi;
+// A block reference can temporarily have no resolved ID while the editor still
+// retains its quoted display text, e.g. (( "24")). Keep it as a block-ref so
+// it is not mistaken for an inline memo.
+const EMPTY_BLOCK_REF_WITH_ALIAS_REGEX = /\(\(\s+(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\s*\)\)/g;
 
 type BlockRefToken = { token: string; html: string };
 
@@ -35,6 +39,20 @@ function convertMarkdownStrikethrough(text: string): string {
   return text.replace(/~~([^~\n]+)~~/g, '<span data-type="s">$1</span>');
 }
 
+function convertMarkdownCode(text: string): string {
+  return text.replace(/`([^`\n]+)`/g, '<span data-type="code">$1</span>');
+}
+
+function convertSiyuanInlineMath(text: string): string {
+  return text.replace(/(^|[^\\])\$([^$\n]+?)\$/g, (_match, prefix: string, content: string) => {
+    return `${prefix}<span data-type="inline-math" data-subtype="math" data-content="${escapeHtmlAttr(content)}">${escapeHtml(content)}</span>`;
+  });
+}
+
+function convertSiyuanSubscript(text: string): string {
+  return text.replace(/(^|[^~])~([^~\n]+)~(?=$|[^~])/g, '$1<span data-type="sub">$2</span>');
+}
+
 function convertSiyuanMarks(text: string): string {
   return text.replace(/==([^=\n]+)==/g, '<span data-type="mark">$1</span>');
 }
@@ -56,7 +74,7 @@ function convertMarkdownLinks(text: string): string {
 function replaceBlockRefs(text: string): { text: string; tokens: BlockRefToken[] } {
   let index = 0;
   const tokens: BlockRefToken[] = [];
-  const replaced = text.replace(BLOCK_REF_REGEX, (_match, id: string, aliasDouble?: string, aliasSingle?: string) => {
+  const createToken = (id: string, aliasDouble?: string, aliasSingle?: string): string => {
     const rawAlias = aliasDouble ?? aliasSingle ?? '';
     const alias = rawAlias.length > 0 ? unescapeQuotedText(rawAlias) : id;
     const html = `<span data-type="block-ref" data-subtype="s" data-id="${escapeHtmlAttr(id)}">${escapeHtml(alias)}</span>`;
@@ -66,7 +84,14 @@ function replaceBlockRefs(text: string): { text: string; tokens: BlockRefToken[]
     const token = `\uE000PINCHBLOCKREF${index++}\uE001`;
     tokens.push({ token, html });
     return token;
-  });
+  };
+  const replaced = text
+    .replace(BLOCK_REF_REGEX, (_match, id: string, aliasDouble?: string, aliasSingle?: string) =>
+      createToken(id, aliasDouble, aliasSingle)
+    )
+    .replace(EMPTY_BLOCK_REF_WITH_ALIAS_REGEX, (_match, aliasDouble?: string, aliasSingle?: string) =>
+      createToken('', aliasDouble, aliasSingle)
+    );
   return { text: replaced, tokens };
 }
 
@@ -102,7 +127,10 @@ export function formatTaskTitleHtml(text: string): string {
   const markConverted = convertSiyuanMarks(linkConverted);
   const tagConverted = convertSiyuanTags(markConverted);
   const strikethroughConverted = convertMarkdownStrikethrough(tagConverted);
-  const strongConverted = convertMarkdownStrong(strikethroughConverted);
+  const codeConverted = convertMarkdownCode(strikethroughConverted);
+  const mathConverted = convertSiyuanInlineMath(codeConverted);
+  const subscriptConverted = convertSiyuanSubscript(mathConverted);
+  const strongConverted = convertMarkdownStrong(subscriptConverted);
   const emConverted = convertMarkdownEm(strongConverted);
   const memoConverted = convertInlineMemos(emConverted);
   return restoreBlockRefs(memoConverted, tokens);

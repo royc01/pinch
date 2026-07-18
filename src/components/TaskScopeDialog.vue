@@ -253,11 +253,25 @@
         </div>
         <div class="task-scope-display-section custom-audio-settings">
           <div class="task-scope-display-title">{{ t('taskScopeDialog.customAudio') }}</div>
+          <div class="task-scope-auto-item">
+            <div class="task-scope-auto-main">
+              <span class="task-scope-extra-label">{{ t('focusTimer.shortBreakPopup') }}</span>
+              <div class="task-scope-auto-desc">{{ t('focusTimer.shortBreakPopupDescription') }}</div>
+            </div>
+            <SyCheckbox class="task-scope-toggle" :model-value="localShortBreakPopup" @update:model-value="localShortBreakPopup = $event" />
+          </div>
+          <div class="task-scope-auto-item">
+            <div class="task-scope-auto-main">
+              <span class="task-scope-extra-label">{{ t('focusTimer.focusCompletePopup') }}</span>
+              <div class="task-scope-auto-desc">{{ t('focusTimer.focusCompletePopupDescription') }}</div>
+            </div>
+            <SyCheckbox class="task-scope-toggle" :model-value="localFocusCompletePopup" @update:model-value="localFocusCompletePopup = $event" />
+          </div>
           <div class="custom-audio-setting">
             <span>{{ t('taskScopeDialog.customWhiteNoise') }}</span>
             <div class="custom-audio-setting__controls">
               <span class="custom-audio-setting__name">{{ localCustomWhiteNoiseFile || t('taskScopeDialog.useDefaultSound') }}</span>
-              <input type="file" accept="audio/*" @change="uploadCustomAudio('whiteNoise', $event)" />
+              <input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('whiteNoise', $event)" />
               <button type="button" :disabled="!localCustomWhiteNoiseFile" @click="toggleCustomAudioPreview(localCustomWhiteNoiseFile)">{{ previewingAudioFile && previewingAudioFile === localCustomWhiteNoiseFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
               <button type="button" :disabled="!localCustomWhiteNoiseFile" @click="localCustomWhiteNoiseFile = ''">{{ t('taskScopeDialog.clearCustomSound') }}</button>
             </div>
@@ -266,7 +280,7 @@
             <span>{{ t('taskScopeDialog.customCompletionSound') }}</span>
             <div class="custom-audio-setting__controls">
               <span class="custom-audio-setting__name">{{ localCustomCompletionSoundFile || t('taskScopeDialog.useDefaultSound') }}</span>
-              <input type="file" accept="audio/*" @change="uploadCustomAudio('completion', $event)" />
+              <input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('completion', $event)" />
               <button type="button" :disabled="!localCustomCompletionSoundFile" @click="toggleCustomAudioPreview(localCustomCompletionSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomCompletionSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
               <button type="button" :disabled="!localCustomCompletionSoundFile" @click="localCustomCompletionSoundFile = ''">{{ t('taskScopeDialog.clearCustomSound') }}</button>
             </div>
@@ -275,7 +289,7 @@
             <span>{{ t('taskScopeDialog.customMicroBreakSound') }}</span>
             <div class="custom-audio-setting__controls">
               <span class="custom-audio-setting__name">{{ localCustomMicroBreakSoundFile || t('taskScopeDialog.useDefaultSound') }}</span>
-              <input type="file" accept="audio/*" @change="uploadCustomAudio('microBreak', $event)" />
+              <input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('microBreak', $event)" />
               <button type="button" :disabled="!localCustomMicroBreakSoundFile" @click="toggleCustomAudioPreview(localCustomMicroBreakSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomMicroBreakSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
               <button type="button" :disabled="!localCustomMicroBreakSoundFile" @click="localCustomMicroBreakSoundFile = ''">{{ t('taskScopeDialog.clearCustomSound') }}</button>
             </div>
@@ -508,6 +522,8 @@ const localMicroBreakSound = ref(true);
 const localMicroBreakMinIntervalMinutes = ref(3);
 const localMicroBreakMaxIntervalMinutes = ref(5);
 const localMicroBreakDurationSeconds = ref(10);
+const localShortBreakPopup = ref(false);
+const localFocusCompletePopup = ref(false);
 const microBreakIntervalMarks = [1, 3, 5, 7, 9, 11, 13, 15];
 const localCustomWhiteNoiseFile = ref('');
 const localCustomCompletionSoundFile = ref('');
@@ -701,6 +717,8 @@ function syncLocalSelection(): void {
   localMicroBreakMinIntervalMinutes.value = normalizeMicroBreakInterval(props.focusSettings?.microBreakMinIntervalMinutes, 3);
   localMicroBreakMaxIntervalMinutes.value = normalizeMicroBreakInterval(props.focusSettings?.microBreakMaxIntervalMinutes, 5);
   localMicroBreakDurationSeconds.value = normalizeMicroBreakDuration(props.focusSettings?.microBreakDurationSeconds);
+  localShortBreakPopup.value = props.focusSettings?.shortBreakPopup === true;
+  localFocusCompletePopup.value = props.focusSettings?.focusCompletePopup === true;
   localCustomWhiteNoiseFile.value = props.focusSettings?.customWhiteNoiseFile || '';
   localCustomCompletionSoundFile.value = props.focusSettings?.customCompletionSoundFile || '';
   localCustomMicroBreakSoundFile.value = props.focusSettings?.customMicroBreakSoundFile || '';
@@ -740,17 +758,37 @@ function updateMicroBreakInterval(boundary: 'min' | 'max', event: Event): void {
 }
 
 type CustomAudioKind = 'whiteNoise' | 'completion' | 'microBreak';
-const CUSTOM_AUDIO_DIRECTORY = '/data/plugins/pinch/audio/custom';
+const CUSTOM_AUDIO_DIRECTORY = '/data/plugins/pinch/audio';
+const CUSTOM_AUDIO_FILE_BASE_NAMES: Record<CustomAudioKind, string> = {
+  whiteNoise: 'custom-white-noise',
+  completion: 'custom-completion',
+  microBreak: 'custom-micro-break'
+};
+const KNOWN_AUDIO_EXTENSIONS = new Set(['mp3', 'ogg', 'wav', 'm4a', 'aac', 'flac', 'webm', 'opus']);
+
+function getCustomAudioExtension(file: File): string | null {
+  const matched = file.name.toLowerCase().match(/\.([a-z0-9]{1,10})$/);
+  const extension = matched?.[1] || '';
+  if (extension) {
+    return extension;
+  }
+  const mimeSubtype = file.type.toLowerCase().match(/^audio\/([a-z0-9-]{1,10})$/)?.[1];
+  if (mimeSubtype) {
+    return mimeSubtype;
+  }
+  return null;
+}
 
 async function uploadCustomAudio(kind: CustomAudioKind, event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
-  if (!file || !file.type.startsWith('audio/')) return;
+  if (!file) return;
+  const extension = getCustomAudioExtension(file);
+  if (!file.type.startsWith('audio/') && !KNOWN_AUDIO_EXTENSIONS.has(extension || '')) return;
 
-  const extension = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')).toLowerCase() : '';
-  const fileName = `${kind}-${Date.now()}${extension}`;
-  await putFile(CUSTOM_AUDIO_DIRECTORY, true, new File([], '.keep'));
+  if (!extension) return;
+  const fileName = `${CUSTOM_AUDIO_FILE_BASE_NAMES[kind]}.${extension}`;
   await putFile(`${CUSTOM_AUDIO_DIRECTORY}/${fileName}`, false, file);
 
   if (kind === 'whiteNoise') localCustomWhiteNoiseFile.value = fileName;
@@ -903,6 +941,8 @@ function save(): void {
       microBreakMinIntervalMinutes: normalizeMicroBreakInterval(localMicroBreakMinIntervalMinutes.value, 3),
       microBreakMaxIntervalMinutes: Math.max(localMicroBreakMinIntervalMinutes.value, normalizeMicroBreakInterval(localMicroBreakMaxIntervalMinutes.value, 5)),
       microBreakDurationSeconds: normalizeMicroBreakDuration(localMicroBreakDurationSeconds.value),
+      shortBreakPopup: localShortBreakPopup.value,
+      focusCompletePopup: localFocusCompletePopup.value,
       customWhiteNoiseFile: localCustomWhiteNoiseFile.value || undefined,
       customCompletionSoundFile: localCustomCompletionSoundFile.value || undefined,
       customMicroBreakSoundFile: localCustomMicroBreakSoundFile.value || undefined

@@ -10,24 +10,38 @@ const state = reactive<UserSettings>({
 
 let isLoading = false;
 let isInitialized = false;
+let loadingPromise: Promise<void> | null = null;
 
 export function useUserSettings() {
   async function loadSettings() {
     if (isInitialized) return;
-    if (isLoading) return;
-    
-    isLoading = true;
-    try {
-      const loaded = await userSettingsManager.load();
-      Object.assign(state.focus, loaded.focus);
-      Object.assign(state.kanban, loaded.kanban);
-      Object.assign(state.taskManager, loaded.taskManager);
-      Object.assign(state.sidebar, loaded.sidebar);
-      isInitialized = true;
-    } catch (error) {
+    // The dock and a task view can mount together. Every caller must wait for
+    // the same load, rather than proceeding with DEFAULT_SETTINGS while the
+    // first caller is still reading persisted preferences.
+    if (!loadingPromise) {
+      isLoading = true;
+      loadingPromise = (async () => {
+        try {
+          const loaded = await userSettingsManager.load();
+          Object.assign(state.focus, loaded.focus);
+          Object.assign(state.kanban, loaded.kanban);
+          Object.assign(state.taskManager, loaded.taskManager);
+          Object.assign(state.sidebar, loaded.sidebar);
+          isInitialized = true;
+        } catch (error) {
       console.error('[useUserSettings] 加载设置失败:', error);
+        } finally {
+          isLoading = false;
+        }
+      })();
+    }
+
+    try {
+      await loadingPromise;
     } finally {
-      isLoading = false;
+      if (!isLoading) {
+        loadingPromise = null;
+      }
     }
   }
   

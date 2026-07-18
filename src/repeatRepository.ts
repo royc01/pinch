@@ -835,12 +835,14 @@ function emitRepeatChanged(payload: {
   blockId?: string;
   seriesId?: string;
   frequency?: RepeatFrequency;
+  templateUpdates?: Record<string, unknown>;
 } = {}): void {
   eventBus.emit(Events.TASK_ADDED, {
     reason: 'repeat-changed',
     blockId: payload.blockId,
     seriesId: payload.seriesId,
-    frequency: payload.frequency
+    frequency: payload.frequency,
+    templateUpdates: payload.templateUpdates
   });
 }
 
@@ -848,6 +850,7 @@ export function notifyRepeatChanged(payload: {
   blockId?: string;
   seriesId?: string;
   frequency?: RepeatFrequency;
+  templateUpdates?: Record<string, unknown>;
 } = {}): void {
   emitRepeatChanged(payload);
 }
@@ -923,7 +926,10 @@ export async function setTaskRepeatSeries(task: RepeatTaskLike, repeat: RepeatFr
       ? (existing?.monthDay || baseDateObj.getDate())
       : (frequency === 'custom' && nextRule.unit === 'month' ? nextRule.monthDay : undefined),
     startDate: existing?.startDate || baseDate,
-    endDate: normalizedEndDate,
+    // A rendered instance's due date describes that occurrence, not the
+    // series cutoff. Preserve the existing cutoff when its frequency is
+    // changed from a context menu.
+    endDate: task.isVirtual ? existing?.endDate : (normalizedEndDate || existing?.endDate),
     spanDays: calculateSpanDays(task),
     title: task.title || existing?.title || translate('taskCard.repeatTask', 'Recurring task'),
     description: task.description || '',

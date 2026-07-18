@@ -76,6 +76,7 @@
         <div class="mood-lifelog-container">
           <LifelogTimelinePanel
             variant="embedded"
+            fill-height
             :show="true"
             :title="lifelogTimelineDayTitle"
             :subtitle="lifelogTimelineSubtitle"
@@ -1084,7 +1085,7 @@ onUnmounted(() => {
   inset: 0;
   z-index: 2;
   box-sizing: border-box;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   display: flex;
   padding: 10px;
@@ -1161,6 +1162,7 @@ onUnmounted(() => {
   
   .stats-content {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     
@@ -1188,6 +1190,10 @@ onUnmounted(() => {
     }
     
     .calendar-container {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
       background-color: var(--b3-theme-background);
       padding: 0;
       border-radius: 24px;
@@ -1196,8 +1202,14 @@ onUnmounted(() => {
 
     .mood-lifelog-container {
       margin-top: 0;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
       background: var(--b3-list-background);
       border-radius: 8px;
+      overflow: hidden;
+
     }
     
     .mood-stats-container {

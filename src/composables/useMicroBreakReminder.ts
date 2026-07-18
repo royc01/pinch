@@ -95,6 +95,9 @@ export function useMicroBreakReminder(options: UseMicroBreakReminderOptions) {
           countdownTimer = null;
         }
         hideMicroBreak();
+        if (current.sound) {
+          options.playSound?.();
+        }
         if (current.notification) {
           options.notify(options.getText('endTitle'), options.getText('endBody'));
         }
@@ -114,12 +117,24 @@ export function useMicroBreakReminder(options: UseMicroBreakReminderOptions) {
     hideMicroBreak();
   };
 
+  const cancelMicroBreak = (): boolean => {
+    if (!isMicroBreakVisible.value) {
+      return false;
+    }
+
+    clearTimers();
+    hideMicroBreak();
+    scheduleNext();
+    return true;
+  };
+
   onBeforeUnmount(stopMicroBreakReminder);
 
   return {
     isMicroBreakVisible,
     remainingMicroBreakSeconds,
     startMicroBreakReminder,
-    stopMicroBreakReminder
+    stopMicroBreakReminder,
+    cancelMicroBreak
   };
 }

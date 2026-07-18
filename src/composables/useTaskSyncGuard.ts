@@ -1,5 +1,6 @@
 import { type Ref } from 'vue';
 import type { Task } from '@/api';
+import { isRepeatTask } from '@/utils/repeatTaskUtils';
 
 interface TaskSyncGuardOptions {
   lockMs?: number;
@@ -52,26 +53,6 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
     const incomingUpdatedAt = getTaskUpdatedAtMs(incomingTask);
     const localUpdatedAt = getTaskUpdatedAtMs(localTask);
     return incomingUpdatedAt > 0 && incomingUpdatedAt > localUpdatedAt;
-  }
-
-  function summarizeTask(task: Task | null | undefined) {
-    if (!task) return null;
-    return {
-      id: task.id,
-      blockId: task.blockId,
-      repeatSeriesId: task.repeatSeriesId,
-      repeatFrequency: task.repeatFrequency,
-      repeatInstanceDate: task.repeatInstanceDate,
-      isVirtual: task.isVirtual,
-      startDate: task.startDate,
-      dueDate: task.dueDate,
-      startTime: task.startTime,
-      dueTime: task.dueTime
-    };
-  }
-
-  function isRepeatTask(task: Task | null | undefined): boolean {
-    return !!task && (!!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none'));
   }
 
   function getRepeatSyncSlotKey(task: Task | null | undefined): string | null {

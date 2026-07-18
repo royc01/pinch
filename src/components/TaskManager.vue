@@ -577,10 +577,12 @@
                 :show-description="shouldShowTaskCardDetails"
                 :show-badges="shouldShowTaskCardDetails"
                 :show-subtasks="expandedSubtasks.has(task.id)"
+                :show-open-content="task.type === 'block'"
                 :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
                 :disable-context-menu="shouldEnableMobileCalendarDrag()"
                 :ref="(el) => setTaskRowRef(task.id, el)"
                 @card-click="handleTaskCardClick"
+                @open-content="handleTaskClick"
                 @start-focus="handleTaskCardStartFocus"
                 @toggle-status="handleTaskCardToggleStatus"
                 @toggle-expand="handleCardToggleExpand"
@@ -629,21 +631,23 @@
             :description-draft="getInlineDescriptionDraft(task)"
             :show-description="shouldShowTaskCardDetails"
             :show-badges="shouldShowTaskCardDetails"
-              :show-subtasks="expandedSubtasks.has(task.id)"
-              :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
-              :disable-context-menu="shouldEnableMobileCalendarDrag()"
-                :ref="(el) => setTaskRowRef(task.id, el)"
-                @card-click="handleTaskCardClick"
-                @start-focus="handleTaskCardStartFocus"
-                @toggle-status="handleTaskCardToggleStatus"
-                @toggle-expand="handleCardToggleExpand"
-                @description-start-edit="startInlineDescriptionEdit"
-                @description-input="handleInlineDescriptionInput"
-                @description-save="saveInlineDescriptionEdit"
-                @description-cancel="cancelInlineDescriptionEdit"
-                @subtask-toggle="handleCardSubtaskToggle"
-                @dragstart="handleDragStart"
-              />
+            :show-subtasks="expandedSubtasks.has(task.id)"
+            :show-open-content="task.type === 'block'"
+            :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
+            :disable-context-menu="shouldEnableMobileCalendarDrag()"
+            :ref="(el) => setTaskRowRef(task.id, el)"
+            @card-click="handleTaskCardClick"
+            @open-content="handleTaskClick"
+            @start-focus="handleTaskCardStartFocus"
+            @toggle-status="handleTaskCardToggleStatus"
+            @toggle-expand="handleCardToggleExpand"
+            @description-start-edit="startInlineDescriptionEdit"
+            @description-input="handleInlineDescriptionInput"
+            @description-save="saveInlineDescriptionEdit"
+            @description-cancel="cancelInlineDescriptionEdit"
+            @subtask-toggle="handleCardSubtaskToggle"
+            @dragstart="handleDragStart"
+          />
         </div>
       </div>
       <button
@@ -774,6 +778,7 @@ import TaskCard from '@/components/TaskCard.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import TaskModal, { type Notebook, type Document as TaskDocument } from '@/components/TaskModal.vue';
 import TaskScopeDialog, { type TaskScopeDialogSavePayload, type TaskScopeDisplayOption } from '@/components/TaskScopeDialog.vue';
+import { taskViewSwitcherDisplayOptions } from '@/utils/taskViewSwitcher';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
 import SourceFilterSelect from '@/components/SourceFilterSelect.vue';
@@ -818,6 +823,7 @@ import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { applyTaskAttributeMutation } from '@/utils/taskMutationService';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
+import { getLiveTaskElement, getTaskElementFromDoc, parseTaskCompleted, parseTaskCompletedFromElement } from '@/utils/taskDom';
 import {
   buildTaskReminderAttrs,
   getTaskReminderLabel,
@@ -840,6 +846,7 @@ import {
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
 import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
+import { isRepeatTask as isRepeatTaskEntity } from '@/utils/repeatTaskUtils';
 import {
   loadDocumentGroups,
   saveDocumentGroups,
@@ -878,6 +885,7 @@ import {
   areTaskTagIdsEqual,
   buildTaskTagAttrs,
   buildTaskTagState,
+  filterKnownTaskTagIds,
   matchesTaskTagFilter,
   removeTaskTags,
   resolveTaskTagIds,
@@ -941,21 +949,9 @@ const showDocumentGroupNotebookPath = computed(() => userSettings.taskManager.sh
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 let repeatReconcileRequestId = 0;
 const { t } = useI18n();
-// Use the same eight primary entries as KanbanView's header switcher.
-const taskScopeViewOptions = computed<TaskScopeDisplayOption[]>(() => [
-  { id: 'kanban', label: t('kanbanView.viewKanban') },
-  { id: 'list', label: t('kanbanView.viewList') },
-  { id: 'table', label: t('kanbanView.viewTable') },
-  { id: 'quadrant', label: t('kanbanView.viewQuadrant') },
-  { id: 'gantt', label: t('kanbanView.viewGantt') },
-  {
-    id: 'calendar',
-    label: t('kanbanView.viewCalendar'),
-    hiddenIds: ['month', 'week', 'three-day', 'day']
-  },
-  { id: 'archive-table', label: t('kanbanView.viewArchive') },
-  { id: 'stats', label: t('kanbanView.viewStats') }
-]);
+const taskScopeViewOptions = computed<TaskScopeDisplayOption[]>(() =>
+  taskViewSwitcherDisplayOptions.map(({ labelKey, ...option }) => ({ ...option, label: t(labelKey) }))
+);
 const taskScopeSidebarSectionOptions = computed<Array<{ id: SidebarSectionId; label: string }>>(() => [
   { id: 'week-dates', label: t('taskScopeDialog.sidebarWeekDates') },
   { id: 'summary-card-grid', label: t('taskScopeDialog.sidebarSummaryCards') },
@@ -2430,12 +2426,14 @@ const notebookOptions = computed(() => {
     ...sortDocumentGroups(documentGroups.value).map(group => ({
       value: buildGroupDocumentSource(group.id),
       text: group.name,
-      icon: '🏷'
+      icon: group.emoji || '📁',
+      kind: 'group' as const
     })),
     ...activeGoalItems.value.map(goal => ({
       value: buildGoalDocumentSource(goal.id),
       text: goal.name || t('taskManager.untitledGoal'),
-      icon: goal.emoji || '🎯'
+      icon: goal.emoji || '🎯',
+      kind: 'goal' as const
     }))
   ];
 });
@@ -2802,6 +2800,26 @@ function scheduleFilterSettingsUpdate() {
   }, 200);
 }
 
+/**
+ * Persist the current scope without waiting for the debounce timer. This is
+ * used during teardown, when clearing the timer would otherwise discard the
+ * last source/document selection before it ever reaches plugin storage.
+ */
+function flushFilterSettingsUpdate(): void {
+  if (filterSettingsUpdateTimer === null) {
+    return;
+  }
+  clearTimeout(filterSettingsUpdateTimer);
+  filterSettingsUpdateTimer = null;
+  const activeSource = parseDocumentSource(filterNotebook.value);
+  void updateSettings('taskManager', {
+    filterSource: filterNotebook.value,
+    filterNotebook: activeSource.kind === 'notebook' ? activeSource.id : 'all',
+    filterDocument: filterDocument.value,
+    archiveViewMode: archiveViewMode.value
+  });
+}
+
 watch([filterNotebook, filterDocument], ([newNotebook]) => {
   const previousDocument = filterDocument.value;
   normalizeDocumentSelection(newNotebook);
@@ -3074,6 +3092,20 @@ function scheduleTaskListGroupSettingsUpdate(): void {
       showTaskCardDetails: showTaskCardDetails.value
     });
   }, 200);
+}
+
+/** Flush a pending grouping/view preference before this panel is destroyed. */
+function flushTaskListGroupSettingsUpdate(): void {
+  if (taskListGroupSettingsUpdateTimer === null) {
+    return;
+  }
+  clearTimeout(taskListGroupSettingsUpdateTimer);
+  taskListGroupSettingsUpdateTimer = null;
+  void updateSettings('taskManager', {
+    taskListGroupBy: taskListGroupBy.value,
+    taskListViewMode: taskListViewMode.value,
+    showTaskCardDetails: showTaskCardDetails.value
+  });
 }
 
 async function refreshTaskHeadingGroups(): Promise<void> {
@@ -3977,29 +4009,58 @@ function syncTaskSnapshotWithLocalOverrides(taskList: Task[]): Task[] {
 }
 
 function syncRepeatTaskDescriptionLocally(task: Task, description: string): boolean {
+  return syncRepeatTemplateTaskLocally(task, (item) => {
+    item.description = description;
+  });
+}
+
+/** Keep repeat-instance cards aligned with their persisted template immediately. */
+function syncRepeatTemplateTaskLocally(task: Task, syncTask: (task: Task) => void): boolean {
   const seriesId = getTaskRepeatSeriesId(task);
   if (!seriesId) {
     return false;
   }
 
-  const nowIso = new Date().toISOString();
   let touched = false;
   tasks.value.forEach((item) => {
-    if (item.repeatSeriesId !== seriesId) {
+    if (!item.isVirtual || item.repeatSeriesId !== seriesId) {
       return;
     }
-    if (item.id !== task.id && !item.isVirtual) {
-      return;
-    }
-    if (item.description === description && item.updatedAt === nowIso) {
-      return;
-    }
-    item.description = description;
-    item.updatedAt = nowIso;
+    syncTask(item);
+    // A virtual instance's updatedAt comes from the repeat series, not the
+    // template block. Changing it here makes the subsequent materialized
+    // snapshot look different and replaces the card tree unnecessarily.
     touched = true;
   });
 
   return touched;
+}
+
+function rememberRepeatTaskFieldOverrides(task: Task, values: Partial<Task>): void {
+  const seriesId = getTaskRepeatSeriesId(task);
+  const affectedTasks = tasks.value.filter((item) => (
+    item.id === task.id || (!!seriesId && item.isVirtual && item.repeatSeriesId === seriesId)
+  ));
+  for (const affectedTask of affectedTasks) {
+    for (const [field, value] of Object.entries(values) as Array<[keyof Task, Task[keyof Task]]>) {
+      rememberLocalTaskFieldOverride(affectedTask.id, field, value);
+    }
+  }
+}
+
+function syncRepeatTaskFieldOverridesToCrdt(task: Task, values: Partial<Task>): void {
+  const seriesId = getTaskRepeatSeriesId(task);
+  if (!seriesId) {
+    return;
+  }
+  for (const instance of tasks.value) {
+    if (!instance.isVirtual || instance.repeatSeriesId !== seriesId) {
+      continue;
+    }
+    for (const [field, value] of Object.entries(values) as Array<[keyof Task, Task[keyof Task]]>) {
+      crdtRepo.updateTaskField(instance.id, field as any, value);
+    }
+  }
 }
 
 async function refreshInternalState() {
@@ -4935,10 +4996,15 @@ function updateTaskIndex() {
   
   tasks.value.forEach((task) => {
     if (task.blockId) {
-      blockIdToTaskIndex.set(task.blockId, {
-        task,
-        isSubtask: false
-      });
+      const existing = blockIdToTaskIndex.get(task.blockId);
+      // Virtual instances share their template's blockId. Keep broadcasts
+      // bound to the persisted template, never an arbitrary virtual card.
+      if (!existing || (!task.isVirtual && existing.task.isVirtual)) {
+        blockIdToTaskIndex.set(task.blockId, {
+          task,
+          isSubtask: false
+        });
+      }
     }
     
     if (task.subtasks) {
@@ -5146,6 +5212,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     sectionOrder: sidebarSectionOrder as SidebarSectionId[]
   });
   await updateSettings('focus', focusSettings);
+  window.dispatchEvent(new CustomEvent('pinch-focus-settings-updated', { detail: focusSettings }));
   if (shouldFinalizeInit) {
     requiresScopeInitialization.value = false;
   }
@@ -5509,11 +5576,11 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
         }
 
         if (liveTitle !== null && subtask.title !== liveTitle) {
-          const currentTitle = typeof subtask.title === 'string' ? subtask.title : '';
-          if (!shouldSkipMemoTitleDowngrade(currentTitle, liveTitle)) {
-            subtask.title = liveTitle;
-            changed = true;
-          }
+          // The active editor DOM is authoritative. Match the kanban sync
+          // path and apply it directly instead of retaining an older cached
+          // title merely because it contains an inline memo.
+          subtask.title = liveTitle;
+          changed = true;
         }
       }, 'nodeId');
       continue;
@@ -5548,13 +5615,14 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
       }
 
       if (liveTitle !== null) {
-        const currentTitle = typeof task.title === 'string' ? task.title : '';
-        if (!shouldSkipMemoTitleDowngrade(currentTitle, liveTitle)) {
-          if (task.title !== liveTitle) {
-            task.title = liveTitle;
-            crdtRepo.updateTaskField(task.id, 'title', liveTitle);
-            changed = true;
-          }
+        // Use the same direct live-DOM update strategy as KanbanView.
+        if (task.title !== liveTitle) {
+          task.title = liveTitle;
+          crdtRepo.updateTaskField(task.id, 'title', liveTitle);
+          syncRepeatTemplateTaskLocally(task, (instance) => {
+            instance.title = liveTitle;
+          });
+          changed = true;
         }
       }
     }, 'blockId');
@@ -6172,77 +6240,6 @@ async function resolveParentTaskBlockIds(
   return resolvedParentBlockIds;
 }
 
-function getTaskActionElement(root: Element | null, ownerId?: string): Element | null {
-  if (!root) return null;
-  const matchesOwner = (action: Element): boolean => {
-    if (!ownerId) return true;
-    const owner = action.closest('[data-node-id]');
-    return owner?.getAttribute('data-node-id') === ownerId;
-  };
-
-  if (root.classList.contains('protyle-action--task') && matchesOwner(root)) {
-    return root;
-  }
-
-  const actions = root.querySelectorAll('.protyle-action--task');
-  for (const action of actions) {
-    if (matchesOwner(action)) {
-      return action;
-    }
-  }
-
-  const fallbackRoot = root.closest('.protyle-task');
-  const fallback = fallbackRoot?.querySelector('.protyle-action--task');
-  if (fallback && matchesOwner(fallback)) {
-    return fallback;
-  }
-
-  return null;
-}
-
-function parseTaskCompletedByMarker(marker: string | null): boolean | null {
-  if (marker === null) {
-    return null;
-  }
-  return marker.trim().length > 0;
-}
-
-function parseTaskCompletedFromElement(root: Element | null, ownerId?: string): boolean | null {
-  if (!root) return null;
-
-  const ownerElement = root.getAttribute('data-type') === 'NodeListItem'
-    ? root
-    : (root.closest('[data-type="NodeListItem"]') || root);
-  const byMarker = parseTaskCompletedByMarker(ownerElement.getAttribute('data-task'));
-  if (byMarker !== null) {
-    return byMarker;
-  }
-
-  const action = getTaskActionElement(ownerElement, ownerId);
-  if (!action) {
-    return null;
-  }
-  const svg = action.querySelector('use');
-  const href = svg?.getAttribute('xlink:href') || svg?.getAttribute('href') || '';
-  return href ? href === '#iconCheck' : null;
-}
-
-function getLiveTaskElement(blockId: string): Element | null {
-  const selectors = [
-    `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
-    `.protyle [data-node-id="${blockId}"]`,
-    `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
-    `[data-node-id="${blockId}"]`
-  ];
-  for (const selector of selectors) {
-    const matched = document.querySelector(selector);
-    if (matched) {
-      return matched;
-    }
-  }
-  return null;
-}
-
 function getOwnTaskParagraph(root: Element | null, ownerId?: string): Element | null {
   if (!root) return null;
   const ownerListItem = root.getAttribute('data-type') === 'NodeListItem'
@@ -6267,27 +6264,6 @@ function getOwnTaskParagraph(root: Element | null, ownerId?: string): Element | 
       return paragraph;
     }
   }
-  return null;
-}
-
-function getTaskElementFromDoc(doc: Document, blockId: string): Element | null {
-  return doc.querySelector(`[data-node-id="${blockId}"][data-type="NodeListItem"]`)
-    || doc.querySelector(`[data-node-id="${blockId}"]`);
-}
-
-function parseTaskCompleted(blockId: string, parsedDoc?: Document | null): boolean | null {
-  const liveCompleted = parseTaskCompletedFromElement(getLiveTaskElement(blockId), blockId);
-  if (liveCompleted !== null) {
-    return liveCompleted;
-  }
-
-  if (parsedDoc) {
-    const domCompleted = parseTaskCompletedFromElement(getTaskElementFromDoc(parsedDoc, blockId), blockId);
-    if (domCompleted !== null) {
-      return domCompleted;
-    }
-  }
-
   return null;
 }
 
@@ -6462,6 +6438,7 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
       const completed = parseTaskCompleted(blockId, parsedDoc);
       const liveTitle = getLiveTaskTitle(blockId);
       const title = liveTitle ?? (parsedDoc ? getTaskTitleFromElement(getTaskElementFromDoc(parsedDoc, blockId), blockId) : null);
+      const titleCameFromLiveDom = liveTitle !== null;
       if (completed === null) {
         unresolved.push(blockId);
         continue;
@@ -6476,7 +6453,7 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
           }
           if (title !== null && subtask.title !== title) {
             const currentTitle = typeof subtask.title === 'string' ? subtask.title : '';
-            if (!shouldSkipMemoTitleDowngrade(currentTitle, title)) {
+            if (titleCameFromLiveDom || !shouldSkipMemoTitleDowngrade(currentTitle, title)) {
               subtask.title = title;
               changed = true;
             }
@@ -6520,11 +6497,14 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
           }
           if (title !== null) {
             const currentTitle = typeof task.title === 'string' ? task.title : '';
-            if (!shouldSkipMemoTitleDowngrade(currentTitle, title)) {
+            if (titleCameFromLiveDom || !shouldSkipMemoTitleDowngrade(currentTitle, title)) {
               patchedParentTitles.set(blockId, title);
               if (task.title !== title) {
                 task.title = title;
                 crdtRepo.updateTaskField(task.id, 'title', title);
+                syncRepeatTemplateTaskLocally(task, (instance) => {
+                  instance.title = title;
+                });
                 changed = true;
               }
             }
@@ -6604,7 +6584,7 @@ function syncTaskEditorRepeatState(task: Task | null): void {
   taskEditorRepeatRule.value = null;
 
   const taskId = task.id;
-  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const isRepeatTask = isRepeatTaskEntity(task);
   if (isRepeatTask) {
     getRepeatSeriesForTask(task)
       .then((series) => {
@@ -7451,6 +7431,7 @@ interface TaskEditorFieldUpdateOptions {
   syncDraft: (draft: TaskEditDraft) => void;
   syncTask: (task: Task) => void;
   syncCrdt: () => void;
+  localOverrides?: Partial<Task>;
   beforePersist?: (blockId: string) => Promise<void>;
   refreshKernelIndex?: boolean;
 }
@@ -7471,6 +7452,32 @@ async function applyTaskEditorFieldUpdate(
   patchTask(tasks.value, task.id, (targetTask) => {
     options.syncTask(targetTask);
   }, 'id');
+  // Status belongs to an individual repeat occurrence. Other editable card
+  // fields belong to the template and should be visible on every occurrence
+  // before the persistence/broadcast cycle completes.
+  if (!Object.prototype.hasOwnProperty.call(options.attrs, 'custom-task-status')) {
+    syncRepeatTemplateTaskLocally(task, options.syncTask);
+  }
+  const repeatSeriesId = getTaskRepeatSeriesId(task);
+  const shouldBroadcastRepeatTemplateUpdate = (
+    !Object.prototype.hasOwnProperty.call(options.attrs, 'custom-task-status')
+    && !!repeatSeriesId
+    && !!task.repeatFrequency
+  );
+  if (options.localOverrides) {
+    rememberRepeatTaskFieldOverrides(task, options.localOverrides);
+  }
+  // Register the optimistic field in CRDT before the attribute transaction.
+  // The host can broadcast an older SQL snapshot while that transaction is
+  // still committing; pending local fields prevent it from repainting cards
+  // with the previous value in the interim.
+  options.syncCrdt();
+  if (options.localOverrides) {
+    // Virtual instances do not own the template blockId, so the block-attribute
+    // mutation only reaches the template in CRDT. Mirror the same optimistic
+    // fields here before that mutation publishes its raw CRDT snapshot.
+    syncRepeatTaskFieldOverridesToCrdt(task, options.localOverrides);
+  }
 
   try {
     const blockId = task.type === 'block' && task.blockId ? task.blockId.trim() : '';
@@ -7487,13 +7494,23 @@ async function applyTaskEditorFieldUpdate(
       await TaskRepository.clearCache();
     }
 
-    options.syncCrdt();
     patchTask(tasks.value, task.id, (targetTask) => {
       targetTask.updatedAt = new Date().toISOString();
     }, 'id');
     await refreshInternalState();
     if (options.refreshKernelIndex) {
       scheduleKernelTaskIndexRefresh();
+    }
+    if (shouldBroadcastRepeatTemplateUpdate) {
+      // Ordinary block changes already notify every view. Virtual instances
+      // have no blockId of their own, so also publish the series identity for
+      // each view's repeat-materialization path.
+      notifyRepeatChanged({
+        blockId: task.blockId,
+        seriesId: repeatSeriesId,
+        frequency: task.repeatFrequency,
+        templateUpdates: options.localOverrides
+      });
     }
     return true;
   } catch (error) {
@@ -7763,8 +7780,9 @@ async function applyBatchEdit(): Promise<void> {
 
     if (nextTagSelection !== null) {
       const currentTagState = buildTaskTagState(task.tags, task.groupId);
+      const knownCurrentTagIds = filterKnownTaskTagIds(currentTagState.tagIds, taskGroupIdSet.value);
       const nextTagIds = applyTaskTagBatchAction(
-        currentTagState.tagIds,
+        knownCurrentTagIds,
         nextTagSelection.action,
         nextTagSelection.tagId
       );
@@ -7803,6 +7821,11 @@ async function applyBatchEdit(): Promise<void> {
   try {
     const results = await Promise.allSettled(
       updates.map(async (item) => {
+        // Register the batch mutation before persisting it. The host may emit a
+        // change event with a pre-commit SQL snapshot; recording the local
+        // attributes keeps that snapshot from temporarily restoring old tags
+        // on a subset of the selected cards.
+        applyTaskAttributeMutation(item.blockId, item.attrs);
         await setBlockAttrs(item.blockId, item.attrs);
         if (item.nextStatus) {
           await updateTaskMarkdown(item.blockId, item.nextStatus === 'completed');
@@ -7943,7 +7966,8 @@ async function quickSaveTaskPriority(task: Task, priority: Task['priority']): Pr
     },
     syncCrdt: () => {
       crdtRepo.updateTaskField(task.id, 'priority', priority);
-    }
+    },
+    localOverrides: { priority }
   });
 }
 
@@ -7954,7 +7978,8 @@ async function quickSaveTaskFocusEstimate(task: Task, focusEstimate: Task['focus
     syncDraft: draft => { draft.focusEstimate = focusEstimate; },
     syncTask: targetTask => { targetTask.focusEstimate = focusEstimate; },
     // focusEstimate is stored as a block attribute; snapshots retain it in CRDT metadata.
-    syncCrdt: () => {}
+    syncCrdt: () => {},
+    localOverrides: { focusEstimate }
   });
 }
 
@@ -7972,7 +7997,8 @@ async function quickSaveTaskPinned(task: Task, pinned: boolean): Promise<void> {
     },
     syncCrdt: () => {
       crdtRepo.updateTaskField(task.id, 'pinned', pinned);
-    }
+    },
+    localOverrides: { pinned }
   });
 }
 
@@ -8304,21 +8330,13 @@ async function quickSaveTaskDescription(task: Task, description: string): Promis
     },
     syncCrdt: () => {
       crdtRepo.updateTaskField(task.id, 'description', normalizedDescription);
-    }
+    },
+    localOverrides: { description: normalizedDescription }
   });
   if (!updated) {
     return;
   }
 
-  const repeatTouched = syncRepeatTaskDescriptionLocally(task, normalizedDescription);
-  if (repeatTouched) {
-    await refreshInternalState();
-    notifyRepeatChanged({
-      blockId: task.blockId,
-      seriesId: getTaskRepeatSeriesId(task),
-      frequency: task.repeatFrequency
-    });
-  }
 }
 
 async function quickSaveTaskReminder(task: Task, value: TaskReminderSelection): Promise<void> {
@@ -8340,6 +8358,10 @@ async function quickSaveTaskReminder(task: Task, value: TaskReminderSelection): 
     syncCrdt: () => {
       crdtRepo.updateTaskField(task.id, 'reminderType', normalizedReminder.reminderType);
       crdtRepo.updateTaskField(task.id, 'reminderCustomTime', normalizedReminder.reminderCustomTimeValue);
+    },
+    localOverrides: {
+      reminderType: normalizedReminder.reminderType,
+      reminderCustomTime: normalizedReminder.reminderCustomTimeValue
     }
   });
 }
@@ -8366,6 +8388,10 @@ async function quickSaveTaskTags(task: Task, tagIds: string[]): Promise<void> {
     syncCrdt: () => {
       crdtRepo.updateTaskField(task.id, 'tags', [...nextTagState.tagIds]);
       crdtRepo.updateTaskField(task.id, 'groupId', nextTagState.primaryTagId || undefined);
+    },
+    localOverrides: {
+      tags: [...nextTagState.tagIds],
+      groupId: nextTagState.primaryTagId || undefined
     }
   });
 }
@@ -8904,18 +8930,12 @@ onUnmounted(() => {
   window.removeEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
   taskModalTeleportTarget.value?.removeEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
   disconnectTaskEditorHostResizeObserver();
-  if (filterSettingsUpdateTimer !== null) {
-    clearTimeout(filterSettingsUpdateTimer);
-    filterSettingsUpdateTimer = null;
-  }
+  flushFilterSettingsUpdate();
   if (taskPopoverFilterSettingsUpdateTimer !== null) {
     clearTimeout(taskPopoverFilterSettingsUpdateTimer);
     taskPopoverFilterSettingsUpdateTimer = null;
   }
-  if (taskListGroupSettingsUpdateTimer !== null) {
-    clearTimeout(taskListGroupSettingsUpdateTimer);
-    taskListGroupSettingsUpdateTimer = null;
-  }
+  flushTaskListGroupSettingsUpdate();
   if (fallbackRefreshTimer !== null) {
     clearTimeout(fallbackRefreshTimer);
     fallbackRefreshTimer = null;

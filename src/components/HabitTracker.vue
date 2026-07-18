@@ -275,6 +275,7 @@
       :show="showGoalPage"
       :highlight-goal-id="highlightedGoalId"
       @close="closeGoalPage"
+      @open-task-scope="openGoalTaskScope"
     />
     
     <!-- 编辑习惯模态框 -->
@@ -1125,6 +1126,10 @@ function openPersonalStatsView(): void {
 
 function openTaskSettings(): void {
   void taskManagerRef.value?.openTaskScopeDialog('display');
+}
+
+function openGoalTaskScope(): void {
+  void taskManagerRef.value?.openTaskScopeDialog('goals');
 }
 
 async function completeFocusLinkedHabit(habitId: string): Promise<void> {

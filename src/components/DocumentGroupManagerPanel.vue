@@ -20,6 +20,14 @@
             @click="selectedGroupId = group.id"
           >
             <div class="document-group-item-main">
+              <button
+                type="button"
+                class="goal-emoji-btn ariaLabel"
+                :aria-label="t('documentGroup.switchGroupIcon')"
+                @click.stop="openGroupEmojiPicker(group.id, $event)"
+              >
+                <EmojiIcon class="goal-emoji-display" :value="group.emoji" fallback="📁" />
+              </button>
               <SyInput
                 class="document-group-name-input"
                 :model-value="group.name"
@@ -111,6 +119,8 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { openEmoji } from 'siyuan';
+import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
@@ -194,11 +204,52 @@ function updateGroupName(groupId: string, value: string): void {
   )));
 }
 
+function normalizeEmojiValue(value: string): string {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw || raw.includes('.') || raw.includes('/')) {
+    return raw;
+  }
+  const hexPattern = /^[0-9a-fA-F]+(-[0-9a-fA-F]+)*$/;
+  if (hexPattern.test(raw)) {
+    const codePoints = raw.split('-').map(part => parseInt(part, 16));
+    if (codePoints.every(point => Number.isFinite(point))) {
+      try {
+        return String.fromCodePoint(...codePoints);
+      } catch {
+        return raw;
+      }
+    }
+  }
+  return raw;
+}
+
+function updateGroupEmoji(groupId: string, value: string): void {
+  const emoji = normalizeEmojiValue(value) || '📁';
+  emitGroups(localGroups.value.map(group => (
+    group.id === groupId ? { ...group, emoji } : group
+  )));
+}
+
+function openGroupEmojiPicker(groupId: string, event: MouseEvent): void {
+  selectedGroupId.value = groupId;
+  const target = event.currentTarget as HTMLElement | null;
+  const rect = target?.getBoundingClientRect();
+  openEmoji({
+    position: rect
+      ? { x: Math.round(rect.left), y: Math.round(rect.bottom) }
+      : { x: event.clientX, y: event.clientY },
+    selectedCB: (emoji: string) => updateGroupEmoji(groupId, emoji),
+    hideDynamicIcon: false,
+    hideCustomIcon: false
+  });
+}
+
 function addGroup(): void {
   const now = new Date().toISOString();
   const nextGroup: DocumentGroup = {
     id: generateGroupId(),
     name: t('documentGroup.newGroupDefaultName'),
+    emoji: '📁',
     members: [],
     order: localGroups.value.length,
     createdAt: now,
@@ -422,6 +473,29 @@ watch(
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.goal-emoji-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.goal-emoji-btn:hover {
+  background: color-mix(in srgb, var(--b3-list-hover) 70%, var(--b3-theme-primary) 30%);
+}
+
+.goal-emoji-display {
+  font-size: 18px;
+  line-height: 1;
 }
 
 .document-group-name-input {

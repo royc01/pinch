@@ -582,41 +582,6 @@ export const useHabitStatistics = ({
     return finalResult;
   };
 
-  const getHeatmapData = () => {
-    const heatmapData: Array<{ date: string; count: number }> = [];
-    const today = new Date();
-    const dayOfWeek = today.getDay();
-    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const thisMonday = new Date(today);
-    thisMonday.setDate(today.getDate() - daysToSubtract);
-    const startDate = new Date(thisMonday);
-    startDate.setDate(thisMonday.getDate() - 17 * 7);
-
-    for (const habit of habits.value) {
-      for (const record of habit.calendar) {
-        if (record.completed) {
-          const recordDate = parseDate(record.date);
-
-          if (recordDate >= startDate && recordDate <= today) {
-            const dateStr = formatDate(recordDate);
-            let dateEntry = heatmapData.find(entry => entry.date === dateStr);
-
-            if (!dateEntry) {
-              dateEntry = { date: dateStr, count: 0 };
-              heatmapData.push(dateEntry);
-            }
-            dateEntry.count++;
-          }
-        }
-      }
-    }
-
-    heatmapData.sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime());
-    const maxCount = heatmapData.length > 0 ? Math.max(...heatmapData.map(d => d.count), 1) : 1;
-
-    return { data: heatmapData, maxCount };
-  };
-
   // 聚合统计：一次遍历 habits + calendar，产出 totalCompletions、longestStreak、heatmap 等
   // 避免原先 4 个独立 computed 各遍历一次全部数据的 O(4n) 问题
   const _aggregatedStats = computed(() => {

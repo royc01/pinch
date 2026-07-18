@@ -2,6 +2,7 @@ import { ref, type Ref } from 'vue';
 import { getFrontend } from 'siyuan';
 import { setBlockAttrs, type Task } from '@/api';
 import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } from '@/repeatRepository';
+import { isRepeatTask } from '@/utils/repeatTaskUtils';
 import { formatDate, formatTime } from './useDateUtils';
 import { CALENDAR_CONSTANTS } from './useCalendarConstants';
 import { useDebouncedSave } from './useDebouncedSave';
@@ -177,11 +178,7 @@ export function useTaskDrag(
     return null;
   }
 
-  function isRepeatTask(task: Task): boolean {
-    return !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-  }
-
-  function preventConcurrentDragStart(event: MouseEvent, task: Task, kind: string): boolean {
+  function preventConcurrentDragStart(event: MouseEvent): boolean {
     if (!isDragging.value) return false;
 
     event.preventDefault();
@@ -586,7 +583,7 @@ export function useTaskDrag(
   function handleHandleMouseDown(event: MouseEvent, task: Task, handleType: 'start' | 'end') {
     if (event.button !== 0) return;
     if (isMobileFrontend) return;
-    if (preventConcurrentDragStart(event, task, `all-day-handle:${handleType}`)) return;
+    if (preventConcurrentDragStart(event)) return;
     resetMonthDayCellHitRects();
 
     const effectiveStartDate = task.startDate || task.dueDate;
@@ -690,7 +687,7 @@ export function useTaskDrag(
   function handleTaskMouseDown(event: MouseEvent, task: Task) {
     if (event.button !== 0) return;
     if (isMobileFrontend) return;
-    if (preventConcurrentDragStart(event, task, 'all-day-task')) return;
+    if (preventConcurrentDragStart(event)) return;
     if (!task.startDate && !task.dueDate) return;
     resetMonthDayCellHitRects();
 
@@ -1150,7 +1147,7 @@ export function useTaskDrag(
   function handleTimedTaskHandleMouseDown(event: MouseEvent, task: Task, handleType: 'start' | 'end') {
     if (event.button !== 0) return;
     if (isMobileFrontend) return;
-    if (preventConcurrentDragStart(event, task, `timed-handle:${handleType}`)) return;
+    if (preventConcurrentDragStart(event)) return;
 
     const repeatSeriesSnapshot = isRepeatTask(task)
       ? buildRepeatSeriesDragSnapshot(task)
@@ -1367,7 +1364,7 @@ export function useTaskDrag(
   function handleTimedTaskMouseDown(event: MouseEvent, task: Task, dayKey: string) {
     if (event.button !== 0) return;
     if (isMobileFrontend) return;
-    if (preventConcurrentDragStart(event, task, 'timed-task')) return;
+    if (preventConcurrentDragStart(event)) return;
 
     clearTimedRepeatPreview();
     const target = event.target as HTMLElement;

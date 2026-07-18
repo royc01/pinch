@@ -422,7 +422,7 @@
                 :style="getTimedCreateSelectionStyle(day.key)!"
               ></div>
                
-              <div v-if="showLifelog || showFocusRecords" class="week-lifelog-layer">
+              <div v-if="showTaskLifelog || showHabitLifelog || showRecordsLifelog || showFocusRecords" class="week-lifelog-layer">
                 <div
                   v-for="item in (weekLifelogTimelineByDay.get(day.key) || [])"
                   :key="item.id"
@@ -442,6 +442,10 @@
                     ></span>
                     <span v-else-if="item.emoji" class="week-lifelog-emoji">{{ item.emoji }}</span>
                     <Icon v-else :name="item.icon" width="12" height="12" />
+                    <span
+                      v-if="getFocusLifelogTargetTitle(item)"
+                      class="week-lifelog-focus-target"
+                    >{{ getFocusLifelogTargetTitle(item) }}</span>
                     <span class="week-lifelog-time">{{ item.timeLabel }}</span>
                     <span
                       v-if="item.type === 'habit-checkin' || item.type === 'task-completed'"
@@ -574,7 +578,7 @@
       :empty-text="t('monthView.lifelogEmpty')"
       :close-label="t('common.close')"
       :delete-label="t('common.delete')"
-      :show-editor="Boolean(lifelogTimelineDayKey) && showLifelog"
+      :show-editor="Boolean(lifelogTimelineDayKey)"
       :draft="lifelogTimelineDraft"
       :editor-placeholder="t('monthView.lifelogManualPlaceholder')"
       :save-label="t('common.save')"
@@ -689,6 +693,9 @@ interface Props {
   currentCalendarView?: CalendarViewMode;
   showFocusRecords?: boolean;
   showHabits?: boolean;
+  showTaskLifelog?: boolean;
+  showHabitLifelog?: boolean;
+  showRecordsLifelog?: boolean;
   showLifelog?: boolean;
 }
 
@@ -770,6 +777,9 @@ const calendarViewOptions = computed(() => props.calendarViewOptions || []);
 const showFocusRecords = computed(() => props.showFocusRecords !== false);
 const showHabits = computed(() => props.showHabits !== false);
 const showLifelog = computed(() => props.showLifelog !== false);
+const showTaskLifelog = computed(() => props.showTaskLifelog ?? showLifelog.value);
+const showHabitLifelog = computed(() => props.showHabitLifelog ?? showLifelog.value);
+const showRecordsLifelog = computed(() => props.showRecordsLifelog ?? showLifelog.value);
 const taskCompletedLifelogSourceTasks = computed(() => {
   const tasksById = new Map<string, Task>();
   for (const task of props.lifelogTasks || []) {
@@ -2109,7 +2119,7 @@ function getTaskDateRangeForRender(task: Task): { startDate: Date; endDate: Date
   const startDate = new Date(startValue);
   startDate.setHours(0, 0, 0, 0);
 
-  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const isRepeatTask = isRepeatTaskEntity(task);
   const endValue = isRepeatTask ? startValue : (task.dueDate || startValue);
   const endDate = new Date(endValue);
   endDate.setHours(23, 59, 59, 999);
@@ -3227,10 +3237,6 @@ const focusSessionsByDay = computed(() => {
     grouped.set(day.key, []);
   }
 
-  if (!showFocusRecords.value) {
-    return grouped;
-  }
-
   for (const record of focusSessionRecords.value) {
     const event = focusRecordToLifelogEvent(record, t('focusTimer.title'));
     if (!event || !grouped.has(event.date)) {
@@ -3254,10 +3260,17 @@ const focusSessionsByDay = computed(() => {
 });
 
 const allWeekLifelogEvents = computed<WeekLifelogEvent[]>(() => [
+  ...Array.from(focusSessionsByDay.value.values()).flat(),
+  ...habitsToLifelogEvents(habitRecords.value),
+  ...tasksToCompletedLifelogEvents(taskCompletedLifelogSourceTasks.value),
+  ...moodManualEntriesToLifelogEvents(moodRecords.value)
+]);
+
+const visibleWeekLifelogEvents = computed<WeekLifelogEvent[]>(() => [
   ...(showFocusRecords.value ? Array.from(focusSessionsByDay.value.values()).flat() : []),
-  ...(showLifelog.value ? habitsToLifelogEvents(habitRecords.value) : []),
-  ...(showLifelog.value ? tasksToCompletedLifelogEvents(taskCompletedLifelogSourceTasks.value) : []),
-  ...(showLifelog.value ? moodManualEntriesToLifelogEvents(moodRecords.value) : [])
+  ...(showHabitLifelog.value ? habitsToLifelogEvents(habitRecords.value) : []),
+  ...(showTaskLifelog.value ? tasksToCompletedLifelogEvents(taskCompletedLifelogSourceTasks.value) : []),
+  ...(showRecordsLifelog.value ? moodManualEntriesToLifelogEvents(moodRecords.value) : [])
 ]);
 
 const weekLifelogTimelineByDay = computed(() => {
@@ -3266,7 +3279,7 @@ const weekLifelogTimelineByDay = computed(() => {
     grouped.set(day.key, []);
   }
 
-  for (const event of allWeekLifelogEvents.value) {
+  for (const event of visibleWeekLifelogEvents.value) {
     if (!grouped.has(event.date)) {
       continue;
     }
@@ -3452,7 +3465,7 @@ function getLifelogTimelineMeta(event: WeekLifelogEvent): string {
       : t('habitTracker.checkedIn');
   }
   if (event.type === 'task-completed') {
-    return t('taskManager.statusCompleted');
+    return formatTaskCompletedLifelogMeta(event);
   }
   return t('monthView.lifelogManualNote');
 }
@@ -3492,9 +3505,7 @@ function lifelogEventToTimelineListItem(event: WeekLifelogEvent): LifelogTimelin
   };
 }
 
-const lifelogTimelinePanelOpen = computed(() =>
-  Boolean(lifelogTimelineDayKey.value) && (showLifelog.value || showFocusRecords.value)
-);
+const lifelogTimelinePanelOpen = computed(() => Boolean(lifelogTimelineDayKey.value));
 
 const lifelogTimelineItems = computed(() => {
   const dayKey = lifelogTimelineDayKey.value;
@@ -4043,6 +4054,25 @@ function getWeekLifelogItemTitle(item: WeekLifelogTimelineItem): string {
   }
   const baseTitle = `${item.timeLabel} · ${item.title}`;
   return item.note ? `${baseTitle}\n${item.note}` : baseTitle;
+}
+
+function getFocusLifelogTargetTitle(item: WeekLifelogTimelineItem): string {
+  const event = item.event;
+  if (event.type !== 'focus' || !event.targetId) {
+    return '';
+  }
+
+  if (event.targetType === 'habit') {
+    return habitRecords.value.find(habit => habit.id === event.targetId)?.name.trim()
+      || event.title;
+  }
+
+  if (event.targetType === 'task') {
+    const task = taskCompletedLifelogSourceTaskById.value.get(event.targetId);
+    return task ? getTaskDisplayTitle(task) : event.title;
+  }
+
+  return '';
 }
 
 function shouldShowWeekLifelogTimelineItem(item: WeekLifelogTimelineItem): boolean {
@@ -6085,7 +6115,7 @@ function showTaskContextMenu(
   contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
   contextMenuRepeatRule.value = null;
 
-  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const isRepeatTask = isRepeatTaskEntity(task);
   if (isRepeatTask) {
     getRepeatSeriesForTask(task)
       .then((series) => {
@@ -7443,6 +7473,17 @@ onUnmounted(() => {
   font-weight: 400;
   line-height: 1.25;
   opacity: 0.78;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.week-lifelog-focus-target {
+  min-width: 0;
+  color: var(--b3-theme-on-background);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -33,6 +33,7 @@
         <EmojiIcon
           v-if="option.icon"
           class="source-filter-select__icon"
+          :class="option.kind && `source-filter-select__icon--${option.kind}`"
           :value="option.icon"
         />
         <span class="source-filter-select__text">{{ option.text }}</span>
@@ -49,6 +50,7 @@ export interface SourceFilterOption {
   value: string;
   text: string;
   icon?: string;
+  kind?: 'group' | 'goal';
 }
 
 const props = defineProps<{
@@ -135,7 +137,6 @@ onBeforeUnmount(() => {
 
 .source-filter-select__icon {
   flex: 0 0 auto;
-  font-size: 16px;
 }
 
 .source-filter-select__text {
@@ -150,13 +151,13 @@ onBeforeUnmount(() => {
   left: 0;
   top: calc(100% + 4px);
   z-index: 80;
-  min-width: 100%;
+  min-width: 200px;
   max-width: min(360px, calc(100vw - 24px));
   max-height: 280px;
   overflow: auto;
   padding: 4px;
   border: 1px solid var(--b3-border-color);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--b3-menu-background, var(--b3-theme-background));
   box-shadow: var(--b3-dialog-shadow);
 }
@@ -164,9 +165,9 @@ onBeforeUnmount(() => {
 .source-filter-select__option {
   width: 100%;
   min-width: 0;
-  padding: 6px 8px;
+  padding: 4px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--b3-theme-on-background);
   display: flex;
@@ -178,6 +179,19 @@ onBeforeUnmount(() => {
 }
 
 .source-filter-select__option.is-selected {
-  color: var(--b3-theme-primary);
+  font-weight: 700;
+  background: var(--b3-list-hover);
+}
+
+.source-filter-select__icon--group {
+  background: var(--pinch-background7);
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.source-filter-select__icon--goal {
+  background: var(--pinch-background5);
+  padding: 4px;
+  border-radius: 6px;
 }
 </style>

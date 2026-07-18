@@ -36,7 +36,9 @@ import { hasActiveFocusSession } from '@/composables/useFocusSessionLock';
 import {
   subscribeDetachedFocusCompleteLinkedTarget,
   subscribeDetachedFocusDisableRequest,
-  subscribeDetachedFocusLinkedTargetChange
+  subscribeDetachedFocusLinkedTargetChange,
+  subscribeDetachedFocusOpenSettingsRequest,
+  syncDetachedFocusWindowFocusSettings
 } from '@/utils/detachedFocusWindow';
 import {
   openFocusTimerLinkedTarget,
@@ -58,6 +60,7 @@ const floatingFocusCapsuleRef = ref<{
 let unsubscribeDetachedFocusDisableRequest: (() => void) | null = null;
 let unsubscribeDetachedFocusLinkedTargetChange: (() => void) | null = null;
 let unsubscribeDetachedFocusCompleteLinkedTarget: (() => void) | null = null;
+let unsubscribeDetachedFocusOpenSettingsRequest: (() => void) | null = null;
 
 const emit = defineEmits<{
   completeLinkedHabit: [habitId: string];
@@ -122,6 +125,11 @@ function handleCapsuleMicroBreakChange(visible: boolean, remainingSeconds: numbe
   capsuleMicroBreakRemainingSeconds.value = remainingSeconds;
 }
 
+function handleFocusSettingsUpdated(event: Event): void {
+  const settings = (event as CustomEvent<Record<string, unknown> | undefined>).detail;
+  syncDetachedFocusWindowFocusSettings(settings);
+}
+
 watch(floatingFocusEnabled, (value) => {
   try {
     localStorage.setItem(FLOATING_FOCUS_STORAGE_KEY, value ? 'true' : 'false');
@@ -143,6 +151,10 @@ onMounted(() => {
   unsubscribeDetachedFocusCompleteLinkedTarget = subscribeDetachedFocusCompleteLinkedTarget((target) => {
     handleCompleteLinkedTarget(target);
   });
+  unsubscribeDetachedFocusOpenSettingsRequest = subscribeDetachedFocusOpenSettingsRequest(() => {
+    emit('openSettings');
+  });
+  window.addEventListener('pinch-focus-settings-updated', handleFocusSettingsUpdated);
 
   try {
     const savedState = localStorage.getItem(FLOATING_FOCUS_STORAGE_KEY);
@@ -160,6 +172,9 @@ onBeforeUnmount(() => {
   unsubscribeDetachedFocusLinkedTargetChange = null;
   unsubscribeDetachedFocusCompleteLinkedTarget?.();
   unsubscribeDetachedFocusCompleteLinkedTarget = null;
+  unsubscribeDetachedFocusOpenSettingsRequest?.();
+  unsubscribeDetachedFocusOpenSettingsRequest = null;
+  window.removeEventListener('pinch-focus-settings-updated', handleFocusSettingsUpdated);
 });
 
 defineExpose({

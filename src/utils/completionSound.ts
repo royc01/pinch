@@ -1,5 +1,5 @@
 const COMPLETION_SOUND_URL = '/plugins/pinch/audio/correct.mp3';
-const CUSTOM_AUDIO_BASE_URL = '/plugins/pinch/audio/custom/';
+const CUSTOM_AUDIO_BASE_URL = '/plugins/pinch/audio/';
 let completionSound: HTMLAudioElement | null = null;
 const customFocusAudio = new Map<string, HTMLAudioElement>();
 

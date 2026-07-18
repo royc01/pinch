@@ -74,29 +74,6 @@
       </div>
     </div>
 
-    <TaskScopeDialog
-      :show="showGoalManager"
-      :notebooks="scopeNotebooks"
-      :excluded-notebook-ids="scopeExcludedNotebookIds"
-      :show-scope-tab="true"
-      :show-completed-tasks="scopeShowCompletedTasks"
-      :auto-recognize-task-date="scopeAutoRecognizeTaskDate"
-      :date-recognition-keywords="userSettings.taskManager.dateRecognitionKeywords"
-      :global-date-recognizing="isGlobalDateRecognitionRunning"
-      :task-completion-sound-enabled="scopeTaskCompletionSoundEnabled"
-      :show-document-group-notebook-path="scopeShowDocumentGroupNotebookPath"
-      :title="t('taskScopeDialog.settings')"
-      :initial-tab="goalManagerInitialTab"
-      :document-groups="documentGroups"
-      :document-group-documents="goalDocuments"
-      :documents-refreshing="goalDocumentsRefreshing"
-      :goals="goalDefinitions"
-      :goal-documents="goalDocuments"
-      @close="showGoalManager = false"
-      @global-recognize-date="handleGlobalRecognizeTaskDates"
-      @refresh-documents="handleGoalDocumentsRefresh"
-      @save="handleGoalSave"
-    />
   </div>
 </template>
 
@@ -105,7 +82,7 @@ import { nextTick, ref, watch } from 'vue';
 import { showMessage } from 'siyuan';
 import { TaskRepository, lsNotebooks } from '@/api';
 import EmojiIcon from '@/components/EmojiIcon.vue';
-import TaskScopeDialog, { type TaskScopeDialogSavePayload } from '@/components/TaskScopeDialog.vue';
+import { type TaskScopeDialogSavePayload } from '@/components/TaskScopeDialog.vue';
 import { useGoals, type GoalListItem } from '@/composables/useGoals';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { loadDocumentGroups, saveDocumentGroups, type DocumentGroup } from '@/documentGroupRepository';
@@ -126,6 +103,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 const emit = defineEmits<{
   close: [];
+  'open-task-scope': [initialTab: 'goals'];
 }>();
 const { t } = useI18n();
 
@@ -154,56 +132,8 @@ const scopeTaskCompletionSoundEnabled = ref(true);
 const scopeShowDocumentGroupNotebookPath = ref(true);
 const isGlobalDateRecognitionRunning = ref(false);
 
-function sortDocumentGroups(groups: DocumentGroup[]): DocumentGroup[] {
-  return [...groups].sort((a, b) => {
-    const orderA = typeof a.order === 'number' ? a.order : Number.MAX_SAFE_INTEGER;
-    const orderB = typeof b.order === 'number' ? b.order : Number.MAX_SAFE_INTEGER;
-    if (orderA !== orderB) {
-      return orderA - orderB;
-    }
-    return a.name.localeCompare(b.name, 'zh-CN');
-  });
-}
-
-async function loadTaskScopeState(): Promise<void> {
-  await loadSettings();
-  const notebookResult = await lsNotebooks();
-  scopeNotebooks.value = (notebookResult?.notebooks || [])
-    .filter(notebook => !notebook.closed)
-    .map(notebook => ({
-      id: notebook.id,
-      name: notebook.name
-    }));
-  scopeExcludedNotebookIds.value = normalizeNotebookIds(userSettings.taskManager.excludedNotebookIds);
-  scopeShowCompletedTasks.value = userSettings.taskManager.showCompletedTasks !== false;
-  scopeAutoRecognizeTaskDate.value = userSettings.taskManager.autoRecognizeTaskDate === true;
-  scopeTaskCompletionSoundEnabled.value = userSettings.taskManager.taskCompletionSoundEnabled !== false;
-  scopeShowDocumentGroupNotebookPath.value = userSettings.taskManager.showDocumentGroupNotebookPath !== false;
-  TaskRepository.setExcludedNotebookIds(scopeExcludedNotebookIds.value);
-  TaskRepository.setAutoRecognizeTaskDateEnabled(scopeAutoRecognizeTaskDate.value);
-}
-
-async function openGoalManager(initialTab: 'scope' | 'document-groups' | 'goals' = 'goals'): Promise<void> {
-  goalManagerInitialTab.value = initialTab;
-  const [nextGroups] = await Promise.all([
-    loadDocumentGroups(),
-    loadTaskScopeState()
-  ]);
-  documentGroups.value = sortDocumentGroups(nextGroups);
-  await loadGoalsData({ taskUseCache: false });
-  showGoalManager.value = true;
-}
-
-async function handleGoalDocumentsRefresh(): Promise<void> {
-  if (goalDocumentsRefreshing.value) {
-    return;
-  }
-  goalDocumentsRefreshing.value = true;
-  try {
-    await refreshGoalDocuments({ taskUseCache: false });
-  } finally {
-    goalDocumentsRefreshing.value = false;
-  }
+function openGoalManager(): void {
+  emit('open-task-scope', 'goals');
 }
 
 async function handleGlobalRecognizeTaskDates(): Promise<void> {

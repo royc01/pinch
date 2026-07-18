@@ -2,7 +2,7 @@
   <div
     v-if="show"
     class="lifelog-timeline-backdrop"
-    :class="`is-${variant}`"
+    :class="[`is-${variant}`, { 'is-fill-height': fillHeight }]"
     @mousedown.self="handleBackdropMouseDown"
     @wheel.stop
   >
@@ -282,6 +282,7 @@ const props = withDefaults(defineProps<{
   deleteConfirmTitle?: string;
   deleteConfirmMessage?: string;
   variant?: 'drawer' | 'embedded';
+  fillHeight?: boolean;
   dateStripDays?: LifelogTimelineDateStripDay[];
   currentPeriod?: string;
   previousPeriodLabel?: string;
@@ -295,6 +296,7 @@ const props = withDefaults(defineProps<{
   deleteConfirmTitle: 'Delete this record?',
   deleteConfirmMessage: 'This action cannot be undone.',
   variant: 'drawer',
+  fillHeight: false,
   dateStripDays: () => [],
   currentPeriod: '',
   previousPeriodLabel: '',
@@ -809,6 +811,22 @@ function handleBackdropMouseDown(): void {
   color: var(--b3-theme-on-surface);
   font-size: 11px;
   opacity: 0.8;
+}
+
+.lifelog-timeline-backdrop.is-embedded.is-fill-height {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.lifelog-timeline-backdrop.is-embedded.is-fill-height .lifelog-timeline-panel {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+.lifelog-timeline-backdrop.is-embedded.is-fill-height .lifelog-timeline-list {
+  flex: 1 1 0;
 }
 
 .lifelog-timeline-meta-text {

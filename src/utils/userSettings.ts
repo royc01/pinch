@@ -16,6 +16,8 @@ export interface UserSettings {
     microBreakMinIntervalMinutes?: number;
     microBreakMaxIntervalMinutes?: number;
     microBreakDurationSeconds?: number;
+    shortBreakPopup?: boolean;
+    focusCompletePopup?: boolean;
     customWhiteNoiseFile?: string;
     customCompletionSoundFile?: string;
     customMicroBreakSoundFile?: string;
@@ -120,7 +122,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     microBreakSound: true,
     microBreakMinIntervalMinutes: 3,
     microBreakMaxIntervalMinutes: 5,
-    microBreakDurationSeconds: 10
+    microBreakDurationSeconds: 10,
+    shortBreakPopup: false,
+    focusCompletePopup: false
   },
   kanban: {
     currentView: 'table',
@@ -385,11 +389,27 @@ function mergeWithDefaults(input: unknown): UserSettings {
 
 export class UserSettingsManager {
   private settings: UserSettings | null = null;
+  private loadPromise: Promise<UserSettings> | null = null;
+  private saveQueue: Promise<void> = Promise.resolve();
   
   async load(): Promise<UserSettings> {
     if (this.settings) {
       return this.settings;
     }
+
+    if (this.loadPromise) {
+      return this.loadPromise;
+    }
+
+    this.loadPromise = this.loadFromStorage();
+    try {
+      return await this.loadPromise;
+    } finally {
+      this.loadPromise = null;
+    }
+  }
+
+  private async loadFromStorage(): Promise<UserSettings> {
     
     try {
       const plugin = usePlugin();
@@ -423,8 +443,7 @@ export class UserSettingsManager {
     this.settings = mergeWithDefaults(this.settings);
     
     try {
-      const plugin = usePlugin();
-      await plugin.saveData(STORAGE_KEY, this.settings);
+      await this.enqueueSave(this.settings);
     } catch (error) {
       console.error('[UserSettings] 保存设置失败:', error);
     }
@@ -447,8 +466,7 @@ export class UserSettingsManager {
     this.settings = mergeWithDefaults(this.settings);
     
     try {
-      const plugin = usePlugin();
-      await plugin.saveData(STORAGE_KEY, this.settings);
+      await this.enqueueSave(this.settings);
     } catch (error) {
       console.error('[UserSettings] 更新设置失败:', error);
     }
@@ -462,6 +480,24 @@ export class UserSettingsManager {
     }
     
     return this.settings![section];
+  }
+
+  /**
+   * Writes are serialized with an immutable snapshot. Concurrent view mounts
+   * otherwise issue overlapping saveData calls, allowing an older "all"
+   * filter snapshot to finish after a newer notebook selection.
+   */
+  private enqueueSave(settings: UserSettings | null): Promise<void> {
+    const snapshot = mergeWithDefaults(settings);
+    const pendingSave = this.saveQueue.then(async () => {
+      const plugin = usePlugin();
+      await plugin.saveData(STORAGE_KEY, snapshot);
+    });
+
+    // Keep the queue usable after a failed storage write; the caller still
+    // receives the failure and logs it through its existing error path.
+    this.saveQueue = pendingSave.catch(() => undefined);
+    return pendingSave;
   }
   
   private syncToLocalStorage(): void {

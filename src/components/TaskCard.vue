@@ -479,18 +479,23 @@ const isDueSoon = computed(() => remainingDays.value !== null && remainingDays.v
 
 const resolvedTaskTagBadges = computed(() => (
   resolveTaskTagIds(task.value.tags, task.value.groupId)
-    .map((tagId) => {
-      const group = (props.taskGroups || []).find(item => item.id === tagId) || null;
-      const rawColor = group?.color || '';
-      return {
+    .flatMap((tagId) => {
+      const group = (props.taskGroups || []).find(item => item.id === tagId);
+      // A removed or otherwise unknown tag ID can remain in historical task
+      // attributes. It is not a usable tag, so do not render a generic badge.
+      if (!group) {
+        return [];
+      }
+      const rawColor = group.color || '';
+      return [{
         id: tagId,
-        label: group?.name || t('taskManager.tags'),
+        label: group.name || t('taskManager.tags'),
         style: rawColor ? {
           background: resolveGroupColorCss(rawColor),
           borderColor: resolveGroupColorLayerCss(rawColor),
           color: resolveGroupTextColor(rawColor)
         } : {}
-      };
+      }];
     })
 ));
 const visibleTaskTagBadges = computed(() => resolvedTaskTagBadges.value.slice(0, 2));

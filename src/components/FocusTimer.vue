@@ -17,7 +17,7 @@
             :aria-label="t('focusTimer.settings')"
             @click="emit('open-settings')"
           >
-            <Icon name="timer" width="16" height="16" class="icon" />
+            <Icon name="taskScope" width="18" height="18" class="icon" />
           </button>
           <button @click="handleClose" class="icon-button ariaLabel" :aria-label="t('focusTimer.closeTimer')">
             <Icon name="close" width="16" height="16" class="icon" />
@@ -334,8 +334,6 @@
       </div>
     </div>
 
-    <MicroBreakDialog :visible="isMicroBreakVisible" :remaining-seconds="remainingMicroBreakSeconds" />
-
     <div
       v-if="showBackfillDialog"
       class="focus-backfill-overlay"
@@ -552,7 +550,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, toRefs, watch } from 'vue';
 import Icon from './Icon.vue';
-import MicroBreakDialog from '@/components/MicroBreakDialog.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import {
   addFocusSession,
@@ -587,6 +584,11 @@ import {
   type FocusLifelogEvent
 } from '@/utils/lifelogEvents';
 import { filterFocusTargetOptions } from '@/utils/focusTimerTargetPicker';
+import {
+  hideDetachedMicroBreakWindow,
+  showDetachedMicroBreakWindow,
+  subscribeDetachedMicroBreakCancel
+} from '@/utils/detachedFocusWindow';
 
 interface Props {
   show: boolean;
@@ -1208,7 +1210,8 @@ const {
   isMicroBreakVisible,
   remainingMicroBreakSeconds,
   startMicroBreakReminder,
-  stopMicroBreakReminder
+  stopMicroBreakReminder,
+  cancelMicroBreak
 } = useMicroBreakReminder({
   settings: computed(() => userSettings.focus),
   notify: (title, body) => showNotification(title, body, '☕'),
@@ -1222,6 +1225,63 @@ const {
     endBody: t('focusTimer.microBreakEndBody')
   })[key]
 });
+
+let panelOwnsDetachedMicroBreakWindow = false;
+let unsubscribeDetachedMicroBreakCancel: (() => void) | null = null;
+
+watch(isMicroBreakVisible, (visible) => {
+  if (!visible) {
+    if (panelOwnsDetachedMicroBreakWindow) {
+      hideDetachedMicroBreakWindow();
+      panelOwnsDetachedMicroBreakWindow = false;
+    }
+    return;
+  }
+
+  void nextTick(async () => {
+    if (!isMicroBreakVisible.value) {
+      return;
+    }
+
+    const opened = await showDetachedMicroBreakWindow(remainingMicroBreakSeconds.value);
+    if (!opened) {
+      return;
+    }
+
+    if (!isMicroBreakVisible.value) {
+      hideDetachedMicroBreakWindow();
+      return;
+    }
+
+    panelOwnsDetachedMicroBreakWindow = true;
+  });
+});
+
+function showShortBreakPopup(): void {
+  if (userSettings.focus.shortBreakPopup !== true) {
+    return;
+  }
+
+  void nextTick(() => {
+    void showDetachedMicroBreakWindow(Math.max(1, Math.round(shortBreakDuration.value * 60)), {
+      title: t('focusTimer.shortBreakActiveTitle'),
+      body: t('focusTimer.shortBreakActiveBody')
+    });
+  });
+}
+
+function showFocusCompletePopup(): void {
+  if (userSettings.focus.focusCompletePopup !== true) {
+    return;
+  }
+
+  void nextTick(() => {
+    void showDetachedMicroBreakWindow(10, {
+      title: t('focusTimer.focusCompletePopupTitle'),
+      body: t('focusTimer.focusCompletePopupBody')
+    });
+  });
+}
 
 const getElapsedFocusMinutes = () => {
   if (isBreakMode.value || timerMode.value !== 'countup') {
@@ -1718,6 +1778,7 @@ const completeTimer = async () => {
       isBreakMode.value = true;
       resetPhaseProgress();
       currentSet.value++;
+      showShortBreakPopup();
       startPhaseTimer();
       return;
     }
@@ -1728,11 +1789,13 @@ const completeTimer = async () => {
     clearTimer();
     isBreakMode.value = false;
     resetPhaseProgress();
+    startMicroBreakReminder();
     startPhaseTimer();
     return;
   }
 
   await stopTimer();
+  showFocusCompletePopup();
 };
 
 const formatTotalTime = (minutes: number): string => {
@@ -1801,6 +1864,7 @@ const buildHandoffState = (): FocusTimerHandoffState => ({
   currentSet: currentSet.value,
   countupSessionId: countupSessionId.value,
   savedCountupMinutes: savedCountupMinutes.value,
+  microBreakSettings: { ...userSettings.focus },
   linkedTarget: linkedTarget.value ?? null
 });
 
@@ -1816,6 +1880,7 @@ const resetPanelTimerAfterHandoff = () => {
 const handoffToMiniAndClose = () => {
   const handoffState = buildHandoffState();
   clearTimer();
+  stopMicroBreakReminder();
   stopAudio();
   releaseFocusSession();
   emit('update:miniEnabled', true);
@@ -1853,6 +1918,12 @@ const handleClose = async () => {
 };
 
 onUnmounted(() => {
+  if (panelOwnsDetachedMicroBreakWindow) {
+    hideDetachedMicroBreakWindow();
+    panelOwnsDetachedMicroBreakWindow = false;
+  }
+  unsubscribeDetachedMicroBreakCancel?.();
+  unsubscribeDetachedMicroBreakCancel = null;
   clearTimer();
   stopAudio();
   releaseFocusSession();
@@ -1862,6 +1933,10 @@ onUnmounted(() => {
 });
 
 onMounted(async () => {
+  unsubscribeDetachedMicroBreakCancel = subscribeDetachedMicroBreakCancel(() => {
+    cancelMicroBreak();
+  });
+
   try {
     await loadSettings();
     window.addEventListener(FOCUS_SESSION_EVENT, handleExternalFocusSession);

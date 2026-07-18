@@ -287,6 +287,56 @@
                 </div>
               </div>
             </div>
+
+            <div class="setting-section white-noise-setting">
+              <div class="setting-label">
+                <span>{{ t('focusTimer.whiteNoise') }}</span>
+                <label class="switch">
+                  <input v-model="whiteNoiseEnabled" type="checkbox" @change="toggleWhiteNoise" />
+                  <span class="slider round"></span>
+                </label>
+              </div>
+              <div class="floating-focus__sound-selector" :class="{ disabled: !whiteNoiseEnabled }">
+                <button
+                  v-for="sound in whiteNoiseOptions"
+                  :key="sound.id"
+                  type="button"
+                  class="floating-focus__sound-button ariaLabel"
+                  :class="{ active: selectedWhiteNoiseId === sound.id }"
+                  :disabled="!whiteNoiseEnabled"
+                  :aria-label="`${t('focusTimer.pickSoundPrefix')}${sound.name}`"
+                  @click="selectWhiteNoise(sound.id)"
+                >
+                  <Icon :name="sound.icon" width="16" height="16" class="icon" />
+                </button>
+                <button
+                  v-if="userSettings.focus.customWhiteNoiseFile"
+                  type="button"
+                  class="floating-focus__sound-button ariaLabel"
+                  :class="{ active: selectedWhiteNoiseId === 'custom' }"
+                  :disabled="!whiteNoiseEnabled"
+                  :aria-label="t('taskScopeDialog.customWhiteNoise')"
+                  @click="selectWhiteNoise('custom')"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M21.65 2.24a1 1 0 0 0-.8-.23l-13 2A1 1 0 0 0 7 5v10.35A3.45 3.45 0 0 0 5.5 15a3.5 3.5 0 1 0 3.5 3.5v-7.64L20 9.17v4.18A3.45 3.45 0 0 0 18.5 13a3.5 3.5 0 1 0 3.5 3.5V3a1 1 0 0 0-.35-.76ZM5.5 20A1.5 1.5 0 1 1 7 18.5 1.5 1.5 0 0 1 5.5 20Zm13-2A1.5 1.5 0 1 1 20 16.5 1.5 1.5 0 0 1 18.5 18ZM20 7.14 9 8.83v-3l11-1.66Z" />
+                  </svg>
+                </button>
+              </div>
+              <div v-if="whiteNoiseEnabled" class="floating-focus__volume-control">
+                <span aria-hidden="true">🔊</span>
+                <input
+                  v-model.number="whiteNoiseVolume"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  :aria-label="t('focusTimer.whiteNoise')"
+                  @input="updateWhiteNoiseVolume"
+                />
+                <span>{{ Math.round(whiteNoiseVolume * 100) }}%</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -324,13 +374,14 @@ import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 import { useI18n } from '@/composables/useI18n';
 import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
 import { useUserSettings } from '@/composables/useUserSettings';
-import { playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
+import { getCustomFocusAudioUrl, playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
 import { awardFocusSession } from '@/rewardRepository';
 import {
   closeDetachedFocusWindow,
   handoffDetachedFocusSession,
   isDetachedFocusWindowSupported,
   openDetachedFocusWindowSettings,
+  showDetachedMicroBreakWindow,
   subscribeDetachedFocusHostWindowState,
   syncDetachedFocusWindow,
   takeDetachedFocusSessionHandoff
@@ -424,6 +475,10 @@ const isSavingCountupCheckpoint = ref(false);
 const hasPendingCountupCheckpoint = ref(false);
 const showSettings = ref(false);
 const settingsRef = ref<HTMLElement | null>(null);
+const whiteNoiseEnabled = ref(false);
+const selectedWhiteNoiseId = ref('rain');
+const whiteNoiseVolume = ref(0.3);
+const whiteNoiseAudio = ref<HTMLAudioElement | null>(null);
 const targetPickerMode = ref<FocusTargetPickerMode | null>(null);
 const targetSearch = ref('');
 const isLoadingTargetOptions = ref(false);
@@ -462,7 +517,7 @@ watch([isMicroBreakVisible, remainingMicroBreakSeconds], ([visible, remainingSec
 
 const teleportTarget = computed(() => containerEl.value || 'body');
 const shouldUseDetachedFocusWindow = computed(() =>
-  props.enabled && supportsDetachedFocusWindow && isHostWindowDetached.value
+  props.enabled && supportsDetachedFocusWindow
 );
 const shouldRenderInlineCapsule = computed(() => props.enabled && !shouldUseDetachedFocusWindow.value);
 
@@ -504,6 +559,22 @@ const targetPickerEmptyText = computed(() =>
 const phaseDurationSeconds = computed(() =>
   (isBreakMode.value ? shortBreakDuration.value : durationMinutes.value) * 60
 );
+
+const whiteNoiseOptions = [
+  { id: 'rain', name: t('focusTimer.soundRain'), icon: 'rain' },
+  { id: 'jungle', name: t('focusTimer.soundForest'), icon: 'jungle' },
+  { id: 'waves', name: t('focusTimer.soundWaves'), icon: 'waves' },
+  { id: 'campfire', name: t('focusTimer.soundCampfire'), icon: 'campfire' },
+  { id: 'river', name: t('focusTimer.soundRiver'), icon: 'river' }
+];
+
+const whiteNoiseFiles: Record<string, string> = {
+  rain: '/plugins/pinch/audio/rain.ogg',
+  jungle: '/plugins/pinch/audio/jungle.ogg',
+  waves: '/plugins/pinch/audio/waves.ogg',
+  campfire: '/plugins/pinch/audio/campfire.ogg',
+  river: '/plugins/pinch/audio/river.ogg'
+};
 
 const displayTime = computed(() => {
   const seconds = timerMode.value === 'countdown'
@@ -876,6 +947,71 @@ async function playCompleteSound(): Promise<void> {
   }
 }
 
+const stopWhiteNoise = () => {
+  if (!whiteNoiseAudio.value) return;
+  whiteNoiseAudio.value.pause();
+  whiteNoiseAudio.value.currentTime = 0;
+  whiteNoiseAudio.value = null;
+};
+
+const playWhiteNoise = () => {
+  if (!whiteNoiseEnabled.value) return;
+  stopWhiteNoise();
+  const source = selectedWhiteNoiseId.value === 'custom'
+    ? getCustomFocusAudioUrl(userSettings.focus.customWhiteNoiseFile)
+    : whiteNoiseFiles[selectedWhiteNoiseId.value];
+  if (!source) return;
+
+  const audio = new Audio(source);
+  audio.loop = true;
+  audio.volume = whiteNoiseVolume.value;
+  whiteNoiseAudio.value = audio;
+  void audio.play().catch(() => {});
+};
+
+const toggleWhiteNoise = () => {
+  if (!whiteNoiseEnabled.value) {
+    stopWhiteNoise();
+  } else if (isRunning.value) {
+    playWhiteNoise();
+  }
+};
+
+const selectWhiteNoise = (soundId: string) => {
+  selectedWhiteNoiseId.value = soundId;
+  if (isRunning.value) playWhiteNoise();
+};
+
+const updateWhiteNoiseVolume = () => {
+  if (whiteNoiseAudio.value) whiteNoiseAudio.value.volume = whiteNoiseVolume.value;
+};
+
+const showShortBreakPopup = () => {
+  if (userSettings.focus.shortBreakPopup !== true) {
+    return;
+  }
+
+  void nextTick(() => {
+    void showDetachedMicroBreakWindow(Math.max(1, Math.round(shortBreakDuration.value * 60)), {
+      title: t('focusTimer.shortBreakActiveTitle'),
+      body: t('focusTimer.shortBreakActiveBody')
+    });
+  });
+};
+
+const showFocusCompletePopup = () => {
+  if (userSettings.focus.focusCompletePopup !== true) {
+    return;
+  }
+
+  void nextTick(() => {
+    void showDetachedMicroBreakWindow(10, {
+      title: t('focusTimer.focusCompletePopupTitle'),
+      body: t('focusTimer.focusCompletePopupBody')
+    });
+  });
+};
+
 const completeTimer = async () => {
   stopMicroBreakReminder();
   void playCompleteSound();
@@ -893,16 +1029,19 @@ const completeTimer = async () => {
       isBreakMode.value = true;
       resetPhaseProgress();
       currentSet.value += 1;
+      showShortBreakPopup();
       startPhaseTimer();
       return;
     }
 
     await stopTimer();
+    showFocusCompletePopup();
     return;
   }
 
   isBreakMode.value = false;
   resetPhaseProgress();
+  startMicroBreakReminder();
   startPhaseTimer();
 };
 
@@ -922,6 +1061,7 @@ const startTimer = () => {
   prepareTaskCompletionSound();
   prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
   prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
+  playWhiteNoise();
   startMicroBreakReminder();
   startPhaseTimer();
 };
@@ -931,6 +1071,7 @@ const pauseTimer = () => {
   void saveCountupCheckpoint(false);
   clearTimer();
   stopMicroBreakReminder();
+  stopWhiteNoise();
   isRunning.value = false;
   isPaused.value = true;
 };
@@ -943,6 +1084,7 @@ const resumeTimer = () => {
   prepareTaskCompletionSound();
   prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
   prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
+  playWhiteNoise();
   startMicroBreakReminder();
   startPhaseTimer();
 };
@@ -957,6 +1099,7 @@ const stopTimer = async (recordCurrentSession: boolean = false) => {
 
   clearTimer();
   stopMicroBreakReminder();
+  stopWhiteNoise();
   isRunning.value = false;
   isPaused.value = false;
   isBreakMode.value = false;
@@ -1036,6 +1179,10 @@ const buildHandoffState = (): FocusTimerHandoffState => ({
   currentSet: currentSet.value,
   countupSessionId: countupSessionId.value,
   savedCountupMinutes: savedCountupMinutes.value,
+  whiteNoiseEnabled: whiteNoiseEnabled.value,
+  selectedWhiteNoiseId: selectedWhiteNoiseId.value,
+  whiteNoiseVolume: whiteNoiseVolume.value,
+  microBreakSettings: { ...userSettings.focus },
   linkedTarget: linkedTarget.value ?? null
 });
 
@@ -1063,6 +1210,13 @@ const applyHandoffState = (state: FocusTimerHandoffState) => {
   currentSet.value = Number.isFinite(state.currentSet) ? state.currentSet : 1;
   countupSessionId.value = state.countupSessionId || '';
   savedCountupMinutes.value = Number.isFinite(state.savedCountupMinutes) ? state.savedCountupMinutes : 0;
+  whiteNoiseEnabled.value = state.whiteNoiseEnabled === true;
+  selectedWhiteNoiseId.value = typeof state.selectedWhiteNoiseId === 'string'
+    ? state.selectedWhiteNoiseId
+    : 'rain';
+  whiteNoiseVolume.value = Number.isFinite(state.whiteNoiseVolume)
+    ? Math.max(0, Math.min(state.whiteNoiseVolume, 1))
+    : 0.3;
   showSettings.value = false;
   closeTargetPicker();
 };
@@ -1081,6 +1235,7 @@ const activateInlineHandoffState = () => {
   }
 
   if (isRunning.value) {
+    playWhiteNoise();
     startPhaseTimer();
   }
 };
@@ -1094,6 +1249,7 @@ const handoffInlineStateToDetached = (state: FocusTimerHandoffState = buildHando
   handoffDetachedFocusSession(state);
   detachedFocusOwnsState.value = true;
   clearTimer();
+  stopWhiteNoise();
   releaseFocusSession();
   isRunning.value = false;
   isPaused.value = false;
@@ -1397,6 +1553,7 @@ watch(() => props.enabled, (value) => {
 
   if (!value) {
     void stopTimer();
+    stopWhiteNoise();
     showSettings.value = false;
   }
 });
@@ -1444,6 +1601,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  stopWhiteNoise();
   unsubscribeHostWindowState?.();
   unsubscribeHostWindowState = null;
   if (hostWindowSyncTimer !== null) {
@@ -1688,6 +1846,64 @@ defineExpose({
   gap: 8px;
 }
 
+.white-noise-setting {
+  padding-top: 10px;
+  border-top: 1px solid var(--b3-border-color);
+}
+
+.floating-focus__sound-selector {
+  display: flex;
+  gap: 6px;
+}
+
+.floating-focus__sound-selector.disabled {
+  opacity: 0.45;
+}
+
+.floating-focus__sound-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  color: var(--b3-theme-on-surface-light);
+  background: var(--b3-theme-surface-light);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.floating-focus__sound-button:hover:not(:disabled),
+.floating-focus__sound-button.active {
+  color: #f98f7a;
+  background: color-mix(in srgb, #f98f7a 13%, var(--b3-theme-surface));
+  border-color: color-mix(in srgb, #f98f7a 40%, transparent);
+}
+
+.floating-focus__sound-button:disabled {
+  cursor: not-allowed;
+}
+
+.floating-focus__sound-button svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.floating-focus__volume-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+}
+
+.floating-focus__volume-control input {
+  flex: 1;
+  min-width: 0;
+  accent-color: #f98f7a;
+}
+
 .setting-description {
   color: var(--b3-theme-on-surface-light);
   font-size: 12px;
@@ -1737,6 +1953,14 @@ defineExpose({
 
 .switch input:checked + .slider::before {
   transform: translateX(20px);
+}
+
+.slider.round {
+  border-radius: 24px;
+}
+
+.slider.round::before {
+  border-radius: 50%;
 }
 
 .micro-break-overlay {

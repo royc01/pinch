@@ -10,6 +10,7 @@ export interface DocumentGroupMember {
 export interface DocumentGroup {
   id: string;
   name: string;
+  emoji?: string;
   members: DocumentGroupMember[];
   order?: number;
   createdAt?: string;
@@ -88,6 +89,9 @@ function normalizeDocumentGroups(input: unknown): DocumentGroup[] {
     }
 
     const members = normalizeDocumentGroupMembers(group.members);
+    const emoji = typeof group.emoji === 'string' && group.emoji.trim().length > 0
+      ? group.emoji.trim()
+      : '📁';
     const order = typeof group.order === 'number' && Number.isFinite(group.order)
       ? group.order
       : undefined;
@@ -97,6 +101,7 @@ function normalizeDocumentGroups(input: unknown): DocumentGroup[] {
     normalized.push({
       id,
       name,
+      emoji,
       members,
       order,
       createdAt,

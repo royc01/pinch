@@ -22,6 +22,10 @@ export function normalizeTaskTagIds(input: unknown): string[] {
   return normalized;
 }
 
+export function filterKnownTaskTagIds(tags: unknown, knownTagIds: ReadonlySet<string>): string[] {
+  return normalizeTaskTagIds(tags).filter(tagId => knownTagIds.has(tagId));
+}
+
 export function resolveTaskTagIds(tags: unknown, groupId?: unknown): string[] {
   const normalizedTags = normalizeTaskTagIds(tags);
   const primaryTagId = normalizeTaskTagId(groupId);

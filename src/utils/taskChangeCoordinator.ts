@@ -151,6 +151,13 @@ export function publishTaskChange(
     scheduleEchoReconciliation(echoBlockIds);
   }
 
+  // Kernel transactions can be observed before their DOM/SQL snapshot has
+  // settled. The first event keeps the UI responsive; this coalesced forced
+  // pass prevents a view from retaining that pre-commit snapshot indefinitely.
+  if (source === 'ws' && blockIdsToPublish.length > 0) {
+    scheduleEchoReconciliation(blockIdsToPublish);
+  }
+
   if (blockIdsToPublish.length === 0) {
     if (normalizedBlockIds.length === 0) {
       pendingFallbackRefresh = true;

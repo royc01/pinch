@@ -1,5 +1,6 @@
 import { TaskRepository, setBlockAttrs, type Task } from '@/api';
 import { getRepeatSeriesForTask, updateRepeatSeriesBackgroundColor } from '@/repeatRepository';
+import { isRepeatTask } from './repeatTaskUtils';
 
 export interface PersistTaskBackgroundColorResult {
   color: string;
@@ -15,10 +16,6 @@ function normalizeTaskColor(color: string): string {
 
 function getRepeatSeriesId(task: Task): string {
   return typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
-}
-
-function isRepeatTask(task: Task): boolean {
-  return !!getRepeatSeriesId(task) || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
 }
 
 async function resolveRepeatTemplateTask(task: Task, allTasks: Task[]): Promise<Task | null> {

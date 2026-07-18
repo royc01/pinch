@@ -60,6 +60,7 @@ type DetachedFocusWindowState = {
   activeOwner: FocusSessionOwner | null;
   theme: DetachedFocusTheme;
   iconBaseUrl: string;
+  focusSettings: Record<string, unknown> | null;
 };
 
 type DetachedFocusRequest =
@@ -81,6 +82,7 @@ type DetachedFocusRequest =
       source?: 'capsule';
     }
   | { type: 'open-linked-target' }
+  | { type: 'open-focus-settings' }
   | { type: 'load-target-options'; mode?: FocusTargetPickerMode }
   | { type: 'set-linked-target'; target?: FocusTimerLinkedTarget | null }
   | { type: 'complete-linked-target'; target?: FocusTimerLinkedTarget | null }
@@ -89,8 +91,9 @@ type DetachedFocusRequest =
   | { type: 'set-compact'; compact?: boolean }
   | { type: 'set-progress-only'; progressOnly?: boolean }
   | { type: 'get-micro-break-settings' }
-  | { type: 'show-micro-break-dialog'; duration?: number }
-  | { type: 'hide-micro-break-dialog' };
+  | { type: 'show-micro-break-dialog'; duration?: number; title?: string; body?: string }
+  | { type: 'hide-micro-break-dialog' }
+  | { type: 'cancel-micro-break' };
 
 const DETACHED_FOCUS_REQUEST_CHANNEL = 'pinch-detached-focus:request';
 const DETACHED_FOCUS_WINDOW_BOUNDS_KEY = 'pinch-detached-focus-window-bounds';
@@ -98,6 +101,8 @@ const DETACHED_FOCUS_SESSION_EVENT = 'pinch-focus-session';
 const DETACHED_FOCUS_DISABLE_EVENT = 'pinch-detached-focus:disable';
 const DETACHED_FOCUS_LINKED_TARGET_EVENT = 'pinch-detached-focus:linked-target';
 const DETACHED_FOCUS_COMPLETE_LINKED_TARGET_EVENT = 'pinch-detached-focus:complete-linked-target';
+const DETACHED_FOCUS_OPEN_SETTINGS_EVENT = 'pinch-detached-focus:open-settings';
+const DETACHED_MICRO_BREAK_CANCEL_EVENT = 'pinch-detached-focus:cancel-micro-break';
 const DETACHED_FOCUS_WINDOW_TITLE = 'Pinch Focus Capsule';
 const DETACHED_FOCUS_WINDOW_WIDTH = 185;
 const DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT = 65;
@@ -119,6 +124,7 @@ let latestLinkedTarget: FocusTimerLinkedTarget | null = null;
 let latestThemeSnapshot: DetachedFocusTheme | null = null;
 let latestHabitTargetOptions: FocusTimerLinkedTarget[] = [];
 let latestTaskTargetOptions: FocusTimerLinkedTarget[] = [];
+let latestFocusSettings: Record<string, unknown> | null = null;
 let targetOptionsRefreshPromise: Promise<void> | null = null;
 let pendingDetachedFocusOpenSettings = false;
 let pendingDetachedFocusHandoff: FocusTimerHandoffState | null = null;
@@ -199,6 +205,35 @@ export function subscribeDetachedFocusCompleteLinkedTarget(
   return () => {
     window.removeEventListener(DETACHED_FOCUS_COMPLETE_LINKED_TARGET_EVENT, handleCompleteLinkedTarget);
   };
+}
+
+function notifyDetachedFocusOpenSettingsRequest(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(DETACHED_FOCUS_OPEN_SETTINGS_EVENT));
+  }
+}
+
+export function subscribeDetachedFocusOpenSettingsRequest(listener: () => void): () => void {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  window.addEventListener(DETACHED_FOCUS_OPEN_SETTINGS_EVENT, listener);
+  return () => window.removeEventListener(DETACHED_FOCUS_OPEN_SETTINGS_EVENT, listener);
+}
+
+function notifyDetachedMicroBreakCancel(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(DETACHED_MICRO_BREAK_CANCEL_EVENT));
+  }
+}
+
+export function subscribeDetachedMicroBreakCancel(listener: () => void): () => void {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+  window.addEventListener(DETACHED_MICRO_BREAK_CANCEL_EVENT, listener);
+  return () => window.removeEventListener(DETACHED_MICRO_BREAK_CANCEL_EVENT, listener);
 }
 
 async function loadFocusTargetOptions(mode: FocusTargetPickerMode): Promise<FocusTimerLinkedTarget[]> {
@@ -312,6 +347,41 @@ function closeBrowserWindow(windowLike: any): void {
   } catch {
     // Ignore close failures from stale Electron window handles.
   }
+}
+
+function getMicroBreakHostBounds(remote: RemoteLike): { width: number; height: number } {
+  const candidates = [
+    remote.getCurrentWindow?.(),
+    ...(getElectronMain()?.BrowserWindow?.getAllWindows?.() || [])
+  ];
+  let largestBounds: { width: number; height: number } | null = null;
+
+  for (const candidate of candidates) {
+    if (
+      !candidate
+      || candidate === detachedFocusWindow
+      || candidate === detachedMicroBreakWindow
+      || candidate.isDestroyed?.()
+    ) {
+      continue;
+    }
+
+    const bounds = candidate.getContentBounds?.() || candidate.getBounds?.();
+    if (
+      !Number.isFinite(bounds?.width)
+      || !Number.isFinite(bounds?.height)
+      || bounds.width <= 0
+      || bounds.height <= 0
+    ) {
+      continue;
+    }
+
+    if (!largestBounds || bounds.width * bounds.height > largestBounds.width * largestBounds.height) {
+      largestBounds = { width: bounds.width, height: bounds.height };
+    }
+  }
+
+  return largestBounds || { width: 1280, height: 800 };
 }
 
 function closeDetachedFocusWindowFromEvent(event: unknown): void {
@@ -687,8 +757,21 @@ function getDetachedFocusWindowState(): DetachedFocusWindowState {
     linkedTarget: latestLinkedTarget,
     activeOwner: getActiveFocusSessionOwner(),
     theme: latestThemeSnapshot,
-    iconBaseUrl: window.location.origin
+    iconBaseUrl: window.location.origin,
+    focusSettings: latestFocusSettings
   };
+}
+
+export function syncDetachedFocusWindowFocusSettings(settings: Record<string, unknown> | null | undefined): void {
+  latestFocusSettings = settings && typeof settings === 'object' ? { ...settings } : null;
+  if (!detachedFocusWindow || detachedFocusWindow.isDestroyed?.()) {
+    return;
+  }
+  const payload = serializeForScript(latestFocusSettings);
+  detachedFocusWindow.webContents?.executeJavaScript?.(
+    `window.__PINCH_DETACHED_FOCUS_UPDATE_SETTINGS__?.(${payload});`,
+    true
+  ).catch(() => {});
 }
 
 function getDetachedWindowBounds():
@@ -859,6 +942,26 @@ const DETACHED_FOCUS_ICON_MAP = {
   stop: {
     viewBox: '0 0 1024 1024',
     path: '<path d="M722.9375 933.875H301.0625a210.9375 210.9375 0 0 1-210.9375-210.9375V301.0625a210.9375 210.9375 0 0 1 210.9375-210.9375h421.875a210.9375 210.9375 0 0 1 210.9375 210.9375v421.875a210.9375 210.9375 0 0 1-210.9375 210.9375z"></path>'
+  },
+  rain: {
+    viewBox: '0 0 1024 1024',
+    path: '<path d="M979.882667 519.850667c-23.722667 93.44-104.96 168.704-218.453334 196.608l-1.877333 1.877333H237.738667A203.434667 203.434667 0 0 1 33.194667 512c0-109.226667 83.2-198.4 188.757333-208.213333C243.797333 177.152 357.290667 79.36 490.154667 79.36c99.498667 0 190.549333 53.333333 238.506666 140.8 7.850667-1.877333 17.578667 0 27.904 0 104.96 9.642667 194.816 83.114667 220.245334 184.405333 3.072 18.261333 15.189333 61.952 3.072 115.285334zM211.626667 828.16a31.061333 31.061333 0 0 1 37.546666-19.456 32 32 0 0 1 20.138667 37.632l-25.6 78.933333a31.061333 31.061333 0 0 1-37.546667 19.370667 32 32 0 0 1-20.053333-37.546667l25.514667-78.933333z m148.650666-57.088a31.061333 31.061333 0 0 1 37.632-19.370667 32 32 0 0 1 20.053334 37.546667l-45.568 141.482667c-5.973333 15.701333-21.845333 23.637333-37.546667 17.578666a32 32 0 0 1-20.053333-37.632l45.482666-139.605333z m139.008 0a31.061333 31.061333 0 0 1 37.546667-19.370667 32 32 0 0 1 20.053333 37.546667l-46.08 141.482667c-6.058667 15.701333-21.845333 23.637333-37.632 17.578666a32 32 0 0 1-20.053333-37.632l46.08-139.605333z m138.325334 0a31.061333 31.061333 0 0 1 37.546666-19.370667 32 32 0 0 1 20.138667 37.546667l-45.568 141.482667c-5.973333 15.701333-21.845333 23.637333-37.546667 17.578666a32 32 0 0 1-20.053333-37.632l45.482667-139.605333z m129.28 57.088a31.061333 31.061333 0 0 1 37.546666-19.456 32 32 0 0 1 20.053334 37.632l-25.429334 78.933333a31.061333 31.061333 0 0 1-37.632 19.370667 32 32 0 0 1-20.053333-37.546667l25.514667-78.933333z"></path>'
+  },
+  jungle: {
+    viewBox: '0 0 1024 1024',
+    path: '<path d="M749.966222 657.976889l-130.901333-117.191111h68.380444a32.995556 32.995556 0 0 0 26.168889-53.191111L604.728889 368.64l-0.398222-0.455111h46.08a28.558222 28.558222 0 0 0 24.746666-42.894222l-19.569777-27.192889-122.709334-170.097778a28.558222 28.558222 0 0 0-49.493333 0l-142.222222 197.290667a28.615111 28.615111 0 0 0 24.746666 42.894222h46.08L302.933333 487.537778a32.995556 32.995556 0 0 0 26.112 53.191111h68.380445l-130.901334 117.191111a37.091556 37.091556 0 0 0 26.567112 62.919111h167.594666v160.256a47.559111 47.559111 0 1 0 95.118222 0v-160.256h167.594667a37.034667 37.034667 0 0 0 26.567111-62.862222z"></path><path d="M827.392 579.015111h56.433778a25.486222 25.486222 0 0 0 20.195555-41.130667l-87.324444-95.402666h38.627555a22.016 22.016 0 0 0 19.057778-33.109334l-83.456-152.405333a22.016 22.016 0 0 0-38.115555 0l-47.957334 66.389333 18.488889 25.656889c4.835556 8.362667 7.395556 20.764444 2.673778 30.890667-4.778667 10.126222-13.994667 21.162667-23.665778 21.105778l-26.453333 0.568889-0.284445 0.341333 90.908445 100.977778c15.758222 20.48 0.455111 66.503111-25.372445 66.503111h-36.295111l86.072889 83.968c21.504 22.186667 6.428444 76.8-24.405333 76.8h-13.767111l-2.446222 145.521778a32.938667 32.938667 0 0 0 32.938666 33.507555 33.507556 33.507556 0 0 0 33.450667-33.507555v-154.282667h94.947555c25.258667 0 38.115556-30.435556 20.48-48.583111l-104.732444-93.866667zM198.144 579.015111h-56.433778a25.486222 25.486222 0 0 1-20.195555-41.130667l87.324444-95.402666h-38.627555a22.016 22.016 0 0 1-19.057778-33.109334l83.456-152.405333a22.016 22.016 0 0 1 38.115555 0l47.957334 66.389333-18.488889 25.656889c-4.835556 8.362667-7.395556 20.764444-2.673778 30.890667 4.778667 10.126222 14.051556 21.162667 23.665778 21.105778l26.453333 0.568889 0.284445 0.341333L259.015111 502.897778c-15.758222 20.48-0.455111 66.503111 25.372445 66.503111h36.295111l-86.072889 83.968c-21.504 22.186667-6.428444 76.8 24.405333 76.8h13.767111l2.446222 145.521778a32.938667 32.938667 0 0 1-32.938666 33.507555 33.507556 33.507556 0 0 1-33.450667-33.507555v-154.282667H113.891556a28.615111 28.615111 0 0 1-20.48-48.583111l104.732444-93.866667z" opacity=".8"></path>'
+  },
+  waves: {
+    viewBox: '0 0 1024 1024',
+    path: '<path d="M906.24 465.92c-25.6 76.8-46.08 107.52-107.52 107.52-61.44 0-71.68-35.84-143.36-35.84-81.92 0-102.4 56.32-148.48 30.72-46.08-25.6-66.56-40.96-117.76-40.96-76.8-5.12-107.52 102.4-189.44 35.84-56.32-51.2-122.88-25.6-122.88-25.6-15.36 0-30.72-35.84 30.72-35.84 112.64 0 179.2-133.12 204.8-199.68l35.84-81.92c30.72-71.68 81.92-128 143.36-158.72 30.72-15.36 61.44-20.48 92.16-20.48 40.96 0 76.8 10.24 112.64 30.72 30.72 15.36 56.32 40.96 76.8 71.68 15.36 20.48 35.84 51.2 40.96 81.92 15.36 40.96-30.72 30.72-61.44 10.24 0 0-76.8-40.96-107.52 15.36-71.68 143.36 30.72 204.8 46.08 209.92 35.84 20.48 81.92 25.6 117.76 5.12 81.92-40.96 87.04-92.16 102.4-92.16 25.6 15.36-5.12 92.16-5.12 92.16z m-102.4 302.08c-30.72 0-61.44-10.24-81.92-25.6l-25.6-15.36c-25.6-15.36-56.32-15.36-76.8 5.12-51.2 46.08-128 51.2-179.2 10.24l-25.6-15.36c-25.6-15.36-56.32-15.36-76.8 5.12-51.2 46.08-128 51.2-179.2 10.24l-92.16-66.56c-15.36-15.36-20.48-35.84-5.12-56.32 15.36-15.36 35.84-20.48 56.32-5.12L204.8 680.96c25.6 15.36 56.32 15.36 76.8-5.12 51.2-46.08 128-51.2 179.2-10.24l25.6 15.36c25.6 15.36 56.32 15.36 76.8-5.12 51.2-46.08 128-51.2 179.2-10.24l25.6 15.36c25.6 15.36 56.32 15.36 76.8-5.12l61.44-56.32c15.36-15.36 40.96-15.36 56.32 0 15.36 15.36 15.36 40.96 0 56.32l-61.44 56.32c-25.6 25.6-61.44 35.84-97.28 35.84z m0 194.56c-30.72 0-61.44-10.24-81.92-25.6l-25.6-15.36c-25.6-15.36-56.32-15.36-76.8 5.12-51.2 46.08-128 51.2-179.2 10.24l-25.6-15.36c-25.6-15.36-56.32-15.36-76.8 5.12-51.2 46.08-128 51.2-179.2 10.24L66.56 870.4c-15.36-15.36-20.48-35.84-5.12-56.32 15.36-15.36 35.84-20.48 56.32-5.12L204.8 875.52c25.6 15.36 56.32 15.36 76.8-5.12 51.2-46.08 128-51.2 179.2-10.24l25.6 15.36c25.6 15.36 56.32 15.36 76.8-5.12 51.2-46.08 128-51.2 179.2-10.24l25.6 15.36c25.6 15.36 56.32 15.36 76.8-5.12l61.44-56.32c15.36-15.36 40.96-15.36 56.32 0 15.36 15.36 15.36 40.96 0 56.32l-61.44 56.32c-25.6 25.6-61.44 35.84-97.28 35.84z m390.954667-544c0-14.08-12.8-34.56-31.616-47.36a99.2 99.2 0 0 0-40.106667-14.805333 119.210667 119.210667 0 0 0-56.32 5.162667c-36.864 12.501333-70.357333 39.381333-100.864 76.117333-9.173333 11.008-18.304 25.045333-30.634667 46.293333-2.432 4.181333-14.208 24.832-17.450666 30.378667a385.109333 385.109333 0 0 1-17.92 28.458667c-5.12 7.253333-8.32 11.52-12.757334 16.938666-6.4 7.765333-13.056 14.805333-20.394666 21.077334-19.925333 17.109333-42.666667 27.136-68.437334 27.136-48.512 0-89.045333-30.293333-120.661333-86.485334a29.866667 29.866667 0 0 1 10.410667-40.192c13.653333-8.106667 31.104-3.328 38.997333 10.709334 22.314667 39.637333 45.781333 57.173333 71.253333 57.173333 11.093333 0 21.504-4.565333 31.914667-13.525333 8.277333-7.082667 14.378667-14.506667 23.509333-27.434667 4.309333-6.101333 9.045333-13.653333 15.146667-24.106667l17.365333-30.293333c13.866667-23.850667 24.490667-40.192 36.266667-54.357333 16.085333-19.328 33.28-36.778667 52.096-51.882667a244.181333 244.181333 0 0 1 74.24-41.813333 174.677333 174.677333 0 0 1 82.517333-7.509334 154.922667 154.922667 0 0 1 63.317334 23.978667c33.621333 22.869333 57.173333 60.586667 57.173333 96.341333 0 55.210667-27.946667 93.056-79.189333 106.794667-19.797333 5.333333-38.4-11.904-35.413334-32.725333 2.176-15.530667 0.981333-25.173333-1.877333-29.568-2.304-3.584-3.754667-4.821333-5.333333-5.461334-2.261333-0.938667-6.272-1.493333-13.738667-1.493333a6.4 6.4 0 0 0-2.048 0.725333 17.066667 17.066667 0 0 0-5.12 4.096c-4.352 5.077333-7.125333 12.714667-7.125333 22.954667 0 8.917333 4.736 19.498667 13.781333 30.293333 7.850667 9.429333 18.261333 18.005333 25.813333 22.144 14.165333 7.765333 35.072 12.074667 69.717334 12.885334 24.277333 0.554667 49.92-16.085333 77.184-53.546667a28.117333 28.117333 0 0 1 47.530666 2.816c19.626667 34.816 44.458667 50.688 77.226667 50.688 15.786667 0 28.544 13.184 28.544 29.44 0 16.213333-12.8 29.354667-28.586667 29.354667-41.301333 0-76.288-16.213333-103.68-47.36-30.634667 31.829333-63.829333 48.213333-99.541333 47.36-42.752-1.024-71.978667-6.997333-95.232-19.797334a157.994667 157.994667 0 0 1-42.24-35.669333c-17.194667-20.565333-27.605333-43.733333-27.605333-68.608 0-24.533333 7.808-46.165333 21.717333-62.165333 13.269333-15.274667 31.488-24.405333 49.664-24.405334 14.08 0 24.576 1.408 34.986667 5.717334 12.8 5.248 23.04 14.336 31.573333 27.306666 2.944 4.608 5.333333 9.472 7.253333 14.677334 3.2-7.04 4.693333-15.786667 4.693334-26.453334z"></path>'
+  },
+  campfire: {
+    viewBox: '0 0 1024 1024',
+    path: '<path d="M443.733333 68.266667a34.133333 34.133333 0 0 0-34.133333 34.133333c0 129.399467-170.666667 204.4928-170.666667 375.466667 0 140.4928 135.168 233.7792 199.68 238.455466A34.133333 34.133333 0 0 0 443.733333 716.8a34.133333 34.133333 0 0 0 34.133334-34.133333 34.133333 34.133333 0 0 0-12.629334-26.5216c-31.061333-25.1904-55.637333-59.016533-55.637333-111.479467C409.6 454.007467 512 375.466667 512 375.466667c-28.4672 125.883733 64.750933 103.082667 68.676267 302.216533A34.133333 34.133333 0 0 0 580.266667 682.666667a34.133333 34.133333 0 0 0 0.785066 7.133866v0.273067h0.068267A34.133333 34.133333 0 0 0 614.4 716.8a34.133333 34.133333 0 0 0 20.002133-6.519467l0.068267-0.068266C634.709333 710.075733 785.066667 636.552533 785.066667 512c0-82.056533-41.096533-189.064533-70.587734-251.323733A34.133333 34.133333 0 0 0 682.666667 238.933333a34.133333 34.133333 0 0 0-34.133334 34.133334s-1.058133 74.24-34.133333 102.4c0-163.259733-85.777067-230.058667-146.193067-296.789334a34.133333 34.133333 0 0 1 0-0.068266A34.133333 34.133333 0 0 0 443.733333 68.266667z m376.32 648.3968a34.133333 34.133333 0 0 0-9.1136 1.1264l-546.133333 136.533333a34.133333 34.133333 0 1 0 16.520533 66.286933l546.133334-136.533333a34.133333 34.133333 0 0 0-7.406934-67.413333z m-620.987733 0.6144a34.167467 34.167467 0 0 0-2.048 66.901333l70.792533 16.6912 144.520534-36.181333-199.714134-47.035734a34.133333 34.133333 0 0 0-13.550933-0.375466z m575.726933 132.7104l-144.520533 36.1472 146.978133 34.6112a34.2016 34.2016 0 0 0 41.0624-25.463467 34.2016 34.2016 0 0 0-25.429333-41.096533l-18.090667-4.1984z"></path>'
+  },
+  river: {
+    viewBox: '0 0 1024 1024',
+    path: '<path d="M981.31968 747.88864a593.7152 593.7152 0 0 1-299.8272 80.24064 719.99488 719.99488 0 0 1-284.59008-61.6448c-151.42912-64.79872-312.27904-0.32768-313.9584 0.24576a45.58848 45.58848 0 0 1-58.65472-22.40512A42.10688 42.10688 0 0 1 47.67744 688.128c8.11008-3.2768 198.77888-79.6672 385.59744 0.24576 125.05088 53.57568 313.46688 94.57664 501.9648-13.96736a45.8752 45.8752 0 0 1 61.31712 14.5408 41.7792 41.7792 0 0 1-15.23712 58.94144zM631.6032 656.5888a230.68672 230.68672 0 0 1-230.52288-230.4 242.688 242.688 0 0 1 42.96704-124.928c4.83328-8.35584 9.4208-16.26112 13.68064-24.00256 30.22848-57.01632 131.23584-227.49184 135.5776-234.7008A44.2368 44.2368 0 0 1 631.6032 20.48h0.49152c15.9744 0.12288 30.72 8.8064 38.58432 22.7328 4.096 7.00416 100.02432 177.07008 125.7472 224.54272 5.36576 10.11712 11.83744 20.11136 18.51392 30.72a221.34784 221.34784 0 0 1-183.33696 358.1952v-0.04096zM376.34048 301.2608c-25.64096 36.864-40.5504 80.11776-43.008 124.96896a228.39296 228.39296 0 0 0 34.2016 119.07072 169.61536 169.61536 0 0 1-73.97376 17.57184l-2.048-6.144-2.12992 6.144a165.888 165.888 0 0 1-167.64928-163.67616c1.6384-31.82592 12.288-62.54592 30.63808-88.59648 3.03104-5.12 5.89824-9.8304 8.47872-14.70464 20.15232-36.94592 86.75328-146.96448 89.7024-151.63392a45.34272 45.34272 0 0 1 39.28064-21.66784c0.6144 0 1.10592 0.24576 1.72032 0.24576 0.6144 0 1.10592-0.24576 1.72032-0.24576 15.9744-0.24576 30.88384 7.9872 39.23968 21.7088 2.17088 3.4816 40.5504 66.64192 67.9936 113.664-4.01408 7.04512-7.70048 14.1312-10.52672 19.33312-4.3008 7.7824-8.84736 15.72864-13.63968 24.08448v-0.12288zM47.63648 863.47776c7.9872-3.2768 198.656-79.6672 385.51552 0.24576 125.05088 53.57568 313.58976 94.57664 501.9648-14.04928a45.83424 45.83424 0 0 1 61.31712 14.62272 41.7792 41.7792 0 0 1-15.27808 58.69568A594.1248 594.1248 0 0 1 681.5744 1003.52a723.31264 723.31264 0 0 1-284.71296-61.6448c-151.47008-64.88064-312.32-0.36864-313.9584 0.2048a45.58848 45.58848 0 0 1-58.69568-22.40512 42.06592 42.06592 0 0 1 23.42912-55.95136v-0.24576z"></path>'
   }
 } as const;
 
@@ -869,6 +972,9 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
       --b3-point-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
       --b3-theme-on-background: #20262f;
       --b3-theme-on-surface: rgba(32, 38, 47, 0.74);
+      --b3-theme-on-surface-light: rgba(32, 38, 47, 0.55);
+      --b3-theme-surface: #ffffff;
+      --b3-theme-surface-light: rgba(15, 23, 42, 0.08);
       --b3-list-hover: rgba(15, 23, 42, 0.08);
       --b3-font-family-emoji: ${DETACHED_FOCUS_DEFAULT_FONT_FAMILY};
       --pinch-focus-accent: #f98f7a;
@@ -1174,6 +1280,53 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
       gap: 8px;
     }
 
+    .white-noise-setting {
+      padding-top: 10px;
+    }
+
+    .white-noise-toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      margin: 0;
+      appearance: none;
+      border: 0;
+      border-radius: 10px;
+      background: var(--b3-border-color);
+      cursor: pointer;
+      transition: background .2s ease;
+    }
+
+    .white-noise-toggle:checked { background: var(--pinch-focus-accent); }
+    .white-noise-toggle::before {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      content: '';
+      transition: transform .2s ease;
+    }
+    .white-noise-toggle:checked::before { transform: translateX(16px); }
+
+    .white-noise-options { display: flex; gap: 6px; }
+    .white-noise-options.is-disabled { opacity: .45; }
+    .white-noise-option {
+      display: grid; width: 30px; height: 30px; padding: 0; place-items: center;
+      color: var(--b3-theme-on-surface-light); background: var(--b3-theme-surface-light);
+      border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+    }
+    .white-noise-option:hover:not(:disabled), .white-noise-option.is-active {
+      color: var(--pinch-focus-accent); background: color-mix(in srgb, var(--pinch-focus-accent) 13%, var(--b3-theme-surface));
+      border-color: color-mix(in srgb, var(--pinch-focus-accent) 40%, transparent);
+    }
+    .white-noise-option:disabled { cursor: not-allowed; }
+    .white-noise-option svg { width: 16px; height: 16px; fill: currentColor; }
+    .white-noise-volume { display: flex; align-items: center; gap: 8px; color: var(--b3-theme-on-surface-light); font-size: 12px; }
+    .white-noise-volume input { flex: 1; min-width: 0; accent-color: var(--pinch-focus-accent); }
+
     .setting-label {
       display: flex;
       justify-content: space-between;
@@ -1471,6 +1624,13 @@ function buildDetachedFocusWindowHtmlV2(initialState: DetachedFocusWindowState):
     shortBreakDuration: translate('focusTimer.shortBreakDuration'),
     focusSets: translate('focusTimer.focusSets'),
     setSuffix: translate('focusTimer.setSuffix'),
+    whiteNoise: translate('focusTimer.whiteNoise'),
+    soundRain: translate('focusTimer.soundRain'),
+    soundForest: translate('focusTimer.soundForest'),
+    soundWaves: translate('focusTimer.soundWaves'),
+    soundCampfire: translate('focusTimer.soundCampfire'),
+    soundRiver: translate('focusTimer.soundRiver'),
+    customWhiteNoise: translate('taskScopeDialog.customWhiteNoise'),
     task: translate('focusTimer.task'),
     habit: translate('focusTimer.habit'),
     typeSeparator: translate('focusTimer.typeSeparator'),
@@ -1482,7 +1642,11 @@ function buildDetachedFocusWindowHtmlV2(initialState: DetachedFocusWindowState):
     focusAlreadyRunning: translate('focusTimer.focusAlreadyRunning'),
     pause: translate('focusTimer.pause'),
     continueFocus: translate('focusTimer.continueFocus'),
-    countup: translate('focusTimer.countup')
+    countup: translate('focusTimer.countup'),
+    shortBreakActiveTitle: translate('focusTimer.shortBreakActiveTitle'),
+    shortBreakActiveBody: translate('focusTimer.shortBreakActiveBody'),
+    focusCompletePopupTitle: translate('focusTimer.focusCompletePopupTitle'),
+    focusCompletePopupBody: translate('focusTimer.focusCompletePopupBody')
   };
   const serializedI18n = serializeForScript(detachedText);
   const htmlText = Object.fromEntries(
@@ -1639,6 +1803,30 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
               <div id="setMarks" class="duration-marks"></div>
             </div>
           </div>
+          <div class="setting-section white-noise-setting">
+            <div class="setting-label">
+              <span>${htmlText.whiteNoise}</span>
+              <input id="whiteNoiseToggle" class="white-noise-toggle" type="checkbox" aria-label="${htmlText.whiteNoise}" />
+            </div>
+            <div id="whiteNoiseOptions" class="white-noise-options is-disabled">
+              <button type="button" class="white-noise-option ariaLabel" data-sound="rain" aria-label="${htmlText.soundRain}"></button>
+              <button type="button" class="white-noise-option ariaLabel" data-sound="jungle" aria-label="${htmlText.soundForest}"></button>
+              <button type="button" class="white-noise-option ariaLabel" data-sound="waves" aria-label="${htmlText.soundWaves}"></button>
+              <button type="button" class="white-noise-option ariaLabel" data-sound="campfire" aria-label="${htmlText.soundCampfire}"></button>
+              <button type="button" class="white-noise-option ariaLabel" data-sound="river" aria-label="${htmlText.soundRiver}"></button>
+              <button id="customWhiteNoiseButton" type="button" class="white-noise-option ariaLabel" data-sound="custom" aria-label="${htmlText.customWhiteNoise}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.65 2.24a1 1 0 0 0-.8-.23l-13 2A1 1 0 0 0 7 5v10.35A3.45 3.45 0 0 0 5.5 15a3.5 3.5 0 1 0 3.5 3.5v-7.64L20 9.17v4.18A3.45 3.45 0 0 0 18.5 13a3.5 3.5 0 1 0 3.5 3.5V3a1 1 0 0 0-.35-.76ZM5.5 20A1.5 1.5 0 1 1 7 18.5 1.5 1.5 0 0 1 5.5 20Zm13-2A1.5 1.5 0 1 1 20 16.5 1.5 1.5 0 0 1 18.5 18ZM20 7.14 9 8.83v-3l11-1.66Z" /></svg>
+              </button>
+              <button id="whiteNoiseSettingsButton" type="button" class="white-noise-option ariaLabel" aria-label="${htmlText.settings}" title="${htmlText.settings}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.12 7.12 0 0 0-1.63-.94L14.5 2.78A.49.49 0 0 0 14 2.4h-4a.49.49 0 0 0-.49.38l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.49.49 0 0 0-.61.22L2.6 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.08.63-.08.94s.03.63.08.94L2.72 14.52a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.31.61.22l2.39-.96c.5.39 1.04.71 1.63.94l.36 2.54c.04.24.24.42.49.42h4c.25 0 .46-.18.5-.42l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.22.09.48 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.04-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" /></svg>
+              </button>
+            </div>
+            <div id="whiteNoiseVolumeRow" class="white-noise-volume" hidden>
+              <span aria-hidden="true">🔊</span>
+              <input id="whiteNoiseVolume" type="range" min="0" max="1" step="0.1" value="0.3" aria-label="${htmlText.whiteNoise}" />
+              <span id="whiteNoiseVolumeValue">30%</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1708,6 +1896,13 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     const focusMarksEl = document.getElementById('focusMarks');
     const breakMarksEl = document.getElementById('breakMarks');
     const setMarksEl = document.getElementById('setMarks');
+    const whiteNoiseToggleEl = document.getElementById('whiteNoiseToggle');
+    const whiteNoiseOptionsEl = document.getElementById('whiteNoiseOptions');
+    const customWhiteNoiseButtonEl = document.getElementById('customWhiteNoiseButton');
+    const whiteNoiseSettingsButtonEl = document.getElementById('whiteNoiseSettingsButton');
+    const whiteNoiseVolumeRowEl = document.getElementById('whiteNoiseVolumeRow');
+    const whiteNoiseVolumeEl = document.getElementById('whiteNoiseVolume');
+    const whiteNoiseVolumeValueEl = document.getElementById('whiteNoiseVolumeValue');
     const linkedTargetChipRowEl = document.getElementById('linkedTargetChipRow');
     const linkedTargetChipEl = document.getElementById('linkedTargetChip');
     const linkedTargetEmojiEl = document.getElementById('linkedTargetEmoji');
@@ -1745,6 +1940,13 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     buildMarks(focusMarksEl, state.durationOptions);
     buildMarks(breakMarksEl, state.shortBreakMarks);
     buildMarks(setMarksEl, state.pomodoroSetMarks);
+    const whiteNoiseIcons = { rain: 'rain', jungle: 'jungle', waves: 'waves', campfire: 'campfire', river: 'river' };
+    Array.from(whiteNoiseOptionsEl.querySelectorAll('[data-sound]')).forEach((button) => {
+      const soundId = button.getAttribute('data-sound');
+      if (whiteNoiseIcons[soundId]) {
+        button.innerHTML = iconMarkup(whiteNoiseIcons[soundId], 16, 16);
+      }
+    });
 
     function request(type, payload = {}) {
       return ipcRenderer.invoke(CHANNEL, { type, ...payload });
@@ -1752,10 +1954,71 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
 
     let completeSoundAudioContext = null;
     let customCompletionAudio = null;
+    let microBreakAudio = null;
+    let whiteNoiseAudio = null;
+    let whiteNoiseEnabled = false;
+    let selectedWhiteNoiseId = 'rain';
+    let whiteNoiseVolume = 0.3;
+    let customWhiteNoiseFile = '';
+    const whiteNoiseFiles = {
+      rain: 'rain.ogg',
+      jungle: 'jungle.ogg',
+      waves: 'waves.ogg',
+      campfire: 'campfire.ogg',
+      river: 'river.ogg'
+    };
+
+    function getPluginAudioUrl(path) {
+      return (state.iconBaseUrl || '') + '/plugins/pinch/audio/' + path;
+    }
+
+    function stopWhiteNoise() {
+      if (!whiteNoiseAudio) return;
+      whiteNoiseAudio.pause();
+      whiteNoiseAudio.currentTime = 0;
+      whiteNoiseAudio = null;
+    }
+
+    function getSelectedWhiteNoiseSource() {
+      return selectedWhiteNoiseId === 'custom'
+        ? getPluginAudioUrl(customWhiteNoiseFile || 'custom-white-noise.mp3')
+        : (whiteNoiseFiles[selectedWhiteNoiseId] ? getPluginAudioUrl(whiteNoiseFiles[selectedWhiteNoiseId]) : '');
+    }
+
+    function playWhiteNoise() {
+      if (!whiteNoiseEnabled) return;
+      const source = getSelectedWhiteNoiseSource();
+      if (!source) return;
+      const resolvedSource = new URL(source, document.baseURI).href;
+      if (!whiteNoiseAudio || whiteNoiseAudio.src !== resolvedSource) {
+        stopWhiteNoise();
+        whiteNoiseAudio = new Audio(source);
+        whiteNoiseAudio.preload = 'auto';
+        whiteNoiseAudio.loop = true;
+      }
+      whiteNoiseAudio.muted = false;
+      whiteNoiseAudio.volume = whiteNoiseVolume;
+      whiteNoiseAudio.play().catch(() => {});
+    }
+
+    function renderWhiteNoise() {
+      if (!whiteNoiseToggleEl) return;
+      whiteNoiseToggleEl.checked = whiteNoiseEnabled;
+      whiteNoiseOptionsEl.classList.toggle('is-disabled', !whiteNoiseEnabled);
+      Array.from(whiteNoiseOptionsEl.querySelectorAll('[data-sound]')).forEach((button) => {
+        const soundId = button.getAttribute('data-sound');
+        button.disabled = !whiteNoiseEnabled;
+        button.classList.toggle('is-active', soundId === selectedWhiteNoiseId);
+      });
+      customWhiteNoiseButtonEl.disabled = !whiteNoiseEnabled;
+      whiteNoiseVolumeRowEl.hidden = !whiteNoiseEnabled;
+      whiteNoiseVolumeEl.value = String(whiteNoiseVolume);
+      whiteNoiseVolumeValueEl.textContent = Math.round(whiteNoiseVolume * 100) + '%';
+    }
 
     function prepareCustomCompletionSound(fileName) {
       if (!fileName) return;
-      customCompletionAudio = new Audio('/plugins/pinch/audio/custom/' + encodeURIComponent(fileName));
+      customCompletionAudio = new Audio((state.iconBaseUrl || '') + '/plugins/pinch/audio/' + encodeURIComponent(fileName));
       customCompletionAudio.preload = 'auto';
       customCompletionAudio.muted = true;
       customCompletionAudio.play().then(() => {
@@ -1765,6 +2028,47 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }).catch(() => {
         if (customCompletionAudio) customCompletionAudio.muted = false;
       });
+    }
+
+    function getMicroBreakSoundSource(fileName) {
+      return fileName
+        ? getPluginAudioUrl(encodeURIComponent(fileName))
+        : getPluginAudioUrl('correct.mp3');
+    }
+
+    function getMicroBreakAudio(fileName) {
+      const source = getMicroBreakSoundSource(fileName);
+      const resolvedSource = new URL(source, document.baseURI).href;
+      if (!microBreakAudio || microBreakAudio.src !== resolvedSource) {
+        microBreakAudio = new Audio(source);
+        microBreakAudio.preload = 'auto';
+      }
+      return microBreakAudio;
+    }
+
+    function prepareMicroBreakSound(fileName) {
+      const audio = getMicroBreakAudio(fileName);
+      if (!audio) return;
+      audio.muted = true;
+      audio.play().then(() => {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.muted = false;
+      }).catch(() => {
+        audio.muted = false;
+      });
+    }
+
+    function playMicroBreakSound(settings) {
+      if (settings.microBreakSound === false) return;
+      try {
+        const audio = getMicroBreakAudio(settings.customMicroBreakSoundFile);
+        if (!audio) return;
+        audio.muted = false;
+        audio.volume = 0.3;
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+      } catch {}
     }
 
     async function prepareCompleteSound() {
@@ -1808,45 +2112,84 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       } catch {}
     }
 
-    let microBreakTimer = null;
     let microBreakSettings = null;
+    let microBreakDeadline = 0;
+    let microBreakEndDeadline = 0;
+    let microBreakActive = false;
+    let microBreakScheduleToken = 0;
 
     function stopMicroBreakReminder() {
-      if (microBreakTimer !== null) {
-        clearTimeout(microBreakTimer);
-        microBreakTimer = null;
-      }
+      microBreakScheduleToken += 1;
+      microBreakDeadline = 0;
+      microBreakEndDeadline = 0;
+      microBreakActive = false;
       request('hide-micro-break-dialog').catch(() => {});
     }
 
-    async function startMicroBreakReminder() {
-      stopMicroBreakReminder();
-      try {
-        microBreakSettings = await request('get-micro-break-settings');
-      } catch {
-        microBreakSettings = null;
-      }
-      const settings = microBreakSettings || {};
-      prepareCustomCompletionSound(settings.customCompletionSoundFile);
-      if (settings.microBreakEnabled !== true || !state.isRunning || state.isBreakMode) {
+    function scheduleNextMicroBreak(settings) {
+      if (!state.isRunning || state.isBreakMode || settings.microBreakEnabled !== true) {
         return;
       }
       const min = Math.max(1, Number(settings.microBreakMinIntervalMinutes) || 3);
       const max = Math.max(min, Number(settings.microBreakMaxIntervalMinutes) || 5);
-      microBreakTimer = setTimeout(() => {
-        if (!state.isRunning || state.isBreakMode || settings.microBreakEnabled !== true) return;
-        const duration = Math.max(1, Number(settings.microBreakDurationSeconds) || 10);
-        if (settings.microBreakSound !== false) {
-          try {
-            const source = settings.customMicroBreakSoundFile
-              ? '/plugins/pinch/audio/custom/' + encodeURIComponent(settings.customMicroBreakSoundFile)
-              : '/plugins/pinch/audio/correct.mp3';
-            const audio = new Audio(source); audio.volume = 0.3; audio.play().catch(() => {});
-          } catch {}
+      microBreakDeadline = Date.now() + (min + Math.random() * (max - min)) * 60 * 1000;
+    }
+
+    function triggerMicroBreakReminder(settings) {
+      if (!state.isRunning || state.isBreakMode || settings.microBreakEnabled !== true) {
+        return;
+      }
+      playMicroBreakSound(settings);
+      if (settings.microBreakPopup === false) {
+        scheduleNextMicroBreak(settings);
+        return;
+      }
+      const duration = Math.max(1, Number(settings.microBreakDurationSeconds) || 10);
+      microBreakActive = true;
+      microBreakEndDeadline = Date.now() + duration * 1000;
+      request('show-micro-break-dialog', { duration }).catch(() => {});
+    }
+
+    function tickMicroBreakReminder() {
+      const settings = microBreakSettings || {};
+      if (settings.microBreakEnabled !== true || !state.isRunning || state.isBreakMode) {
+        return;
+      }
+      const now = Date.now();
+      if (microBreakActive) {
+        if (now < microBreakEndDeadline) return;
+        microBreakActive = false;
+        microBreakEndDeadline = 0;
+        request('hide-micro-break-dialog').catch(() => {});
+        playMicroBreakSound(settings);
+        scheduleNextMicroBreak(settings);
+        return;
+      }
+      if (microBreakDeadline > 0 && now >= microBreakDeadline) {
+        microBreakDeadline = 0;
+        triggerMicroBreakReminder(settings);
+      }
+    }
+
+    async function startMicroBreakReminder(settingsOverride = null) {
+      stopMicroBreakReminder();
+      const scheduleToken = microBreakScheduleToken;
+      if (settingsOverride && typeof settingsOverride === 'object') {
+        microBreakSettings = settingsOverride;
+      } else {
+        try {
+          microBreakSettings = await request('get-micro-break-settings');
+        } catch {
+          microBreakSettings = null;
         }
-        request('show-micro-break-dialog', { duration }).catch(() => {});
-        microBreakTimer = setTimeout(() => startMicroBreakReminder(), duration * 1000);
-      }, (min + Math.random() * (max - min)) * 60 * 1000);
+      }
+      const settings = microBreakSettings || {};
+      prepareCustomCompletionSound(settings.customCompletionSoundFile);
+      prepareMicroBreakSound(settings.customMicroBreakSoundFile);
+      if (scheduleToken !== microBreakScheduleToken || settings.microBreakEnabled !== true || !state.isRunning || state.isBreakMode) {
+        return;
+      }
+      scheduleNextMicroBreak(settings);
     }
 
     function ensureEmojiFontResources(theme) {
@@ -2024,6 +2367,23 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }
     }
 
+    function applyFocusSettings(nextSettings) {
+      if (!nextSettings || typeof nextSettings !== 'object') {
+        return;
+      }
+      const nextSnapshot = JSON.stringify(nextSettings);
+      if (nextSnapshot === JSON.stringify(microBreakSettings)) {
+        return;
+      }
+      microBreakSettings = nextSettings;
+      customWhiteNoiseFile = typeof nextSettings.customWhiteNoiseFile === 'string'
+        ? nextSettings.customWhiteNoiseFile
+        : '';
+      if (state.isRunning && !state.isBreakMode) {
+        void startMicroBreakReminder(microBreakSettings);
+      }
+    }
+
     function openSettingsPanel() {
       closeTargetPicker();
       state.showSettings = true;
@@ -2045,6 +2405,10 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         currentSet: state.currentSet,
         countupSessionId: state.countupSessionId,
         savedCountupMinutes: state.savedCountupMinutes,
+        whiteNoiseEnabled,
+        selectedWhiteNoiseId,
+        whiteNoiseVolume,
+        microBreakSettings,
         linkedTarget: state.linkedTarget || null
       };
     }
@@ -2068,6 +2432,14 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       state.currentSet = Number.isFinite(handoffState.currentSet) ? handoffState.currentSet : 1;
       state.countupSessionId = typeof handoffState.countupSessionId === 'string' ? handoffState.countupSessionId : '';
       state.savedCountupMinutes = Number.isFinite(handoffState.savedCountupMinutes) ? handoffState.savedCountupMinutes : 0;
+      whiteNoiseEnabled = handoffState.whiteNoiseEnabled === true;
+      selectedWhiteNoiseId = typeof handoffState.selectedWhiteNoiseId === 'string'
+        ? handoffState.selectedWhiteNoiseId
+        : 'rain';
+      whiteNoiseVolume = Number.isFinite(handoffState.whiteNoiseVolume)
+        ? Math.max(0, Math.min(handoffState.whiteNoiseVolume, 1))
+        : 0.3;
+      applyFocusSettings(handoffState.microBreakSettings);
       state.linkedTarget = handoffState.linkedTarget || null;
       state.showSettings = false;
       closeTargetPicker();
@@ -2077,6 +2449,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }
 
       if (state.isRunning) {
+        playWhiteNoise();
+        void startMicroBreakReminder(microBreakSettings);
         startPhaseTimer();
       }
 
@@ -2478,6 +2852,27 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       });
     }
 
+    function showShortBreakPopup() {
+      const settings = microBreakSettings || {};
+      if (settings.shortBreakPopup !== true) return;
+      const duration = Math.max(1, Math.round((Number(state.shortBreakDuration) || 1) * 60));
+      request('show-micro-break-dialog', {
+        duration,
+        title: I18N.shortBreakActiveTitle,
+        body: I18N.shortBreakActiveBody
+      }).catch(() => {});
+    }
+
+    function showFocusCompletePopup() {
+      const settings = microBreakSettings || {};
+      if (settings.focusCompletePopup !== true) return;
+      request('show-micro-break-dialog', {
+        duration: 10,
+        title: I18N.focusCompletePopupTitle,
+        body: I18N.focusCompletePopupBody
+      }).catch(() => {});
+    }
+
     async function completeTimer() {
       void playCompleteSound();
       if (!state.isBreakMode) {
@@ -2492,12 +2887,14 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
           state.isBreakMode = true;
           resetPhaseProgress();
           state.currentSet += 1;
+          showShortBreakPopup();
           startPhaseTimer();
           render();
           return;
         }
 
         await stopTimer(false);
+        showFocusCompletePopup();
         render();
         return;
       }
@@ -2530,6 +2927,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
             lastAutosavedMinute = elapsedMinutes;
             void saveCountupCheckpoint(false);
           }
+          tickMicroBreakReminder();
           render();
         }, 200);
         return;
@@ -2556,6 +2954,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
           void completeTimer();
         } else {
           state.phaseElapsedSeconds = Math.min(totalSeconds - timeLeft, totalSeconds);
+          tickMicroBreakReminder();
           render();
         }
       }, 200);
@@ -2572,7 +2971,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       state.isRunning = true;
       state.isPaused = false;
       void prepareCompleteSound();
-      void startMicroBreakReminder();
+      prepareMicroBreakSound();
+      if (!whiteNoiseAudio || whiteNoiseAudio.paused) playWhiteNoise();
+      void startMicroBreakReminder(microBreakSettings);
       startPhaseTimer();
       render();
     }
@@ -2584,6 +2985,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       void saveCountupCheckpoint(false);
       clearTimer();
       stopMicroBreakReminder();
+      stopWhiteNoise();
       state.isRunning = false;
       state.isPaused = true;
       render();
@@ -2597,7 +2999,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       state.isPaused = false;
       state.activeOwner = 'capsule';
       void prepareCompleteSound();
-      void startMicroBreakReminder();
+      prepareMicroBreakSound();
+      playWhiteNoise();
+      void startMicroBreakReminder(microBreakSettings);
       startPhaseTimer();
       render();
     }
@@ -2606,6 +3010,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       const elapsedMinutes = recordCurrentSession ? getElapsedFocusMinutes() : 0;
       clearTimer();
       stopMicroBreakReminder();
+      stopWhiteNoise();
       state.isRunning = false;
       state.isPaused = false;
       state.isBreakMode = false;
@@ -2685,6 +3090,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       state.activeOwner = hostState.activeOwner ?? null;
       state.iconBaseUrl = hostState.iconBaseUrl || state.iconBaseUrl;
       applyTheme(hostState.theme);
+      applyFocusSettings(hostState.focusSettings);
       if (!isActive()) {
         applyLinkedTarget(hostState.linkedTarget || null);
       } else if (!state.linkedTarget && hostState.linkedTarget) {
@@ -2698,6 +3104,13 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     window.__PINCH_DETACHED_FOCUS_OPEN_SETTINGS__ = openSettingsPanel;
     window.__PINCH_DETACHED_FOCUS_GET_HANDOFF__ = buildHandoffState;
     window.__PINCH_DETACHED_FOCUS_HANDOFF__ = acceptPanelHandoff;
+    window.__PINCH_DETACHED_FOCUS_UPDATE_SETTINGS__ = applyFocusSettings;
+    window.__PINCH_DETACHED_FOCUS_CANCEL_MICRO_BREAK__ = () => {
+      if (!microBreakActive) return;
+      microBreakActive = false;
+      microBreakEndDeadline = 0;
+      scheduleNextMicroBreak(microBreakSettings || {});
+    };
 
     settingsToggleEl.addEventListener('click', (event) => {
       event.preventDefault();
@@ -2730,6 +3143,32 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     stopButtonEl.addEventListener('click', (event) => {
       event.preventDefault();
       void stopTimer(true);
+    });
+
+    whiteNoiseToggleEl.addEventListener('change', () => {
+      whiteNoiseEnabled = whiteNoiseToggleEl.checked;
+      if (!whiteNoiseEnabled) stopWhiteNoise();
+      else if (state.isRunning) playWhiteNoise();
+      renderWhiteNoise();
+    });
+
+    whiteNoiseOptionsEl.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-sound]');
+      if (!button || !whiteNoiseEnabled) return;
+      selectedWhiteNoiseId = button.getAttribute('data-sound') || 'rain';
+      if (state.isRunning) playWhiteNoise();
+      renderWhiteNoise();
+    });
+
+    whiteNoiseSettingsButtonEl.addEventListener('click', (event) => {
+      event.preventDefault();
+      void request('open-focus-settings');
+    });
+
+    whiteNoiseVolumeEl.addEventListener('input', () => {
+      whiteNoiseVolume = Number(whiteNoiseVolumeEl.value);
+      if (whiteNoiseAudio) whiteNoiseAudio.volume = whiteNoiseVolume;
+      renderWhiteNoise();
     });
 
     targetButtonEl.addEventListener('click', (event) => {
@@ -2821,6 +3260,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
 
     window.addEventListener('beforeunload', () => {
       clearTimer();
+      stopWhiteNoise();
       void request('release-focus-session', { owner: 'capsule' });
     });
 
@@ -2902,6 +3342,7 @@ export function openDetachedFocusWindowSettings(): void {
 }
 
 export function handoffDetachedFocusSession(state: FocusTimerHandoffState): void {
+  syncDetachedFocusWindowFocusSettings(state.microBreakSettings);
   pendingDetachedFocusHandoff = state;
   flushDetachedFocusHandoff();
 }
@@ -3005,12 +3446,17 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
       }
       const theme = latestThemeSnapshot || getThemeSnapshot();
       const duration = Math.max(1, Math.floor(request.duration || DEFAULT_SETTINGS.focus.microBreakDurationSeconds || 10));
-      const title = escapeHtml(translate('focusTimer.microBreakActiveTitle'));
-      const body = escapeHtml(translate('focusTimer.microBreakActiveBody'));
+      const hostBounds = getMicroBreakHostBounds(remote);
+      const width = Math.max(320, Math.round(hostBounds.width * 0.8));
+      const height = Math.max(240, Math.round(hostBounds.height * 0.65));
+      const requestedTitle = typeof request.title === 'string' ? request.title.trim() : '';
+      const requestedBody = typeof request.body === 'string' ? request.body.trim() : '';
+      const title = escapeHtml(requestedTitle || translate('focusTimer.microBreakActiveTitle'));
+      const body = escapeHtml(requestedBody || translate('focusTimer.microBreakActiveBody'));
       const secondSuffix = escapeHtml(translate('focusTimer.secondSuffix'));
-      const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;display:grid;place-items:center;min-height:100vh;background:transparent;font-family:${theme.fontFamily};}main{width:280px;padding:24px;border:1px solid ${theme.border};border-radius:12px;background:${theme.background};box-shadow:${theme.shadow};text-align:center;color:${theme.text}}h1{margin:0;color:${theme.accent};font-size:18px}p{margin:8px 0 0}strong{display:block;margin-top:16px;color:${theme.accent};font-size:28px}</style></head><body><main><h1>${title}</h1><p>${body}</p><strong id="count">${duration}${secondSuffix}</strong></main><script>let n=${duration};setInterval(()=>{n-=1;document.getElementById('count').textContent=n+'${secondSuffix}';if(n<=0)window.close()},1000)</script></body></html>`;
+      const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;display:grid;place-items:center;min-height:100vh;background:transparent;font-family:${theme.fontFamily};}main{box-sizing:border-box;position:relative;width:100%;height:100%;padding:24px;border:1px solid ${theme.border};border-radius:12px;background:${theme.background};box-shadow:${theme.shadow};text-align:center;color:${theme.text};display:grid;place-content:center}button{position:absolute;top:12px;right:12px;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:${theme.subtleText};font-size:24px;line-height:1;cursor:pointer}button:hover{background:${theme.hover};color:${theme.text}}h1{margin:0;color:${theme.accent};font-size:18px}p{margin:8px 0 0}strong{display:block;margin-top:16px;color:${theme.accent};font-size:28px}</style></head><body><main><button id="close" type="button" aria-label="${escapeHtml(translate('common.close'))}" title="${escapeHtml(translate('common.close'))}">×</button><section><h1>${title}</h1><p>${body}</p><strong id="count">${duration}${secondSuffix}</strong></section></main><script>const {ipcRenderer}=require('electron');const channel=${serializeForScript(DETACHED_FOCUS_REQUEST_CHANNEL)};document.getElementById('close').addEventListener('click',()=>{ipcRenderer.invoke(channel,{type:'cancel-micro-break'}).catch(()=>{});window.close()});let n=${duration};setInterval(()=>{n-=1;document.getElementById('count').textContent=n+'${secondSuffix}';if(n<=0)window.close()},1000)</script></body></html>`;
       detachedMicroBreakWindow = new remote.BrowserWindow({
-        width: 328, height: 190, center: true, frame: false, transparent: true,
+        width, height, center: true, frame: false, transparent: true,
         resizable: false, alwaysOnTop: true, skipTaskbar: true, show: false,
         webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
       });
@@ -3023,6 +3469,15 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
     case 'hide-micro-break-dialog':
       closeBrowserWindow(detachedMicroBreakWindow);
       detachedMicroBreakWindow = null;
+      return true;
+    case 'cancel-micro-break':
+      closeBrowserWindow(detachedMicroBreakWindow);
+      detachedMicroBreakWindow = null;
+      notifyDetachedMicroBreakCancel();
+      detachedFocusWindow?.webContents?.executeJavaScript?.(
+        'window.__PINCH_DETACHED_FOCUS_CANCEL_MICRO_BREAK__?.();',
+        true
+      ).catch(() => {});
       return true;
     case 'get-state':
       return getDetachedFocusWindowState();
@@ -3063,6 +3518,9 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
         await openFocusTimerLinkedTarget(latestLinkedTarget);
       }
       return true;
+    case 'open-focus-settings':
+      notifyDetachedFocusOpenSettingsRequest();
+      return true;
     case 'load-target-options':
       return loadFocusTargetOptions(request.mode === 'task' ? 'task' : 'habit');
     case 'set-linked-target':
@@ -3088,6 +3546,22 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
     default:
       return null;
   }
+}
+
+export async function showDetachedMicroBreakWindow(
+  duration: number,
+  content: { title?: string; body?: string } = {}
+): Promise<boolean> {
+  return (await handleDetachedFocusRequest(null, {
+    type: 'show-micro-break-dialog',
+    duration,
+    ...content
+  })) === true;
+}
+
+export function hideDetachedMicroBreakWindow(): void {
+  closeBrowserWindow(detachedMicroBreakWindow);
+  detachedMicroBreakWindow = null;
 }
 
 function ensureDetachedFocusBridgeRegistered(): void {
@@ -3230,6 +3704,11 @@ export function syncDetachedFocusWindow(
   }
 
   ensureDetachedFocusBridgeRegistered();
+  void userSettings.load()
+    .then(settings => {
+      syncDetachedFocusWindowFocusSettings(settings.focus);
+    })
+    .catch(() => {});
   void refreshDetachedFocusTargetOptions()
     .then(() => {
       syncDetachedFocusWindowTargetOptions();

@@ -60,7 +60,7 @@ describe('task change coordinator', () => {
     });
   });
 
-  it('keeps non-echo block IDs from the same websocket batch', () => {
+  it('confirms both echo and non-echo block IDs from the same websocket batch', () => {
     publishTaskChange(['task-a']);
     vi.advanceTimersByTime(8);
 
@@ -76,7 +76,7 @@ describe('task change coordinator', () => {
     vi.advanceTimersByTime(80);
 
     expect(changes[2]).toMatchObject({
-      blockIds: ['task-a'],
+      blockIds: expect.arrayContaining(['task-a', 'task-b']),
       revision: 3,
       forceRefresh: true
     });

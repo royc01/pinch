@@ -38,6 +38,7 @@ let pinchDockElement: HTMLElement | null = null;
 let unsubscribeMobileKanbanCloseRequest: (() => void) | null = null;
 let topBarViewButton: HTMLElement | null = null;
 const PINCH_DOCK_TYPE = 'Pinch-habit';
+const KANBAN_TAB_TYPE = 'kanban';
 const MOBILE_BREADCRUMB_LONG_PRESS_MS = 480;
 const TOP_BAR_VIEW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.7,10c-1.7-0.2-2.6,0.8-3.3,1.8c-1.4,2.4-3,2.5-4.3,2.5c-2.5,0-4.2-1.8-4.2-4.5c0-2.7,1.7-4.5,4.2-4.5c2.1,0,3.5,0.6,4.4,2.6c0.4,0.9,1.4,2.1,2.9,1.9c1.6-0.4,2.5-1.9,1.9-4C22.7,3.2,19.5,0,14.1,0C8.7,0,4.8,3.7,4.4,9v0.2c0,0.2,0,0.4,0,0.7c0,0.2,0,0.5,0,0.7v14.8c0,1.5,1.2,2.8,2.8,2.8s2.8-1.2,2.8-2.8v-6.5c1.2,0.5,2.7,0.9,4.2,0.9c5,0,8.6-3.2,9.3-6.5C23.7,12,23.4,10.3,21.7,10z" fill="currentColor"></path></svg>';
 const LEGACY_KANBAN_TAB_TITLE = typeof zhCN['app.kanbanTabTitle'] === 'string'
@@ -917,7 +918,7 @@ export function init(pluginInstance: Plugin) {
 
   // Register the custom tab.
   pluginInstance.addTab({
-    type: 'kanban',
+    type: KANBAN_TAB_TYPE,
     init: function() {
       if (this.element) {
         initKanbanView(this.element as HTMLElement);
@@ -1235,7 +1236,9 @@ export async function openKanbanView() {
     const tab = await openTab({
       app: plugin.app,
       custom: {
-        id: 'kanban',
+        // SiYuan uses this identifier to restore pinned custom tabs from the layout.
+        // It must be the plugin name followed by the registered tab type.
+        id: `${plugin.name}${KANBAN_TAB_TYPE}`,
         icon: 'ht-custom-icon',
         title: translate('app.kanbanTabTitle', 'Pinch View'),
         data: {}

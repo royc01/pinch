@@ -2,7 +2,8 @@ import type { Task } from '@/api';
 import { formatDate } from '@/composables/useDateUtils';
 
 export function isRepeatTask(task: Task | null | undefined): boolean {
-  return !!task && (!!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none'));
+  const seriesId = typeof task?.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+  return !!task && (!!seriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none'));
 }
 
 export function getDayDiff(fromDate: string, toDate: string): number {

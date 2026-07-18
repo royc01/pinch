@@ -304,6 +304,10 @@ const filteredDocuments = computed(() => {
   });
 });
 
+function getDocumentKey(document: GoalScopeDocument): string {
+  return `${document.notebookId}:${document.id}`;
+}
+
 function isTaskInDocument(task: Task, document: GoalScopeDocument): boolean {
   if (task.notebookId !== document.notebookId) {
     return false;
@@ -330,31 +334,42 @@ function isTaskInSelectedDocumentScope(task: Task): boolean {
   });
 }
 
+const documentTasksByKey = computed(() => {
+  const visibleTasks = (props.tasks || []).filter(task =>
+    task.type === 'block'
+    && !task.archived
+    && !task.isVirtual
+    && hasVisibleTaskTitle(task.title)
+  );
+  const tasksByKey = new Map<string, Task[]>();
+
+  for (const document of props.documents || []) {
+    const tasks = visibleTasks
+      .filter(task => isTaskInDocument(task, document))
+      .sort((left, right) => {
+        const leftCompleted = left.status === 'completed' ? 1 : 0;
+        const rightCompleted = right.status === 'completed' ? 1 : 0;
+        if (leftCompleted !== rightCompleted) {
+          return leftCompleted - rightCompleted;
+        }
+        return (left.title || '').localeCompare(right.title || '', 'zh-CN');
+      });
+    tasksByKey.set(getDocumentKey(document), tasks);
+  }
+
+  return tasksByKey;
+});
+
 function getDocumentTasks(document: GoalScopeDocument): Task[] {
-  return (props.tasks || [])
-    .filter(task =>
-      task.type === 'block'
-      && !task.archived
-      && !task.isVirtual
-      && hasVisibleTaskTitle(task.title)
-      && isTaskInDocument(task, document)
-    )
-    .sort((left, right) => {
-      const leftCompleted = left.status === 'completed' ? 1 : 0;
-      const rightCompleted = right.status === 'completed' ? 1 : 0;
-      if (leftCompleted !== rightCompleted) {
-        return leftCompleted - rightCompleted;
-      }
-      return (left.title || '').localeCompare(right.title || '', 'zh-CN');
-    });
+  return documentTasksByKey.value.get(getDocumentKey(document)) || [];
 }
 
 function isDocumentExpanded(document: GoalScopeDocument): boolean {
-  return expandedDocumentKeys.value.has(`${document.notebookId}:${document.id}`);
+  return expandedDocumentKeys.value.has(getDocumentKey(document));
 }
 
 function toggleDocumentExpanded(document: GoalScopeDocument): void {
-  const key = `${document.notebookId}:${document.id}`;
+  const key = getDocumentKey(document);
   const next = new Set(expandedDocumentKeys.value);
   if (next.has(key)) {
     next.delete(key);

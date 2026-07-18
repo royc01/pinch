@@ -79,7 +79,7 @@
                       {{ day.dayNumber }}
                     </button>
                     <div
-                      v-if="(showLifelog && (getMoodDaySummary(day.key) || getManualNoteDaySummary(day.key) || getHabitCheckinDaySummary(day.key) || getTaskCompletedDaySummary(day.key))) || (showFocusRecords && getFocusDaySummary(day.key))"
+                      v-if="(showRecordsLifelog && (getMoodDaySummary(day.key) || getManualNoteDaySummary(day.key))) || (showHabitLifelog && getHabitCheckinDaySummary(day.key)) || (showTaskLifelog && getTaskCompletedDaySummary(day.key)) || (showFocusRecords && getFocusDaySummary(day.key))"
                       class="day-compact-lifelog-summary ariaLabel"
                       :aria-label="getCompactLifelogSummaryTitle(day.key)"
                       @mousedown.stop
@@ -89,7 +89,7 @@
                         <Icon name="timer" width="11" height="11" />
                         <span>{{ formatFocusDaySummary(day.key) }}</span>
                       </span>
-                      <span v-if="showLifelog && (getMoodDaySummary(day.key) || getManualNoteDaySummary(day.key))" class="day-mood-summary">
+                      <span v-if="showRecordsLifelog && (getMoodDaySummary(day.key) || getManualNoteDaySummary(day.key))" class="day-mood-summary">
                         <span
                           v-if="getMoodDaySummarySvg(day.key)"
                           class="day-mood-summary-icon"
@@ -98,11 +98,11 @@
                         <span v-else-if="getMoodDaySummary(day.key)">{{ formatMoodDaySummary(day.key) }}</span>
                         <span v-if="getManualNoteDaySummary(day.key)">{{ formatManualNoteDaySummary(day.key) }}</span>
                       </span>
-                      <span v-if="showLifelog && getHabitCheckinDaySummary(day.key)" class="day-habit-summary">
+                      <span v-if="showHabitLifelog && getHabitCheckinDaySummary(day.key)" class="day-habit-summary">
                         <Icon name="squareCheck" width="10" height="10" />
                         <span>{{ formatHabitCheckinDaySummary(day.key) }}</span>
                       </span>
-                      <span v-if="showLifelog && getTaskCompletedDaySummary(day.key)" class="day-task-summary">
+                      <span v-if="showTaskLifelog && getTaskCompletedDaySummary(day.key)" class="day-task-summary">
                         <Icon name="taskCheckboxChecked" width="10" height="10" />
                         <span>{{ formatTaskCompletedDaySummary(day.key) }}</span>
                       </span>
@@ -409,6 +409,9 @@ interface Props {
   currentCalendarView?: CalendarViewMode;
   showFocusRecords?: boolean;
   showHabits?: boolean;
+  showTaskLifelog?: boolean;
+  showHabitLifelog?: boolean;
+  showRecordsLifelog?: boolean;
   showLifelog?: boolean;
 }
 
@@ -506,6 +509,9 @@ const calendarViewOptions = computed(() => props.calendarViewOptions || []);
 const showFocusRecords = computed(() => props.showFocusRecords !== false);
 const showHabits = computed(() => props.showHabits !== false);
 const showLifelog = computed(() => props.showLifelog !== false);
+const showTaskLifelog = computed(() => props.showTaskLifelog ?? showLifelog.value);
+const showHabitLifelog = computed(() => props.showHabitLifelog ?? showLifelog.value);
+const showRecordsLifelog = computed(() => props.showRecordsLifelog ?? showLifelog.value);
 
 const formatTemplate = (key: string, values: Record<string, string | number>): string => {
   return Object.entries(values).reduce(
@@ -1104,9 +1110,9 @@ function getCompactLifelogSummaryTitle(dayKey: string): string {
 
   return [
     showFocusRecords.value && getFocusDaySummary(dayKey) ? getFocusDaySummaryTitle(dayKey) : '',
-    showLifelog.value && getManualNoteDaySummary(dayKey) ? getManualNoteDaySummaryTitle(dayKey) : '',
-    showLifelog.value && getHabitCheckinDaySummary(dayKey) ? getHabitCheckinDaySummaryTitle(dayKey) : '',
-    showLifelog.value && getTaskCompletedDaySummary(dayKey) ? getTaskCompletedDaySummaryTitle(dayKey) : ''
+    showRecordsLifelog.value && getManualNoteDaySummary(dayKey) ? getManualNoteDaySummaryTitle(dayKey) : '',
+    showHabitLifelog.value && getHabitCheckinDaySummary(dayKey) ? getHabitCheckinDaySummaryTitle(dayKey) : '',
+    showTaskLifelog.value && getTaskCompletedDaySummary(dayKey) ? getTaskCompletedDaySummaryTitle(dayKey) : ''
   ].filter(Boolean).join(' · ');
 }
 
@@ -1135,7 +1141,7 @@ function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date
   const taskStart = new Date(startValue);
   taskStart.setHours(0, 0, 0, 0);
 
-  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const isRepeatTask = isRepeatTaskEntity(task);
   const endValue = isRepeatTask ? startValue : (task.dueDate || startValue);
   const taskEnd = new Date(endValue);
   taskEnd.setHours(23, 59, 59, 999);
@@ -1753,13 +1759,11 @@ const lifelogTimelineDateStripDays = computed<LifelogTimelineDateStripDay[]>(() 
     const weekdayIndex = (day.date.getDay() + 6) % 7;
     const weekdayLabel = weekdays.value[weekdayIndex] || '';
     const hasRecord = Boolean(
-      (showFocusRecords.value && getFocusDaySummary(day.key))
-      || (showLifelog.value && (
-        getMoodDaySummary(day.key)
-        || getManualNoteDaySummary(day.key)
-        || getHabitCheckinDaySummary(day.key)
-        || getTaskCompletedDaySummary(day.key)
-      ))
+      getFocusDaySummary(day.key)
+      || getMoodDaySummary(day.key)
+      || getManualNoteDaySummary(day.key)
+      || getHabitCheckinDaySummary(day.key)
+      || getTaskCompletedDaySummary(day.key)
     );
 
     return {
@@ -1770,7 +1774,7 @@ const lifelogTimelineDateStripDays = computed<LifelogTimelineDateStripDay[]>(() 
       selected: day.key === lifelogDayKey.value,
       today: day.isToday,
       hasRecord,
-      moodSvg: showLifelog.value ? getMoodDaySummarySvg(day.key) : undefined
+      moodSvg: getMoodDaySummarySvg(day.key) || undefined
     };
   })
 ));
@@ -2014,17 +2018,26 @@ function sortLifelogTimelineItems(items: LifelogTimelinePanelItem[]): LifelogTim
   });
 }
 
-function getLifelogTimelineItemsForDay(dayKey: string, options: { includeMood?: boolean } = {}): LifelogTimelinePanelItem[] {
+function getLifelogTimelineItemsForDay(
+  dayKey: string,
+  options: { includeMood?: boolean; respectDisplaySettings?: boolean } = {}
+): LifelogTimelinePanelItem[] {
   if (!dayKey) {
     return [];
   }
 
+  const respectDisplaySettings = options.respectDisplaySettings !== false;
+  const includeFocus = !respectDisplaySettings || showFocusRecords.value;
+  const includeRecords = !respectDisplaySettings || showRecordsLifelog.value;
+  const includeHabits = !respectDisplaySettings || showHabitLifelog.value;
+  const includeTasks = !respectDisplaySettings || showTaskLifelog.value;
+
   return sortLifelogTimelineItems([
-    ...(showFocusRecords.value ? getFocusEventsForDay(dayKey).map(focusEventToTimelineItem) : []),
-    ...(showLifelog.value && options.includeMood ? moodLifelogEvents.value.filter(event => event.date === dayKey).map(moodEventToTimelineItem) : []),
-    ...(showLifelog.value ? getHabitEventsForDay(dayKey).map(habitEventToTimelineItem) : []),
-    ...(showLifelog.value ? getTaskEventsForDay(dayKey).map(taskEventToTimelineItem) : []),
-    ...(showLifelog.value ? getManualNoteEventsForDay(dayKey).map(manualNoteEventToTimelineItem) : [])
+    ...(includeFocus ? getFocusEventsForDay(dayKey).map(focusEventToTimelineItem) : []),
+    ...(includeRecords && options.includeMood ? moodLifelogEvents.value.filter(event => event.date === dayKey).map(moodEventToTimelineItem) : []),
+    ...(includeHabits ? getHabitEventsForDay(dayKey).map(habitEventToTimelineItem) : []),
+    ...(includeTasks ? getTaskEventsForDay(dayKey).map(taskEventToTimelineItem) : []),
+    ...(includeRecords ? getManualNoteEventsForDay(dayKey).map(manualNoteEventToTimelineItem) : [])
   ]);
 }
 
@@ -2056,7 +2069,10 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
     return [];
   }
 
-  return getLifelogTimelineItemsForDay(dayKey);
+  return getLifelogTimelineItemsForDay(dayKey, {
+    includeMood: true,
+    respectDisplaySettings: false
+  });
 });
 watch(
   [lifelogDayKey, lifelogTimelineItems],
@@ -3580,7 +3596,7 @@ function showTaskContextMenu(task: Task, anchor?: { x: number; y: number }): voi
   contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
   contextMenuRepeatRule.value = null;
 
-  const isRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
+  const isRepeatTask = isRepeatTaskEntity(task);
   if (isRepeatTask) {
     getRepeatSeriesForTask(task)
       .then((series) => {
