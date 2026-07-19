@@ -270,28 +270,43 @@
           <div class="custom-audio-setting">
             <span>{{ t('taskScopeDialog.customWhiteNoise') }}</span>
             <div class="custom-audio-setting__controls">
-              <span class="custom-audio-setting__name">{{ localCustomWhiteNoiseFile || t('taskScopeDialog.useDefaultSound') }}</span>
-              <input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('whiteNoise', $event)" />
-              <button type="button" :disabled="!localCustomWhiteNoiseFile" @click="toggleCustomAudioPreview(localCustomWhiteNoiseFile)">{{ previewingAudioFile && previewingAudioFile === localCustomWhiteNoiseFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
-              <button type="button" :disabled="!localCustomWhiteNoiseFile" @click="localCustomWhiteNoiseFile = ''">{{ t('taskScopeDialog.clearCustomSound') }}</button>
+              <button type="button" class="custom-audio-option" :class="{ active: !localCustomWhiteNoiseFile }" @click="selectCustomAudio('whiteNoise', '')">{{ t('taskScopeDialog.useDefaultSound') }}</button>
+              <div v-for="audioFile in customAudioFiles.whiteNoise" :key="audioFile.fileName" class="custom-audio-option" :class="{ active: localCustomWhiteNoiseFile === audioFile.fileName }" role="button" tabindex="0" @click="selectCustomAudio('whiteNoise', audioFile.fileName)" @keydown.enter="selectCustomAudio('whiteNoise', audioFile.fileName)">
+                <span>{{ audioFile.label }}</span>
+                <button type="button" class="custom-audio-option__delete" :aria-label="t('common.delete')" :title="t('common.delete')" @click.stop="deleteCustomAudio('whiteNoise', audioFile.fileName)">×</button>
+              </div>
+              <div class="custom-audio-actions">
+                <label class="custom-audio-upload">{{ t('taskScopeDialog.uploadFile') }}<input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('whiteNoise', $event)" /></label>
+                <button type="button" class="custom-audio-preview" :disabled="!localCustomWhiteNoiseFile" @click="toggleCustomAudioPreview(localCustomWhiteNoiseFile)">{{ previewingAudioFile && previewingAudioFile === localCustomWhiteNoiseFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
+              </div>
             </div>
           </div>
           <div class="custom-audio-setting">
             <span>{{ t('taskScopeDialog.customCompletionSound') }}</span>
             <div class="custom-audio-setting__controls">
-              <span class="custom-audio-setting__name">{{ localCustomCompletionSoundFile || t('taskScopeDialog.useDefaultSound') }}</span>
-              <input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('completion', $event)" />
-              <button type="button" :disabled="!localCustomCompletionSoundFile" @click="toggleCustomAudioPreview(localCustomCompletionSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomCompletionSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
-              <button type="button" :disabled="!localCustomCompletionSoundFile" @click="localCustomCompletionSoundFile = ''">{{ t('taskScopeDialog.clearCustomSound') }}</button>
+              <button type="button" class="custom-audio-option" :class="{ active: !localCustomCompletionSoundFile }" @click="selectCustomAudio('completion', '')">{{ t('taskScopeDialog.useDefaultSound') }}</button>
+              <div v-for="audioFile in customAudioFiles.completion" :key="audioFile.fileName" class="custom-audio-option" :class="{ active: localCustomCompletionSoundFile === audioFile.fileName }" role="button" tabindex="0" @click="selectCustomAudio('completion', audioFile.fileName)" @keydown.enter="selectCustomAudio('completion', audioFile.fileName)">
+                <span>{{ audioFile.label }}</span>
+                <button type="button" class="custom-audio-option__delete" :aria-label="t('common.delete')" :title="t('common.delete')" @click.stop="deleteCustomAudio('completion', audioFile.fileName)">×</button>
+              </div>
+              <div class="custom-audio-actions">
+                <label class="custom-audio-upload">{{ t('taskScopeDialog.uploadFile') }}<input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('completion', $event)" /></label>
+                <button type="button" class="custom-audio-preview" :disabled="!localCustomCompletionSoundFile" @click="toggleCustomAudioPreview(localCustomCompletionSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomCompletionSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
+              </div>
             </div>
           </div>
           <div class="custom-audio-setting">
             <span>{{ t('taskScopeDialog.customMicroBreakSound') }}</span>
             <div class="custom-audio-setting__controls">
-              <span class="custom-audio-setting__name">{{ localCustomMicroBreakSoundFile || t('taskScopeDialog.useDefaultSound') }}</span>
-              <input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('microBreak', $event)" />
-              <button type="button" :disabled="!localCustomMicroBreakSoundFile" @click="toggleCustomAudioPreview(localCustomMicroBreakSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomMicroBreakSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
-              <button type="button" :disabled="!localCustomMicroBreakSoundFile" @click="localCustomMicroBreakSoundFile = ''">{{ t('taskScopeDialog.clearCustomSound') }}</button>
+              <button type="button" class="custom-audio-option" :class="{ active: !localCustomMicroBreakSoundFile }" @click="selectCustomAudio('microBreak', '')">{{ t('taskScopeDialog.useDefaultSound') }}</button>
+              <div v-for="audioFile in customAudioFiles.microBreak" :key="audioFile.fileName" class="custom-audio-option" :class="{ active: localCustomMicroBreakSoundFile === audioFile.fileName }" role="button" tabindex="0" @click="selectCustomAudio('microBreak', audioFile.fileName)" @keydown.enter="selectCustomAudio('microBreak', audioFile.fileName)">
+                <span>{{ audioFile.label }}</span>
+                <button type="button" class="custom-audio-option__delete" :aria-label="t('common.delete')" :title="t('common.delete')" @click.stop="deleteCustomAudio('microBreak', audioFile.fileName)">×</button>
+              </div>
+              <div class="custom-audio-actions">
+                <label class="custom-audio-upload">{{ t('taskScopeDialog.uploadFile') }}<input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('microBreak', $event)" /></label>
+                <button type="button" class="custom-audio-preview" :disabled="!localCustomMicroBreakSoundFile" @click="toggleCustomAudioPreview(localCustomMicroBreakSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomMicroBreakSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
+              </div>
             </div>
           </div>
         </div>
@@ -414,7 +429,7 @@ import { normalizeNotebookIds } from '@/utils/taskViewShared';
 import { useI18n } from '@/composables/useI18n';
 import type { TaskDateKeywordConfig } from '@/utils/taskDateParser';
 import type { UserSettings } from '@/utils/userSettings';
-import { putFile } from '@/api';
+import { putFile, readDir, removeFile } from '@/api';
 import { getCustomFocusAudioUrl } from '@/utils/completionSound';
 
 interface NotebookItem {
@@ -528,6 +543,15 @@ const microBreakIntervalMarks = [1, 3, 5, 7, 9, 11, 13, 15];
 const localCustomWhiteNoiseFile = ref('');
 const localCustomCompletionSoundFile = ref('');
 const localCustomMicroBreakSoundFile = ref('');
+interface CustomAudioFile {
+  fileName: string;
+  label: string;
+}
+const customAudioFiles = ref<Record<CustomAudioKind, CustomAudioFile[]>>({
+  whiteNoise: [],
+  completion: [],
+  microBreak: []
+});
 const previewAudio = ref<HTMLAudioElement | null>(null);
 const previewingAudioFile = ref('');
 const activeTab = ref<TaskScopeDialogTab>('scope');
@@ -758,13 +782,57 @@ function updateMicroBreakInterval(boundary: 'min' | 'max', event: Event): void {
 }
 
 type CustomAudioKind = 'whiteNoise' | 'completion' | 'microBreak';
-const CUSTOM_AUDIO_DIRECTORY = '/data/plugins/pinch/audio';
+const CUSTOM_AUDIO_DIRECTORY = '/data/storage/petal/pinch/audio';
 const CUSTOM_AUDIO_FILE_BASE_NAMES: Record<CustomAudioKind, string> = {
   whiteNoise: 'custom-white-noise',
   completion: 'custom-completion',
   microBreak: 'custom-micro-break'
 };
 const KNOWN_AUDIO_EXTENSIONS = new Set(['mp3', 'ogg', 'wav', 'm4a', 'aac', 'flac', 'webm', 'opus']);
+
+function getCustomAudioFileName(kind: CustomAudioKind, file: File, extension: string): string {
+  const rawBaseName = file.name.replace(/\.[^.]+$/, '').trim();
+  const baseName = rawBaseName
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'audio';
+  return `${CUSTOM_AUDIO_FILE_BASE_NAMES[kind]}-${baseName}.${extension}`;
+}
+
+function getSelectedCustomAudioFile(kind: CustomAudioKind): string {
+  if (kind === 'whiteNoise') return localCustomWhiteNoiseFile.value;
+  if (kind === 'completion') return localCustomCompletionSoundFile.value;
+  return localCustomMicroBreakSoundFile.value;
+}
+
+function selectCustomAudio(kind: CustomAudioKind, fileName: string): void {
+  if (kind === 'whiteNoise') localCustomWhiteNoiseFile.value = fileName;
+  if (kind === 'completion') localCustomCompletionSoundFile.value = fileName;
+  if (kind === 'microBreak') localCustomMicroBreakSoundFile.value = fileName;
+}
+
+async function loadCustomAudioFiles(): Promise<void> {
+  try {
+    const result = await readDir(CUSTOM_AUDIO_DIRECTORY);
+    const entries = Array.isArray(result) ? result : [];
+    const files = entries.map((entry: any) => String(entry.name || '')).filter(Boolean);
+    const next = {} as Record<CustomAudioKind, CustomAudioFile[]>;
+    (Object.keys(CUSTOM_AUDIO_FILE_BASE_NAMES) as CustomAudioKind[]).forEach((kind) => {
+      const prefix = `${CUSTOM_AUDIO_FILE_BASE_NAMES[kind]}-`;
+      next[kind] = files
+        .filter(fileName => fileName.startsWith(prefix) && /\.[a-z0-9]{1,10}$/i.test(fileName))
+        .map(fileName => ({
+          fileName,
+          label: fileName.slice(prefix.length).replace(/\.[^.]+$/, '')
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    });
+    customAudioFiles.value = next;
+  } catch (error) {
+    console.error('[TaskScopeDialog] Failed to load custom audio files:', error);
+  }
+}
 
 function getCustomAudioExtension(file: File): string | null {
   const matched = file.name.toLowerCase().match(/\.([a-z0-9]{1,10})$/);
@@ -788,12 +856,18 @@ async function uploadCustomAudio(kind: CustomAudioKind, event: Event): Promise<v
   if (!file.type.startsWith('audio/') && !KNOWN_AUDIO_EXTENSIONS.has(extension || '')) return;
 
   if (!extension) return;
-  const fileName = `${CUSTOM_AUDIO_FILE_BASE_NAMES[kind]}.${extension}`;
+  const fileName = getCustomAudioFileName(kind, file, extension);
   await putFile(`${CUSTOM_AUDIO_DIRECTORY}/${fileName}`, false, file);
+  selectCustomAudio(kind, fileName);
+  await loadCustomAudioFiles();
+}
 
-  if (kind === 'whiteNoise') localCustomWhiteNoiseFile.value = fileName;
-  if (kind === 'completion') localCustomCompletionSoundFile.value = fileName;
-  if (kind === 'microBreak') localCustomMicroBreakSoundFile.value = fileName;
+async function deleteCustomAudio(kind: CustomAudioKind, fileName: string): Promise<void> {
+  if (!window.confirm(`${t('common.delete')} “${fileName}”？`)) return;
+  stopCustomAudioPreview();
+  await removeFile(`${CUSTOM_AUDIO_DIRECTORY}/${fileName}`);
+  if (getSelectedCustomAudioFile(kind) === fileName) selectCustomAudio(kind, '');
+  await loadCustomAudioFiles();
 }
 
 function stopCustomAudioPreview(): void {
@@ -805,13 +879,13 @@ function stopCustomAudioPreview(): void {
   previewingAudioFile.value = '';
 }
 
-function toggleCustomAudioPreview(fileName: string): void {
+async function toggleCustomAudioPreview(fileName: string): Promise<void> {
   if (previewingAudioFile.value === fileName) {
     stopCustomAudioPreview();
     return;
   }
   stopCustomAudioPreview();
-  const url = getCustomFocusAudioUrl(fileName);
+  const url = await getCustomFocusAudioUrl(fileName);
   if (!url) return;
   const audio = new Audio(url);
   audio.volume = 0.3;
@@ -976,6 +1050,7 @@ watch(
   ([show]) => {
     if (show) {
       syncLocalSelection();
+      void loadCustomAudioFiles();
     }
   },
   { immediate: true, deep: true }
@@ -1274,23 +1349,81 @@ watch(
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-}
-
-.custom-audio-setting__name {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--b3-theme-on-surface);
+  position: relative;
+  min-height: 32px;
+  padding-right: 126px;
 }
 
 .custom-audio-setting button {
+  border: 1px solid var(--b3-border-color);
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.custom-audio-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.custom-audio-upload {
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--b3-border-color);
   border-radius: 6px;
   padding: 3px 7px;
   background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
   cursor: pointer;
+}
+
+.custom-audio-upload input {
+  display: none;
+}
+
+.custom-audio-option {
+  display: inline-flex;
+  align-items: center;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 12px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.custom-audio-option:hover {
+  background: var(--b3-theme-background);
+  border-color: var(--b3-border-color);
+}
+
+.custom-audio-option.active {
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.custom-audio-option.active .custom-audio-option__delete {
+  color: inherit;
+}
+
+.custom-audio-option__delete {
+  display: inline;
+  margin-left: 8px;
+  padding: 0;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--b3-theme-error);
+  font-size: 16px;
+  line-height: 12px;
 }
 
 .task-settings-tab-content .task-scope-auto-setting {

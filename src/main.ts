@@ -907,6 +907,7 @@ export function init(pluginInstance: Plugin) {
   // Ensure the data directory exists.
   ensureDataDir('/data/storage/petal/Pinch-habit');
   ensureDataDir('/data/storage/petal/stand');
+  ensureDataDir('/data/storage/petal/pinch/audio');
 
   unsubscribeMobileKanbanCloseRequest?.();
   unsubscribeMobileKanbanCloseRequest = eventBus.on(

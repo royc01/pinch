@@ -374,7 +374,7 @@ import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 import { useI18n } from '@/composables/useI18n';
 import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
 import { useUserSettings } from '@/composables/useUserSettings';
-import { getCustomFocusAudioUrl, playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
+import { getStoredFocusAudioUrl, playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
 import { awardFocusSession } from '@/rewardRepository';
 import {
   closeDetachedFocusWindow,
@@ -501,7 +501,8 @@ const {
   settings: computed(() => userSettings.focus),
   notify: showMicroBreakNotification,
   playSound: () => {
-    if (!playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, 0.3)) playTaskCompletionSound(0.3);
+    void playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, 0.3)
+      .then(played => { if (!played) playTaskCompletionSound(0.3); });
   },
   getText: (key) => ({
     startTitle: t('focusTimer.microBreakStartTitle'),
@@ -569,11 +570,11 @@ const whiteNoiseOptions = [
 ];
 
 const whiteNoiseFiles: Record<string, string> = {
-  rain: '/plugins/pinch/audio/rain.ogg',
-  jungle: '/plugins/pinch/audio/jungle.ogg',
-  waves: '/plugins/pinch/audio/waves.ogg',
-  campfire: '/plugins/pinch/audio/campfire.ogg',
-  river: '/plugins/pinch/audio/river.ogg'
+  rain: 'rain.ogg',
+  jungle: 'jungle.ogg',
+  waves: 'waves.ogg',
+  campfire: 'campfire.ogg',
+  river: 'river.ogg'
 };
 
 const displayTime = computed(() => {
@@ -922,7 +923,7 @@ async function prepareCompleteSound(): Promise<void> {
 
 async function playCompleteSound(): Promise<void> {
   try {
-    if (playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, 0.3)) return;
+    if (await playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, 0.3)) return;
     await prepareCompleteSound();
     const context = completeSoundAudioContext;
     if (!context) return;
@@ -954,12 +955,13 @@ const stopWhiteNoise = () => {
   whiteNoiseAudio.value = null;
 };
 
-const playWhiteNoise = () => {
+const playWhiteNoise = async () => {
   if (!whiteNoiseEnabled.value) return;
   stopWhiteNoise();
-  const source = selectedWhiteNoiseId.value === 'custom'
-    ? getCustomFocusAudioUrl(userSettings.focus.customWhiteNoiseFile)
+  const fileName = selectedWhiteNoiseId.value === 'custom'
+    ? userSettings.focus.customWhiteNoiseFile
     : whiteNoiseFiles[selectedWhiteNoiseId.value];
+  const source = await getStoredFocusAudioUrl(fileName);
   if (!source) return;
 
   const audio = new Audio(source);
@@ -1059,8 +1061,8 @@ const startTimer = () => {
   isPaused.value = false;
   void prepareCompleteSound();
   prepareTaskCompletionSound();
-  prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
-  prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
+  void prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
+  void prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
   playWhiteNoise();
   startMicroBreakReminder();
   startPhaseTimer();
@@ -1082,8 +1084,8 @@ const resumeTimer = () => {
   isPaused.value = false;
   void prepareCompleteSound();
   prepareTaskCompletionSound();
-  prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
-  prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
+  void prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
+  void prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
   playWhiteNoise();
   startMicroBreakReminder();
   startPhaseTimer();

@@ -1967,9 +1967,22 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       campfire: 'campfire.ogg',
       river: 'river.ogg'
     };
+    const storedAudioUrls = new Map();
 
-    function getPluginAudioUrl(path) {
-      return (state.iconBaseUrl || '') + '/plugins/pinch/audio/' + path;
+    async function getStoredAudioUrl(path) {
+      if (!path) return '';
+      if (!storedAudioUrls.has(path)) {
+        storedAudioUrls.set(path, fetch((state.iconBaseUrl || '') + '/api/file/getFile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: '/data/storage/petal/pinch/audio/' + path })
+        }).then(async (response) => {
+          if (!response.ok) return '';
+          const blob = await response.blob();
+          return blob.size > 0 ? URL.createObjectURL(blob) : '';
+        }).catch(() => ''));
+      }
+      return storedAudioUrls.get(path);
     }
 
     function stopWhiteNoise() {
@@ -1979,15 +1992,15 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       whiteNoiseAudio = null;
     }
 
-    function getSelectedWhiteNoiseSource() {
+    async function getSelectedWhiteNoiseSource() {
       return selectedWhiteNoiseId === 'custom'
-        ? getPluginAudioUrl(customWhiteNoiseFile || 'custom-white-noise.mp3')
-        : (whiteNoiseFiles[selectedWhiteNoiseId] ? getPluginAudioUrl(whiteNoiseFiles[selectedWhiteNoiseId]) : '');
+        ? getStoredAudioUrl(customWhiteNoiseFile || '')
+        : (whiteNoiseFiles[selectedWhiteNoiseId] ? getStoredAudioUrl(whiteNoiseFiles[selectedWhiteNoiseId]) : '');
     }
 
-    function playWhiteNoise() {
+    async function playWhiteNoise() {
       if (!whiteNoiseEnabled) return;
-      const source = getSelectedWhiteNoiseSource();
+      const source = await getSelectedWhiteNoiseSource();
       if (!source) return;
       const resolvedSource = new URL(source, document.baseURI).href;
       if (!whiteNoiseAudio || whiteNoiseAudio.src !== resolvedSource) {
@@ -2016,9 +2029,11 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       whiteNoiseVolumeValueEl.textContent = Math.round(whiteNoiseVolume * 100) + '%';
     }
 
-    function prepareCustomCompletionSound(fileName) {
+    async function prepareCustomCompletionSound(fileName) {
       if (!fileName) return;
-      customCompletionAudio = new Audio((state.iconBaseUrl || '') + '/plugins/pinch/audio/' + encodeURIComponent(fileName));
+      const source = await getStoredAudioUrl(fileName);
+      if (!source) return;
+      customCompletionAudio = new Audio(source);
       customCompletionAudio.preload = 'auto';
       customCompletionAudio.muted = true;
       customCompletionAudio.play().then(() => {
@@ -2030,14 +2045,15 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       });
     }
 
-    function getMicroBreakSoundSource(fileName) {
+    async function getMicroBreakSoundSource(fileName) {
       return fileName
-        ? getPluginAudioUrl(encodeURIComponent(fileName))
-        : getPluginAudioUrl('correct.mp3');
+        ? getStoredAudioUrl(fileName)
+        : (state.iconBaseUrl || '') + '/plugins/pinch/audio/correct.mp3';
     }
 
-    function getMicroBreakAudio(fileName) {
-      const source = getMicroBreakSoundSource(fileName);
+    async function getMicroBreakAudio(fileName) {
+      const source = await getMicroBreakSoundSource(fileName);
+      if (!source) return null;
       const resolvedSource = new URL(source, document.baseURI).href;
       if (!microBreakAudio || microBreakAudio.src !== resolvedSource) {
         microBreakAudio = new Audio(source);
@@ -2046,8 +2062,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       return microBreakAudio;
     }
 
-    function prepareMicroBreakSound(fileName) {
-      const audio = getMicroBreakAudio(fileName);
+    async function prepareMicroBreakSound(fileName) {
+      const audio = await getMicroBreakAudio(fileName);
       if (!audio) return;
       audio.muted = true;
       audio.play().then(() => {
@@ -2059,10 +2075,10 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       });
     }
 
-    function playMicroBreakSound(settings) {
+    async function playMicroBreakSound(settings) {
       if (settings.microBreakSound === false) return;
       try {
-        const audio = getMicroBreakAudio(settings.customMicroBreakSoundFile);
+        const audio = await getMicroBreakAudio(settings.customMicroBreakSoundFile);
         if (!audio) return;
         audio.muted = false;
         audio.volume = 0.3;

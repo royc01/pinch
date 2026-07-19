@@ -1,7 +1,8 @@
 const COMPLETION_SOUND_URL = '/plugins/pinch/audio/correct.mp3';
-const CUSTOM_AUDIO_BASE_URL = '/plugins/pinch/audio/';
+const STORED_AUDIO_DIRECTORY = '/data/storage/petal/pinch/audio';
 let completionSound: HTMLAudioElement | null = null;
 const customFocusAudio = new Map<string, HTMLAudioElement>();
+const storedAudioUrls = new Map<string, Promise<string | null>>();
 
 function getCompletionSound(): HTMLAudioElement | null {
   if (typeof Audio === 'undefined') {
@@ -48,13 +49,32 @@ export function playTaskCompletionSound(volume = 0.1): void {
   }
 }
 
-export function getCustomFocusAudioUrl(fileName: string | undefined): string | null {
+export async function getStoredFocusAudioUrl(fileName: string | undefined): Promise<string | null> {
   const normalized = typeof fileName === 'string' ? fileName.trim() : '';
-  return normalized ? `${CUSTOM_AUDIO_BASE_URL}${encodeURIComponent(normalized)}` : null;
+  if (!normalized || typeof fetch === 'undefined' || typeof URL === 'undefined') return null;
+
+  let pendingUrl = storedAudioUrls.get(normalized);
+  if (!pendingUrl) {
+    pendingUrl = fetch('/api/file/getFile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: `${STORED_AUDIO_DIRECTORY}/${normalized}` })
+    }).then(async (response) => {
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      return blob.size > 0 ? URL.createObjectURL(blob) : null;
+    }).catch(() => null);
+    storedAudioUrls.set(normalized, pendingUrl);
+  }
+  return pendingUrl;
 }
 
-function getCustomFocusAudio(fileName: string | undefined): HTMLAudioElement | null {
-  const url = getCustomFocusAudioUrl(fileName);
+export function getCustomFocusAudioUrl(fileName: string | undefined): Promise<string | null> {
+  return getStoredFocusAudioUrl(fileName);
+}
+
+async function getCustomFocusAudio(fileName: string | undefined): Promise<HTMLAudioElement | null> {
+  const url = await getStoredFocusAudioUrl(fileName);
   if (!url || typeof Audio === 'undefined') return null;
   let audio = customFocusAudio.get(url);
   if (!audio) {
@@ -66,8 +86,8 @@ function getCustomFocusAudio(fileName: string | undefined): HTMLAudioElement | n
 }
 
 /** Call from a click/tap handler before a delayed custom sound needs to play. */
-export function prepareCustomFocusAudio(fileName: string | undefined): void {
-  const audio = getCustomFocusAudio(fileName);
+export async function prepareCustomFocusAudio(fileName: string | undefined): Promise<void> {
+  const audio = await getCustomFocusAudio(fileName);
   if (!audio) return;
   audio.muted = true;
   void audio.play().then(() => {
@@ -79,8 +99,8 @@ export function prepareCustomFocusAudio(fileName: string | undefined): void {
   });
 }
 
-export function playCustomFocusAudio(fileName: string | undefined, volume = 0.3): boolean {
-  const audio = getCustomFocusAudio(fileName);
+export async function playCustomFocusAudio(fileName: string | undefined, volume = 0.3): Promise<boolean> {
+  const audio = await getCustomFocusAudio(fileName);
   if (!audio) return false;
   try {
     audio.muted = false;

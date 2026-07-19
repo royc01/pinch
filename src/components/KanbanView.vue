@@ -70,6 +70,14 @@
 
           <div class="header-actions">
             <button
+              v-if="currentView === 'kanban' && isKanbanBatchEditMode"
+              type="button"
+              class="exit-kanban-batch-edit-btn"
+              @click="exitKanbanBatchEditMode"
+            >
+              {{ t('taskManager.exitBatchEdit') }}
+            </button>
+            <button
               type="button"
               class="scope-btn ariaLabel"
              
@@ -505,69 +513,6 @@
       </div>
     </div>
 
-    <div
-      v-if="currentView === 'kanban' && isKanbanBatchEditMode"
-      class="kanban-batch-toolbar"
-    >
-      <div class="kanban-batch-toolbar-header">
-        <span class="kanban-batch-selected-count">{{ formatTemplate('kanbanView.selectedCountTemplate', { count: kanbanBatchSelectedCount }) }}</span>
-        <div class="kanban-batch-toolbar-actions">
-          <button type="button" class="kanban-batch-tool-btn" @click="toggleSelectAllVisibleKanbanTasks">
-            {{ allVisibleKanbanTasksSelected ? t('taskManager.cancelSelectAll') : t('kanbanView.selectAllCurrentView') }}
-          </button>
-          <button
-            type="button"
-            class="kanban-batch-tool-btn"
-            :disabled="kanbanBatchSelectedCount === 0"
-            @click="clearKanbanBatchSelection"
-          >
-            {{ t('taskManager.clearSelection') }}
-          </button>
-        </div>
-      </div>
-      <div class="kanban-batch-edit-grid">
-        <label class="kanban-batch-field">
-          <span>{{ t('taskManager.status') }}</span>
-          <SySelect
-            :model-value="kanbanBatchEditStatus"
-            :options="kanbanBatchStatusOptions"
-            @update:model-value="kanbanBatchEditStatus = String($event || '')"
-          />
-        </label>
-        <label class="kanban-batch-field">
-          <span>{{ t('taskManager.priority') }}</span>
-          <SySelect
-            :model-value="kanbanBatchEditPriority"
-            :options="kanbanBatchPriorityOptions"
-            @update:model-value="kanbanBatchEditPriority = String($event || '')"
-          />
-        </label>
-        <label class="kanban-batch-field">
-          <span>{{ t('taskManager.batchTagAction') }}</span>
-          <SySelect
-            :model-value="kanbanBatchEditTagAction"
-            :options="kanbanBatchTagActionOptions"
-            @update:model-value="setKanbanBatchEditTagAction"
-          />
-        </label>
-        <label class="kanban-batch-field">
-          <span>{{ t('taskManager.tags') }}</span>
-          <SySelect
-            :model-value="kanbanBatchEditGroupId"
-            :options="kanbanBatchGroupOptions"
-            @update:model-value="kanbanBatchEditGroupId = String($event || '')"
-          />
-        </label>
-        <button
-          type="button"
-          class="kanban-batch-apply-btn"
-          :disabled="!canApplyKanbanBatchEdit"
-          @click="applyKanbanBatchEdit"
-        >
-          {{ isKanbanBatchApplying ? t('taskManager.applying') : t('taskManager.applyToSelected') }}
-        </button>
-      </div>
-    </div>
     <div v-if="loading" class="loading">{{ t('taskManager.loading') }}</div>
     <div
       v-else-if="currentView === 'kanban' && isSettingsLoaded"
@@ -1240,6 +1185,62 @@
       @clear="clearTableFilters"
       @toggle="handleTableFilterToggle"
     />
+
+    <Teleport to="body">
+      <div
+        v-if="kanbanBatchMenuVisible"
+        ref="kanbanBatchMenuRef"
+        class="kanban-batch-context-menu"
+        :style="kanbanBatchMenuStyle"
+        @contextmenu.prevent
+        @mousedown.stop
+      >
+        <div class="kanban-batch-context-menu-header">
+          <span>{{ formatTemplate('kanbanView.selectedCountTemplate', { count: kanbanBatchSelectedCount }) }}</span>
+          <button type="button" class="kanban-batch-context-menu-close" :aria-label="t('taskManager.closeEditor')" @click="closeKanbanBatchMenu">×</button>
+        </div>
+        <button type="button" class="kanban-batch-context-menu-item" @mouseenter="kanbanBatchMenuSubmenu = null; kanbanBatchTagSubmenuAction = null" @click="toggleSelectAllVisibleKanbanTasks">
+          {{ allVisibleKanbanTasksSelected ? t('taskManager.cancelSelectAll') : t('kanbanView.selectAllCurrentView') }}
+        </button>
+        <button type="button" class="kanban-batch-context-menu-item" :disabled="kanbanBatchSelectedCount === 0" @mouseenter="kanbanBatchMenuSubmenu = null; kanbanBatchTagSubmenuAction = null" @click="clearKanbanBatchSelection">
+          {{ t('taskManager.clearSelection') }}
+        </button>
+        <div class="kanban-batch-context-menu-divider"></div>
+        <div class="kanban-batch-menu-item-with-submenu" @mouseenter="kanbanBatchMenuSubmenu = 'status'; kanbanBatchTagSubmenuAction = null">
+          <button type="button" class="kanban-batch-context-menu-item">
+            <span>{{ t('taskManager.status') }}</span><span class="kanban-batch-context-menu-arrow">›</span>
+          </button>
+          <div v-if="kanbanBatchMenuSubmenu === 'status'" class="kanban-batch-context-submenu">
+            <button v-for="option in kanbanBatchStatusOptions.filter(option => option.value)" :key="option.value" type="button" class="kanban-batch-context-menu-item" :disabled="isKanbanBatchApplying" @click="applyKanbanBatchStatusEdit(String(option.value))">
+              {{ option.text }}
+            </button>
+          </div>
+        </div>
+        <div class="kanban-batch-menu-item-with-submenu" @mouseenter="kanbanBatchMenuSubmenu = 'priority'; kanbanBatchTagSubmenuAction = null">
+          <button type="button" class="kanban-batch-context-menu-item">
+            <span>{{ t('taskManager.priority') }}</span><span class="kanban-batch-context-menu-arrow">›</span>
+          </button>
+          <div v-if="kanbanBatchMenuSubmenu === 'priority'" class="kanban-batch-context-submenu">
+            <button v-for="option in kanbanBatchPriorityOptions.filter(option => option.value)" :key="option.value" type="button" class="kanban-batch-context-menu-item" :disabled="isKanbanBatchApplying" @click="applyKanbanBatchPriorityEdit(String(option.value))">
+              {{ option.text }}
+            </button>
+          </div>
+        </div>
+        <div v-for="action in kanbanBatchTagActionOptions" :key="action.value" class="kanban-batch-menu-item-with-submenu" @mouseenter="kanbanBatchMenuSubmenu = null; kanbanBatchTagSubmenuAction = action.value">
+          <button type="button" class="kanban-batch-context-menu-item">
+            <span>{{ action.text }}</span><span class="kanban-batch-context-menu-arrow">›</span>
+          </button>
+          <div v-if="kanbanBatchTagSubmenuAction === action.value" class="kanban-batch-context-submenu">
+            <button v-for="option in getKanbanBatchTagOptions(action.value)" :key="option.value" type="button" class="kanban-batch-context-menu-item" :disabled="isKanbanBatchApplying" @click="applyKanbanBatchTagEdit(action.value, option.value)">
+              {{ option.text }}
+            </button>
+          </div>
+        </div>
+        <button type="button" class="kanban-batch-context-menu-item" :disabled="isKanbanBatchApplying" @mouseenter="kanbanBatchMenuSubmenu = null; kanbanBatchTagSubmenuAction = null" @click="clearKanbanBatchTags">
+          {{ t('kanbanView.clearBatchTags') }}
+        </button>
+      </div>
+    </Teleport>
 
     <Teleport to="body">
       <TaskEditorPanelShell
@@ -2540,6 +2541,11 @@ const isMobileTableSearchExpanded = ref(false);
 const kanbanBoardRef = ref<HTMLElement | null>(null);
 const isKanbanBatchEditMode = ref(false);
 const kanbanBatchSelectedTaskIds = ref<Set<string>>(new Set());
+const kanbanBatchMenuVisible = ref(false);
+const kanbanBatchMenuRef = ref<HTMLElement | null>(null);
+const kanbanBatchMenuStyle = ref<Record<string, string>>({});
+const kanbanBatchMenuSubmenu = ref<'status' | 'priority' | null>(null);
+const kanbanBatchTagSubmenuAction = ref<TaskTagBatchAction | null>(null);
 const kanbanBatchEditStatus = ref<string>('');
 const kanbanBatchEditPriority = ref<string>('');
 const kanbanBatchEditTagAction = ref<BatchTagActionSelection>('set-primary');
@@ -7518,6 +7524,7 @@ function clearKanbanBatchSelection(): void {
 
 function exitKanbanBatchEditMode(): void {
   finishKanbanBatchLassoSelection();
+  closeKanbanBatchMenu();
   isKanbanBatchEditMode.value = false;
   clearKanbanBatchSelection();
   resetKanbanBatchEditInputs();
@@ -7702,6 +7709,66 @@ function toggleKanbanTaskBatchSelection(taskId: string): void {
   kanbanBatchSelectedTaskIds.value = next;
 }
 
+function closeKanbanBatchMenu(): void {
+  kanbanBatchMenuVisible.value = false;
+  kanbanBatchMenuSubmenu.value = null;
+  kanbanBatchTagSubmenuAction.value = null;
+}
+
+function openKanbanBatchMenu(task: Task, event: MouseEvent): void {
+  event.preventDefault();
+  if (kanbanBatchSelectedTaskIds.value.size === 0) {
+    kanbanBatchSelectedTaskIds.value = new Set([task.id]);
+  }
+  const padding = 12;
+  const menuWidth = 300;
+  const menuHeight = 390;
+  kanbanBatchMenuStyle.value = {
+    left: `${Math.min(event.clientX + 8, Math.max(padding, window.innerWidth - menuWidth - padding))}px`,
+    top: `${Math.min(event.clientY + 8, Math.max(padding, window.innerHeight - menuHeight - padding))}px`
+  };
+  kanbanBatchMenuSubmenu.value = null;
+  kanbanBatchTagSubmenuAction.value = null;
+  kanbanBatchMenuVisible.value = true;
+}
+
+async function applyKanbanBatchEditFromMenu(): Promise<void> {
+  await applyKanbanBatchEdit();
+  closeKanbanBatchMenu();
+}
+
+function getKanbanBatchTagOptions(action: TaskTagBatchAction): Array<{ value: string; text: string }> {
+  return [
+    ...visibleTaskGroups.value.map(group => ({ value: group.id, text: group.name }))
+  ];
+}
+
+async function applyKanbanBatchStatusEdit(status: string): Promise<void> {
+  kanbanBatchEditStatus.value = status;
+  kanbanBatchEditPriority.value = '';
+  kanbanBatchEditGroupId.value = '';
+  await applyKanbanBatchEditFromMenu();
+}
+
+async function applyKanbanBatchPriorityEdit(priority: string): Promise<void> {
+  kanbanBatchEditStatus.value = '';
+  kanbanBatchEditPriority.value = priority;
+  kanbanBatchEditGroupId.value = '';
+  await applyKanbanBatchEditFromMenu();
+}
+
+async function applyKanbanBatchTagEdit(action: TaskTagBatchAction, groupId: string): Promise<void> {
+  kanbanBatchEditStatus.value = '';
+  kanbanBatchEditPriority.value = '';
+  setKanbanBatchEditTagAction(action);
+  kanbanBatchEditGroupId.value = groupId;
+  await applyKanbanBatchEditFromMenu();
+}
+
+async function clearKanbanBatchTags(): Promise<void> {
+  await applyKanbanBatchTagEdit('set-primary', TASK_GROUP_NONE_ID);
+}
+
 function toggleSelectAllVisibleKanbanTasks(): void {
   if (!isKanbanBatchEditMode.value) {
     return;
@@ -7782,7 +7849,11 @@ function handleKanbanTaskCardClick(task: Task, event?: MouseEvent): void {
 }
 
 function handleKanbanTaskContextMenu(task: Task, event: MouseEvent): void {
-  if (isKanbanBatchEditMode.value || isKanbanBatchCardClickSuppressed()) {
+  if (isKanbanBatchEditMode.value) {
+    openKanbanBatchMenu(task, event);
+    return;
+  }
+  if (isKanbanBatchCardClickSuppressed()) {
     return;
   }
   const target = event.target instanceof Element
@@ -11859,6 +11930,12 @@ function handleKanbanEditorOutsideClick(event: MouseEvent): void {
     }
     closeDocumentTabContextMenu();
   }
+  if (kanbanBatchMenuVisible.value) {
+    if (kanbanBatchMenuRef.value?.contains(target)) {
+      return;
+    }
+    closeKanbanBatchMenu();
+  }
   if (taskViewGroupMenuVisible.value) {
     if (taskViewGroupMenuControlRef.value?.contains(target)) {
       return;
@@ -11906,6 +11983,10 @@ function handleKanbanEditorKeydown(event: KeyboardEvent): void {
   }
   if (documentTabContextMenu.value) {
     closeDocumentTabContextMenu();
+    return;
+  }
+  if (kanbanBatchMenuVisible.value) {
+    closeKanbanBatchMenu();
     return;
   }
   if (taskViewGroupMenuVisible.value) {
@@ -15610,104 +15691,98 @@ watch(kanbanColumns, () => {
   color: var(--b3-theme-background);
 }
 
-.kanban-batch-toolbar {
-  margin:0 10px 10px;
+.kanban-batch-context-menu {
+  position: fixed;
+  z-index: 320;
+  width: 200px;
   padding: 10px;
+  border: 1px solid var(--b3-border-color);
   border-radius: 10px;
-  background: var(--b3-list-hover);
-  box-shadow: #0000000a 0 1px 4px;
+  background: var(--b3-theme-background);
+  box-shadow: var(--pinch-menu-shadow);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.kanban-batch-toolbar-header {
+.kanban-batch-context-menu-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.kanban-batch-selected-count {
-  font-size: 12px;
   color: var(--b3-theme-on-surface);
+  font-size: 12px;
   font-weight: 600;
 }
 
-.kanban-batch-toolbar-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.kanban-batch-context-menu-close {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
 }
 
-.kanban-batch-tool-btn {
-  border: none;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 6px;
+.kanban-batch-context-menu-close:hover,
+.kanban-batch-context-menu-item:hover {
   background: var(--b3-list-hover);
-  color: var(--b3-theme-on-surface);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 
-.kanban-batch-tool-btn:hover {
-  color: var(--b3-theme-on-background);
+.kanban-batch-context-menu-divider {
+  height: 1px;
+  margin: 1px -2px;
+  background: var(--b3-border-color);
 }
 
-.kanban-batch-tool-btn:disabled {
-  opacity: 0.56;
-  cursor: not-allowed;
+.kanban-batch-menu-item-with-submenu {
+  position: relative;
 }
 
-.kanban-batch-edit-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: flex-end;
-}
-
-.kanban-batch-field {
-  min-width: 0;
-  flex: 1 1 120px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.kanban-batch-field > span {
-  font-size: 11px;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.76;
-}
-
-.kanban-batch-field :deep(.b3-select) {
+.kanban-batch-context-menu-item {
   width: 100%;
-}
-
-.kanban-batch-apply-btn {
-  border: none;
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 7px;
-  background: #f98f7a;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
   cursor: pointer;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  font-size: 13px;
 }
 
-.kanban-batch-apply-btn:hover {
-  transform: translateY(-1px);
-}
-
-.kanban-batch-apply-btn:disabled {
-  opacity: 0.52;
+.kanban-batch-context-menu-item:disabled {
   cursor: not-allowed;
-  transform: none;
+  opacity: 0.56;
+}
+
+.kanban-batch-context-menu-arrow {
+  color: var(--b3-theme-on-surface);
+  opacity: 0.64;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.kanban-batch-context-submenu {
+  position: absolute;
+  z-index: 1;
+  left: calc(100% + 6px);
+  top: -10px;
+  width: 190px;
+  max-height: min(420px, calc(100vh - 24px));
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: var(--pinch-menu-shadow);
 }
 
 .task-filter-count {
@@ -15905,6 +15980,19 @@ watch(kanbanColumns, () => {
   margin-left: auto;
   gap: 6px;
 }
+
+.exit-kanban-batch-edit-btn {
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: #f98f7a;
+  color: var(--b3-theme-background);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 
 .kanban-group-switch {
   display: inline-flex;
@@ -16231,13 +16319,12 @@ watch(kanbanColumns, () => {
     max-width: 100%;
   }
 
-  .kanban-batch-edit-grid {
-    flex-direction: column;
-    align-items: stretch;
+  .kanban-batch-context-menu {
+    width: min(300px, calc(100vw - 24px));
   }
 
-  .kanban-batch-apply-btn {
-    width: 100%;
+  .kanban-batch-context-submenu {
+    width: min(190px, calc(100vw - 24px));
   }
 }
 

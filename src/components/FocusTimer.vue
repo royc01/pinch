@@ -570,7 +570,7 @@ import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 import { useI18n } from '@/composables/useI18n';
 import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
 import { useUserSettings } from '@/composables/useUserSettings';
-import { getCustomFocusAudioUrl, playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
+import { getStoredFocusAudioUrl, playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
 import { awardFocusSession } from '@/rewardRepository';
 import FocusTargetIcon from '@/components/FocusTargetIcon.vue';
 import {
@@ -655,11 +655,11 @@ const soundOptions: Sound[] = [
 ];
 
 const audioFiles: Record<string, string> = {
-  rain: '/plugins/pinch/audio/rain.ogg',
-  jungle: '/plugins/pinch/audio/jungle.ogg',
-  waves: '/plugins/pinch/audio/waves.ogg',
-  campfire: '/plugins/pinch/audio/campfire.ogg',
-  river: '/plugins/pinch/audio/river.ogg'
+  rain: 'rain.ogg',
+  jungle: 'jungle.ogg',
+  waves: 'waves.ogg',
+  campfire: 'campfire.ogg',
+  river: 'river.ogg'
 };
 
 const githubAudioFiles: Record<string, string> = {
@@ -1113,16 +1113,17 @@ const selectSound = (sound: Sound) => {
   }
 };
 
-const playAudio = () => {
+const playAudio = async () => {
   if (selectedSound.value.id === 'none') return;
 
   if (audio.value && !audio.value.paused) {
     stopAudio();
   }
 
-  const source = selectedSound.value.id === 'custom'
-    ? getCustomFocusAudioUrl(userSettings.focus.customWhiteNoiseFile)
+  const fileName = selectedSound.value.id === 'custom'
+    ? userSettings.focus.customWhiteNoiseFile
     : audioFiles[selectedSound.value.id];
+  const source = await getStoredFocusAudioUrl(fileName);
   if (!source) return;
   audio.value = new Audio(source);
   audio.value.loop = true;
@@ -1147,13 +1148,13 @@ const downloadAudioFiles = async () => {
     const total = soundIds.length;
     let downloadedCount = 0;
 
-    const dirResult = await readDir('/data/plugins/pinch/audio');
+    const dirResult = await readDir('/data/storage/petal/pinch/audio');
     const existingFiles = Array.isArray(dirResult) ? dirResult.map((f: any) => f.name) : [];
 
     for (let i = 0; i < total; i++) {
       const soundId = soundIds[i];
       const fileName = `${soundId}.ogg`;
-      const localPath = `/data/plugins/pinch/audio/${fileName}`;
+      const localPath = `/data/storage/petal/pinch/audio/${fileName}`;
 
       if (existingFiles.includes(fileName)) {
         downloadedCount++;
@@ -1216,7 +1217,8 @@ const {
   settings: computed(() => userSettings.focus),
   notify: (title, body) => showNotification(title, body, '☕'),
   playSound: () => {
-    if (!playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, 0.3)) playTaskCompletionSound(0.3);
+    void playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, 0.3)
+      .then(played => { if (!played) playTaskCompletionSound(0.3); });
   },
   getText: (key) => ({
     startTitle: t('focusTimer.microBreakStartTitle'),
@@ -1636,7 +1638,7 @@ const startPhaseTimer = () => {
 };
 
 const playCompleteSound = async () => {
-  if (playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, 0.3)) return;
+  if (await playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, 0.3)) return;
   try {
     await initAudioContext();
 
@@ -1689,8 +1691,8 @@ const startTimer = () => {
 
   initAudioContext().catch(() => {});
   prepareTaskCompletionSound();
-  prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
-  prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
+  void prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
+  void prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
 
   startMicroBreakReminder();
   startPhaseTimer();
@@ -1710,8 +1712,8 @@ const resumeTimer = () => {
   isRunning.value = true;
   isPaused.value = false;
   prepareTaskCompletionSound();
-  prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
-  prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
+  void prepareCustomFocusAudio(userSettings.focus.customCompletionSoundFile);
+  void prepareCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile);
 
   startMicroBreakReminder();
   startPhaseTimer();
@@ -1952,7 +1954,7 @@ onMounted(async () => {
     await loadMonthlyRecords();
     await loadFocusSessionRecords();
 
-    const dirResult = await readDir('/data/plugins/pinch/audio');
+    const dirResult = await readDir('/data/storage/petal/pinch/audio');
     const existingFiles = Array.isArray(dirResult) ? dirResult.map((f: any) => f.name) : [];
 
     const soundIds = ['rain', 'jungle', 'waves', 'campfire', 'river'];
