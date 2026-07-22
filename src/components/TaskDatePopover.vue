@@ -152,14 +152,6 @@
             </div>
           </div>
 
-          <TaskRepeatEditor
-            v-if="showRepeatEditor"
-            class="context-menu-section date-popover-repeat-section"
-            :repeat-frequency="repeatFrequency"
-            :repeat-rule="repeatRule"
-            :base-date="startDate || modelValue"
-            @saveRepeatRule="$emit('saveRepeatRule', $event)"
-          />
         </div>
       </div>
     </div>
@@ -170,8 +162,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
-import TaskRepeatEditor from '@/components/TaskRepeatEditor.vue';
-import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
 import { useI18n } from '@/composables/useI18n';
 
 type DateQuickKey = 'today' | 'tomorrow' | 'weekend' | 'nextMonday' | 'thisWeek' | 'thisMonth' | 'thisYear';
@@ -201,9 +191,6 @@ const props = withDefaults(defineProps<{
   startTime?: string;
   dueTime?: string;
   quickMode?: 'default' | 'goal';
-  showRepeatEditor?: boolean;
-  repeatFrequency?: RepeatFrequency;
-  repeatRule?: RepeatRule | null;
 }>(), {
   floating: true,
   autoClose: true,
@@ -211,10 +198,7 @@ const props = withDefaults(defineProps<{
   startDate: '',
   startTime: '',
   dueTime: '',
-  quickMode: 'default',
-  showRepeatEditor: false,
-  repeatFrequency: 'none',
-  repeatRule: null
+  quickMode: 'default'
 });
 
 const emit = defineEmits<{
@@ -223,7 +207,6 @@ const emit = defineEmits<{
   'update:startDate': [value: string];
   'update:startTime': [value: string];
   'update:dueTime': [value: string];
-  saveRepeatRule: [value: RepeatFrequency | RepeatRuleInput];
   close: [];
 }>();
 
@@ -245,7 +228,6 @@ const weekDayLabels = [
   t('taskRepeat.weekdaySunShort')
 ];
 const showTaskEditorDetails = computed(() => props.showTaskEditorDetails);
-const showRepeatEditor = computed(() => props.showRepeatEditor);
 
 const monthLabel = computed(() => {
   const cursor = monthCursor.value;

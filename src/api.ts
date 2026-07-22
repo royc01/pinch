@@ -1671,6 +1671,8 @@ export interface Task {
   repeatFrequency?: RepeatFrequency;
   repeatInstanceDate?: string;
   isVirtual?: boolean;
+  /** Transient flag for a virtual recurrence whose occurrence spans a date window. */
+  isRepeatWindow?: boolean;
 }
 
 export interface TaskFocusEstimate {

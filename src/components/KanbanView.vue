@@ -1730,7 +1730,7 @@ import { syncTaskEditorDraftFromAttributeChanges } from '@/utils/taskEditorDraft
 import { createTaskStatusAttributeSync } from '@/utils/taskStatusAttributeSync';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
-import { getLiveTaskElement, getTaskElementFromDoc, parseTaskCompleted, parseTaskCompletedFromElement } from '@/utils/taskDom';
+import { getTaskElementFromDoc, parseTaskCompleted } from '@/utils/taskDom';
 import {
   applyRepeatRuleOptimisticToTasks,
   getDocumentCreationSortKey,
@@ -3111,28 +3111,6 @@ const allVisibleKanbanTasksSelected = computed(() => {
     return false;
   }
   return currentTasks.every(task => kanbanBatchSelectedTaskIds.value.has(task.id));
-});
-const kanbanBatchGroupOptions = computed(() => [
-  { value: '', text: t('taskManager.tagNoChange') },
-  ...(kanbanBatchEditTagAction.value === 'set-primary'
-    ? [{ value: TASK_GROUP_NONE_ID, text: t('taskManager.noTag') }]
-    : []),
-  ...visibleTaskGroups.value.map(group => ({
-    value: group.id,
-    text: group.name || t('taskManager.untitledTag')
-  }))
-]);
-const canApplyKanbanBatchEdit = computed(() => {
-  if (isKanbanBatchApplying.value || kanbanBatchSelectedCount.value === 0) {
-    return false;
-  }
-  if (kanbanBatchEditStatus.value) {
-    return true;
-  }
-  if (kanbanBatchEditPriority.value) {
-    return true;
-  }
-  return kanbanBatchEditGroupId.value.trim().length > 0;
 });
 const kanbanBatchLassoStyle = computed<Record<string, string>>(() => {
   if (!kanbanBatchLassoBox.value.active) {
@@ -7737,7 +7715,7 @@ async function applyKanbanBatchEditFromMenu(): Promise<void> {
   closeKanbanBatchMenu();
 }
 
-function getKanbanBatchTagOptions(action: TaskTagBatchAction): Array<{ value: string; text: string }> {
+function getKanbanBatchTagOptions(_action?: TaskTagBatchAction): Array<{ value: string; text: string }> {
   return [
     ...visibleTaskGroups.value.map(group => ({ value: group.id, text: group.name }))
   ];

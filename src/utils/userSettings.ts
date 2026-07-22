@@ -18,6 +18,9 @@ export interface UserSettings {
     microBreakDurationSeconds?: number;
     shortBreakPopup?: boolean;
     focusCompletePopup?: boolean;
+    whiteNoiseEnabled?: boolean;
+    selectedWhiteNoiseId?: string;
+    whiteNoiseVolume?: number;
     customWhiteNoiseFile?: string;
     customCompletionSoundFile?: string;
     customMicroBreakSoundFile?: string;
@@ -97,7 +100,7 @@ export interface UserSettings {
     defaultTaskCreateNotebook?: string;
     selectedGroupId?: string;
     taskListGroupBy?: 'none' | TaskViewGroupMode;
-    taskListViewMode?: 'kanban' | 'list';
+    taskListViewMode?: 'kanban' | 'list' | 'timeline';
     showTaskCardDetails?: boolean;
     taskStatusFilters?: string[];
     taskPriorityFilters?: string[];
@@ -124,7 +127,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
     microBreakMaxIntervalMinutes: 5,
     microBreakDurationSeconds: 10,
     shortBreakPopup: false,
-    focusCompletePopup: false
+    focusCompletePopup: false,
+    whiteNoiseEnabled: false,
+    selectedWhiteNoiseId: 'rain',
+    whiteNoiseVolume: 0.3
   },
   kanban: {
     currentView: 'table',

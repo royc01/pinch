@@ -59,8 +59,8 @@ export function translate(key: string, fallback?: string): string {
   const siyuanMessages = window.siyuan?.languages as LocaleMessages | undefined;
   const currentLocale = getCurrentLocale();
   const candidates = [
-    getMessageValue(siyuanMessages, key),
     getMessageValue(bundledMessages[currentLocale], key),
+    getMessageValue(siyuanMessages, key),
     getMessageValue(bundledMessages.zh_CN, key),
     getMessageValue(bundledMessages.en_US, key),
     fallback

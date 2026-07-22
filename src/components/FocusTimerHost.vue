@@ -45,6 +45,7 @@ import {
   type FocusTimerLinkedTarget
 } from '@/utils/focusTimerTarget';
 import type { FocusTimerHandoffState } from '@/utils/focusTimerHandoff';
+import { useUserSettings } from '@/composables/useUserSettings';
 
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 
@@ -53,6 +54,7 @@ const floatingFocusEnabled = ref(false);
 const linkedTarget = ref<FocusTimerLinkedTarget | null>(null);
 const capsuleMicroBreakVisible = ref(false);
 const capsuleMicroBreakRemainingSeconds = ref(0);
+const { updateSettings } = useUserSettings();
 const floatingFocusCapsuleRef = ref<{
   openSettingsPanel: () => void;
   acceptPanelHandoff: (state: FocusTimerHandoffState) => void;
@@ -127,6 +129,9 @@ function handleCapsuleMicroBreakChange(visible: boolean, remainingSeconds: numbe
 
 function handleFocusSettingsUpdated(event: Event): void {
   const settings = (event as CustomEvent<Record<string, unknown> | undefined>).detail;
+  if (settings && typeof settings === 'object') {
+    void updateSettings('focus', settings);
+  }
   syncDetachedFocusWindowFocusSettings(settings);
 }
 

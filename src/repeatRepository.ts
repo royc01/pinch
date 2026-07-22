@@ -2,24 +2,38 @@ import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
 import { formatDate } from '@/composables/useDateUtils';
 import { translate } from '@/composables/useI18n';
+import solarLunar from '@/utils/solarLunar.js';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly' | 'custom';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
 type RepeatTaskStatus = 'pending' | 'in-progress' | 'delayed' | 'completed' | 'cancelled';
-export type RepeatRuleUnit = 'day' | 'week' | 'month';
+export type RepeatRuleUnit = 'day' | 'week' | 'month' | 'year';
+export type RepeatRuleCalendar = 'solar' | 'lunar';
 
 export interface RepeatRule {
   unit: RepeatRuleUnit;
   interval: number;
   weekDays?: number[];
   monthDay?: number;
+  monthDays?: number[];
+  /** A single monthly task that can be completed anywhere in this day range. */
+  windowStartDay?: number;
+  windowEndDay?: number;
+  yearDays?: string[];
+  calendar?: RepeatRuleCalendar;
   monthMode?: 'day-of-month' | 'last-day';
 }
 
 export interface RepeatRuleInput {
   frequency: RepeatFrequency;
   rule?: RepeatRule;
+  termination?: RepeatTermination;
 }
+
+export type RepeatTermination =
+  | { type: 'never' }
+  | { type: 'date'; date: string }
+  | { type: 'count'; count: number };
 
 const REPEAT_SERIES_FILE = 'Pinch-repeat-series.json';
 const REPEAT_RECORDS_FILE = 'Pinch-repeat-records.json';
@@ -38,6 +52,7 @@ export interface RepeatSeries {
   monthDay?: number;
   startDate: string;
   endDate?: string;
+  termination?: RepeatTermination;
   spanDays: number;
   title: string;
   description?: string;
@@ -93,6 +108,7 @@ export interface RepeatTaskLike {
   repeatFrequency?: RepeatFrequency;
   repeatInstanceDate?: string;
   isVirtual?: boolean;
+  isRepeatWindow?: boolean;
 }
 
 export interface RepeatMaterializeOptions {
@@ -113,9 +129,12 @@ function cloneRepeatSeries(series: RepeatSeries): RepeatSeries {
     rule: series.rule
       ? {
         ...series.rule,
-        weekDays: series.rule.weekDays ? [...series.rule.weekDays] : undefined
+        weekDays: series.rule.weekDays ? [...series.rule.weekDays] : undefined,
+        monthDays: series.rule.monthDays ? [...series.rule.monthDays] : undefined,
+        yearDays: series.rule.yearDays ? [...series.rule.yearDays] : undefined
       }
       : undefined,
+    termination: series.termination ? { ...series.termination } : undefined,
     weekDays: series.weekDays ? [...series.weekDays] : undefined,
     tags: Array.isArray(series.tags) ? [...series.tags] : []
   };
@@ -194,10 +213,32 @@ function normalizeMonthDay(day: unknown): number | undefined {
   return monthDay;
 }
 
+function normalizeMonthDays(days: unknown, max = 31): number[] | undefined {
+  if (!Array.isArray(days)) return undefined;
+  const normalized = Array.from(new Set(
+    days
+      .map(day => Number(day))
+      .filter(day => Number.isInteger(day) && day >= 1 && day <= max)
+  )).sort((a, b) => a - b);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeYearDays(days: unknown): string[] | undefined {
+  if (!Array.isArray(days)) return undefined;
+  const normalized = Array.from(new Set(
+    days
+      .map(day => typeof day === 'string' ? day.trim() : '')
+      .filter(day => /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(day))
+  )).sort();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function normalizeRepeatRule(raw: unknown): RepeatRule | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const item = raw as Partial<RepeatRule>;
-  const unit = item.unit === 'day' || item.unit === 'week' || item.unit === 'month' ? item.unit : undefined;
+  const unit = item.unit === 'day' || item.unit === 'week' || item.unit === 'month' || item.unit === 'year'
+    ? item.unit
+    : undefined;
   if (!unit) return undefined;
 
   const rule: RepeatRule = {
@@ -213,6 +254,22 @@ function normalizeRepeatRule(raw: unknown): RepeatRule | undefined {
     const monthMode = item.monthMode === 'last-day' ? 'last-day' : 'day-of-month';
     rule.monthMode = monthMode;
     rule.monthDay = monthMode === 'day-of-month' ? normalizeMonthDay(item.monthDay) : undefined;
+    rule.monthDays = normalizeMonthDays(item.monthDays, item.calendar === 'lunar' ? 30 : 31);
+    const windowStartDay = normalizeMonthDay(item.windowStartDay);
+    const windowEndDay = normalizeMonthDay(item.windowEndDay);
+    if (windowStartDay && windowEndDay && windowEndDay >= windowStartDay) {
+      rule.windowStartDay = windowStartDay;
+      rule.windowEndDay = windowEndDay;
+      // A window is one occurrence, not a collection of daily occurrences.
+      rule.monthDays = undefined;
+      rule.monthDay = windowStartDay;
+    }
+    rule.calendar = item.calendar === 'lunar' ? 'lunar' : 'solar';
+  }
+
+  if (unit === 'year') {
+    rule.calendar = item.calendar === 'lunar' ? 'lunar' : 'solar';
+    rule.yearDays = normalizeYearDays(item.yearDays);
   }
 
   return rule;
@@ -251,14 +308,39 @@ function buildDefaultRepeatRule(
 
 function normalizeRepeatRuleInput(
   input: RepeatFrequency | RepeatRuleInput
-): { frequency: RepeatFrequency; rule?: RepeatRule } {
+): { frequency: RepeatFrequency; rule?: RepeatRule; termination?: RepeatTermination } {
   if (typeof input === 'string') {
     return { frequency: input };
   }
   return {
     frequency: input.frequency,
-    rule: normalizeRepeatRule(input.rule)
+    rule: normalizeRepeatRule(input.rule),
+    termination: normalizeRepeatTermination(input.termination)
   };
+}
+
+function normalizeRepeatTermination(raw: unknown): RepeatTermination | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const item = raw as Partial<RepeatTermination>;
+  if (item.type === 'never') return { type: 'never' };
+  if (item.type === 'date') {
+    const date = parseDate(typeof item.date === 'string' ? item.date : undefined);
+    return date ? { type: 'date', date: formatDate(date) } : undefined;
+  }
+  if (item.type === 'count') {
+    const count = Number(item.count);
+    return Number.isInteger(count) && count > 0 ? { type: 'count', count: Math.min(9999, count) } : undefined;
+  }
+  return undefined;
+}
+
+function getSeriesTerminationDate(series: RepeatSeries): Date | null {
+  if (series.termination) {
+    return series.termination.type === 'date'
+      ? parseDate(series.termination.date)
+      : null;
+  }
+  return parseDate(series.endDate);
 }
 
 function normalizeSpanDays(spanDays: unknown): number {
@@ -371,7 +453,7 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
   range: { start: Date; end: Date },
   includeTemplateDate = false
 ): T[] {
-  const seriesEndDate = parseDate(series.endDate);
+  const seriesEndDate = getSeriesTerminationDate(series);
   const effectiveRangeEnd = seriesEndDate || range.end;
   if (effectiveRangeEnd.getTime() < range.start.getTime()) {
     return [];
@@ -410,18 +492,28 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
         ? series.groupId.trim()
         : (Array.isArray(series.tags) ? series.tags.find(tag => typeof tag === 'string' && tag.trim())?.trim() : undefined));
 
+    const isRepeatWindow = series.rule?.unit === 'month'
+      && !!series.rule.windowStartDay
+      && !!series.rule.windowEndDay;
     virtualTasks.push({
       ...templateTask,
       id: buildVirtualTaskId(series.id, instanceDate),
       taskId: templateTask.taskId || templateTask.id,
       sourceBlockId: templateTask.sourceBlockId || templateTask.blockId || series.templateBlockId,
       isVirtual: true,
+      isRepeatWindow,
       repeatSeriesId: series.id,
       repeatFrequency: series.frequency,
       repeatInstanceDate: instanceDate,
       status,
       startDate: instanceDate,
-      dueDate: instanceDate,
+      dueDate: isRepeatWindow ? (() => {
+        const due = new Date(cursor);
+        // The rule is the source of truth: spanDays can be absent in older
+        // persisted series, while the window bounds are always explicit.
+        due.setDate(due.getDate() + (series.rule!.windowEndDay! - series.rule!.windowStartDay!));
+        return formatDate(due);
+      })() : instanceDate,
       startTime: series.startTime || templateTask.startTime,
       dueTime: series.dueTime || templateTask.dueTime,
       // Keep virtual instances aligned with latest template edits (title/priority/description/tags).
@@ -447,9 +539,25 @@ function matchesSeriesDate(series: RepeatSeries, date: Date): boolean {
   const start = parseDate(series.startDate);
   if (!start) return false;
   if (date < start) return false;
-  const end = parseDate(series.endDate);
+  const end = getSeriesTerminationDate(series);
   if (end && date > end) return false;
 
+  if (!matchesSeriesScheduleDate(series, start, date)) return false;
+
+  if (series.termination?.type !== 'count') return true;
+  let occurrences = 0;
+  const cursor = new Date(start);
+  while (cursor <= date) {
+    if (matchesSeriesScheduleDate(series, start, cursor)) {
+      occurrences += 1;
+      if (occurrences > series.termination.count) return false;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return true;
+}
+
+function matchesSeriesScheduleDate(series: RepeatSeries, start: Date, date: Date): boolean {
   const diffDays = daysBetween(start, date);
   if (diffDays < 0) return false;
 
@@ -502,8 +610,26 @@ function matchesRepeatRule(rule: RepeatRule, start: Date, date: Date, diffDays: 
     return diffWeeks % interval === 0;
   }
 
+  if (rule.unit === 'year') {
+    const yearDiff = date.getFullYear() - start.getFullYear();
+    if (yearDiff < 0 || yearDiff % interval !== 0) return false;
+    const dateParts = getRepeatRuleDateParts(rule, date);
+    return !!dateParts
+      && !dateParts.isLeap
+      && !!rule.yearDays?.includes(dateParts.monthDay);
+  }
+
   const monthDiff = (date.getFullYear() - start.getFullYear()) * 12 + (date.getMonth() - start.getMonth());
   if (monthDiff < 0 || monthDiff % interval !== 0) return false;
+
+  const dateParts = getRepeatRuleDateParts(rule, date);
+  if (!dateParts) return false;
+  if (rule.windowStartDay && rule.windowEndDay) {
+    return dateParts.dayOfMonth === rule.windowStartDay;
+  }
+  if (rule.monthDays?.length) {
+    return rule.monthDays.includes(dateParts.dayOfMonth);
+  }
 
   const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   if (rule.monthMode === 'last-day') {
@@ -512,6 +638,27 @@ function matchesRepeatRule(rule: RepeatRule, start: Date, date: Date, diffDays: 
 
   const expectedDay = Math.min(rule.monthDay || start.getDate(), lastDay);
   return date.getDate() === expectedDay;
+}
+
+function getRepeatRuleDateParts(rule: RepeatRule, date: Date): {
+  dayOfMonth: number;
+  monthDay: string;
+  isLeap: boolean;
+} | null {
+  if (rule.calendar !== 'lunar') {
+    return {
+      dayOfMonth: date.getDate(),
+      monthDay: `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+      isLeap: false
+    };
+  }
+  const lunar = solarLunar.solar2lunar(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  if (lunar === -1) return null;
+  return {
+    dayOfMonth: lunar.lDay,
+    monthDay: `${String(lunar.lMonth).padStart(2, '0')}-${String(lunar.lDay).padStart(2, '0')}`,
+    isLeap: lunar.isLeap === true
+  };
 }
 
 async function loadData<T>(file: string, fallback: T): Promise<T> {
@@ -556,14 +703,21 @@ function normalizeSeries(raw: unknown): RepeatSeries | null {
       normalizedWeekDays,
       normalizeMonthDay(item.monthDay)
     );
+  const isMonthlyWindow = normalizedRule.unit === 'month'
+    && !!normalizedRule.windowStartDay
+    && !!normalizedRule.windowEndDay;
   let normalizedEndDate: string | undefined;
   if (rawEndDate && rawEndDate.getTime() > startDate.getTime()) {
     normalizedEndDate = formatDate(rawEndDate);
-  } else if (normalizedSpanDays > 0) {
+  } else if (normalizedSpanDays > 0 && !isMonthlyWindow) {
     const derivedEnd = new Date(startDate);
     derivedEnd.setDate(derivedEnd.getDate() + normalizedSpanDays);
     normalizedEndDate = formatDate(derivedEnd);
   }
+  const normalizedTermination = normalizeRepeatTermination(item.termination)
+    || (isMonthlyWindow
+      ? { type: 'never' as const }
+      : (normalizedEndDate ? { type: 'date' as const, date: normalizedEndDate } : { type: 'never' as const }));
 
   return {
     id: typeof item.id === 'string' && item.id ? item.id : buildSeriesId(),
@@ -582,6 +736,7 @@ function normalizeSeries(raw: unknown): RepeatSeries | null {
     monthDay: frequency === 'monthly' ? normalizeMonthDay(item.monthDay) : undefined,
     startDate: formatDate(startDate),
     endDate: normalizedEndDate,
+    termination: normalizedTermination,
     spanDays: normalizedSpanDays,
     title: typeof item.title === 'string' && item.title.trim() ? item.title.trim() : translate('taskCard.repeatTask', 'Recurring task'),
     description: typeof item.description === 'string' ? item.description : '',
@@ -856,7 +1011,7 @@ export function notifyRepeatChanged(payload: {
 }
 
 export async function setTaskRepeatSeries(task: RepeatTaskLike, repeat: RepeatFrequency | RepeatRuleInput): Promise<RepeatSeries | null> {
-  const { frequency, rule } = normalizeRepeatRuleInput(repeat);
+  const { frequency, rule, termination } = normalizeRepeatRuleInput(repeat);
   const seriesList = await loadRepeatSeries();
   const existing = findSeriesForTask(seriesList, task);
 
@@ -908,6 +1063,11 @@ export async function setTaskRepeatSeries(task: RepeatTaskLike, repeat: RepeatFr
       frequency === 'weekly' ? [baseDateObj.getDay()] : undefined,
       frequency === 'monthly' ? (existing?.monthDay || baseDateObj.getDate()) : undefined
     );
+  const isMonthlyWindow = nextRule.unit === 'month' && !!nextRule.windowStartDay && !!nextRule.windowEndDay;
+  const nextTermination = termination || existing?.termination || (!isMonthlyWindow && normalizedEndDate
+    ? { type: 'date' as const, date: normalizedEndDate }
+    : (!isMonthlyWindow && existing?.endDate ? { type: 'date' as const, date: existing.endDate } : { type: 'never' as const }));
+  const terminationEndDate = nextTermination.type === 'date' ? nextTermination.date : undefined;
   const nextSeries: RepeatSeries = {
     id: existing?.id || buildSeriesId(),
     templateTaskId: existing?.templateTaskId || task.id,
@@ -926,11 +1086,12 @@ export async function setTaskRepeatSeries(task: RepeatTaskLike, repeat: RepeatFr
       ? (existing?.monthDay || baseDateObj.getDate())
       : (frequency === 'custom' && nextRule.unit === 'month' ? nextRule.monthDay : undefined),
     startDate: existing?.startDate || baseDate,
-    // A rendered instance's due date describes that occurrence, not the
-    // series cutoff. Preserve the existing cutoff when its frequency is
-    // changed from a context menu.
-    endDate: task.isVirtual ? existing?.endDate : (normalizedEndDate || existing?.endDate),
-    spanDays: calculateSpanDays(task),
+    // `endDate` is the recurrence cutoff. A task's duration lives in spanDays.
+    endDate: task.isVirtual ? existing?.endDate : terminationEndDate,
+    termination: nextTermination,
+    spanDays: isMonthlyWindow
+      ? nextRule.windowEndDay! - nextRule.windowStartDay!
+      : calculateSpanDays(task),
     title: task.title || existing?.title || translate('taskCard.repeatTask', 'Recurring task'),
     description: task.description || '',
     priority: task.priority || existing?.priority || 'none',
@@ -1129,7 +1290,9 @@ export async function rebuildAffectedRepeatTasks<T extends RepeatTaskLike>(
     repeatFrequency: targetSeries.frequency,
     repeatInstanceDate: undefined,
     startDate: targetSeries.startDate,
-    dueDate: targetSeries.endDate,
+    dueDate: targetSeries.spanDays > 0
+      ? formatDate(new Date(parseDate(targetSeries.startDate)!.getFullYear(), parseDate(targetSeries.startDate)!.getMonth(), parseDate(targetSeries.startDate)!.getDate() + targetSeries.spanDays))
+      : targetSeries.startDate,
     startTime: targetSeries.startTime,
     dueTime: targetSeries.dueTime,
     status: templateTask.status === 'pending' ? 'in-progress' as const : templateTask.status

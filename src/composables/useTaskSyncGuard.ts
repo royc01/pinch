@@ -27,6 +27,7 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
       task.repeatFrequency || '',
       task.repeatInstanceDate || '',
       task.isVirtual === true ? '1' : '0',
+      task.isRepeatWindow === true ? '1' : '0',
       task.reminderType || '',
       task.reminderCustomTime || '',
       task.backgroundColor || '',

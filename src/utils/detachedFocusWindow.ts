@@ -83,6 +83,12 @@ type DetachedFocusRequest =
     }
   | { type: 'open-linked-target' }
   | { type: 'open-focus-settings' }
+  | {
+      type: 'update-white-noise-settings';
+      whiteNoiseEnabled?: boolean;
+      selectedWhiteNoiseId?: string;
+      whiteNoiseVolume?: number;
+    }
   | { type: 'load-target-options'; mode?: FocusTargetPickerMode }
   | { type: 'set-linked-target'; target?: FocusTimerLinkedTarget | null }
   | { type: 'complete-linked-target'; target?: FocusTimerLinkedTarget | null }
@@ -91,7 +97,7 @@ type DetachedFocusRequest =
   | { type: 'set-compact'; compact?: boolean }
   | { type: 'set-progress-only'; progressOnly?: boolean }
   | { type: 'get-micro-break-settings' }
-  | { type: 'show-micro-break-dialog'; duration?: number; title?: string; body?: string }
+  | { type: 'show-micro-break-dialog'; duration?: number; title?: string; body?: string; variant?: 'micro-break' | 'short-break' | 'focus-complete' }
   | { type: 'hide-micro-break-dialog' }
   | { type: 'cancel-micro-break' };
 
@@ -118,6 +124,7 @@ let detachedFocusWindow: any | null = null;
 let detachedFocusWindowExpanded = false;
 let detachedFocusWindowCompact = false;
 let detachedFocusWindowProgressOnly = false;
+let detachedFocusWindowCollapsedPosition: { x: number; y: number } | null = null;
 let ipcHandlerRegistered = false;
 let focusSessionUnsubscribe: (() => void) | null = null;
 let latestLinkedTarget: FocusTimerLinkedTarget | null = null;
@@ -349,12 +356,12 @@ function closeBrowserWindow(windowLike: any): void {
   }
 }
 
-function getMicroBreakHostBounds(remote: RemoteLike): { width: number; height: number } {
+function getMicroBreakHostBounds(remote: RemoteLike): { x: number; y: number; width: number; height: number } {
   const candidates = [
     remote.getCurrentWindow?.(),
     ...(getElectronMain()?.BrowserWindow?.getAllWindows?.() || [])
   ];
-  let largestBounds: { width: number; height: number } | null = null;
+  let largestBounds: { x: number; y: number; width: number; height: number } | null = null;
 
   for (const candidate of candidates) {
     if (
@@ -366,7 +373,7 @@ function getMicroBreakHostBounds(remote: RemoteLike): { width: number; height: n
       continue;
     }
 
-    const bounds = candidate.getContentBounds?.() || candidate.getBounds?.();
+    const bounds = candidate.getBounds?.() || candidate.getContentBounds?.();
     if (
       !Number.isFinite(bounds?.width)
       || !Number.isFinite(bounds?.height)
@@ -377,11 +384,16 @@ function getMicroBreakHostBounds(remote: RemoteLike): { width: number; height: n
     }
 
     if (!largestBounds || bounds.width * bounds.height > largestBounds.width * largestBounds.height) {
-      largestBounds = { width: bounds.width, height: bounds.height };
+      largestBounds = {
+        x: Number.isFinite(bounds.x) ? bounds.x : 0,
+        y: Number.isFinite(bounds.y) ? bounds.y : 0,
+        width: bounds.width,
+        height: bounds.height
+      };
     }
   }
 
-  return largestBounds || { width: 1280, height: 800 };
+  return largestBounds || { x: 0, y: 0, width: 1280, height: 800 };
 }
 
 function closeDetachedFocusWindowFromEvent(event: unknown): void {
@@ -1967,6 +1979,14 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       campfire: 'campfire.ogg',
       river: 'river.ogg'
     };
+
+    function persistWhiteNoiseSettings() {
+      void request('update-white-noise-settings', {
+        whiteNoiseEnabled,
+        selectedWhiteNoiseId,
+        whiteNoiseVolume
+      });
+    }
     const storedAudioUrls = new Map();
 
     async function getStoredAudioUrl(path) {
@@ -2395,6 +2415,16 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       customWhiteNoiseFile = typeof nextSettings.customWhiteNoiseFile === 'string'
         ? nextSettings.customWhiteNoiseFile
         : '';
+      if (typeof nextSettings.whiteNoiseEnabled === 'boolean') {
+        whiteNoiseEnabled = nextSettings.whiteNoiseEnabled;
+      }
+      if (typeof nextSettings.selectedWhiteNoiseId === 'string') {
+        selectedWhiteNoiseId = nextSettings.selectedWhiteNoiseId;
+      }
+      if (Number.isFinite(nextSettings.whiteNoiseVolume)) {
+        whiteNoiseVolume = Math.max(0, Math.min(nextSettings.whiteNoiseVolume, 1));
+      }
+      renderWhiteNoise();
       if (state.isRunning && !state.isBreakMode) {
         void startMicroBreakReminder(microBreakSettings);
       }
@@ -3166,6 +3196,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       if (!whiteNoiseEnabled) stopWhiteNoise();
       else if (state.isRunning) playWhiteNoise();
       renderWhiteNoise();
+      persistWhiteNoiseSettings();
     });
 
     whiteNoiseOptionsEl.addEventListener('click', (event) => {
@@ -3174,6 +3205,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       selectedWhiteNoiseId = button.getAttribute('data-sound') || 'rain';
       if (state.isRunning) playWhiteNoise();
       renderWhiteNoise();
+      persistWhiteNoiseSettings();
     });
 
     whiteNoiseSettingsButtonEl.addEventListener('click', (event) => {
@@ -3185,6 +3217,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       whiteNoiseVolume = Number(whiteNoiseVolumeEl.value);
       if (whiteNoiseAudio) whiteNoiseAudio.volume = whiteNoiseVolume;
       renderWhiteNoise();
+      persistWhiteNoiseSettings();
     });
 
     targetButtonEl.addEventListener('click', (event) => {
@@ -3415,9 +3448,19 @@ function setDetachedFocusWindowExpanded(expanded: boolean): void {
     return;
   }
 
-  // Keep the capsule anchored in place while the detached window grows upward and leftward.
-  const nextX = bounds.x + (bounds.width - nextWidth);
-  const nextY = bounds.y + (bounds.height - nextHeight);
+  // The expanded popover occupies a larger window. Preserve the exact collapsed
+  // position and restore it directly rather than deriving it from resize bounds:
+  // transparent frameless windows can report dimensions at different stages of a
+  // resize, which otherwise produces a small positional drift after each click.
+  if (expanded) {
+    detachedFocusWindowCollapsedPosition = { x: bounds.x, y: bounds.y };
+  }
+  const nextX = expanded
+    ? bounds.x + (bounds.width - nextWidth)
+    : (detachedFocusWindowCollapsedPosition?.x ?? bounds.x + (bounds.width - nextWidth));
+  const nextY = expanded
+    ? bounds.y + (bounds.height - nextHeight)
+    : (detachedFocusWindowCollapsedPosition?.y ?? bounds.y + (bounds.height - nextHeight));
 
   detachedFocusWindow.setBounds?.({
     x: nextX,
@@ -3425,7 +3468,9 @@ function setDetachedFocusWindowExpanded(expanded: boolean): void {
     width: nextWidth,
     height: nextHeight
   }, false);
-  saveDetachedWindowBounds(detachedFocusWindow);
+  if (!expanded) {
+    detachedFocusWindowCollapsedPosition = null;
+  }
 }
 
 function setDetachedFocusWindowCompact(compact: boolean): void {
@@ -3463,22 +3508,47 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
       const theme = latestThemeSnapshot || getThemeSnapshot();
       const duration = Math.max(1, Math.floor(request.duration || DEFAULT_SETTINGS.focus.microBreakDurationSeconds || 10));
       const hostBounds = getMicroBreakHostBounds(remote);
-      const width = Math.max(320, Math.round(hostBounds.width * 0.8));
-      const height = Math.max(240, Math.round(hostBounds.height * 0.65));
+      const width = Math.max(320, Math.round(hostBounds.width));
+      const height = Math.max(240, Math.round(hostBounds.height));
       const requestedTitle = typeof request.title === 'string' ? request.title.trim() : '';
       const requestedBody = typeof request.body === 'string' ? request.body.trim() : '';
+      const variant = request.variant || 'micro-break';
       const title = escapeHtml(requestedTitle || translate('focusTimer.microBreakActiveTitle'));
       const body = escapeHtml(requestedBody || translate('focusTimer.microBreakActiveBody'));
       const secondSuffix = escapeHtml(translate('focusTimer.secondSuffix'));
-      const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;display:grid;place-items:center;min-height:100vh;background:transparent;font-family:${theme.fontFamily};}main{box-sizing:border-box;position:relative;width:100%;height:100%;padding:24px;border:1px solid ${theme.border};border-radius:12px;background:${theme.background};box-shadow:${theme.shadow};text-align:center;color:${theme.text};display:grid;place-content:center}button{position:absolute;top:12px;right:12px;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:${theme.subtleText};font-size:24px;line-height:1;cursor:pointer}button:hover{background:${theme.hover};color:${theme.text}}h1{margin:0;color:${theme.accent};font-size:18px}p{margin:8px 0 0}strong{display:block;margin-top:16px;color:${theme.accent};font-size:28px}</style></head><body><main><button id="close" type="button" aria-label="${escapeHtml(translate('common.close'))}" title="${escapeHtml(translate('common.close'))}">×</button><section><h1>${title}</h1><p>${body}</p><strong id="count">${duration}${secondSuffix}</strong></section></main><script>const {ipcRenderer}=require('electron');const channel=${serializeForScript(DETACHED_FOCUS_REQUEST_CHANNEL)};document.getElementById('close').addEventListener('click',()=>{ipcRenderer.invoke(channel,{type:'cancel-micro-break'}).catch(()=>{});window.close()});let n=${duration};setInterval(()=>{n-=1;document.getElementById('count').textContent=n+'${secondSuffix}';if(n<=0)window.close()},1000)</script></body></html>`;
+      const awardImageUrl = new URL('/plugins/pinch/images/award.jpg', window.location.origin).toString();
+      const teaImageUrl = new URL('/plugins/pinch/images/tea.jpg', window.location.origin).toString();
+      const randomImageUrl = new URL('/plugins/pinch/images/random.jpg', window.location.origin).toString();
+      const celebration = variant === 'focus-complete'
+        ? `<style>.celebration{position:absolute!important;inset:0!important;width:auto!important;height:auto!important;margin:0!important;overflow:hidden;pointer-events:none;z-index:1}.celebration__halo{position:absolute!important;inset:auto!important;top:calc(50% - 56px)!important;left:calc(50% - 56px)!important;width:112px!important;height:112px!important}.celebration__mark{position:absolute!important;inset:auto!important;top:calc(50% - 65px)!important;left:calc(50% - 65px)!important;width:130px!important;height:130px!important}.celebration i{top:-28px!important;left:var(--x)!important;margin-left:0!important;width:var(--w)!important;height:var(--h)!important;background:var(--c)!important;animation:full-confetti var(--dur) linear var(--d) infinite!important}@keyframes full-confetti{0%{opacity:0;transform:translate3d(0,-20px,0) rotate(0deg)}8%,88%{opacity:.9}100%{opacity:0;transform:translate3d(var(--drift),calc(65vh + 36px),0) rotate(var(--turn))}}</style><div class="celebration" aria-hidden="true"><div class="celebration__halo"></div><div class="celebration__mark">✦</div>${Array.from({ length: 28 }, (_, index) => { const colors = ['#d0a06c', '#e7cf9c', '#bd8a5d', '#f1dfbd']; const x = 3 + ((index * 37) % 94); const drift = ((index * 43) % 120) - 60; const delay = ((index * 37) % 600) / 100; const duration = 4.2 + ((index * 13) % 25) / 10; const width = 4 + (index % 3); const height = 12 + ((index * 7) % 12); const turn = 160 + ((index * 47) % 240); return `<i style="--x:${x}%;--drift:${drift}px;--d:-${delay}s;--dur:${duration}s;--w:${width}px;--h:${height}px;--turn:${turn}deg;--c:${colors[index % colors.length]}"></i>`; }).join('')}</div>`
+        : '';
+      const html = `<!doctype html><html><head><meta charset="utf-8"><style>:root{--accent:#7ba8a3;--accent-rgb:123,168,163}body[data-variant="short-break"]{--accent:#8ea7d1;--accent-rgb:142,167,209}body[data-variant="focus-complete"]{--accent:#d0a06c;--accent-rgb:208,160,108}body{margin:0;display:grid;place-items:center;min-height:100vh;overflow:hidden;background:rgba(0,0,0,.5);font-family:${theme.fontFamily};}body::before{content:"";position:fixed;width:46vw;height:46vw;border-radius:50%;background:radial-gradient(circle,rgba(var(--accent-rgb),.22),transparent 68%);filter:blur(18px);animation:breathe 5s ease-in-out infinite;pointer-events:none}main{box-sizing:border-box;position:relative;width:80vw;height:65vh;overflow:hidden;padding:24px;border:1px solid rgba(var(--accent-rgb),.38);border-radius:16px;background:linear-gradient(135deg,rgba(var(--accent-rgb),.09),transparent 42%),${theme.background};box-shadow:0 24px 70px rgba(0,0,0,.3),${theme.shadow};text-align:center;color:${theme.text};display:grid;place-content:center}main::before{content:"";position:absolute;inset:22px;border:1px solid rgba(var(--accent-rgb),.18);border-radius:10px;pointer-events:none}section{position:relative;max-width:420px;padding:36px}button{position:absolute;z-index:2;top:20px;right:20px;width:32px;height:32px;border:1px solid transparent;border-radius:50%;background:transparent;color:${theme.subtleText};font-size:22px;line-height:1;cursor:pointer}button:hover{border-color:rgba(var(--accent-rgb),.35);background:rgba(var(--accent-rgb),.1);color:${theme.text}}h1{margin:0;color:var(--accent);font-size:20px;font-weight:600;letter-spacing:.12em}p{margin:14px 0 0;color:${theme.subtleText};font-size:14px;letter-spacing:.04em;line-height:1.7}strong{display:inline-block;margin-top:28px;padding:11px 20px;border:1px solid rgba(var(--accent-rgb),.35);border-radius:999px;background:rgba(var(--accent-rgb),.1);color:var(--accent);font-size:30px;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:.06em}.celebration{position:relative;width:130px;height:112px;margin:0 auto 18px}.celebration__halo{position:absolute;inset:10px;border:1px solid rgba(var(--accent-rgb),.34);border-radius:50%;box-shadow:0 0 32px rgba(var(--accent-rgb),.24);animation:halo 2.8s ease-in-out infinite}.celebration__mark{position:absolute;inset:0;display:grid;place-items:center;color:var(--accent);font-size:64px;line-height:1;text-shadow:0 3px 16px rgba(var(--accent-rgb),.35);animation:mark 2.8s ease-in-out infinite}.celebration i{position:absolute;top:-12px;left:50%;width:5px;height:14px;border-radius:4px;background:var(--accent);opacity:0;animation:confetti 2.9s cubic-bezier(.2,.7,.2,1) infinite}.celebration i:nth-of-type(1){margin-left:-58px;animation-delay:.1s;transform:rotate(18deg)}.celebration i:nth-of-type(2){margin-left:-38px;background:#e7cf9c;animation-delay:.48s;transform:rotate(-24deg)}.celebration i:nth-of-type(3){margin-left:-16px;animation-delay:.22s;transform:rotate(33deg)}.celebration i:nth-of-type(4){margin-left:8px;background:#e7cf9c;animation-delay:.7s;transform:rotate(-15deg)}.celebration i:nth-of-type(5){margin-left:31px;animation-delay:.35s;transform:rotate(28deg)}.celebration i:nth-of-type(6){margin-left:51px;background:#e7cf9c;animation-delay:.88s;transform:rotate(-31deg)}.celebration i:nth-of-type(7){margin-left:-5px;animation-delay:1.1s;transform:rotate(13deg)}.celebration i:nth-of-type(8){margin-left:21px;background:#e7cf9c;animation-delay:1.35s;transform:rotate(-20deg)}@keyframes breathe{50%{transform:scale(1.12);opacity:.74}}@keyframes halo{50%{transform:scale(1.12);opacity:.45}}@keyframes mark{50%{transform:translateY(-5px) scale(1.04)}}@keyframes confetti{10%{opacity:1}85%{opacity:1}100%{top:105px;opacity:0;transform:translateX(var(--drift,0)) rotate(210deg)}}</style></head><body data-variant="${variant}"><main><button id="close" type="button" aria-label="${escapeHtml(translate('common.close'))}" title="${escapeHtml(translate('common.close'))}">×</button><section>${celebration}<h1>${title}</h1><p>${body}</p><strong id="count">${duration}${secondSuffix}</strong></section></main><script>const {ipcRenderer}=require('electron');const channel=${serializeForScript(DETACHED_FOCUS_REQUEST_CHANNEL)};document.getElementById('close').addEventListener('click',()=>{ipcRenderer.invoke(channel,{type:'cancel-micro-break'}).catch(()=>{});window.close()});let n=${duration};setInterval(()=>{n-=1;document.getElementById('count').textContent=n+'${secondSuffix}';if(n<=0)window.close()},1000)</script></body></html>`;
+      const imageSlot = variant === 'focus-complete'
+        ? `<img class="focus-complete-award" src="${escapeHtml(awardImageUrl)}" alt="" />`
+        : variant === 'short-break'
+          ? `<img class="focus-short-break-image" src="${escapeHtml(teaImageUrl)}" alt="" />`
+          : variant === 'micro-break'
+            ? `<img class="focus-micro-break-image" src="${escapeHtml(randomImageUrl)}" alt="" />`
+            : '<div class="focus-popup-image-slot" aria-hidden="true"></div>';
+      const contentHtml = html.replace(`<h1>${title}</h1>`, `${imageSlot}<h1>${title}</h1>`);
+      const layoutHtml = variant === 'focus-complete'
+        ? contentHtml.replace(`<section>${celebration}`, `${celebration}<section>`)
+        : contentHtml;
+      const renderedHtml = variant === 'focus-complete'
+        ? layoutHtml.replace('</head>', '<style>main{width:90vw!important;height:78vh!important;place-items:center!important}.celebration__halo,.celebration__mark{display:none!important}section{box-sizing:border-box;width:min(760px,calc(100% - 96px))!important;text-align:center!important;justify-self:center!important;align-self:center!important}h1,p,strong{width:100%;box-sizing:border-box;text-align:center!important}h1{font-size:40px!important}p{font-size:28px!important}strong{display:inline-block;width:auto;font-size:60px!important}button{font-size:44px!important}@keyframes full-confetti{0%{opacity:0;transform:translate3d(0,-20px,0) rotate(0deg)}8%,88%{opacity:.9}100%{opacity:0;transform:translate3d(var(--drift),calc(78vh + 36px),0) rotate(var(--turn))}}</style></head>')
+        : layoutHtml;
+      const alignedHtml = renderedHtml.replace('</head>', '<style>main{width:90vw!important;height:78vh!important;place-items:center!important}main::before{display:none!important}section{position:absolute!important;left:50%!important;top:50%!important;transform:translate(-50%,-50%)!important;width:min(960px,calc(100% - 96px))!important;max-width:none!important;padding:0!important;text-align:center!important}.focus-complete-award,.focus-short-break-image,.focus-micro-break-image,.focus-popup-image-slot{display:block;width:300px;height:300px;object-fit:contain;margin:0 auto 24px}h1,p{white-space:nowrap!important;font-size:inherit}h1{font-size:40px!important}p{font-size:28px!important}strong{display:block!important;width:fit-content!important;margin-left:auto!important;margin-right:auto!important;font-size:60px!important}#close{width:36px!important;height:36px!important;font-size:28px!important;line-height:1!important}</style></head>');
+      const expandedHtml = variant === 'focus-complete'
+        ? alignedHtml.replace('</body>', `<script>(()=>{const host=document.querySelector('.celebration');const colors=['#d0a06c','#e7cf9c','#bd8a5d','#f1dfbd'];for(let i=0;i<44;i+=1){const piece=document.createElement('i');const x=1+((i*19)%98);const drift=((i*31)%150)-75;const delay=((i*23)%720)/100;const duration=4+((i*17)%30)/10;piece.style.cssText='--x:'+x+'%;--drift:'+drift+'px;--d:-'+delay+'s;--dur:'+duration+'s;--w:'+(3+i%4)+'px;--h:'+(10+(i*5)%15)+'px;--turn:'+(140+(i*29)%280)+'deg;--c:'+colors[i%colors.length];host.appendChild(piece)}})()</script></body>`)
+        : alignedHtml;
       detachedMicroBreakWindow = new remote.BrowserWindow({
-        width, height, center: true, frame: false, transparent: true,
+        x: hostBounds.x, y: hostBounds.y, width, height, frame: false, transparent: true,
         resizable: false, alwaysOnTop: true, skipTaskbar: true, show: false,
         webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
       });
       detachedMicroBreakWindow.setAlwaysOnTop?.(true, 'screen-saver');
       detachedMicroBreakWindow.on?.('closed', () => { detachedMicroBreakWindow = null; });
-      const loaded = detachedMicroBreakWindow.loadURL?.(`data:text/html;charset=UTF-8,${encodeURIComponent(html)}`);
+      const loaded = detachedMicroBreakWindow.loadURL?.(`data:text/html;charset=UTF-8,${encodeURIComponent(expandedHtml)}`);
       Promise.resolve(loaded).then(() => detachedMicroBreakWindow?.showInactive?.()).catch(() => {});
       return true;
     }
@@ -3537,6 +3607,20 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
     case 'open-focus-settings':
       notifyDetachedFocusOpenSettingsRequest();
       return true;
+    case 'update-white-noise-settings': {
+      const updates = {
+        ...(typeof request.whiteNoiseEnabled === 'boolean' ? { whiteNoiseEnabled: request.whiteNoiseEnabled } : {}),
+        ...(typeof request.selectedWhiteNoiseId === 'string' ? { selectedWhiteNoiseId: request.selectedWhiteNoiseId } : {}),
+        ...(Number.isFinite(request.whiteNoiseVolume) ? { whiteNoiseVolume: Math.max(0, Math.min(request.whiteNoiseVolume!, 1)) } : {})
+      };
+      await userSettings.update('focus', updates);
+      const settings = await userSettings.get('focus');
+      syncDetachedFocusWindowFocusSettings(settings);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pinch-focus-settings-updated', { detail: updates }));
+      }
+      return true;
+    }
     case 'load-target-options':
       return loadFocusTargetOptions(request.mode === 'task' ? 'task' : 'habit');
     case 'set-linked-target':
@@ -3566,7 +3650,7 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
 
 export async function showDetachedMicroBreakWindow(
   duration: number,
-  content: { title?: string; body?: string } = {}
+  content: { title?: string; body?: string; variant?: 'micro-break' | 'short-break' | 'focus-complete' } = {}
 ): Promise<boolean> {
   return (await handleDetachedFocusRequest(null, {
     type: 'show-micro-break-dialog',
@@ -3625,6 +3709,7 @@ function createDetachedFocusWindow(): void {
 
   detachedFocusWindowCompact = !latestLinkedTarget && !getActiveFocusSessionOwner();
   detachedFocusWindowProgressOnly = !latestLinkedTarget && !!getActiveFocusSessionOwner();
+  detachedFocusWindowCollapsedPosition = null;
   detachedFocusWindowExpanded = initialBounds.height > DETACHED_FOCUS_WINDOW_COLLAPSED_HEIGHT;
   detachedFocusWindow = new remote.BrowserWindow({
     x: initialBounds.x,
@@ -3697,6 +3782,7 @@ function createDetachedFocusWindow(): void {
   detachedFocusWindow.on?.('closed', () => {
     detachedFocusWindow = null;
     detachedFocusWindowExpanded = false;
+    detachedFocusWindowCollapsedPosition = null;
     if (getActiveFocusSessionOwner() === 'capsule') {
       setActiveFocusSessionOwner(null);
     }

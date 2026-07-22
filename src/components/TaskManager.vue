@@ -253,6 +253,21 @@
       </div>
     </div>
 
+    <div v-if="taskListViewMode === 'timeline' && !isTaskListCollapsed" class="task-timeline-tabs" role="tablist">
+      <button
+        v-for="option in timelineTaskFilterOptions"
+        :key="option.value"
+        type="button"
+        class="task-timeline-tab"
+        :class="{ active: timelineTaskFilter === option.value }"
+        role="tab"
+        :aria-selected="timelineTaskFilter === option.value"
+        @click="timelineTaskFilter = option.value"
+      >
+        {{ option.label }}
+      </button>
+    </div>
+
     <div v-if="taskSearchVisible && !isTaskListCollapsed" class="task-search-row">
       <input
         ref="taskSearchInputRef"
@@ -404,6 +419,7 @@
             :priority="activeTaskEditDraft.priority || 'none'"
             :repeat-frequency="taskEditorRepeatFrequency"
             :repeat-rule="taskEditorRepeatRule"
+            :repeat-termination="taskEditorRepeatTermination"
             :group-button-style="taskEditorGroupButtonStyle"
             :default-group-chip-color="defaultGroupChipColor"
             :description-placeholder="t('taskManager.addTaskDescription')"
@@ -495,16 +511,125 @@
       v-else
       ref="tasksListRef"
       class="tasks-list b3-typography"
-      :class="{ 'is-list-view': taskListViewMode === 'list' }"
+      :class="{
+        'is-list-view': taskListViewMode === 'list',
+        'is-timeline-view': taskListViewMode === 'timeline'
+      }"
       v-show="!isTaskListCollapsed"
     >
       <div v-if="displayedTasks.length === 0" class="empty-state">
         {{ t('taskManager.noTasks') }}
       </div>
       <div
+        v-else-if="shouldUseTimelineVirtualList"
+        class="task-grouped-list is-timeline-view task-timeline-virtual-list"
+        :style="timelineVirtualSpacerStyle"
+      >
+        <template v-for="row in virtualTimelineRows" :key="row.key">
+          <section
+            v-if="row.type === 'section' && row.section"
+            class="task-group-section timeline-virtual-section-header"
+            :class="{ 'timeline-virtual-section-collapsed': row.isSectionEnd }"
+            :ref="(el) => setTimelineVirtualRowRef(row.key, el)"
+          >
+            <header class="task-group-section-header">
+              <span v-if="row.section.timelineDateLabel" class="task-timeline-date">
+                <strong>{{ row.section.timelineDateLabel.day }}</strong>
+                <span>{{ row.section.timelineDateLabel.weekday }}</span>
+              </span>
+              <span class="task-group-section-title">
+                <span
+                  v-if="isBatchEditMode"
+                  class="task-group-section-batch-checkbox ariaLabel"
+                  :class="{
+                    partial: isTaskGroupSectionBatchPartiallySelected(row.section),
+                    'is-disabled': row.section.tasks.length === 0
+                  }"
+                  :aria-label="isTaskGroupSectionBatchAllSelected(row.section) ? t('taskManager.cancelSelectGroup') : t('taskManager.selectGroup')"
+                  :aria-disabled="row.section.tasks.length === 0"
+                  @click.stop="toggleTaskGroupSectionBatchSelection(row.section)"
+                >
+                  <TaskCheckbox
+                    :checked="isTaskGroupSectionBatchAllSelected(row.section)"
+                    :size="16"
+                  />
+                </span>
+              </span>
+              <div class="task-group-section-header-actions">
+                <span class="task-group-section-count">{{ row.section.tasks.length }}</span>
+                <button
+                  type="button"
+                  class="task-group-section-toggle ariaLabel"
+                  :class="{ collapsed: isTaskGroupSectionCollapsed(row.section.key) }"
+                  :aria-label="isTaskGroupSectionCollapsed(row.section.key) ? t('taskManager.expandGroup') : t('taskManager.collapseGroup')"
+                  @click.stop="toggleTaskGroupSectionCollapse(row.section.key)"
+                >
+                  <Icon name="chevronRight" width="14" height="14" />
+                </button>
+              </div>
+            </header>
+          </section>
+          <div
+            v-else-if="row.type === 'task' && row.task"
+            :ref="(el) => setTimelineVirtualRowRef(row.key, el)"
+            class="task-batch-item timeline-virtual-task"
+            :class="{
+              selected: isTaskBatchSelected(row.task.id),
+              'is-batch-mode': isBatchEditMode,
+              'timeline-entry': row.timelineLabel !== null,
+              'timeline-virtual-section-end': row.isSectionEnd,
+              'mobile-calendar-drag-source': shouldEnableMobileCalendarDrag(),
+              'mobile-calendar-dragging': mobileCalendarDraggingTaskId === row.task.id
+            }"
+            @pointerdown="handleMobileTaskPointerDown($event, row.task)"
+            @pointermove="handleMobileTaskPointerMove"
+            @pointerup="handleMobileTaskPointerUp"
+            @pointercancel="handleMobileTaskPointerCancel"
+          >
+            <div v-if="row.timelineLabel !== null" class="task-timeline-entry-meta">
+              <span class="task-timeline-time">{{ row.timelineLabel }}</span>
+              <span class="task-timeline-node"></span>
+            </div>
+            <TaskCard
+              :data-task-id="row.task.id"
+              :task="row.task"
+              :completed="row.task.status === 'completed'"
+              variant="sidebar"
+              :task-groups="taskGroups"
+              :goals="goalDefinitions"
+              :show-status-badge="true"
+              :draggable="!isMobileFrontend && !isBatchEditMode"
+              :expanded="expandedSubtasks.has(row.task.id) || expandedDescriptions.has(row.task.id)"
+              :description-editing="inlineEditingDescriptionTaskId === row.task.id"
+              :description-draft="getInlineDescriptionDraft(row.task)"
+              :show-description="shouldShowTaskCardDetails"
+              :show-badges="shouldShowTaskCardDetails"
+              :show-subtasks="expandedSubtasks.has(row.task.id)"
+              :show-open-content="row.task.type === 'block'"
+              :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
+              :disable-context-menu="shouldEnableMobileCalendarDrag()"
+              @card-click="handleTaskCardClick"
+              @open-content="handleTaskClick"
+              @start-focus="handleTaskCardStartFocus"
+              @toggle-status="handleTaskCardToggleStatus"
+              @toggle-expand="handleCardToggleExpand"
+              @description-start-edit="startInlineDescriptionEdit"
+              @description-input="handleInlineDescriptionInput"
+              @description-save="saveInlineDescriptionEdit"
+              @description-cancel="cancelInlineDescriptionEdit"
+              @subtask-toggle="handleCardSubtaskToggle"
+              @dragstart="handleDragStart"
+            />
+          </div>
+        </template>
+      </div>
+      <div
         v-else-if="shouldRenderGroupedList"
         class="task-grouped-list"
-        :class="{ 'is-list-view': taskListViewMode === 'list' }"
+        :class="{
+          'is-list-view': taskListViewMode === 'list',
+          'is-timeline-view': taskListViewMode === 'timeline'
+        }"
       >
         <section
           v-for="section in taskGroupedSections"
@@ -512,6 +637,10 @@
           class="task-group-section"
         >
           <header class="task-group-section-header">
+            <span v-if="taskListViewMode === 'timeline' && section.timelineDateLabel" class="task-timeline-date">
+              <strong>{{ section.timelineDateLabel.day }}</strong>
+              <span>{{ section.timelineDateLabel.weekday }}</span>
+            </span>
             <span class="task-group-section-title">
               <span
                 v-if="isBatchEditMode"
@@ -530,7 +659,7 @@
                   :size="16"
                 />
               </span>
-              <span>{{ section.label }}</span>
+              <span v-if="taskListViewMode !== 'timeline'">{{ section.label }}</span>
             </span>
             <div class="task-group-section-header-actions">
               <span class="task-group-section-count">{{ section.tasks.length }}</span>
@@ -554,6 +683,7 @@
               :class="{
                 selected: isTaskBatchSelected(task.id),
                 'is-batch-mode': isBatchEditMode,
+                'timeline-entry': taskListViewMode === 'timeline' && getTaskTimelineLabel(section, task) !== null,
                 'mobile-calendar-drag-source': shouldEnableMobileCalendarDrag(),
                 'mobile-calendar-dragging': mobileCalendarDraggingTaskId === task.id
               }"
@@ -562,6 +692,10 @@
               @pointerup="handleMobileTaskPointerUp"
               @pointercancel="handleMobileTaskPointerCancel"
             >
+              <div v-if="taskListViewMode === 'timeline' && getTaskTimelineLabel(section, task) !== null" class="task-timeline-entry-meta">
+                <span class="task-timeline-time">{{ getTaskTimelineLabel(section, task) }}</span>
+                <span class="task-timeline-node"></span>
+              </div>
               <TaskCard
                 :data-task-id="task.id"
                 :task="task"
@@ -823,7 +957,7 @@ import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { applyTaskAttributeMutation } from '@/utils/taskMutationService';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
-import { getLiveTaskElement, getTaskElementFromDoc, parseTaskCompleted, parseTaskCompletedFromElement } from '@/utils/taskDom';
+import { getTaskElementFromDoc, parseTaskCompleted } from '@/utils/taskDom';
 import {
   buildTaskReminderAttrs,
   getTaskReminderLabel,
@@ -845,7 +979,7 @@ import {
   compareTaskCreatedAtDesc,
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
-import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput, type RepeatTermination } from '@/repeatRepository';
 import { isRepeatTask as isRepeatTaskEntity } from '@/utils/repeatTaskUtils';
 import {
   loadDocumentGroups,
@@ -1024,13 +1158,27 @@ interface TaskQuickMetaDraft extends TaskEditorDateFields {
 type TaskDueFilterKey = 'overdue' | 'today' | 'next7Days' | 'allScheduled' | 'thisWeekend' | 'noDueDate';
 type TaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
 type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks' | 'hasFocusEstimate';
-type TaskListViewMode = 'kanban' | 'list';
+type TaskListViewMode = 'kanban' | 'list' | 'timeline';
 type TaskListGroupMode = 'none' | 'status' | 'group' | 'heading' | 'date' | 'document';
+type TimelineTaskFilter = 'all' | 'incomplete' | 'completed' | 'overdue' | 'unscheduled';
 interface TaskGroupedSection {
   key: string;
   label: string;
   tasks: Task[];
   order: number;
+  timelineDateLabel?: { day: string; weekday: string };
+  timelineDateKey?: string;
+  timelineDateTimestamp?: number;
+  timelineTaskLabels?: Map<string, string>;
+}
+
+interface TimelineVirtualRow {
+  key: string;
+  type: 'section' | 'task';
+  section?: TaskGroupedSection;
+  task?: Task;
+  timelineLabel?: string | null;
+  isSectionEnd?: boolean;
 }
 
 type KernelDiagnosticsStatus = 'idle' | 'checking' | 'connected' | 'error';
@@ -1080,6 +1228,14 @@ const taskSearchVisible = ref(false);
 const taskSearchQuery = ref('');
 const taskListViewMode = ref<TaskListViewMode>('kanban');
 const taskListGroupBy = ref<TaskListGroupMode>('none');
+const timelineTaskFilter = ref<TimelineTaskFilter>('all');
+const timelineTaskFilterOptions = computed<Array<{ value: TimelineTaskFilter; label: string }>>(() => [
+  { value: 'all', label: t('taskManager.all') },
+  { value: 'incomplete', label: t('taskManager.incomplete') },
+  { value: 'completed', label: t('taskManager.statusCompleted') },
+  { value: 'overdue', label: t('taskManager.overdue') },
+  { value: 'unscheduled', label: t('taskManager.unscheduled') }
+]);
 const taskHeadingGroups = ref<Map<string, TaskHeadingGroupMeta>>(new Map());
 let taskEditorProtyle: Protyle | null = null;
 const openingTaskPopoverBlockIds = new Set<string>();
@@ -1347,11 +1503,17 @@ const taskScrollContainerRef = ref<HTMLElement | null>(null);
 const TASK_VIRTUAL_ROW_HEIGHT = 86;
 const TASK_VIRTUAL_OVERSCAN = 8;
 const TASK_VIRTUAL_THRESHOLD = 200;
+const TIMELINE_VIRTUAL_THRESHOLD = 120;
+const TIMELINE_VIRTUAL_HEADER_HEIGHT = 32;
+const TIMELINE_VIRTUAL_SECTION_END_EXTRA_HEIGHT = 14;
+const timelineWeekdayFormatter = new Intl.DateTimeFormat('zh-CN', { weekday: 'short' });
 const TASK_TITLE_HYDRATE_LIMIT = 120;
 const taskVirtualRange = ref({ start: 0, end: 0, top: 0, bottom: 0 });
 let taskVirtualRaf: number | null = null;
 const taskHeightCache = new Map<string, number>();
 const taskRowElements = new Map<string, HTMLElement>();
+const timelineVirtualRowHeightCache = new Map<string, number>();
+const timelineVirtualRowElements = new Map<string, HTMLElement>();
 const taskHeightVersion = ref(0);
 let taskRowMeasureRaf: number | null = null;
 let taskTitleHydrateTimer: number | null = null;
@@ -1368,7 +1530,8 @@ interface TaskGroupDialogSavePayload {
 let skipCleanupTimer: number | null = null;
 const taskListViewOptions: Array<{ value: TaskListViewMode; label: string }> = [
   { value: 'kanban', label: t('taskManager.kanbanView') },
-  { value: 'list', label: t('taskManager.listView') }
+  { value: 'list', label: t('taskManager.listView') },
+  { value: 'timeline', label: t('taskManager.timelineView') }
 ];
 const taskListGroupOptions: Array<{ value: TaskListGroupMode; label: string }> = [
   { value: 'none', label: t('taskManager.groupByNone') },
@@ -1408,6 +1571,7 @@ const activeTaskEditDraft = computed(() =>
 );
 const taskEditorRepeatFrequency = ref<RepeatFrequency>('none');
 const taskEditorRepeatRule = ref<RepeatRule | null>(null);
+const taskEditorRepeatTermination = ref<RepeatTermination>({ type: 'never' });
 const batchSelectedCount = computed(() => batchSelectedTaskIds.value.size);
 const allVisibleTasksSelected = computed(() => {
   const currentTasks = displayedTasks.value;
@@ -1626,8 +1790,24 @@ function findTaskIndexForOffset(offsets: number[], offset: number): number {
   return Math.max(0, low - 1);
 }
 
+function hasActiveTaskVirtualList(): boolean {
+  return shouldUseTaskVirtualList.value || shouldUseTimelineVirtualList.value;
+}
+
+function getActiveTaskVirtualItemCount(): number {
+  return shouldUseTimelineVirtualList.value
+    ? timelineVirtualRows.value.length
+    : displayedTasks.value.length;
+}
+
+function getActiveTaskVirtualOffsets(): number[] {
+  return shouldUseTimelineVirtualList.value
+    ? timelineVirtualRowHeightOffsets.value
+    : taskHeightOffsets.value;
+}
+
 function updateTaskVirtualRange(): void {
-  if (!shouldUseTaskVirtualList.value) {
+  if (!hasActiveTaskVirtualList()) {
     taskVirtualRange.value = {
       start: 0,
       end: displayedTasks.value.length,
@@ -1649,14 +1829,15 @@ function updateTaskVirtualRange(): void {
   const listRect = listEl.getBoundingClientRect();
   const listTop = listRect.top - containerRect.top + scrollTop;
   const listOffset = Math.max(0, scrollTop - listTop);
-  const offsets = taskHeightOffsets.value;
+  const itemCount = getActiveTaskVirtualItemCount();
+  const offsets = getActiveTaskVirtualOffsets();
   const totalHeight = offsets[offsets.length - 1] || 0;
   const startIndex = Math.max(
     0,
     findTaskIndexForOffset(offsets, listOffset) - TASK_VIRTUAL_OVERSCAN
   );
   const endIndex = Math.min(
-    displayedTasks.value.length,
+    itemCount,
     findTaskIndexForOffset(offsets, listOffset + viewportHeight) + TASK_VIRTUAL_OVERSCAN + 1
   );
   const topPadding = offsets[startIndex] || 0;
@@ -1687,7 +1868,7 @@ function handleTaskListScroll(): void {
 }
 
 function scheduleTaskRowMeasure(): void {
-  if (!shouldUseTaskVirtualList.value) {
+  if (!hasActiveTaskVirtualList()) {
     return;
   }
   if (taskRowMeasureRaf !== null) {
@@ -1696,11 +1877,17 @@ function scheduleTaskRowMeasure(): void {
   taskRowMeasureRaf = requestAnimationFrame(() => {
     taskRowMeasureRaf = null;
     let changed = false;
-    for (const [taskId, el] of taskRowElements.entries()) {
+    const rowElements = shouldUseTimelineVirtualList.value
+      ? timelineVirtualRowElements
+      : taskRowElements;
+    const heightCache = shouldUseTimelineVirtualList.value
+      ? timelineVirtualRowHeightCache
+      : taskHeightCache;
+    for (const [rowKey, el] of rowElements.entries()) {
       const height = Math.max(1, Math.round(el.getBoundingClientRect().height));
-      const prev = taskHeightCache.get(taskId);
+      const prev = heightCache.get(rowKey);
       if (prev !== height) {
-        taskHeightCache.set(taskId, height);
+        heightCache.set(rowKey, height);
         changed = true;
       }
     }
@@ -1733,6 +1920,18 @@ function setTaskRowRef(taskId: string, el: unknown): void {
   const current = taskRowElements.get(taskId);
   if (current === resolved) return;
   taskRowElements.set(taskId, resolved);
+  scheduleTaskRowMeasure();
+}
+
+function setTimelineVirtualRowRef(rowKey: string, el: unknown): void {
+  const resolved = resolveTaskRowElement(el);
+  if (!resolved) {
+    timelineVirtualRowElements.delete(rowKey);
+    return;
+  }
+  const current = timelineVirtualRowElements.get(rowKey);
+  if (current === resolved) return;
+  timelineVirtualRowElements.set(rowKey, resolved);
   scheduleTaskRowMeasure();
 }
 
@@ -2325,7 +2524,7 @@ function normalizeTaskListGroupMode(value: unknown): TaskListGroupMode {
 }
 
 function normalizeTaskListViewMode(value: unknown): TaskListViewMode {
-  return value === 'list' ? 'list' : 'kanban';
+  return value === 'list' || value === 'timeline' ? value : 'kanban';
 }
 
 function normalizeTaskCardDetailsVisible(value: unknown): boolean {
@@ -3271,7 +3470,9 @@ function getCurrentTaskQueryScope(): TaskQueryScope | undefined {
   const mode = archiveViewMode.value;
   const includeArchived = mode === 'all';
   const archivedOnly = mode === 'archived';
-  const includeCompleted = mode === 'active' ? showCompletedTasks.value : true;
+  const includeCompleted = mode === 'active'
+    ? showCompletedTasks.value || taskListViewMode.value === 'timeline'
+    : true;
   const activeSource = parsedFilterSource.value;
   if (activeSource.kind === 'all' && filterDocument.value === 'all' && includeCompleted && !includeArchived && !archivedOnly) {
     return undefined;
@@ -4283,6 +4484,25 @@ const hasHiddenCompletedTasks = computed(() => {
 });
 
 const displayedTasks = computed(() => {
+  if (taskListViewMode.value === 'timeline') {
+    const todayStart = getTodayStartTimestamp();
+    return filteredTasks.value.filter((task) => {
+      switch (timelineTaskFilter.value) {
+        case 'incomplete':
+          return task.status !== 'completed';
+        case 'completed':
+          return task.status === 'completed';
+        case 'overdue': {
+          const dueTimestamp = getTaskDueDateTimestamp(task);
+          return task.status !== 'completed' && dueTimestamp !== null && dueTimestamp < todayStart;
+        }
+        case 'unscheduled':
+          return getTaskStartDateTimestamp(task) === null && getTaskDueDateTimestamp(task) === null;
+        default:
+          return true;
+      }
+    });
+  }
   if (archiveViewMode.value !== 'active') {
     return filteredTasks.value;
   }
@@ -4303,7 +4523,9 @@ const displayedTasks = computed(() => {
 
 const taskGroupIdSet = computed(() => new Set(taskGroups.value.map(group => group.id)));
 const shouldRenderGroupedList = computed(() =>
-  taskListViewMode.value === 'list' || taskListGroupBy.value !== 'none'
+  taskListViewMode.value === 'list'
+  || taskListViewMode.value === 'timeline'
+  || taskListGroupBy.value !== 'none'
 );
 const shouldShowTaskCardDetails = computed(() => showTaskCardDetails.value);
 
@@ -4313,6 +4535,128 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
   const isListView = taskListViewMode.value === 'list';
   if (tasks.length === 0) {
     return [];
+  }
+  if (taskListViewMode.value === 'timeline') {
+    const sections = new Map<string, TaskGroupedSection>();
+    const unscheduled: Task[] = [];
+    const dayMs = 24 * 60 * 60 * 1000;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStart = today.getTime();
+    const tomorrowStart = todayStart + dayMs;
+    const getTimelineTimestamp = (task: Task): number | null => {
+      const date = task.startDate || task.dueDate;
+      const time = task.startDate ? task.startTime : task.dueTime;
+      const dateTimestamp = getTaskDateTimestamp(date);
+      if (dateTimestamp === null) return null;
+      const normalizedTime = normalizeTimeInputValue((time || '').toString());
+      if (!normalizedTime) return dateTimestamp;
+      const [hours, minutes] = normalizedTime.split(':').map(Number);
+      return dateTimestamp + (hours * 60 + minutes) * 60 * 1000;
+    };
+    const getTimelineDateLabel = (timestamp: number): { day: string; weekday: string } => {
+      const date = new Date(timestamp);
+      return {
+        day: `${date.getMonth() + 1}-${date.getDate()}`,
+        weekday: timelineWeekdayFormatter.format(date)
+      };
+    };
+    const getTimelineDateKey = (timestamp: number): string => {
+      const date = new Date(timestamp);
+      return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    };
+    tasks.forEach((task) => {
+      const scheduledTimestamp = getTimelineTimestamp(task);
+      if (scheduledTimestamp === null) {
+        unscheduled.push(task);
+        return;
+      }
+      const startTimestamp = getTaskStartDateTimestamp(task);
+      const dueTimestamp = getTaskDueDateTimestamp(task);
+      const isOverdue = task.status !== 'completed'
+        && dueTimestamp !== null
+        && dueTimestamp < todayStart;
+      // A task with a past start date and no due date remains active, so keep it
+      // in today's timeline instead of leaving it under its original start date.
+      const isActiveToday = startTimestamp !== null
+        && startTimestamp < todayStart
+        && (dueTimestamp === null || dueTimestamp >= todayStart);
+      const isToday = isActiveToday
+        || (startTimestamp !== null && startTimestamp >= todayStart && startTimestamp < tomorrowStart)
+        || (dueTimestamp !== null && dueTimestamp >= todayStart && dueTimestamp < tomorrowStart);
+      const timestamp = isActiveToday ? todayStart : scheduledTimestamp;
+      const bucket = isToday ? 'today' : isOverdue ? 'overdue' : startTimestamp !== null && startTimestamp < todayStart ? 'past' : 'future';
+      // Keep overdue work visible before historical (completed) entries.
+      const bucketOrder = bucket === 'today' ? 0 : bucket === 'future' ? 1 : bucket === 'overdue' ? 2 : 3;
+      const dateKey = bucket === 'overdue' ? 'overdue' : getTimelineDateKey(timestamp);
+      const key = `timeline:${bucket}:${timestamp}`;
+      const existing = sections.get(key);
+      if (existing) {
+        existing.tasks.push(task);
+        return;
+      }
+      sections.set(key, {
+        key,
+        label: new Date(timestamp).getHours() === 0 && new Date(timestamp).getMinutes() === 0
+          ? t('taskManager.allDay')
+          : `${String(new Date(timestamp).getHours()).padStart(2, '0')}:${String(new Date(timestamp).getMinutes()).padStart(2, '0')}`,
+        tasks: [task],
+        order: bucketOrder * 1_000_000_000_000_000 + timestamp,
+        timelineDateKey: dateKey,
+        timelineDateTimestamp: timestamp
+      });
+    });
+    const timeSections = Array.from(sections.values()).sort((left, right) => left.order - right.order);
+    const dateSections = new Map<string, TaskGroupedSection>();
+    timeSections.forEach((timeSection) => {
+      const dateKey = timeSection.timelineDateKey || timeSection.key;
+      const existing = dateSections.get(dateKey);
+      if (existing) {
+        existing.tasks.push(...timeSection.tasks);
+        const firstTaskId = timeSection.tasks[0]?.id;
+        if (firstTaskId) {
+          existing.timelineTaskLabels?.set(firstTaskId, timeSection.label);
+        }
+        return;
+      }
+      const timelineTaskLabels = new Map<string, string>();
+      const firstTaskId = timeSection.tasks[0]?.id;
+      if (firstTaskId) {
+        timelineTaskLabels.set(firstTaskId, timeSection.label);
+      }
+      dateSections.set(dateKey, {
+        key: `timeline:date:${dateKey}`,
+        label: '',
+        tasks: [...timeSection.tasks],
+        order: timeSection.order,
+        timelineDateKey: dateKey,
+        timelineDateTimestamp: timeSection.timelineDateTimestamp,
+        timelineTaskLabels
+      });
+    });
+    const result = Array.from(dateSections.values()).sort((left, right) => left.order - right.order);
+    result.forEach((section) => {
+      const dateKey = section.timelineDateKey || '';
+      section.timelineDateLabel = dateKey === 'overdue'
+        ? { day: t('taskManager.overdue'), weekday: '' }
+        : getTimelineDateLabel(section.timelineDateTimestamp || todayStart);
+    });
+    if (unscheduled.length > 0) {
+      const timelineTaskLabels = new Map<string, string>();
+      const firstTaskId = unscheduled[0]?.id;
+      if (firstTaskId) {
+        timelineTaskLabels.set(firstTaskId, t('taskManager.unscheduled'));
+      }
+      result.push({
+        key: 'timeline:unscheduled',
+        label: t('taskManager.unscheduled'),
+        tasks: unscheduled,
+        order: Number.MAX_SAFE_INTEGER,
+        timelineTaskLabels,
+        timelineDateLabel: { day: t('taskManager.other'), weekday: '' }
+      });
+    }
+    return result;
   }
   if (mode === 'none') {
     if (!isListView) {
@@ -4612,6 +4956,10 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
   return prependPinnedSection(sections);
 });
 
+function getTaskTimelineLabel(section: TaskGroupedSection, task: Task): string | null {
+  return section.timelineTaskLabels?.get(task.id) ?? null;
+}
+
 function isTaskGroupSectionCollapsed(sectionKey: string): boolean {
   const key = typeof sectionKey === 'string' ? sectionKey.trim() : '';
   if (!key) {
@@ -4643,10 +4991,47 @@ const hasExpandedTaskDetails = computed(() =>
   || inlineEditingDescriptionTaskId.value !== null
 );
 
+const timelineVirtualRows = computed<TimelineVirtualRow[]>(() => {
+  if (taskListViewMode.value !== 'timeline') {
+    return [];
+  }
+
+  const rows: TimelineVirtualRow[] = [];
+  for (const section of taskGroupedSections.value) {
+    const collapsed = isTaskGroupSectionCollapsed(section.key);
+    rows.push({
+      key: `timeline:section:${section.key}`,
+      type: 'section',
+      section,
+      isSectionEnd: collapsed
+    });
+    if (collapsed) {
+      continue;
+    }
+    section.tasks.forEach((task, index) => {
+      rows.push({
+        key: `timeline:task:${section.key}:${task.id}`,
+        type: 'task',
+        section,
+        task,
+        timelineLabel: getTaskTimelineLabel(section, task),
+        isSectionEnd: index === section.tasks.length - 1
+      });
+    });
+  }
+  return rows;
+});
+
 const shouldUseTaskVirtualList = computed(() =>
   taskListViewMode.value === 'kanban'
   && taskListGroupBy.value === 'none'
   && displayedTasks.value.length > TASK_VIRTUAL_THRESHOLD
+  && !hasExpandedTaskDetails.value
+);
+
+const shouldUseTimelineVirtualList = computed(() =>
+  taskListViewMode.value === 'timeline'
+  && timelineVirtualRows.value.length > TIMELINE_VIRTUAL_THRESHOLD
   && !hasExpandedTaskDetails.value
 );
 
@@ -4680,6 +5065,22 @@ const taskHeightOffsets = computed(() => {
   return offsets;
 });
 
+const timelineVirtualRowHeightOffsets = computed(() => {
+  taskHeightVersion.value;
+  const rows = timelineVirtualRows.value;
+  const offsets = new Array(rows.length + 1);
+  offsets[0] = 0;
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const estimatedHeight = row.type === 'section'
+      ? TIMELINE_VIRTUAL_HEADER_HEIGHT + (row.isSectionEnd ? TIMELINE_VIRTUAL_SECTION_END_EXTRA_HEIGHT : 0)
+      : TASK_VIRTUAL_ROW_HEIGHT + (row.isSectionEnd ? TIMELINE_VIRTUAL_SECTION_END_EXTRA_HEIGHT : 0);
+    const height = timelineVirtualRowHeightCache.get(row.key) ?? estimatedHeight;
+    offsets[i + 1] = offsets[i] + height;
+  }
+  return offsets;
+});
+
 const taskVirtualSpacerStyle = computed(() => {
   if (!shouldUseTaskVirtualList.value) return {};
   return {
@@ -4691,6 +5092,19 @@ const taskVirtualSpacerStyle = computed(() => {
 const virtualDisplayedTasks = computed(() => {
   if (!shouldUseTaskVirtualList.value) return displayedTasks.value;
   return displayedTasks.value.slice(taskVirtualRange.value.start, taskVirtualRange.value.end);
+});
+
+const timelineVirtualSpacerStyle = computed(() => {
+  if (!shouldUseTimelineVirtualList.value) return {};
+  return {
+    paddingTop: `${taskVirtualRange.value.top}px`,
+    paddingBottom: `${taskVirtualRange.value.bottom}px`
+  };
+});
+
+const virtualTimelineRows = computed(() => {
+  if (!shouldUseTimelineVirtualList.value) return timelineVirtualRows.value;
+  return timelineVirtualRows.value.slice(taskVirtualRange.value.start, taskVirtualRange.value.end);
 });
 
 function scheduleTaskTitleHydration(delay = 120): void {
@@ -4713,6 +5127,10 @@ async function hydrateVisibleTaskTitles(): Promise<void> {
   let candidates: Task[] = [];
   if (shouldUseTaskVirtualList.value) {
     candidates = virtualDisplayedTasks.value;
+  } else if (shouldUseTimelineVirtualList.value) {
+    candidates = virtualTimelineRows.value
+      .map(row => row.task)
+      .filter((task): task is Task => Boolean(task));
   } else {
     const container = taskScrollContainerRef.value;
     const containerRect = container?.getBoundingClientRect();
@@ -4820,7 +5238,7 @@ const areAllVisibleSubtasksExpanded = computed(() => {
 });
 
 watch(
-  [displayedTasks, shouldUseTaskVirtualList, isTaskListCollapsed],
+  [displayedTasks, shouldUseTaskVirtualList, shouldUseTimelineVirtualList, isTaskListCollapsed],
   () => {
     if (isTaskListCollapsed.value) return;
     nextTick(() => {
@@ -4856,7 +5274,34 @@ watch(displayedTasks, (nextTasks) => {
   taskHeightVersion.value += 1;
 });
 
+watch(timelineVirtualRows, (rows) => {
+  const validKeys = new Set(rows.map(row => row.key));
+  for (const key of timelineVirtualRowHeightCache.keys()) {
+    if (!validKeys.has(key)) {
+      timelineVirtualRowHeightCache.delete(key);
+    }
+  }
+  for (const key of timelineVirtualRowElements.keys()) {
+    if (!validKeys.has(key)) {
+      timelineVirtualRowElements.delete(key);
+    }
+  }
+  taskHeightVersion.value += 1;
+  if (!isTaskListCollapsed.value) {
+    nextTick(() => {
+      scheduleTaskVirtualUpdate();
+    });
+  }
+});
+
 watch(virtualDisplayedTasks, () => {
+  nextTick(() => {
+    scheduleTaskRowMeasure();
+    scheduleTaskTitleHydration(120);
+  });
+});
+
+watch(virtualTimelineRows, () => {
   nextTick(() => {
     scheduleTaskRowMeasure();
     scheduleTaskTitleHydration(120);
@@ -6577,11 +7022,16 @@ function syncTaskEditorRepeatState(task: Task | null): void {
   if (!task) {
     taskEditorRepeatFrequency.value = 'none';
     taskEditorRepeatRule.value = null;
+    taskEditorRepeatTermination.value = { type: 'never' };
     return;
   }
 
+  const taskDueDateTermination: RepeatTermination = task.dueDate
+    ? { type: 'date', date: task.dueDate }
+    : { type: 'never' };
   taskEditorRepeatFrequency.value = normalizeRepeatFrequencyForEditor(task.repeatFrequency as RepeatFrequency | undefined);
   taskEditorRepeatRule.value = null;
+  taskEditorRepeatTermination.value = taskDueDateTermination;
 
   const taskId = task.id;
   const isRepeatTask = isRepeatTaskEntity(task);
@@ -6592,6 +7042,8 @@ function syncTaskEditorRepeatState(task: Task | null): void {
         if (!series || currentTask?.id !== taskId || !isRepeatTaskForDateSave(currentTask)) return;
         taskEditorRepeatFrequency.value = normalizeRepeatFrequencyForEditor(series.frequency as RepeatFrequency);
         taskEditorRepeatRule.value = series.rule || null;
+        taskEditorRepeatTermination.value = series.termination
+          || (series.endDate ? { type: 'date', date: series.endDate } : taskDueDateTermination);
         const draft = activeTaskEditDraft.value;
         if (draft?.taskId === taskId) {
           draft.startDate = series.startDate || '';
@@ -6894,6 +7346,9 @@ function handleTaskEditorRepeatRuleSave(value: RepeatFrequency | RepeatRuleInput
   }
   taskEditorRepeatFrequency.value = typeof value === 'string' ? value : value.frequency;
   taskEditorRepeatRule.value = typeof value === 'string' ? null : (value.rule || null);
+  taskEditorRepeatTermination.value = typeof value === 'string'
+    ? { type: 'never' }
+    : (value.termination || taskEditorRepeatTermination.value);
   void quickSaveTaskRepeatRule(activeTaskEditTask.value, value);
 }
 
@@ -8308,7 +8763,51 @@ async function quickSaveTaskRepeatRule(task: Task, repeat: RepeatFrequency | Rep
   updateTaskIndex();
 
   try {
-    await TaskRepository.setTaskRepeatRule(task, repeat);
+    const series = await TaskRepository.setTaskRepeatRule(task, repeat);
+    if (series && typeof repeat !== 'string') {
+      const currentFields = getTaskDateFields(task);
+      const syncedFields: TaskEditorDateFields = {
+        ...currentFields,
+        dueDate: series.endDate || ''
+      };
+      const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+      if (blockId) {
+        await setBlockAttrs(blockId, {
+          'custom-task-due-date': syncedFields.dueDate
+        });
+        await TaskRepository.clearCache();
+      }
+      const updatedTask = applyTaskDateFieldsLocally(task, syncedFields, new Date().toISOString(), {
+        repeatSeriesId: series.id,
+        repeatFrequency: series.frequency,
+        repeatInstanceDate: undefined,
+        isVirtual: false
+      });
+      eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
+
+      // setTaskRepeatRule emits while this editor flow is still applying the
+      // template fields above. Rebuild once more from the final series so the
+      // active view never waits for the asynchronous event-bus reconciliation.
+      const repeatPayload = {
+        blockId,
+        seriesId: series.id,
+        frequency: series.frequency
+      };
+      const rebuilt = await rebuildAffectedRepeatTasks(
+        tasks.value,
+        repeatPayload,
+        resolveTaskManagerRepeatMaterializeOptions()
+      );
+      if (rebuilt.handled && rebuilt.touched) {
+        tasks.value = syncTaskSnapshotWithLocalOverrides(rebuilt.nextTasks);
+        invalidateCache();
+        invalidateSortCache();
+        updateTaskIndex();
+      }
+      // This second notification is intentionally after all template writes;
+      // other mounted views then reconcile against the same final snapshot.
+      notifyRepeatChanged(repeatPayload);
+    }
     await refreshInternalState();
   } catch {
   }
@@ -8925,6 +9424,8 @@ onUnmounted(() => {
   }
   taskRowElements.clear();
   taskHeightCache.clear();
+  timelineVirtualRowElements.clear();
+  timelineVirtualRowHeightCache.clear();
   document.removeEventListener('mousedown', handleTaskFilterOutsideClick, true);
   window.removeEventListener('resize', handleTaskFilterPopoverViewportChange, true);
   window.removeEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
@@ -9981,6 +10482,174 @@ onUnmounted(() => {
 .tasks-list.is-list-view .task-batch-item.selected :deep(.task-card.variant-sidebar) {
   background: var(--b3-list-hover);
   box-shadow: none;
+}
+
+.task-grouped-list.is-timeline-view {
+  gap: 0;
+  position: relative;
+  isolation: isolate;
+  padding-left: 70px;
+}
+
+.task-timeline-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0px 2px 12px;
+  scrollbar-width: none;
+}
+
+.task-timeline-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.task-timeline-tab {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.task-timeline-tab:hover {
+  color: var(--b3-theme-on-background);
+}
+
+.task-timeline-tab.active {
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.tasks-list.is-timeline-view .task-group-section {
+  position: relative;
+  z-index: 1;
+  gap: 6px;
+  padding-bottom: 20px;
+}
+
+.tasks-list.is-timeline-view .task-group-section-header {
+  padding: 0;
+}
+
+.tasks-list.is-timeline-view .task-group-section-title {
+  margin-left: 0;
+  padding-left: 8px;
+  font-size: 12px;
+}
+
+.task-timeline-date {
+  position: absolute;
+  top: -2px;
+  left: -60px;
+  width: 72px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--b3-theme-on-surface);
+  white-space: nowrap;
+}
+
+.task-timeline-date strong {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.task-timeline-date span {
+  font-size: 12px;
+  opacity: 0.78;
+  flex-shrink: 0;
+}
+
+.task-timeline-time {
+  display: inline-flex;
+  width: 60px;
+  min-height: 24px;
+  padding: 3px 6px;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1.5px dashed color-mix(in srgb, var(--b3-theme-on-surface) 30%, transparent);
+  border-radius: 999px;
+  background: var(--b3-theme-background);
+  text-align: right;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.task-timeline-entry-meta {
+  position: absolute;
+  top: -2px;
+  left: -68px;
+  width: 72px;
+}
+
+.tasks-list.is-timeline-view .task-batch-item.timeline-entry {
+  position: relative;
+}
+
+.task-timeline-node {
+  display: none;
+}
+
+.tasks-list.is-timeline-view .task-group-section-body {
+  position: relative;
+  gap: 6px;
+}
+
+.tasks-list.is-timeline-view .task-group-section-body::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  bottom: 0;
+  left: -36px;
+  pointer-events: none;
+  border-left: 1.5px dashed color-mix(in srgb, var(--b3-theme-on-surface) 30%, transparent);
+}
+
+.tasks-list.is-timeline-view .task-group-section-body > .task-batch-item {
+  z-index: 1;
+}
+
+.tasks-list.is-timeline-view .task-timeline-virtual-list .timeline-virtual-section-header {
+  padding-bottom: 6px;
+}
+
+.tasks-list.is-timeline-view .task-timeline-virtual-list .timeline-virtual-section-header.timeline-virtual-section-collapsed {
+  padding-bottom: 20px;
+}
+
+.tasks-list.is-timeline-view .task-timeline-virtual-list .timeline-virtual-task {
+  position: relative;
+  z-index: 1;
+  padding-bottom: 6px;
+}
+
+.tasks-list.is-timeline-view .task-timeline-virtual-list .timeline-virtual-task.timeline-virtual-section-end {
+  padding-bottom: 20px;
+}
+
+.tasks-list.is-timeline-view .task-timeline-virtual-list .timeline-virtual-task::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  top: -6px;
+  bottom: 0;
+  left: -36px;
+  pointer-events: none;
+  border-left: 1.5px dashed color-mix(in srgb, var(--b3-theme-on-surface) 30%, transparent);
+}
+
+.tasks-list.is-timeline-view .task-timeline-virtual-list .timeline-virtual-task.timeline-virtual-section-end::before {
+  bottom: 20px;
 }
 
 .task-virtual-spacer {

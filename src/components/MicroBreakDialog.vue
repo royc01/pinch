@@ -16,7 +16,7 @@ const { t } = useI18n();
 </script>
 
 <style scoped>
-.micro-break-overlay { position: fixed; z-index: 10001; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.micro-break-overlay { position: fixed; z-index: 10001; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.5); pointer-events: none; }
 .micro-break-dialog { width: min(320px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--b3-border-color); border-radius: 12px; background: var(--b3-theme-surface); box-shadow: var(--b3-dialog-shadow); text-align: center; }
 .micro-break-dialog__title { color: var(--b3-theme-primary); font-size: 18px; font-weight: 600; }
 .micro-break-dialog__message { margin-top: 8px; color: var(--b3-theme-on-surface); }

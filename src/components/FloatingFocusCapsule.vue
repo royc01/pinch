@@ -417,7 +417,7 @@ const emit = defineEmits<{
   'micro-break-change': [visible: boolean, remainingSeconds: number];
 }>();
 const { t } = useI18n();
-const { data: userSettings, loadSettings } = useUserSettings();
+const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 
 const STORAGE_KEY = 'pinch-floating-focus-position';
 const EDGE_PADDING = 12;
@@ -977,15 +977,28 @@ const toggleWhiteNoise = () => {
   } else if (isRunning.value) {
     playWhiteNoise();
   }
+  void persistWhiteNoiseSettings();
 };
 
 const selectWhiteNoise = (soundId: string) => {
   selectedWhiteNoiseId.value = soundId;
+  void persistWhiteNoiseSettings();
   if (isRunning.value) playWhiteNoise();
 };
 
 const updateWhiteNoiseVolume = () => {
   if (whiteNoiseAudio.value) whiteNoiseAudio.value.volume = whiteNoiseVolume.value;
+  void persistWhiteNoiseSettings();
+};
+
+const persistWhiteNoiseSettings = async () => {
+  const settings = {
+    whiteNoiseEnabled: whiteNoiseEnabled.value,
+    selectedWhiteNoiseId: selectedWhiteNoiseId.value,
+    whiteNoiseVolume: whiteNoiseVolume.value
+  };
+  await updateSettings('focus', settings);
+  window.dispatchEvent(new CustomEvent('pinch-focus-settings-updated', { detail: settings }));
 };
 
 const showShortBreakPopup = () => {
@@ -996,7 +1009,8 @@ const showShortBreakPopup = () => {
   void nextTick(() => {
     void showDetachedMicroBreakWindow(Math.max(1, Math.round(shortBreakDuration.value * 60)), {
       title: t('focusTimer.shortBreakActiveTitle'),
-      body: t('focusTimer.shortBreakActiveBody')
+      body: t('focusTimer.shortBreakActiveBody'),
+      variant: 'short-break'
     });
   });
 };
@@ -1009,7 +1023,8 @@ const showFocusCompletePopup = () => {
   void nextTick(() => {
     void showDetachedMicroBreakWindow(10, {
       title: t('focusTimer.focusCompletePopupTitle'),
-      body: t('focusTimer.focusCompletePopupBody')
+      body: t('focusTimer.focusCompletePopupBody'),
+      variant: 'focus-complete'
     });
   });
 };
@@ -1550,6 +1565,30 @@ watch(linkedTarget, (nextTarget) => {
   }
 }, { immediate: true });
 
+watch(
+  () => [
+    userSettings.focus.whiteNoiseEnabled,
+    userSettings.focus.selectedWhiteNoiseId,
+    userSettings.focus.whiteNoiseVolume
+  ] as const,
+  ([enabled, soundId, savedVolume]) => {
+    const shouldRestartAudio = isRunning.value && (
+      whiteNoiseEnabled.value !== (enabled === true)
+      || selectedWhiteNoiseId.value !== soundId
+    );
+    whiteNoiseEnabled.value = enabled === true;
+    if (typeof soundId === 'string') selectedWhiteNoiseId.value = soundId;
+    if (Number.isFinite(savedVolume)) {
+      whiteNoiseVolume.value = Math.max(0, Math.min(savedVolume!, 1));
+      if (whiteNoiseAudio.value) whiteNoiseAudio.value.volume = whiteNoiseVolume.value;
+    }
+    if (shouldRestartAudio) {
+      if (whiteNoiseEnabled.value) void playWhiteNoise();
+      else stopWhiteNoise();
+    }
+  }
+);
+
 watch(() => props.enabled, (value) => {
   syncDetachedFocusWindowVisibility();
 
@@ -1578,6 +1617,14 @@ watch(isLinkedTargetLocked, (locked) => {
 
 onMounted(async () => {
   await loadSettings();
+  whiteNoiseEnabled.value = userSettings.focus.whiteNoiseEnabled === true;
+  const storedSound = userSettings.focus.selectedWhiteNoiseId;
+  if (typeof storedSound === 'string') {
+    selectedWhiteNoiseId.value = storedSound;
+  }
+  if (Number.isFinite(userSettings.focus.whiteNoiseVolume)) {
+    whiteNoiseVolume.value = Math.max(0, Math.min(userSettings.focus.whiteNoiseVolume!, 1));
+  }
   if (supportsDetachedFocusWindow) {
     unsubscribeHostWindowState = subscribeDetachedFocusHostWindowState((detached) => {
       isHostWindowDetached.value = detached;

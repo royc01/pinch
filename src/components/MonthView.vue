@@ -1126,7 +1126,7 @@ function pickRandomTaskBackgroundColor(): string {
 
 function getTasksHash(tasks: Task[]): string {
   return tasks.map(t => 
-    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime || ''}:${t.dueTime || ''}:${t.repeatSeriesId || ''}:${t.repeatFrequency || ''}:${t.repeatInstanceDate || ''}:${t.isVirtual === true ? '1' : '0'}:${t.title}:${t.backgroundColor || ''}:${t.groupId || ''}`
+    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime || ''}:${t.dueTime || ''}:${t.repeatSeriesId || ''}:${t.repeatFrequency || ''}:${t.repeatInstanceDate || ''}:${t.isVirtual === true ? '1' : '0'}:${t.isRepeatWindow === true ? '1' : '0'}:${t.title}:${t.backgroundColor || ''}:${t.groupId || ''}`
   ).join('|');
 }
 
@@ -1141,8 +1141,11 @@ function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date
   const taskStart = new Date(startValue);
   taskStart.setHours(0, 0, 0, 0);
 
-  const isRepeatTask = isRepeatTaskEntity(task);
-  const endValue = isRepeatTask ? startValue : (task.dueDate || startValue);
+  // Virtual tasks only span days when their materialized due date differs
+  // from the occurrence date. Standard recurring instances have equal dates.
+  const endValue = task.isVirtual && task.dueDate && task.dueDate !== startValue
+    ? task.dueDate
+    : startValue;
   const taskEnd = new Date(endValue);
   taskEnd.setHours(23, 59, 59, 999);
 

@@ -466,7 +466,7 @@ export interface TaskScopeDisplayOption {
   id: string;
   label: string;
   /** IDs persisted when this display option is hidden. */
-  hiddenIds?: string[];
+  hiddenIds?: readonly string[];
 }
 
 interface Props {
@@ -924,7 +924,7 @@ function clearExcluded(): void {
 
 function getTaskViewHiddenIds(id: string): string[] {
   const option = taskViewOptions.value.find(item => item.id === id);
-  return option?.hiddenIds?.length ? option.hiddenIds : [id];
+  return option?.hiddenIds?.length ? [...option.hiddenIds] : [id];
 }
 
 function isTaskViewVisible(id: string): boolean {

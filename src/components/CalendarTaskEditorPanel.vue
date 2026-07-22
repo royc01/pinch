@@ -122,6 +122,7 @@
       />
 
       <TaskRepeatEditor
+        v-if="mode !== 'dock'"
         class="calendar-editor-section calendar-editor-repeat"
         :repeat-frequency="repeatFrequency"
         :repeat-rule="repeatRule"

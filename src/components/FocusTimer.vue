@@ -141,7 +141,7 @@
         </div>
       </div>
 
-      <div class="timer-controls">
+       <div class="timer-controls">
         <button
           v-if="!isRunning"
           @click="isPaused ? resumeTimer() : startTimer()"
@@ -159,10 +159,10 @@
         <button v-if="isRunning || isPaused" @click="stopTimer(true)" class="control-btn stop-btn">
           <Icon name="stop" width="20" height="20" />
           <span>{{ t('focusTimer.stop') }}</span>
-        </button>
-      </div>
+         </button>
+       </div>
 
-      <div class="timer-settings">
+       <div class="timer-settings">
         <div class="setting-section">
           <div class="setting-label">
             <span>{{ t('focusTimer.focusDuration') }}</span>
@@ -613,7 +613,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const { data: userSettings, loadSettings } = useUserSettings();
+const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 
 interface Sound {
   id: string;
@@ -1097,14 +1097,17 @@ const handleAudioToggle = async (event: Event) => {
   
   if (checked && !isDownloading.value) {
     enableAudio.value = true;
+    void persistWhiteNoiseSettings();
     await downloadAudioFiles();
   } else if (!checked) {
     enableAudio.value = false;
+    void persistWhiteNoiseSettings();
   }
 };
 
 const selectSound = (sound: Sound) => {
   selectedSound.value = sound;
+  void persistWhiteNoiseSettings();
   
   if (sound.id === 'none') {
     stopAudio();
@@ -1136,6 +1139,17 @@ const updateVolume = () => {
   if (audio.value) {
     audio.value.volume = volume.value;
   }
+  void persistWhiteNoiseSettings();
+};
+
+const persistWhiteNoiseSettings = async () => {
+  const settings = {
+    whiteNoiseEnabled: enableAudio.value,
+    selectedWhiteNoiseId: selectedSound.value.id,
+    whiteNoiseVolume: volume.value
+  };
+  await updateSettings('focus', settings);
+  window.dispatchEvent(new CustomEvent('pinch-focus-settings-updated', { detail: settings }));
 };
 
 const downloadAudioFiles = async () => {
@@ -1267,7 +1281,8 @@ function showShortBreakPopup(): void {
   void nextTick(() => {
     void showDetachedMicroBreakWindow(Math.max(1, Math.round(shortBreakDuration.value * 60)), {
       title: t('focusTimer.shortBreakActiveTitle'),
-      body: t('focusTimer.shortBreakActiveBody')
+      body: t('focusTimer.shortBreakActiveBody'),
+      variant: 'short-break'
     });
   });
 }
@@ -1280,7 +1295,8 @@ function showFocusCompletePopup(): void {
   void nextTick(() => {
     void showDetachedMicroBreakWindow(10, {
       title: t('focusTimer.focusCompletePopupTitle'),
-      body: t('focusTimer.focusCompletePopupBody')
+      body: t('focusTimer.focusCompletePopupBody'),
+      variant: 'focus-complete'
     });
   });
 }
@@ -1866,6 +1882,9 @@ const buildHandoffState = (): FocusTimerHandoffState => ({
   currentSet: currentSet.value,
   countupSessionId: countupSessionId.value,
   savedCountupMinutes: savedCountupMinutes.value,
+  whiteNoiseEnabled: enableAudio.value,
+  selectedWhiteNoiseId: selectedSound.value.id,
+  whiteNoiseVolume: volume.value,
   microBreakSettings: { ...userSettings.focus },
   linkedTarget: linkedTarget.value ?? null
 });
@@ -1941,6 +1960,15 @@ onMounted(async () => {
 
   try {
     await loadSettings();
+    enableAudio.value = userSettings.focus.whiteNoiseEnabled === true;
+    const storedSound = userSettings.focus.selectedWhiteNoiseId;
+    if (typeof storedSound === 'string') {
+      selectedSound.value = soundOptions.find(sound => sound.id === storedSound)
+        ?? (storedSound === 'custom' ? { id: 'custom', name: t('taskScopeDialog.customWhiteNoise'), emoji: '🎵', icon: 'soundOff' } : soundOptions[0]);
+    }
+    if (Number.isFinite(userSettings.focus.whiteNoiseVolume)) {
+      volume.value = Math.max(0, Math.min(userSettings.focus.whiteNoiseVolume!, 1));
+    }
     window.addEventListener(FOCUS_SESSION_EVENT, handleExternalFocusSession);
     window.addEventListener('resize', handleBackfillViewportResize);
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
@@ -1984,6 +2012,25 @@ watch(linkedTarget, (nextTarget) => {
     durationIndex.value = nextIndex >= 0 ? nextIndex : 3;
   }
 }, { immediate: true });
+
+watch(
+  () => [
+    userSettings.focus.whiteNoiseEnabled,
+    userSettings.focus.selectedWhiteNoiseId,
+    userSettings.focus.whiteNoiseVolume
+  ] as const,
+  ([enabled, soundId, savedVolume]) => {
+    enableAudio.value = enabled === true;
+    if (typeof soundId === 'string') {
+      selectedSound.value = soundOptions.find(sound => sound.id === soundId)
+        ?? (soundId === 'custom' ? { id: 'custom', name: t('taskScopeDialog.customWhiteNoise'), emoji: '🎵', icon: 'soundOff' } : soundOptions[0]);
+    }
+    if (Number.isFinite(savedVolume)) {
+      volume.value = Math.max(0, Math.min(savedVolume!, 1));
+      if (audio.value) audio.value.volume = volume.value;
+    }
+  }
+);
 
 watch(() => props.show, (visible) => {
   if (!visible) {

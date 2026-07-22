@@ -13,17 +13,95 @@
       :start-date="startDate"
       :start-time="startTime"
       :due-time="dueTime"
-      :show-repeat-editor="true"
-      :repeat-frequency="repeatFrequency"
-      :repeat-rule="repeatRule"
       @update:dateFields="handleDateFieldsUpdate"
       @update:modelValue="handleDueSelect"
       @update:startDate="handleStartDateUpdate"
       @update:startTime="handleStartTimeUpdate"
       @update:dueTime="handleDueTimeUpdate"
-      @saveRepeatRule="emitSaveRepeatRule"
       @close="emitPanelUpdate(null)"
     />
+    <Teleport to="body">
+      <div v-if="repeatDialogOpen" class="task-repeat-settings-popover" :style="repeatPopoverStyle">
+        <section
+          ref="repeatPopoverRef"
+          class="task-repeat-settings-dialog"
+          role="dialog"
+          :aria-label="t('taskRepeat.dialogTitle')"
+          @mousedown.stop
+          @click.stop
+        >
+          <div class="task-repeat-settings-header">
+            <button
+              v-if="repeatMenuView === 'custom'"
+              type="button"
+              class="task-repeat-settings-back ariaLabel"
+              :aria-label="t('taskRepeat.back')"
+              @click="repeatMenuView = 'presets'"
+            >
+              <Icon name="chevronRight" width="16" height="16" class="flip" />
+            </button>
+            <span>{{ repeatMenuView === 'custom' ? t('taskRepeat.customRepeat') : t('taskRepeat.repeat') }}</span>
+            <button
+              type="button"
+              class="task-repeat-settings-close ariaLabel"
+              :aria-label="t('common.close')"
+              @click="closeRepeatDialog"
+            >
+              <Icon name="close" width="16" height="16" />
+            </button>
+          </div>
+          <template v-if="repeatMenuView === 'presets'">
+            <div class="task-repeat-settings-list" role="menu">
+              <button
+                v-for="option in repeatPresetOptions"
+                :key="option.key"
+                type="button"
+                class="task-repeat-settings-item"
+                :class="{ selected: isRepeatPresetSelected(option.key) }"
+                role="menuitemradio"
+                :aria-checked="isRepeatPresetSelected(option.key)"
+                @click="saveRepeatPreset(option.key)"
+              >
+                <span class="task-repeat-settings-radio" aria-hidden="true"></span>
+                <span class="task-repeat-settings-item-label">
+                  <span>{{ option.label }}</span>
+                  <span v-if="option.detail" class="task-repeat-settings-item-detail">（{{ option.detail }}）</span>
+                </span>
+              </button>
+              <button type="button" class="task-repeat-settings-item task-repeat-settings-item--custom" role="menuitem" @click="repeatMenuView = 'custom'">
+                <span class="task-repeat-settings-radio" aria-hidden="true"></span>
+                <span class="task-repeat-settings-item-label">{{ t('taskRepeat.customRepeat') }}</span>
+                <Icon name="chevronRight" width="16" height="16" />
+              </button>
+            </div>
+            <div class="task-repeat-settings-divider"></div>
+            <div class="task-repeat-settings-list">
+              <div :class="['task-repeat-termination-editor', { 'is-disabled': normalizedRepeatFrequency === 'none' }]">
+                <span class="task-repeat-termination-label">{{ t('taskRepeat.termination') }}</span>
+                <div class="task-repeat-termination-options">
+                  <button :class="{ selected: terminationDraft.type === 'never' }" :disabled="normalizedRepeatFrequency === 'none'" type="button" @click="saveRepeatTermination({ type: 'never' })">{{ t('taskRepeat.neverEnds') }}</button>
+                  <button :class="{ selected: terminationDraft.type === 'count' }" :disabled="normalizedRepeatFrequency === 'none'" type="button" @click="setTerminationType('count')">{{ t('taskRepeat.repeatCount') }}</button>
+                  <button :class="{ selected: terminationDraft.type === 'date' }" :disabled="normalizedRepeatFrequency === 'none'" type="button" @click="setTerminationType('date')">{{ t('taskRepeat.untilDate') }}</button>
+                </div>
+                <input v-if="terminationDraft.type === 'count'" v-model.number="terminationDraft.count" :disabled="normalizedRepeatFrequency === 'none'" min="1" max="9999" type="number" @change="saveRepeatTermination({ type: 'count', count: terminationDraft.count || 1 })" />
+                <input v-if="terminationDraft.type === 'date'" v-model="terminationDraft.date" :disabled="normalizedRepeatFrequency === 'none'" type="date" @change="saveTerminationDate" />
+              </div>
+            </div>
+          </template>
+          <TaskRepeatEditor
+            v-else
+            class="task-repeat-settings-editor"
+            :repeat-frequency="repeatFrequency"
+            :repeat-rule="repeatRule"
+            :repeat-termination="repeatTermination"
+            :base-date="startDate || dueDate"
+            :embedded-custom="true"
+            @saveRepeatRule="handleRepeatRuleSave"
+            @customDialogClosed="handleCustomRepeatDialogClosed"
+          />
+        </section>
+      </div>
+    </Teleport>
     <TaskReminderPopover
       v-if="showReminderControl && panel === 'reminder'"
       :visible="true"
@@ -275,16 +353,46 @@
         type="button"
         class="task-editor-property-row ariaLabel"
         :class="{ 'is-active': panel === 'due' }"
-        :aria-label="t('taskManager.dueDate')"
+        :aria-label="t('taskManager.date')"
         @click.stop="togglePanel('due')"
       >
         <span class="task-editor-property-label">
           <Icon name="calendar" width="15" height="15" />
-          <span>{{ t('taskManager.dueDate') }}</span>
+          <span>{{ t('taskManager.date') }}</span>
         </span>
         <span class="task-editor-property-value">
-          <span v-if="hasDueDate" class="task-editor-property-pill">{{ dueText }}</span>
+          <span v-if="hasAnyDate" class="task-editor-property-pill is-date-range" :class="{ 'is-single-date': !dateRange.start || !dateRange.due }">
+            <span v-if="dateRange.start" class="task-editor-date-range-item">
+              <span class="task-editor-date-range-label">{{ t('taskManager.startDate') }}</span>
+              <span class="task-editor-date-range-value">{{ dateRange.start }}</span>
+            </span>
+            <span v-if="dateRange.due" class="task-editor-date-range-item">
+              <span class="task-editor-date-range-label">{{ t('taskManager.dueDate') }}</span>
+              <span class="task-editor-date-range-value">{{ dateRange.due }}</span>
+            </span>
+          </span>
           <span v-else class="task-editor-property-placeholder">{{ t('taskManager.notSet') }}</span>
+        </span>
+      </button>
+
+      <button
+        ref="repeatButtonRef"
+        type="button"
+        class="task-editor-property-row ariaLabel"
+        :class="{ 'is-active': repeatDialogOpen }"
+        :aria-label="t('taskRepeat.repeat')"
+        @click.stop="openRepeatDialog"
+      >
+        <span class="task-editor-property-label">
+          <Icon name="repeat" width="15" height="15" />
+          <span>{{ t('taskRepeat.repeat') }}</span>
+        </span>
+        <span class="task-editor-property-value">
+          <span
+            v-if="normalizedRepeatFrequency !== 'none'"
+            class="task-editor-property-pill"
+          >{{ repeatSummary }}</span>
+          <span v-else class="task-editor-property-placeholder">{{ t('taskRepeat.none') }}</span>
         </span>
       </button>
 
@@ -393,11 +501,11 @@
         class="task-editor-action-btn ariaLabel"
         :class="{ 'is-active': panel === 'due' }"
        
-        :aria-label="t('taskManager.dueDate')"
+        :aria-label="t('taskManager.date')"
         @click.stop="togglePanel('due')"
       >
         <Icon name="calendar" width="14" height="14" />
-        <span v-if="hasDueDate" class="task-editor-action-value">{{ dueText }}</span>
+        <span v-if="hasAnyDate" class="task-editor-action-value">{{ dateRange.start || dateRange.due }}</span>
       </button>
       <button
         v-if="showReminderControl"
@@ -434,19 +542,22 @@ import Icon from '@/components/Icon.vue';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
+import TaskRepeatEditor from '@/components/TaskRepeatEditor.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
 import { useI18n } from '@/composables/useI18n';
-import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
+import type { RepeatFrequency, RepeatRule, RepeatRuleInput, RepeatTermination } from '@/repeatRepository';
 import type { TaskReminderSelection, TaskReminderType } from '@/utils/taskReminder';
 import { TASK_GROUP_NONE_ID, type TaskGroupOption } from '@/utils/taskGroupShared';
 import { buildTaskPriorityShortOptions } from '@/utils/taskPriority';
 import { getTaskStatusLabel } from '@/utils/taskStatus';
+import solarLunar from '@/utils/solarLunar.js';
 
 type TaskStatus = Task['status'];
 type TaskEditorPanel = 'due' | 'description' | 'group' | 'reminder' | 'status' | null;
 type TaskFocusEstimate = NonNullable<Task['focusEstimate']>;
 type TaskEditorMetaLayout = 'actions' | 'properties';
 type TaskEditorPropertyPicker = 'tags' | 'goals' | null;
+type RepeatPresetKey = 'none' | 'daily' | 'weekdays' | 'weekly-today' | 'monthly-today' | 'yearly-today' | 'lunar-monthly-today' | 'lunar-yearly-today';
 type TaskEditorDateFields = {
   startDate: string;
   startTime: string;
@@ -496,6 +607,7 @@ const props = withDefaults(defineProps<{
   priorityStyle?: Record<string, string>;
   repeatFrequency?: RepeatFrequency;
   repeatRule?: RepeatRule | null;
+  repeatTermination?: RepeatTermination;
   groupButtonStyle?: Record<string, string>;
   defaultGroupChipColor?: string;
   descriptionPlaceholder?: string;
@@ -516,6 +628,7 @@ const props = withDefaults(defineProps<{
   priorityStyle: () => ({}),
   repeatFrequency: 'none',
   repeatRule: null,
+  repeatTermination: () => ({ type: 'never' }),
   groupButtonStyle: () => ({}),
   defaultGroupChipColor: '#9aa0a6',
   descriptionPlaceholder: 'Add task description...',
@@ -550,6 +663,8 @@ const emit = defineEmits<{
 }>();
 
 const dueButtonRef = ref<HTMLElement | null>(null);
+const repeatButtonRef = ref<HTMLElement | null>(null);
+const repeatPopoverRef = ref<HTMLElement | null>(null);
 const focusEstimateButtonRef = ref<HTMLElement | null>(null);
 const focusEstimatePopoverRef = ref<HTMLElement | null>(null);
 const { t } = useI18n();
@@ -562,13 +677,116 @@ const statusPopoverPosition = ref({ x: 0, y: 0 });
 const propertyPicker = ref<TaskEditorPropertyPicker>(null);
 const propertyPopoverStyle = ref<Record<string, string>>({});
 const focusEstimateOpen = ref(false);
+const repeatDialogOpen = ref(false);
+const repeatPopoverStyle = ref<Record<string, string>>({});
+const repeatMenuView = ref<'presets' | 'custom'>('presets');
+const repeatPresetBaseDate = ref(new Date());
+const terminationDraft = ref<RepeatTermination>({ type: 'never' });
 const focusEstimateDraftUnit = ref<TaskFocusEstimate['unit']>('minutes');
 const focusEstimateDraftValue = ref('');
 const focusEstimatePopoverStyle = ref<Record<string, string>>({});
 
 const showDescriptionPanel = computed(() => props.panel === 'description' || props.hasDescription);
 const normalizedStatus = computed<TaskStatus>(() => normalizeStatusValue(props.status));
+const normalizedRepeatFrequency = computed<RepeatFrequency>(() => props.repeatFrequency || 'none');
+const repeatPresetOptions = computed<Array<{ key: RepeatPresetKey; label: string; detail?: string }>>(() => {
+  const today = repeatPresetBaseDate.value;
+  const lunar = solarLunar.solar2lunar(today.getFullYear(), today.getMonth() + 1, today.getDate());
+  const weekDayKey = ['taskRepeat.weekdaySunShort', 'taskRepeat.weekdayMonShort', 'taskRepeat.weekdayTueShort', 'taskRepeat.weekdayWedShort', 'taskRepeat.weekdayThuShort', 'taskRepeat.weekdayFriShort', 'taskRepeat.weekdaySatShort'][today.getDay()];
+  const solarMonthDay = `${today.getMonth() + 1}${t('date.monthSuffix')}${today.getDate()}${t('taskRepeat.summaryDaySuffix')}`;
+  const lunarMonthDay = lunar === -1 ? '' : `${lunar.monthCn}${lunar.dayCn}`;
+  return [
+    { key: 'none', label: t('taskRepeat.none') },
+    { key: 'daily', label: t('taskRepeat.daily') },
+    { key: 'weekdays', label: t('taskRepeat.weekdaysPrefix'), detail: t('taskRepeat.weekdaysDetail') },
+    { key: 'weekly-today', label: t('taskRepeat.presetWeeklyPrefix'), detail: `${t('taskRepeat.weekdayPrefix')}${t(weekDayKey)}` },
+    { key: 'monthly-today', label: t('taskRepeat.monthly'), detail: `${today.getDate()}${t('taskRepeat.summaryDaySuffix')}` },
+    { key: 'yearly-today', label: t('taskRepeat.presetYearlyPrefix'), detail: solarMonthDay },
+    { key: 'lunar-monthly-today', label: t('taskRepeat.presetLunarMonthlyPrefix'), detail: lunar === -1 ? String(today.getDate()) : lunar.dayCn },
+    { key: 'lunar-yearly-today', label: t('taskRepeat.presetLunarYearlyPrefix'), detail: lunarMonthDay || solarMonthDay }
+  ];
+});
+const repeatSummary = computed(() => {
+  if (normalizedRepeatFrequency.value === 'custom') {
+    return formatRepeatRuleLabel(props.repeatRule);
+  }
+  return t(`taskRepeat.${normalizedRepeatFrequency.value}`);
+});
+
+function formatRepeatRuleLabel(rule: RepeatRule | null | undefined): string {
+  if (!rule) return t('taskRepeat.customRepeat');
+
+  if (rule.unit === 'week') {
+    const weekdayKeys = [
+      'taskRepeat.weekdaySunShort',
+      'taskRepeat.weekdayMonShort',
+      'taskRepeat.weekdayTueShort',
+      'taskRepeat.weekdayWedShort',
+      'taskRepeat.weekdayThuShort',
+      'taskRepeat.weekdayFriShort',
+      'taskRepeat.weekdaySatShort'
+    ];
+    const days = (rule.weekDays || [])
+      .filter(day => Number.isInteger(day) && day >= 0 && day <= 6)
+      .map(day => `${t('taskRepeat.weekdayPrefix')}${t(weekdayKeys[day])}`);
+    return days.length > 0
+      ? `${t('taskRepeat.presetWeeklyPrefix')}（${days.join(t('taskRepeat.listDelimiter'))}）`
+      : t('taskRepeat.presetWeeklyPrefix');
+  }
+
+  if (rule.unit === 'month') {
+    const prefix = rule.calendar === 'lunar'
+      ? t('taskRepeat.presetLunarMonthlyPrefix')
+      : t('taskRepeat.monthly');
+    if (rule.windowStartDay && rule.windowEndDay) {
+      return `${prefix}（${rule.windowStartDay}${t('taskRepeat.summaryDaySuffix')}–${rule.windowEndDay}${t('taskRepeat.summaryDaySuffix')}）`;
+    }
+    const days = (rule.monthDays || [])
+      .map(day => `${day}${t('taskRepeat.summaryDaySuffix')}`)
+      .join(t('taskRepeat.listDelimiter'));
+    return days ? `${prefix}（${days}）` : prefix;
+  }
+
+  if (rule.unit === 'year') {
+    const prefix = rule.calendar === 'lunar'
+      ? t('taskRepeat.presetLunarYearlyPrefix')
+      : t('taskRepeat.presetYearlyPrefix');
+    const dates = (rule.yearDays || [])
+      .map(value => {
+        const [month, day] = value.split('-').map(Number);
+        return Number.isInteger(month) && Number.isInteger(day)
+          ? `${month}${t('date.monthSuffix')}${day}${t('taskRepeat.summaryDaySuffix')}`
+          : value;
+      })
+      .join(t('taskRepeat.listDelimiter'));
+    return dates ? `${prefix}（${dates}）` : prefix;
+  }
+
+  if (rule.unit === 'day') {
+    return rule.interval > 1
+      ? `${t('taskRepeat.summaryEvery')}${rule.interval}${t('taskRepeat.summaryDays')}`
+      : t('taskRepeat.daily');
+  }
+
+  return t('taskRepeat.customRepeat');
+}
 const statusBadgeText = computed(() => getTaskStatusLabel(normalizedStatus.value, t));
+const hasAnyDate = computed(() => Boolean(props.startDate.trim() || props.dueDate.trim()));
+const dateRange = computed(() => {
+  const formatDateTime = (date: string, time: string): string => {
+    const normalizedDate = date.trim();
+    const normalizedTime = time.trim();
+    const [, , month, day] = normalizedDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/) || [];
+    const shortDate = month && day ? `${Number(month)}-${Number(day)}` : normalizedDate;
+    return normalizedTime ? `${shortDate} ${normalizedTime}` : shortDate;
+  };
+  const startDate = props.startDate.trim();
+  const dueDate = props.dueDate.trim();
+  return {
+    start: startDate ? formatDateTime(startDate, props.startTime) : '',
+    due: dueDate ? formatDateTime(dueDate, props.dueTime) : ''
+  };
+});
 const priorityOptions = computed(() => buildTaskPriorityShortOptions(t));
 const focusEstimateUnitOptions = computed(() => [
   { value: 'minutes' as const, label: t('taskManager.focusEstimateMinutes') },
@@ -644,7 +862,53 @@ function emitPanelUpdate(value: TaskEditorPanel): void {
 function togglePanel(panel: Exclude<TaskEditorPanel, null>): void {
   closePropertyPicker();
   focusEstimateOpen.value = false;
+  repeatDialogOpen.value = false;
   emitPanelUpdate(props.panel === panel ? null : panel);
+}
+
+function openRepeatDialog(): void {
+  if (repeatDialogOpen.value) {
+    closeRepeatDialog();
+    return;
+  }
+  closePropertyPicker();
+  focusEstimateOpen.value = false;
+  emitPanelUpdate(null);
+  repeatMenuView.value = 'presets';
+  repeatPresetBaseDate.value = new Date();
+  terminationDraft.value = { ...(props.repeatTermination || { type: 'never' }) } as RepeatTermination;
+  repeatDialogOpen.value = true;
+  void nextTick(updateRepeatPopoverPosition);
+}
+
+function closeRepeatDialog(): void {
+  repeatDialogOpen.value = false;
+}
+
+function updateRepeatPopoverPosition(): void {
+  const anchor = repeatButtonRef.value;
+  const popover = repeatPopoverRef.value;
+  if (!anchor || !popover) return;
+
+  const anchorRect = anchor.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const margin = 8;
+  const gap = 6;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  const left = Math.min(
+    Math.max(margin, anchorRect.right - popoverRect.width),
+    viewportWidth - popoverRect.width - margin
+  );
+  const belowTop = anchorRect.bottom + gap;
+  const top = belowTop + popoverRect.height <= viewportHeight - margin
+    ? belowTop
+    : Math.max(margin, anchorRect.top - popoverRect.height - gap);
+
+  repeatPopoverStyle.value = {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`
+  };
 }
 
 function toggleFocusEstimate(): void {
@@ -719,8 +983,104 @@ function handleDueTimeUpdate(value: string): void {
   emitDateFields({ dueTime: value });
 }
 
-function emitSaveRepeatRule(value: RepeatFrequency | RepeatRuleInput): void {
+function handleRepeatRuleSave(value: RepeatFrequency | RepeatRuleInput): void {
   emit('save-repeat-rule', value);
+  closeRepeatDialog();
+}
+
+function handleCustomRepeatDialogClosed(): void {
+  repeatMenuView.value = 'presets';
+}
+
+function getTodayRepeatParts(): { weekDay: number; monthDay: number; yearDay: string; lunarDay: number; lunarYearDay: string } {
+  const today = repeatPresetBaseDate.value;
+  const lunar = solarLunar.solar2lunar(today.getFullYear(), today.getMonth() + 1, today.getDate());
+  return {
+    weekDay: today.getDay(),
+    monthDay: today.getDate(),
+    yearDay: `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`,
+    lunarDay: lunar === -1 ? today.getDate() : lunar.lDay,
+    lunarYearDay: lunar === -1
+      ? `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      : `${String(lunar.lMonth).padStart(2, '0')}-${String(lunar.lDay).padStart(2, '0')}`
+  };
+}
+
+function isRepeatPresetSelected(value: RepeatPresetKey): boolean {
+  const rule = props.repeatRule;
+  const today = getTodayRepeatParts();
+  if (value === 'none' || value === 'daily' || value === 'weekdays') {
+    return normalizedRepeatFrequency.value === value;
+  }
+  if (normalizedRepeatFrequency.value !== 'custom' || !rule) return false;
+  if (value === 'weekly-today') {
+    return rule.unit === 'week' && rule.interval === 1 && rule.weekDays?.length === 1 && rule.weekDays[0] === today.weekDay;
+  }
+  if (value === 'monthly-today') {
+    return rule.unit === 'month' && rule.calendar !== 'lunar' && rule.monthDays?.length === 1 && rule.monthDays[0] === today.monthDay;
+  }
+  if (value === 'yearly-today') {
+    return rule.unit === 'year' && rule.calendar !== 'lunar' && rule.yearDays?.length === 1 && rule.yearDays[0] === today.yearDay;
+  }
+  if (value === 'lunar-monthly-today') {
+    return rule.unit === 'month' && rule.calendar === 'lunar' && rule.monthDays?.length === 1 && rule.monthDays[0] === today.lunarDay;
+  }
+  return rule.unit === 'year' && rule.calendar === 'lunar' && rule.yearDays?.length === 1 && rule.yearDays[0] === today.lunarYearDay;
+}
+
+function saveRepeatPreset(value: RepeatPresetKey): void {
+  if (value === 'none') {
+    handleRepeatRuleSave('none');
+    return;
+  }
+  if (value === 'daily' || value === 'weekdays') {
+    handleRepeatRuleSave({ frequency: value, termination: props.repeatTermination });
+    return;
+  }
+
+  const today = getTodayRepeatParts();
+  const rule: RepeatRule = value === 'weekly-today'
+    ? { unit: 'week', interval: 1, weekDays: [today.weekDay] }
+    : value === 'monthly-today'
+      ? { unit: 'month', interval: 1, calendar: 'solar', monthDays: [today.monthDay] }
+      : value === 'yearly-today'
+        ? { unit: 'year', interval: 1, calendar: 'solar', yearDays: [today.yearDay] }
+        : value === 'lunar-monthly-today'
+          ? { unit: 'month', interval: 1, calendar: 'lunar', monthDays: [today.lunarDay] }
+          : { unit: 'year', interval: 1, calendar: 'lunar', yearDays: [today.lunarYearDay] };
+  handleRepeatRuleSave({
+    frequency: 'custom',
+    rule,
+    termination: props.repeatTermination
+  });
+}
+
+function setTerminationType(type: 'count' | 'date'): void {
+  if (type === 'count') {
+    terminationDraft.value = { type: 'count', count: 1 };
+    return;
+  }
+  terminationDraft.value = { type: 'date', date: dueDateOrToday() };
+}
+
+function dueDateOrToday(): string {
+  return props.dueDate || props.startDate || new Date().toISOString().slice(0, 10);
+}
+
+function saveTerminationDate(): void {
+  if (terminationDraft.value.type === 'date' && terminationDraft.value.date) {
+    saveRepeatTermination(terminationDraft.value);
+  }
+}
+
+function saveRepeatTermination(termination: RepeatTermination): void {
+  if (normalizedRepeatFrequency.value === 'none') return;
+  terminationDraft.value = { ...termination };
+  handleRepeatRuleSave({
+    frequency: normalizedRepeatFrequency.value,
+    rule: props.repeatRule || undefined,
+    termination
+  });
 }
 
 function handleReminderSelect(value: TaskReminderSelection): void {
@@ -741,6 +1101,7 @@ function togglePropertyPicker(kind: Exclude<TaskEditorPropertyPicker, null>): vo
     return;
   }
   emitPanelUpdate(null);
+  repeatDialogOpen.value = false;
   propertyPicker.value = kind;
   void nextTick(updatePropertyPopoverPosition);
 }
@@ -882,6 +1243,12 @@ function handleOutsideMouseDown(event: MouseEvent): void {
     }
     return;
   }
+  if (repeatDialogOpen.value) {
+    if (repeatPopoverRef.value?.contains(target) || repeatButtonRef.value?.contains(target)) {
+      return;
+    }
+    closeRepeatDialog();
+  }
   if (propertyPicker.value) {
     const anchor = getPropertyPickerAnchor(propertyPicker.value);
     if (target.closest('.task-editor-property-popover') || anchor?.contains(target)) {
@@ -914,6 +1281,9 @@ function handleViewportChange(): void {
   }
   if (focusEstimateOpen.value) {
     updateFocusEstimatePopoverPosition();
+  }
+  if (repeatDialogOpen.value) {
+    updateRepeatPopoverPosition();
   }
 }
 
@@ -1092,6 +1462,39 @@ onUnmounted(() => {
   color: var(--b3-theme-on-background);
 }
 
+.task-editor-property-pill.is-date-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.task-editor-property-pill.is-date-range.is-single-date {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.task-editor-date-range-item {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.task-editor-date-range-label {
+  color: var(--b3-theme-on-surface);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.task-editor-date-range-value {
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .task-editor-property-pill.is-priority {
   font-weight: 600;
 }
@@ -1100,6 +1503,193 @@ onUnmounted(() => {
   color: var(--b3-theme-on-surface);
   font-size: 12px;
   opacity: 0.62;
+}
+
+.task-repeat-settings-popover {
+  position: fixed;
+  z-index: 1000;
+  width: min(360px, calc(100vw - 16px));
+}
+
+.task-repeat-settings-dialog {
+  width: 100%;
+  border: 1px solid var(--b3-border-color, var(--b3-theme-border));
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  box-shadow: 0 18px 42px rgb(0 0 0 / 21%);
+}
+
+.task-repeat-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--b3-theme-border);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.task-repeat-settings-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px 0 -4px -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.task-repeat-settings-back:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-repeat-settings-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.task-repeat-settings-close:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-repeat-settings-editor {
+  padding: 14px;
+}
+
+.task-repeat-settings-list {
+  display: grid;
+  padding: 4px 0;
+}
+
+.task-repeat-settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+
+button.task-repeat-settings-item {
+  cursor: pointer;
+}
+
+button.task-repeat-settings-item:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-repeat-settings-item.selected {
+  color: var(--b3-theme-primary, #3ca370);
+  font-weight: 600;
+}
+
+.task-repeat-settings-item > span:last-child {
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  opacity: 0.62;
+}
+
+.task-repeat-settings-list[role='menu'] .task-repeat-settings-item {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.task-repeat-settings-list[role='menu'] .task-repeat-settings-item > .task-repeat-settings-item-label {
+  color: inherit;
+  font-size: inherit;
+  opacity: 1;
+}
+
+.task-repeat-settings-item-detail {
+  color: var(--b3-theme-on-surface);
+  opacity: 0.64;
+}
+
+.task-repeat-settings-item--custom > :last-child {
+  margin-left: auto;
+}
+
+.task-repeat-settings-list.is-disabled {
+  opacity: 0.48;
+}
+
+.task-repeat-settings-divider {
+  height: 1px;
+  margin: 2px 0 6px;
+  background: var(--b3-theme-border);
+}
+
+.task-repeat-settings-section-title {
+  padding: 4px 14px 2px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+}
+
+.task-repeat-termination-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px 10px;
+}
+
+.task-repeat-termination-label {
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.task-repeat-termination-options {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 8px;
+}
+
+.task-repeat-termination-options button,
+.task-repeat-termination-editor input {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  font: inherit;
+  font-size: 14px;
+}
+
+.task-repeat-termination-options button { flex: 1 1 0; padding: 6px 10px; line-height: 1; cursor: pointer; }
+.task-repeat-termination-options button.selected { background: var(--b3-theme-on-background); color: var(--b3-theme-background); }
+.task-repeat-termination-editor input { flex-basis: 100%; width: 100%; padding: 0 10px; }
+.task-repeat-termination-editor.is-disabled { opacity: 0.48; }
+
+.task-repeat-settings-editor :deep(.repeat-edit-row) {
+  align-items: center;
+}
+
+.task-repeat-settings-editor :deep(.repeat-edit-row label) {
+  min-width: 48px;
 }
 
 .task-editor-focus-estimate-icon { flex: 0 0 auto; color: var(--b3-theme-on-surface); opacity: .72; }
