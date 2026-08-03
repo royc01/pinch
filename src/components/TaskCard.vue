@@ -421,6 +421,9 @@ const dueBadgeText = computed(() => {
   if (overdueDaysText.value) {
     return overdueDaysText.value;
   }
+  if (remainingDays.value === 0 && dueTimeText.value) {
+    return formatTemplate('taskCard.dueTodayWithTime', { time: dueTimeText.value });
+  }
   if (remainingDaysText.value) {
     return remainingDaysText.value;
   }

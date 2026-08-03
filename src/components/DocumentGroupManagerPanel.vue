@@ -82,34 +82,76 @@
             {{ t('documentGroup.noDocuments') }}
           </div>
           <div v-else class="document-checkbox-list">
-            <label
-              v-for="document in filteredDocuments"
-              :key="document.key"
-              class="document-checkbox-item"
+            <div
+              v-for="notebook in documentTreeGroups"
+              :key="notebook.key"
+              class="document-notebook-card"
             >
-              <span
-                :class="[
-                  'day-checkbox',
-                  { completed: isDocumentSelected(document) }
-                ]"
+              <div
+                v-for="row in notebook.rows"
+                :key="row.key"
+                class="document-tree-row"
+                :class="[`document-tree-row--${row.type}`, { selected: row.type === 'document' && isDocumentSelected(row.document) }]"
+                :style="{ '--document-tree-depth': row.depth }"
               >
-                <Icon
-                  :name="isDocumentSelected(document) ? 'squareCheck' : 'square'"
-                  :completed="isDocumentSelected(document)"
-                  class="day-checkbox-icon"
-                />
-              </span>
-              <span class="document-checkbox-text">
-                <span class="document-checkbox-name">{{ document.name }}</span>
-                <span class="document-checkbox-meta">{{ document.notebookName }}</span>
-              </span>
-              <input
-                class="document-checkbox-input"
-                type="checkbox"
-                :checked="isDocumentSelected(document)"
-                @change="toggleDocumentMembership(document, ($event.target as HTMLInputElement).checked)"
-              >
-            </label>
+                <template v-if="row.type === 'notebook'">
+                  <button
+                    type="button"
+                    class="document-tree-expand"
+                    :class="{ expanded: isNotebookExpanded(row.notebookId) }"
+                    @click.stop="toggleNotebookExpanded(row.notebookId)"
+                  >
+                    <Icon name="chevronRight" width="14" height="14" />
+                  </button>
+                  <label class="document-tree-notebook-item">
+                    <span :class="['day-checkbox', { completed: isNotebookFullyChecked(row.notebookId) }]">
+                      <Icon
+                        :name="isNotebookFullyChecked(row.notebookId) ? 'squareCheck' : 'square'"
+                        :completed="isNotebookFullyChecked(row.notebookId)"
+                        class="day-checkbox-icon"
+                      />
+                    </span>
+                    <span class="document-tree-notebook-name">{{ row.name }}</span>
+                    <input
+                      class="document-checkbox-input"
+                      type="checkbox"
+                      :checked="isNotebookFullyChecked(row.notebookId)"
+                      @change="toggleNotebookMembership(row.notebookId, ($event.target as HTMLInputElement).checked)"
+                    >
+                  </label>
+                </template>
+                <template v-else>
+                  <button
+                    v-if="row.hasChildren"
+                    type="button"
+                    class="document-tree-expand"
+                    :class="{ expanded: isDocumentExpanded(row.document) }"
+                    @click.stop="toggleDocumentExpanded(row.document)"
+                  >
+                    <Icon name="chevronRight" width="14" height="14" />
+                  </button>
+                  <span v-else class="document-tree-expand-placeholder"></span>
+                  <label class="document-checkbox-item document-tree-document-item">
+                    <span :class="['day-checkbox', { completed: isDocumentSelected(row.document) }]">
+                      <Icon
+                        :name="isDocumentSelected(row.document) ? 'squareCheck' : 'square'"
+                        :completed="isDocumentSelected(row.document)"
+                        class="day-checkbox-icon"
+                      />
+                    </span>
+                    <span class="document-checkbox-text">
+                      <span class="document-checkbox-name">{{ row.document.name }}</span>
+                    </span>
+                    <input
+                      class="document-checkbox-input"
+                      type="checkbox"
+                      :checked="isDocumentSelected(row.document)"
+                      @change="toggleDocumentMembership(row.document, ($event.target as HTMLInputElement).checked)"
+                    >
+                  </label>
+                </template>
+              </div>
+            </div>
           </div>
         </template>
       </div>
@@ -135,6 +177,21 @@ interface DocumentGroupManagerDocument {
   path?: string;
 }
 
+type DocumentTreeRow =
+  | { type: 'notebook'; key: string; depth: number; notebookId: string; name: string }
+  | {
+    type: 'document';
+    key: string;
+    depth: number;
+    document: DocumentGroupManagerDocument;
+    hasChildren: boolean;
+  };
+
+interface DocumentNotebookTreeGroup {
+  key: string;
+  rows: DocumentTreeRow[];
+}
+
 interface Props {
   groups: DocumentGroup[];
   documents: DocumentGroupManagerDocument[];
@@ -153,6 +210,8 @@ const emit = defineEmits<{
 const localGroups = ref<DocumentGroup[]>([]);
 const selectedGroupId = ref('');
 const documentSearch = ref('');
+const expandedDocumentKeys = ref(new Set<string>());
+const collapsedNotebookIds = ref(new Set<string>());
 
 function cloneGroups(groups: DocumentGroup[]): DocumentGroup[] {
   return (groups || []).map(group => ({
@@ -195,6 +254,117 @@ const filteredDocuments = computed(() => {
     return haystack.includes(keyword);
   });
 });
+
+function getDocumentKey(document: DocumentGroupManagerDocument): string {
+  return `${document.notebookId}:${document.id}`;
+}
+
+function normalizeDocumentPath(path: string | undefined): string {
+  return (path || '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
+function getDocumentParentKey(
+  document: DocumentGroupManagerDocument,
+  documentsByPath: Map<string, DocumentGroupManagerDocument>
+): string | null {
+  const path = normalizeDocumentPath(document.path);
+  const lastSeparator = path.lastIndexOf('/');
+  if (lastSeparator <= 0) {
+    return null;
+  }
+  const parent = documentsByPath.get(`${document.notebookId}:${path.slice(0, lastSeparator)}`);
+  return parent ? getDocumentKey(parent) : null;
+}
+
+const documentTreeRows = computed<DocumentTreeRow[]>(() => {
+  const byNotebook = new Map<string, DocumentGroupManagerDocument[]>();
+  for (const document of filteredDocuments.value) {
+    const documents = byNotebook.get(document.notebookId) || [];
+    documents.push(document);
+    byNotebook.set(document.notebookId, documents);
+  }
+
+  const rows: DocumentTreeRow[] = [];
+  for (const [notebookId, documents] of [...byNotebook.entries()].sort(([, left], [, right]) =>
+    (left[0]?.notebookName || '').localeCompare(right[0]?.notebookName || '', 'zh-CN')
+  )) {
+    rows.push({
+      type: 'notebook',
+      key: `notebook:${notebookId}`,
+      depth: 0,
+      notebookId,
+      name: documents[0]?.notebookName || notebookId
+    });
+    if (!isNotebookExpanded(notebookId)) {
+      continue;
+    }
+
+    const documentsByPath = new Map<string, DocumentGroupManagerDocument>();
+    const childrenByParentKey = new Map<string | null, DocumentGroupManagerDocument[]>();
+    for (const document of documents) {
+      const path = normalizeDocumentPath(document.path);
+      if (path) {
+        documentsByPath.set(`${document.notebookId}:${path}`, document);
+      }
+    }
+    for (const document of documents) {
+      const parentKey = getDocumentParentKey(document, documentsByPath);
+      const children = childrenByParentKey.get(parentKey) || [];
+      children.push(document);
+      childrenByParentKey.set(parentKey, children);
+    }
+
+    const appendDocuments = (parentKey: string | null, depth: number): void => {
+      for (const document of (childrenByParentKey.get(parentKey) || []).sort((left, right) =>
+        left.name.localeCompare(right.name, 'zh-CN')
+      )) {
+        const documentKey = getDocumentKey(document);
+        const hasChildren = (childrenByParentKey.get(documentKey) || []).length > 0;
+        rows.push({ type: 'document', key: documentKey, depth, document, hasChildren });
+        if (isDocumentExpanded(document)) {
+          appendDocuments(documentKey, depth + 1);
+        }
+      }
+    };
+    appendDocuments(null, 1);
+  }
+  return rows;
+});
+
+const documentTreeGroups = computed<DocumentNotebookTreeGroup[]>(() => {
+  const groups: DocumentNotebookTreeGroup[] = [];
+  for (const row of documentTreeRows.value) {
+    if (row.type === 'notebook') {
+      groups.push({ key: row.key, rows: [row] });
+    } else if (groups.length > 0) {
+      groups[groups.length - 1].rows.push(row);
+    }
+  }
+  return groups;
+});
+
+function isDocumentExpanded(document: DocumentGroupManagerDocument): boolean {
+  return expandedDocumentKeys.value.has(getDocumentKey(document));
+}
+
+function toggleDocumentExpanded(document: DocumentGroupManagerDocument): void {
+  const key = getDocumentKey(document);
+  const next = new Set(expandedDocumentKeys.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedDocumentKeys.value = next;
+}
+
+function isNotebookExpanded(notebookId: string): boolean {
+  return !collapsedNotebookIds.value.has(notebookId);
+}
+
+function toggleNotebookExpanded(notebookId: string): void {
+  const next = new Set(collapsedNotebookIds.value);
+  if (next.has(notebookId)) next.delete(notebookId);
+  else next.add(notebookId);
+  collapsedNotebookIds.value = next;
+}
 
 function updateGroupName(groupId: string, value: string): void {
   emitGroups(localGroups.value.map(group => (
@@ -281,29 +451,78 @@ function isDocumentSelected(document: DocumentGroupManagerDocument): boolean {
   ) === true;
 }
 
+function getNotebookDocuments(notebookId: string): DocumentGroupManagerDocument[] {
+  return (props.documents || []).filter(document => document.notebookId === notebookId);
+}
+
+function isNotebookFullyChecked(notebookId: string): boolean {
+  const documents = getNotebookDocuments(notebookId);
+  return documents.length > 0 && documents.every(document => isDocumentSelected(document));
+}
+
+function getDocumentAndDescendants(document: DocumentGroupManagerDocument): DocumentGroupManagerDocument[] {
+  const documentPath = normalizeDocumentPath(document.path);
+  return (props.documents || []).filter(candidate =>
+    candidate.notebookId === document.notebookId
+    && (
+      candidate.id === document.id
+      || (documentPath.length > 0 && normalizeDocumentPath(candidate.path).startsWith(`${documentPath}/`))
+    )
+  );
+}
+
 function toggleDocumentMembership(document: DocumentGroupManagerDocument, checked: boolean): void {
   const activeGroup = selectedGroup.value;
   if (!activeGroup) {
     return;
   }
 
-  const memberKey = `${document.notebookId}:${document.id}`;
-  const nextGroups = localGroups.value.map(group => {
-    const nextMembers = group.members.filter(member => `${member.notebookId}:${member.documentId}` !== memberKey);
-    if (checked && group.id === activeGroup.id) {
-      nextMembers.push({
+  const documents = getDocumentAndDescendants(document);
+  const memberKeys = new Set(documents.map(getDocumentKey));
+  emitGroups(localGroups.value.map(group => {
+    if (group.id !== activeGroup.id) {
+      return group;
+    }
+
+    const members = group.members.filter(member =>
+      !memberKeys.has(`${member.notebookId}:${member.documentId}`)
+    );
+    if (checked) {
+      members.push(...documents.map(item => ({
+        documentId: item.id,
+        notebookId: item.notebookId,
+        name: item.name,
+        path: item.path
+      })));
+    }
+    return { ...group, members };
+  }));
+}
+
+function toggleNotebookMembership(notebookId: string, checked: boolean): void {
+  const activeGroup = selectedGroup.value;
+  if (!activeGroup) {
+    return;
+  }
+  const documents = getNotebookDocuments(notebookId);
+  const documentKeys = new Set(documents.map(getDocumentKey));
+  emitGroups(localGroups.value.map(group => {
+    if (group.id !== activeGroup.id) {
+      return group;
+    }
+    const members = group.members.filter(member =>
+      !documentKeys.has(`${member.notebookId}:${member.documentId}`)
+    );
+    if (checked) {
+      members.push(...documents.map(document => ({
         documentId: document.id,
         notebookId: document.notebookId,
         name: document.name,
         path: document.path
-      });
+      })));
     }
-    return {
-      ...group,
-      members: nextMembers
-    };
-  });
-  emitGroups(nextGroups);
+    return { ...group, members };
+  }));
 }
 
 watch(
@@ -545,8 +764,89 @@ watch(
 .document-checkbox-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   padding-right: 2px;
+}
+
+.document-notebook-card {
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: #0000000f 0 1px 5px;
+}
+
+.document-tree-row {
+  --document-tree-indent: calc(var(--document-tree-depth) * 20px);
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: var(--document-tree-indent);
+}
+
+.document-tree-row--notebook {
+  min-height: 34px;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.document-tree-row--document {
+  gap: 4px;
+}
+
+.document-tree-expand {
+  width: 24px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.document-tree-expand-placeholder {
+  width: 24px;
+  height: 30px;
+  flex: 0 0 auto;
+}
+
+.document-tree-expand:hover,
+.document-tree-notebook-item:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.document-tree-expand svg {
+  fill: currentColor;
+  transition: transform 0.16s ease;
+}
+
+.document-tree-expand.expanded svg {
+  transform: rotate(90deg);
+}
+
+.document-tree-notebook-item {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.document-tree-notebook-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .document-checkbox-item {
@@ -556,10 +856,22 @@ watch(
   min-width: 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: var(--b3-theme-background);
-  box-shadow: #0000000f 0 1px 5px;
+  background: transparent;
   cursor: pointer;
   position: relative;
+}
+
+.document-tree-document-item {
+  flex: 1;
+  padding: 7px 10px;
+}
+
+.document-tree-document-item:hover {
+  background: var(--b3-list-hover);
+}
+
+.document-tree-row--document.selected .document-tree-document-item {
+  background: var(--b3-list-hover);
 }
 
 .document-checkbox-input {

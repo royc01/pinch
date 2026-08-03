@@ -1,0 +1,177 @@
+/* ————————————————————中心———————————————————— */
+.layout__resize:not(.layout__resize--lr) {
+    margin: var(--Sv-layout--resize-margin);
+    &:after{
+        height: 6px;
+        top: -5px;
+        border-radius: 3px;
+        background-color: var(--Sv-layout--resize);
+    }
+    &:hover:after{
+        background-color: var(--Sv-layout--resize-hover);
+    }
+}
+.layout__dockl .layout__resize:not(.layout__resize--lr), .layout__dockr .layout__resize:not(.layout__resize--lr) {
+    margin: var(--Sv-layout--resize-margin);
+    &:after{
+        height: 4px;
+        top: 0px;
+        border-radius: 3px;
+        background-color: var(--Sv-layout--resize-hover);
+        opacity: 0.3;
+        width: calc( 100% - 16px);
+        margin-left: 8px;
+    }
+    &:hover:after{
+        opacity: 1;
+    }
+}
+.layout__dockb .layout__resize--lr{
+    &:after{
+        width: 4px;
+        border-radius: 3px;
+        opacity: 0.3;
+        background-color: var(--Sv-layout--resize-hover);
+    }
+    &:hover:after{
+        opacity: 1;
+    }
+}
+.layout__resize--lr {
+    width: var(--Sv-layout-resize-lr-width);
+    &:after{
+        width: 4px;
+        border-radius: 3px;
+        background-color: var(--Sv-layout--resize);
+    }
+    &:hover:after{
+        background-color: var(--Sv-layout--resize-hover);
+    }
+    & + .layout__center .layout__resize--lr{
+        width: 2px;
+        &:after{
+            width: 5px;
+            margin-left: -4px;
+        }
+    }
+}
+
+#toolbar + .fn__flex{
+    background-color: var(--Sv-dock-background);
+}
+body:not(.body--mobile,.body--window) #layouts{
+    .layout__center .layout-tab-container{
+        border-radius: var(--Sv-center-radius);
+        /*border: 1px solid oklch(calc(var(--b3-theme-surface-base-l)*0.97) var(--b3-theme-surface-base-ch));*/
+        box-shadow: var(--Sv-main-shadow);
+        margin: 0 5px 5px;
+    }
+    .layout__center .fn__flex.fn__none + .layout-tab-container{
+        margin: 5px;
+    }
+}
+
+@supports (anchor-name: --sv-status-center) and (position-anchor: --sv-status-center) {
+    .layout__center{
+        anchor-name: --sv-status-center;
+    }
+    .layout__dockb:not(.layout--float):not(.fn__none){
+        anchor-name: --sv-status-dockb;
+    }
+}
+
+#savorPlugins{
+	display: none;
+}
+
+.layout__dockl:not(.layout--float), .layout__dockr:not(.layout--float){
+    min-height: 90%;
+}
+
+
+/*-----------------------新窗口-------------------------*/
+.body--window {
+    #layouts div[data-type=wnd]{
+        background-color: var(--Sv-toolbar-background)!important;
+    & > .fn__flex > .layout-tab-bar {
+        border-radius: 6px 0 0 6px;
+        background-color: transparent;
+        .item:not(.item--readonly) {
+            margin-left: 5px;
+            pointer-events: visibleFill;
+        }
+        & .item--readonly{
+            height: 28px;
+            & .block__icon--show{
+                background-color: transparent;
+                &[data-type="new"]{
+                    margin-right: 6px;
+                }
+                &:hover {
+                    background-color: var(--Sv-tab-bar-item-background-focus);
+                }
+            }
+        }
+        &.layout-tab-bar--readonly{
+            margin-right: 0px!important;
+            height: 33px;
+    }
+    }
+}
+    .toolbar__window .toolbar__item{
+        padding: 7px;
+        margin: 3px;
+        border-radius: 6px;
+        &#closeWindow{
+            width: 40px;
+            margin: 3px 1px;
+            &.toolbar__item--close{
+                padding: 2px 6px;
+            }
+            svg{
+                width: 12px!important;
+                height: 12px!important;
+                padding: 8px;
+                border-radius: 6px;
+            }
+            &:hover{
+            background-color: rgba(0, 0, 0, 0);
+            svg{
+                color: var(--Sv-toolbar-closeWindow-svg);
+                background: var(--Sv-toolbar-closeWindow-hover);
+            }
+            }
+        }
+    }
+    #status {
+        right: -8px;
+        bottom: 0px;
+        #statusHelp {
+            right: 0px;
+        }
+    }
+}
+
+
+.layout__center{
+    .sy__outline,.sy__graph,.sy__backlink,[data-timeout]{
+            & .block__icons{
+        background-color: var(--b3-theme-background);
+    }
+} 
+    & + .layout__resize--lr:after{
+        margin-left: -5px;
+    }
+        .layout__resize:not(.layout__resize--lr){
+        height: 0px;
+    }
+}
+
+.layout__center [data-type="wnd"] .layout-tab-container .fn__flex-column{
+    box-shadow: var(--b3-theme-background) 0 0 0 7px inset;
+}
+
+/*导出预览*/
+#action {
+    background: var(--Sv-theme-surface)!important;
+}

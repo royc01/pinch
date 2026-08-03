@@ -1,0 +1,1058 @@
+/* 主体结构*/
+@import url(style/module/toolbar.css);/* 顶栏 */
+@import url(style/module/dock.css); /* 边栏 */
+@import url(style/module/shrink.css);/* 侧栏 */
+@import url(style/module/status.css); /* 底栏 */
+@import url(style/module/tab-bar.css); /* 页签 */
+@import url( style/module/breadcrumb.css);/* 面包屑 */
+@import url( style/module/editor.css);/* 编辑器 */
+@import url( style/module/menu.css); /* 菜单 */
+
+@import url( style/module/ordered-list.css);/* 有序列表 */
+@import url( style/module/unordered-list.css);/* 无序列表 */
+@import url( style/module/av.css);/* 数据库 */
+@import url( style/module/colorfulH.css);/* 彩色标题 */
+@import url( style/module/blockquote.css);/* 引述 */
+@import url( style/module/search.css);/* 搜索 */
+@import url( style/module/mobile.css);/* 无线端 */
+@import url( style/custom/function.css);/* 自定义功能按钮 */
+@import url( style/custom/list2map.css);/* 列表转导图 */
+@import url( style/custom/list2table.css);/* 列表转表格 */
+@import url( style/custom/list2board.css);/* 列表转看板 */
+@import url( style/custom/list2tab.css);/* 列表转标签页 */
+@import url( style/custom/list-fold.css);/* 列表折叠 */
+@import url( style/custom/list2timeline.css);/* 列表转时间线 */
+
+/*---------------------------------------------------*/
+
+@import url( style/topbar/conceal-mark.css);/* 挖空 */
+@import url( style/topbar/headingdots.css);/* 标题点标识 */
+@import url( style/topbar/color-folder.css);/* 彩色文档树 */
+@import url( style/topbar/tab-bar-vertical.css);/* 垂直页签 */
+
+@import url( style/topbar/bullet-threading.css);/* 子弹线 */
+@import url( style/topbar/sidebar-memo.css);/* 侧边栏备注 */
+@import url( style/topbar/sidebar-block-memo.css);/* 侧栏块备注 */
+@import url( style/topbar/font-color-switch.css);/* 字体配色切换 */
+
+/* 主题配色 */
+@import url( style/theme/savor-light.css);/* Light 配色 */
+@import url( style/theme/savor-salt.css);/* Salt 配色 */
+@import url( style/theme/savor-sugar.css);/* Sugar 配色 */
+@import url( style/theme/savor-forest.css);/* Forest 配色 */
+@import url( style/theme/savor-flower.css);/* Flower 配色 */
+@import url( style/theme/savor-wind.css);/* Wind 配色 */
+@import url( style/theme/savor-dark.css);/* Dark 配色 */
+@import url( style/theme/savor-vinegar.css);/* Vinegar 配色 */
+@import url( style/theme/savor-ocean.css);/* Ocean 配色 */
+@import url( style/theme/savor-mountain.css);/* Mountain 配色 */
+
+@font-face {
+    font-family: 'Twitter Emoji';
+    font-display: swap;
+    src: url("font/Twemoji.woff2") format("woff2");
+}
+@font-face {
+    font-family: 'Harmony';
+    font-display: swap;
+    src: url("font/Harmony-500.woff2") format("woff2");
+    font-weight: 500;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Harmony';
+    font-display: swap;
+    src: url("font/Harmony-600.woff2") format("woff2");
+    font-weight: 600;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Harmony';
+    font-display: swap;
+    src: url("font/Harmony-700.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+}
+
+:root {
+    /* 主色 */
+    --b3-theme-primary: oklch(var(--b3-theme-primary-base-l) var(--b3-theme-primary-base-ch));/* 主色 */    
+    --b3-theme-primary-light: oklch(var(--b3-theme-primary-base-l) var(--b3-theme-primary-base-ch) / 0.54);
+    --b3-theme-primary-lighter: oklch(var(--b3-theme-primary-base-l) var(--b3-theme-primary-base-ch) / 0.38);
+    --b3-theme-primary-lightest: oklch(var(--b3-theme-primary-base-l) var(--b3-theme-primary-base-ch) / 0.2);
+    --b3-theme-secondary: #f3a92f;
+    --b3-theme-background-light: var(--b3-theme-surface-lighter);
+    --b3-theme-surface-light: oklch(calc(var(--b3-theme-surface-base-l)*0.97) var(--b3-theme-surface-base-ch));
+    --b3-theme-surface: oklch(var(--b3-theme-surface-base-l) var(--b3-theme-surface-base-ch));
+    --b3-theme-error: #eb5757;
+    --b3-theme-success: #65b84d;
+
+    /* 文字颜色 */
+    --b3-theme-on-background: oklch(var(--b3-theme-on-background-base));
+
+    /* 字体 */
+    /* "Segoe UI" 和 Noto-COLRv1-2.047 冲突，故移除 */
+    --b3-font-family: Harmony, 'Twitter Emoji', "Emojis Additional", "Emojis Additional", "Emojis Reset", BlinkMacSystemFont, Helvetica, "Luxi Sans", "DejaVu Sans", arial, sans-serif, emojis;
+    --b3-font-family-protyle: var(--b3-font-family);
+    --b3-font-family-code: "Emojis Additional", "Emojis Reset", "JetBrainsMono-Regular", mononoki, Consolas, "Liberation Mono", var(--b3-font-family);
+    --b3-font-family-graph: arial;
+    --b3-font-family-emoji: 'Twitter Emoji',"Emojis Additional", emojis;
+    --b3-font-family-math: KaTeX_Math;
+    --b3-font-family-kbd: var(--b3-font-family-protyle);
+    --b3-font-size: 14px;
+
+    /* 背景 */
+    --b3-body-background-hl-opacity: 0.24;
+    --b3-body-background-hl: 219, 86%, 57%;
+    --b3-layout-space: 4px;
+    --b3-layout-space-margin: -4px;
+
+    /* 顶部工具栏 */
+    --b3-toolbar-color: var(--b3-theme-on-surface);
+    --b3-toolbar-hover: var(--b3-list-hover);
+    --b3-toolbar-left-mac: 74px;
+
+    /* 线条 */
+    --b3-border-color: var(--b3-theme-surface-lighter);
+    --b3-border-radius: 6px;
+    --b3-border-radius-s: 3px;
+    --b3-border-radius-b: 12px;
+
+    /* 滚动条 */
+    --b3-scroll-color: rgba(0, 0, 0, .2);
+
+    /* 列表 */
+    --b3-list-hover: rgba(0, 0, 0, .075);
+    --b3-list-icon-hover: rgba(33, 34, 36, .1);
+
+    /* 提示 */
+    --b3-tooltips-background: #312f35;
+    --b3-tooltips-color: var(--b3-theme-background-light);
+    --b3-tooltips-second-color: #7d7c7a;
+    --b3-tooltips-shadow: 0 2px 8px rgba(0, 0, 0, .1);
+
+    /* 为空提示 */
+    --b3-empty-color: var(--b3-theme-on-surface-light);
+
+    /* 遮罩 */
+    --b3-mask-background: rgba(220, 220, 220, .4);
+
+    /* 卡片背景 */
+    --b3-card-error-color: #790600;
+    --b3-card-error-background: #f5d1cf;
+    --b3-card-warning-color: #8a4f00;
+    --b3-card-warning-background: #ffe8c8;
+    --b3-card-info-color: #005599;
+    --b3-card-info-background: #d6eaf9;
+    --b3-card-success-color: #006b04;
+    --b3-card-success-background: #d7eed8;
+
+    /* 自定义文字 */
+	--b3-font-color1: oklch(var(--b3-font-color1-base-l) var(--b3-font-color1-base-ch));
+    --b3-font-color2: oklch(var(--b3-font-color2-base-l) var(--b3-font-color2-base-ch));
+    --b3-font-color3: oklch(var(--b3-font-color3-base-l) var(--b3-font-color3-base-ch));
+	--b3-font-color4: oklch(var(--b3-font-color4-base-l) var(--b3-font-color4-base-ch));
+    --b3-font-color5: oklch(var(--b3-font-color5-base-l) var(--b3-font-color5-base-ch));
+	--b3-font-color6: oklch(var(--b3-font-color6-base-l) var(--b3-font-color6-base-ch));
+    --b3-font-color7: oklch(var(--b3-font-color7-base-l) var(--b3-font-color7-base-ch));
+	--b3-font-color8: oklch(var(--b3-font-color8-base-l) var(--b3-font-color8-base-ch));
+    --b3-font-color9: oklch(var(--b3-font-color9-base-l) var(--b3-font-color9-base-ch));
+    --b3-font-color10: oklch(var(--b3-font-color10-base-l) var(--b3-font-color10-base-ch));
+    --b3-font-color11: oklch(var(--b3-font-color11-base-l) var(--b3-font-color11-base-ch));
+    --b3-font-color12: oklch(var(--b3-font-color12-base-l) var(--b3-font-color12-base-ch));
+    --b3-font-color13: oklch(var(--b3-font-color13-base-l) var(--b3-font-color13-base-ch));
+
+
+    --b3-font-background1: oklch(calc(var(--b3-font-color1-base-l)*0.95) var(--b3-font-color1-base-ch) / 0.13);
+    --b3-font-background2: oklch(calc(var(--b3-font-color2-base-l)*0.95) var(--b3-font-color2-base-ch) / 0.13);
+    --b3-font-background3: oklch(calc(var(--b3-font-color13-base-l)*0.95) var(--b3-font-color13-base-ch) / 0.13);
+    --b3-font-background4: oklch(calc(var(--b3-font-color3-base-l)*0.95) var(--b3-font-color3-base-ch) / 0.13);
+	--b3-font-background5: oklch(calc(var(--b3-font-color4-base-l)*0.95) var(--b3-font-color4-base-ch) / 0.13);
+    --b3-font-background6: oklch(calc(var(--b3-font-color5-base-l)*0.95) var(--b3-font-color5-base-ch) / 0.13);
+    --b3-font-background7: oklch(calc(var(--b3-font-color6-base-l)*0.95) var(--b3-font-color6-base-ch) / 0.13);
+	--b3-font-background8: oklch(calc(var(--b3-font-color7-base-l)*0.95) var(--b3-font-color7-base-ch) / 0.13);
+    --b3-font-background9: oklch(calc(var(--b3-font-color8-base-l)*0.95) var(--b3-font-color8-base-ch) / 0.13);
+    --b3-font-background10: oklch(calc(var(--b3-font-color9-base-l)*0.95) var(--b3-font-color9-base-ch) / 0.13);
+    --b3-font-background11: oklch(calc(var(--b3-font-color10-base-l)*0.95) var(--b3-font-color10-base-ch) / 0.13);
+    --b3-font-background12: oklch(calc(var(--b3-font-color11-base-l)*0.95) var(--b3-font-color11-base-ch) / 0.13);
+    --b3-font-background13: oklch(calc(var(--b3-font-color12-base-l)*0.95) var(--b3-font-color12-base-ch) / 0.13);
+
+    /* 动画效果 */
+    --b3-transition: all .2s cubic-bezier(0, 0, .2, 1) 0ms;
+    --b3-width-transition: width .2s cubic-bezier(0, 0, .2, 1) 0ms;
+    --b3-color-transition: color .2s cubic-bezier(0, 0, .2, 1) 0ms;
+    --b3-background-transition: background 20ms ease-in 0s;
+
+    /* 高亮 */
+    --b3-highlight-color: #222;
+    --b3-highlight-background: #ffff00;
+    --b3-highlight-current-background: #ff9632;
+
+    /* 下拉菜单 */
+    --b3-select-background: url("data:image/svg+xml;utf8,<svg fill='rgba(95, 99, 104, .68)' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>") no-repeat right 2px center var(--b3-theme-background);
+
+    /* switch */
+    --b3-switch-background: #e1e3e1;
+    --b3-switch-border: var(--b3-theme-on-surface-light);
+    --b3-switch-hover: rgba(31, 31, 31, 0.06);
+    --b3-switch-checked: #fff;
+    --b3-switch-checked-background: var(--b3-theme-primary);
+    --b3-switch-checked-hover: #d3e3fd;
+    --b3-switch-checked-hover2: rgba(31, 31, 31, .06);
+
+    /* 阴影 */
+    --b3-point-shadow: 0 0 1px 0 rgba(0, 0, 0, .1), 0 0 2px 0 rgba(0, 0, 0, .2);
+    --b3-dialog-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+    --b3-button-shadow: 0 1px 2px 0 rgb(0 0 0 / .3), 0 1px 3px 1px rgb(0 0 0 /.15);
+    --b3-button-active-shadow: 0 2px 3px 1px rgb(0 0 0 / .3), 0 2px 4px 2px rgb(0 0 0 /.15);
+
+    /* 图表颜色 */
+    --b3-graph-p-point: #076f7e;
+    --b3-graph-heading-point: #8250df;
+    --b3-graph-math-point: #80FFA5;
+    --b3-graph-code-point: #00DDFF;
+    --b3-graph-table-point: #37A2FF;
+    --b3-graph-list-point: #FF0087;
+    --b3-graph-todo-point: #FFBF00;
+    --b3-graph-olist-point: #b3005f;
+    --b3-graph-listitem-point: #f65b00;
+    --b3-graph-bq-point: #8d48e3;
+    --b3-graph-callout-point: var(--b3-theme-success);
+    --b3-graph-super-point: #dd79ff;
+    --b3-graph-doc-point: #202124;
+    --b3-graph-tag-point: #dbf32f;
+    --b3-graph-asset-point: #05c091;
+    --b3-graph-line: #5f6368;
+    --b3-graph-ref-line: #d23f31;
+    --b3-graph-tag-line: #5f6b06;
+    --b3-graph-tag-tag-line: #dbf32f;
+    --b3-graph-asset-line: #037457;
+    --b3-graph-hl-point: #f3a92f;
+    --b3-graph-hl-line: #4285f4;
+
+    /* 代码片段背景 */
+    --b3-protyle-code-background: rgba(27, 31, 35, .05);
+
+    /* 所见即所得行内元素颜色 */
+    --b3-protyle-inline-strong-color: inherit;
+    --b3-protyle-inline-em-color: inherit;
+    --b3-protyle-inline-u-color: inherit;
+    --b3-protyle-inline-s-color: inherit;
+    --b3-protyle-inline-link-color: #4285f4;
+    --b3-protyle-inline-mark-background: rgb(252, 212, 126);
+    --b3-protyle-inline-mark-color: var(--b3-theme-on-background);
+    --b3-protyle-inline-tag-color: #5f6368;
+    --b3-protyle-inline-blockref-color: #8957e5;
+    --b3-protyle-inline-fileref-color: #21862e;
+
+    /* PDF */
+    --b3-pdf-selection: #d0e9c8;
+    --sidebar-width: 200px;
+    --b3-pdf-offset: 0;
+    --b3-pdf-background1: var(--b3-theme-error);
+    --b3-pdf-background2: #f5822e;
+    --b3-pdf-background3: #FACA5A;
+    --b3-pdf-background4: #7CC868;
+    --b3-pdf-background5: #FC5C88;
+    --b3-pdf-background6: #69B0F2;
+    --b3-pdf-background7: #C885DA;
+    --b3-pdf-dark: #212224;
+
+    /* callout */
+    --b3-callout-note: var(--b3-theme-primary);
+    --b3-callout-tip: var(--b3-theme-success);
+    --b3-callout-caution: var(--b3-theme-error);
+    --b3-callout-important: var(--b3-protyle-inline-blockref-color);
+    --b3-callout-warning: var(--b3-highlight-current-background);
+
+    /* 表格 */
+    --b3-table-even-background: rgba(0, 0, 0, .04);
+
+    /* 数据库 */
+    --b3-av-gallery-shadow: rgba(0, 0, 0, 0.04) 0px 2px 4px 0px, var(--b3-border-color) 0px 0px 0px 1px;
+
+
+    /* 下拉菜单 */
+    --b3-select-background: url("data:image/svg+xml;utf8,<svg fill='rgba(95, 99, 104, .68)' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M12.8,15.6l4-4.1c0.2-0.2,0.2-0.4,0.2-0.6c0-0.5-0.4-0.9-0.9-0.9c-0.3,0-0.5,0.1-0.6,0.3L12,13.9l-3.4-3.6C8.3,10.1,8.1,10,7.9,10C7.4,10,7,10.4,7,10.9c0,0.2,0.1,0.4,0.2,0.6l4,4.1c0.2,0.2,0.4,0.3,0.7,0.3C12.3,15.9,12.5,15.8,12.8,15.6z'/></svg>") no-repeat right 2px center var(--Sv-select-field)   ;
+
+    --Sv-main-shadow:  var(--b3-border-color) 0px 0px 0 0.5px,rgba(0,0,0,0.05) 0px 1px 2px 0px;
+    --Sv-dock-shadow: var(--b3-theme-background) 0px 0px 0 0.5px,rgba(0,0,0,0.05) 0px 1px 2px 0px;
+
+    /* 边栏 */
+    --Sv-item-radius: 10px;
+    --Sv-dock-item-active-background: var(--b3-theme-background);
+    --Sv-dock-item-active-background-hover: var(--b3-theme-background);
+    --Sv-dock-item-hover-color: var(--b3-theme-on-background);
+    --Sv-dock-item--activefocus-color: var(--b3-theme-background);
+    --Sv-dock-item--activefocus-background:oklch(var(--Sv-dock-item--activefocus-background--base));
+
+    /* 侧栏 */
+    --Sv-list-item-arrow: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.4);
+    --Sv-list-background: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.06);
+    --Sv-list-focus-hover: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.1);
+    --Sv-layout--resize-hover: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.2);
+    --Sv-list-focus-active: oklch(var(--Sv-dock-item--activefocus-background--base) / 0.1);
+    --Sv-theme-surface: oklch(var(--b3-theme-surface-base-l) var(--b3-theme-surface-base-ch)) ;/* 面板主色 */
+    --b3-list-hover: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.05);
+    --Sv-block-icon-svg-color-hover: var(--b3-theme-on-background);
+    --Sv-block-icon--background-hover: var(--Sv-list-background);
+    --Sv-list-item-radius: 6px;
+    --Sv-list-focus-color: var(--b3-theme-on-background);
+    --Sv-list-item-color: var(--b3-theme-on-surface);
+    --Sv-layout--resize: transparent;/*分界线*/
+    --Sv-layout-resize-lr-width: 10px;
+    --Sv-float-background: var(--Sv-dock-background);
+    --Sv-layout--resize-margin: 0.5px 0;
+    --Sv-list-counter-color: var(--b3-theme-on-surface-light);
+
+    /* 大纲数字 */
+	--h1-list-graphic: #eb8383;
+	--h2-list-graphic: #ae9acb;
+	--h3-list-graphic: #7db5cd;
+	--h4-list-graphic: #71a796;
+	--h5-list-graphic: #dcbf61;
+	--h6-list-graphic: #dda36a;
+/* 反链面板 */
+    --Sv-block-icon-active: var(--Sv-list-background);
+    --Sv-backlink-background: var(--Sv-dock-background);
+    --Sv-backlink-list: var(--Sv-theme-surface);
+    --Sv-backlink-top: 7px;
+
+    /* 底栏 */
+    --Sv-status-barDock: var(--Sv-dock-item-active-background);
+    --Sv-status-barDock-color: var(--Sv-dock-item--activefocus-background);
+    --Sv-status-item-hover:  oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.06);
+
+    /* 页签 */
+    --Sv-tab-bar-background: var(--Sv-toolbar-background);
+    --Sv-tab-bar-item-background: var(--Sv-list-background);
+    --Sv-tab-bar-item-background-hover: var(--b3-theme-background);
+    --Sv-tab-bar-item-background-focus: var(--b3-theme-background);
+    --Sv-tab-bar-item-radius: var(--Sv-item-radius);
+    --Sv-tab-bar-item--focus-radius: 8px 8px 0 0;
+    --Sv-tab-bar-readonly-shadow: 6px -6px 0 var(--Sv-dock-background);
+
+    /* 面包屑 */
+    --Sv-breadcrumb-arrow: rgb(174,172,166);
+    --Sv-breadcrumb-active: var(--Sv-barWorkspace-background);
+    --Sv-breadcrumb-active-color: var(--b3-theme-background);
+    --Sv-breadcrumb-active-hover:var(--Sv-barWorkspace-background-hover);
+    --Sv-breadcrumb-border: rgba(230, 229, 225);
+
+    /* 头图 */
+    --Sv-background-icon-hover: var(--Sv-list-background);
+    --Sv-background-icon-button-hover: var(--Sv-list-background);
+    --Sv-protyle-icon: var(--b3-theme-background);
+    --Sv-protyle-icon-color: var(--b3-theme-on-surface);
+    --Sv-protyle-icon-text-color: var(--b3-theme-background);
+    --Sv-protyle-icon-hover: var(--Sv-theme-surface);
+    --Sv-img-icons-span: rgba(0, 0, 0, .5);
+
+    /* —————— 编辑器 —————— */
+    --Sv-title-input-empty: oklch(var(--b3-theme-on-background-base) / 0.1);
+    --Sv-layout-margin: 0 5px;
+    --Sv-layout-margin-fixed: 0 5px;
+    --Sv-center-radius: 16px;
+    /* 列表 */
+    --Sv-protyle-action-color: var(--b3-theme-on-background);
+    --Sv-protyle-action-hover: var(--Sv-list-focus-hover);
+    /* 块标 */ 
+    --Sv-gutters-color: rgb(211, 209, 203);
+    --Sv-gutters-background: var(--Sv-list-background);
+    --Sv-task-done: var(--b3-theme-primary);
+    --Sv-task-done-hover:  var(--b3-theme-primary);
+    /* 文档标签 */
+    --Sv-chip--secondary-color: #7e5842;
+    --Sv-chip--secondary-bg: var(--b3-font-background6);
+    --Sv-chip--primary-color: #8f7441;
+    --Sv-chip--primary-bg: var(--b3-font-background7);
+    --Sv-chip--info-color: #536a59;
+    --Sv-chip--info-bg: var(--b3-font-background8);
+    --Sv-chip--success-color: #475961;
+    --Sv-chip--success-bg: var(--b3-font-background10);
+    --Sv-chip--warning-color: #493f57;
+    --Sv-chip--warning-bg: var(--b3-font-background11);
+    --Sv-chip--error-color: #573d4d;
+    --Sv-chip--error-bg: var(--b3-font-background12);
+    --Sv-chip--pink-color: #4d3838;
+    --Sv-chip--pink-bg: var(--b3-font-background13);
+    /* 字体颜色选择 工具条 */
+
+    --Sv-color-d-shadow: oklch(calc(var(--b3-font-color1-base-l)*0.95) var(--b3-font-color1-base-ch) / 0.2);
+    --Sv-color1-shadow: oklch(calc(var(--b3-font-color1-base-l)*0.95) var(--b3-font-color1-base-ch) / 0.2);
+    --Sv-color2-shadow: oklch(calc(var(--b3-font-color2-base-l)*0.95) var(--b3-font-color2-base-ch) / 0.2);
+    --Sv-color3-shadow: oklch(calc(var(--b3-font-color3-base-l)*0.95) var(--b3-font-color3-base-ch) / 0.2);
+    --Sv-color4-shadow: oklch(calc(var(--b3-font-color4-base-l)*0.95) var(--b3-font-color4-base-ch) / 0.2);
+    --Sv-color5-shadow: oklch(calc(var(--b3-font-color5-base-l)*0.95) var(--b3-font-color5-base-ch) / 0.2);
+    --Sv-color6-shadow: oklch(calc(var(--b3-font-color6-base-l)*0.95) var(--b3-font-color6-base-ch) / 0.2);
+    --Sv-color7-shadow: oklch(calc(var(--b3-font-color7-base-l)*0.95) var(--b3-font-color7-base-ch) / 0.2);
+    --Sv-color8-shadow: oklch(calc(var(--b3-font-color8-base-l)*0.95) var(--b3-font-color8-base-ch) / 0.2);
+    --Sv-color9-shadow: oklch(calc(var(--b3-font-color9-base-l)*0.95) var(--b3-font-color9-base-ch) / 0.2);
+    --Sv-color10-shadow: oklch(calc(var(--b3-font-color10-base-l)*0.95) var(--b3-font-color10-base-ch) / 0.2);
+    --Sv-color11-shadow: oklch(calc(var(--b3-font-color11-base-l)*0.95) var(--b3-font-color11-base-ch) / 0.2);
+    --Sv-color12-shadow: oklch(calc(var(--b3-font-color12-base-l)*0.95) var(--b3-font-color12-base-ch) / 0.2);
+    --Sv-color13-shadow: oklch(calc(var(--b3-font-color13-base-l)*0.95) var(--b3-font-color13-base-ch) / 0.2);
+    
+
+    /* 标题符号 */
+    --h1-r-graphic: url("data:image/svg+xml;utf8,<svg fill='rgba(235, 131, 131, 0.4)' height='24' viewBox='0 0 32 32' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M2.857 32v0c-1.6 0-2.857-1.257-2.857-2.857v-8.571c0-1.6 1.257-2.857 2.857-2.857v0c1.6 0 2.857 1.143 2.857 2.857v8.571c0 1.6-1.257 2.857-2.857 2.857z'/></svg>") no-repeat  center;
+    --h2-r-graphic: url("data:image/svg+xml;utf8,<svg fill='rgba(174, 154, 203, 0.5)' height='24' viewBox='0 0 32 32' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M11.429 25.143c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM4.571 18.286c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286z'/></svg>") no-repeat  center;
+    --h3-r-graphic: url("data:image/svg+xml;utf8,<svg fill='rgba(125, 181, 205, 0.5)' height='24' viewBox='0 0 32 32' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M4.571 25.143c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM4.571 18.286c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM11.429 25.143c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286z'/></svg>") no-repeat  center;
+    --h4-r-graphic: url("data:image/svg+xml;utf8,<svg fill='rgba(113, 167, 150, 0.5)' height='24' viewBox='0 0 32 32' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M4.571 25.143c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM4.571 18.286c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM11.429 25.143c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM11.429 22.857c1.257 0 2.286-1.029 2.286-2.286s-1.029-2.286-2.286-2.286-2.286 1.029-2.286 2.286 1.029 2.286 2.286 2.286z'/></svg>") no-repeat  center;
+    --h5-r-graphic: url("data:image/svg+xml;utf8,<svg fill='rgba(220, 191, 97, 0.5)' height='24' viewBox='0 0 32 32' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M4.571 18.286c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM11.429 22.857c1.257 0 2.286-1.029 2.286-2.286s-1.029-2.286-2.286-2.286-2.286 1.029-2.286 2.286 1.029 2.286 2.286 2.286zM4.571 25.143c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM11.429 25.143c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM4.571 11.429c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286z'/></svg>") no-repeat  center;
+    --h6-r-graphic: url("data:image/svg+xml;utf8,<svg fill='rgba(221, 163, 106, 0.5)' height='24' viewBox='0 0 32 32' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M4.571 25.143c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM4.571 18.286c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM4.571 11.429c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM11.429 18.286c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM11.429 25.143c-1.257 0-2.286 1.029-2.286 2.286s1.029 2.286 2.286 2.286 2.286-1.029 2.286-2.286-1.029-2.286-2.286-2.286zM11.429 16c1.257 0 2.286-1.029 2.286-2.286s-1.029-2.286-2.286-2.286-2.286 1.029-2.286 2.286 1.029 2.286 2.286 2.286z'/></svg>") no-repeat  center;
+
+    /* 引用 */
+    --Sv-block-ref-color: var(--b3-theme-on-background); 
+    --Sv-block-ref-background-hover: var(--Sv-list-focus-hover);
+    --Sv-block-ref-bottom: 1px solid;
+    --Sv-block-ref-bottom-d: 1px dashed;
+    --Sv-block-ref-su: var(--b3-theme-background);
+    --Sv-block-ref-bottom-image:var(--b3-theme-on-surface);
+    
+    /* 超链接 */
+    --Sv-block-link-color: var(--b3-theme-on-surface);
+    --Sv-block-link-bottom:  var(--b3-theme-on-surface);
+    --Sv-block-link-color-hover: var(--b3-theme-on-background);
+    --Sv-block-link-bottom-hover: var(--b3-theme-on-background);
+
+    /* 嵌入块 */
+    --Sv-block-NBQE: var(--b3-theme-surface-lighter);
+
+    /* 命名，别名，备注*/
+    --Sv-protyle-attr: var(--b3-font-color3);
+
+    /* 行内标签 */
+    --Sv-protyle-tag-color: var(--b3-theme-on-background);
+    --Sv-protyle-tag-bg: var(--b3-font-background7);
+
+    /* pdf批注 */
+    --Sv-pdf-ref-bg: var(--Sv-list-background);
+    --Sv-pdf-ref-bg-hover: var(--Sv-list-focus-hover);
+
+    /* 键盘 */
+    --Sv-kbd-color: var(--b3-theme-on-background);
+    --Sv-kbd-background: var(--b3-theme-background);
+
+    /* 折叠样式 */
+    --Sv-fold-background: var(--Sv-theme-surface);
+    --Sv-fold-border: var(--b3-theme-surface-lighter);
+
+    /* 数据库 */
+	--Sv-font-color13: oklch(calc(var(--b3-font-color12-base-l)*0.3) var(--b3-font-color12-base-ch));
+	--Sv-font-color12: oklch(calc(var(--b3-font-color11-base-l)*0.3) var(--b3-font-color11-base-ch));
+	--Sv-font-color11: oklch(calc(var(--b3-font-color10-base-l)*0.3) var(--b3-font-color10-base-ch));
+	--Sv-font-color10: oklch(calc(var(--b3-font-color9-base-l)*0.3) var(--b3-font-color9-base-ch));
+	--Sv-font-color9: oklch(calc(var(--b3-font-color8-base-l)*0.3) var(--b3-font-color8-base-ch));
+	--Sv-font-color8: oklch(calc(var(--b3-font-color7-base-l)*0.3) var(--b3-font-color7-base-ch));
+	--Sv-font-color7: oklch(calc(var(--b3-font-color6-base-l)*0.3) var(--b3-font-color6-base-ch));
+	--Sv-font-color6: oklch(calc(var(--b3-font-color5-base-l)*0.3) var(--b3-font-color5-base-ch));
+	--Sv-font-color5: oklch(calc(var(--b3-font-color4-base-l)*0.3) var(--b3-font-color4-base-ch));
+	--Sv-font-color4: oklch(calc(var(--b3-font-color3-base-l)*0.3) var(--b3-font-color3-base-ch));
+	--Sv-font-color3: oklch(calc(var(--b3-font-color13-base-l)*0.3) var(--b3-font-color13-base-ch));
+	--Sv-font-color2: oklch(calc(var(--b3-font-color2-base-l)*0.3) var(--b3-font-color2-base-ch));
+	--Sv-font-color1: oklch(calc(var(--b3-font-color1-base-l)*0.3) var(--b3-font-color1-base-ch));
+
+    /* 引述块颜色 */
+    --Sv-bq-color: var(--b3-theme-on-background);
+    --Sv-bq-background1: oklch(calc(var(--b3-font-color1-base-l)*0.95) var(--b3-font-color1-base-ch) / 0.08);
+    --Sv-bq-background2: oklch(calc(var(--b3-font-color2-base-l)*0.95) var(--b3-font-color2-base-ch) / 0.08);
+    --Sv-bq-background3: oklch(calc(var(--b3-font-color13-base-l)*0.95) var(--b3-font-color13-base-ch) / 0.08);
+    --Sv-bq-background4: oklch(calc(var(--b3-font-color3-base-l)*0.95) var(--b3-font-color3-base-ch) / 0.08);
+    --Sv-bq-background5: oklch(calc(var(--b3-font-color4-base-l)*0.95) var(--b3-font-color4-base-ch) / 0.08);
+    --Sv-bq-background6: oklch(calc(var(--b3-font-color5-base-l)*0.95) var(--b3-font-color5-base-ch) / 0.08);
+    --Sv-bq-background7: oklch(calc(var(--b3-font-color6-base-l)*0.95) var(--b3-font-color6-base-ch) / 0.08);
+    --Sv-bq-background8: oklch(calc(var(--b3-font-color7-base-l)*0.95) var(--b3-font-color7-base-ch) / 0.08);
+    --Sv-bq-background9: oklch(calc(var(--b3-font-color8-base-l)*0.95) var(--b3-font-color8-base-ch) / 0.08);
+    --Sv-bq-background10: oklch(calc(var(--b3-font-color9-base-l)*0.95) var(--b3-font-color9-base-ch) / 0.08);
+    --Sv-bq-background11: oklch(calc(var(--b3-font-color10-base-l)*0.95) var(--b3-font-color10-base-ch) / 0.08);
+    --Sv-bq-background12: oklch(calc(var(--b3-font-color11-base-l)*0.95) var(--b3-font-color11-base-ch) / 0.08);
+    --Sv-bq-background13: oklch(calc(var(--b3-font-color12-base-l)*0.95) var(--b3-font-color12-base-ch) / 0.08);
+
+    /*导图*/
+	--b3-border-daotu: 2px solid #ffb8b8;
+	--b3-block-daotu: var(--b3-theme-background);
+
+
+
+
+    /* —————— 设置、搜索界面 —————— */
+    --Sv--dialog-tab-bar: rgb(247, 247, 247);
+
+    /* 搜索界面 */
+    --Sv-search-result-tip: var(--Sv--dialog-container);
+    --Sv-list-meta-ellipsis: #9b9a97;
+
+
+    /* 集市界面 */
+    --Sv-bazaar-focus: var(--b3-theme-background);
+    --Sv-bazaar-item: var(--Sv-list-background);
+    --Sv-card--current: #fff5f3;
+    --Sv-card-current-shadow: var(--Sv-dock-item--activefocus-background) 0px 0px 0px 2px;
+    
+    /* 菜单 */
+    --Sv-menu-shadow: rgba(15, 15, 15, 0.05) 0px 0px 0px 1px, rgba(15, 15, 15, 0.1) 0px 3px 6px, rgba(15, 15, 15, 0.2) 0px 9px 24px;
+    --Sv-menu-accelerator: oklch(var(--b3-theme-on-background-base) / 0.4);
+    /* 按钮 */ 
+    --Sv-button-background: var(--b3-theme-primary);
+    --Sv-button-color: var(--b3-theme-background);
+    --Sv-button-background-hover: oklch(calc(var(--b3-theme-primary-base-l)*0.9) var(--b3-theme-primary-base-ch));
+    --Sv-button-cancel: var(--b3-theme-background);
+
+    /* 滚动条 */
+	--Sv-scroll-bgcolor: transparent;
+	--Sv-border-scroll: rgba(55, 53, 47, 0.2);
+	--webkit-scrollbar: 6px;
+	--webkit-scrollbar-thumb: 4px;
+    --Sv--slider-thumb: var(--b3-theme-surface-lighter);
+
+
+
+    /* 合并顶栏插件收缩颜色 */
+    --Sv-plugin-b-off-bg: oklch(calc(var(--b3-theme-surface-base-l)*0.89) var(--b3-theme-surface-base-ch));
+    --Sv-plugin-b-off-bg-hover: oklch(calc(var(--b3-theme-surface-base-l)*0.99) var(--b3-theme-surface-base-ch));
+    --Sv-plugin-on-bg: var(--Sv-toolbar-item-hover);
+    --Sv-plugin-counter: var(--Sv-dock-item--activefocus-background);
+    --Sv-fixed-item-text: var(--b3-theme-on-surface);
+
+}
+
+
+:root[data-theme-mode="light"] {
+    /* 基础数 */
+    --b3-theme-primary-base-l:69.42%;
+    --b3-theme-primary-base-ch:0.1265 230.5;
+    --b3-theme-surface-base-l:0.966;
+    --b3-theme-surface-base-ch:0.0013 106.42;
+    --b3-theme-on-background-base:32.89% 0.0107 91.66;
+    --Sv-dock-item--activefocus-background--base:68.98% 0.161 30.76;
+
+    --b3-font-color1-base-l: 0%;
+    --b3-font-color2-base-l: 61.97%;
+    --b3-font-color3-base-l: 42.61%;
+	--b3-font-color4-base-l: 65.94%;
+    --b3-font-color5-base-l: 72.3%;
+	--b3-font-color6-base-l: 76.79%;
+    --b3-font-color7-base-l: 70.63%;
+	--b3-font-color8-base-l: 52.39%;
+    --b3-font-color9-base-l: 50.87%;
+    --b3-font-color10-base-l: 47.14%;
+    --b3-font-color11-base-l: 50.25%;
+    --b3-font-color12-base-l: 60.52%;
+    --b3-font-color13-base-l: 58.99%;
+
+	--b3-font-color1-base-ch: 0 0;
+    --b3-font-color2-base-ch: 0.006 95.15;
+    --b3-font-color3-base-ch: 0.0452 45.15;
+	--b3-font-color4-base-ch: 0.1586 55.7;
+    --b3-font-color5-base-ch: 0.1674 51.83;
+	--b3-font-color6-base-ch: 0.157 86.52;
+    --b3-font-color7-base-ch: 0.165 139.18;
+	--b3-font-color8-base-ch: 0.0917 180;
+    --b3-font-color9-base-ch: 0.1052 235.24;
+    --b3-font-color10-base-ch: 0.1565 298.98;
+    --b3-font-color11-base-ch: 0.1934 350.57;
+    --b3-font-color12-base-ch: 0.199 25.43;
+    --b3-font-color13-base-ch: 0.2344 26.3;
+    
+    
+    /* 主色 */
+    /*--b3-theme-background: #fff;*/
+    --b3-theme-surface-lighter: oklch(calc(var(--b3-theme-surface-base-l)*0.93) var(--b3-theme-surface-base-ch));
+    --b3-theme-on-surface: oklch(calc(var(--b3-theme-surface-base-l)*0.5) var(--b3-theme-surface-base-ch));
+    --b3-theme-on-surface-light: oklch(calc(var(--b3-theme-surface-base-l)*0.5) var(--b3-theme-surface-base-ch) / 0.68);
+    
+    /* 背景 */
+    --b3-body-background: oklch(calc(var(--b3-theme-surface-base-l)*0.97) var(--b3-theme-surface-base-ch));
+
+    /* 提示 */
+    --b3-tooltips-background: oklch(calc(var(--b3-theme-surface-base-l)*0.4) var(--b3-theme-surface-base-ch));
+    --b3-tooltips-color: var(--b3-theme-background);
+
+    /* 卡片背景 */
+    --b3-card-error-color: rgb(97, 26, 21);
+    --b3-card-error-background: #f5d1cf;
+    --b3-card-warning-color: rgb(102, 60, 0);
+    --b3-card-warning-background: #ffe8c8;
+    --b3-card-info-color: rgb(13, 60, 97);
+    --b3-card-info-background: #d6eaf9;
+    --b3-card-success-color: rgb(30, 70, 32);
+    --b3-card-success-background: #d7eed8;
+
+    /* 头图 */
+    --Sv-background-icon-button-color: var(--b3-theme-background);
+    --Sv-background-icon-button: oklch(var(--b3-theme-on-background-base) / 0.4);
+
+    /* PDF */
+    --b3-pdf-selection: #d0e9c8;
+    --b3-pdf-sidebar-width: 200px;
+    --b3-pdf-offset: 0;
+    --b3-pdf-dark: #212224;
+
+    --b3-av-gallery-shadow: rgba(15, 15, 15, 0.07) 0px 2px 4px, var(--Sv-breadcrumb-hover) 0px 0px 0px 1px;
+
+
+    /* ————————————————————  自定义结构配色  ———————————————————— */
+	
+	/* 顶栏 */
+    --Sv-toolbar-background:  var(--Sv-theme-surface);
+    --Sv-menu-selected: var(--Sv-menu-background);
+    --Sv-plugin-off-bg: #e9e9e8;
+    --Sv-menu-item-hover: var(--Sv-list-background);
+    --Sv-menu-background: oklch(calc(var(--b3-theme-surface-base-l)*1.1) var(--b3-theme-surface-base-ch));
+
+	/* 边栏 */
+    --Sv-dock-background: /*oklch(calc(var(--b3-theme-surface-base-l)*0.98) var(--b3-theme-surface-base-ch));*/ var(--Sv-theme-surface);
+    --Sv-dock-item-color: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.4);
+
+    --Sv-vertical-bg:oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.03);
+
+    /* 侧栏 */
+    --Sv-list-item-arrow: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.4);
+    --Sv-list-background: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.06);
+    --Sv-list-focus-hover: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.1);
+    --Sv-layout--resize-hover: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.2);
+    --Sv-list-focus-active: oklch(var(--Sv-dock-item--activefocus-background--base) / 0.1);
+
+    --b3-list-hover: oklch(calc(var(--b3-theme-surface-base-l)*0.3) var(--b3-theme-surface-base-ch) / 0.05);
+
+    /* 反链面板 */
+    --Sv-block-logo-color: var(--b3-theme-background);
+    --Sv-block-logo-background: var(--Sv-list-background);
+
+    /* 底栏 */
+    --Sv-status-msg-background: var(--Sv-theme-surface);
+
+    /* 滚动条 */
+	--Sv-scroll-color: oklch(calc(var(--b3-theme-surface-base-l)*0.94) var(--b3-theme-surface-base-ch));
+	--Sv-scroll-color-hover: oklch(calc(var(--b3-theme-surface-base-l)*0.8) var(--b3-theme-surface-base-ch));
+    
+    /* 表格 */
+    --Sv-table-thead: var(--Sv-theme-surface);
+
+    /*引用*/
+    --Sv-block-ref-background: var(--Sv-list-background);
+    --Sv-popover-menu: oklch(calc(var(--b3-theme-surface-base-l)*1) var(--b3-theme-surface-base-ch) / 0.8);
+
+    /* 行内代码*/
+    --Sv-inline-code:var(--b3-theme-error);
+
+    /* 代码块 */
+    --Sv-code-block-background: oklch(calc(var(--b3-theme-surface-base-l)) var(--b3-theme-surface-base-ch));
+
+    /* 字体颜色选择 工具条 */
+    --Sv-protyle-toolbar-color: var(--b3-theme-on-background);
+    --Sv-protyle-util-bg: var(--b3-theme-background);
+    --Sv-protyle-toolbar-bg:var(--b3-theme-background);
+
+    --Sv-error-shadow: #e28c88;
+    --Sv-warning-shadow: #ffc07b;
+    --Sv-info-shadow: #97c5ed;
+    --Sv-success-shadow: #99cf9b;
+    /* 下拉框、输入框*/
+    --Sv-select-field: var(--Sv-list-background);
+    /* 搜索面板 */
+    --Sv--dialog-container: #eeeeed;
+    --Sv--dialog-scrim: rgba(0, 0, 0, 0.2);
+
+    --Sv-breadcrumb-hover: var(--Sv-list-background);
+
+    --Sv-tab-bar-item-after:url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M100 100C44.772 100 0 55.228 0 0v100h100z' fill='%23e9e9e8'/></svg>"),
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M0 100c55.228 0 100-44.772 100-100v100H0z' fill='%23e9e9e8'/></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><rect y='15%' width='100%' height='80%' fill='%23e9e9e8'/></svg>");
+    --Sv-tab-bar-V-item-after:url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M100 100C100 44.772 55.228 0 0 0H100V100z' fill='%23fff'/></svg>"),
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M0 100c55.228 0 100-44.772 100-100v100H0z' fill='%23fff'/></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><rect  width='100%' height='100%' fill='%23fff'/></svg>");
+   /* --Sv-tab-bar-item-focus-after:url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M100 100C44.772 100 0 55.228 0 0v100h100z' fill='%23fff'/></svg>"),
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M0 100c55.228 0 100-44.772 100-100v100H0z' fill='%23fff'/></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><rect y='15%' width='100%' height='80%' fill='%23fff'/></svg>");*/
+    /*callout*/
+	--Sv-callout-background1: rgb(198, 203, 208 , .5);
+    --Sv-callout-background2: rgb(225, 225, 225 , .5);
+    --Sv-callout-background3: rgb(235, 236, 237 , .5);
+    --Sv-callout-background4: rgb(233, 229, 227 , .5);
+	--Sv-callout-background5: rgb(246, 225, 205 , .5);
+    --Sv-callout-background6: rgb(250, 235, 221 , .5);
+    --Sv-callout-background7: rgb(251, 243, 219 , .5);
+	--Sv-callout-background8: rgba(221, 237, 226 , .5);
+    --Sv-callout-background9: rgb(221, 237, 234 , .5);
+    --Sv-callout-background10: rgb(221, 235, 241 , .5);
+    --Sv-callout-background11: rgb(234, 228, 242 , .5);
+    --Sv-callout-background12: rgb(244, 223, 235 , .5);
+    --Sv-callout-background13: rgb(251, 228, 228 , .5);
+    
+}
+
+
+/* 微软字体斜体会被相邻背景遮挡，将 arial 放置其前 https://github.com/siyuan-note/siyuan/issues/11841；"Segoe UI" 和 Noto-COLRv1-2.047 冲突，故移除。 */
+
+:root[data-theme-mode="dark"] {
+    /* 基础数 */
+    --b3-theme-primary-base-l:69.42%;
+    --b3-theme-primary-base-ch:0.1265 230.5;
+    --b3-theme-surface-base-l:0.2607 ;
+    --b3-theme-surface-base-ch:0.0092 234.08;
+    --b3-theme-on-background-base:94.01% 0 0;
+    --Sv-dock-item--activefocus-background--base:68.98% 0.161 30.76;
+
+    --b3-font-color1-base-l: 100%;
+    --b3-font-color2-base-l: 55.57%;
+    --b3-font-color3-base-l: 58.06%;
+	--b3-font-color4-base-l: 78.79%;
+    --b3-font-color5-base-l: 83.02%;
+	--b3-font-color6-base-l: 89.92%;
+    --b3-font-color7-base-l: 67.96%;
+	--b3-font-color8-base-l: 71.53%;
+    --b3-font-color9-base-l: 66.4%;
+    --b3-font-color10-base-l: 62.63%;
+    --b3-font-color11-base-l: 65.71%;
+    --b3-font-color12-base-l: 72.18%;
+    --b3-font-color13-base-l: 63.03%;
+
+	--b3-font-color1-base-ch: 0 0;
+    --b3-font-color2-base-ch: 0.0077 233.74;
+    --b3-font-color3-base-ch: 0.0469 44.11;
+	--b3-font-color4-base-ch: 0.151 62.92;
+    --b3-font-color5-base-ch: 0.1477 74.87;
+	--b3-font-color6-base-ch: 0.1619 95.29;
+    --b3-font-color7-base-ch: 0.093 179.77;
+	--b3-font-color8-base-ch: 0.0961 216.69;
+    --b3-font-color9-base-ch: 0.1008 238.15;
+    --b3-font-color10-base-ch: 0.1587 301.59;
+    --b3-font-color11-base-ch: 0.1909 350.24;
+    --b3-font-color12-base-ch: 0.1728 26.38;
+    --b3-font-color13-base-ch: 0.1744 24.32;
+
+    /* 主色 */
+    /*--b3-theme-background:  #2f3437;*/
+    --b3-theme-surface-lighter: oklch(calc(var(--b3-theme-surface-base-l)*1.5) var(--b3-theme-surface-base-ch));
+    --b3-theme-on-surface: oklch(calc(var(--b3-theme-surface-base-l)*2.5) var(--b3-theme-surface-base-ch));
+    --b3-theme-on-surface-light: oklch(calc(var(--b3-theme-surface-base-l)*2.5) var(--b3-theme-surface-base-ch) / 0.68);
+
+    /* 背景 */
+    --b3-body-background: oklch(calc(var(--b3-theme-surface-base-l)*0.90) var(--b3-theme-surface-base-ch));
+
+    /* 提示 */
+    --b3-tooltips-background: oklch(calc(var(--b3-theme-surface-base-l)*1.5) var(--b3-theme-surface-base-ch));
+	--b3-tooltips-color: var(--b3-theme-on-background);
+
+    /* 卡片背景 */
+    --b3-card-error-color: #d69595;
+    --b3-card-error-background: var(--b3-font-background13);
+    --b3-card-warning-color: rgb(255, 213, 153);
+    --b3-card-warning-background: var(--b3-font-background5);
+    --b3-card-info-color: rgb(166, 213, 250);
+    --b3-card-info-background: var(--b3-font-background10);
+    --b3-card-success-color: rgb(183, 223, 185);
+    --b3-card-success-background: var(--b3-font-background8);
+
+
+    /* 头图 */
+    --Sv-background-icon-button-color: var(--b3-theme-background);
+    --Sv-background-icon-button: oklch(var(--b3-theme-on-background-base) / 0.4);
+
+    /* PDF */
+    --b3-pdf-selection: #779170;
+    --b3-pdf-sidebar-width: 200px;
+    --b3-pdf-offset: 0;
+	
+    --b3-av-gallery-shadow:  var(--Sv-breadcrumb-hover) 0px 0px 0px 1px,rgba(15, 15, 15, 0.3) 0px 2px 5px;
+
+
+    /*callout*/
+	--Sv-callout-background1: rgb(35, 38, 40 , .3);
+    --Sv-callout-background2: rgb(63, 68, 71 , .3);
+    --Sv-callout-background3: rgb(69, 75, 78 , .3);
+    --Sv-callout-background4: rgb(67, 64, 64 , .3);
+	--Sv-callout-background5: rgb(89, 74, 58 , .3);
+    --Sv-callout-background6: rgb(89, 79, 59 , .3);
+    --Sv-callout-background7: rgb(89, 86, 59 , .3);
+	--Sv-callout-background8: rgba(53, 76, 75 , .3);
+    --Sv-callout-background9: rgb(54, 79, 84 , .3);
+    --Sv-callout-background10: rgb(54, 73, 84 , .3);
+    --Sv-callout-background11: rgb(68, 63, 87 , .3);
+    --Sv-callout-background12: rgb(83, 59, 76 , .3);
+    --Sv-callout-background13: rgb(89, 65, 65 , .3);
+	/*导图*/
+	--b3-border-daotu: 2px solid rgba(69, 74, 77);
+	--b3-block-daotu:var(--b3-theme-surface-light);
+	/*看板*/
+	--kbline-boarditem-minwidth: 14rem;/*看板卡片的最小宽度*/
+	--kb--li--background:rgba(55, 60, 63);
+	  
+    /* 数据库 */
+    --Sv-font-color13: oklch(calc(var(--b3-font-color12-base-l)*1.3) var(--b3-font-color12-base-ch));
+	--Sv-font-color12: oklch(calc(var(--b3-font-color11-base-l)*1.3) var(--b3-font-color11-base-ch));
+	--Sv-font-color11: oklch(calc(var(--b3-font-color10-base-l)*1.3) var(--b3-font-color10-base-ch));
+	--Sv-font-color10: oklch(calc(var(--b3-font-color9-base-l)*1.3) var(--b3-font-color9-base-ch));
+	--Sv-font-color9: oklch(calc(var(--b3-font-color8-base-l)*1.3) var(--b3-font-color8-base-ch));
+	--Sv-font-color8: oklch(calc(var(--b3-font-color7-base-l)*1.3) var(--b3-font-color7-base-ch));
+	--Sv-font-color7: oklch(calc(var(--b3-font-color6-base-l)*1.3) var(--b3-font-color6-base-ch));
+	--Sv-font-color6: oklch(calc(var(--b3-font-color5-base-l)*1.3) var(--b3-font-color5-base-ch));
+	--Sv-font-color5: oklch(calc(var(--b3-font-color4-base-l)*1.3) var(--b3-font-color4-base-ch));
+	--Sv-font-color4: oklch(calc(var(--b3-font-color3-base-l)*1.3) var(--b3-font-color3-base-ch));
+	--Sv-font-color3: oklch(calc(var(--b3-font-color13-base-l)*1.3) var(--b3-font-color13-base-ch));
+	--Sv-font-color2: oklch(calc(var(--b3-font-color2-base-l)*1.3) var(--b3-font-color2-base-ch));
+	--Sv-font-color1: oklch(calc(var(--b3-font-color1-base-l)*1.3) var(--b3-font-color1-base-ch));
+
+	
+	/* ————————————————————  自定义结构配色  ———————————————————— */
+
+    /* 顶栏 */
+    --Sv-toolbar-background: /*oklch(calc(var(--b3-theme-surface-base-l)*0.85) var(--b3-theme-surface-base-ch))*/var(--Sv-theme-surface);
+    --Sv-menu-selected: var(--Sv-menu-background);
+    --Sv-menu-item-hover: oklch(calc(var(--b3-theme-surface-base-l)*2) var(--b3-theme-surface-base-ch) / 0.3);
+    --Sv-menu-background: oklch(calc(var(--b3-theme-surface-base-l)*1.3) var(--b3-theme-surface-base-ch));
+
+	/* 边栏 */
+    --Sv-dock-background: /*oklch(calc(var(--b3-theme-surface-base-l)*0.85) var(--b3-theme-surface-base-ch))*/var(--Sv-theme-surface);
+    --Sv-dock-item-color: oklch(calc(var(--b3-theme-surface-base-l)*2) var(--b3-theme-surface-base-ch) / 0.8);
+
+    --Sv-vertical-bg:oklch(calc(var(--b3-theme-surface-base-l)*1.3) var(--b3-theme-surface-base-ch) / 0.2);
+	
+	/* 侧栏 */
+    --Sv-list-item-arrow: oklch(calc(var(--b3-theme-surface-base-l)*2) var(--b3-theme-surface-base-ch) / 0.8);
+    --Sv-list-background: oklch(calc(var(--b3-theme-surface-base-l)*1.3) var(--b3-theme-surface-base-ch) / 0.5);
+    --Sv-list-focus-hover: oklch(calc(var(--b3-theme-surface-base-l)*2) var(--b3-theme-surface-base-ch) / 0.4);
+    --Sv-layout--resize-hover: oklch(calc(var(--b3-theme-surface-base-l)*4) var(--b3-theme-surface-base-ch) / 0.2);
+    --Sv-list-focus-active: oklch(var(--Sv-dock-item--activefocus-background--base) / 0.1);
+
+    --b3-list-hover: var(--Sv-list-focus-hover);
+    
+    /* 反链面板 */
+    --Sv-block-logo-color: var(--b3-theme-on-background);
+    --Sv-block-logo-background: var(--Sv-list-background);
+
+    /* 底栏 */
+    --Sv-status-msg-background: var(--Sv-theme-surface);
+    
+    /* 滚动条 */
+    --Sv-scroll-color: oklch(calc(var(--b3-theme-surface-base-l)*1.5) var(--b3-theme-surface-base-ch));
+	--Sv-scroll-color-hover: oklch(calc(var(--b3-theme-surface-base-l)*1.7) var(--b3-theme-surface-base-ch));
+
+     /* 表格 */
+     --Sv-table-thead: oklch(calc(var(--b3-theme-surface-base-l)*1.1) var(--b3-theme-surface-base-ch));
+
+	/* 行内代码 */
+	--Sv-inline-code: #ff9c9c;
+
+    /*引用*/
+    --Sv-block-ref-background: oklch(calc(var(--b3-theme-surface-base-l)*1.6) var(--b3-theme-surface-base-ch) / 0.5);
+    --Sv-popover-menu: oklch(calc(var(--b3-theme-surface-base-l)*1) var(--b3-theme-surface-base-ch) / 0.15);
+
+    /* 代码块 */
+    --Sv-code-block-background: oklch(calc(var(--b3-theme-surface-base-l)*1.05) var(--b3-theme-surface-base-ch));
+
+	/* 字体颜色选择 工具条 */
+	--Sv-protyle-toolbar-color: var(--b3-theme-on-background);
+	--Sv-protyle-util-bg: var(--b3-theme-background);
+    --Sv-protyle-toolbar-bg:oklch(calc(var(--b3-theme-surface-base-l)*1.05) var(--b3-theme-surface-base-ch));
+
+	--Sv-error-shadow: #6b4b4b;
+	--Sv-warning-shadow: #806b4d;
+	--Sv-info-shadow: #536b7d;
+	--Sv-success-shadow: #5c705d;
+
+     /* 下拉框、输入框*/
+    --Sv-select-field: oklch(calc(var(--b3-theme-surface-base-l)*2) var(--b3-theme-surface-base-ch) / 0.2);
+
+    /* 搜索面板 */
+    --Sv--dialog-container: var(--Sv-dock-background);
+    --Sv--dialog-scrim: rgba(0, 0, 0, 0.7);
+    
+    --Sv-breadcrumb-hover: oklch(calc(var(--b3-theme-surface-base-l) * 1.6) var(--b3-theme-surface-base-ch) / 0.5);
+
+    --Sv-tab-bar-item-after:url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M100 100C44.772 100 0 55.228 0 0v100h100z' fill='%232f3437'/></svg>"),
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M0 100c55.228 0 100-44.772 100-100v100H0z' fill='%232f3437'/></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><rect  y='15%' width='100%' height='80%' fill='%232f3437'/></svg>");
+
+    --Sv-tab-bar-V-item-after:url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M100 100C100 44.772 55.228 0 0 0H100V100z' fill='%232f3437'/></svg>"),
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M0 100c55.228 0 100-44.772 100-100v100H0z' fill='%232f3437'/></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><rect  width='100%' height='100%' fill='%232f3437'/></svg>");
+
+    /*--Sv-tab-bar-item-focus-after:url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M100 100C44.772 100 0 55.228 0 0v100h100z' fill='%232f3437'/></svg>"),
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M0 100c55.228 0 100-44.772 100-100v100H0z' fill='%232f3437'/></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><rect y='15%' width='100%' height='80%' fill='%232f3437'/></svg>");*/
+}
+
+
+
+body{
+    background-image:unset;
+}
+
+
+
+:root:lang(zh-CN) {
+    --b3-font-family: Harmony, 'Twitter Emoji', "Emojis Additional", "Emojis Reset", BlinkMacSystemFont, Helvetica, "PingFang SC", "Luxi Sans", "DejaVu Sans", "Hiragino Sans GB", "Source Han Sans SC", arial, "Microsoft Yahei", sans-serif, emojis;
+}
+
+:root:lang(zh-CHT) {
+    --b3-font-family: Harmony, 'Twitter Emoji', "Emojis Additional", "Emojis Reset", BlinkMacSystemFont, Helvetica, "PingFang TC", "Luxi Sans", "DejaVu Sans", "Hiragino Sans TC", "Source Han Sans TC", "Microsoft JhengHei", arial, sans-serif, emojis;
+}
+
+:root:lang(ja-JP) {
+    --b3-font-family: Harmony, 'Twitter Emoji', "Emojis Additional", "Emojis Reset", BlinkMacSystemFont, Helvetica, "Luxi Sans", "DejaVu Sans", "Hiragino Sans", "Yu Gothic UI", arial, sans-serif, emojis;
+}
+
+
+
+
+
+/* ————————————————————中心———————————————————— */
+.layout__resize:not(.layout__resize--lr) {
+    &:after{
+        height: 8px;
+        top: -5px;
+        border-radius: 3px;
+        background-color: var(--Sv-layout--resize);
+    }
+    &:hover:after{
+        background-color: var(--Sv-layout--resize-hover);
+    }
+}
+
+.layout__resize--lr{
+    width: var(--Sv-layout-resize-lr-width);
+    &:after{
+        width: 4px;
+        border-radius: 6px;
+        background-color: var(--Sv-layout--resize);
+    }
+    &:hover:after{
+        background-color: var(--Sv-layout--resize-hover);
+    }
+    & + .layout__center .layout__resize--lr{
+        &:after{
+            width: 8px;
+            margin-left: -2px;
+        }
+    }
+}
+.layout__dockl+.layout__resize:hover{
+    &:after{
+        content: "";
+        width: 8px;
+        border-radius: 6px;
+        background-color: var(--Sv-layout--resize-hover);
+        margin-left: -2px;
+    }
+}
+.layout__center+.layout__resize:hover{
+    &:after{
+        content: "";
+        width: 8px;
+        border-radius: 6px;
+        background-color: var(--Sv-layout--resize-hover);
+        margin-left: -2px;
+    }
+}
+.layout__center{
+    /*margin-left: -4px;
+    margin-right: -4px;*/
+    .layout__resize:not(.layout__resize--lr) {
+        margin: var(--Sv-layout--resize-margin);
+            &:after{
+            top: -8px;
+        }
+    }
+}
+
+body:not(.body--mobile,.body--window,.body--toolbar-hide) #layouts{
+    .layout__center>.fn__flex{
+        border-radius: var(--Sv-center-radius);
+        box-shadow: var(--Sv-main-shadow);
+        margin: 0 2px 8px;
+        overflow: hidden;
+    }
+
+}
+
+.body--toolbar-hide #layouts{
+    .layout__center .layout-tab-container {
+            border-radius: var(--Sv-center-radius);
+            box-shadow: var(--Sv-main-shadow);
+            margin: 0 2px 8px;
+    }
+}
+#savorPlugins{
+	display: none;
+}
+
+.layout__dockl:not(.layout--float), .layout__dockr:not(.layout--float){
+    min-height: 90%;
+}
+
+
+/*-----------------------新窗口-------------------------*/
+.body--window {
+    #status {
+        right: 4px;
+        bottom: 4px;
+    }
+}
+
+
+.layout__center{
+    anchor-name: --sv-status-center;
+    .sy__outline,.sy__graph,.sy__backlink,[data-timeout]{
+            & .block__icons{
+        background-color: var(--b3-theme-background);
+    }
+} 
+    & + .layout__resize--lr:after{
+        margin-left: -5px;
+    }
+        .layout__resize:not(.layout__resize--lr){
+        height: 0px;
+    }
+}
+
+.layout__center [data-type="wnd"] .layout-tab-container .fn__flex-column{
+    box-shadow: var(--b3-theme-background) 0 0 0 7px inset;
+}
+
+/*导出预览*/
+#action {
+    background: var(--Sv-theme-surface)!important;
+}
+
+/* 明暗/配色切换的视图过渡动画：平滑渐变 */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: 0.4s;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+.callout{
+    border-radius: 8px;
+    .callout-info{
+        color: var(--b3-theme-on-background)!important;}
+    .callout-title{
+        font-weight: 700;
+    }
+    &::before{
+        display: none;
+    }
+    &[data-subtype="NOTE"]{
+        background-color: var(--Sv-callout-background10);
+        box-shadow: inset  0 0 0 2px var(--b3-font-background10);
+    }
+    &[data-subtype="TIP"]{
+        background-color: var(--Sv-callout-background8);
+        box-shadow: inset  0 0 0 2px var(--b3-font-background9);
+    }
+    &[data-subtype="IMPORTANT"]{
+        background-color: var(--Sv-callout-background11);
+        box-shadow: inset  0 0 0 2px var(--b3-font-background11);
+    }
+    &[data-subtype="WARNING"]{
+        background-color: var(--Sv-callout-background5);
+        box-shadow: inset  0 0 0 2px var(--b3-font-background5);
+    }
+    &[data-subtype="CAUTION"]{
+        background-color: var(--Sv-callout-background13);
+        box-shadow: inset  0 0 0 2px var(--b3-font-background3);
+    }
+}

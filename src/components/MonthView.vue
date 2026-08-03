@@ -1,40 +1,58 @@
 ﻿<template>
   <div class="month-view">
-    <div class="calendar-container">
+    <div class="month-view-layout">
+      <CalendarTaskSidebar
+        v-if="!sidebarCollapsed"
+        :tasks="sidebarTasks || tasks"
+        :document-title-by-root-id="documentTitleByRootId"
+        :display-options="displayOptions"
+        @task-toggle="toggleTaskStatus"
+        @task-edit="(task, anchor) => emit('taskEdit', task, anchor)"
+        @date-select="focusMonth"
+        @calendar-display-toggle="emit('calendarDisplayToggle', $event)"
+        @calendar-task-drag-start="handleCalendarTaskDragStart"
+        @calendar-task-drag-move="handleCalendarTaskDragMove"
+        @calendar-task-drag-end="handleCalendarTaskDragEnd"
+        @calendar-task-drag-cancel="handleCalendarTaskDragCancel"
+      />
+      <div class="calendar-container">
       <div class="calendar-toolbar">
-        <div v-if="calendarViewOptions.length > 0" class="calendar-view-switcher">
-          <button
-            v-for="option in calendarViewOptions"
-            :key="option.value"
-            type="button"
-            class="calendar-view-switcher-btn ariaLabel"
-            :class="{ active: currentCalendarView === option.value }"
-           
-            :aria-label="option.title"
-            @click="emit('calendarViewChange', option.value)"
-          >
-            {{ option.label }}
+        <div class="calendar-toolbar-top">
+          <button type="button" class="nav-btn ariaLabel" :aria-label="t(sidebarCollapsed ? 'weekView.expandSidebar' : 'weekView.collapseSidebar')" @click="sidebarCollapsed = !sidebarCollapsed">
+            <Icon :name="sidebarCollapsed ? 'chevronRight' : 'chevronLeft'" width="20" height="20" />
           </button>
-        </div>
-        <div class="calendar-header">
+          <div class="calendar-toolbar-actions">
+          <div v-if="calendarViewOptions.length > 0" class="calendar-view-switcher">
+            <button
+              v-for="option in calendarViewOptions"
+              :key="option.value"
+              type="button"
+              class="calendar-view-switcher-btn ariaLabel"
+              :class="{ active: currentCalendarView === option.value }"
+              :aria-label="option.title"
+              @click="emit('calendarViewChange', option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+          <button class="today-btn" @click="goToToday">{{ t('weekView.today') }}</button>
           <button
             class="nav-btn ariaLabel"
-           
             :aria-label="t('date.previousMonth')"
             @click="previousMonth"
           >
             <Icon name="chevronLeft" width="20" height="20" />
           </button>
-          <div class="month-title">{{ monthTitle }}</div>
           <button
             class="nav-btn ariaLabel"
-           
             :aria-label="t('date.nextMonth')"
             @click="nextMonth"
           >
             <Icon name="chevronRight" width="20" height="20" />
           </button>
+          </div>
         </div>
+        <div class="month-title">{{ monthTitle }}</div>
       </div>
       <div class="calendar-grid">
         <div class="weekday-header">
@@ -64,7 +82,7 @@
                 @mouseenter="handleDayCellMouseEnter(day)"
                 @dragover.prevent="handleDragOver(day)"
                 @dragleave="handleDragLeave"
-                @drop="handleDrop(day)"
+                @drop="handleDrop(day, $event)"
               >
                 <div class="day-info">
                   <div class="day-date-inline">
@@ -192,6 +210,8 @@
                 :aria-label="getTaskDisplayTitle(task)"
                 :class="[isHabitTaskChip(task) ? 'habit-task-chip' : 'task-chip', {
                   'task-completed': task.status === 'completed',
+                  'task-dragging': draggingTask?.task.id === task.id,
+                  'keyboard-selected': selectedCalendarTaskId === task.id,
                   'mobile-selected': !isHabitTaskChip(task) && shouldShowMobileTaskChipControls(task.id)
                 }]"
                 :style="getTaskStyle(task, week)"
@@ -215,7 +235,7 @@
                 <div 
                   class="task-chip-title"
                   :class="{ 'task-dragging': draggingTask?.task.id === task.id }"
-                  @mousedown="!isHabitTaskChip(task) && handleTaskMouseDown($event, task)"
+                  @mousedown="!isHabitTaskChip(task) && handleTaskMouseDownWithSelection($event, task)"
                 >
                   <span
                     class="task-checkbox-wrapper"
@@ -253,10 +273,17 @@
                   @mousedown="handleHandleMouseDown($event, task, 'end')"
                   @pointerdown.stop="handleMobileTaskChipHandlePointerDown($event, task, 'end')"
                 ></div>
+                </div>
               </div>
+              <template v-if="allDayTaskDragPreview && week.some(day => day.key === allDayTaskDragPreview.startDate)">
+                <div class="month-task-drag-outline" :style="getMonthTaskDragPreviewStyle(allDayTaskDragPreview, week, false)"></div>
+                <div class="task-chip month-task-drag-ghost" :ref="setMonthTaskDragGhostElement" :style="getMonthTaskDragPreviewStyle(allDayTaskDragPreview, week, true)">
+                  <div class="task-chip-title" v-html="getTaskTitleHtml(allDayTaskDragPreview.task)"></div>
+                </div>
+              </template>
             </div>
-          </div>
         </div>
+      </div>
       </div>
     </div>
 
@@ -365,6 +392,7 @@ import {
 } from '@/utils/taskGroupShared';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
+import CalendarTaskSidebar from './CalendarTaskSidebar.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import LifelogTimelinePanel, {
@@ -402,11 +430,14 @@ import { resolveTaskTagIds } from '@/utils/taskTags';
 
 interface Props {
   tasks: Task[];
+  sidebarTasks?: Task[];
   lifelogTasks?: Task[];
   taskGroups?: TaskGroup[];
+  documentTitleByRootId?: Map<string, string>;
   goals?: Goal[];
   calendarViewOptions?: CalendarViewOption[];
   currentCalendarView?: CalendarViewMode;
+  displayOptions?: Array<{ key: string; label: string; enabled: boolean }>;
   showFocusRecords?: boolean;
   showHabits?: boolean;
   showTaskLifelog?: boolean;
@@ -433,6 +464,14 @@ interface MonthCalendarDay {
 interface ExternalTaskDropPoint {
   clientX: number;
   clientY: number;
+}
+
+interface CalendarTaskSidebarDragPayload extends ExternalTaskDropPoint {
+  task: Task;
+}
+
+interface TaskManagerCalendarDragDetail extends CalendarTaskSidebarDragPayload {
+  phase: 'start' | 'move' | 'end' | 'cancel';
 }
 
 interface MobilePointerTaskDragSession {
@@ -540,6 +579,7 @@ const emit = defineEmits<{
   taskCreateRequested: [payload: { startDate: string; dueDate: string; allDay: boolean }];
   visibleRangeChange: [payload: { startDate: string; endDate: string }];
   calendarViewChange: [view: CalendarViewMode];
+  calendarDisplayToggle: [key: string];
 }>();
 
 type EventListener = (...args: any[]) => void;
@@ -579,6 +619,7 @@ class EventManager {
 const eventManager = new EventManager();
 
 const baseDate = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+const sidebarCollapsed = ref(false);
 const dragOverDay = ref<string | null>(null);
 const MOBILE_BREAKPOINT = 768;
 const MOBILE_DRAG_LONG_PRESS_MS = 280;
@@ -828,9 +869,48 @@ function emitTaskColorChanged(task: Task): void {
   });
 }
 
+const selectedCalendarTaskId = ref<string | null>(null);
+
+function handleTaskMouseDownWithSelection(event: MouseEvent, task: Task): void {
+  selectedCalendarTaskId.value = task.id;
+  handleTaskMouseDown(event, task);
+}
+
+function handleCalendarTaskDateClearKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('input, textarea, select, [contenteditable="true"], .context-menu, .task-modal, .task-editor-protyle-body.is-sidebar .protyle')) return;
+  const taskId = selectedCalendarTaskId.value;
+  if (!taskId) return;
+  const task = localTasks.value.find(item => item.id === taskId);
+  if (!task) {
+    selectedCalendarTaskId.value = null;
+    return;
+  }
+  event.preventDefault();
+  selectedCalendarTaskId.value = null;
+  void clearTaskDates(task);
+}
+
+function handleCalendarTaskSelectionOutsidePointerDown(event: PointerEvent): void {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target?.closest('.task-chip, .habit-task-chip')) {
+    selectedCalendarTaskId.value = null;
+  }
+}
+
+let monthTaskDragGhostElement: HTMLElement | null = null;
+function setMonthTaskDragGhostElement(element: Element | null): void {
+  monthTaskDragGhostElement = element instanceof HTMLElement ? element : null;
+}
+function moveMonthTaskDragGhost(position: { left: number; top: number }): void {
+  monthTaskDragGhostElement?.style.setProperty('transform', `translate3d(${position.left}px, ${position.top}px, 0)`);
+}
+
 const {
   draggingHandle,
   draggingTask,
+  allDayTaskDragPreview,
   isDragging,
   handleHandleMouseDown,
   handleTaskMouseDown,
@@ -840,7 +920,7 @@ const {
     pendingDeletion.value.delete(task.id);
   }
   emitTaskDateChanged(task);
-});
+}, { onAllDayTaskDragGhostMove: moveMonthTaskDragGhost });
 
 interface LunarInfo {
   dayCn: string;
@@ -1141,11 +1221,9 @@ function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date
   const taskStart = new Date(startValue);
   taskStart.setHours(0, 0, 0, 0);
 
-  // Virtual tasks only span days when their materialized due date differs
-  // from the occurrence date. Standard recurring instances have equal dates.
-  const endValue = task.isVirtual && task.dueDate && task.dueDate !== startValue
-    ? task.dueDate
-    : startValue;
+  // Both ordinary and virtual tasks may span multiple days.  Ignoring the
+  // due date for ordinary tasks made a resized task render as a one-day chip.
+  const endValue = task.dueDate || startValue;
   const taskEnd = new Date(endValue);
   taskEnd.setHours(23, 59, 59, 999);
 
@@ -1371,29 +1449,7 @@ const weekdays = computed(() => [
 ]);
 
 const monthTitle = computed(() => {
-  const startDate = new Date(baseDate.value);
-  startDate.setHours(0, 0, 0, 0);
-  const dayOfWeek = (startDate.getDay() + 6) % 7;
-  startDate.setDate(startDate.getDate() - dayOfWeek);
-  
-  const endDate = new Date(startDate);
-  endDate.setDate(startDate.getDate() + 41);
-  
-  const formatMonth = (date: Date) => {
-    return formatTemplate('date.yearMonthTemplate', {
-      year: date.getFullYear(),
-      month: date.getMonth() + 1
-    });
-  };
-  
-  const startMonth = formatMonth(startDate);
-  const endMonth = formatMonth(endDate);
-  
-  if (startMonth === endMonth) {
-    return startMonth;
-  } else {
-    return `${startMonth} - ${endMonth}`;
-  }
+  return `${baseDate.value.getFullYear()} ${baseDate.value.getMonth() + 1}${t('date.monthSuffix')}`;
 });
 
 const calendarDays = computed(() => {
@@ -2326,7 +2382,7 @@ function getExpandedTasksForDay(day: any, week: any[]): WeekTask[] {
     });
 }
 
-function getTaskStyle(task: any, week: any[]) {
+function getTaskStyle(task: any, week: any[]): Record<string, string> {
   const {
     positionStep: TASK_POSITION_STEP,
     chipHeight: TASK_CHIP_HEIGHT,
@@ -2352,6 +2408,19 @@ function getTaskStyle(task: any, week: any[]) {
       background: bgColor,
     '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
+}
+
+function getMonthTaskDragPreviewStyle(preview: NonNullable<typeof allDayTaskDragPreview.value>, week: any[], followPointer: boolean): Record<string, string> {
+  const startDayOfWeek = week.findIndex(day => day.key === preview.startDate);
+  const dueDate = preview.dueDate || preview.startDate;
+  const endDayOfWeek = week.findIndex(day => day.key === dueDate);
+  if (startDayOfWeek < 0 || endDayOfWeek < startDayOfWeek) return { display: 'none' };
+  const style = getTaskStyle({ ...preview.task, startDayOfWeek, endDayOfWeek, spanDays: endDayOfWeek - startDayOfWeek + 1 }, week);
+  if (followPointer) {
+    style.left = '0px'; style.top = '0px'; style.width = `${preview.width}px`; style.height = `${preview.height}px`;
+    style.transform = `translate3d(${preview.floatingLeft}px, ${preview.floatingTop}px, 0)`;
+  }
+  return style;
 }
 
 function getExpandedTaskChipStyle(task: WeekTask): Record<string, string> {
@@ -2803,6 +2872,46 @@ function updateExternalTaskDrag(point: ExternalTaskDropPoint): { label: string }
   };
 }
 
+function handleCalendarTaskDragStart(payload: CalendarTaskSidebarDragPayload): void {
+  if (!payload?.task) {
+    clearDragOverState();
+    return;
+  }
+  updateExternalTaskDrag(payload);
+}
+
+function handleCalendarTaskDragMove(payload: CalendarTaskSidebarDragPayload): void {
+  if (!payload?.task) {
+    clearDragOverState();
+    return;
+  }
+  updateExternalTaskDrag(payload);
+}
+
+async function handleCalendarTaskDragEnd(payload: CalendarTaskSidebarDragPayload): Promise<void> {
+  if (!payload?.task) {
+    clearDragOverState();
+    return;
+  }
+  await dropExternalTask(payload.task, payload);
+}
+
+function handleCalendarTaskDragCancel(): void {
+  clearDragOverState();
+}
+
+function handleTaskManagerCalendarPointerDrag(event: Event): void {
+  const detail = (event as CustomEvent<TaskManagerCalendarDragDetail>).detail;
+  if (!detail || (detail.phase !== 'cancel' && !detail.task)) return;
+  if (detail.phase === 'start' || detail.phase === 'move') {
+    updateExternalTaskDrag(detail);
+  } else if (detail.phase === 'end') {
+    void dropExternalTask(detail.task, detail).catch(() => clearDragOverState());
+  } else {
+    clearDragOverState();
+  }
+}
+
 async function applyTaskDropToDay(task: Task, day: MonthCalendarDay): Promise<void> {
   try {
     const dateStr = formatDate(day.date);
@@ -2852,12 +2961,11 @@ async function dropExternalTask(task: Task, point: ExternalTaskDropPoint): Promi
   return true;
 }
 
-async function handleDrop(day: MonthCalendarDay) {
+async function handleDrop(day: MonthCalendarDay, event: DragEvent) {
   clearDragOverState();
   
   if (day.isOtherMonth) return;
   
-  const event = window.event as DragEvent;
   const taskData = event?.dataTransfer?.getData('application/json');
   
   if (!taskData) return;
@@ -2882,6 +2990,19 @@ function nextMonth() {
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + 1, 1);
 }
 
+function goToToday(): void {
+  expandedDayKeys.value = new Set();
+  closeLifelogDay();
+  const today = new Date();
+  baseDate.value = new Date(today.getFullYear(), today.getMonth(), 1);
+}
+
+function focusMonth(date: Date): void {
+  expandedDayKeys.value = new Set();
+  closeLifelogDay();
+  baseDate.value = new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
 function changeLifelogTimelinePeriod(offset: number): void {
   expandedDayKeys.value = new Set();
   const nextDate = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + (offset < 0 ? -1 : 1), 1);
@@ -2892,6 +3013,11 @@ function changeLifelogTimelinePeriod(offset: number): void {
 }
 
 function handleWheel(event: WheelEvent) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('.calendar-task-sidebar-list')) {
+    return;
+  }
+
   if (lifelogDayKey.value) {
     event.stopPropagation();
     return;
@@ -3537,6 +3663,7 @@ function handleDocumentMobileTaskChipPointerCancel(event: PointerEvent): void {
 
 function handleMobileTaskChipClick(event: MouseEvent, task: Task): void {
   if (!isMobileTaskChipInteractionEnabled.value) {
+    selectedCalendarTaskId.value = task.id;
     handleTaskClick(task, event);
     return;
   }
@@ -3846,6 +3973,9 @@ function updateWeekRowHeights() {
 let resizeObserver: ResizeObserver | null = null;
 
 onMounted(() => {
+  document.addEventListener('keydown', handleCalendarTaskDateClearKeydown);
+  document.addEventListener('pointerdown', handleCalendarTaskSelectionOutsidePointerDown);
+  window.addEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
   emitVisibleCalendarRange();
   taskSyncGuard.syncTasks(props.tasks, false, getTasksHash);
   syncCompactMobileLayout();
@@ -4009,6 +4139,9 @@ defineExpose({
 });
 
 onUnmounted(() => {
+  document.removeEventListener('keydown', handleCalendarTaskDateClearKeydown);
+  document.removeEventListener('pointerdown', handleCalendarTaskSelectionOutsidePointerDown);
+  window.removeEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
   clearMobileTaskDrag();
   clearMobileTaskChipGesture({ restorePreview: true });
   document.removeEventListener('pointermove', handleDocumentMobileTaskPointerMove);
@@ -4048,13 +4181,22 @@ onUnmounted(() => {
 .month-view {
   width: 100%;
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
 }
 
+.month-view-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
 .calendar-container {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -4063,21 +4205,23 @@ onUnmounted(() => {
 
 .calendar-toolbar {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 10px;
-  padding: 4px 10px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--b3-theme-border);
 }
 
-.calendar-header {
-  flex: 1;
-  min-width: 0;
+.calendar-toolbar-actions {
+  margin-left: auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 2px;
-  border-radius: 9px;
-  background: var(--b3-list-hover);
+  gap: 8px;
+}
+
+.calendar-toolbar-top {
+  display: flex;
+  align-items: center;
 }
 
 .calendar-view-switcher {
@@ -4135,9 +4279,26 @@ onUnmounted(() => {
 }
 
 .month-title {
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 500;
   color: var(--b3-theme-on-background);
+}
+
+.today-btn {
+  height: 28px;
+  border: 1px solid transparent;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  padding: 0 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: var(--pinch-shadow);
+}
+
+.today-btn:hover {
+  background: var(--b3-list-hover);
 }
 
 .calendar-grid {
@@ -4382,8 +4543,9 @@ onUnmounted(() => {
 }
 
 .day-cell.drag-over {
-  background: var(--b3-font-color2-1, #e3f2fd);
-  border: 2px dashed var(--b3-font-color2, #1976d2);
+  background: transparent;
+  border: 2px solid var(--pinch-color7);
+  border-radius: 6px;
 }
 
 .day-cell.create-selecting {
@@ -4487,9 +4649,9 @@ onUnmounted(() => {
   width: 8px;
   height: 22px;
   border-radius: 999px;
-  transform: translateY(-50%);
-  background: color-mix(in srgb, var(--pinch-task-chip-color, var(--pinch-color6)) 72%, white 28%);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+  transform: translate(-50%, -50%);
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  box-shadow: none;
 }
 
 .task-handle-left {
@@ -4497,7 +4659,7 @@ onUnmounted(() => {
 }
 
 .task-handle-left::after {
-  left: 3px;
+  left: 50%;
 }
 
 .task-handle-right {
@@ -4505,7 +4667,8 @@ onUnmounted(() => {
 }
 
 .task-handle-right::after {
-  right: 3px;
+  left: 50%;
+  right: auto;
 }
 
 .task-chip.task-completed {
@@ -4540,6 +4703,14 @@ onUnmounted(() => {
 .task-chip-title.task-dragging {
   cursor: grabbing;
 }
+
+.task-chip.keyboard-selected {
+  box-shadow: 0 0 0 2px var(--pinch-task-chip-color, var(--pinch-color6));
+}
+
+.task-chip.task-dragging { opacity: 0.32; }
+.month-task-drag-outline { position: absolute; box-sizing: content-box; padding: 3px 6px 3px 8px; margin-left: 5px; border: none; box-shadow: inset 0 0 0 2px var(--pinch-task-chip-color, var(--pinch-color6)); border-radius: 6px; background: transparent !important; pointer-events: none; z-index: 5; }
+.month-task-drag-ghost { pointer-events: none; z-index: 6; opacity: 0.94; box-shadow: 0 6px 14px rgba(0, 0, 0, .16); will-change: transform; }
 
 .task-jump-btn {
   display: inline-flex;
@@ -4792,7 +4963,7 @@ onUnmounted(() => {
   }
 
   .task-chip .task-handle-left::after {
-    left: 4px;
+    left: 50%;
   }
 
   .task-chip .task-handle-right {
@@ -4800,7 +4971,8 @@ onUnmounted(() => {
   }
 
   .task-chip .task-handle-right::after {
-    right: 4px;
+    left: 50%;
+    right: auto;
   }
 
   .task-chip:hover {
@@ -4822,9 +4994,23 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .calendar-toolbar-top > .nav-btn:first-child {
+    display: none;
+  }
+
+  .calendar-toolbar-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .calendar-view-switcher {
+    margin-right: auto;
+  }
+
   .day-cell.drag-over {
-    background: var(--b3-theme-background);
-    border: none;
+    background: transparent;
+    border: 2px solid var(--pinch-color7);
+    border-radius: 6px;
   }
 
   .calendar-toolbar {
@@ -4892,7 +5078,7 @@ onUnmounted(() => {
   }
 
   .task-handle-left::after {
-    left: 7px;
+    left: 50%;
   }
 
   .task-handle-right {
@@ -4900,7 +5086,8 @@ onUnmounted(() => {
   }
 
   .task-handle-right::after {
-    right: 7px;
+    left: 50%;
+    right: auto;
   }
 
   .task-handle.mobile-visible {

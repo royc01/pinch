@@ -1,11 +1,23 @@
 <template>
-  <div ref="habitContainerRef" class="Pinch-habit-container">
+  <div
+    ref="habitContainerRef"
+    class="Pinch-habit-container"
+    :class="mobileNavTransitionClass"
+  >
     <!-- 习惯列表页面 -->
-    <div class="habit-list-container">
+    <div v-show="!showInlineTaskViews" class="habit-list-container">
       <div class="Pinch-habit-header">
         <div class="header-content">
-          <div class="date-display">
-            <span class="reward-summary-level">Lv {{ rewardSnapshot.level }}</span>
+          <label class="profile-avatar ariaLabel" aria-label="Upload avatar">
+            <input type="file" accept="image/*" @change="handleAvatarUpload" />
+            <img v-if="userSettings.sidebar.avatarDataUrl" :src="userSettings.sidebar.avatarDataUrl" alt="" />
+            <Icon v-else name="defaultAvatar" width="56" height="56" aria-hidden="true" />
+          </label>
+          <div class="reward-progress-overview">
+            <div class="reward-progress-labels">
+              <span class="reward-summary-level">Lv.{{ rewardSnapshot.level }}</span>
+              <span class="reward-summary-xp">{{ rewardLevelProgressText }}</span>
+            </div>
             <div class="reward-summary-progress">
               <div
                 class="reward-summary-progress-bar ariaLabel"
@@ -15,40 +27,15 @@
               </div>
             </div>
           </div>
-          <div class="header-buttons">
-            <SyButton
-              @click="openFocusTimer"
-              id="focus-timer-btn"
-              class="focus-timer-btn ariaLabel"
-              :aria-label="t('focusTimer.title')"
-            >
-              <Icon name="timer" width="18" height="18" class="icon" />
-            </SyButton>
-            <SyButton
-              @click="openPersonalStatsView"
-              id="task-stats-btn"
-              class="task-stats-btn ariaLabel"
-              :aria-label="t('habitTracker.openStatsView')"
-            >
-              <Icon name="stats" width="18" height="18" class="icon" />
-            </SyButton>
-            <SyButton
-              @click="showMoodCalendar = true"
-              id="mood-calendar-btn"
-              class="mood-calendar-btn ariaLabel"
-              :aria-label="t('habitTracker.moodCalendar')"
-            >
-              <Icon name="smile" width="18" height="18" class="icon" />
-            </SyButton>
-            <SyButton
-              @click="openTaskSettings"
-              id="task-scope-button"
-              class="task-scope-button ariaLabel"
-              :aria-label="t('taskScopeDialog.settings')"
-            >
-              <Icon name="taskScope" width="18" height="18" class="icon" />
-            </SyButton>
-          </div>
+          <button
+            type="button"
+            class="reward-summary-card ariaLabel"
+            :aria-label="t('habitTracker.openRewardShop')"
+            @click="openRewardPage()"
+          >
+            <Icon name="rewardCoin" width="20" height="20" aria-hidden="true" />
+            <span class="reward-summary-balance">{{ rewardSnapshot.availableCoins }}</span>
+          </button>
         </div>
       </div>
 
@@ -64,61 +51,12 @@
       />
 
       <div
-        v-if="isSidebarSectionVisible('summary-card-grid')"
-        class="summary-card-grid"
-        :style="getSidebarSectionStyle('summary-card-grid')"
-      >
-        <div class="reward-summary-card ariaLabel" @click="openRewardPage()" :aria-label="t('habitTracker.openRewardShop')">
-            <div class="reward-summary-main">
-              <div class="reward-summary-stats">
-                <div class="reward-summary-stat">
-                  <div class="reward-summary-stat-value">{{ rewardSnapshot.availableCoins }}</div>
-                  <div class="reward-summary-stat-label">{{ t('habitTracker.rewardCoins') }}</div>
-                </div>
-              </div>
-              <div v-if="latestRewardEntry" class="reward-summary-latest">
-                <span class="reward-summary-latest-title">{{ latestRewardEntryTitle }}</span>
-                <span class="reward-summary-latest-points">
-                +{{ latestRewardEntry.xp }} {{ t('habitTracker.rewardXp') }}<span v-if="latestRewardEntry.coins > 0"> · +{{ latestRewardEntry.coins }} {{ t('habitTracker.rewardCoins') }}</span>
-                </span>
-              </div>
-              <div v-else class="reward-summary-empty">
-              {{ t('habitTracker.rewardSummaryEmpty') }}
-              </div>
-            </div>
-          </div>
-
-        <div class="goal-summary-card ariaLabel" @click="openGoalPage()" :aria-label="t('habitTracker.openGoalManage')">
-            <div class="goal-summary-main">
-              <div class="goal-summary-head">
-                <div class="goal-summary-level">
-                  <div class="goal-summary-level-value">{{ goalSummaryValueText }}</div>
-                  <div class="goal-summary-level-label">{{ t('habitTracker.goalCompletedLabel') }}</div>
-                </div>
-              </div>
-            <div v-if="featuredGoal" class="goal-summary-latest">
-              <span class="goal-summary-latest-title">{{ featuredGoal.name }}</span>
-              <div class="goal-summary-latest-points ariaLabel" :aria-label="featuredGoalText">
-                <span class="goal-summary-latest-points-bar">
-                  <span :style="{ width: `${featuredGoalProgressPercent}%` }"></span>
-                </span>
-                <span class="goal-summary-latest-points-text">{{ featuredGoalProgressText }}</span>
-              </div>
-              </div>
-              <div v-else class="goal-summary-empty">
-              {{ t('habitTracker.goalSummaryEmpty') }}
-              </div>
-            </div>
-          </div>
-      </div>
-
-      <div
         v-if="isSidebarSectionVisible('habit-list')"
         class="habit-list"
         :style="getSidebarSectionStyle('habit-list')"
       >
         <!-- 习惯打卡标题 -->
-        <div class="habit-manager-header">
+        <div class="habit-manager-header" :class="{ 'is-collapsed': isHabitListCollapsed }">
           <div class="header-left">
             <div class="collapse-arrow" @click="toggleHabitListCollapsed" :class="{ collapsed: isHabitListCollapsed }">
               <Icon name="arrowDown" width="16" height="16" class="icon" />
@@ -132,7 +70,7 @@
               class="habit-manage-btn ariaLabel"
               :aria-label="t('habitTracker.manageHabits')"
             >
-              <Icon name="taskScope" width="24" height="24" class="icon" />
+              <Icon name="more" width="24" height="24" class="icon" />
             </SyButton>
             <SyButton @click="openTotalStatsPage" id="stats-btn" class="stats-btn ariaLabel" :aria-label="t('habitTracker.openStatsView')">
               <Icon name="stats" width="24" height="24" class="icon" />
@@ -179,6 +117,10 @@
         <TaskManager ref="taskManagerRef" @start-focus="openFocusTimerForTask" />
       </div>
     </div>
+
+    <section v-if="showInlineTaskViews" class="inline-task-views">
+      <KanbanView />
+    </section>
 
     <div v-if="showHabitManagerPage" class="habit-manage-panel">
       <div class="habit-manage-panel-header">
@@ -342,10 +284,10 @@
       :selectedDate="selectedDate"
       :moodEntry="moodEntry"
       :moodEmojis="moodEmojis"
+      :habits="habits"
       :overlay-style="sidebarModalOverlayStyle"
       @close="closeMoodTracker"
       @save="handleSaveMoodEntry"
-      @clear-all="handleClearMoodEntry"
     />
     
     <!-- 情绪打卡月视图 -->
@@ -369,6 +311,21 @@
       @visibility-change="handleFocusTimerVisibilityChange"
       @open-settings="openFocusTimerSettings"
     />
+
+    <nav class="habit-floating-nav" :style="sidebarModalOverlayStyle" aria-label="快捷导航">
+      <button
+        v-for="item in floatingNavItems"
+        :key="item.id"
+        type="button"
+        class="habit-floating-nav-item"
+        :class="{ 'is-active': activeFloatingNav === item.id }"
+        :aria-current="activeFloatingNav === item.id ? 'page' : undefined"
+        @click="handleFloatingNav(item.id)"
+      >
+        <Icon :name="item.icon" width="24" height="24" class="icon" />
+        <span>{{ item.label }}</span>
+      </button>
+    </nav>
     
     <!-- 任务管理器容器 -->
   </div>
@@ -380,24 +337,71 @@
   justify-content: space-between;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
+  padding: 4px 4px 0px 4px;
 }
 
-.date-display {
-  display: flex;
+.header-content > .reward-summary-card {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.profile-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 10px;
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: none;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   overflow: hidden;
+  border: 2px solid var(--b3-theme-background);
+  border-radius: 50%;
+  box-shadow: var(--pinch-shadow);
+  cursor: pointer;
 }
 
-.date-display .reward-summary-progress {
+.profile-avatar input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-avatar .icon {
+  color: #6f669c;
+}
+
+.reward-progress-overview {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.reward-progress-labels {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.reward-summary-xp {
   overflow: hidden;
+  color: var(--b3-theme-on-surface);
+  font-size: 10px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header-buttons {
@@ -426,11 +430,12 @@ import HabitStatsPanel from '@/components/HabitStatsPanel.vue';
 import HabitCardList from '@/components/HabitCardList.vue';
 import MoodCalendarPanel from '@/components/MoodCalendarPanel.vue';
 import FocusTimerHost from '@/components/FocusTimerHost.vue';
+import KanbanView from '@/components/KanbanView.vue';
 import TaskManager from '@/components/TaskManager.vue';
 import HabitDocBindDialog from '@/components/HabitDocBindDialog.vue';
 import HabitCheckinNoteDialog from '@/components/HabitCheckinNoteDialog.vue';
 import { getHabits, saveHabits, Habit, type Task } from '@/api';
-import { openTaskViewByRequest } from '@/main';
+import { openKanbanView } from '@/main';
 import { useHabitCache } from '@/composables/useHabitCache';
 import { useHabitCheckin } from '@/composables/useHabitCheckin';
 import { useHabitCrud } from '@/composables/useHabitCrud';
@@ -444,9 +449,7 @@ import { useHabitEmojis } from '@/composables/useHabitEmojis';
 import { useHabitPomodoro } from '@/composables/useHabitPomodoro';
 import { useHabitStatistics } from '@/composables/useHabitStatistics';
 import { useMoodTracker } from '@/composables/useMoodTracker';
-import { useGoals } from '@/composables/useGoals';
 import { useRewards } from '@/composables/useRewards';
-import { getLocalizedRewardEntryTitle } from '@/rewardRepository';
 import { useUserSettings } from '@/composables/useUserSettings';
 import type { SidebarSectionId } from '@/utils/userSettings';
 import {
@@ -497,14 +500,28 @@ const {
 
 const { t } = useHabitI18n();
 const { rewardSnapshot } = useRewards();
-const { goalItems } = useGoals();
-const { data: userSettings, loadSettings } = useUserSettings();
+const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
 type TaskManagerExpose = {
   openTaskScopeDialog: (initialTab?: TaskScopeDialogTab) => Promise<void> | void;
+  closeTaskScopeDialog: () => void;
 };
 const taskManagerRef = ref<TaskManagerExpose | null>(null);
+type FloatingNavId = 'home' | 'views' | 'focus' | 'records' | 'goals' | 'settings';
+
+const activeFloatingNav = ref<FloatingNavId>('home');
+const showInlineTaskViews = ref(false);
+const floatingNavItems: Array<{ id: FloatingNavId; label: string; icon: string }> = [
+  { id: 'home', label: '首页', icon: 'home' },
+  { id: 'views', label: '视图', icon: 'viewNav' },
+  { id: 'focus', label: '专注', icon: 'focusNav' },
+  { id: 'records', label: '日志', icon: 'recordNav' },
+  { id: 'goals', label: '目标', icon: 'goalNav' },
+  { id: 'settings', label: '设置', icon: 'settingsNav' }
+];
 const habitContainerRef = ref<HTMLElement | null>(null);
+const mobileNavTransitionClass = ref('');
+let mobileNavTransitionTimer: ReturnType<typeof setTimeout> | null = null;
 const sidebarModalOverlayStyle = ref<Record<string, string>>({});
 let sidebarModalResizeObserver: ResizeObserver | null = null;
 let sidebarModalRaf: number | null = null;
@@ -513,7 +530,6 @@ let panelPreviousOverflowY = '';
 let panelScrollLockCount = 0;
 const defaultSidebarSectionOrder: SidebarSectionId[] = [
   'week-dates',
-  'summary-card-grid',
   'habit-list',
   'stand-container'
 ];
@@ -623,6 +639,45 @@ const rewardLevelProgressText = computed(
   () => `${rewardSnapshot.value.currentLevelXp}/${rewardSnapshot.value.nextLevelXp} ${t('habitTracker.rewardXp')}`
 );
 
+async function handleAvatarUpload(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file || !file.type.startsWith('image/')) {
+    return;
+  }
+
+  try {
+    const avatarDataUrl = await createAvatarDataUrl(file);
+    await updateSettings('sidebar', { avatarDataUrl });
+  } finally {
+    input.value = '';
+  }
+}
+
+function createAvatarDataUrl(file: File): Promise<string> {
+  const objectUrl = URL.createObjectURL(file);
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const size = 256;
+      const sourceSize = Math.min(image.naturalWidth, image.naturalHeight);
+      const sourceX = (image.naturalWidth - sourceSize) / 2;
+      const sourceY = (image.naturalHeight - sourceSize) / 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      canvas.getContext('2d')?.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+      URL.revokeObjectURL(objectUrl);
+      resolve(canvas.toDataURL('image/jpeg', 0.86));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Unable to load avatar image'));
+    };
+    image.src = objectUrl;
+  });
+}
+
 // 防抖的保存函数 - 优化性能，减少频繁的存储操作
 let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 const debouncedSaveHabits = async (habitsToSave: Habit[]) => {
@@ -667,6 +722,7 @@ const highlightedRewardEntryId = ref('');
 const highlightedGoalId = ref('');
 const focusTimerHostRef = ref<{
   open: (target?: FocusTimerLinkedTarget | null, options?: { showPanel?: boolean }) => void;
+  close: () => void;
   syncTarget: (
     target?: FocusTimerLinkedTarget | null,
     options?: { openMiniSettings?: boolean }
@@ -682,7 +738,6 @@ const {
   loadMoodData,
   openMoodTracker,
   handleSaveMoodEntry,
-  handleClearMoodEntry,
   closeMoodTracker,
   changeMoodCalendarMonth
 } = useMoodTracker();
@@ -1102,6 +1157,7 @@ const handleBindDocFromDrag = async (habit: Habit, docId: string): Promise<void>
 
 const toggleHabitListCollapsed = () => {
   isHabitListCollapsed.value = !isHabitListCollapsed.value;
+  void updateSettings('sidebar', { habitListCollapsed: isHabitListCollapsed.value });
 };
 
 function openFocusTimer(): void {
@@ -1120,16 +1176,73 @@ function openFocusTimerForTask(task: Task): void {
   focusTimerHostRef.value?.open(createTaskFocusTarget(task));
 }
 
-function openPersonalStatsView(): void {
-  void openTaskViewByRequest({ view: 'stats' });
-}
-
 function openTaskSettings(): void {
   void taskManagerRef.value?.openTaskScopeDialog('display');
 }
 
 function openGoalTaskScope(): void {
   void taskManagerRef.value?.openTaskScopeDialog('goals');
+}
+
+function handleFloatingNav(item: FloatingNavId): void {
+  const currentIndex = floatingNavItems.findIndex(navItem => navItem.id === activeFloatingNav.value);
+  const nextIndex = floatingNavItems.findIndex(navItem => navItem.id === item);
+  if (window.matchMedia('(max-width: 720px)').matches && currentIndex !== nextIndex) {
+    mobileNavTransitionClass.value = nextIndex > currentIndex
+      ? 'is-mobile-nav-slide-left'
+      : 'is-mobile-nav-slide-right';
+    if (mobileNavTransitionTimer) {
+      clearTimeout(mobileNavTransitionTimer);
+    }
+    mobileNavTransitionTimer = setTimeout(() => {
+      mobileNavTransitionClass.value = '';
+      mobileNavTransitionTimer = null;
+    }, 280);
+  }
+  activeFloatingNav.value = item;
+
+  switch (item) {
+    case 'home':
+      closeNavigationPages();
+      closeCheckinNoteDialog();
+      showAddHabitModal.value = false;
+      closeEditHabitModal();
+      return;
+    case 'views':
+      closeNavigationPages();
+      if (window.matchMedia('(max-width: 720px)').matches) {
+        showInlineTaskViews.value = true;
+      } else {
+        void openKanbanView();
+      }
+      return;
+    case 'focus':
+      closeNavigationPages();
+      openFocusTimer();
+      return;
+    case 'records':
+      closeNavigationPages();
+      showMoodCalendar.value = true;
+      return;
+    case 'goals':
+      closeNavigationPages();
+      openGoalPage();
+      return;
+    case 'settings':
+      closeNavigationPages();
+      openTaskSettings();
+  }
+}
+
+function closeNavigationPages(): void {
+  taskManagerRef.value?.closeTaskScopeDialog();
+  showInlineTaskViews.value = false;
+  closeTrackerPanels();
+  showMoodCalendar.value = false;
+  closeMoodTracker();
+  focusTimerHostRef.value?.close();
+  closeRewardPage();
+  closeGoalPage();
 }
 
 async function completeFocusLinkedHabit(habitId: string): Promise<void> {
@@ -1219,6 +1332,11 @@ function handlePanelOpenRequest(payload?: HabitTrackerPanelOpenRequest): void {
     return;
   }
 
+  if (payload.target === 'views') {
+    handleFloatingNav('views');
+    return;
+  }
+
   if (payload.target === 'habit-detail') {
     const targetHabit = habits.value.find(habit => habit.id === payload.habitId);
     if (targetHabit) {
@@ -1258,6 +1376,7 @@ onMounted(async () => {
   }
 
   await loadSettings();
+  isHabitListCollapsed.value = userSettings.sidebar.habitListCollapsed === true;
   unsubscribePanelOpenRequest = eventBus.on(
     Events.HABIT_TRACKER_PANEL_OPEN_REQUEST,
     handlePanelOpenRequest
@@ -1306,6 +1425,10 @@ onMounted(async () => {
 
 // 组件卸载时清理定时器
 onUnmounted(() => {
+  if (mobileNavTransitionTimer) {
+    clearTimeout(mobileNavTransitionTimer);
+    mobileNavTransitionTimer = null;
+  }
   panelScrollLockCount = 1;
   unlockPanelParentScroll();
   window.removeEventListener('resize', scheduleSidebarModalOverlayStyleUpdate, true);
@@ -1449,48 +1572,6 @@ const statsHourDistribution = computed(() => {
     return [];
   }
 });
-const latestRewardEntry = computed(() => rewardSnapshot.value.recentEntries[0] || null);
-const latestRewardEntryTitle = computed(() => latestRewardEntry.value ? getLocalizedRewardEntryTitle(latestRewardEntry.value) : '');
-const completedGoalCount = computed(() => goalItems.value.filter(goal => goal.status === 'completed').length);
-const goalSummaryValueText = computed(() => `${completedGoalCount.value}/${goalItems.value.length}`);
-const featuredGoal = computed(() =>
-  goalItems.value.find(goal => goal.scopeCount > 0 && goal.status === 'in-progress')
-  || goalItems.value.find(goal => goal.scopeCount > 0 && goal.status === 'completed')
-  || goalItems.value.find(goal => goal.scopeCount > 0)
-  || goalItems.value[0]
-  || null
-);
-const featuredGoalText = computed(() => {
-  if (!featuredGoal.value) {
-    return '';
-  }
-  if (featuredGoal.value.scopeCount === 0) {
-    return t('habitTracker.noDocumentSelectedLong');
-  }
-  if (featuredGoal.value.totalTasks === 0) {
-    return t('habitTracker.noTaskStatsAvailable');
-  }
-  return `${featuredGoal.value.progressPercent}% · ${featuredGoal.value.completedTasks}/${featuredGoal.value.totalTasks}`;
-});
-const featuredGoalProgressPercent = computed(() => {
-  if (!featuredGoal.value || featuredGoal.value.scopeCount === 0 || featuredGoal.value.totalTasks <= 0) {
-    return 0;
-  }
-  return Math.max(0, Math.min(100, Number(featuredGoal.value.progressPercent) || 0));
-});
-const featuredGoalProgressText = computed(() => {
-  if (!featuredGoal.value) {
-    return '';
-  }
-  if (featuredGoal.value.scopeCount === 0) {
-    return t('goalPanel.noScopeSelected');
-  }
-  if (featuredGoal.value.totalTasks === 0) {
-    return t('taskManager.noTasks');
-  }
-  return `${featuredGoal.value.completedTasks}/${featuredGoal.value.totalTasks}`;
-});
-
 function closeTrackerPanels(): void {
   showTotalStatsPage.value = false;
   showRewardPage.value = false;
@@ -1621,13 +1702,123 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  overflow-y: auto;
-  padding: 4px;
+  overflow: hidden;
+  padding: 0;
   background-color: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
+
+  .habit-floating-nav {
+    position: absolute;
+    z-index: 10;
+    left: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2px;
+    width: 100%;
+    margin: 0;
+    padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+    border: 0;
+    border-top: 1px solid color-mix(in srgb, var(--b3-theme-on-surface) 12%, transparent);
+    border-radius: 0;
+    background: var(--b3-theme-background);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .inline-task-views {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    overflow: auto;
+    padding: 4px 4px 65px;
+    box-sizing: border-box;
+    background: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
+
+    :deep(.kanban-view) {
+      min-height: 100%;
+    }
+
+    :deep(.kanban-header) {
+      position: relative;
+      z-index: 200;
+      overflow: visible;
+    }
+
+    :deep(.kanban-header-tools-module),
+    :deep(.kanban-header-view-module),
+    :deep(.filter-bar-inline),
+    :deep(.filter-group),
+    :deep(.view-switcher) {
+      overflow: visible;
+    }
+  }
+
+  :deep(.mood-calendar-panel),
+  :deep(.goal-page-panel),
+  :deep(.reward-page-panel),
+  :deep(.focus-timer-panel),
+  :deep(.habit-manage-panel),
+  :deep(.statistics-panel) {
+    box-sizing: border-box;
+    padding-bottom: 76px;
+  }
+
+  .habit-floating-nav-item {
+    display: inline-flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 52px;
+    padding: 5px 4px;
+    border: 0;
+    border-radius: 18px;
+    color: var(--b3-theme-on-background);
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    font-size: 10px;
+    line-height: 1.1;
+    transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+    opacity: 0.4;
+
+    .icon {
+      margin: 0;
+    }
+
+    &:hover,
+    &:focus-visible {
+      background: var(--b3-list-hover);
+      outline: none;
+    }
+
+    &:focus-visible {
+      box-shadow: 0 0 0 2px var(--b3-theme-primary);
+    }
+
+    &.is-active {
+      color: var(--b3-theme-on-background);
+      --pinch-nav-icon-deep: #ee6f5b;
+      --pinch-nav-icon-light: color-mix(in srgb, var(--pinch-nav-icon-deep) 56%, #ffffff);
+      opacity: 1;
+    }
+
+    &:active {
+      transform: scale(0.96);
+    }
+  }
 
   .habit-list-container {
     display: flex;
     flex-direction: column;
+    height: 100%;
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 4px 4px 76px;
   }
   
   .Pinch-habit-header {
@@ -1714,45 +1905,29 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
         margin: 0;
       }
     }
-  .summary-card-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-    margin: 14px 0 4px;
-  }
-
-  .reward-summary-card,
-  .goal-summary-card {
+  .reward-summary-card {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 12px;
-    padding: 10px 16px;
     border-radius: 20px;
     cursor: pointer;
     min-width: 0;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
   }
 
   .reward-summary-card {
-    position: relative;
-    background:  var(--pinch-background10);
-    border: 0.5px solid var(--pinch-color10);
-    box-shadow: #0000000f 0 1px 5px;
-
-    &:hover {
-      transform: translateY(-1px);
-    }
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px 4px 6px;
+    border: none;
+    background: var(--b3-theme-background);
+    box-shadow: var(--pinch-shadow);
+    color: var(--b3-theme-on-background);
   }
 
-  .goal-summary-card {
-    position: relative;
-    background: var(--pinch-background6);
-    border: 0.5px solid var(--pinch-color6);
-    box-shadow: #0000000f 0 1px 5px;
-
-    &:hover {
-      transform: translateY(-1px);
-    }
+  .reward-summary-balance {
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
   }
 
   .reward-summary-main {
@@ -1770,12 +1945,12 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
   }
 
   .reward-summary-level {
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 12px;
+    padding: 0;
+    border-radius: 0;
+    font-size: 14px;
     font-weight: 700;
-    color: var(--b3-theme-on-background);
-    background:  var(--b3-theme-background);
+    color: #ee6f5b;
+    background: transparent;
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -1803,7 +1978,7 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
     inset: 0 auto 0 0;
     display: block;
     border-radius: inherit;
-    background: #f98f7a;
+    background: #ee6f5b;
   }
 
   .header-buttons #mood-calendar-btn,
@@ -1867,102 +2042,21 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
     white-space: nowrap;
   }
 
-  .goal-summary-main {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    min-width: 0;
-  }
-
-  .goal-summary-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-
-  .goal-summary-level {
-    display: flex;
-    flex-direction: row;
-    align-items: baseline;
-    justify-content: flex-start;
-    gap: 8px;
-  }
-
-  .goal-summary-level-value {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--b3-theme-on-background);
-  }
-
-  .goal-summary-level-label {
-    margin-top: 0;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--b3-theme-on-background);
-    white-space: nowrap;
-  }
-
-  .goal-summary-latest,
-  .goal-summary-empty {
-    font-size: 10px;
-    line-height: 1.5;
-    color: var(--b3-theme-on-background);
-  }
-
-  .goal-summary-latest {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .goal-summary-latest-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 600;
-    color: var(--b3-theme-on-surface);
-  }
-
-  .goal-summary-latest-points {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    color: var(--b3-theme-on-background);
-  }
-
-  .goal-summary-latest-points-bar {
-    position: relative;
-    flex: 1 1 auto;
-    min-width: 0;
-    height: 6px;
-    border-radius: 999px;
-    overflow: hidden;
-    background: var(--b3-list-hover);
-
-    span {
-      display: block;
-      height: 100%;
-      border-radius: inherit;
-      background: var(--pinch-color6);
-    }
-  }
-
-  .goal-summary-latest-points-text {
-    flex: 0 0 auto;
-    font-size: 11px;
-    font-weight: 600;
-    white-space: nowrap;
-    color: var(--pinch-font-color6);
-    opacity: 0.7;
-  }
-
   .habit-manager-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
     margin-top: 16px;
+
+    &.is-collapsed {
+      box-sizing: border-box;
+      padding: 8px 0px 8px 8px;
+      border-radius: 10px;
+      background-color: var(--b3-theme-background);
+      box-shadow: var(--pinch-shadow);
+      margin-bottom: 0px;
+    }
   }
 
   .habit-manager-header .header-left {
@@ -2421,41 +2515,93 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
   }
 }
 
+@keyframes pinch-nav-slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pinch-nav-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.Pinch-habit-container.is-mobile-nav-slide-left .habit-list-container,
+.Pinch-habit-container.is-mobile-nav-slide-left .inline-task-views,
+.Pinch-habit-container.is-mobile-nav-slide-left :deep(.mood-calendar-panel),
+.Pinch-habit-container.is-mobile-nav-slide-left :deep(.goal-page-panel),
+.Pinch-habit-container.is-mobile-nav-slide-left :deep(.focus-timer-panel) {
+  animation: pinch-nav-slide-left 0.28s ease-out both;
+}
+
+.Pinch-habit-container.is-mobile-nav-slide-right .habit-list-container,
+.Pinch-habit-container.is-mobile-nav-slide-right .inline-task-views,
+.Pinch-habit-container.is-mobile-nav-slide-right :deep(.mood-calendar-panel),
+.Pinch-habit-container.is-mobile-nav-slide-right :deep(.goal-page-panel),
+.Pinch-habit-container.is-mobile-nav-slide-right :deep(.focus-timer-panel) {
+  animation: pinch-nav-slide-right 0.28s ease-out both;
+}
+
 @media (max-width: 720px) {
   .Pinch-habit-container {
     .header-content {
       gap: 8px;
     }
 
-    .date-display {
-      gap: 8px;
+    .header-content {
+      gap: 10px;
+    }
+
+    .profile-avatar {
+      width: 42px;
+      height: 42px;
+    }
+
+    .reward-progress-labels {
+      gap: 12px;
+    }
+
+    .reward-summary-xp {
+      font-size: 14px;
+    }
+
+    .reward-summary-level {
+      font-size: 22px;
     }
 
     .header-buttons {
       gap: 2px;
     }
 
-    .date-display .reward-summary-progress {
+    .reward-summary-card {
       gap: 6px;
+      padding: 10px 12px;
     }
 
-    .reward-summary-level {
-      padding: 4px 8px;
-      font-size: 11px;
+    .reward-summary-balance {
+      font-size: 20px;
     }
 
     .reward-summary-progress-bar {
       min-width: 0;
     }
 
-    .summary-card-grid {
-      grid-template-columns: 1fr;
+    .habit-floating-nav {
+      padding-right: 8px;
+      padding-left: 8px;
     }
 
-    .reward-summary-card,
-    .goal-summary-card {
-      grid-template-columns: 1fr;
-    }
   }
 }
 

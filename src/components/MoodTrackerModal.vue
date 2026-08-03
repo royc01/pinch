@@ -24,6 +24,14 @@
           <label>{{ t('moodTracker.selectMood') }}</label>
           <div class="emoji-selector">
             <div class="mood-emoji-grid">
+              <button
+                type="button"
+                class="mood-emoji-option no-mood-option"
+                :class="{ selected: !localMoodEntry.emoji }"
+                @click="handleSelectMoodEmoji('')"
+              >
+                <span aria-hidden="true">-</span>
+              </button>
               <span 
                 v-for="emoji in moodEmojis" 
                 :key="emoji.id"
@@ -35,67 +43,63 @@
             </div>
           </div>
         </div>
-        <div class="form-group">
-          <label>{{ t('moodTracker.recordsLabel') }}</label>
-          <div class="daily-record-list">
-            <div
-              v-for="entry in sortedEntries"
-              :key="entry.id"
-              class="daily-record-item ariaLabel"
-              :class="{ editing: editingEntryId === entry.id }"
-              role="button"
-              tabindex="0"
-             
-              :aria-label="`${t('moodTracker.editRecord')}: ${entry.text}`"
-              @click="activateRecordEdit(entry)"
-              @keydown.enter.prevent="activateRecordEdit(entry)"
-              @keydown.space.prevent="activateRecordEdit(entry)"
-            >
-              <span class="daily-record-time">{{ formatRecordTime(entry.createdAt) }}</span>
-              <textarea
-                v-if="editingEntryId === entry.id"
-                v-model="editingRecordText"
-                class="daily-record-editor"
-                rows="2"
-                :data-record-editor-id="entry.id"
-                @click.stop
-                @keydown.stop
-                @blur="commitActiveRecordEdit"
-              ></textarea>
-              <span v-else class="daily-record-text">{{ entry.text }}</span>
-              <button
-                type="button"
-                class="daily-record-delete ariaLabel"
-               
-                :aria-label="`${t('common.delete')}: ${entry.text}`"
-                @click.stop="handleDeleteRecord(entry.id)"
-              >
-                <Icon name="close" width="14" height="14" class="icon" />
-              </button>
+        <div class="lifelog-timeline-list">
+          <div v-if="lifelogTimelineItems.length === 0" class="lifelog-timeline-empty">
+            {{ t('moodTracker.noRecords') }}
+          </div>
+          <div
+            v-for="item in lifelogTimelineItems"
+            :key="item.id"
+            class="lifelog-timeline-item"
+            :class="`is-${item.type}`"
+          >
+            <div class="lifelog-timeline-line">
+              <span class="lifelog-timeline-dot">
+                <span v-if="item.moodSvg" class="lifelog-timeline-dot-emoji" v-html="item.moodSvg"></span>
+                <span v-else-if="item.emoji" class="lifelog-timeline-dot-emoji">{{ item.emoji }}</span>
+                <Icon v-else :name="item.icon" width="12" height="12" />
+              </span>
             </div>
-            <div v-if="sortedEntries.length === 0" class="daily-record-empty">
-              {{ t('moodTracker.noRecords') }}
+            <div class="lifelog-timeline-content">
+              <div class="lifelog-timeline-time">{{ item.timeLabel }}</div>
+              <div class="lifelog-timeline-card">
+                <div class="lifelog-timeline-card-header">
+                  <span class="lifelog-timeline-card-title">{{ item.title }}</span>
+                  <button
+                    v-if="item.type === 'manual-note'"
+                    type="button"
+                    class="lifelog-timeline-delete ariaLabel"
+                    :aria-label="t('common.delete')"
+                    @click="deleteManualRecord(item.sourceId || item.id)"
+                  >
+                    <Icon name="trash" width="11" height="11" />
+                  </button>
+                </div>
+                <div v-if="item.meta" class="lifelog-timeline-meta">{{ item.meta }}</div>
+                <div v-if="item.note" class="lifelog-timeline-note">{{ item.note }}</div>
+              </div>
             </div>
           </div>
         </div>
-        <div class="form-group">
-          <label>{{ t('moodTracker.addRecord') }}</label>
-          <SyTextarea
-            v-model="localMoodEntry.note"
-            :placeholder="t('moodTracker.notePlaceholder')"
-            class="mood-input"
-          />
+        <div class="lifelog-timeline-editor">
+          <textarea
+            v-model="noteDraft"
+            class="lifelog-timeline-editor-input"
+            rows="3"
+            :placeholder="t('monthView.lifelogManualPlaceholder')"
+            @keydown.ctrl.enter.prevent="saveNote"
+            @keydown.meta.enter.prevent="saveNote"
+          ></textarea>
+          <button
+            type="button"
+            class="lifelog-timeline-submit ariaLabel"
+            :aria-label="t('common.save')"
+            :disabled="!noteDraft.trim()"
+            @click="saveNote"
+          >
+            <Icon name="up" width="20" height="20" />
+          </button>
         </div>
-      </div>
-      <div class="modal-footer">
-        <SyButton
-          @click="handleClearAll"
-          class="danger-button"
-          :disabled="!hasAnyContent"
-        >
-          {{ t('moodTracker.clearAll') }}
-        </SyButton>
-        <SyButton @click="handleSave" class="confirm-button">{{ t('common.save') }}</SyButton>
       </div>
         </div>
       </Transition>
@@ -104,11 +108,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
-import SyButton from '@/components/SiyuanTheme/SyButton.vue';
-import SyTextarea from '@/components/SiyuanTheme/SyTextarea.vue';
 import { useI18n } from '@/composables/useI18n';
+import type { LifelogTimelinePanelItem } from '@/components/LifelogTimelinePanel.vue';
+import { getFocusTimerData, TaskRepository, type Habit, type Task } from '@/api';
+import {
+  focusRecordsToLifelogEvents,
+  habitsToLifelogEvents,
+  tasksToCompletedLifelogEvents
+} from '@/utils/lifelogEvents';
 
 interface MoodEmoji {
   id: string;
@@ -135,6 +144,7 @@ interface Props {
   selectedDate: string;
   moodEntry: MoodEntry;
   moodEmojis: MoodEmoji[];
+  habits: Habit[];
   overlayStyle?: Record<string, string>;
 }
 
@@ -144,7 +154,6 @@ const { t } = useI18n();
 const emit = defineEmits<{
   close: [];
   save: [moodEntry: MoodEntry];
-  'clear-all': [];
 }>();
 
 const cloneMoodEntry = (entry: MoodEntry): MoodEntry => ({
@@ -153,8 +162,9 @@ const cloneMoodEntry = (entry: MoodEntry): MoodEntry => ({
 });
 
 const localMoodEntry = ref<MoodEntry>(cloneMoodEntry(props.moodEntry));
-const editingEntryId = ref<string | null>(null);
-const editingRecordText = ref('');
+const noteDraft = ref('');
+const lifelogTasks = ref<Task[]>([]);
+const focusRecords = ref<Awaited<ReturnType<typeof getFocusTimerData>>['sessionRecords']>([]);
 const sortedEntries = computed(() => {
   return [...(localMoodEntry.value.entries || [])].sort((left, right) => {
     const leftTime = Date.parse(left.createdAt);
@@ -165,25 +175,63 @@ const sortedEntries = computed(() => {
     return left.id.localeCompare(right.id);
   });
 });
-const hasAnyContent = computed(() =>
-  Boolean(localMoodEntry.value.emoji || localMoodEntry.value.note.trim() || sortedEntries.value.length > 0)
-);
-
-const setDefaultEmoji = () => {
-  if (props.show && !localMoodEntry.value.emoji) {
-    localMoodEntry.value.emoji = '🤩';
-  }
-};
-
+const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
+  const moodEntryItems = sortedEntries.value.map(entry => ({
+    id: entry.id,
+    sourceId: entry.id,
+    type: 'manual-note' as const,
+    timeLabel: formatRecordTime(entry.createdAt),
+    sortMinutes: timeToSortMinutes(entry.createdAt, 21 * 60),
+    title: t('monthView.lifelogManualNote'),
+    meta: '',
+    note: entry.text,
+    icon: 'descriptionBubble'
+  }));
+  const focusItems = focusRecordsToLifelogEvents(focusRecords.value, t('focusTimer.title'))
+    .filter(event => event.date === props.selectedDate)
+    .map(event => ({
+      id: `focus-${event.id}`, sourceId: event.id, type: event.type, timeLabel: `${event.startTime} - ${event.endTime}`,
+      sortMinutes: timeToSortMinutes(event.startTime, 8 * 60), title: event.title, meta: t('focusTimer.title'), note: event.note || '', icon: 'timer'
+    }));
+  const habitItems = habitsToLifelogEvents(props.habits)
+    .filter(event => event.date === props.selectedDate)
+    .map(event => {
+      const checkinCount = event.checkinIndex || event.completedCount;
+      const progress = event.targetCount > 1 ? `${checkinCount}/${event.targetCount}` : (event.completed ? '1/1' : '0/1');
+      const sortMinutes = timeToSortMinutes(String(event.checkinTimestamp || event.metadata?.timestamp || ''), 7 * 60);
+      return {
+      id: `habit-${event.id}`, sourceId: event.id, type: event.type,
+      timeLabel: formatSortMinutes(sortMinutes),
+      sortMinutes,
+      title: event.title,
+      meta: `${t('habitTracker.checkedIn')} · ${progress}${t('habitTracker.timesSuffix')}`,
+      note: event.note || '',
+      icon: 'squareCheck'
+    };
+    });
+  const taskItems = tasksToCompletedLifelogEvents(lifelogTasks.value)
+    .filter(event => event.date === props.selectedDate)
+    .map(event => ({
+      id: `task-${event.id}`, sourceId: event.taskId, type: event.type,
+      timeLabel: formatRecordTime(event.completedAt), sortMinutes: timeToSortMinutes(event.completedAt, 20 * 60),
+      title: event.title, meta: t('taskManager.statusCompleted'), note: event.note || '', icon: 'taskCheckboxChecked'
+    }));
+  return [...focusItems, ...habitItems, ...taskItems, ...moodEntryItems]
+    .sort((left, right) => left.sortMinutes - right.sortMinutes);
+});
 watch(() => props.moodEntry, (newMoodEntry) => {
   localMoodEntry.value = cloneMoodEntry(newMoodEntry);
-  editingEntryId.value = null;
-  editingRecordText.value = '';
-  setDefaultEmoji();
+  noteDraft.value = '';
 }, { immediate: true, deep: true });
 
-watch(() => props.show, () => {
-  setDefaultEmoji();
+watch(() => props.show, async (show) => {
+  if (!show) return;
+  const [focusData, tasks] = await Promise.all([
+    getFocusTimerData(),
+    TaskRepository.getAllTasks(false, { includeArchived: true }, { useLiveDom: false, detailLevel: 'full', materializeRepeats: true })
+  ]);
+  focusRecords.value = focusData.sessionRecords;
+  lifelogTasks.value = tasks;
 }, { immediate: true });
 
 const getLargeMoodSvg = (emoji: string) => {
@@ -199,84 +247,58 @@ const formatRecordTime = (value: string): string => {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 };
 
+const timeToSortMinutes = (value: string, fallbackMinutes: number): number => {
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (match) {
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+  const timestamp = Number(value);
+  const date = Number.isFinite(timestamp) && timestamp > 0
+    ? new Date(timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp)
+    : new Date(value);
+  return Number.isNaN(date.getTime()) ? fallbackMinutes : date.getHours() * 60 + date.getMinutes();
+};
+
+const formatSortMinutes = (minutes: number): string => {
+  const normalized = Math.max(0, Math.min(24 * 60 - 1, Math.round(minutes)));
+  return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
+};
+
 const handleSelectMoodEmoji = (emoji: string) => {
   localMoodEntry.value.emoji = emoji;
-};
-
-const commitActiveRecordEdit = (persist = true) => {
-  const editingId = editingEntryId.value;
-  if (!editingId) return;
-
-  const nextText = editingRecordText.value.trim();
-  const currentEntry = localMoodEntry.value.entries?.find(entry => entry.id === editingId);
-  const hasChanged = !!currentEntry && currentEntry.text !== nextText;
-
-  if (hasChanged) {
-    localMoodEntry.value = {
-      ...localMoodEntry.value,
-      entries: (localMoodEntry.value.entries || []).map(entry =>
-        entry.id === editingId
-          ? { ...entry, text: nextText, updatedAt: new Date().toISOString() }
-          : entry
-      )
-    };
-    if (persist) {
-      emit('save', { ...localMoodEntry.value, note: '' });
-    }
-  }
-
-  editingEntryId.value = null;
-  editingRecordText.value = '';
-};
-
-const activateRecordEdit = async (entry: DailyRecordEntry) => {
-  if (editingEntryId.value === entry.id) return;
-  commitActiveRecordEdit();
-  editingEntryId.value = entry.id;
-  editingRecordText.value = entry.text;
-  await nextTick();
-  const editor = document.querySelector(`[data-record-editor-id="${entry.id}"]`) as HTMLTextAreaElement | null;
-  if (editor) {
-    editor.focus();
-    editor.setSelectionRange(editor.value.length, editor.value.length);
-  }
-};
-
-const handleDeleteRecord = (entryId: string) => {
-  const wasEditingDeletedEntry = editingEntryId.value === entryId;
-  localMoodEntry.value = {
-    ...localMoodEntry.value,
-    entries: (localMoodEntry.value.entries || []).filter(entry => entry.id !== entryId)
-  };
-  if (wasEditingDeletedEntry) {
-    editingEntryId.value = null;
-    editingRecordText.value = '';
-  }
   emit('save', { ...localMoodEntry.value, note: '' });
 };
 
-const handleSave = () => {
-  commitActiveRecordEdit(false);
-  emit('save', { ...localMoodEntry.value });
-  emit('close');
+const saveNote = () => {
+  const text = noteDraft.value.trim();
+  if (!text) return;
+
+  const now = new Date().toISOString();
+  localMoodEntry.value = {
+    ...localMoodEntry.value,
+    entries: [
+      ...(localMoodEntry.value.entries || []),
+      {
+        id: `mood-entry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        text,
+        createdAt: now,
+        updatedAt: now
+      }
+    ]
+  };
+  noteDraft.value = '';
+  emit('save', { ...localMoodEntry.value, note: '' });
 };
 
-const handleClearAll = () => {
-  if (!confirm(t('moodTracker.confirmClearAll'))) {
-    return;
-  }
+const deleteManualRecord = (recordId: string) => {
   localMoodEntry.value = {
-    emoji: '',
-    note: '',
-    entries: undefined
+    ...localMoodEntry.value,
+    entries: (localMoodEntry.value.entries || []).filter(entry => entry.id !== recordId)
   };
-  editingEntryId.value = null;
-  editingRecordText.value = '';
-  emit('clear-all');
+  emit('save', { ...localMoodEntry.value, note: '' });
 };
 
 const handleClose = () => {
-  commitActiveRecordEdit();
   emit('close');
 };
 </script>
@@ -288,33 +310,41 @@ const handleClose = () => {
   top: var(--modal-overlay-top, 0px);
   width: var(--modal-overlay-width, 100vw);
   height: var(--modal-overlay-height, 100dvh);
-  background-color: rgba(0, 0, 0, 0.5);
+  background: transparent;
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
+  padding: 128px 0 0;
   box-sizing: border-box;
   z-index: 8;
+  pointer-events: none;
 }
 
 .modal-content {
   background: var(--b3-theme-background);
   border-radius: 16px;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--pinch-menu-shadow);
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
-  width: min(560px, 100%);
+  width: 100%;
+  height: 100%;
   min-width: 0;
-  max-height: calc(100% - 40px);
+  max-height: none;
   box-sizing: border-box;
+  pointer-events: auto;
 }
 
 @media (max-width: 768px) {
   .modal-overlay {
-    padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    padding: 122px 0 0;
     z-index: 80;
   }
 
   .modal-content {
-    max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    width: 100%;
+    height: 100%;
+    margin-top: 0;
   }
 }
 
@@ -387,7 +417,11 @@ const handleClose = () => {
 }
 
 .modal-body {
-  padding: 20px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px;
 }
 
 .form-group {
@@ -413,7 +447,7 @@ const handleClose = () => {
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: clamp(4px, 1vw, 4px);
 }
 
@@ -427,6 +461,13 @@ const handleClose = () => {
   padding: clamp(4px, 1vw, 4px);
   border-radius: 8px;
   transition: all 0.2s;
+}
+
+.no-mood-option {
+  border: 1px dashed var(--b3-border-color);
+  color: var(--b3-theme-on-surface);
+  font-size: 22px;
+  background: transparent;
 }
 
 .mood-emoji-option:hover {
@@ -455,6 +496,206 @@ const handleClose = () => {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.lifelog-timeline-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 14px;
+}
+
+.lifelog-timeline-empty {
+  padding: 20px;
+  border-radius: 8px;
+  color: var(--b3-theme-on-surface);
+  background: var(--b3-theme-surface);
+  text-align: center;
+}
+
+.lifelog-timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.lifelog-timeline-item + .lifelog-timeline-item {
+  margin-top: 10px;
+}
+
+.lifelog-timeline-line {
+  position: relative;
+}
+
+.lifelog-timeline-line::before {
+  position: absolute;
+  top: 36px;
+  bottom: 0;
+  left: 14px;
+  width: 1px;
+  content: '';
+  background: repeating-linear-gradient(to bottom, var(--b3-border-color) 0 4px, transparent 4px 8px);
+}
+
+.lifelog-timeline-dot {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 2px dashed var(--pinch-color2);
+  border-radius: 50%;
+  color: var(--b3-theme-on-background);
+  background: var(--pinch-background2);
+}
+
+.lifelog-timeline-item.is-habit-checkin .lifelog-timeline-dot {
+  border-color: var(--pinch-color5);
+  background: var(--pinch-background5);
+}
+
+.lifelog-timeline-item.is-task-completed .lifelog-timeline-dot {
+  border-color: var(--pinch-color7);
+  background: var(--pinch-background7);
+}
+
+.lifelog-timeline-item.is-manual-note .lifelog-timeline-dot {
+  border-color: var(--pinch-color8);
+  background: var(--pinch-background8);
+}
+
+.lifelog-timeline-dot-emoji,
+.lifelog-timeline-dot-emoji :deep(svg) {
+  width: 16px;
+  height: 16px;
+}
+
+.lifelog-timeline-content {
+  min-width: 0;
+}
+
+.lifelog-timeline-time {
+  margin: 10px;
+  color: var(--b3-theme-on-surface);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.lifelog-timeline-card {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  box-shadow: var(--pinch-shadow);
+  color: var(--b3-theme-on-background);
+  background: var(--b3-theme-background);
+}
+
+.lifelog-timeline-card-header {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lifelog-timeline-card-title {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lifelog-timeline-delete {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  color: var(--b3-theme-on-surface);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.74;
+}
+
+.lifelog-timeline-delete:hover {
+  color: var(--b3-theme-error);
+  background: var(--b3-list-hover);
+  opacity: 1;
+}
+
+.lifelog-timeline-meta,
+.lifelog-timeline-note {
+  margin-top: 3px;
+  color: var(--b3-theme-on-surface);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.lifelog-timeline-meta {
+  opacity: 0.8;
+}
+
+.lifelog-timeline-editor {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 10px 0 66px 0;
+  padding: 10px 36px 10px 10px;
+  border-radius: 16px;
+  box-shadow: var(--pinch-shadow);
+}
+
+.lifelog-timeline-editor-input {
+  width: 100%;
+  min-height: 112px;
+  padding: 0;
+  box-sizing: border-box;
+  border: none;
+  color: var(--b3-theme-on-background);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+}
+
+.lifelog-timeline-editor-input:focus {
+  outline: none;
+}
+
+.lifelog-timeline-submit {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--b3-theme-background);
+  background: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.lifelog-timeline-submit:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .mood-input {

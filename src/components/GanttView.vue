@@ -7,30 +7,154 @@
   >
     <div ref="ganttShellRef" class="gantt-shell" @scroll="handleGanttShellScroll">
       <div class="gantt-toolbar">
-        <div class="gantt-range-nav">
-          <button type="button" class="gantt-toolbar-btn ariaLabel" :aria-label="t('ganttView.previousRange')" @click="shiftTimeline(-1)">
-            <Icon name="chevronLeft" width="20" height="20" />
-          </button>
-          <button type="button" class="gantt-toolbar-btn today" @click="resetTimeline">
-            {{ t('ganttView.today') }}
-          </button>
-          <button type="button" class="gantt-toolbar-btn ariaLabel" :aria-label="t('ganttView.nextRange')" @click="shiftTimeline(1)">
-            <Icon name="chevronRight" width="20" height="20" />
-          </button>
-        </div>
-        <div class="gantt-range-options">
+        <div class="gantt-task-search">
+          <Icon name="searchCompact" width="16" height="16" />
+          <input
+            v-model="ganttSearchQuery"
+            class="ariaLabel"
+            type="search"
+            :placeholder="t('taskManager.searchTasks')"
+            :aria-label="t('taskManager.searchTasks')"
+          />
           <button
-            v-for="weeks in timelineWeekOptions"
-            :key="weeks"
+            v-if="ganttSearchQuery"
             type="button"
-            class="gantt-toolbar-btn"
-            :class="{ active: timelineWeeks === weeks }"
-            @click="setTimelineWeeks(weeks)"
-          >
-            {{ formatTimelineWeekOption(weeks) }}
-          </button>
+            class="gantt-search-clear ariaLabel"
+            :aria-label="t('kanbanView.clearSearch')"
+            @click="ganttSearchQuery = ''"
+          >×</button>
+        </div>
+        <button
+          type="button"
+          class="gantt-completed-toggle-btn ariaLabel"
+          :class="{ active: showCompletedTaskRows }"
+          :aria-label="showCompletedTaskRows ? t('ganttView.collapseCompletedTasks') : t('ganttView.expandCompletedTasks')"
+          @click="showCompletedTaskRows = !showCompletedTaskRows"
+        >
+          <Icon :name="showCompletedTaskRows ? 'chevronsHorizontal' : 'chevronsVertical'" width="15" height="15" />
+        </button>
+        <div class="gantt-toolbar-controls">
+          <div class="gantt-range-options">
+            <button
+              v-for="weeks in timelineWeekOptions"
+              :key="weeks"
+              type="button"
+              class="gantt-range-option-btn"
+              :class="{ active: timelineWeeks === weeks }"
+              @click="setTimelineWeeks(weeks)"
+            >{{ formatTimelineWeekOption(weeks) }}</button>
+          </div>
+          <div class="gantt-range-nav">
+            <button type="button" class="gantt-nav-btn ariaLabel" :aria-label="t('ganttView.previousRange')" @click="shiftTimeline(-1)">
+              <Icon name="chevronLeft" width="18" height="18" />
+            </button>
+            <button type="button" class="gantt-today-btn" @click="resetTimeline">{{ t('ganttView.today') }}</button>
+            <button type="button" class="gantt-nav-btn ariaLabel" :aria-label="t('ganttView.nextRange')" @click="shiftTimeline(1)">
+              <Icon name="chevronRight" width="18" height="18" />
+            </button>
+          </div>
         </div>
       </div>
+      <div class="gantt-body" :style="{ '--gantt-sidebar-width': `${labelColumnWidth}px` }">
+        <aside
+          class="gantt-sidebar"
+          :class="{ 'is-resize-ready': isSidebarResizeReady, 'has-document-milestones': showDocumentMilestones }"
+          :style="{ minHeight: `${ganttGridMinHeight}px` }"
+          @pointermove="handleSidebarPointerMove"
+          @pointerleave="isSidebarResizeReady = false"
+          @pointerdown="handleSidebarPointerDown"
+        >
+          <div class="gantt-sidebar-header"></div>
+          <template v-for="{ row, rowIndex } in visibleRenderRows" :key="`sidebar:${row.key}`">
+            <div
+              v-if="showDocumentMilestones && row.kind === 'section'"
+              class="gantt-document-milestone-rail"
+              :class="{
+                'has-guide': getDocumentMilestoneGuideRowCount(row.sectionId) > 0,
+                'is-dragging': draggedDocumentMilestoneId === row.sectionId,
+                'is-drop-target': dragOverDocumentMilestoneId === row.sectionId
+              }"
+              :style="{
+                gridColumn: '1',
+                gridRow: `${rowIndex + 2}`,
+                '--gantt-milestone-guide-height': `${getDocumentMilestoneGuideRowCount(row.sectionId) * GANTT_ROW_HEIGHT - 17}px`
+              }"
+              aria-hidden="true"
+              draggable="true"
+              @dragstart="handleDocumentMilestoneDragStart($event, row.sectionId)"
+              @dragover="handleDocumentMilestoneDragOver($event, row.sectionId)"
+              @drop="handleDocumentMilestoneDrop($event, row.sectionId)"
+              @dragend="clearDocumentMilestoneDragState"
+            >
+              <span class="gantt-document-milestone">{{ getDocumentMilestoneNumber(row.sectionId) }}</span>
+            </div>
+            <div
+              v-if="row.kind === 'section'"
+              class="gantt-row-label gantt-section-label ariaLabel"
+              :class="{ collapsed: row.collapsed, 'goal-drop-target': isGoalRenderRowDropTarget(row), 'is-row-hovered': isRenderRowHovered(row) }"
+              role="button"
+              tabindex="0"
+              :aria-label="row.title"
+              :aria-expanded="!row.collapsed"
+              :style="{ gridRow: `${rowIndex + 2}` }"
+              @click="toggleSection(row.sectionId)"
+              @keydown.enter.prevent="toggleSection(row.sectionId)"
+              @keydown.space.prevent="toggleSection(row.sectionId)"
+            >
+              <span class="gantt-section-toggle" aria-hidden="true"><Icon name="chevronDown" width="16" height="16" /></span>
+              <EmojiIcon v-if="row.emoji" class="gantt-section-icon" :value="row.emoji" />
+               <button type="button" class="gantt-row-title gantt-row-title-btn b3-typography" @pointerdown.stop @mousedown.stop @click.stop.prevent="emit('manage-goals')">{{ row.title }}</button>
+               <button
+                 v-if="groupMode === 'document'"
+                 type="button"
+                 class="gantt-section-add-task-btn ariaLabel"
+                 :aria-label="t('taskManager.newTask')"
+                 @pointerdown.stop
+                 @mousedown.stop
+                 @click.stop.prevent="emit('section-task-create-requested', row.sectionId)"
+               >
+                 <Icon name="add" width="16" height="16" />
+               </button>
+               <span v-if="row.dueDateLabel" class="goal-due-date-info" :class="{ 'is-overdue': row.isOverdue }">{{ row.dueDateLabel }}</span>
+              <span class="gantt-section-count is-progress" :class="{ overdue: row.isOverdue, risk: row.hasScheduleRisk, completed: row.completedTasks >= row.taskCount }" :style="{ '--gantt-section-progress': `${row.summaryProgress}%` }" :title="row.summaryTitle">
+                <span class="gantt-section-progress-text">{{ row.summaryProgress }} %</span><span class="gantt-section-progress-ring" aria-hidden="true"></span>
+              </span>
+            </div>
+            <div
+              v-else-if="row.kind === 'task'"
+              class="gantt-row-label ariaLabel"
+              :class="{ 'gantt-unscheduled-row-label': row.isUnscheduled, 'goal-drop-target': isGoalRenderRowDropTarget(row), 'is-row-hovered': isRenderRowHovered(row) }"
+              :aria-label="getTaskTitleText(row.primaryTask, row.title)"
+              draggable="true"
+              :style="{ gridRow: `${rowIndex + 2}` }"
+              @dragstart="handleRowLabelDragStart($event, row.primaryTask)"
+              @dragend="handleRowLabelDragEnd"
+            >
+              <span class="task-checkbox-wrapper gantt-row-checkbox-wrapper" @click.stop="emit('status-toggle', row.primaryTask)" @pointerdown.stop><TaskCheckbox :checked="row.primaryTask.status === 'completed'" :size="18" /></span>
+              <button type="button" class="gantt-row-title gantt-row-title-btn b3-typography" draggable="false" @pointerdown.stop @mousedown.stop @dragstart.stop.prevent @click.stop.prevent="emit('edit-task', row.primaryTask, $event)"><span class="gantt-task-title-content" v-html="getTaskTitleHtml(row.primaryTask, row.title)"></span></button>
+              <span v-if="isRepeatTask(row.primaryTask)" class="gantt-row-repeat-badge ariaLabel" :aria-label="t('taskCard.repeatTask')"><Icon name="repeat" width="12" height="12" /></span>
+              <button type="button" class="task-card-action-btn task-card-open-btn gantt-row-open-btn ariaLabel" :aria-label="t('taskCard.openContent')" @mousedown.stop @click.stop.prevent="emit('task-click', row.primaryTask)"><Icon name="moreHorizontal" width="14" height="14" /></button>
+            </div>
+          </template>
+          <div v-if="renderRows.length === 0" class="gantt-row-label gantt-empty-label" :style="{ gridRow: '2' }">{{ t('ganttView.noScheduledTasks') }}</div>
+          <div class="gantt-sidebar-resizer" role="separator" aria-orientation="vertical" @pointerdown.prevent="handleSidebarResizePointerDown"></div>
+        </aside>
+        <div class="gantt-timeline-column">
+          <div class="gantt-timeline-header">
+            <div class="gantt-timeline-header-grid" :style="timelineHeaderStyle">
+              <div
+                v-for="day in timelineDays"
+                :key="`header:${day.key}`"
+                class="gantt-day-header"
+                :class="{ today: day.isToday, weekend: day.isWeekend, 'month-start': !!day.monthLabel }"
+              >
+                <span class="gantt-day-month">{{ day.monthLabel }}</span>
+                <span class="gantt-day-weekday">{{ day.weekdayLabel }}</span>
+                <span class="gantt-day-date">{{ day.dayLabel }}</span>
+              </div>
+            </div>
+          </div>
+          <div ref="ganttTimelineRef" class="gantt-timeline-scroll" @scroll="handleTimelineScroll">
       <div
         class="gantt-grid"
         :style="gridStyle"
@@ -44,12 +168,46 @@
           v-for="(day, dayIndex) in timelineDays"
           :key="day.key"
           class="gantt-day-header"
-          :class="{ today: day.isToday, weekend: day.isWeekend }"
+          :class="{ today: day.isToday, weekend: day.isWeekend, 'month-start': !!day.monthLabel }"
           :style="{ gridColumn: `${dayIndex + 2}`, gridRow: '1' }"
         >
           <span class="gantt-day-month">{{ day.monthLabel }}</span>
+          <span class="gantt-day-weekday">{{ day.weekdayLabel }}</span>
           <span class="gantt-day-date">{{ day.dayLabel }}</span>
         </div>
+        <div
+          v-for="(day, dayIndex) in timelineDays"
+          :key="`column:${day.key}`"
+          class="gantt-day-column"
+          :class="{ 'month-start': !!day.monthLabel }"
+          :style="{
+            gridColumn: `${dayIndex + 2}`,
+            gridRow: '2',
+            height: `${ganttTimelineBodyHeight}px`
+          }"
+        ></div>
+        <template v-for="(day, dayIndex) in timelineDays" :key="`weekend:${day.key}`">
+          <div
+            v-if="day.isWeekend"
+            class="gantt-weekend-column"
+            :style="{
+              gridColumn: `${dayIndex + 2}`,
+              gridRow: '2',
+              height: `${ganttTimelineBodyHeight}px`
+            }"
+          ></div>
+        </template>
+        <template v-for="(day, dayIndex) in timelineDays" :key="`today:${day.key}`">
+          <div
+            v-if="day.isToday"
+            class="gantt-today-column"
+            :style="{
+              gridColumn: `${dayIndex + 2}`,
+              gridRow: '2',
+              height: `${ganttTimelineBodyHeight}px`
+            }"
+          ></div>
+        </template>
 
         <div
           v-for="group in visibleRenderGroups"
@@ -97,12 +255,23 @@
             <EmojiIcon v-if="row.emoji" class="gantt-section-icon" :value="row.emoji" />
             <button
               type="button"
-              class="gantt-row-title gantt-row-title-btn"
+              class="gantt-row-title gantt-row-title-btn b3-typography"
               @pointerdown.stop
               @mousedown.stop
               @click.stop.prevent="emit('manage-goals')"
             >
               {{ row.title }}
+            </button>
+            <button
+              v-if="groupMode === 'document'"
+              type="button"
+              class="gantt-section-add-task-btn ariaLabel"
+              :aria-label="t('taskManager.newTask')"
+              @pointerdown.stop
+              @mousedown.stop
+              @click.stop.prevent="emit('section-task-create-requested', row.sectionId)"
+            >
+              <Icon name="add" width="16" height="16" />
             </button>
             <span
               v-if="row.dueDateLabel"
@@ -147,7 +316,7 @@
                   height="16"
                 />
               </span>
-              <span class="gantt-row-title">{{ row.title }}</span>
+              <span class="gantt-row-title b3-typography">{{ row.title }}</span>
               <span class="gantt-section-count">{{ row.taskCount }}</span>
             </span>
           </button>
@@ -165,7 +334,7 @@
               'goal-drop-target': isGoalRenderRowDropTarget(row),
               'is-row-hovered': isRenderRowHovered(row)
             }"
-            :aria-label="row.title"
+            :aria-label="getTaskTitleText(row.primaryTask, row.title)"
             :data-goal-section-id="getGoalSectionIdForRenderRow(row) || undefined"
             draggable="true"
             :style="{ gridColumn: '1', gridRow: `${rowIndex + 2}` }"
@@ -181,14 +350,17 @@
             </span>
             <button
               type="button"
-              class="gantt-row-title gantt-row-title-btn"
+              class="gantt-row-title gantt-row-title-btn b3-typography"
               draggable="false"
               @pointerdown.stop
               @mousedown.stop
               @dragstart.stop.prevent
               @click.stop.prevent="emit('edit-task', row.primaryTask, $event)"
             >
-              {{ row.title }}
+              <span
+                class="gantt-task-title-content"
+                v-html="getTaskTitleHtml(row.primaryTask, row.title)"
+              ></span>
             </button>
             <span
               v-if="isRepeatTask(row.primaryTask)"
@@ -317,6 +489,17 @@
           <span class="gantt-bar-title">{{ externalDropPreviewTitle }}</span>
         </div>
       </div>
+          </div>
+        </div>
+      </div>
+      <div
+        ref="ganttHorizontalScrollbarRef"
+        class="gantt-horizontal-scrollbar"
+        :style="{ marginLeft: `${labelColumnWidth}px`, width: `calc(100% - ${labelColumnWidth}px)` }"
+        @scroll="handleHorizontalScrollbarScroll"
+      >
+        <div :style="{ width: `${timelineDayCount * effectiveDayColumnWidth}px` }"></div>
+      </div>
     </div>
     <TaskContextMenu
       :show="contextMenu.show"
@@ -364,10 +547,14 @@ import {
   resolveTaskBackgroundColor
 } from '@/utils/taskColor';
 import { TASK_BACKGROUND_COLOR_OPTIONS } from '@/utils/taskGroupShared';
+import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GANTT_ROW_HEIGHT = 42;
-const LABEL_COLUMN_WIDTH = 240;
+const GANTT_TOOLBAR_HEIGHT = 41;
+const DEFAULT_LABEL_COLUMN_WIDTH = 320;
+const MIN_LABEL_COLUMN_WIDTH = 180;
+const MAX_LABEL_COLUMN_WIDTH = 480;
 const MIN_DAY_COLUMN_WIDTH = 46;
 const UNGROUPED_UNSCHEDULED_SECTION_ID = '__ungrouped_unscheduled__';
 const VIRTUAL_ROW_OVERSCAN = 12;
@@ -381,6 +568,9 @@ const props = defineProps<{
   taskGroups?: TaskGroup[];
   groupMode?: GanttGroupMode;
   documentTitleByRootId?: Map<string, string>;
+  documentOrder?: string[];
+  showDocumentMilestones?: boolean;
+  selectedDocumentSection?: { id: string; title: string };
   autoExpandUnscheduledTasks?: boolean;
 }>();
 
@@ -393,10 +583,18 @@ const emit = defineEmits<{
   'edit-task': [task: Task, event?: MouseEvent];
   'status-toggle': [task: Task];
   'manage-goals': [];
+  'section-task-create-requested': [sectionId: string];
   'task-goal-drop': [task: Task, goalId: string];
+  'document-order-change': [sectionOrder: string[]];
 }>();
 
 const { t } = useI18n();
+const getTaskTitleHtml = (task: Task, fallbackTitle: string): string => {
+  return sanitizeTaskTitleHtml(task.title) || fallbackTitle;
+};
+const getTaskTitleText = (task: Task, fallbackTitle: string): string => {
+  return stripHtml(getTaskTitleHtml(task, fallbackTitle));
+};
 const formatTemplate = (key: string, values: Record<string, string | number>): string => {
   return Object.entries(values).reduce(
     (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
@@ -404,6 +602,8 @@ const formatTemplate = (key: string, values: Record<string, string | number>): s
   );
 };
 const collapsedSectionIds = ref<Set<string>>(new Set());
+const draggedDocumentMilestoneId = ref('');
+const dragOverDocumentMilestoneId = ref('');
 const unscheduledSectionModes = ref<Map<string, UnscheduledDisplayMode>>(new Map());
 const timelineAnchor = ref(startOfDay(new Date()));
 const timelineWeeks = ref<(typeof timelineWeekOptions)[number]>(6);
@@ -417,10 +617,18 @@ const dragOverGoalSectionId = ref<string | null>(null);
 const draggingGoalDueDateId = ref<string | null>(null);
 const externalDropTask = ref<Task | null>(null);
 const ganttShellRef = ref<HTMLElement | null>(null);
+const ganttTimelineRef = ref<HTMLElement | null>(null);
+const ganttHorizontalScrollbarRef = ref<HTMLElement | null>(null);
+const timelineScrollLeft = ref(0);
+const isSidebarResizeReady = ref(false);
+let syncingHorizontalScrollbar = false;
 const shellWidth = ref(0);
 const shellHeight = ref(0);
 const shellScrollTop = ref(0);
+const labelColumnWidth = ref(DEFAULT_LABEL_COLUMN_WIDTH);
 const hoveredRenderRowKey = ref<string | null>(null);
+const ganttSearchQuery = ref('');
+const showCompletedTaskRows = ref(false);
 const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
   show: false,
   x: 0,
@@ -459,7 +667,9 @@ interface GoalDueDateDragState {
 
 let dragState: GanttDragState | null = null;
 let goalDueDateDragState: GoalDueDateDragState | null = null;
+let sidebarResizeState: { startX: number; startWidth: number; scrollLeft: number } | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let metricsAnimationFrame: number | null = null;
 let contextMenuOutsidePointerBound = false;
 const optimisticTaskDateTimers = new Map<string, number>();
 const optimisticGoalDueDateTimers = new Map<string, number>();
@@ -476,6 +686,7 @@ interface ExternalDropResolution {
 interface TimelineDay {
   key: string;
   monthLabel: string;
+  weekdayLabel: string;
   dayLabel: string;
   isToday: boolean;
   isWeekend: boolean;
@@ -598,11 +809,28 @@ function isEnglishLocale(): boolean {
 
 function formatGanttMonthLabel(date: Date): string {
   if (isEnglishLocale()) {
-    return GANTT_EN_MONTH_LABELS[date.getMonth()] || '';
+    return `${GANTT_EN_MONTH_LABELS[date.getMonth()] || ''} ${date.getFullYear()}`;
   }
-  return formatTemplate('date.monthLabelTemplate', {
+  const monthLabel = formatTemplate('date.monthLabelTemplate', {
     month: date.getMonth() + 1
   });
+  return `${date.getFullYear()} ${monthLabel}`;
+}
+
+function formatGanttWeekdayLabel(date: Date): string {
+  if (isEnglishLocale()) {
+    return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][date.getDay()];
+  }
+  const weekdayKey = [
+    'taskRepeat.weekdaySunShort',
+    'taskRepeat.weekdayMonShort',
+    'taskRepeat.weekdayTueShort',
+    'taskRepeat.weekdayWedShort',
+    'taskRepeat.weekdayThuShort',
+    'taskRepeat.weekdayFriShort',
+    'taskRepeat.weekdaySatShort'
+  ][date.getDay()];
+  return t(weekdayKey);
 }
 
 function shiftDate(value: string | undefined, days: number): string {
@@ -629,7 +857,13 @@ function hasVisibleTaskTitle(task: Task): boolean {
   return stripHtml(task.title).length > 0;
 }
 
-const displayableTasks = computed(() => props.tasks.filter(hasVisibleTaskTitle));
+const displayableTasks = computed(() => {
+  const query = ganttSearchQuery.value.trim().toLocaleLowerCase();
+  return props.tasks.filter((task) => {
+    if (!hasVisibleTaskTitle(task)) return false;
+    return !query || stripHtml(task.title).toLocaleLowerCase().includes(query);
+  });
+});
 
 function isRepeatTask(task: Task): boolean {
   return !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none') || !!task.repeatInstanceDate || !!task.isVirtual;
@@ -1109,6 +1343,7 @@ function cleanupGoalDueDateDrag(): void {
 onBeforeUnmount(() => {
   cleanupTaskBarDrag();
   cleanupGoalDueDateDrag();
+  cleanupSidebarResize();
   unbindContextMenuOutsidePointerDown();
   optimisticTaskDateTimers.forEach(timer => window.clearTimeout(timer));
   optimisticTaskDateTimers.clear();
@@ -1116,6 +1351,10 @@ onBeforeUnmount(() => {
   optimisticGoalDueDateTimers.clear();
   resizeObserver?.disconnect();
   resizeObserver = null;
+  if (metricsAnimationFrame !== null) {
+    window.cancelAnimationFrame(metricsAnimationFrame);
+    metricsAnimationFrame = null;
+  }
   window.removeEventListener('resize', updateShellMetrics);
 });
 
@@ -1191,7 +1430,7 @@ function resolveTimelineDayFromEvent(event: DragEvent): Date | null {
   const grid = (event.currentTarget as HTMLElement | null)?.querySelector('.gantt-grid') as HTMLElement | null;
   if (!grid) return null;
   const rect = grid.getBoundingClientRect();
-  const offsetX = event.clientX - rect.left - LABEL_COLUMN_WIDTH;
+  const offsetX = event.clientX - rect.left;
   const dayIndex = Math.floor(offsetX / effectiveDayColumnWidth.value);
   if (dayIndex < 0 || dayIndex >= timelineDayCount.value) return null;
   return addDays(timelineStart.value, dayIndex);
@@ -1297,16 +1536,27 @@ const timelineDayCount = computed(() => timelineWeeks.value * 7);
 const timelineStart = computed(() => addDays(timelineAnchor.value, -7));
 const timelineEnd = computed(() => addDays(timelineStart.value, timelineDayCount.value - 1));
 const effectiveDayColumnWidth = computed(() => {
-  const availableTimelineWidth = shellWidth.value - LABEL_COLUMN_WIDTH;
+  const availableTimelineWidth = shellWidth.value - labelColumnWidth.value;
   if (availableTimelineWidth <= 0) return MIN_DAY_COLUMN_WIDTH;
   return Math.max(MIN_DAY_COLUMN_WIDTH, Math.floor(availableTimelineWidth / timelineDayCount.value));
 });
 
 function updateShellMetrics(): void {
   const shell = ganttShellRef.value;
-  shellWidth.value = shell?.clientWidth || 0;
-  shellHeight.value = shell?.clientHeight || 0;
-  shellScrollTop.value = shell?.scrollTop || 0;
+  const nextWidth = shell?.clientWidth || 0;
+  const nextHeight = shell?.clientHeight || 0;
+  const nextScrollTop = shell?.scrollTop || 0;
+  if (shellWidth.value !== nextWidth) shellWidth.value = nextWidth;
+  if (shellHeight.value !== nextHeight) shellHeight.value = nextHeight;
+  if (shellScrollTop.value !== nextScrollTop) shellScrollTop.value = nextScrollTop;
+}
+
+function scheduleShellMetricsUpdate(): void {
+  if (metricsAnimationFrame !== null) return;
+  metricsAnimationFrame = window.requestAnimationFrame(() => {
+    metricsAnimationFrame = null;
+    updateShellMetrics();
+  });
 }
 
 function updateShellWidth(): void {
@@ -1316,6 +1566,71 @@ function updateShellWidth(): void {
 function handleGanttShellScroll(): void {
   shellScrollTop.value = ganttShellRef.value?.scrollTop || 0;
   clearGanttGridHover();
+}
+
+function handleTimelineScroll(): void {
+  const scrollLeft = ganttTimelineRef.value?.scrollLeft || 0;
+  timelineScrollLeft.value = scrollLeft;
+  if (!syncingHorizontalScrollbar && ganttHorizontalScrollbarRef.value) {
+    syncingHorizontalScrollbar = true;
+    ganttHorizontalScrollbarRef.value.scrollLeft = scrollLeft;
+    syncingHorizontalScrollbar = false;
+  }
+  clearGanttGridHover();
+}
+
+function handleHorizontalScrollbarScroll(): void {
+  if (syncingHorizontalScrollbar) return;
+  const scrollLeft = ganttHorizontalScrollbarRef.value?.scrollLeft || 0;
+  const timeline = ganttTimelineRef.value;
+  if (!timeline) return;
+  syncingHorizontalScrollbar = true;
+  timeline.scrollLeft = scrollLeft;
+  syncingHorizontalScrollbar = false;
+}
+
+function handleSidebarResizePointerDown(event: PointerEvent): void {
+  if (event.button !== 0) return;
+  sidebarResizeState = {
+    startX: event.clientX,
+    startWidth: labelColumnWidth.value,
+    scrollLeft: ganttShellRef.value?.scrollLeft || 0
+  };
+  document.body.style.cursor = 'col-resize';
+  document.addEventListener('pointermove', handleSidebarResizePointerMove);
+  document.addEventListener('pointerup', cleanupSidebarResize, { once: true });
+}
+
+function handleSidebarResizePointerMove(event: PointerEvent): void {
+  if (!sidebarResizeState) return;
+  labelColumnWidth.value = Math.min(
+    MAX_LABEL_COLUMN_WIDTH,
+    Math.max(MIN_LABEL_COLUMN_WIDTH, sidebarResizeState.startWidth + event.clientX - sidebarResizeState.startX)
+  );
+}
+
+function cleanupSidebarResize(): void {
+  sidebarResizeState = null;
+  document.body.style.cursor = '';
+  document.removeEventListener('pointermove', handleSidebarResizePointerMove);
+  document.removeEventListener('pointerup', cleanupSidebarResize);
+}
+
+function isSidebarResizeEdge(event: PointerEvent): boolean {
+  const sidebar = event.currentTarget as HTMLElement | null;
+  if (!sidebar) return false;
+  const rect = sidebar.getBoundingClientRect();
+  return event.clientX >= rect.right - 12 && event.clientX <= rect.right + 8;
+}
+
+function handleSidebarPointerMove(event: PointerEvent): void {
+  isSidebarResizeReady.value = isSidebarResizeEdge(event);
+}
+
+function handleSidebarPointerDown(event: PointerEvent): void {
+  if (!isSidebarResizeEdge(event)) return;
+  event.preventDefault();
+  handleSidebarResizePointerDown(event);
 }
 
 function clearGanttGridHover(): void {
@@ -1353,18 +1668,18 @@ function getTodayColumnIndex(): number {
 }
 
 function scrollTodayIntoView(): void {
-  const shell = ganttShellRef.value;
+  const shell = ganttTimelineRef.value;
   const todayIndex = getTodayColumnIndex();
   if (!shell || todayIndex < 0) return;
 
-  const visibleTimelineWidth = Math.max(0, shell.clientWidth - LABEL_COLUMN_WIDTH);
-  const visibleTimelineStart = shell.scrollLeft + LABEL_COLUMN_WIDTH;
+  const visibleTimelineWidth = shell.clientWidth;
+  const visibleTimelineStart = shell.scrollLeft;
   const visibleTimelineEnd = shell.scrollLeft + shell.clientWidth;
-  const todayLeft = LABEL_COLUMN_WIDTH + todayIndex * effectiveDayColumnWidth.value;
+  const todayLeft = todayIndex * effectiveDayColumnWidth.value;
   const todayRight = todayLeft + effectiveDayColumnWidth.value;
   if (todayLeft >= visibleTimelineStart && todayRight <= visibleTimelineEnd) return;
 
-  const targetLeft = Math.max(0, todayLeft - LABEL_COLUMN_WIDTH - Math.floor(visibleTimelineWidth * 0.25));
+  const targetLeft = Math.max(0, todayLeft - Math.floor(visibleTimelineWidth * 0.25));
   shell.scrollTo({
     left: targetLeft,
     behavior: 'smooth'
@@ -1382,7 +1697,7 @@ onMounted(() => {
   void nextTick(() => {
     updateShellMetrics();
     if (typeof ResizeObserver !== 'undefined' && ganttShellRef.value) {
-      resizeObserver = new ResizeObserver(() => updateShellMetrics());
+    resizeObserver = new ResizeObserver(scheduleShellMetricsUpdate);
       resizeObserver.observe(ganttShellRef.value);
     } else {
       window.addEventListener('resize', updateShellMetrics);
@@ -1459,7 +1774,8 @@ const timelineDays = computed<TimelineDay[]>(() => {
     const weekday = date.getDay();
     return {
       key: formatDateKey(date),
-      monthLabel: formatGanttMonthLabel(date),
+      monthLabel: index === 0 || date.getDate() === 1 ? formatGanttMonthLabel(date) : '',
+      weekdayLabel: formatGanttWeekdayLabel(date),
       dayLabel: String(date.getDate()),
       isToday: formatDateKey(date) === todayKey,
       isWeekend: weekday === 0 || weekday === 6
@@ -1761,6 +2077,23 @@ function buildGoalSections(): GanttSection[] {
 }
 
 function buildDocumentSections(): GanttSection[] {
+  const selectedSection = props.selectedDocumentSection;
+  if (selectedSection) {
+    const scheduledRows = scheduledTaskRows.value;
+    const unscheduledRows = buildUnscheduledRows(scheduledRows, () => true);
+    const rows = [...scheduledRows, ...unscheduledRows];
+    if (rows.length === 0 && displayableTasks.value.length === 0) {
+      return [];
+    }
+    return [{
+      id: selectedSection.id,
+      title: selectedSection.title,
+      emoji: '📄',
+      rows,
+      summaryTasks: displayableTasks.value
+    }];
+  }
+
   const sectionByDocument = new Map<string, GanttSection>();
   const summaryTasksByDocument = new Map<string, Task[]>();
 
@@ -1815,9 +2148,15 @@ function buildDocumentSections(): GanttSection[] {
     }
   });
 
-  return Array.from(sectionByDocument.values()).sort((left, right) =>
-    left.title.localeCompare(right.title, 'zh-Hans-CN')
-  );
+  const orderIndex = new Map((props.documentOrder || []).map((id, index) => [id, index]));
+  return Array.from(sectionByDocument.values()).sort((left, right) => {
+    const leftOrder = orderIndex.get(left.id);
+    const rightOrder = orderIndex.get(right.id);
+    if (leftOrder !== undefined || rightOrder !== undefined) {
+      return (leftOrder ?? Number.MAX_SAFE_INTEGER) - (rightOrder ?? Number.MAX_SAFE_INTEGER);
+    }
+    return left.title.localeCompare(right.title, 'zh-Hans-CN');
+  });
 }
 
 function buildSectionSummary(
@@ -1890,11 +2229,70 @@ function toggleSection(sectionId: string): void {
   collapsedSectionIds.value = next;
 }
 
-function getUnscheduledDisplayMode(sectionId: string): UnscheduledDisplayMode {
-  if (props.autoExpandUnscheduledTasks) {
-    return 'all';
+const showDocumentMilestones = computed(() => props.showDocumentMilestones === true && props.groupMode === 'document');
+
+function getDocumentMilestoneNumber(sectionId: string): number {
+  const orderedIndex = (props.documentOrder || []).indexOf(sectionId);
+  if (orderedIndex >= 0) return orderedIndex + 1;
+  const index = ganttSections.value.findIndex(section => section.id === sectionId);
+  return index >= 0 ? index + 1 : 0;
+}
+
+function getDocumentMilestoneGuideRowCount(sectionId: string): number {
+  const currentIndex = renderRows.value.findIndex(row => row.kind === 'section' && row.sectionId === sectionId);
+  if (currentIndex < 0) return 0;
+  const nextIndex = renderRows.value.findIndex((row, index) =>
+    index > currentIndex && row.kind === 'section'
+  );
+  return nextIndex > currentIndex ? nextIndex - currentIndex : 0;
+}
+
+function handleDocumentMilestoneDragStart(event: DragEvent, sectionId: string): void {
+  if (!showDocumentMilestones.value) {
+    event.preventDefault();
+    return;
   }
-  return unscheduledSectionModes.value.get(sectionId) || 'collapsed';
+  draggedDocumentMilestoneId.value = sectionId;
+  dragOverDocumentMilestoneId.value = '';
+  event.dataTransfer?.setData('text/plain', sectionId);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+}
+
+function handleDocumentMilestoneDragOver(event: DragEvent, sectionId: string): void {
+  if (!showDocumentMilestones.value || !draggedDocumentMilestoneId.value || sectionId === draggedDocumentMilestoneId.value) return;
+  event.preventDefault();
+  dragOverDocumentMilestoneId.value = sectionId;
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleDocumentMilestoneDrop(event: DragEvent, targetSectionId: string): void {
+  const sourceSectionId = draggedDocumentMilestoneId.value || event.dataTransfer?.getData('text/plain') || '';
+  clearDocumentMilestoneDragState();
+  if (!showDocumentMilestones.value || !sourceSectionId || sourceSectionId === targetSectionId) return;
+  event.preventDefault();
+  const nextOrder = [...(props.documentOrder || ganttSections.value.map(section => section.id))];
+  const sourceIndex = nextOrder.indexOf(sourceSectionId);
+  const targetIndex = nextOrder.indexOf(targetSectionId);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+  nextOrder.splice(sourceIndex, 1);
+  // Insert on the natural side of the target: after it when moving down,
+  // before it when moving up.
+  const targetIndexAfterRemoval = nextOrder.indexOf(targetSectionId);
+  const insertIndex = sourceIndex < targetIndex
+    ? targetIndexAfterRemoval + 1
+    : targetIndexAfterRemoval;
+  nextOrder.splice(insertIndex, 0, sourceSectionId);
+  emit('document-order-change', nextOrder);
+}
+
+function clearDocumentMilestoneDragState(): void {
+  draggedDocumentMilestoneId.value = '';
+  dragOverDocumentMilestoneId.value = '';
+}
+
+function getUnscheduledDisplayMode(sectionId: string): UnscheduledDisplayMode {
+  void sectionId;
+  return showCompletedTaskRows.value ? 'all' : 'incomplete';
 }
 
 function setUnscheduledDisplayMode(sectionId: string, mode: UnscheduledDisplayMode): void {
@@ -1928,6 +2326,11 @@ const ganttSections = computed<GanttSection[]>(() => {
   }
   return buildGoalSections();
 });
+
+function filterCompletedTaskRows(rows: GanttRenderRow[]): GanttRenderRow[] {
+  if (showCompletedTaskRows.value) return rows;
+  return rows.filter(row => row.kind !== 'task' || row.primaryTask.status !== 'completed');
+}
 
 const renderRows = computed<GanttRenderRow[]>(() => {
   const pushUnscheduledControlRow = (
@@ -2063,12 +2466,11 @@ const renderRows = computed<GanttRenderRow[]>(() => {
 
     if (unscheduledMode === 'incomplete') {
       appendUnscheduledTaskRows(rows, section.id, section.id, incompleteUnscheduledRows);
-      pushUnscheduledToggleRow('show-all', unscheduledRows.length, true);
       return;
     }
 
     appendUnscheduledTaskRows(rows, section.id, section.id, unscheduledRows);
-    if (!props.autoExpandUnscheduledTasks) {
+    if (!props.autoExpandUnscheduledTasks && !showCompletedTaskRows.value) {
       pushUnscheduledToggleRow('collapse', unscheduledRows.length, true);
     }
   };
@@ -2119,7 +2521,7 @@ const renderRows = computed<GanttRenderRow[]>(() => {
         unscheduledRows,
         incompleteUnscheduledRows
       );
-      return rows;
+      return filterCompletedTaskRows(rows);
     }
 
     if (unscheduledMode === 'incomplete') {
@@ -2129,8 +2531,7 @@ const renderRows = computed<GanttRenderRow[]>(() => {
         UNGROUPED_UNSCHEDULED_SECTION_ID,
         incompleteUnscheduledRows
       );
-      pushUnscheduledToggleRow('show-all', unscheduledRows.length, true);
-      return rows;
+      return filterCompletedTaskRows(rows);
     }
 
     appendUnscheduledTaskRows(
@@ -2139,17 +2540,17 @@ const renderRows = computed<GanttRenderRow[]>(() => {
       UNGROUPED_UNSCHEDULED_SECTION_ID,
       unscheduledRows
     );
-    if (!props.autoExpandUnscheduledTasks) {
+    if (!props.autoExpandUnscheduledTasks && !showCompletedTaskRows.value) {
       pushUnscheduledToggleRow('collapse', unscheduledRows.length, true);
     }
-    return rows;
+    return filterCompletedTaskRows(rows);
   }
 
   const rows: GanttRenderRow[] = [];
   ganttSections.value.forEach((section) => {
     appendSection(rows, section);
   });
-  return rows;
+  return filterCompletedTaskRows(rows);
 });
 
 const visibleRenderRows = computed<Array<{ row: GanttRenderRow; rowIndex: number }>>(() => {
@@ -2191,6 +2592,7 @@ const renderGroups = computed<GanttRenderGroup[]>(() => {
   const groups: GanttRenderGroup[] = [];
   sectionIndexes.forEach((sectionIndex, sectionPosition) => {
     const row = rows[sectionIndex];
+    if (!row || row.kind !== 'section') return;
     const endIndex = sectionIndexes[sectionPosition + 1] ?? rows.length;
     const shouldOffset = sectionIndex > 0;
     let unscheduledToggleIndex = -1;
@@ -2235,9 +2637,19 @@ const visibleRenderGroups = computed(() => {
   });
 });
 
+const ganttGridMinHeight = computed(() => Math.max(
+  (renderRows.value.length + 1) * GANTT_ROW_HEIGHT,
+  Math.max(0, shellHeight.value - GANTT_TOOLBAR_HEIGHT)
+));
+const ganttTimelineBodyHeight = computed(() => Math.max(0, ganttGridMinHeight.value - GANTT_ROW_HEIGHT));
 const gridStyle = computed(() => ({
-  gridTemplateColumns: `${LABEL_COLUMN_WIDTH}px repeat(${timelineDayCount.value}, ${effectiveDayColumnWidth.value}px)`,
-  minHeight: `${(renderRows.value.length + 1) * GANTT_ROW_HEIGHT}px`
+  gridTemplateColumns: `0px repeat(${timelineDayCount.value}, ${effectiveDayColumnWidth.value}px)`,
+  '--gantt-sidebar-width': `${labelColumnWidth.value}px`,
+  minHeight: `${ganttGridMinHeight.value}px`
+}));
+const timelineHeaderStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${timelineDayCount.value}, ${effectiveDayColumnWidth.value}px)`,
+  transform: `translateX(-${timelineScrollLeft.value}px)`
 }));
 </script>
 
@@ -2264,71 +2676,288 @@ const gridStyle = computed(() => ({
 
 .gantt-shell {
   height: 100%;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.gantt-body {
+  display: flex;
+  min-width: 0;
+  min-height: calc(100% - var(--gantt-toolbar-height));
+}
+
+.gantt-sidebar {
+  position: relative;
+  z-index: 2;
+  isolation: isolate;
+  display: grid;
+  flex: 0 0 var(--gantt-sidebar-width);
+  grid-auto-rows: 42px;
+  min-width: 0;
+  background: var(--b3-theme-background);
+}
+
+.gantt-sidebar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -2px;
+  bottom: 0;
+  width: 2px;
+  background: color-mix(in srgb, var(--b3-theme-on-background) 10%, var(--b3-theme-background));
+  pointer-events: none;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.gantt-sidebar.is-resize-ready,
+.gantt-sidebar.is-resize-ready * {
+  cursor: col-resize !important;
+}
+
+.gantt-sidebar.is-resize-ready::after {
+  background: var(--b3-theme-primary);
+}
+
+.gantt-sidebar-header {
+  position: sticky;
+  top: var(--gantt-toolbar-height);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  grid-row: 1;
+  padding: 0 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--b3-theme-on-background) 30%, var(--b3-theme-background));
+  background: var(--b3-theme-background);
+  box-sizing: border-box;
+}
+
+.gantt-completed-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.gantt-completed-toggle-btn:hover,
+.gantt-completed-toggle-btn.active {
+  background: var(--b3-list-hover);
+}
+
+.gantt-sidebar .gantt-row-label {
+  position: relative;
+  left: auto;
+  width: auto;
+  grid-column: 1;
+}
+
+.gantt-sidebar.has-document-milestones .gantt-row-label {
+  padding-left: 42px;
+}
+.gantt-sidebar.has-document-milestones .gantt-section-label{
+  padding-left: 36px;
+}
+
+.gantt-sidebar .gantt-sidebar-resizer {
+  display: block;
+  position: absolute;
+  top: 0;
+  right: -8px;
+  bottom: 0;
+  left: auto;
+  width: 16px;
+  height: auto !important;
+  margin: 0;
+  z-index: 101;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.gantt-timeline-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: clip;
+  scrollbar-width: none;
+}
+
+.gantt-timeline-scroll::-webkit-scrollbar {
+  height: 0;
+}
+
+.gantt-horizontal-scrollbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  height: 14px;
+  margin-top: -14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.gantt-horizontal-scrollbar > div {
+  height: 1px;
+}
+
+.gantt-timeline-column {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gantt-timeline-header {
+  position: sticky;
+  top: var(--gantt-toolbar-height);
+  z-index: 3;
+  height: var(--gantt-header-height);
+  overflow: hidden;
+  background: var(--b3-theme-background);
+  border-bottom: 1px solid color-mix(in srgb, var(--b3-theme-on-background) 30%, var(--b3-theme-background));
+  box-sizing: border-box;
+}
+
+.gantt-timeline-header-grid {
+  display: grid;
+  min-width: max-content;
+  height: 100%;
+  will-change: transform;
+}
+
+.gantt-timeline-header .gantt-day-header {
+  position: relative;
+  top: auto;
+  z-index: 1;
+}
+
+.gantt-range-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
 }
 
 .gantt-toolbar {
   position: sticky;
   top: 0;
   left: 0;
-  z-index: 8;
+  z-index: 4;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: min(100vw, 100%);
+  gap: 12px;
   min-width: 0;
-  min-height: var(--gantt-toolbar-height);
+  height: var(--gantt-toolbar-height);
   padding: 4px 10px;
   background: linear-gradient(var(--b3-list-hover), var(--b3-list-hover)), var(--b3-theme-background);
   box-sizing: border-box;
 }
 
-.gantt-range-nav,
+.gantt-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .gantt-range-options {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
+  gap: 2px;
 }
 
-.gantt-toolbar-btn {
+.gantt-task-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: min(260px, 45vw);
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface-light);
+  box-sizing: border-box;
+}
+
+.gantt-task-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  font-size: 13px;
+}
+
+.gantt-search-clear {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 18px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.gantt-search-clear:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.gantt-nav-btn,
+.gantt-today-btn,
+.gantt-range-option-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 32px;
-  height: 32px;
-  padding: 0 10px;
+  height: 28px;
   border: none;
-  border-radius: 4px;
-  background: var(--b3-list-hover);
+  border-radius: 8px;
+  background: transparent;
   color: var(--b3-theme-on-background);
-  font-size: 12px;
-  line-height: 32px;
+  font-size: 14px;
+  line-height: 1;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color 0.15s ease;
 }
 
-.gantt-toolbar-btn:hover {
-  background: var(--b3-theme-background);
+.gantt-nav-btn {
+  width: 30px;
+  padding: 0;
 }
 
-.gantt-toolbar-btn.active,
-.gantt-toolbar-btn.today {
-  background: var(--b3-theme-background);
-  color: var(--b3-theme-on-background);
+.gantt-today-btn {
+  padding: 0 6px;
+  font-weight: 600;
 }
 
-.gantt-toolbar-btn.active:hover,
-.gantt-toolbar-btn.today:hover {
+.gantt-range-option-btn {
+  padding: 0 7px;
+  font-size: 13px;
+}
+
+.gantt-nav-btn:hover,
+.gantt-today-btn:hover,
+.gantt-range-option-btn:hover,
+.gantt-range-option-btn.active {
   background: var(--b3-theme-background);
+  box-shadow: var(--pinch-shadow);
 }
 
 .gantt-grid {
   position: relative;
   display: grid;
   grid-auto-rows: 42px;
+  align-content: start;
   min-width: 100%;
+  margin-top: calc(-1 * var(--gantt-header-height));
 }
 
 .gantt-group-panel {
@@ -2341,6 +2970,41 @@ const gridStyle = computed(() => ({
 .gantt-group-panel.goal-drop-target {
   background: color-mix(in srgb, var(--b3-theme-primary) 8%, var(--b3-theme-background));
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 20%, transparent);
+}
+
+.gantt-weekend-column {
+  position: relative;
+  z-index: 1;
+  align-self: start;
+  background: color-mix(in srgb, var(--b3-list-hover) 60%, var(--b3-theme-background));
+  pointer-events: none;
+}
+
+.gantt-day-column {
+  position: relative;
+  z-index: 1;
+  align-self: start;
+  box-sizing: border-box;
+  pointer-events: none;
+  box-shadow: inset -1px 0 color-mix(in srgb, var(--b3-theme-on-background) 10%, var(--b3-theme-background));
+}
+
+.gantt-day-column.month-start,
+.gantt-day-header.month-start {
+  border-left: 2px solid color-mix(in srgb, var(--b3-theme-on-background) 10%, var(--b3-theme-background));
+}
+
+.gantt-today-column {
+  position: relative;
+  z-index: 1;
+  align-self: start;
+  background: color-mix(in srgb, #f98f7a 8%, var(--b3-theme-background));
+  pointer-events: none;
+}
+
+.gantt-weekend-column,
+.gantt-today-column {
+  box-shadow: inset -1px 0 color-mix(in srgb, var(--b3-theme-on-background) 10%, var(--b3-theme-background));
 }
 
 .gantt-virtual-spacer {
@@ -2366,10 +3030,61 @@ const gridStyle = computed(() => ({
 .gantt-corner {
   top: var(--gantt-toolbar-height);
   left: 0;
-  z-index: 6;
-  border-bottom: 1px solid var(--b3-list-hover);
-  background: var(--b3-theme-background);
+  z-index: 8;
+  background: transparent;
   box-sizing: border-box;
+}
+
+.gantt-grid > .gantt-row-label,
+.gantt-grid > .gantt-unscheduled-control-row-divider,
+.gantt-grid > .gantt-sidebar-panel,
+.gantt-grid > .gantt-sidebar-resizer,
+.gantt-grid > .gantt-corner,
+.gantt-grid > .gantt-header-row-bg,
+.gantt-grid > .gantt-header-row-border,
+.gantt-grid > .gantt-day-header {
+  display: none;
+}
+
+.gantt-sidebar-panel {
+  position: sticky;
+  left: 0;
+  z-index: 7;
+  align-self: start;
+  width: var(--gantt-sidebar-width);
+  min-width: var(--gantt-sidebar-width);
+  box-sizing: border-box;
+  background: var(--b3-theme-background);
+  box-shadow: 0 -6px 12px 0px color-mix(in srgb, var(--b3-theme-on-background) 15%, transparent);
+  pointer-events: none;
+}
+
+.gantt-sidebar-resizer {
+  position: sticky;
+  left: 0;
+  z-index: 9;
+  align-self: start;
+  justify-self: end;
+  width: 10px;
+  margin-right: -5px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.gantt-sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.gantt-sidebar-resizer:hover::after {
+  background: color-mix(in srgb, var(--b3-theme-primary) 55%, transparent);
 }
 
 .gantt-header-row-border {
@@ -2378,43 +3093,81 @@ const gridStyle = computed(() => ({
   z-index: 7;
   align-self: end;
   height: 1px;
-  background: var(--b3-list-hover);
+  background: var(--b3-theme-on-background);
   pointer-events: none;
+  opacity: 0.3;
 }
 
 .gantt-day-header {
-  top: calc(var(--gantt-toolbar-height) + var(--gantt-header-chip-offset));
+  top: var(--gantt-toolbar-height);
   z-index: 5;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: max-content max-content;
+  grid-template-rows: 20px 22px;
+  justify-content: start;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
-  align-self: center;
+  align-self: stretch;
   justify-self: stretch;
-  height: 30px;
-  margin: 6px 3px;
-  padding: 3px 6px;
-  border-radius: 6px;
+  height: var(--gantt-header-height);
+  column-gap: 4px;
+  padding: 0 6px;
   color: var(--b3-theme-on-surface-light);
   font-size: 11px;
   line-height: 1.1;
   box-sizing: border-box;
 }
 
-.gantt-day-header.weekend,
-.gantt-day-cell.weekend {
-  background: color-mix(in srgb, var(--b3-list-hover) 30%, var(--b3-theme-background));
+.gantt-day-month {
+  position: absolute;
+  top: 0;
+  left: 6px;
+  width: max-content;
+  padding: 0;
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
 }
 
-.gantt-day-header.today {
+.gantt-day-header.month-start {
+  z-index: 10;
+}
+
+.gantt-day-weekday {
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
+}
+
+.gantt-day-date {
+  display: inline-flex;
+  grid-column: 2;
+  grid-row: 2;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--b3-theme-on-background);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.gantt-day-header.weekend {
+  background: color-mix(in srgb, var(--b3-list-hover) 60%, var(--b3-theme-background));
+}
+
+
+.gantt-day-header.today .gantt-day-date {
   color: var(--b3-theme-background);
-  background: color-mix(in srgb, #f98f7a 80%, var(--b3-theme-background));
+  background: var(--b3-theme-on-background);
 }
 .gantt-row-label {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 8;
   --gantt-row-label-base-bg: var(--b3-theme-background);
   display: flex;
   align-items: center;
@@ -2422,18 +3175,70 @@ const gridStyle = computed(() => ({
   min-width: 0;
   padding: 0 14px;
   border: 0;
-  border-right: 2px solid var(--b3-theme-surface-lighter);
+  border-right: 0;
   background: var(--gantt-row-label-base-bg);
   color: var(--b3-theme-on-background);
   text-align: left;
   cursor: default;
+  box-sizing: border-box;
 }
 
-.gantt-row-label.group-start,
-.gantt-day-cell.group-start {
-  border-top: 1px solid var(--b3-theme-surface-lighter);
-  border-right: 2px solid var(--b3-theme-surface-lighter);
+.gantt-document-milestone-rail {
+  position: relative;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  cursor: grab;
 }
+
+.gantt-document-milestone-rail:active {
+  cursor: grabbing;
+}
+
+.gantt-document-milestone-rail.is-dragging .gantt-document-milestone {
+  opacity: 0.45;
+  transform: scale(0.92);
+}
+
+.gantt-document-milestone-rail.is-drop-target .gantt-document-milestone {
+  color: var(--b3-theme-primary);
+  background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-background));
+  transform: scale(1.15);
+  box-shadow: var(--pinch-shadow), 0 0 5px color-mix(in srgb, var(--b3-theme-primary) 55%, transparent);
+}
+
+.gantt-document-milestone-rail.has-guide::after {
+  content: '';
+  position: absolute;
+  top: calc(50% + 17px);
+  left: 21px;
+  width: 2px;
+  height: max(0px, var(--gantt-milestone-guide-height));
+  background: color-mix(in srgb, var(--b3-border-color) 75%, var(--b3-theme-background));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--b3-theme-background) 70%, transparent);
+  pointer-events: none;
+}
+
+.gantt-document-milestone {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: -4px 0;
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  background: var(--b3-theme-background);
+  border-radius: 50%;
+  box-shadow: var(--pinch-shadow);
+}
+
 
 .gantt-row-label:hover {
   background: linear-gradient(var(--b3-list-hover), var(--b3-list-hover)), var(--gantt-row-label-base-bg);
@@ -2526,12 +3331,11 @@ const gridStyle = computed(() => ({
 .gantt-unscheduled-control-row {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 8;
   width: 100%;
   border-right: 0;
   border-top: 0;
-  border-bottom: 1px solid var(--b3-theme-surface-lighter);
-  border-right: 2px solid var(--b3-theme-surface-lighter);
+  border-right: 0;
   padding: 6px;
   background: var(--b3-theme-background);
   cursor: pointer;
@@ -2545,7 +3349,6 @@ const gridStyle = computed(() => ({
   position: relative;
   z-index: 3;
   align-self: stretch;
-  border-bottom: 1px solid var(--b3-theme-surface-lighter);
   pointer-events: none;
 }
 
@@ -2602,20 +3405,43 @@ const gridStyle = computed(() => ({
 }
 
 .gantt-section-label {
-  --gantt-row-label-base-bg: var(--b3-theme-background);
-  gap: 10px;
+  --gantt-row-label-base-bg: var(--b3-list-hover);
+  margin: 6px;
+  padding: 0 12px 0 8px;
+  border-radius: 10px;
+  gap: 8px;
   cursor: pointer;
   font-weight: 600;
   color: var(--b3-theme-on-background);
-  border-top: 1px solid var(--b3-theme-surface-lighter);
 }
 
 .gantt-section-label:hover {
-  background: linear-gradient(var(--b3-list-hover), var(--b3-list-hover)), var(--gantt-row-label-base-bg);
+  background: var(--gantt-row-label-base-bg);
 }
 
 .gantt-section-label.is-row-hovered:not(.goal-drop-target) {
   background: linear-gradient(var(--b3-list-hover), var(--b3-list-hover)), var(--gantt-row-label-base-bg);
+}
+
+.gantt-section-add-task-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin-left: auto;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface-light);
+  cursor: pointer;
+}
+
+.gantt-section-add-task-btn:hover {
+  background: var(--b3-theme-surface-lighter);
+  color: var(--b3-theme-primary);
 }
 
 .gantt-section-icon {
@@ -2740,15 +3566,27 @@ const gridStyle = computed(() => ({
   color: var(--b3-theme-primary);
 }
 
+.gantt-task-title-content :deep(*) {
+  display: inline;
+  white-space: nowrap;
+}
+
+.gantt-task-title-content :deep([data-type~="a"]) {
+  border-bottom: 1px solid currentColor;
+}
+
+.gantt-task-title-content :deep(br) {
+  display: none;
+}
+
 .gantt-day-cell {
   position: relative;
-  z-index: 1;
-  border-right: 1px solid var(--b3-list-hover);
-  background: var(--b3-theme-background);
+  z-index: 2;
+  background: transparent;
 }
 
 .gantt-day-cell.today {
-  background: color-mix(in srgb, #f98f7a 8%, var(--b3-theme-background));
+  background: transparent;
 }
 
 .gantt-day-cell.drop-target {
@@ -2766,15 +3604,9 @@ const gridStyle = computed(() => ({
 }
 
 .gantt-day-cell.section {
-  border-right: 0;
-  box-shadow: none;
-  border-top: 1px solid var(--b3-theme-surface-lighter);
-  border-right: 1px solid var(--b3-list-hover);
+  box-shadow: none;;
 }
 
-.gantt-day-cell.unscheduled-control {
-  border-bottom: 1px solid var(--b3-theme-surface-lighter);
-}
 
 .gantt-day-cell.is-row-hovered:not(.drop-target):not(.goal-drop-target) {
   background: var(--b3-list-hover);
@@ -2789,7 +3621,7 @@ const gridStyle = computed(() => ({
 }
 
 .gantt-day-cell.section.is-row-hovered:not(.drop-target):not(.goal-drop-target) {
-  background: var(--b3-list-hover);
+  background: transparent;
 }
 
 .gantt-deadline-marker {

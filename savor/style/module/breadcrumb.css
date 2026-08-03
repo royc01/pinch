@@ -1,0 +1,70 @@
+/* ————————————————————面包屑———————————————————— */
+.protyle-breadcrumb,.protyle-breadcrumb__bar{
+	background-color: transparent;
+	&>.protyle-breadcrumb__bar .protyle-breadcrumb__item{
+		&:hover{
+			background-color: var(--Sv-breadcrumb-hover);
+		}
+		&:first-child{
+			&::before{
+				content:"📄";
+				margin-right:-14px;
+				font-size: 12px;
+			}
+			&>svg.popover__block{
+				color:transparent;		
+				background-color: transparent;
+			}
+		}	
+		&>svg.popover__block{
+			border-radius:4px;
+		}
+	}
+	.protyle-breadcrumb__item:not(:last-child){
+		opacity: 0.6;
+		transition: opacity 300ms linear;
+	}
+	&:hover .protyle-breadcrumb__item:not(:last-child){
+		transition: opacity 300ms linear;
+		opacity: 1;
+	}
+	.protyle-breadcrumb__item--active{
+	background-color: transparent;
+		&:hover{
+			background-color: var(--Sv-breadcrumb-hover)    ;
+		}
+		&:not(:first-child)>svg{
+			color: var(--Sv-breadcrumb-active-color) ;
+			background-color: var(--b3-theme-on-background)!important;
+		}
+	}
+	.protyle-breadcrumb__text{
+		margin-left: 6px;
+		font-size:90%;
+	}
+	.protyle-breadcrumb__arrow{
+		width: 0px;
+		height: 13px;
+		transform: rotate(18deg);
+		border-left: 1px solid var(--Sv-breadcrumb-arrow);
+		opacity: 0.6;
+	}
+}
+
+/*只读按钮*/
+[aria-label="解除锁定"],[aria-label="Make doc writable"]{
+    background-color: var(--Sv-breadcrumb-hover);
+}
+/*退出聚焦按钮 */
+.protyle-breadcrumb__icon[data-type="exit-focus"]{
+	font-weight: 700;
+	border-radius: 6px;
+    background-color: var(--Sv-breadcrumb-active);
+    color: var(--Sv-breadcrumb-active-color) !important;
+    box-shadow: rgb(15 15 15 / 10%) 0px 1px 2px;
+	height:24px;
+	&:hover{
+		background-color:var( --Sv-breadcrumb-active-hover)!important;
+	}
+	
+}

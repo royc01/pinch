@@ -1,46 +1,58 @@
 <template>
-  <div
-    class="week-view"
-    :class="{
+  <div class="week-view-layout">
+    <CalendarTaskSidebar
+      v-if="!sidebarCollapsed"
+      :tasks="sidebarTasks || tasks"
+      :document-title-by-root-id="documentTitleByRootId"
+      :display-options="displayOptions"
+      :selected-start-date="currentWeekStart"
+      :selected-days-count="daysCount"
+      @task-toggle="toggleTaskStatus"
+      @task-edit="(task, anchor) => emit('taskEdit', task, anchor)"
+      @date-select="focusSelectedDate"
+      @calendar-display-toggle="emit('calendarDisplayToggle', $event)"
+      @calendar-task-drag-start="handleCalendarTaskDragStart"
+      @calendar-task-drag-move="handleCalendarTaskDragMove"
+      @calendar-task-drag-end="handleCalendarTaskDragEnd"
+      @calendar-task-drag-cancel="handleCalendarTaskDragCancel"
+    />
+    <div
+      class="week-view"
+      :class="{
       'mobile-week-grid-mode': isMobileWeekGridMode,
       'mobile-day-view-mode': isMobileDayViewMode,
       'mobile-three-day-view-mode': isMobileThreeDayViewMode
-    }"
-  >
+      }"
+    >
     <div class="calendar-toolbar">
-      <div v-if="calendarViewOptions.length > 0" class="calendar-view-switcher">
-        <button
-          v-for="option in calendarViewOptions"
-          :key="option.value"
-          type="button"
-          class="calendar-view-switcher-btn ariaLabel"
-          :class="{ active: currentCalendarView === option.value }"
-         
-          :aria-label="option.title"
-          @click="emit('calendarViewChange', option.value)"
-        >
-          {{ option.label }}
+      <div class="calendar-toolbar-top">
+        <button type="button" class="nav-btn ariaLabel" :aria-label="t(sidebarCollapsed ? 'weekView.expandSidebar' : 'weekView.collapseSidebar')" @click="sidebarCollapsed = !sidebarCollapsed">
+          <Icon :name="sidebarCollapsed ? 'chevronRight' : 'chevronLeft'" width="20" height="20" />
         </button>
-      </div>
-      <div class="calendar-header">
+        <div class="calendar-toolbar-actions">
+        <div v-if="calendarViewOptions.length > 0" class="calendar-view-switcher">
+          <button
+            v-for="option in calendarViewOptions"
+            :key="option.value"
+            type="button"
+            class="calendar-view-switcher-btn ariaLabel"
+            :class="{ active: currentCalendarView === option.value }"
+            :aria-label="option.title"
+            @click="emit('calendarViewChange', option.value)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+        <button class="today-btn" @click="goToToday">{{ t('weekView.today') }}</button>
         <button class="nav-btn ariaLabel" :aria-label="previousNavLabel" @click="previousWeek">
           <Icon name="chevronLeft" width="20" height="20" />
         </button>
-        <div class="header-center">
-          <div class="header-title">{{ displayWeekTitle }}</div>
-          <button class="today-btn" @click="goToToday">{{ t('weekView.today') }}</button>
-        </div>
-        <div class="header-right">
-          <button class="nav-btn ariaLabel" :aria-label="nextNavLabel" @click="nextWeek">
-            <Icon name="chevronRight" width="20" height="20" />
-          </button>
-          <div v-if="showHeaderDaysSwitcher" class="all-day-label-cell header-days-switcher">
-            <button class="days-control-btn" @click="decreaseDays" :disabled="isDaysCountLocked || daysCount <= minimumDaysCount">-</button>
-            <span class="days-count">{{ daysCount }}</span>
-            <button class="days-control-btn" @click="increaseDays" :disabled="isDaysCountLocked || daysCount >= CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS">+</button>
-          </div>
+        <button class="nav-btn ariaLabel" :aria-label="nextNavLabel" @click="nextWeek">
+          <Icon name="chevronRight" width="20" height="20" />
+        </button>
         </div>
       </div>
+      <div class="header-title">{{ displayWeekTitle }}</div>
     </div>
     
     <div class="week-body">
@@ -165,6 +177,14 @@
             <div class="weekday-name">{{ day.weekdayName }}</div>
             <div class="day-number">{{ day.dayNumber }}</div>
           </button>
+          <div v-if="showHeaderDaysSwitcher" class="header-days-switcher" @click.stop>
+            <button type="button" class="header-days-trigger ariaLabel" :aria-label="t('weekView.adjustDays')" @click="daysSwitcherOpen = !daysSwitcherOpen">+</button>
+            <div v-if="daysSwitcherOpen" class="header-days-popover">
+              <button class="days-control-btn" @click="decreaseDays" :disabled="daysCount <= minimumDaysCount">-</button>
+              <span class="days-count">{{ daysCount }}</span>
+              <button class="days-control-btn" @click="increaseDays" :disabled="daysCount >= CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS">+</button>
+            </div>
+          </div>
         </div>
         
         <div class="all-day-section" :style="{ height: isAllDaySectionCollapsed ? '30px' : allDaySectionHeight + 'px' }">
@@ -185,7 +205,7 @@
               :data-day-key="day.key"
               :class="{
                 today: day.isToday,
-                'drag-over': dragState.overDay === day.key || dragState.overAllDayColumn === day.key,
+                'drag-over': !draggingTimedTask && (dragState.overDay === day.key || dragState.overAllDayColumn === day.key),
                 'create-selecting': isAllDayInCreateSelection(day.key),
                 'last-column': index === weekDays.length - 1
               }"
@@ -207,7 +227,8 @@
                     isHabitTaskChip(task) ? 'all-day-habit-task' : 'all-day-task',
                     !isHabitTaskChip(task) ? `priority-${task.priority}` : '',
                     { 'task-completed': task.status === 'completed' },
-                    { 'mobile-selected': !isHabitTaskChip(task) && shouldShowMobileAllDayTaskControls(task.id) }
+                    { 'mobile-selected': !isHabitTaskChip(task) && shouldShowMobileAllDayTaskControls(task.id) },
+                    { 'keyboard-selected': selectedCalendarTaskId === task.id }
                   ]"
                 :style="getAllDayTaskStyle(task)"
                 @click="!isHabitTaskChip(task) && handleMobileAllDayTaskClick($event, task)"
@@ -230,7 +251,7 @@
                 <div 
                   class="task-chip-title"
                   :class="{ 'task-dragging': draggingTask?.task.id === task.id }"
-                  @mousedown="!isHabitTaskChip(task) && handleTaskMouseDown($event, task)"
+                  @mousedown="!isHabitTaskChip(task) && handleAllDayTaskMouseDown($event, task)"
                 >
                   <span
                     class="task-checkbox-wrapper"
@@ -268,9 +289,22 @@
                   @mousedown="handleHandleMouseDown($event, task, 'end')"
                   @pointerdown.stop="handleMobileAllDayTaskHandlePointerDown($event, task, 'end')"
                 ></div>
+                </div>
               </div>
+              <template v-if="allDayTaskDragPreview">
+                <div
+                  class="all-day-task-drag-outline"
+                  :style="getAllDayTaskDragPreviewStyle(allDayTaskDragPreview, false)"
+                ></div>
+                <div
+                  class="all-day-task all-day-task-drag-ghost"
+                  :ref="setAllDayTaskDragGhostElement"
+                  :style="getAllDayTaskDragPreviewStyle(allDayTaskDragPreview, true)"
+                >
+                  <div class="task-chip-title" v-html="getTaskTitleHtml(allDayTaskDragPreview.task)"></div>
+                </div>
+              </template>
             </div>
-          </div>
           
           <div 
             v-if="hiddenTasksCount > 0" 
@@ -394,7 +428,7 @@
                   :key="hour"
                   class="hour-cell"
                   :class="{
-                    'drag-over': dragState.overHourCell === `${day.key}-${hour}`
+                    'drag-over': !draggingTask && dragState.overHourCell === `${day.key}-${hour}`
                   }"
                   @mousedown.left="handleHourCellMouseDown(day, hour, $event)"
                   @mouseenter="handleHourCellMouseEnter(day, hour)"
@@ -408,7 +442,7 @@
                 :key="hour + 5"
                 class="hour-cell"
                 :class="{
-                  'drag-over': dragState.overHourCell === `${day.key}-${hour + 5}`
+                  'drag-over': !draggingTask && dragState.overHourCell === `${day.key}-${hour + 5}`
                 }"
                 @mousedown.left="handleHourCellMouseDown(day, hour + 5, $event)"
                 @mouseenter="handleHourCellMouseEnter(day, hour + 5)"
@@ -467,11 +501,12 @@
                     `priority-${item.task.priority}`,
                     { 'task-completed': item.task.status === 'completed' },
                     { 'task-dragging': draggingTimedTask?.task.id === item.task.id },
-                    { 'mobile-selected': shouldShowMobileTimedTaskControls(item.task.id) }
+                    { 'mobile-selected': shouldShowMobileTimedTaskControls(item.task.id) },
+                    { 'keyboard-selected': selectedCalendarTaskId === item.task.id }
                   ]"
                   :style="getTimedTaskStyle(item)"
                   @click="handleMobileTimedTaskClick($event, item.task)"
-                  @mousedown="handleTimedTaskMouseDown($event, item.task, day.key)"
+                  @mousedown="handleTimedTaskMouseDownWithSelection($event, item.task, day.key)"
                   @pointerdown="handleMobileTimedTaskPointerDown($event, item)"
                   @pointermove="handleMobileTimedTaskPointerMove"
                   @pointerup="handleMobileTimedTaskPointerUp"
@@ -533,6 +568,22 @@
                     @pointerdown.stop="handleMobileTimedTaskHandlePointerDown($event, item.task, 'end')"
                   ></div>
                 </div>
+                <template v-if="timedTaskDragPreview?.target?.kind === 'timed' && timedTaskDragPreview.target.dayKey === day.key">
+                  <div
+                    class="timed-task-drag-outline"
+                    :style="getTimedTaskDragPreviewStyle(timedTaskDragPreview, false)"
+                  ></div>
+                  <div
+                    class="timed-task-drag-ghost"
+                    :ref="setTimedTaskDragGhostElement"
+                    :style="getTimedTaskDragPreviewStyle(timedTaskDragPreview, true)"
+                  >
+                    <div class="timed-task-content">
+                      <div class="timed-task-title" v-html="getTaskTitleHtml(timedTaskDragPreview.task)"></div>
+                      <div class="timed-task-time">{{ getTimedTaskDragPreviewTimeRange(timedTaskDragPreview) }}</div>
+                    </div>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
@@ -608,6 +659,7 @@
       <div v-if="mobileDragHint" class="mobile-drag-preview-hint">{{ mobileDragHint }}</div>
     </div>
 
+    </div>
   </div>
 </template>
 
@@ -639,6 +691,7 @@ import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import { persistTaskBackgroundColor } from '@/utils/taskBackgroundColorPersistence';
 import Icon from './Icon.vue';
+import CalendarTaskSidebar from './CalendarTaskSidebar.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import LifelogTimelinePanel, {
@@ -684,6 +737,8 @@ import {
 
 interface Props {
   tasks: Task[];
+  sidebarTasks?: Task[];
+  documentTitleByRootId?: Map<string, string>;
   lifelogTasks?: Task[];
   fixedDaysCount?: number;
   fixedCenterToday?: boolean;
@@ -691,6 +746,7 @@ interface Props {
   goals?: Goal[];
   calendarViewOptions?: CalendarViewOption[];
   currentCalendarView?: CalendarViewMode;
+  displayOptions?: Array<{ key: string; label: string; enabled: boolean }>;
   showFocusRecords?: boolean;
   showHabits?: boolean;
   showTaskLifelog?: boolean;
@@ -870,12 +926,21 @@ const emit = defineEmits<{
   'taskCreateRequested': [payload: { startDate: string; dueDate: string; startTime?: string; dueTime?: string; allDay: boolean }];
   'visibleRangeChange': [payload: { startDate: string; endDate: string }];
   'calendarViewChange': [view: CalendarViewMode];
+  'calendarDisplayToggle': [key: string];
   'focusSessionContextmenu': [session: FocusCalendarEvent];
 }>();
 
 interface ExternalTaskDropPoint {
   clientX: number;
   clientY: number;
+}
+
+interface CalendarTaskSidebarDragPayload extends ExternalTaskDropPoint {
+  task: Task;
+}
+
+interface TaskManagerCalendarDragDetail extends CalendarTaskSidebarDragPayload {
+  phase: 'start' | 'move' | 'end' | 'cancel';
 }
 
 interface MobilePointerTaskDragSession {
@@ -1014,6 +1079,8 @@ function resolveInitialWeekStart(): Date {
 }
 
 const currentWeekStart = ref(resolveInitialWeekStart());
+const daysSwitcherOpen = ref(false);
+const sidebarCollapsed = ref(false);
 const currentTime = ref(new Date());
 const isAllDaySectionCollapsed = ref(false);
 const INACTIVE_HOURS_OFFSET = 240; // 5 小时栁E��+5 个 hour-cell ÁE48px
@@ -1198,6 +1265,31 @@ const timedCreateSelection = ref<{
 
 const { saveTaskAttrs } = useDebouncedSave(500);
 const taskSyncGuard = useTaskSyncGuard(localTasks);
+let timedTaskDragGhostElement: HTMLElement | null = null;
+let allDayTaskDragGhostElement: HTMLElement | null = null;
+
+function setTimedTaskDragGhostElement(element: Element | null): void {
+  timedTaskDragGhostElement = element instanceof HTMLElement ? element : null;
+}
+
+function moveTimedTaskDragGhost(position: { left: number; top: number }): void {
+  timedTaskDragGhostElement?.style.setProperty(
+    'transform',
+    `translate3d(${position.left}px, ${position.top}px, 0)`
+  );
+}
+
+function setAllDayTaskDragGhostElement(element: Element | null): void {
+  allDayTaskDragGhostElement = element instanceof HTMLElement ? element : null;
+}
+
+function moveAllDayTaskDragGhost(position: { left: number; top: number }): void {
+  allDayTaskDragGhostElement?.style.setProperty(
+    'transform',
+    `translate3d(${position.left}px, ${position.top}px, 0)`
+  );
+}
+
 const {
   upsertTask: upsertLocalTask,
   patchTask: patchLocalTask,
@@ -1220,8 +1312,10 @@ const {
   dragState,
   draggingHandle,
   draggingTask,
+  allDayTaskDragPreview,
   draggingTimedTaskHandle,
   draggingTimedTask,
+  timedTaskDragPreview,
   isDragging,
   handleHandleMouseDown,
   handleTaskMouseDown,
@@ -1229,7 +1323,9 @@ const {
   handleTimedTaskMouseDown,
   removeEventListeners
 } = useTaskDrag(localTasks, emitTaskDateChanged, {
-  inactiveHoursOffset: () => isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0
+  inactiveHoursOffset: () => isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0,
+  onTimedTaskDragGhostMove: moveTimedTaskDragGhost,
+  onAllDayTaskDragGhostMove: moveAllDayTaskDragGhost
 });
 
 const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
@@ -1238,6 +1334,33 @@ const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null
   y: 0,
   task: null
 });
+const selectedCalendarTaskId = ref<string | null>(null);
+
+function handleAllDayTaskMouseDown(event: MouseEvent, task: Task): void {
+  selectedCalendarTaskId.value = task.id;
+  handleTaskMouseDown(event, task);
+}
+
+function handleTimedTaskMouseDownWithSelection(event: MouseEvent, task: Task, dayKey: string): void {
+  selectedCalendarTaskId.value = task.id;
+  handleTimedTaskMouseDown(event, task, dayKey);
+}
+
+function handleCalendarTaskDateClearKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('input, textarea, select, [contenteditable="true"], .context-menu, .task-modal, .task-editor-protyle-body.is-sidebar .protyle')) return;
+  const taskId = selectedCalendarTaskId.value;
+  if (!taskId) return;
+  const task = localTasks.value.find(item => item.id === taskId);
+  if (!task) {
+    selectedCalendarTaskId.value = null;
+    return;
+  }
+  event.preventDefault();
+  selectedCalendarTaskId.value = null;
+  void clearTaskDates(task);
+}
 const contextMenuDateDraft = ref<{ startDate: string; startTime: string; dueDate: string; dueTime: string }>({
   startDate: '',
   startTime: '',
@@ -1955,27 +2078,9 @@ const mobileWeekDays = computed<WeekDay[]>(() => {
 
 const mobileWeekDayKeySet = computed(() => new Set(mobileWeekDays.value.map(day => day.key)));
 
-function formatMonthDayWithoutYear(date: Date): string {
-  return formatMonthDayLabel(date);
-}
-
 const displayWeekTitle = computed(() => {
-  if (hasFixedDaysCount.value) {
-    const start = new Date(currentWeekStart.value);
-    const end = new Date(start);
-    end.setDate(start.getDate() + daysCount.value - 1);
-    if (daysCount.value === 1) {
-      return formatMonthDayWithoutYear(start);
-    }
-    return formatDateRangeLabel(start, end, formatMonthDayWithoutYear);
-  }
-  if (!isMobileWeekGridMode.value) {
-    return weekTitle.value;
-  }
-  const start = new Date(mobileWeekStartDate.value);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  return formatDateRangeLabel(start, end, formatFullDateLabel);
+  const date = currentWeekStart.value;
+  return `${date.getFullYear()} ${date.getMonth() + 1}${t('date.monthSuffix')}`;
 });
 
 const mobileCalendarTitle = computed(() => {
@@ -2119,11 +2224,9 @@ function getTaskDateRangeForRender(task: Task): { startDate: Date; endDate: Date
   const startDate = new Date(startValue);
   startDate.setHours(0, 0, 0, 0);
 
-  // Virtual tasks only span days when their materialized due date differs
-  // from the occurrence date. Standard recurring instances have equal dates.
-  const endValue = task.isVirtual && task.dueDate && task.dueDate !== startValue
-    ? task.dueDate
-    : startValue;
+  // Ordinary tasks can span multiple days as well; always honor their due
+  // date so resizing a task renders across its full duration.
+  const endValue = task.dueDate || startValue;
   const endDate = new Date(endValue);
   endDate.setHours(23, 59, 59, 999);
 
@@ -2443,7 +2546,7 @@ function getVisibleTaskPosition(task: WeekAllDayTask): number {
   return taskPositionsMap.value.get(task.id) || 0;
 }
 
-function getAllDayTaskStyle(task: WeekAllDayTask) {
+function getAllDayTaskStyle(task: WeekAllDayTask): Record<string, string> {
   const leftPercent = (task.startDayOfWeek / daysCount.value) * 100;
   const widthPercent = (task.spanDays / daysCount.value) * 100;
 
@@ -2462,6 +2565,33 @@ function getAllDayTaskStyle(task: WeekAllDayTask) {
     background: bgColor,
     '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
+}
+
+function getAllDayTaskDragPreviewStyle(
+  preview: NonNullable<typeof allDayTaskDragPreview.value>,
+  followPointer: boolean
+): Record<string, string> {
+  const startDayOfWeek = weekDays.value.findIndex(day => day.key === preview.startDate);
+  const dueDate = preview.dueDate || preview.startDate;
+  const endDayOfWeek = weekDays.value.findIndex(day => day.key === dueDate);
+  if (startDayOfWeek < 0 || endDayOfWeek < startDayOfWeek) return { display: 'none' };
+
+  const style = getAllDayTaskStyle({
+    ...preview.task,
+    startDayOfWeek,
+    endDayOfWeek,
+    spanDays: endDayOfWeek - startDayOfWeek + 1,
+    rangeStart: new Date(preview.startDate),
+    rangeEnd: new Date(dueDate)
+  } as WeekAllDayTask);
+  if (followPointer) {
+    style.left = '0px';
+    style.width = `${preview.width}px`;
+    style.top = '0px';
+    style.height = `${preview.height}px`;
+    style.transform = `translate3d(${preview.floatingLeft}px, ${preview.floatingTop}px, 0)`;
+  }
+  return style;
 }
 
 function getExpandedAllDayChipStyle(task: WeekAllDayTask): Record<string, string> {
@@ -2541,6 +2671,31 @@ function nextWeek() {
   currentWeekStart.value = newDate;
 }
 
+function focusSelectedDate(date: Date): void {
+  hideAllDayExpandedPanel();
+  const selected = new Date(date);
+  selected.setHours(0, 0, 0, 0);
+  const fixedDays = resolveFixedDaysCount(props.fixedDaysCount);
+  if (!fixedDays) {
+    currentWeekStart.value = getMondayStart(selected);
+    return;
+  }
+  if (fixedDays === 1) {
+    currentWeekStart.value = selected;
+    return;
+  }
+  const currentStart = new Date(currentWeekStart.value);
+  currentStart.setHours(0, 0, 0, 0);
+  const currentEnd = new Date(currentStart);
+  currentEnd.setDate(currentEnd.getDate() + fixedDays - 1);
+  if (selected < currentStart) {
+    currentWeekStart.value = selected;
+  } else if (selected > currentEnd) {
+    selected.setDate(selected.getDate() - fixedDays + 1);
+    currentWeekStart.value = selected;
+  }
+}
+
 function goToToday() {
   hideAllDayExpandedPanel();
   if (isMobileWeekGridMode.value && daysCount.value === 7) {
@@ -2584,6 +2739,14 @@ function hideAllDayExpandedPanel() {
 
 function handleGlobalPointerDown(event: PointerEvent): void {
   const targetElement = event.target instanceof Element ? event.target : null;
+
+  if (!targetElement?.closest('.all-day-task, .all-day-habit-task, .timed-task')) {
+    selectedCalendarTaskId.value = null;
+  }
+
+  if (daysSwitcherOpen.value && !targetElement?.closest('.header-days-switcher')) {
+    daysSwitcherOpen.value = false;
+  }
 
   if (selectedMobileAllDayTaskId.value || selectedMobileTimedTaskId.value) {
     const clickedInsideInteractiveTask = !!targetElement?.closest('.all-day-task, .all-day-habit-task, .timed-task, .context-menu, .mobile-drag-preview, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover');
@@ -2935,10 +3098,51 @@ function updateExternalTaskDrag(point: ExternalTaskDropPoint, task?: Task): { la
 
   dragState.value.overDay = target.day.key;
   dragState.value.overAllDayColumn = target.day.key;
-  if (!isMobileWeekGridMode.value) {
-    dragState.value.overDayColumn = target.day.key;
-  }
+  // An external all-day drop belongs to the all-day strip only.  Keeping the
+  // timed day-column highlighted makes the time grid look like a second drop
+  // target, even though it is not part of this resolution.
+  dragState.value.overDayColumn = null;
   return { label: formatExternalDropLabel(target.day) };
+}
+
+function handleCalendarTaskDragStart(payload: CalendarTaskSidebarDragPayload): void {
+  if (!payload?.task) {
+    clearWeekDragOverState();
+    return;
+  }
+  updateExternalTaskDrag(payload, payload.task);
+}
+
+function handleCalendarTaskDragMove(payload: CalendarTaskSidebarDragPayload): void {
+  if (!payload?.task) {
+    clearWeekDragOverState();
+    return;
+  }
+  updateExternalTaskDrag(payload, payload.task);
+}
+
+async function handleCalendarTaskDragEnd(payload: CalendarTaskSidebarDragPayload): Promise<void> {
+  if (!payload?.task) {
+    clearWeekDragOverState();
+    return;
+  }
+  await dropExternalTask(payload.task, payload);
+}
+
+function handleCalendarTaskDragCancel(): void {
+  clearWeekDragOverState();
+}
+
+function handleTaskManagerCalendarPointerDrag(event: Event): void {
+  const detail = (event as CustomEvent<TaskManagerCalendarDragDetail>).detail;
+  if (!detail || (detail.phase !== 'cancel' && !detail.task)) return;
+  if (detail.phase === 'start' || detail.phase === 'move') {
+    updateExternalTaskDrag(detail, detail.task);
+  } else if (detail.phase === 'end') {
+    void dropExternalTask(detail.task, detail).catch(() => clearWeekDragOverState());
+  } else {
+    clearWeekDragOverState();
+  }
 }
 
 async function dropExternalTask(task: Task, point: ExternalTaskDropPoint): Promise<boolean> {
@@ -3918,6 +4122,42 @@ function getTimedTaskStyle(item: TimedTaskRenderItem) {
   style.width = laneWidth;
   style.right = 'auto';
   return style;
+}
+
+function getTimedTaskDragPreviewStyle(
+  preview: NonNullable<typeof timedTaskDragPreview.value>,
+  followPointer: boolean
+): Record<string, string> {
+  const target = preview.target;
+  if (!target || target.kind !== 'timed') return {};
+
+  const renderItem: TimedTaskRenderItem = {
+    task: preview.task,
+    renderDate: target.dayKey,
+    renderStartDate: target.dayKey,
+    renderStartTime: target.startTime || '00:00',
+    renderDueDate: target.dueDate || target.dayKey,
+    renderDueTime: target.dueDate && target.dueDate !== target.dayKey
+      ? '23:59'
+      : (target.dueTime || '23:59')
+  };
+  const style = getTimedTaskStyle(renderItem);
+  if (followPointer) {
+    style.left = '0px';
+    style.right = 'auto';
+    style.width = `${preview.width}px`;
+    style.top = '0px';
+    style.transform = `translate3d(${preview.floatingLeft}px, ${preview.floatingTop}px, 0)`;
+  }
+  return style;
+}
+
+function getTimedTaskDragPreviewTimeRange(
+  preview: NonNullable<typeof timedTaskDragPreview.value>
+): string {
+  const target = preview.target;
+  if (!target || target.kind !== 'timed') return '';
+  return `${target.startTime || '00:00'} - ${target.dueTime || '23:59'}`;
 }
 
 function getTaskTimeRange(item: TimedTaskRenderItem) {
@@ -6052,6 +6292,7 @@ function handleTaskOpenClick(task: Task, event?: MouseEvent) {
 
 function handleMobileAllDayTaskClick(event: MouseEvent, task: Task): void {
   if (!isMobileAllDayTaskInteractionEnabled.value) {
+    selectedCalendarTaskId.value = task.id;
     handleTaskClick(task, event);
     return;
   }
@@ -6069,6 +6310,7 @@ function handleMobileAllDayTaskClick(event: MouseEvent, task: Task): void {
 
 function handleMobileTimedTaskClick(event: MouseEvent, task: Task): void {
   if (!isMobileTimedTaskInteractionEnabled.value) {
+    selectedCalendarTaskId.value = task.id;
     handleTaskClick(task, event);
     return;
   }
@@ -6334,6 +6576,8 @@ defineExpose({
 });
 
 onMounted(() => {
+  document.addEventListener('keydown', handleCalendarTaskDateClearKeydown);
+  window.addEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
   handleViewportResize();
   timeUpdateInterval = setInterval(() => {
     currentTime.value = new Date();
@@ -6363,6 +6607,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  document.removeEventListener('keydown', handleCalendarTaskDateClearKeydown);
+  window.removeEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
   if (timeUpdateInterval) {
     clearInterval(timeUpdateInterval);
   }
@@ -6398,6 +6644,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.week-view-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
 .week-view {
   flex: 1;
   display: flex;
@@ -6408,9 +6661,10 @@ onUnmounted(() => {
 
 .calendar-toolbar {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 10px;
-  padding:4px 10px;
+  padding:0 10px;
   border-bottom: 1px solid var(--b3-theme-border);
 }
 
@@ -6480,47 +6734,39 @@ onUnmounted(() => {
 }
 
 .header-title {
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 500;
   color: var(--b3-theme-on-background);
 }
 
-.header-center {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.header-right {
+.calendar-toolbar-actions {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.header-days-switcher {
-  width: auto;
-  padding: 2px 4px;
-  border-radius: 6px;
-  background: var(--b3-list-hover);
-  color: var(--b3-theme-on-background);
-  height: 24px;
+.calendar-toolbar-top {
+  display: flex;
+  align-items: center;
 }
 
 .today-btn {
+  height: 28px;
   border: 1px solid transparent;
-  background: var(--b3-list-hover);
+  background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
   font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 999px;
+  padding: 0 10px;
+  border-radius: 7px;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s ease;
+  box-shadow: var(--pinch-shadow);
 }
 
 .today-btn:hover {
-  background: var(--b3-theme-background);
-  border-color: var(--b3-border-color);
+  background: var(--b3-list-hover);
 }
 
 .week-body {
@@ -6566,8 +6812,9 @@ onUnmounted(() => {
 }
 
 .mobile-week-cell.drag-over {
-  background: rgba(59, 130, 246, 0.12);
-  box-shadow: inset 0 0 0 2px #3b82f6;
+  background: transparent;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px var(--pinch-color7);
 }
 
 .mobile-cell-header {
@@ -6772,10 +7019,55 @@ onUnmounted(() => {
 }
 
 .weekday-header {
+  position: relative;
   display: flex;
   height: 30px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--b3-border-color);
+}
+
+.header-days-switcher {
+  position: absolute;
+  z-index: 5;
+  top: 3px;
+  right: 3px;
+}
+
+.header-days-trigger {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  color: var(--b3-theme-on-surface);
+  background: var(--b3-list-hover);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 18px;
+}
+
+.header-days-popover {
+  position: absolute;
+  top: 24px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  color: var(--b3-theme-on-background);
+  background: var(--b3-theme-on-background);
+  box-shadow: var(--pinch-shadow);
+}
+
+.header-days-popover .days-control-btn {
+  color: var(--b3-theme-background);
+  background: transparent;
+}
+
+.header-days-popover .days-count {
+  min-width: 12px;
+  color: var(--b3-theme-background);
+  text-align: center;
 }
 
 .all-day-label-cell {
@@ -6927,8 +7219,9 @@ onUnmounted(() => {
 .all-day-column.drag-over,
 .day-column.drag-over,
 .hour-cell.drag-over {
-  background: rgba(59, 130, 246, 0.15);
-  box-shadow: inset 0 0 0 2px #3b82f6;
+  background: transparent;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px var(--pinch-color7);
 }
 
 .all-day-column.create-selecting {
@@ -7007,6 +7300,11 @@ onUnmounted(() => {
   z-index: 25;
 }
 
+.all-day-task.keyboard-selected,
+.timed-task.keyboard-selected {
+  box-shadow: 0 0 0 2px var(--pinch-task-chip-color, var(--pinch-color6));
+}
+
 .task-handle {
   position: absolute;
   top: 0;
@@ -7026,9 +7324,9 @@ onUnmounted(() => {
   width: 8px;
   height: 22px;
   border-radius: 999px;
-  transform: translateY(-50%);
-  background: color-mix(in srgb, var(--pinch-task-chip-color, var(--pinch-color6)) 72%, white 28%);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+  transform: translate(-50%, -50%);
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  box-shadow: none;
 }
 
 .task-handle-left {
@@ -7036,7 +7334,7 @@ onUnmounted(() => {
 }
 
 .task-handle-left::after {
-  left: 3px;
+  left: 50%;
 }
 
 .task-handle-right {
@@ -7044,7 +7342,8 @@ onUnmounted(() => {
 }
 
 .task-handle-right::after {
-  right: 3px;
+  left: 50%;
+  right: auto;
 }
 
 .task-chip-title {
@@ -7132,8 +7431,28 @@ onUnmounted(() => {
 }
 
 .all-day-task:has(.task-chip-title.task-dragging) {
-  opacity: 0.72;
-  box-shadow: 0 0 0 2px var(--pinch-task-chip-color, var(--pinch-color6));
+  opacity: 0.32;
+}
+
+.all-day-task-drag-outline {
+  position: absolute;
+  box-sizing: content-box;
+  padding: 3px 6px 3px 8px;
+  margin-left: 5px;
+  border: none;
+  box-shadow: inset 0 0 0 2px var(--pinch-task-chip-color, var(--pinch-color6));
+  border-radius: 6px;
+  background: transparent !important;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.all-day-task-drag-ghost {
+  pointer-events: none;
+  z-index: 6;
+  opacity: 0.94;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
+  will-change: transform;
 }
 
 .all-day-task.task-completed {
@@ -7576,12 +7895,13 @@ onUnmounted(() => {
   content: '';
   position: absolute;
   left: 50%;
+  top: 50%;
   width: 44px;
   height: 9px;
   border-radius: 6px;
-  transform: translateX(-50%);
-  background: color-mix(in srgb, var(--pinch-task-chip-color, var(--pinch-color6)) 72%, white 28%);
-  box-shadow: var(--pinch-shadow);
+  transform: translate(-50%, -50%);
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  box-shadow: none;
 }
 
 
@@ -7592,7 +7912,7 @@ onUnmounted(() => {
 }
 
 .timed-task-handle-top::after {
-  top: 2px;
+  top: 50%;
 }
 
 
@@ -7603,7 +7923,8 @@ onUnmounted(() => {
 }
 
 .timed-task-handle-bottom::after {
-  bottom: 2px;
+  top: 50%;
+  bottom: auto;
 }
 
 
@@ -7633,8 +7954,30 @@ onUnmounted(() => {
 }
 
 .timed-task.task-dragging {
-  opacity: 0.7;
+  opacity: 0.32;
   cursor: grabbing;
+}
+
+.timed-task-drag-outline,
+.timed-task-drag-ghost {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.timed-task-drag-outline {
+  z-index: 5;
+  border: 2px solid var(--pinch-task-chip-color, var(--pinch-color6));
+  background: transparent !important;
+}
+
+.timed-task-drag-ghost {
+  z-index: 6;
+  overflow: hidden;
+  opacity: 0.94;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+  will-change: transform;
 }
 
 .timed-task:not(.task-dragging) {
@@ -7756,7 +8099,7 @@ onUnmounted(() => {
   }
 
   .all-day-task .task-handle-left::after {
-    left: 4px;
+    left: 50%;
   }
 
   .all-day-task .task-handle-right {
@@ -7764,7 +8107,8 @@ onUnmounted(() => {
   }
 
   .all-day-task .task-handle-right::after {
-    right: 4px;
+    left: 50%;
+    right: auto;
   }
 
   .all-day-task:hover {
@@ -7787,7 +8131,7 @@ onUnmounted(() => {
   }
 
   .timed-task-handle-top::after {
-    top: 4px;
+    top: 50%;
   }
 
   .timed-task-handle-bottom {
@@ -7795,7 +8139,8 @@ onUnmounted(() => {
   }
 
   .timed-task-handle-bottom::after {
-    bottom: 4px;
+    top: 50%;
+    bottom: auto;
   }
 
   .timed-task:hover {
@@ -7822,16 +8167,31 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .calendar-toolbar-top > .nav-btn:first-child {
+    display: none;
+  }
+
+  .calendar-toolbar-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .calendar-view-switcher {
+    margin-right: auto;
+  }
+
   .mobile-week-cell.drag-over {
-    background: var(--b3-theme-surface);
-    box-shadow: none;
+    background: transparent;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 2px var(--pinch-color7);
   }
 
   .all-day-column.drag-over,
   .day-column.drag-over,
   .hour-cell.drag-over {
     background: transparent;
-    box-shadow: none;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 2px var(--pinch-color7);
   }
 
   .week-view.mobile-week-grid-mode .header-days-switcher {
@@ -7891,7 +8251,7 @@ onUnmounted(() => {
   }
 
   .all-day-task .task-handle-left::after {
-    left: 7px;
+    left: 50%;
   }
 
   .all-day-task .task-handle-right {
@@ -7899,7 +8259,8 @@ onUnmounted(() => {
   }
 
   .all-day-task .task-handle-right::after {
-    right: 7px;
+    left: 50%;
+    right: auto;
   }
 
   .all-day-task .task-handle.mobile-visible {
@@ -7957,11 +8318,12 @@ onUnmounted(() => {
   }
 
   .timed-task-handle.mobile-visible.timed-task-handle-top::after {
-    top: 4px;
+    top: 50%;
   }
 
   .timed-task-handle.mobile-visible.timed-task-handle-bottom::after {
-    bottom: 4px;
+    top: 50%;
+    bottom: auto;
   }
 
   .timed-task-time {

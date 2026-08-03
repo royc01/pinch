@@ -1,0 +1,30 @@
+{
+  "name": "Savor",
+  "author": "Roy",
+  "url": "https://github.com/royc01/notion-theme",
+  "version": "6.2.7",
+  "displayName": {
+    "default": "Savor",
+    "zh_CN": "写味"
+  },
+  "description": {
+    "default": "You said that you grudged eating up this kinda feeling.",
+    "zh_CN": "你说你舍不得吃掉这一种感觉"
+  },
+  "readme": {
+    "default": "README.md",
+    "zh_CN": "README_zh_CN.md"
+  },
+  "funding": {
+    "openCollective": "",
+    "patreon": "",
+    "github": "",
+    "custom": [
+      "https://afdian.com/a/Savor"
+    ]
+  },
+  "modes": [
+    "light",
+	"dark"
+  ]
+}

@@ -4,7 +4,7 @@ import type { TaskViewGroupMode } from './taskGrouping';
 import type { TaskDateKeywordConfig } from './taskDateParser';
 
 export type TaskViewSwitcherId = 'kanban' | 'list' | 'table' | 'quadrant' | 'gantt' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
-export type SidebarSectionId = 'week-dates' | 'summary-card-grid' | 'habit-list' | 'stand-container';
+export type SidebarSectionId = 'week-dates' | 'habit-list' | 'stand-container';
 export type TaskCreateDefaultTarget = 'last' | 'inbox' | 'daily-note';
 
 export interface UserSettings {
@@ -55,6 +55,8 @@ export interface UserSettings {
     ganttFilterType?: string;
     ganttFilterSource?: string;
     ganttFilterDocument?: string;
+    ganttMilestonesEnabled?: boolean;
+    ganttDocumentOrderBySource?: Record<string, string[]>;
     monthFilterType: string;
     monthFilterSource?: string;
     monthFilterDocument: string;
@@ -114,6 +116,9 @@ export interface UserSettings {
     selectedDocument: string;
     hiddenSectionIds?: SidebarSectionId[];
     sectionOrder?: SidebarSectionId[];
+    habitListCollapsed?: boolean;
+    taskListCollapsed?: boolean;
+    avatarDataUrl?: string;
   };
 }
 
@@ -162,6 +167,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     ganttFilterType: 'all',
     ganttFilterSource: 'all',
     ganttFilterDocument: 'all',
+    ganttMilestonesEnabled: false,
+    ganttDocumentOrderBySource: {},
     monthFilterType: 'all',
     monthFilterSource: 'all',
     monthFilterDocument: 'all',
@@ -218,7 +225,10 @@ export const DEFAULT_SETTINGS: UserSettings = {
     selectedNotebook: 'all',
     selectedDocument: 'all',
     hiddenSectionIds: [],
-    sectionOrder: ['week-dates', 'summary-card-grid', 'habit-list', 'stand-container']
+    sectionOrder: ['week-dates', 'habit-list', 'stand-container'],
+    habitListCollapsed: false,
+    taskListCollapsed: false,
+    avatarDataUrl: ''
   }
 };
 
@@ -243,6 +253,20 @@ function normalizeStringArray(input: unknown): string[] {
     normalized.push(value);
   }
   return normalized;
+}
+
+function normalizeDocumentOrderBySource(input: unknown): Record<string, string[]> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return {};
+  }
+
+  return Object.entries(input as Record<string, unknown>).reduce<Record<string, string[]>>((result, [source, order]) => {
+    const normalizedSource = source.trim();
+    if (normalizedSource) {
+      result[normalizedSource] = normalizeStringArray(order);
+    }
+    return result;
+  }, {});
 }
 
 function normalizePositiveInteger(input: unknown, fallback: number): number {
@@ -299,7 +323,6 @@ const TASK_VIEW_SWITCHER_IDS: readonly TaskViewSwitcherId[] = [
 
 const SIDEBAR_SECTION_IDS: readonly SidebarSectionId[] = [
   'week-dates',
-  'summary-card-grid',
   'habit-list',
   'stand-container'
 ];
@@ -338,6 +361,9 @@ function mergeWithDefaults(input: unknown): UserSettings {
         ? (rawKanban as { quadrantUrgentDays: 1 | 3 | 7 | 10 | 15 }).quadrantUrgentDays
         : DEFAULT_SETTINGS.kanban.quadrantUrgentDays,
       hiddenDocumentTabIds: normalizeNotebookIds((rawKanban as { hiddenDocumentTabIds?: unknown }).hiddenDocumentTabIds),
+      ganttDocumentOrderBySource: normalizeDocumentOrderBySource(
+        (rawKanban as { ganttDocumentOrderBySource?: unknown }).ganttDocumentOrderBySource
+      ),
       kanbanGroupColumnOrder: normalizeStringArray((rawKanban as { kanbanGroupColumnOrder?: unknown }).kanbanGroupColumnOrder),
       kanbanStatusFilters: normalizeStringArray((rawKanban as { kanbanStatusFilters?: unknown }).kanbanStatusFilters),
       kanbanPriorityFilters: normalizeStringArray((rawKanban as { kanbanPriorityFilters?: unknown }).kanbanPriorityFilters),
@@ -388,7 +414,12 @@ function mergeWithDefaults(input: unknown): UserSettings {
       sectionOrder: normalizeOrderedAllowedStringArray(
         (rawSidebar as { sectionOrder?: unknown }).sectionOrder,
         SIDEBAR_SECTION_IDS
-      )
+      ),
+      habitListCollapsed: (rawSidebar as { habitListCollapsed?: unknown }).habitListCollapsed === true,
+      taskListCollapsed: (rawSidebar as { taskListCollapsed?: unknown }).taskListCollapsed === true,
+      avatarDataUrl: typeof (rawSidebar as { avatarDataUrl?: unknown }).avatarDataUrl === 'string'
+        ? (rawSidebar as { avatarDataUrl: string }).avatarDataUrl
+        : ''
     }
   };
 }

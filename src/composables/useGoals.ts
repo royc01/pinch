@@ -23,6 +23,7 @@ export interface GoalListItem extends Goal {
 export const useGoals = () => {
   const goalDefinitions = ref<Goal[]>([]);
   const goalDocuments = ref<GoalScopeDocument[]>([]);
+  const goalTasks = ref<Task[]>([]);
   const goalItems = ref<GoalListItem[]>([]);
   const goalsLoading = ref(false);
   const goalsError = ref('');
@@ -47,7 +48,10 @@ export const useGoals = () => {
   };
 
   const loadGoalsData = async (options: { taskUseCache?: boolean } = {}) => {
-    const { taskUseCache = true } = options;
+    // Goal progress must reflect the current document contents. The persisted
+    // task cache can be up to ten minutes old and otherwise leaves every goal
+    // showing as empty until it expires.
+    const { taskUseCache = false } = options;
     const loadId = ++latestLoadId;
     goalsLoading.value = true;
     goalsError.value = '';
@@ -65,6 +69,7 @@ export const useGoals = () => {
 
       goalDefinitions.value = nextGoals;
       goalDocuments.value = nextGoalDocuments;
+      goalTasks.value = tasks;
       goalItems.value = buildGoalProgressSummaries(nextGoals, tasks).map((summary) => ({
         ...summary.goal,
         documentCount: summary.documentCount,
@@ -97,6 +102,7 @@ export const useGoals = () => {
     } catch (error) {
       console.error('[Goals] refreshGoalDocuments: task refresh failed', error);
     }
+    goalTasks.value = tasks;
     goalDocuments.value = await loadGoalScopeDocuments(tasks);
   };
 
@@ -137,13 +143,13 @@ export const useGoals = () => {
 
   const saveGoalDefinitions = async (goals: Goal[]) => {
     await saveGoals(goals);
-    await loadGoalsData({ taskUseCache: true });
+    await loadGoalsData({ taskUseCache: false });
   };
 
   onMounted(() => {
     unsubscribers.push(
       eventBus.on(Events.GOALS_UPDATED, () => {
-        scheduleRefresh(true);
+        scheduleRefresh(false);
       }),
       eventBus.on(Events.TASK_CHANGED, () => {
         scheduleRefresh(false);
@@ -162,7 +168,7 @@ export const useGoals = () => {
       })
     );
 
-    void loadGoalsData({ taskUseCache: true });
+    void loadGoalsData({ taskUseCache: false });
   });
 
   onUnmounted(() => {
@@ -180,6 +186,7 @@ export const useGoals = () => {
   return {
     goalDefinitions,
     goalDocuments,
+    goalTasks,
     goalItems,
     goalsLoading,
     goalsError,

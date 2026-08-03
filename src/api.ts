@@ -9,6 +9,7 @@
 import {
   fetchSyncPost,
   getFrontend,
+  getAllEditor,
   IWebSocketData,
   openMobileFileById,
   openTab,
@@ -367,6 +368,16 @@ export async function appendBlock(
   };
   let url = "/api/block/appendBlock";
   return request(url, payload);
+}
+
+function refreshOpenDocumentIfVisible(rootId: string): void {
+  if (!rootId) return;
+  for (const editor of getAllEditor()) {
+    const editorRootId = editor?.protyle?.block?.rootID || editor?.protyle?.block?.id || '';
+    if (editorRootId === rootId) {
+      editor.reload(false);
+    }
+  }
 }
 
 export async function updateBlock(
@@ -4513,7 +4524,8 @@ export class TaskRepository {
   static async createBlockTask(
     task: Omit<Task, 'id' | 'type' | 'createdAt' | 'updatedAt' | 'blockId' | 'hPath' | 'notebookId'>,
     notebookId: string,
-    docPath: string
+    docPath: string,
+    options: { emitTaskAdded?: boolean } = {}
   ): Promise<{ taskId: string; blockId: string }> {
     const trimmedTitle = task.title?.trim();
     if (!trimmedTitle) {
@@ -4757,13 +4769,17 @@ export class TaskRepository {
           await this.markTaskContainerList(resolvedListId, rootId);
         }
 
+        refreshOpenDocumentIfVisible(rootId);
+
         const createResult = {
           taskId: attrs['custom-task-id'],
           blockId: listItemBlockId || result[0].doOperations[0].id
         };
 
         await this.clearCache();
-        eventBus.emit(Events.TASK_ADDED, createResult);
+        if (options.emitTaskAdded !== false) {
+          eventBus.emit(Events.TASK_ADDED, createResult);
+        }
 
         return createResult;
       }

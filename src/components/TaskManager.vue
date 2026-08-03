@@ -1,6 +1,6 @@
 <template>
   <div ref="taskManagerContainerRef" class="task-manager-container">
-    <div class="task-manager-header">
+    <div class="task-manager-header" :class="{ 'is-collapsed': isTaskListCollapsed }">
       <div class="header-left">
         <div class="collapse-arrow" @click="toggleTaskListCollapsed" :class="{ collapsed: isTaskListCollapsed }">
           <Icon name="arrowDown" width="16" height="16" class="icon" />
@@ -93,9 +93,6 @@
         </SyButton>
         <SyButton size="small" class="new-task-button ariaLabel" :aria-label="t('taskManager.newTask')" @click="openTaskModal">
           <Icon name="add" width="24" height="24" class="icon" />
-        </SyButton>
-        <SyButton size="small" class="view-all-button ariaLabel" :aria-label="t('app.openTaskView')" @click="openKanbanView">
-          {{ t('taskManager.more') }}
         </SyButton>
     </div>
     </div>
@@ -579,7 +576,9 @@
               'timeline-entry': row.timelineLabel !== null,
               'timeline-virtual-section-end': row.isSectionEnd,
               'mobile-calendar-drag-source': shouldEnableMobileCalendarDrag(),
-              'mobile-calendar-dragging': mobileCalendarDraggingTaskId === row.task.id
+              'mobile-calendar-dragging': mobileCalendarDraggingTaskId === row.task.id,
+              'calendar-pointer-drag-source': shouldEnableDesktopCalendarPointerDrag(),
+              'calendar-pointer-dragging': desktopCalendarDraggingTaskId === row.task.id
             }"
             @pointerdown="handleMobileTaskPointerDown($event, row.task)"
             @pointermove="handleMobileTaskPointerMove"
@@ -598,7 +597,7 @@
               :task-groups="taskGroups"
               :goals="goalDefinitions"
               :show-status-badge="true"
-              :draggable="!isMobileFrontend && !isBatchEditMode"
+              :draggable="shouldUseNativeTaskCardDrag()"
               :expanded="expandedSubtasks.has(row.task.id) || expandedDescriptions.has(row.task.id)"
               :description-editing="inlineEditingDescriptionTaskId === row.task.id"
               :description-draft="getInlineDescriptionDraft(row.task)"
@@ -685,7 +684,9 @@
                 'is-batch-mode': isBatchEditMode,
                 'timeline-entry': taskListViewMode === 'timeline' && getTaskTimelineLabel(section, task) !== null,
                 'mobile-calendar-drag-source': shouldEnableMobileCalendarDrag(),
-                'mobile-calendar-dragging': mobileCalendarDraggingTaskId === task.id
+                'mobile-calendar-dragging': mobileCalendarDraggingTaskId === task.id,
+                'calendar-pointer-drag-source': shouldEnableDesktopCalendarPointerDrag(),
+                'calendar-pointer-dragging': desktopCalendarDraggingTaskId === task.id
               }"
               @pointerdown="handleMobileTaskPointerDown($event, task)"
               @pointermove="handleMobileTaskPointerMove"
@@ -704,7 +705,7 @@
                 :task-groups="taskGroups"
                 :goals="goalDefinitions"
                 :show-status-badge="true"
-                :draggable="!isMobileFrontend && !isBatchEditMode"
+                :draggable="shouldUseNativeTaskCardDrag()"
                 :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
                 :description-editing="inlineEditingDescriptionTaskId === task.id"
                 :description-draft="getInlineDescriptionDraft(task)"
@@ -744,7 +745,9 @@
             selected: isTaskBatchSelected(task.id),
             'is-batch-mode': isBatchEditMode,
             'mobile-calendar-drag-source': shouldEnableMobileCalendarDrag(),
-            'mobile-calendar-dragging': mobileCalendarDraggingTaskId === task.id
+            'mobile-calendar-dragging': mobileCalendarDraggingTaskId === task.id,
+            'calendar-pointer-drag-source': shouldEnableDesktopCalendarPointerDrag(),
+            'calendar-pointer-dragging': desktopCalendarDraggingTaskId === task.id
           }"
           @pointerdown="handleMobileTaskPointerDown($event, task)"
           @pointermove="handleMobileTaskPointerMove"
@@ -759,7 +762,7 @@
             :task-groups="taskGroups"
             :goals="goalDefinitions"
             :show-status-badge="true"
-            :draggable="!isMobileFrontend && !isBatchEditMode"
+            :draggable="shouldUseNativeTaskCardDrag()"
             :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
             :description-editing="inlineEditingDescriptionTaskId === task.id"
             :description-draft="getInlineDescriptionDraft(task)"
@@ -836,7 +839,7 @@
       :documents-refreshing="taskScopeDocumentsRefreshing"
       :goals="goalDefinitions"
       :goal-documents="sidebarGoalDocuments"
-      :goal-tasks="tasks"
+      :goal-tasks="goalTasks"
       :task-view-options="taskScopeViewOptions"
       :hidden-task-view-ids="userSettings.kanban.hiddenViewSwitcherIds"
       :sidebar-section-options="taskScopeSidebarSectionOptions"
@@ -864,6 +867,7 @@
       @update:startTime="taskQuickDateDraft.startTime = $event"
       @update:dueDate="taskQuickDateDraft.dueDate = $event"
       @update:dueTime="taskQuickDateDraft.dueTime = $event"
+      @show-meta="handleTaskQuickDateMetaTool"
       @save="handleTaskQuickDateSave"
     />
     <TaskQuickMetaMenu
@@ -881,6 +885,8 @@
       :due-time="taskQuickMetaDraft.dueTime"
       :reminder-type="taskQuickMetaDraft.reminderType"
       :reminder-custom-time="taskQuickMetaDraft.reminderCustomTime"
+      :initial-panel="taskQuickMetaMenu.initialPanel"
+      :panel-only="taskQuickMetaMenu.panelOnly"
       @update:priority="taskQuickMetaDraft.priority = $event"
       @update:startDate="taskQuickMetaDraft.startDate = $event"
       @update:startTime="taskQuickMetaDraft.startTime = $event"
@@ -900,6 +906,11 @@
       @close="showTaskGroupDialog = false"
       @save="handleTaskGroupSave"
     />
+    <div
+      v-if="desktopCalendarPointerGesture?.started && desktopCalendarPointerGesture.task"
+      class="task-manager-calendar-drag-ghost"
+      :style="{ transform: `translate3d(${desktopCalendarPointerGesture.latestX + 12}px, ${desktopCalendarPointerGesture.latestY + 12}px, 0)` }"
+    >{{ desktopCalendarPointerGesture.task.title }}</div>
   </div>
 </template>
 
@@ -924,7 +935,7 @@ import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
 import TaskQuickMetaMenu from '@/components/TaskQuickMetaMenu.vue';
 import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
-import { openKanbanView, usePlugin } from '@/main';
+import { usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useGoals } from '@/composables/useGoals';
 import { useTaskFilters } from '@/composables/useTaskFilters';
@@ -949,6 +960,7 @@ import {
   getTaskStatusLabel
 } from '@/utils/taskStatus';
 import { eventBus, Events } from '@/utils/eventBus';
+import { emitOptimisticBlockTaskAdded } from '@/utils/taskCreationSync';
 import { publishTaskChange, type TaskChangePayload } from '@/utils/taskChangeCoordinator';
 import { syncTaskEditorDraftFromAttributeChanges } from '@/utils/taskEditorDraftSync';
 import { createTaskStatusAttributeSync } from '@/utils/taskStatusAttributeSync';
@@ -1053,10 +1065,28 @@ interface MobileCalendarPointerGesture {
   captureElement: HTMLElement | null;
 }
 
+type CalendarPointerDragPhase = 'start' | 'move' | 'end' | 'cancel';
+
+interface CalendarPointerDragEventPayload extends MobileCalendarDragEventPayload {
+  phase: CalendarPointerDragPhase;
+}
+
+interface DesktopCalendarPointerGesture {
+  task: Task;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  latestX: number;
+  latestY: number;
+  started: boolean;
+}
+
 const props = withDefaults(defineProps<{
   enableMobileCalendarDrag?: boolean;
+  enableCalendarPointerDrag?: boolean;
 }>(), {
-  enableMobileCalendarDrag: false
+  enableMobileCalendarDrag: false,
+  enableCalendarPointerDrag: false
 });
 
 const emit = defineEmits<{
@@ -1064,6 +1094,10 @@ const emit = defineEmits<{
   mobileCalendarDragMove: [payload: MobileCalendarDragEventPayload];
   mobileCalendarDragEnd: [payload: MobileCalendarDragEventPayload];
   mobileCalendarDragCancel: [];
+  calendarPointerDragStart: [payload: MobileCalendarDragEventPayload];
+  calendarPointerDragMove: [payload: MobileCalendarDragEventPayload];
+  calendarPointerDragEnd: [payload: MobileCalendarDragEventPayload];
+  calendarPointerDragCancel: [payload: MobileCalendarDragEventPayload];
   startFocus: [task: Task];
 }>();
 
@@ -1071,6 +1105,7 @@ const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const {
   goalDefinitions,
   goalDocuments,
+  goalTasks,
   goalItems,
   goalsLoading,
   loadGoalsData,
@@ -1088,7 +1123,6 @@ const taskScopeViewOptions = computed<TaskScopeDisplayOption[]>(() =>
 );
 const taskScopeSidebarSectionOptions = computed<Array<{ id: SidebarSectionId; label: string }>>(() => [
   { id: 'week-dates', label: t('taskScopeDialog.sidebarWeekDates') },
-  { id: 'summary-card-grid', label: t('taskScopeDialog.sidebarSummaryCards') },
   { id: 'habit-list', label: t('taskScopeDialog.sidebarHabitList') },
   { id: 'stand-container', label: t('taskScopeDialog.sidebarStandContainer') }
 ]);
@@ -1110,6 +1144,7 @@ try {
 }
 const MOBILE_CALENDAR_DRAG_LONG_PRESS_MS = 280;
 const MOBILE_CALENDAR_DRAG_MOVE_THRESHOLD_PX = 18;
+const DESKTOP_CALENDAR_DRAG_MOVE_THRESHOLD_PX = 4;
 const loading = ref(false);
 const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
@@ -1129,6 +1164,8 @@ const expandedDescriptions = ref(new Set<string>());
 const documentGroups = ref<DocumentGroup[]>([]);
 const mobileCalendarPointerGesture = ref<MobileCalendarPointerGesture | null>(null);
 const mobileCalendarDraggingTaskId = ref<string | null>(null);
+const desktopCalendarPointerGesture = ref<DesktopCalendarPointerGesture | null>(null);
+const desktopCalendarDraggingTaskId = ref<string | null>(null);
 const suppressedTaskCardClicks = new Map<string, number>();
 interface TaskEditDraft {
   taskId: string;
@@ -1472,12 +1509,16 @@ const taskQuickMetaMenu = ref<{
   y: number;
   task: Task | null;
   removeTrigger?: (() => void) | null;
+  initialPanel?: 'priority' | 'tags' | 'goals' | 'due' | 'reminder' | null;
+  panelOnly?: boolean;
 }>({
   show: false,
   x: 0,
   y: 0,
   task: null,
-  removeTrigger: null
+  removeTrigger: null,
+  initialPanel: null,
+  panelOnly: false
 });
 const taskQuickDateDraft = ref<TaskQuickDateDraft>({
   startDate: '',
@@ -2753,6 +2794,7 @@ const taskModalDefaultGroupId = computed(() => {
 
 const toggleTaskListCollapsed = () => {
   isTaskListCollapsed.value = !isTaskListCollapsed.value;
+  void updateSettings('sidebar', { taskListCollapsed: isTaskListCollapsed.value });
 };
 
 let lastRefreshTime = 0;
@@ -2765,6 +2807,10 @@ const MAX_INCREMENTAL_BLOCKS_PER_FLUSH = 120;
 const INCREMENTAL_QUEUE_DELAY_MS = 8;
 const IMMEDIATE_FALLBACK_DELAY_MS = 80;
 const TASK_ADDED_VERIFY_DELAY_MS = 90;
+const OPTIMISTIC_TASK_SYNC_GUARD_MS = 2000;
+const optimisticTaskSyncGuards = new Map<string, { task: Task; expiresAt: number }>();
+const RECENTLY_DELETED_TASK_GUARD_MS = 2000;
+const recentlyDeletedTaskBlockIds = new Map<string, number>();
 const FALLBACK_FAILURE_THRESHOLD = 2;
 let consecutiveFallbackFailures = 0;
 let lastMismatchForceRefreshAt = 0;
@@ -3542,7 +3588,9 @@ function closeTaskQuickMetaMenu(): void {
     x: 0,
     y: 0,
     task: null,
-    removeTrigger: null
+    removeTrigger: null,
+    initialPanel: null,
+    panelOnly: false
   };
   taskQuickMetaDraft.value = {
     priority: 'none',
@@ -3683,7 +3731,7 @@ async function openTaskQuickDateMenu(
 ): Promise<void> {
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-  const menuWidth = 280;
+  const menuWidth = Math.min(300, viewportWidth - 24);
   const estimatedHeight = 236;
   const margin = 12;
   const belowGap = 8;
@@ -3719,7 +3767,7 @@ async function openTaskQuickDateMenu(
 async function openTaskQuickMetaMenu(
   task: Task,
   anchorPosition?: { x: number; y: number } | null,
-  options: { removeTrigger?: (() => void) | null } = {}
+  options: { removeTrigger?: (() => void) | null; initialPanel?: 'priority' | 'tags' | 'goals' | 'due' | 'reminder' | null; panelOnly?: boolean } = {}
 ): Promise<void> {
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
@@ -3757,8 +3805,26 @@ async function openTaskQuickMetaMenu(
     x,
     y,
     task,
-    removeTrigger: typeof options.removeTrigger === 'function' ? options.removeTrigger : null
+    removeTrigger: typeof options.removeTrigger === 'function' ? options.removeTrigger : null,
+    initialPanel: options.initialPanel || null,
+    panelOnly: options.panelOnly === true
   };
+}
+
+async function handleTaskQuickDateMetaTool(
+  panel: 'priority' | 'tags' | 'goals' | 'reminder',
+  anchor: DOMRect
+): Promise<void> {
+  const { task } = taskQuickDateMenu.value;
+  if (!task) return;
+  await openTaskQuickMetaMenu(task, { x: anchor.left + anchor.width / 2, y: anchor.bottom }, {
+    initialPanel: panel,
+    panelOnly: true
+  });
+  taskQuickMetaDraft.value.startDate = taskQuickDateDraft.value.startDate;
+  taskQuickMetaDraft.value.startTime = taskQuickDateDraft.value.startTime;
+  taskQuickMetaDraft.value.dueDate = taskQuickDateDraft.value.dueDate;
+  taskQuickMetaDraft.value.dueTime = taskQuickDateDraft.value.dueTime;
 }
 
 function updateTaskFilterPopoverPosition(): void {
@@ -4201,11 +4267,46 @@ function filterTasksByNotebookScope(taskList: Task[]): Task[] {
 }
 
 function getTasksWithLocalOverrides(): Task[] {
-  return filterTasksByNotebookScope(applyLocalTaskFieldOverridesToList(crdtRepo.getTasks()));
+  return filterRecentlyDeletedTasks(filterTasksByNotebookScope(applyLocalTaskFieldOverridesToList(crdtRepo.getTasks())));
+}
+
+function isRecentlyDeletedTaskBlock(blockId?: string): boolean {
+  const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+  if (!normalizedBlockId) return false;
+  const expiresAt = recentlyDeletedTaskBlockIds.get(normalizedBlockId);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    recentlyDeletedTaskBlockIds.delete(normalizedBlockId);
+    return false;
+  }
+  return true;
+}
+
+function filterRecentlyDeletedTasks(taskList: Task[]): Task[] {
+  return taskList.filter(task => !isRecentlyDeletedTaskBlock(task.blockId));
+}
+
+function reconcileTaskSnapshotWithOptimisticGuards(taskList: Task[]): Task[] {
+  const now = Date.now();
+  const indexedBlockIds = new Set(
+    taskList
+      .map(task => task.blockId)
+      .filter((blockId): blockId is string => typeof blockId === 'string' && blockId.length > 0)
+  );
+  const reconciledTasks = [...taskList];
+  optimisticTaskSyncGuards.forEach((pending, blockId) => {
+    if (indexedBlockIds.has(blockId) || pending.expiresAt <= now) {
+      optimisticTaskSyncGuards.delete(blockId);
+      return;
+    }
+    reconciledTasks.push(pending.task);
+  });
+  return reconciledTasks;
 }
 
 function syncTaskSnapshotWithLocalOverrides(taskList: Task[]): Task[] {
-  crdtRepo.syncFromSQLTasks(filterTasksByNotebookScope(applyLocalTaskFieldOverridesToList(taskList)));
+  const reconciledTasks = reconcileTaskSnapshotWithOptimisticGuards(filterRecentlyDeletedTasks(taskList));
+  crdtRepo.syncFromSQLTasks(filterTasksByNotebookScope(applyLocalTaskFieldOverridesToList(reconciledTasks)));
   return getTasksWithLocalOverrides();
 }
 
@@ -5520,10 +5621,17 @@ async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'scope') {
     await loadNotebooks();
   }
   taskScopeDialogInitialTab.value = initialTab;
+  if (initialTab === 'goals') {
+    await loadGoalsData({ taskUseCache: false });
+  }
   showTaskScopeDialog.value = true;
-  if (initialTab === 'scope' || initialTab === 'document-groups' || initialTab === 'goals') {
+  if (initialTab === 'scope' || initialTab === 'document-groups') {
     void refreshTaskScopeDocumentSourcesInBackground({ includeGoalsData: true });
   }
+}
+
+function closeTaskScopeDialog(): void {
+  showTaskScopeDialog.value = false;
 }
 
 async function refreshTaskScopeDocumentSources(
@@ -6139,6 +6247,8 @@ function setupEventListeners() {
 
   const unsubscribeDeleted = eventBus.on(Events.TASK_DELETED, ({ blockId }: { blockId: string }) => {
     scheduleTaskDocumentOptionsRefresh(320);
+    optimisticTaskSyncGuards.delete(blockId);
+    recentlyDeletedTaskBlockIds.set(blockId, Date.now() + RECENTLY_DELETED_TASK_GUARD_MS);
     const taskIndex = blockIdToTaskIndex.get(blockId);
     if (taskIndex && !taskIndex.isSubtask) {
       tasks.value = tasks.value.filter(t => t.blockId !== blockId);
@@ -6153,8 +6263,29 @@ function setupEventListeners() {
     queueIncrementalUpdates([blockId]);
   });
 
-  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string }) => {
+  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string; task?: Task }) => {
     scheduleTaskDocumentOptionsRefresh();
+    const optimisticTask = payload?.task;
+    if (isRecentlyDeletedTaskBlock(optimisticTask?.blockId)) {
+      return;
+    }
+    if (
+      optimisticTask?.type === 'block'
+      && optimisticTask.blockId
+      && !TaskRepository.isNotebookExcluded(optimisticTask.notebookId)
+    ) {
+      optimisticTaskSyncGuards.set(optimisticTask.blockId, {
+        task: { ...optimisticTask },
+        expiresAt: Date.now() + OPTIMISTIC_TASK_SYNC_GUARD_MS
+      });
+      crdtRepo.syncIncrementalTasks([optimisticTask]);
+      tasks.value = crdtRepo.getTasks();
+      invalidateCache();
+      invalidateSortCache();
+      await updateTaskIndex();
+      window.setTimeout(() => queueIncrementalUpdates([optimisticTask.blockId!], 0, true), 300);
+      return;
+    }
     if (payload?.reason === 'repeat-changed' && payload.frequency) {
       const requestId = ++repeatReconcileRequestId;
       const fastPathApplied = await applyRepeatRuleIncremental(payload, requestId);
@@ -6425,6 +6556,9 @@ async function incrementalUpdateTasks(
     const removedTaskIds = new Set<string>();
   
     for (const [blockId, newTask] of taskMapBatch) {
+      if (isRecentlyDeletedTaskBlock(blockId)) {
+        continue;
+      }
       const forcedStatus = patchedParentStatuses.get(blockId);
       const forcedTitle = patchedParentTitles.get(blockId);
       if (forcedStatus) {
@@ -6446,8 +6580,14 @@ async function incrementalUpdateTasks(
 
     for (const blockId of uniqueBlockIds) {
       if (taskMapBatch.has(blockId)) {
+        optimisticTaskSyncGuards.delete(blockId);
         continue;
       }
+      const pendingGuard = optimisticTaskSyncGuards.get(blockId);
+      if (pendingGuard && pendingGuard.expiresAt > Date.now()) {
+        continue;
+      }
+      optimisticTaskSyncGuards.delete(blockId);
       missingRequestedIds.push(blockId);
 
       const taskIndex = blockIdToTaskIndex.get(blockId);
@@ -7191,7 +7331,7 @@ async function resolveTaskEditorRootId(blockId: string, preferredRootId?: string
   }
 }
 
-async function focusTaskEditorSidebarBlock(
+async function scrollTaskEditorSidebarToBlock(
   blockId: string,
   retries = 24,
   intervalMs = 80
@@ -7217,10 +7357,6 @@ async function focusTaskEditorSidebarBlock(
             protyleContent.scrollTop += delta;
           }
         }
-      } catch {
-      }
-      try {
-        taskEditorProtyle?.focusBlock(target, true);
       } catch {
       }
       return true;
@@ -7516,7 +7652,10 @@ function handleTaskFilterOutsideClick(event: MouseEvent): void {
     const isInsideQuickDateMenu = path.some(node =>
       node instanceof HTMLElement && node.classList.contains('task-quick-date-menu')
     );
-    if (!isInsideQuickDateMenu && !isInsideQuickDateOrTimePopover) {
+    const isInsideQuickMetaMenu = path.some(node =>
+      node instanceof HTMLElement && node.classList.contains('task-quick-meta-menu')
+    );
+    if (!isInsideQuickDateMenu && !isInsideQuickMetaMenu && !isInsideQuickDateOrTimePopover) {
       closeTaskQuickDateMenu();
     }
   }
@@ -7566,7 +7705,6 @@ async function openTaskEditorInSidebar(blockId: string, preferredRootId?: string
   try {
     const options: Record<string, any> = {
       blockId: normalizedBlockId,
-      action: ['cb-get-focus'],
       mode: 'wysiwyg',
       render: {
         title: false,
@@ -7579,7 +7717,7 @@ async function openTaskEditorInSidebar(blockId: string, preferredRootId?: string
       options.rootId = normalizedRootId;
     }
     taskEditorProtyle = new Protyle(plugin.app, mountElement, options);
-    await focusTaskEditorSidebarBlock(normalizedBlockId);
+    await scrollTaskEditorSidebarToBlock(normalizedBlockId);
     return true;
   } catch {
     taskEditorProtyle = null;
@@ -8068,7 +8206,6 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
 
   if (!datesChanged && !priorityChanged && !tagsChanged && !goalsChanged && !reminderChanged) {
     if (closeAfterSave) {
-      consumeTaskQuickMetaTrigger();
       closeTaskQuickMetaMenu();
     }
     return;
@@ -8150,9 +8287,12 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
     if (datesChanged) {
       scheduleKernelTaskIndexRefresh();
     }
+    // The @ character only triggers this menu. Remove it as soon as an
+    // attribute has been applied, even though the quick menu stays open for
+    // additional edits.
+    consumeTaskQuickMetaTrigger();
     await refreshInternalState();
     if (closeAfterSave) {
-      consumeTaskQuickMetaTrigger();
       closeTaskQuickMetaMenu();
     }
   } catch (error) {
@@ -8896,7 +9036,10 @@ async function quickSaveTaskTags(task: Task, tagIds: string[]): Promise<void> {
 }
 
 function handleDragStart(event: DragEvent, task: Task) {
-  if (isMobileFrontend) return;
+  if (isMobileFrontend || shouldEnableDesktopCalendarPointerDrag()) {
+    event.preventDefault();
+    return;
+  }
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/json', JSON.stringify(task));
@@ -8906,6 +9049,14 @@ function handleDragStart(event: DragEvent, task: Task) {
 
 function shouldEnableMobileCalendarDrag(): boolean {
   return props.enableMobileCalendarDrag && isMobileFrontend && !isBatchEditMode.value;
+}
+
+function shouldEnableDesktopCalendarPointerDrag(): boolean {
+  return props.enableCalendarPointerDrag && !isMobileFrontend && !isBatchEditMode.value;
+}
+
+function shouldUseNativeTaskCardDrag(): boolean {
+  return !isMobileFrontend && !isBatchEditMode.value && !shouldEnableDesktopCalendarPointerDrag();
 }
 
 function shouldIgnoreMobileCalendarDragTarget(target: EventTarget | null): boolean {
@@ -8969,7 +9120,129 @@ function triggerMobileCalendarHaptic(): void {
   navigator.vibrate(12);
 }
 
+function emitDesktopCalendarPointerDrag(
+  phase: CalendarPointerDragPhase,
+  task: Task,
+  clientX: number,
+  clientY: number
+): void {
+  const payload: MobileCalendarDragEventPayload = { task, clientX, clientY };
+  if (phase === 'start') {
+    emit('calendarPointerDragStart', payload);
+  } else if (phase === 'move') {
+    emit('calendarPointerDragMove', payload);
+  } else if (phase === 'end') {
+    emit('calendarPointerDragEnd', payload);
+  } else {
+    emit('calendarPointerDragCancel', payload);
+  }
+
+  if (typeof window === 'undefined') {
+    return;
+  }
+  const detail: CalendarPointerDragEventPayload = { phase, ...payload };
+  window.dispatchEvent(new CustomEvent<CalendarPointerDragEventPayload>(
+    'pinch-calendar-task-pointer-drag',
+    { detail }
+  ));
+}
+
+function clearDesktopCalendarPointerGesture(emitCancel = false): void {
+  const gesture = desktopCalendarPointerGesture.value;
+  if (emitCancel && gesture?.started) {
+    emitDesktopCalendarPointerDrag('cancel', gesture.task, gesture.latestX, gesture.latestY);
+  }
+  desktopCalendarPointerGesture.value = null;
+  desktopCalendarDraggingTaskId.value = null;
+}
+
+function handleDesktopCalendarTaskPointerDown(event: PointerEvent, task: Task): void {
+  if (!shouldEnableDesktopCalendarPointerDrag()) {
+    return;
+  }
+  if (event.pointerType === 'mouse' && event.button !== 0) {
+    return;
+  }
+  if (!event.isPrimary || shouldIgnoreMobileCalendarDragTarget(event.target)) {
+    clearDesktopCalendarPointerGesture(true);
+    return;
+  }
+
+  clearDesktopCalendarPointerGesture(true);
+  desktopCalendarPointerGesture.value = {
+    task,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    latestX: event.clientX,
+    latestY: event.clientY,
+    started: false
+  };
+}
+
+function handleDesktopCalendarTaskPointerMove(event: PointerEvent): void {
+  const gesture = desktopCalendarPointerGesture.value;
+  if (!gesture || gesture.pointerId !== event.pointerId) {
+    return;
+  }
+
+  gesture.latestX = event.clientX;
+  gesture.latestY = event.clientY;
+  if (!gesture.started) {
+    const movedDistance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+    if (movedDistance < DESKTOP_CALENDAR_DRAG_MOVE_THRESHOLD_PX) {
+      return;
+    }
+    gesture.started = true;
+    desktopCalendarDraggingTaskId.value = gesture.task.id;
+    event.preventDefault();
+    event.stopPropagation();
+    emitDesktopCalendarPointerDrag('start', gesture.task, event.clientX, event.clientY);
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  emitDesktopCalendarPointerDrag('move', gesture.task, event.clientX, event.clientY);
+}
+
+function finishDesktopCalendarTaskPointer(event: PointerEvent, cancelled: boolean): void {
+  const gesture = desktopCalendarPointerGesture.value;
+  if (!gesture || gesture.pointerId !== event.pointerId) {
+    return;
+  }
+
+  gesture.latestX = event.clientX;
+  gesture.latestY = event.clientY;
+  if (!gesture.started) {
+    clearDesktopCalendarPointerGesture();
+    return;
+  }
+
+  suppressTaskCardClick(gesture.task.id);
+  event.preventDefault();
+  event.stopPropagation();
+  emitDesktopCalendarPointerDrag(cancelled ? 'cancel' : 'end', gesture.task, event.clientX, event.clientY);
+  clearDesktopCalendarPointerGesture();
+}
+
+function handleDesktopCalendarTaskPointerUp(event: PointerEvent): void {
+  finishDesktopCalendarTaskPointer(event, false);
+}
+
+function handleDesktopCalendarTaskPointerCancel(event: PointerEvent): void {
+  finishDesktopCalendarTaskPointer(event, true);
+}
+
+function handleWindowDesktopCalendarPointerDragBlur(): void {
+  clearDesktopCalendarPointerGesture(true);
+}
+
 function handleMobileTaskPointerDown(event: PointerEvent, task: Task): void {
+  if (shouldEnableDesktopCalendarPointerDrag()) {
+    handleDesktopCalendarTaskPointerDown(event, task);
+    return;
+  }
   if (!shouldEnableMobileCalendarDrag()) {
     return;
   }
@@ -9012,6 +9285,10 @@ function handleMobileTaskPointerDown(event: PointerEvent, task: Task): void {
 }
 
 function handleMobileTaskPointerMove(event: PointerEvent): void {
+  if (desktopCalendarPointerGesture.value) {
+    handleDesktopCalendarTaskPointerMove(event);
+    return;
+  }
   const gesture = mobileCalendarPointerGesture.value;
   if (!gesture || gesture.pointerId !== event.pointerId) {
     return;
@@ -9038,6 +9315,10 @@ function handleMobileTaskPointerMove(event: PointerEvent): void {
 }
 
 function handleDocumentMobileTaskPointerMove(event: PointerEvent): void {
+  if (desktopCalendarPointerGesture.value) {
+    handleDesktopCalendarTaskPointerMove(event);
+    return;
+  }
   if (!mobileCalendarPointerGesture.value) {
     return;
   }
@@ -9135,14 +9416,26 @@ function finishMobileTaskPointer(event: PointerEvent, cancelled: boolean): void 
 }
 
 function handleMobileTaskPointerUp(event: PointerEvent): void {
+  if (desktopCalendarPointerGesture.value) {
+    handleDesktopCalendarTaskPointerUp(event);
+    return;
+  }
   finishMobileTaskPointer(event, false);
 }
 
 function handleMobileTaskPointerCancel(event: PointerEvent): void {
+  if (desktopCalendarPointerGesture.value) {
+    handleDesktopCalendarTaskPointerCancel(event);
+    return;
+  }
   finishMobileTaskPointer(event, true);
 }
 
 function handleDocumentMobileTaskPointerUp(event: PointerEvent): void {
+  if (desktopCalendarPointerGesture.value) {
+    handleDesktopCalendarTaskPointerUp(event);
+    return;
+  }
   if (!mobileCalendarPointerGesture.value) {
     return;
   }
@@ -9150,6 +9443,10 @@ function handleDocumentMobileTaskPointerUp(event: PointerEvent): void {
 }
 
 function handleDocumentMobileTaskPointerCancel(event: PointerEvent): void {
+  if (desktopCalendarPointerGesture.value) {
+    handleDesktopCalendarTaskPointerCancel(event);
+    return;
+  }
   if (!mobileCalendarPointerGesture.value) {
     return;
   }
@@ -9256,7 +9553,34 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
       reminderCustomTime: taskData.reminderCustomTime || undefined,
       tags: tagState.tagIds,
       groupId: tagState.primaryTagId || undefined
-    }, notebookId, docPath);
+    }, notebookId, docPath, { emitTaskAdded: false });
+
+    if (created?.blockId && created.taskId) {
+      let resolvedRootId = documentId !== PINCH_INBOX_OPTION_ID && documentId !== PINCH_DAILY_NOTE_OPTION_ID
+        ? documentId
+        : '';
+      if (!resolvedRootId) {
+        try {
+          resolvedRootId = (await getIDsByHPath(notebookId, docPath))[0] || '';
+        } catch {
+          // The optimistic sidebar entry can still be reconciled by block ID.
+        }
+      }
+      emitOptimisticBlockTaskAdded(created, {
+        notebookId,
+        rootId: resolvedRootId,
+        docPath,
+        task: {
+          title: taskData.title,
+          status: taskData.status || 'pending',
+          priority: taskData.priority || 'none',
+          dueDate: taskData.dueDate || undefined,
+          tags: tagState.tagIds,
+          groupId: tagState.primaryTagId || undefined,
+          description: taskData.description || ''
+        }
+      });
+    }
 
     const selectedGoalIds = Array.isArray(taskData.goalIds)
       ? taskData.goalIds
@@ -9297,7 +9621,8 @@ async function handleCreateTask(taskData: any, notebookId: string, documentId: s
 }
 
 defineExpose({
-  openTaskScopeDialog
+  openTaskScopeDialog,
+  closeTaskScopeDialog
 });
 
 onMounted(async () => {
@@ -9310,6 +9635,7 @@ onMounted(async () => {
   document.addEventListener('touchmove', handleDocumentMobileTaskTouchMove, { passive: false });
   document.addEventListener('touchend', handleDocumentMobileTaskTouchEnd);
   document.addEventListener('touchcancel', handleDocumentMobileTaskTouchCancel);
+  window.addEventListener('blur', handleWindowDesktopCalendarPointerDragBlur);
   window.addEventListener('resize', scheduleTaskVirtualUpdate, true);
   window.addEventListener('resize', scheduleTaskEditorSidebarPositionUpdate, true);
   window.addEventListener('resize', updateTaskModalOverlayStyle, true);
@@ -9318,6 +9644,7 @@ onMounted(async () => {
   window.addEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
   taskModalTeleportTarget.value?.addEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
   await loadSettings();
+  isTaskListCollapsed.value = userSettings.sidebar.taskListCollapsed === true;
   TaskRepository.setAutoRecognizeTaskDateEnabled(userSettings.taskManager.autoRecognizeTaskDate === true);
   taskGroups.value = await loadTaskGroups();
   documentGroups.value = sortDocumentGroups(await loadDocumentGroups());
@@ -9391,12 +9718,14 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearMobileCalendarPointerGesture();
+  clearDesktopCalendarPointerGesture(true);
   document.removeEventListener('pointermove', handleDocumentMobileTaskPointerMove);
   document.removeEventListener('pointerup', handleDocumentMobileTaskPointerUp);
   document.removeEventListener('pointercancel', handleDocumentMobileTaskPointerCancel);
   document.removeEventListener('touchmove', handleDocumentMobileTaskTouchMove);
   document.removeEventListener('touchend', handleDocumentMobileTaskTouchEnd);
   document.removeEventListener('touchcancel', handleDocumentMobileTaskTouchCancel);
+  window.removeEventListener('blur', handleWindowDesktopCalendarPointerDragBlur);
   closeTaskEditMenu();
   closeTaskFilterPopover();
   closeTaskGroupMenu();
@@ -9464,6 +9793,15 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+
+  &.is-collapsed {
+    box-sizing: border-box;
+    padding: 8px 0px 8px 8px;
+    border-radius: 10px;
+    background-color: var(--b3-theme-background);
+    box-shadow: var(--pinch-shadow);
+    margin-bottom: 0px;
+  }
 }
 
 .task-manager-header .header-left {
@@ -9699,21 +10037,6 @@ onUnmounted(() => {
   to {
     transform: rotate(360deg);
   }
-}
-
-.view-all-button {
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0 6px 0 0;
-  cursor: pointer;
-  height: 22px;
-  border-radius: 13px;
-  background-color: var(--b3-list-hover);
-  color: var(--b3-theme-on-surface);
-  padding: 1px 10px;
-  font-size: 14px;
-  box-shadow: var(--b3-border-color) 0px 0px 0 0.5px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px;
 }
 
 .filters-row {
@@ -10297,6 +10620,45 @@ onUnmounted(() => {
   opacity: 0.88;
   transform: scale(0.985);
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.18), 0 10px 22px rgba(15, 23, 42, 0.14);
+}
+.task-manager-calendar-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+  max-width: 300px;
+  padding: 6px 10px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--pinch-background7, var(--b3-theme-surface));
+  color: var(--b3-theme-on-background);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, .18);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.task-batch-item.calendar-pointer-drag-source {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.task-batch-item.calendar-pointer-drag-source :deep(.task-card.variant-sidebar) {
+  cursor: grab;
+}
+
+.task-batch-item.calendar-pointer-dragging :deep(.task-card.variant-sidebar) {
+  opacity: 0.42;
+  transform: scale(0.985);
+  transition: transform 0.14s ease, opacity 0.14s ease;
+}
+
+.task-batch-item.calendar-pointer-dragging :deep(.task-card.variant-sidebar),
+.task-batch-item.calendar-pointer-dragging :deep(.task-card.variant-sidebar *) {
+  cursor: grabbing !important;
 }
 
 .task-batch-item.is-batch-mode :deep(.task-card.variant-sidebar) {

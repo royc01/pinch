@@ -1,0 +1,139 @@
+/*————————————————————列表转看板————————————————————*/
+
+.protyle-wysiwyg .list[custom-f~=kb][data-node-id][data-type="NodeList"]
+{
+    display: grid;
+    flex-direction: row;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    margin-bottom: 10px;
+}
+
+
+/* ————————————————————所有子项目的表格（除去第一列其余的列），包含溢出的空白部分，所以才会有边框—————————————————————— */
+
+.protyle-wysiwyg *[custom-f~=kb]>.li{
+
+    background-color: var(--Sv-list-background);
+    padding: 8px 8px 2px 8px;
+    margin-right: 10px;
+    margin-bottom: 10px!important;
+    margin-top: 0px;
+    border-radius: 8px;
+    >[data-node-id]{
+        margin-left: 0px;
+        margin-bottom: 8px;
+    }
+}
+
+/* ————————————————————对所有子列表项设置格式———————————————————— */
+
+.protyle-wysiwyg *[custom-f~=kb]>.li>.list>.li{
+    border-radius: 6px;
+    padding: 0.4em 0.4em 0.4em 0 ;
+    background-color: var(--b3-theme-background);
+	box-shadow: var(--b3-av-gallery-shadow);
+    margin-bottom: 8px;
+}
+.protyle-wysiwyg *[custom-f="kb"] .li {
+    display: flex;
+}
+
+/*只处理每个列表的第一行*/
+.protyle-wysiwyg .list[custom-f~=kb] > div > div:nth-child(2),
+.protyle-wysiwyg .sb>*[custom-f~=kb] > div > div:nth-child(2)
+{
+    border-radius: 3px;
+	padding:9px 10px 11px 38px;
+}
+.list[custom-f~=kb] > [data-subtype="o"][data-type="NodeListItem"] {
+    &::after {
+        left: 18px;
+        top: 17px;
+    }
+}
+.protyle-wysiwyg .list[custom-f~=kb] > div > div:nth-child(2)[data-type="NodeHeading"],
+.protyle-wysiwyg .sb>*[custom-f~=kb] > div > div:nth-child(2)[data-type="NodeHeading"]
+{
+
+	padding:12px 10px 15px 38px;
+}
+.protyle-wysiwyg *[custom-f~=kb] .li [data-type="NodeHeading"]>[spellcheck]:after{
+	display:none;
+}/*取消标题层级提示*/
+
+/*标题行循环颜色*/
+.protyle-wysiwyg .list[custom-f~=kb] > div:nth-child(4n-3) > .protyle-action,
+.protyle-wysiwyg .sb>*[custom-f~=kb] > div:nth-child(4n-3) > .protyle-action{
+    color:var(--b3-font-color13);
+    & + [data-node-id]{
+        background-color:var(--b3-font-background13);
+        border-radius: 6px;
+    }
+}
+.protyle-wysiwyg .list[custom-f~=kb] > div:nth-child(4n-2) > .protyle-action,
+.protyle-wysiwyg .sb>*[custom-f~=kb] > div:nth-child(4n-2) > .protyle-action{
+    color:var(--b3-font-color5);
+    & + [data-node-id]{
+        background-color:var(--b3-font-background6);
+        border-radius: 6px;
+    }
+}
+.protyle-wysiwyg .list[custom-f~=kb] > div:nth-child(4n-1) > .protyle-action,
+.protyle-wysiwyg .sb>*[custom-f~=kb] > div:nth-child(4n-1) > .protyle-action{
+    color:var(--b3-font-color9);
+    & + [data-node-id]{
+        background-color:var(--b3-font-background10);
+        border-radius: 6px;
+    }
+}
+.protyle-wysiwyg .list[custom-f~=kb] > div:nth-child(4n) > .protyle-action,
+.protyle-wysiwyg .sb>*[custom-f~=kb] > div:nth-child(4n) > .protyle-action{
+    color:var(--b3-font-color7);
+    & + [data-node-id]{
+        background-color:var(--b3-font-background8);
+        border-radius: 6px;
+    }
+}
+
+/*只处理每个列表第一行的点*/
+.protyle-wysiwyg .list[custom-f~=kb] > div > div:nth-child(1),
+.protyle-wysiwyg .sb>*[custom-f~=kb] > div > div:nth-child(1)
+{
+    transform: translate(8px, 13px);
+	z-index:2;
+}
+
+/* ————————————————————去除小竖线———————————————————— */
+.list[custom-f="kb"][data-node-id] .li:before {
+    display: none;
+}
+
+/* 对除了第一层之外的子列表 .protyle-action 移动 */
+.protyle-wysiwyg *[custom-f~=kb]>.li>.list>.li>.protyle-action{
+    position: absolute;
+    top: 5px;
+    border-radius: 3px;
+}
+
+/* 引用计数 */
+.list[custom-f="kb"] .protyle-attr--refcount{
+	height: 14px;
+    width: 14px;
+	left:-44px;
+	top:9px;
+    padding: 0;
+    line-height: 14px;
+	text-align: center;
+}
+
+.list[custom-f="kb"] .list .protyle-attr--refcount{
+	height: 14px;
+    width: 14px;
+	left:-14px;
+	top:9px;
+    padding: 0;
+    line-height: 14px;
+	text-align: center;
+}
+
+/*————————————————————列表转化看板 END————————————————————*/

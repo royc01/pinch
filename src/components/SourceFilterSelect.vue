@@ -13,7 +13,7 @@
       <EmojiIcon
         v-if="selectedOption?.icon"
         class="source-filter-select__icon"
-        :value="selectedOption.icon"
+        :value="normalizeIcon(selectedOption.icon)"
       />
       <span class="source-filter-select__text">{{ selectedOption?.text || fallbackText }}</span>
     </button>
@@ -34,9 +34,16 @@
           v-if="option.icon"
           class="source-filter-select__icon"
           :class="option.kind && `source-filter-select__icon--${option.kind}`"
-          :value="option.icon"
+          :value="normalizeIcon(option.icon)"
         />
         <span class="source-filter-select__text">{{ option.text }}</span>
+        <span
+          v-if="option.kind"
+          class="source-filter-select__badge"
+          :class="`source-filter-select__badge--${option.kind}`"
+        >
+          {{ option.kind === 'group' ? '文档组' : '目标' }}
+        </span>
       </button>
     </div>
   </div>
@@ -45,6 +52,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import EmojiIcon from '@/components/EmojiIcon.vue';
+import { normalizeDocumentIconValue } from '@/utils/documentIcon';
 
 export interface SourceFilterOption {
   value: string;
@@ -70,6 +78,10 @@ const selectedOption = computed(() =>
   props.options.find(option => option.value === props.modelValue)
 );
 const fallbackText = computed(() => props.options[0]?.text || '');
+
+function normalizeIcon(value: unknown): string {
+  return normalizeDocumentIconValue(value) || '';
+}
 
 function closeMenu(): void {
   isOpen.value = false;
@@ -129,6 +141,16 @@ onBeforeUnmount(() => {
   position: relative;
   text-align: left;
 }
+.kanban-header-tools-module .filter-group .b3-select.source-filter-select__button {
+  border-radius: 99px;
+  font-size: 16px;
+  padding: 0 35px 0 15px;
+  height: 32px;
+  min-width: 100px;
+  font-weight: 700;
+  background-color: var(--b3-theme-background);
+  box-shadow: var(--pinch-shadow);
+}
 
 .source-filter-select__option:hover,
 .source-filter-select__option.is-active {
@@ -144,6 +166,24 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.source-filter-select__badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--b3-theme-on-background);
+  font-size: 10px;
+  line-height: 18px;
+}
+
+.source-filter-select__badge--group {
+  background: var(--pinch-background7);
+}
+
+.source-filter-select__badge--goal {
+  background: var(--pinch-background6);
 }
 
 .source-filter-select__menu {
@@ -183,15 +223,4 @@ onBeforeUnmount(() => {
   background: var(--b3-list-hover);
 }
 
-.source-filter-select__icon--group {
-  background: var(--pinch-background7);
-  padding: 4px;
-  border-radius: 6px;
-}
-
-.source-filter-select__icon--goal {
-  background: var(--pinch-background5);
-  padding: 4px;
-  border-radius: 6px;
-}
 </style>

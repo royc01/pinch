@@ -3,6 +3,7 @@ import { lsNotebooks } from '@/api';
 import type { SubTask, Task } from '@/api';
 import { translate } from '@/composables/useI18n';
 import { getTaskStatusLabel } from '@/utils/taskStatus';
+import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 
 export function getStatusLabel(status: string): string {
   return getTaskStatusLabel(status, key => translate(key, status));
@@ -66,6 +67,10 @@ function normalizeTitleText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function getPlainTaskTitle(value: string): string {
+  return normalizeTitleText(stripHtml(sanitizeTaskTitleHtml(value)));
+}
+
 function appendTitleCachePart(parts: string[], value: string): void {
   parts.push(`${value.length}:${value}`);
 }
@@ -106,7 +111,7 @@ function collectSubtaskTitles(subtasks: TaskTitleSource['subtasks']): string[] {
 
   const titles: string[] = [];
   for (const subtask of subtasks) {
-    const title = normalizeTitleText(stripHtml(subtask.title || ''));
+    const title = getPlainTaskTitle(subtask.title || '');
     if (title) {
       titles.push(title);
     }
@@ -129,7 +134,7 @@ export function getTaskDisplayTitle(task: TaskTitleSource | null | undefined): s
     return taskDisplayTitleCache.get(cacheKey) || '';
   }
 
-  const title = normalizeTitleText(stripHtml(task.title || ''));
+  const title = getPlainTaskTitle(task.title || '');
   if (!title) {
     return rememberTaskDisplayTitle(cacheKey, title);
   }
@@ -156,6 +161,7 @@ export function getTaskDisplayTitle(task: TaskTitleSource | null | undefined): s
 export interface TaskCommonNotebook {
   id: string;
   name: string;
+  icon: string;
 }
 
 export function useNotebooks() {
@@ -171,7 +177,9 @@ export function useNotebooks() {
           .filter((nb) => !nb.closed)
           .map((nb) => ({
             id: nb.id,
-            name: nb.name
+            name: nb.name,
+            // SiYuan returns an empty icon for notebooks that use its default icon.
+            icon: nb.icon || '1f5c3'
           }));
       }
     } catch (error) {

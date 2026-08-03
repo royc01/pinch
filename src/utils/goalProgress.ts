@@ -122,7 +122,6 @@ export function buildGoalProgressSummaries(
     const status: GoalProgressStatus = totalTasks === 0
       ? 'empty'
       : (completedTasks >= totalTasks ? 'completed' : 'in-progress');
-
     return {
       goal,
       totalTasks,

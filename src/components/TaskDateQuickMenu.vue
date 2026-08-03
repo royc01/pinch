@@ -92,7 +92,23 @@
           </div>
         </div>
       </div>
-      <button class="context-menu-date-save" @click="$emit('save')">{{ resolvedSaveLabel }}</button>
+      <div class="context-menu-date-actions">
+        <div class="task-quick-toolbar" role="toolbar">
+          <button type="button" class="task-quick-toolbar-btn ariaLabel" :aria-label="t('taskManager.priority')" @mouseenter="$emit('show-meta', 'priority', ($event.currentTarget as HTMLElement).getBoundingClientRect())" @focus="$emit('show-meta', 'priority', ($event.currentTarget as HTMLElement).getBoundingClientRect())">
+            <Icon name="flag" width="17" height="17" />
+          </button>
+          <button type="button" class="task-quick-toolbar-btn ariaLabel" :aria-label="t('taskManager.tags')" @mouseenter="$emit('show-meta', 'tags', ($event.currentTarget as HTMLElement).getBoundingClientRect())" @focus="$emit('show-meta', 'tags', ($event.currentTarget as HTMLElement).getBoundingClientRect())">
+            <Icon name="group" width="17" height="17" />
+          </button>
+          <button type="button" class="task-quick-toolbar-btn ariaLabel" :aria-label="t('taskScopeDialog.goals')" @mouseenter="$emit('show-meta', 'goals', ($event.currentTarget as HTMLElement).getBoundingClientRect())" @focus="$emit('show-meta', 'goals', ($event.currentTarget as HTMLElement).getBoundingClientRect())">
+            <Icon name="target" width="17" height="17" />
+          </button>
+          <button type="button" class="task-quick-toolbar-btn ariaLabel" :aria-label="t('taskManager.reminder')" @mouseenter="$emit('show-meta', 'reminder', ($event.currentTarget as HTMLElement).getBoundingClientRect())" @focus="$emit('show-meta', 'reminder', ($event.currentTarget as HTMLElement).getBoundingClientRect())">
+            <Icon name="bell" width="17" height="17" />
+          </button>
+        </div>
+        <button class="context-menu-date-save" @click="$emit('save')">{{ resolvedSaveLabel }}</button>
+      </div>
     </div>
 
     <TaskDatePopover
@@ -161,6 +177,7 @@ defineEmits<{
   (event: 'update:startTime', value: string): void;
   (event: 'update:dueDate', value: string): void;
   (event: 'update:dueTime', value: string): void;
+  (event: 'show-meta', panel: 'priority' | 'tags' | 'goals' | 'reminder', anchor: DOMRect): void;
 }>();
 
 const isMobileSheet = ref(false);
@@ -223,13 +240,15 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 <style scoped>
 .context-menu {
   position: fixed;
-  background: var(--b3-theme-surface);
-  border: 1px solid var(--b3-border-color);
-  border-radius: 8px;
-  box-shadow: 0 12px 28px #0000002e;
+  width: min(300px, calc(100vw - 24px));
+  box-sizing: border-box;
+  background: var(--b3-theme-background);
+  border: 1px solid var(--b3-theme-surface-lighter);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
   z-index: 10;
-  min-width: 260px;
-  padding: 8px;
+  min-width: 0;
+  padding: 12px;
   animation: contextMenuFadeIn 0.15s ease-out;
 }
 
@@ -270,14 +289,13 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 }
 
 .context-menu-section {
-  padding: 4px;
+  padding: 0;
 }
 
 .context-menu-date-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 12px;
-  margin-bottom: 8px;
 }
 
 .date-edit-field {
@@ -297,9 +315,11 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 .date-edit-field input[type="time"]{
   flex: 1;
   min-width: 0;
+  height: auto;
   padding: 6px 34px 6px 10px;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
   font-size: 12px;
   outline: none;
@@ -337,14 +357,14 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
   position: absolute;
   top: 50%;
   right: 4px;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--b3-theme-on-background);
   cursor: pointer;
@@ -365,7 +385,7 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
 }
 
 .context-menu-date-save {
-  width: 100%;
+  min-width: 92px;
   border: none;
   background-color: #f98f7a;
   color: var(--b3-theme-background);
@@ -374,6 +394,44 @@ function toggleTimePopover(field: 'startTime' | 'dueTime'): void {
   padding: 6px 8px;
   cursor: pointer;
   margin-top: 4px;
+}
+
+.context-menu-date-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.task-quick-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--b3-theme-surface-lighter);
+  border-radius: 10px;
+}
+
+.task-quick-toolbar-btn {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.task-quick-toolbar-btn:hover,
+.task-quick-toolbar-btn:focus-visible {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-primary);
+  outline: none;
 }
 
 .context-menu-date-save:hover {

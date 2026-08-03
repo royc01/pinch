@@ -3,7 +3,7 @@
     <div
       v-if="show"
       class="context-menu task-quick-meta-menu"
-      :class="{ 'context-menu-mobile-sheet': isMobileSheet }"
+      :class="{ 'context-menu-mobile-sheet': isMobileSheet, 'task-quick-meta-menu-panel-only': panelOnly }"
       :style="menuStyle"
       role="menu"
       @keydown.esc.stop.prevent="emit('close')"
@@ -225,6 +225,8 @@ const props = defineProps<{
   dueTime?: string;
   reminderType?: TaskReminderType;
   reminderCustomTime?: string;
+  initialPanel?: ToolbarPanel | null;
+  panelOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -396,6 +398,17 @@ watch(
   (visible) => {
     if (!visible) {
       activePanel.value = null;
+      return;
+    }
+    activePanel.value = props.initialPanel || null;
+  },
+);
+
+watch(
+  () => props.initialPanel,
+  (panel) => {
+    if (props.show && panel) {
+      activePanel.value = panel;
     }
   },
 );
@@ -417,6 +430,22 @@ watch(
 
 .task-quick-meta-menu {
   min-width: 0;
+}
+
+.task-quick-meta-menu-panel-only {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.task-quick-meta-menu-panel-only .task-quick-toolbar {
+  display: none;
+}
+
+.task-quick-meta-menu-panel-only .task-quick-toolbar-popover {
+  position: static;
+  transform: none;
 }
 
 .task-quick-toolbar {

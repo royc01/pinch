@@ -40,9 +40,9 @@
           :data-goal-id="goal.id"
           role="button"
           tabindex="0"
-          @click="void openGoalSourceInKanban(goal)"
-          @keydown.enter.prevent="void openGoalSourceInKanban(goal)"
-          @keydown.space.prevent="void openGoalSourceInKanban(goal)"
+          @click="void openGoalSourceInGoalView(goal)"
+          @keydown.enter.prevent="void openGoalSourceInGoalView(goal)"
+          @keydown.space.prevent="void openGoalSourceInGoalView(goal)"
         >
           <div class="goal-card-head">
             <div class="goal-card-main">
@@ -237,9 +237,9 @@ async function handleGoalSave(payload: TaskScopeDialogSavePayload): Promise<void
   showGoalManager.value = false;
 }
 
-async function openGoalSourceInKanban(goal: GoalListItem): Promise<void> {
+async function openGoalSourceInGoalView(goal: GoalListItem): Promise<void> {
   await openTaskViewByRequest({
-    view: 'kanban',
+    view: 'gantt',
     source: buildGoalDocumentSource(goal.id),
     documentId: 'all'
   });

@@ -50,6 +50,7 @@ import { useUserSettings } from '@/composables/useUserSettings';
 import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
 import type { TaskReminderType } from '@/utils/taskReminder';
 import { normalizeTaskGroupOrderIds } from '@/utils/taskGroupShared';
+import { emitOptimisticBlockTaskAdded } from '@/utils/taskCreationSync';
 import { getDocumentCreationSortKey, loadRootDocumentMetadata, normalizeNotebookIds, resolveDocumentDisplayName } from '@/utils/taskViewShared';
 
 interface NewTaskPayload {
@@ -320,7 +321,7 @@ async function handleCreateTask(taskData: NewTaskPayload, notebookId: string, do
       docPath = await ensureInboxDocument(notebookId);
     }
 
-    await TaskRepository.createBlockTask({
+    const created = await TaskRepository.createBlockTask({
       title: taskData.title,
       description: taskData.description,
       priority: taskData.priority,
@@ -330,7 +331,34 @@ async function handleCreateTask(taskData: NewTaskPayload, notebookId: string, do
       reminderCustomTime: taskData.reminderCustomTime || undefined,
       tags: taskData.tags || [],
       groupId: taskData.groupId || undefined,
-    }, notebookId, docPath);
+    }, notebookId, docPath, { emitTaskAdded: false });
+
+    if (created?.blockId && created.taskId) {
+      let resolvedRootId = documentId !== PINCH_INBOX_OPTION_ID && documentId !== PINCH_DAILY_NOTE_OPTION_ID
+        ? documentId
+        : '';
+      if (!resolvedRootId) {
+        try {
+          resolvedRootId = (await getIDsByHPath(notebookId, docPath))[0] || '';
+        } catch {
+          // The optimistic task can still be reconciled by block ID.
+        }
+      }
+      emitOptimisticBlockTaskAdded(created, {
+        notebookId,
+        rootId: resolvedRootId,
+        docPath,
+        task: {
+          title: taskData.title,
+          status: taskData.status || 'pending',
+          priority: taskData.priority || 'none',
+          dueDate: taskData.dueDate || undefined,
+          tags: taskData.tags || [],
+          groupId: taskData.groupId || undefined,
+          description: taskData.description || ''
+        }
+      });
+    }
 
     const normalizedGroupId = typeof taskData.groupId === 'string' ? taskData.groupId.trim() : '';
     await updateSettings('taskManager', {

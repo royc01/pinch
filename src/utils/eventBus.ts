@@ -45,7 +45,7 @@ class EventBus {
 export const eventBus = new EventBus();
 
 export interface HabitTrackerPanelOpenRequest {
-  target: 'habit-total' | 'habit-detail' | 'reward' | 'goal';
+  target: 'habit-total' | 'habit-detail' | 'reward' | 'goal' | 'views';
   habitId?: string;
   goalId?: string;
   rewardEntryId?: string;

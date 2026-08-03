@@ -18,9 +18,15 @@
         />
       </colgroup>
       <thead>
-        <tr>
-          <th class="col-expand">
-            <div ref="columnSettingsControlRef" class="table-column-settings">
+        <tr
+          @dragstart="handleColumnDragStart"
+          @dragover="handleColumnDragOver"
+          @drop="handleColumnDrop"
+          @dragend="handleColumnDragEnd"
+        >
+          <template v-for="column in visibleTableColumns" :key="column.key">
+          <th v-if="column.key === 'expand'" class="col-expand">
+            <div :ref="setColumnSettingsControlRef" class="table-column-settings">
               <button
                 type="button"
                 class="table-column-settings-btn ariaLabel"
@@ -67,8 +73,8 @@
               </div>
             </div>
           </th>
-          <th class="col-status"></th>
-          <th class="col-title is-resizable">
+          <th v-if="column.key === 'status'" class="col-status"></th>
+          <th v-if="column.key === 'title'" class="col-title is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
             <div class="th-content">
               <span>{{ getTableColumnLabel('title') }}</span>
             </div>
@@ -83,7 +89,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('description')" class="col-description is-resizable">
+          <th v-if="column.key === 'description'" class="col-description is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
             {{ getTableColumnLabel('description') }}
             <button
               type="button"
@@ -96,7 +102,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('priority')" class="col-priority sortable is-resizable" :class="{ active: sortColumn === 'priority' }" @click="toggleSort('priority')">
+          <th v-if="column.key === 'priority'" class="col-priority sortable is-resizable" :class="{ active: sortColumn === 'priority' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('priority')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('priority') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('priority')">
@@ -114,7 +120,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('statusText')" class="col-status-text sortable is-resizable" :class="{ active: sortColumn === 'status' }" @click="toggleSort('status')">
+          <th v-if="column.key === 'statusText'" class="col-status-text sortable is-resizable" :class="{ active: sortColumn === 'status' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('status')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('statusText') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('status')">
@@ -132,7 +138,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('group')" class="col-group is-resizable">
+          <th v-if="column.key === 'group'" class="col-group is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
             {{ getTableColumnLabel('group') }}
             <button
               type="button"
@@ -145,7 +151,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('goal')" class="col-goal is-resizable">
+          <th v-if="column.key === 'goal'" class="col-goal is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
             {{ getTableColumnLabel('goal') }}
             <button
               type="button"
@@ -158,7 +164,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('startDate')" class="col-start-date sortable is-resizable" :class="{ active: sortColumn === 'startDate' }" @click="toggleSort('startDate')">
+          <th v-if="column.key === 'startDate'" class="col-start-date sortable is-resizable" :class="{ active: sortColumn === 'startDate' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('startDate')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('startDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('startDate')">
@@ -176,7 +182,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('startTime')" class="col-start-time is-resizable">
+          <th v-if="column.key === 'startTime'" class="col-start-time is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
             <div class="th-content">
               <span>{{ getTableColumnLabel('startTime') }}</span>
             </div>
@@ -191,7 +197,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('dueDate')" class="col-due-date sortable is-resizable" :class="{ active: sortColumn === 'dueDate' }" @click="toggleSort('dueDate')">
+          <th v-if="column.key === 'dueDate'" class="col-due-date sortable is-resizable" :class="{ active: sortColumn === 'dueDate' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('dueDate')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('dueDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('dueDate')">
@@ -209,7 +215,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('dueTime')" class="col-due-time is-resizable">
+          <th v-if="column.key === 'dueTime'" class="col-due-time is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
             <div class="th-content">
               <span>{{ getTableColumnLabel('dueTime') }}</span>
             </div>
@@ -224,7 +230,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('focusDuration')" class="col-focus-duration is-resizable">
+          <th v-if="column.key === 'focusDuration'" class="col-focus-duration is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
             <div class="th-content">
               <span>{{ getTableColumnLabel('focusDuration') }}</span>
             </div>
@@ -239,7 +245,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('completedDate')" class="col-completed-date sortable is-resizable" :class="{ active: sortColumn === 'completedAt' }" @click="toggleSort('completedAt')">
+          <th v-if="column.key === 'completedDate'" class="col-completed-date sortable is-resizable" :class="{ active: sortColumn === 'completedAt' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('completedAt')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('completedDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('completedAt')">
@@ -257,7 +263,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('createdDate')" class="col-created-date sortable is-resizable" :class="{ active: sortColumn === 'createdAt' }" @click="toggleSort('createdAt')">
+          <th v-if="column.key === 'createdDate'" class="col-created-date sortable is-resizable" :class="{ active: sortColumn === 'createdAt' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('createdAt')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('createdDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('createdAt')">
@@ -275,7 +281,7 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('updatedDate')" class="col-updated-date sortable is-resizable" :class="{ active: sortColumn === 'updatedAt' }" @click="toggleSort('updatedAt')">
+          <th v-if="column.key === 'updatedDate'" class="col-updated-date sortable is-resizable" :class="{ active: sortColumn === 'updatedAt' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('updatedAt')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('updatedDate') }}</span>
               <span class="sort-indicator" :class="getSortIndicatorClass('updatedAt')">
@@ -293,7 +299,8 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="isTableColumnVisible('location')" class="col-location">{{ getTableColumnLabel('location') }}</th>
+          <th v-if="column.key === 'location'" class="col-location" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">{{ getTableColumnLabel('location') }}</th>
+          </template>
         </tr>
       </thead>
       <tbody>
@@ -372,7 +379,8 @@
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
             @contextmenu="handleTaskRowContextMenu(row.task, $event)"
           >
-            <td class="col-expand">
+            <template v-for="column in visibleTableColumns" :key="column.key">
+            <td v-if="column.key === 'expand'" class="col-expand">
               <span
                 v-if="getVisibleSubtasks(row.task).length > 0"
                 class="expand-arrow"
@@ -383,12 +391,12 @@
               </span>
               <span v-else class="expand-arrow-placeholder"></span>
             </td>
-            <td class="col-status">
+            <td v-if="column.key === 'status'" class="col-status">
               <div class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(row.task)">
                 <TaskCheckbox :checked="row.task.status === 'completed'" :size="16" />
               </div>
             </td>
-            <td class="col-title">
+            <td v-if="column.key === 'title'" class="col-title">
               <div class="title-wrapper">
                 <div class="title-main" @click="handleTaskClick(row.task, $event)">
                   <span v-if="row.task.pinned === true" class="task-pinned-indicator ariaLabel" :aria-label="t('taskManager.pinned')">
@@ -408,7 +416,7 @@
               </div>
             </td>
             <td
-              v-if="isTableColumnVisible('description')"
+              v-if="column.key === 'description'"
               class="col-description"
               :class="{ 'is-editing': editingDescriptions.has(row.task.id) }"
               @click.stop="startDescriptionEdit(row.task)"
@@ -434,7 +442,7 @@
                 :placeholder="t('taskManager.taskDescriptionPlaceholder')"
               />
             </td>
-            <td v-if="isTableColumnVisible('priority')" class="col-priority" @click.stop="togglePriorityEdit(row.task, $event)">
+            <td v-if="column.key === 'priority'" class="col-priority" @click.stop="togglePriorityEdit(row.task, $event)">
               <div class="priority-content">
                 <span
                   v-if="row.task.priority !== 'none'"
@@ -446,12 +454,12 @@
                 </span>
               </div>
             </td>
-            <td v-if="isTableColumnVisible('statusText')" class="col-status-text" @click.stop="toggleStatusEdit(row.task, $event)">
+            <td v-if="column.key === 'statusText'" class="col-status-text" @click.stop="toggleStatusEdit(row.task, $event)">
               <span class="status-badge" :class="`status-${row.task.status}`">
                 {{ getStatusLabel(row.task.status) }}
               </span>
             </td>
-            <td v-if="isTableColumnVisible('group')" class="col-group" @click.stop="toggleGroupPopover(row.task, $event)">
+            <td v-if="column.key === 'group'" class="col-group" @click.stop="toggleGroupPopover(row.task, $event)">
               <div v-if="getTaskGroupBadges(row.task).length > 0" class="group-badge-list">
                 <span
                   v-for="badge in getVisibleTaskGroupBadges(row.task)"
@@ -469,7 +477,7 @@
                 </span>
               </div>
             </td>
-            <td v-if="isTableColumnVisible('goal')" class="col-goal" @click.stop="toggleGoalPopover(row.task, $event)">
+            <td v-if="column.key === 'goal'" class="col-goal" @click.stop="toggleGoalPopover(row.task, $event)">
               <div v-if="getTaskGoalBadges(row.task).length > 0" class="goal-badge-list">
                 <span
                   v-for="badge in getVisibleTaskGoalBadges(row.task)"
@@ -492,31 +500,31 @@
                 </span>
               </div>
             </td>
-            <td v-if="isTableColumnVisible('startDate')" class="col-start-date" @click.stop="openDatePopover(row.task, 'startDate', $event)">
+            <td v-if="column.key === 'startDate'" class="col-start-date" @click.stop="openDatePopover(row.task, 'startDate', $event)">
               <span class="date-display">{{ row.task.startDate ? formatLocaleDate(row.task.startDate) : '-' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('startTime')" class="col-start-time" @click.stop="openTimePopover(row.task, 'startTime', $event)">
+            <td v-if="column.key === 'startTime'" class="col-start-time" @click.stop="openTimePopover(row.task, 'startTime', $event)">
               <span class="time-display">{{ formatTaskTime(row.task.startTime) }}</span>
             </td>
-            <td v-if="isTableColumnVisible('dueDate')" class="col-due-date" @click.stop="openDatePopover(row.task, 'dueDate', $event)">
+            <td v-if="column.key === 'dueDate'" class="col-due-date" @click.stop="openDatePopover(row.task, 'dueDate', $event)">
               <span class="date-display">{{ row.task.dueDate ? formatLocaleDate(row.task.dueDate) : '-' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('dueTime')" class="col-due-time" @click.stop="openTimePopover(row.task, 'dueTime', $event)">
+            <td v-if="column.key === 'dueTime'" class="col-due-time" @click.stop="openTimePopover(row.task, 'dueTime', $event)">
               <span class="time-display">{{ formatTaskTime(row.task.dueTime) }}</span>
             </td>
-            <td v-if="isTableColumnVisible('focusDuration')" class="col-focus-duration">
+            <td v-if="column.key === 'focusDuration'" class="col-focus-duration">
               <span class="focus-duration-display">{{ getTaskFocusDurationText(row.task) }}</span>
             </td>
-            <td v-if="isTableColumnVisible('completedDate')" class="col-completed-date">
+            <td v-if="column.key === 'completedDate'" class="col-completed-date">
               <span class="date-display">{{ row.task.completedAt ? formatLocaleDate(row.task.completedAt, { includeTime: true }) : '' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('createdDate')" class="col-created-date">
+            <td v-if="column.key === 'createdDate'" class="col-created-date">
               <span class="date-display">{{ row.task.createdAt ? formatLocaleDate(row.task.createdAt, { includeTime: true }) : '-' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('updatedDate')" class="col-updated-date">
+            <td v-if="column.key === 'updatedDate'" class="col-updated-date">
               <span class="date-display">{{ row.task.updatedAt ? formatLocaleDate(row.task.updatedAt, { includeTime: true }) : '-' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('location')" class="col-location">
+            <td v-if="column.key === 'location'" class="col-location">
               <div class="location-cell task-document-title ariaLabel" :aria-label="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
                   <EmojiIcon
@@ -528,6 +536,7 @@
                 <span class="task-document-title-text">{{ getTaskDocumentTitleText(row.task) }}</span>
               </div>
             </td>
+            </template>
           </tr>
           <tr
             v-else
@@ -539,13 +548,14 @@
             }"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
           >
-            <td class="col-expand">
+            <template v-for="column in visibleTableColumns" :key="column.key">
+            <td v-if="column.key === 'expand'" class="col-expand">
               <span class="subtask-tree-stem" aria-hidden="true"></span>
             </td>
-            <td class="col-status">
+            <td v-if="column.key === 'status'" class="col-status">
               <span class="subtask-tree-branch" aria-hidden="true"></span>
             </td>
-            <td class="col-title">
+            <td v-if="column.key === 'title'" class="col-title">
               <div class="subtask-title-cell">
                 <div class="subtask-checkbox-wrapper" @click.stop="toggleSubtaskStatus(row.task, row.subtask)">
                   <TaskCheckbox :checked="row.subtask.completed" :size="14" />
@@ -558,7 +568,7 @@
               </div>
             </td>
             <td
-              v-if="isTableColumnVisible('description')"
+              v-if="column.key === 'description'"
               class="col-description"
               :class="{ 'is-editing': isSubtaskDescriptionEditing(row.task, row.subtask) }"
             >
@@ -584,7 +594,7 @@
                 :placeholder="t('taskManager.taskDescriptionPlaceholder')"
               />
             </td>
-            <td v-if="isTableColumnVisible('priority')" class="col-priority" @click.stop="toggleSubtaskPriorityEdit(row.task, row.subtask, $event)">
+            <td v-if="column.key === 'priority'" class="col-priority" @click.stop="toggleSubtaskPriorityEdit(row.task, row.subtask, $event)">
               <div class="priority-content">
                 <span
                   v-if="getSubtaskPriority(row.subtask) !== 'none'"
@@ -596,12 +606,12 @@
                 </span>
               </div>
             </td>
-            <td v-if="isTableColumnVisible('statusText')" class="col-status-text" @click.stop="toggleSubtaskStatusEdit(row.task, row.subtask, $event)">
+            <td v-if="column.key === 'statusText'" class="col-status-text" @click.stop="toggleSubtaskStatusEdit(row.task, row.subtask, $event)">
               <span class="status-badge" :class="`status-${getSubtaskStatus(row.subtask)}`">
                 {{ getStatusLabel(getSubtaskStatus(row.subtask)) }}
               </span>
             </td>
-            <td v-if="isTableColumnVisible('group')" class="col-group" @click.stop="toggleSubtaskGroupPopover(row.task, row.subtask, $event)">
+            <td v-if="column.key === 'group'" class="col-group" @click.stop="toggleSubtaskGroupPopover(row.task, row.subtask, $event)">
               <span
                 v-if="getSubtaskGroupLabel(row.subtask)"
                 class="group-badge"
@@ -610,32 +620,32 @@
                 {{ getSubtaskGroupLabel(row.subtask) }}
               </span>
             </td>
-            <td v-if="isTableColumnVisible('goal')" class="col-goal"></td>
-            <td v-if="isTableColumnVisible('startDate')" class="col-start-date" @click.stop="openSubtaskDatePopover(row.task, row.subtask, 'startDate', $event)">
+            <td v-if="column.key === 'goal'" class="col-goal"></td>
+            <td v-if="column.key === 'startDate'" class="col-start-date" @click.stop="openSubtaskDatePopover(row.task, row.subtask, 'startDate', $event)">
               <span class="date-display">{{ row.subtask.startDate ? formatLocaleDate(row.subtask.startDate) : '-' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('startTime')" class="col-start-time" @click.stop="openSubtaskTimePopover(row.task, row.subtask, 'startTime', $event)">
+            <td v-if="column.key === 'startTime'" class="col-start-time" @click.stop="openSubtaskTimePopover(row.task, row.subtask, 'startTime', $event)">
               <span class="time-display">{{ formatTaskTime(row.subtask.startTime) }}</span>
             </td>
-            <td v-if="isTableColumnVisible('dueDate')" class="col-due-date" @click.stop="openSubtaskDatePopover(row.task, row.subtask, 'dueDate', $event)">
+            <td v-if="column.key === 'dueDate'" class="col-due-date" @click.stop="openSubtaskDatePopover(row.task, row.subtask, 'dueDate', $event)">
               <span class="date-display">{{ row.subtask.dueDate ? formatLocaleDate(row.subtask.dueDate) : '-' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('dueTime')" class="col-due-time" @click.stop="openSubtaskTimePopover(row.task, row.subtask, 'dueTime', $event)">
+            <td v-if="column.key === 'dueTime'" class="col-due-time" @click.stop="openSubtaskTimePopover(row.task, row.subtask, 'dueTime', $event)">
               <span class="time-display">{{ formatTaskTime(row.subtask.dueTime) }}</span>
             </td>
-            <td v-if="isTableColumnVisible('focusDuration')" class="col-focus-duration">
+            <td v-if="column.key === 'focusDuration'" class="col-focus-duration">
               <span class="focus-duration-display"></span>
             </td>
-            <td v-if="isTableColumnVisible('completedDate')" class="col-completed-date">
+            <td v-if="column.key === 'completedDate'" class="col-completed-date">
               <span class="date-display">{{ getSubtaskCompletedAt(row.subtask) ? formatLocaleDate(getSubtaskCompletedAt(row.subtask), { includeTime: true }) : '' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('createdDate')" class="col-created-date">
+            <td v-if="column.key === 'createdDate'" class="col-created-date">
               <span class="date-display">{{ row.subtask.createdAt ? formatLocaleDate(row.subtask.createdAt, { includeTime: true }) : '-' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('updatedDate')" class="col-updated-date">
+            <td v-if="column.key === 'updatedDate'" class="col-updated-date">
               <span class="date-display">{{ row.subtask.updatedAt ? formatLocaleDate(row.subtask.updatedAt, { includeTime: true }) : '-' }}</span>
             </td>
-            <td v-if="isTableColumnVisible('location')" class="col-location">
+            <td v-if="column.key === 'location'" class="col-location">
               <div class="location-cell task-document-title ariaLabel" :aria-label="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
                   <EmojiIcon
@@ -647,6 +657,7 @@
                 <span class="task-document-title-text">{{ getTaskDocumentTitleText(row.task) }}</span>
               </div>
             </td>
+            </template>
           </tr>
         </template>
         <tr v-if="tableVirtualSpacerBottom > 0" class="table-virtual-spacer-row" aria-hidden="true">
@@ -824,6 +835,8 @@ interface Props {
   taskGroups?: TaskGroup[];
   goals?: Goal[];
   groupMode?: TaskViewGroupMode;
+  /** Ordered root document IDs supplied by the milestone document tabs. */
+  documentGroupOrder?: string[];
   headingGroups?: Map<string, TaskHeadingGroupMeta>;
   documentIconByRootId?: Map<string, string>;
   documentTitleByRootId?: Map<string, string>;
@@ -1002,6 +1015,7 @@ const TABLE_COLUMNS: readonly TableColumnDefinition[] = [
 ] as const;
 
 const TABLE_COLUMN_VISIBILITY_STORAGE_KEY = 'pinch-table-column-visibility';
+const TABLE_COLUMN_ORDER_STORAGE_KEY = 'pinch-table-column-order';
 const LEGACY_TABLE_COLUMN_VISIBILITY_STORAGE_KEY = 'pinch-table-visible-columns';
 const TABLE_COLUMN_VISIBILITY_DATA_FILE = 'Pinch-table-column-visibility.json';
 const TABLE_CONFIGURABLE_COLUMNS: readonly ConfigurableTableColumnKey[] = [
@@ -1021,6 +1035,7 @@ const TABLE_CONFIGURABLE_COLUMNS: readonly ConfigurableTableColumnKey[] = [
   'location'
 ] as const;
 const DEFAULT_VISIBLE_TABLE_COLUMNS = new Set<ConfigurableTableColumnKey>(TABLE_CONFIGURABLE_COLUMNS);
+const DEFAULT_TABLE_COLUMN_ORDER: readonly TableColumnKey[] = TABLE_COLUMNS.map(column => column.key);
 const tableColumnSettingGroups = computed<TableColumnSettingGroup[]>(() => [
   {
     title: t('tableView.settingsBasicGroup'),
@@ -1164,6 +1179,8 @@ const focusSessionRecords = ref<FocusSessionRecord[]>([]);
 const columnSettingsControlRef = ref<HTMLElement | null>(null);
 const columnSettingsVisible = ref(false);
 const visibleConfigurableColumns = ref<Set<ConfigurableTableColumnKey>>(loadTableColumnVisibility());
+const tableColumnOrder = ref<TableColumnKey[]>(loadTableColumnOrder());
+let draggedTableColumn: TableColumnKey | null = null;
 let focusDurationLoadVersion = 0;
 let tableColumnVisibilityLoadVersion = 0;
 
@@ -1291,6 +1308,43 @@ function loadTableColumnVisibility(): Set<ConfigurableTableColumnKey> {
   return readLocalTableColumnVisibility();
 }
 
+function normalizeTableColumnOrder(value: unknown): TableColumnKey[] {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_TABLE_COLUMN_ORDER];
+  }
+  const knownColumns = new Set<TableColumnKey>(DEFAULT_TABLE_COLUMN_ORDER);
+  const order = value.filter((key): key is TableColumnKey => typeof key === 'string' && knownColumns.has(key as TableColumnKey));
+  for (const column of DEFAULT_TABLE_COLUMN_ORDER) {
+    if (!order.includes(column)) {
+      order.push(column);
+    }
+  }
+  return order;
+}
+
+function loadTableColumnOrder(): TableColumnKey[] {
+  if (typeof window === 'undefined') {
+    return [...DEFAULT_TABLE_COLUMN_ORDER];
+  }
+  try {
+    return normalizeTableColumnOrder(JSON.parse(window.localStorage.getItem(TABLE_COLUMN_ORDER_STORAGE_KEY) || 'null'));
+  } catch (error) {
+    console.warn('[TableView]', t('tableView.readColumnSettingsFailed'), error);
+    return [...DEFAULT_TABLE_COLUMN_ORDER];
+  }
+}
+
+function saveTableColumnOrder(order: TableColumnKey[]): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(TABLE_COLUMN_ORDER_STORAGE_KEY, JSON.stringify(order));
+  } catch (error) {
+    console.warn('[TableView]', t('tableView.saveLocalColumnSettingsFailed'), error);
+  }
+}
+
 function createTableColumnVisibilitySnapshot(
   visibleColumns: Set<ConfigurableTableColumnKey>
 ): TableColumnVisibilitySnapshot {
@@ -1406,11 +1460,17 @@ function resetTableColumnVisibility(): void {
   const next = createDefaultVisibleTableColumns();
   visibleConfigurableColumns.value = next;
   saveTableColumnVisibility(next);
+  tableColumnOrder.value = [...DEFAULT_TABLE_COLUMN_ORDER];
+  saveTableColumnOrder(tableColumnOrder.value);
   resyncTableColumnWidthsAfterVisibilityChange();
 }
 
 function toggleColumnSettings(): void {
   columnSettingsVisible.value = !columnSettingsVisible.value;
+}
+
+function setColumnSettingsControlRef(element: Element | null): void {
+  columnSettingsControlRef.value = element instanceof HTMLElement ? element : null;
 }
 
 function clearSortForHiddenColumn(
@@ -1654,6 +1714,9 @@ const groupPopoverOptions = computed(() => buildTaskGroupOptions(props.taskGroup
 const resolvedGroupMode = computed(() => normalizeTaskViewGroupMode(props.groupMode, 'status'));
 const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date', 'document'].includes(resolvedGroupMode.value));
 const supportsGroupActions = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
+const documentGroupOrderIndex = computed(() => new Map(
+  (props.documentGroupOrder || []).map((documentId, index) => [documentId, index])
+));
 const documentIconColorVersion = ref(0);
 const customGroupOrder = computed(() => {
   const order: Array<{ id: string; label: string; style?: Record<string, string> }> = [
@@ -1814,6 +1877,14 @@ const sortedTasks = computed(() => {
   return tasks;
 });
 
+const expandableTasks = computed(() =>
+  sortedTasks.value.filter(task => getVisibleSubtasks(task).length > 0)
+);
+const hasExpandableTasks = computed(() => expandableTasks.value.length > 0);
+const areAllExpandableTasksExpanded = computed(() =>
+  hasExpandableTasks.value && expandableTasks.value.every(task => expandedTasks.value.has(task.id))
+);
+
 const groupedTasks = computed<TableTaskGroupSection[]>(() => {
   if (!isGroupedDisplayMode.value) return [];
   if (resolvedGroupMode.value === 'group') {
@@ -1950,9 +2021,13 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
         label: group.label,
         tasks: group.tasks,
         order: group.order,
+        tabOrder: documentGroupOrderIndex.value.get(key.slice(key.lastIndexOf(':') + 1)),
         style: group.style
       }))
       .sort((a, b) => {
+        if (a.tabOrder !== undefined || b.tabOrder !== undefined) {
+          return (a.tabOrder ?? Number.MAX_SAFE_INTEGER) - (b.tabOrder ?? Number.MAX_SAFE_INTEGER);
+        }
         if (a.order !== b.order) {
           return a.order - b.order;
         }
@@ -1962,7 +2037,7 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
         }
         return a.key.localeCompare(b.key);
       })
-      .map(({ order: _order, ...group }) => group);
+      .map(({ order: _order, tabOrder: _tabOrder, ...group }) => group);
   }
 
   return [];
@@ -2246,7 +2321,13 @@ const goalPopoverStyle = computed(() => {
   };
 });
 
-const visibleTableColumns = computed(() => TABLE_COLUMNS.filter(column => isTableColumnVisible(column.key)));
+const visibleTableColumns = computed(() => {
+  const columnDefinitions = new Map(TABLE_COLUMNS.map(column => [column.key, column]));
+  return tableColumnOrder.value
+    .filter(isTableColumnVisible)
+    .map(column => columnDefinitions.get(column))
+    .filter((column): column is TableColumnDefinition => !!column);
+});
 const tableColumnCount = computed(() => visibleTableColumns.value.length);
 const hasManualColumnWidths = computed(() => Object.keys(tableColumnWidths.value).length > 0);
 const effectiveTableColumnWidths = computed<Partial<Record<TableColumnKey, number>>>(() => tableColumnWidths.value);
@@ -2270,6 +2351,83 @@ const tableColumnCssVars = computed<Record<string, string>>(() => {
   }
   return cssVars;
 });
+
+function isTableColumnDraggable(column: TableColumnKey): boolean {
+  return column !== 'expand' && column !== 'status';
+}
+
+function getDraggedTableColumn(event: DragEvent): TableColumnKey | null {
+  const target = event.target as HTMLElement | null;
+  const header = target?.closest<HTMLElement>('th[data-table-column]');
+  const column = header?.dataset.tableColumn;
+  return column && (DEFAULT_TABLE_COLUMN_ORDER as readonly string[]).includes(column)
+    ? column as TableColumnKey
+    : null;
+}
+
+function clearColumnDragClasses(): void {
+  tableContainerRef.value?.querySelectorAll('.is-column-dragging, .is-column-drag-over').forEach(element => {
+    element.classList.remove('is-column-dragging', 'is-column-drag-over');
+  });
+}
+
+function handleColumnDragStart(event: DragEvent): void {
+  if ((event.target as HTMLElement | null)?.closest('button, .column-resize-handle')) {
+    event.preventDefault();
+    return;
+  }
+  const column = getDraggedTableColumn(event);
+  if (!column || !isTableColumnDraggable(column)) {
+    event.preventDefault();
+    return;
+  }
+  draggedTableColumn = column;
+  event.dataTransfer?.setData('text/plain', column);
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+  }
+  (event.target as HTMLElement).closest('th')?.classList.add('is-column-dragging');
+}
+
+function handleColumnDragOver(event: DragEvent): void {
+  const targetColumn = getDraggedTableColumn(event);
+  if (!draggedTableColumn || !targetColumn || !isTableColumnDraggable(targetColumn)) {
+    return;
+  }
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move';
+  }
+  clearColumnDragClasses();
+  (event.target as HTMLElement).closest('th')?.classList.add('is-column-drag-over');
+}
+
+function handleColumnDrop(event: DragEvent): void {
+  event.preventDefault();
+  const targetColumn = getDraggedTableColumn(event);
+  const sourceColumn = draggedTableColumn;
+  clearColumnDragClasses();
+  draggedTableColumn = null;
+  if (!sourceColumn || !targetColumn || sourceColumn === targetColumn || !isTableColumnDraggable(targetColumn)) {
+    return;
+  }
+  const nextOrder = [...tableColumnOrder.value];
+  const sourceIndex = nextOrder.indexOf(sourceColumn);
+  const targetIndex = nextOrder.indexOf(targetColumn);
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return;
+  }
+  nextOrder.splice(sourceIndex, 1);
+  nextOrder.splice(targetIndex, 0, sourceColumn);
+  tableColumnOrder.value = nextOrder;
+  saveTableColumnOrder(nextOrder);
+  resyncTableColumnWidthsAfterVisibilityChange();
+}
+
+function handleColumnDragEnd(): void {
+  draggedTableColumn = null;
+  clearColumnDragClasses();
+}
 
 function syncTableViewportMetrics(): void {
   const container = tableContainerRef.value;
@@ -3531,6 +3689,27 @@ function toggleExpand(taskId: string) {
   }
   expandedTasks.value = new Set(expandedTasks.value);
 }
+
+function toggleAllTaskDetails(): void {
+  const taskIds = expandableTasks.value.map(task => task.id);
+  if (taskIds.length === 0) {
+    return;
+  }
+
+  const nextExpandedTasks = new Set(expandedTasks.value);
+  if (areAllExpandableTasksExpanded.value) {
+    taskIds.forEach(taskId => nextExpandedTasks.delete(taskId));
+  } else {
+    taskIds.forEach(taskId => nextExpandedTasks.add(taskId));
+  }
+  expandedTasks.value = nextExpandedTasks;
+}
+
+defineExpose({
+  hasExpandableTasks,
+  areAllExpandableTasksExpanded,
+  toggleAllTaskDetails
+});
 </script>
 
 <style scoped>
@@ -3721,6 +3900,20 @@ function toggleExpand(taskId: string) {
 
 .tasks-table th.sortable:hover {
   background-color: var(--b3-list-hover);
+}
+
+.tasks-table th[draggable='true'] {
+  cursor: grab;
+}
+
+.tasks-table th[draggable='true']:active,
+.tasks-table th.is-column-dragging {
+  cursor: grabbing;
+  opacity: 0.55;
+}
+
+.tasks-table th.is-column-drag-over {
+  box-shadow: inset 3px 0 0 var(--b3-theme-primary);
 }
 
 .th-content {

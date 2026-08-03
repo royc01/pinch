@@ -32,6 +32,9 @@ interface UseTaskDragOptions {
    *  by this amount. Defaults to 0 (no collapse).
    *  Can be a number or a getter function for dynamic updates. */
   inactiveHoursOffset?: number | (() => number);
+  /** Moves the free-floating timed-task ghost without causing a Vue render. */
+  onTimedTaskDragGhostMove?: (position: { left: number; top: number }) => void;
+  onAllDayTaskDragGhostMove?: (position: { left: number; top: number }) => void;
 }
 
 interface RepeatSeriesDragSnapshotEntry {
@@ -65,6 +68,8 @@ interface MonthDayCellHitRect {
   top: number;
   bottom: number;
 }
+
+const TIMED_TASK_DRAG_THRESHOLD_PX = 4;
 
 function parseLocalDayKey(dayKey: string): Date | null {
   const match = dayKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -114,7 +119,20 @@ export function useTaskDrag(
     originalStart: string;
     originalDue: string | null;
     pointerOffsetDays: number;
+    clickOffsetX?: number;
+    clickOffsetY?: number;
+    width?: number;
+    height?: number;
     repeatSeriesSnapshot?: RepeatSeriesDragSnapshot | null;
+  } | null>(null);
+  const allDayTaskDragPreview = ref<{
+    task: Task;
+    startDate: string;
+    dueDate: string | null;
+    floatingLeft: number;
+    floatingTop: number;
+    width: number;
+    height: number;
   } | null>(null);
   const dragLastUpdatedDate = ref('');
   const isDragging = ref(false);
@@ -128,7 +146,14 @@ export function useTaskDrag(
     originalDueDate: string;
     repeatSeriesSnapshot?: RepeatSeriesDragSnapshot | null;
   } | null>(null);
-  const draggingTimedTask = ref<{ task: Task; originalStartTime: string; originalEndTime: string; originalStartDate: string; originalDueDate: string; dayKey: string; clickOffsetY?: number; durationMs?: number; repeatSeriesSnapshot?: RepeatSeriesDragSnapshot | null } | null>(null);
+  const draggingTimedTask = ref<{ task: Task; originalStartTime: string; originalEndTime: string; originalStartDate: string; originalDueDate: string; dayKey: string; startClientX: number; startClientY: number; hasMoved: boolean; clickOffsetX?: number; clickOffsetY?: number; taskWidth?: number; taskHeight?: number; durationMs?: number; repeatSeriesSnapshot?: RepeatSeriesDragSnapshot | null } | null>(null);
+  const timedTaskDragPreview = ref<{
+    task: Task;
+    target: TimedTaskDropResolution | null;
+    floatingLeft: number;
+    floatingTop: number;
+    width: number;
+  } | null>(null);
   const pendingTimedRepeatPreview = ref<{
     snapshot: RepeatSeriesDragSnapshot;
     deltaDays: number;
@@ -136,6 +161,15 @@ export function useTaskDrag(
     clearTime: boolean;
   } | null>(null);
   let timedRepeatPreviewRafId: number | null = null;
+  // Pointer events can arrive much faster than the browser can paint.  Keep the
+  // visual preview at most one update per frame, while preserving the final
+  // pointer position when the mouse is released.
+  let timedTaskMoveRafId: number | null = null;
+  let pendingTimedTaskMoveEvent: MouseEvent | null = null;
+  let timedTaskHandleMoveRafId: number | null = null;
+  let pendingTimedTaskHandleMoveEvent: MouseEvent | null = null;
+  let lastTimedTaskPreviewKey = '';
+  let lastTimedTaskHandlePreviewKey = '';
 
   const eventListeners = ref<EventListener[]>([]);
   let monthDayCellHitRects: MonthDayCellHitRect[] | null = null;
@@ -404,6 +438,63 @@ export function useTaskDrag(
       cancelAnimationFrame(timedRepeatPreviewRafId);
       timedRepeatPreviewRafId = null;
     }
+  }
+
+  function queueTimedTaskMove(event: MouseEvent): void {
+    pendingTimedTaskMoveEvent = event;
+    if (timedTaskMoveRafId !== null) return;
+    timedTaskMoveRafId = requestAnimationFrame(() => {
+      timedTaskMoveRafId = null;
+      const pendingEvent = pendingTimedTaskMoveEvent;
+      pendingTimedTaskMoveEvent = null;
+      if (pendingEvent) updateTimedTaskPosition(pendingEvent);
+    });
+  }
+
+  function flushTimedTaskMove(): void {
+    if (timedTaskMoveRafId !== null) {
+      cancelAnimationFrame(timedTaskMoveRafId);
+      timedTaskMoveRafId = null;
+    }
+    const pendingEvent = pendingTimedTaskMoveEvent;
+    pendingTimedTaskMoveEvent = null;
+    if (pendingEvent) updateTimedTaskPosition(pendingEvent);
+  }
+
+  function clearTimedTaskMove(): void {
+    if (timedTaskMoveRafId !== null) cancelAnimationFrame(timedTaskMoveRafId);
+    timedTaskMoveRafId = null;
+    pendingTimedTaskMoveEvent = null;
+    lastTimedTaskPreviewKey = '';
+    timedTaskDragPreview.value = null;
+  }
+
+  function queueTimedTaskHandleMove(event: MouseEvent): void {
+    pendingTimedTaskHandleMoveEvent = event;
+    if (timedTaskHandleMoveRafId !== null) return;
+    timedTaskHandleMoveRafId = requestAnimationFrame(() => {
+      timedTaskHandleMoveRafId = null;
+      const pendingEvent = pendingTimedTaskHandleMoveEvent;
+      pendingTimedTaskHandleMoveEvent = null;
+      if (pendingEvent) updateTimedTaskHandlePosition(pendingEvent);
+    });
+  }
+
+  function flushTimedTaskHandleMove(): void {
+    if (timedTaskHandleMoveRafId !== null) {
+      cancelAnimationFrame(timedTaskHandleMoveRafId);
+      timedTaskHandleMoveRafId = null;
+    }
+    const pendingEvent = pendingTimedTaskHandleMoveEvent;
+    pendingTimedTaskHandleMoveEvent = null;
+    if (pendingEvent) updateTimedTaskHandlePosition(pendingEvent);
+  }
+
+  function clearTimedTaskHandleMove(): void {
+    if (timedTaskHandleMoveRafId !== null) cancelAnimationFrame(timedTaskHandleMoveRafId);
+    timedTaskHandleMoveRafId = null;
+    pendingTimedTaskHandleMoveEvent = null;
+    lastTimedTaskHandlePreviewKey = '';
   }
 
   function shiftDate(dateStr: string, deltaDays: number): string {
@@ -696,6 +787,10 @@ export function useTaskDrag(
     pointerDay.setHours(0, 0, 0, 0);
     const originalStartDate = new Date(effectiveStartDate);
     originalStartDate.setHours(0, 0, 0, 0);
+    const taskElement = (event.target as HTMLElement).closest('.all-day-task, .task-chip') as HTMLElement | null;
+    const layerElement = taskElement?.closest('.all-day-tasks-layer, .week-tasks-layer') as HTMLElement | null;
+    const taskRect = taskElement?.getBoundingClientRect();
+    const layerRect = layerElement?.getBoundingClientRect();
     const pointerOffsetDays = Math.round((pointerDay.getTime() - originalStartDate.getTime()) / (1000 * 60 * 60 * 24));
 
     draggingTask.value = {
@@ -703,12 +798,18 @@ export function useTaskDrag(
       originalStart: effectiveStartDate,
       originalDue: task.dueDate || null,
       pointerOffsetDays,
+      clickOffsetX: taskRect && layerRect ? event.clientX - taskRect.left : 0,
+      clickOffsetY: taskRect && layerRect ? event.clientY - taskRect.top : 0,
+      width: taskRect?.width || 0,
+      height: taskRect?.height || 0,
       repeatSeriesSnapshot: isRepeatTask(task)
         ? buildRepeatSeriesDragSnapshot(task)
         : null
     };
 
     dragLastUpdatedDate.value = '';
+    allDayTaskDragPreview.value = null;
+    timedTaskDragPreview.value = null;
     isDragging.value = true;
 
     event.preventDefault();
@@ -720,7 +821,7 @@ export function useTaskDrag(
   function handleTaskMouseMove(event: MouseEvent) {
     if (!draggingTask.value) return;
 
-    const { task, originalStart, originalDue, pointerOffsetDays, repeatSeriesSnapshot } = draggingTask.value;
+    const { task, originalStart, originalDue, pointerOffsetDays, clickOffsetX, clickOffsetY, width, height } = draggingTask.value;
 
     const targetData = findDayColumnFromEvent(event);
     if (!targetData) {
@@ -774,38 +875,55 @@ export function useTaskDrag(
       ? `timed:${targetDateStr}:${timedStartTime}:${timedDueTime}`
       : `all-day:${shiftedStartDateStr}:${newDueDateStr || ''}`;
 
-    if (dragLastUpdatedDate.value === dragSignature) {
-      return;
-    }
-
-    if (repeatSeriesSnapshot) {
-      if (targetData.isTimedArea) {
-        const deltaDays = getDayDelta(originalStart, targetDateStr);
-        applyRepeatSeriesTimedMove(repeatSeriesSnapshot, deltaDays, timedStartTime, false);
-      } else {
-        applyRepeatSeriesAllDayMove(repeatSeriesSnapshot, daysDiff);
+    if (!targetData.isTimedArea) {
+      timedTaskDragPreview.value = null;
+      const layer = (targetData.element.closest('.week-row')?.querySelector('.week-tasks-layer')
+        || document.querySelector('.all-day-tasks-layer')) as HTMLElement | null;
+      const layerRect = layer?.getBoundingClientRect();
+      if (layerRect) {
+        const floatingPosition = {
+          left: event.clientX - layerRect.left - (clickOffsetX || 0),
+          top: event.clientY - layerRect.top - (clickOffsetY || 0)
+        };
+        options.onAllDayTaskDragGhostMove?.(floatingPosition);
+        if (dragLastUpdatedDate.value === dragSignature) return;
+        allDayTaskDragPreview.value = {
+          task,
+          startDate: shiftedStartDateStr,
+          dueDate: newDueDateStr,
+          floatingLeft: floatingPosition.left,
+          floatingTop: floatingPosition.top,
+          width: width || 0,
+          height: height || 0
+        };
       }
-
-      dragLastUpdatedDate.value = dragSignature;
-      return;
-    }
-
-    const updatedTask = patchLocalTask(task.id, {
-      startDate: shiftedStartDateStr,
-      dueDate: newDueDateStr
-    });
-    if (updatedTask) {
-      emitTaskDateChanged(updatedTask);
-    }
-
-    if (task.type === 'block' && task.blockId && !isRepeatTask(task)) {
-      const attrs: Record<string, string> = {
-        'custom-task-start-date': shiftedStartDateStr
-      };
-      if (newDueDateStr) {
-        attrs['custom-task-due-date'] = newDueDateStr;
+    } else {
+      const dayColumn = targetData.element;
+      const daysScrollElement = dayColumn.closest('.days-scroll') as HTMLElement | null;
+      const scrollRect = daysScrollElement?.getBoundingClientRect();
+      const columnRect = dayColumn.getBoundingClientRect();
+      if (scrollRect) {
+        const floatingPosition = {
+          left: event.clientX - columnRect.left - (width || 0) / 2,
+          top: event.clientY - scrollRect.top + daysScrollElement!.scrollTop - (height || 0) / 2
+        };
+        options.onTimedTaskDragGhostMove?.(floatingPosition);
+        if (dragLastUpdatedDate.value === dragSignature) return;
+        timedTaskDragPreview.value = {
+          task,
+          target: {
+            kind: 'timed',
+            dayKey: targetDateStr,
+            startTime: timedStartTime,
+            dueTime: timedDueTime,
+            dueDate: targetDateStr
+          },
+          floatingLeft: floatingPosition.left,
+          floatingTop: floatingPosition.top,
+          width: width || 0
+        };
       }
-      scheduleSave(task.blockId, attrs);
+      allDayTaskDragPreview.value = null;
     }
 
     dragLastUpdatedDate.value = dragSignature;
@@ -815,9 +933,27 @@ export function useTaskDrag(
     if (!draggingTask.value) return;
 
     const { task, originalStart, originalDue, repeatSeriesSnapshot } = draggingTask.value;
-    const currentTask = getLocalTask(task.id);
 
     const targetData = findDayColumnFromEvent(event);
+    const preview = allDayTaskDragPreview.value;
+    allDayTaskDragPreview.value = null;
+    timedTaskDragPreview.value = null;
+    if (preview && preview.task.id === task.id && targetData && !targetData.isTimedArea) {
+      const updatedTask = patchLocalTask(task.id, {
+        startDate: preview.startDate,
+        dueDate: preview.dueDate || undefined
+      });
+      if (updatedTask && !isRepeatTask(updatedTask)) {
+        emitTaskDateChanged(updatedTask);
+        if (updatedTask.type === 'block' && updatedTask.blockId) {
+          scheduleSave(updatedTask.blockId, {
+            'custom-task-start-date': preview.startDate,
+            'custom-task-due-date': preview.dueDate || ''
+          });
+        }
+      }
+    }
+    const currentTask = getLocalTask(task.id);
     const dropHourCell = dragState.value.overHourCell;
 
     // End drag visuals/listeners immediately, but keep sync suppression active until
@@ -1148,6 +1284,7 @@ export function useTaskDrag(
     if (event.button !== 0) return;
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event)) return;
+    clearTimedTaskHandleMove();
 
     const repeatSeriesSnapshot = isRepeatTask(task)
       ? buildRepeatSeriesDragSnapshot(task)
@@ -1172,6 +1309,10 @@ export function useTaskDrag(
   }
 
   function handleTimedTaskHandleMouseMove(event: MouseEvent) {
+    queueTimedTaskHandleMove(event);
+  }
+
+  function updateTimedTaskHandlePosition(event: MouseEvent) {
     if (!draggingTimedTaskHandle.value) return;
 
     const { task, type, repeatSeriesSnapshot } = draggingTimedTaskHandle.value;
@@ -1195,6 +1336,8 @@ export function useTaskDrag(
     const hours = Math.floor(snappedMinutes / 60);
     const minutes = snappedMinutes % 60;
     const newTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    const previewKey = `${type}:${newDayKey}:${newTime}`;
+    if (previewKey === lastTimedTaskHandlePreviewKey) return;
 
     const currentTask = getLocalTask(task.id);
     if (!currentTask) return;
@@ -1247,10 +1390,12 @@ export function useTaskDrag(
         });
       }
     }
+    lastTimedTaskHandlePreviewKey = previewKey;
   }
 
   async function handleTimedTaskHandleMouseUp() {
     if (!draggingTimedTaskHandle.value) return;
+    flushTimedTaskHandleMove();
 
     const {
       task,
@@ -1261,6 +1406,14 @@ export function useTaskDrag(
       originalDueDate,
       repeatSeriesSnapshot
     } = draggingTimedTaskHandle.value;
+    // End the interaction before persistence starts.  setBlockAttrs and repeat
+    // updates are async; keeping this ref set until they finish leaves the UI
+    // looking like it is still attached to the pointer.
+    draggingTimedTaskHandle.value = null;
+    isDragging.value = false;
+    clearTimedTaskHandleMove();
+    removeEventListeners('mousemove');
+    removeEventListeners('mouseup');
     const currentTask = getLocalTask(task.id);
 
     if (currentTask) {
@@ -1354,11 +1507,6 @@ export function useTaskDrag(
       }
     }
 
-    draggingTimedTaskHandle.value = null;
-    isDragging.value = false;
-
-    removeEventListeners('mousemove');
-    removeEventListeners('mouseup');
   }
 
   function handleTimedTaskMouseDown(event: MouseEvent, task: Task, dayKey: string) {
@@ -1367,12 +1515,14 @@ export function useTaskDrag(
     if (preventConcurrentDragStart(event)) return;
 
     clearTimedRepeatPreview();
+    clearTimedTaskMove();
     const target = event.target as HTMLElement;
     const timedTaskElement = target.closest('.timed-task') as HTMLElement;
     const daysScrollElement = target.closest('.days-scroll') as HTMLElement;
     if (!timedTaskElement || !daysScrollElement) return;
 
     const taskRect = timedTaskElement.getBoundingClientRect();
+    const clickOffsetX = event.clientX - taskRect.left;
     const clickOffsetY = event.clientY - taskRect.top;
 
     const originalStartDate = task.startDate || dayKey;
@@ -1394,7 +1544,13 @@ export function useTaskDrag(
       originalStartDate,
       originalDueDate,
       dayKey,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      hasMoved: false,
+      clickOffsetX,
       clickOffsetY,
+      taskWidth: taskRect.width,
+      taskHeight: taskRect.height,
       durationMs,
       repeatSeriesSnapshot
     };
@@ -1409,9 +1565,19 @@ export function useTaskDrag(
   }
 
   function handleTimedTaskMouseMove(event: MouseEvent) {
+    queueTimedTaskMove(event);
+  }
+
+  function updateTimedTaskPosition(event: MouseEvent) {
     if (!draggingTimedTask.value) return;
 
-    const { task, originalStartDate, clickOffsetY, durationMs, repeatSeriesSnapshot } = draggingTimedTask.value;
+    const drag = draggingTimedTask.value;
+    const { task, originalStartDate, clickOffsetX, clickOffsetY, taskWidth, taskHeight, durationMs } = drag;
+    if (!drag.hasMoved) {
+      const movedDistance = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY);
+      if (movedDistance < TIMED_TASK_DRAG_THRESHOLD_PX) return;
+      drag.hasMoved = true;
+    }
 
     const target = event.target as HTMLElement;
     const daysScrollElement = target.closest('.days-scroll') as HTMLElement;
@@ -1421,30 +1587,39 @@ export function useTaskDrag(
       const allDayColumn = target.closest('.all-day-column') as HTMLElement;
       if (allDayColumn) {
         const newDayKey = allDayColumn.getAttribute('data-day-key') || originalStartDate;
+        const previewKey = `all-day:${newDayKey}`;
+        const layer = document.querySelector('.all-day-tasks-layer') as HTMLElement | null;
+        const layerRect = layer?.getBoundingClientRect();
+        if (layerRect) {
+          const floatingPosition = {
+            left: event.clientX - layerRect.left - (clickOffsetX || 0),
+            top: event.clientY - layerRect.top - (clickOffsetY || 0)
+          };
+          options.onAllDayTaskDragGhostMove?.(floatingPosition);
+          if (previewKey === lastTimedTaskPreviewKey) return;
+          allDayTaskDragPreview.value = {
+            task,
+            startDate: newDayKey,
+            dueDate: newDayKey,
+            floatingLeft: floatingPosition.left,
+            floatingTop: floatingPosition.top,
+            width: taskWidth || 0,
+            height: taskHeight || 0
+          };
+        } else if (previewKey === lastTimedTaskPreviewKey) {
+          return;
+        }
         dragState.value.overAllDayColumn = newDayKey;
         dragState.value.overDayColumn = null;
 
-        const from = new Date(originalStartDate);
-        const to = new Date(newDayKey);
-        from.setHours(0, 0, 0, 0);
-        to.setHours(0, 0, 0, 0);
-        const deltaDays = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
-
-        if (repeatSeriesSnapshot) {
-          scheduleTimedRepeatPreview(repeatSeriesSnapshot, deltaDays, undefined, true);
-        } else {
-          patchLocalTask(task.id, {
-            startDate: newDayKey,
-            dueDate: newDayKey,
-            startTime: undefined,
-            dueTime: undefined
-          });
-        }
+        timedTaskDragPreview.value = null;
+        lastTimedTaskPreviewKey = previewKey;
       }
       return;
     }
 
     dragState.value.overAllDayColumn = null;
+    allDayTaskDragPreview.value = null;
 
     const dayColumn = target.closest('.day-column') as HTMLElement;
     if (!daysScrollElement || !dayColumn) return;
@@ -1454,6 +1629,8 @@ export function useTaskDrag(
     const scrollRect = daysScrollElement.getBoundingClientRect();
     const scrollTop = daysScrollElement.scrollTop;
     const offsetY = event.clientY - scrollRect.top + scrollTop - (clickOffsetY || 0);
+    const columnRect = dayColumn.getBoundingClientRect();
+    const floatingLeft = event.clientX - columnRect.left - (clickOffsetX || 0);
 
     const inactiveOffsetMinutes = resolveInactiveHoursOffset() * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
     const totalMinutes = offsetY * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT + inactiveOffsetMinutes;
@@ -1465,32 +1642,34 @@ export function useTaskDrag(
     const hours = Math.floor(clampedMinutes / 60);
     const minutes = clampedMinutes % 60;
     const newStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-
+    const previewKey = `timed:${newDayKey}:${newStartTime}`;
     const newStartDateTime = new Date(newDayKey + 'T' + newStartTime);
     const safeDurationMs = Number.isFinite(durationMs)
       ? Math.max(15 * 60 * 1000, Number(durationMs))
       : 60 * 60 * 1000;
     const newDueDateTime = new Date(newStartDateTime.getTime() + safeDurationMs);
-    if (repeatSeriesSnapshot) {
-      const from = new Date(originalStartDate);
-      const to = new Date(newDayKey);
-      from.setHours(0, 0, 0, 0);
-      to.setHours(0, 0, 0, 0);
-      const deltaDays = Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
-      scheduleTimedRepeatPreview(repeatSeriesSnapshot, deltaDays, newStartTime, false);
-    } else {
-      const newDueDateStr = formatDate(newDueDateTime);
-      patchLocalTask(task.id, {
+    const floatingPosition = { left: floatingLeft, top: offsetY };
+    options.onTimedTaskDragGhostMove?.(floatingPosition);
+    if (previewKey === lastTimedTaskPreviewKey) return;
+    timedTaskDragPreview.value = {
+      task,
+      target: {
+        kind: 'timed',
+        dayKey: newDayKey,
         startTime: newStartTime,
         dueTime: formatTime(newDueDateTime),
-        startDate: newDayKey,
-        dueDate: newDueDateStr
-      });
-    }
+        dueDate: formatDate(newDueDateTime)
+      },
+      floatingLeft: floatingPosition.left,
+      floatingTop: floatingPosition.top,
+      width: taskWidth || 0
+    };
+    lastTimedTaskPreviewKey = previewKey;
   }
 
   async function handleTimedTaskMouseUp(event: MouseEvent) {
     if (!draggingTimedTask.value) return;
+    flushTimedTaskMove();
 
     const {
       task,
@@ -1500,13 +1679,33 @@ export function useTaskDrag(
       originalDueDate,
       clickOffsetY,
       durationMs,
-      repeatSeriesSnapshot
+      repeatSeriesSnapshot,
+      hasMoved
     } = draggingTimedTask.value;
+    if (!hasMoved) {
+      draggingTimedTask.value = null;
+      isDragging.value = false;
+      clearTimedTaskMove();
+      removeEventListeners('mousemove');
+      removeEventListeners('mouseup');
+      return;
+    }
     const finalDrop = resolveTimedTaskDropFromEvent(event, {
       originalStartDate,
       clickOffsetY,
       durationMs
     });
+
+    // Release the visual drag state before any async persistence.  This makes
+    // the card settle immediately on mouseup even when saving is slow.
+    draggingTimedTask.value = null;
+    dragState.value.overDayColumn = null;
+    dragState.value.overAllDayColumn = null;
+    isDragging.value = false;
+    clearTimedTaskMove();
+    allDayTaskDragPreview.value = null;
+    removeEventListeners('mousemove');
+    removeEventListeners('mouseup');
 
     if (repeatSeriesSnapshot) {
       if (finalDrop) {
@@ -1678,22 +1877,17 @@ export function useTaskDrag(
       }
     }
 
-    draggingTimedTask.value = null;
-    dragState.value.overDayColumn = null;
-    dragState.value.overAllDayColumn = null;
-    isDragging.value = false;
     clearTimedRepeatPreview();
-
-    removeEventListeners('mousemove');
-    removeEventListeners('mouseup');
   }
 
   return {
     dragState,
     draggingHandle,
     draggingTask,
+    allDayTaskDragPreview,
     draggingTimedTaskHandle,
     draggingTimedTask,
+    timedTaskDragPreview,
     isDragging,
     handleHandleMouseDown,
     handleTaskMouseDown,

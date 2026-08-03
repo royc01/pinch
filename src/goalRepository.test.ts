@@ -85,4 +85,5 @@ describe('goal repository normalization', () => {
       }
     ]);
   });
+
 });

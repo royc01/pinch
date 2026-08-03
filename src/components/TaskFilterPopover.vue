@@ -96,7 +96,8 @@ function emitToggle(sectionKey: string, value: string): void {
   border: 1px solid var(--b3-theme-border);
   background: var(--b3-theme-background);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
-  z-index: 80;
+  /* The popover is teleported to body, above the mobile plugin page layer. */
+  z-index: 10001;
   display: flex;
   flex-direction: column;
   gap: 12px;

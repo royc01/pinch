@@ -63,7 +63,7 @@ const getTooltipLabel = (date: string) => {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  margin: 8px 0;
+  margin-top: 8px;
 }
 
 .week-date-item {

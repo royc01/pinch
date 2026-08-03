@@ -1,70 +1,86 @@
 ﻿﻿<template>
     <div ref="kanbanViewRef" class="kanban-view">
       <div class="kanban-header">
-        <div class="kanban-header-view-module">
-          <div
-            class="view-switcher"
-            :class="{ 'mobile-view-switcher-only': isMobileFrontend || isCompactViewSwitcher }"
-          >
-            <template v-if="isMobileFrontend || isCompactViewSwitcher">
-              <div ref="mobileViewSwitcherControlRef" class="mobile-view-switcher">
-                <button
-                  type="button"
-                  class="mobile-view-switcher-btn ariaLabel"
-                  :class="{ active: mobileViewSwitcherVisible }"
-                 
-                  :aria-label="formatTemplate('kanbanView.switchViewCurrentTemplate', { current: currentViewOption.text })"
-                  @click.stop="toggleMobileViewSwitcher"
-                >
-                  <Icon v-if="currentView === 'stats'" name="statsBar" width="16" height="16" />
-                  <Icon v-else :name="currentViewOption.icon" width="16" height="16" />
-                  <span class="mobile-view-switcher-btn-text">{{ currentViewOption.text }}</span>
-                </button>
-                <div
-                  v-if="mobileViewSwitcherVisible"
-                  ref="mobileViewSwitcherPopoverRef"
-                  class="mobile-view-switcher-popover"
-                  @click.stop
-                >
-                  <button
-                    v-for="option in primaryViewSwitcherOptions"
-                    :key="option.id"
-                    type="button"
-                    class="mobile-view-switcher-item"
-                    :class="{ active: isPrimaryViewOptionActive(option) }"
-                    @click="selectPrimaryMobileView(option)"
-                  >
-                    <Icon v-if="option.value === 'stats'" name="statsBar" width="17" height="17" />
-                    <Icon v-else :name="option.icon" width="17" height="17" />
-                    <span>{{ option.text }}</span>
-                  </button>
-                </div>
-              </div>
-            </template>
-            <template v-else>
-              <button
-                v-for="option in primaryViewSwitcherOptions"
-                :key="option.id"
-                :class="['view-btn', { active: isPrimaryViewOptionActive(option) }]"
-                @click="selectPrimaryView(option)"
-              >
-                <Icon v-if="option.value === 'stats'" name="statsBar" width="15" height="15" />
-                <Icon v-else :name="option.icon" width="15" height="15" />
-                <span>{{ option.text }}</span>
-              </button>
-            </template>
-          </div>
-        </div>
-
         <div class="kanban-header-tools-module">
           <div v-if="showSourceFilterBar" class="filter-bar-inline">
             <div class="filter-group">
-              <label>{{ t('taskManager.source') }}:</label>
               <SourceFilterSelect
                 :model-value="activeSourceFilterType"
                 @update:model-value="activeSourceFilterType = String($event || 'all')"
                 :options="sourceOptions"
               />
+              <label
+                v-if="showMilestoneModeSwitch"
+                class="gantt-milestone-switch ariaLabel"
+                :aria-label="t('kanbanView.enableMilestones')"
+              >
+                <span
+                  class="gantt-milestone-checkbox"
+                  :class="{ completed: ganttMilestonesEnabled }"
+                >
+                  <input v-model="ganttMilestonesEnabled" type="checkbox" />
+                  <Icon
+                    :name="ganttMilestonesEnabled ? 'squareCheck' : 'square'"
+                    class="gantt-milestone-checkbox-icon"
+                  />
+                </span>
+                <span>{{ t('kanbanView.enableMilestones') }}</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="kanban-header-view-module">
+            <div
+              class="view-switcher"
+              :class="{ 'mobile-view-switcher-only': isMobileFrontend || isCompactViewSwitcher }"
+            >
+              <template v-if="isMobileFrontend || isCompactViewSwitcher">
+                <div ref="mobileViewSwitcherControlRef" class="mobile-view-switcher">
+                  <button
+                    type="button"
+                    class="mobile-view-switcher-btn ariaLabel"
+                    :class="{ active: mobileViewSwitcherVisible }"
+                   
+                    :aria-label="formatTemplate('kanbanView.switchViewCurrentTemplate', { current: currentViewOption.text })"
+                    @click.stop="toggleMobileViewSwitcher"
+                  >
+                    <Icon v-if="currentView === 'stats'" name="statsBar" width="16" height="16" />
+                    <Icon v-else :name="currentViewOption.icon" width="16" height="16" />
+                    <span class="mobile-view-switcher-btn-text">{{ currentViewOption.text }}</span>
+                  </button>
+                  <div
+                    v-if="mobileViewSwitcherVisible"
+                    ref="mobileViewSwitcherPopoverRef"
+                    class="mobile-view-switcher-popover"
+                    @click.stop
+                  >
+                    <button
+                      v-for="option in primaryViewSwitcherOptions"
+                      :key="option.id"
+                      type="button"
+                      class="mobile-view-switcher-item"
+                      :class="{ active: isPrimaryViewOptionActive(option) }"
+                      @click="selectPrimaryMobileView(option)"
+                    >
+                      <Icon v-if="option.value === 'stats'" name="statsBar" width="17" height="17" />
+                      <Icon v-else :name="option.icon" width="17" height="17" />
+                      <span>{{ option.text }}</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+              <template v-else>
+                <button
+                  v-for="option in primaryViewSwitcherOptions"
+                  :key="option.id"
+                  :class="['view-btn', { active: isPrimaryViewOptionActive(option) }]"
+                  @click="selectPrimaryView(option)"
+                >
+                  <Icon v-if="option.value === 'stats'" name="statsBar" width="15" height="15" />
+                  <Icon v-else :name="option.icon" width="15" height="15" />
+                  <span>{{ option.text }}</span>
+                </button>
+              </template>
             </div>
           </div>
 
@@ -101,16 +117,6 @@
               <Icon name="taskDrawer" width="21" height="21" />
             </button>
             <button
-              v-if="showHeaderNewTaskButton"
-              type="button"
-              class="new-task-btn ariaLabel"
-             
-              :aria-label="t('taskManager.newTask')"
-              @click="openHeaderTaskModal"
-            >
-              <Icon name="add" width="24" height="24" />
-            </button>
-            <button
               v-if="props.showDialogCloseButton"
               type="button"
               class="pinch-mobile-kanban-dialog-close-button ariaLabel"
@@ -138,10 +144,23 @@
           :key="option.value"
           type="button"
           class="document-tab"
-          :class="{ active: currentDocumentFilter === option.value }"
+          :class="{
+            active: currentDocumentFilter === option.value,
+            draggable: canReorderDocumentTabs,
+            'is-dragging': draggedDocumentTabId === option.value,
+            'is-drop-target': dragOverDocumentTabId === option.value
+          }"
+          :draggable="canReorderDocumentTabs && option.value !== 'all'"
           @click="currentDocumentFilter = option.value"
           @contextmenu.prevent.stop="handleDocumentTabContextMenu($event, option)"
+          @dragstart="handleDocumentTabDragStart($event, option)"
+          @dragover="handleDocumentTabDragOver($event, option)"
+          @drop="handleDocumentTabDrop($event, option)"
+          @dragend="clearDocumentTabDragState"
         >
+          <span v-if="canReorderDocumentTabs && option.value !== 'all'" class="document-tab-milestone-number">
+            {{ getDocumentTabMilestoneNumber(option.value) }}
+          </span>
           {{ option.text }}
         </button>
       </div>
@@ -193,64 +212,6 @@
             </div>
           </div>
         </Teleport>
-      </div>
-      <div
-        v-if="isCalendarTaskViewMode(currentView)"
-        ref="calendarDisplayMenuControlRef"
-        class="task-group-menu-control calendar-display-menu-control"
-      >
-        <button
-          type="button"
-          class="task-group-menu-btn ariaLabel"
-          :class="{ active: calendarDisplayMenuVisible || !isDefaultCalendarDisplayMode }"
-         
-          :aria-label="t('kanbanView.calendarDisplaySettings')"
-          @click.stop="toggleCalendarDisplayMenu"
-        >
-          <Icon name="moreVertical" width="16" height="16" />
-        </button>
-        <div
-          v-if="calendarDisplayMenuVisible"
-          ref="calendarDisplayMenuPopoverRef"
-          class="task-group-menu-popover calendar-display-menu-popover"
-          @click.stop
-        >
-          <button
-            type="button"
-            class="task-group-menu-item"
-            :class="{ active: showCalendarTasks }"
-            @click.stop="toggleCalendarTasksVisible"
-          >
-            <span>{{ t('kanbanView.showCalendarTasks') }}</span>
-            <span v-if="showCalendarTasks" class="task-group-menu-check">
-              <Icon name="taskCheckboxChecked" width="12" height="12" />
-            </span>
-          </button>
-          <button
-            type="button"
-            class="task-group-menu-item"
-            :class="{ active: showCalendarHabits }"
-            @click.stop="toggleCalendarHabitsVisible"
-          >
-            <span>{{ t('kanbanView.showCalendarHabits') }}</span>
-            <span v-if="showCalendarHabits" class="task-group-menu-check">
-              <Icon name="taskCheckboxChecked" width="12" height="12" />
-            </span>
-          </button>
-          <button
-            v-for="option in calendarLifelogDisplayOptions"
-            :key="option.key"
-            type="button"
-            class="task-group-menu-item"
-            :class="{ active: option.visible }"
-            @click.stop="option.toggle"
-          >
-            <span>{{ t(option.label) }}</span>
-            <span v-if="option.visible" class="task-group-menu-check">
-              <Icon name="taskCheckboxChecked" width="12" height="12" />
-            </span>
-          </button>
-        </div>
       </div>
       <div v-if="isBoardTaskView" class="document-tabs-actions">
         <div
@@ -507,6 +468,14 @@
                     <Icon name="taskCheckboxChecked" width="12" height="12" />
                   </span>
                 </button>
+                <button
+                  v-if="tableViewRef?.hasExpandableTasks"
+                  type="button"
+                  class="task-group-menu-item"
+                  @click.stop="toggleAllTableTaskDetailsFromMenu"
+                >
+                  <span>{{ tableViewRef?.areAllExpandableTasksExpanded ? t('taskManager.collapseAllDetails') : t('taskManager.expandAllDetails') }}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -689,7 +658,7 @@
                   :task-groups="taskGroups"
                   :goals="goalDefinitions"
                   :selected-goal-ids="getKanbanTaskCardGoalIds(task)"
-                  :show-status-badge="kanbanGroupBy !== 'status'"
+                  :show-status-badge="activeBoardGroupBy !== 'status'"
                   :completed="isTaskCompletedVisual(task)"
                   :draggable="!isMobileFrontend && kanbanSupportsDrag && !isKanbanBatchEditMode"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
@@ -906,7 +875,7 @@
                   :task-groups="taskGroups"
                   :goals="goalDefinitions"
                   :selected-goal-ids="getKanbanTaskCardGoalIds(task)"
-                  :show-status-badge="listGroupBy !== 'status'"
+                  :show-status-badge="activeBoardGroupBy !== 'status'"
                   :completed="isTaskCompletedVisual(task)"
                   :draggable="!isMobileFrontend && kanbanSupportsDrag"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
@@ -944,10 +913,12 @@
     
     <TableView 
       v-if="isTableTaskView"
+      ref="tableViewRef"
       :tasks="activeOrArchiveTableViewTasks"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
-      :group-mode="tableGroupBy"
+      :group-mode="activeTableGroupBy"
+      :document-group-order="tableDocumentGroupOrder"
       :heading-groups="taskHeadingGroups"
       :document-icon-by-root-id="documentIconByRootId"
       :document-title-by-root-id="documentTitleByRootId"
@@ -985,6 +956,9 @@
       :goals="goalDefinitions"
       :task-groups="taskGroups"
       :group-mode="ganttGroupMode"
+      :document-order="ganttDocumentSectionOrder"
+      :show-document-milestones="canReorderDocumentTabs"
+      :selected-document-section="ganttSelectedDocumentSection"
       :document-title-by-root-id="documentTitleByRootId"
       :auto-expand-unscheduled-tasks="currentDocumentFilter !== 'all'"
       @task-click="openKanbanTaskContentInRight"
@@ -992,15 +966,19 @@
       @task-color-changed="handleGanttTaskColorChanged"
       @start-focus="startFocusForTask"
       @edit-task="handleGanttTaskEdit"
-      @status-toggle="toggleTaskStatus"
-      @manage-goals="void openTaskScopeDialog('goals')"
-      @task-goal-drop="handleGanttTaskGoalDrop"
+       @status-toggle="toggleTaskStatus"
+       @manage-goals="void openTaskScopeDialog('goals')"
+       @section-task-create-requested="handleGanttSectionTaskCreateRequested"
+       @task-goal-drop="handleGanttTaskGoalDrop"
       @goal-due-date-changed="handleGanttGoalDueDateChanged"
+      @document-order-change="handleGanttDocumentOrderChange"
     />
     <MonthView 
       ref="calendarMonthViewRef"
       v-if="currentView === 'month'" 
       :tasks="showCalendarTasks ? monthViewTasks : []"
+      :sidebar-tasks="showCalendarTasks ? monthSidebarTasks : []"
+      :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? monthLifelogTasks : []"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
@@ -1009,6 +987,7 @@
       :show-task-lifelog="showCalendarTaskLifelog"
       :show-habit-lifelog="showCalendarHabitLifelog"
       :show-records-lifelog="showCalendarRecordsLifelog"
+      :display-options="calendarSidebarDisplayOptions"
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-click="handleTaskEditClick"
@@ -1016,14 +995,17 @@
       @task-date-changed="handleTaskDateChanged"
       @task-color-changed="handleGanttTaskColorChanged"
       @task-date-save-requested="handleCalendarTaskDateSaveRequested"
-      @task-create-requested="handleTaskCreateRequested"
+      @task-create-requested="handleCalendarTaskCreateRequested"
       @visible-range-change="handleMonthVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
+      @calendar-display-toggle="toggleCalendarDisplayOption"
     />
     <WeekView
       ref="calendarWeekViewRef"
       v-if="currentView === 'week'"
       :tasks="showCalendarTasks ? weekViewTasks : []"
+      :sidebar-tasks="showCalendarTasks ? weekSidebarTasks : []"
+      :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? weekLifelogTasks : []"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
@@ -1032,6 +1014,7 @@
       :show-task-lifelog="showCalendarTaskLifelog"
       :show-habit-lifelog="showCalendarHabitLifelog"
       :show-records-lifelog="showCalendarRecordsLifelog"
+      :display-options="calendarSidebarDisplayOptions"
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
@@ -1039,15 +1022,18 @@
       @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
-      @task-create-requested="handleTaskCreateRequested"
+      @task-create-requested="handleCalendarTaskCreateRequested"
       @visible-range-change="handleWeekVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
+      @calendar-display-toggle="toggleCalendarDisplayOption"
       @focus-session-contextmenu="handleCalendarFocusSessionContextmenu"
     />
     <WeekView
       ref="calendarWeekViewRef"
       v-if="currentView === 'day'"
       :tasks="showCalendarTasks ? dayViewTasks : []"
+      :sidebar-tasks="showCalendarTasks ? daySidebarTasks : []"
+      :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? dayLifelogTasks : []"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
@@ -1057,6 +1043,7 @@
       :show-task-lifelog="showCalendarTaskLifelog"
       :show-habit-lifelog="showCalendarHabitLifelog"
       :show-records-lifelog="showCalendarRecordsLifelog"
+      :display-options="calendarSidebarDisplayOptions"
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
@@ -1064,15 +1051,18 @@
       @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
-      @task-create-requested="handleTaskCreateRequested"
+      @task-create-requested="handleCalendarTaskCreateRequested"
       @visible-range-change="handleWeekVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
+      @calendar-display-toggle="toggleCalendarDisplayOption"
       @focus-session-contextmenu="handleCalendarFocusSessionContextmenu"
     />
     <WeekView
       ref="calendarWeekViewRef"
       v-if="currentView === 'three-day'"
       :tasks="showCalendarTasks ? dayViewTasks : []"
+      :sidebar-tasks="showCalendarTasks ? daySidebarTasks : []"
+      :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? dayLifelogTasks : []"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
@@ -1083,6 +1073,7 @@
       :show-task-lifelog="showCalendarTaskLifelog"
       :show-habit-lifelog="showCalendarHabitLifelog"
       :show-records-lifelog="showCalendarRecordsLifelog"
+      :display-options="calendarSidebarDisplayOptions"
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
@@ -1090,9 +1081,10 @@
       @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-click="handleTaskEditClick"
       @task-edit="handleCalendarTaskEdit"
-      @task-create-requested="handleTaskCreateRequested"
+      @task-create-requested="handleCalendarTaskCreateRequested"
       @visible-range-change="handleWeekVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
+      @calendar-display-toggle="toggleCalendarDisplayOption"
       @focus-session-contextmenu="handleCalendarFocusSessionContextmenu"
     />
     <PersonalStatsView
@@ -1130,6 +1122,7 @@
           <div class="mobile-calendar-task-drawer-body">
             <TaskManager
               :enable-mobile-calendar-drag="true"
+              :enable-calendar-pointer-drag="true"
               @mobile-calendar-drag-start="handleMobileCalendarTaskDragStart"
               @mobile-calendar-drag-move="handleMobileCalendarTaskDragMove"
               @mobile-calendar-drag-end="handleMobileCalendarTaskDragEnd"
@@ -2040,7 +2033,6 @@ const taskScopeViewOptions = computed<TaskScopeDisplayOption[]>(() =>
 );
 const taskScopeSidebarSectionOptions = computed<Array<{ id: SidebarSectionId; label: string }>>(() => [
   { id: 'week-dates', label: t('taskScopeDialog.sidebarWeekDates') },
-  { id: 'summary-card-grid', label: t('taskScopeDialog.sidebarSummaryCards') },
   { id: 'habit-list', label: t('taskScopeDialog.sidebarHabitList') },
   { id: 'stand-container', label: t('taskScopeDialog.sidebarStandContainer') }
 ]);
@@ -2525,6 +2517,8 @@ const kanbanGroupColumnOrder = ref<string[]>([]);
 const tableGroupBy = ref<TaskViewGroupMode>('status');
 const ganttFilterType = ref('all');
 const ganttFilterDocument = ref('all');
+const ganttMilestonesEnabled = ref(false);
+const ganttDocumentOrderBySource = ref<Record<string, string[]>>({});
 const kanbanFilterPopoverVisible = ref(false);
 const kanbanFilterPopoverStyle = ref<Record<string, string>>({});
 const kanbanFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(null);
@@ -2537,6 +2531,7 @@ const tableFilterControlRef = ref<HTMLElement | null>(null);
 const tableFilterPopoverPoint = ref<{ x: number; y: number } | null>(null);
 const tableSearchControlRef = ref<HTMLElement | null>(null);
 const tableSearchInputRef = ref<HTMLInputElement | null>(null);
+const tableViewRef = ref<InstanceType<typeof TableView> | null>(null);
 const isMobileTableSearchExpanded = ref(false);
 const kanbanBoardRef = ref<HTMLElement | null>(null);
 const isKanbanBatchEditMode = ref(false);
@@ -2565,6 +2560,8 @@ let kanbanBatchLassoBaseSelection = new Set<string>();
 let kanbanBatchLassoMoveHandler: ((event: MouseEvent) => void) | null = null;
 let kanbanBatchLassoUpHandler: ((event: MouseEvent) => void) | null = null;
 const documentTabsDropdownVisible = ref(false);
+const draggedDocumentTabId = ref('');
+const dragOverDocumentTabId = ref('');
 const documentTabsRef = ref<HTMLElement | null>(null);
 const documentTabsDropdownControlRef = ref<HTMLElement | null>(null);
 const documentTabsDropdownButtonRef = ref<HTMLElement | null>(null);
@@ -2609,11 +2606,11 @@ const calendarLifelogDisplayOptions = computed(() => [
   { key: 'focus', label: 'kanbanView.showCalendarFocusLifelog', visible: showCalendarFocusLifelog.value, toggle: toggleCalendarFocusLifelogVisible },
   { key: 'records', label: 'kanbanView.showCalendarRecordsLifelog', visible: showCalendarRecordsLifelog.value, toggle: toggleCalendarRecordsLifelogVisible }
 ]);
-const isDefaultCalendarDisplayMode = computed(() =>
-  showCalendarTasks.value && !showCalendarHabits.value
-    && !showCalendarTaskLifelog.value && !showCalendarHabitLifelog.value
-    && !showCalendarFocusLifelog.value && !showCalendarRecordsLifelog.value
-);
+const calendarSidebarDisplayOptions = computed(() => [
+  { key: 'tasks', label: 'kanbanView.showCalendarTasks', enabled: showCalendarTasks.value },
+  { key: 'habits', label: 'kanbanView.showCalendarHabits', enabled: showCalendarHabits.value },
+  ...calendarLifelogDisplayOptions.value.map(option => ({ key: option.key, label: option.label, enabled: option.visible }))
+]);
 watch([showCalendarTasks, showCalendarHabits, showCalendarTaskLifelog, showCalendarHabitLifelog, showCalendarFocusLifelog, showCalendarRecordsLifelog], saveCalendarDisplaySettings);
 const calendarFocusHabits = ref<Habit[]>([]);
 const calendarFocusNoteDialogVisible = ref(false);
@@ -2642,7 +2639,7 @@ const mobileCalendarTaskDragHint = ref('');
 const kanbanViewRef = ref<HTMLElement | null>(null);
 const isCompactViewSwitcher = ref(false);
 const kanbanListColumnCount = ref(1);
-const COMPACT_VIEW_SWITCHER_BREAKPOINT = 980;
+const COMPACT_VIEW_SWITCHER_BREAKPOINT = 760;
 let kanbanViewResizeObserver: ResizeObserver | null = null;
 let isKanbanViewMounted = false;
 
@@ -2756,7 +2753,6 @@ const isBoardTaskView = computed(() =>
   currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'quadrant'
 );
 const isTableTaskView = computed(() => currentView.value === 'table' || currentView.value === 'archive-table');
-const showHeaderNewTaskButton = computed(() => isBoardTaskView.value || currentView.value === 'table');
 const currentViewOption = computed(() =>
   primaryViewSwitcherOptions.value.find(option => isPrimaryViewOptionActive(option)) || primaryViewSwitcherOptions.value[0]
 );
@@ -3309,7 +3305,19 @@ const documentColumns = computed<KanbanColumn[]>(() => {
       order: rootId ? -getDocumentCreationSortKey(rootId) : Number.MAX_SAFE_INTEGER
     });
   }
+  // Keep the overview columns in exactly the same order as the document tabs.
+  // This also honors a user's custom milestone order.
+  const documentTabOrderIndex = new Map(
+    visibleDocumentOptions.value
+      .filter(option => option.value !== 'all')
+      .map((option, index) => [option.value, index])
+  );
   return Array.from(columnsById.values()).sort((a, b) => {
+    const leftTabOrder = a.documentId ? documentTabOrderIndex.get(a.documentId) : undefined;
+    const rightTabOrder = b.documentId ? documentTabOrderIndex.get(b.documentId) : undefined;
+    if (leftTabOrder !== undefined || rightTabOrder !== undefined) {
+      return (leftTabOrder ?? Number.MAX_SAFE_INTEGER) - (rightTabOrder ?? Number.MAX_SAFE_INTEGER);
+    }
     if (a.order !== b.order) {
       return a.order - b.order;
     }
@@ -3445,6 +3453,7 @@ interface OpenQuickCreateOptions {
   context?: QuickCreateContext;
   preferredNotebookId?: string;
   preferredDocumentId?: string;
+  preferLastTaskTarget?: boolean;
   mode?: 'task' | 'heading-task';
 }
 
@@ -3665,7 +3674,8 @@ const sourceOptions = computed(() => [
   { value: 'all', text: t('taskManager.all') },
   ...enabledNotebooks.value.map(nb => ({
     value: buildNotebookDocumentSource(nb.id),
-    text: nb.name
+    text: nb.name,
+    icon: nb.icon
   })),
   ...sortedDocumentGroups.value.map(group => ({
     value: buildGroupDocumentSource(group.id),
@@ -5453,7 +5463,15 @@ const activeSourceFilterType = computed<string>({
 
 const activeBoardGroupBy = computed<TaskViewGroupMode>({
   get() {
-    return currentView.value === 'list' ? listGroupBy.value : kanbanGroupBy.value;
+    // Milestone overview always uses document columns. Selecting a concrete
+    // document restores the grouping chosen from the task group menu.
+    if (isTaskViewMilestoneOverview.value) {
+      return 'document';
+    }
+    if (currentView.value === 'list') {
+      return listGroupBy.value;
+    }
+    return kanbanGroupBy.value;
   },
   set(value) {
     if (currentView.value === 'list') {
@@ -5463,9 +5481,14 @@ const activeBoardGroupBy = computed<TaskViewGroupMode>({
     kanbanGroupBy.value = value;
   }
 });
+const activeTableGroupBy = computed<TaskViewGroupMode>(() =>
+  isTaskViewMilestoneOverview.value && currentView.value === 'table'
+    ? 'document'
+    : tableGroupBy.value
+);
 
 function shouldHideCompletedOnlyDocumentTabs(view: TaskViewMode): boolean {
-  return !showCompletedTasks.value && (view === 'kanban' || view === 'list' || view === 'quadrant' || view === 'table' || view === 'gantt');
+  return !showCompletedTasks.value && (view === 'kanban' || view === 'list' || view === 'quadrant' || view === 'table');
 }
 
 type DocumentOptionsTaskMatcher = (task: Task) => boolean;
@@ -6162,11 +6185,100 @@ const documentOptions = computed(() => toFilterDocumentOptions(getCurrentFilterN
   taskMatcher: getDocumentTabTaskMatcher(currentView.value)
 }));
 const quickCreateDocumentOptions = computed(() => toQuickCreateDocumentOptions(quickCreateNotebookId.value));
-const visibleDocumentOptions = computed(() =>
-  documentOptions.value.filter(option => option.value === 'all' || !hiddenDocumentTabIds.value.has(option.value))
+const activeMilestoneSource = computed(() =>
+  currentView.value === 'kanban'
+    ? kanbanFilterType.value
+    : currentView.value === 'list'
+      ? listFilterType.value
+      : currentView.value === 'table' || currentView.value === 'archive-table'
+        ? tableFilterType.value
+      : ganttFilterType.value
 );
+const isGoalMilestoneSource = computed(() => parseDocumentSource(activeMilestoneSource.value).kind === 'goal');
+const showMilestoneModeSwitch = computed(() =>
+  (currentView.value === 'gantt' && isGoalMilestoneSource.value)
+  || ((currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'table') && isGoalMilestoneSource.value)
+);
+const canReorderDocumentTabs = computed(() =>
+  (currentView.value === 'gantt'
+    || ((currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'table') && isGoalMilestoneSource.value))
+  && ganttMilestonesEnabled.value
+  && activeMilestoneSource.value !== 'all'
+);
+const activeGanttDocumentOrder = computed(() =>
+  ganttDocumentOrderBySource.value[activeMilestoneSource.value] || []
+);
+const isTaskViewMilestoneOverview = computed(() =>
+  (currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'table')
+  && isGoalMilestoneSource.value
+  && ganttMilestonesEnabled.value
+  && currentDocumentFilter.value === 'all'
+);
+const tableDocumentGroupOrder = computed(() =>
+  currentView.value === 'table' && isTaskViewMilestoneOverview.value
+    ? visibleDocumentOptions.value
+      .filter(option => option.value !== 'all')
+      .map(option => option.value)
+    : []
+);
+const milestoneDocumentOptions = computed(() => {
+  if (!canReorderDocumentTabs.value) {
+    return documentOptions.value;
+  }
+  return documentOptions.value.filter(option => {
+    if (option.value === 'all') return true;
+    return tasks.value.some(task =>
+      task.rootId === option.value
+      && task.notebookId === option.notebookId
+      && matchesGanttDocumentCandidate(task, activeMilestoneSource.value)
+    );
+  });
+});
+const visibleDocumentOptions = computed(() => {
+  const options = milestoneDocumentOptions.value.filter(option =>
+    option.value === 'all' || !hiddenDocumentTabIds.value.has(option.value)
+  );
+  if (!canReorderDocumentTabs.value) {
+    return options;
+  }
+
+  const orderIndex = new Map(activeGanttDocumentOrder.value.map((id, index) => [id, index]));
+  return [...options].sort((left, right) => {
+    if (left.value === 'all') return -1;
+    if (right.value === 'all') return 1;
+    const leftOrder = orderIndex.get(left.value);
+    const rightOrder = orderIndex.get(right.value);
+    if (leftOrder !== undefined || rightOrder !== undefined) {
+      return (leftOrder ?? Number.MAX_SAFE_INTEGER) - (rightOrder ?? Number.MAX_SAFE_INTEGER);
+    }
+    return 0;
+  });
+});
+const ganttDocumentSectionOrder = computed(() => {
+  if (!canReorderDocumentTabs.value) {
+    return [];
+  }
+  return getOrderedGanttDocumentIds()
+    .map(documentId => {
+      const option = milestoneDocumentOptions.value.find(candidate => candidate.value === documentId);
+      return option?.notebookId ? `${option.notebookId}:${documentId}` : documentId;
+    });
+});
+const ganttSelectedDocumentSection = computed<{ id: string; title: string } | undefined>(() => {
+  if (!canReorderDocumentTabs.value || ganttFilterDocument.value === 'all') {
+    return undefined;
+  }
+  const option = milestoneDocumentOptions.value.find(candidate => candidate.value === ganttFilterDocument.value);
+  if (!option?.notebookId) {
+    return undefined;
+  }
+  return {
+    id: `${option.notebookId}:${option.value}`,
+    title: option.text
+  };
+});
 const documentTabPopoverOptions = computed(() =>
-  documentOptions.value
+  milestoneDocumentOptions.value
     .filter(option => option.value !== 'all')
     .map(option => ({
       ...option,
@@ -6303,7 +6415,7 @@ const documentTabContextMenuStyle = computed<Record<string, string>>(() => {
   };
 });
 const activeTaskViewGroupMode = computed<TaskViewGroupMode>(() =>
-  isBoardTaskView.value ? activeBoardGroupBy.value : tableGroupBy.value
+  isBoardTaskView.value ? activeBoardGroupBy.value : activeTableGroupBy.value
 );
 const currentTaskViewGroupOptions = computed(() => {
   if (currentView.value === 'quadrant') {
@@ -6314,6 +6426,11 @@ const currentTaskViewGroupOptions = computed(() => {
 
 function closeTaskViewGroupMenu(): void {
   taskViewGroupMenuVisible.value = false;
+}
+
+function toggleAllTableTaskDetailsFromMenu(): void {
+  tableViewRef.value?.toggleAllTaskDetails();
+  closeTaskViewGroupMenu();
 }
 
 function closeCalendarDisplayMenu(): void {
@@ -6332,20 +6449,6 @@ function toggleTaskViewGroupMenu(): void {
   closeKanbanFilterPopover();
   closeTableFilterPopover();
   closeCalendarDisplayMenu();
-}
-
-function toggleCalendarDisplayMenu(): void {
-  const nextVisible = !calendarDisplayMenuVisible.value;
-  calendarDisplayMenuVisible.value = nextVisible;
-  if (!nextVisible) {
-    return;
-  }
-  closeDocumentTabContextMenu();
-  closeDocumentTabsDropdown();
-  closeMobileViewSwitcher();
-  closeKanbanFilterPopover();
-  closeTableFilterPopover();
-  closeTaskViewGroupMenu();
 }
 
 function toggleCalendarTasksVisible(): void {
@@ -6370,6 +6473,17 @@ function toggleCalendarFocusLifelogVisible(): void {
 
 function toggleCalendarRecordsLifelogVisible(): void {
   showCalendarRecordsLifelog.value = !showCalendarRecordsLifelog.value;
+}
+
+function toggleCalendarDisplayOption(key: string): void {
+  switch (key) {
+    case 'tasks': toggleCalendarTasksVisible(); break;
+    case 'habits': toggleCalendarHabitsVisible(); break;
+    case 'task': toggleCalendarTaskLifelogVisible(); break;
+    case 'habit': toggleCalendarHabitLifelogVisible(); break;
+    case 'focus': toggleCalendarFocusLifelogVisible(); break;
+    case 'records': toggleCalendarRecordsLifelogVisible(); break;
+  }
 }
 
 interface CalendarDisplaySettings {
@@ -6869,6 +6983,88 @@ function handleDocumentTabsWheel(event: WheelEvent): void {
   event.preventDefault();
 }
 
+function getOrderedGanttDocumentIds(): string[] {
+  const availableIds = milestoneDocumentOptions.value
+    .map(option => option.value)
+    .filter(value => value !== 'all');
+  const availableIdSet = new Set(availableIds);
+  const storedOrder = activeGanttDocumentOrder.value.filter(id => availableIdSet.has(id));
+  const storedIdSet = new Set(storedOrder);
+  return [...storedOrder, ...availableIds.filter(id => !storedIdSet.has(id))];
+}
+
+function getDocumentTabMilestoneNumber(documentId: string): number {
+  const index = getOrderedGanttDocumentIds().indexOf(documentId);
+  return index >= 0 ? index + 1 : 0;
+}
+
+function handleDocumentTabDragStart(event: DragEvent, option: DocumentFilterOption): void {
+  if (!canReorderDocumentTabs.value || option.value === 'all') {
+    event.preventDefault();
+    return;
+  }
+  draggedDocumentTabId.value = option.value;
+  dragOverDocumentTabId.value = '';
+  event.dataTransfer?.setData('text/plain', option.value);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+}
+
+function handleDocumentTabDragOver(event: DragEvent, option: DocumentFilterOption): void {
+  if (!canReorderDocumentTabs.value || !draggedDocumentTabId.value || option.value === 'all') return;
+  event.preventDefault();
+  if (option.value !== draggedDocumentTabId.value) {
+    dragOverDocumentTabId.value = option.value;
+  }
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleDocumentTabDrop(event: DragEvent, target: DocumentFilterOption): void {
+  const sourceId = draggedDocumentTabId.value || event.dataTransfer?.getData('text/plain') || '';
+  clearDocumentTabDragState();
+  if (!canReorderDocumentTabs.value || !sourceId || sourceId === target.value || target.value === 'all') return;
+  event.preventDefault();
+
+  const nextOrder = getOrderedGanttDocumentIds();
+  const sourceIndex = nextOrder.indexOf(sourceId);
+  const targetIndex = nextOrder.indexOf(target.value);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+  nextOrder.splice(sourceIndex, 1);
+  // Keep tab drag semantics consistent with the milestone rail: dropping on
+  // a later tab places the source after it, while dropping on an earlier tab
+  // places it before it.
+  const targetIndexAfterRemoval = nextOrder.indexOf(target.value);
+  const insertIndex = sourceIndex < targetIndex
+    ? targetIndexAfterRemoval + 1
+    : targetIndexAfterRemoval;
+  nextOrder.splice(insertIndex, 0, sourceId);
+  ganttDocumentOrderBySource.value = {
+    ...ganttDocumentOrderBySource.value,
+    [activeMilestoneSource.value]: nextOrder
+  };
+}
+
+function clearDocumentTabDragState(): void {
+  draggedDocumentTabId.value = '';
+  dragOverDocumentTabId.value = '';
+}
+
+function handleGanttDocumentOrderChange(sectionOrder: string[]): void {
+  if (!canReorderDocumentTabs.value) return;
+  const documentIdBySectionId = new Map(
+    milestoneDocumentOptions.value
+      .filter(option => option.value !== 'all' && option.notebookId)
+      .map(option => [`${option.notebookId}:${option.value}`, option.value])
+  );
+  const nextOrder = sectionOrder
+    .map(sectionId => documentIdBySectionId.get(sectionId))
+    .filter((documentId): documentId is string => !!documentId);
+  if (nextOrder.length === 0) return;
+  ganttDocumentOrderBySource.value = {
+    ...ganttDocumentOrderBySource.value,
+    [activeMilestoneSource.value]: nextOrder
+  };
+}
+
 function selectDocumentTabFromPopover(value: string): void {
   if (!value || value === 'all') return;
   if (hiddenDocumentTabIds.value.has(value)) return;
@@ -7010,6 +7206,8 @@ watch([
   tableFilterDocument,
   ganttFilterType,
   ganttFilterDocument,
+  ganttMilestonesEnabled,
+  ganttDocumentOrderBySource,
   monthFilterType,
   monthFilterDocument,
   weekFilterType,
@@ -7129,15 +7327,13 @@ const activeOrArchiveTableViewTasks = computed(() =>
 );
 
 const ganttGroupMode = computed<GanttGroupMode>(() => {
-  const source = parseDocumentSource(ganttFilterType.value);
-  if (source.kind === 'goal') {
-    return 'goal';
-  }
-
-  if (source.kind === 'all') {
-    return 'goal';
-  }
-  return 'document';
+  // In the goal (Gantt) view, preserve the goal overview only when both
+  // source and document scopes are "All". A selected document tab should
+  // always make the rows use document sections, including within a goal
+  // source scope.
+  return ganttFilterType.value === 'all' && ganttFilterDocument.value === 'all'
+    ? 'goal'
+    : 'document';
 });
 
 const calendarTopLevelTasks = computed(() => {
@@ -7146,7 +7342,6 @@ const calendarTopLevelTasks = computed(() => {
 
 const ganttViewTasks = computed(() => {
   return calendarTopLevelTasks.value.filter(task => {
-    if (!showCompletedTasks.value && task.status === 'completed') return false;
     if (!matchesGanttDocumentCandidate(task, ganttFilterType.value)) {
       return false;
     }
@@ -7169,6 +7364,27 @@ const monthViewTasks = computed(() => {
     
     return true;
   });
+});
+
+const monthSidebarTasks = computed(() => {
+  return calendarTopLevelTasks.value.filter(task => {
+    if (task.type !== 'block' || task.archived) return false;
+    return matchesTaskBySourceAndDocument(task, monthFilterType.value, monthFilterDocument.value);
+  });
+});
+
+const weekSidebarTasks = computed(() => {
+  return calendarTopLevelTasks.value.filter(task =>
+    task.type === 'block' && !task.archived
+    && matchesTaskBySourceAndDocument(task, weekFilterType.value, weekFilterDocument.value)
+  );
+});
+
+const daySidebarTasks = computed(() => {
+  return calendarTopLevelTasks.value.filter(task =>
+    task.type === 'block' && !task.archived
+    && matchesTaskBySourceAndDocument(task, dayFilterType.value, dayFilterDocument.value)
+  );
 });
 
 const monthLifelogTasks = computed(() => {
@@ -9861,6 +10077,8 @@ async function loadUserSettings() {
         ? buildNotebookDocumentSource(settings.ganttFilterType)
         : 'all');
     ganttFilterDocument.value = settings.ganttFilterDocument || 'all';
+    ganttMilestonesEnabled.value = settings.ganttMilestonesEnabled === true;
+    ganttDocumentOrderBySource.value = settings.ganttDocumentOrderBySource || {};
     monthFilterType.value = settings.monthFilterSource
       || (settings.monthFilterType && settings.monthFilterType !== 'all'
         ? buildNotebookDocumentSource(settings.monthFilterType)
@@ -9948,6 +10166,8 @@ async function saveUserSettings() {
       ganttFilterType: ganttSource.kind === 'notebook' ? ganttSource.id : 'all',
       ganttFilterSource: ganttFilterType.value,
       ganttFilterDocument: ganttFilterDocument.value,
+      ganttMilestonesEnabled: ganttMilestonesEnabled.value,
+      ganttDocumentOrderBySource: ganttDocumentOrderBySource.value,
       monthFilterType: monthSource.kind === 'notebook' ? monthSource.id : 'all',
       monthFilterSource: monthFilterType.value,
       monthFilterDocument: monthFilterDocument.value,
@@ -10138,7 +10358,7 @@ function setupEventListeners() {
     }
   });
 
-  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string; templateUpdates?: Record<string, unknown> }) => {
+  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string; templateUpdates?: Record<string, unknown>; task?: Task }) => {
     if (payload?.reason === 'repeat-changed' && payload.frequency) {
       applyRepeatTemplateBroadcastUpdates(payload);
       const requestId = ++repeatReconcileRequestId;
@@ -10151,6 +10371,10 @@ function setupEventListeners() {
         return;
       }
       scheduleRefreshTasks(140, 'silent-full');
+      return;
+    }
+    if (payload?.task?.type === 'block' && payload.task.blockId) {
+      upsertOptimisticQuickCreatedTask(payload.task);
       return;
     }
     if (payload?.blockId) {
@@ -10247,6 +10471,8 @@ function setupEventListeners() {
       if (typeof payload?.source === 'string' && payload.source.trim().length > 0) {
         if (currentView.value === 'list') {
           listFilterType.value = payload.source;
+        } else if (currentView.value === 'gantt') {
+          ganttFilterType.value = payload.source;
         } else {
           kanbanFilterType.value = payload.source;
         }
@@ -10254,12 +10480,16 @@ function setupEventListeners() {
       if (typeof payload?.documentId === 'string' && payload.documentId.trim().length > 0) {
         if (currentView.value === 'list') {
           listFilterDocument.value = payload.documentId;
+        } else if (currentView.value === 'gantt') {
+          ganttFilterDocument.value = payload.documentId;
         } else {
           kanbanFilterDocument.value = payload.documentId;
         }
       } else if (payload?.source !== undefined) {
         if (currentView.value === 'list') {
           listFilterDocument.value = 'all';
+        } else if (currentView.value === 'gantt') {
+          ganttFilterDocument.value = 'all';
         } else {
           kanbanFilterDocument.value = 'all';
         }
@@ -11351,6 +11581,26 @@ function handleCalendarEditorDateClear(): void {
     dueDate: '',
     dueTime: ''
   });
+  closeKanbanEditor();
+}
+
+function handleGanttSectionTaskCreateRequested(sectionId: string): void {
+  const targetTask = ganttViewTasks.value.find(task =>
+    task.type === 'block'
+    && `${task.notebookId}:${task.rootId}` === sectionId
+  );
+  const fixedTarget = targetTask ? resolveTaskCreateTargetFromTask(targetTask) : null;
+  if (!fixedTarget) {
+    void pushMsg(t('kanbanView.selectNotebookAndDocument'), 3000);
+    return;
+  }
+  void handleTaskCreateRequested(getDefaultCreateTaskPayload(), {
+    context: {
+      columnType: 'status',
+      status: 'pending',
+      fixedTarget
+    }
+  });
 }
 
 async function saveKanbanEditorDateFields(
@@ -12078,15 +12328,6 @@ async function resolveKanbanEditorRootId(blockId: string, preferredRootId?: stri
   }
 }
 
-function scheduleKanbanEditorBlockRefocus(blockId: string, taskId: string): void {
-  window.setTimeout(() => {
-    if (!kanbanEditorVisible.value || kanbanEditorTaskId.value !== taskId) {
-      return;
-    }
-    void focusKanbanEditorBlock(blockId, 12, 100);
-  }, 160);
-}
-
 async function resolveKanbanEditorTargetTask(task: Task): Promise<Task | null> {
   if (task.type !== 'block') {
     return null;
@@ -12171,8 +12412,6 @@ async function openKanbanEditor(
     && kanbanEditorProtyle
   ) {
     resolveCalendarDockEditorTarget();
-    void focusKanbanEditorBlock(blockId);
-    scheduleKanbanEditorBlockRefocus(blockId, targetTask.id);
     return;
   }
   await ensureTaskGroupsLoaded();
@@ -12251,7 +12490,7 @@ async function openKanbanEditor(
   try {
     const options: Record<string, any> = {
       blockId,
-      action: ['cb-get-focus'],
+      action: shouldUseCalendarDock ? [] : ['cb-get-focus'],
       mode: 'wysiwyg',
       render: {
         title: false,
@@ -12265,9 +12504,8 @@ async function openKanbanEditor(
       options.rootId = rootId;
     }
     kanbanEditorProtyle = new Protyle(plugin.app, mountElement, options);
-    await focusKanbanEditorBlock(blockId);
-    if (shouldUseCalendarDock) {
-      scheduleKanbanEditorBlockRefocus(blockId, targetTask.id);
+    if (!shouldUseCalendarDock) {
+      await focusKanbanEditorBlock(blockId);
     }
     if (shouldUseCalendarDock) {
       resolveCalendarDockEditorTarget();
@@ -12391,6 +12629,9 @@ function applyExternalTaskDateChange(updatedTask: Task): void {
 
   if (isActiveKanbanEditorDateChangeTarget(taskId, nextTask, updatedTask, existingTask || null)) {
     syncActiveKanbanEditorDraftDateFields(nextTask);
+    if (calendarDockEditorActive.value && !nextStartDate && !nextDueDate) {
+      closeKanbanEditor();
+    }
   }
 
   const blockId = typeof nextTask.blockId === 'string' ? nextTask.blockId.trim() : '';
@@ -12728,109 +12969,6 @@ function taskModalTranslate(key: string): string {
   return t(key);
 }
 
-function resolvePreferredTaskModalGroupId(): string {
-  const activeGroupFilters =
-    currentView.value === 'kanban' || currentView.value === 'list'
-      ? activeKanbanGroupFilters.value
-      : (currentView.value === 'table' || currentView.value === 'archive-table'
-        ? activeTableGroupFilters.value
-        : []);
-  if (activeGroupFilters.length !== 1) {
-    return '';
-  }
-  const candidate = typeof activeGroupFilters[0] === 'string' ? activeGroupFilters[0].trim() : '';
-  if (!candidate || candidate === TASK_GROUP_NONE_ID) {
-    return '';
-  }
-  return taskGroups.value.some(group => group.id === candidate && group.hidden !== true) ? candidate : '';
-}
-
-function resolveTaskModalDefaults(): { notebookId: string; documentId: string; groupId: string } {
-  const enabledNotebookIdSet = new Set(enabledNotebooks.value.map(notebook => notebook.id));
-  const sidebarSelection = getCurrentSidebarFilterSelection();
-  const firstNotebookId = enabledNotebooks.value[0]?.id || '';
-  const sidebarSource = parseDocumentSource(sidebarSelection.sourceValue);
-  const sidebarSourceDocuments = getDocumentEntriesBySource(sidebarSelection.sourceValue);
-  const configuredDefaultNotebook = typeof userSettings.taskManager.defaultTaskCreateNotebook === 'string'
-    && enabledNotebookIdSet.has(userSettings.taskManager.defaultTaskCreateNotebook)
-    ? userSettings.taskManager.defaultTaskCreateNotebook
-    : '';
-
-  let notebookId = '';
-  if (sidebarSource.kind === 'group' || sidebarSource.kind === 'goal') {
-    const preferredGroupDocument =
-      sidebarSourceDocuments.find(doc => doc.id === sidebarSelection.documentId)
-      || sidebarSourceDocuments.find(doc => doc.id === taskModalDefaultDocument.value)
-      || sidebarSourceDocuments[0];
-    if (preferredGroupDocument && enabledNotebookIdSet.has(preferredGroupDocument.notebookId)) {
-      notebookId = preferredGroupDocument.notebookId;
-    }
-  } else if (sidebarSource.kind === 'notebook' && enabledNotebookIdSet.has(sidebarSource.id)) {
-    notebookId = sidebarSource.id;
-  }
-  if (!notebookId && configuredDefaultNotebook) {
-    notebookId = configuredDefaultNotebook;
-  }
-  if (!notebookId && taskModalDefaultNotebook.value && enabledNotebookIdSet.has(taskModalDefaultNotebook.value)) {
-    notebookId = taskModalDefaultNotebook.value;
-  }
-  if (!notebookId) {
-    notebookId = firstNotebookId;
-  }
-
-  const documentIdSet = new Set(getDocumentEntriesByNotebook(notebookId).map(doc => doc.id));
-  let documentId = PINCH_INBOX_OPTION_ID;
-  if (userSettings.taskManager.defaultTaskCreateTarget === 'daily-note') {
-    documentId = PINCH_DAILY_NOTE_OPTION_ID;
-  } else if (userSettings.taskManager.defaultTaskCreateTarget === 'inbox') {
-    documentId = PINCH_INBOX_OPTION_ID;
-  } else if (sidebarSource.kind === 'group' || sidebarSource.kind === 'goal') {
-    const preferredGroupDocument =
-      sidebarSourceDocuments.find(doc => doc.id === sidebarSelection.documentId)
-      || sidebarSourceDocuments.find(doc => doc.id === taskModalDefaultDocument.value)
-      || sidebarSourceDocuments[0];
-    if (preferredGroupDocument && preferredGroupDocument.notebookId === notebookId) {
-      documentId = preferredGroupDocument.id;
-    }
-  } else if (sidebarSelection.documentId !== 'all' && documentIdSet.has(sidebarSelection.documentId)) {
-    documentId = sidebarSelection.documentId;
-  } else if (taskModalDefaultDocument.value === PINCH_DAILY_NOTE_OPTION_ID) {
-    documentId = PINCH_DAILY_NOTE_OPTION_ID;
-  } else if (
-    taskModalDefaultDocument.value
-    && taskModalDefaultDocument.value !== PINCH_INBOX_OPTION_ID
-    && taskModalDefaultDocument.value !== PINCH_DAILY_NOTE_OPTION_ID
-    && documentIdSet.has(taskModalDefaultDocument.value)
-  ) {
-    documentId = taskModalDefaultDocument.value;
-  }
-
-  const preferredGroupId = resolvePreferredTaskModalGroupId();
-  const fallbackGroupId = (taskModalDefaultGroupId.value || '').trim();
-  const hasFallbackGroup = fallbackGroupId
-    && taskGroups.value.some(group => group.id === fallbackGroupId && group.hidden !== true);
-  const groupId = preferredGroupId || (hasFallbackGroup ? fallbackGroupId : '');
-
-  return {
-    notebookId,
-    documentId,
-    groupId
-  };
-}
-
-async function openHeaderTaskModal(): Promise<void> {
-  if (enabledNotebooks.value.length === 0) {
-    await pushMsg(t('kanbanView.noAvailableNotebooks'), 3000);
-    return;
-  }
-  await ensureTaskGroupsLoaded();
-  const defaults = resolveTaskModalDefaults();
-  taskModalDefaultNotebook.value = defaults.notebookId;
-  taskModalDefaultDocument.value = defaults.documentId;
-  taskModalDefaultGroupId.value = defaults.groupId;
-  showTaskModal.value = true;
-}
-
 async function ensureInboxDocument(notebookId: string): Promise<string> {
   try {
     const existingIds = await getIDsByHPath(notebookId, PINCH_INBOX_PATH);
@@ -12947,6 +13085,11 @@ async function handleTaskModalCreate(
     taskModalDefaultNotebook.value = notebookId;
     taskModalDefaultDocument.value = documentId;
     taskModalDefaultGroupId.value = normalizedGroupId;
+    await updateSettings('taskManager', {
+      lastTaskNotebook: notebookId,
+      lastTaskDocument: documentId,
+      selectedGroupId: normalizedGroupId
+    });
     showTaskModal.value = false;
 
     if (created?.blockId) {
@@ -13217,10 +13360,12 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
   const sidebarSelection = getCurrentSidebarFilterSelection();
   const sidebarSource = parseDocumentSource(sidebarSelection.sourceValue);
   const sidebarSourceDocuments = getDocumentEntriesBySource(sidebarSelection.sourceValue);
+  const lastTaskTarget = options.preferLastTaskTarget ? resolveLastTaskCreateTarget() : null;
   const preferredSidebarDocument =
     sidebarSourceDocuments.find(doc => doc.id === sidebarSelection.documentId)
     || sidebarSourceDocuments[0];
-  const preferredNotebookId = options.preferredNotebookId
+  const preferredNotebookId = lastTaskTarget?.notebookId
+    || options.preferredNotebookId
     || ((sidebarSource.kind === 'group' || sidebarSource.kind === 'goal')
       ? preferredSidebarDocument?.notebookId || 'all'
       : sidebarSource.kind === 'notebook'
@@ -13230,7 +13375,8 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
     ? preferredNotebookId
     : 'all';
 
-  const preferredDocumentId = options.preferredDocumentId
+  const preferredDocumentId = lastTaskTarget?.documentId
+    || options.preferredDocumentId
     || ((sidebarSource.kind === 'group' || sidebarSource.kind === 'goal')
       ? preferredSidebarDocument?.id || 'all'
       : sidebarSelection.documentId);
@@ -13266,6 +13412,28 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
   quickCreateInputRef.value?.select();
 }
 
+function handleCalendarTaskCreateRequested(payload: CreateTaskPayload): Promise<void> {
+  return handleTaskCreateRequested(payload, { preferLastTaskTarget: true });
+}
+
+function resolveLastTaskCreateTarget(): Pick<QuickCreateTarget, 'notebookId' | 'documentId'> | null {
+  const notebookId = typeof userSettings.taskManager.lastTaskNotebook === 'string'
+    ? userSettings.taskManager.lastTaskNotebook.trim()
+    : '';
+  const documentId = typeof userSettings.taskManager.lastTaskDocument === 'string'
+    ? userSettings.taskManager.lastTaskDocument.trim()
+    : '';
+  if (!notebookId || !documentId || !enabledNotebooks.value.some(notebook => notebook.id === notebookId)) {
+    return null;
+  }
+  if (documentId === PINCH_INBOX_OPTION_ID || documentId === PINCH_DAILY_NOTE_OPTION_ID) {
+    return { notebookId, documentId };
+  }
+  return getDocumentEntriesByNotebook(notebookId).some(document => document.id === documentId)
+    ? { notebookId, documentId }
+    : null;
+}
+
 function closeQuickCreateDialog() {
   quickCreateNotebookId.value = 'all';
   quickCreateDocumentId.value = 'all';
@@ -13281,6 +13449,7 @@ function closeQuickCreateDialog() {
 
 function buildOptimisticTaskForQuickCreate(
   blockId: string,
+  taskId: string,
   title: string,
   payload: CreateTaskPayload,
   target: QuickCreateTarget,
@@ -13297,7 +13466,7 @@ function buildOptimisticTaskForQuickCreate(
   const normalizedGroupId = typeof groupId === 'string' ? groupId.trim() : '';
 
   const optimisticTask: Task = {
-    id: blockId,
+    id: taskId || blockId,
     type: 'block',
     title,
     status,
@@ -13440,6 +13609,7 @@ async function submitQuickCreateTask() {
     if (createdBlockId) {
       const optimisticTask = buildOptimisticTaskForQuickCreate(
         createdBlockId,
+        created?.taskId || '',
         trimmedTitle,
         payload,
         target,
@@ -13447,6 +13617,7 @@ async function submitQuickCreateTask() {
         normalizedGroupId
       );
       upsertOptimisticQuickCreatedTask(optimisticTask);
+      eventBus.emit(Events.TASK_ADDED, { blockId: createdBlockId, task: optimisticTask });
       setTaskHeadingGroupMetaForIds(
         [createdBlockId, created?.taskId || '', optimisticTask.id],
         appliedHeadingMetaForNewTask,
@@ -13454,6 +13625,10 @@ async function submitQuickCreateTask() {
       );
     }
 
+    await updateSettings('taskManager', {
+      lastTaskNotebook: target.notebookId,
+      lastTaskDocument: target.documentId
+    });
     closeQuickCreateDialog();
     if (createdBlockId) {
       void incrementalUpdateTasks([createdBlockId], { allowUnknown: true });
@@ -15075,6 +15250,40 @@ watch(kanbanColumns, () => {
 </script>
 
 <style scoped>
+@property --document-tabs-mask-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --document-tabs-mask-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes document-tabs-mask-start {
+  0% {
+    --document-tabs-mask-start: 0px;
+  }
+
+  1%,
+  100% {
+    --document-tabs-mask-start: 40px;
+  }
+}
+
+@keyframes document-tabs-mask-end {
+  0% {
+    --document-tabs-mask-end: 0px;
+  }
+
+  1%,
+  100% {
+    --document-tabs-mask-end: 40px;
+  }
+}
+
 .kanban-view {
   width: 100%;
   height: 100%;
@@ -15143,6 +15352,7 @@ watch(kanbanColumns, () => {
   align-items: center;
   min-width: 0;
   flex: 0 1 auto;
+  margin-left: auto;
 }
 
 .kanban-header-tools-module {
@@ -15170,11 +15380,79 @@ watch(kanbanColumns, () => {
   flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
-  padding-bottom: 4px;
   scrollbar-width: none;
   -ms-overflow-style: none;
   flex: 1;
   min-width: 0;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--document-tabs-mask-start),
+    black calc(100% - var(--document-tabs-mask-end)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--document-tabs-mask-start),
+    black calc(100% - var(--document-tabs-mask-end)),
+    transparent
+  );
+  animation-name: document-tabs-mask-start, document-tabs-mask-end;
+  animation-range: 1px 100%, 0% calc(100% - 1px);
+  animation-direction: alternate, alternate-reverse;
+  animation-timeline: scroll(self x);
+}
+
+.gantt-milestone-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.gantt-milestone-checkbox {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 2px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.gantt-milestone-checkbox-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  color: var(--b3-list-hover);
+  transition: all 0.2s;
+}
+
+.gantt-milestone-checkbox.completed .gantt-milestone-checkbox-icon {
+  color: #f98f7a;
+}
+
+.gantt-milestone-checkbox input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.gantt-milestone-checkbox input:focus-visible + :deep(.gantt-milestone-checkbox-icon) {
+  outline: 2px solid var(--b3-theme-primary);
+  outline-offset: 2px;
 }
 
 .document-tabs::-webkit-scrollbar {
@@ -15203,8 +15481,8 @@ watch(kanbanColumns, () => {
 }
 
 .document-tabs-dropdown-btn {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 1px;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -15247,7 +15525,7 @@ watch(kanbanColumns, () => {
   overflow-x: hidden;
   overflow-y: auto;
   padding: 6px;
-  border: 2px solid var(--b3-border-color);
+  border: 1px solid var(--b3-border-color);
   border-radius: 10px;
   background: var(--b3-theme-background);
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
@@ -15260,7 +15538,7 @@ watch(kanbanColumns, () => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 2px 8px;
   border-radius: 8px;
   cursor: pointer;
 }
@@ -15520,7 +15798,7 @@ watch(kanbanColumns, () => {
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
   font-size: 12px;
-  padding: 4px 10px;
+  padding: 6px 10px;
   border-radius: 999px;
   cursor: pointer;
   white-space: nowrap;
@@ -15535,6 +15813,45 @@ watch(kanbanColumns, () => {
 .document-tab.active {
   background: var(--b3-theme-on-background);
   color: var(--b3-theme-background);
+}
+
+.document-tab-milestone-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-right: 2px;
+  margin-left: -2px;
+  border-radius: 50%;
+  box-shadow: var(--pinch-shadow);
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.document-tab.draggable {
+  cursor: grab;
+}
+
+.document-tab.draggable:active {
+  cursor: grabbing;
+}
+
+.document-tab.is-dragging {
+  opacity: 0.45;
+  transform: scale(0.96);
+}
+
+.document-tab.is-drop-target {
+  border-color: var(--b3-theme-primary);
+  background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-background));
+  color: var(--b3-theme-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 22%, transparent);
+  transform: translateY(-1px);
 }
 
 .document-tab-context-menu {
@@ -15831,11 +16148,11 @@ watch(kanbanColumns, () => {
 
 .view-switcher {
   display: flex;
-  gap: 2px;
+  gap: 4px;
   background: var(--b3-list-hover);
-  padding: 2px;
-  border-radius: 9px;
+  border-radius: 99px;
   min-width: 0;
+  box-shadow: var(--pinch-shadow);
 }
 
 .view-switcher.mobile-view-switcher-only {
@@ -15853,7 +16170,7 @@ watch(kanbanColumns, () => {
   height: 30px;
   padding: 0 10px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 99px;
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
   display: inline-flex;
@@ -15927,26 +16244,25 @@ watch(kanbanColumns, () => {
   padding: 6px 10px 6px 8px;
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: 99px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
   color: var(--b3-theme-on-surface);
   transition: all 0.2s;
-  font-size: 13px;
-  opacity: 0.6;
 }
 
 .view-btn:hover {
   background: var(--b3-theme-background);
-  opacity: 1;
+  box-shadow: var(--pinch-shadow);
 }
 
 .view-btn.active {
   background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
   box-shadow: var(--pinch-shadow);
+  font-weight: 700;
   opacity: 1;
 }
 
@@ -15955,7 +16271,7 @@ watch(kanbanColumns, () => {
   align-items: center;
   justify-content: flex-end;
   flex-shrink: 0;
-  margin-left: auto;
+  margin-left: 0;
   gap: 6px;
 }
 
@@ -15990,7 +16306,6 @@ watch(kanbanColumns, () => {
 
 .refresh-btn,
 .scope-btn,
-.new-task-btn,
 .mobile-calendar-task-drawer-btn {
   background: none;
   border: none;
@@ -16098,10 +16413,6 @@ watch(kanbanColumns, () => {
   margin-bottom: 8px;
 }
 
-.mobile-calendar-task-drawer-body :deep(.view-all-button) {
-  display: none;
-}
-
 .mobile-calendar-task-drawer-body :deep(.tasks-list) {
   min-height: 0;
 }
@@ -16194,13 +16505,8 @@ watch(kanbanColumns, () => {
     flex-wrap: nowrap;
   }
 
-  .kanban-header-view-module,
   .kanban-header-tools-module {
     width: auto;
-  }
-
-  .kanban-header-view-module {
-    flex: 0 0 auto;
   }
 
   .kanban-header-tools-module {
@@ -16209,7 +16515,7 @@ watch(kanbanColumns, () => {
 
   .kanban-header-tools-module {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 6px;
     overflow-x: auto;

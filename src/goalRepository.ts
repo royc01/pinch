@@ -175,7 +175,6 @@ function normalizeGoal(input: unknown, legacyGroupsById: Map<string, DocumentGro
     : resolveLegacyGoalMembers(raw, legacyGroupsById);
 
   const dueDate = typeof raw.dueDate === 'string' ? raw.dueDate.trim() : '';
-
   return {
     id,
     name,

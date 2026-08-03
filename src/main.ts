@@ -40,7 +40,7 @@ let topBarViewButton: HTMLElement | null = null;
 const PINCH_DOCK_TYPE = 'Pinch-habit';
 const KANBAN_TAB_TYPE = 'kanban';
 const MOBILE_BREADCRUMB_LONG_PRESS_MS = 480;
-const TOP_BAR_VIEW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.7,10c-1.7-0.2-2.6,0.8-3.3,1.8c-1.4,2.4-3,2.5-4.3,2.5c-2.5,0-4.2-1.8-4.2-4.5c0-2.7,1.7-4.5,4.2-4.5c2.1,0,3.5,0.6,4.4,2.6c0.4,0.9,1.4,2.1,2.9,1.9c1.6-0.4,2.5-1.9,1.9-4C22.7,3.2,19.5,0,14.1,0C8.7,0,4.8,3.7,4.4,9v0.2c0,0.2,0,0.4,0,0.7c0,0.2,0,0.5,0,0.7v14.8c0,1.5,1.2,2.8,2.8,2.8s2.8-1.2,2.8-2.8v-6.5c1.2,0.5,2.7,0.9,4.2,0.9c5,0,8.6-3.2,9.3-6.5C23.7,12,23.4,10.3,21.7,10z" fill="currentColor"></path></svg>';
+const TOP_BAR_VIEW_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28"><path d="M7,28c-0.9,0-1.7-0.3-2.3-0.9c-1.1-1.2-1.1-3-1.1-3.2l0-14.1l0,0c0.4-3.2,2-5.3,2.1-5.3c3.3-4.3,8.2-4.2,8.4-4.2c2.6-0.1,5.3,1,7.4,3c1.9,1.9,2.9,4.2,2.9,6.7c0.2,3.7-1.1,6.7-4,8.8c-2.8,2.1-5.6,1.9-7,1.8c-0.2,0-0.3,0-0.5,0c-0.8,0-1,0-1.6,0.4c-0.4,0.3-0.6,1-0.6,1.2l0,2.5C10.8,25.5,10.1,28,7,28z M5.2,9.8v14.1c0,0.4,0.1,1.5,0.6,2.1c0.3,0.3,0.6,0.4,1.1,0.4c2,0,2.1-1.5,2.1-1.8V22c0-0.2,0.2-1.6,1.3-2.4c1-0.7,1.7-0.7,2.6-0.7c0.1,0,0.3,0,0.6,0c1.3,0.1,3.6,0.2,5.9-1.5c2.4-1.8,3.5-4.3,3.3-7.4c0-2.1-0.9-4.1-2.5-5.6c-1.7-1.7-4-2.6-6.2-2.5c-0.1,0-4.4,0-7.1,3.6C6.9,5.4,5.6,7.1,5.2,9.8z"/><path fill="#FF826E" d="M13.1,14.9c-0.3,0-0.6-0.1-0.8-0.3l-2.6-2.7c-0.4-0.4-0.4-1.1,0-1.6c0.4-0.4,1.1-0.4,1.6,0l1.8,1.9l4-4.4c0.4-0.4,1.1-0.5,1.6-0.1c0.4,0.4,0.5,1.1,0.1,1.6l-4.8,5.3C13.7,14.7,13.4,14.9,13.1,14.9C13.1,14.9,13.1,14.9,13.1,14.9z"/></svg>';
 const LEGACY_KANBAN_TAB_TITLE = typeof zhCN['app.kanbanTabTitle'] === 'string'
   ? zhCN['app.kanbanTabTitle']
   : 'Pinch View';
@@ -62,8 +62,8 @@ export function usePlugin(pluginProps?: Plugin): Plugin | null {
 const PINCH_ICONS = [
   {
     id: 'ht-custom-icon',
-    viewBox: '0 0 24 24',
-    path: 'M21.7,10c-1.7-0.2-2.6,0.8-3.3,1.8c-1.4,2.4-3,2.5-4.3,2.5c-2.5,0-4.2-1.8-4.2-4.5c0-2.7,1.7-4.5,4.2-4.5\t\tc2.1,0,3.5,0.6,4.4,2.6c0.4,0.9,1.4,2.1,2.9,1.9c1.6-0.4,2.5-1.9,1.9-4C22.7,3.2,19.5,0,14.1,0C8.7,0,4.8,3.7,4.4,9h0v0.2\t\tc0,0.2,0,0.4,0,0.7c0,0.2,0,0.5,0,0.7v14.8c0,1.5,1.2,2.8,2.8,2.8s2.8-1.2,2.8-2.8v-6.5c1.2,0.5,2.7,0.9,4.2,0.9\tc5,0,8.6-3.2,9.3-6.5C23.7,12,23.4,10.3,21.7,10z',
+    viewBox: '0 0 28 28',
+    path: '<path d="M7,28c-0.9,0-1.7-0.3-2.3-0.9c-1.1-1.2-1.1-3-1.1-3.2l0-14.1l0,0c0.4-3.2,2-5.3,2.1-5.3c3.3-4.3,8.2-4.2,8.4-4.2c2.6-0.1,5.3,1,7.4,3c1.9,1.9,2.9,4.2,2.9,6.7c0.2,3.7-1.1,6.7-4,8.8c-2.8,2.1-5.6,1.9-7,1.8c-0.2,0-0.3,0-0.5,0c-0.8,0-1,0-1.6,0.4c-0.4,0.3-0.6,1-0.6,1.2l0,2.5C10.8,25.5,10.1,28,7,28z M5.2,9.8v14.1c0,0.4,0.1,1.5,0.6,2.1c0.3,0.3,0.6,0.4,1.1,0.4c2,0,2.1-1.5,2.1-1.8V22c0-0.2,0.2-1.6,1.3-2.4c1-0.7,1.7-0.7,2.6-0.7c0.1,0,0.3,0,0.6,0c1.3,0.1,3.6,0.2,5.9-1.5c2.4-1.8,3.5-4.3,3.3-7.4c0-2.1-0.9-4.1-2.5-5.6c-1.7-1.7-4-2.6-6.2-2.5c-0.1,0-4.4,0-7.1,3.6C6.9,5.4,5.6,7.1,5.2,9.8z"/><path fill="#FF826E" d="M13.1,14.9c-0.3,0-0.6-0.1-0.8-0.3l-2.6-2.7c-0.4-0.4-0.4-1.1,0-1.6c0.4-0.4,1.1-0.4,1.6,0l1.8,1.9l4-4.4c0.4-0.4,1.1-0.5,1.6-0.1c0.4,0.4,0.5,1.1,0.1,1.6l-4.8,5.3C13.7,14.7,13.4,14.9,13.1,14.9C13.1,14.9,13.1,14.9,13.1,14.9z"/>',
   },
   {
     id: 'stand-custom-icon',
@@ -105,6 +105,68 @@ let mobileBreadcrumbObserver: MutationObserver | null = null;
 let mobileBreadcrumbRefreshRaf = 0;
 const MOBILE_PINCH_PANEL_TYPE = 'sidebar-pinch';
 const MOBILE_PINCH_PANEL_ATTR = 'data-pinch-mobile-sidebar-panel';
+
+function openMobilePinchPluginPage(): boolean {
+  const existingPanel = document.querySelector<HTMLElement>(
+    `[data-type="${MOBILE_PINCH_PANEL_TYPE}"][${MOBILE_PINCH_PANEL_ATTR}="true"]`
+  );
+  if (existingPanel) {
+    return true;
+  }
+
+  try {
+    const panel = document.createElement('div');
+    panel.dataset.type = MOBILE_PINCH_PANEL_TYPE;
+    panel.dataset.pinchMobileSidebarPanel = 'true';
+    panel.style.cssText = [
+      'position:fixed',
+      'inset:0',
+      'z-index:10000',
+      'background:var(--b3-theme-background)',
+      'overflow:hidden'
+    ].join(';');
+
+    const mountElement = document.createElement('div');
+    mountElement.style.cssText = [
+      'width:100%',
+      'height:100%',
+      'box-sizing:border-box',
+      'padding-top:calc(env(safe-area-inset-top) + 48px)'
+    ].join(';');
+    panel.appendChild(mountElement);
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.setAttribute('aria-label', translate('common.close', 'Close'));
+    closeButton.innerHTML = '&times;';
+    closeButton.style.cssText = [
+      'position:absolute',
+      'top:calc(env(safe-area-inset-top) + 12px)',
+      'right:12px',
+      'z-index:10002',
+      'width:32px',
+      'height:32px',
+      'border:0',
+      'border-radius:50%',
+      'background:var(--b3-theme-background-light)',
+      'color:var(--b3-theme-on-background)',
+      'font-size:26px',
+      'line-height:1',
+      'cursor:pointer'
+    ].join(';');
+    closeButton.addEventListener('click', cleanupMobileSidebarPinchView);
+    panel.appendChild(closeButton);
+    document.body.appendChild(panel);
+
+    mobileSidebarPinchApp = createApp(App);
+    mobileSidebarPinchApp.mount(mountElement);
+    return true;
+  } catch (error) {
+    console.error('Failed to open mobile Pinch plugin page:', error);
+    cleanupMobileSidebarPinchView();
+    return false;
+  }
+}
 
 function isMobileFrontend() {
   try {
@@ -678,9 +740,7 @@ function createMobileBreadcrumbTaskButton() {
       handledLongPress = true;
       clearLongPressTimer();
       closeMobileTaskCreateDialog();
-      if (!openKanbanMobileDialog()) {
-        showMessage(translate('message.openTaskBoardFailed', 'Unable to open the Pinch task board'), 3000, 'error');
-      }
+      openPinchDockView();
     }, MOBILE_BREADCRUMB_LONG_PRESS_MS);
   };
 
@@ -1187,16 +1247,18 @@ export function openPinchDockView(): boolean {
 
   const trigger = findPinchDockTrigger();
   if (!trigger) {
-    return false;
+    return isMobileFrontend() ? openMobilePinchPluginPage() : false;
   }
 
   trigger.click();
-  return true;
+  return isPinchDockViewVisible() || !isMobileFrontend() || openMobilePinchPluginPage();
 }
 
 export function openHabitTrackerPanel(payload: HabitTrackerPanelOpenRequest): boolean {
   const opened = openPinchDockView();
   eventBus.emit(Events.HABIT_TRACKER_PANEL_OPEN_REQUEST, payload);
+  window.setTimeout(() => eventBus.emit(Events.HABIT_TRACKER_PANEL_OPEN_REQUEST, payload), 220);
+  window.setTimeout(() => eventBus.emit(Events.HABIT_TRACKER_PANEL_OPEN_REQUEST, payload), 480);
   return opened;
 }
 

@@ -365,6 +365,7 @@ const {
 .habits-grid {
   display: grid;
   gap: 6px;
+  padding: 0 2px;
 }
 
 .habits-container {

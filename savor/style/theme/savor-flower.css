@@ -1,0 +1,96 @@
+:root[data-theme-mode="light"][savor-theme="flower"] {
+    /* 主色 */
+    --b3-theme-primary-base-l:75.97%;
+    --b3-theme-primary-base-ch:0.1453 34.26;
+    --b3-theme-surface-base-l:0.958;
+    --b3-theme-surface-base-ch:0.0194 302.2;
+
+    --b3-theme-background: #fffbff;/* 编辑区背景 必须用HEX颜色*/
+
+    --Sv-tab-bar-item-after:url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M100 100C44.772 100 0 55.228 0 0v100h100z' fill='%23e8e2f0'/></svg>"),
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M0 100c55.228 0 100-44.772 100-100v100H0z' fill='%23e8e2f0'/></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><rect  y='0%' width='100%' height='80%' fill='%23e8e2f0'/></svg>");
+
+    --Sv-tab-bar-V-item-after:url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M100 100C100 44.772 55.228 0 0 0H100V100z' fill='%23fffbff'/></svg>"),
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M0 100c55.228 0 100-44.772 100-100v100H0z' fill='%23fffbff'/></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><rect  width='100%' height='100%' fill='%23fffbff'/></svg>");
+
+    --Sv-tab-bar-item-focus-after:url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M100 100C44.772 100 0 55.228 0 0v100h100z' fill='%23fffbff'/></svg>"),
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill-rule='evenodd' clip-rule='evenodd' d='M0 100c55.228 0 100-44.772 100-100v100H0z' fill='%23fffbff'/></svg>"),
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'><rect  y='0%' width='100%' height='80%' fill='%23fffbff'/></svg>");
+
+    /* ————————————————————  自定义结构配色  ———————————————————— */
+
+	/* 顶栏 */
+    --Sv-barWorkspace-color: var(--b3-theme-on-background);
+    --Sv-barWorkspace-background: var(--Sv-list-background);
+    --Sv-barWorkspace-background-hover: var(--Sv-list-focus-hover);
+
+	/* dock栏 */
+    --Sv-dock-item-hover-color: var(--b3-theme-background);
+    --Sv-dock-item--activefocus-color: var(--b3-theme-background);
+    --Sv-dock-item-active-background: #a18ef9;
+    --Sv-dock-item-active-background-hover: #8f7ce6;
+    --Sv-dock-item--activefocus-background: #ff5f40!important;
+    --Sv-dock--item--activefocus-shadow: 0 ;
+    --Sv-plugin-off-bg: #e8e2f0;
+	
+	/* 侧栏面板 */
+    --Sv-block-icon-active: #ff5f40;
+    --Sv--dialog-container: #f0ebf9;
+	
+
+    /* 底栏 */
+    --Sv-status-barDock-color: #ff5f40;
+
+
+    /* 面包屑 */
+    --Sv-breadcrumb-active: #ab90f7;
+    --Sv-breadcrumb-active-hover:#9d80ec;
+    
+    /* 块引用 */
+    --Sv-block-ref-background: transparent;
+    --Sv-block-ref-bottom: 2px solid #ff5f40;
+    --Sv-block-ref-bottom-d: 2px dashed #ff5f40;
+
+    --b3-font-background1: #dedbde;
+    --b3-font-background2: #eeebee;
+    --b3-font-background3: #fbdbe1;
+    --b3-font-background4: #eae3e5;
+	--b3-font-background5: #f9e9de;
+    --b3-font-background6: #fceae2;
+    --b3-font-background7: #f9f0de;
+	--b3-font-background8: #eaf1e6;
+    --b3-font-background9: #deeaeb;
+    --b3-font-background10: #dee8f1;
+    --b3-font-background11: #ebe2f2;
+    --b3-font-background12: #f3dcec;
+    --b3-font-background13: #fae2e5;
+
+
+    .sy__file .b3-list--background:nth-child(4n-3) [data-type="navigation-root"]>.b3-list-item__toggle>.b3-list-item__arrow,
+    .sy__file .b3-list--background:nth-child(4n-3) [data-type="navigation-root"]+ul .b3-list-item__toggle>.b3-list-item__arrow{
+        color:#f67563;
+    }
+    .sy__file .b3-list--background:nth-child(4n-2) [data-type="navigation-root"]>.b3-list-item__toggle>.b3-list-item__arrow,
+    .sy__file .b3-list--background:nth-child(4n-2) [data-type="navigation-root"]+ul .b3-list-item__toggle>.b3-list-item__arrow{
+        color:#ff9b1e;
+    }
+    .sy__file .b3-list--background:nth-child(4n-1) [data-type="navigation-root"]>.b3-list-item__toggle>.b3-list-item__arrow,
+    .sy__file .b3-list--background:nth-child(4n-1) [data-type="navigation-root"]+ul .b3-list-item__toggle>.b3-list-item__arrow{
+        color:#64bbaa;
+    }
+    .sy__file .b3-list--background:nth-child(4n) [data-type="navigation-root"]>.b3-list-item__toggle>.b3-list-item__arrow,
+    .sy__file .b3-list--background:nth-child(4n) [data-type="navigation-root"]+ul .b3-list-item__toggle>.b3-list-item__arrow{
+        color:#49adbb;
+    }
+
+
+    .protyle-wysiwyg .h1 span,.protyle-wysiwyg .h2 span,.protyle-wysiwyg .h3 span,.protyle-wysiwyg .h4 span,.protyle-wysiwyg .h5 span,.protyle-wysiwyg .h6 span{
+    color:unset;
+   }
+
+   body::before {
+        display: none;
+    }
+}
