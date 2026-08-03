@@ -959,6 +959,7 @@
       :document-order="ganttDocumentSectionOrder"
       :show-document-milestones="canReorderDocumentTabs"
       :selected-document-section="ganttSelectedDocumentSection"
+      :document-icon-by-root-id="documentIconByRootId"
       :document-title-by-root-id="documentTitleByRootId"
       :auto-expand-unscheduled-tasks="currentDocumentFilter !== 'all'"
       @task-click="openKanbanTaskContentInRight"
@@ -6221,6 +6222,7 @@ const showMilestoneModeSwitch = computed(() =>
 const canReorderDocumentTabs = computed(() =>
   (currentView.value === 'gantt'
     || ((currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'table') && isGoalMilestoneSource.value))
+  && isGoalMilestoneSource.value
   && ganttMilestonesEnabled.value
   && activeMilestoneSource.value !== 'all'
 );

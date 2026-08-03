@@ -567,6 +567,7 @@ const props = defineProps<{
   goals?: Goal[];
   taskGroups?: TaskGroup[];
   groupMode?: GanttGroupMode;
+  documentIconByRootId?: Map<string, string>;
   documentTitleByRootId?: Map<string, string>;
   documentOrder?: string[];
   showDocumentMilestones?: boolean;
@@ -2011,6 +2012,16 @@ function getTaskDocumentTitle(task: Task): string {
   return t('ganttView.unassignedDocument');
 }
 
+function getTaskDocumentIcon(task?: Task, sectionId?: string): string {
+  const rootId = typeof task?.rootId === 'string'
+    ? task.rootId.trim()
+    : (sectionId || '').split(':').at(-1)?.trim() || '';
+  const mappedIcon = rootId ? props.documentIconByRootId?.get(rootId)?.trim() : '';
+  if (mappedIcon) return mappedIcon;
+  const taskIcon = typeof task?.icon === 'string' ? task.icon.trim() : '';
+  return taskIcon || '📄';
+}
+
 function getTaskDocumentId(task: Task): string {
   const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
   const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
@@ -2090,7 +2101,8 @@ function buildDocumentSections(): GanttSection[] {
       title: selectedSection.title,
       emoji: '📄',
       rows,
-      summaryTasks: displayableTasks.value
+      summaryTasks: displayableTasks.value,
+      ...{ emoji: getTaskDocumentIcon(displayableTasks.value[0], selectedSection.id) }
     }];
   }
 
@@ -2120,7 +2132,8 @@ function buildDocumentSections(): GanttSection[] {
       title: getTaskDocumentTitle(row.primaryTask),
       emoji: '📄',
       rows: [row],
-      summaryTasks: summaryTasksByDocument.get(id) || []
+      summaryTasks: summaryTasksByDocument.get(id) || [],
+      ...{ emoji: getTaskDocumentIcon(row.primaryTask, id) }
     });
   });
 
@@ -2138,7 +2151,8 @@ function buildDocumentSections(): GanttSection[] {
         title: primaryTask ? getTaskDocumentTitle(primaryTask) : t('ganttView.unassignedDocument'),
         emoji: '📄',
         rows: [],
-        summaryTasks
+        summaryTasks,
+        ...{ emoji: getTaskDocumentIcon(primaryTask, id) }
       };
       sectionByDocument.set(id, section);
     }
@@ -2327,9 +2341,49 @@ const ganttSections = computed<GanttSection[]>(() => {
   return buildGoalSections();
 });
 
+function normalizeRenderRowGridPositions(rows: GanttRenderRow[]): GanttRenderRow[] {
+  return rows.map((row, index) => {
+    const gridRow = `${index + 2}`;
+
+    if (row.kind === 'section') {
+      return {
+        ...row,
+        summaryBarStyle: row.summaryBarStyle
+          ? { ...row.summaryBarStyle, gridRow }
+          : null,
+        deadlineStyle: row.deadlineStyle
+          ? { ...row.deadlineStyle, gridRow }
+          : null
+      };
+    }
+
+    if (row.kind === 'task') {
+      return {
+        ...row,
+        bars: row.bars.map(bar => ({
+          ...bar,
+          barStyle: { ...bar.barStyle, gridRow }
+        }))
+      };
+    }
+
+    return row;
+  });
+}
+
 function filterCompletedTaskRows(rows: GanttRenderRow[]): GanttRenderRow[] {
-  if (showCompletedTaskRows.value) return rows;
-  return rows.filter(row => row.kind !== 'task' || row.primaryTask.status !== 'completed');
+  const visibleRows = showCompletedTaskRows.value
+    ? rows
+    : rows.filter(row =>
+      row.kind !== 'task'
+      || row.primaryTask.status !== 'completed'
+      // Keep completed tasks that have a visible schedule. Only completed
+      // tasks outside the current timeline remain hidden by default.
+      || !row.isUnscheduled
+    );
+  // Filtering changes row indices; bars and goal summaries must follow the
+  // remaining render rows instead of retaining their pre-filter grid rows.
+  return normalizeRenderRowGridPositions(visibleRows);
 }
 
 const renderRows = computed<GanttRenderRow[]>(() => {
