@@ -16338,8 +16338,8 @@ watch(kanbanColumns, () => {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  padding: 0 10px calc(env(safe-area-inset-bottom) + 10px);
-  z-index: 1250;
+  padding: 0 10px calc(env(safe-area-inset-bottom) + 76px);
+  z-index: 10001;
 }
 
 .mobile-calendar-task-drawer {
@@ -16546,7 +16546,7 @@ watch(kanbanColumns, () => {
   .mobile-calendar-task-drawer-btn {
     position: fixed;
     right: 14px;
-    bottom: calc(env(safe-area-inset-bottom) + 16px);
+    bottom: calc(env(safe-area-inset-bottom) + 76px);
     width: 48px;
     height: 48px;
     border-radius: 999px;
