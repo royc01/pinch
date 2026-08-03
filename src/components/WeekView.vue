@@ -26,7 +26,7 @@
     >
     <div class="calendar-toolbar">
       <div class="calendar-toolbar-top">
-        <button type="button" class="nav-btn ariaLabel" :aria-label="t(sidebarCollapsed ? 'weekView.expandSidebar' : 'weekView.collapseSidebar')" @click="sidebarCollapsed = !sidebarCollapsed">
+        <button type="button" class="nav-btn ariaLabel" :aria-label="t(sidebarCollapsed ? 'weekView.expandSidebar' : 'weekView.collapseSidebar')" @click="emit('sidebarCollapsedChange', !sidebarCollapsed)">
           <Icon :name="sidebarCollapsed ? 'chevronRight' : 'chevronLeft'" width="20" height="20" />
         </button>
         <div class="calendar-toolbar-actions">
@@ -738,6 +738,7 @@ import {
 interface Props {
   tasks: Task[];
   sidebarTasks?: Task[];
+  sidebarCollapsed?: boolean;
   documentTitleByRootId?: Map<string, string>;
   lifelogTasks?: Task[];
   fixedDaysCount?: number;
@@ -927,6 +928,7 @@ const emit = defineEmits<{
   'visibleRangeChange': [payload: { startDate: string; endDate: string }];
   'calendarViewChange': [view: CalendarViewMode];
   'calendarDisplayToggle': [key: string];
+  'sidebarCollapsedChange': [collapsed: boolean];
   'focusSessionContextmenu': [session: FocusCalendarEvent];
 }>();
 
@@ -1080,7 +1082,7 @@ function resolveInitialWeekStart(): Date {
 
 const currentWeekStart = ref(resolveInitialWeekStart());
 const daysSwitcherOpen = ref(false);
-const sidebarCollapsed = ref(false);
+const sidebarCollapsed = computed(() => props.sidebarCollapsed === true);
 const currentTime = ref(new Date());
 const isAllDaySectionCollapsed = ref(false);
 const INACTIVE_HOURS_OFFSET = 240; // 5 小时栁E��+5 个 hour-cell ÁE48px

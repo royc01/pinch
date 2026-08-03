@@ -62,7 +62,7 @@
            
             :aria-label="t('taskScopeDialog.refreshDocuments')"
             :disabled="documentsRefreshing"
-            @click.stop="emit('refresh-documents')"
+            @click.stop="refreshDocuments"
           >
             <Icon name="refresh" width="14" height="14" class="refresh-icon" />
           </button>
@@ -78,7 +78,7 @@
             :placeholder="t('documentGroup.searchDocuments')"
             @update:model-value="documentSearch = $event"
           />
-          <div v-if="filteredDocuments.length === 0" class="document-group-empty">
+          <div v-if="visibleDocuments.length === 0" class="document-group-empty">
             {{ t('documentGroup.noDocuments') }}
           </div>
           <div v-else class="document-checkbox-list">
@@ -168,6 +168,8 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import type { DocumentGroup } from '@/documentGroupRepository';
 import { useI18n } from '@/composables/useI18n';
+import { sql } from '@/api';
+import { resolveDocumentDisplayName } from '@/utils/taskViewShared';
 
 interface DocumentGroupManagerDocument {
   id: string;
@@ -175,6 +177,8 @@ interface DocumentGroupManagerDocument {
   notebookId: string;
   notebookName: string;
   path?: string;
+  parentId?: string;
+  storagePath?: string;
 }
 
 type DocumentTreeRow =
@@ -195,6 +199,8 @@ interface DocumentNotebookTreeGroup {
 interface Props {
   groups: DocumentGroup[];
   documents: DocumentGroupManagerDocument[];
+  allDocuments?: DocumentGroupManagerDocument[];
+  notebookIds?: string[];
   documentsRefreshing?: boolean;
 }
 
@@ -212,6 +218,8 @@ const selectedGroupId = ref('');
 const documentSearch = ref('');
 const expandedDocumentKeys = ref(new Set<string>());
 const collapsedNotebookIds = ref(new Set<string>());
+const treeDocuments = ref<DocumentGroupManagerDocument[]>([]);
+let documentTreeRequestId = 0;
 
 function cloneGroups(groups: DocumentGroup[]): DocumentGroup[] {
   return (groups || []).map(group => ({
@@ -241,18 +249,169 @@ const selectedGroup = computed(() =>
   localGroups.value.find(group => group.id === selectedGroupId.value) || null
 );
 
-const filteredDocuments = computed(() => {
-  const keyword = documentSearch.value.trim().toLocaleLowerCase();
-  return (props.documents || []).map(document => ({
-    ...document,
-    key: `${document.notebookId}:${document.id}`
-  })).filter(document => {
-    if (!keyword) {
-      return true;
+const allDocuments = computed(() => {
+  const documentsByKey = new Map<string, DocumentGroupManagerDocument>();
+  const sourceDocuments = treeDocuments.value.length > 0
+    ? treeDocuments.value
+    : (props.allDocuments || []);
+  for (const document of [...sourceDocuments, ...(props.documents || [])]) {
+    const key = `${document.notebookId}:${document.id}`;
+    const existing = documentsByKey.get(key);
+    documentsByKey.set(key, {
+      ...existing,
+      ...document,
+      path: document.path || existing?.path,
+      parentId: document.parentId || existing?.parentId,
+      storagePath: document.storagePath || existing?.storagePath
+    });
+  }
+  return Array.from(documentsByKey.values());
+});
+
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+async function refreshDocumentTree(): Promise<void> {
+  const sourceNotebookIds = [
+    ...(props.notebookIds || []),
+    ...(props.documents || []).map(document => document.notebookId)
+  ];
+  const notebookIds = Array.from(new Set(
+    sourceNotebookIds
+      .map(notebookId => notebookId?.trim())
+      .filter((id): id is string => Boolean(id))
+  ));
+  const requestId = ++documentTreeRequestId;
+  if (notebookIds.length === 0) {
+    treeDocuments.value = [];
+    return;
+  }
+
+  const notebookNameById = new Map<string, string>();
+  for (const document of [...(props.allDocuments || []), ...(props.documents || [])]) {
+    if (document.notebookId && document.notebookName) {
+      notebookNameById.set(document.notebookId, document.notebookName);
     }
-    const haystack = `${document.name} ${document.notebookName} ${document.path || ''}`.toLocaleLowerCase();
-    return haystack.includes(keyword);
-  });
+  }
+  try {
+    // Fetch only task documents and every ancestor required to render their
+    // branches. A whole-notebook query can be truncated by the SQL API in
+    // large notebooks, leaving an otherwise valid ancestor out of the tree.
+    const pathsByNotebook = new Map<string, Set<string>>();
+    for (const document of props.documents || []) {
+      const notebookId = document.notebookId?.trim();
+      const parts = normalizeDocumentPath(document.path).split('/').filter(Boolean);
+      if (!notebookId || parts.length === 0) continue;
+      const paths = pathsByNotebook.get(notebookId) || new Set<string>();
+      for (let index = 1; index <= parts.length; index += 1) {
+        paths.add(`/${parts.slice(0, index).join('/')}`);
+      }
+      pathsByNotebook.set(notebookId, paths);
+    }
+
+    type DocumentTreeRowResult = {
+      id?: string;
+      box?: string;
+      hpath?: string;
+      content?: string;
+      parent_id?: string;
+      storage_path?: string;
+    };
+    const rows: DocumentTreeRowResult[] = [];
+    const pathBatchSize = 400;
+    for (const [notebookId, paths] of pathsByNotebook) {
+      const pathList = Array.from(paths);
+      for (let start = 0; start < pathList.length; start += pathBatchSize) {
+        const pathSql = pathList
+          .slice(start, start + pathBatchSize)
+          .map(path => `'${escapeSqlLiteral(path)}'`)
+          .join(',');
+        const batch = await sql(`
+          SELECT b.id, b.box, b.hpath, b.content, b.parent_id, b.path AS storage_path
+          FROM blocks b
+          WHERE b.type = 'd'
+            AND b.box = '${escapeSqlLiteral(notebookId)}'
+            AND b.hpath IN (${pathSql})
+          ORDER BY b.path
+        `) as DocumentTreeRowResult[];
+        rows.push(...(batch || []));
+      }
+    }
+    if (requestId !== documentTreeRequestId) return;
+    const loadedDocuments = (rows || []).flatMap(row => {
+      const id = typeof row?.id === 'string' ? row.id.trim() : '';
+      const notebookId = typeof row?.box === 'string' ? row.box.trim() : '';
+      if (!id || !notebookId) return [];
+      const path = typeof row?.hpath === 'string' ? row.hpath.trim() : '';
+      const parentId = typeof row?.parent_id === 'string' ? row.parent_id.trim() : '';
+      const storagePath = typeof row?.storage_path === 'string' ? row.storage_path.trim() : '';
+      return [{
+        id,
+        name: resolveDocumentDisplayName({ id, name: row?.content, path }),
+        notebookId,
+        notebookName: notebookNameById.get(notebookId) || notebookId,
+        path: path || undefined,
+        parentId: parentId || undefined,
+        storagePath: storagePath || undefined
+      }];
+    });
+    const mergedDocumentsByKey = new Map(treeDocuments.value.map(document => [getDocumentKey(document), document]));
+    for (const document of loadedDocuments) {
+      mergedDocumentsByKey.set(getDocumentKey(document), document);
+    }
+    treeDocuments.value = Array.from(mergedDocumentsByKey.values());
+    const currentTaskNotebookIds = Array.from(new Set(
+      (props.documents || [])
+        .map(document => document.notebookId?.trim())
+        .filter((id): id is string => Boolean(id))
+    ));
+    const taskNotebooksLoadedAfterQueryStarted = currentTaskNotebookIds.filter(id => !notebookIds.includes(id));
+    if (taskNotebooksLoadedAfterQueryStarted.length > 0) {
+      void refreshDocumentTree();
+    }
+  } catch (error) {
+    console.error('[DocumentGroups] failed to load document tree', error);
+  }
+}
+
+function refreshDocuments(): void {
+  void refreshDocumentTree();
+  emit('refresh-documents');
+}
+
+const visibleDocuments = computed(() => {
+  const keyword = documentSearch.value.trim().toLocaleLowerCase();
+  const matchesSearch = (document: DocumentGroupManagerDocument): boolean => !keyword
+    || `${document.name} ${document.notebookName} ${document.path || ''}`.toLocaleLowerCase().includes(keyword);
+
+  const documentsByPath = new Map<string, DocumentGroupManagerDocument>();
+  const documentsByKey = new Map<string, DocumentGroupManagerDocument>();
+  for (const document of allDocuments.value) {
+    const path = normalizeDocumentPath(document.path);
+    if (path) documentsByPath.set(`${document.notebookId}:${path}`, document);
+    documentsByKey.set(getDocumentKey(document), document);
+  }
+
+  const visibleKeys = new Set<string>();
+  const addWithAncestors = (document: DocumentGroupManagerDocument): void => {
+    let current: DocumentGroupManagerDocument | undefined = document;
+    while (current) {
+      const key = getDocumentKey(current);
+      if (visibleKeys.has(key)) break;
+      visibleKeys.add(key);
+      const parentKey = getDocumentParentKey(current, documentsByPath, documentsByKey);
+      current = parentKey ? documentsByKey.get(parentKey) : undefined;
+    }
+  };
+
+  // Keep every document with a task and add its ancestors. This yields the
+  // original SiYuan tree while pruning branches that contain no tasks at all.
+  for (const taskDocument of props.documents || []) {
+    const document = documentsByKey.get(getDocumentKey(taskDocument)) || taskDocument;
+    if (matchesSearch(document)) addWithAncestors(document);
+  }
+  return allDocuments.value.filter(document => visibleKeys.has(getDocumentKey(document)));
 });
 
 function getDocumentKey(document: DocumentGroupManagerDocument): string {
@@ -265,8 +424,30 @@ function normalizeDocumentPath(path: string | undefined): string {
 
 function getDocumentParentKey(
   document: DocumentGroupManagerDocument,
-  documentsByPath: Map<string, DocumentGroupManagerDocument>
+  documentsByPath: Map<string, DocumentGroupManagerDocument>,
+  documentsByKey?: Map<string, DocumentGroupManagerDocument>
 ): string | null {
+  const parentId = document.parentId?.trim();
+  if (parentId && parentId !== document.id) {
+    const parentKey = `${document.notebookId}:${parentId}`;
+    if (documentsByKey?.has(parentKey)) {
+      return parentKey;
+    }
+  }
+  const storagePathParts = (document.storagePath || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean);
+  const storageParentId = storagePathParts.length >= 2
+    ? storagePathParts[storagePathParts.length - 2]
+    : '';
+  if (storageParentId) {
+    const parentKey = `${document.notebookId}:${storageParentId}`;
+    if (documentsByKey?.has(parentKey)) {
+      return parentKey;
+    }
+  }
   const path = normalizeDocumentPath(document.path);
   const lastSeparator = path.lastIndexOf('/');
   if (lastSeparator <= 0) {
@@ -278,7 +459,7 @@ function getDocumentParentKey(
 
 const documentTreeRows = computed<DocumentTreeRow[]>(() => {
   const byNotebook = new Map<string, DocumentGroupManagerDocument[]>();
-  for (const document of filteredDocuments.value) {
+  for (const document of visibleDocuments.value) {
     const documents = byNotebook.get(document.notebookId) || [];
     documents.push(document);
     byNotebook.set(document.notebookId, documents);
@@ -300,15 +481,17 @@ const documentTreeRows = computed<DocumentTreeRow[]>(() => {
     }
 
     const documentsByPath = new Map<string, DocumentGroupManagerDocument>();
+    const documentsByKey = new Map<string, DocumentGroupManagerDocument>();
     const childrenByParentKey = new Map<string | null, DocumentGroupManagerDocument[]>();
     for (const document of documents) {
       const path = normalizeDocumentPath(document.path);
       if (path) {
         documentsByPath.set(`${document.notebookId}:${path}`, document);
       }
+      documentsByKey.set(getDocumentKey(document), document);
     }
     for (const document of documents) {
-      const parentKey = getDocumentParentKey(document, documentsByPath);
+      const parentKey = getDocumentParentKey(document, documentsByPath, documentsByKey);
       const children = childrenByParentKey.get(parentKey) || [];
       children.push(document);
       childrenByParentKey.set(parentKey, children);
@@ -446,9 +629,12 @@ function removeGroup(groupId: string): void {
 }
 
 function isDocumentSelected(document: DocumentGroupManagerDocument): boolean {
-  return selectedGroup.value?.members.some(member =>
-    member.documentId === document.id && member.notebookId === document.notebookId
-  ) === true;
+  const taskDocuments = getDocumentAndDescendants(document);
+  return taskDocuments.length > 0 && taskDocuments.every(taskDocument =>
+    selectedGroup.value?.members.some(member =>
+      member.documentId === taskDocument.id && member.notebookId === taskDocument.notebookId
+    ) === true
+  );
 }
 
 function getNotebookDocuments(notebookId: string): DocumentGroupManagerDocument[] {
@@ -532,6 +718,23 @@ watch(
   },
   { immediate: true, deep: true }
 );
+
+watch(
+  () => props.documents,
+  () => {
+    void refreshDocumentTree();
+  },
+  { immediate: true, deep: true }
+);
+
+watch(
+  () => props.notebookIds,
+  () => {
+    void refreshDocumentTree();
+  },
+  { immediate: true, deep: true }
+);
+
 </script>
 
 <style scoped>
@@ -550,7 +753,7 @@ watch(
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(200px, 220px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 240px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   gap: 12px;
@@ -558,20 +761,15 @@ watch(
 }
 
 .document-group-panel {
-  height: 100%;
+  height: calc(100% - 16px);
   min-height: 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   padding: 8px;
-}
-
-
-.group-list-panel,
-.document-list-panel {
-  overflow: hidden;
-  background-color: var(--Sv-theme-surface, var(--b3-theme-surface));
   border-radius: 10px;
+  background-color: var(--Sv-theme-surface, var(--b3-theme-surface));
+  overflow: hidden;
 }
 
 .document-group-panel-header {
@@ -579,11 +777,10 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   min-height: 32px;
   min-width: 0;
   margin-bottom: 6px;
-  box-sizing: border-box;
   font-size: 13px;
   font-weight: 600;
   color: var(--b3-theme-on-background);
@@ -606,6 +803,7 @@ watch(
 
 .document-group-current {
   min-width: 0;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -674,12 +872,13 @@ watch(
 
 .document-group-item {
   width: 100%;
-  padding: 4px;
+  padding: 8px;
   border: none;
   border-radius: 10px;
   background: var(--b3-list-hover);
   cursor: pointer;
   text-align: left;
+  box-sizing: border-box;
 }
 
 .document-group-item.active,.document-group-item:hover {
@@ -687,11 +886,17 @@ watch(
   box-shadow: var(--pinch-shadow);
 }
 
+.document-group-item:focus-visible {
+  outline: 2px solid var(--b3-theme-primary);
+  outline-offset: 2px;
+}
+
 .document-group-item-main {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .goal-emoji-btn {
@@ -723,10 +928,7 @@ watch(
 }
 
 .document-group-search-input {
-  display: block;
-  flex: 0 0 auto;
-  min-width: 0;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .document-group-count {
@@ -784,19 +986,15 @@ watch(
 }
 
 .document-tree-row--notebook {
-  min-height: 34px;
-  gap: 4px;
+  min-height: 26px;
   font-size: 13px;
   font-weight: 600;
-}
-
-.document-tree-row--document {
-  gap: 4px;
+  color: var(--b3-theme-on-background);
 }
 
 .document-tree-expand {
   width: 24px;
-  height: 30px;
+  height: 24px;
   padding: 0;
   border: none;
   border-radius: 6px;
@@ -810,7 +1008,7 @@ watch(
 
 .document-tree-expand-placeholder {
   width: 24px;
-  height: 30px;
+  height: 24px;
   flex: 0 0 auto;
 }
 
@@ -836,8 +1034,8 @@ watch(
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 30px;
-  padding: 0 6px;
+  min-height: 28px;
+  padding: 0 2px;
   border-radius: 6px;
   cursor: pointer;
 }
@@ -854,7 +1052,7 @@ watch(
   align-items: flex-start;
   gap: 10px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 4px 6px;
   border-radius: 10px;
   background: transparent;
   cursor: pointer;
@@ -863,7 +1061,7 @@ watch(
 
 .document-tree-document-item {
   flex: 1;
-  padding: 7px 10px;
+  padding: 4px 6px;
 }
 
 .document-tree-document-item:hover {
@@ -925,8 +1123,12 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--b3-theme-on-surface);
+  padding: 24px 16px;
+  border-radius: 12px;
+  background: rgba(249, 143, 122, 0.08);
   font-size: 13px;
+  text-align: center;
+  color: var(--b3-theme-on-surface);
 }
 
 @media (max-width: 720px) {

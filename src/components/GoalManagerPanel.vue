@@ -247,7 +247,7 @@ import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
-import type { Task } from '@/api';
+import { sql, type Task } from '@/api';
 import {
   buildGoalScopeDocumentsFromTasks,
   type GoalScopeDocument
@@ -261,11 +261,13 @@ import {
 import { isDocumentPathInScope } from '@/utils/taskDocumentScope';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
+import { resolveDocumentDisplayName } from '@/utils/taskViewShared';
 import { useI18n } from '@/composables/useI18n';
 
 interface Props {
   goals: Goal[];
   documents: GoalScopeDocument[];
+  allDocuments?: GoalScopeDocument[];
   tasks?: Task[];
   documentsRefreshing?: boolean;
 }
@@ -309,8 +311,9 @@ const localGoals = ref<Goal[]>([]);
 const selectedGoalId = ref('');
 const documentSearch = ref('');
 const expandedDocumentKeys = ref(new Set<string>());
-const collapsedDocumentKeys = ref(new Set<string>());
 const collapsedNotebookIds = ref(new Set<string>());
+const treeDocuments = ref<GoalScopeDocument[]>([]);
+let documentTreeRequestId = 0;
 const dueDateButtonRefs = new Map<string, HTMLElement>();
 const dueDatePopover = reactive({
   visible: false,
@@ -350,20 +353,82 @@ const selectedGoal = computed(() =>
   localGoals.value.find(goal => goal.id === selectedGoalId.value) || null
 );
 
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+async function refreshDocumentTree(): Promise<void> {
+  const requestId = ++documentTreeRequestId;
+  const notebookNameById = new Map<string, string>();
+  const pathsByNotebook = new Map<string, Set<string>>();
+  for (const document of [...(props.documents || []), ...taskDerivedDocuments.value]) {
+    const notebookId = document.notebookId?.trim();
+    if (notebookId && document.notebookName) {
+      notebookNameById.set(notebookId, document.notebookName);
+    }
+    const parts = normalizeDocumentPath(document.path).split('/').filter(Boolean);
+    if (!notebookId || parts.length === 0) continue;
+    const paths = pathsByNotebook.get(notebookId) || new Set<string>();
+    for (let index = 1; index <= parts.length; index += 1) {
+      paths.add(`/${parts.slice(0, index).join('/')}`);
+    }
+    pathsByNotebook.set(notebookId, paths);
+  }
+
+  type DocumentTreeRowResult = {
+    id?: string;
+    box?: string;
+    hpath?: string;
+    content?: string;
+    parent_id?: string;
+    storage_path?: string;
+  };
+  try {
+    const rows: DocumentTreeRowResult[] = [];
+    const pathBatchSize = 400;
+    for (const [notebookId, paths] of pathsByNotebook) {
+      const pathList = Array.from(paths);
+      for (let start = 0; start < pathList.length; start += pathBatchSize) {
+        const pathSql = pathList.slice(start, start + pathBatchSize)
+          .map(path => `'${escapeSqlLiteral(path)}'`)
+          .join(',');
+        const batch = await sql(`
+          SELECT b.id, b.box, b.hpath, b.content, b.parent_id, b.path AS storage_path
+          FROM blocks b
+          WHERE b.type = 'd'
+            AND b.box = '${escapeSqlLiteral(notebookId)}'
+            AND b.hpath IN (${pathSql})
+          ORDER BY b.path
+        `) as DocumentTreeRowResult[];
+        rows.push(...(batch || []));
+      }
+    }
+    if (requestId !== documentTreeRequestId) return;
+    treeDocuments.value = rows.flatMap(row => {
+      const id = typeof row.id === 'string' ? row.id.trim() : '';
+      const notebookId = typeof row.box === 'string' ? row.box.trim() : '';
+      if (!id || !notebookId) return [];
+      const path = typeof row.hpath === 'string' ? row.hpath.trim() : '';
+      return [{
+        id,
+        name: resolveDocumentDisplayName({ id, name: row.content, path }),
+        notebookId,
+        notebookName: notebookNameById.get(notebookId) || notebookId,
+        path: path || undefined,
+        parentId: typeof row.parent_id === 'string' ? row.parent_id.trim() || undefined : undefined,
+        storagePath: typeof row.storage_path === 'string' ? row.storage_path.trim() || undefined : undefined
+      }];
+    });
+  } catch (error) {
+    console.error('[GoalManager] failed to load document tree', error);
+  }
+}
+
 const taskDerivedDocuments = computed(() => {
   const notebookNameById = new Map(
     (props.documents || []).map(document => [document.notebookId, document.notebookName])
   );
   return buildGoalScopeDocumentsFromTasks(props.tasks || [], notebookNameById);
-});
-
-const taskDerivedDocumentKeys = computed(() => {
-  const indexedDocumentKeys = new Set((props.documents || []).map(document => getDocumentKey(document)));
-  return new Set(
-    taskDerivedDocuments.value
-      .map(document => getDocumentKey(document))
-      .filter(key => !indexedDocumentKeys.has(key))
-  );
 });
 
 const notebookLevelDocumentKeys = computed(() => new Set(
@@ -373,18 +438,28 @@ const notebookLevelDocumentKeys = computed(() => new Set(
 ));
 
 const allGoalDocuments = computed(() => {
-  const documents = [...(props.documents || [])];
-  const knownDocumentKeys = new Set(documents.map(document => getDocumentKey(document)));
+  const documentsByKey = new Map<string, GoalScopeDocument>();
+  const sourceDocuments = treeDocuments.value.length > 0
+    ? treeDocuments.value
+    : (props.allDocuments || []);
+  for (const document of [...sourceDocuments, ...(props.documents || [])]) {
+    const key = getDocumentKey(document);
+    const existing = documentsByKey.get(key);
+    documentsByKey.set(key, {
+      ...existing,
+      ...document,
+      path: document.path || existing?.path
+    });
+  }
 
   for (const document of taskDerivedDocuments.value) {
     const key = getDocumentKey(document);
-    if (!knownDocumentKeys.has(key) && !notebookLevelDocumentKeys.value.has(key)) {
-      knownDocumentKeys.add(key);
-      documents.push(document);
+    if (!documentsByKey.has(key) && !notebookLevelDocumentKeys.value.has(key)) {
+      documentsByKey.set(key, document);
     }
   }
 
-  return documents;
+  return Array.from(documentsByKey.values());
 });
 
 function isVisibleGoalTask(task: Task): boolean {
@@ -404,16 +479,36 @@ function getNotebookLevelTasks(notebookId: string): Task[] {
 
 const filteredDocuments = computed(() => {
   const keyword = documentSearch.value.trim().toLocaleLowerCase();
-  return allGoalDocuments.value.map(document => ({
-    ...document,
-    key: `${document.notebookId}:${document.id}`
-  })).filter(document => {
-    if (!keyword) {
-      return true;
+  const documentsByPath = new Map<string, GoalScopeDocument>();
+  const documentsByKey = new Map<string, GoalScopeDocument>();
+  for (const document of allGoalDocuments.value) {
+    const path = normalizeDocumentPath(document.path);
+    if (path) documentsByPath.set(`${document.notebookId}:${path}`, document);
+    documentsByKey.set(getDocumentKey(document), document);
+  }
+
+  const taskDocumentKeys = new Set((props.tasks || [])
+    .filter(isVisibleGoalTask)
+    .map(task => `${task.notebookId}:${task.rootId}`));
+  const visibleKeys = new Set<string>();
+  const addWithAncestors = (document: GoalScopeDocument): void => {
+    let current: GoalScopeDocument | undefined = document;
+    while (current) {
+      const key = getDocumentKey(current);
+      if (visibleKeys.has(key)) break;
+      visibleKeys.add(key);
+      const parentKey = getDocumentParentKey(current, documentsByPath, documentsByKey);
+      current = parentKey ? documentsByKey.get(parentKey) : undefined;
     }
+  };
+
+  for (const document of allGoalDocuments.value) {
     const haystack = `${document.name} ${document.notebookName} ${document.path || ''}`.toLocaleLowerCase();
-    return haystack.includes(keyword);
-  });
+    if (taskDocumentKeys.has(getDocumentKey(document)) && (!keyword || haystack.includes(keyword))) {
+      addWithAncestors(document);
+    }
+  }
+  return allGoalDocuments.value.filter(document => visibleKeys.has(getDocumentKey(document)));
 });
 
 function normalizeDocumentPath(path: string | undefined): string {
@@ -422,8 +517,34 @@ function normalizeDocumentPath(path: string | undefined): string {
 
 function getDocumentParentKey(
   document: GoalScopeDocument,
-  documentsByPath: Map<string, GoalScopeDocument>
+  documentsByPath: Map<string, GoalScopeDocument>,
+  documentsByKey?: Map<string, GoalScopeDocument>
 ): string | null {
+  const treeDocument = document as GoalScopeDocument & {
+    parentId?: string;
+    storagePath?: string;
+  };
+  const parentId = treeDocument.parentId?.trim();
+  if (parentId && parentId !== document.id) {
+    const parentKey = `${document.notebookId}:${parentId}`;
+    if (documentsByKey?.has(parentKey)) {
+      return parentKey;
+    }
+  }
+  const storagePathParts = (treeDocument.storagePath || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean);
+  const storageParentId = storagePathParts.length >= 2
+    ? storagePathParts[storagePathParts.length - 2]
+    : '';
+  if (storageParentId) {
+    const parentKey = `${document.notebookId}:${storageParentId}`;
+    if (documentsByKey?.has(parentKey)) {
+      return parentKey;
+    }
+  }
   let parentPath = normalizeDocumentPath(document.path);
   const lastSeparator = parentPath.lastIndexOf('/');
   if (lastSeparator <= 0) {
@@ -465,15 +586,17 @@ const documentTreeRows = computed<GoalDocumentTreeRow[]>(() => {
     }
 
     const documentsByPath = new Map<string, GoalScopeDocument>();
+    const documentsByKey = new Map<string, GoalScopeDocument>();
     const childDocuments = new Map<string | null, GoalScopeDocument[]>();
     for (const document of documents) {
       const path = normalizeDocumentPath(document.path);
       if (path) {
         documentsByPath.set(`${document.notebookId}:${path}`, document);
       }
+      documentsByKey.set(getDocumentKey(document), document);
     }
     for (const document of documents) {
-      const parentKey = getDocumentParentKey(document, documentsByPath);
+      const parentKey = getDocumentParentKey(document, documentsByPath, documentsByKey);
       const children = childDocuments.get(parentKey) || [];
       children.push(document);
       childDocuments.set(parentKey, children);
@@ -561,26 +684,18 @@ function getDocumentTasks(document: GoalScopeDocument): Task[] {
 }
 
 function isDocumentExpanded(document: GoalScopeDocument): boolean {
-  const key = getDocumentKey(document);
-  if (collapsedDocumentKeys.value.has(key)) {
-    return false;
-  }
-  return expandedDocumentKeys.value.has(key) || taskDerivedDocumentKeys.value.has(key);
+  return expandedDocumentKeys.value.has(getDocumentKey(document));
 }
 
 function toggleDocumentExpanded(document: GoalScopeDocument): void {
   const key = getDocumentKey(document);
   const nextExpanded = new Set(expandedDocumentKeys.value);
-  const nextCollapsed = new Set(collapsedDocumentKeys.value);
   if (isDocumentExpanded(document)) {
     nextExpanded.delete(key);
-    nextCollapsed.add(key);
   } else {
-    nextCollapsed.delete(key);
     nextExpanded.add(key);
   }
   expandedDocumentKeys.value = nextExpanded;
-  collapsedDocumentKeys.value = nextCollapsed;
 }
 
 function isNotebookExpanded(notebookId: string): boolean {
@@ -633,7 +748,12 @@ function hasDocumentPartialTaskSelection(document: GoalScopeDocument): boolean {
 }
 
 function getNotebookDocuments(notebookId: string): GoalScopeDocument[] {
-  return allGoalDocuments.value.filter(document => document.notebookId === notebookId);
+  const taskDocumentKeys = new Set((props.tasks || [])
+    .filter(isVisibleGoalTask)
+    .map(task => `${task.notebookId}:${task.rootId}`));
+  return allGoalDocuments.value.filter(document =>
+    document.notebookId === notebookId && taskDocumentKeys.has(getDocumentKey(document))
+  );
 }
 
 function getNotebookTasks(notebookId: string): Task[] {
@@ -950,6 +1070,14 @@ watch(
   () => props.goals,
   () => {
     syncLocalGoals();
+  },
+  { immediate: true, deep: true }
+);
+
+watch(
+  [() => props.documents, () => props.tasks],
+  () => {
+    void refreshDocumentTree();
   },
   { immediate: true, deep: true }
 );

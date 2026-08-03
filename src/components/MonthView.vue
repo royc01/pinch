@@ -18,7 +18,7 @@
       <div class="calendar-container">
       <div class="calendar-toolbar">
         <div class="calendar-toolbar-top">
-          <button type="button" class="nav-btn ariaLabel" :aria-label="t(sidebarCollapsed ? 'weekView.expandSidebar' : 'weekView.collapseSidebar')" @click="sidebarCollapsed = !sidebarCollapsed">
+          <button type="button" class="nav-btn ariaLabel" :aria-label="t(sidebarCollapsed ? 'weekView.expandSidebar' : 'weekView.collapseSidebar')" @click="emit('sidebarCollapsedChange', !sidebarCollapsed)">
             <Icon :name="sidebarCollapsed ? 'chevronRight' : 'chevronLeft'" width="20" height="20" />
           </button>
           <div class="calendar-toolbar-actions">
@@ -431,6 +431,7 @@ import { resolveTaskTagIds } from '@/utils/taskTags';
 interface Props {
   tasks: Task[];
   sidebarTasks?: Task[];
+  sidebarCollapsed?: boolean;
   lifelogTasks?: Task[];
   taskGroups?: TaskGroup[];
   documentTitleByRootId?: Map<string, string>;
@@ -580,6 +581,7 @@ const emit = defineEmits<{
   visibleRangeChange: [payload: { startDate: string; endDate: string }];
   calendarViewChange: [view: CalendarViewMode];
   calendarDisplayToggle: [key: string];
+  sidebarCollapsedChange: [collapsed: boolean];
 }>();
 
 type EventListener = (...args: any[]) => void;
@@ -619,7 +621,7 @@ class EventManager {
 const eventManager = new EventManager();
 
 const baseDate = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-const sidebarCollapsed = ref(false);
+const sidebarCollapsed = computed(() => props.sidebarCollapsed === true);
 const dragOverDay = ref<string | null>(null);
 const MOBILE_BREAKPOINT = 768;
 const MOBILE_DRAG_LONG_PRESS_MS = 280;

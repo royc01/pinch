@@ -28,6 +28,7 @@ export interface UserSettings {
   kanban: {
     currentView?: TaskViewSwitcherId;
     lastCalendarView?: 'month' | 'week' | 'three-day' | 'day';
+    calendarSidebarCollapsed?: boolean;
     filterType: string;
     filterSource?: string;
     filterDocument: string;
@@ -140,6 +141,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   kanban: {
     currentView: 'table',
     lastCalendarView: 'month',
+    calendarSidebarCollapsed: false,
     filterType: 'all',
     filterSource: 'all',
     filterDocument: 'all',
@@ -355,6 +357,7 @@ function mergeWithDefaults(input: unknown): UserSettings {
     kanban: {
       ...DEFAULT_SETTINGS.kanban,
       ...rawKanban,
+      calendarSidebarCollapsed: (rawKanban as { calendarSidebarCollapsed?: unknown }).calendarSidebarCollapsed === true,
       quadrantUrgentDays: ([1, 3, 7, 10, 15] as const).includes(
         (rawKanban as { quadrantUrgentDays?: unknown }).quadrantUrgentDays as 1 | 3 | 7 | 10 | 15
       )

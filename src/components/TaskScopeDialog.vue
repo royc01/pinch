@@ -316,6 +316,8 @@
         <DocumentGroupManagerPanel
           :groups="localDocumentGroups"
           :documents="documentGroupDocuments"
+          :all-documents="allDocumentGroupDocuments"
+          :notebook-ids="enabledDocumentGroupNotebookIds"
           :documents-refreshing="documentsRefreshing"
           @update:groups="localDocumentGroups = $event"
           @refresh-documents="emit('refresh-documents')"
@@ -325,6 +327,7 @@
         <GoalManagerPanel
           :goals="localGoals"
           :documents="goalDocuments"
+          :all-documents="allDocumentGroupDocuments"
           :tasks="goalTasks"
           :documents-refreshing="documentsRefreshing"
           @update:goals="localGoals = $event"
@@ -443,6 +446,8 @@ interface DocumentGroupScopeDocument {
   notebookId: string;
   notebookName: string;
   path?: string;
+  parentId?: string;
+  storagePath?: string;
 }
 
 export interface TaskScopeDialogSavePayload {
@@ -486,6 +491,7 @@ interface Props {
   initialTab?: TaskScopeDialogTab;
   documentGroups?: DocumentGroup[];
   documentGroupDocuments?: DocumentGroupScopeDocument[];
+  allDocumentGroupDocuments?: DocumentGroupScopeDocument[];
   documentsRefreshing?: boolean;
   showDocumentGroupNotebookPath?: boolean;
   showDocumentGroupNotebookPathToggle?: boolean;
@@ -618,6 +624,12 @@ const availableTabs = computed<TaskScopeDialogTab[]>(() => {
 });
 const showTabs = computed(() => availableTabs.value.length > 1);
 const documentGroupDocuments = computed(() => props.documentGroupDocuments || []);
+const allDocumentGroupDocuments = computed(() => props.allDocumentGroupDocuments || []);
+const enabledDocumentGroupNotebookIds = computed(() =>
+  props.notebooks
+    .map(notebook => notebook.id)
+    .filter(id => !localExcludedNotebookIds.value.includes(id))
+);
 const goalDocuments = computed(() => props.goalDocuments || []);
 const goalTasks = computed(() => props.goalTasks || []);
 const activeHint = computed(() =>

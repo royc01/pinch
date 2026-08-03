@@ -65,8 +65,9 @@
       :status="status"
       :priority="task.priority || 'none'"
       :priority-style="priorityStyle"
-      :repeat-frequency="repeatFrequency"
-      :repeat-rule="repeatRule"
+       :repeat-frequency="repeatFrequency"
+       :repeat-rule="repeatRule"
+       :repeat-termination="resolvedRepeatTermination"
       :group-button-style="groupButtonStyle"
       :default-group-chip-color="defaultGroupChipColor"
       :description-placeholder="descriptionPlaceholder"
@@ -126,6 +127,7 @@
         class="calendar-editor-section calendar-editor-repeat"
         :repeat-frequency="repeatFrequency"
         :repeat-rule="repeatRule"
+        :repeat-termination="resolvedRepeatTermination"
         :base-date="startDate || dueDate"
         @saveRepeatRule="$emit('saveRepeatRule', $event)"
       />
@@ -167,7 +169,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { Task } from '@/api';
-import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
+import type { RepeatFrequency, RepeatRule, RepeatRuleInput, RepeatTermination } from '@/repeatRepository';
 import CalendarTaskDateSection from '@/components/CalendarTaskDateSection.vue';
 import Icon from '@/components/Icon.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
@@ -250,6 +252,7 @@ const props = withDefaults(defineProps<{
   status?: Task['status'];
   repeatFrequency?: RepeatFrequency;
   repeatRule?: RepeatRule | null;
+  repeatTermination?: RepeatTermination;
   groupButtonStyle?: Record<string, string>;
   defaultGroupChipColor?: string;
   descriptionPlaceholder?: string;
@@ -350,6 +353,17 @@ const reminderDisplayText = computed(() => {
     return formatReminderDateTime(formatDateTimeLocal(new Date(timestamp)));
   }
   return props.reminderText || '';
+});
+
+// Calendar editors do not otherwise keep a local recurrence-termination
+// state. A task's due date is the natural initial cutoff for a new repeat.
+const resolvedRepeatTermination = computed<RepeatTermination>(() => {
+  if (props.repeatTermination) {
+    return props.repeatTermination;
+  }
+  return props.dueDate
+    ? { type: 'date', date: props.dueDate }
+    : { type: 'never' };
 });
 
 function getColorOptionStyle(color: CalendarTaskEditorColorOption): Record<string, string> {

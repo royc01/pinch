@@ -183,18 +183,6 @@
           </div>
         </div>
 
-        <div class="popup-debug-controls" aria-label="弹窗调试">
-          <button type="button" class="popup-debug-controls__button" @click="debugMicroBreakPopup">
-            调试微休息弹窗
-          </button>
-          <button type="button" class="popup-debug-controls__button" @click="debugShortBreakPopup">
-            调试短休弹窗
-          </button>
-          <button type="button" class="popup-debug-controls__button" @click="debugFocusCompletePopup">
-            调试专注结束弹窗
-          </button>
-        </div>
-
         <div class="setting-section">
           <div class="setting-label">
             <span>{{ t('focusTimer.shortBreakDuration') }}</span>
@@ -1310,34 +1298,6 @@ function showFocusCompletePopup(): void {
       body: t('focusTimer.focusCompletePopupBody'),
       variant: 'focus-complete'
     });
-  });
-}
-
-// 临时用于调试三种休息/完成弹窗；不影响计时状态或专注记录。
-function debugMicroBreakPopup(): void {
-  void showDetachedMicroBreakWindow(
-    Math.max(1, Math.round(Number(userSettings.focus.microBreakDurationSeconds) || 10)),
-    {
-      title: t('focusTimer.microBreakActiveTitle'),
-      body: t('focusTimer.microBreakActiveBody'),
-      variant: 'micro-break'
-    }
-  );
-}
-
-function debugShortBreakPopup(): void {
-  void showDetachedMicroBreakWindow(Math.max(1, Math.round(shortBreakDuration.value * 60)), {
-    title: t('focusTimer.shortBreakActiveTitle'),
-    body: t('focusTimer.shortBreakActiveBody'),
-    variant: 'short-break'
-  });
-}
-
-function debugFocusCompletePopup(): void {
-  void showDetachedMicroBreakWindow(10, {
-    title: t('focusTimer.focusCompletePopupTitle'),
-    body: t('focusTimer.focusCompletePopupBody'),
-    variant: 'focus-complete'
   });
 }
 
@@ -2540,28 +2500,6 @@ watch(isLinkedTargetLocked, (locked) => {
   justify-content: center;
   gap: 16px;
   margin-bottom: 20px;
-}
-
-.popup-debug-controls {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin: -8px 0 20px;
-}
-
-.popup-debug-controls__button {
-  padding: 6px 10px;
-  border: 1px dashed var(--b3-border-color);
-  border-radius: 6px;
-  color: var(--b3-theme-on-surface);
-  background: transparent;
-  cursor: pointer;
-
-  &:hover {
-    color: var(--b3-theme-primary);
-    border-color: var(--b3-theme-primary);
-  }
 }
 
 .control-btn {

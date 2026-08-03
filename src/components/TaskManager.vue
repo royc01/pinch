@@ -836,6 +836,7 @@
       :initial-tab="taskScopeDialogInitialTab"
       :document-groups="documentGroups"
       :document-group-documents="documentGroupDialogDocuments"
+      :all-document-group-documents="allDocumentGroupDocuments"
       :documents-refreshing="taskScopeDocumentsRefreshing"
       :goals="goalDefinitions"
       :goal-documents="sidebarGoalDocuments"
@@ -2838,6 +2839,7 @@ const {
   allDocuments,
   allDocumentsByKey,
   documentGroupDialogDocuments,
+  allDocumentGroupDocuments,
   goalScopeDocuments: sidebarGoalDocuments,
   refreshTaskDocumentOptions,
   scheduleTaskDocumentOptionsRefresh,
@@ -7482,8 +7484,13 @@ function handleTaskEditorRepeatRuleSave(value: RepeatFrequency | RepeatRuleInput
   }
   taskEditorRepeatFrequency.value = typeof value === 'string' ? value : value.frequency;
   taskEditorRepeatRule.value = typeof value === 'string' ? null : (value.rule || null);
+  // A simple frequency selection does not carry a termination value. Keep the
+  // editor's current default in that case so a task with a due date continues
+  // to show (and save) that date as the recurrence cutoff.
   taskEditorRepeatTermination.value = typeof value === 'string'
-    ? { type: 'never' }
+    ? (taskEditorRepeatFrequency.value === 'none'
+      ? { type: 'never' }
+      : taskEditorRepeatTermination.value)
     : (value.termination || taskEditorRepeatTermination.value);
   void quickSaveTaskRepeatRule(activeTaskEditTask.value, value);
 }

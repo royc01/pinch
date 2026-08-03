@@ -978,6 +978,7 @@
       v-if="currentView === 'month'" 
       :tasks="showCalendarTasks ? monthViewTasks : []"
       :sidebar-tasks="showCalendarTasks ? monthSidebarTasks : []"
+      :sidebar-collapsed="calendarSidebarCollapsed"
       :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? monthLifelogTasks : []"
       :task-groups="taskGroups"
@@ -999,12 +1000,14 @@
       @visible-range-change="handleMonthVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
+      @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
     />
     <WeekView
       ref="calendarWeekViewRef"
       v-if="currentView === 'week'"
       :tasks="showCalendarTasks ? weekViewTasks : []"
       :sidebar-tasks="showCalendarTasks ? weekSidebarTasks : []"
+      :sidebar-collapsed="calendarSidebarCollapsed"
       :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? weekLifelogTasks : []"
       :task-groups="taskGroups"
@@ -1026,6 +1029,7 @@
       @visible-range-change="handleWeekVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
+      @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
       @focus-session-contextmenu="handleCalendarFocusSessionContextmenu"
     />
     <WeekView
@@ -1033,6 +1037,7 @@
       v-if="currentView === 'day'"
       :tasks="showCalendarTasks ? dayViewTasks : []"
       :sidebar-tasks="showCalendarTasks ? daySidebarTasks : []"
+      :sidebar-collapsed="calendarSidebarCollapsed"
       :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? dayLifelogTasks : []"
       :task-groups="taskGroups"
@@ -1055,6 +1060,7 @@
       @visible-range-change="handleWeekVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
+      @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
       @focus-session-contextmenu="handleCalendarFocusSessionContextmenu"
     />
     <WeekView
@@ -1062,6 +1068,7 @@
       v-if="currentView === 'three-day'"
       :tasks="showCalendarTasks ? dayViewTasks : []"
       :sidebar-tasks="showCalendarTasks ? daySidebarTasks : []"
+      :sidebar-collapsed="calendarSidebarCollapsed"
       :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? dayLifelogTasks : []"
       :task-groups="taskGroups"
@@ -1085,6 +1092,7 @@
       @visible-range-change="handleWeekVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
+      @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
       @focus-session-contextmenu="handleCalendarFocusSessionContextmenu"
     />
     <PersonalStatsView
@@ -1586,6 +1594,7 @@
       :initial-tab="taskScopeDialogInitialTab"
       :document-groups="documentGroups"
       :document-group-documents="documentGroupDialogDocuments"
+      :all-document-group-documents="allDocumentGroupDocuments"
       :documents-refreshing="taskScopeDocumentsRefreshing"
       :goals="goalDefinitions"
       :goal-documents="kanbanGoalDocuments"
@@ -2197,6 +2206,11 @@ function handleCalendarViewChange(view: CalendarTaskViewMode): void {
   }
 }
 
+function handleCalendarSidebarCollapsedChange(collapsed: boolean): void {
+  calendarSidebarCollapsed.value = collapsed;
+  void updateSettings('kanban', { calendarSidebarCollapsed: collapsed });
+}
+
 function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -2659,13 +2673,16 @@ const isMobileTaskSearchCollapsed = computed(() =>
   isMobileFrontend && !isMobileTableSearchExpanded.value && !tableSearchQuery.value
 );
 
-const monthFilterType = ref('all');
-const monthFilterDocument = ref('all');
-
-const weekFilterType = ref('all');
-const weekFilterDocument = ref('all');
-const dayFilterType = ref('all');
-const dayFilterDocument = ref('all');
+// All calendar subviews share one source and active document tab. This keeps
+// the user's calendar context intact while switching between month/week/day.
+const calendarFilterType = ref('all');
+const calendarFilterDocument = ref('all');
+const monthFilterType = calendarFilterType;
+const monthFilterDocument = calendarFilterDocument;
+const weekFilterType = calendarFilterType;
+const weekFilterDocument = calendarFilterDocument;
+const dayFilterType = calendarFilterType;
+const dayFilterDocument = calendarFilterDocument;
 
 const isSettingsLoaded = ref(false);
 // A restored SiYuan custom tab mounts before its saved view filters have been
@@ -2749,6 +2766,7 @@ const LIST_VIRTUAL_CARD_HEIGHT = 56;
 const listViewEstimatedCardHeight = ref<number>(LIST_VIRTUAL_CARD_HEIGHT);
 const currentView = ref<TaskViewMode>(normalizeTaskViewMode(userSettings.kanban?.currentView));
 const lastCalendarView = ref<CalendarTaskViewMode>('month');
+const calendarSidebarCollapsed = ref(false);
 const isBoardTaskView = computed(() =>
   currentView.value === 'kanban' || currentView.value === 'list' || currentView.value === 'quadrant'
 );
@@ -3707,6 +3725,7 @@ const taskModalDocuments = computed<TaskModalDocument[]>(() =>
 const taskScopeExtraDocuments = computed<TaskModalDocument[]>(() => getDocumentEntriesByNotebook('all'));
 const {
   documentGroupDialogDocuments,
+  allDocumentGroupDocuments,
   goalScopeDocuments: kanbanGoalDocuments,
   refreshTaskDocumentOptions
 } = useTaskScopeDocuments({
@@ -7114,8 +7133,6 @@ setupFilterTypeWatcher(listFilterType, listFilterDocument, () => getDocumentTabT
 setupFilterTypeWatcher(tableFilterType, tableFilterDocument, () => getDocumentTabTaskMatcher('table'));
 setupFilterTypeWatcher(ganttFilterType, ganttFilterDocument, () => getDocumentTabTaskMatcher('gantt'));
 setupFilterTypeWatcher(monthFilterType, monthFilterDocument, () => getDocumentTabTaskMatcher('month'));
-setupFilterTypeWatcher(weekFilterType, weekFilterDocument, () => getDocumentTabTaskMatcher('week'));
-setupFilterTypeWatcher(dayFilterType, dayFilterDocument, () => getDocumentTabTaskMatcher('day'));
 
 const ensureTableDocumentSelection = () => {
   const options = toFilterDocumentOptions(tableFilterType.value, {
@@ -10043,6 +10060,7 @@ async function loadUserSettings() {
   isHydratingSettings.value = true;
   try {
     const settings = userSettings.kanban;
+    calendarSidebarCollapsed.value = settings.calendarSidebarCollapsed === true;
     const storedLastCalendarView = normalizeTaskViewMode(settings.lastCalendarView);
     const storedCurrentView = normalizeTaskViewMode(settings.currentView);
     if (isCalendarTaskViewMode(storedLastCalendarView)) {
@@ -10079,24 +10097,19 @@ async function loadUserSettings() {
     ganttFilterDocument.value = settings.ganttFilterDocument || 'all';
     ganttMilestonesEnabled.value = settings.ganttMilestonesEnabled === true;
     ganttDocumentOrderBySource.value = settings.ganttDocumentOrderBySource || {};
-    monthFilterType.value = settings.monthFilterSource
-      || (settings.monthFilterType && settings.monthFilterType !== 'all'
-        ? buildNotebookDocumentSource(settings.monthFilterType)
+    const persistedCalendarView = isCalendarTaskViewMode(storedCurrentView)
+      ? storedCurrentView
+      : lastCalendarView.value;
+    const calendarFilterSettings = persistedCalendarView === 'month'
+      ? { source: settings.monthFilterSource, type: settings.monthFilterType, document: settings.monthFilterDocument }
+      : persistedCalendarView === 'week'
+        ? { source: settings.weekFilterSource, type: settings.weekFilterType, document: settings.weekFilterDocument }
+        : { source: settings.dayFilterSource, type: settings.dayFilterType, document: settings.dayFilterDocument };
+    calendarFilterType.value = calendarFilterSettings.source
+      || (calendarFilterSettings.type && calendarFilterSettings.type !== 'all'
+        ? buildNotebookDocumentSource(calendarFilterSettings.type)
         : 'all');
-    monthFilterDocument.value = settings.monthFilterDocument || 'all';
-    weekFilterType.value = settings.weekFilterSource
-      || (settings.weekFilterType && settings.weekFilterType !== 'all'
-        ? buildNotebookDocumentSource(settings.weekFilterType)
-        : 'all');
-    weekFilterDocument.value = settings.weekFilterDocument || 'all';
-    dayFilterType.value = settings.dayFilterSource
-      || (settings.dayFilterType && settings.dayFilterType !== 'all'
-        ? buildNotebookDocumentSource(settings.dayFilterType)
-        : settings.weekFilterSource
-          || (settings.weekFilterType && settings.weekFilterType !== 'all'
-            ? buildNotebookDocumentSource(settings.weekFilterType)
-            : 'all'));
-    dayFilterDocument.value = settings.dayFilterDocument || 'all';
+    calendarFilterDocument.value = calendarFilterSettings.document || 'all';
     restoreTaskFilterPopoverSettings();
     hiddenDocumentTabIds.value = new Set(normalizeNotebookIds(settings.hiddenDocumentTabIds));
 
@@ -10143,6 +10156,7 @@ async function saveUserSettings() {
     await updateSettings('kanban', {
       currentView: currentView.value,
       lastCalendarView: lastCalendarView.value,
+      calendarSidebarCollapsed: calendarSidebarCollapsed.value,
       kanbanGroupMode: kanbanGroupBy.value === 'group',
       listGroupMode: listGroupBy.value === 'group',
       tableGroupMode: tableGroupBy.value === 'group',
@@ -11849,6 +11863,14 @@ async function handleKanbanEditorRepeatRuleSave(repeat: RepeatFrequency | Repeat
 
   try {
     const savedRepeatSeries = await TaskRepository.setTaskRepeatRule(taskForRepeatRule, repeat);
+    const repeatEndDate = savedRepeatSeries && typeof repeat !== 'string'
+      ? (savedRepeatSeries.endDate || '')
+      : undefined;
+    if (repeatEndDate !== undefined && draft) {
+      // The recurrence cutoff is also the task's displayed due date in the
+      // calendar editor, so keep the open form in sync immediately.
+      draft.dueDate = repeatEndDate;
+    }
     const index = tasks.value.findIndex(item => item.id === task.id);
     if (index >= 0) {
       const nextRepeatSeriesId = frequency === 'none'
@@ -11856,12 +11878,18 @@ async function handleKanbanEditorRepeatRuleSave(repeat: RepeatFrequency | Repeat
         : (savedRepeatSeries?.id || tasks.value[index].repeatSeriesId);
       tasks.value[index] = {
         ...tasks.value[index],
+        ...(repeatEndDate !== undefined ? { dueDate: repeatEndDate } : {}),
         repeatFrequency: frequency,
         repeatSeriesId: nextRepeatSeriesId,
         repeatInstanceDate: frequency === 'none' ? undefined : tasks.value[index].repeatInstanceDate,
         isVirtual: frequency === 'none' ? false : tasks.value[index].isVirtual,
         updatedAt: new Date().toISOString()
       };
+    }
+    if (repeatEndDate !== undefined && task.blockId) {
+      await setBlockAttrs(task.blockId, {
+        'custom-task-due-date': repeatEndDate
+      });
     }
     invalidateTableFilters();
     scheduleKernelTaskIndexRefresh();

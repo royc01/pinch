@@ -3752,7 +3752,7 @@ const timelineHeaderStyle = computed(() => ({
 }
 
 .gantt-bar {
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
   align-self: center;

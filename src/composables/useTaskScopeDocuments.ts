@@ -16,6 +16,8 @@ export interface TaskScopeTaskDocument {
   name: string;
   notebookId: string;
   path?: string;
+  parentId?: string;
+  storagePath?: string;
 }
 
 export interface TaskScopeDialogDocument extends TaskScopeTaskDocument {
@@ -138,6 +140,7 @@ function mergeGoalDocument(target: Map<string, GoalScopeDocument>, document: Goa
 
 export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
   const taskDocumentsByNotebook = ref<Map<string, TaskScopeTaskDocument[]>>(new Map());
+  const notebookDocumentsByNotebook = ref<Map<string, TaskScopeTaskDocument[]>>(new Map());
   let lastRefreshAt = 0;
   let refreshTimer: number | null = null;
   const cacheTtl = options.cacheTtl ?? 60000;
@@ -174,10 +177,38 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
         name: options.resolveDocumentName ? options.resolveDocumentName(document) : document.name,
         notebookId: document.notebookId,
         notebookName: options.enabledNotebookNameById.value.get(document.notebookId) || document.notebookId,
-        path: document.path
+        path: document.path,
+        parentId: document.parentId,
+        storagePath: document.storagePath
       }))
       .sort(compareDialogDocuments)
   );
+
+  // Unlike documentGroupDialogDocuments, this includes documents with no tasks.
+  // It is used only for the level-based document group picker.
+  const allDocumentGroupDocuments = computed<TaskScopeDialogDocument[]>(() => {
+    const documentsByKey = new Map<string, TaskScopeTaskDocument>();
+    for (const documents of notebookDocumentsByNotebook.value.values()) {
+      for (const document of documents) {
+        mergeTaskDocument(documentsByKey, document, options.resolveDocumentName);
+      }
+    }
+    // Retain task documents if a database row is temporarily unavailable.
+    for (const document of allDocuments.value) {
+      mergeTaskDocument(documentsByKey, document, options.resolveDocumentName);
+    }
+    return Array.from(documentsByKey.values())
+      .map(document => ({
+        id: document.id,
+        name: options.resolveDocumentName ? options.resolveDocumentName(document) : document.name,
+        notebookId: document.notebookId,
+        notebookName: options.enabledNotebookNameById.value.get(document.notebookId) || document.notebookId,
+        path: document.path,
+        parentId: document.parentId,
+        storagePath: document.storagePath
+      }))
+      .sort(compareDialogDocuments);
+  });
 
   const goalScopeDocuments = computed<GoalScopeDocument[]>(() => {
     const documentsByKey = new Map<string, GoalScopeDocument>();
@@ -258,6 +289,39 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
       );
 
       const nextMap = new Map<string, TaskScopeTaskDocument[]>();
+      const documentRows = await sql(`
+        SELECT b.id, b.box, b.hpath, b.content, b.parent_id, b.path AS storage_path
+        FROM blocks b
+        WHERE b.type = 'd'
+          ${buildScopeSql()}
+        ORDER BY b.box, b.id
+      `) as Array<{
+        id?: string;
+        box?: string;
+        hpath?: string;
+        content?: string;
+        parent_id?: string;
+        storage_path?: string;
+      }>;
+      const nextNotebookDocuments = new Map<string, TaskScopeTaskDocument[]>();
+      for (const row of documentRows || []) {
+        const notebookId = typeof row?.box === 'string' ? row.box.trim() : '';
+        const id = typeof row?.id === 'string' ? row.id.trim() : '';
+        if (!notebookId || !id) continue;
+        const path = typeof row?.hpath === 'string' ? row.hpath.trim() : '';
+        const parentId = typeof row?.parent_id === 'string' ? row.parent_id.trim() : '';
+        const storagePath = typeof row?.storage_path === 'string' ? row.storage_path.trim() : '';
+        const documents = nextNotebookDocuments.get(notebookId) || [];
+        documents.push({
+          id,
+          name: resolveDocumentDisplayName({ id, name: row?.content, path }),
+          notebookId,
+          path: path || undefined,
+          parentId: parentId || undefined,
+          storagePath: storagePath || undefined
+        });
+        nextNotebookDocuments.set(notebookId, documents);
+      }
       for (const row of rows || []) {
         const notebookId = typeof row?.box === 'string' ? row.box.trim() : '';
         const rootId = typeof row?.root_id === 'string' ? row.root_id.trim() : '';
@@ -294,10 +358,12 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
       });
 
       taskDocumentsByNotebook.value = nextMap;
+      notebookDocumentsByNotebook.value = nextNotebookDocuments;
       lastRefreshAt = Date.now();
     } catch (error) {
       console.error(`${logPrefix} failed to refresh task document options`, error);
       taskDocumentsByNotebook.value = new Map();
+      notebookDocumentsByNotebook.value = new Map();
       lastRefreshAt = 0;
     }
   }
@@ -330,6 +396,7 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
     allDocuments,
     allDocumentsByKey,
     documentGroupDialogDocuments,
+    allDocumentGroupDocuments,
     goalScopeDocuments,
     refreshTaskDocumentOptions,
     scheduleTaskDocumentOptionsRefresh,
