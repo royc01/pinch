@@ -21,6 +21,14 @@ export interface TaskDocumentScopeFallback {
   path?: string;
 }
 
+/** Minimal document-tree shape needed to resolve a task document's ancestors. */
+export interface TaskDocumentScopeTreeNode {
+  id: string;
+  notebookId: string;
+  parentId?: string;
+  storagePath?: string;
+}
+
 function normalizeDocumentId(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -45,6 +53,52 @@ export function normalizeTaskDocumentPath(value: unknown): string {
 
 export function buildTaskDocumentKey(notebookId: string, documentId: string): string {
   return `${notebookId}:${documentId}`;
+}
+
+export function getTaskDocumentScopeParentId(
+  documentsByKey: ReadonlyMap<string, TaskDocumentScopeTreeNode>,
+  notebookId: string,
+  documentId: string
+): string | undefined {
+  const document = documentsByKey.get(buildTaskDocumentKey(notebookId, documentId));
+  const directParentId = normalizeDocumentId(document?.parentId);
+  if (directParentId && documentsByKey.has(buildTaskDocumentKey(notebookId, directParentId))) {
+    return directParentId;
+  }
+
+  const pathParts = (document?.storagePath || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean);
+  const storageParentId = pathParts.length >= 2
+    ? pathParts[pathParts.length - 2].replace(/\.sy$/i, '')
+    : '';
+  return storageParentId && documentsByKey.has(buildTaskDocumentKey(notebookId, storageParentId))
+    ? storageParentId
+    : undefined;
+}
+
+export function getTaskDocumentScopeKeys(
+  task: Pick<Task, 'notebookId' | 'rootId'>,
+  documentsByKey: ReadonlyMap<string, TaskDocumentScopeTreeNode>
+): Set<string> {
+  const notebookId = normalizeDocumentId(task.notebookId);
+  const documentId = normalizeDocumentId(task.rootId);
+  const keys = new Set<string>();
+  if (!notebookId || !documentId) {
+    return keys;
+  }
+
+  let currentId: string | undefined = documentId;
+  while (currentId) {
+    const key = buildTaskDocumentKey(notebookId, currentId);
+    if (keys.has(key)) {
+      break;
+    }
+    keys.add(key);
+    currentId = getTaskDocumentScopeParentId(documentsByKey, notebookId, currentId);
+  }
+  return keys;
 }
 
 function rememberDocumentNotebook(

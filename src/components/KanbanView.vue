@@ -991,9 +991,10 @@
       v-if="isTableTaskView"
       ref="tableViewRef"
       :tasks="activeOrArchiveTableViewTasks"
-      :task-groups="taskGroups"
-      :goals="goalDefinitions"
-      :group-mode="activeTableGroupBy"
+       :task-groups="taskGroups"
+       :goals="goalDefinitions"
+       :goal-ids-for-task="getKanbanTaskCardGoalIds"
+       :group-mode="activeTableGroupBy"
       :document-group-order="tableDocumentGroupOrder"
       :heading-groups="taskHeadingGroups"
       :document-icon-by-root-id="documentIconByRootId"
@@ -1923,6 +1924,7 @@ import {
   parseDocumentSource
 } from '@/utils/documentGroupSource';
 import { useTaskScopeDocuments } from '@/composables/useTaskScopeDocuments';
+import { useDocumentScopeMatcher } from '@/composables/useDocumentScopeMatcher';
 import { useHabitCheckinLog, type HabitFocusNoteItem } from '@/composables/useHabitCheckinLog';
 import type { FocusCalendarEvent } from '@/utils/focusCalendar';
 import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
@@ -2708,6 +2710,10 @@ const documentTabScopesBySource = ref<Record<string, DocumentTabScope>>({});
 const documentScopeTreeDocumentsByNotebook = ref<Map<string, DocumentScopeTreeDocument[]>>(new Map());
 const documentScopeTreeLoading = ref(false);
 let documentScopeTreeRequestId = 0;
+let documentScopeTreeRetryTimer: number | null = null;
+const documentScopeTreeRetryCounts = new Map<string, number>();
+let documentScopeTreeRefreshPending = false;
+const documentScopeAncestorRefreshes = new Map<string, Promise<void>>();
 const documentTabContextMenu = ref<DocumentTabContextMenuState | null>(null);
 const documentTabContextMenuRef = ref<HTMLElement | null>(null);
 const documentIconByRootId = ref<Map<string, string>>(new Map());
@@ -3841,7 +3847,8 @@ const {
   documentGroupDialogDocuments,
   allDocumentGroupDocuments,
   goalScopeDocuments: kanbanGoalDocuments,
-  refreshTaskDocumentOptions
+  refreshTaskDocumentOptions,
+  scheduleTaskDocumentOptionsRefresh
 } = useTaskScopeDocuments({
   excludedNotebookIds,
   showCompletedTasks,
@@ -4726,7 +4733,7 @@ const kanbanEditorSelectedTagIds = computed(() => (
 ));
 
 const kanbanEditorSelectedGoalIds = computed(() => (
-  activeKanbanEditTask.value ? getEffectiveGoalIdsForTask(goalDefinitions.value, activeKanbanEditTask.value) : []
+  activeKanbanEditTask.value ? getKanbanScopedGoalIds(activeKanbanEditTask.value) : []
 ));
 
 function normalizeKanbanTaskIdentity(value: unknown): string {
@@ -4755,7 +4762,7 @@ function resolveKanbanTaskCardGoalSource(task: Task): Task {
 
 function getKanbanTaskCardGoalIds(task: Task): string[] {
   return Array.from(new Set([
-    ...getEffectiveGoalIdsForTask(goalDefinitions.value, resolveKanbanTaskCardGoalSource(task)),
+    ...getKanbanScopedGoalIds(resolveKanbanTaskCardGoalSource(task)),
     ...getGoalIdsForTask(goalDefinitions.value, task)
   ]));
 }
@@ -5716,11 +5723,76 @@ function shouldHideCompletedOnlyDocumentTabs(view: TaskViewMode): boolean {
 
 type DocumentOptionsTaskMatcher = (task: Task) => boolean;
 
-function matchesTaskDocumentMemberScope(task: Task, member: DocumentGroupMember): boolean {
-  return taskMatchesDocumentScope(task, member.documentId, taskDocumentPathLookup.value, {
-    notebookId: member.notebookId,
-    path: member.path
+const documentScopeMatcherDocuments = computed(() => {
+  const documents = new Map<string, DocumentScopeTreeDocument>();
+  allDocumentGroupDocuments.value.forEach(document => {
+    documents.set(`${document.notebookId}:${document.id}`, document);
   });
+  // `listDocsByPath` provides the authoritative parent IDs for freshly
+  // created documents. Prefer it over the SQL document row when available.
+  documentScopeTreeDocumentsByNotebook.value.forEach(notebookDocuments => {
+    notebookDocuments.forEach(document => {
+      documents.set(`${document.notebookId}:${document.id}`, document);
+    });
+  });
+  return Array.from(documents.values());
+});
+const {
+  matchesMember: matchesTaskDocumentMemberScope,
+  isExcluded: isTaskExcludedFromDocumentScope
+} = useDocumentScopeMatcher({
+  documents: documentScopeMatcherDocuments,
+  documentGroups,
+  goals: goalDefinitions,
+  taskPathLookup: taskDocumentPathLookup,
+  logPrefix: '[KanbanView]'
+});
+
+function getKanbanScopedGoalIds(task: Task): string[] {
+  return goalDefinitions.value
+    .filter(goal => isTaskDirectGoalMember(goal, task)
+      || (!isTaskExcludedFromDocumentScope(task, goal.excludedDocumentKeys)
+        && goal.members.some(member => matchesTaskDocumentMemberScope(task, member))))
+    .map(goal => goal.id);
+}
+
+function scheduleDocumentScopeTreeRetryIfNeeded(): void {
+  const loadedNotebookIds = new Set(documentScopeTreeDocumentsByNotebook.value.keys());
+  const treeKeys = new Set(
+    Array.from(documentScopeTreeDocumentsByNotebook.value.values())
+      .flat()
+      .map(document => `${document.notebookId}:${document.id}`)
+  );
+  const missingTaskDocumentKeys = tasks.value
+    .filter(task => task.type === 'block' && !!task.notebookId && !!task.rootId && loadedNotebookIds.has(task.notebookId))
+    .map(task => `${task.notebookId}:${task.rootId}`)
+    .filter(key => !treeKeys.has(key));
+
+  // A successful load resolves the retry state; retaining it would make a
+  // later, unrelated creation of the same document key skip its safety retry.
+  documentScopeTreeRetryCounts.forEach((_count, key) => {
+    if (treeKeys.has(key)) {
+      documentScopeTreeRetryCounts.delete(key);
+    }
+  });
+
+  const retryable = missingTaskDocumentKeys.filter(key => {
+    const retries = documentScopeTreeRetryCounts.get(key) || 0;
+    return retries < 2;
+  });
+  if (retryable.length === 0) {
+    return;
+  }
+  retryable.forEach(key => {
+    documentScopeTreeRetryCounts.set(key, (documentScopeTreeRetryCounts.get(key) || 0) + 1);
+  });
+  if (documentScopeTreeRetryTimer !== null) {
+    clearTimeout(documentScopeTreeRetryTimer);
+  }
+  documentScopeTreeRetryTimer = window.setTimeout(() => {
+    documentScopeTreeRetryTimer = null;
+    void loadDocumentScopeTree(true);
+  }, 420);
 }
 
 function getDocumentTabScopeStorageKey(sourceValue: string): string {
@@ -5742,15 +5814,16 @@ function matchesTaskBySource(task: Task, sourceValue: string): boolean {
   if (source.kind === 'goal') {
     const goal = goalDefinitionsById.value.get(source.id);
     return isTaskDirectGoalMember(goal, task)
-      || !!goal?.members.some(member => matchesTaskDocumentMemberScope(task, member));
+      || (!!goal
+        && !isTaskExcludedFromDocumentScope(task, goal.excludedDocumentKeys)
+        && goal.members.some(member => matchesTaskDocumentMemberScope(task, member)));
   }
 
-  const sourceMembers =
-    documentGroupsById.value.get(source.id)?.members;
-  if (!sourceMembers) {
+  const group = documentGroupsById.value.get(source.id);
+  if (!group || isTaskExcludedFromDocumentScope(task, group.excludedDocumentKeys)) {
     return false;
   }
-  return sourceMembers.some(member => matchesTaskDocumentMemberScope(task, member));
+  return group.members.some(member => matchesTaskDocumentMemberScope(task, member));
 }
 
 function matchesTaskBySourceAndDocument(task: Task, sourceValue: string, documentId: string = 'all'): boolean {
@@ -6040,10 +6113,17 @@ function getDocumentEntriesBySource(
   }
 
   const allDocs = getDocumentEntriesByNotebook('all', {
-    includeNotebookName: false,
+    includeNotebookName: options.includeNotebookName === true,
     excludeCompletedOnlyDocs: options.excludeCompletedOnlyDocs,
     taskMatcher: options.taskMatcher
   });
+  // `allDocs` already contains the actual root documents of tasks that match
+  // this document-group or goal scope. Returning the configured member list
+  // below would replace a new descendant document with its selected ancestor
+  // and lose its tab.
+  if (source.kind === 'group' || source.kind === 'goal') {
+    return allDocs;
+  }
   const allDocsByKey = new Map<string, { id: string; name: string; notebookId: string }>();
   allDocs.forEach((document) => {
     allDocsByKey.set(`${document.notebookId}:${document.id}`, document);
@@ -6988,21 +7068,49 @@ const documentScopeTreeRows = computed<DocumentScopeTreeRow[]>(() => {
   return rows.filter(row => matchedKeys.has(row.key));
 });
 
-async function loadDocumentScopeTree(): Promise<void> {
+async function loadDocumentScopeTree(forceRefresh = false): Promise<void> {
+  // listDocsByPath recursively walks whole notebooks. Coalesce overlapping
+  // event, picker, and retry requests into at most one follow-up traversal.
+  if (documentScopeTreeLoading.value) {
+    documentScopeTreeRefreshPending = true;
+    return;
+  }
   const sourceValue = getCurrentFilterNotebookId();
-  const notebookIds = Array.from(new Set(
+  const notebookIdSet = new Set(
     tasks.value
       .filter(task => task.type === 'block' && matchesTaskBySource(task, sourceValue))
       .map(task => typeof task.notebookId === 'string' ? task.notebookId.trim() : '')
       .filter(Boolean)
-  ));
-  const missingNotebookIds = notebookIds.filter(id => !documentScopeTreeDocumentsByNotebook.value.has(id));
-  if (missingNotebookIds.length === 0) return;
+  );
+  // A group can contain a parent document with no tasks. In that case no task
+  // can yet identify its notebook, but we still need its tree to determine
+  // whether a newly-created child document belongs to the group.
+  const source = parseDocumentSource(sourceValue);
+  if (source.kind === 'notebook') {
+    notebookIdSet.add(source.id);
+  } else if (source.kind === 'group') {
+    documentGroupsById.value.get(source.id)?.members.forEach(member => {
+      if (member.notebookId) notebookIdSet.add(member.notebookId);
+    });
+  } else if (source.kind === 'goal') {
+    const goal = goalDefinitionsById.value.get(source.id);
+    goal?.members.forEach(member => {
+      if (member.notebookId) notebookIdSet.add(member.notebookId);
+    });
+    goal?.taskMembers?.forEach(member => {
+      if (member.notebookId) notebookIdSet.add(member.notebookId);
+    });
+  }
+  const notebookIds = Array.from(notebookIdSet).filter(id => enabledNotebookNameById.value.has(id));
+  const notebookIdsToLoad = forceRefresh
+    ? notebookIds
+    : notebookIds.filter(id => !documentScopeTreeDocumentsByNotebook.value.has(id));
+  if (notebookIdsToLoad.length === 0) return;
 
   const requestId = ++documentScopeTreeRequestId;
   documentScopeTreeLoading.value = true;
   try {
-    const loadedTrees = await Promise.all(missingNotebookIds.map(async notebookId => {
+    const loadedTrees = await Promise.all(notebookIdsToLoad.map(async notebookId => {
       const documents: DocumentScopeTreeDocument[] = [];
       const loadBranch = async (path: string, parentId?: string): Promise<void> => {
         const response = await listDocsByPath(notebookId, path);
@@ -7032,11 +7140,96 @@ async function loadDocumentScopeTree(): Promise<void> {
     const nextTrees = new Map(documentScopeTreeDocumentsByNotebook.value);
     loadedTrees.forEach(([notebookId, documents]) => nextTrees.set(notebookId, documents));
     documentScopeTreeDocumentsByNotebook.value = nextTrees;
+    // Descendants stay implicit: matching uses this tree at runtime rather
+    // than writing every child document into group and goal membership.
+    scheduleDocumentScopeTreeRetryIfNeeded();
   } catch (error) {
     console.warn('[KanbanView] Failed to load the document scope tree:', error);
   } finally {
-    if (requestId === documentScopeTreeRequestId) documentScopeTreeLoading.value = false;
+    if (requestId !== documentScopeTreeRequestId) return;
+    documentScopeTreeLoading.value = false;
+    if (documentScopeTreeRefreshPending) {
+      documentScopeTreeRefreshPending = false;
+      void loadDocumentScopeTree(true);
+    }
   }
+}
+
+/**
+ * Refresh only a newly-created document and its ancestors. Full recursive
+ * notebook traversal remains reserved for the document-scope picker.
+ */
+async function loadDocumentScopeAncestors(notebookId: string, documentId: string): Promise<void> {
+  const initialId = typeof documentId === 'string' ? documentId.trim() : '';
+  const initialNotebookId = typeof notebookId === 'string' ? notebookId.trim() : '';
+  if (!initialId || !initialNotebookId) return;
+
+  const refreshKey = `${initialNotebookId}:${initialId}`;
+  const existingRefresh = documentScopeAncestorRefreshes.get(refreshKey);
+  if (existingRefresh) {
+    return existingRefresh;
+  }
+
+  const refresh = (async () => {
+    const pendingIds = new Set([initialId]);
+    const visitedIds = new Set<string>();
+    const discovered: DocumentScopeTreeDocument[] = [];
+    try {
+      while (pendingIds.size > 0) {
+        const ids = Array.from(pendingIds).filter(id => !visitedIds.has(id)).slice(0, 300);
+        pendingIds.clear();
+        if (ids.length === 0) break;
+        ids.forEach(id => visitedIds.add(id));
+        const idsClause = ids.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
+        const rows = await sql(`
+          SELECT id, box, hpath, content, parent_id, path AS storage_path
+          FROM blocks
+          WHERE type = 'd' AND id IN (${idsClause})
+        `) as Array<{ id?: string; box?: string; hpath?: string; content?: string; parent_id?: string; storage_path?: string }>;
+        for (const row of rows) {
+          const id = typeof row.id === 'string' ? row.id.trim() : '';
+          const box = typeof row.box === 'string' ? row.box.trim() : '';
+          if (!id || !box) continue;
+          const parentId = typeof row.parent_id === 'string' ? row.parent_id.trim() : '';
+          const path = typeof row.hpath === 'string' ? row.hpath.trim() : '';
+          discovered.push({
+            id,
+            notebookId: box,
+            name: resolveDocumentDisplayName({ id, name: row.content, path }),
+            path: path || undefined,
+            parentId: parentId || undefined,
+            storagePath: typeof row.storage_path === 'string' && row.storage_path.trim()
+              ? row.storage_path.trim()
+              : undefined
+          });
+          if (box === initialNotebookId && parentId && !visitedIds.has(parentId)) {
+            pendingIds.add(parentId);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('[KanbanView] Failed to load document scope ancestors:', error);
+      return;
+    }
+    if (discovered.length === 0) return;
+
+    const nextTrees = new Map(documentScopeTreeDocumentsByNotebook.value);
+    const documentsByNotebook = new Map<string, Map<string, DocumentScopeTreeDocument>>();
+    discovered.forEach(document => {
+      let documents = documentsByNotebook.get(document.notebookId);
+      if (!documents) {
+        documents = new Map((nextTrees.get(document.notebookId) || []).map(item => [item.id, item]));
+        documentsByNotebook.set(document.notebookId, documents);
+      }
+      documents.set(document.id, document);
+    });
+    documentsByNotebook.forEach((documents, box) => nextTrees.set(box, Array.from(documents.values())));
+    documentScopeTreeDocumentsByNotebook.value = nextTrees;
+  })().finally(() => {
+    documentScopeAncestorRefreshes.delete(refreshKey);
+  });
+  documentScopeAncestorRefreshes.set(refreshKey, refresh);
+  return refresh;
 }
 
 function updateDocumentScopePickerPosition(): void {
@@ -7066,7 +7259,7 @@ function toggleDocumentScopePicker(): void {
   }
   closeDocumentTabsDropdown();
   closeDocumentTabContextMenu();
-  void loadDocumentScopeTree();
+  void loadDocumentScopeTree(true);
   nextTick(() => {
     updateDocumentScopePickerPosition();
     documentScopePickerSearchInputRef.value?.focus();
@@ -9981,6 +10174,30 @@ async function ensureTasksLoadedForView(
   });
 }
 
+function scheduleDocumentScopeRefreshForUnknownTaskDocuments(delay = 640): void {
+  if (documentGroups.value.length === 0 && goalDefinitions.value.length === 0) {
+    return;
+  }
+  const knownKeys = new Set(
+    allDocumentGroupDocuments.value.map(document => `${document.notebookId}:${document.id}`)
+  );
+  const hasUnknownTaskDocument = tasks.value.some(task => {
+    const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+    const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+    return task.type === 'block' && !!notebookId && !!rootId && !knownKeys.has(`${notebookId}:${rootId}`);
+  });
+  if (hasUnknownTaskDocument) {
+    scheduleTaskDocumentOptionsRefresh(delay);
+    tasks.value.forEach(task => {
+      const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+      const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+      if (task.type === 'block' && notebookId && rootId && !knownKeys.has(`${notebookId}:${rootId}`)) {
+        void loadDocumentScopeAncestors(notebookId, rootId);
+      }
+    });
+  }
+}
+
 function syncTaskSnapshot(nextTasks: Task[]): void {
   const now = Date.now();
   const indexedBlockIds = new Set(
@@ -10002,6 +10219,12 @@ function syncTaskSnapshot(nextTasks: Task[]): void {
   });
   syncFromSQL(filterTasksByNotebookScope(applyLocalTaskFieldOverridesToList(reconciledTasks)));
   tasks.value = filterTasksByNotebookScope(applyDraggedStatusLocks(crdtRepo.getTasks()));
+
+  // Keep the document-tree index current for document groups and goals.  A
+  // new child document may arrive with a task before it has appeared in the
+  // cached tree; schedule one debounced refresh instead of requiring the user
+  // to reopen and save the group settings.
+  scheduleDocumentScopeRefreshForUnknownTaskDocuments();
 }
 
 function scheduleRefreshTasks(
@@ -10659,7 +10882,18 @@ function setupEventListeners() {
         ? data.blockIds
         : filterSuppressedBlockIds(data.blockIds);
       if (blockIds.length > 0) {
-        queueIncrementalUpdates(blockIds, { forceFresh: data.forceRefresh === true });
+        // A block that is not in this view yet is normally a task just added
+        // in a document. Match the sidebar's eager path so it appears as soon
+        // as the editor publishes the change instead of waiting for batching.
+        const containsNewTask = blockIds.some(blockId => !hasTaskOrSubtask(blockId));
+        if (containsNewTask) {
+          void incrementalUpdateTasks(blockIds, {
+            allowUnknown: true,
+            forceFresh: true
+          });
+        } else {
+          queueIncrementalUpdates(blockIds, { forceFresh: data.forceRefresh === true });
+        }
         if (isCalendarTaskViewMode(currentView.value)) {
           void ensureCalendarLifelogTasksLoaded(true);
         }
@@ -10680,7 +10914,11 @@ function setupEventListeners() {
     if (isDragTaskSyncSuppressed(blockId)) {
       return;
     }
-    queueIncrementalUpdates([blockId]);
+    if (!hasTaskOrSubtask(blockId)) {
+      void incrementalUpdateTasks([blockId], { allowUnknown: true, forceFresh: true });
+    } else {
+      queueIncrementalUpdates([blockId]);
+    }
     if (isCalendarTaskViewMode(currentView.value)) {
       void ensureCalendarLifelogTasksLoaded(true);
     }
@@ -10712,7 +10950,7 @@ function setupEventListeners() {
         return;
       }
 
-      queueIncrementalUpdates(scopedBlockIds, { allowUnknown: true });
+      await incrementalUpdateTasks(scopedBlockIds, { allowUnknown: true, forceFresh: true });
       window.setTimeout(() => {
         void (async () => {
           if (hasTaskOrSubtask(addedBlockId)) {
@@ -10721,9 +10959,9 @@ function setupEventListeners() {
           if (await isSubtaskBlockId(addedBlockId)) {
             return;
           }
-          scheduleRefreshTasks(180, 'full');
+          scheduleRefreshTasks(80, 'silent-full');
         })();
-      }, 220);
+      }, 90);
       return;
     }
     scheduleRefreshTasks(180, 'full');
@@ -11409,6 +11647,11 @@ async function incrementalUpdateTasks(
     if (touched) {
       crdtRepo.syncFromSQLTasks(tasks.value);
       tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
+      // Incremental updates are the normal path for tasks created in a
+      // document. Refresh the scope tree immediately when their document is
+      // new, otherwise group/goal filtering would hide the task until a later
+      // full reload.
+      scheduleDocumentScopeRefreshForUnknownTaskDocuments(0);
       invalidateTableFilters();
       
       await nextTick();

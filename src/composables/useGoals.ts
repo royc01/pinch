@@ -20,20 +20,23 @@ export interface GoalListItem extends Goal {
   status: GoalProgressStatus;
 }
 
+// Goals are shown by several independently mounted surfaces (the main view,
+// sidebar and goal panel). Keep one snapshot and one event subscription set so
+// a task change does not make every surface reload all block tasks.
+const goalDefinitions = ref<Goal[]>([]);
+const goalDocuments = ref<GoalScopeDocument[]>([]);
+const goalTasks = ref<Task[]>([]);
+const goalItems = ref<GoalListItem[]>([]);
+const goalsLoading = ref(false);
+const goalsError = ref('');
+let refreshTimer: number | null = null;
+let settleRefreshTimer: number | null = null;
+let refreshTaskUseCache = true;
+let latestLoadId = 0;
+let mountedConsumers = 0;
+const unsubscribers: Array<() => void> = [];
+
 export const useGoals = () => {
-  const goalDefinitions = ref<Goal[]>([]);
-  const goalDocuments = ref<GoalScopeDocument[]>([]);
-  const goalTasks = ref<Task[]>([]);
-  const goalItems = ref<GoalListItem[]>([]);
-  const goalsLoading = ref(false);
-  const goalsError = ref('');
-
-  let refreshTimer: number | null = null;
-  let settleRefreshTimer: number | null = null;
-  let refreshTaskUseCache = true;
-  let latestLoadId = 0;
-  const unsubscribers: Array<() => void> = [];
-
   const buildGoalScopeSummary = (documentCount: number, taskMemberCount: number): string => {
     const parts: string[] = [];
     if (documentCount > 0) {
@@ -147,6 +150,10 @@ export const useGoals = () => {
   };
 
   onMounted(() => {
+    mountedConsumers += 1;
+    if (mountedConsumers !== 1) {
+      return;
+    }
     unsubscribers.push(
       eventBus.on(Events.GOALS_UPDATED, () => {
         scheduleRefresh(false);
@@ -172,6 +179,10 @@ export const useGoals = () => {
   });
 
   onUnmounted(() => {
+    mountedConsumers = Math.max(0, mountedConsumers - 1);
+    if (mountedConsumers !== 0) {
+      return;
+    }
     unsubscribers.splice(0).forEach(unsubscribe => unsubscribe());
     if (refreshTimer !== null && typeof window !== 'undefined') {
       clearTimeout(refreshTimer);

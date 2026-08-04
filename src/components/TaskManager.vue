@@ -596,6 +596,7 @@
               variant="sidebar"
               :task-groups="taskGroups"
               :goals="goalDefinitions"
+              :selected-goal-ids="getTaskManagerGoalIds(row.task)"
               :show-status-badge="true"
               :draggable="shouldUseNativeTaskCardDrag()"
               :expanded="expandedSubtasks.has(row.task.id) || expandedDescriptions.has(row.task.id)"
@@ -704,6 +705,7 @@
                 variant="sidebar"
                 :task-groups="taskGroups"
                 :goals="goalDefinitions"
+                :selected-goal-ids="getTaskManagerGoalIds(task)"
                 :show-status-badge="true"
                 :draggable="shouldUseNativeTaskCardDrag()"
                 :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
@@ -761,6 +763,7 @@
             variant="sidebar"
             :task-groups="taskGroups"
             :goals="goalDefinitions"
+            :selected-goal-ids="getTaskManagerGoalIds(task)"
             :show-status-badge="true"
             :draggable="shouldUseNativeTaskCardDrag()"
             :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
@@ -1007,6 +1010,7 @@ import {
   parseDocumentSource
 } from '@/utils/documentGroupSource';
 import { useTaskScopeDocuments } from '@/composables/useTaskScopeDocuments';
+import { useDocumentScopeMatcher } from '@/composables/useDocumentScopeMatcher';
 import {
   buildTaskQuickDateDraft,
   normalizeQuickDateInputValue,
@@ -4383,11 +4387,26 @@ const taskSortVersion = ref(0);
 const MAX_VISIBLE_COMPLETED_TASKS = 3;
 const showAllCompletedTasks = ref(false);
 
-function matchesTaskDocumentMemberScope(task: Task, member: DocumentGroupMember): boolean {
-  return taskMatchesDocumentScope(task, member.documentId, taskDocumentPathLookup.value, {
-    notebookId: member.notebookId,
-    path: member.path
-  });
+const {
+  matchesMember: matchesTaskDocumentMemberScope,
+  isExcluded: isTaskExcludedFromDocumentScope
+} = useDocumentScopeMatcher({
+  documents: allDocumentGroupDocuments,
+  documentGroups,
+  goals: goalDefinitions,
+  taskPathLookup: taskDocumentPathLookup,
+  logPrefix: '[TaskManager]'
+});
+
+function getTaskManagerGoalIds(task: Task): string[] {
+  return Array.from(new Set([
+    ...goalDefinitions.value
+      .filter(goal => isTaskDirectGoalMember(goal, task)
+        || (!isTaskExcludedFromDocumentScope(task, goal.excludedDocumentKeys)
+          && goal.members.some(member => matchesTaskDocumentMemberScope(task, member))))
+      .map(goal => goal.id),
+    ...getGoalIdsForTask(goalDefinitions.value, task)
+  ]));
 }
 
 function matchesActiveSourceFilter(task: Task): boolean {
@@ -4404,15 +4423,16 @@ function matchesActiveSourceFilter(task: Task): boolean {
   if (activeSource.kind === 'goal') {
     const goal = goalDefinitionsById.value.get(activeSource.id);
     return isTaskDirectGoalMember(goal, task)
-      || !!goal?.members.some(member => matchesTaskDocumentMemberScope(task, member));
+      || (!!goal
+        && !isTaskExcludedFromDocumentScope(task, goal.excludedDocumentKeys)
+        && goal.members.some(member => matchesTaskDocumentMemberScope(task, member)));
   }
 
-  const sourceMembers =
-    documentGroupsById.value.get(activeSource.id)?.members;
-  if (!sourceMembers) {
+  const group = documentGroupsById.value.get(activeSource.id);
+  if (!group || isTaskExcludedFromDocumentScope(task, group.excludedDocumentKeys)) {
     return false;
   }
-  return sourceMembers.some(member => matchesTaskDocumentMemberScope(task, member));
+  return group.members.some(member => matchesTaskDocumentMemberScope(task, member));
 }
 
 const filteredTasks = computed(() => {
@@ -6225,7 +6245,10 @@ const {
 
 function setupEventListeners() {
   const unsubscribe = eventBus.on(Events.TASK_CHANGED, (data?: TaskChangePayload) => {
-    scheduleTaskDocumentOptionsRefresh();
+    const hasUnknownTaskBlock = data?.blockIds?.some(blockId =>
+      !blockIdToTaskIndex.has(blockId) && !subtaskToParentMap.has(blockId)
+    ) === true;
+    scheduleTaskDocumentOptionsRefresh(hasUnknownTaskBlock ? 0 : undefined);
     if (data?.blockIds && data.blockIds.length > 0) {
       if (data.attributeChanges) {
         syncTaskEditorDraftFromAttributeChanges(
@@ -6266,7 +6289,7 @@ function setupEventListeners() {
   });
 
   const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string; task?: Task }) => {
-    scheduleTaskDocumentOptionsRefresh();
+    scheduleTaskDocumentOptionsRefresh(0);
     const optimisticTask = payload?.task;
     if (isRecentlyDeletedTaskBlock(optimisticTask?.blockId)) {
       return;

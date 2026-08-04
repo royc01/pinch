@@ -834,6 +834,7 @@ interface Props {
   tasks: Task[];
   taskGroups?: TaskGroup[];
   goals?: Goal[];
+  goalIdsForTask?: (task: Task) => string[];
   groupMode?: TaskViewGroupMode;
   /** Ordered root document IDs supplied by the milestone document tabs. */
   documentGroupOrder?: string[];
@@ -2305,7 +2306,7 @@ const goalPopoverSelectedGoalIds = computed(() => {
   const popover = goalPopover.value;
   if (!popover) return [];
   const task = props.tasks.find(t => t.id === popover.taskId);
-  return task ? getEffectiveGoalIdsForTask(props.goals || [], task) : [];
+  return task ? resolveTaskGoalIds(task) : [];
 });
 
 function isGoalPopoverOptionSelected(value: string): boolean {
@@ -2996,7 +2997,7 @@ function getTaskGroupOverflowCount(task: Task): number {
 }
 
 function getTaskGoalBadges(task: Task): Array<{ id: string; label: string; emoji: string }> {
-  return getEffectiveGoalIdsForTask(props.goals || [], task).map((goalId) => {
+  return resolveTaskGoalIds(task).map((goalId) => {
     const meta = goalLookup.value.get(goalId);
     return {
       id: goalId,
@@ -3140,6 +3141,10 @@ function getTaskDocumentIconRaw(task: Task): string {
     }
   }
   return typeof task.icon === 'string' ? task.icon.trim() : '';
+}
+
+function resolveTaskGoalIds(task: Task): string[] {
+  return props.goalIdsForTask?.(task) || getEffectiveGoalIdsForTask(props.goals || [], task);
 }
 
 function getTaskDocumentGroupIconRaw(group: TableTaskGroupSection): string {

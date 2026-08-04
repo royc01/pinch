@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Task } from '@/api';
 import {
   buildTaskDocumentPathLookup,
+  getTaskDocumentScopeKeys,
+  getTaskDocumentScopeParentId,
   isDocumentPathInScope,
   taskMatchesDocumentScope
 } from './taskDocumentScope';
@@ -64,5 +66,22 @@ describe('task document scope', () => {
       notebookId: 'nb-1',
       path: '/Projects'
     })).toBe(false);
+  });
+
+  it('resolves ancestors from parent IDs and storage paths with loop protection', () => {
+    const documents = new Map([
+      ['nb-1:root', { id: 'root', notebookId: 'nb-1' }],
+      ['nb-1:child', { id: 'child', notebookId: 'nb-1', parentId: 'root' }],
+      ['nb-1:grandchild', { id: 'grandchild', notebookId: 'nb-1', storagePath: '/root.sy/child.sy/grandchild.sy' }],
+      ['nb-1:loop-a', { id: 'loop-a', notebookId: 'nb-1', parentId: 'loop-b' }],
+      ['nb-1:loop-b', { id: 'loop-b', notebookId: 'nb-1', parentId: 'loop-a' }]
+    ]);
+
+    expect(getTaskDocumentScopeParentId(documents, 'nb-1', 'child')).toBe('root');
+    expect(getTaskDocumentScopeParentId(documents, 'nb-1', 'grandchild')).toBe('child');
+    expect(Array.from(getTaskDocumentScopeKeys(task('scope-task', 'grandchild', '', 'nb-1'), documents)))
+      .toEqual(['nb-1:grandchild', 'nb-1:child', 'nb-1:root']);
+    expect(Array.from(getTaskDocumentScopeKeys(task('loop-task', 'loop-a', '', 'nb-1'), documents)))
+      .toEqual(['nb-1:loop-a', 'nb-1:loop-b']);
   });
 });
