@@ -17,6 +17,7 @@ export interface Goal {
   name: string;
   emoji?: string;
   members: DocumentGroupMember[];
+  excludedDocumentKeys?: string[];
   taskMembers?: GoalTaskMember[];
   excludedTaskMembers?: GoalTaskMember[];
   order?: number;
@@ -84,6 +85,15 @@ function normalizeGoalMembers(input: unknown): DocumentGroupMember[] {
   }
 
   return normalized;
+}
+
+function normalizeExcludedDocumentKeys(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const keys = Array.from(new Set(input
+    .filter((key): key is string => typeof key === 'string')
+    .map(key => key.trim())
+    .filter(key => /^[^:\s]+:[^:\s]+$/.test(key))));
+  return keys.length > 0 ? keys : undefined;
 }
 
 function normalizeGoalTaskMembers(input: unknown): GoalTaskMember[] {
@@ -180,6 +190,7 @@ function normalizeGoal(input: unknown, legacyGroupsById: Map<string, DocumentGro
     name,
     emoji: emoji || undefined,
     members,
+    excludedDocumentKeys: normalizeExcludedDocumentKeys(raw.excludedDocumentKeys),
     taskMembers: normalizeGoalTaskMembers(raw.taskMembers),
     excludedTaskMembers: normalizeGoalTaskMembers(raw.excludedTaskMembers),
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : undefined,
@@ -226,6 +237,7 @@ async function persistGoals(goals: Goal[], emitEvent: boolean): Promise<Goal[]> 
   const normalizedGoals = normalizeGoals(goals).map((goal, index) => ({
     ...goal,
     members: cloneGoalMembers(goal.members),
+    excludedDocumentKeys: goal.excludedDocumentKeys ? [...goal.excludedDocumentKeys] : undefined,
     taskMembers: cloneGoalTaskMembers(goal.taskMembers),
     excludedTaskMembers: cloneGoalTaskMembers(goal.excludedTaskMembers),
     order: index,

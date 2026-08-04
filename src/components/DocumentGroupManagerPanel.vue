@@ -78,7 +78,10 @@
             :placeholder="t('documentGroup.searchDocuments')"
             @update:model-value="documentSearch = $event"
           />
-          <div v-if="visibleDocuments.length === 0" class="document-group-empty">
+          <div v-if="documentTreeLoading" class="document-group-empty">
+            {{ t('taskManager.loading') }}
+          </div>
+          <div v-else-if="visibleDocuments.length === 0" class="document-group-empty">
             {{ t('documentGroup.noDocuments') }}
           </div>
           <div v-else class="document-checkbox-list">
@@ -104,8 +107,12 @@
                     <Icon name="chevronRight" width="14" height="14" />
                   </button>
                   <label class="document-tree-notebook-item">
-                    <span :class="['day-checkbox', { completed: isNotebookFullyChecked(row.notebookId) }]">
+                    <span :class="['day-checkbox', { completed: isNotebookFullyChecked(row.notebookId), partial: hasNotebookPartialSelection(row.notebookId) }]">
+                      <span v-if="hasNotebookPartialSelection(row.notebookId)" class="day-checkbox-count">
+                        {{ getNotebookCheckedDocumentCount(row.notebookId) }}
+                      </span>
                       <Icon
+                        v-else
                         :name="isNotebookFullyChecked(row.notebookId) ? 'squareCheck' : 'square'"
                         :completed="isNotebookFullyChecked(row.notebookId)"
                         class="day-checkbox-icon"
@@ -132,20 +139,37 @@
                   </button>
                   <span v-else class="document-tree-expand-placeholder"></span>
                   <label class="document-checkbox-item document-tree-document-item">
-                    <span :class="['day-checkbox', { completed: isDocumentSelected(row.document) }]">
+                    <span :class="['day-checkbox', { completed: isDocumentFullyChecked(row.document), partial: hasDocumentPartialSelection(row.document) }]">
+                      <span v-if="hasDocumentPartialSelection(row.document)" class="day-checkbox-count">
+                        {{ getDocumentCheckedDescendantCount(row.document) }}
+                      </span>
                       <Icon
-                        :name="isDocumentSelected(row.document) ? 'squareCheck' : 'square'"
-                        :completed="isDocumentSelected(row.document)"
+                        v-else
+                        :name="isDocumentFullyChecked(row.document) ? 'squareCheck' : 'square'"
+                        :completed="isDocumentFullyChecked(row.document)"
                         class="day-checkbox-icon"
                       />
                     </span>
                     <span class="document-checkbox-text">
-                      <span class="document-checkbox-name">{{ row.document.name }}</span>
+                      <span class="document-item-title-row">
+                        <span class="document-checkbox-name">{{ row.document.name }}</span>
+                        <span v-if="getDocumentGroupBadges(row.document).length > 0" class="document-membership-badges">
+                          <span
+                            v-for="group in getDocumentGroupBadges(row.document)"
+                            :key="`document-group:${group.id}`"
+                            class="document-membership-badge ariaLabel"
+                            :aria-label="group.name || t('documentGroup.untitledGroup')"
+                          >
+                            <EmojiIcon v-if="group.emoji" class="document-membership-badge-emoji" :value="group.emoji" />
+                            {{ group.name || t('documentGroup.untitledGroup') }}
+                          </span>
+                        </span>
+                      </span>
                     </span>
                     <input
                       class="document-checkbox-input"
                       type="checkbox"
-                      :checked="isDocumentSelected(row.document)"
+                      :checked="isDocumentFullyChecked(row.document)"
                       @change="toggleDocumentMembership(row.document, ($event.target as HTMLInputElement).checked)"
                     >
                   </label>
@@ -168,8 +192,7 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import type { DocumentGroup } from '@/documentGroupRepository';
 import { useI18n } from '@/composables/useI18n';
-import { sql } from '@/api';
-import { resolveDocumentDisplayName } from '@/utils/taskViewShared';
+import { listDocsByPath } from '@/api';
 
 interface DocumentGroupManagerDocument {
   id: string;
@@ -200,7 +223,6 @@ interface Props {
   groups: DocumentGroup[];
   documents: DocumentGroupManagerDocument[];
   allDocuments?: DocumentGroupManagerDocument[];
-  notebookIds?: string[];
   documentsRefreshing?: boolean;
 }
 
@@ -218,13 +240,15 @@ const selectedGroupId = ref('');
 const documentSearch = ref('');
 const expandedDocumentKeys = ref(new Set<string>());
 const collapsedNotebookIds = ref(new Set<string>());
-const treeDocuments = ref<DocumentGroupManagerDocument[]>([]);
+const documentTreeDocuments = ref<DocumentGroupManagerDocument[]>([]);
+const documentTreeLoading = ref(true);
 let documentTreeRequestId = 0;
 
 function cloneGroups(groups: DocumentGroup[]): DocumentGroup[] {
   return (groups || []).map(group => ({
     ...group,
-    members: Array.isArray(group.members) ? group.members.map(member => ({ ...member })) : []
+    members: Array.isArray(group.members) ? group.members.map(member => ({ ...member })) : [],
+    excludedDocumentKeys: Array.isArray(group.excludedDocumentKeys) ? [...group.excludedDocumentKeys] : undefined
   }));
 }
 
@@ -251,10 +275,13 @@ const selectedGroup = computed(() =>
 
 const allDocuments = computed(() => {
   const documentsByKey = new Map<string, DocumentGroupManagerDocument>();
-  const sourceDocuments = treeDocuments.value.length > 0
-    ? treeDocuments.value
+  const treeSource = documentTreeDocuments.value.length > 0
+    ? documentTreeDocuments.value
     : (props.allDocuments || []);
-  for (const document of [...sourceDocuments, ...(props.documents || [])]) {
+  for (const document of [
+    ...treeSource,
+    ...(props.documents || [])
+  ]) {
     const key = `${document.notebookId}:${document.id}`;
     const existing = documentsByKey.get(key);
     documentsByKey.set(key, {
@@ -265,118 +292,85 @@ const allDocuments = computed(() => {
       storagePath: document.storagePath || existing?.storagePath
     });
   }
+
   return Array.from(documentsByKey.values());
 });
 
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
+interface ListedDocument {
+  id?: string;
+  name?: string;
+  path?: string;
+  subFileCount?: number;
+}
+
+async function loadDocumentTreeFromFiletreeApi(): Promise<boolean> {
+  const requestId = ++documentTreeRequestId;
+  const notebookNameById = new Map<string, string>();
+  for (const document of [...(props.allDocuments || []), ...(props.documents || [])]) {
+    if (document.notebookId && document.notebookName) notebookNameById.set(document.notebookId, document.notebookName);
+  }
+  const notebookIds = Array.from(new Set((props.documents || [])
+    .map(document => document.notebookId?.trim())
+    .filter((id): id is string => Boolean(id))));
+  if (notebookIds.length === 0) {
+    documentTreeDocuments.value = [];
+    documentTreeLoading.value = false;
+    return true;
+  }
+
+  documentTreeLoading.value = true;
+  try {
+    const documentsByKey = new Map<string, DocumentGroupManagerDocument>();
+    const loadBranch = async (notebookId: string, path: string, parentId?: string): Promise<void> => {
+      const response = await listDocsByPath(notebookId, path);
+      const files = response && typeof response === 'object' && Array.isArray((response as { files?: unknown }).files)
+        ? (response as { files: ListedDocument[] }).files
+        : null;
+      if (!files) throw new Error('Unexpected listDocsByPath response');
+      await Promise.all(files.map(async file => {
+        const id = typeof file.id === 'string' ? file.id.trim() : '';
+        const documentPath = typeof file.path === 'string' ? file.path.trim() : '';
+        if (!id || !documentPath) return;
+        documentsByKey.set(`${notebookId}:${id}`, {
+          id,
+          name: typeof file.name === 'string' && file.name.trim() ? file.name.trim() : id,
+          notebookId,
+          notebookName: notebookNameById.get(notebookId) || notebookId,
+          parentId,
+          storagePath: documentPath
+        });
+        if (Number(file.subFileCount) > 0) await loadBranch(notebookId, documentPath, id);
+      }));
+    };
+    await Promise.all(notebookIds.map(notebookId => loadBranch(notebookId, '/')));
+    if (requestId !== documentTreeRequestId) return false;
+    documentTreeDocuments.value = Array.from(documentsByKey.values());
+    synchronizeDescendantMemberships();
+    return true;
+  } catch (error) {
+    if (requestId === documentTreeRequestId) {
+      console.warn('[DocumentGroups] listDocsByPath is unavailable; using supplied document data', error);
+      documentTreeDocuments.value = [];
+    }
+    return false;
+  } finally {
+    if (requestId === documentTreeRequestId) documentTreeLoading.value = false;
+  }
 }
 
 async function refreshDocumentTree(): Promise<void> {
-  const sourceNotebookIds = [
-    ...(props.notebookIds || []),
-    ...(props.documents || []).map(document => document.notebookId)
-  ];
-  const notebookIds = Array.from(new Set(
-    sourceNotebookIds
-      .map(notebookId => notebookId?.trim())
-      .filter((id): id is string => Boolean(id))
-  ));
-  const requestId = ++documentTreeRequestId;
-  if (notebookIds.length === 0) {
-    treeDocuments.value = [];
-    return;
-  }
-
-  const notebookNameById = new Map<string, string>();
-  for (const document of [...(props.allDocuments || []), ...(props.documents || [])]) {
-    if (document.notebookId && document.notebookName) {
-      notebookNameById.set(document.notebookId, document.notebookName);
-    }
-  }
-  try {
-    // Fetch only task documents and every ancestor required to render their
-    // branches. A whole-notebook query can be truncated by the SQL API in
-    // large notebooks, leaving an otherwise valid ancestor out of the tree.
-    const pathsByNotebook = new Map<string, Set<string>>();
-    for (const document of props.documents || []) {
-      const notebookId = document.notebookId?.trim();
-      const parts = normalizeDocumentPath(document.path).split('/').filter(Boolean);
-      if (!notebookId || parts.length === 0) continue;
-      const paths = pathsByNotebook.get(notebookId) || new Set<string>();
-      for (let index = 1; index <= parts.length; index += 1) {
-        paths.add(`/${parts.slice(0, index).join('/')}`);
-      }
-      pathsByNotebook.set(notebookId, paths);
-    }
-
-    type DocumentTreeRowResult = {
-      id?: string;
-      box?: string;
-      hpath?: string;
-      content?: string;
-      parent_id?: string;
-      storage_path?: string;
-    };
-    const rows: DocumentTreeRowResult[] = [];
-    const pathBatchSize = 400;
-    for (const [notebookId, paths] of pathsByNotebook) {
-      const pathList = Array.from(paths);
-      for (let start = 0; start < pathList.length; start += pathBatchSize) {
-        const pathSql = pathList
-          .slice(start, start + pathBatchSize)
-          .map(path => `'${escapeSqlLiteral(path)}'`)
-          .join(',');
-        const batch = await sql(`
-          SELECT b.id, b.box, b.hpath, b.content, b.parent_id, b.path AS storage_path
-          FROM blocks b
-          WHERE b.type = 'd'
-            AND b.box = '${escapeSqlLiteral(notebookId)}'
-            AND b.hpath IN (${pathSql})
-          ORDER BY b.path
-        `) as DocumentTreeRowResult[];
-        rows.push(...(batch || []));
-      }
-    }
-    if (requestId !== documentTreeRequestId) return;
-    const loadedDocuments = (rows || []).flatMap(row => {
-      const id = typeof row?.id === 'string' ? row.id.trim() : '';
-      const notebookId = typeof row?.box === 'string' ? row.box.trim() : '';
-      if (!id || !notebookId) return [];
-      const path = typeof row?.hpath === 'string' ? row.hpath.trim() : '';
-      const parentId = typeof row?.parent_id === 'string' ? row.parent_id.trim() : '';
-      const storagePath = typeof row?.storage_path === 'string' ? row.storage_path.trim() : '';
-      return [{
-        id,
-        name: resolveDocumentDisplayName({ id, name: row?.content, path }),
-        notebookId,
-        notebookName: notebookNameById.get(notebookId) || notebookId,
-        path: path || undefined,
-        parentId: parentId || undefined,
-        storagePath: storagePath || undefined
-      }];
-    });
-    const mergedDocumentsByKey = new Map(treeDocuments.value.map(document => [getDocumentKey(document), document]));
-    for (const document of loadedDocuments) {
-      mergedDocumentsByKey.set(getDocumentKey(document), document);
-    }
-    treeDocuments.value = Array.from(mergedDocumentsByKey.values());
-    const currentTaskNotebookIds = Array.from(new Set(
-      (props.documents || [])
-        .map(document => document.notebookId?.trim())
-        .filter((id): id is string => Boolean(id))
-    ));
-    const taskNotebooksLoadedAfterQueryStarted = currentTaskNotebookIds.filter(id => !notebookIds.includes(id));
-    if (taskNotebooksLoadedAfterQueryStarted.length > 0) {
-      void refreshDocumentTree();
-    }
-  } catch (error) {
-    console.error('[DocumentGroups] failed to load document tree', error);
-  }
+  await loadDocumentTreeFromFiletreeApi();
 }
 
+// A task in the notebook root uses the notebook-level document as its root.
+// It is not a separate document entry in the selection tree.
+const notebookLevelDocumentKeys = computed(() => new Set(
+  (props.documents || [])
+    .filter(document => document.name === document.notebookName)
+    .map(getDocumentKey)
+));
+
 function refreshDocuments(): void {
-  void refreshDocumentTree();
   emit('refresh-documents');
 }
 
@@ -398,6 +392,7 @@ const visibleDocuments = computed(() => {
     let current: DocumentGroupManagerDocument | undefined = document;
     while (current) {
       const key = getDocumentKey(current);
+      if (notebookLevelDocumentKeys.value.has(key)) break;
       if (visibleKeys.has(key)) break;
       visibleKeys.add(key);
       const parentKey = getDocumentParentKey(current, documentsByPath, documentsByKey);
@@ -405,11 +400,14 @@ const visibleDocuments = computed(() => {
     }
   };
 
-  // Keep every document with a task and add its ancestors. This yields the
-  // original SiYuan tree while pruning branches that contain no tasks at all.
-  for (const taskDocument of props.documents || []) {
-    const document = documentsByKey.get(getDocumentKey(taskDocument)) || taskDocument;
-    if (matchesSearch(document)) addWithAncestors(document);
+  const taskDocumentKeys = new Set((props.documents || []).map(getDocumentKey));
+  // Retain task documents and their ancestors. Branches with no task at any
+  // level are intentionally excluded from both display and group membership.
+  for (const document of allDocuments.value) {
+    if (notebookLevelDocumentKeys.value.has(getDocumentKey(document))) continue;
+    if (taskDocumentKeys.has(getDocumentKey(document)) && matchesSearch(document)) {
+      addWithAncestors(document);
+    }
   }
   return allDocuments.value.filter(document => visibleKeys.has(getDocumentKey(document)));
 });
@@ -455,6 +453,56 @@ function getDocumentParentKey(
   }
   const parent = documentsByPath.get(`${document.notebookId}:${path.slice(0, lastSeparator)}`);
   return parent ? getDocumentKey(parent) : null;
+}
+
+function synchronizeDescendantMemberships(): void {
+  if (localGroups.value.length === 0) return;
+
+  const documentsByPath = new Map<string, DocumentGroupManagerDocument>();
+  const documentsByKey = new Map<string, DocumentGroupManagerDocument>();
+  for (const document of allDocuments.value) {
+    const path = normalizeDocumentPath(document.path);
+    if (path) documentsByPath.set(`${document.notebookId}:${path}`, document);
+    documentsByKey.set(getDocumentKey(document), document);
+  }
+  const selectableDocuments = visibleDocuments.value;
+  const nextGroups = localGroups.value.map(group => {
+    const memberKeys = new Set(group.members.map(member => `${member.notebookId}:${member.documentId}`));
+    const excludedKeys = new Set(group.excludedDocumentKeys || []);
+    const additions: DocumentGroup['members'] = [];
+    for (const document of selectableDocuments) {
+      const documentKey = getDocumentKey(document);
+      if (memberKeys.has(documentKey) || excludedKeys.has(documentKey)) continue;
+      let current = document;
+      let isDescendantOfMember = false;
+      const visited = new Set<string>();
+      while (true) {
+        const parentKey = getDocumentParentKey(current, documentsByPath, documentsByKey);
+        if (!parentKey || visited.has(parentKey)) break;
+        visited.add(parentKey);
+        if (memberKeys.has(parentKey)) {
+          isDescendantOfMember = true;
+          break;
+        }
+        const parent = documentsByKey.get(parentKey);
+        if (!parent) break;
+        current = parent;
+      }
+      if (isDescendantOfMember) {
+        memberKeys.add(documentKey);
+        additions.push({
+          documentId: document.id,
+          notebookId: document.notebookId,
+          name: document.name,
+          path: document.path
+        });
+      }
+    }
+    return additions.length > 0 ? { ...group, members: [...group.members, ...additions] } : group;
+  });
+  if (nextGroups.some((group, index) => group.members.length !== localGroups.value[index]?.members.length)) {
+    emitGroups(nextGroups);
+  }
 }
 
 const documentTreeRows = computed<DocumentTreeRow[]>(() => {
@@ -637,8 +685,18 @@ function isDocumentSelected(document: DocumentGroupManagerDocument): boolean {
   );
 }
 
+function getDocumentGroupBadges(document: DocumentGroupManagerDocument): DocumentGroup[] {
+  const selectedId = selectedGroupId.value;
+  return localGroups.value.filter(group =>
+    group.id !== selectedId
+    && group.members.some(member =>
+      member.documentId === document.id && member.notebookId === document.notebookId
+    )
+  );
+}
+
 function getNotebookDocuments(notebookId: string): DocumentGroupManagerDocument[] {
-  return (props.documents || []).filter(document => document.notebookId === notebookId);
+  return visibleDocuments.value.filter(document => document.notebookId === notebookId);
 }
 
 function isNotebookFullyChecked(notebookId: string): boolean {
@@ -646,15 +704,65 @@ function isNotebookFullyChecked(notebookId: string): boolean {
   return documents.length > 0 && documents.every(document => isDocumentSelected(document));
 }
 
+function getNotebookCheckedDocumentCount(notebookId: string): number {
+  return getNotebookDocuments(notebookId).filter(document => isDocumentSelected(document)).length;
+}
+
+function hasNotebookPartialSelection(notebookId: string): boolean {
+  const documents = getNotebookDocuments(notebookId);
+  const selectedCount = getNotebookCheckedDocumentCount(notebookId);
+  return selectedCount > 0 && selectedCount < documents.length;
+}
+
 function getDocumentAndDescendants(document: DocumentGroupManagerDocument): DocumentGroupManagerDocument[] {
-  const documentPath = normalizeDocumentPath(document.path);
-  return (props.documents || []).filter(candidate =>
-    candidate.notebookId === document.notebookId
-    && (
-      candidate.id === document.id
-      || (documentPath.length > 0 && normalizeDocumentPath(candidate.path).startsWith(`${documentPath}/`))
-    )
-  );
+  const documents = visibleDocuments.value.filter(candidate => candidate.notebookId === document.notebookId);
+  const documentsByPath = new Map<string, DocumentGroupManagerDocument>();
+  const documentsByKey = new Map<string, DocumentGroupManagerDocument>();
+  const childrenByParentKey = new Map<string, DocumentGroupManagerDocument[]>();
+  for (const candidate of documents) {
+    const path = normalizeDocumentPath(candidate.path);
+    if (path) documentsByPath.set(`${candidate.notebookId}:${path}`, candidate);
+    documentsByKey.set(getDocumentKey(candidate), candidate);
+  }
+  for (const candidate of documents) {
+    const parentKey = getDocumentParentKey(candidate, documentsByPath, documentsByKey);
+    if (!parentKey) continue;
+    const children = childrenByParentKey.get(parentKey) || [];
+    children.push(candidate);
+    childrenByParentKey.set(parentKey, children);
+  }
+
+  const descendants: DocumentGroupManagerDocument[] = [];
+  const pending = [document];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) continue;
+    const key = getDocumentKey(current);
+    if (visited.has(key)) continue;
+    visited.add(key);
+    descendants.push(current);
+    pending.push(...(childrenByParentKey.get(key) || []));
+  }
+  return descendants;
+}
+
+function getDocumentCheckedDescendantCount(document: DocumentGroupManagerDocument): number {
+  return getDocumentAndDescendants(document)
+    .filter(candidate => candidate.id !== document.id)
+    .filter(candidate => isDocumentSelected(candidate)).length;
+}
+
+function isDocumentFullyChecked(document: DocumentGroupManagerDocument): boolean {
+  const documents = getDocumentAndDescendants(document);
+  return documents.length > 0 && documents.every(candidate => isDocumentSelected(candidate));
+}
+
+function hasDocumentPartialSelection(document: DocumentGroupManagerDocument): boolean {
+  const descendants = getDocumentAndDescendants(document)
+    .filter(candidate => candidate.id !== document.id);
+  const selectedCount = descendants.filter(candidate => isDocumentSelected(candidate)).length;
+  return selectedCount > 0 && selectedCount < descendants.length;
 }
 
 function toggleDocumentMembership(document: DocumentGroupManagerDocument, checked: boolean): void {
@@ -673,6 +781,11 @@ function toggleDocumentMembership(document: DocumentGroupManagerDocument, checke
     const members = group.members.filter(member =>
       !memberKeys.has(`${member.notebookId}:${member.documentId}`)
     );
+    const excludedKeys = new Set(group.excludedDocumentKeys || []);
+    for (const key of memberKeys) {
+      if (checked) excludedKeys.delete(key);
+      else excludedKeys.add(key);
+    }
     if (checked) {
       members.push(...documents.map(item => ({
         documentId: item.id,
@@ -681,7 +794,7 @@ function toggleDocumentMembership(document: DocumentGroupManagerDocument, checke
         path: item.path
       })));
     }
-    return { ...group, members };
+    return { ...group, members, excludedDocumentKeys: excludedKeys.size > 0 ? Array.from(excludedKeys) : undefined };
   }));
 }
 
@@ -699,6 +812,11 @@ function toggleNotebookMembership(notebookId: string, checked: boolean): void {
     const members = group.members.filter(member =>
       !documentKeys.has(`${member.notebookId}:${member.documentId}`)
     );
+    const excludedKeys = new Set(group.excludedDocumentKeys || []);
+    for (const key of documentKeys) {
+      if (checked) excludedKeys.delete(key);
+      else excludedKeys.add(key);
+    }
     if (checked) {
       members.push(...documents.map(document => ({
         documentId: document.id,
@@ -707,7 +825,7 @@ function toggleNotebookMembership(notebookId: string, checked: boolean): void {
         path: document.path
       })));
     }
-    return { ...group, members };
+    return { ...group, members, excludedDocumentKeys: excludedKeys.size > 0 ? Array.from(excludedKeys) : undefined };
   }));
 }
 
@@ -720,15 +838,7 @@ watch(
 );
 
 watch(
-  () => props.documents,
-  () => {
-    void refreshDocumentTree();
-  },
-  { immediate: true, deep: true }
-);
-
-watch(
-  () => props.notebookIds,
+  [() => props.documents, () => props.allDocuments],
   () => {
     void refreshDocumentTree();
   },
@@ -1068,10 +1178,6 @@ watch(
   background: var(--b3-list-hover);
 }
 
-.document-tree-row--document.selected .document-tree-document-item {
-  background: var(--b3-list-hover);
-}
-
 .document-checkbox-input {
   position: absolute;
   inset: 0;
@@ -1088,9 +1194,56 @@ watch(
   gap: 2px;
 }
 
+.document-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
 .document-checkbox-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--b3-theme-on-background);
-  word-break: break-word;
+}
+
+.document-membership-badges {
+  display: flex;
+  flex: 0 1 55%;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.document-membership-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 140px;
+  min-height: 16px;
+  padding: 1px 5px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--pinch-background6);
+  color: var(--b3-theme-on-background);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-membership-badge-emoji {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
 }
 
 .document-checkbox-meta {
@@ -1116,6 +1269,20 @@ watch(
 
 .day-checkbox.completed .day-checkbox-icon {
   color: #f98f7a;
+}
+
+.day-checkbox-count {
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 4px;
+  box-sizing: border-box;
+  background: #f98f7a;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
 }
 
 .document-group-empty {

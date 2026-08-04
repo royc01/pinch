@@ -139,30 +139,106 @@
         class="document-tabs"
         @wheel="handleDocumentTabsWheel"
       >
-        <button
-          v-for="option in visibleDocumentOptions"
-          :key="option.value"
-          type="button"
-          class="document-tab"
-          :class="{
-            active: currentDocumentFilter === option.value,
-            draggable: canReorderDocumentTabs,
-            'is-dragging': draggedDocumentTabId === option.value,
-            'is-drop-target': dragOverDocumentTabId === option.value
-          }"
-          :draggable="canReorderDocumentTabs && option.value !== 'all'"
-          @click="currentDocumentFilter = option.value"
-          @contextmenu.prevent.stop="handleDocumentTabContextMenu($event, option)"
-          @dragstart="handleDocumentTabDragStart($event, option)"
-          @dragover="handleDocumentTabDragOver($event, option)"
-          @drop="handleDocumentTabDrop($event, option)"
-          @dragend="clearDocumentTabDragState"
-        >
-          <span v-if="canReorderDocumentTabs && option.value !== 'all'" class="document-tab-milestone-number">
-            {{ getDocumentTabMilestoneNumber(option.value) }}
-          </span>
-          {{ option.text }}
-        </button>
+        <template v-for="option in visibleDocumentOptions" :key="option.value">
+          <div
+            v-if="option.value === 'all'"
+            class="document-tab document-tab-scope"
+            :class="{ active: currentDocumentFilter === 'all' }"
+            @contextmenu.prevent.stop="handleDocumentTabContextMenu($event, option)"
+          >
+            <button
+              type="button"
+              class="document-tab-scope-label"
+              @click="currentDocumentFilter = 'all'; closeDocumentScopePicker()"
+            >
+              {{ option.text }}
+            </button>
+            <button
+              type="button"
+              class="document-tab-scope-toggle ariaLabel"
+              :class="{ active: documentScopePickerVisible }"
+              :aria-label="t('kanbanView.documentTabList')"
+              @click.stop="toggleDocumentScopePicker"
+            >
+              <Icon name="chevronDown" width="14" height="14" />
+            </button>
+            <button
+              v-if="activeDocumentTabScope"
+              type="button"
+              class="document-tab-scope-reset ariaLabel"
+              :aria-label="t('taskManager.all')"
+              @click.stop="void selectDocumentTabScope()"
+            >
+              ×
+            </button>
+          </div>
+          <button
+            v-else
+            type="button"
+            class="document-tab"
+            :class="{
+              active: currentDocumentFilter === option.value,
+              draggable: canReorderDocumentTabs,
+              'is-dragging': draggedDocumentTabId === option.value,
+              'is-drop-target': dragOverDocumentTabId === option.value
+            }"
+            :draggable="canReorderDocumentTabs"
+            @click="currentDocumentFilter = option.value; closeDocumentScopePicker()"
+            @contextmenu.prevent.stop="handleDocumentTabContextMenu($event, option)"
+            @dragstart="handleDocumentTabDragStart($event, option)"
+            @dragover="handleDocumentTabDragOver($event, option)"
+            @drop="handleDocumentTabDrop($event, option)"
+            @dragend="clearDocumentTabDragState"
+          >
+            <span v-if="canReorderDocumentTabs" class="document-tab-milestone-number">
+              {{ getDocumentTabMilestoneNumber(option.value) }}
+            </span>
+            <span>{{ option.text }}</span>
+          </button>
+        </template>
+        <Teleport to="body">
+          <div
+            v-if="documentScopePickerVisible"
+            ref="documentScopePickerRef"
+            class="document-scope-picker"
+            :style="documentScopePickerStyle"
+            @click.stop
+          >
+            <input
+              ref="documentScopePickerSearchInputRef"
+              v-model="documentScopeTreeSearch"
+              type="search"
+              class="document-scope-picker-search"
+              :placeholder="t('kanbanView.searchDocumentName')"
+              :aria-label="t('kanbanView.searchDocumentName')"
+              @click.stop
+            >
+            <button
+              type="button"
+              class="document-scope-picker-row document-scope-picker-all"
+              :class="{ active: !activeDocumentTabScope }"
+              @click="void selectDocumentTabScope()"
+            >
+              {{ t('taskManager.all') }}
+            </button>
+            <div v-if="documentScopeTreeLoading" class="document-scope-picker-empty">{{ t('taskManager.loading') }}</div>
+            <button
+              v-for="row in documentScopeTreeRows"
+              :key="row.key"
+              type="button"
+              class="document-scope-picker-row"
+              :class="{ active: activeDocumentTabScope?.id === row.document.id && activeDocumentTabScope?.notebookId === row.document.notebookId }"
+              :style="{ paddingLeft: `${12 + row.depth * 18}px` }"
+              :title="row.document.path || row.document.name"
+              @click="void selectDocumentTabScope(row.document)"
+            >
+              {{ row.document.name }}
+            </button>
+            <div v-if="!documentScopeTreeLoading && documentScopeTreeRows.length === 0" class="document-scope-picker-empty">
+              {{ t('kanbanView.noDocumentTabs') }}
+            </div>
+          </div>
+        </Teleport>
       </div>
       <div v-else class="document-tabs-placeholder"></div>
       <div
@@ -1621,43 +1697,75 @@
       @click.stop
     >
       <div class="document-tab-context-menu-title">{{ documentTabContextMenu.text }}</div>
-      <div class="document-tab-context-menu-subtitle">
-        {{ documentTabContextCurrentGroupId ? t('kanbanView.changeGroup') : t('kanbanView.addToGroup') }}
-      </div>
-      <div v-if="sortedDocumentGroups.length > 0" class="document-tab-context-menu-list">
-        <button
-          type="button"
-          class="document-tab-context-menu-item"
-          :class="{ active: !documentTabContextCurrentGroupId }"
-          @click="void updateDocumentTabGroupAssignment('')"
-        >
-          <span>{{ t('kanbanView.ungrouped') }}</span>
-          <span v-if="!documentTabContextCurrentGroupId" class="task-group-menu-check">
-            <Icon name="check" width="12" height="12" />
-          </span>
-        </button>
-        <button
-          v-for="group in sortedDocumentGroups"
-          :key="group.id"
-          type="button"
-          class="document-tab-context-menu-item"
-          :class="{ active: documentTabContextCurrentGroupId === group.id }"
-          @click="void updateDocumentTabGroupAssignment(group.id)"
-        >
-          <span>{{ group.name }}</span>
-          <span v-if="documentTabContextCurrentGroupId === group.id" class="task-group-menu-check">
-            <Icon name="check" width="12" height="12" />
-          </span>
-        </button>
-      </div>
-      <div v-else class="document-tab-context-menu-empty">{{ t('documentGroup.emptyGroups') }}</div>
       <button
         type="button"
-        class="document-tab-context-menu-manage"
-        @click="void openDocumentGroupManagerFromTabMenu()"
+        class="document-tab-context-menu-trigger"
+        @click="void showSiblingDocumentsFromTabMenu()"
       >
-        {{ t('kanbanView.manageGroups') }}
+        {{ t('kanbanView.showSiblingDocuments') }}
       </button>
+      <div class="document-tab-context-menu-submenu">
+        <button type="button" class="document-tab-context-menu-trigger">
+          <span>{{ t('kanbanView.addToDocumentGroup') }}</span>
+          <span class="document-tab-context-menu-arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="document-tab-context-menu-panel">
+          <div v-if="sortedDocumentGroups.length > 0" class="document-tab-context-menu-list">
+            <button
+              v-for="group in sortedDocumentGroups"
+              :key="group.id"
+              type="button"
+              class="document-tab-context-menu-item"
+              :class="{ active: documentTabContextGroupIds.includes(group.id) }"
+              @click="void toggleDocumentTabGroupAssignment(group.id)"
+            >
+              <span>{{ group.name }}</span>
+              <span v-if="documentTabContextGroupIds.includes(group.id)" class="task-group-menu-check">
+                <Icon name="check" width="12" height="12" />
+              </span>
+            </button>
+          </div>
+          <div v-else class="document-tab-context-menu-empty">{{ t('documentGroup.emptyGroups') }}</div>
+          <button
+            type="button"
+            class="document-tab-context-menu-manage"
+            @click="void openDocumentGroupManagerFromTabMenu()"
+          >
+            {{ t('kanbanView.manageGroups') }}
+          </button>
+        </div>
+      </div>
+      <div class="document-tab-context-menu-submenu">
+        <button type="button" class="document-tab-context-menu-trigger">
+          <span>{{ t('kanbanView.addToGoal') }}</span>
+          <span class="document-tab-context-menu-arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="document-tab-context-menu-panel">
+          <div v-if="goalDefinitions.length > 0" class="document-tab-context-menu-list">
+            <button
+              v-for="goal in goalDefinitions"
+              :key="goal.id"
+              type="button"
+              class="document-tab-context-menu-item"
+              :class="{ active: documentTabContextGoalIds.includes(goal.id) }"
+              @click="void toggleDocumentTabGoalAssignment(goal.id)"
+            >
+              <span>{{ goal.name || t('taskManager.untitledGoal') }}</span>
+              <span v-if="documentTabContextGoalIds.includes(goal.id)" class="task-group-menu-check">
+                <Icon name="check" width="12" height="12" />
+              </span>
+            </button>
+          </div>
+          <div v-else class="document-tab-context-menu-empty">{{ t('goalManager.emptyGoals') }}</div>
+          <button
+            type="button"
+            class="document-tab-context-menu-manage"
+            @click="void openGoalManagerFromTabMenu()"
+          >
+            {{ t('goalManager.title') }}
+          </button>
+        </div>
+      </div>
     </div>
     <TaskGroupDialog
       :show="showTaskGroupDialog"
@@ -1694,7 +1802,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { Protyle, getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getPathByID, getIDsByHPath, resolveTaskRepeatMaterializeOptions, getHabits, saveHabits, type Habit, type TaskRepeatWindow } from '../api';
+import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, listDocsByPath, resolveTaskRepeatMaterializeOptions, getHabits, saveHabits, type Habit, type TaskRepeatWindow } from '../api';
 import {
   extractDocumentIconFromBlockRow,
   extractDocumentIconFromDom,
@@ -1938,11 +2046,20 @@ type DocumentFilterOption = {
   notebookId?: string;
   notebookName?: string;
 };
-type TopLevelDocumentInfo = {
+type DocumentTabScope = {
   id: string;
   name: string;
   notebookId: string;
   path?: string;
+};
+type DocumentScopeTreeDocument = DocumentTabScope & {
+  parentId?: string;
+  storagePath?: string;
+};
+type DocumentScopeTreeRow = {
+  key: string;
+  depth: number;
+  document: DocumentScopeTreeDocument;
 };
 type DocumentTabContextMenuState = {
   x: number;
@@ -2582,17 +2699,23 @@ const documentTabsDropdownControlRef = ref<HTMLElement | null>(null);
 const documentTabsDropdownButtonRef = ref<HTMLElement | null>(null);
 const documentTabsDropdownPopoverRef = ref<HTMLElement | null>(null);
 const documentTabsDropdownPopoverStyle = ref<Record<string, string>>({});
+const documentScopePickerVisible = ref(false);
+const documentScopePickerRef = ref<HTMLElement | null>(null);
+const documentScopePickerStyle = ref<Record<string, string>>({});
+const documentScopePickerSearchInputRef = ref<HTMLInputElement | null>(null);
+const documentScopeTreeSearch = ref('');
+const documentTabScopesBySource = ref<Record<string, DocumentTabScope>>({});
+const documentScopeTreeDocumentsByNotebook = ref<Map<string, DocumentScopeTreeDocument[]>>(new Map());
+const documentScopeTreeLoading = ref(false);
+let documentScopeTreeRequestId = 0;
 const documentTabContextMenu = ref<DocumentTabContextMenuState | null>(null);
 const documentTabContextMenuRef = ref<HTMLElement | null>(null);
 const documentIconByRootId = ref<Map<string, string>>(new Map());
 const documentMetadataByRootId = ref<Map<string, RootDocumentMetadata>>(new Map());
-const topLevelDocumentByTaskRootKey = ref<Map<string, TopLevelDocumentInfo>>(new Map());
 let documentIconRefreshTimer: number | null = null;
 let documentIconRefreshSeq = 0;
 let documentMetadataRefreshTimer: number | null = null;
 let documentMetadataRefreshSeq = 0;
-let topLevelDocumentRefreshTimer: number | null = null;
-let topLevelDocumentRefreshSeq = 0;
 const taskViewGroupMenuVisible = ref(false);
 const taskViewGroupMenuControlRef = ref<HTMLElement | null>(null);
 const taskViewGroupMenuPopoverRef = ref<HTMLElement | null>(null);
@@ -3641,17 +3764,7 @@ const goalDefinitionsById = computed(() =>
   new Map(goalDefinitions.value.map(goal => [goal.id, goal]))
 );
 const documentScopeMetadataByRootId = computed(() => {
-  const metadataByRootId = new Map<string, RootDocumentMetadata>(documentMetadataByRootId.value);
-  topLevelDocumentByTaskRootKey.value.forEach((info) => {
-    if (!metadataByRootId.has(info.id)) {
-      metadataByRootId.set(info.id, {
-        id: info.id,
-        name: info.name,
-        path: info.path
-      });
-    }
-  });
-  return metadataByRootId;
+  return new Map<string, RootDocumentMetadata>(documentMetadataByRootId.value);
 });
 const documentTitleByRootId = computed(() => {
   const titleByRootId = new Map<string, string>();
@@ -4972,35 +5085,7 @@ function handleDocumentTabContextMenu(event: MouseEvent, option: DocumentFilterO
   });
 }
 
-async function updateDocumentTabGroupAssignment(targetGroupId: string): Promise<void> {
-  const menu = documentTabContextMenu.value;
-  if (!menu) {
-    return;
-  }
-
-  const normalizedTargetGroupId = typeof targetGroupId === 'string' ? targetGroupId.trim() : '';
-  if (normalizedTargetGroupId === documentTabContextCurrentGroupId.value) {
-    closeDocumentTabContextMenu();
-    return;
-  }
-  const nextGroups = sortedDocumentGroups.value.map(group => {
-    const nextMembers = group.members.filter(member =>
-      !(member.documentId === menu.documentId && member.notebookId === menu.notebookId)
-    );
-    if (normalizedTargetGroupId && group.id === normalizedTargetGroupId) {
-      nextMembers.push({
-        documentId: menu.documentId,
-        notebookId: menu.notebookId,
-        name: menu.text,
-        path: undefined
-      });
-    }
-    return {
-      ...group,
-      members: nextMembers
-    };
-  });
-
+async function saveDocumentTabGroupAssignments(nextGroups: DocumentGroup[]): Promise<void> {
   const normalizedGroups = sortDocumentGroups(nextGroups.map(group => ({
     ...group,
     members: Array.isArray(group.members) ? group.members.map(member => ({ ...member })) : []
@@ -5013,9 +5098,127 @@ async function updateDocumentTabGroupAssignment(targetGroupId: string): Promise<
   await validateDocumentSelection();
 }
 
+async function toggleDocumentTabGroupAssignment(targetGroupId: string): Promise<void> {
+  const menu = documentTabContextMenu.value;
+  const normalizedTargetGroupId = typeof targetGroupId === 'string' ? targetGroupId.trim() : '';
+  if (!menu || !normalizedTargetGroupId) {
+    return;
+  }
+
+  const nextGroups = sortedDocumentGroups.value.map(group => {
+    if (group.id !== normalizedTargetGroupId) {
+      return group;
+    }
+
+    const isAssigned = group.members.some(member =>
+      member.documentId === menu.documentId && member.notebookId === menu.notebookId
+    );
+    return {
+      ...group,
+      members: isAssigned
+        ? group.members.filter(member =>
+            !(member.documentId === menu.documentId && member.notebookId === menu.notebookId)
+          )
+        : [...group.members, {
+            documentId: menu.documentId,
+            notebookId: menu.notebookId,
+            name: menu.text
+          }]
+    };
+  });
+
+  await saveDocumentTabGroupAssignments(nextGroups);
+}
+
 async function openDocumentGroupManagerFromTabMenu(): Promise<void> {
   closeDocumentTabContextMenu();
   await openTaskScopeDialog('document-groups');
+}
+
+async function showSiblingDocumentsFromTabMenu(): Promise<void> {
+  const menu = documentTabContextMenu.value;
+  if (!menu) {
+    return;
+  }
+
+  await loadDocumentScopeTree();
+  const document = documentScopeTreeDocumentsByNotebook.value
+    .get(menu.notebookId)
+    ?.find(item => item.id === menu.documentId);
+  const parent = document?.parentId
+    ? documentScopeTreeDocumentsByNotebook.value
+      .get(menu.notebookId)
+      ?.find(item => item.id === document.parentId)
+    : undefined;
+
+  if (!parent) {
+    const nextSourceValue = buildNotebookDocumentSource(menu.notebookId);
+    const nextScopes = { ...documentTabScopesBySource.value };
+    delete nextScopes[getDocumentTabScopeStorageKey(nextSourceValue)];
+    documentTabScopesBySource.value = nextScopes;
+    activeSourceFilterType.value = nextSourceValue;
+    currentDocumentFilter.value = 'all';
+    closeDocumentTabContextMenu();
+    return;
+  }
+
+  let path = '';
+  try {
+    path = (await getHPathByID(parent.id) || '').trim();
+  } catch {
+    path = '';
+  }
+  const sourceValue = getCurrentFilterNotebookId();
+  documentTabScopesBySource.value = {
+    ...documentTabScopesBySource.value,
+    [getDocumentTabScopeStorageKey(sourceValue)]: {
+      id: parent.id,
+      name: parent.name,
+      notebookId: parent.notebookId,
+      path
+    }
+  };
+  currentDocumentFilter.value = 'all';
+  closeDocumentTabContextMenu();
+}
+
+async function toggleDocumentTabGoalAssignment(goalId: string): Promise<void> {
+  const menu = documentTabContextMenu.value;
+  const normalizedGoalId = typeof goalId === 'string' ? goalId.trim() : '';
+  if (!menu || !normalizedGoalId) {
+    return;
+  }
+
+  const memberKey = `${menu.notebookId}:${menu.documentId}`;
+  const nextGoals = goalDefinitions.value.map(goal => {
+    if (goal.id !== normalizedGoalId) {
+      return goal;
+    }
+
+    const isAssigned = goal.members.some(member =>
+      `${member.notebookId}:${member.documentId}` === memberKey
+    );
+    return {
+      ...goal,
+      members: isAssigned
+        ? goal.members.filter(member => `${member.notebookId}:${member.documentId}` !== memberKey)
+        : [...goal.members, {
+            documentId: menu.documentId,
+            notebookId: menu.notebookId,
+            name: menu.text
+          }]
+    };
+  });
+
+  goalDefinitions.value = nextGoals;
+  closeDocumentTabContextMenu();
+  await saveGoalDefinitions(nextGoals);
+  await validateDocumentSelection();
+}
+
+async function openGoalManagerFromTabMenu(): Promise<void> {
+  closeDocumentTabContextMenu();
+  await openTaskScopeDialog('goals');
 }
 
 async function openTaskGroupQuickCreate(): Promise<void> {
@@ -5520,15 +5723,17 @@ function matchesTaskDocumentMemberScope(task: Task, member: DocumentGroupMember)
   });
 }
 
-function matchesTaskBySourceAndDocument(task: Task, sourceValue: string, documentId: string = 'all'): boolean {
+function getDocumentTabScopeStorageKey(sourceValue: string): string {
+  const viewScope = isCalendarTaskViewMode(currentView.value) ? 'calendar' : currentView.value;
+  return `${viewScope}:${sourceValue}`;
+}
+
+function matchesTaskBySource(task: Task, sourceValue: string): boolean {
   if (!isTaskIncludedByNotebookScope(task)) {
     return false;
   }
   const source = parseDocumentSource(sourceValue);
   if (source.kind === 'notebook' && task.notebookId !== source.id) {
-    return false;
-  }
-  if (documentId !== 'all' && !taskMatchesDocumentScope(task, documentId, taskDocumentPathLookup.value)) {
     return false;
   }
   if (source.kind !== 'group' && source.kind !== 'goal') {
@@ -5546,6 +5751,18 @@ function matchesTaskBySourceAndDocument(task: Task, sourceValue: string, documen
     return false;
   }
   return sourceMembers.some(member => matchesTaskDocumentMemberScope(task, member));
+}
+
+function matchesTaskBySourceAndDocument(task: Task, sourceValue: string, documentId: string = 'all'): boolean {
+  if (!matchesTaskBySource(task, sourceValue)) {
+    return false;
+  }
+  const documentScope = documentTabScopesBySource.value[getDocumentTabScopeStorageKey(sourceValue)];
+  if (documentScope && !taskMatchesDocumentScope(task, documentScope.id, taskDocumentPathLookup.value, documentScope)) {
+    return false;
+  }
+  return documentId === 'all'
+    || taskMatchesDocumentScope(task, documentId, taskDocumentPathLookup.value);
 }
 
 function matchesDateViewDocumentCandidate(task: Task, sourceValue: string): boolean {
@@ -5728,19 +5945,11 @@ function getDocumentEntriesByNotebook(
     }
 
     const hPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
-    const topLevelDocument = topLevelDocumentByTaskRootKey.value.get(`${taskNotebookId}:${task.rootId}`);
     const visibleEntries: Array<{ id: string; path?: string; name?: string }> = [{
       id: task.rootId,
       path: hPath,
       name: documentScopeMetadataByRootId.value.get(task.rootId)?.name
     }];
-    if (topLevelDocument && topLevelDocument.id !== task.rootId) {
-      visibleEntries.push({
-        id: topLevelDocument.id,
-        path: topLevelDocument.path,
-        name: topLevelDocument.name
-      });
-    }
 
     const markVisibleActiveTask = !task.archived && (!excludeCompletedOnlyDocs || !isTaskCompletedVisual(task));
     visibleEntries.forEach((entry) => {
@@ -5850,28 +6059,20 @@ function getDocumentEntriesBySource(
     if (!normalizedNotebookId || !normalizedDocumentId) {
       return;
     }
-    const topLevelDocument = topLevelDocumentByTaskRootKey.value.get(`${normalizedNotebookId}:${normalizedDocumentId}`);
-    const targetDocumentIds = [
-      topLevelDocument?.id,
-      normalizedDocumentId
-    ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
-
-    targetDocumentIds.forEach((targetDocumentId) => {
-      const key = `${normalizedNotebookId}:${targetDocumentId}`;
-      if (!enabledNotebookNameById.value.has(normalizedNotebookId) || seen.has(key)) {
-        return;
-      }
-      const existing = allDocsByKey.get(key);
-      if (!existing) {
-        return;
-      }
-      seen.add(key);
-      const notebookName = enabledNotebookNameById.value.get(normalizedNotebookId) || normalizedNotebookId;
-      result.push({
-        id: existing.id,
-        notebookId: existing.notebookId,
-        name: includeNotebookName ? `${notebookName} / ${existing.name}` : existing.name
-      });
+    const key = `${normalizedNotebookId}:${normalizedDocumentId}`;
+    if (!enabledNotebookNameById.value.has(normalizedNotebookId) || seen.has(key)) {
+      return;
+    }
+    const existing = allDocsByKey.get(key);
+    if (!existing) {
+      return;
+    }
+    seen.add(key);
+    const notebookName = enabledNotebookNameById.value.get(normalizedNotebookId) || normalizedNotebookId;
+    result.push({
+      id: existing.id,
+      notebookId: existing.notebookId,
+      name: includeNotebookName ? `${notebookName} / ${existing.name}` : existing.name
     });
   };
 
@@ -6049,98 +6250,6 @@ async function refreshTaskDocumentMetadata(): Promise<void> {
   }
 }
 
-function extractTopLevelDocumentIdFromStoragePath(path: unknown, fallbackId: string): string {
-  const normalizedPath = typeof path === 'string'
-    ? path.trim().replace(/\\/g, '/')
-    : '';
-  const firstSegment = normalizedPath
-    .split('/')
-    .map(segment => segment.trim())
-    .filter(segment => segment.length > 0)[0] || '';
-  const documentId = firstSegment.replace(/\.sy$/i, '').trim();
-  return documentId || fallbackId;
-}
-
-async function refreshTopLevelDocumentMetadata(): Promise<void> {
-  const seq = ++topLevelDocumentRefreshSeq;
-  const rootItemsByKey = new Map<string, { notebookId: string; rootId: string }>();
-  const addRootItem = (notebookId: unknown, rootId: unknown): void => {
-    const normalizedNotebookId = typeof notebookId === 'string' ? notebookId.trim() : '';
-    const normalizedRootId = typeof rootId === 'string' ? rootId.trim() : '';
-    if (!normalizedNotebookId || !normalizedRootId) {
-      return;
-    }
-    rootItemsByKey.set(`${normalizedNotebookId}:${normalizedRootId}`, {
-      notebookId: normalizedNotebookId,
-      rootId: normalizedRootId
-    });
-  };
-
-  tasks.value.forEach((task) => {
-    if (task.type === 'block') {
-      addRootItem(task.notebookId, task.rootId);
-    }
-  });
-  sortedDocumentGroups.value.forEach((group) => {
-    group.members.forEach(member => addRootItem(member.notebookId, member.documentId));
-  });
-  goalDefinitions.value.forEach((goal) => {
-    goal.members.forEach(member => addRootItem(member.notebookId, member.documentId));
-    (goal.taskMembers || []).forEach(member => addRootItem(member.notebookId, member.rootId));
-  });
-
-  const taskRoots = Array.from(rootItemsByKey.values());
-
-  if (taskRoots.length === 0) {
-    if (seq === topLevelDocumentRefreshSeq) {
-      topLevelDocumentByTaskRootKey.value = new Map();
-    }
-    return;
-  }
-
-  const pathResults = await Promise.all(taskRoots.map(async (item) => {
-    try {
-      const response = await getPathByID(item.rootId);
-      const notebookId = typeof response?.notebook === 'string' && response.notebook.trim().length > 0
-        ? response.notebook.trim()
-        : item.notebookId;
-      return {
-        ...item,
-        notebookId,
-        topLevelId: extractTopLevelDocumentIdFromStoragePath(response?.path, item.rootId)
-      };
-    } catch {
-      return {
-        ...item,
-        topLevelId: item.rootId
-      };
-    }
-  }));
-
-  const topLevelIds = Array.from(new Set(pathResults.map(item => item.topLevelId).filter(id => id.length > 0)));
-  const metadataByRootId = await loadRootDocumentMetadata(topLevelIds);
-  if (seq !== topLevelDocumentRefreshSeq) {
-    return;
-  }
-
-  const nextMap = new Map<string, TopLevelDocumentInfo>();
-  pathResults.forEach((item) => {
-    const metadata = metadataByRootId.get(item.topLevelId);
-    const path = metadata?.path || '';
-    nextMap.set(`${item.notebookId}:${item.rootId}`, {
-      id: item.topLevelId,
-      notebookId: item.notebookId,
-      name: resolveDocumentDisplayName({
-        id: item.topLevelId,
-        path,
-        name: metadata?.name
-      }),
-      path: path || undefined
-    });
-  });
-  topLevelDocumentByTaskRootKey.value = nextMap;
-}
-
 function scheduleTaskDocumentIconRefresh(delay = 80): void {
   if (documentIconRefreshTimer !== null) {
     clearTimeout(documentIconRefreshTimer);
@@ -6158,16 +6267,6 @@ function scheduleTaskDocumentMetadataRefresh(delay = 80): void {
   documentMetadataRefreshTimer = window.setTimeout(() => {
     documentMetadataRefreshTimer = null;
     void refreshTaskDocumentMetadata();
-  }, delay);
-}
-
-function scheduleTopLevelDocumentMetadataRefresh(delay = 80): void {
-  if (topLevelDocumentRefreshTimer !== null) {
-    clearTimeout(topLevelDocumentRefreshTimer);
-  }
-  topLevelDocumentRefreshTimer = window.setTimeout(() => {
-    topLevelDocumentRefreshTimer = null;
-    void refreshTopLevelDocumentMetadata();
   }, delay);
 }
 
@@ -6200,10 +6299,30 @@ function toQuickCreateDocumentOptions(notebookId: string): Array<{ value: string
   return toFilterDocumentOptions(notebookId);
 }
 
-const documentOptions = computed(() => toFilterDocumentOptions(getCurrentFilterNotebookId(), {
-  excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs(currentView.value),
-  taskMatcher: getDocumentTabTaskMatcher(currentView.value)
-}));
+const activeDocumentTabScope = computed(() =>
+  documentTabScopesBySource.value[getDocumentTabScopeStorageKey(getCurrentFilterNotebookId())] || null
+);
+const documentOptions = computed(() => {
+  const scope = activeDocumentTabScope.value;
+  const options = toFilterDocumentOptions(getCurrentFilterNotebookId(), {
+    excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs(currentView.value),
+    taskMatcher: getDocumentTabTaskMatcher(currentView.value)
+  });
+  return options
+    .filter(option => option.value === 'all' || option.value !== scope?.id)
+    .map(option => {
+      if (option.value === 'all' && scope) {
+        return { ...option, text: scope.name };
+      }
+      if (scope && option.notebookName) {
+        return {
+          ...option,
+          text: option.text.replace(`${option.notebookName} / `, '')
+        };
+      }
+      return option;
+    });
+});
 const quickCreateDocumentOptions = computed(() => toQuickCreateDocumentOptions(quickCreateNotebookId.value));
 const activeMilestoneSource = computed(() =>
   currentView.value === 'kanban'
@@ -6410,20 +6529,32 @@ function handleStatsDetailOpen(payload: StatsDetailPayload): void {
   openHabitTrackerPanel(payload);
 }
 
-const showDocumentTabs = computed(() => visibleDocumentOptions.value.length > 1);
+const showDocumentTabs = computed(() =>
+  visibleDocumentOptions.value.length > 1 || activeDocumentTabScope.value !== null
+);
 const showDocumentTabsDropdown = computed(() => showSourceFilterBar.value);
 const showDocumentTabsRow = computed(() => showDocumentTabs.value || showDocumentTabsDropdown.value);
-const documentTabContextCurrentGroupId = computed(() => {
+const documentTabContextGroupIds = computed(() => {
   const menu = documentTabContextMenu.value;
   if (!menu) {
-    return '';
+    return [];
   }
-  const currentGroup = sortedDocumentGroups.value.find(group =>
-    group.members.some(member =>
+  return sortedDocumentGroups.value
+    .filter(group => group.members.some(member =>
       member.documentId === menu.documentId && member.notebookId === menu.notebookId
-    )
-  );
-  return currentGroup?.id || '';
+    ))
+    .map(group => group.id);
+});
+const documentTabContextGoalIds = computed(() => {
+  const menu = documentTabContextMenu.value;
+  if (!menu) {
+    return [];
+  }
+  return goalDefinitions.value
+    .filter(goal => goal.members.some(member =>
+      member.documentId === menu.documentId && member.notebookId === menu.notebookId
+    ))
+    .map(goal => goal.id);
 });
 const documentTabContextMenuStyle = computed<Record<string, string>>(() => {
   const menu = documentTabContextMenu.value;
@@ -6787,6 +6918,184 @@ function toggleDocumentTabsDropdown(): void {
 function closeDocumentTabsDropdown(): void {
   documentTabsDropdownVisible.value = false;
   documentTabsDropdownPopoverStyle.value = {};
+}
+
+const documentScopeTreeRows = computed<DocumentScopeTreeRow[]>(() => {
+  const sourceValue = getCurrentFilterNotebookId();
+  const matchingTaskKeys = new Set(
+    tasks.value
+      .filter(task => task.type === 'block' && matchesTaskBySource(task, sourceValue))
+      .map(task => `${task.notebookId}:${task.rootId}`)
+  );
+  const documents = Array.from(documentScopeTreeDocumentsByNotebook.value.values()).flat();
+  const documentsByKey = new Map(documents.map(document => [`${document.notebookId}:${document.id}`, document]));
+  const visibleKeys = new Set<string>();
+
+  matchingTaskKeys.forEach((key) => {
+    let document = documentsByKey.get(key);
+    while (document) {
+      const documentKey = `${document.notebookId}:${document.id}`;
+      if (visibleKeys.has(documentKey)) break;
+      visibleKeys.add(documentKey);
+      document = document.parentId
+        ? documentsByKey.get(`${document.notebookId}:${document.parentId}`)
+        : undefined;
+    }
+  });
+
+  const childrenByParentKey = new Map<string, DocumentScopeTreeDocument[]>();
+  documents.forEach(document => {
+    const parentKey = document.parentId
+      ? `${document.notebookId}:${document.parentId}`
+      : `${document.notebookId}:root`;
+    const children = childrenByParentKey.get(parentKey) || [];
+    children.push(document);
+    childrenByParentKey.set(parentKey, children);
+  });
+  childrenByParentKey.forEach(children => children.sort((left, right) =>
+    left.name.localeCompare(right.name, 'zh-CN')
+  ));
+
+  const rows: DocumentScopeTreeRow[] = [];
+  const appendChildren = (parentKey: string, depth: number): void => {
+    (childrenByParentKey.get(parentKey) || []).forEach(document => {
+      const key = `${document.notebookId}:${document.id}`;
+      if (!visibleKeys.has(key)) return;
+      rows.push({ key, depth, document });
+      appendChildren(key, depth + 1);
+    });
+  };
+  Array.from(new Set(documents.map(document => document.notebookId)))
+    .sort((left, right) => (enabledNotebookNameById.value.get(left) || left)
+      .localeCompare(enabledNotebookNameById.value.get(right) || right, 'zh-CN'))
+    .forEach(notebookId => appendChildren(`${notebookId}:root`, 0));
+  const keyword = documentScopeTreeSearch.value.trim().toLocaleLowerCase();
+  if (!keyword) return rows;
+
+  const matchedKeys = new Set(
+    documents
+      .filter(document => document.name.toLocaleLowerCase().includes(keyword))
+      .map(document => `${document.notebookId}:${document.id}`)
+  );
+  Array.from(matchedKeys).forEach((key) => {
+    let document = documentsByKey.get(key);
+    while (document?.parentId) {
+      const parentKey = `${document.notebookId}:${document.parentId}`;
+      matchedKeys.add(parentKey);
+      document = documentsByKey.get(parentKey);
+    }
+  });
+  return rows.filter(row => matchedKeys.has(row.key));
+});
+
+async function loadDocumentScopeTree(): Promise<void> {
+  const sourceValue = getCurrentFilterNotebookId();
+  const notebookIds = Array.from(new Set(
+    tasks.value
+      .filter(task => task.type === 'block' && matchesTaskBySource(task, sourceValue))
+      .map(task => typeof task.notebookId === 'string' ? task.notebookId.trim() : '')
+      .filter(Boolean)
+  ));
+  const missingNotebookIds = notebookIds.filter(id => !documentScopeTreeDocumentsByNotebook.value.has(id));
+  if (missingNotebookIds.length === 0) return;
+
+  const requestId = ++documentScopeTreeRequestId;
+  documentScopeTreeLoading.value = true;
+  try {
+    const loadedTrees = await Promise.all(missingNotebookIds.map(async notebookId => {
+      const documents: DocumentScopeTreeDocument[] = [];
+      const loadBranch = async (path: string, parentId?: string): Promise<void> => {
+        const response = await listDocsByPath(notebookId, path);
+        const files = response && typeof response === 'object' && Array.isArray((response as { files?: unknown }).files)
+          ? (response as { files: Array<{ id?: unknown; name?: unknown; path?: unknown; subFileCount?: unknown }> }).files
+          : [];
+        for (const file of files) {
+          const id = typeof file.id === 'string' ? file.id.trim() : '';
+          const storagePath = typeof file.path === 'string' ? file.path.trim() : '';
+          if (!id || !storagePath) continue;
+          documents.push({
+            id,
+            name: typeof file.name === 'string' && file.name.trim() ? file.name.trim() : id,
+            notebookId,
+            parentId,
+            storagePath
+          });
+          if (Number(file.subFileCount) > 0) {
+            await loadBranch(storagePath, id);
+          }
+        }
+      };
+      await loadBranch('/');
+      return [notebookId, documents] as const;
+    }));
+    if (requestId !== documentScopeTreeRequestId) return;
+    const nextTrees = new Map(documentScopeTreeDocumentsByNotebook.value);
+    loadedTrees.forEach(([notebookId, documents]) => nextTrees.set(notebookId, documents));
+    documentScopeTreeDocumentsByNotebook.value = nextTrees;
+  } catch (error) {
+    console.warn('[KanbanView] Failed to load the document scope tree:', error);
+  } finally {
+    if (requestId === documentScopeTreeRequestId) documentScopeTreeLoading.value = false;
+  }
+}
+
+function updateDocumentScopePickerPosition(): void {
+  if (!documentScopePickerVisible.value) return;
+  const trigger = documentTabsRef.value?.querySelector<HTMLElement>('.document-tab');
+  if (!trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  documentScopePickerStyle.value = {
+    position: 'fixed',
+    left: `${Math.round(rect.left)}px`,
+    top: `${Math.round(rect.bottom + 6)}px`,
+    maxWidth: `${Math.min(360, window.innerWidth - Math.max(8, rect.left) - 8)}px`
+  };
+}
+
+function closeDocumentScopePicker(): void {
+  documentScopePickerVisible.value = false;
+  documentScopePickerStyle.value = {};
+  documentScopeTreeSearch.value = '';
+}
+
+function toggleDocumentScopePicker(): void {
+  documentScopePickerVisible.value = !documentScopePickerVisible.value;
+  if (!documentScopePickerVisible.value) {
+    documentScopePickerStyle.value = {};
+    return;
+  }
+  closeDocumentTabsDropdown();
+  closeDocumentTabContextMenu();
+  void loadDocumentScopeTree();
+  nextTick(() => {
+    updateDocumentScopePickerPosition();
+    documentScopePickerSearchInputRef.value?.focus();
+  });
+}
+
+async function selectDocumentTabScope(scope?: DocumentScopeTreeDocument): Promise<void> {
+  const sourceValue = getCurrentFilterNotebookId();
+  const scopeStorageKey = getDocumentTabScopeStorageKey(sourceValue);
+  const nextScopes = { ...documentTabScopesBySource.value };
+  if (scope) {
+    let path = '';
+    try {
+      path = (await getHPathByID(scope.id) || '').trim();
+    } catch {
+      path = '';
+    }
+    nextScopes[scopeStorageKey] = {
+      id: scope.id,
+      name: scope.name,
+      notebookId: scope.notebookId,
+      path
+    };
+  } else {
+    delete nextScopes[scopeStorageKey];
+  }
+  documentTabScopesBySource.value = nextScopes;
+  currentDocumentFilter.value = 'all';
+  closeDocumentScopePicker();
 }
 
 function updateDocumentTabsDropdownPosition(): void {
@@ -7227,6 +7536,7 @@ watch([
   ganttFilterDocument,
   ganttMilestonesEnabled,
   ganttDocumentOrderBySource,
+  documentTabScopesBySource,
   monthFilterType,
   monthFilterDocument,
   weekFilterType,
@@ -10099,6 +10409,7 @@ async function loadUserSettings() {
     ganttFilterDocument.value = settings.ganttFilterDocument || 'all';
     ganttMilestonesEnabled.value = settings.ganttMilestonesEnabled === true;
     ganttDocumentOrderBySource.value = settings.ganttDocumentOrderBySource || {};
+    documentTabScopesBySource.value = settings.documentTabScopesBySource || {};
     const persistedCalendarView = isCalendarTaskViewMode(storedCurrentView)
       ? storedCurrentView
       : lastCalendarView.value;
@@ -10184,6 +10495,7 @@ async function saveUserSettings() {
       ganttFilterDocument: ganttFilterDocument.value,
       ganttMilestonesEnabled: ganttMilestonesEnabled.value,
       ganttDocumentOrderBySource: ganttDocumentOrderBySource.value,
+      documentTabScopesBySource: documentTabScopesBySource.value,
       monthFilterType: monthSource.kind === 'notebook' ? monthSource.id : 'all',
       monthFilterSource: monthFilterType.value,
       monthFilterDocument: monthFilterDocument.value,
@@ -12182,6 +12494,12 @@ function handleKanbanEditorOutsideClick(event: MouseEvent): void {
     }
     closeDocumentTabsDropdown();
   }
+  if (documentScopePickerVisible.value) {
+    if (documentTabsRef.value?.contains(target) || documentScopePickerRef.value?.contains(target)) {
+      return;
+    }
+    closeDocumentScopePicker();
+  }
   if (documentTabContextMenu.value) {
     if (documentTabContextMenuRef.value?.contains(target)) {
       return;
@@ -12239,6 +12557,10 @@ function handleKanbanEditorKeydown(event: KeyboardEvent): void {
     closeDocumentTabsDropdown();
     return;
   }
+  if (documentScopePickerVisible.value) {
+    closeDocumentScopePicker();
+    return;
+  }
   if (documentTabContextMenu.value) {
     closeDocumentTabContextMenu();
     return;
@@ -12281,6 +12603,9 @@ function handleKanbanEditorViewportChange(): void {
   }
   if (documentTabsDropdownVisible.value) {
     updateDocumentTabsDropdownPosition();
+  }
+  if (documentScopePickerVisible.value) {
+    updateDocumentScopePickerPosition();
   }
   if (documentTabContextMenu.value) {
     closeDocumentTabContextMenu();
@@ -15087,10 +15412,6 @@ onUnmounted(() => {
     cancelAnimationFrame(listViewMetricsRaf);
     listViewMetricsRaf = null;
   }
-  if (topLevelDocumentRefreshTimer !== null) {
-    clearTimeout(topLevelDocumentRefreshTimer);
-    topLevelDocumentRefreshTimer = null;
-  }
   pendingKanbanMetricColumnIds.clear();
   kanbanColumnElements.clear();
   kanbanColumnTaskHeightCache.clear();
@@ -15122,39 +15443,12 @@ const taskDocumentMetadataWatchSignature = computed(() =>
     .join('|')
 );
 
-const topLevelDocumentMetadataWatchSignature = computed(() =>
-  [
-    ...tasks.value
-    .filter(task => task.type === 'block')
-    .map(task => {
-      const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
-      const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
-      const hPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
-      return notebookId && rootId ? `${notebookId}:${rootId}:${hPath}` : '';
-    }),
-    ...sortedDocumentGroups.value.flatMap(group =>
-      group.members.map(member => `${member.notebookId}:${member.documentId}:${member.path || ''}`)
-    ),
-    ...goalDefinitions.value.flatMap(goal => [
-      ...goal.members.map(member => `${member.notebookId}:${member.documentId}:${member.path || ''}`),
-      ...(goal.taskMembers || []).map(member => `${member.notebookId || ''}:${member.rootId || ''}`)
-    ])
-  ]
-    .filter(value => value.length > 0)
-    .sort()
-    .join('|')
-);
-
 watch(taskDocumentIconWatchSignature, () => {
   scheduleTaskDocumentIconRefresh();
 }, { immediate: true });
 
 watch(taskDocumentMetadataWatchSignature, () => {
   scheduleTaskDocumentMetadataRefresh();
-}, { immediate: true });
-
-watch(topLevelDocumentMetadataWatchSignature, () => {
-  scheduleTopLevelDocumentMetadataRefresh();
 }, { immediate: true });
 
 watch(documentTabPopoverOptions, () => {
@@ -15634,6 +15928,77 @@ watch(kanbanColumns, () => {
   font-size: 12px;
 }
 
+.document-scope-picker {
+  min-width: 200px;
+  max-height: min(420px, calc(100vh - 80px));
+  overflow: auto;
+  padding: 6px;
+  font-size: 12px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  box-sizing: border-box;
+  z-index: 90;
+}
+
+.document-scope-picker-search {
+  display: block;
+  width: 100%;
+  height: 30px;
+  margin: 0 0 6px;
+  padding: 0 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font: inherit;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.document-scope-picker-search:focus {
+  border-color: var(--b3-theme-primary);
+}
+
+.document-scope-picker-row {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  padding-top: 5px;
+  padding-right: 10px;
+  padding-bottom: 5px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.document-scope-picker-row:hover,
+.document-scope-picker-row.active {
+  background: var(--b3-list-hover);
+}
+
+.document-scope-picker-row.active {
+  font-weight: 600;
+}
+
+.document-scope-picker-all {
+  padding-left: 12px;
+}
+
+.document-scope-picker-empty {
+  padding: 8px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  opacity: 0.7;
+}
+
 .table-document-actions {
   align-items: center;
 }
@@ -15824,6 +16189,9 @@ watch(kanbanColumns, () => {
 }
 
 .document-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: 1px solid transparent;
   background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
@@ -15843,6 +16211,71 @@ watch(kanbanColumns, () => {
 .document-tab.active {
   background: var(--b3-theme-on-background);
   color: var(--b3-theme-background);
+}
+
+.document-tab-scope {
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+}
+
+.document-tab-scope-label,
+.document-tab-scope-toggle,
+.document-tab-scope-reset {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.document-tab-scope-label {
+  min-width: 48px;
+  max-width: 180px;
+  padding: 3px 1px;
+  overflow: hidden;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-tab-scope-toggle {
+  flex: 0 0 25px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.document-tab-scope-toggle:hover,
+.document-tab-scope-toggle.active,
+.document-tab-scope-reset:hover {
+  background: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.document-tab-scope-toggle svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.document-tab-scope-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 16px;
+  line-height: 1;
 }
 
 .document-tab-milestone-number {
@@ -15900,15 +16333,71 @@ watch(kanbanColumns, () => {
 }
 
 .document-tab-context-menu-title {
+  padding: 0 10px;
   font-size: 12px;
   font-weight: 600;
   color: var(--b3-theme-on-background);
   word-break: break-word;
 }
 
-.document-tab-context-menu-subtitle {
-  font-size: 11px;
+.document-tab-context-menu-submenu {
+  position: relative;
+}
+
+.document-tab-context-menu-submenu::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 100%;
+  width: 12px;
+  height: 100%;
+}
+
+.document-tab-context-menu-trigger {
+  width: 100%;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
   color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.document-tab-context-menu-submenu:hover .document-tab-context-menu-trigger,
+.document-tab-context-menu-submenu:focus-within .document-tab-context-menu-trigger {
+  color: var(--b3-theme-on-background);
+}
+
+.document-tab-context-menu-arrow {
+  font-size: 18px;
+  line-height: 10px;
+}
+
+.document-tab-context-menu-panel {
+  position: absolute;
+  z-index: 1;
+  top: -8px;
+  left: calc(100% + 12px);
+  display: none;
+  min-width: 188px;
+  max-width: min(280px, calc(100vw - 20px));
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 12px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+  padding: 8px;
+}
+
+.document-tab-context-menu-submenu:hover .document-tab-context-menu-panel,
+.document-tab-context-menu-submenu:focus-within .document-tab-context-menu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .document-tab-context-menu-list {
@@ -15920,7 +16409,7 @@ watch(kanbanColumns, () => {
 .document-tab-context-menu-item {
   width: 100%;
   border: none;
-  background: var(--b3-list-hover);
+  background: transparent;
   border-radius: 8px;
   color: var(--b3-theme-on-surface);
   font-size: 12px;

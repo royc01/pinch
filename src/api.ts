@@ -307,6 +307,15 @@ export async function getIDsByHPath(
   return request(url, data);
 }
 
+export async function listDocsByPath(
+  notebook: NotebookId,
+  path: string,
+  sort = 0,
+  maxListCount = 0
+): Promise<unknown> {
+  return request('/api/filetree/listDocsByPath', { notebook, path, sort, maxListCount });
+}
+
 // **************************************** Asset Files ****************************************
 
 export async function upload(

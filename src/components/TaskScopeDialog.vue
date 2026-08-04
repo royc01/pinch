@@ -317,7 +317,6 @@
           :groups="localDocumentGroups"
           :documents="documentGroupDocuments"
           :all-documents="allDocumentGroupDocuments"
-          :notebook-ids="enabledDocumentGroupNotebookIds"
           :documents-refreshing="documentsRefreshing"
           @update:groups="localDocumentGroups = $event"
           @refresh-documents="emit('refresh-documents')"
@@ -625,11 +624,6 @@ const availableTabs = computed<TaskScopeDialogTab[]>(() => {
 const showTabs = computed(() => availableTabs.value.length > 1);
 const documentGroupDocuments = computed(() => props.documentGroupDocuments || []);
 const allDocumentGroupDocuments = computed(() => props.allDocumentGroupDocuments || []);
-const enabledDocumentGroupNotebookIds = computed(() =>
-  props.notebooks
-    .map(notebook => notebook.id)
-    .filter(id => !localExcludedNotebookIds.value.includes(id))
-);
 const goalDocuments = computed(() => props.goalDocuments || []);
 const goalTasks = computed(() => props.goalTasks || []);
 const activeHint = computed(() =>
@@ -657,6 +651,7 @@ function cloneGoals(goals: Goal[]): Goal[] {
   return (goals || []).map(goal => ({
     ...goal,
     members: Array.isArray(goal.members) ? goal.members.map(member => ({ ...member })) : [],
+    excludedDocumentKeys: Array.isArray(goal.excludedDocumentKeys) ? [...goal.excludedDocumentKeys] : undefined,
     taskMembers: Array.isArray(goal.taskMembers) ? goal.taskMembers.map(member => ({ ...member })) : [],
     excludedTaskMembers: Array.isArray(goal.excludedTaskMembers) ? goal.excludedTaskMembers.map(member => ({ ...member })) : []
   }));

@@ -58,6 +58,12 @@ export interface UserSettings {
     ganttFilterDocument?: string;
     ganttMilestonesEnabled?: boolean;
     ganttDocumentOrderBySource?: Record<string, string[]>;
+    documentTabScopesBySource?: Record<string, {
+      id: string;
+      name: string;
+      notebookId: string;
+      path?: string;
+    }>;
     monthFilterType: string;
     monthFilterSource?: string;
     monthFilterDocument: string;
@@ -171,6 +177,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     ganttFilterDocument: 'all',
     ganttMilestonesEnabled: false,
     ganttDocumentOrderBySource: {},
+    documentTabScopesBySource: {},
     monthFilterType: 'all',
     monthFilterSource: 'all',
     monthFilterDocument: 'all',
@@ -271,6 +278,37 @@ function normalizeDocumentOrderBySource(input: unknown): Record<string, string[]
   }, {});
 }
 
+function normalizeDocumentTabScopesBySource(input: unknown): Record<string, {
+  id: string;
+  name: string;
+  notebookId: string;
+  path?: string;
+}> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return {};
+  }
+
+  return Object.entries(input as Record<string, unknown>).reduce<Record<string, {
+    id: string;
+    name: string;
+    notebookId: string;
+    path?: string;
+  }>>((result, [source, value]) => {
+    const raw = value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null;
+    const normalizedSource = source.trim();
+    const id = typeof raw?.id === 'string' ? raw.id.trim() : '';
+    const name = typeof raw?.name === 'string' ? raw.name.trim() : '';
+    const notebookId = typeof raw?.notebookId === 'string' ? raw.notebookId.trim() : '';
+    const path = typeof raw?.path === 'string' ? raw.path.trim() : '';
+    if (normalizedSource && id && name && notebookId) {
+      result[normalizedSource] = { id, name, notebookId, ...(path ? { path } : {}) };
+    }
+    return result;
+  }, {});
+}
+
 function normalizePositiveInteger(input: unknown, fallback: number): number {
   const value = typeof input === 'number' ? Math.floor(input) : Number(input);
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -366,6 +404,9 @@ function mergeWithDefaults(input: unknown): UserSettings {
       hiddenDocumentTabIds: normalizeNotebookIds((rawKanban as { hiddenDocumentTabIds?: unknown }).hiddenDocumentTabIds),
       ganttDocumentOrderBySource: normalizeDocumentOrderBySource(
         (rawKanban as { ganttDocumentOrderBySource?: unknown }).ganttDocumentOrderBySource
+      ),
+      documentTabScopesBySource: normalizeDocumentTabScopesBySource(
+        (rawKanban as { documentTabScopesBySource?: unknown }).documentTabScopesBySource
       ),
       kanbanGroupColumnOrder: normalizeStringArray((rawKanban as { kanbanGroupColumnOrder?: unknown }).kanbanGroupColumnOrder),
       kanbanStatusFilters: normalizeStringArray((rawKanban as { kanbanStatusFilters?: unknown }).kanbanStatusFilters),

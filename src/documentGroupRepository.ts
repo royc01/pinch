@@ -12,6 +12,8 @@ export interface DocumentGroup {
   name: string;
   emoji?: string;
   members: DocumentGroupMember[];
+  /** Explicit opt-outs from a selected ancestor document. */
+  excludedDocumentKeys?: string[];
   order?: number;
   createdAt?: string;
   updatedAt?: string;
@@ -69,6 +71,15 @@ function normalizeDocumentGroupMembers(input: unknown): DocumentGroupMember[] {
   return normalized;
 }
 
+function normalizeExcludedDocumentKeys(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const keys = Array.from(new Set(input
+    .filter((key): key is string => typeof key === 'string')
+    .map(key => key.trim())
+    .filter(key => /^[^:\s]+:[^:\s]+$/.test(key))));
+  return keys.length > 0 ? keys : undefined;
+}
+
 function normalizeDocumentGroups(input: unknown): DocumentGroup[] {
   if (!Array.isArray(input)) {
     return [];
@@ -89,6 +100,7 @@ function normalizeDocumentGroups(input: unknown): DocumentGroup[] {
     }
 
     const members = normalizeDocumentGroupMembers(group.members);
+    const excludedDocumentKeys = normalizeExcludedDocumentKeys(group.excludedDocumentKeys);
     const emoji = typeof group.emoji === 'string' && group.emoji.trim().length > 0
       ? group.emoji.trim()
       : '📁';
@@ -103,6 +115,7 @@ function normalizeDocumentGroups(input: unknown): DocumentGroup[] {
       name,
       emoji,
       members,
+      excludedDocumentKeys,
       order,
       createdAt,
       updatedAt
