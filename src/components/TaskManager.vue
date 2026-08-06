@@ -973,6 +973,11 @@ import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { applyTaskAttributeMutation } from '@/utils/taskMutationService';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
+import { createPeriodicSetCleanup } from '@/utils/setCleanup';
+import {
+  collectTaskTitleHydrationBlockIds,
+  shouldHydrateTaskTitle
+} from '@/utils/taskTitleHydration';
 import { getTaskElementFromDoc, parseTaskCompleted } from '@/utils/taskDom';
 import {
   buildTaskReminderAttrs,
@@ -1573,7 +1578,7 @@ interface TaskGroupDialogSavePayload {
   orderIds: string[];
 }
 
-let skipCleanupTimer: number | null = null;
+const { start: startSkipSetCleanup, stop: stopSkipSetCleanup } = createPeriodicSetCleanup(skipSet);
 const taskListViewOptions: Array<{ value: TaskListViewMode; label: string }> = [
   { value: 'kanban', label: t('taskManager.kanbanView') },
   { value: 'list', label: t('taskManager.listView') },
@@ -2539,25 +2544,6 @@ async function selectTaskEditorGoal(value: string): Promise<void> {
   const nextGoals = toggleTaskGoalMembership(goalDefinitions.value, task, value);
   goalDefinitions.value = nextGoals;
   await saveGoalDefinitions(nextGoals);
-}
-
-function startSkipSetCleanup() {
-  if (skipCleanupTimer !== null) {
-    clearInterval(skipCleanupTimer);
-  }
-  
-  skipCleanupTimer = window.setInterval(() => {
-    if (skipSet.size > 0) {
-      skipSet.clear();
-    }
-  }, 60000);
-}
-
-function stopSkipSetCleanup() {
-  if (skipCleanupTimer !== null) {
-    clearInterval(skipCleanupTimer);
-    skipCleanupTimer = null;
-  }
 }
 
 type TaskArchiveViewMode = 'active' | 'archived' | 'all';
@@ -5279,21 +5265,7 @@ async function hydrateVisibleTaskTitles(): Promise<void> {
   }
   if (candidates.length === 0) return;
 
-  const blockIds: string[] = [];
-  const seen = new Set<string>();
-  for (const task of candidates) {
-    if (task.type !== 'block' || !task.blockId) continue;
-    if (seen.has(task.blockId)) continue;
-    const titleHtml = typeof task.title === 'string' ? task.title : '';
-    if (!titleHtml.includes('<sup') && !hasMarkdownInlineMemo(titleHtml)) {
-      continue;
-    }
-    seen.add(task.blockId);
-    blockIds.push(task.blockId);
-    if (blockIds.length >= TASK_TITLE_HYDRATE_LIMIT) {
-      break;
-    }
-  }
+  const blockIds = collectTaskTitleHydrationBlockIds(candidates, TASK_TITLE_HYDRATE_LIMIT);
 
   if (blockIds.length === 0) {
     return;
@@ -5643,10 +5615,13 @@ async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'scope') {
     await loadNotebooks();
   }
   taskScopeDialogInitialTab.value = initialTab;
-  if (initialTab === 'goals') {
-    await loadGoalsData({ taskUseCache: false });
-  }
   showTaskScopeDialog.value = true;
+  if (initialTab === 'goals') {
+    // The goal manager can render the shared snapshot immediately. A fresh
+    // task scan is comparatively expensive, so do not delay opening the
+    // settings dialog while it runs.
+    void loadGoalsData({ taskUseCache: false });
+  }
   if (initialTab === 'scope' || initialTab === 'document-groups') {
     void refreshTaskScopeDocumentSourcesInBackground({ includeGoalsData: true });
   }
@@ -6910,19 +6885,6 @@ function hasInlineMemoTitle(title: string): boolean {
   return title.includes('data-type="inline-memo"') || title.includes('data-inline-memo-content');
 }
 
-function hasMarkdownInlineMemo(title: string): boolean {
-  const inlineMemoRegex = /\(\(([^()]+)\)\)/g;
-  let match: RegExpExecArray | null;
-  while ((match = inlineMemoRegex.exec(title)) !== null) {
-    const content = match[1];
-    // Block references have format: 14-digit timestamp + hyphen + 7+ alphanumeric
-    if (!/^[0-9]{14}-[a-z0-9]{7,}$/.test(content)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function shouldSkipMemoTitleDowngrade(currentTitle: string, nextTitle: string): boolean {
   return hasInlineMemoTitle(currentTitle) && !hasInlineMemoTitle(nextTitle) && nextTitle.includes('<sup');
 }
@@ -6961,7 +6923,7 @@ function hydrateMemoTitlesFromLiveDom(taskList: Task[], limit = TASK_TITLE_HYDRA
       continue;
     }
     const currentTitle = typeof task.title === 'string' ? task.title : '';
-    if (!currentTitle.includes('<sup') && !hasMarkdownInlineMemo(currentTitle)) {
+    if (!shouldHydrateTaskTitle(currentTitle)) {
       continue;
     }
     const liveTitle = getLiveTaskTitle(task.blockId);

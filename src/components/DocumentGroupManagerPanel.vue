@@ -78,7 +78,7 @@
             :placeholder="t('documentGroup.searchDocuments')"
             @update:model-value="documentSearch = $event"
           />
-          <div v-if="documentTreeLoading" class="document-group-empty">
+          <div v-if="(documentTreeLoading || documentsRefreshing) && allDocuments.length === 0" class="document-group-empty">
             {{ t('taskManager.loading') }}
           </div>
           <div v-else-if="visibleDocuments.length === 0" class="document-group-empty">
@@ -192,7 +192,10 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import type { DocumentGroup } from '@/documentGroupRepository';
 import { useI18n } from '@/composables/useI18n';
-import { listDocsByPath } from '@/api';
+import {
+  invalidateFiletreeDocumentTree,
+  loadFiletreeDocumentTree
+} from '@/utils/filetreeDocumentTree';
 
 interface DocumentGroupManagerDocument {
   id: string;
@@ -241,8 +244,17 @@ const documentSearch = ref('');
 const expandedDocumentKeys = ref(new Set<string>());
 const collapsedNotebookIds = ref(new Set<string>());
 const documentTreeDocuments = ref<DocumentGroupManagerDocument[]>([]);
-const documentTreeLoading = ref(true);
+const documentTreeLoading = ref(false);
 let documentTreeRequestId = 0;
+
+// The SQL snapshot normally already has the data needed for the first tree
+// render. Limit expensive file-tree walks to changes in the notebooks being
+// represented, rather than restarting one for every document-prop update.
+const documentTreeNotebookIds = computed(() => Array.from(new Set((props.documents || [])
+  .map(document => document.notebookId?.trim())
+  .filter((id): id is string => Boolean(id))))
+  .sort());
+const documentTreeNotebookSignature = computed(() => documentTreeNotebookIds.value.join('\u0000'));
 
 function cloneGroups(groups: DocumentGroup[]): DocumentGroup[] {
   return (groups || []).map(group => ({
@@ -275,11 +287,11 @@ const selectedGroup = computed(() =>
 
 const allDocuments = computed(() => {
   const documentsByKey = new Map<string, DocumentGroupManagerDocument>();
-  const treeSource = documentTreeDocuments.value.length > 0
-    ? documentTreeDocuments.value
-    : (props.allDocuments || []);
   for (const document of [
-    ...treeSource,
+    // File-tree data fills gaps in the SQL snapshot, while the latest SQL
+    // data remains authoritative when both contain the same document.
+    ...documentTreeDocuments.value,
+    ...(props.allDocuments || []),
     ...(props.documents || [])
   ]) {
     const key = `${document.notebookId}:${document.id}`;
@@ -296,55 +308,31 @@ const allDocuments = computed(() => {
   return Array.from(documentsByKey.values());
 });
 
-interface ListedDocument {
-  id?: string;
-  name?: string;
-  path?: string;
-  subFileCount?: number;
-}
-
-async function loadDocumentTreeFromFiletreeApi(): Promise<boolean> {
+async function loadDocumentTreeFromFiletreeApi(force = false): Promise<boolean> {
   const requestId = ++documentTreeRequestId;
   const notebookNameById = new Map<string, string>();
   for (const document of [...(props.allDocuments || []), ...(props.documents || [])]) {
     if (document.notebookId && document.notebookName) notebookNameById.set(document.notebookId, document.notebookName);
   }
-  const notebookIds = Array.from(new Set((props.documents || [])
-    .map(document => document.notebookId?.trim())
-    .filter((id): id is string => Boolean(id))));
+  const notebookIds = documentTreeNotebookIds.value;
   if (notebookIds.length === 0) {
     documentTreeDocuments.value = [];
     documentTreeLoading.value = false;
     return true;
   }
 
-  documentTreeLoading.value = true;
+  // Show immediately available SQL data first. The file-tree request keeps
+  // running in the background to cover incomplete SQL snapshots.
+  documentTreeLoading.value = allDocuments.value.length === 0;
   try {
-    const documentsByKey = new Map<string, DocumentGroupManagerDocument>();
-    const loadBranch = async (notebookId: string, path: string, parentId?: string): Promise<void> => {
-      const response = await listDocsByPath(notebookId, path);
-      const files = response && typeof response === 'object' && Array.isArray((response as { files?: unknown }).files)
-        ? (response as { files: ListedDocument[] }).files
-        : null;
-      if (!files) throw new Error('Unexpected listDocsByPath response');
-      await Promise.all(files.map(async file => {
-        const id = typeof file.id === 'string' ? file.id.trim() : '';
-        const documentPath = typeof file.path === 'string' ? file.path.trim() : '';
-        if (!id || !documentPath) return;
-        documentsByKey.set(`${notebookId}:${id}`, {
-          id,
-          name: typeof file.name === 'string' && file.name.trim() ? file.name.trim() : id,
-          notebookId,
-          notebookName: notebookNameById.get(notebookId) || notebookId,
-          parentId,
-          storagePath: documentPath
-        });
-        if (Number(file.subFileCount) > 0) await loadBranch(notebookId, documentPath, id);
-      }));
-    };
-    await Promise.all(notebookIds.map(notebookId => loadBranch(notebookId, '/')));
+    const trees = await Promise.all(notebookIds.map(notebookId =>
+      loadFiletreeDocumentTree(notebookId, { force })
+    ));
     if (requestId !== documentTreeRequestId) return false;
-    documentTreeDocuments.value = Array.from(documentsByKey.values());
+    documentTreeDocuments.value = trees.flatMap(tree => tree.map(document => ({
+      ...document,
+      notebookName: notebookNameById.get(document.notebookId) || document.notebookId
+    })));
     synchronizeDescendantMemberships();
     return true;
   } catch (error) {
@@ -358,8 +346,8 @@ async function loadDocumentTreeFromFiletreeApi(): Promise<boolean> {
   }
 }
 
-async function refreshDocumentTree(): Promise<void> {
-  await loadDocumentTreeFromFiletreeApi();
+async function refreshDocumentTree(force = false): Promise<void> {
+  await loadDocumentTreeFromFiletreeApi(force);
 }
 
 // A task in the notebook root uses the notebook-level document as its root.
@@ -371,6 +359,8 @@ const notebookLevelDocumentKeys = computed(() => new Set(
 ));
 
 function refreshDocuments(): void {
+  invalidateFiletreeDocumentTree(documentTreeNotebookIds.value);
+  void refreshDocumentTree(true);
   emit('refresh-documents');
 }
 
@@ -838,11 +828,22 @@ watch(
 );
 
 watch(
-  [() => props.documents, () => props.allDocuments],
+  documentTreeNotebookSignature,
   () => {
     void refreshDocumentTree();
   },
-  { immediate: true, deep: true }
+  { immediate: true }
+);
+
+watch(
+  [() => props.documents, () => props.allDocuments],
+  () => {
+    // New task documents can arrive while the file-tree enrichment is still
+    // cached or in flight. Keep inherited group membership in sync from the
+    // fresh SQL snapshot without forcing another full traversal.
+    synchronizeDescendantMemberships();
+  },
+  { deep: true, flush: 'post' }
 );
 
 </script>

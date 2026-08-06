@@ -1179,4 +1179,6 @@
     "taskReminder.notificationTitle":  "任务提醒",
     "taskReminder.bodyWithDueTemplate":  "{title}（{reminderLabel}，截止 {dueText}）",
     "taskReminder.bodyWithLabelTemplate":  "{title}（{reminderLabel}）"
+  ,"habitTracker.deleteHabit": "\u5220\u9664\u4e60\u60ef",
+  "habitTracker.pauseHabit": "\u6682\u505c\u4e60\u60ef"
 }

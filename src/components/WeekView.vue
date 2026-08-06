@@ -734,6 +734,7 @@ import {
   TASK_BACKGROUND_COLOR_OPTIONS,
   TASK_BACKGROUND_COLOR_VALUES
 } from '@/utils/taskGroupShared';
+import { assignOverlapLanes } from '@/utils/overlapLanes';
 
 interface Props {
   tasks: Task[];
@@ -1805,131 +1806,19 @@ function timeToMinutes(time: string): number {
 }
 
 function assignTimedTaskLanes(items: TimedTaskRenderItem[]): TimedTaskRenderItem[] {
-  if (items.length <= 1) {
-    return items.map(item => ({ ...item, laneIndex: 0, laneCount: 1 }));
-  }
-
-  const normalized = items
-    .map((item) => {
-      const start = timeToMinutes(item.renderStartTime);
-      const end = Math.max(start + 1, timeToMinutes(item.renderDueTime));
-      return { item, start, end };
-    })
-    .sort((a, b) => {
-      if (a.start !== b.start) return a.start - b.start;
-      return a.end - b.end;
-    });
-
-  const result: TimedTaskRenderItem[] = [];
-  let cluster: typeof normalized = [];
-  let clusterEnd = -1;
-
-  const flushCluster = () => {
-    if (cluster.length === 0) return;
-
-    const laneEnds: number[] = [];
-    const assigned: Array<{ item: TimedTaskRenderItem; laneIndex: number }> = [];
-
-    for (const entry of cluster) {
-      let laneIndex = laneEnds.findIndex(end => end <= entry.start);
-      if (laneIndex === -1) {
-        laneIndex = laneEnds.length;
-        laneEnds.push(entry.end);
-      } else {
-        laneEnds[laneIndex] = entry.end;
-      }
-
-      assigned.push({ item: entry.item, laneIndex });
-    }
-
-    const laneCount = Math.max(1, laneEnds.length);
-    for (const { item, laneIndex } of assigned) {
-      result.push({
-        ...item,
-        laneIndex,
-        laneCount
-      });
-    }
-  };
-
-  for (const entry of normalized) {
-    if (cluster.length === 0 || entry.start < clusterEnd) {
-      cluster.push(entry);
-      clusterEnd = Math.max(clusterEnd, entry.end);
-      continue;
-    }
-
-    flushCluster();
-    cluster = [entry];
-    clusterEnd = entry.end;
-  }
-
-  flushCluster();
-  return result;
+  return assignOverlapLanes(
+    items,
+    item => timeToMinutes(item.renderStartTime),
+    (item, start) => Math.max(start + 1, timeToMinutes(item.renderDueTime))
+  );
 }
 
 function assignFocusSessionLanes(items: FocusCalendarEvent[]): FocusCalendarEvent[] {
-  if (items.length <= 1) {
-    return items.map(item => ({ ...item, laneIndex: 0, laneCount: 1 }));
-  }
-
-  const normalized = items
-    .map((item) => {
-      const start = timeToMinutes(item.startTime);
-      const end = Math.max(start + 15, timeToMinutes(item.endTime));
-      return { item, start, end };
-    })
-    .sort((a, b) => {
-      if (a.start !== b.start) return a.start - b.start;
-      return a.end - b.end;
-    });
-
-  const result: FocusCalendarEvent[] = [];
-  let cluster: typeof normalized = [];
-  let clusterEnd = -1;
-
-  const flushCluster = () => {
-    if (cluster.length === 0) return;
-
-    const laneEnds: number[] = [];
-    const assigned: Array<{ item: FocusCalendarEvent; laneIndex: number }> = [];
-
-    for (const entry of cluster) {
-      let laneIndex = laneEnds.findIndex(end => end <= entry.start);
-      if (laneIndex === -1) {
-        laneIndex = laneEnds.length;
-        laneEnds.push(entry.end);
-      } else {
-        laneEnds[laneIndex] = entry.end;
-      }
-
-      assigned.push({ item: entry.item, laneIndex });
-    }
-
-    const laneCount = Math.max(1, laneEnds.length);
-    for (const { item, laneIndex } of assigned) {
-      result.push({
-        ...item,
-        laneIndex,
-        laneCount
-      });
-    }
-  };
-
-  for (const entry of normalized) {
-    if (cluster.length === 0 || entry.start < clusterEnd) {
-      cluster.push(entry);
-      clusterEnd = Math.max(clusterEnd, entry.end);
-      continue;
-    }
-
-    flushCluster();
-    cluster = [entry];
-    clusterEnd = entry.end;
-  }
-
-  flushCluster();
-  return result;
+  return assignOverlapLanes(
+    items,
+    item => timeToMinutes(item.startTime),
+    (item, start) => Math.max(start + 15, timeToMinutes(item.endTime))
+  );
 }
 
 const weekTitle = computed(() => {
@@ -3985,61 +3874,12 @@ function getWeekLifelogVisualMinutes(item: WeekLifelogTimelineItem): number {
 }
 
 function assignWeekLifelogTimelineLanes(items: WeekLifelogTimelineItem[]): WeekLifelogTimelineItem[] {
-  if (items.length <= 1) {
-    return items.map(item => ({ ...item, laneIndex: 0, laneCount: 1 }));
-  }
-
-  const normalized = items
-    .map((item) => {
-      const start = timeToMinutes(item.startTime);
-      const end = Math.max(start + getWeekLifelogVisualMinutes(item), timeToMinutes(item.endTime));
-      return { item, start, end };
-    })
-    .sort((a, b) => {
-      if (a.start !== b.start) return a.start - b.start;
-      if (a.end !== b.end) return a.end - b.end;
-      return a.item.title.localeCompare(b.item.title);
-    });
-
-  const result: WeekLifelogTimelineItem[] = [];
-  let cluster: typeof normalized = [];
-  let clusterEnd = -1;
-
-  const flushCluster = () => {
-    if (cluster.length === 0) return;
-    const laneEnds: number[] = [];
-    const assigned: Array<{ item: WeekLifelogTimelineItem; laneIndex: number }> = [];
-
-    for (const entry of cluster) {
-      let laneIndex = laneEnds.findIndex(end => end <= entry.start);
-      if (laneIndex === -1) {
-        laneIndex = laneEnds.length;
-        laneEnds.push(entry.end);
-      } else {
-        laneEnds[laneIndex] = entry.end;
-      }
-      assigned.push({ item: entry.item, laneIndex });
-    }
-
-    const laneCount = Math.max(1, laneEnds.length);
-    for (const { item, laneIndex } of assigned) {
-      result.push({ ...item, laneIndex, laneCount });
-    }
-  };
-
-  for (const entry of normalized) {
-    if (cluster.length === 0 || entry.start < clusterEnd) {
-      cluster.push(entry);
-      clusterEnd = Math.max(clusterEnd, entry.end);
-      continue;
-    }
-    flushCluster();
-    cluster = [entry];
-    clusterEnd = entry.end;
-  }
-
-  flushCluster();
-  return result;
+  return assignOverlapLanes(
+    items,
+    item => timeToMinutes(item.startTime),
+    (item, start) => Math.max(start + getWeekLifelogVisualMinutes(item), timeToMinutes(item.endTime)),
+    (left, right) => left.title.localeCompare(right.title)
+  );
 }
 
 function assignWeekLifelogTimelineLayout(

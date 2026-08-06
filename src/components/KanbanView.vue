@@ -144,12 +144,12 @@
             v-if="option.value === 'all'"
             class="document-tab document-tab-scope"
             :class="{ active: currentDocumentFilter === 'all' }"
+            @click="currentDocumentFilter = 'all'; closeDocumentScopePicker()"
             @contextmenu.prevent.stop="handleDocumentTabContextMenu($event, option)"
           >
             <button
               type="button"
               class="document-tab-scope-label"
-              @click="currentDocumentFilter = 'all'; closeDocumentScopePicker()"
             >
               {{ option.text }}
             </button>
@@ -558,7 +558,7 @@
       </div>
     </div>
 
-    <div v-if="loading" class="loading">{{ t('taskManager.loading') }}</div>
+    <div v-if="loading && tasks.length === 0" class="loading">{{ t('taskManager.loading') }}</div>
     <div
       v-else-if="currentView === 'kanban' && isSettingsLoaded"
       ref="kanbanBoardRef"
@@ -1842,6 +1842,11 @@ import { syncTaskEditorDraftFromAttributeChanges } from '@/utils/taskEditorDraft
 import { createTaskStatusAttributeSync } from '@/utils/taskStatusAttributeSync';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
+import { createPeriodicSetCleanup } from '@/utils/setCleanup';
+import {
+  collectTaskTitleHydrationBlockIds,
+  shouldHydrateTaskTitle
+} from '@/utils/taskTitleHydration';
 import { getTaskElementFromDoc, parseTaskCompleted } from '@/utils/taskDom';
 import {
   applyRepeatRuleOptimisticToTasks,
@@ -2620,26 +2625,7 @@ function filterTasksForCalendarWindow(tasks: Task[], repeatWindow: TaskRepeatWin
   ));
 }
 
-let skipCleanupTimer: number | null = null;
-
-function startSkipSetCleanup() {
-  if (skipCleanupTimer !== null) {
-    clearInterval(skipCleanupTimer);
-  }
-  
-  skipCleanupTimer = window.setInterval(() => {
-    if (skipSet.size > 0) {
-      skipSet.clear();
-    }
-  }, 60000);
-}
-
-function stopSkipSetCleanup() {
-  if (skipCleanupTimer !== null) {
-    clearInterval(skipCleanupTimer);
-    skipCleanupTimer = null;
-  }
-}
+const { start: startSkipSetCleanup, stop: stopSkipSetCleanup } = createPeriodicSetCleanup(skipSet);
 
 const kanbanFilterType = ref('all');
 const kanbanFilterDocument = ref('all');
@@ -2922,6 +2908,8 @@ const calendarRepeatWindowByView = ref<Record<CalendarTaskViewMode, TaskRepeatWi
   'three-day': resolveDefaultRepeatWindowForView('three-day')
 });
 let latestTaskLoadRequestId = 0;
+let deferredInitialTaskSnapshotTimer: number | null = null;
+let taskSnapshotVersion = 0;
 let pendingVisibleTaskLoadCount = 0;
 const isCalendarView = computed(() =>
   currentView.value === 'month'
@@ -9617,7 +9605,7 @@ function hydrateKanbanMemoTitlesSync(taskList: Task[], limit = KANBAN_TITLE_HYDR
     if (handled >= limit) break;
     if (task.type !== 'block' || !task.blockId) continue;
     const currentTitle = typeof task.title === 'string' ? task.title : '';
-    if (!currentTitle.includes('<sup') && !hasMarkdownInlineMemo(currentTitle)) continue;
+    if (!shouldHydrateTaskTitle(currentTitle)) continue;
     const liveTitle = getLiveKanbanTaskTitle(task.blockId);
     if (!liveTitle || liveTitle === currentTitle) continue;
     task.title = liveTitle;
@@ -9635,18 +9623,6 @@ function scheduleKanbanTitleHydration(delay = 120): void {
   }, delay);
 }
 
-function hasMarkdownInlineMemo(title: string): boolean {
-  const inlineMemoRegex = /\(\(([^()]+)\)\)/g;
-  let match: RegExpExecArray | null;
-  while ((match = inlineMemoRegex.exec(title)) !== null) {
-    const content = match[1];
-    if (!/^[0-9]{14}-[a-z0-9]{7,}$/.test(content)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 async function hydrateVisibleKanbanTitles(): Promise<void> {
   if (isKanbanTitleHydrating || currentView.value !== 'kanban') {
     return;
@@ -9654,24 +9630,16 @@ async function hydrateVisibleKanbanTitles(): Promise<void> {
   if (!isSettingsLoaded.value) {
     return;
   }
-  const blockIds: string[] = [];
-  const seen = new Set<string>();
-  for (const column of kanbanColumns.value) {
-    if (column.type === 'action') continue;
-    const visibleTasks = getVisibleTasksForColumn(column);
-    for (const task of visibleTasks) {
-      if (task.type !== 'block' || !task.blockId) continue;
-      if (seen.has(task.blockId)) continue;
-      const titleHtml = typeof task.title === 'string' ? task.title : '';
-      if (!titleHtml.includes('<sup') && !hasMarkdownInlineMemo(titleHtml)) {
-        continue;
-      }
-      seen.add(task.blockId);
-      blockIds.push(task.blockId);
-      if (blockIds.length >= KANBAN_TITLE_HYDRATE_LIMIT) break;
+  const visibleTaskCandidates = (function* (): Generator<Task> {
+    for (const column of kanbanColumns.value) {
+      if (column.type === 'action') continue;
+      yield* getVisibleTasksForColumn(column);
     }
-    if (blockIds.length >= KANBAN_TITLE_HYDRATE_LIMIT) break;
-  }
+  })();
+  const blockIds = collectTaskTitleHydrationBlockIds(
+    visibleTaskCandidates,
+    KANBAN_TITLE_HYDRATE_LIMIT
+  );
   if (blockIds.length === 0) {
     return;
   }
@@ -10198,7 +10166,26 @@ function scheduleDocumentScopeRefreshForUnknownTaskDocuments(delay = 640): void 
   }
 }
 
+function scheduleInitialTaskSnapshot(nextTasks: Task[]): void {
+  taskSnapshotVersion += 1;
+  if (deferredInitialTaskSnapshotTimer !== null) {
+    window.clearTimeout(deferredInitialTaskSnapshotTimer);
+  }
+  const version = taskSnapshotVersion;
+  deferredInitialTaskSnapshotTimer = window.setTimeout(() => {
+    deferredInitialTaskSnapshotTimer = null;
+    if (version === taskSnapshotVersion && isKanbanViewMounted) {
+      syncTaskSnapshot(nextTasks);
+    }
+  }, 0);
+}
+
 function syncTaskSnapshot(nextTasks: Task[]): void {
+  taskSnapshotVersion += 1;
+  if (deferredInitialTaskSnapshotTimer !== null) {
+    window.clearTimeout(deferredInitialTaskSnapshotTimer);
+    deferredInitialTaskSnapshotTimer = null;
+  }
   const now = Date.now();
   const indexedBlockIds = new Set(
     nextTasks
@@ -15520,7 +15507,7 @@ onMounted(async () => {
       });
       if (cachedTasks.length > 0) {
         hydrateKanbanMemoTitlesSync(cachedTasks, KANBAN_TITLE_HYDRATE_LIMIT);
-        syncTaskSnapshot(cachedTasks);
+        scheduleInitialTaskSnapshot(cachedTasks);
         loadedTaskLoadMode.value = 'full';
         scheduleKanbanTitleHydration(120);
         shouldRunMountedReconcile = true;
@@ -15531,7 +15518,7 @@ onMounted(async () => {
           { includeRepeatTemplateDate: true }
         );
         if (lightTasks.length > 0) {
-          syncTaskSnapshot(lightTasks);
+          scheduleInitialTaskSnapshot(lightTasks);
           loadedTaskLoadMode.value = 'light-base';
           shouldRunMountedReconcile = true;
         }
@@ -15583,7 +15570,9 @@ onMounted(async () => {
   if (normalizeInvalidNotebookFilters()) {
     await saveUserSettings();
   }
-  await validateDocumentSelection();
+  window.requestAnimationFrame(() => {
+    void validateDocumentSelection();
+  });
   startSkipSetCleanup();
   document.addEventListener('mousedown', handleKanbanEditorOutsideClick);
   window.addEventListener('keydown', handleKanbanEditorKeydown);
@@ -15613,6 +15602,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   isKanbanViewMounted = false;
+  if (deferredInitialTaskSnapshotTimer !== null) {
+    window.clearTimeout(deferredInitialTaskSnapshotTimer);
+    deferredInitialTaskSnapshotTimer = null;
+  }
   closeMobileCalendarTaskDrawer();
   cleanupEventListeners();
   stopSkipSetCleanup();

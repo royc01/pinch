@@ -102,6 +102,7 @@
             @toggle-habit="toggleHabit"
             @toggle-habit-with-note="openCheckinNoteDialog"
             @bind-doc="handleBindDocFromDrag"
+            @reorder="reorderHabits"
             @pomodoro-pause="togglePomodoroPause"
             @pomodoro-resume="togglePomodoroResume"
           @pomodoro-stop="stopCurrentPomodoro"
@@ -155,6 +156,8 @@
             @open-bind-doc="openBindDocModal"
             @start-focus="openFocusTimerForHabit"
             @toggle-pause="togglePauseHabit"
+            @delete="deleteHabit"
+            @reorder="reorderHabits"
             @pomodoro-pause="togglePomodoroPause"
             @pomodoro-resume="togglePomodoroResume"
           @pomodoro-stop="stopCurrentPomodoro"
@@ -198,12 +201,13 @@
       :longest-streak="longestStreak"
       :heatmap-grid-data="heatmapGridData"
       :heatmap-months="heatmapMonths"
-      :habits="habits"
+      :habits="sortedHabits"
       :get-created-date-text="getCreatedDateText"
       :calculate-longest-streak="calculateLongestStreak"
       :calculate-total-completion-rate="calculateTotalCompletionRate"
       :calculate-common-time-slot="calculateCommonTimeSlot"
       @close="closeTotalStatsPage"
+      @show-habit-stats="showHabitStats"
     />
 
     <RewardPanel
@@ -711,6 +715,25 @@ function emitHabitsUpdated(nextHabits: Habit[] = habits.value): void {
     source: 'habit-tracker',
     habits: Array.isArray(nextHabits) ? [...nextHabits] : []
   });
+}
+
+function reorderHabits(sourceHabitId: string, targetHabitId: string): void {
+  if (sourceHabitId === targetHabitId) return;
+
+  const orderedHabits = [...sortedHabits.value];
+  const sourceIndex = orderedHabits.findIndex(habit => habit.id === sourceHabitId);
+  const targetIndex = orderedHabits.findIndex(habit => habit.id === targetHabitId);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+
+  const [sourceHabit] = orderedHabits.splice(sourceIndex, 1);
+  orderedHabits.splice(targetIndex, 0, sourceHabit);
+  const orderById = new Map(orderedHabits.map((habit, index) => [habit.id, index]));
+
+  habits.value = habits.value.map(habit => ({
+    ...habit,
+    sortOrder: orderById.get(habit.id) ?? orderedHabits.length
+  }));
+  void debouncedSaveHabits(habits.value);
 }
 
 const showAddHabitModal = ref(false);
@@ -1758,9 +1781,11 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
   :deep(.mood-calendar-panel),
   :deep(.goal-page-panel),
   :deep(.reward-page-panel),
-  :deep(.focus-timer-panel),
-  :deep(.habit-manage-panel),
-  :deep(.statistics-panel) {
+   :deep(.focus-timer-panel),
+   :deep(.habit-manage-panel),
+   :deep(.stats-panel),
+   :deep(.statistics-panel),
+   :deep(.total-stats-panel) {
     box-sizing: border-box;
     padding-bottom: 76px;
   }
@@ -2106,7 +2131,7 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
     z-index: 3;
     background: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
     box-sizing: border-box;
-    padding: 12px;
+    padding: 4px;
     display: flex;
     flex-direction: column;
     overscroll-behavior: contain;

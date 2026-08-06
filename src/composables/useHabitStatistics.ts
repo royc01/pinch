@@ -59,6 +59,18 @@ export const useHabitStatistics = ({
     cleanExpiredCache(weeklyCompletionCache, CACHE_TTL);
   };
 
+  const getActiveDateRange = (habit: Habit) => {
+    const creationDate = new Date(habit.createdAt);
+    const today = new Date();
+    creationDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    return { creationDate, today };
+  };
+
+  const isRecordInActiveDateRange = (recordDate: Date, creationDate: Date, today: Date): boolean => {
+    return recordDate >= creationDate && recordDate <= today;
+  };
+
   const calculateCurrentStreak = (habit: Habit, startDate?: Date) => {
     const cacheKey = `${habit.id}-${startDate ? startDate.getTime() : 'none'}-${getDayBucket()}`;
 
@@ -166,12 +178,12 @@ export const useHabitStatistics = ({
     const creationDateForCalculation = new Date(creationDate);
 
     const monthRecords = habit.calendar.filter(record => {
-      const recordDate = new Date(record.date);
+      const recordDate = parseDate(record.date);
       recordDate.setHours(0, 0, 0, 0);
       return (
         recordDate.getFullYear() === currentYear &&
         recordDate.getMonth() === currentMonth &&
-        recordDate >= creationDateForCalculation
+        isRecordInActiveDateRange(recordDate, creationDateForCalculation, today)
       );
     });
 
@@ -217,9 +229,15 @@ export const useHabitStatistics = ({
       for (const week of totalCalculatedWeeks) {
         let weekCompletedCount = 0;
         for (const record of habit.calendar) {
-          const recordDate = new Date(record.date);
+          const recordDate = parseDate(record.date);
           recordDate.setHours(0, 0, 0, 0);
-          if (recordDate >= week.start && recordDate <= week.end && record.completed) {
+          if (
+            recordDate >= week.start &&
+            recordDate <= week.end &&
+            recordDate >= creationDateForCalculation &&
+            recordDate <= today &&
+            record.completed
+          ) {
             weekCompletedCount += record.completedCount || 1;
           }
         }
@@ -290,7 +308,6 @@ export const useHabitStatistics = ({
   };
 
   const calculateCurrentMonthStreak = (habit: Habit) => {
-    const perfStart = performance.now();
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
@@ -334,10 +351,6 @@ export const useHabitStatistics = ({
       }
     }
 
-    const elapsed = performance.now() - perfStart;
-    if (elapsed > 5) {
-      console.log(`[perf] calculateCurrentMonthStreak: ${elapsed.toFixed(1)}ms, habit="${habit.name}", calendar=${habit.calendar.length}`);
-    }
     return streak;
   };
 
@@ -350,7 +363,6 @@ export const useHabitStatistics = ({
   };
 
   const calculateLongestStreak = (habit: Habit) => {
-    const perfStart = performance.now();
     const cacheKey = `${habit.id}-longestStreak-${getDayBucket()}`;
 
     const cached = getCachedValue(longestStreakCache, cacheKey, CACHE_TTL);
@@ -416,10 +428,6 @@ export const useHabitStatistics = ({
 
     const result = { streak: maxStreak, startDate: maxStreakStartDate, endDate: maxStreakEndDate };
     setCachedValue(longestStreakCache, cacheKey, result, MAX_CACHE_SIZE);
-    const elapsed = performance.now() - perfStart;
-    if (elapsed > 5) {
-      console.log(`[perf] calculateLongestStreak: ${elapsed.toFixed(1)}ms, habit="${habit.name}", calendar=${habit.calendar.length}`);
-    }
     return result;
   };
 
@@ -482,10 +490,7 @@ export const useHabitStatistics = ({
   };
 
   const calculateWeeklyHabitCompletionRate = (habit: Habit) => {
-    const creationDate = new Date(habit.createdAt);
-    const today = new Date();
-    creationDate.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
+    const { creationDate, today } = getActiveDateRange(habit);
 
     const creationWeekday = creationDate.getDay();
     const daysToCreationMonday = creationWeekday === 0 ? -6 : 1 - creationWeekday;
@@ -529,9 +534,14 @@ export const useHabitStatistics = ({
     for (const week of totalCalculatedWeeks) {
       let weekCompletedCount = 0;
       for (const record of habit.calendar) {
-        const recordDate = new Date(record.date);
-        recordDate.setHours(0, 0, 0, 0);
-        if (recordDate >= week.start && recordDate <= week.end && record.completed) {
+          const recordDate = parseDate(record.date);
+          recordDate.setHours(0, 0, 0, 0);
+          if (
+            recordDate >= week.start &&
+            recordDate <= week.end &&
+            isRecordInActiveDateRange(recordDate, creationDate, today) &&
+            record.completed
+          ) {
           weekCompletedCount += record.completedCount || 1;
         }
       }
@@ -563,12 +573,14 @@ export const useHabitStatistics = ({
       return result;
     }
 
-    const completedCount = habit.calendar.reduce((count, record) => (record.completed ? count + 1 : count), 0);
-
-    const creationDate = new Date(habit.createdAt);
-    const today = new Date();
-    creationDate.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
+    const { creationDate, today } = getActiveDateRange(habit);
+    const completedCount = habit.calendar.reduce((count, record) => {
+      const recordDate = parseDate(record.date);
+      recordDate.setHours(0, 0, 0, 0);
+      return record.completed && isRecordInActiveDateRange(recordDate, creationDate, today)
+        ? count + 1
+        : count;
+    }, 0);
 
     const totalDays = Math.floor((today.getTime() - creationDate.getTime()) / 86400000) + 1;
 

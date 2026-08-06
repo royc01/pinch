@@ -7,8 +7,11 @@
       <div
         v-for="habit in sortedHabits"
         :key="habit.id"
-        :class="['habit-card', { completed: isHabitCompleted(habit), paused: habit.isPaused, 'drag-over': dragOverHabitId === habit.id }]"
+        :class="['habit-card', { completed: isHabitCompleted(habit), paused: habit.isPaused, dragging: draggedHabitId === habit.id, 'drag-over': dragOverHabitId === habit.id && !draggedHabitId }]"
         :style="getHabitColorStyle(habit)"
+        draggable="true"
+        @dragstart="handleHabitDragStart($event, habit)"
+        @dragend="handleHabitDragEnd"
         @dragover.prevent="handleHabitDragOver($event, habit)"
         @dragleave="handleHabitDragLeave"
         @drop.prevent="handleHabitDrop($event, habit)"
@@ -81,10 +84,20 @@
             <div class="habit-actions">
               <SyCheckbox
                 v-if="manageMode"
-                class="habit-pause-switch"
+                class="habit-pause-switch ariaLabel"
                 :model-value="!habit.isPaused"
+                :aria-label="t('habitTracker.pauseHabit')"
                 @update:model-value="emit('toggle-pause', habit)"
               />
+              <button
+                v-if="manageMode"
+                type="button"
+                class="habit-delete-btn ariaLabel"
+                :aria-label="t('habitTracker.deleteHabit')"
+                @click.stop="emit('delete', habit.id)"
+              >
+                <Icon name="trash" width="16" height="16" class="icon" />
+              </button>
               <SyButton
                 v-else
                 @click="emit('toggle-habit', habit.id)"
@@ -249,13 +262,18 @@ const emit = defineEmits<{
   (event: 'toggle-habit', habitId: string): void;
   (event: 'toggle-habit-with-note', habit: Habit): void;
   (event: 'toggle-pause', habit: Habit): void;
+  (event: 'delete', habitId: string): void;
   (event: 'pomodoro-pause'): void;
   (event: 'pomodoro-resume'): void;
   (event: 'pomodoro-stop'): void;
   (event: 'bind-doc', habit: Habit, docId: string): void;
+  (event: 'reorder', sourceHabitId: string, targetHabitId: string): void;
 }>();
 
 const dragOverHabitId = ref<string | null>(null);
+const draggedHabitId = ref<string | null>(null);
+const lastReorderedTargetId = ref<string | null>(null);
+const habitDragMimeType = 'application/x-pinch-habit-card';
 
 const extractDocIdFromDragEvent = (event: DragEvent): string | null => {
   const dataTransfer = event.dataTransfer;
@@ -286,9 +304,36 @@ const handleHabitDragOver = (event: DragEvent, habit: Habit): void => {
   const dataTransfer = event.dataTransfer;
   if (!dataTransfer) return;
 
-  // Allow all supported drag payload types.
+  const isHabitCardDrag = Array.from(dataTransfer.types).includes(habitDragMimeType);
+  if (isHabitCardDrag && draggedHabitId.value === habit.id) return;
+
   dragOverHabitId.value = habit.id;
-  dataTransfer.dropEffect = 'link';
+  dataTransfer.dropEffect = isHabitCardDrag ? 'move' : 'link';
+  if (isHabitCardDrag && draggedHabitId.value && lastReorderedTargetId.value !== habit.id) {
+    lastReorderedTargetId.value = habit.id;
+    emit('reorder', draggedHabitId.value, habit.id);
+  }
+};
+
+const handleHabitDragStart = (event: DragEvent, habit: Habit): void => {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('button, input, textarea, select, a')) {
+    event.preventDefault();
+    return;
+  }
+
+  const dataTransfer = event.dataTransfer;
+  if (!dataTransfer) return;
+  draggedHabitId.value = habit.id;
+  lastReorderedTargetId.value = null;
+  dataTransfer.effectAllowed = 'move';
+  dataTransfer.setData(habitDragMimeType, habit.id);
+};
+
+const handleHabitDragEnd = (): void => {
+  draggedHabitId.value = null;
+  dragOverHabitId.value = null;
+  lastReorderedTargetId.value = null;
 };
 
 const handleHabitDragLeave = (): void => {
@@ -297,6 +342,15 @@ const handleHabitDragLeave = (): void => {
 
 const handleHabitDrop = (event: DragEvent, habit: Habit): void => {
   dragOverHabitId.value = null;
+  const draggedId = event.dataTransfer?.getData(habitDragMimeType) || draggedHabitId.value;
+  if (draggedId) {
+    if (draggedId !== habit.id && lastReorderedTargetId.value !== habit.id) {
+      emit('reorder', draggedId, habit.id);
+    }
+    draggedHabitId.value = null;
+    lastReorderedTargetId.value = null;
+    return;
+  }
   
   const docId = extractDocIdFromDragEvent(event);
   if (docId) {
@@ -379,6 +433,11 @@ const {
   transition: all 0.3s ease;
   transition-property: transform, opacity, height;
   will-change: transform;
+  cursor: default;
+}
+
+.habit-card.dragging {
+  cursor: grabbing;
 }
 
 .habit-card.completed {
@@ -562,6 +621,30 @@ const {
 
 .habit-pause-switch {
   margin-right: 8px;
+}
+
+.habit-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin-right: 8px;
+  border: none;
+  border-radius: 8px;
+  color: #cf5c4b;
+  background: rgba(249, 143, 122, 0.16);
+  cursor: pointer;
+}
+
+.habit-delete-btn:hover {
+  background: rgba(249, 143, 122, 0.28);
+}
+
+.habit-delete-btn:focus-visible {
+  outline: 2px solid var(--b3-theme-primary);
+  outline-offset: 2px;
 }
 
 .check-in-btn {

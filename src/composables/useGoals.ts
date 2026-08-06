@@ -64,14 +64,12 @@ export const useGoals = () => {
         loadGoals(),
         TaskRepository.getBlockTasks(taskUseCache, undefined, { useLiveDom: false })
       ]);
-      const nextGoalDocuments = await loadGoalScopeDocuments(tasks);
 
       if (loadId !== latestLoadId) {
         return;
       }
 
       goalDefinitions.value = nextGoals;
-      goalDocuments.value = nextGoalDocuments;
       goalTasks.value = tasks;
       goalItems.value = buildGoalProgressSummaries(nextGoals, tasks).map((summary) => ({
         ...summary.goal,
@@ -85,6 +83,15 @@ export const useGoals = () => {
         progressPercent: summary.progressPercent,
         status: summary.status
       }));
+
+      // The document picker needs a separate notebook/SQL scan, but the goal
+      // overview only needs definitions and tasks. Do not hold the first paint
+      // of the overview until that auxiliary data is ready.
+      void loadGoalScopeDocuments(tasks).then((nextGoalDocuments) => {
+        if (loadId === latestLoadId) {
+          goalDocuments.value = nextGoalDocuments;
+        }
+      });
     } catch (error) {
       if (loadId !== latestLoadId) {
         return;
@@ -175,7 +182,11 @@ export const useGoals = () => {
       })
     );
 
-    void loadGoalsData({ taskUseCache: false });
+    // Render from the same recent task snapshot used by the calendar first.
+    // A fresh scan follows immediately so goal progress is still reconciled
+    // with the current document contents in the background.
+    void loadGoalsData({ taskUseCache: true });
+    scheduleSettledRefresh(0);
   });
 
   onUnmounted(() => {

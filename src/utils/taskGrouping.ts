@@ -1,5 +1,5 @@
 import type { Task } from '@/api';
-import { getBlockDOM, sql } from '@/api';
+import { getBlockDOM, getBlockDOMBatch, sql } from '@/api';
 import { translate } from '@/composables/useI18n';
 
 export type TaskViewGroupMode = 'status' | 'group' | 'heading' | 'date' | 'document';
@@ -443,16 +443,10 @@ export async function resolveTaskHeadingGroups(taskList: Task[]): Promise<Map<st
     .join(',');
 
   try {
-    const domResults = await Promise.all(rootIds.map(async (rootId) => {
-      try {
-        const response = await getBlockDOM(rootId);
-        return { rootId, dom: response?.dom || '' };
-      } catch {
-        return { rootId, dom: '' };
-      }
-    }));
+    const domByRootId = await getBlockDOMBatch(rootIds);
 
-    for (const { rootId, dom } of domResults) {
+    for (const rootId of rootIds) {
+      const dom = domByRootId.get(rootId)?.dom || '';
       const domAssignments = assignGroupsFromDom(rootId, dom, taskByBlockId);
       domAssignments.forEach((meta, taskId) => {
         result.set(taskId, meta);

@@ -101,7 +101,7 @@
              
               :aria-label="t('taskScopeDialog.refreshDocuments')"
               :disabled="documentsRefreshing"
-              @click.stop="emit('refresh-documents')"
+              @click.stop="refreshDocuments"
             >
               <Icon name="refresh" width="14" height="14" class="refresh-icon" />
             </button>
@@ -118,7 +118,7 @@
             :placeholder="t('documentGroup.searchDocuments')"
             @update:model-value="documentSearch = $event"
           />
-          <div v-if="documentTreeLoading" class="goal-empty">
+          <div v-if="(documentTreeLoading || documentsRefreshing) && allGoalDocuments.length === 0" class="goal-empty">
             {{ t('taskManager.loading') }}
           </div>
           <div v-else-if="filteredDocuments.length === 0" class="goal-empty">
@@ -276,7 +276,7 @@ import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
-import { listDocsByPath, type Task } from '@/api';
+import { type Task } from '@/api';
 import {
   buildGoalScopeDocumentsFromTasks,
   type GoalScopeDocument
@@ -288,6 +288,10 @@ import {
   isTaskExcludedFromGoal,
   isTaskInGoalScope
 } from '@/utils/goalTaskMembership';
+import {
+  invalidateFiletreeDocumentTree,
+  loadFiletreeDocumentTree
+} from '@/utils/filetreeDocumentTree';
 import { isDocumentPathInScope } from '@/utils/taskDocumentScope';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
@@ -327,6 +331,13 @@ interface GoalNotebookTreeGroup {
   rows: GoalDocumentTreeRow[];
 }
 
+interface GoalDocumentSelectionState {
+  documentCount: number;
+  selectedDocumentCount: number;
+  taskCount: number;
+  checkedTaskCount: number;
+}
+
 type GoalTreeDocument = GoalScopeDocument & {
   parentId?: string;
   storagePath?: string;
@@ -347,7 +358,7 @@ const documentSearch = ref('');
 const expandedDocumentKeys = ref(new Set<string>());
 const collapsedNotebookIds = ref(new Set<string>());
 const documentTreeDocuments = ref<GoalTreeDocument[]>([]);
-const documentTreeLoading = ref(true);
+const documentTreeLoading = ref(false);
 let documentTreeRequestId = 0;
 const dueDateButtonRefs = new Map<string, HTMLElement>();
 const dueDatePopover = reactive({
@@ -402,56 +413,40 @@ const notebookLevelDocumentKeys = computed(() => new Set(
     .map(document => getDocumentKey(document))
 ));
 
-interface ListedDocument {
-  id?: string;
-  name?: string;
-  path?: string;
-  subFileCount?: number;
-}
+// Only a changed notebook set needs a new recursive file-tree walk. Normal
+// task/document updates are already represented by the SQL snapshot below.
+const documentTreeNotebookIds = computed(() => Array.from(new Set([
+  ...(props.documents || []),
+  ...taskDerivedDocuments.value
+].map(document => document.notebookId?.trim()).filter((id): id is string => Boolean(id))))
+  .sort());
+const documentTreeNotebookSignature = computed(() => documentTreeNotebookIds.value.join('\u0000'));
 
-async function loadDocumentTreeFromFiletreeApi(): Promise<void> {
+async function loadDocumentTreeFromFiletreeApi(force = false): Promise<void> {
   const requestId = ++documentTreeRequestId;
   const notebookNameById = new Map<string, string>();
   for (const document of [...(props.allDocuments || []), ...(props.documents || []), ...taskDerivedDocuments.value]) {
     if (document.notebookId && document.notebookName) notebookNameById.set(document.notebookId, document.notebookName);
   }
-  const notebookIds = Array.from(new Set([
-    ...(props.documents || []),
-    ...taskDerivedDocuments.value
-  ].map(document => document.notebookId?.trim()).filter((id): id is string => Boolean(id))));
+  const notebookIds = documentTreeNotebookIds.value;
   if (notebookIds.length === 0) {
     documentTreeDocuments.value = [];
     documentTreeLoading.value = false;
     return;
   }
 
-  documentTreeLoading.value = true;
+  // Prefer the existing SQL snapshot for first paint. This recursive request
+  // enriches missing branches without hiding usable cards behind a spinner.
+  documentTreeLoading.value = allGoalDocuments.value.length === 0;
   try {
-    const documentsByKey = new Map<string, GoalTreeDocument>();
-    const loadBranch = async (notebookId: string, path: string, parentId?: string): Promise<void> => {
-      const response = await listDocsByPath(notebookId, path);
-      const files = response && typeof response === 'object' && Array.isArray((response as { files?: unknown }).files)
-        ? (response as { files: ListedDocument[] }).files
-        : null;
-      if (!files) throw new Error('Unexpected listDocsByPath response');
-      await Promise.all(files.map(async file => {
-        const id = typeof file.id === 'string' ? file.id.trim() : '';
-        const storagePath = typeof file.path === 'string' ? file.path.trim() : '';
-        if (!id || !storagePath) return;
-        documentsByKey.set(`${notebookId}:${id}`, {
-          id,
-          name: typeof file.name === 'string' && file.name.trim() ? file.name.trim() : id,
-          notebookId,
-          notebookName: notebookNameById.get(notebookId) || notebookId,
-          parentId,
-          storagePath
-        });
-        if (Number(file.subFileCount) > 0) await loadBranch(notebookId, storagePath, id);
-      }));
-    };
-    await Promise.all(notebookIds.map(notebookId => loadBranch(notebookId, '/')));
+    const trees = await Promise.all(notebookIds.map(notebookId =>
+      loadFiletreeDocumentTree(notebookId, { force })
+    ));
     if (requestId === documentTreeRequestId) {
-      documentTreeDocuments.value = Array.from(documentsByKey.values());
+      documentTreeDocuments.value = trees.flatMap(tree => tree.map(document => ({
+        ...document,
+        notebookName: notebookNameById.get(document.notebookId) || document.notebookId
+      })));
       synchronizeDescendantMemberships();
     }
   } catch (error) {
@@ -466,16 +461,22 @@ async function loadDocumentTreeFromFiletreeApi(): Promise<void> {
 
 const allGoalDocuments = computed(() => {
   const documentsByKey = new Map<string, GoalTreeDocument>();
-  const treeSource = documentTreeDocuments.value.length > 0
-    ? documentTreeDocuments.value
-    : (props.allDocuments || []);
-  for (const document of [...treeSource, ...(props.documents || [])]) {
+  for (const document of [
+    // Treat the up-to-date SQL snapshot as authoritative, keeping the
+    // file-tree result only for metadata or branches missing from it.
+    ...documentTreeDocuments.value,
+    ...(props.allDocuments || []),
+    ...(props.documents || [])
+  ]) {
     const key = getDocumentKey(document);
     const existing = documentsByKey.get(key);
+    const documentWithTreeMetadata = document as GoalTreeDocument;
     documentsByKey.set(key, {
       ...existing,
       ...document,
-      path: document.path || existing?.path
+      path: document.path || existing?.path,
+      parentId: documentWithTreeMetadata.parentId || existing?.parentId,
+      storagePath: documentWithTreeMetadata.storagePath || existing?.storagePath
     });
   }
 
@@ -489,6 +490,12 @@ const allGoalDocuments = computed(() => {
   return Array.from(documentsByKey.values());
 });
 
+function refreshDocuments(): void {
+  invalidateFiletreeDocumentTree(documentTreeNotebookIds.value);
+  void loadDocumentTreeFromFiletreeApi(true);
+  emit('refresh-documents');
+}
+
 function isVisibleGoalTask(task: Task): boolean {
   return task.type === 'block'
     && !task.archived
@@ -496,12 +503,23 @@ function isVisibleGoalTask(task: Task): boolean {
     && hasVisibleTaskTitle(task.title);
 }
 
+const visibleGoalTasks = computed(() => (props.tasks || []).filter(isVisibleGoalTask));
+
+const notebookLevelTasksByNotebookId = computed(() => {
+  const tasksByNotebookId = new Map<string, Task[]>();
+  for (const task of visibleGoalTasks.value) {
+    if (!notebookLevelDocumentKeys.value.has(`${task.notebookId}:${task.rootId}`)) {
+      continue;
+    }
+    const tasks = tasksByNotebookId.get(task.notebookId) || [];
+    tasks.push(task);
+    tasksByNotebookId.set(task.notebookId, tasks);
+  }
+  return tasksByNotebookId;
+});
+
 function getNotebookLevelTasks(notebookId: string): Task[] {
-  return (props.tasks || []).filter(task =>
-    isVisibleGoalTask(task)
-    && task.notebookId === notebookId
-    && notebookLevelDocumentKeys.value.has(`${task.notebookId}:${task.rootId}`)
-  );
+  return notebookLevelTasksByNotebookId.value.get(notebookId) || [];
 }
 
 const filteredDocuments = computed(() => {
@@ -756,26 +774,83 @@ function isTaskInSelectedDocumentScope(task: Task): boolean {
 }
 
 const documentTasksByKey = computed(() => {
-  const visibleTasks = (props.tasks || []).filter(isVisibleGoalTask);
   const tasksByKey = new Map<string, Task[]>();
 
-  for (const document of allGoalDocuments.value) {
-    const tasks = visibleTasks
-      // Tree leaves belong only to their own document. Including descendants
-      // here would render a child document's tasks again under every ancestor.
-      .filter(task => task.notebookId === document.notebookId && task.rootId === document.id)
-      .sort((left, right) => {
-        const leftCompleted = left.status === 'completed' ? 1 : 0;
-        const rightCompleted = right.status === 'completed' ? 1 : 0;
-        if (leftCompleted !== rightCompleted) {
-          return leftCompleted - rightCompleted;
-        }
-        return (left.title || '').localeCompare(right.title || '', 'zh-CN');
-      });
-    tasksByKey.set(getDocumentKey(document), tasks);
+  // Index tasks once. Filtering the full task list for every document made
+  // the first render of the Goals tab scale with documents × tasks.
+  for (const task of visibleGoalTasks.value) {
+    const key = `${task.notebookId}:${task.rootId}`;
+    const tasks = tasksByKey.get(key) || [];
+    tasks.push(task);
+    tasksByKey.set(key, tasks);
+  }
+
+  for (const tasks of tasksByKey.values()) {
+    tasks.sort((left, right) => {
+      const leftCompleted = left.status === 'completed' ? 1 : 0;
+      const rightCompleted = right.status === 'completed' ? 1 : 0;
+      if (leftCompleted !== rightCompleted) {
+        return leftCompleted - rightCompleted;
+      }
+      return (left.title || '').localeCompare(right.title || '', 'zh-CN');
+    });
   }
 
   return tasksByKey;
+});
+
+const documentSelectionStates = computed(() => {
+  const documents = filteredDocuments.value;
+  const documentsByKey = new Map(documents.map(document => [getDocumentKey(document), document]));
+  const documentsByPath = new Map<string, GoalScopeDocument>();
+  const childrenByParentKey = new Map<string, string[]>();
+  const selectedDocumentKeys = new Set(
+    (selectedGoal.value?.members || []).map(member => `${member.notebookId}:${member.documentId}`)
+  );
+
+  for (const document of documents) {
+    const path = normalizeDocumentPath(document.path);
+    if (path) documentsByPath.set(`${document.notebookId}:${path}`, document);
+  }
+  for (const document of documents) {
+    const parentKey = getDocumentParentKey(document, documentsByPath, documentsByKey);
+    if (!parentKey || !documentsByKey.has(parentKey)) continue;
+    const children = childrenByParentKey.get(parentKey) || [];
+    children.push(getDocumentKey(document));
+    childrenByParentKey.set(parentKey, children);
+  }
+
+  const states = new Map<string, GoalDocumentSelectionState>();
+  const calculateState = (key: string): GoalDocumentSelectionState => {
+    const existing = states.get(key);
+    if (existing) return existing;
+    const document = documentsByKey.get(key);
+    if (!document) {
+      return { documentCount: 0, selectedDocumentCount: 0, taskCount: 0, checkedTaskCount: 0 };
+    }
+    const ownTasks = getDocumentTasks(document);
+    const state: GoalDocumentSelectionState = {
+      documentCount: 1,
+      selectedDocumentCount: selectedDocumentKeys.has(key) ? 1 : 0,
+      taskCount: ownTasks.length,
+      checkedTaskCount: ownTasks.filter(task => isTaskChecked(task)).length
+    };
+    // Store first so malformed circular document paths cannot recurse forever.
+    states.set(key, state);
+    for (const childKey of childrenByParentKey.get(key) || []) {
+      const child = calculateState(childKey);
+      state.documentCount += child.documentCount;
+      state.selectedDocumentCount += child.selectedDocumentCount;
+      state.taskCount += child.taskCount;
+      state.checkedTaskCount += child.checkedTaskCount;
+    }
+    return state;
+  };
+
+  for (const document of documents) {
+    calculateState(getDocumentKey(document));
+  }
+  return states;
 });
 
 function getDocumentTasks(document: GoalScopeDocument): Task[] {
@@ -826,26 +901,20 @@ function isTaskChecked(task: Task): boolean {
 }
 
 function getDocumentCheckedTaskCount(document: GoalScopeDocument): number {
-  return getDocumentScopeDocuments(document)
-    .flatMap(candidate => getDocumentTasks(candidate))
-    .filter(task => isTaskChecked(task)).length;
+  return documentSelectionStates.value.get(getDocumentKey(document))?.checkedTaskCount || 0;
 }
 
 function isDocumentFullyChecked(document: GoalScopeDocument): boolean {
-  const documents = getDocumentScopeDocuments(document);
-  const tasks = documents.flatMap(candidate => getDocumentTasks(candidate));
-  return documents.length > 0
-    && documents.every(candidate => isDocumentSelected(candidate))
-    && tasks.every(task => isTaskChecked(task));
+  const state = documentSelectionStates.value.get(getDocumentKey(document));
+  return Boolean(state
+    && state.documentCount > 0
+    && state.documentCount === state.selectedDocumentCount
+    && state.taskCount === state.checkedTaskCount);
 }
 
 function hasDocumentPartialTaskSelection(document: GoalScopeDocument): boolean {
-  const tasks = getDocumentScopeDocuments(document).flatMap(candidate => getDocumentTasks(candidate));
-  if (tasks.length === 0) {
-    return false;
-  }
-  const checkedCount = tasks.filter(task => isTaskChecked(task)).length;
-  return checkedCount > 0 && checkedCount < tasks.length;
+  const state = documentSelectionStates.value.get(getDocumentKey(document));
+  return Boolean(state && state.checkedTaskCount > 0 && state.checkedTaskCount < state.taskCount);
 }
 
 function getNotebookDocuments(notebookId: string): GoalScopeDocument[] {
@@ -1209,11 +1278,21 @@ watch(
 );
 
 watch(
-  [() => props.documents, () => props.tasks, () => props.allDocuments],
+  documentTreeNotebookSignature,
   () => {
     void loadDocumentTreeFromFiletreeApi();
   },
-  { immediate: true, deep: true }
+  { immediate: true }
+);
+
+watch(
+  [() => props.documents, () => props.tasks, () => props.allDocuments],
+  () => {
+    // Keep inherited memberships correct when a fresh task/document snapshot
+    // arrives, without repeating an expensive whole-notebook traversal.
+    synchronizeDescendantMemberships();
+  },
+  { deep: true, flush: 'post' }
 );
 
 </script>

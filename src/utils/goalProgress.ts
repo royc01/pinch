@@ -86,35 +86,77 @@ function buildGoalTaskMemberIds(goal: Goal): string[] {
   return ids;
 }
 
+function addGoalIndexEntry(index: Map<string, Set<number>>, key: string, goalIndex: number): void {
+  if (!key) return;
+  const goalIndexes = index.get(key) || new Set<number>();
+  goalIndexes.add(goalIndex);
+  index.set(key, goalIndexes);
+}
+
+function addCandidateGoalIndexes(
+  target: Set<number>,
+  source: ReadonlySet<number> | undefined
+): void {
+  source?.forEach(goalIndex => target.add(goalIndex));
+}
+
 export function buildGoalProgressSummaries(
   goals: Goal[],
   tasks: Task[]
 ): GoalProgressSummary[] {
   const countableTasksById = buildCountableTasksById(tasks);
 
-  return goals.map((goal) => {
+  // Index the scopes once. The previous implementation scanned every task for
+  // every goal, which becomes expensive in workspaces with many goals. Path
+  // scopes still use the canonical matcher below; the index only narrows the
+  // set of goals that could possibly contain a task.
+  const directTaskGoalIndexes = new Map<string, Set<number>>();
+  const documentGoalIndexes = new Map<string, Set<number>>();
+  const pathScopeGoalIndexesByNotebook = new Map<string, Set<number>>();
+  const totals = goals.map(() => ({ totalTasks: 0, completedTasks: 0 }));
+
+  goals.forEach((goal, goalIndex) => {
+    goal.members.forEach((member) => {
+      const notebookId = typeof member.notebookId === 'string' ? member.notebookId.trim() : '';
+      const documentId = typeof member.documentId === 'string' ? member.documentId.trim() : '';
+      if (!notebookId || !documentId) return;
+      addGoalIndexEntry(documentGoalIndexes, buildDocumentKey(notebookId, documentId), goalIndex);
+      if (typeof member.path === 'string' && member.path.trim()) {
+        addGoalIndexEntry(pathScopeGoalIndexesByNotebook, notebookId, goalIndex);
+      }
+    });
+    (goal.taskMembers || []).forEach((member) => {
+      addGoalIndexEntry(directTaskGoalIndexes, typeof member.taskId === 'string' ? member.taskId.trim() : '', goalIndex);
+      addGoalIndexEntry(directTaskGoalIndexes, typeof member.blockId === 'string' ? member.blockId.trim() : '', goalIndex);
+      addGoalIndexEntry(directTaskGoalIndexes, typeof member.repeatSeriesId === 'string' ? member.repeatSeriesId.trim() : '', goalIndex);
+    });
+  });
+
+  countableTasksById.forEach((task) => {
+    const candidateGoalIndexes = new Set<number>();
+    const notebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
+    const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+    if (notebookId && rootId) {
+      addCandidateGoalIndexes(candidateGoalIndexes, documentGoalIndexes.get(buildDocumentKey(notebookId, rootId)));
+      addCandidateGoalIndexes(candidateGoalIndexes, pathScopeGoalIndexesByNotebook.get(notebookId));
+    }
+    [task.id, task.taskId, task.blockId, task.sourceBlockId, task.repeatSeriesId].forEach((id) => {
+      addCandidateGoalIndexes(candidateGoalIndexes, directTaskGoalIndexes.get(typeof id === 'string' ? id.trim() : ''));
+    });
+
+    candidateGoalIndexes.forEach((goalIndex) => {
+      if (!isTaskInGoalScope(goals[goalIndex], task)) return;
+      totals[goalIndex].totalTasks += 1;
+      if (task.status === 'completed') {
+        totals[goalIndex].completedTasks += 1;
+      }
+    });
+  });
+
+  return goals.map((goal, goalIndex) => {
     const documentKeys = buildGoalDocumentKeys(goal);
     const taskMemberIds = buildGoalTaskMemberIds(goal);
-    const matchedTaskIds = new Set<string>();
-    let totalTasks = 0;
-    let completedTasks = 0;
-
-    countableTasksById.forEach((task) => {
-      if (isTaskInGoalScope(goal, task)) {
-        matchedTaskIds.add(task.id);
-      }
-    });
-
-    matchedTaskIds.forEach((taskId) => {
-      const task = countableTasksById.get(taskId);
-      if (!task) {
-        return;
-      }
-      totalTasks += 1;
-      if (task.status === 'completed') {
-        completedTasks += 1;
-      }
-    });
+    const { totalTasks, completedTasks } = totals[goalIndex];
 
     const progressPercent = totalTasks > 0
       ? Math.max(0, Math.min(100, Math.round((completedTasks / totalTasks) * 100)))

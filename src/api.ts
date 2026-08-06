@@ -719,6 +719,8 @@ export interface Habit {
   totalCompletions: number;
   calendar: HabitCalendarDay[];
   createdAt: string;
+  /** 用户手动调整后的卡片顺序，数值越小越靠前。 */
+  sortOrder?: number;
   currentWeekOffset?: number;
   statsViewMode?: 'month';
   statsMonthOffset?: number;
@@ -3050,7 +3052,7 @@ export class TaskRepository {
     let fetchedDomMap = preloadedDomMap;
     if (!fetchedDomMap) {
       try {
-        fetchedDomMap = await batchGetBlockDOM(staleRootIds);
+        fetchedDomMap = await getBlockDOMBatch(staleRootIds);
       } catch (error) {
         console.warn('[TaskRepository] Failed to read document DOM, falling back to default sorting', error);
         fetchedDomMap = new Map<string, BlockDOMResponse>();
@@ -3587,7 +3589,7 @@ export class TaskRepository {
         rootIcons
       } = await this.resolveRootTaskMetadata(rootIds);
 
-      const domMap = await batchGetBlockDOM(rows.map(row => row.id));
+      const domMap = await getBlockDOMBatch(rows.map(row => row.id));
       const protyleElement = useLiveDom ? document.querySelector('.protyle') : null;
       const result = new Map<string, Task>();
 
@@ -4011,7 +4013,7 @@ export class TaskRepository {
 
         if (shouldAlignSubtaskOrder) {
           try {
-            const domMap = await batchGetBlockDOM(parentTaskIdsNeedDomOrder);
+            const domMap = await getBlockDOMBatch(parentTaskIdsNeedDomOrder);
             for (const parentTaskId of parentTaskIdsNeedDomOrder) {
               const dom = domMap.get(parentTaskId)?.dom;
               if (!dom) continue;
@@ -4496,7 +4498,7 @@ export class TaskRepository {
           block => markdownHasInlineMemo(block.markdown || '')
         );
         const domMap = (useLiveDom || needsDomForMemos)
-          ? await batchGetBlockDOM(chunk.map(block => block.id))
+          ? await getBlockDOMBatch(chunk.map(block => block.id))
           : new Map<string, BlockDOMResponse>();
         
         const results = await Promise.all(chunk.map(block => processBlock(block, domMap)));
@@ -5174,41 +5176,25 @@ export async function getBlockDOM(
   return request(url, data);
 }
 
-async function batchGetBlockDOM(ids: string[]): Promise<Map<string, BlockDOMResponse>> {
+export async function getBlockDOMBatch(ids: string[]): Promise<Map<string, BlockDOMResponse>> {
   if (ids.length === 0) return new Map();
-  
+
   const result = new Map<string, BlockDOMResponse>();
-  const batchSize = 20;
-  const maxConcurrent = 5;
-  
-  for (let i = 0; i < ids.length; i += batchSize * maxConcurrent) {
-    const batchPromises: Promise<void>[] = [];
-    
-    for (let j = 0; j < maxConcurrent && i + j * batchSize < ids.length; j++) {
-      const startIdx = i + j * batchSize;
-      const batch = ids.slice(startIdx, Math.min(startIdx + batchSize, ids.length));
-      
-      batchPromises.push(
-        (async () => {
-          const domPromises = batch.map(id => 
-            getBlockDOM(id).catch((error) => {
-              log_debug('Failed to get block DOM', { id, error });
-              return null;
-            })
-          );
-          const domResults = await Promise.all(domPromises);
-          
-          batch.forEach((id, index) => {
-            if (domResults[index]) {
-              result.set(id, domResults[index]!);
-            }
-          });
-        })()
-      );
+  const uniqueIds = [...new Set(ids)];
+  const maxConcurrent = Math.min(6, uniqueIds.length);
+  let nextIndex = 0;
+
+  const worker = async (): Promise<void> => {
+    while (nextIndex < uniqueIds.length) {
+      const id = uniqueIds[nextIndex++];
+      try {
+        result.set(id, await getBlockDOM(id));
+      } catch (error) {
+        log_debug('Failed to get block DOM', { id, error });
+      }
     }
-    
-    await Promise.all(batchPromises);
-  }
-  
+  };
+
+  await Promise.all(Array.from({ length: maxConcurrent }, worker));
   return result;
 }

@@ -67,7 +67,14 @@
     </div>
 
     <div class="habits-stats-list">
-      <div class="habit-stat-item" v-for="habit in habits" :key="habit.id">
+      <button
+        v-for="habit in habits"
+        :key="habit.id"
+        type="button"
+        class="habit-stat-item ariaLabel"
+        :aria-label="`${t('habitTracker.viewHabitDetails')}: ${habit.name}`"
+        @click="emit('show-habit-stats', habit)"
+      >
         <div class="habit-stat-content">
           <div class="habit-stat-header">
             <EmojiIcon class="habit-emoji-large" :value="habit.emoji" fallback="📝" />
@@ -93,7 +100,7 @@
             </div>
           </div>
         </div>
-      </div>
+      </button>
     </div>
   </div>
 </template>
@@ -142,6 +149,7 @@ interface Props {
 defineProps<Props>();
 const emit = defineEmits<{
   close: [];
+  'show-habit-stats': [habit: Habit];
 }>();
 
 const { t } = useI18n();
@@ -401,6 +409,17 @@ const weekdayLabels = computed(() => {
   padding: 10px;
   display: flex;
   align-items: flex-start;
+  width: 100%;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+}
+
+.habit-stat-item:focus-visible {
+  outline: 2px solid var(--b3-theme-primary);
+  outline-offset: 2px;
 }
 
 .habit-stat-content {
