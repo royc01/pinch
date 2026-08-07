@@ -361,6 +361,29 @@ function buildVirtualTaskId(seriesId: string, date: string): string {
   return `repeat_${seriesId}_${date}`.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+/**
+ * Virtual instances used to be identified only by `isVirtual`. A stale date
+ * broadcast could temporarily overwrite that flag, leaving old instances in
+ * the base-task snapshot. Their generated id remains stable, so use it as a
+ * second identity signal while rebuilding a series.
+ */
+function isVirtualRepeatInstance(task: RepeatTaskLike): boolean {
+  if (task.isVirtual === true) {
+    return true;
+  }
+  const seriesId = typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
+  const instanceDate = typeof task.repeatInstanceDate === 'string' ? task.repeatInstanceDate.trim() : '';
+  if (!seriesId) {
+    return false;
+  }
+  // Also recognize cards produced before the virtual flag/date was
+  // accidentally overwritten by a template broadcast.
+  if (typeof task.id === 'string' && task.id.startsWith(`repeat_${seriesId}_`)) {
+    return true;
+  }
+  return !!instanceDate && task.id === buildVirtualTaskId(seriesId, instanceDate);
+}
+
 function buildRepeatRecordMap(records: RepeatRecord[]): Map<string, RepeatRecord> {
   return new Map(records.map((record) => [record.key, record]));
 }
@@ -858,6 +881,13 @@ export async function updateRepeatSeriesDates(
     ...series,
     startDate: normalizedStart,
     endDate: normalizedEnd,
+    // Recurrence materialization prioritizes termination.date over endDate.
+    // Keep both representations aligned when the task editor changes its due
+    // date; otherwise an old termination date keeps producing occurrences
+    // after the newly selected deadline.
+    termination: normalizedEnd
+      ? { type: 'date', date: normalizedEnd }
+      : (series.termination?.type === 'date' ? { type: 'never' } : series.termination),
     startTime: normalizedStartTime,
     dueTime: normalizedDueTime,
     spanDays: normalizedEnd ? daysBetween(baseStart, parseDate(normalizedEnd)!) : 0,
@@ -1274,7 +1304,7 @@ export async function rebuildAffectedRepeatTasks<T extends RepeatTaskLike>(
     return { nextTasks: taskList, touched: false, handled: false };
   }
 
-  const baseTasks = taskList.filter((task) => !task.isVirtual) as T[];
+  const baseTasks = taskList.filter((task) => !isVirtualRepeatInstance(task)) as T[];
   const templateTask = findTemplateTaskForSeries(baseTasks, targetSeries);
   if (!templateTask) {
     return { nextTasks: taskList, touched: false, handled: false };
@@ -1317,7 +1347,7 @@ export async function rebuildAffectedRepeatTasks<T extends RepeatTaskLike>(
 
   let touched = templateChanged || rebuiltVirtualTasks.length > 0;
   const retainedTasks = taskList.filter((task) => {
-    const shouldDrop = !!task.isVirtual && task.repeatSeriesId === seriesId;
+    const shouldDrop = isVirtualRepeatInstance(task) && task.repeatSeriesId === seriesId;
     if (shouldDrop) {
       touched = true;
     }

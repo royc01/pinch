@@ -438,6 +438,8 @@ const {
 
 .habit-card.dragging {
   cursor: grabbing;
+  box-shadow: 0 0 0 2px #f98f7a, rgba(0, 0, 0, 0.12) 0 4px 12px 0;
+  background: rgba(249, 143, 122, 0.05);
 }
 
 .habit-card.completed {

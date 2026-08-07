@@ -995,8 +995,9 @@
        :goals="goalDefinitions"
        :goal-ids-for-task="getKanbanTaskCardGoalIds"
        :group-mode="activeTableGroupBy"
-      :document-group-order="tableDocumentGroupOrder"
-      :heading-groups="taskHeadingGroups"
+       :document-group-order="tableDocumentGroupOrder"
+       :hide-heading-document-prefix="currentDocumentFilter !== 'all'"
+       :heading-groups="taskHeadingGroups"
       :document-icon-by-root-id="documentIconByRootId"
       :document-title-by-root-id="documentTitleByRootId"
       @task-click="handleTaskClick"
@@ -1026,6 +1027,7 @@
       @due-date-update="handleDueDateUpdate"
       @start-time-update="handleStartTimeUpdate"
       @due-time-update="handleDueTimeUpdate"
+      @repeat-rule-update="handleTableRepeatRuleUpdate"
     />
     <GanttView
       v-if="currentView === 'gantt'"
@@ -12380,6 +12382,47 @@ async function handleKanbanEditorStatusSelect(status: Task['status']): Promise<v
   activeKanbanEditDraft.value.status = status;
   await handleStatusUpdate(activeKanbanEditTask.value, status);
   invalidateTableFilters();
+}
+
+async function handleTableRepeatRuleUpdate(task: Task, repeat: RepeatFrequency | RepeatRuleInput): Promise<void> {
+  const frequency = typeof repeat === 'string' ? repeat : repeat.frequency;
+  const existingSeries = isRepeatTaskEntity(task)
+    ? await getRepeatSeriesForTask(task).catch(() => null)
+    : null;
+  const taskForRepeatRule = {
+    ...task,
+    startDate: task.startDate || existingSeries?.startDate || '',
+    startTime: task.startTime || existingSeries?.startTime || '',
+    dueDate: task.dueDate || existingSeries?.endDate || '',
+    dueTime: task.dueTime || existingSeries?.dueTime || ''
+  };
+
+  try {
+    const savedRepeatSeries = await TaskRepository.setTaskRepeatRule(taskForRepeatRule, repeat);
+    const repeatEndDate = savedRepeatSeries && typeof repeat !== 'string'
+      ? (savedRepeatSeries.endDate || '')
+      : undefined;
+    const index = tasks.value.findIndex(item => item.id === task.id);
+    if (index >= 0) {
+      const currentTask = tasks.value[index];
+      tasks.value[index] = {
+        ...currentTask,
+        ...(repeatEndDate !== undefined ? { dueDate: repeatEndDate } : {}),
+        repeatFrequency: frequency,
+        repeatSeriesId: frequency === 'none' ? undefined : (savedRepeatSeries?.id || currentTask.repeatSeriesId),
+        repeatInstanceDate: frequency === 'none' ? undefined : currentTask.repeatInstanceDate,
+        isVirtual: frequency === 'none' ? false : currentTask.isVirtual,
+        updatedAt: new Date().toISOString()
+      };
+    }
+    if (repeatEndDate !== undefined && task.blockId) {
+      await setBlockAttrs(task.blockId, { 'custom-task-due-date': repeatEndDate });
+    }
+    invalidateTableFilters();
+    scheduleKernelTaskIndexRefresh();
+  } catch (error) {
+    console.error('[KanbanView] Failed to update table task repeat rule:', error);
+  }
 }
 
 async function handleKanbanEditorRepeatRuleSave(repeat: RepeatFrequency | RepeatRuleInput): Promise<void> {

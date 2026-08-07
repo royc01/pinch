@@ -1039,6 +1039,7 @@ let unsubscribeTaskChanged: (() => void) | null = null;
 let unsubscribeTaskAdded: (() => void) | null = null;
 let unsubscribeTaskDeleted: (() => void) | null = null;
 let unsubscribeTaskUpdated: (() => void) | null = null;
+let unsubscribeTaskDateChanged: (() => void) | null = null;
 let unsubscribeTaskToggled: (() => void) | null = null;
 let unsubscribeLifelogTasksUpdated: (() => void) | null = null;
 let unsubscribeLifelogTimelineUpdated: (() => void) | null = null;
@@ -1052,6 +1053,7 @@ onMounted(() => {
   unsubscribeTaskAdded = eventBus.on(Events.TASK_ADDED, handleTaskUpdate);
   unsubscribeTaskDeleted = eventBus.on(Events.TASK_DELETED, handleTaskUpdate);
   unsubscribeTaskUpdated = eventBus.on(Events.TASK_UPDATED, handleTaskUpdate);
+  unsubscribeTaskDateChanged = eventBus.on(Events.TASK_DATE_CHANGED, handleTaskUpdate);
   unsubscribeTaskToggled = eventBus.on(Events.TASK_TOGGLED, handleTaskUpdate);
   unsubscribeLifelogTasksUpdated = eventBus.on(Events.LIFELOG_TASKS_UPDATED, handleLifelogTasksUpdated);
   unsubscribeLifelogTimelineUpdated = eventBus.on(Events.LIFELOG_TIMELINE_UPDATED, handleLifelogTimelineUpdated);
@@ -1070,6 +1072,7 @@ onUnmounted(() => {
   unsubscribeTaskAdded?.();
   unsubscribeTaskDeleted?.();
   unsubscribeTaskUpdated?.();
+  unsubscribeTaskDateChanged?.();
   unsubscribeTaskToggled?.();
   unsubscribeLifelogTasksUpdated?.();
   unsubscribeLifelogTimelineUpdated?.();

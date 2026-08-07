@@ -984,6 +984,7 @@
     "tableView.columnDescription":  "描述",
     "tableView.columnPriority":  "优先级",
     "tableView.columnStatus":  "状态",
+    "tableView.columnFrequency":  "频率",
     "tableView.columnGroup":  "标签",
     "tableView.columnGoal":  "目标",
     "tableView.columnStartDate":  "开始日期",

@@ -169,6 +169,13 @@ export const useGoals = () => {
         scheduleRefresh(false);
         scheduleSettledRefresh();
       }),
+      // Calendar editors publish an optimistic date update before the host
+      // transaction has finished. Refresh goals from that same update so a
+      // due-date-only edit follows the already-working start-date path.
+      eventBus.on(Events.TASK_DATE_CHANGED, () => {
+        scheduleRefresh(false);
+        scheduleSettledRefresh();
+      }),
       eventBus.on(Events.TASK_ADDED, () => {
         scheduleRefresh(false);
         scheduleSettledRefresh();

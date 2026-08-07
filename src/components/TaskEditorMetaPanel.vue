@@ -1,7 +1,7 @@
 ﻿<template>
   <div
     class="task-editor-meta-panel"
-    :class="`is-${variant}`"
+    :class="[`is-${variant}`, { 'is-repeat-only': repeatOnly }]"
   >
     <TaskDatePopover
       v-if="showDueDateAction && panel === 'due'"
@@ -21,12 +21,13 @@
       @close="emitPanelUpdate(null)"
     />
     <Teleport to="body">
-      <div v-if="repeatDialogOpen" class="task-repeat-settings-popover" :style="repeatPopoverStyle">
+      <div v-if="isRepeatDialogVisible" class="task-repeat-settings-popover" :style="repeatPopoverStyle" @pointerdown.stop @click.stop>
         <section
           ref="repeatPopoverRef"
           class="task-repeat-settings-dialog"
           role="dialog"
           :aria-label="t('taskRepeat.dialogTitle')"
+          @pointerdown.stop
           @mousedown.stop
           @click.stop
         >
@@ -379,7 +380,7 @@
         ref="repeatButtonRef"
         type="button"
         class="task-editor-property-row ariaLabel"
-        :class="{ 'is-active': repeatDialogOpen }"
+        :class="{ 'is-active': isRepeatDialogVisible }"
         :aria-label="t('taskRepeat.repeat')"
         @click.stop="openRepeatDialog"
       >
@@ -546,6 +547,7 @@ import TaskRepeatEditor from '@/components/TaskRepeatEditor.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
 import { useI18n } from '@/composables/useI18n';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput, RepeatTermination } from '@/repeatRepository';
+import { formatRepeatRuleLabel } from '@/utils/repeatRuleLabel';
 import type { TaskReminderSelection, TaskReminderType } from '@/utils/taskReminder';
 import { TASK_GROUP_NONE_ID, type TaskGroupOption } from '@/utils/taskGroupShared';
 import { buildTaskPriorityShortOptions } from '@/utils/taskPriority';
@@ -618,6 +620,9 @@ const props = withDefaults(defineProps<{
   showGroupManage?: boolean;
   layout?: TaskEditorMetaLayout;
   variant?: 'sidebar' | 'floating';
+  repeatDialogVisible?: boolean;
+  repeatPopoverPosition?: { left: number; top: number };
+  repeatOnly?: boolean;
 }>(), {
   reminderType: undefined,
   reminderCustomTime: '',
@@ -641,7 +646,10 @@ const props = withDefaults(defineProps<{
   selectedTagIds: () => [],
   selectedGoalIds: () => [],
   goalOptions: () => [],
-  variant: 'sidebar'
+  variant: 'sidebar',
+  repeatDialogVisible: undefined,
+  repeatPopoverPosition: undefined,
+  repeatOnly: false
 });
 
 const emit = defineEmits<{
@@ -657,6 +665,7 @@ const emit = defineEmits<{
   priority: [event: MouseEvent];
   'select-priority': [value: Task['priority']];
   'save-repeat-rule': [value: RepeatFrequency | RepeatRuleInput];
+  'update:repeat-dialog-visible': [value: boolean];
   'commit-description': [];
   'manage-groups': [];
   'manage-goals': [];
@@ -678,6 +687,7 @@ const propertyPicker = ref<TaskEditorPropertyPicker>(null);
 const propertyPopoverStyle = ref<Record<string, string>>({});
 const focusEstimateOpen = ref(false);
 const repeatDialogOpen = ref(false);
+const isRepeatDialogVisible = computed(() => props.repeatDialogVisible ?? repeatDialogOpen.value);
 const repeatPopoverStyle = ref<Record<string, string>>({});
 const repeatMenuView = ref<'presets' | 'custom'>('presets');
 const repeatPresetBaseDate = ref(new Date());
@@ -708,68 +718,10 @@ const repeatPresetOptions = computed<Array<{ key: RepeatPresetKey; label: string
 });
 const repeatSummary = computed(() => {
   if (normalizedRepeatFrequency.value === 'custom') {
-    return formatRepeatRuleLabel(props.repeatRule);
+    return formatRepeatRuleLabel(props.repeatRule, t);
   }
   return t(`taskRepeat.${normalizedRepeatFrequency.value}`);
 });
-
-function formatRepeatRuleLabel(rule: RepeatRule | null | undefined): string {
-  if (!rule) return t('taskRepeat.customRepeat');
-
-  if (rule.unit === 'week') {
-    const weekdayKeys = [
-      'taskRepeat.weekdaySunShort',
-      'taskRepeat.weekdayMonShort',
-      'taskRepeat.weekdayTueShort',
-      'taskRepeat.weekdayWedShort',
-      'taskRepeat.weekdayThuShort',
-      'taskRepeat.weekdayFriShort',
-      'taskRepeat.weekdaySatShort'
-    ];
-    const days = (rule.weekDays || [])
-      .filter(day => Number.isInteger(day) && day >= 0 && day <= 6)
-      .map(day => `${t('taskRepeat.weekdayPrefix')}${t(weekdayKeys[day])}`);
-    return days.length > 0
-      ? `${t('taskRepeat.presetWeeklyPrefix')}（${days.join(t('taskRepeat.listDelimiter'))}）`
-      : t('taskRepeat.presetWeeklyPrefix');
-  }
-
-  if (rule.unit === 'month') {
-    const prefix = rule.calendar === 'lunar'
-      ? t('taskRepeat.presetLunarMonthlyPrefix')
-      : t('taskRepeat.monthly');
-    if (rule.windowStartDay && rule.windowEndDay) {
-      return `${prefix}（${rule.windowStartDay}${t('taskRepeat.summaryDaySuffix')}–${rule.windowEndDay}${t('taskRepeat.summaryDaySuffix')}）`;
-    }
-    const days = (rule.monthDays || [])
-      .map(day => `${day}${t('taskRepeat.summaryDaySuffix')}`)
-      .join(t('taskRepeat.listDelimiter'));
-    return days ? `${prefix}（${days}）` : prefix;
-  }
-
-  if (rule.unit === 'year') {
-    const prefix = rule.calendar === 'lunar'
-      ? t('taskRepeat.presetLunarYearlyPrefix')
-      : t('taskRepeat.presetYearlyPrefix');
-    const dates = (rule.yearDays || [])
-      .map(value => {
-        const [month, day] = value.split('-').map(Number);
-        return Number.isInteger(month) && Number.isInteger(day)
-          ? `${month}${t('date.monthSuffix')}${day}${t('taskRepeat.summaryDaySuffix')}`
-          : value;
-      })
-      .join(t('taskRepeat.listDelimiter'));
-    return dates ? `${prefix}（${dates}）` : prefix;
-  }
-
-  if (rule.unit === 'day') {
-    return rule.interval > 1
-      ? `${t('taskRepeat.summaryEvery')}${rule.interval}${t('taskRepeat.summaryDays')}`
-      : t('taskRepeat.daily');
-  }
-
-  return t('taskRepeat.customRepeat');
-}
 const statusBadgeText = computed(() => getTaskStatusLabel(normalizedStatus.value, t));
 const hasAnyDate = computed(() => Boolean(props.startDate.trim() || props.dueDate.trim()));
 const dateRange = computed(() => {
@@ -867,7 +819,7 @@ function togglePanel(panel: Exclude<TaskEditorPanel, null>): void {
 }
 
 function openRepeatDialog(): void {
-  if (repeatDialogOpen.value) {
+  if (isRepeatDialogVisible.value) {
     closeRepeatDialog();
     return;
   }
@@ -878,14 +830,27 @@ function openRepeatDialog(): void {
   repeatPresetBaseDate.value = new Date();
   terminationDraft.value = { ...(props.repeatTermination || { type: 'never' }) } as RepeatTermination;
   repeatDialogOpen.value = true;
+  if (props.repeatDialogVisible !== undefined) {
+    emit('update:repeat-dialog-visible', true);
+  }
   void nextTick(updateRepeatPopoverPosition);
 }
 
 function closeRepeatDialog(): void {
   repeatDialogOpen.value = false;
+  if (props.repeatDialogVisible !== undefined) {
+    emit('update:repeat-dialog-visible', false);
+  }
 }
 
 function updateRepeatPopoverPosition(): void {
+  if (props.repeatPopoverPosition) {
+    repeatPopoverStyle.value = {
+      left: `${Math.round(props.repeatPopoverPosition.left)}px`,
+      top: `${Math.round(props.repeatPopoverPosition.top)}px`
+    };
+    return;
+  }
   const anchor = repeatButtonRef.value;
   const popover = repeatPopoverRef.value;
   if (!anchor || !popover) return;
@@ -1243,7 +1208,7 @@ function handleOutsideMouseDown(event: MouseEvent): void {
     }
     return;
   }
-  if (repeatDialogOpen.value) {
+  if (isRepeatDialogVisible.value) {
     if (repeatPopoverRef.value?.contains(target) || repeatButtonRef.value?.contains(target)) {
       return;
     }
@@ -1282,10 +1247,22 @@ function handleViewportChange(): void {
   if (focusEstimateOpen.value) {
     updateFocusEstimatePopoverPosition();
   }
-  if (repeatDialogOpen.value) {
+  if (isRepeatDialogVisible.value) {
     updateRepeatPopoverPosition();
   }
 }
+
+watch(
+  () => [props.repeatDialogVisible, props.repeatPopoverPosition] as const,
+  ([visible]) => {
+    if (!visible) return;
+    repeatMenuView.value = 'presets';
+    repeatPresetBaseDate.value = new Date();
+    terminationDraft.value = { ...(props.repeatTermination || { type: 'never' }) } as RepeatTermination;
+    void nextTick(updateRepeatPopoverPosition);
+  },
+  { deep: true }
+);
 
 watch(
   () => props.panel,
@@ -1651,6 +1628,10 @@ button.task-repeat-settings-item:hover {
   align-items: center;
   gap: 6px;
   padding: 4px 14px 10px;
+}
+
+.task-editor-meta-panel.is-repeat-only {
+  display: none;
 }
 
 .task-repeat-termination-label {

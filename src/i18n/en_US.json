@@ -989,6 +989,7 @@
   "tableView.columnDescription": "Description",
   "tableView.columnPriority": "Priority",
   "tableView.columnStatus": "Status",
+  "tableView.columnFrequency": "Frequency",
   "tableView.columnGroup": "Tag",
   "tableView.columnGoal": "Goal",
   "tableView.columnStartDate": "Start date",

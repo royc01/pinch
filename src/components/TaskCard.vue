@@ -240,6 +240,7 @@ import { getTaskStatusLabel } from '@/utils/taskStatus';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { getTaskReminderLabel } from '@/utils/taskReminder';
 import { resolveTaskTagIds } from '@/utils/taskTags';
+import { stripHtml } from '@/composables/useTaskCommon';
 import type { Goal } from '@/goalRepository';
 import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { useTaskFocusProgress } from '@/composables/useTaskFocusProgress';
@@ -336,15 +337,17 @@ const isCollapsed = computed(() => {
   return !isExpanded.value;
 });
 
-const titleTooltip = computed(() => props.titleTooltip || '');
 const titleHtml = computed(() => sanitizeTaskTitleHtml(task.value.title));
 const titleAriaLabel = computed(() => {
-  const parts = [titleTooltip.value];
-  if (!props.disableDescriptionContextMenu && variant.value === 'sidebar') {
-    parts.push(t('taskCard.rightClickFillDescription'));
+  if (variant.value === 'sidebar') {
+    const parts = [props.titleTooltip || ''];
+    if (!props.disableDescriptionContextMenu) {
+      parts.push(t('taskCard.rightClickFillDescription'));
+    }
+    parts.push(t('taskCard.dragToCalendar'));
+    return parts.filter(Boolean).join('<br>');
   }
-  parts.push(t('taskCard.dragToCalendar'));
-  return parts.filter(Boolean).join('<br>');
+  return stripHtml(titleHtml.value).replace(/\s+/g, ' ').trim();
 });
 const descriptionHtml = computed(() => sanitizeTaskHtml(task.value.description || ''));
 const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.value.description ?? '');

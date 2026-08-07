@@ -138,6 +138,21 @@
               @click.stop.prevent
             ></button>
           </th>
+          <th v-if="column.key === 'frequency'" class="col-frequency is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
+            <div class="th-content">
+              <span>{{ getTableColumnLabel('frequency') }}</span>
+            </div>
+            <button
+              type="button"
+              class="column-resize-handle ariaLabel"
+              :class="{ 'is-active': activeResizeColumn === 'frequency' }"
+              :aria-label="getColumnResizeAria(getTableColumnLabel('frequency'))"
+              :title="getColumnResizeTitle(getTableColumnLabel('frequency'))"
+              @mousedown.stop.prevent="startColumnResize('frequency', $event)"
+              @dblclick.stop.prevent="resetColumnWidth('frequency')"
+              @click.stop.prevent
+            ></button>
+          </th>
           <th v-if="column.key === 'group'" class="col-group is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
             {{ getTableColumnLabel('group') }}
             <button
@@ -336,7 +351,7 @@
                   />
                 </span>
                 <span class="group-row-title">
-                  <span class="group-row-label">{{ row.group.label }}</span>
+                  <span class="group-row-label">{{ getGroupDisplayLabel(row.group) }}</span>
                   <span class="group-row-count">{{ getGroupItemCountLabel(row.group.tasks.length) }}</span>
                 </span>
                 <span class="group-row-right">
@@ -458,6 +473,9 @@
               <span class="status-badge" :class="`status-${row.task.status}`">
                 {{ getStatusLabel(row.task.status) }}
               </span>
+            </td>
+            <td v-if="column.key === 'frequency'" class="col-frequency" @click.stop="openRepeatEditor(row.task, $event)">
+              <span class="task-editor-property-pill frequency-display">{{ getRepeatFrequencyText(row.task) }}</span>
             </td>
             <td v-if="column.key === 'group'" class="col-group" @click.stop="toggleGroupPopover(row.task, $event)">
               <div v-if="getTaskGroupBadges(row.task).length > 0" class="group-badge-list">
@@ -611,6 +629,9 @@
                 {{ getStatusLabel(getSubtaskStatus(row.subtask)) }}
               </span>
             </td>
+            <td v-if="column.key === 'frequency'" class="col-frequency">
+              <span class="task-editor-property-pill frequency-display">-</span>
+            </td>
             <td v-if="column.key === 'group'" class="col-group" @click.stop="toggleSubtaskGroupPopover(row.task, row.subtask, $event)">
               <span
                 v-if="getSubtaskGroupLabel(row.subtask)"
@@ -763,6 +784,35 @@
       </div>
     </Teleport>
 
+    <TaskEditorMetaPanel
+      v-if="repeatEditorTask"
+      class="table-repeat-editor-host"
+      :panel="null"
+      :start-date="repeatEditorTask.startDate || ''"
+      :start-time="repeatEditorTask.startTime || ''"
+      :due-date="repeatEditorTask.dueDate || ''"
+      :due-time="repeatEditorTask.dueTime || ''"
+      due-text=""
+      :has-due-date="Boolean(repeatEditorTask.dueDate)"
+      description=""
+      :has-description="false"
+      :group-options="[]"
+      :selected-group-id="''"
+      :group-label="''"
+      :repeat-frequency="repeatEditorTask.repeatFrequency || 'none'"
+      :repeat-rule="repeatRuleByTaskId.get(repeatEditorTask.id) || null"
+      :repeat-termination="repeatTerminationByTaskId.get(repeatEditorTask.id) || { type: 'never' }"
+      :repeat-dialog-visible="repeatEditorVisible"
+      :repeat-popover-position="repeatEditorPosition"
+      :show-description-control="false"
+      :show-due-date-action="false"
+      :show-priority-action="false"
+      :show-reminder-control="false"
+      :show-group-manage="false"
+      @save-repeat-rule="handleRepeatEditorSave"
+      @update:repeat-dialog-visible="repeatEditorVisible = $event"
+    />
+
     <TaskDatePopover
       :visible="datePopoverVisible"
       :anchor-el="datePopoverAnchorRef"
@@ -797,6 +847,7 @@ import PriorityPopover from '@/components/PriorityPopover.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskTimePopover from '@/components/TaskTimePopover.vue';
+import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import { getStatusLabel, formatLocaleDate } from '@/composables/useTaskCommon';
 import {
   getTaskHeadingGroupMeta,
@@ -817,6 +868,7 @@ import {
 } from '@/utils/taskGroupShared';
 import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { getTaskPriorityLabel } from '@/utils/taskPriority';
+import { formatRepeatRuleLabel } from '@/utils/repeatRuleLabel';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 import {
   areTaskTagIdsEqual,
@@ -829,6 +881,7 @@ import { usePlugin } from '@/main';
 import type { Goal } from '@/goalRepository';
 import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { getDocumentCreationSortKey } from '@/utils/taskViewShared';
+import { getRepeatSeriesForTask, type RepeatFrequency, type RepeatRule, type RepeatRuleInput, type RepeatTermination } from '@/repeatRepository';
 
 interface Props {
   tasks: Task[];
@@ -838,6 +891,8 @@ interface Props {
   groupMode?: TaskViewGroupMode;
   /** Ordered root document IDs supplied by the milestone document tabs. */
   documentGroupOrder?: string[];
+  /** Whether a single document tab is selected, so heading labels can omit its document prefix. */
+  hideHeadingDocumentPrefix?: boolean;
   headingGroups?: Map<string, TaskHeadingGroupMeta>;
   documentIconByRootId?: Map<string, string>;
   documentTitleByRootId?: Map<string, string>;
@@ -891,6 +946,7 @@ type ResizableTableColumnKey =
   | 'description'
   | 'priority'
   | 'statusText'
+  | 'frequency'
   | 'group'
   | 'goal'
   | 'startDate'
@@ -936,6 +992,8 @@ function getTableColumnLabel(column: TableColumnKey): string {
       return t('tableView.columnPriority');
     case 'statusText':
       return t('tableView.columnStatus');
+    case 'frequency':
+      return t('tableView.columnFrequency');
     case 'group':
       return t('tableView.columnGroup');
     case 'goal':
@@ -979,6 +1037,43 @@ function getPriorityTitle(priority: Task['priority']): string {
   return getTaskPriorityLabel(priority, t);
 }
 
+function getRepeatFrequencyText(task: Pick<Task, 'id' | 'repeatFrequency'>): string {
+  const frequency = task.repeatFrequency;
+  if (!frequency || frequency === 'none') {
+    return '-';
+  }
+  if (frequency === 'custom') {
+    return formatRepeatRuleLabel(repeatRuleByTaskId.value.get(task.id), t);
+  }
+  return t(`taskRepeat.${frequency}`);
+}
+
+async function openRepeatEditor(task: Task, event: MouseEvent): Promise<void> {
+  const cell = event.currentTarget as HTMLElement | null;
+  const rect = cell?.getBoundingClientRect();
+  repeatEditorPosition.value = {
+    left: Math.max(8, Math.min(rect?.left || 8, window.innerWidth - 368)),
+    top: Math.min((rect?.bottom || 8) + 6, window.innerHeight - 16)
+  };
+
+  const series = await getRepeatSeriesForTask(task).catch(() => null);
+  if (series?.rule) {
+    repeatRuleByTaskId.value = new Map(repeatRuleByTaskId.value).set(task.id, series.rule);
+  }
+  if (series?.termination) {
+    repeatTerminationByTaskId.value = new Map(repeatTerminationByTaskId.value).set(task.id, series.termination);
+  }
+  repeatEditorTask.value = task;
+  repeatEditorVisible.value = true;
+}
+
+function handleRepeatEditorSave(repeat: RepeatFrequency | RepeatRuleInput): void {
+  const task = repeatEditorTask.value;
+  if (!task) return;
+  emit('repeatRuleUpdate', task, repeat);
+  repeatEditorVisible.value = false;
+}
+
 function getGroupItemCountLabel(count: number): string {
   return formatTemplate('tableView.itemCountTemplate', { count });
 }
@@ -1002,6 +1097,7 @@ const TABLE_COLUMNS: readonly TableColumnDefinition[] = [
   { key: 'description', className: 'col-description' },
   { key: 'priority', className: 'col-priority' },
   { key: 'statusText', className: 'col-status-text' },
+  { key: 'frequency', className: 'col-frequency' },
   { key: 'group', className: 'col-group' },
   { key: 'goal', className: 'col-goal' },
   { key: 'startDate', className: 'col-start-date' },
@@ -1023,6 +1119,7 @@ const TABLE_CONFIGURABLE_COLUMNS: readonly ConfigurableTableColumnKey[] = [
   'description',
   'priority',
   'statusText',
+  'frequency',
   'group',
   'goal',
   'startDate',
@@ -1044,6 +1141,7 @@ const tableColumnSettingGroups = computed<TableColumnSettingGroup[]>(() => [
       { key: 'description', label: getTableColumnLabel('description') },
       { key: 'priority', label: getTableColumnLabel('priority') },
       { key: 'statusText', label: getTableColumnLabel('statusText') },
+      { key: 'frequency', label: getTableColumnLabel('frequency') },
       { key: 'group', label: getTableColumnLabel('group') },
       { key: 'goal', label: getTableColumnLabel('goal') }
     ]
@@ -1074,6 +1172,7 @@ const TABLE_COLUMN_MIN_WIDTHS: Record<ResizableTableColumnKey, number> = {
   description: 200,
   priority: 60,
   statusText: 60,
+  frequency: 130,
   group: 110,
   goal: 120,
   startDate: 80,
@@ -1125,6 +1224,7 @@ const emit = defineEmits<{
   dueDateUpdate: [task: Task, dueDate: string];
   startTimeUpdate: [task: Task, startTime: string];
   dueTimeUpdate: [task: Task, dueTime: string];
+  repeatRuleUpdate: [task: Task, repeat: RepeatFrequency | RepeatRuleInput];
 }>();
 
 const expandedTasks = ref<Set<string>>(new Set());
@@ -1177,12 +1277,18 @@ const timePopoverSubtaskId = ref('');
 const timePopoverField = ref<TimeField>('dueTime');
 const timePopoverAnchorRef = ref<HTMLElement | null>(null);
 const focusSessionRecords = ref<FocusSessionRecord[]>([]);
+const repeatRuleByTaskId = ref<Map<string, RepeatRule>>(new Map());
+const repeatTerminationByTaskId = ref<Map<string, RepeatTermination>>(new Map());
+const repeatEditorTask = ref<Task | null>(null);
+const repeatEditorVisible = ref(false);
+const repeatEditorPosition = ref({ left: 0, top: 0 });
 const columnSettingsControlRef = ref<HTMLElement | null>(null);
 const columnSettingsVisible = ref(false);
 const visibleConfigurableColumns = ref<Set<ConfigurableTableColumnKey>>(loadTableColumnVisibility());
 const tableColumnOrder = ref<TableColumnKey[]>(loadTableColumnOrder());
 let draggedTableColumn: TableColumnKey | null = null;
 let focusDurationLoadVersion = 0;
+let repeatRuleLoadVersion = 0;
 let tableColumnVisibilityLoadVersion = 0;
 
 const priorityOrder = { high: 0, medium: 1, low: 2, none: 3 };
@@ -1519,6 +1625,34 @@ async function refreshTaskFocusDurations(): Promise<void> {
     focusSessionRecords.value = data.sessionRecords;
   } catch (error) {
     console.error('[TableView]', t('tableView.loadTaskFocusDurationFailed'), error);
+  }
+}
+
+async function refreshTaskRepeatRules(): Promise<void> {
+  const loadVersion = ++repeatRuleLoadVersion;
+  const customRepeatTasks = props.tasks.filter(task => task.repeatFrequency === 'custom');
+  try {
+    const entries = await Promise.all(customRepeatTasks.map(async task => {
+      const series = await getRepeatSeriesForTask(task);
+      return [task.id, series?.rule, series?.termination] as const;
+    }));
+    if (loadVersion !== repeatRuleLoadVersion) {
+      return;
+    }
+    const nextRules = new Map<string, RepeatRule>();
+    const nextTerminations = new Map<string, RepeatTermination>();
+    for (const [taskId, rule, termination] of entries) {
+      if (rule) {
+        nextRules.set(taskId, rule);
+      }
+      if (termination) {
+        nextTerminations.set(taskId, termination);
+      }
+    }
+    repeatRuleByTaskId.value = nextRules;
+    repeatTerminationByTaskId.value = nextTerminations;
+  } catch (error) {
+    console.warn('[TableView] Failed to load repeat rules', error);
   }
 }
 
@@ -2882,6 +3016,17 @@ function handleTableScroll(): void {
 }
 
 watch(
+  () => [
+    props.tasks,
+    props.tasks.map(task => `${task.id}:${task.repeatFrequency || ''}:${task.repeatSeriesId || ''}:${task.updatedAt || ''}`).join('|')
+  ],
+  () => {
+    void refreshTaskRepeatRules();
+  },
+  { immediate: true }
+);
+
+watch(
   () => [props.tasks, sortColumn.value, sortDirection.value, resolvedGroupMode.value],
   () => {
     if (tableContainerRef.value) {
@@ -2929,6 +3074,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   focusDurationLoadVersion += 1;
+  repeatRuleLoadVersion += 1;
   tableColumnVisibilityLoadVersion += 1;
   activeColumnResize = null;
   activeResizeColumn.value = null;
@@ -3018,6 +3164,14 @@ function getTaskGoalOverflowCount(task: Task): number {
 
 function getGroupKey(groupId: string): string {
   return groupId || '__none__';
+}
+
+function getGroupDisplayLabel(group: TableTaskGroupSection): string {
+  if (group.mode !== 'heading' || !props.hideHeadingDocumentPrefix) {
+    return group.label;
+  }
+  const separatorIndex = group.label.indexOf(' / ');
+  return separatorIndex >= 0 ? group.label.slice(separatorIndex + 3) : group.label;
 }
 
 function isGroupCollapsed(groupId: string): boolean {
@@ -4481,6 +4635,35 @@ defineExpose({
   white-space: nowrap;
 }
 
+.col-frequency {
+  width: var(--table-col-frequency-width, 130px);
+  min-width: var(--table-col-frequency-width, 130px);
+  text-align: center;
+  white-space: nowrap;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.table-repeat-editor-host {
+  display: none;
+}
+
+.frequency-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .col-group {
   width: var(--table-col-group-width, 110px);
   min-width: var(--table-col-group-width, 110px);
@@ -4741,6 +4924,7 @@ defineExpose({
 }
 
 .col-status-text .th-content,
+.col-frequency .th-content,
 .col-start-date .th-content,
 .col-start-time .th-content,
 .col-due-date .th-content,

@@ -1401,7 +1401,7 @@ function handleContextMenuOutsidePointerDown(event: PointerEvent): void {
   if (menu && target instanceof Node && menu.contains(target)) {
     return;
   }
-  if (target instanceof Element && target.closest('.time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog')) {
+  if (target instanceof Element && target.closest('.time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog, .task-repeat-settings-popover')) {
     return;
   }
   selectMobileAllDayTask(null);

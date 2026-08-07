@@ -147,10 +147,12 @@
                 :key="`header:${day.key}`"
                 class="gantt-day-header"
                 :class="{ today: day.isToday, weekend: day.isWeekend, 'month-start': !!day.monthLabel }"
+                :style="day.isToday ? { '--gantt-today-position': `${todayTimePosition}%` } : undefined"
               >
                 <span class="gantt-day-month">{{ day.monthLabel }}</span>
                 <span class="gantt-day-weekday">{{ day.weekdayLabel }}</span>
                 <span class="gantt-day-date">{{ day.dayLabel }}</span>
+                <span v-if="day.isToday" class="gantt-today-marker">{{ t('ganttView.today') }}</span>
               </div>
             </div>
           </div>
@@ -204,7 +206,8 @@
             :style="{
               gridColumn: `${dayIndex + 2}`,
               gridRow: '2',
-              height: `${ganttTimelineBodyHeight}px`
+              height: `${ganttTimelineBodyHeight}px`,
+              '--gantt-today-position': `${todayTimePosition}%`
             }"
           ></div>
         </template>
@@ -630,6 +633,7 @@ const labelColumnWidth = ref(DEFAULT_LABEL_COLUMN_WIDTH);
 const hoveredRenderRowKey = ref<string | null>(null);
 const ganttSearchQuery = ref('');
 const showCompletedTaskRows = ref(false);
+const currentTime = ref(new Date());
 const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
   show: false,
   x: 0,
@@ -671,6 +675,7 @@ let goalDueDateDragState: GoalDueDateDragState | null = null;
 let sidebarResizeState: { startX: number; startWidth: number; scrollLeft: number } | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let metricsAnimationFrame: number | null = null;
+let currentTimeUpdateInterval: number | null = null;
 let contextMenuOutsidePointerBound = false;
 const optimisticTaskDateTimers = new Map<string, number>();
 const optimisticGoalDueDateTimers = new Map<string, number>();
@@ -1027,7 +1032,7 @@ function handleContextMenuOutsidePointerDown(event: PointerEvent): void {
   const target = event.target;
   const targetElement = target instanceof Element ? target : null;
   const clickedInsideContextMenu = !!targetElement?.closest(
-    '.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog'
+    '.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog, .task-repeat-settings-popover'
   );
   if (clickedInsideContextMenu) return;
   hideContextMenu();
@@ -1356,6 +1361,10 @@ onBeforeUnmount(() => {
     window.cancelAnimationFrame(metricsAnimationFrame);
     metricsAnimationFrame = null;
   }
+  if (currentTimeUpdateInterval !== null) {
+    window.clearInterval(currentTimeUpdateInterval);
+    currentTimeUpdateInterval = null;
+  }
   window.removeEventListener('resize', updateShellMetrics);
 });
 
@@ -1532,7 +1541,14 @@ const externalDropPreviewStyle = computed<Record<string, string> | null>(() => {
   };
 });
 
-const today = computed(() => startOfDay(new Date()));
+const today = computed(() => startOfDay(currentTime.value));
+const todayTimePosition = computed(() => {
+  const now = currentTime.value;
+  return ((now.getHours() * 60 * 60 * 1000
+    + now.getMinutes() * 60 * 1000
+    + now.getSeconds() * 1000
+    + now.getMilliseconds()) / DAY_MS) * 100;
+});
 const timelineDayCount = computed(() => timelineWeeks.value * 7);
 const timelineStart = computed(() => addDays(timelineAnchor.value, -7));
 const timelineEnd = computed(() => addDays(timelineStart.value, timelineDayCount.value - 1));
@@ -1695,6 +1711,9 @@ function scheduleScrollTodayIntoView(): void {
 }
 
 onMounted(() => {
+  currentTimeUpdateInterval = window.setInterval(() => {
+    currentTime.value = new Date();
+  }, 60000);
   void nextTick(() => {
     updateShellMetrics();
     if (typeof ResizeObserver !== 'undefined' && ganttShellRef.value) {
@@ -3052,8 +3071,21 @@ const timelineHeaderStyle = computed(() => ({
   position: relative;
   z-index: 1;
   align-self: start;
-  background: color-mix(in srgb, #f98f7a 8%, var(--b3-theme-background));
   pointer-events: none;
+}
+
+.gantt-today-column::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--gantt-today-position, 50%);
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #f98f7a;
+  opacity: 0.8;
+  transition: left 60s linear;
 }
 
 .gantt-weekend-column,
@@ -3217,6 +3249,58 @@ const timelineHeaderStyle = computed(() => ({
 .gantt-day-header.today .gantt-day-date {
   color: var(--b3-theme-background);
   background: var(--b3-theme-on-background);
+}
+
+.gantt-day-header.today {
+  z-index: 12;
+}
+
+.gantt-day-header.today::after {
+  content: '';
+  position: absolute;
+  top: 24px;
+  bottom: 0;
+  left: var(--gantt-today-position, 50%);
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #f98f7a;
+  opacity: 0.8;
+  transition: left 60s linear;
+}
+
+.gantt-today-marker {
+  position: absolute;
+  top: 2px;
+  left: var(--gantt-today-position, 50%);
+  z-index: 11;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 18px;
+  padding: 0 6px;
+  transform: translateX(-50%);
+  border-radius: 10px;
+  background: #f98f7a;
+  color: var(--b3-theme-background);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: left 60s linear;
+}
+
+.gantt-today-marker::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  transform: translateX(-50%) rotate(45deg);
+  background: #f98f7a;
 }
 .gantt-row-label {
   position: sticky;

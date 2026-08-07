@@ -32,12 +32,52 @@
       @clear-dates="$emit('clearTaskDates')"
     />
 
-    <TaskRepeatEditor
-      class="context-menu-section"
+    <div class="context-menu-section context-menu-repeat-section">
+      <button
+        type="button"
+        ref="repeatButtonRef"
+        class="task-editor-property-row ariaLabel"
+        :aria-label="t('taskRepeat.repeat')"
+        @click="openRepeatSettings"
+      >
+        <span class="task-editor-property-label">
+          <Icon name="repeat" width="15" height="15" />
+          <span>{{ t('taskRepeat.repeat') }}</span>
+        </span>
+        <span class="task-editor-property-value">
+          <span v-if="normalizedRepeatFrequency !== 'none'" class="task-editor-property-pill">{{ repeatSummary }}</span>
+          <span v-else class="task-editor-property-placeholder">{{ t('taskRepeat.none') }}</span>
+        </span>
+      </button>
+    </div>
+
+    <TaskEditorMetaPanel
+      v-if="show || repeatSettingsOpen"
+      repeat-only
+      variant="floating"
+      layout="properties"
+      :panel="null"
+      :start-date="startDate"
+      :start-time="startTime"
+      :due-date="dueDate"
+      :due-time="dueTime"
+      due-text=""
+      :has-due-date="Boolean(startDate || dueDate)"
+      description=""
+      :has-description="false"
+      :group-options="[]"
+      selected-group-id=""
+      group-label=""
       :repeat-frequency="repeatFrequency"
       :repeat-rule="repeatRule"
-      :base-date="startDate || dueDate"
-      @saveRepeatRule="$emit('saveRepeatRule', $event)"
+      :repeat-termination="resolvedRepeatTermination"
+      :repeat-dialog-visible="repeatSettingsOpen"
+      :repeat-popover-position="repeatPopoverPosition"
+      :show-description-control="false"
+      :show-due-date-action="false"
+      :show-reminder-control="false"
+      @update:repeat-dialog-visible="repeatSettingsOpen = $event"
+      @save-repeat-rule="handleRepeatRuleSave"
     />
 
     <div class="context-menu-divider"></div>
@@ -58,12 +98,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { Task } from '@/api';
-import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
+import type { RepeatFrequency, RepeatRule, RepeatRuleInput, RepeatTermination } from '@/repeatRepository';
 import CalendarTaskDateSection, { type CalendarTaskDateFields } from '@/components/CalendarTaskDateSection.vue';
 import Icon from '@/components/Icon.vue';
-import TaskRepeatEditor from '@/components/TaskRepeatEditor.vue';
+import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import { useI18n } from '@/composables/useI18n';
 import { resolveTaskAccentColor } from '@/utils/taskColor';
+import { formatRepeatRuleLabel } from '@/utils/repeatRuleLabel';
 
 interface BackgroundColorOption {
   value: string;
@@ -100,7 +141,38 @@ const emit = defineEmits<{
 const isMobileSheet = ref(false);
 const menuRef = ref<HTMLElement | null>(null);
 const menuPosition = ref<{ x: number; y: number }>({ x: 0, y: 0 });
+const repeatButtonRef = ref<HTMLElement | null>(null);
+const repeatSettingsOpen = ref(false);
+const repeatPopoverPosition = ref<{ left: number; top: number } | undefined>(undefined);
 const { t } = useI18n();
+
+const normalizedRepeatFrequency = computed<RepeatFrequency>(() => props.repeatFrequency || 'none');
+// Keep the context menu consistent with the sidebar editor: when a task
+// already has a due date, selecting a repeat preset should use it as the
+// recurrence cutoff instead of silently changing the rule to "never ends".
+const resolvedRepeatTermination = computed<RepeatTermination>(() => {
+  const dueDate = props.dueDate.trim();
+  return dueDate ? { type: 'date', date: dueDate } : { type: 'never' };
+});
+const repeatSummary = computed(() => normalizedRepeatFrequency.value === 'custom'
+  ? formatRepeatRuleLabel(props.repeatRule, t)
+  : t(`taskRepeat.${normalizedRepeatFrequency.value}`));
+
+function openRepeatSettings(): void {
+  const rect = repeatButtonRef.value?.getBoundingClientRect();
+  if (rect) {
+    repeatPopoverPosition.value = {
+      left: Math.max(8, Math.min(rect.right - 360, window.innerWidth - 368)),
+      top: Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 520))
+    };
+  }
+  repeatSettingsOpen.value = true;
+}
+
+function handleRepeatRuleSave(value: RepeatFrequency | RepeatRuleInput): void {
+  repeatSettingsOpen.value = false;
+  emit('saveRepeatRule', value);
+}
 
 const menuStyle = computed<Record<string, string>>(() => {
   if (isMobileSheet.value) {
@@ -250,6 +322,78 @@ function getColorOptionStyle(color: BackgroundColorOption): Record<string, strin
 .context-menu-section {
   padding: 4px;
   margin-bottom: 8px;
+}
+
+.context-menu-repeat-section {
+  padding: 0;
+}
+
+.task-editor-property-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 24%) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-editor-property-row:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-editor-property-label,
+.task-editor-property-value {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.task-editor-property-label {
+  gap: 8px;
+  padding-left: 2px;
+  color: var(--b3-theme-on-surface);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.task-editor-property-label svg {
+  flex: 0 0 auto;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.72;
+}
+
+.task-editor-property-value {
+  justify-content: flex-start;
+  gap: 6px;
+  color: var(--b3-theme-on-background);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.task-editor-property-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.task-editor-property-placeholder {
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  opacity: 0.62;
 }
 
 .task-color-picker {

@@ -1824,7 +1824,14 @@ function resolveTaskScrollContainer(): HTMLElement | null {
   if (!localHost || typeof localHost.closest !== 'function') {
     return document.documentElement;
   }
-  return (localHost.closest('.Pinch-habit-container') as HTMLElement | null) || document.documentElement;
+
+  // The home sidebar scrolls inside `.habit-list-container`, not its
+  // `.Pinch-habit-container` parent. Listening to the parent leaves the
+  // virtual range frozen after the initial render, so scrolling through a
+  // large task list eventually shows only the spacer's blank area.
+  return (localHost.closest('.habit-list-container') as HTMLElement | null)
+    || (localHost.closest('.Pinch-habit-container') as HTMLElement | null)
+    || document.documentElement;
 }
 
 function findTaskIndexForOffset(offsets: number[], offset: number): number {
@@ -4152,9 +4159,7 @@ function collectTaskDateIdentity(task: Partial<Task> | null | undefined): {
   };
 
   addTaskId(task?.id);
-  addTaskId(task?.taskId);
   addBlockId(task?.blockId);
-  addBlockId(task?.sourceBlockId);
 
   return {
     taskIds,
@@ -4182,8 +4187,11 @@ function areTaskDateIdentitiesRelated(
       return true;
     }
   }
-  return !!leftIdentity.repeatSeriesId
-    && leftIdentity.repeatSeriesId === rightIdentity.repeatSeriesId;
+  // A date update is for one concrete task (or its backing block), not every
+  // occurrence in a repeat series. Matching on repeatSeriesId here turns the
+  // virtual occurrences into the template when an editor broadcasts a
+  // template date change, which makes later reconciliations accumulate cards.
+  return false;
 }
 
 function patchTaskByDateIdentity(
@@ -4244,6 +4252,19 @@ function applyLocalTaskFieldOverridesToList(taskList: Task[]): Task[] {
     return taskList;
   }
   return taskList.map(task => applyLocalTaskFieldOverrides(task));
+}
+
+function clearLocalRepeatInstanceOverrides(seriesId: string | undefined): void {
+  const normalizedSeriesId = typeof seriesId === 'string' ? seriesId.trim() : '';
+  if (!normalizedSeriesId) {
+    return;
+  }
+  const instanceIdPrefix = `repeat_${normalizedSeriesId}_`;
+  for (const taskId of localTaskFieldOverrides.keys()) {
+    if (taskId.startsWith(instanceIdPrefix)) {
+      localTaskFieldOverrides.delete(taskId);
+    }
+  }
 }
 
 function isTaskIncludedByNotebookScope(task: Task): boolean {
@@ -5474,6 +5495,10 @@ function applyRepeatRuleOptimistic(payload: RepeatRulePayload): boolean {
 
 async function applyRepeatRuleIncremental(payload: RepeatRulePayload, requestId: number): Promise<boolean> {
   applyRepeatRuleOptimistic(payload);
+  // Virtual instances are regenerated from the series. Never carry a stale
+  // optimistic override from a previous template-date broadcast into that
+  // replacement snapshot, or the new instances become ordinary list cards.
+  clearLocalRepeatInstanceOverrides(payload.seriesId);
   try {
     const { nextTasks, touched, handled } = await rebuildAffectedRepeatTasks(
       tasks.value,
