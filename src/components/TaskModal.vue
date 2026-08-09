@@ -16,11 +16,13 @@
         >
           <div class="modal-header">
             <h3>{{ tt('taskManager.newTask') }}</h3>
-            <button @click="emit('close')" class="icon-button ariaLabel" :aria-label="tt('common.close')">
+            <button v-if="!quickCreate" @click="emit('close')" class="icon-button ariaLabel" :aria-label="tt('common.close')">
               <Icon name="close" width="16" height="16" class="icon" />
             </button>
           </div>
           <div class="modal-body">
+            <slot v-if="quickCreate" name="quick-create-body"></slot>
+            <template v-else>
             <div class="form-group task-title-group">
               <textarea
                 v-model="localTask.title"
@@ -39,6 +41,7 @@
                 <SySelect v-model="selectedDocument" :options="documentOptions" />
               </div>
             </div>
+            </template>
             <div v-if="taskModalQuickPanel === 'group'" class="task-modal-group-panel">
               <div class="task-modal-group-header">
                 <span class="task-modal-group-title">{{ tt('taskManager.selectTag') }}</span>
@@ -97,6 +100,8 @@
                 @keydown.ctrl.enter.prevent="handleTaskModalDescriptionCommit"
               ></textarea>
             </div>
+          </div>
+          <div class="modal-footer task-modal-footer">
             <div class="task-modal-action-bar">
               <button
                 type="button"
@@ -159,9 +164,9 @@
                 <Icon name="descriptionBubble" width="14" height="14" />
               </button>
             </div>
-          </div>
-          <div class="modal-footer">
-            <SyButton @click="handleSubmit" class="confirm-button">{{ tt('taskManager.save') }}</SyButton>
+            <slot name="quick-create-footer">
+              <SyButton @click="handleSubmit" class="confirm-button">{{ tt('taskManager.save') }}</SyButton>
+            </slot>
           </div>
         </div>
       </Transition>
@@ -260,6 +265,7 @@ interface Props {
   defaultGroupId?: string;
   presentation?: 'sheet' | 'center';
   overlayStyle?: Record<string, string>;
+  quickCreate?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -268,6 +274,7 @@ const emit = defineEmits<{
   close: [];
   submit: [task: NewTask, notebookId: string, documentId: string];
   'manage-groups': [];
+  'quick-task-update': [task: NewTask];
 }>();
 
 const defaultTask: NewTask = {
@@ -284,6 +291,11 @@ const defaultTask: NewTask = {
 };
 
 const localTask = ref<NewTask>({ ...defaultTask });
+watch(localTask, (task) => {
+  if (props.quickCreate) {
+    emit('quick-task-update', { ...task, tags: [...task.tags], goalIds: [...task.goalIds] });
+  }
+}, { deep: true });
 const selectedNotebook = ref<string>('');
 const selectedDocument = ref<string>('');
 const taskModalQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
@@ -620,7 +632,7 @@ const handleSubmit = () => {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  z-index: 2;
+  z-index: 3;
 }
 
 .modal-overlay.is-centered {
@@ -629,7 +641,7 @@ const handleSubmit = () => {
 }
 
 .modal-content {
-  background: var(--b3-theme-background);
+  background-color: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
   border-radius: 24px 24px 0 0;
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
   overflow-y: auto;
@@ -1006,6 +1018,13 @@ const handleSubmit = () => {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-start;
+  margin-right: auto;
+}
+
+.task-modal-footer {
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .task-modal-action-btn {

@@ -1614,26 +1614,47 @@
       </Transition>
     </Teleport>
 
-    <div v-if="quickCreateDialog.show" class="quick-create-mask" @click="closeQuickCreateDialog">
-      <div class="quick-create-dialog" @click.stop>
-        <div class="quick-create-title">
-          {{ getQuickCreateDialogTitle(quickCreateDialog.mode) }}
-        </div>
-        <div class="quick-create-row">
-          <label>{{ t('taskManager.notebook') }}</label>
-          <SySelect
-            :model-value="quickCreateNotebookId"
-            @update:model-value="quickCreateNotebookId = $event"
-            :options="notebookOptions"
-          />
-        </div>
-        <div class="quick-create-row">
-          <label>{{ t('taskManager.document') }}</label>
-          <SySelect
-            :model-value="quickCreateDocumentId"
-            @update:model-value="quickCreateDocumentId = $event"
-            :options="quickCreateDocumentOptions"
-          />
+    <TaskModal
+      quick-create
+      :show="quickCreateDialog.show"
+      :t="taskModalTranslate"
+      :notebooks="taskModalNotebooks"
+      :documents="taskModalDocuments"
+      :groups="taskGroups"
+      :goals="goalDefinitions"
+      presentation="center"
+      @close="discardQuickCreateDraft"
+      @quick-task-update="handleQuickCreateMetaUpdate"
+    >
+      <template #quick-create-body>
+        <div
+          class="quick-create-target-row"
+          :class="{ 'is-special': quickCreateLocation !== 'last' }"
+        >
+          <div class="quick-create-field">
+            <label>{{ t('taskScopeDialog.defaultTaskCreateTarget') }}</label>
+            <SySelect
+              :model-value="quickCreateLocation"
+              @update:model-value="quickCreateLocation = $event as QuickCreateLocation"
+              :options="quickCreateLocationOptions"
+            />
+          </div>
+          <div class="quick-create-field">
+            <label>{{ t('taskManager.notebook') }}</label>
+            <SySelect
+              :model-value="quickCreateNotebookId"
+              @update:model-value="quickCreateNotebookId = $event"
+              :options="notebookOptions"
+            />
+          </div>
+          <div v-if="quickCreateLocation === 'last'" class="quick-create-field">
+            <label>{{ t('taskManager.document') }}</label>
+            <SySelect
+              :model-value="quickCreateDocumentId"
+              @update:model-value="quickCreateDocumentId = $event"
+              :options="quickCreateDocumentOptions"
+            />
+          </div>
         </div>
         <input
           v-if="quickCreateDialog.mode === 'heading-task'"
@@ -1643,23 +1664,46 @@
           type="text"
           :placeholder="t('kanbanView.enterHeadingName')"
           @keydown.enter.prevent="submitQuickCreateTask"
-          @keydown.esc.prevent="closeQuickCreateDialog"
+          @keydown.esc.prevent="discardQuickCreateDraft"
         />
+        <div
+          v-if="quickCreateDialog.mode === 'task'"
+          ref="quickCreateProtyleMountRef"
+          class="quick-create-protyle"
+        ></div>
         <input
+          v-else
           ref="quickCreateInputRef"
           v-model="quickCreateDialog.title"
           class="quick-create-input"
           type="text"
           :placeholder="getQuickCreateTaskPlaceholder(quickCreateDialog.mode)"
           @keydown.enter.prevent="submitQuickCreateTask"
-          @keydown.esc.prevent="closeQuickCreateDialog"
+          @keydown.esc.prevent="discardQuickCreateDraft"
         />
+      </template>
+      <template #quick-create-footer>
         <div class="quick-create-actions">
-          <button class="quick-create-btn cancel" @click="closeQuickCreateDialog">{{ t('common.cancel') }}</button>
-          <button class="quick-create-btn confirm" @click="submitQuickCreateTask">{{ t('kanbanView.create') }}</button>
+          <div class="quick-create-submit-group">
+            <button class="quick-create-btn confirm" @click="submitQuickCreateTask">{{ t('kanbanView.create') }}</button>
+            <button
+              type="button"
+              class="quick-create-submit-arrow quick-create-btn confirm"
+              aria-label="选择保存快捷键"
+              @click.stop="quickCreateShortcutMenuOpen = !quickCreateShortcutMenuOpen"
+            >⌄</button>
+            <div v-if="quickCreateShortcutMenuOpen" class="quick-create-shortcut-menu">
+              <button type="button" :class="{ active: quickCreateSubmitShortcut === 'enter' }" @click="selectQuickCreateShortcut('enter')">
+                <span>{{ quickCreateSubmitShortcut === 'enter' ? '✓' : '' }}</span>按 Enter 键发送消息
+              </button>
+              <button type="button" :class="{ active: quickCreateSubmitShortcut === 'ctrl-enter' }" @click="selectQuickCreateShortcut('ctrl-enter')">
+                <span>{{ quickCreateSubmitShortcut === 'ctrl-enter' ? '✓' : '' }}</span>按 Ctrl + Enter 键发送消息
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </template>
+    </TaskModal>
     <TaskScopeDialog
       :show="showTaskScopeDialog"
       :notebooks="notebooks"
@@ -3595,6 +3639,8 @@ interface OpenQuickCreateOptions {
   mode?: 'task' | 'heading-task';
 }
 
+type QuickCreateLocation = 'last' | 'inbox' | 'daily-note';
+
 interface TableGroupActionPayload {
   mode: 'group' | 'heading';
   groupId: string;
@@ -3605,6 +3651,29 @@ interface TableGroupActionPayload {
 
 const quickCreateHeadingInputRef = ref<HTMLInputElement | null>(null);
 const quickCreateInputRef = ref<HTMLInputElement | null>(null);
+const quickCreateProtyleMountRef = ref<HTMLElement | null>(null);
+let quickCreateProtyle: Protyle | null = null;
+let quickCreateProtyleBlockId = '';
+let quickCreateDraftTaskBlockId = '';
+let isCreatingQuickCreateProtyle = false;
+let isResettingQuickCreateDraft = false;
+const quickCreateMetaDraft = ref<{
+  description: string;
+  priority: Task['priority'];
+  dueDate: string;
+  reminderType: string;
+  reminderCustomTime: string;
+  tags: string[];
+  groupId: string;
+}>({
+  description: '',
+  priority: 'none',
+  dueDate: '',
+  reminderType: '',
+  reminderCustomTime: '',
+  tags: [],
+  groupId: ''
+});
 const columnTitleInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 const editingColumnTitleId = ref<string>('');
 const columnTitleDraft = ref<string>('');
@@ -3612,6 +3681,14 @@ const editingColumnOriginalTitle = ref<string>('');
 const isSavingColumnTitle = ref(false);
 const quickCreateNotebookId = ref<string>('all');
 const quickCreateDocumentId = ref<string>('all');
+const quickCreateLocation = ref<QuickCreateLocation>('last');
+const quickCreateSubmitShortcut = ref<'enter' | 'ctrl-enter'>('ctrl-enter');
+const quickCreateShortcutMenuOpen = ref(false);
+const quickCreateLocationOptions = computed(() => [
+  { value: 'last', text: t('taskScopeDialog.defaultTaskCreateTargetLast') },
+  { value: 'inbox', text: t('taskScopeDialog.defaultTaskCreateTargetInbox') },
+  { value: 'daily-note', text: t('taskScopeDialog.defaultTaskCreateTargetDailyNote') }
+]);
 const quickCreateDialog = ref<{
   show: boolean;
   mode: 'task' | 'heading-task';
@@ -7654,13 +7731,38 @@ watch(currentDocumentFilter, () => {
 });
 
 watch(quickCreateNotebookId, (newType, oldType) => {
-  if (newType !== oldType && quickCreateDialog.value.show) {
+  if (newType !== oldType && quickCreateDialog.value.show && quickCreateLocation.value === 'last') {
     const exists = quickCreateDocumentOptions.value.some(opt => opt.value === quickCreateDocumentId.value);
     if (!exists) {
       quickCreateDocumentId.value = 'all';
     }
-  } else if (newType !== oldType) {
+  } else if (newType !== oldType && quickCreateLocation.value === 'last') {
     quickCreateDocumentId.value = 'all';
+  }
+});
+
+watch(quickCreateLocation, (location) => {
+  if (!quickCreateDialog.value.show) {
+    return;
+  }
+  if (location === 'last') {
+    const lastTarget = resolveLastTaskCreateTarget();
+    quickCreateNotebookId.value = lastTarget?.notebookId || getDefaultQuickCreateNotebook(quickCreateNotebookId.value);
+    quickCreateDocumentId.value = lastTarget?.documentId || 'all';
+  } else {
+    quickCreateNotebookId.value = getDefaultQuickCreateNotebook(quickCreateNotebookId.value);
+    quickCreateDocumentId.value = location === 'inbox'
+      ? PINCH_INBOX_OPTION_ID
+      : PINCH_DAILY_NOTE_OPTION_ID;
+  }
+  if (quickCreateDraftTaskBlockId || quickCreateProtyle) {
+    void recreateQuickCreateDraftAtSelectedLocation();
+  }
+});
+
+watch(quickCreateDocumentId, () => {
+  if (quickCreateDialog.value.show && quickCreateDialog.value.mode === 'task') {
+    void initializeQuickCreateProtyle();
   }
 });
 
@@ -14021,12 +14123,20 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
     quickCreateDocumentId.value = 'all';
   }
 
+  quickCreateLocation.value = getDefaultQuickCreateLocation();
+  if (quickCreateLocation.value === 'inbox' || quickCreateLocation.value === 'daily-note') {
+    quickCreateNotebookId.value = getDefaultQuickCreateNotebook(quickCreateNotebookId.value);
+    quickCreateDocumentId.value = quickCreateLocation.value === 'inbox'
+      ? PINCH_INBOX_OPTION_ID
+      : PINCH_DAILY_NOTE_OPTION_ID;
+  }
+
   const mode = options.mode === 'heading-task' ? 'heading-task' : 'task';
   quickCreateDialog.value = {
     show: true,
     mode,
     headingTitle: '',
-    title: mode === 'heading-task' ? '' : t('taskManager.newTask'),
+    title: '',
     payload,
     context: options.context || null
   };
@@ -14036,8 +14146,7 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
     quickCreateHeadingInputRef.value?.select();
     return;
   }
-  quickCreateInputRef.value?.focus();
-  quickCreateInputRef.value?.select();
+  void initializeQuickCreateProtyle();
 }
 
 function handleCalendarTaskCreateRequested(payload: CreateTaskPayload): Promise<void> {
@@ -14062,7 +14171,164 @@ function resolveLastTaskCreateTarget(): Pick<QuickCreateTarget, 'notebookId' | '
     : null;
 }
 
-function closeQuickCreateDialog() {
+function destroyQuickCreateProtyle(): void {
+  quickCreateProtyleMountRef.value?.removeEventListener('keydown', handleQuickCreateProtyleKeydown, true);
+  if (quickCreateProtyle) {
+    try {
+      quickCreateProtyle.destroy();
+    } catch {
+    }
+  }
+  quickCreateProtyle = null;
+  quickCreateProtyleBlockId = '';
+  quickCreateDraftTaskBlockId = '';
+}
+
+function focusQuickCreateProtyle(): void {
+  let attempts = 0;
+  const focusEditor = () => {
+    const editable = quickCreateProtyleMountRef.value?.querySelector<HTMLElement>('[contenteditable="true"]');
+    if (!editable) {
+      attempts += 1;
+      if (attempts < 12) {
+        window.requestAnimationFrame(focusEditor);
+      }
+      return;
+    }
+    editable.focus();
+    const selection = window.getSelection();
+    if (!selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(editable);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  };
+  window.requestAnimationFrame(focusEditor);
+}
+
+function selectQuickCreateShortcut(shortcut: 'enter' | 'ctrl-enter'): void {
+  quickCreateSubmitShortcut.value = shortcut;
+  quickCreateShortcutMenuOpen.value = false;
+}
+
+function handleQuickCreateProtyleKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || event.isComposing || !quickCreateDraftTaskBlockId) {
+    return;
+  }
+  const shouldSave = quickCreateSubmitShortcut.value === 'enter'
+    ? !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey
+    : (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
+  if (!shouldSave) return;
+  event.preventDefault();
+  event.stopPropagation();
+  void submitQuickCreateTask();
+}
+
+async function resolveQuickCreateParagraphBlockId(taskBlockId: string): Promise<string> {
+  try {
+    const response = await getBlockDOM(taskBlockId);
+    const dom = typeof response?.dom === 'string' ? response.dom : '';
+    const paragraph = dom
+      ? new DOMParser().parseFromString(dom, 'text/html').querySelector<HTMLElement>('[data-type="NodeParagraph"][data-node-id]')
+      : null;
+    return paragraph?.dataset.nodeId || taskBlockId;
+  } catch {
+    return taskBlockId;
+  }
+}
+
+async function initializeQuickCreateProtyle(): Promise<void> {
+  if (
+    isCreatingQuickCreateProtyle
+    || isResettingQuickCreateDraft
+    || quickCreateProtyle
+    || quickCreateDialog.value.mode !== 'task'
+    || !quickCreateDialog.value.show
+  ) {
+    return;
+  }
+
+  const payload = quickCreateDialog.value.payload;
+  const context = quickCreateDialog.value.context;
+  const plugin = usePlugin();
+  if (!payload || !plugin?.app) {
+    return;
+  }
+
+  isCreatingQuickCreateProtyle = true;
+  try {
+    const target = context?.fixedTarget || await resolveQuickCreateTarget(
+      quickCreateNotebookId.value,
+      quickCreateDocumentId.value
+    );
+    if (!target) {
+      return;
+    }
+    const normalizedGroupId = context?.columnType === 'group'
+      ? (typeof context.groupId === 'string' ? context.groupId.trim() : '')
+      : '';
+    const createStatus = context?.columnType === 'status' && context.status
+      ? context.status
+      : 'pending';
+    const created = await TaskRepository.createBlockTask({
+      // Siyuan requires a non-empty task title while creating the block. Keep
+      // the placeholder invisible so the Protyle starts visually empty.
+      title: '\u200B',
+      description: '',
+      priority: 'none',
+      status: createStatus,
+      startDate: payload.startDate,
+      dueDate: payload.dueDate,
+      startTime: payload.startTime,
+      dueTime: payload.dueTime,
+      tags: [],
+      groupId: normalizedGroupId || undefined
+    }, target.notebookId, target.docPath, { emitTaskAdded: false });
+
+    if (!quickCreateDialog.value.show || quickCreateDialog.value.mode !== 'task') {
+      await deleteBlock(created.blockId).catch(() => undefined);
+      return;
+    }
+
+    quickCreateDraftTaskBlockId = created.blockId;
+    quickCreateProtyleBlockId = await resolveQuickCreateParagraphBlockId(created.blockId);
+    if (!quickCreateDialog.value.show || quickCreateDialog.value.mode !== 'task') {
+      await deleteBlock(created.blockId).catch(() => undefined);
+      return;
+    }
+    await persistQuickCreateMetaDraft();
+    await nextTick();
+    const mountElement = quickCreateProtyleMountRef.value;
+    if (!mountElement) {
+      return;
+    }
+    mountElement.innerHTML = '';
+    quickCreateProtyle = new Protyle(plugin.app, mountElement, {
+      blockId: quickCreateProtyleBlockId,
+      mode: 'wysiwyg',
+      render: {
+        breadcrumb: false
+      }
+    });
+    mountElement.addEventListener('keydown', handleQuickCreateProtyleKeydown, true);
+    focusQuickCreateProtyle();
+  } catch (error) {
+    console.error('[KanbanView] Failed to initialize quick-create Protyle:', error);
+    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
+  } finally {
+    isCreatingQuickCreateProtyle = false;
+  }
+}
+
+function resetQuickCreateDialog(): void {
+  destroyQuickCreateProtyle();
+  quickCreateShortcutMenuOpen.value = false;
+  quickCreateMetaDraft.value = {
+    description: '', priority: 'none', dueDate: '', reminderType: '',
+    reminderCustomTime: '', tags: [], groupId: ''
+  };
+  quickCreateLocation.value = 'last';
   quickCreateNotebookId.value = 'all';
   quickCreateDocumentId.value = 'all';
   quickCreateDialog.value = {
@@ -14073,6 +14339,145 @@ function closeQuickCreateDialog() {
     payload: null,
     context: null
   };
+}
+
+async function resolveQuickCreateTarget(
+  notebookId: string,
+  documentId: string
+): Promise<QuickCreateTarget | null> {
+  if (notebookId === 'all') {
+    return null;
+  }
+  if (documentId === PINCH_INBOX_OPTION_ID) {
+    return {
+      notebookId,
+      documentId,
+      docPath: await ensureInboxDocument(notebookId)
+    };
+  }
+  if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
+    return {
+      notebookId,
+      documentId,
+      docPath: await ensureDailyNoteDocument(notebookId)
+    };
+  }
+  return resolveCreateTarget(notebookId, documentId);
+}
+
+function getDefaultQuickCreateLocation(): QuickCreateLocation {
+  const configured = userSettings.taskManager.defaultTaskCreateTarget;
+  return configured === 'inbox' || configured === 'daily-note' ? configured : 'last';
+}
+
+function getDefaultQuickCreateNotebook(fallbackNotebookId: string): string {
+  const configured = typeof userSettings.taskManager.defaultTaskCreateNotebook === 'string'
+    ? userSettings.taskManager.defaultTaskCreateNotebook.trim()
+    : '';
+  if (enabledNotebooks.value.some(notebook => notebook.id === configured)) {
+    return configured;
+  }
+  if (enabledNotebooks.value.some(notebook => notebook.id === fallbackNotebookId)) {
+    return fallbackNotebookId;
+  }
+  return enabledNotebooks.value[0]?.id || 'all';
+}
+
+async function discardQuickCreateDraft(): Promise<void> {
+  const draftBlockId = quickCreateDraftTaskBlockId;
+  resetQuickCreateDialog();
+  if (!draftBlockId) {
+    return;
+  }
+
+  try {
+    await deleteBlock(draftBlockId);
+    await TaskRepository.clearCache();
+    pendingOptimisticQuickCreatedTasks.delete(draftBlockId);
+    tasks.value = tasks.value.filter(task => task.blockId !== draftBlockId);
+    invalidateTableFilters();
+    void incrementalUpdateTasks([draftBlockId], { allowUnknown: true });
+    scheduleRefreshTasks(120, 'silent-full');
+  } catch (error) {
+    console.error('[KanbanView] Failed to discard quick-create draft:', error);
+    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
+  }
+}
+
+async function handleQuickCreateMetaUpdate(task: {
+  description?: string;
+  priority?: Task['priority'];
+  dueDate?: string;
+  reminderType?: string;
+  reminderCustomTime?: string;
+  tags?: string[];
+  groupId?: string;
+}): Promise<void> {
+  quickCreateMetaDraft.value = {
+    description: task.description || '',
+    priority: task.priority || 'none',
+    dueDate: task.dueDate || '',
+    reminderType: task.reminderType || '',
+    reminderCustomTime: task.reminderCustomTime || '',
+    tags: [...(task.tags || [])],
+    groupId: task.groupId || ''
+  };
+  await persistQuickCreateMetaDraft();
+}
+
+async function persistQuickCreateMetaDraft(): Promise<void> {
+  const blockId = quickCreateDraftTaskBlockId;
+  if (!blockId) {
+    return;
+  }
+  const task = quickCreateMetaDraft.value;
+  const tagState = buildTaskTagState(task.tags, task.groupId);
+  const tagAttrs = buildTaskTagAttrs(tagState.tagIds, tagState.primaryTagId);
+  await setBlockAttrs(blockId, {
+    'custom-task-priority': task.priority || 'none',
+    'custom-task-description': task.description || '',
+    'custom-task-due-date': task.dueDate || '',
+    'custom-task-reminder-type': task.reminderType || '',
+    'custom-task-reminder-custom-time': task.reminderCustomTime || '',
+    'custom-task-group': tagAttrs.attrs['custom-task-group'] || '',
+    'custom-task-tags': tagAttrs.attrs['custom-task-tags'] || ''
+  });
+}
+
+async function recreateQuickCreateDraftAtSelectedLocation(): Promise<void> {
+  if (isResettingQuickCreateDraft || !quickCreateDialog.value.show) {
+    return;
+  }
+  const draftBlockId = quickCreateDraftTaskBlockId;
+  if (!draftBlockId) {
+    void initializeQuickCreateProtyle();
+    return;
+  }
+
+  isResettingQuickCreateDraft = true;
+  destroyQuickCreateProtyle();
+  try {
+    await deleteBlock(draftBlockId);
+    await TaskRepository.clearCache();
+    pendingOptimisticQuickCreatedTasks.delete(draftBlockId);
+    tasks.value = tasks.value.filter(task => task.blockId !== draftBlockId);
+    invalidateTableFilters();
+  } catch (error) {
+    console.error('[KanbanView] Failed to relocate quick-create draft:', error);
+    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
+  } finally {
+    isResettingQuickCreateDraft = false;
+  }
+  await nextTick();
+  void initializeQuickCreateProtyle();
+}
+
+async function closeQuickCreateDialog(preserveDraft = false): Promise<void> {
+  if (!preserveDraft) {
+    await discardQuickCreateDraft();
+    return;
+  }
+  resetQuickCreateDialog();
 }
 
 function buildOptimisticTaskForQuickCreate(
@@ -14146,6 +14551,13 @@ async function submitQuickCreateTask() {
     : '';
   const trimmedTitle = quickCreateDialog.value.title.trim();
   if (!payload) return;
+  if (!isHeadingTaskMode && quickCreateDraftTaskBlockId) {
+    const createdBlockId = quickCreateDraftTaskBlockId;
+    await closeQuickCreateDialog(true);
+    void incrementalUpdateTasks([createdBlockId], { allowUnknown: true });
+    queueIncrementalUpdates([createdBlockId], { allowUnknown: true }, 64);
+    return;
+  }
   if (isHeadingTaskMode && !headingTitle) {
     await pushMsg(t('kanbanView.enterHeadingName'), 2000);
     return;
@@ -14155,7 +14567,10 @@ async function submitQuickCreateTask() {
     return;
   }
 
-  const target = context?.fixedTarget || resolveCreateTarget(quickCreateNotebookId.value, quickCreateDocumentId.value);
+  const target = context?.fixedTarget || await resolveQuickCreateTarget(
+    quickCreateNotebookId.value,
+    quickCreateDocumentId.value
+  );
   if (!target) {
     await pushMsg(t('kanbanView.selectNotebookAndDocument'), 3000);
     return;
@@ -15645,6 +16060,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   isKanbanViewMounted = false;
+  destroyQuickCreateProtyle();
   if (deferredInitialTaskSnapshotTimer !== null) {
     window.clearTimeout(deferredInitialTaskSnapshotTimer);
     deferredInitialTaskSnapshotTimer = null;
@@ -17466,6 +17882,35 @@ watch(kanbanColumns, () => {
   font-size: 13px;
 }
 
+.quick-create-target-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.quick-create-target-row.is-special {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quick-create-field {
+  min-width: 0;
+}
+
+.quick-create-field label {
+  display: block;
+  margin: 0 0 5px 2px;
+  color: var(--b3-theme-on-surface);
+  font-size: 13px;
+}
+
+.quick-create-field :deep(.sy-select),
+.quick-create-field :deep(.b3-select),
+.quick-create-field :deep(select) {
+  width: 100%;
+  min-width: 0;
+}
+
 .quick-create-input {
   display: block;
   width: 100%;
@@ -17488,11 +17933,78 @@ watch(kanbanColumns, () => {
   box-shadow: none;
 }
 
+.quick-create-protyle {
+  min-height: 180px;
+  max-height: min(52vh, 420px);
+  margin-top: 4px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+}
+
+.quick-create-protyle :deep(.protyle-content) {
+  min-height: 180px;
+  overflow: auto;
+}
+
+.quick-create-protyle :deep(.protyle-wysiwyg) {
+  min-height: 150px;
+  padding: 8px 10px !important;
+}
+
 .quick-create-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 0;
+}
+
+.quick-create-submit-group {
+  position: relative;
+  display: inline-flex;
+}
+
+.quick-create-submit-group .quick-create-btn.confirm {
+  border-radius: 8px 0 0 8px;
+}
+
+.quick-create-submit-arrow.quick-create-btn.confirm {
+  min-width: 28px;
+  padding: 4px 7px;
+  border-left: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 0 8px 8px 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.quick-create-shortcut-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 8;
+  min-width: 220px;
+  padding: 5px 0;
+  border-radius: 4px;
+  background: var(--b3-theme-surface);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.quick-create-shortcut-menu button {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.quick-create-shortcut-menu button:hover,
+.quick-create-shortcut-menu button.active {
+  background: var(--b3-list-hover);
 }
 
 .quick-create-btn {

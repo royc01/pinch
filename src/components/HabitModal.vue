@@ -493,7 +493,7 @@ const handleSubmit = () => {
   justify-content: center;
   align-items: center;
   box-sizing: border-box;
-  z-index: 2;
+  z-index: 3;
 }
 
 .modal-content {
