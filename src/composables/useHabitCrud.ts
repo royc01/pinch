@@ -14,7 +14,6 @@ interface UseHabitCrudOptions {
   saveHabitsNow: (habitsToSave: Habit[]) => Promise<void>;
   immediateSaveHabits: (habitsToSave: Habit[]) => Promise<void>;
   triggerHabitsRef: () => void;
-  normalizeDocId: (raw: string) => string;
 }
 
 const createCalendarData = (): any[] => [];
@@ -39,8 +38,7 @@ export const useHabitCrud = ({
   t,
   saveHabitsNow,
   immediateSaveHabits,
-  triggerHabitsRef,
-  normalizeDocId
+  triggerHabitsRef
 }: UseHabitCrudOptions) => {
   const handleAddHabit = async (habitData: NewHabitFormState) => {
     if (!habitData.name.trim()) {
@@ -72,7 +70,6 @@ export const useHabitCrud = ({
       customSchedule,
       completionMode: habitData.completionMode || 'fixed',
       timesPerDay,
-      noteDocId: normalizeDocId(habitData.noteDocId || ''),
       completedToday: false,
       currentStreak: 0,
       totalCompletions: 0,

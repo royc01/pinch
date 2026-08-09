@@ -473,107 +473,6 @@ defineExpose({
   box-shadow: 0 0 0 1px var(--calendar-editor-color-accent, var(--pinch-color6));
 }
 
-.calendar-editor-date-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 12px;
-}
-
-.calendar-editor-date-field {
-  min-width: 0;
-}
-
-.calendar-editor-date-field label {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.82;
-  line-height: 1.2;
-}
-
-.calendar-editor-date-input-group {
-  position: relative;
-  min-width: 0;
-}
-
-.calendar-editor-date-input-group input[type="date"],
-.calendar-editor-date-input-group input[type="time"] {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  padding: 6px 32px 6px 10px;
-  border: none;
-  border-radius: 6px;
-  background: var(--b3-list-hover);
-  color: inherit;
-  font-size: 12px;
-  outline: none;
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-.calendar-editor-date-input-group input[type="date"]::-webkit-calendar-picker-indicator,
-.calendar-editor-date-input-group input[type="time"]::-webkit-calendar-picker-indicator,
-.calendar-editor-date-input-group input[type="date"]::-webkit-clear-button,
-.calendar-editor-date-input-group input[type="date"]::-webkit-inner-spin-button,
-.calendar-editor-date-input-group input[type="time"]::-webkit-clear-button,
-.calendar-editor-date-input-group input[type="time"]::-webkit-inner-spin-button {
-  display: none;
-  width: 0;
-  margin: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.calendar-editor-date-trigger {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--b3-theme-on-background);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.calendar-editor-date-trigger:hover,
-.calendar-editor-date-trigger.active {
-  background: var(--b3-theme-background);
-}
-
-.calendar-editor-date-actions {
-  display: flex;
-  flex: 0 0 auto;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.calendar-editor-date-btn {
-  border: none;
-  border-radius: 5px;
-  min-height: 22px;
-  padding: 3px 7px;
-  background: var(--b3-list-hover);
-  color: var(--b3-theme-on-background);
-  font-size: 11px;
-  line-height: 1.2;
-  cursor: pointer;
-}
-
-.calendar-editor-date-btn.primary {
-  background: var(--b3-theme-primary);
-  color: var(--b3-theme-on-primary);
-}
-
 .calendar-editor-repeat {
   padding-bottom: 4px;
 }
@@ -657,10 +556,6 @@ defineExpose({
 }
 
 @media (max-width: 768px) {
-  .calendar-editor-date-grid {
-    grid-template-columns: 1fr;
-  }
-
   .calendar-editor-color-picker {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }

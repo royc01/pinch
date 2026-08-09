@@ -1,5 +1,5 @@
 import type { Habit } from '@/api';
-import { translate } from '@/composables/useI18n';
+import { formatTemplate, translate } from '@/composables/useI18n';
 import solarLunar from '@/utils/solarLunar.js';
 
 export function formatTimelineDate(date: Date | null): string {
@@ -10,20 +10,6 @@ export function formatTimelineDate(date: Date | null): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}.${month}.${day}`;
-}
-
-export function createNumberOptions(count: number, suffix: string): Array<{ value: string; text: string }> {
-  return Array.from({ length: count }, (_, index) => ({
-    value: String(index + 1),
-    text: `${index + 1}${suffix}`
-  }));
-}
-
-function formatTemplate(key: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    translate(key)
-  );
 }
 
 export function getWeeklyTarget(frequency: string): number {

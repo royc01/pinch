@@ -17,6 +17,12 @@ interface ClearPomodoroOptions {
   clearActive?: boolean;
 }
 
+interface PomodoroCountdownConfig {
+  initialRemaining: number;
+  getCompletionMinutes: () => number;
+  initializeHabit?: () => void;
+}
+
 export const useHabitPomodoro = ({
   habits,
   getToday,
@@ -104,95 +110,71 @@ export const useHabitPomodoro = ({
     }
   };
 
-  const startPomodoroTimer = (habit: Habit): boolean => {
+  const startPomodoroCountdown = (
+    habit: Habit,
+    createConfig: () => PomodoroCountdownConfig
+  ): boolean => {
     if (!claimFocusSession()) {
       return false;
     }
 
     clearPomodoroTimer(habit.id);
 
+    const config = createConfig();
+    habit.pomodoroRemaining = config.initialRemaining;
+    config.initializeHabit?.();
+
+    activePomodoroRemaining.value = config.initialRemaining;
+    activePomodoroPaused.value = false;
+    refreshHabits();
+
+    pomodoroDeadlines[habit.id] = Date.now() + config.initialRemaining * 1000;
+
+    pomodoroTimers[habit.id] = window.setInterval(() => {
+      const now = Date.now();
+      const timeLeft = Math.ceil((pomodoroDeadlines[habit.id] - now) / 1000);
+
+      if (timeLeft <= 0) {
+        habit.pomodoroRemaining = 0;
+        activePomodoroRemaining.value = 0;
+        refreshHabits();
+
+        clearPomodoroTimer(habit.id);
+        void completeHabitAfterPomodoro(habit, config.getCompletionMinutes());
+
+        if (activePomodoroHabit.value?.id === habit.id) {
+          activePomodoroHabit.value = null;
+          activePomodoroRemaining.value = undefined;
+          activePomodoroPaused.value = false;
+          releaseFocusSession();
+        }
+      } else {
+        habit.pomodoroRemaining = timeLeft;
+        activePomodoroRemaining.value = timeLeft;
+        refreshHabits();
+      }
+    }, 100);
+    return true;
+  };
+
+  const startPomodoroTimer = (habit: Habit): boolean => startPomodoroCountdown(habit, () => {
     const durationInMinutes = habit.pomodoroDuration || 25;
-    let remainingTime = durationInMinutes * 60;
-
-    habit.pomodoroRemaining = remainingTime;
-    habit.pomodoroState = 'work';
-    habit.isPomodoroPaused = false;
-
-    activePomodoroRemaining.value = remainingTime;
-    activePomodoroPaused.value = false;
-    refreshHabits();
-
-    pomodoroDeadlines[habit.id] = Date.now() + remainingTime * 1000;
-
-    pomodoroTimers[habit.id] = window.setInterval(() => {
-      const now = Date.now();
-      const timeLeft = Math.ceil((pomodoroDeadlines[habit.id] - now) / 1000);
-
-      if (timeLeft <= 0) {
-        remainingTime = 0;
-        habit.pomodoroRemaining = 0;
-        activePomodoroRemaining.value = 0;
-        refreshHabits();
-
-        clearPomodoroTimer(habit.id);
-        void completeHabitAfterPomodoro(habit, durationInMinutes);
-
-        if (activePomodoroHabit.value?.id === habit.id) {
-          activePomodoroHabit.value = null;
-          activePomodoroRemaining.value = undefined;
-          activePomodoroPaused.value = false;
-          releaseFocusSession();
-        }
-      } else {
-        remainingTime = timeLeft;
-        habit.pomodoroRemaining = timeLeft;
-        activePomodoroRemaining.value = timeLeft;
-        refreshHabits();
+    return {
+      initialRemaining: durationInMinutes * 60,
+      getCompletionMinutes: () => durationInMinutes,
+      initializeHabit: () => {
+        habit.pomodoroState = 'work';
+        habit.isPomodoroPaused = false;
       }
-    }, 100);
-    return true;
-  };
+    };
+  });
 
-  const startPomodoroTimerWithRemainingTime = (habit: Habit, remainingTime: number): boolean => {
-    if (!claimFocusSession()) {
-      return false;
-    }
-
-    clearPomodoroTimer(habit.id);
-
-    habit.pomodoroRemaining = remainingTime;
-    activePomodoroRemaining.value = remainingTime;
-    activePomodoroPaused.value = false;
-    refreshHabits();
-
-    pomodoroDeadlines[habit.id] = Date.now() + remainingTime * 1000;
-
-    pomodoroTimers[habit.id] = window.setInterval(() => {
-      const now = Date.now();
-      const timeLeft = Math.ceil((pomodoroDeadlines[habit.id] - now) / 1000);
-
-      if (timeLeft <= 0) {
-        habit.pomodoroRemaining = 0;
-        activePomodoroRemaining.value = 0;
-        refreshHabits();
-
-        clearPomodoroTimer(habit.id);
-        void completeHabitAfterPomodoro(habit, habit.pomodoroDuration || 25);
-
-        if (activePomodoroHabit.value?.id === habit.id) {
-          activePomodoroHabit.value = null;
-          activePomodoroRemaining.value = undefined;
-          activePomodoroPaused.value = false;
-          releaseFocusSession();
-        }
-      } else {
-        habit.pomodoroRemaining = timeLeft;
-        activePomodoroRemaining.value = timeLeft;
-        refreshHabits();
-      }
-    }, 100);
-    return true;
-  };
+  const startPomodoroTimerWithRemainingTime = (habit: Habit, remainingTime: number): boolean => (
+    startPomodoroCountdown(habit, () => ({
+      initialRemaining: remainingTime,
+      getCompletionMinutes: () => habit.pomodoroDuration || 25
+    }))
+  );
 
   const controlPomodoro = async (action: PomodoroAction, habit?: Habit | null) => {
     const targetHabit = habit || activePomodoroHabit.value;
@@ -244,10 +226,6 @@ export const useHabitPomodoro = ({
     if (!activePomodoroHabit.value) return;
 
     await controlPomodoro('stop', activePomodoroHabit.value);
-    activePomodoroHabit.value = null;
-    activePomodoroRemaining.value = undefined;
-    activePomodoroPaused.value = false;
-    releaseFocusSession();
   };
 
   const togglePomodoroPause = async () => {

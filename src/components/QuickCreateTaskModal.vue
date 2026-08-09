@@ -5,43 +5,63 @@
       class="modal-overlay"
       :class="{ 'is-centered': isCenteredPresentation }"
       :style="overlayStyle"
-      @click.self="emit('close')"
+      @click.self="handleClose"
     >
       <Transition :name="contentTransitionName">
         <div
           class="modal-content"
-          :class="{ 'is-centered': isCenteredPresentation }"
+          :class="{ 'is-centered': isCenteredPresentation, 'is-quick-create': true }"
           @click.stop
           v-show="show"
         >
           <div class="modal-header">
-            <h3>{{ tt('taskManager.newTask') }}</h3>
-            <button v-if="!quickCreate" @click="emit('close')" class="icon-button ariaLabel" :aria-label="tt('common.close')">
-              <Icon name="close" width="16" height="16" class="icon" />
+            <h3>{{ createHeading ? tt('kanbanView.newHeadingAndTask') : tt('taskManager.newTask') }}</h3>
+            <button
+              type="button"
+              class="icon-button ariaLabel"
+              :aria-label="tt('common.close')"
+              @click.stop="handleClose"
+            >
+              <Icon name="close" width="16" height="16" />
             </button>
           </div>
-          <div class="modal-body">
-            <slot v-if="quickCreate" name="quick-create-body"></slot>
-            <template v-else>
-            <div class="form-group task-title-group">
-              <textarea
-                v-model="localTask.title"
-                class="task-title-input b3-text-field fn__flex-center"
-                rows="3"
-                :placeholder="tt('taskManager.taskTitlePlaceholder')"
-              ></textarea>
-            </div>
-            <div class="filters-row">
-              <div class="form-group filter-group">
-                <label>{{ tt('taskManager.notebook') }}</label>
-                <SySelect v-model="selectedNotebook" :options="notebookOptions" @update:modelValue="handleNotebookChange" />
-              </div>
-              <div class="form-group filter-group" v-if="selectedNotebook">
-                <label>{{ tt('taskManager.document') }}</label>
-                <SySelect v-model="selectedDocument" :options="documentOptions" />
-              </div>
-            </div>
-            </template>
+          <div class="modal-body quick-create-modal-body">
+                <div
+                  class="quick-create-target-row"
+                  :class="{ 'is-special': quickCreateLocation !== 'last' }"
+                >
+                  <div class="quick-create-field">
+                    <label>{{ tt('taskScopeDialog.defaultTaskCreateTarget') }}</label>
+                    <SySelect
+                      v-model="quickCreateLocation"
+                      :options="quickCreateLocationOptions"
+                      @update:model-value="handleQuickCreateLocationChange"
+                    />
+                  </div>
+                  <div class="quick-create-field">
+                    <label>{{ tt('taskManager.notebook') }}</label>
+                    <SySelect
+                      v-model="selectedNotebook"
+                      :options="notebookOptions"
+                      @update:model-value="handleNotebookChange"
+                    />
+                  </div>
+                  <div v-if="quickCreateLocation === 'last'" class="quick-create-field">
+                    <label>{{ tt('taskManager.document') }}</label>
+                    <SySelect v-model="selectedDocument" :options="documentOptions" />
+                  </div>
+                </div>
+                <div v-if="createHeading" class="quick-create-heading-field">
+                  <label>{{ tt('kanbanView.newHeading') }}</label>
+                  <input
+                    ref="quickCreateHeadingRef"
+                    v-model="headingTitle"
+                    class="quick-create-heading-input b3-text-field"
+                    type="text"
+                    :placeholder="tt('kanbanView.enterHeadingName')"
+                  />
+                </div>
+                <div ref="quickCreateProtyleMountRef" class="quick-create-protyle"></div>
             <div v-if="taskModalQuickPanel === 'group'" class="task-modal-group-panel">
               <div class="task-modal-group-header">
                 <span class="task-modal-group-title">{{ tt('taskManager.selectTag') }}</span>
@@ -164,9 +184,41 @@
                 <Icon name="descriptionBubble" width="14" height="14" />
               </button>
             </div>
-            <slot name="quick-create-footer">
-              <SyButton @click="handleSubmit" class="confirm-button">{{ tt('taskManager.save') }}</SyButton>
-            </slot>
+            <div class="quick-create-submit-group">
+                  <button type="button" class="quick-create-btn confirm" @click="handleSubmit">
+                    {{ tt('kanbanView.create', tt('taskManager.save')) }}
+                  </button>
+                  <button
+                    type="button"
+                    class="quick-create-submit-arrow quick-create-btn confirm ariaLabel"
+                    :aria-label="tt('kanbanView.create', tt('taskManager.save'))"
+                    @click.stop="quickCreateShortcutMenuOpen = !quickCreateShortcutMenuOpen"
+                  >
+                    <Icon name="chevronDown" width="16" height="16" />
+                  </button>
+                  <div v-if="quickCreateShortcutMenuOpen" class="quick-create-shortcut-menu">
+                    <button
+                      type="button"
+                      :class="{ active: quickCreateSubmitShortcut === 'enter' }"
+                      @click="selectQuickCreateShortcut('enter')"
+                    >
+                      <span class="quick-create-shortcut-menu-check" aria-hidden="true">
+                        <Icon v-if="quickCreateSubmitShortcut === 'enter'" name="taskCheckboxChecked" width="12" height="12" />
+                      </span>
+                      <span>{{ tt('taskManager.createWithEnter', '按 Enter 键创建') }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      :class="{ active: quickCreateSubmitShortcut === 'ctrl-enter' }"
+                      @click="selectQuickCreateShortcut('ctrl-enter')"
+                    >
+                      <span class="quick-create-shortcut-menu-check" aria-hidden="true">
+                        <Icon v-if="quickCreateSubmitShortcut === 'ctrl-enter'" name="taskCheckboxChecked" width="12" height="12" />
+                      </span>
+                      <span>{{ tt('taskManager.createWithCtrlEnter', '按 Ctrl + Enter 键创建') }}</span>
+                    </button>
+                  </div>
+            </div>
           </div>
         </div>
       </Transition>
@@ -202,7 +254,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
-import SyButton from '@/components/SiyuanTheme/SyButton.vue';
+import { Protyle } from 'siyuan';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import Icon from '@/components/Icon.vue';
 import EmojiIcon from '@/components/EmojiIcon.vue';
@@ -210,7 +262,21 @@ import PriorityPopover from '@/components/PriorityPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
 import { useI18n } from '@/composables/useI18n';
-import type { TaskPriority, TaskStatus, TaskGroup } from '@/api';
+import {
+  TaskRepository,
+  createDailyNote,
+  createDocWithMd,
+  deleteBlock,
+  getBlockDOM,
+  getBlockKramdown,
+  getHPathByID,
+  getIDsByHPath,
+  pushMsg,
+  setBlockAttrs,
+  type TaskPriority,
+  type TaskStatus,
+  type TaskGroup
+} from '@/api';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import {
@@ -225,7 +291,11 @@ import {
   type TaskReminderType
 } from '@/utils/taskReminder';
 import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, isPinchInboxValue } from '@/utils/pinchInbox';
+import { PINCH_INBOX_PATH } from '@/utils/pinchInbox';
+import { buildTaskTagAttrs } from '@/utils/taskTags';
 import type { Goal } from '@/goalRepository';
+import { usePlugin } from '@/main';
+import { eventBus, Events } from '@/utils/eventBus';
 
 export interface Notebook {
   id: string;
@@ -237,6 +307,31 @@ export interface Document {
   name: string;
   notebookId: string;
   path?: string;
+}
+
+export interface QuickCreateTarget {
+  notebookId: string;
+  documentId: string;
+  docPath: string;
+}
+
+export interface QuickCreateTaskContext {
+  status?: TaskStatus;
+  groupId?: string;
+  startDate?: string;
+  dueDate?: string;
+  startTime?: string;
+  dueTime?: string;
+}
+
+export interface QuickCreateCreatedPayload {
+  blockId: string;
+  taskId: string;
+  notebookId: string;
+  documentId: string;
+  docPath: string;
+  headingTitle?: string;
+  task: NewTask;
 }
 
 const { t: translate } = useI18n();
@@ -265,17 +360,19 @@ interface Props {
   defaultGroupId?: string;
   presentation?: 'sheet' | 'center';
   overlayStyle?: Record<string, string>;
-  quickCreate?: boolean;
+  resolveTarget?: (notebookId: string, documentId: string) => Promise<QuickCreateTarget | null>;
+  taskContext?: QuickCreateTaskContext;
+  createHeading?: boolean;
 }
 
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
   close: [];
-  submit: [task: NewTask, notebookId: string, documentId: string];
   'manage-groups': [];
-  'quick-task-update': [task: NewTask];
+  created: [payload: QuickCreateCreatedPayload];
 }>();
+
 
 const defaultTask: NewTask = {
   title: '',
@@ -291,13 +388,23 @@ const defaultTask: NewTask = {
 };
 
 const localTask = ref<NewTask>({ ...defaultTask });
-watch(localTask, (task) => {
-  if (props.quickCreate) {
-    emit('quick-task-update', { ...task, tags: [...task.tags], goalIds: [...task.goalIds] });
+watch(localTask, () => {
+  if (quickCreateDraft) {
+    void persistQuickCreateDraftMetadata();
   }
 }, { deep: true });
 const selectedNotebook = ref<string>('');
 const selectedDocument = ref<string>('');
+const quickCreateLocation = ref<'last' | 'inbox' | 'daily-note'>('last');
+const headingTitle = ref('');
+const quickCreateHeadingRef = ref<HTMLInputElement | null>(null);
+const quickCreateProtyleMountRef = ref<HTMLElement | null>(null);
+const quickCreateSubmitShortcut = ref<'enter' | 'ctrl-enter'>('ctrl-enter');
+const quickCreateShortcutMenuOpen = ref(false);
+let quickCreateProtyle: Protyle | null = null;
+let quickCreateDraft: (QuickCreateTarget & { blockId: string; taskId: string }) | null = null;
+let isInitializingQuickCreateDraft = false;
+let isRelocatingQuickCreateDraft = false;
 const taskModalQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
 const taskModalPriorityPopover = ref<{
   position: { x: number; y: number };
@@ -414,6 +521,12 @@ const notebookOptions = computed(() => {
   return props.notebooks.map(nb => ({ value: nb.id, text: nb.name }));
 });
 
+const quickCreateLocationOptions = computed(() => [
+  { value: 'last', text: tt('taskScopeDialog.defaultTaskCreateTargetLast') },
+  { value: 'inbox', text: tt('taskScopeDialog.defaultTaskCreateTargetInbox') },
+  { value: 'daily-note', text: tt('taskScopeDialog.defaultTaskCreateTargetDailyNote') }
+]);
+
 function isInboxDocument(doc: Document): boolean {
   const normalizedName = (doc.name || '').trim();
   const normalizedPath = (doc.path || '').replace(/^\/+/, '').trim();
@@ -492,6 +605,272 @@ function handleNotebookChange() {
   selectedDocument.value = selectedDocument.value === PINCH_DAILY_NOTE_OPTION_ID
     ? PINCH_DAILY_NOTE_OPTION_ID
     : getInboxDocumentValue(selectedNotebook.value);
+}
+
+function handleQuickCreateLocationChange(value: string): void {
+  const location = value === 'inbox' || value === 'daily-note' ? value : 'last';
+  quickCreateLocation.value = location;
+  if (location === 'inbox') {
+    selectedDocument.value = PINCH_INBOX_OPTION_ID;
+  } else if (location === 'daily-note') {
+    selectedDocument.value = PINCH_DAILY_NOTE_OPTION_ID;
+  } else {
+    const preferredDocument = props.lastSelectedDocument || '';
+    const hasPreferredDocument = props.documents.some(item =>
+      item.id === preferredDocument && item.notebookId === selectedNotebook.value
+    );
+    selectedDocument.value = hasPreferredDocument
+      ? preferredDocument
+      : getInboxDocumentValue(selectedNotebook.value);
+  }
+}
+
+function selectQuickCreateShortcut(shortcut: 'enter' | 'ctrl-enter'): void {
+  quickCreateSubmitShortcut.value = shortcut;
+  quickCreateShortcutMenuOpen.value = false;
+}
+
+function handleQuickCreateProtyleKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || event.isComposing || !quickCreateDraft) {
+    return;
+  }
+  const shouldSubmit = quickCreateSubmitShortcut.value === 'enter'
+    ? !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey
+    : (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
+  if (!shouldSubmit) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  void handleSubmit();
+}
+
+function normalizeNotebookDocPath(notebookId: string, hPath: string): string {
+  const notebook = props.notebooks.find(item => item.id === notebookId);
+  const normalizedPath = hPath.startsWith('/') ? hPath : `/${hPath}`;
+  const notebookPrefix = notebook?.name ? `/${notebook.name}/` : '';
+  return notebookPrefix && normalizedPath.startsWith(notebookPrefix)
+    ? `/${normalizedPath.slice(notebookPrefix.length)}`
+    : normalizedPath;
+}
+
+async function ensureInboxDocument(notebookId: string): Promise<string> {
+  try {
+    const existingIds = await getIDsByHPath(notebookId, PINCH_INBOX_PATH);
+    if (existingIds.length > 0) {
+      return PINCH_INBOX_PATH;
+    }
+  } catch {
+  }
+  await createDocWithMd(notebookId, PINCH_INBOX_PATH, '');
+  return PINCH_INBOX_PATH;
+}
+
+async function ensureDailyNoteDocument(notebookId: string): Promise<string> {
+  const result = await createDailyNote(notebookId);
+  if (result && typeof result === 'object') {
+    const directPath = typeof result.path === 'string' && result.path.trim()
+      ? result.path.trim()
+      : typeof result.hPath === 'string' && result.hPath.trim()
+        ? result.hPath.trim()
+        : '';
+    if (directPath) {
+      return normalizeNotebookDocPath(notebookId, directPath);
+    }
+  }
+  const dailyNoteId = typeof result === 'string'
+    ? result
+    : result && typeof result === 'object'
+      ? result.id || result.rootId || ''
+      : '';
+  if (!dailyNoteId) {
+    throw new Error('Failed to create daily note');
+  }
+  const hPath = await getHPathByID(dailyNoteId);
+  if (!hPath) {
+    throw new Error('Failed to resolve daily note path');
+  }
+  return normalizeNotebookDocPath(notebookId, hPath);
+}
+
+async function resolveQuickCreateTarget(): Promise<QuickCreateTarget | null> {
+  const notebookId = selectedNotebook.value;
+  const documentId = selectedDocument.value;
+  if (!notebookId) {
+    return null;
+  }
+  if (props.resolveTarget) {
+    return props.resolveTarget(notebookId, documentId);
+  }
+  if (documentId === PINCH_INBOX_OPTION_ID) {
+    return { notebookId, documentId, docPath: await ensureInboxDocument(notebookId) };
+  }
+  if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
+    return { notebookId, documentId, docPath: await ensureDailyNoteDocument(notebookId) };
+  }
+  const document = props.documents.find(item => item.id === documentId && item.notebookId === notebookId);
+  const documentPath = document?.path || await getHPathByID(documentId).catch(() => '');
+  if (!documentPath) {
+    return null;
+  }
+  return { notebookId, documentId, docPath: normalizeNotebookDocPath(notebookId, documentPath) };
+}
+
+async function resolveQuickCreateParagraphBlockId(taskBlockId: string): Promise<string> {
+  try {
+    const response = await getBlockDOM(taskBlockId) as { dom?: string } | null;
+    const paragraph = response?.dom
+      ? new DOMParser().parseFromString(response.dom, 'text/html').querySelector<HTMLElement>('[data-type="NodeParagraph"][data-node-id]')
+      : null;
+    return paragraph?.dataset.nodeId || taskBlockId;
+  } catch {
+    return taskBlockId;
+  }
+}
+
+function destroyQuickCreateProtyle(): void {
+  if (quickCreateProtyle) {
+    try {
+      quickCreateProtyle.destroy();
+    } catch {
+    }
+  }
+  quickCreateProtyle = null;
+  quickCreateProtyleMountRef.value?.removeEventListener('keydown', handleQuickCreateProtyleKeydown, true);
+  quickCreateProtyleMountRef.value?.replaceChildren();
+}
+
+function focusQuickCreateProtyle(): void {
+  let attempts = 0;
+  const focus = () => {
+    const editable = quickCreateProtyleMountRef.value?.querySelector<HTMLElement>('[contenteditable="true"]');
+    if (!editable && attempts++ < 12) {
+      window.requestAnimationFrame(focus);
+      return;
+    }
+    editable?.focus();
+  };
+  window.requestAnimationFrame(focus);
+}
+
+function normalizeHeadingTitle(value: string): string {
+  return value
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^#+\s*/, '')
+    .trim();
+}
+
+async function persistQuickCreateDraftMetadata(): Promise<void> {
+  if (!quickCreateDraft) {
+    return;
+  }
+  const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
+  const tagAttrs = buildTaskTagAttrs(tagState.tagIds, tagState.primaryTagId);
+  await setBlockAttrs(quickCreateDraft.blockId, {
+    'custom-task-priority': localTask.value.priority || 'none',
+    'custom-task-description': localTask.value.description || '',
+    'custom-task-due-date': localTask.value.dueDate || '',
+    'custom-task-reminder-type': localTask.value.reminderType || '',
+    'custom-task-reminder-custom-time': localTask.value.reminderCustomTime || '',
+    'custom-task-group': tagAttrs.attrs['custom-task-group'] || '',
+    'custom-task-tags': tagAttrs.attrs['custom-task-tags'] || ''
+  });
+}
+
+async function initializeQuickCreateDraft(): Promise<void> {
+  if (
+    !props.show
+    || quickCreateDraft
+    || quickCreateProtyle
+    || isInitializingQuickCreateDraft
+  ) {
+    return;
+  }
+  const plugin = usePlugin();
+  const target = await resolveQuickCreateTarget();
+  if (!plugin?.app || !target) {
+    return;
+  }
+  isInitializingQuickCreateDraft = true;
+  try {
+    const context = props.taskContext || {};
+    const groupId = context.groupId || localTask.value.groupId || undefined;
+    const created = await TaskRepository.createBlockTask({
+      // The temporary marker satisfies Siyuan's non-empty task constraint.
+      title: '\u200B',
+      description: '',
+      priority: localTask.value.priority || 'none',
+      status: context.status || 'pending',
+      startDate: context.startDate,
+      dueDate: context.dueDate || localTask.value.dueDate || undefined,
+      startTime: context.startTime,
+      dueTime: context.dueTime,
+      tags: localTask.value.tags,
+      groupId
+    }, target.notebookId, target.docPath, { emitTaskAdded: false });
+    if (!props.show) {
+      await deleteQuickCreateDraftBlock(created.blockId);
+      return;
+    }
+    quickCreateDraft = { ...target, blockId: created.blockId, taskId: created.taskId };
+    await persistQuickCreateDraftMetadata();
+    const paragraphId = await resolveQuickCreateParagraphBlockId(created.blockId);
+    await nextTick();
+    const mount = quickCreateProtyleMountRef.value;
+    if (!mount || !props.show) {
+      return;
+    }
+    quickCreateProtyle = new Protyle(plugin.app, mount, {
+      blockId: paragraphId,
+      mode: 'wysiwyg',
+      render: { breadcrumb: false }
+    });
+    mount.addEventListener('keydown', handleQuickCreateProtyleKeydown, true);
+    if (props.createHeading) {
+      quickCreateHeadingRef.value?.focus();
+    } else {
+      focusQuickCreateProtyle();
+    }
+  } catch (error) {
+    console.error('[QuickCreateTaskModal] Failed to initialize draft:', error);
+    await pushMsg(tt('kanbanView.createTaskFailedRetry'), 3000);
+  } finally {
+    isInitializingQuickCreateDraft = false;
+  }
+}
+
+async function discardQuickCreateDraft(): Promise<void> {
+  const draft = quickCreateDraft;
+  quickCreateDraft = null;
+  destroyQuickCreateProtyle();
+  if (draft) {
+    await deleteQuickCreateDraftBlock(draft.blockId);
+  }
+}
+
+async function deleteQuickCreateDraftBlock(blockId: string): Promise<void> {
+  try {
+    await deleteBlock(blockId);
+    await TaskRepository.clearCache();
+    eventBus.emit(Events.TASK_DELETED, { blockId });
+  } catch (error) {
+    console.error('[QuickCreateTaskModal] Failed to delete draft:', error);
+  }
+}
+
+async function recreateQuickCreateDraft(): Promise<void> {
+  if (!props.show || isRelocatingQuickCreateDraft) {
+    return;
+  }
+  isRelocatingQuickCreateDraft = true;
+  try {
+    await discardQuickCreateDraft();
+    await nextTick();
+    await initializeQuickCreateDraft();
+  } finally {
+    isRelocatingQuickCreateDraft = false;
+  }
 }
 
 function toggleTaskModalPriorityPopover(event: MouseEvent) {
@@ -573,6 +952,7 @@ function resolveDefaultGroupId(): string {
 watch(() => props.show, (show) => {
   if (show) {
     localTask.value = { ...defaultTask };
+    headingTitle.value = '';
     localTask.value.groupId = resolveDefaultGroupId();
     localTask.value.tags = localTask.value.groupId ? [localTask.value.groupId] : [];
     taskModalQuickPanel.value = null;
@@ -586,15 +966,32 @@ watch(() => props.show, (show) => {
 
     const docsForNotebook = props.documents.filter(d => d.notebookId === selectedNotebook.value);
     const fallbackDocumentValue = getInboxDocumentValue(selectedNotebook.value);
-    const preferredDocument = props.lastSelectedDocument === PINCH_INBOX_OPTION_ID
+    const rawPreferredDocument = props.lastSelectedDocument || '';
+    const preferredDocument = rawPreferredDocument === PINCH_INBOX_OPTION_ID
       ? fallbackDocumentValue
-      : props.lastSelectedDocument;
+      : rawPreferredDocument;
     const isSpecialDocument = preferredDocument === PINCH_DAILY_NOTE_OPTION_ID;
     const hasPreferredDocument = !!props.lastSelectedDocument
       && (isSpecialDocument || docsForNotebook.some(doc => doc.id === preferredDocument));
     selectedDocument.value = hasPreferredDocument
       ? preferredDocument!
       : fallbackDocumentValue;
+    quickCreateLocation.value = rawPreferredDocument === PINCH_INBOX_OPTION_ID
+      ? 'inbox'
+      : selectedDocument.value === PINCH_INBOX_OPTION_ID
+      ? 'inbox'
+      : selectedDocument.value === PINCH_DAILY_NOTE_OPTION_ID
+        ? 'daily-note'
+        : 'last';
+    void nextTick(initializeQuickCreateDraft);
+  } else if (quickCreateDraft) {
+    void discardQuickCreateDraft();
+  }
+});
+
+watch([selectedNotebook, selectedDocument], () => {
+  if (props.show && quickCreateDraft) {
+    void recreateQuickCreateDraft();
   }
 });
 
@@ -604,21 +1001,70 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleTaskModalOutsideClick, true);
+  void discardQuickCreateDraft();
 });
 
-const handleSubmit = () => {
-  const trimmedTitle = localTask.value.title.trim();
-  if (trimmedTitle && selectedNotebook.value) {
-    const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
-    emit('submit', {
-      ...localTask.value,
-      title: trimmedTitle,
-      tags: tagState.tagIds,
-      groupId: tagState.primaryTagId,
-      goalIds: [...localTask.value.goalIds]
-    }, selectedNotebook.value, selectedDocument.value);
+async function readQuickCreateDraftTitle(blockId: string): Promise<string> {
+  try {
+    const response = await getBlockKramdown(blockId) as { kramdown?: string } | string | null;
+    const markdown = typeof response === 'string'
+      ? response
+      : typeof response?.kramdown === 'string'
+        ? response.kramdown
+        : '';
+    return markdown
+      .replace(/^- \[[ xX]\]\s*/, '')
+      .replace(/^\u200B/, '')
+      .trim()
+      .split('\n')[0]
+      ?.trim() || '';
+  } catch {
+    return '';
   }
-};
+}
+
+async function handleClose(): Promise<void> {
+  quickCreateShortcutMenuOpen.value = false;
+  await discardQuickCreateDraft();
+  emit('close');
+}
+
+async function handleSubmit(): Promise<void> {
+  const draft = quickCreateDraft;
+  if (!draft) {
+    await initializeQuickCreateDraft();
+    return;
+  }
+  await persistQuickCreateDraftMetadata();
+  const title = await readQuickCreateDraftTitle(draft.blockId);
+  if (!title) {
+    await pushMsg(tt('kanbanView.enterTaskTitle'), 2000);
+    return;
+  }
+  const normalizedHeadingTitle = props.createHeading
+    ? normalizeHeadingTitle(headingTitle.value)
+    : '';
+  if (props.createHeading && !normalizedHeadingTitle) {
+    await pushMsg(tt('kanbanView.enterHeadingName'), 2000);
+    return;
+  }
+  const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
+  const createdTask: NewTask = {
+    ...localTask.value,
+    title,
+    status: props.taskContext?.status || localTask.value.status || 'pending',
+    tags: tagState.tagIds,
+    groupId: tagState.primaryTagId,
+    goalIds: [...localTask.value.goalIds]
+  };
+  quickCreateDraft = null;
+  destroyQuickCreateProtyle();
+  emit('created', {
+    ...draft,
+    headingTitle: normalizedHeadingTitle || undefined,
+    task: createdTask
+  });
+}
 </script>
 
 <style scoped>
@@ -632,7 +1078,7 @@ const handleSubmit = () => {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  z-index: 3;
+  z-index: 8;
 }
 
 .modal-overlay.is-centered {
@@ -657,6 +1103,177 @@ const handleSubmit = () => {
   box-sizing: border-box;
 }
 
+.modal-content.is-quick-create {
+  width: min(540px, calc(100vw - 32px));
+  min-width: 0;
+  max-height: calc(100dvh - 24px);
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+}
+
+.quick-create-modal-body {
+  padding-top: 12px;
+}
+
+.quick-create-target-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.quick-create-target-row.is-special {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quick-create-field {
+  min-width: 0;
+}
+
+.quick-create-field label {
+  display: block;
+  margin: 0 0 6px 2px;
+  color: var(--b3-theme-on-surface);
+  font-size: 14px;
+}
+
+.quick-create-field :deep(.sy-select),
+.quick-create-field :deep(.b3-select),
+.quick-create-field :deep(select) {
+  width: 100%;
+  min-width: 0;
+}
+
+.quick-create-heading-field {
+  margin-bottom: 14px;
+}
+
+.quick-create-heading-field label {
+  display: block;
+  margin: 0 0 6px 2px;
+  color: var(--b3-theme-on-surface);
+  font-size: 14px;
+}
+
+.quick-create-heading-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.quick-create-protyle {
+  display: block;
+  width: 100%;
+  height: 80px !important;
+  min-height: 80px !important;
+  max-height: 80px !important;
+  flex: 0 0 80px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 14px;
+  overflow: auto;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+}
+
+.quick-create-protyle :deep(.protyle),
+.quick-create-protyle :deep(.protyle-content) {
+  height: 80px !important;
+  min-height: 80px !important;
+  max-height: 80px !important;
+  overflow: hidden !important;
+}
+
+.quick-create-protyle :deep(.protyle-wysiwyg) {
+  height: 80px !important;
+  min-height: 80px !important;
+  max-height: 80px !important;
+  box-sizing: border-box;
+  overflow-y: auto !important;
+  padding: 14px !important;
+}
+
+.quick-create-submit-group {
+  position: relative;
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.quick-create-btn {
+  border: 0;
+  cursor: pointer;
+  padding: 8px 18px;
+  font-size: 15px;
+  color: #fff;
+  background: #f98f7a;
+}
+
+.quick-create-submit-group .quick-create-btn:first-child {
+  border-radius: 12px 0 0 12px;
+}
+
+.quick-create-submit-arrow {
+  min-width: 34px;
+  padding-inline: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 0 12px 12px 0;
+}
+
+.quick-create-shortcut-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 15;
+  min-width: 218px;
+  padding: 6px;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quick-create-shortcut-menu button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.quick-create-shortcut-menu-check {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  color: #f98f7a;
+  line-height: 0;
+}
+
+.quick-create-shortcut-menu button:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.quick-create-shortcut-menu button.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .modal-overlay.is-centered {
     padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
@@ -665,6 +1282,17 @@ const handleSubmit = () => {
 
   .modal-content.is-centered {
     max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+
+  .modal-content.is-quick-create {
+    width: 100%;
+    max-height: calc(100dvh - 16px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+
+  .quick-create-target-row,
+  .quick-create-target-row.is-special {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 }
 

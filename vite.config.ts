@@ -2,7 +2,6 @@
 import { resolve } from "node:path";
 import vue from "@vitejs/plugin-vue";
 import fg from "fast-glob";
-import minimist from "minimist";
 import { defineConfig, loadEnv } from "vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
@@ -10,8 +9,7 @@ const pluginInfo = require("./plugin.json");
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd());
-  const args = minimist(process.argv.slice(2));
-  const isWatch = args.watch || args.w || false;
+  const isWatch = process.argv.includes('--watch') || process.argv.includes('-w');
   const workspacePluginDir = env.VITE_SIYUAN_WORKSPACE_PATH
     ? `${env.VITE_SIYUAN_WORKSPACE_PATH}/data/plugins/${pluginInfo.name}`
     : "";

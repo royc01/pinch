@@ -1,6 +1,7 @@
 import type { Task } from '@/api';
 import { getBlockDOM, getBlockDOMBatch, sql } from '@/api';
 import { translate } from '@/composables/useI18n';
+import { escapeSqlLiteral } from '@/utils/sql';
 
 export type TaskViewGroupMode = 'status' | 'group' | 'heading' | 'date' | 'document';
 export type TaskHeadingGroupKind = 'standalone' | 'document-root' | 'heading';
@@ -43,10 +44,6 @@ const TASK_VIEW_GROUP_MODES: TaskViewGroupMode[] = ['status', 'group', 'heading'
 
 function isTaskViewGroupMode(value: unknown): value is TaskViewGroupMode {
   return typeof value === 'string' && TASK_VIEW_GROUP_MODES.includes(value as TaskViewGroupMode);
-}
-
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
 }
 
 function escapeAttributeSelector(value: string): string {

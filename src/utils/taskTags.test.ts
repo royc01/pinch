@@ -3,7 +3,8 @@ import {
   applyTaskTagBatchAction,
   buildTaskTagAttrs,
   buildTaskTagState,
-  filterKnownTaskTagIds
+  filterKnownTaskTagIds,
+  parseTaskTagIdsAttribute
 } from './taskTags';
 
 describe('task tags', () => {
@@ -24,5 +25,17 @@ describe('task tags', () => {
       'custom-task-tags': '["group_writing","group_reading"]',
       'custom-task-group': 'group_writing'
     });
+  });
+
+  it('parses and normalizes a persisted tag attribute', () => {
+    expect(parseTaskTagIdsAttribute('["tag-a", " tag-b ", "tag-a", 1]')).toEqual([
+      'tag-a',
+      'tag-b'
+    ]);
+  });
+
+  it('returns an empty list for malformed or non-array attributes', () => {
+    expect(parseTaskTagIdsAttribute('{"id":"tag-a"}')).toEqual([]);
+    expect(parseTaskTagIdsAttribute('not-json')).toEqual([]);
   });
 });

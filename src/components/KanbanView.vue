@@ -1110,7 +1110,6 @@
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
       @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
-      @focus-session-contextmenu="handleCalendarFocusSessionContextmenu"
     />
     <WeekView
       ref="calendarWeekViewRef"
@@ -1141,7 +1140,6 @@
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
       @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
-      @focus-session-contextmenu="handleCalendarFocusSessionContextmenu"
     />
     <WeekView
       ref="calendarWeekViewRef"
@@ -1173,7 +1171,6 @@
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
       @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
-      @focus-session-contextmenu="handleCalendarFocusSessionContextmenu"
     />
     <PersonalStatsView
       v-if="currentView === 'stats'"
@@ -1230,22 +1227,6 @@
         </div>
       </div>
     </Teleport>
-
-    <TaskModal
-      :show="showTaskModal"
-      :t="taskModalTranslate"
-      :notebooks="taskModalNotebooks"
-      :documents="taskModalDocuments"
-      :groups="taskGroups"
-      :goals="goalDefinitions"
-      :default-group-id="taskModalDefaultGroupId"
-      :lastSelectedNotebook="taskModalDefaultNotebook"
-      :lastSelectedDocument="taskModalDefaultDocument"
-      presentation="center"
-      @close="showTaskModal = false"
-      @manage-groups="openTaskGroupDialog"
-      @submit="handleTaskModalCreate"
-    />
 
     <TaskFilterPopover
       ref="kanbanFilterPopoverRef"
@@ -1614,96 +1595,24 @@
       </Transition>
     </Teleport>
 
-    <TaskModal
-      quick-create
+    <QuickCreateTaskModal
       :show="quickCreateDialog.show"
       :t="taskModalTranslate"
       :notebooks="taskModalNotebooks"
       :documents="taskModalDocuments"
       :groups="taskGroups"
       :goals="goalDefinitions"
+      :last-selected-notebook="quickCreateDialog.defaultNotebookId"
+      :last-selected-document="quickCreateDialog.defaultDocumentId"
+      :default-group-id="quickCreateDefaultGroupId"
+      :task-context="quickCreateTaskContext"
+      :resolve-target="resolveSharedQuickCreateTarget"
+      :create-heading="quickCreateDialog.mode === 'heading-task'"
       presentation="center"
-      @close="discardQuickCreateDraft"
-      @quick-task-update="handleQuickCreateMetaUpdate"
-    >
-      <template #quick-create-body>
-        <div
-          class="quick-create-target-row"
-          :class="{ 'is-special': quickCreateLocation !== 'last' }"
-        >
-          <div class="quick-create-field">
-            <label>{{ t('taskScopeDialog.defaultTaskCreateTarget') }}</label>
-            <SySelect
-              :model-value="quickCreateLocation"
-              @update:model-value="quickCreateLocation = $event as QuickCreateLocation"
-              :options="quickCreateLocationOptions"
-            />
-          </div>
-          <div class="quick-create-field">
-            <label>{{ t('taskManager.notebook') }}</label>
-            <SySelect
-              :model-value="quickCreateNotebookId"
-              @update:model-value="quickCreateNotebookId = $event"
-              :options="notebookOptions"
-            />
-          </div>
-          <div v-if="quickCreateLocation === 'last'" class="quick-create-field">
-            <label>{{ t('taskManager.document') }}</label>
-            <SySelect
-              :model-value="quickCreateDocumentId"
-              @update:model-value="quickCreateDocumentId = $event"
-              :options="quickCreateDocumentOptions"
-            />
-          </div>
-        </div>
-        <input
-          v-if="quickCreateDialog.mode === 'heading-task'"
-          ref="quickCreateHeadingInputRef"
-          v-model="quickCreateDialog.headingTitle"
-          class="quick-create-input"
-          type="text"
-          :placeholder="t('kanbanView.enterHeadingName')"
-          @keydown.enter.prevent="submitQuickCreateTask"
-          @keydown.esc.prevent="discardQuickCreateDraft"
-        />
-        <div
-          v-if="quickCreateDialog.mode === 'task'"
-          ref="quickCreateProtyleMountRef"
-          class="quick-create-protyle"
-        ></div>
-        <input
-          v-else
-          ref="quickCreateInputRef"
-          v-model="quickCreateDialog.title"
-          class="quick-create-input"
-          type="text"
-          :placeholder="getQuickCreateTaskPlaceholder(quickCreateDialog.mode)"
-          @keydown.enter.prevent="submitQuickCreateTask"
-          @keydown.esc.prevent="discardQuickCreateDraft"
-        />
-      </template>
-      <template #quick-create-footer>
-        <div class="quick-create-actions">
-          <div class="quick-create-submit-group">
-            <button class="quick-create-btn confirm" @click="submitQuickCreateTask">{{ t('kanbanView.create') }}</button>
-            <button
-              type="button"
-              class="quick-create-submit-arrow quick-create-btn confirm"
-              aria-label="选择保存快捷键"
-              @click.stop="quickCreateShortcutMenuOpen = !quickCreateShortcutMenuOpen"
-            >⌄</button>
-            <div v-if="quickCreateShortcutMenuOpen" class="quick-create-shortcut-menu">
-              <button type="button" :class="{ active: quickCreateSubmitShortcut === 'enter' }" @click="selectQuickCreateShortcut('enter')">
-                <span>{{ quickCreateSubmitShortcut === 'enter' ? '✓' : '' }}</span>按 Enter 键发送消息
-              </button>
-              <button type="button" :class="{ active: quickCreateSubmitShortcut === 'ctrl-enter' }" @click="selectQuickCreateShortcut('ctrl-enter')">
-                <span>{{ quickCreateSubmitShortcut === 'ctrl-enter' ? '✓' : '' }}</span>按 Ctrl + Enter 键发送消息
-              </button>
-            </div>
-          </div>
-        </div>
-      </template>
-    </TaskModal>
+      @close="closeSharedQuickCreate"
+      @created="handleSharedQuickCreateCreated"
+      @manage-groups="openTaskGroupDialog"
+    />
     <TaskScopeDialog
       :show="showTaskScopeDialog"
       :notebooks="notebooks"
@@ -1823,33 +1732,13 @@
       @close="closeTaskGroupDialog"
       @save="handleTaskGroupSave"
     />
-    <HabitDocBindDialog
-      :show="calendarFocusBindDialogVisible"
-      :doc-id-input="calendarFocusBindDocInput"
-      @update:docIdInput="calendarFocusBindDocInput = $event"
-      @close="closeCalendarFocusBindDialog"
-      @clear="handleCalendarFocusBindClear"
-      @confirm="handleCalendarFocusBindConfirm"
-    />
-    <HabitCheckinNoteDialog
-      :show="calendarFocusNoteDialogVisible"
-      :habit-name="calendarFocusNoteHabit?.name || ''"
-      :habit-emoji="calendarFocusNoteHabit?.emoji || ''"
-      :is-edit="true"
-      :initial-note="''"
-      :focus-notes="calendarFocusNoteItems"
-      :has-note-doc="!!calendarFocusNoteHabit?.noteDocId"
-      @close="closeCalendarFocusNoteDialog"
-      @confirm="handleCalendarFocusNoteConfirm"
-      @bind-doc="handleCalendarFocusNoteBindDoc"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
 import { Protyle, getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, listDocsByPath, resolveTaskRepeatMaterializeOptions, getHabits, saveHabits, type Habit, type TaskRepeatWindow } from '../api';
+import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, listDocsByPath, resolveTaskRepeatMaterializeOptions, type TaskRepeatWindow } from '../api';
 import {
   extractDocumentIconFromBlockRow,
   extractDocumentIconFromDom,
@@ -1913,6 +1802,11 @@ import { getTaskQuadrant, TASK_QUADRANT_ORDER, type TaskQuadrantId } from '@/uti
 import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { isRepeatTask as isRepeatTaskEntity } from '@/utils/repeatTaskUtils';
 import { persistTaskBackgroundColor } from '@/utils/taskBackgroundColorPersistence';
+import {
+  normalizeTaskBlockIds as normalizeBlockIds,
+  queryTaskAncestorContextRows as queryAncestorContextRows,
+  type AncestorContextRow
+} from '@/utils/taskAncestorContext';
 import { isKernelRpcUnavailable, refreshKernelTaskIndex } from '@/kernelRpc';
 import {
   getTaskHeadingGroupMeta,
@@ -1927,7 +1821,12 @@ import Icon from '@/components/Icon.vue';
 import SourceFilterSelect from '@/components/SourceFilterSelect.vue';
 import CalendarTaskEditorPanel, { type CalendarTaskEditorColorOption } from '@/components/CalendarTaskEditorPanel.vue';
 import TaskCard from '@/components/TaskCard.vue';
-import TaskModal, { type Notebook as TaskModalNotebook, type Document as TaskModalDocument } from '@/components/TaskModal.vue';
+import QuickCreateTaskModal, {
+  type Notebook as TaskModalNotebook,
+  type Document as TaskModalDocument,
+  type QuickCreateCreatedPayload,
+  type QuickCreateTaskContext
+} from '@/components/QuickCreateTaskModal.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
@@ -1946,8 +1845,6 @@ import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
 import TaskScopeDialog, { type TaskScopeDialogSavePayload, type TaskScopeDisplayOption } from '@/components/TaskScopeDialog.vue';
 import { taskViewSwitcherDisplayOptions } from '@/utils/taskViewSwitcher';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
-import HabitDocBindDialog from '@/components/HabitDocBindDialog.vue';
-import HabitCheckinNoteDialog from '@/components/HabitCheckinNoteDialog.vue';
 import { useGoals } from '@/composables/useGoals';
 import { getPinchDockElement, openHabitTrackerFocusTimer, openHabitTrackerPanel, openPinchDockView, usePlugin } from '@/main';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
@@ -1976,8 +1873,6 @@ import {
 } from '@/utils/documentGroupSource';
 import { useTaskScopeDocuments } from '@/composables/useTaskScopeDocuments';
 import { useDocumentScopeMatcher } from '@/composables/useDocumentScopeMatcher';
-import { useHabitCheckinLog, type HabitFocusNoteItem } from '@/composables/useHabitCheckinLog';
-import type { FocusCalendarEvent } from '@/utils/focusCalendar';
 import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
 import {
   applyTaskTagBatchAction,
@@ -2004,10 +1899,6 @@ import type { SidebarSectionId, TaskViewSwitcherId } from '@/utils/userSettings'
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 const DESCENDANT_DOCUMENT_ICON_SVG = '<svg t="1781940701340" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18335" width="200" height="200"><path d="M256 130.688c22.08 0 40 17.92 40 40v163.84h265.728a140.8 140.8 0 1 1 0 80H296v106.88A216 216 0 0 0 512 737.536h49.728a140.8 140.8 0 1 1 0 80H512a296 296 0 0 1-296-296V375.424a38.784 38.784 0 0 1 0-1.792V170.688c0-22.08 17.92-40 40-40z m440.704 183.04a60.736 60.736 0 1 0 0 121.536 60.736 60.736 0 0 0 0-121.472z m0 403.008a60.736 60.736 0 1 0 0 121.472 60.736 60.736 0 0 0 0-121.472z" p-id="18336"></path></svg>';
 const { t } = useI18n();
-const {
-  writeCheckinLogToDoc,
-  getHabitFocusNoteItems
-} = useHabitCheckinLog();
 const props = withDefaults(defineProps<{
   showDialogCloseButton?: boolean;
 }>(), {
@@ -2237,14 +2128,6 @@ function getColumnTitleRequiredMessage(column: { type: string }): string {
   return column.type === 'group' ? t('kanbanView.enterTagName') : t('kanbanView.enterHeadingName');
 }
 
-function getQuickCreateDialogTitle(mode: 'task' | 'heading-task'): string {
-  return mode === 'heading-task' ? t('kanbanView.newHeadingAndTask') : t('taskManager.newTask');
-}
-
-function getQuickCreateTaskPlaceholder(mode: 'task' | 'heading-task'): string {
-  return mode === 'heading-task' ? t('kanbanView.enterFirstTaskTitle') : t('kanbanView.enterTaskTitle');
-}
-
 function getCurrentGroupLabel(label?: string): string {
   return (label || t('kanbanView.currentGroup')).trim() || t('kanbanView.currentGroup');
 }
@@ -2332,7 +2215,7 @@ function prepareForTaskViewChange(nextView: TaskViewMode): void {
   resetKanbanBatchLasso();
   removeKanbanBatchLassoListeners();
   if (quickCreateDialog.value.show) {
-    closeQuickCreateDialog();
+    closeSharedQuickCreate();
   }
   if (currentView.value !== nextView && kanbanEditorVisible.value) {
     closeKanbanEditor();
@@ -2788,15 +2671,6 @@ const calendarSidebarDisplayOptions = computed(() => [
   ...calendarLifelogDisplayOptions.value.map(option => ({ key: option.key, label: option.label, enabled: option.visible }))
 ]);
 watch([showCalendarTasks, showCalendarHabits, showCalendarTaskLifelog, showCalendarHabitLifelog, showCalendarFocusLifelog, showCalendarRecordsLifelog], saveCalendarDisplaySettings);
-const calendarFocusHabits = ref<Habit[]>([]);
-const calendarFocusNoteDialogVisible = ref(false);
-const calendarFocusNoteHabit = ref<Habit | null>(null);
-const calendarFocusNoteDate = ref('');
-const calendarFocusNoteItems = ref<HabitFocusNoteItem[]>([]);
-const calendarFocusBindDialogVisible = ref(false);
-const calendarFocusBindDocInput = ref('');
-const calendarFocusBindHabit = ref<Habit | null>(null);
-let calendarFocusNoteRequestId = 0;
 const collapsedKanbanListSectionIds = ref<Set<string>>(new Set());
 const hiddenDocumentTabIds = ref(new Set<string>());
 const mobileViewSwitcherVisible = ref(false);
@@ -3639,8 +3513,6 @@ interface OpenQuickCreateOptions {
   mode?: 'task' | 'heading-task';
 }
 
-type QuickCreateLocation = 'last' | 'inbox' | 'daily-note';
-
 interface TableGroupActionPayload {
   mode: 'group' | 'heading';
   groupId: string;
@@ -3649,79 +3521,42 @@ interface TableGroupActionPayload {
   taskIds?: string[];
 }
 
-const quickCreateHeadingInputRef = ref<HTMLInputElement | null>(null);
-const quickCreateInputRef = ref<HTMLInputElement | null>(null);
-const quickCreateProtyleMountRef = ref<HTMLElement | null>(null);
-let quickCreateProtyle: Protyle | null = null;
-let quickCreateProtyleBlockId = '';
-let quickCreateDraftTaskBlockId = '';
-let isCreatingQuickCreateProtyle = false;
-let isResettingQuickCreateDraft = false;
-const quickCreateMetaDraft = ref<{
-  description: string;
-  priority: Task['priority'];
-  dueDate: string;
-  reminderType: string;
-  reminderCustomTime: string;
-  tags: string[];
-  groupId: string;
-}>({
-  description: '',
-  priority: 'none',
-  dueDate: '',
-  reminderType: '',
-  reminderCustomTime: '',
-  tags: [],
-  groupId: ''
-});
 const columnTitleInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null);
 const editingColumnTitleId = ref<string>('');
 const columnTitleDraft = ref<string>('');
 const editingColumnOriginalTitle = ref<string>('');
 const isSavingColumnTitle = ref(false);
-const quickCreateNotebookId = ref<string>('all');
-const quickCreateDocumentId = ref<string>('all');
-const quickCreateLocation = ref<QuickCreateLocation>('last');
-const quickCreateSubmitShortcut = ref<'enter' | 'ctrl-enter'>('ctrl-enter');
-const quickCreateShortcutMenuOpen = ref(false);
-const quickCreateLocationOptions = computed(() => [
-  { value: 'last', text: t('taskScopeDialog.defaultTaskCreateTargetLast') },
-  { value: 'inbox', text: t('taskScopeDialog.defaultTaskCreateTargetInbox') },
-  { value: 'daily-note', text: t('taskScopeDialog.defaultTaskCreateTargetDailyNote') }
-]);
 const quickCreateDialog = ref<{
   show: boolean;
   mode: 'task' | 'heading-task';
-  headingTitle: string;
-  title: string;
   payload: CreateTaskPayload | null;
   context: QuickCreateContext | null;
+  defaultNotebookId: string;
+  defaultDocumentId: string;
 }>({
   show: false,
   mode: 'task',
-  headingTitle: '',
-  title: '',
   payload: null,
-  context: null
+  context: null,
+  defaultNotebookId: '',
+  defaultDocumentId: ''
 });
-const showTaskModal = ref(false);
-const taskModalDefaultNotebook = ref('');
-const taskModalDefaultDocument = ref(PINCH_INBOX_OPTION_ID);
-const taskModalDefaultGroupId = ref('');
-
-interface TaskModalCreateTaskPayload {
-  title: string;
-  description?: string;
-  priority?: Task['priority'];
-  status?: Task['status'];
-  dueDate?: string;
-  reminderType?: TaskReminderType;
-  reminderCustomTime?: string;
-  tags?: string[];
-  groupId?: string;
-  goalIds?: string[];
-}
-
+const quickCreateDefaultGroupId = computed(() => {
+  const context = quickCreateDialog.value.context;
+  return context?.columnType === 'group' ? context.groupId || '' : '';
+});
+const quickCreateTaskContext = computed<QuickCreateTaskContext>(() => {
+  const context = quickCreateDialog.value.context;
+  const payload = quickCreateDialog.value.payload;
+  return {
+    status: context?.columnType === 'status' ? context.status || 'pending' : 'pending',
+    groupId: context?.columnType === 'group' ? context.groupId || '' : '',
+    startDate: payload?.startDate || '',
+    dueDate: payload?.dueDate || '',
+    startTime: payload?.startTime || '',
+    dueTime: payload?.dueTime || ''
+  };
+});
 const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = buildTaskStatusFilterOptions(t);
 const kanbanPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = buildTaskPriorityOptions(t);
 const kanbanDueFilterOptions: Array<{ value: KanbanTaskDueFilterKey; label: string }> = [
@@ -3870,11 +3705,6 @@ const documentTitleByRootId = computed(() => {
 const taskDocumentPathLookup = computed(() =>
   buildTaskDocumentPathLookup(tasks.value, documentScopeMetadataByRootId.value)
 );
-const notebookOptions = computed(() => [
-  { value: 'all', text: t('taskManager.all') },
-  ...enabledNotebooks.value.map(nb => ({ value: nb.id, text: nb.name }))
-]);
-
 const sourceOptions = computed(() => [
   { value: 'all', text: t('taskManager.all') },
   ...enabledNotebooks.value.map(nb => ({
@@ -5045,12 +4875,6 @@ function resetFiltersForExcludedNotebooks(): boolean {
   changed = resetSourceFilterIfNeeded(dayFilterType, dayFilterDocument, source =>
     source.kind === 'notebook' && excludedNotebookIdSet.has(source.id)
   ) || changed;
-
-  if (quickCreateNotebookId.value !== 'all' && excludedNotebookIdSet.has(quickCreateNotebookId.value)) {
-    quickCreateNotebookId.value = 'all';
-    quickCreateDocumentId.value = 'all';
-    changed = true;
-  }
 
   return changed;
 }
@@ -6439,13 +6263,6 @@ function toFilterDocumentOptions(
   ];
 }
 
-function toQuickCreateDocumentOptions(notebookId: string): Array<{ value: string; text: string }> {
-  if (notebookId === 'all') {
-    return [{ value: 'all', text: t('taskManager.all') }];
-  }
-  return toFilterDocumentOptions(notebookId);
-}
-
 const activeDocumentTabScope = computed(() =>
   documentTabScopesBySource.value[getDocumentTabScopeStorageKey(getCurrentFilterNotebookId())] || null
 );
@@ -6470,7 +6287,6 @@ const documentOptions = computed(() => {
       return option;
     });
 });
-const quickCreateDocumentOptions = computed(() => toQuickCreateDocumentOptions(quickCreateNotebookId.value));
 const activeMilestoneSource = computed(() =>
   currentView.value === 'kanban'
     ? kanbanFilterType.value
@@ -6838,138 +6654,6 @@ function saveCalendarDisplaySettings(): void {
   } catch (error) {
     console.warn('[KanbanView] Failed to save calendar display settings', error);
   }
-}
-
-async function ensureCalendarFocusHabitsLoaded(): Promise<Habit[]> {
-  if (calendarFocusHabits.value.length > 0) {
-    return calendarFocusHabits.value;
-  }
-  const habits = await getHabits();
-  calendarFocusHabits.value = habits;
-  return habits;
-}
-
-function getCalendarFocusDayRecord(habit: Habit, date: string) {
-  return habit.calendar.find(day => day.date === date) || null;
-}
-
-async function openCalendarFocusNoteDialog(habit: Habit, date: string): Promise<void> {
-  calendarFocusNoteHabit.value = habit;
-  calendarFocusNoteDate.value = date;
-  if (!habit.noteDocId) {
-    calendarFocusBindHabit.value = habit;
-    calendarFocusBindDocInput.value = habit.noteDocId || '';
-    calendarFocusBindDialogVisible.value = true;
-    return;
-  }
-
-  const requestId = ++calendarFocusNoteRequestId;
-  calendarFocusNoteDialogVisible.value = false;
-  calendarFocusNoteItems.value = [];
-
-  const focusNotes = await getHabitFocusNoteItems(habit.noteDocId, habit, date);
-  if (
-    requestId !== calendarFocusNoteRequestId
-    || calendarFocusNoteHabit.value?.id !== habit.id
-    || calendarFocusNoteDate.value !== date
-  ) {
-    return;
-  }
-
-  calendarFocusNoteItems.value = focusNotes;
-  calendarFocusNoteDialogVisible.value = true;
-}
-
-async function handleCalendarFocusSessionContextmenu(session: FocusCalendarEvent): Promise<void> {
-  if (session.targetType !== 'habit' || !session.targetId) {
-    await pushMsg(t('kanbanView.focusSessionHabitOnly'), 2200);
-    return;
-  }
-
-  const habits = await ensureCalendarFocusHabitsLoaded();
-  const habit = habits.find(item => item.id === session.targetId);
-  if (!habit) {
-    await pushMsg(t('kanbanView.focusSessionHabitMissing'), 2200);
-    return;
-  }
-
-  await openCalendarFocusNoteDialog(habit, session.date);
-}
-
-function closeCalendarFocusNoteDialog(): void {
-  calendarFocusNoteRequestId++;
-  calendarFocusNoteDialogVisible.value = false;
-  calendarFocusNoteHabit.value = null;
-  calendarFocusNoteDate.value = '';
-  calendarFocusNoteItems.value = [];
-}
-
-function closeCalendarFocusBindDialog(): void {
-  calendarFocusBindDialogVisible.value = false;
-  calendarFocusBindDocInput.value = '';
-  calendarFocusBindHabit.value = null;
-}
-
-async function handleCalendarFocusBindConfirm(): Promise<void> {
-  const habit = calendarFocusBindHabit.value;
-  if (!habit) return;
-
-  const docId = calendarFocusBindDocInput.value.trim().match(/\d{14}-[a-z0-9]{7}/i)?.[0] || calendarFocusBindDocInput.value.trim();
-  if (!docId) {
-    await pushMsg(t('habitDocBind.enterDocId'), 2200);
-    return;
-  }
-  if (!/^\d{14}-[a-z0-9]{7}$/i.test(docId)) {
-    await pushMsg(t('habitDocBind.invalidDocId'), 2200);
-    return;
-  }
-
-  habit.noteDocId = docId;
-  calendarFocusHabits.value = [...calendarFocusHabits.value];
-  await saveHabits(calendarFocusHabits.value);
-  calendarFocusBindDialogVisible.value = false;
-  calendarFocusBindDocInput.value = '';
-  calendarFocusBindHabit.value = null;
-
-  if (calendarFocusNoteDate.value) {
-    await openCalendarFocusNoteDialog(habit, calendarFocusNoteDate.value);
-  }
-}
-
-async function handleCalendarFocusBindClear(): Promise<void> {
-  const habit = calendarFocusBindHabit.value;
-  if (!habit) return;
-
-  habit.noteDocId = '';
-  calendarFocusHabits.value = [...calendarFocusHabits.value];
-  await saveHabits(calendarFocusHabits.value);
-  closeCalendarFocusBindDialog();
-}
-
-function handleCalendarFocusNoteBindDoc(): void {
-  const habit = calendarFocusNoteHabit.value;
-  if (!habit) return;
-  calendarFocusNoteDialogVisible.value = false;
-  calendarFocusBindHabit.value = habit;
-  calendarFocusBindDocInput.value = habit.noteDocId || '';
-  calendarFocusBindDialogVisible.value = true;
-}
-
-async function handleCalendarFocusNoteConfirm(_note: string, focusNotes: HabitFocusNoteItem[] = []): Promise<void> {
-  const habit = calendarFocusNoteHabit.value;
-  const date = calendarFocusNoteDate.value;
-  if (!habit || !habit.noteDocId || !date) return;
-
-  const dayRecord = getCalendarFocusDayRecord(habit, date);
-  await writeCheckinLogToDoc(habit.noteDocId, {
-    habit,
-    date,
-    focusNotes,
-    completedCount: dayRecord?.completedCount,
-    targetCount: dayRecord?.targetCount
-  });
-
-  closeCalendarFocusNoteDialog();
 }
 
 function selectTaskViewGroupMode(mode: TaskViewGroupMode): void {
@@ -7728,42 +7412,6 @@ watch(visibleDocumentOptions, (options) => {
 });
 watch(currentDocumentFilter, () => {
   closeDocumentTabsDropdown();
-});
-
-watch(quickCreateNotebookId, (newType, oldType) => {
-  if (newType !== oldType && quickCreateDialog.value.show && quickCreateLocation.value === 'last') {
-    const exists = quickCreateDocumentOptions.value.some(opt => opt.value === quickCreateDocumentId.value);
-    if (!exists) {
-      quickCreateDocumentId.value = 'all';
-    }
-  } else if (newType !== oldType && quickCreateLocation.value === 'last') {
-    quickCreateDocumentId.value = 'all';
-  }
-});
-
-watch(quickCreateLocation, (location) => {
-  if (!quickCreateDialog.value.show) {
-    return;
-  }
-  if (location === 'last') {
-    const lastTarget = resolveLastTaskCreateTarget();
-    quickCreateNotebookId.value = lastTarget?.notebookId || getDefaultQuickCreateNotebook(quickCreateNotebookId.value);
-    quickCreateDocumentId.value = lastTarget?.documentId || 'all';
-  } else {
-    quickCreateNotebookId.value = getDefaultQuickCreateNotebook(quickCreateNotebookId.value);
-    quickCreateDocumentId.value = location === 'inbox'
-      ? PINCH_INBOX_OPTION_ID
-      : PINCH_DAILY_NOTE_OPTION_ID;
-  }
-  if (quickCreateDraftTaskBlockId || quickCreateProtyle) {
-    void recreateQuickCreateDraftAtSelectedLocation();
-  }
-});
-
-watch(quickCreateDocumentId, () => {
-  if (quickCreateDialog.value.show && quickCreateDialog.value.mode === 'task') {
-    void initializeQuickCreateProtyle();
-  }
 });
 
 function scheduleSaveUserSettings() {
@@ -11175,63 +10823,6 @@ function cleanupEventListeners() {
   queuedIncrementalForceFreshBlockIds.clear();
 }
 
-interface AncestorContextRow {
-  source_id: string;
-  id: string;
-  depth: number;
-  subtype: string;
-}
-
-function normalizeBlockIds(blockIds: string[]): string[] {
-  return [...new Set(blockIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
-}
-
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-async function queryAncestorContextRows(blockIds: string[]): Promise<AncestorContextRow[]> {
-  const normalizedBlockIds = normalizeBlockIds(blockIds);
-  if (normalizedBlockIds.length === 0) {
-    return [];
-  }
-
-  try {
-    const idsClause = normalizedBlockIds.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
-    const rows = await sql(`
-      WITH RECURSIVE ancestors(source_id, id, parent_id, depth) AS (
-        SELECT id AS source_id, id, parent_id, 0
-        FROM blocks
-        WHERE id IN (${idsClause})
-        UNION ALL
-        SELECT ancestors.source_id, b.id, b.parent_id, ancestors.depth + 1
-        FROM blocks b
-        JOIN ancestors ON ancestors.parent_id = b.id
-        WHERE ancestors.parent_id != ''
-          AND ancestors.depth < 10
-      )
-      SELECT ancestors.source_id, ancestors.id, ancestors.depth, b.subtype
-      FROM ancestors
-      JOIN blocks b ON b.id = ancestors.id
-    `) as any[];
-
-    if (!Array.isArray(rows)) {
-      return [];
-    }
-
-    return rows
-      .map((row) => ({
-        source_id: typeof row?.source_id === 'string' ? row.source_id : '',
-        id: typeof row?.id === 'string' ? row.id : '',
-        depth: Number(row?.depth),
-        subtype: typeof row?.subtype === 'string' ? row.subtype : ''
-      }))
-      .filter((row) => row.source_id.length > 0 && row.id.length > 0 && Number.isFinite(row.depth));
-  } catch {
-    return [];
-  }
-}
-
 async function resolveParentTaskBlockIds(
   blockIds: string[],
   taskIndexMap?: Map<string, number>
@@ -11249,7 +10840,7 @@ async function resolveParentTaskBlockIds(
   }
 
   try {
-    const rows = await queryAncestorContextRows(unknownBlockIds);
+    const rows = await queryAncestorContextRows(unknownBlockIds, sql);
     const unknownIdSet = new Set(unknownBlockIds);
     const candidatesBySource = new Map<string, Array<{ id: string; depth: number }>>();
     rows.forEach((row) => {
@@ -11427,7 +11018,7 @@ function hasTaskOrSubtask(blockId: string): boolean {
 async function isSubtaskBlockId(blockId: string): Promise<boolean> {
   if (!blockId) return false;
   try {
-    const rows = await queryAncestorContextRows([blockId]);
+    const rows = await queryAncestorContextRows([blockId], sql);
     return rows.some(row =>
       row.source_id === blockId
       && row.subtype === 't'
@@ -13759,89 +13350,6 @@ async function ensureDailyNoteDocument(notebookId: string): Promise<string> {
   return normalizeNotebookDocPathForCreate(notebookId, hPath);
 }
 
-async function handleTaskModalCreate(
-  taskData: TaskModalCreateTaskPayload,
-  notebookId: string,
-  documentId: string
-): Promise<void> {
-  try {
-    let docPath = '';
-    if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
-      docPath = await ensureDailyNoteDocument(notebookId);
-    } else if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
-      const target = resolveCreateTarget(notebookId, documentId);
-      docPath = target?.docPath || '';
-    }
-    if (!docPath) {
-      docPath = await ensureInboxDocument(notebookId);
-    }
-
-    const tagState = buildTaskTagState(taskData.tags, taskData.groupId);
-    const normalizedGroupId = tagState.primaryTagId;
-    const created = await TaskRepository.createBlockTask({
-      title: taskData.title,
-      description: taskData.description || '',
-      priority: taskData.priority || 'none',
-      status: taskData.status || 'pending',
-      dueDate: taskData.dueDate || undefined,
-      reminderType: taskData.reminderType,
-      reminderCustomTime: taskData.reminderCustomTime || undefined,
-      tags: tagState.tagIds,
-      groupId: normalizedGroupId || undefined
-    }, notebookId, docPath);
-
-    const selectedGoalIds = Array.isArray(taskData.goalIds)
-      ? taskData.goalIds
-        .map(goalId => typeof goalId === 'string' ? goalId.trim() : '')
-        .filter(goalId => goalId && goalDefinitionsById.value.has(goalId))
-      : [];
-    if (selectedGoalIds.length > 0 && created?.taskId) {
-      const createdRootId = documentId
-        && documentId !== PINCH_DAILY_NOTE_OPTION_ID
-        && documentId !== PINCH_INBOX_OPTION_ID
-        ? documentId
-        : undefined;
-      const nextGoals = setTaskGoalMembership(goalDefinitions.value, {
-        taskId: created.taskId,
-        blockId: created.blockId,
-        notebookId,
-        rootId: createdRootId,
-        title: taskData.title
-      }, selectedGoalIds);
-      goalDefinitions.value = nextGoals;
-      await saveGoalDefinitions(nextGoals);
-    }
-
-    taskModalDefaultNotebook.value = notebookId;
-    taskModalDefaultDocument.value = documentId;
-    taskModalDefaultGroupId.value = normalizedGroupId;
-    await updateSettings('taskManager', {
-      lastTaskNotebook: notebookId,
-      lastTaskDocument: documentId,
-      selectedGroupId: normalizedGroupId
-    });
-    showTaskModal.value = false;
-
-    if (created?.blockId) {
-      const createdBlockId = created.blockId;
-      await incrementalUpdateTasks([createdBlockId], { allowUnknown: true });
-      if (!tasks.value.some(task => task.blockId === createdBlockId)) {
-        queueIncrementalUpdates([createdBlockId], { allowUnknown: true }, 120);
-        window.setTimeout(() => {
-          if (!tasks.value.some(task => task.blockId === createdBlockId)) {
-            scheduleRefreshTasks(180, 'silent-full');
-          }
-        }, 420);
-      }
-    } else {
-      scheduleRefreshTasks(180, 'silent-full');
-    }
-  } catch (error) {
-    console.error('[KanbanView] Failed to create task via modal:', error);
-    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
-  }
-}
-
 function resolveCreateTarget(notebookId: string, documentId: string): { notebookId: string; documentId: string; docPath: string } | null {
   if (notebookId === 'all' || documentId === 'all') {
     return null;
@@ -13860,14 +13368,6 @@ function resolveCreateTarget(notebookId: string, documentId: string): { notebook
     documentId,
     docPath: normalizeDocPath(notebook.name, taskInDoc.hPath)
   };
-}
-
-function normalizeQuickCreateHeadingTitle(rawTitle: string): string {
-  return rawTitle
-    .replace(/[\r\n]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/^#+\s*/, '')
-    .trim();
 }
 
 function extractCreatedBlockIdFromOperations(result: unknown): string {
@@ -14094,59 +13594,49 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
   const preferredSidebarDocument =
     sidebarSourceDocuments.find(doc => doc.id === sidebarSelection.documentId)
     || sidebarSourceDocuments[0];
-  const preferredNotebookId = lastTaskTarget?.notebookId
+  let preferredNotebookId = lastTaskTarget?.notebookId
     || options.preferredNotebookId
     || ((sidebarSource.kind === 'group' || sidebarSource.kind === 'goal')
       ? preferredSidebarDocument?.notebookId || 'all'
       : sidebarSource.kind === 'notebook'
         ? sidebarSource.id
         : 'all');
-  quickCreateNotebookId.value = notebookOptions.value.some(option => option.value === preferredNotebookId)
-    ? preferredNotebookId
-    : 'all';
-
-  const preferredDocumentId = lastTaskTarget?.documentId
+  let preferredDocumentId = lastTaskTarget?.documentId
     || options.preferredDocumentId
     || ((sidebarSource.kind === 'group' || sidebarSource.kind === 'goal')
       ? preferredSidebarDocument?.id || 'all'
       : sidebarSelection.documentId);
-  quickCreateDocumentId.value = preferredDocumentId;
-  if (!quickCreateDocumentOptions.value.some(opt => opt.value === quickCreateDocumentId.value)) {
-    quickCreateDocumentId.value = 'all';
-  }
 
   if (options.context?.fixedTarget) {
-    quickCreateNotebookId.value = options.context.fixedTarget.notebookId;
-    quickCreateDocumentId.value = options.context.fixedTarget.documentId;
-  }
-  if (!quickCreateDocumentOptions.value.some(opt => opt.value === quickCreateDocumentId.value)) {
-    quickCreateDocumentId.value = 'all';
-  }
-
-  quickCreateLocation.value = getDefaultQuickCreateLocation();
-  if (quickCreateLocation.value === 'inbox' || quickCreateLocation.value === 'daily-note') {
-    quickCreateNotebookId.value = getDefaultQuickCreateNotebook(quickCreateNotebookId.value);
-    quickCreateDocumentId.value = quickCreateLocation.value === 'inbox'
+    preferredNotebookId = options.context.fixedTarget.notebookId;
+    preferredDocumentId = options.context.fixedTarget.documentId;
+  } else {
+    const defaultLocation = getDefaultQuickCreateLocation();
+    if (defaultLocation === 'inbox' || defaultLocation === 'daily-note') {
+      preferredNotebookId = getDefaultQuickCreateNotebook(preferredNotebookId);
+      preferredDocumentId = defaultLocation === 'inbox'
       ? PINCH_INBOX_OPTION_ID
       : PINCH_DAILY_NOTE_OPTION_ID;
+    }
   }
+
+  const defaultNotebookId = enabledNotebooks.value.some(notebook => notebook.id === preferredNotebookId)
+    ? preferredNotebookId
+    : getDefaultQuickCreateNotebook(preferredNotebookId);
+  const isSpecialDocument = preferredDocumentId === PINCH_INBOX_OPTION_ID
+    || preferredDocumentId === PINCH_DAILY_NOTE_OPTION_ID;
+  const hasPreferredDocument = isSpecialDocument || getDocumentEntriesByNotebook(defaultNotebookId)
+    .some(document => document.id === preferredDocumentId);
 
   const mode = options.mode === 'heading-task' ? 'heading-task' : 'task';
   quickCreateDialog.value = {
     show: true,
     mode,
-    headingTitle: '',
-    title: '',
     payload,
-    context: options.context || null
+    context: options.context || null,
+    defaultNotebookId,
+    defaultDocumentId: hasPreferredDocument ? preferredDocumentId : ''
   };
-  await nextTick();
-  if (mode === 'heading-task') {
-    quickCreateHeadingInputRef.value?.focus();
-    quickCreateHeadingInputRef.value?.select();
-    return;
-  }
-  void initializeQuickCreateProtyle();
 }
 
 function handleCalendarTaskCreateRequested(payload: CreateTaskPayload): Promise<void> {
@@ -14171,173 +13661,14 @@ function resolveLastTaskCreateTarget(): Pick<QuickCreateTarget, 'notebookId' | '
     : null;
 }
 
-function destroyQuickCreateProtyle(): void {
-  quickCreateProtyleMountRef.value?.removeEventListener('keydown', handleQuickCreateProtyleKeydown, true);
-  if (quickCreateProtyle) {
-    try {
-      quickCreateProtyle.destroy();
-    } catch {
-    }
-  }
-  quickCreateProtyle = null;
-  quickCreateProtyleBlockId = '';
-  quickCreateDraftTaskBlockId = '';
-}
-
-function focusQuickCreateProtyle(): void {
-  let attempts = 0;
-  const focusEditor = () => {
-    const editable = quickCreateProtyleMountRef.value?.querySelector<HTMLElement>('[contenteditable="true"]');
-    if (!editable) {
-      attempts += 1;
-      if (attempts < 12) {
-        window.requestAnimationFrame(focusEditor);
-      }
-      return;
-    }
-    editable.focus();
-    const selection = window.getSelection();
-    if (!selection) return;
-    const range = document.createRange();
-    range.selectNodeContents(editable);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  };
-  window.requestAnimationFrame(focusEditor);
-}
-
-function selectQuickCreateShortcut(shortcut: 'enter' | 'ctrl-enter'): void {
-  quickCreateSubmitShortcut.value = shortcut;
-  quickCreateShortcutMenuOpen.value = false;
-}
-
-function handleQuickCreateProtyleKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Enter' || event.isComposing || !quickCreateDraftTaskBlockId) {
-    return;
-  }
-  const shouldSave = quickCreateSubmitShortcut.value === 'enter'
-    ? !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey
-    : (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
-  if (!shouldSave) return;
-  event.preventDefault();
-  event.stopPropagation();
-  void submitQuickCreateTask();
-}
-
-async function resolveQuickCreateParagraphBlockId(taskBlockId: string): Promise<string> {
-  try {
-    const response = await getBlockDOM(taskBlockId);
-    const dom = typeof response?.dom === 'string' ? response.dom : '';
-    const paragraph = dom
-      ? new DOMParser().parseFromString(dom, 'text/html').querySelector<HTMLElement>('[data-type="NodeParagraph"][data-node-id]')
-      : null;
-    return paragraph?.dataset.nodeId || taskBlockId;
-  } catch {
-    return taskBlockId;
-  }
-}
-
-async function initializeQuickCreateProtyle(): Promise<void> {
-  if (
-    isCreatingQuickCreateProtyle
-    || isResettingQuickCreateDraft
-    || quickCreateProtyle
-    || quickCreateDialog.value.mode !== 'task'
-    || !quickCreateDialog.value.show
-  ) {
-    return;
-  }
-
-  const payload = quickCreateDialog.value.payload;
-  const context = quickCreateDialog.value.context;
-  const plugin = usePlugin();
-  if (!payload || !plugin?.app) {
-    return;
-  }
-
-  isCreatingQuickCreateProtyle = true;
-  try {
-    const target = context?.fixedTarget || await resolveQuickCreateTarget(
-      quickCreateNotebookId.value,
-      quickCreateDocumentId.value
-    );
-    if (!target) {
-      return;
-    }
-    const normalizedGroupId = context?.columnType === 'group'
-      ? (typeof context.groupId === 'string' ? context.groupId.trim() : '')
-      : '';
-    const createStatus = context?.columnType === 'status' && context.status
-      ? context.status
-      : 'pending';
-    const created = await TaskRepository.createBlockTask({
-      // Siyuan requires a non-empty task title while creating the block. Keep
-      // the placeholder invisible so the Protyle starts visually empty.
-      title: '\u200B',
-      description: '',
-      priority: 'none',
-      status: createStatus,
-      startDate: payload.startDate,
-      dueDate: payload.dueDate,
-      startTime: payload.startTime,
-      dueTime: payload.dueTime,
-      tags: [],
-      groupId: normalizedGroupId || undefined
-    }, target.notebookId, target.docPath, { emitTaskAdded: false });
-
-    if (!quickCreateDialog.value.show || quickCreateDialog.value.mode !== 'task') {
-      await deleteBlock(created.blockId).catch(() => undefined);
-      return;
-    }
-
-    quickCreateDraftTaskBlockId = created.blockId;
-    quickCreateProtyleBlockId = await resolveQuickCreateParagraphBlockId(created.blockId);
-    if (!quickCreateDialog.value.show || quickCreateDialog.value.mode !== 'task') {
-      await deleteBlock(created.blockId).catch(() => undefined);
-      return;
-    }
-    await persistQuickCreateMetaDraft();
-    await nextTick();
-    const mountElement = quickCreateProtyleMountRef.value;
-    if (!mountElement) {
-      return;
-    }
-    mountElement.innerHTML = '';
-    quickCreateProtyle = new Protyle(plugin.app, mountElement, {
-      blockId: quickCreateProtyleBlockId,
-      mode: 'wysiwyg',
-      render: {
-        breadcrumb: false
-      }
-    });
-    mountElement.addEventListener('keydown', handleQuickCreateProtyleKeydown, true);
-    focusQuickCreateProtyle();
-  } catch (error) {
-    console.error('[KanbanView] Failed to initialize quick-create Protyle:', error);
-    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
-  } finally {
-    isCreatingQuickCreateProtyle = false;
-  }
-}
-
 function resetQuickCreateDialog(): void {
-  destroyQuickCreateProtyle();
-  quickCreateShortcutMenuOpen.value = false;
-  quickCreateMetaDraft.value = {
-    description: '', priority: 'none', dueDate: '', reminderType: '',
-    reminderCustomTime: '', tags: [], groupId: ''
-  };
-  quickCreateLocation.value = 'last';
-  quickCreateNotebookId.value = 'all';
-  quickCreateDocumentId.value = 'all';
   quickCreateDialog.value = {
     show: false,
     mode: 'task',
-    headingTitle: '',
-    title: '',
     payload: null,
-    context: null
+    context: null,
+    defaultNotebookId: '',
+    defaultDocumentId: ''
   };
 }
 
@@ -14365,7 +13696,155 @@ async function resolveQuickCreateTarget(
   return resolveCreateTarget(notebookId, documentId);
 }
 
-function getDefaultQuickCreateLocation(): QuickCreateLocation {
+async function resolveSharedQuickCreateTarget(
+  notebookId: string,
+  documentId: string
+): Promise<QuickCreateTarget | null> {
+  return resolveQuickCreateTarget(notebookId, documentId);
+}
+
+async function resolveSharedQuickCreateRootId(payload: QuickCreateCreatedPayload): Promise<string> {
+  if (
+    payload.documentId !== PINCH_INBOX_OPTION_ID
+    && payload.documentId !== PINCH_DAILY_NOTE_OPTION_ID
+  ) {
+    return payload.documentId;
+  }
+  try {
+    return (await getIDsByHPath(payload.notebookId, payload.docPath))[0] || '';
+  } catch {
+    return '';
+  }
+}
+
+function closeSharedQuickCreate(): void {
+  resetQuickCreateDialog();
+}
+
+async function handleSharedQuickCreateCreated(payload: QuickCreateCreatedPayload): Promise<void> {
+  const createPayload = quickCreateDialog.value.payload;
+  const context = quickCreateDialog.value.context;
+  if (!createPayload) {
+    resetQuickCreateDialog();
+    return;
+  }
+  try {
+    const rootId = await resolveSharedQuickCreateRootId(payload);
+    const target: QuickCreateTarget = {
+      notebookId: payload.notebookId,
+      documentId: rootId || payload.documentId,
+      docPath: payload.docPath
+    };
+    const selectedGoalIds = Array.isArray(payload.task.goalIds)
+      ? payload.task.goalIds
+        .map(goalId => typeof goalId === 'string' ? goalId.trim() : '')
+        .filter(goalId => goalId && goalDefinitionsById.value.has(goalId))
+      : [];
+    let appliedHeadingMeta: TaskHeadingGroupMeta | null = null;
+    const headingTitle = typeof payload.headingTitle === 'string' ? payload.headingTitle.trim() : '';
+    let targetHeadingMeta: TaskHeadingGroupMeta | null = null;
+    if (headingTitle) {
+      if (!rootId) {
+        await deleteBlock(payload.blockId).catch(() => undefined);
+        await pushMsg(t('kanbanView.createHeadingFailedRetry'), 3000);
+        resetQuickCreateDialog();
+        return;
+      } else {
+        const headingBlockId = await createQuickCreateHeading(rootId, headingTitle).catch((error) => {
+          console.error('[KanbanView] Failed to create heading for shared quick-create task:', error);
+          return '';
+        });
+        if (!headingBlockId) {
+          await deleteBlock(payload.blockId).catch(() => undefined);
+          await pushMsg(t('kanbanView.createHeadingFailedRetry'), 3000);
+          resetQuickCreateDialog();
+          return;
+        } else {
+          targetHeadingMeta = {
+            key: `heading:${rootId}:${headingBlockId}`,
+            label: headingTitle,
+            kind: 'heading',
+            rootId,
+            headingBlockId,
+            headingLevel: 2
+          };
+        }
+      }
+    }
+    if (!targetHeadingMeta && context?.columnType === 'heading' && context.headingMeta) {
+      const contextRootId = context.headingMeta.rootId || '';
+      if (!contextRootId || !rootId || contextRootId === rootId) {
+        targetHeadingMeta = context.headingMeta;
+      }
+    }
+    if (targetHeadingMeta) {
+      try {
+        await moveTaskBlockToHeadingMeta(payload.blockId, targetHeadingMeta);
+        appliedHeadingMeta = targetHeadingMeta;
+        setTaskHeadingGroupMetaForIds(
+          [payload.blockId, payload.taskId],
+          targetHeadingMeta,
+          { rememberPending: true }
+        );
+      } catch (error) {
+        console.error('[KanbanView] Failed to move shared quick-create task to heading:', error);
+        await pushMsg(t('kanbanView.taskCreatedMoveHeadingFailed'), 3000);
+      }
+    }
+    if (selectedGoalIds.length > 0 && payload.taskId) {
+      const nextGoals = setTaskGoalMembership(goalDefinitions.value, {
+        taskId: payload.taskId,
+        blockId: payload.blockId,
+        notebookId: payload.notebookId,
+        rootId: rootId || undefined,
+        title: payload.task.title
+      }, selectedGoalIds);
+      goalDefinitions.value = nextGoals;
+      await saveGoalDefinitions(nextGoals);
+    }
+
+    const optimisticTask = buildOptimisticTaskForQuickCreate(
+      payload.blockId,
+      payload.taskId,
+      payload.task.title,
+      createPayload,
+      target,
+      payload.task.status || 'pending',
+      payload.task.groupId
+    );
+    optimisticTask.priority = payload.task.priority || 'none';
+    optimisticTask.description = payload.task.description || '';
+    optimisticTask.tags = [...(payload.task.tags || [])];
+    optimisticTask.dueDate = payload.task.dueDate || optimisticTask.dueDate;
+    upsertOptimisticQuickCreatedTask(optimisticTask);
+    eventBus.emit(Events.TASK_ADDED, { blockId: payload.blockId, task: optimisticTask });
+    setTaskHeadingGroupMetaForIds(
+      [payload.blockId, payload.taskId, optimisticTask.id],
+      appliedHeadingMeta,
+      { rememberPending: true }
+    );
+    await updateSettings('taskManager', {
+      lastTaskNotebook: payload.notebookId,
+      lastTaskDocument: payload.documentId,
+      selectedGroupId: payload.task.groupId || ''
+    });
+    resetQuickCreateDialog();
+    void incrementalUpdateTasks([payload.blockId], { allowUnknown: true });
+    queueIncrementalUpdates([payload.blockId], { allowUnknown: true }, 64);
+    window.setTimeout(() => {
+      const hydratedTask = tasks.value.find(task => task.blockId === payload.blockId);
+      if (!hydratedTask || !hydratedTask.blockSort) {
+        scheduleRefreshTasks(180, 'silent-full');
+      }
+    }, 420);
+  } catch (error) {
+    console.error('[KanbanView] Failed to finalize shared quick-create task:', error);
+    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
+    resetQuickCreateDialog();
+  }
+}
+
+function getDefaultQuickCreateLocation(): 'last' | 'inbox' | 'daily-note' {
   const configured = userSettings.taskManager.defaultTaskCreateTarget;
   return configured === 'inbox' || configured === 'daily-note' ? configured : 'last';
 }
@@ -14381,103 +13860,6 @@ function getDefaultQuickCreateNotebook(fallbackNotebookId: string): string {
     return fallbackNotebookId;
   }
   return enabledNotebooks.value[0]?.id || 'all';
-}
-
-async function discardQuickCreateDraft(): Promise<void> {
-  const draftBlockId = quickCreateDraftTaskBlockId;
-  resetQuickCreateDialog();
-  if (!draftBlockId) {
-    return;
-  }
-
-  try {
-    await deleteBlock(draftBlockId);
-    await TaskRepository.clearCache();
-    pendingOptimisticQuickCreatedTasks.delete(draftBlockId);
-    tasks.value = tasks.value.filter(task => task.blockId !== draftBlockId);
-    invalidateTableFilters();
-    void incrementalUpdateTasks([draftBlockId], { allowUnknown: true });
-    scheduleRefreshTasks(120, 'silent-full');
-  } catch (error) {
-    console.error('[KanbanView] Failed to discard quick-create draft:', error);
-    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
-  }
-}
-
-async function handleQuickCreateMetaUpdate(task: {
-  description?: string;
-  priority?: Task['priority'];
-  dueDate?: string;
-  reminderType?: string;
-  reminderCustomTime?: string;
-  tags?: string[];
-  groupId?: string;
-}): Promise<void> {
-  quickCreateMetaDraft.value = {
-    description: task.description || '',
-    priority: task.priority || 'none',
-    dueDate: task.dueDate || '',
-    reminderType: task.reminderType || '',
-    reminderCustomTime: task.reminderCustomTime || '',
-    tags: [...(task.tags || [])],
-    groupId: task.groupId || ''
-  };
-  await persistQuickCreateMetaDraft();
-}
-
-async function persistQuickCreateMetaDraft(): Promise<void> {
-  const blockId = quickCreateDraftTaskBlockId;
-  if (!blockId) {
-    return;
-  }
-  const task = quickCreateMetaDraft.value;
-  const tagState = buildTaskTagState(task.tags, task.groupId);
-  const tagAttrs = buildTaskTagAttrs(tagState.tagIds, tagState.primaryTagId);
-  await setBlockAttrs(blockId, {
-    'custom-task-priority': task.priority || 'none',
-    'custom-task-description': task.description || '',
-    'custom-task-due-date': task.dueDate || '',
-    'custom-task-reminder-type': task.reminderType || '',
-    'custom-task-reminder-custom-time': task.reminderCustomTime || '',
-    'custom-task-group': tagAttrs.attrs['custom-task-group'] || '',
-    'custom-task-tags': tagAttrs.attrs['custom-task-tags'] || ''
-  });
-}
-
-async function recreateQuickCreateDraftAtSelectedLocation(): Promise<void> {
-  if (isResettingQuickCreateDraft || !quickCreateDialog.value.show) {
-    return;
-  }
-  const draftBlockId = quickCreateDraftTaskBlockId;
-  if (!draftBlockId) {
-    void initializeQuickCreateProtyle();
-    return;
-  }
-
-  isResettingQuickCreateDraft = true;
-  destroyQuickCreateProtyle();
-  try {
-    await deleteBlock(draftBlockId);
-    await TaskRepository.clearCache();
-    pendingOptimisticQuickCreatedTasks.delete(draftBlockId);
-    tasks.value = tasks.value.filter(task => task.blockId !== draftBlockId);
-    invalidateTableFilters();
-  } catch (error) {
-    console.error('[KanbanView] Failed to relocate quick-create draft:', error);
-    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
-  } finally {
-    isResettingQuickCreateDraft = false;
-  }
-  await nextTick();
-  void initializeQuickCreateProtyle();
-}
-
-async function closeQuickCreateDialog(preserveDraft = false): Promise<void> {
-  if (!preserveDraft) {
-    await discardQuickCreateDraft();
-    return;
-  }
-  resetQuickCreateDialog();
 }
 
 function buildOptimisticTaskForQuickCreate(
@@ -14540,155 +13922,6 @@ function upsertOptimisticQuickCreatedTask(task: Task): void {
     tasks.value.unshift(task);
   }
   invalidateTableFilters();
-}
-
-async function submitQuickCreateTask() {
-  const payload = quickCreateDialog.value.payload;
-  const context = quickCreateDialog.value.context;
-  const isHeadingTaskMode = quickCreateDialog.value.mode === 'heading-task';
-  const headingTitle = isHeadingTaskMode
-    ? normalizeQuickCreateHeadingTitle(quickCreateDialog.value.headingTitle)
-    : '';
-  const trimmedTitle = quickCreateDialog.value.title.trim();
-  if (!payload) return;
-  if (!isHeadingTaskMode && quickCreateDraftTaskBlockId) {
-    const createdBlockId = quickCreateDraftTaskBlockId;
-    await closeQuickCreateDialog(true);
-    void incrementalUpdateTasks([createdBlockId], { allowUnknown: true });
-    queueIncrementalUpdates([createdBlockId], { allowUnknown: true }, 64);
-    return;
-  }
-  if (isHeadingTaskMode && !headingTitle) {
-    await pushMsg(t('kanbanView.enterHeadingName'), 2000);
-    return;
-  }
-  if (!trimmedTitle) {
-    await pushMsg(t('kanbanView.enterTaskTitle'), 2000);
-    return;
-  }
-
-  const target = context?.fixedTarget || await resolveQuickCreateTarget(
-    quickCreateNotebookId.value,
-    quickCreateDocumentId.value
-  );
-  if (!target) {
-    await pushMsg(t('kanbanView.selectNotebookAndDocument'), 3000);
-    return;
-  }
-
-  try {
-    let headingMetaForNewTask: TaskHeadingGroupMeta | null = null;
-    if (isHeadingTaskMode) {
-      const headingBlockId = await createQuickCreateHeading(target.documentId, headingTitle);
-      if (!headingBlockId) {
-        await pushMsg(t('kanbanView.createHeadingFailedRetry'), 3000);
-        return;
-      }
-      headingMetaForNewTask = {
-        key: `heading:${target.documentId}:${headingBlockId}`,
-        label: headingTitle,
-        kind: 'heading',
-        rootId: target.documentId,
-        headingBlockId,
-        headingLevel: 2
-      };
-    }
-
-    const normalizedGroupId = context?.columnType === 'group'
-      ? (typeof context.groupId === 'string' ? context.groupId.trim() : '')
-      : '';
-    const createStatus = context?.columnType === 'status' && context.status
-      ? context.status
-      : 'pending';
-
-    const created = await TaskRepository.createBlockTask({
-      title: trimmedTitle,
-      description: '',
-      priority: 'none',
-      status: createStatus,
-      dueDate: payload.dueDate,
-      tags: [],
-      groupId: normalizedGroupId || undefined
-    }, target.notebookId, target.docPath);
-
-    let appliedHeadingMetaForNewTask: TaskHeadingGroupMeta | null = null;
-    if (created?.blockId) {
-      const createDateAttrs: Record<string, string> = {};
-      if (payload.startDate) {
-        createDateAttrs['custom-task-start-date'] = payload.startDate;
-      }
-      if (payload.dueDate) {
-        createDateAttrs['custom-task-due-date'] = payload.dueDate;
-      }
-      if (payload.startTime) {
-        createDateAttrs['custom-task-start-time'] = payload.startTime;
-      }
-      if (payload.dueTime) {
-        createDateAttrs['custom-task-due-time'] = payload.dueTime;
-      }
-      if (Object.keys(createDateAttrs).length > 0) {
-        await setBlockAttrs(created.blockId, createDateAttrs);
-      }
-
-      const targetHeadingMeta = headingMetaForNewTask
-        || (context?.columnType === 'heading' && context.headingMeta ? context.headingMeta : null);
-      if (targetHeadingMeta) {
-        try {
-          await moveTaskBlockToHeadingMeta(created.blockId, targetHeadingMeta);
-          appliedHeadingMetaForNewTask = targetHeadingMeta;
-          setTaskHeadingGroupMetaForIds(
-            [created.blockId, created.taskId],
-            targetHeadingMeta,
-            { rememberPending: true }
-          );
-        } catch (error) {
-          console.error('[KanbanView] Failed to move new task to heading:', error);
-          await pushMsg(t('kanbanView.taskCreatedMoveHeadingFailed'), 3000);
-        }
-      }
-    }
-
-    const createdBlockId = created?.blockId || '';
-    if (createdBlockId) {
-      const optimisticTask = buildOptimisticTaskForQuickCreate(
-        createdBlockId,
-        created?.taskId || '',
-        trimmedTitle,
-        payload,
-        target,
-        createStatus,
-        normalizedGroupId
-      );
-      upsertOptimisticQuickCreatedTask(optimisticTask);
-      eventBus.emit(Events.TASK_ADDED, { blockId: createdBlockId, task: optimisticTask });
-      setTaskHeadingGroupMetaForIds(
-        [createdBlockId, created?.taskId || '', optimisticTask.id],
-        appliedHeadingMetaForNewTask,
-        { rememberPending: true }
-      );
-    }
-
-    await updateSettings('taskManager', {
-      lastTaskNotebook: target.notebookId,
-      lastTaskDocument: target.documentId
-    });
-    closeQuickCreateDialog();
-    if (createdBlockId) {
-      void incrementalUpdateTasks([createdBlockId], { allowUnknown: true });
-      queueIncrementalUpdates([createdBlockId], { allowUnknown: true }, 64);
-      window.setTimeout(() => {
-        const hydratedTask = tasks.value.find(t => t.blockId === createdBlockId);
-        if (!hydratedTask || !hydratedTask.blockSort) {
-          scheduleRefreshTasks(180, 'silent-full');
-        }
-      }, 420);
-    } else {
-      scheduleRefreshTasks(180, 'silent-full');
-    }
-  } catch (error) {
-    console.error('[KanbanView] Failed to create task:', error);
-    await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
-  }
 }
 
 async function toggleTaskStatus(task: Task) {
@@ -16060,7 +15293,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   isKanbanViewMounted = false;
-  destroyQuickCreateProtyle();
   if (deferredInitialTaskSnapshotTimer !== null) {
     window.clearTimeout(deferredInitialTaskSnapshotTimer);
     deferredInitialTaskSnapshotTimer = null;
@@ -17837,192 +17069,6 @@ watch(kanbanColumns, () => {
   padding: 40px;
   color: var(--b3-theme-on-background);
   font-size: 14px;
-}
-
-.quick-create-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.28);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1200;
-}
-
-.quick-create-dialog {
-  width: min(420px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
-  background: var(--b3-theme-surface);
-  border: 1px solid var(--b3-border-color);
-  border-radius: 10px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
-  padding: 14px;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-.quick-create-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--b3-theme-on-background);
-  margin-bottom: 10px;
-}
-
-.quick-create-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.quick-create-row label {
-  width: 48px;
-  flex-shrink: 0;
-  color: var(--b3-theme-on-surface);
-  font-size: 13px;
-}
-
-.quick-create-target-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.quick-create-target-row.is-special {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.quick-create-field {
-  min-width: 0;
-}
-
-.quick-create-field label {
-  display: block;
-  margin: 0 0 5px 2px;
-  color: var(--b3-theme-on-surface);
-  font-size: 13px;
-}
-
-.quick-create-field :deep(.sy-select),
-.quick-create-field :deep(.b3-select),
-.quick-create-field :deep(select) {
-  width: 100%;
-  min-width: 0;
-}
-
-.quick-create-input {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  margin-top: 4px;
-  border: none;
-  border-radius: 8px;
-  background-color: var(--Sv-select-field);
-  box-shadow: none;
-  color: var(--b3-theme-on-background);
-  font-size: 14px;
-  padding: 8px 10px;
-  outline: none;
-  box-sizing: border-box;
-}
-
-.quick-create-input:focus {
-  border: none;
-  box-shadow: none;
-}
-
-.quick-create-protyle {
-  min-height: 180px;
-  max-height: min(52vh, 420px);
-  margin-top: 4px;
-  overflow: auto;
-  border-radius: 8px;
-  background: var(--b3-theme-background);
-}
-
-.quick-create-protyle :deep(.protyle-content) {
-  min-height: 180px;
-  overflow: auto;
-}
-
-.quick-create-protyle :deep(.protyle-wysiwyg) {
-  min-height: 150px;
-  padding: 8px 10px !important;
-}
-
-.quick-create-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 0;
-}
-
-.quick-create-submit-group {
-  position: relative;
-  display: inline-flex;
-}
-
-.quick-create-submit-group .quick-create-btn.confirm {
-  border-radius: 8px 0 0 8px;
-}
-
-.quick-create-submit-arrow.quick-create-btn.confirm {
-  min-width: 28px;
-  padding: 4px 7px;
-  border-left: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 0 8px 8px 0;
-  font-size: 16px;
-  line-height: 1;
-}
-
-.quick-create-shortcut-menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 8;
-  min-width: 220px;
-  padding: 5px 0;
-  border-radius: 4px;
-  background: var(--b3-theme-surface);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-}
-
-.quick-create-shortcut-menu button {
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  width: 100%;
-  padding: 7px 12px;
-  border: 0;
-  background: transparent;
-  color: var(--b3-theme-on-background);
-  text-align: left;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.quick-create-shortcut-menu button:hover,
-.quick-create-shortcut-menu button.active {
-  background: var(--b3-list-hover);
-}
-
-.quick-create-btn {
-  border: none;
-  border-radius: 20px;
-  padding: 4px 10px;
-  font-size: 13px;
-  cursor: pointer;
-  color: var(--b3-theme-on-background);
-}
-
-.quick-create-btn.cancel {
-  background: var(--b3-list-hover);
-}
-
-.quick-create-btn.confirm {
-  background: #f98f7a;
-  color: #fff;
 }
 
 .kanban-board {

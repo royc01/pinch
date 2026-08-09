@@ -77,6 +77,35 @@
                 </div>
                 <div v-if="item.meta" class="lifelog-timeline-meta">{{ item.meta }}</div>
                 <div v-if="item.note" class="lifelog-timeline-note">{{ item.note }}</div>
+                <template v-if="editingAnnotationId === item.id">
+                  <textarea
+                    v-model="editingAnnotationText"
+                    class="lifelog-timeline-note-input"
+                    rows="3"
+                    autofocus
+                    @keydown.ctrl.enter.prevent="saveAnnotation(item)"
+                    @keydown.meta.enter.prevent="saveAnnotation(item)"
+                    @keydown.esc.prevent="cancelAnnotation"
+                    @blur="saveAnnotation(item)"
+                  ></textarea>
+                </template>
+                <button
+                  v-else-if="item.annotation"
+                  type="button"
+                  class="lifelog-timeline-annotation is-editable"
+                  :aria-label="item.annotation"
+                  @click="startAnnotation(item)"
+                >{{ item.annotation }}</button>
+                <button
+                  v-else-if="item.annotationEditable"
+                  type="button"
+                  class="lifelog-timeline-annotation-add ariaLabel"
+                  :aria-label="t('lifelogTimeline.addAnnotationLabel')"
+                  :title="t('lifelogTimeline.addAnnotationLabel')"
+                  @click="startAnnotation(item)"
+                >
+                  <Icon name="add" width="13" height="13" />
+                </button>
               </div>
             </div>
           </div>
@@ -118,6 +147,8 @@ import {
   habitsToLifelogEvents,
   tasksToCompletedLifelogEvents
 } from '@/utils/lifelogEvents';
+import { useCheckinNotes } from '@/composables/useCheckinNotes';
+import { getCheckinNoteEventKey } from '@/utils/checkinNoteEvents';
 
 interface MoodEmoji {
   id: string;
@@ -150,6 +181,11 @@ interface Props {
 
 const props = defineProps<Props>();
 const { t } = useI18n();
+const {
+  ensureDatesLoaded: ensureCheckinNoteDatesLoaded,
+  hydrateTimelineTarget: hydrateCheckinNoteTimelineTarget,
+  updateNote: updateCheckinNote
+} = useCheckinNotes();
 
 const emit = defineEmits<{
   close: [];
@@ -163,6 +199,8 @@ const cloneMoodEntry = (entry: MoodEntry): MoodEntry => ({
 
 const localMoodEntry = ref<MoodEntry>(cloneMoodEntry(props.moodEntry));
 const noteDraft = ref('');
+const editingAnnotationId = ref<string | null>(null);
+const editingAnnotationText = ref('');
 const lifelogTasks = ref<Task[]>([]);
 const focusRecords = ref<Awaited<ReturnType<typeof getFocusTimerData>>['sessionRecords']>([]);
 const sortedEntries = computed(() => {
@@ -189,17 +227,17 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
   }));
   const focusItems = focusRecordsToLifelogEvents(focusRecords.value, t('focusTimer.title'))
     .filter(event => event.date === props.selectedDate)
-    .map(event => ({
+    .map(event => hydrateCheckinNoteTimelineTarget({
       id: `focus-${event.id}`, sourceId: event.id, type: event.type, timeLabel: `${event.startTime} - ${event.endTime}`,
       sortMinutes: timeToSortMinutes(event.startTime, 8 * 60), title: event.title, meta: t('focusTimer.title'), note: event.note || '', icon: 'timer'
-    }));
+    }, event.date, getCheckinNoteEventKey(event)));
   const habitItems = habitsToLifelogEvents(props.habits)
     .filter(event => event.date === props.selectedDate)
     .map(event => {
       const checkinCount = event.checkinIndex || event.completedCount;
       const progress = event.targetCount > 1 ? `${checkinCount}/${event.targetCount}` : (event.completed ? '1/1' : '0/1');
       const sortMinutes = timeToSortMinutes(String(event.checkinTimestamp || event.metadata?.timestamp || ''), 7 * 60);
-      return {
+      return hydrateCheckinNoteTimelineTarget({
       id: `habit-${event.id}`, sourceId: event.id, type: event.type,
       timeLabel: formatSortMinutes(sortMinutes),
       sortMinutes,
@@ -207,15 +245,15 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
       meta: `${t('habitTracker.checkedIn')} · ${progress}${t('habitTracker.timesSuffix')}`,
       note: event.note || '',
       icon: 'squareCheck'
-    };
+    }, event.date, getCheckinNoteEventKey(event));
     });
   const taskItems = tasksToCompletedLifelogEvents(lifelogTasks.value)
     .filter(event => event.date === props.selectedDate)
-    .map(event => ({
+    .map(event => hydrateCheckinNoteTimelineTarget({
       id: `task-${event.id}`, sourceId: event.taskId, type: event.type,
       timeLabel: formatRecordTime(event.completedAt), sortMinutes: timeToSortMinutes(event.completedAt, 20 * 60),
       title: event.title, meta: t('taskManager.statusCompleted'), note: event.note || '', icon: 'taskCheckboxChecked'
-    }));
+    }, event.date, getCheckinNoteEventKey(event)));
   return [...focusItems, ...habitItems, ...taskItems, ...moodEntryItems]
     .sort((left, right) => left.sortMinutes - right.sortMinutes);
 });
@@ -223,6 +261,12 @@ watch(() => props.moodEntry, (newMoodEntry) => {
   localMoodEntry.value = cloneMoodEntry(newMoodEntry);
   noteDraft.value = '';
 }, { immediate: true, deep: true });
+
+watch(() => props.selectedDate, (date) => {
+  if (date) {
+    void ensureCheckinNoteDatesLoaded([date]);
+  }
+}, { immediate: true });
 
 watch(() => props.show, async (show) => {
   if (!show) return;
@@ -298,7 +342,43 @@ const deleteManualRecord = (recordId: string) => {
   emit('save', { ...localMoodEntry.value, note: '' });
 };
 
+const startAnnotation = (item: LifelogTimelinePanelItem) => {
+  if (!item.annotationEditable) {
+    return;
+  }
+  editingAnnotationId.value = item.id;
+  editingAnnotationText.value = item.annotation || '';
+};
+
+const cancelAnnotation = () => {
+  editingAnnotationId.value = null;
+  editingAnnotationText.value = '';
+};
+
+const saveAnnotation = async (item: LifelogTimelinePanelItem) => {
+  if (editingAnnotationId.value !== item.id) {
+    return;
+  }
+  if (!item.annotationKey) {
+    cancelAnnotation();
+    return;
+  }
+  const text = editingAnnotationText.value.trim();
+  if (text === (item.annotation || '')) {
+    cancelAnnotation();
+    return;
+  }
+  try {
+    await updateCheckinNote(item.annotationDate || props.selectedDate, item.annotationKey, text);
+  } catch (error) {
+    console.error('[MoodTrackerModal] Failed to update check-in note', error);
+  } finally {
+    cancelAnnotation();
+  }
+};
+
 const handleClose = () => {
+  cancelAnnotation();
   emit('close');
 };
 </script>
@@ -638,11 +718,64 @@ const handleClose = () => {
 }
 
 .lifelog-timeline-meta,
-.lifelog-timeline-note {
+.lifelog-timeline-note,
+.lifelog-timeline-annotation {
   margin-top: 3px;
   color: var(--b3-theme-on-surface);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.lifelog-timeline-annotation.is-editable {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: var(--b3-theme-on-background);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  word-break: break-word;
+  cursor: text;
+}
+
+.lifelog-timeline-annotation.is-editable:hover {
+  color: var(--b3-theme-primary);
+}
+
+.lifelog-timeline-annotation-add {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--b3-theme-on-surface);
+  background: transparent;
+  cursor: pointer;
+}
+
+.lifelog-timeline-annotation-add:hover {
+  color: var(--b3-theme-primary);
+  background: var(--b3-list-hover);
+}
+
+.lifelog-timeline-note-input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--b3-theme-primary-lightest, var(--b3-border-color));
+  border-radius: 4px;
+  color: var(--b3-theme-on-background);
+  background: var(--b3-theme-background);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  resize: vertical;
 }
 
 .lifelog-timeline-meta {

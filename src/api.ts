@@ -25,6 +25,7 @@ import {
   type TaskReminderType
 } from "@/utils/taskReminder";
 import { formatTaskTitleHtml } from "@/utils/taskTitleFormat";
+import { escapeSqlLiteral } from "@/utils/sql";
 import { usePlugin } from "@/main";
 import { translate } from "@/composables/useI18n";
 import { formatDate as formatLocalDate } from "@/composables/useDateUtils";
@@ -55,7 +56,7 @@ import {
 import {
   buildTaskTagAttrs,
   buildTaskTagState,
-  normalizeTaskTagIds
+  parseTaskTagIdsAttribute
 } from "@/utils/taskTags";
 import {
   getKernelTaskIndex,
@@ -552,26 +553,6 @@ export async function getFile(path: string): Promise<any> {
   }
 }
 
-// 检查习惯数据文件状态（调试辅助）
-export async function checkHabitFileStatus() {
-  
-  try {
-    const fileData = await getFile('/data/storage/petal/Pinch-habit/Pinch-habit.json');
-
-    
-    if (typeof fileData === 'object' && fileData !== null && Array.isArray(fileData)) {
-
-      
-      // 尝试定位指定测试习惯，便于本地排查
-      const testHabit = fileData.find(h => h.name === '222');
-      if (testHabit) {
-
-      }
-    }
-  } catch (error) {
-    console.error('Failed to read habit file status:', error);
-  }
-}
 export async function putFile(path: string, isDir: boolean, file: any) {
     let form = new FormData();
     form.append('path', path);
@@ -713,7 +694,6 @@ export interface Habit {
   customSchedule?: HabitCustomSchedule;
   completionMode?: HabitCompletionMode;
   timesPerDay?: number;
-  noteDocId?: string;
   completedToday: boolean;
   currentStreak: number;
   totalCompletions: number;
@@ -828,6 +808,41 @@ function normalizeHabitCustomSchedule(schedule: unknown): HabitCustomSchedule | 
   };
 }
 
+function normalizeHabit(raw: unknown, todayStr: string): Habit | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const habit = raw as Partial<Habit> & Record<string, unknown>;
+  // Legacy note-document bindings are intentionally ignored. Existing documents
+  // are left untouched; future habit saves no longer retain the binding metadata.
+  const normalizedSource = { ...habit };
+  delete normalizedSource.noteDocId;
+  const calendar = normalizeHabitCalendar(habit.calendar);
+  const todayRecord = calendar.find(day => day.date === todayStr);
+
+  return {
+    ...(normalizedSource as Habit),
+    id: typeof habit.id === 'string' ? habit.id : `habit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    name: typeof habit.name === 'string' ? habit.name : '',
+    emoji: typeof habit.emoji === 'string' ? habit.emoji : undefined,
+    emojiColorIndex: normalizeHabitEmojiColorIndex(habit.emojiColorIndex),
+    difficulty: normalizeHabitDifficulty(habit.difficulty),
+    frequency: normalizeHabitFrequency(habit.frequency),
+    customSchedule: normalizeHabitCustomSchedule(habit.customSchedule),
+    completionMode: normalizeHabitCompletionMode(habit.completionMode),
+    calendar,
+    completedToday: todayRecord ? Boolean(todayRecord.completed) : false,
+    currentStreak:
+      typeof habit.currentStreak === 'number' && Number.isFinite(habit.currentStreak)
+        ? habit.currentStreak
+        : 0,
+    totalCompletions:
+      typeof habit.totalCompletions === 'number' && Number.isFinite(habit.totalCompletions)
+        ? habit.totalCompletions
+        : calendar.filter(day => day.completed).length,
+    createdAt: typeof habit.createdAt === 'string' ? habit.createdAt : new Date().toISOString()
+  };
+}
+
 function normalizeHabitCalendar(calendar: unknown): HabitCalendarDay[] {
   if (!Array.isArray(calendar)) return [];
 
@@ -895,41 +910,9 @@ export async function getHabits(): Promise<Habit[]> {
     }
 
     const todayStr = formatLocalDate(new Date());
-    const parsed: Habit[] = [];
-
-    for (const raw of parsedRaw) {
-      if (!raw || typeof raw !== 'object') continue;
-
-      const habit = raw as Partial<Habit> & Record<string, unknown>;
-      const calendar = normalizeHabitCalendar(habit.calendar);
-      const todayRecord = calendar.find(day => day.date === todayStr);
-      const completedToday = todayRecord ? Boolean(todayRecord.completed) : false;
-
-      parsed.push({
-        ...(habit as Habit),
-        id: typeof habit.id === 'string' ? habit.id : `habit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        name: typeof habit.name === 'string' ? habit.name : '',
-        emoji: typeof habit.emoji === 'string' ? habit.emoji : undefined,
-        emojiColorIndex: normalizeHabitEmojiColorIndex(habit.emojiColorIndex),
-        difficulty: normalizeHabitDifficulty(habit.difficulty),
-        frequency: normalizeHabitFrequency(habit.frequency),
-        customSchedule: normalizeHabitCustomSchedule(habit.customSchedule),
-        completionMode: normalizeHabitCompletionMode(habit.completionMode),
-        calendar,
-        completedToday,
-        currentStreak:
-          typeof habit.currentStreak === 'number' && Number.isFinite(habit.currentStreak)
-            ? habit.currentStreak
-            : 0,
-        totalCompletions:
-          typeof habit.totalCompletions === 'number' && Number.isFinite(habit.totalCompletions)
-            ? habit.totalCompletions
-            : calendar.filter(day => day.completed).length,
-        createdAt: typeof habit.createdAt === 'string' ? habit.createdAt : new Date().toISOString()
-      });
-    }
-
-    return parsed;
+    return parsedRaw
+      .map(raw => normalizeHabit(raw, todayStr))
+      .filter((habit): habit is Habit => habit !== null);
   } catch (error) {
     console.error('Error reading habits:', error);
     return [];
@@ -949,36 +932,8 @@ export async function saveHabits(habits: Habit[]): Promise<void> {
     const source = Array.isArray(habits) ? habits : [];
 
     const habitsToSave: Habit[] = source
-      .filter(item => Boolean(item) && typeof item === 'object')
-      .map((rawHabit: Habit) => {
-        const habit = rawHabit as Partial<Habit> & Record<string, unknown>;
-        const calendar = normalizeHabitCalendar(habit.calendar);
-        const todayRecord = calendar.find(day => day.date === todayStr);
-        const completedToday = todayRecord ? Boolean(todayRecord.completed) : false;
-
-        return {
-          ...(habit as Habit),
-          id: typeof habit.id === 'string' ? habit.id : `habit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          name: typeof habit.name === 'string' ? habit.name : '',
-          emoji: typeof habit.emoji === 'string' ? habit.emoji : undefined,
-          emojiColorIndex: normalizeHabitEmojiColorIndex(habit.emojiColorIndex),
-          difficulty: normalizeHabitDifficulty(habit.difficulty),
-          frequency: normalizeHabitFrequency(habit.frequency),
-          customSchedule: normalizeHabitCustomSchedule(habit.customSchedule),
-          completionMode: normalizeHabitCompletionMode(habit.completionMode),
-          calendar,
-          completedToday,
-          currentStreak:
-            typeof habit.currentStreak === 'number' && Number.isFinite(habit.currentStreak)
-              ? habit.currentStreak
-              : 0,
-          totalCompletions:
-            typeof habit.totalCompletions === 'number' && Number.isFinite(habit.totalCompletions)
-              ? habit.totalCompletions
-              : calendar.filter(day => day.completed).length,
-          createdAt: typeof habit.createdAt === 'string' ? habit.createdAt : new Date().toISOString()
-        };
-      });
+      .map(habit => normalizeHabit(habit, todayStr))
+      .filter((habit): habit is Habit => habit !== null);
 
     await plugin.saveData('Pinch-habit.json', habitsToSave);
   } catch (error) {
@@ -1948,18 +1903,8 @@ export class TaskRepository {
     return formatTaskTitleHtml(this.stripTaskMarker(contentText));
   }
 
-  private static parseTaskTags(value: string | undefined): string[] {
-    if (!value) return [];
-    try {
-      const parsed = JSON.parse(value);
-      return normalizeTaskTagIds(parsed);
-    } catch {
-      return [];
-    }
-  }
-
-  private static buildLightTaskFromKernelRow(row: Record<string, any>): Task {
-    const attrs: Record<string, string> = {
+  private static buildTaskAttrsFromSqlRow(row: Record<string, any>): Record<string, string> {
+    return {
       'custom-task-id': row.custom_task_id,
       'custom-task-priority': row.custom_task_priority,
       'custom-task-status': row.custom_task_status,
@@ -1981,18 +1926,48 @@ export class TaskRepository {
       'custom-task-archived-at': row.custom_task_archived_at,
       'custom-task-archive-reason': row.custom_task_archive_reason
     };
+  }
+
+  private static buildTaskFieldsFromAttrs(
+    attrs: Record<string, string>,
+    dateRange: Pick<Task, 'dueDate' | 'dueTime' | 'startDate' | 'startTime'>
+  ): Pick<Task,
+    'priority' | 'pinned' | 'dueDate' | 'dueTime' | 'startDate' | 'startTime' |
+    'tags' | 'groupId' | 'description' | 'reminderType' | 'reminderCustomTime' |
+    'focusEstimate' | 'backgroundColor' | 'urgent'> {
+    const tagState = buildTaskTagState(
+      parseTaskTagIdsAttribute(attrs['custom-task-tags']),
+      attrs['custom-task-group']
+    );
+
+    return {
+      priority: attrs['custom-task-priority'] as TaskPriority || 'none',
+      pinned: this.parseTaskPinnedFlag(attrs['custom-task-pinned']),
+      dueDate: dateRange.dueDate,
+      dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
+      startDate: dateRange.startDate,
+      startTime: attrs['custom-task-start-time'] || dateRange.startTime,
+      tags: tagState.tagIds,
+      groupId: tagState.primaryTagId || undefined,
+      description: attrs['custom-task-description'] || '',
+      reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
+      reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
+      focusEstimate: parseTaskFocusEstimate(attrs['custom-task-focus-estimate']),
+      backgroundColor: attrs['custom-task-background-color'],
+      urgent: attrs['custom-task-urgent'] === 'true'
+    };
+  }
+
+  private static buildLightTaskFromKernelRow(row: Record<string, any>): Task {
+    const attrs = this.buildTaskAttrsFromSqlRow(row);
     const title = this.buildTaskTitleFromBlockText(row.markdown, row.content) || '(untitled)';
     const status = this.parseTaskStatus(attrs, row.markdown || '', null);
     const dateRange = this.resolveTaskDateRange(attrs, title, {
       allowInferFromTitle: false,
       createdAtRaw: row.created
     });
+    const taskFields = this.buildTaskFieldsFromAttrs(attrs, dateRange);
     const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
-
-    const tagState = buildTaskTagState(
-      this.parseTaskTags(attrs['custom-task-tags']),
-      attrs['custom-task-group']
-    );
 
     return {
       id: attrs['custom-task-id'] || `block_${row.id}`,
@@ -2001,23 +1976,10 @@ export class TaskRepository {
       rootId: row.root_id,
       title,
       status,
-      priority: attrs['custom-task-priority'] as TaskPriority || 'none',
-      pinned: this.parseTaskPinnedFlag(attrs['custom-task-pinned']),
-      dueDate: dateRange.dueDate,
-      dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
-      startDate: dateRange.startDate,
-      startTime: attrs['custom-task-start-time'] || dateRange.startTime,
-      tags: tagState.tagIds,
-      description: attrs['custom-task-description'] || '',
-      reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
-      reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
-      focusEstimate: parseTaskFocusEstimate(attrs['custom-task-focus-estimate']),
-      groupId: tagState.primaryTagId || undefined,
+      ...taskFields,
       hPath: row.hpath,
       notebookId: row.box,
       icon: '\uD83D\uDCC4',
-      backgroundColor: attrs['custom-task-background-color'],
-      urgent: attrs['custom-task-urgent'] === 'true',
       archived,
       completedAt: this.resolveTaskCompletedAt(attrs, status, row.updated),
       archivedAt: archived && attrs['custom-task-archived-at'] ? attrs['custom-task-archived-at'] : undefined,
@@ -3225,7 +3187,7 @@ export class TaskRepository {
   }
 
   private static escapeSqlLiteral(value: string): string {
-    return value.replace(/'/g, "''");
+    return escapeSqlLiteral(value);
   }
 
   private static async resolveTaskContainerListId(rootId: string): Promise<string | null> {
@@ -3594,28 +3556,7 @@ export class TaskRepository {
       const result = new Map<string, Task>();
 
       for (const row of rows) {
-        const attrs: Record<string, string> = {
-          'custom-task-id': row.custom_task_id,
-          'custom-task-priority': row.custom_task_priority,
-          'custom-task-status': row.custom_task_status,
-          'custom-task-due-date': row.custom_task_due_date,
-          'custom-task-due-time': row.custom_task_due_time,
-          'custom-task-start-date': row.custom_task_start_date,
-          'custom-task-start-time': row.custom_task_start_time,
-          'custom-task-tags': row.custom_task_tags,
-          'custom-task-description': row.custom_task_description,
-          'custom-task-reminder-type': row.custom_task_reminder_type,
-          'custom-task-reminder-custom-time': row.custom_task_reminder_custom_time,
-          'custom-task-focus-estimate': row.custom_task_focus_estimate,
-          'custom-task-group': row.custom_task_group,
-          'custom-task-pinned': row.custom_task_pinned,
-          'custom-task-background-color': row.custom_task_background_color,
-          'custom-task-urgent': row.custom_task_urgent,
-          'custom-task-archived': row.custom_task_archived,
-          'custom-task-completed-at': row.custom_task_completed_at,
-          'custom-task-archived-at': row.custom_task_archived_at,
-          'custom-task-archive-reason': row.custom_task_archive_reason
-        };
+        const attrs = this.buildTaskAttrsFromSqlRow(row);
 
         const dom = domMap.get(row.id);
         if (!dom?.dom) continue;
@@ -3645,7 +3586,6 @@ export class TaskRepository {
           completedByDOM = currentHref ? currentHref === '#iconCheck' : null;
         }
         const status = this.parseTaskStatus(attrs, row.markdown || '', completedByDOM);
-        const pinned = this.parseTaskPinnedFlag(attrs['custom-task-pinned']);
         const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
         const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
           .split(',')
@@ -3654,16 +3594,12 @@ export class TaskRepository {
           .pop() || '';
         const archiveReason = this.normalizeTaskArchiveReason(attrs['custom-task-archive-reason']);
 
-        const tagState = buildTaskTagState(
-          this.parseTaskTags(attrs['custom-task-tags']),
-          attrs['custom-task-group']
-        );
-
         const subtasks = this.parseSubtasksFromParsedDoc(doc, row.id);
         const dateRange = this.resolveTaskDateRange(attrs, title, {
           allowInferFromTitle: true,
           createdAtRaw: row.created
         });
+        const taskFields = this.buildTaskFieldsFromAttrs(attrs, dateRange);
         this.queuePersistInferredTaskDate(row.id, dateRange);
 
         result.set(row.id, {
@@ -3675,23 +3611,10 @@ export class TaskRepository {
           rootId: row.root_id,
           title,
           status,
-          priority: attrs['custom-task-priority'] as TaskPriority || 'none',
-          pinned,
-          dueDate: dateRange.dueDate,
-          dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
-          startDate: dateRange.startDate,
-          startTime: attrs['custom-task-start-time'] || dateRange.startTime,
-          tags: tagState.tagIds,
-          description: attrs['custom-task-description'] || '',
-          reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
-          reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
-          focusEstimate: parseTaskFocusEstimate(attrs['custom-task-focus-estimate']),
-          groupId: tagState.primaryTagId || undefined,
+          ...taskFields,
           hPath: row.hpath,
           notebookId: row.box,
           icon: row.root_id ? (rootIcons.get(row.root_id) || '\uD83D\uDCC4') : '\uD83D\uDCC4',
-          backgroundColor: attrs['custom-task-background-color'],
-          urgent: attrs['custom-task-urgent'] === 'true',
           subtasks: subtasks.length > 0 ? subtasks : undefined,
           archived,
           completedAt: this.resolveTaskCompletedAt(attrs, status, row.updated),
@@ -3911,28 +3834,7 @@ export class TaskRepository {
       
       const blockAttrsMap = new Map<string, any>();
       taskBlocks.forEach((block: any) => {
-        blockAttrsMap.set(block.id, {
-          'custom-task-id': block.custom_task_id,
-          'custom-task-priority': block.custom_task_priority,
-          'custom-task-status': block.custom_task_status,
-          'custom-task-due-date': block.custom_task_due_date,
-          'custom-task-due-time': block.custom_task_due_time,
-          'custom-task-start-date': block.custom_task_start_date,
-          'custom-task-start-time': block.custom_task_start_time,
-          'custom-task-tags': block.custom_task_tags,
-          'custom-task-description': block.custom_task_description,
-          'custom-task-reminder-type': block.custom_task_reminder_type,
-          'custom-task-reminder-custom-time': block.custom_task_reminder_custom_time,
-          'custom-task-focus-estimate': block.custom_task_focus_estimate,
-          'custom-task-group': block.custom_task_group,
-          'custom-task-pinned': block.custom_task_pinned,
-          'custom-task-background-color': block.custom_task_background_color,
-          'custom-task-urgent': block.custom_task_urgent,
-          'custom-task-archived': block.custom_task_archived,
-          'custom-task-completed-at': block.custom_task_completed_at,
-          'custom-task-archived-at': block.custom_task_archived_at,
-          'custom-task-archive-reason': block.custom_task_archive_reason
-        });
+        blockAttrsMap.set(block.id, this.buildTaskAttrsFromSqlRow(block));
       });
       
       const rootIds = detailLevel === 'full' ? Array.from(rootIdSet) : [];
@@ -4184,35 +4086,7 @@ export class TaskRepository {
         
         try {
           if (!useLiveDom) {
-            const tagState = buildTaskTagState(
-              this.parseTaskTags(attrs['custom-task-tags']),
-              attrs['custom-task-group']
-            );
-
-            let markdownStatus: 'pending' | 'completed' | null = null;
-            if (parentBlock.markdown) {
-              const markdown = parentBlock.markdown.trim();
-              const taskRegex = /\[(x|X| )\]/;
-              const match = markdown.match(taskRegex);
-              if (match) {
-                const statusChar = match[1];
-                markdownStatus = statusChar === 'x' || statusChar === 'X' ? 'completed' : 'pending';
-              }
-            }
-
-            const validStatuses = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
-            const attrStatus = attrs['custom-task-status'] as TaskStatus | undefined;
-            const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
-            let status: TaskStatus;
-            if (markdownStatus === 'completed') {
-              status = 'completed';
-            } else if (markdownStatus === 'pending') {
-              status = hasValidAttrStatus && attrStatus !== 'completed' ? attrStatus! : 'pending';
-            } else if (hasValidAttrStatus) {
-              status = attrStatus!;
-            } else {
-              status = 'pending';
-            }
+            const status = this.parseTaskStatus(attrs, parentBlock.markdown || '', null);
 
             const sqlSubtasks = shouldBuildNestedSubtasks
               ? buildSqlSubtasksForParent(parentBlock.id)
@@ -4236,8 +4110,8 @@ export class TaskRepository {
               allowInferFromTitle: true,
               createdAtRaw: parentBlock.created
             });
+            const taskFields = this.buildTaskFieldsFromAttrs(attrs, dateRange);
             this.queuePersistInferredTaskDate(parentBlock.id, dateRange);
-            const pinned = this.parseTaskPinnedFlag(attrs['custom-task-pinned']);
             const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
             const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
               .split(',')
@@ -4256,23 +4130,10 @@ export class TaskRepository {
               rootId: parentBlock.root_id,
               title,
               status,
-              priority: attrs['custom-task-priority'] as any || 'none',
-              pinned,
-              dueDate: dateRange.dueDate,
-              dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
-              startDate: dateRange.startDate,
-              startTime: attrs['custom-task-start-time'] || dateRange.startTime,
-              tags: tagState.tagIds,
-              groupId: tagState.primaryTagId || undefined,
-              description: attrs['custom-task-description'] || '',
-              reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
-              reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
-              focusEstimate: parseTaskFocusEstimate(attrs['custom-task-focus-estimate']),
+              ...taskFields,
               hPath: parentBlock.hpath,
               notebookId: parentBlock.box,
               icon: docIcon || '📄',
-              backgroundColor: attrs['custom-task-background-color'],
-              urgent: attrs['custom-task-urgent'] === 'true',
               subtasks,
               archived,
               completedAt: this.resolveTaskCompletedAt(attrs, status, parentBlock.updated),
@@ -4357,6 +4218,7 @@ export class TaskRepository {
             allowInferFromTitle: true,
             createdAtRaw: parentBlock.created
           });
+          const taskFields = this.buildTaskFieldsFromAttrs(attrs, dateRange);
           this.queuePersistInferredTaskDate(parentBlock.id, dateRange);
 
           let status: TaskStatus;
@@ -4406,7 +4268,6 @@ export class TaskRepository {
           processedIds.add(parentBlock.id);
           
           const docIcon = parentBlock.root_id ? rootIcons.get(parentBlock.root_id) : undefined;
-          const pinned = this.parseTaskPinnedFlag(attrs['custom-task-pinned']);
           const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
           const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
             .split(',')
@@ -4424,31 +4285,10 @@ export class TaskRepository {
             rootId: parentBlock.root_id,
             title: title,
             status: status,
-            priority: attrs['custom-task-priority'] as any || 'none',
-            pinned,
-            dueDate: dateRange.dueDate,
-            dueTime: attrs['custom-task-due-time'] || dateRange.dueTime,
-            startDate: dateRange.startDate,
-            startTime: attrs['custom-task-start-time'] || dateRange.startTime,
-            ...(() => {
-              const tagState = buildTaskTagState(
-                this.parseTaskTags(attrs['custom-task-tags']),
-                attrs['custom-task-group']
-              );
-              return {
-                tags: tagState.tagIds,
-                groupId: tagState.primaryTagId || undefined
-              };
-            })(),
-            description: attrs['custom-task-description'] || '',
-            reminderType: normalizeTaskReminderType(attrs['custom-task-reminder-type']),
-            reminderCustomTime: normalizeTaskReminderCustomTime(attrs['custom-task-reminder-custom-time']),
-            focusEstimate: parseTaskFocusEstimate(attrs['custom-task-focus-estimate']),
+            ...taskFields,
             hPath: parentBlock.hpath,
             notebookId: parentBlock.box,
             icon: docIcon || '📄',
-            backgroundColor: attrs['custom-task-background-color'],
-            urgent: attrs['custom-task-urgent'] === 'true',
             subtasks: subtasks.length > 0 ? subtasks : undefined,
             archived,
             completedAt: this.resolveTaskCompletedAt(attrs, status, parentBlock.updated),

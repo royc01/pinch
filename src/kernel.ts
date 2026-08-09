@@ -1,3 +1,5 @@
+import { escapeSqlLiteral } from './utils/sql';
+
 declare const siyuan: any;
 
 type KernelTaskRow = {
@@ -126,10 +128,6 @@ type TaskIndexCacheEntry = {
 };
 
 const taskIndexCache = new Map<string, TaskIndexCacheEntry>();
-
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
 
 function normalizeScopeValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";

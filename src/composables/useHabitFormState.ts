@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import type { HabitCompletionMode, HabitCustomSchedule, HabitDifficulty } from '@/api';
+import { interpolateTemplate } from '@/composables/useI18n';
 
 export interface NewHabitFormState {
   name: string;
@@ -8,7 +9,6 @@ export interface NewHabitFormState {
   frequency: 'daily' | 'custom' | 'weekly6' | 'weekly5' | 'weekly4' | 'weekly3' | 'weekly2' | 'weekly1';
   customSchedule: HabitCustomSchedule;
   completionMode: HabitCompletionMode;
-  noteDocId: string;
   timesPerDay: string;
   usePomodoro: boolean;
   pomodoroDuration: string;
@@ -27,7 +27,6 @@ export const createDefaultNewHabit = (): NewHabitFormState => ({
     yearDays: ['01-01']
   },
   completionMode: 'fixed',
-  noteDocId: '',
   timesPerDay: '1',
   usePomodoro: false,
   pomodoroDuration: '25'
@@ -35,10 +34,7 @@ export const createDefaultNewHabit = (): NewHabitFormState => ({
 
 export const useHabitFormState = (t: (key: string) => string) => {
   const formatTemplate = (key: string, values: Record<string, string | number>): string => {
-    return Object.entries(values).reduce(
-      (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-      t(key)
-    );
+    return interpolateTemplate(t(key), values);
   };
 
   const newHabit = ref<NewHabitFormState>(createDefaultNewHabit());

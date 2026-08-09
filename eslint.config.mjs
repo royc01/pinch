@@ -1,5 +1,4 @@
 import antfu from '@antfu/eslint-config'
-import perfectionist from 'eslint-plugin-perfectionist'
 
 export default antfu(
   {
@@ -18,20 +17,6 @@ export default antfu(
       'dist',
       'node_modules',
     ],
-  },
-  {
-    files: [
-      'src/**/*.vue',
-    ],
-    rules: {
-    },
-  },
-  {
-    files: [
-      'src/**/*.ts',
-    ],
-    rules: {
-    },
   },
   {
     rules: {

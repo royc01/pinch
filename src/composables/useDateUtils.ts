@@ -17,7 +17,3 @@ export function formatHour(hour: number): string {
   if (hour === 12) return '12pm';
   return `${hour - 12}pm`;
 }
-
-export function formatChineseDate(date: Date): string {
-  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
-}

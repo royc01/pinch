@@ -1,7 +1,7 @@
 import { ref, type Ref } from 'vue';
 import { CRDTTaskRepository } from './crdtAdapter';
 import type { Task } from './api';
-import { buildTaskTagState, normalizeTaskTagIds } from './utils/taskTags';
+import { buildTaskTagState, parseTaskTagIdsAttribute } from './utils/taskTags';
 
 interface StoreState {
   repo: CRDTTaskRepository;
@@ -12,17 +12,6 @@ const stores = new Map<string, StoreState>();
 
 function hasTaskAttribute(attrs: Record<string, string>, name: string): boolean {
   return Object.prototype.hasOwnProperty.call(attrs, name);
-}
-
-function parseTaskTagIdsAttribute(value: string): string[] {
-  if (!value) {
-    return [];
-  }
-  try {
-    return normalizeTaskTagIds(JSON.parse(value));
-  } catch {
-    return [];
-  }
 }
 
 function normalizeTaskPriorityAttribute(value: string): Task['priority'] {

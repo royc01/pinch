@@ -801,8 +801,8 @@
     </div>
     
     <Teleport :to="taskModalTeleportTo" :disabled="!taskModalTeleportTarget">
-      <TaskModal 
-        :show="showTaskModal" 
+      <QuickCreateTaskModal
+        :show="showTaskModal"
         :t="t"
         :notebooks="enabledNotebooks"
         :documents="allDocuments"
@@ -814,8 +814,8 @@
         presentation="center"
         :overlay-style="taskModalOverlayStyle"
         @close="showTaskModal = false"
+        @created="handleQuickCreateCreated"
         @manage-groups="openTaskGroupDialog"
-        @submit="handleCreateTask"
       />
     </Teleport>
     <TaskScopeDialog
@@ -925,7 +925,7 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import TaskCard from '@/components/TaskCard.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
-import TaskModal, { type Notebook, type Document as TaskDocument } from '@/components/TaskModal.vue';
+import QuickCreateTaskModal, { type Notebook, type Document as TaskDocument, type QuickCreateCreatedPayload } from '@/components/QuickCreateTaskModal.vue';
 import TaskScopeDialog, { type TaskScopeDialogSavePayload, type TaskScopeDisplayOption } from '@/components/TaskScopeDialog.vue';
 import { taskViewSwitcherDisplayOptions } from '@/utils/taskViewSwitcher';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
@@ -937,7 +937,7 @@ import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
 import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
 import TaskQuickMetaMenu from '@/components/TaskQuickMetaMenu.vue';
-import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
+import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
 import { updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -974,6 +974,11 @@ import { applyTaskAttributeMutation } from '@/utils/taskMutationService';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
 import { createPeriodicSetCleanup } from '@/utils/setCleanup';
+import {
+  normalizeTaskBlockIds as normalizeBlockIds,
+  queryTaskAncestorContextRows as queryAncestorContextRows,
+  type AncestorContextRow
+} from '@/utils/taskAncestorContext';
 import {
   collectTaskTitleHydrationBlockIds,
   shouldHydrateTaskTitle
@@ -1035,7 +1040,7 @@ import {
   type KernelTaskIndexParams,
   type KernelTaskRowsResult
 } from '@/kernelRpc';
-import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
+import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID } from '@/utils/pinchInbox';
 import {
   applyTaskTagBatchAction,
   areTaskTagIdsEqual,
@@ -6543,7 +6548,7 @@ async function incrementalUpdateTasks(
     return;
   }
 
-  const ancestorContextRows = await queryAncestorContextRows(scopedBlockIds);
+  const ancestorContextRows = await queryAncestorContextRows(scopedBlockIds, sql);
   await pruneInvalidParentsFromEvents(scopedBlockIds, ancestorContextRows);
 
   const { unresolvedBlockIds, patchedParentStatuses, patchedParentTitles } = await fastSyncTaskFromDom(scopedBlockIds);
@@ -6654,59 +6659,6 @@ async function incrementalUpdateTasks(
   }
 }
 
-interface AncestorContextRow {
-  source_id: string;
-  id: string;
-  depth: number;
-  subtype: string;
-}
-
-function normalizeBlockIds(blockIds: string[]): string[] {
-  return [...new Set(blockIds.filter((id): id is string => typeof id === 'string' && id.length > 0))];
-}
-
-async function queryAncestorContextRows(blockIds: string[]): Promise<AncestorContextRow[]> {
-  const normalizedBlockIds = normalizeBlockIds(blockIds);
-  if (normalizedBlockIds.length === 0) {
-    return [];
-  }
-
-  try {
-    const idsClause = normalizedBlockIds.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
-    const rows = await sql(`
-      WITH RECURSIVE ancestors(source_id, id, parent_id, depth) AS (
-        SELECT id AS source_id, id, parent_id, 0
-        FROM blocks
-        WHERE id IN (${idsClause})
-        UNION ALL
-        SELECT ancestors.source_id, b.id, b.parent_id, ancestors.depth + 1
-        FROM blocks b
-        JOIN ancestors ON ancestors.parent_id = b.id
-        WHERE ancestors.parent_id != ''
-          AND ancestors.depth < 10
-      )
-      SELECT ancestors.source_id, ancestors.id, ancestors.depth, b.subtype
-      FROM ancestors
-      JOIN blocks b ON b.id = ancestors.id
-    `) as any[];
-
-    if (!Array.isArray(rows)) {
-      return [];
-    }
-
-    return rows
-      .map((row) => ({
-        source_id: typeof row?.source_id === 'string' ? row.source_id : '',
-        id: typeof row?.id === 'string' ? row.id : '',
-        depth: Number(row?.depth),
-        subtype: typeof row?.subtype === 'string' ? row.subtype : ''
-      }))
-      .filter((row) => row.source_id.length > 0 && row.id.length > 0 && Number.isFinite(row.depth));
-  } catch {
-    return [];
-  }
-}
-
 async function pruneInvalidParentsFromEvents(
   blockIds: string[],
   ancestorContextRows?: AncestorContextRow[]
@@ -6717,7 +6669,7 @@ async function pruneInvalidParentsFromEvents(
   }
 
   try {
-    const rows = ancestorContextRows ?? await queryAncestorContextRows(normalizedBlockIds);
+    const rows = ancestorContextRows ?? await queryAncestorContextRows(normalizedBlockIds, sql);
     const blockSubtypeMap = new Map<string, string>();
     rows.forEach((row) => {
       if (row?.id && row.subtype) {
@@ -6753,10 +6705,6 @@ async function pruneInvalidParentsFromEvents(
     // Silent fallback: next refresh cycle will reconcile if SQL check fails.
     return 0;
   }
-}
-
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
 }
 
 async function resolveParentTaskBlockIds(
@@ -6797,7 +6745,7 @@ async function resolveParentTaskBlockIds(
   }
 
   try {
-    const rows = ancestorContextRows ?? await queryAncestorContextRows(unknownBlockIds);
+    const rows = ancestorContextRows ?? await queryAncestorContextRows(unknownBlockIds, sql);
     const unknownIdSet = new Set(unknownBlockIds);
     const candidatesBySource = new Map<string, Array<{ id: string; depth: number }>>();
     rows.forEach((row) => {
@@ -9470,170 +9418,61 @@ function handleDocumentMobileTaskPointerCancel(event: PointerEvent): void {
   handleMobileTaskPointerCancel(event);
 }
 
-async function ensureInboxDocument(notebookId: string): Promise<string> {
-  const inboxPath = PINCH_INBOX_PATH;
-  
+async function handleQuickCreateCreated(payload: QuickCreateCreatedPayload): Promise<void> {
   try {
-    const existingIds = await getIDsByHPath(notebookId, inboxPath);
-    if (existingIds && existingIds.length > 0) {
-      return inboxPath;
-    }
-  } catch (error) {
-    
-  }
-  
-  try {
-    await createDocWithMd(notebookId, inboxPath, '');
-    return inboxPath;
-  } catch (error) {
-    throw error;
-  }
-}
-
-function extractDailyNoteId(result: Awaited<ReturnType<typeof createDailyNote>>): string {
-  if (typeof result === 'string') {
-    return result;
-  }
-  if (result && typeof result === 'object') {
-    return result.id || result.rootId || '';
-  }
-  return '';
-}
-
-function normalizeNotebookDocPath(notebookId: string, hPath: string): string {
-  const notebook = notebooks.value.find(nb => nb.id === notebookId);
-  const normalizedHPath = hPath.startsWith('/') ? hPath : `/${hPath}`;
-  if (!notebook?.name) {
-    return normalizedHPath;
-  }
-  const notebookPrefix = `/${notebook.name}/`;
-  if (normalizedHPath.startsWith(notebookPrefix)) {
-    return `/${normalizedHPath.slice(notebookPrefix.length)}`;
-  }
-  return normalizedHPath;
-}
-
-async function ensureDailyNoteDocument(notebookId: string): Promise<string> {
-  const result = await createDailyNote(notebookId);
-  if (result && typeof result === 'object') {
-    const directPath = typeof result.path === 'string' && result.path.trim()
-      ? result.path.trim()
-      : typeof result.hPath === 'string' && result.hPath.trim()
-        ? result.hPath.trim()
-        : '';
-    if (directPath) {
-      return normalizeNotebookDocPath(notebookId, directPath);
-    }
-  }
-  const dailyNoteId = extractDailyNoteId(result);
-  if (!dailyNoteId) {
-    throw new Error('Failed to create daily note');
-  }
-  const hPath = await getHPathByID(dailyNoteId);
-  if (!hPath) {
-    throw new Error('Failed to resolve daily note path');
-  }
-  return normalizeNotebookDocPath(notebookId, hPath);
-}
-
-async function handleCreateTask(taskData: any, notebookId: string, documentId: string) {
-  try {
-    const tagState = buildTaskTagState(taskData.tags, taskData.groupId);
-    let docPath = '';
-    
-    if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
-      docPath = await ensureDailyNoteDocument(notebookId);
-    } else if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
-      const selectedDoc = allDocuments.value.find(d => d.id === documentId && d.notebookId === notebookId);
-      if (selectedDoc) {
-        const notebook = notebooks.value.find(nb => nb.id === notebookId);
-        if (notebook) {
-          const task = tasks.value.find(t => t.rootId === documentId && t.notebookId === notebookId);
-          if (task && task.hPath) {
-            docPath = task.hPath.replace(`${notebook.name}/`, '');
-          }
-        }
+    const { blockId, taskId, notebookId, documentId, docPath, task } = payload;
+    const tagState = buildTaskTagState(task.tags, task.groupId);
+    let resolvedRootId = documentId !== PINCH_INBOX_OPTION_ID && documentId !== PINCH_DAILY_NOTE_OPTION_ID
+      ? documentId
+      : '';
+    if (!resolvedRootId) {
+      try {
+        resolvedRootId = (await getIDsByHPath(notebookId, docPath))[0] || '';
+      } catch {
+        // The optimistic sidebar entry can still be reconciled by block ID.
       }
     }
-    
-    if (!docPath) {
-      docPath = await ensureInboxDocument(notebookId);
-    }
-    
-    const created = await TaskRepository.createBlockTask({
-      title: taskData.title,
-      description: taskData.description,
-      priority: taskData.priority,
-      status: taskData.status,
-      dueDate: taskData.dueDate || undefined,
-      reminderType: taskData.reminderType,
-      reminderCustomTime: taskData.reminderCustomTime || undefined,
-      tags: tagState.tagIds,
-      groupId: tagState.primaryTagId || undefined
-    }, notebookId, docPath, { emitTaskAdded: false });
-
-    if (created?.blockId && created.taskId) {
-      let resolvedRootId = documentId !== PINCH_INBOX_OPTION_ID && documentId !== PINCH_DAILY_NOTE_OPTION_ID
-        ? documentId
-        : '';
-      if (!resolvedRootId) {
-        try {
-          resolvedRootId = (await getIDsByHPath(notebookId, docPath))[0] || '';
-        } catch {
-          // The optimistic sidebar entry can still be reconciled by block ID.
-        }
+    emitOptimisticBlockTaskAdded({ blockId, taskId }, {
+      notebookId,
+      rootId: resolvedRootId,
+      docPath,
+      task: {
+        title: task.title,
+        status: task.status || 'pending',
+        priority: task.priority || 'none',
+        dueDate: task.dueDate || undefined,
+        tags: tagState.tagIds,
+        groupId: tagState.primaryTagId || undefined,
+        description: task.description || ''
       }
-      emitOptimisticBlockTaskAdded(created, {
-        notebookId,
-        rootId: resolvedRootId,
-        docPath,
-        task: {
-          title: taskData.title,
-          status: taskData.status || 'pending',
-          priority: taskData.priority || 'none',
-          dueDate: taskData.dueDate || undefined,
-          tags: tagState.tagIds,
-          groupId: tagState.primaryTagId || undefined,
-          description: taskData.description || ''
-        }
-      });
-    }
-
-    const selectedGoalIds = Array.isArray(taskData.goalIds)
-      ? taskData.goalIds
-        .map((goalId: unknown) => typeof goalId === 'string' ? goalId.trim() : '')
-        .filter((goalId: string) => goalId && goalDefinitionsById.value.has(goalId))
+    });
+    const selectedGoalIds = Array.isArray(task.goalIds)
+      ? task.goalIds
+        .map(goalId => typeof goalId === 'string' ? goalId.trim() : '')
+        .filter(goalId => goalId && goalDefinitionsById.value.has(goalId))
       : [];
-    if (selectedGoalIds.length > 0 && created?.taskId) {
-      const createdRootId = documentId
-        && documentId !== PINCH_DAILY_NOTE_OPTION_ID
-        && documentId !== PINCH_INBOX_OPTION_ID
-        ? documentId
-        : undefined;
+    if (selectedGoalIds.length > 0 && taskId) {
       const nextGoals = setTaskGoalMembership(goalDefinitions.value, {
-        taskId: created.taskId,
-        blockId: created.blockId,
+        taskId,
+        blockId,
         notebookId,
-        rootId: createdRootId,
-        title: taskData.title
+        rootId: resolvedRootId || undefined,
+        title: task.title
       }, selectedGoalIds);
       goalDefinitions.value = nextGoals;
       await saveGoalDefinitions(nextGoals);
     }
-    
     lastTaskNotebook.value = notebookId;
     lastTaskDocument.value = documentId;
-    const normalizedGroupId = tagState.primaryTagId;
-    lastSelectedTaskGroupId.value = normalizedGroupId;
+    lastSelectedTaskGroupId.value = tagState.primaryTagId;
     await updateSettings('taskManager', {
       lastTaskNotebook: notebookId,
       lastTaskDocument: documentId,
-      selectedGroupId: normalizedGroupId
+      selectedGroupId: tagState.primaryTagId
     });
-    
     showTaskModal.value = false;
   } catch (error) {
-    // Swallow create-task errors here; later refresh/retry will reconcile state.
+    console.error('[TaskManager] Failed to finalize quick-create task:', error);
   }
 }
 
@@ -10638,6 +10477,7 @@ onUnmounted(() => {
   transform: scale(0.985);
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.18), 0 10px 22px rgba(15, 23, 42, 0.14);
 }
+
 .task-manager-calendar-drag-ghost {
   position: fixed;
   top: 0;

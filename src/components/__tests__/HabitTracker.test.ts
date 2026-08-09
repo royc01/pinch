@@ -74,7 +74,6 @@ const HabitModalStub = {
           difficulty: 'medium',
           frequency: 'daily',
           timesPerDay: 1,
-          noteDocId: '',
           usePomodoro: false,
           pomodoroDuration: 25
         })"
@@ -103,8 +102,6 @@ const mountHabitTracker = async () => {
         StatisticsPanel: PanelStub,
         RewardPanel: PanelStub,
         GoalPanel: PanelStub,
-        HabitDocBindDialog: PanelStub,
-        CheckinNoteDialog: PanelStub,
         MoodTrackerModal: PanelStub,
         MoodCalendarPanel: PanelStub,
         FocusTimerHost: {

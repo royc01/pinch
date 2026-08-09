@@ -241,7 +241,7 @@ import {
   type RewardSnapshot
 } from '@/rewardRepository';
 import Icon from './Icon.vue';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 
 interface Props {
   show: boolean;
@@ -270,13 +270,6 @@ const shopForm = ref({
   cost: 20,
   icon: ''
 });
-
-function formatTemplate(key: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    t(key)
-  );
-}
 
 function getLevelProgressText(): string {
   return formatTemplate('rewardPanel.levelProgressTemplate', {

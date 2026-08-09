@@ -22,6 +22,18 @@ export function normalizeTaskTagIds(input: unknown): string[] {
   return normalized;
 }
 
+export function parseTaskTagIdsAttribute(value: unknown): string[] {
+  if (typeof value !== 'string' || !value.trim()) {
+    return [];
+  }
+
+  try {
+    return normalizeTaskTagIds(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
 export function filterKnownTaskTagIds(tags: unknown, knownTagIds: ReadonlySet<string>): string[] {
   return normalizeTaskTagIds(tags).filter(tagId => knownTagIds.has(tagId));
 }
@@ -36,10 +48,6 @@ export function resolveTaskTagIds(tags: unknown, groupId?: unknown): string[] {
     return [primaryTagId, ...normalizedTags.filter((tagId) => tagId !== primaryTagId)];
   }
   return [primaryTagId, ...normalizedTags];
-}
-
-export function resolveTaskPrimaryTagId(tags: unknown, groupId?: unknown): string {
-  return resolveTaskTagIds(tags, groupId)[0] || '';
 }
 
 export function buildTaskTagState(tags: unknown, groupId?: unknown): {

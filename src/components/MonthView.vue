@@ -319,6 +319,7 @@
       :empty-text="t('monthView.lifelogEmpty')"
       :close-label="t('common.close')"
       :delete-label="t('common.delete')"
+      :add-annotation-label="t('lifelogTimeline.addAnnotationLabel')"
       :show-editor="Boolean(lifelogDayKey)"
       :draft="lifelogTimelineDraft"
       :editor-placeholder="t('monthView.lifelogManualPlaceholder')"
@@ -338,6 +339,7 @@
       @clear-draft="clearLifelogTimelineDraft"
       @delete-item="deleteLifelogTimelineItem"
       @update-item="updateLifelogTimelineItem"
+      @update-annotation="updateLifelogTimelineAnnotation"
     />
 
     <div
@@ -402,7 +404,14 @@ import LifelogTimelinePanel, {
 } from './LifelogTimelinePanel.vue';
 import { openHabitTrackerFocusTimer } from '@/main';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
+import {
+  createCalendarTaskDateFields,
+  getEffectiveDueDate,
+  normalizeOptionalDateValue,
+  saveCalendarTaskDates,
+  type CalendarTaskDateFields
+} from '@/utils/calendarTaskDates';
 import {
   focusRecordsToLifelogEvents,
   type FocusLifelogEvent,
@@ -427,6 +436,8 @@ import { publishLifelogTimelineSnapshot } from '@/utils/lifelogTimelineSnapshot'
 import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/utils/habitTaskChips';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveTaskTagIds } from '@/utils/taskTags';
+import { useCheckinNotes } from '@/composables/useCheckinNotes';
+import { getCheckinNoteEventKey } from '@/utils/checkinNoteEvents';
 
 interface Props {
   tasks: Task[];
@@ -545,6 +556,11 @@ type PointerCaptureSession = {
 const props = defineProps<Props>();
 const { t } = useI18n();
 const { getMoodSvg } = useHabitEmojis();
+const {
+  ensureDatesLoaded: ensureCheckinNoteDatesLoaded,
+  hydrateTimelineTarget: hydrateCheckinNoteTimelineTarget,
+  updateNote: updateCheckinNote
+} = useCheckinNotes();
 const calendarViewOptions = computed(() => props.calendarViewOptions || []);
 const showFocusRecords = computed(() => props.showFocusRecords !== false);
 const showHabits = computed(() => props.showHabits !== false);
@@ -552,13 +568,6 @@ const showLifelog = computed(() => props.showLifelog !== false);
 const showTaskLifelog = computed(() => props.showTaskLifelog ?? showLifelog.value);
 const showHabitLifelog = computed(() => props.showHabitLifelog ?? showLifelog.value);
 const showRecordsLifelog = computed(() => props.showRecordsLifelog ?? showLifelog.value);
-
-const formatTemplate = (key: string, values: Record<string, string | number>): string => {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    t(key)
-  );
-};
 
 const showLunarInfo = computed(() => {
   const siyuan = window.siyuan as any;
@@ -781,14 +790,6 @@ const mobileDragPreviewStyle = computed(() => ({
 }));
 const isMobileTaskChipInteractionEnabled = computed(() => isCompactMobileLayout.value);
 
-function normalizeOptionalDateValue(value: string | null | undefined): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value : null;
-}
-
-function getEffectiveDueDate(startDate: string, dueDate: string | null | undefined): string {
-  return normalizeOptionalDateValue(dueDate) || startDate;
-}
-
 const monthTaskLayout = computed(() => {
   if (isCompactMobileLayout.value) {
     return {
@@ -816,12 +817,7 @@ const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null
   y: 0,
   task: null
 });
-const contextMenuDateDraft = ref<{ startDate: string; startTime: string; dueDate: string; dueTime: string }>({
-  startDate: '',
-  startTime: '',
-  dueDate: '',
-  dueTime: ''
-});
+const contextMenuDateDraft = ref<CalendarTaskDateFields>(createCalendarTaskDateFields());
 const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
 const contextMenuRepeatRule = ref<RepeatRule | null>(null);
 
@@ -1935,7 +1931,7 @@ function getLifelogTimelineIcon(type: LifelogEventType): string {
 
 function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timeToSortMinutes(event.startTime, 8 * 60);
-  return {
+  return hydrateCheckinNoteTimelineTarget({
     id: `focus-${event.id}`,
     sourceId: event.id,
     type: event.type,
@@ -1946,13 +1942,13 @@ function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePane
     note: event.note || '',
     icon: getLifelogTimelineIcon(event.type),
     deletable: true
-  };
+  }, event.date, getCheckinNoteEventKey(event));
 }
 
 function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timestampToSortMinutes(event.checkinTimestamp || event.metadata?.timestamp, 7 * 60);
   const statusText = event.completed ? t('habitTracker.checkedIn') : t('habitTracker.scheduledCheckin');
-  return {
+  return hydrateCheckinNoteTimelineTarget({
     id: `habit-${event.id}`,
     sourceId: event.id,
     type: event.type,
@@ -1962,7 +1958,7 @@ function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimel
     note: event.note || '',
     meta: `${statusText} · ${formatHabitLifelogProgress(event)}`,
     icon: event.completed ? getLifelogTimelineIcon(event.type) : 'square'
-  };
+  }, event.date, getCheckinNoteEventKey(event));
 }
 
 function getTaskCompletedSourceTask(event: TaskCompletedLifelogEvent): Task | null {
@@ -2017,7 +2013,7 @@ function getTaskCompletedGoalBadges(event: TaskCompletedLifelogEvent): LifelogTi
 
 function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timeToSortMinutes(event.completedAt, 20 * 60);
-  return {
+  return hydrateCheckinNoteTimelineTarget({
     id: `task-${event.id}`,
     sourceId: event.taskId,
     type: event.type,
@@ -2031,7 +2027,7 @@ function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimel
       ...getTaskCompletedTagBadges(event),
       ...getTaskCompletedGoalBadges(event)
     ]
-  };
+  }, event.date, getCheckinNoteEventKey(event));
 }
 
 function manualNoteEventToTimelineItem(event: ManualNoteLifelogEvent): LifelogTimelinePanelItem {
@@ -2135,6 +2131,11 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
     respectDisplaySettings: false
   });
 });
+watch(lifelogDayKey, (dayKey) => {
+  if (dayKey) {
+    void ensureCheckinNoteDatesLoaded([dayKey]);
+  }
+}, { immediate: true });
 watch(
   [lifelogDayKey, lifelogTimelineItems],
   ([dayKey, items]) => {
@@ -2410,6 +2411,17 @@ function getTaskStyle(task: any, week: any[]): Record<string, string> {
       background: bgColor,
     '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
+}
+
+async function updateLifelogTimelineAnnotation(item: LifelogTimelinePanelItem, text: string): Promise<void> {
+  if (!item.annotationKey) {
+    return;
+  }
+  try {
+    await updateCheckinNote(item.annotationDate || item.date || '', item.annotationKey, text);
+  } catch (error) {
+    console.error('[MonthView] Failed to update check-in note', error);
+  }
 }
 
 function getMonthTaskDragPreviewStyle(preview: NonNullable<typeof allDayTaskDragPreview.value>, week: any[], followPointer: boolean): Record<string, string> {
@@ -3719,12 +3731,12 @@ function showTaskContextMenu(task: Task, anchor?: { x: number; y: number }): voi
     y: anchor?.y ?? window.innerHeight / 2,
     task
   };
-  contextMenuDateDraft.value = {
+  contextMenuDateDraft.value = createCalendarTaskDateFields({
     startDate: task.startDate || '',
     startTime: task.startTime || '',
     dueDate: task.dueDate || '',
     dueTime: task.dueTime || ''
-  };
+  });
   contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
   contextMenuRepeatRule.value = null;
 
@@ -3734,12 +3746,12 @@ function showTaskContextMenu(task: Task, anchor?: { x: number; y: number }): voi
       .then((series) => {
         if (!series) return;
         if (contextMenu.value.task?.id !== task.id) return;
-        contextMenuDateDraft.value = {
+        contextMenuDateDraft.value = createCalendarTaskDateFields({
           startDate: series.startDate || '',
           startTime: series.startTime || '',
           dueDate: series.endDate || '',
           dueTime: series.dueTime || ''
-        };
+        });
         contextMenuRepeatRule.value = series.rule || null;
       })
       .catch(() => {});
@@ -3820,7 +3832,7 @@ function hideContextMenu() {
     y: 0,
     task: null
   };
-  contextMenuDateDraft.value = { startDate: '', startTime: '', dueDate: '', dueTime: '' };
+  contextMenuDateDraft.value = createCalendarTaskDateFields();
   contextMenuRepeatFrequency.value = 'none';
   contextMenuRepeatRule.value = null;
 }
@@ -3828,78 +3840,20 @@ function hideContextMenu() {
 async function applyTaskDates(task: Task) {
   if (!task) return;
 
-  const nextStartDate = contextMenuDateDraft.value.startDate || '';
-  let nextDueDate = contextMenuDateDraft.value.dueDate || '';
-  const nextStartTime = contextMenuDateDraft.value.startTime || '';
-  const nextDueTime = contextMenuDateDraft.value.dueTime || '';
-  if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
-    nextDueDate = nextStartDate;
-  }
-
-  const fields = {
-    startDate: nextStartDate,
-    startTime: nextStartTime,
-    dueDate: nextDueDate,
-    dueTime: nextDueTime
-  };
-  let updatedTask: Task | null = null;
-  let repeatPersistenceTarget: Task | undefined;
-  const requestIsRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-  if (requestIsRepeatTask) {
-    const seriesId = task.repeatSeriesId;
-    const templateTask = !task.isVirtual
-      ? task
-      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
-    const targetTask = templateTask || task;
-    repeatPersistenceTarget = { ...targetTask };
-    if (!nextStartDate && !nextDueDate && !nextStartTime && !nextDueTime) {
-      taskSyncGuard.suppressRepeatSeriesSync(seriesId || '', targetTask.id);
-      updatedTask = {
-        ...targetTask,
-        repeatFrequency: 'none',
-        repeatSeriesId: undefined,
-        repeatInstanceDate: undefined,
-        isVirtual: false,
-        startDate: '',
-        dueDate: '',
-        startTime: undefined,
-        dueTime: undefined
-      };
-      localTasks.value = localTasks.value.flatMap((item) => {
-        if (item.id === targetTask.id) {
-          return [updatedTask as Task];
-        }
-        if (item.isVirtual && item.repeatSeriesId === seriesId) {
-          return [];
-        }
-        return [item];
-      });
-    } else {
-      updatedTask = patchLocalTask(targetTask.id, {
-        startDate: nextStartDate,
-        dueDate: nextDueDate,
-        startTime: nextStartTime || undefined,
-        dueTime: nextDueTime || undefined
-      });
-    }
-  } else {
-    updatedTask = null;
-  }
-  if (updatedTask) {
-    emitTaskDateChanged(updatedTask);
-  }
-  emit('taskDateSaveRequested', { task, fields, repeatPersistenceTarget, optimisticApplied: !!updatedTask });
+  emit('taskDateSaveRequested', saveCalendarTaskDates({
+    task,
+    fields: contextMenuDateDraft.value,
+    localTasks,
+    patchLocalTask,
+    suppressRepeatSeriesSync: taskSyncGuard.suppressRepeatSeriesSync,
+    emitTaskDateChanged
+  }));
 }
 
 async function clearTaskDates(task: Task): Promise<void> {
   if (!task) return;
 
-  contextMenuDateDraft.value = {
-    startDate: '',
-    startTime: '',
-    dueDate: '',
-    dueTime: ''
-  };
+  contextMenuDateDraft.value = createCalendarTaskDateFields();
   await applyTaskDates(task);
 }
 

@@ -2,7 +2,7 @@ import { computed, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
 import { cleanExpiredCache, getCachedValue, setCachedValue } from '@/composables/useExpiringCache';
 import { getWeekStart, getWeeklyTarget, isSameWeek } from '@/composables/useHabitUtils';
-import { translate } from '@/composables/useI18n';
+import { formatTemplate, translate } from '@/composables/useI18n';
 
 const CACHE_TTL = 86400000;
 const MAX_CACHE_SIZE = 1000;
@@ -20,13 +20,6 @@ export const useHabitStatistics = ({
   formatDate,
   getToday
 }: UseHabitStatisticsOptions) => {
-  const formatTemplate = (key: string, values: Record<string, string | number>): string => {
-    return Object.entries(values).reduce(
-      (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-      translate(key)
-    );
-  };
-
   const streakCache = new Map<string, { result: number; timestamp: number }>();
   const longestStreakCache = new Map<
     string,
@@ -188,12 +181,7 @@ export const useHabitStatistics = ({
     });
 
     if (habit.frequency.startsWith('weekly')) {
-      let weeklyTarget = 1;
-      if (habit.frequency === 'weekly2') weeklyTarget = 2;
-      else if (habit.frequency === 'weekly3') weeklyTarget = 3;
-      else if (habit.frequency === 'weekly4') weeklyTarget = 4;
-      else if (habit.frequency === 'weekly5') weeklyTarget = 5;
-      else if (habit.frequency === 'weekly6') weeklyTarget = 6;
+      const weeklyTarget = getWeeklyTarget(habit.frequency);
 
       const creationWeekStart = new Date(creationDateForCalculation);
       const creationWeekday = creationDateForCalculation.getDay();
@@ -523,12 +511,7 @@ export const useHabitStatistics = ({
       tempWeekStart.setDate(tempWeekStart.getDate() + 7);
     }
 
-    let weeklyTarget = 1;
-    if (habit.frequency === 'weekly2') weeklyTarget = 2;
-    else if (habit.frequency === 'weekly3') weeklyTarget = 3;
-    else if (habit.frequency === 'weekly4') weeklyTarget = 4;
-    else if (habit.frequency === 'weekly5') weeklyTarget = 5;
-    else if (habit.frequency === 'weekly6') weeklyTarget = 6;
+    const weeklyTarget = getWeeklyTarget(habit.frequency);
 
     let completedWeeks = 0;
     for (const week of totalCalculatedWeeks) {

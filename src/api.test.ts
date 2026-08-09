@@ -193,4 +193,101 @@ describe('TaskRepository incremental task fetches', () => {
       groupId: 'tag-a'
     });
   });
+
+  it('maps every task attribute from a SQL row through one shared mapper', () => {
+    const row = {
+      custom_task_id: 'task-1',
+      custom_task_priority: 'high',
+      custom_task_status: 'pending',
+      custom_task_due_date: '2026-08-09',
+      custom_task_due_time: '09:30',
+      custom_task_start_date: '2026-08-08',
+      custom_task_start_time: '09:00',
+      custom_task_tags: '["tag-a"]',
+      custom_task_description: 'description',
+      custom_task_reminder_type: 'before',
+      custom_task_reminder_custom_time: '10',
+      custom_task_focus_estimate: '{"unit":"minutes","value":25}',
+      custom_task_group: 'tag-a',
+      custom_task_pinned: '1',
+      custom_task_background_color: '#fff',
+      custom_task_urgent: 'true',
+      custom_task_archived: '0',
+      custom_task_completed_at: '2026-08-09T09:30:00.000Z',
+      custom_task_archived_at: '',
+      custom_task_archive_reason: ''
+    };
+
+    expect((TaskRepository as any).buildTaskAttrsFromSqlRow(row)).toEqual({
+      'custom-task-id': 'task-1',
+      'custom-task-priority': 'high',
+      'custom-task-status': 'pending',
+      'custom-task-due-date': '2026-08-09',
+      'custom-task-due-time': '09:30',
+      'custom-task-start-date': '2026-08-08',
+      'custom-task-start-time': '09:00',
+      'custom-task-tags': '["tag-a"]',
+      'custom-task-description': 'description',
+      'custom-task-reminder-type': 'before',
+      'custom-task-reminder-custom-time': '10',
+      'custom-task-focus-estimate': '{"unit":"minutes","value":25}',
+      'custom-task-group': 'tag-a',
+      'custom-task-pinned': '1',
+      'custom-task-background-color': '#fff',
+      'custom-task-urgent': 'true',
+      'custom-task-archived': '0',
+      'custom-task-completed-at': '2026-08-09T09:30:00.000Z',
+      'custom-task-archived-at': '',
+      'custom-task-archive-reason': ''
+    });
+  });
+
+  it('builds shared task fields while preserving attribute normalization rules', () => {
+    const attrs = {
+      'custom-task-priority': 'high',
+      'custom-task-pinned': '1',
+      'custom-task-due-time': '09:45',
+      'custom-task-start-time': '',
+      'custom-task-tags': '["tag-later", "tag-primary", "tag-later"]',
+      'custom-task-group': 'tag-primary',
+      'custom-task-description': 'description',
+      'custom-task-reminder-type': 'custom',
+      'custom-task-reminder-custom-time': '2026-08-10 10:30:52',
+      'custom-task-focus-estimate': '{"unit":"pomodoros","value":4}',
+      'custom-task-background-color': '#123456',
+      'custom-task-urgent': 'true'
+    };
+
+    expect((TaskRepository as any).buildTaskFieldsFromAttrs(attrs, {
+      dueDate: '2026-08-10',
+      dueTime: '08:00',
+      startDate: '2026-08-09',
+      startTime: '07:00'
+    })).toEqual({
+      priority: 'high',
+      pinned: true,
+      dueDate: '2026-08-10',
+      dueTime: '09:45',
+      startDate: '2026-08-09',
+      startTime: '07:00',
+      tags: ['tag-primary', 'tag-later'],
+      groupId: 'tag-primary',
+      description: 'description',
+      reminderType: 'custom',
+      reminderCustomTime: '2026-08-10T10:30',
+      focusEstimate: { unit: 'pomodoros', value: 4 },
+      backgroundColor: '#123456',
+      urgent: true
+    });
+  });
+
+  it('parses task status consistently across markdown and attributes', () => {
+    const parseStatus = (attrs: Record<string, string>, markdown: string) =>
+      (TaskRepository as any).parseTaskStatus(attrs, markdown, null);
+
+    expect(parseStatus({ 'custom-task-status': 'delayed' }, '- [x] finished')).toBe('completed');
+    expect(parseStatus({ 'custom-task-status': 'delayed' }, '- [ ] waiting')).toBe('delayed');
+    expect(parseStatus({ 'custom-task-status': 'in-progress' }, 'plain task text')).toBe('in-progress');
+    expect(parseStatus({ 'custom-task-status': 'unknown' }, 'plain task text')).toBe('pending');
+  });
 });

@@ -921,7 +921,7 @@ import {
   type RewardSnapshot,
   type RewardSource
 } from '@/rewardRepository';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { eventBus, Events } from '@/utils/eventBus';
 import { openTaskViewByRequest } from '@/main';
 import { buildGoalDocumentSource } from '@/utils/documentGroupSource';
@@ -1082,13 +1082,6 @@ const STATS_RANGE_STORAGE_KEY = 'pinch.personal-stats.range';
 const STATS_PANEL_STATE_STORAGE_KEY = 'pinch.personal-stats.panels';
 const statsPanelKeys: StatsPanelKey[] = ['tasks', 'habits', 'focus', 'rewards', 'goals'];
 const { t } = useI18n();
-
-const formatTemplate = (key: string, values: Record<string, string | number>): string => {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    t(key)
-  );
-};
 
 const formatRangeMetricLabel = (range: string, label: string): string => (
   formatTemplate('personalStats.rangeMetricTemplate', { range, label })

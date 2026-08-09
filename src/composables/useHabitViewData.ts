@@ -1,7 +1,7 @@
 import { computed, type ShallowRef, watch } from 'vue';
 import type { Habit } from '@/api';
 import { getTodayCompletionCount, getWeekCompletionData, getWeekStart, isHabitScheduledOnDate } from '@/composables/useHabitUtils';
-import { translate } from '@/composables/useI18n';
+import { formatTemplate, translate } from '@/composables/useI18n';
 
 interface HabitCacheData {
   weeklyCompleted: boolean;
@@ -28,13 +28,6 @@ export const useHabitViewData = ({
   getToday,
   getWeeklyCompletionStatus
 }: UseHabitViewDataOptions) => {
-  const formatTemplate = (key: string, values: Record<string, string | number>): string => {
-    return Object.entries(values).reduce(
-      (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-      translate(key)
-    );
-  };
-
   const mondayFirstWeekdayKeys = [
     'date.weekdayMonShort',
     'date.weekdayTueShort',

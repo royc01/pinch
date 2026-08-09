@@ -876,7 +876,7 @@ import {
   toggleTaskTagSelection
 } from '@/utils/taskTags';
 import { resolveDocumentIconColorIndex } from '@/utils/documentIconColor';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { usePlugin } from '@/main';
 import type { Goal } from '@/goalRepository';
 import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
@@ -974,13 +974,6 @@ type TableColumnVisibilitySnapshot = {
   version: 1;
   hiddenColumns: ConfigurableTableColumnKey[];
 };
-
-function formatTemplate(key: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    t(key)
-  );
-}
 
 function getTableColumnLabel(column: TableColumnKey): string {
   switch (column) {

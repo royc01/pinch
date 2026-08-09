@@ -370,6 +370,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } fr
 import Icon from '@/components/Icon.vue';
 import FocusTargetIcon from '@/components/FocusTargetIcon.vue';
 import { addFocusSession, upsertFocusSessionRecord } from '@/api';
+import { useFocusCountupCheckpoint } from '@/composables/useFocusCountupCheckpoint';
 import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
 import { useI18n } from '@/composables/useI18n';
 import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
@@ -386,7 +387,7 @@ import {
   syncDetachedFocusWindow,
   takeDetachedFocusSessionHandoff
 } from '@/utils/detachedFocusWindow';
-import type { FocusTimerLinkedTarget } from '@/utils/focusTimerTarget';
+import { toFocusSessionTargetInput, type FocusTimerLinkedTarget } from '@/utils/focusTimerTarget';
 import type { FocusTimerHandoffState } from '@/utils/focusTimerHandoff';
 import {
   filterFocusTargetOptions,
@@ -469,10 +470,6 @@ const currentSet = ref(1);
 const timerInterval = ref<number | null>(null);
 const timerDeadline = ref<number>(0);
 const timerStartedAt = ref(0);
-const countupSessionId = ref('');
-const savedCountupMinutes = ref(0);
-const isSavingCountupCheckpoint = ref(false);
-const hasPendingCountupCheckpoint = ref(false);
 const showSettings = ref(false);
 const settingsRef = ref<HTMLElement | null>(null);
 const whiteNoiseEnabled = ref(false);
@@ -522,9 +519,8 @@ const shouldUseDetachedFocusWindow = computed(() =>
 );
 const shouldRenderInlineCapsule = computed(() => props.enabled && !shouldUseDetachedFocusWindow.value);
 
-const durationMinutes = computed(() => selectedDuration.value);
 const isActive = computed(() => isRunning.value || isPaused.value);
-const isTimerActive = computed(() => isRunning.value || isPaused.value);
+const isTimerActive = isActive;
 const isPomodoroSettingsLocked = computed(() =>
   isTimerActive.value || timerMode.value === 'countup'
 );
@@ -532,9 +528,9 @@ const focusDurationValueText = computed(() =>
   timerMode.value === 'countup' ? t('focusTimer.countup') : `${selectedDuration.value}${t('focusTimer.minuteSuffix')}`
 );
 const focusDurationButtonText = computed(() =>
-  timerMode.value === 'countup' ? '00:00' : `${String(durationMinutes.value).padStart(2, '0')}:00`
+  timerMode.value === 'countup' ? '00:00' : `${String(selectedDuration.value).padStart(2, '0')}:00`
 );
-const isLinkedTargetLocked = computed(() => isRunning.value || isPaused.value);
+const isLinkedTargetLocked = isActive;
 const linkedTargetLabel = computed(() => {
   return getFocusTargetDisplayLabel(linkedTarget.value);
 });
@@ -765,25 +761,12 @@ const resetPhaseProgress = () => {
   timerStartedAt.value = 0;
 };
 
-const getElapsedFocusMinutes = () => {
-  if (isBreakMode.value || timerMode.value !== 'countup') {
-    return 0;
-  }
-
-  return Math.floor(phaseElapsedSeconds.value / 60);
-};
-
 const recordFocusSession = async (sessionMinutes: number) => {
   const sessionId = `focus-capsule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await addFocusSession(
     sessionMinutes,
-    linkedTarget.value ? {
-      type: linkedTarget.value.type,
-      id: linkedTarget.value.id,
-      name: linkedTarget.value.name,
-      emoji: linkedTarget.value.emoji,
-      blockId: linkedTarget.value.blockId
-    } : null
+    toFocusSessionTargetInput(linkedTarget.value),
+    { sessionId }
   );
   await awardFocusSession({
     minutes: sessionMinutes,
@@ -794,65 +777,26 @@ const recordFocusSession = async (sessionMinutes: number) => {
 };
 
 function getFocusSessionTargetInput() {
-  return linkedTarget.value ? {
-    type: linkedTarget.value.type,
-    id: linkedTarget.value.id,
-    name: linkedTarget.value.name,
-    emoji: linkedTarget.value.emoji,
-    blockId: linkedTarget.value.blockId
-  } : null;
+  return toFocusSessionTargetInput(linkedTarget.value);
 }
 
-function ensureCountupSessionId(): string {
-  if (!countupSessionId.value) {
-    countupSessionId.value = `focus-capsule-countup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const {
+  sessionId: countupSessionId,
+  savedMinutes: savedCountupMinutes,
+  getElapsedFocusMinutes,
+  reset: resetCountupCheckpointState,
+  restore: restoreCountupCheckpointState,
+  save: saveCountupCheckpoint
+} = useFocusCountupCheckpoint({
+  isEnabled: () => timerMode.value === 'countup' && !isBreakMode.value,
+  getElapsedSeconds: () => phaseElapsedSeconds.value,
+  getTarget: getFocusSessionTargetInput,
+  createSessionId: () => `focus-capsule-countup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  upsertSession: upsertFocusSessionRecord,
+  onSaved: (detail) => {
+    window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, { detail }));
   }
-  return countupSessionId.value;
-}
-
-function resetCountupCheckpointState(): void {
-  countupSessionId.value = '';
-  savedCountupMinutes.value = 0;
-  isSavingCountupCheckpoint.value = false;
-  hasPendingCountupCheckpoint.value = false;
-}
-
-const saveCountupCheckpoint = async (final = false, minutesOverride?: number): Promise<void> => {
-  if (isBreakMode.value || timerMode.value !== 'countup') {
-    return;
-  }
-
-  const minutes = typeof minutesOverride === 'number'
-    ? Math.max(0, Math.floor(minutesOverride))
-    : getElapsedFocusMinutes();
-  if (minutes <= savedCountupMinutes.value) {
-    return;
-  }
-
-  if (isSavingCountupCheckpoint.value) {
-    hasPendingCountupCheckpoint.value = true;
-    return;
-  }
-
-  isSavingCountupCheckpoint.value = true;
-  try {
-    const sessionId = ensureCountupSessionId();
-    await upsertFocusSessionRecord(sessionId, minutes, getFocusSessionTargetInput());
-    const savedDelta = Math.max(0, minutes - savedCountupMinutes.value);
-    savedCountupMinutes.value = Math.max(savedCountupMinutes.value, minutes);
-    if (savedDelta > 0) {
-      window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, {
-        detail: { minutes: savedDelta, sessionId, checkpoint: !final }
-      }));
-    }
-  } finally {
-    isSavingCountupCheckpoint.value = false;
-    if (hasPendingCountupCheckpoint.value) {
-      hasPendingCountupCheckpoint.value = false;
-      void saveCountupCheckpoint(final);
-    }
-  }
-};
+});
 
 const startPhaseTimer = () => {
   if (timerMode.value === 'countup' && !isBreakMode.value) {
@@ -1110,10 +1054,6 @@ const stopTimer = async (recordCurrentSession: boolean = false) => {
   const elapsedMinutes = recordCurrentSession ? getElapsedFocusMinutes() : 0;
   const countupSessionIdToAward = countupSessionId.value;
 
-  if (recordCurrentSession) {
-    clearTimer();
-  }
-
   clearTimer();
   stopMicroBreakReminder();
   stopWhiteNoise();
@@ -1225,8 +1165,10 @@ const applyHandoffState = (state: FocusTimerHandoffState) => {
   isPaused.value = state.isPaused === true;
   isBreakMode.value = state.isBreakMode === true;
   currentSet.value = Number.isFinite(state.currentSet) ? state.currentSet : 1;
-  countupSessionId.value = state.countupSessionId || '';
-  savedCountupMinutes.value = Number.isFinite(state.savedCountupMinutes) ? state.savedCountupMinutes : 0;
+  restoreCountupCheckpointState({
+    sessionId: state.countupSessionId || '',
+    savedMinutes: Number.isFinite(state.savedCountupMinutes) ? state.savedCountupMinutes : 0
+  });
   whiteNoiseEnabled.value = state.whiteNoiseEnabled === true;
   selectedWhiteNoiseId.value = typeof state.selectedWhiteNoiseId === 'string'
     ? state.selectedWhiteNoiseId

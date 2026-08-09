@@ -14,6 +14,7 @@ import zhCN from '@/i18n/zh_CN.json';
 import { translate } from '@/composables/useI18n';
 import { startTaskReminderScheduler, stopTaskReminderScheduler } from '@/taskReminderScheduler';
 import { TaskRepository, sql } from '@/api';
+import { escapeSqlLiteral } from '@/utils/sql';
 import {
   eventBus,
   Events,
@@ -192,10 +193,6 @@ const QUICK_TASK_VIEW_COMMANDS: Array<{ langKey: string; langTextKey: string; fa
   { langKey: 'pinchOpenMonthView', langTextKey: 'command.openMonthView', fallback: 'Quick open month view', view: 'month' },
   { langKey: 'pinchOpenArchiveView', langTextKey: 'command.openArchiveView', fallback: 'Quick open archive view', view: 'archive-table' }
 ];
-
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
 
 function getClosestBlockIdFromElement(element: Element | null, editorRoot?: HTMLElement | null): string {
   if (!element) {

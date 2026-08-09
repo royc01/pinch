@@ -567,6 +567,7 @@ import {
   type FocusStatsSummary
 } from '@/api';
 import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
+import { useFocusCountupCheckpoint } from '@/composables/useFocusCountupCheckpoint';
 import { useI18n } from '@/composables/useI18n';
 import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
 import { useUserSettings } from '@/composables/useUserSettings';
@@ -576,6 +577,7 @@ import FocusTargetIcon from '@/components/FocusTargetIcon.vue';
 import {
   createHabitFocusTarget,
   createTaskFocusTarget,
+  toFocusSessionTargetInput,
   type FocusTimerLinkedTarget
 } from '@/utils/focusTimerTarget';
 import type { FocusTimerHandoffState } from '@/utils/focusTimerHandoff';
@@ -692,10 +694,6 @@ let audioContext: AudioContext | null = null;
 const isDownloading = ref<boolean>(false);
 const enableAudio = ref<boolean>(false);
 const downloadProgress = ref<number>(0);
-const countupSessionId = ref<string>('');
-const savedCountupMinutes = ref<number>(0);
-const isSavingCountupCheckpoint = ref(false);
-const hasPendingCountupCheckpoint = ref(false);
 const targetPickerMode = ref<'habit' | 'task' | null>(null);
 const targetSearch = ref('');
 const isLoadingTargetOptions = ref(false);
@@ -1301,14 +1299,6 @@ function showFocusCompletePopup(): void {
   });
 }
 
-const getElapsedFocusMinutes = () => {
-  if (isBreakMode.value || timerMode.value !== 'countup') {
-    return 0;
-  }
-
-  return Math.floor(phaseElapsedSeconds.value / 60);
-};
-
 function timeToSortMinutes(time: string, fallback: number): number {
   const match = typeof time === 'string' ? time.match(/^(\d{2}):(\d{2})$/) : null;
   if (!match) {
@@ -1478,13 +1468,7 @@ async function saveBackfillSession(): Promise<void> {
   isBackfillSaving.value = true;
   backfillError.value = '';
   try {
-    const targetInput = backfillTarget.value ? {
-      type: backfillTarget.value.type,
-      id: backfillTarget.value.id,
-      name: backfillTarget.value.name,
-      emoji: backfillTarget.value.emoji,
-      blockId: backfillTarget.value.blockId
-    } : null;
+    const targetInput = toFocusSessionTargetInput(backfillTarget.value);
     await addFocusSession(minutes, targetInput, {
       date: backfillDate.value,
       timestamp,
@@ -1514,13 +1498,8 @@ const persistFocusSession = async (minutes: number) => {
   const sessionId = `focus-panel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await addFocusSession(
     minutes,
-    linkedTarget.value ? {
-      type: linkedTarget.value.type,
-      id: linkedTarget.value.id,
-      name: linkedTarget.value.name,
-      emoji: linkedTarget.value.emoji,
-      blockId: linkedTarget.value.blockId
-    } : null
+    toFocusSessionTargetInput(linkedTarget.value),
+    { sessionId }
   );
   await awardFocusSession({
     minutes,
@@ -1533,65 +1512,25 @@ const persistFocusSession = async (minutes: number) => {
 };
 
 function getFocusSessionTargetInput() {
-  return linkedTarget.value ? {
-    type: linkedTarget.value.type,
-    id: linkedTarget.value.id,
-    name: linkedTarget.value.name,
-    emoji: linkedTarget.value.emoji,
-    blockId: linkedTarget.value.blockId
-  } : null;
+  return toFocusSessionTargetInput(linkedTarget.value);
 }
 
-function ensureCountupSessionId(): string {
-  if (!countupSessionId.value) {
-    countupSessionId.value = `focus-panel-countup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const {
+  sessionId: countupSessionId,
+  savedMinutes: savedCountupMinutes,
+  getElapsedFocusMinutes,
+  reset: resetCountupCheckpointState,
+  save: saveCountupCheckpoint
+} = useFocusCountupCheckpoint({
+  isEnabled: () => timerMode.value === 'countup' && !isBreakMode.value,
+  getElapsedSeconds: () => phaseElapsedSeconds.value,
+  getTarget: getFocusSessionTargetInput,
+  createSessionId: () => `focus-panel-countup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  upsertSession: upsertFocusSessionRecord,
+  onSaved: (detail) => {
+    window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, { detail }));
   }
-  return countupSessionId.value;
-}
-
-function resetCountupCheckpointState(): void {
-  countupSessionId.value = '';
-  savedCountupMinutes.value = 0;
-  isSavingCountupCheckpoint.value = false;
-  hasPendingCountupCheckpoint.value = false;
-}
-
-const saveCountupCheckpoint = async (final = false, minutesOverride?: number): Promise<void> => {
-  if (isBreakMode.value || timerMode.value !== 'countup') {
-    return;
-  }
-
-  const minutes = typeof minutesOverride === 'number'
-    ? Math.max(0, Math.floor(minutesOverride))
-    : getElapsedFocusMinutes();
-  if (minutes <= savedCountupMinutes.value) {
-    return;
-  }
-
-  if (isSavingCountupCheckpoint.value) {
-    hasPendingCountupCheckpoint.value = true;
-    return;
-  }
-
-  isSavingCountupCheckpoint.value = true;
-  try {
-    const sessionId = ensureCountupSessionId();
-    await upsertFocusSessionRecord(sessionId, minutes, getFocusSessionTargetInput());
-    const savedDelta = Math.max(0, minutes - savedCountupMinutes.value);
-    savedCountupMinutes.value = Math.max(savedCountupMinutes.value, minutes);
-    if (savedDelta > 0) {
-      window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, {
-        detail: { minutes: savedDelta, sessionId, checkpoint: !final }
-      }));
-    }
-  } finally {
-    isSavingCountupCheckpoint.value = false;
-    if (hasPendingCountupCheckpoint.value) {
-      hasPendingCountupCheckpoint.value = false;
-      void saveCountupCheckpoint(final);
-    }
-  }
-};
+});
 
 const startPhaseTimer = () => {
   if (timerMode.value === 'countup' && !isBreakMode.value) {
@@ -1738,10 +1677,6 @@ const resumeTimer = () => {
 const stopTimer = async (recordCurrentSession: boolean = false) => {
   const elapsedMinutes = recordCurrentSession ? getElapsedFocusMinutes() : 0;
   const countupSessionIdToAward = countupSessionId.value;
-
-  if (recordCurrentSession) {
-    clearTimer();
-  }
 
   isRunning.value = false;
   isPaused.value = false;

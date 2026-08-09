@@ -7,6 +7,7 @@ import {
   type TaskDocumentPathLookup,
   type TaskDocumentScopeTreeNode
 } from '@/utils/taskDocumentScope';
+import { escapeSqlLiteral } from '@/utils/sql';
 
 type ScopeWithMembers = { members: DocumentGroupMember[] };
 
@@ -50,7 +51,7 @@ export function useDocumentScopeMatcher(options: Options) {
     try {
       for (let index = 0; index < keys.length; index += 300) {
         const idsClause = keys.slice(index, index + 300)
-          .map(key => key.slice(key.lastIndexOf(':') + 1).replace(/'/g, "''"))
+          .map(key => escapeSqlLiteral(key.slice(key.lastIndexOf(':') + 1)))
           .map(id => `'${id}'`)
           .join(',');
         const rows: Array<{ id?: string; box?: string; hpath?: string }> = await sql(

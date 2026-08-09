@@ -39,4 +39,29 @@ describe('habit completion rates', () => {
 
     expect(calculateTotalCompletionRate(createHabit())).toBe(100);
   });
+
+  it('applies the configured weekly target to completion rates', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-06T12:00:00.000+08:00'));
+    const { calculateCompletionRate, calculateTotalCompletionRate } = useHabitStatistics({
+      habits: shallowRef([]),
+      parseDate: date => new Date(`${date}T00:00:00`),
+      formatDate,
+      getToday: () => '2026-08-06'
+    });
+
+    const habit = {
+      ...createHabit(),
+      id: 'weekly-3',
+      frequency: 'weekly3',
+      createdAt: '2026-08-03T09:00:00.000+08:00',
+      calendar: [
+        { date: '2026-08-03', completed: true },
+        { date: '2026-08-04', completed: true }
+      ]
+    } as Habit;
+
+    expect(calculateCompletionRate(habit)).toBe(0);
+    expect(calculateTotalCompletionRate(habit)).toBe(0);
+  });
 });

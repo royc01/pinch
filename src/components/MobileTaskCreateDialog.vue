@@ -1,18 +1,20 @@
 <template>
   <div ref="mobileTaskCreateRootRef" class="mobile-task-create-root">
     <div v-if="loading" class="mobile-task-create-loading">{{ t('taskManager.loading') }}</div>
-    <TaskModal
+    <QuickCreateTaskModal
       :show="showTaskModal"
       :t="translate"
       :notebooks="enabledNotebooks"
       :documents="allDocuments"
       :groups="taskGroups"
+      :goals="goalDefinitions"
       :default-group-id="defaultGroupId"
       :last-selected-notebook="lastSelectedNotebook"
       :last-selected-document="lastSelectedDocument"
+      presentation="center"
       @close="emit('close')"
+      @created="handleQuickCreateCreated"
       @manage-groups="showTaskGroupDialog = true"
-      @submit="handleCreateTask"
     />
     <TaskGroupDialog
       :show="showTaskGroupDialog"
@@ -29,9 +31,6 @@
 import { computed, onMounted, ref } from 'vue';
 import {
   TaskRepository,
-  createDocWithMd,
-  createDailyNote,
-  getHPathByID,
   getIDsByHPath,
   loadTaskGroups,
   lsNotebooks,
@@ -39,31 +38,18 @@ import {
   saveTaskGroups,
   sql,
   type TaskGroup,
-  type TaskPriority,
-  type TaskStatus,
 } from '@/api';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
-import TaskModal, { type Document, type Notebook } from '@/components/TaskModal.vue';
+import QuickCreateTaskModal, { type Document, type Notebook, type QuickCreateCreatedPayload } from '@/components/QuickCreateTaskModal.vue';
 import { useI18n } from '@/composables/useI18n';
 import { useMobileTextInputActivation } from '@/composables/useMobileTextInputActivation';
 import { useUserSettings } from '@/composables/useUserSettings';
-import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, PINCH_INBOX_PATH } from '@/utils/pinchInbox';
-import type { TaskReminderType } from '@/utils/taskReminder';
+import { loadGoals, saveGoals, type Goal } from '@/goalRepository';
+import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID } from '@/utils/pinchInbox';
+import { setTaskGoalMembership } from '@/utils/goalTaskMembership';
 import { normalizeTaskGroupOrderIds } from '@/utils/taskGroupShared';
 import { emitOptimisticBlockTaskAdded } from '@/utils/taskCreationSync';
 import { getDocumentCreationSortKey, loadRootDocumentMetadata, normalizeNotebookIds, resolveDocumentDisplayName } from '@/utils/taskViewShared';
-
-interface NewTaskPayload {
-  title: string;
-  description: string;
-  priority: TaskPriority;
-  status: TaskStatus;
-  dueDate: string;
-  reminderType?: TaskReminderType;
-  reminderCustomTime?: string;
-  tags: string[];
-  groupId: string;
-}
 
 interface TaskGroupDialogSavePayload {
   groups: TaskGroup[];
@@ -84,6 +70,7 @@ const showTaskGroupDialog = ref(false);
 const mobileTaskCreateRootRef = ref<HTMLElement | null>(null);
 const notebooks = ref<Notebook[]>([]);
 const taskGroups = ref<TaskGroup[]>([]);
+const goalDefinitions = ref<Goal[]>([]);
 const taskDocumentsByNotebook = ref<Map<string, Document[]>>(new Map());
 
 useMobileTextInputActivation(mobileTaskCreateRootRef);
@@ -245,131 +232,57 @@ async function loadDocumentOptions(): Promise<void> {
   }
 }
 
-async function ensureInboxDocument(notebookId: string): Promise<string> {
+async function handleQuickCreateCreated(payload: QuickCreateCreatedPayload): Promise<void> {
   try {
-    const existingIds = await getIDsByHPath(notebookId, PINCH_INBOX_PATH);
-    if (existingIds && existingIds.length > 0) {
-      return PINCH_INBOX_PATH;
-    }
-  } catch {
-  }
-
-  await createDocWithMd(notebookId, PINCH_INBOX_PATH, '');
-  return PINCH_INBOX_PATH;
-}
-
-function extractDailyNoteId(result: Awaited<ReturnType<typeof createDailyNote>>): string {
-  if (typeof result === 'string') {
-    return result;
-  }
-  if (result && typeof result === 'object') {
-    return result.id || result.rootId || '';
-  }
-  return '';
-}
-
-function normalizeNotebookDocPath(notebookId: string, hPath: string): string {
-  const notebook = notebooks.value.find(nb => nb.id === notebookId);
-  const normalizedHPath = hPath.startsWith('/') ? hPath : `/${hPath}`;
-  if (!notebook?.name) {
-    return normalizedHPath;
-  }
-  const notebookPrefix = `/${notebook.name}/`;
-  if (normalizedHPath.startsWith(notebookPrefix)) {
-    return `/${normalizedHPath.slice(notebookPrefix.length)}`;
-  }
-  return normalizedHPath;
-}
-
-async function ensureDailyNoteDocument(notebookId: string): Promise<string> {
-  const result = await createDailyNote(notebookId);
-  if (result && typeof result === 'object') {
-    const directPath = typeof result.path === 'string' && result.path.trim()
-      ? result.path.trim()
-      : typeof result.hPath === 'string' && result.hPath.trim()
-        ? result.hPath.trim()
-        : '';
-    if (directPath) {
-      return normalizeNotebookDocPath(notebookId, directPath);
-    }
-  }
-  const dailyNoteId = extractDailyNoteId(result);
-  if (!dailyNoteId) {
-    throw new Error('Failed to create daily note');
-  }
-  const hPath = await getHPathByID(dailyNoteId);
-  if (!hPath) {
-    throw new Error('Failed to resolve daily note path');
-  }
-  return normalizeNotebookDocPath(notebookId, hPath);
-}
-
-async function handleCreateTask(taskData: NewTaskPayload, notebookId: string, documentId: string): Promise<void> {
-  try {
-    let docPath = '';
-
-    if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
-      docPath = await ensureDailyNoteDocument(notebookId);
-    } else if (documentId && documentId !== PINCH_INBOX_OPTION_ID) {
-      const selectedDoc = allDocuments.value.find(doc => doc.id === documentId && doc.notebookId === notebookId);
-      if (selectedDoc?.path) {
-        docPath = selectedDoc.path.startsWith('/') ? selectedDoc.path : `/${selectedDoc.path}`;
+    const { blockId, taskId, notebookId, documentId, docPath, task } = payload;
+    let resolvedRootId = documentId !== PINCH_INBOX_OPTION_ID && documentId !== PINCH_DAILY_NOTE_OPTION_ID
+      ? documentId
+      : '';
+    if (!resolvedRootId) {
+      try {
+        resolvedRootId = (await getIDsByHPath(notebookId, docPath))[0] || '';
+      } catch {
+        // The optimistic task can still be reconciled by block ID.
       }
     }
-
-    if (!docPath) {
-      docPath = await ensureInboxDocument(notebookId);
-    }
-
-    const created = await TaskRepository.createBlockTask({
-      title: taskData.title,
-      description: taskData.description,
-      priority: taskData.priority,
-      status: taskData.status,
-      dueDate: taskData.dueDate || undefined,
-      reminderType: taskData.reminderType,
-      reminderCustomTime: taskData.reminderCustomTime || undefined,
-      tags: taskData.tags || [],
-      groupId: taskData.groupId || undefined,
-    }, notebookId, docPath, { emitTaskAdded: false });
-
-    if (created?.blockId && created.taskId) {
-      let resolvedRootId = documentId !== PINCH_INBOX_OPTION_ID && documentId !== PINCH_DAILY_NOTE_OPTION_ID
-        ? documentId
-        : '';
-      if (!resolvedRootId) {
-        try {
-          resolvedRootId = (await getIDsByHPath(notebookId, docPath))[0] || '';
-        } catch {
-          // The optimistic task can still be reconciled by block ID.
-        }
+    emitOptimisticBlockTaskAdded({ blockId, taskId }, {
+      notebookId,
+      rootId: resolvedRootId,
+      docPath,
+      task: {
+        title: task.title,
+        status: task.status || 'pending',
+        priority: task.priority || 'none',
+        dueDate: task.dueDate || undefined,
+        tags: task.tags || [],
+        groupId: task.groupId || undefined,
+        description: task.description || ''
       }
-      emitOptimisticBlockTaskAdded(created, {
+    });
+    const selectedGoalIds = Array.isArray(task.goalIds)
+      ? task.goalIds
+        .map(goalId => typeof goalId === 'string' ? goalId.trim() : '')
+        .filter(goalId => goalId && goalDefinitions.value.some(goal => goal.id === goalId))
+      : [];
+    if (selectedGoalIds.length > 0 && taskId) {
+      const nextGoals = setTaskGoalMembership(goalDefinitions.value, {
+        taskId,
+        blockId,
         notebookId,
-        rootId: resolvedRootId,
-        docPath,
-        task: {
-          title: taskData.title,
-          status: taskData.status || 'pending',
-          priority: taskData.priority || 'none',
-          dueDate: taskData.dueDate || undefined,
-          tags: taskData.tags || [],
-          groupId: taskData.groupId || undefined,
-          description: taskData.description || ''
-        }
-      });
+        rootId: resolvedRootId || undefined,
+        title: task.title
+      }, selectedGoalIds);
+      goalDefinitions.value = nextGoals;
+      await saveGoals(nextGoals);
     }
-
-    const normalizedGroupId = typeof taskData.groupId === 'string' ? taskData.groupId.trim() : '';
     await updateSettings('taskManager', {
       lastTaskNotebook: notebookId,
       lastTaskDocument: documentId,
-      selectedGroupId: normalizedGroupId,
+      selectedGroupId: task.groupId || ''
     });
-
     emit('close');
   } catch (error) {
-    console.error('[MobileTaskCreateDialog] Failed to create task:', error);
+    console.error('[MobileTaskCreateDialog] Failed to finalize quick-create task:', error);
     await pushMsg(t('kanbanView.createTaskFailedRetry'), 3000);
   }
 }
@@ -392,6 +305,9 @@ onMounted(async () => {
       loadDocumentOptions(),
       loadTaskGroups().then(groups => {
         taskGroups.value = groups;
+      }),
+      loadGoals().then(goals => {
+        goalDefinitions.value = goals;
       }),
     ]);
   } finally {
@@ -417,29 +333,9 @@ onMounted(async () => {
   color: var(--b3-theme-on-background);
 }
 
-.mobile-task-create-root :deep(.modal-overlay) {
-  align-items: center;
-  padding: 16px;
-  box-sizing: border-box;
-  background-color: transparent;
-}
-
-.mobile-task-create-root :deep(.modal-content) {
+.mobile-task-create-root :deep(.modal-content.is-quick-create) {
   width: min(680px, calc(100vw - 32px));
   min-width: min(680px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
-  border-radius: 20px;
-  border: 1px solid var(--b3-theme-border);
-  box-shadow: var(--b3-dialog-shadow);
-}
-
-.mobile-task-create-root :deep(.slide-enter-from),
-.mobile-task-create-root :deep(.slide-leave-to) {
-  transform: translateY(12px) scale(0.98);
-}
-
-.mobile-task-create-root :deep(.slide-enter-to),
-.mobile-task-create-root :deep(.slide-leave-from) {
-  transform: translateY(0) scale(1);
 }
 </style>

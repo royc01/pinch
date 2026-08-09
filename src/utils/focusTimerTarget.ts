@@ -1,4 +1,4 @@
-import { openBlockById, type Habit, type Task } from '@/api';
+import { openBlockById, type FocusSessionTargetInput, type Habit, type Task } from '@/api';
 import { eventBus, Events } from '@/utils/eventBus';
 import { translate } from '@/composables/useI18n';
 
@@ -10,6 +10,22 @@ export interface FocusTimerLinkedTarget {
   emoji?: string;
   preferredDuration?: number;
   blockId?: string;
+}
+
+export function toFocusSessionTargetInput(
+  target: FocusTimerLinkedTarget | null | undefined
+): FocusSessionTargetInput | null {
+  if (!target) {
+    return null;
+  }
+
+  return {
+    type: target.type,
+    id: target.id,
+    name: target.name,
+    emoji: target.emoji,
+    blockId: target.blockId
+  };
 }
 
 export function stripFocusTargetText(value: string): string {

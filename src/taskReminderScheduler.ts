@@ -1,5 +1,5 @@
 import { TaskRepository, openBlockById, pushMsg, type Task } from '@/api';
-import { translate } from '@/composables/useI18n';
+import { formatTemplate, translate } from '@/composables/useI18n';
 import { stripHtml } from '@/composables/useTaskCommon';
 import { eventBus, Events } from '@/utils/eventBus';
 import { getFrontend } from 'siyuan';
@@ -64,13 +64,6 @@ let persistTimer: number | null = null;
 let blockRefreshTimer: number | null = null;
 let fullRefreshTimer: number | null = null;
 let unsubscribeHandlers: Array<() => void> = [];
-
-function formatTemplate(key: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    translate(key)
-  );
-}
 
 function getReminderNotificationTitle(): string {
   return translate('taskReminder.notificationTitle', 'Task reminder');

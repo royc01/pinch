@@ -81,31 +81,6 @@
             <div class="stat-label">{{ t('habitTracker.completionRate') }}</div>
           </div>
         </div>
-        <div v-if="monthCheckinNotes.length > 0" class="checkin-notes-container">
-          <h4 class="checkin-notes-title">{{ t('habitTracker.monthCheckinNotes') }}</h4>
-          <div class="checkin-notes-list">
-            <div 
-              v-for="entry in monthCheckinNotes" 
-              :key="entry.date" 
-              class="checkin-notes-item"
-            >
-              <div class="checkin-notes-date">{{ entry.date.split('-')[2] }}</div>
-              <div class="checkin-notes-content">
-                <div v-if="entry.focusNotes?.length" class="checkin-focus-notes">
-                  <div
-                    v-for="focusNote in entry.focusNotes"
-                    :key="focusNote.sessionId"
-                    class="checkin-focus-note"
-                  >
-                    <div class="checkin-focus-note-label">{{ focusNote.label }}</div>
-                    <div class="checkin-notes-note">{{ focusNote.note }}</div>
-                  </div>
-                </div>
-                <div v-else class="checkin-notes-note">{{ entry.note }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
       <div class="cumulative-stats">
         <div class="stat-row">
@@ -191,17 +166,6 @@ interface HourData {
   count: number;
 }
 
-interface CheckinNote {
-  date: string;
-  note: string;
-  focusNotes?: Array<{
-    sessionId: string;
-    label: string;
-    minutes: number;
-    note: string;
-  }>;
-}
-
 interface LongestStreak {
   streak: number;
   startDate: Date | null;
@@ -221,7 +185,6 @@ interface Props {
   totalCompletionRate: number;
   commonTimeSlot: string;
   hourDistribution: HourData[];
-  monthCheckinNotes: CheckinNote[];
   getFrequencyText: (habit: Habit) => string;
   getCreatedDateText: (habit: Habit) => string;
   formatTimelineDate: (date: Date | null) => string;
@@ -453,93 +416,6 @@ const getToday = (): string => {
         }
       }
       
-      .checkin-notes-container {
-        margin-top: 20px;
-        background: var(--b3-list-background);
-        border-radius: 8px;
-        
-        .checkin-notes-title {
-          margin: 0 0 12px 0;
-          font-size: 14px;
-          font-weight: bold;
-          color: var(--b3-theme-on-surface);
-        }
-        
-        .checkin-notes-list {
-          display: flex;
-          flex-direction: column;
-          overflow-y: auto;
-          max-height: 200px;
-          
-          .checkin-notes-item {
-            display: flex;
-            align-items: flex-start;
-            padding: 16px 0;
-            background: var(--b3-theme-background);
-            border-radius: 6px;
-            position: relative;
-            transition: background-color 0.2s;
-            
-            &::before {
-              content: '';
-              position: absolute;
-              top: 0;
-              left: 7px;
-              height: 100%;
-              width: 2px;
-              background: radial-gradient(circle at center, var(--b3-theme-on-background) 1px, transparent 1px);
-              background-size: 2px 5px;
-              background-repeat: repeat-y;
-              opacity: 0.3;
-            }
-            
-            .checkin-notes-date {
-              font-size: 14px;
-              font-weight: bold;
-              color: var(--b3-theme-on-background);
-              min-width: 30px;
-              position: relative;
-              z-index: 1;
-              background: var(--b3-theme-background);
-            }
-            
-            .checkin-notes-content {
-              flex: 1;
-              background-color: var(--b3-list-hover);
-              border-radius: 12px;
-              margin-top: -8px;
-              padding: 8px;
-
-              .checkin-focus-notes {
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-              }
-
-              .checkin-focus-note {
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-              }
-
-              .checkin-focus-note-label {
-                font-size: 12px;
-                font-weight: 600;
-                color: var(--b3-theme-on-background);
-                line-height: 1.4;
-              }
-              
-              .checkin-notes-note {
-                font-size: 13px;
-                color: var(--b3-theme-on-surface);
-                word-break: break-word;
-                line-height: 1.5;
-                white-space: pre-wrap;
-              }
-            }
-          }
-        }
-      }
     }
 
     .calendar-view {

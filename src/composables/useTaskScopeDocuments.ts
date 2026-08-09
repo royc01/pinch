@@ -10,6 +10,7 @@ import {
   buildGoalScopeDocumentsFromTasks,
   type GoalScopeDocument
 } from '@/utils/goalScopeDocuments';
+import { escapeSqlLiteral } from '@/utils/sql';
 
 export interface TaskScopeTaskDocument {
   id: string;
@@ -36,10 +37,6 @@ interface UseTaskScopeDocumentsOptions {
   logPrefix?: string;
 }
 
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
 function buildDocumentKey(notebookId: string, documentId: string): string {
   return `${notebookId}:${documentId}`;
 }
@@ -52,20 +49,13 @@ function compareTaskDocuments(left: TaskScopeTaskDocument, right: TaskScopeTaskD
   return left.name.localeCompare(right.name, 'zh-CN');
 }
 
-function compareDialogDocuments(left: TaskScopeDialogDocument, right: TaskScopeDialogDocument): number {
-  const idA = left.id || '';
-  const idB = right.id || '';
-  if (idA !== idB) {
-    return idB.localeCompare(idA);
-  }
-  const notebookDiff = left.notebookName.localeCompare(right.notebookName, 'zh-CN');
-  if (notebookDiff !== 0) {
-    return notebookDiff;
-  }
-  return left.name.localeCompare(right.name, 'zh-CN');
+interface ScopeDocumentSortItem {
+  id: string;
+  name: string;
+  notebookName: string;
 }
 
-function compareGoalDocuments(left: GoalScopeDocument, right: GoalScopeDocument): number {
+function compareScopeDocuments(left: ScopeDocumentSortItem, right: ScopeDocumentSortItem): number {
   const idA = left.id || '';
   const idB = right.id || '';
   if (idA !== idB) {
@@ -181,7 +171,7 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
         parentId: document.parentId,
         storagePath: document.storagePath
       }))
-      .sort(compareDialogDocuments)
+      .sort(compareScopeDocuments)
   );
 
   // Unlike documentGroupDialogDocuments, this includes documents with no tasks.
@@ -207,7 +197,7 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
         parentId: document.parentId,
         storagePath: document.storagePath
       }))
-      .sort(compareDialogDocuments);
+      .sort(compareScopeDocuments);
   });
 
   const goalScopeDocuments = computed<GoalScopeDocument[]>(() => {
@@ -231,7 +221,7 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
       mergeGoalDocument(documentsByKey, document);
     }
 
-    return Array.from(documentsByKey.values()).sort(compareGoalDocuments);
+    return Array.from(documentsByKey.values()).sort(compareScopeDocuments);
   });
 
   function buildScopeSql(alias: string = 'b'): string {

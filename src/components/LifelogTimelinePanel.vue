@@ -164,6 +164,40 @@
                 >{{ item.note }}</button>
                 <div v-else class="lifelog-timeline-note">{{ item.note }}</div>
               </template>
+              <template v-if="editingAnnotationItemId === item.id">
+                <textarea
+                  v-model="editingAnnotationText"
+                  class="lifelog-timeline-note-input"
+                  :placeholder="editorPlaceholder"
+                  rows="3"
+                  autofocus
+                  @keydown.ctrl.enter.prevent="saveAnnotationEdit(item)"
+                  @keydown.esc.prevent="cancelAnnotationEdit"
+                  @blur="saveAnnotationEdit(item)"
+                  @mousedown.stop
+                  @click.stop
+                />
+              </template>
+              <template v-else-if="item.annotation">
+                <button
+                  v-if="item.annotationEditable"
+                  type="button"
+                  class="lifelog-timeline-annotation is-editable"
+                  :aria-label="item.annotation"
+                  @click.stop="startAnnotationEdit(item)"
+                >{{ item.annotation }}</button>
+                <div v-else class="lifelog-timeline-annotation">{{ item.annotation }}</div>
+              </template>
+              <button
+                v-else-if="item.annotationEditable"
+                type="button"
+                class="lifelog-timeline-annotation-add ariaLabel"
+                :aria-label="addAnnotationLabel"
+                :title="addAnnotationLabel"
+                @click.stop="startAnnotationEdit(item)"
+              >
+                <Icon name="add" width="13" height="13" />
+              </button>
             </div>
           </div>
         </div>
@@ -245,6 +279,10 @@ export interface LifelogTimelinePanelItem {
   moodSvg?: string;
   deletable?: boolean;
   editable?: boolean;
+  annotationKey?: string;
+  annotationDate?: string;
+  annotation?: string;
+  annotationEditable?: boolean;
   badges?: LifelogTimelinePanelBadge[];
 }
 
@@ -281,6 +319,7 @@ const props = withDefaults(defineProps<{
   cancelLabel?: string;
   deleteConfirmTitle?: string;
   deleteConfirmMessage?: string;
+  addAnnotationLabel?: string;
   variant?: 'drawer' | 'embedded';
   fillHeight?: boolean;
   dateStripDays?: LifelogTimelineDateStripDay[];
@@ -295,6 +334,7 @@ const props = withDefaults(defineProps<{
   cancelLabel: 'Cancel',
   deleteConfirmTitle: 'Delete this record?',
   deleteConfirmMessage: 'This action cannot be undone.',
+  addAnnotationLabel: 'Add note',
   variant: 'drawer',
   fillHeight: false,
   dateStripDays: () => [],
@@ -312,6 +352,7 @@ const emit = defineEmits<{
   'clear-draft': [];
   'delete-item': [item: LifelogTimelinePanelItem];
   'update-item': [item: LifelogTimelinePanelItem, text: string];
+  'update-annotation': [item: LifelogTimelinePanelItem, text: string];
 }>();
 
 const isDraftEmpty = computed(() => !props.draft.trim());
@@ -320,6 +361,8 @@ const selectedDateStripKey = computed(() => props.dateStripDays.find(day => day.
 const pendingDeleteItem = ref<LifelogTimelinePanelItem | null>(null);
 const editingItemId = ref<string | null>(null);
 const editingText = ref('');
+const editingAnnotationItemId = ref<string | null>(null);
+const editingAnnotationText = ref('');
 
 function getBadgeClass(badge: LifelogTimelinePanelBadge): string[] {
   if (badge.type === 'goal') {
@@ -354,6 +397,7 @@ watch(
     } else {
       pendingDeleteItem.value = null;
       cancelItemEdit();
+      cancelAnnotationEdit();
     }
   },
   { immediate: true }
@@ -399,6 +443,7 @@ function startItemEdit(item: LifelogTimelinePanelItem): void {
   if (!item.editable) {
     return;
   }
+  cancelAnnotationEdit();
   editingItemId.value = item.id;
   editingText.value = item.note;
 }
@@ -416,6 +461,34 @@ function saveItemEdit(item: LifelogTimelinePanelItem): void {
   }
   emit('update-item', item, text);
   cancelItemEdit();
+}
+
+function startAnnotationEdit(item: LifelogTimelinePanelItem): void {
+  if (!item.annotationEditable) {
+    return;
+  }
+  cancelItemEdit();
+  editingAnnotationItemId.value = item.id;
+  editingAnnotationText.value = item.annotation || '';
+}
+
+function cancelAnnotationEdit(): void {
+  editingAnnotationItemId.value = null;
+  editingAnnotationText.value = '';
+}
+
+function saveAnnotationEdit(item: LifelogTimelinePanelItem): void {
+  if (editingAnnotationItemId.value !== item.id) {
+    return;
+  }
+  const text = editingAnnotationText.value.trim();
+  const previousText = item.annotation || '';
+  if (text === previousText) {
+    cancelAnnotationEdit();
+    return;
+  }
+  emit('update-annotation', item, text);
+  cancelAnnotationEdit();
 }
 
 function handleBackdropMouseDown(): void {
@@ -883,7 +956,8 @@ function handleBackdropMouseDown(): void {
   white-space: nowrap;
 }
 
-.lifelog-timeline-note {
+.lifelog-timeline-note,
+.lifelog-timeline-annotation {
   margin-top: 6px;
   color: var(--b3-theme-on-background);
   font-size: 12px;
@@ -892,7 +966,8 @@ function handleBackdropMouseDown(): void {
   word-break: break-word;
 }
 
-.lifelog-timeline-note.is-editable {
+.lifelog-timeline-note.is-editable,
+.lifelog-timeline-annotation.is-editable {
   display: block;
   width: 100%;
   padding: 0;
@@ -902,7 +977,28 @@ function handleBackdropMouseDown(): void {
   cursor: text;
 }
 
-.lifelog-timeline-note.is-editable:hover {
+.lifelog-timeline-note.is-editable:hover,
+.lifelog-timeline-annotation.is-editable:hover {
+  color: var(--b3-theme-primary);
+}
+
+.lifelog-timeline-annotation-add {
+  width: 22px;
+  height: 22px;
+  margin-top: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.lifelog-timeline-annotation-add:hover {
+  background: var(--b3-list-hover);
   color: var(--b3-theme-primary);
 }
 

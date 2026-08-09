@@ -1,5 +1,6 @@
 import { getBlockDOM, getHPathByID, sql, type Task } from '@/api';
 import { normalizeNotebookIds } from './notebookIds';
+import { escapeSqlLiteral } from './sql';
 
 export interface RepeatRulePayload {
   blockId?: string;
@@ -80,7 +81,7 @@ export async function loadRootDocumentMetadata(rootIds: string[]): Promise<Map<s
     return new Map();
   }
 
-  const rootIdSql = normalizedRootIds.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
+  const rootIdSql = normalizedRootIds.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
   const rows = await sql(`
     SELECT id, hpath, content
     FROM blocks

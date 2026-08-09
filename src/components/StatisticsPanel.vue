@@ -109,7 +109,7 @@
 import { computed } from 'vue';
 import type { Habit } from '@/api';
 import EmojiIcon from '@/components/EmojiIcon.vue';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { getSiyuanIntlLocaleTag } from '@/utils/locale';
 import Icon from './Icon.vue';
 
@@ -153,13 +153,6 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-
-function formatTemplate(key: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    t(key)
-  );
-}
 
 const weekdayLabels = computed(() => {
   const formatter = new Intl.DateTimeFormat(getSiyuanIntlLocaleTag(), { weekday: 'narrow' });

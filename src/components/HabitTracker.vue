@@ -94,14 +94,11 @@
           :get-calendar-view-data="getCalendarViewData"
           :is-habit-scheduled-today="isHabitScheduledToday"
           :pomodoro-state-class="pomodoroStateClass"
-          :format-pomodoro-time="formatPomodoroTime"
+            :format-pomodoro-time="formatPomodoroTime"
             @show-stats="showHabitStats"
-            @doc-button="handleHabitDocButton"
-            @open-bind-doc="openBindDocModal"
+            @edit="openHabitEditor"
             @start-focus="openFocusTimerForHabit"
             @toggle-habit="toggleHabit"
-            @toggle-habit-with-note="openCheckinNoteDialog"
-            @bind-doc="handleBindDocFromDrag"
             @reorder="reorderHabits"
             @pomodoro-pause="togglePomodoroPause"
             @pomodoro-resume="togglePomodoroResume"
@@ -149,11 +146,10 @@
           :get-calendar-view-data="getCalendarViewData"
           :is-habit-scheduled-today="isHabitScheduledToday"
           :pomodoro-state-class="pomodoroStateClass"
-          :format-pomodoro-time="formatPomodoroTime"
+            :format-pomodoro-time="formatPomodoroTime"
           manage-mode
             @show-stats="showHabitStats"
-            @doc-button="handleHabitDocButton"
-            @open-bind-doc="openBindDocModal"
+            @edit="openHabitEditor"
             @start-focus="openFocusTimerForHabit"
             @toggle-pause="togglePauseHabit"
             @delete="deleteHabit"
@@ -167,6 +163,7 @@
 
     <!-- 习惯统计面板 -->
     <HabitStatsPanel
+      v-if="showHabitStatsPanel"
       :habit="selectedHabit"
       :weekdays="weekdaysForCalendar"
       :month-view-data="statsMonthViewData"
@@ -179,7 +176,6 @@
       :total-completion-rate="statsTotalCompletionRate"
       :common-time-slot="statsCommonTimeSlot"
       :hour-distribution="statsHourDistribution"
-      :month-checkin-notes="statsMonthCheckinNotes"
       :get-frequency-text="getFrequencyText"
       :get-created-date-text="getCreatedDateText"
       :format-timeline-date="formatTimelineDate"
@@ -256,32 +252,6 @@
       @submit="handleAddHabit"
     />
 
-    <HabitDocBindDialog
-      :show="showBindDocModal"
-      :doc-id-input="bindDocInput"
-      @update:docIdInput="bindDocInput = $event"
-      @close="closeBindDocModal"
-      @clear="clearBindDoc"
-      @confirm="confirmBindDoc"
-    />
-    
-    <HabitCheckinNoteDialog
-      :show="showCheckinNoteDialog"
-      :habit-name="checkinNoteHabit?.name || ''"
-      :habit-emoji="checkinNoteHabit?.emoji"
-      :is-edit="checkinNoteIsEdit"
-      :initial-note="checkinNoteInitial"
-      :focus-notes="checkinFocusNoteItems"
-      :has-note-doc="!!checkinNoteHabit?.noteDocId"
-      :can-undo-once="canUndoCheckinOnce(checkinNoteHabit)"
-      :can-clear-today="canClearTodayCheckin(checkinNoteHabit)"
-      @close="closeCheckinNoteDialog"
-      @confirm="handleCheckinNoteConfirm"
-      @undo-once="handleCheckinNoteUndoOnce"
-      @clear-today="handleCheckinNoteClearToday"
-      @bind-doc="handleCheckinNoteBindDoc"
-    />
-    
     <!-- 情绪打卡模态框 -->
     <MoodTrackerModal
       :show="showMoodTracker"
@@ -436,19 +406,15 @@ import MoodCalendarPanel from '@/components/MoodCalendarPanel.vue';
 import FocusTimerHost from '@/components/FocusTimerHost.vue';
 import KanbanView from '@/components/KanbanView.vue';
 import TaskManager from '@/components/TaskManager.vue';
-import HabitDocBindDialog from '@/components/HabitDocBindDialog.vue';
-import HabitCheckinNoteDialog from '@/components/HabitCheckinNoteDialog.vue';
 import { getHabits, saveHabits, Habit, type Task } from '@/api';
 import { openKanbanView } from '@/main';
 import { useHabitCache } from '@/composables/useHabitCache';
 import { useHabitCheckin } from '@/composables/useHabitCheckin';
 import { useHabitCrud } from '@/composables/useHabitCrud';
 import { useHabitFormState } from '@/composables/useHabitFormState';
-import { useHabitI18n } from '@/composables/useHabitI18n';
+import { useI18n } from '@/composables/useI18n';
 import { useHabitSorting } from '@/composables/useHabitSorting';
 import { useHabitViewData } from '@/composables/useHabitViewData';
-import { normalizeDocId, useHabitDocBinding } from '@/composables/useHabitDocBinding';
-import { useHabitCheckinLog, type HabitFocusNoteItem, type HabitMonthCheckinNote } from '@/composables/useHabitCheckinLog';
 import { useHabitEmojis } from '@/composables/useHabitEmojis';
 import { useHabitPomodoro } from '@/composables/useHabitPomodoro';
 import { useHabitStatistics } from '@/composables/useHabitStatistics';
@@ -502,7 +468,7 @@ const {
   getSmallMoodSvg
 } = useHabitEmojis();
 
-const { t } = useHabitI18n();
+const { t } = useI18n();
 const { rewardSnapshot } = useRewards();
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
@@ -877,307 +843,6 @@ const toggleHabit = buildToggleHabit({
   startPomodoroTimer,
   clearPomodoroForHabit
 });
-const {
-  showBindDocModal,
-  bindDocInput,
-  openBindDocModal,
-  closeBindDocModal,
-  confirmBindDoc,
-  clearBindDoc,
-  handleHabitDocButton
-} = useHabitDocBinding(habits, {
-  saveHabitsNow: immediateSaveHabits
-});
-
-const {
-  writeCheckinLogToDoc,
-  deleteCheckinLogFromDoc,
-  getExistingNote,
-  getHabitFocusNoteItems,
-  getMonthCheckinNotes
-} = useHabitCheckinLog();
-
-const showCheckinNoteDialog = ref(false);
-const checkinNoteHabit = ref<Habit | null>(null);
-const checkinNoteIsEdit = ref(false);
-const checkinNoteInitial = ref('');
-const checkinFocusNoteItems = ref<HabitFocusNoteItem[]>([]);
-const statsMonthCheckinNotes = ref<HabitMonthCheckinNote[]>([]);
-let checkinNoteOpenRequestId = 0;
-
-const openCheckinNoteDialog = async (habit: Habit): Promise<void> => {
-  const requestId = ++checkinNoteOpenRequestId;
-  showCheckinNoteDialog.value = false;
-  checkinNoteHabit.value = habit;
-  checkinNoteIsEdit.value = false;
-  checkinNoteInitial.value = '';
-  checkinFocusNoteItems.value = [];
-
-  const today = getToday();
-  const todayRecord = habit.calendar.find(day => day.date === today);
-  const hasTodayCheckin = habit.completedToday || Boolean((todayRecord?.completedCount || 0) > 0);
-
-  if (!hasTodayCheckin && !habit.noteDocId) {
-    openBindDocModal(habit);
-    return;
-  }
-
-  if (hasTodayCheckin && habit.noteDocId) {
-    const focusNoteItems = await getHabitFocusNoteItems(habit.noteDocId, habit, today);
-    const existingNote = focusNoteItems.length > 0
-      ? ''
-      : await getExistingNote(habit.noteDocId, today, habit);
-    if (requestId !== checkinNoteOpenRequestId || checkinNoteHabit.value?.id !== habit.id) {
-      return;
-    }
-    checkinNoteIsEdit.value = true;
-    checkinNoteInitial.value = existingNote || '';
-    checkinFocusNoteItems.value = focusNoteItems;
-    showCheckinNoteDialog.value = true;
-    return;
-  }
-
-  checkinNoteIsEdit.value = false;
-  checkinNoteInitial.value = '';
-  checkinFocusNoteItems.value = [];
-  showCheckinNoteDialog.value = true;
-};
-
-const closeCheckinNoteDialog = (): void => {
-  checkinNoteOpenRequestId++;
-  showCheckinNoteDialog.value = false;
-  checkinNoteHabit.value = null;
-  checkinNoteIsEdit.value = false;
-  checkinNoteInitial.value = '';
-  checkinFocusNoteItems.value = [];
-};
-
-const getTodayHabitRecord = (habit: Habit | null) => {
-  if (!habit) return null;
-  const today = getToday();
-  return habit.calendar.find(day => day.date === today) || null;
-};
-
-const getHabitTargetCount = (habit: Habit | null): number => {
-  if (!habit) return 1;
-  const todayRecord = getTodayHabitRecord(habit);
-  return Math.max(1, Number(todayRecord?.targetCount ?? habit.timesPerDay ?? 1) || 1);
-};
-
-const getHabitCompletedCount = (habit: Habit | null): number => {
-  const todayRecord = getTodayHabitRecord(habit);
-  return Math.max(0, Number(todayRecord?.completedCount || 0) || 0);
-};
-
-const canUndoCheckinOnce = (habit: Habit | null): boolean => {
-  return getHabitTargetCount(habit) > 1 && getHabitCompletedCount(habit) > 0;
-};
-
-const canClearTodayCheckin = (habit: Habit | null): boolean => {
-  const todayRecord = getTodayHabitRecord(habit);
-  return Boolean(todayRecord && ((todayRecord.completedCount || 0) > 0 || todayRecord.completed));
-};
-
-const writePomodoroCheckinLog = async (habit: Habit): Promise<void> => {
-  const habitId = habit.id;
-  const noteDocId = habit.noteDocId;
-  const today = getToday();
-
-  if (!noteDocId) {
-    return;
-  }
-
-  try {
-    const latestHabit = habits.value.find(item => item.id === habitId);
-    if (!latestHabit || latestHabit.isPaused || latestHabit.noteDocId !== noteDocId) {
-      return;
-    }
-
-    const dayRecord = latestHabit.calendar.find(day => day.date === today);
-    if (!dayRecord?.completed) {
-      return;
-    }
-
-    const existingNote = await getExistingNote(noteDocId, today, latestHabit);
-    await writeCheckinLogToDoc(noteDocId, {
-      habit: latestHabit,
-      date: today,
-      note: existingNote ?? undefined,
-      completedCount: dayRecord.completedCount,
-      targetCount: dayRecord.targetCount
-    });
-  } catch (error) {
-    console.error('[HabitTracker] Failed to write pomodoro checkin log:', error);
-  }
-};
-
-const refreshHabitAfterTodayRecordChange = (habit: Habit): void => {
-  const today = getToday();
-  const todayRecord = habit.calendar.find(day => day.date === today);
-  habit.completedToday = Boolean(todayRecord?.completed);
-  habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
-  clearCurrentStreakCacheForHabit(habit.id);
-  clearWeeklyCompletionCacheForHabit(habit.id);
-  clearCompletionRateCacheForHabit(habit.id);
-  habit.currentStreak = calculateCurrentStreak(habit);
-  habits.value = [...habits.value];
-  triggerRef(habits);
-};
-
-const handleCheckinNoteUndoOnce = async (): Promise<void> => {
-  if (!checkinNoteHabit.value || !canUndoCheckinOnce(checkinNoteHabit.value)) return;
-
-  const habit = checkinNoteHabit.value;
-  const today = getToday();
-  const todayRecord = habit.calendar.find(day => day.date === today);
-  if (!todayRecord) return;
-
-  todayRecord.completedCount = Math.max(0, (Number(todayRecord.completedCount) || 0) - 1);
-  if (Array.isArray(todayRecord.checkinTimestamps) && todayRecord.checkinTimestamps.length > 0) {
-    todayRecord.checkinTimestamps = todayRecord.checkinTimestamps.slice(0, -1);
-  }
-  todayRecord.completed = todayRecord.completedCount >= getHabitTargetCount(habit);
-  if (todayRecord.completedCount <= 0) {
-    delete todayRecord.timestamp;
-    delete todayRecord.checkinTimestamps;
-  }
-  if (todayRecord.completedCount <= 0) {
-    habit.calendar = habit.calendar.filter(day => day.date !== today);
-  }
-
-  refreshHabitAfterTodayRecordChange(habit);
-  await immediateSaveHabits(habits.value);
-
-  if (habit.noteDocId && todayRecord.completedCount > 0) {
-    await writeCheckinLogToDoc(habit.noteDocId, {
-      habit,
-      date: today,
-      note: checkinNoteInitial.value,
-      completedCount: todayRecord.completedCount,
-      targetCount: todayRecord.targetCount
-    });
-  } else if (habit.noteDocId) {
-    await deleteCheckinLogFromDoc(habit.noteDocId, today, habit);
-  }
-
-  closeCheckinNoteDialog();
-};
-
-const handleCheckinNoteClearToday = async (): Promise<void> => {
-  if (!checkinNoteHabit.value || !canClearTodayCheckin(checkinNoteHabit.value)) return;
-  if (!confirm(t('habitCheckinNote.confirmClearToday'))) return;
-
-  const habit = checkinNoteHabit.value;
-  const today = getToday();
-  habit.calendar = habit.calendar.filter(day => day.date !== today);
-
-  refreshHabitAfterTodayRecordChange(habit);
-  await immediateSaveHabits(habits.value);
-
-  if (habit.noteDocId) {
-    await deleteCheckinLogFromDoc(habit.noteDocId, today, habit);
-  }
-
-  closeCheckinNoteDialog();
-};
-
-const handleCheckinNoteBindDoc = (): void => {
-  const habit = checkinNoteHabit.value;
-  if (!habit) return;
-
-  closeCheckinNoteDialog();
-  openBindDocModal(habit);
-};
-
-const handleCheckinNoteConfirm = async (note: string, focusNotes: HabitFocusNoteItem[] = []): Promise<void> => {
-  if (!checkinNoteHabit.value) return;
-
-  const habit = checkinNoteHabit.value;
-  const today = getToday();
-  const isEdit = checkinNoteIsEdit.value;
-
-  if (isEdit) {
-    const dayRecord = habit.calendar.find(day => day.date === today);
-    if (habit.noteDocId) {
-      await writeCheckinLogToDoc(habit.noteDocId, {
-        habit,
-        date: today,
-        note: focusNotes.length > 0 ? undefined : note,
-        focusNotes,
-        completedCount: dayRecord?.completedCount,
-        targetCount: dayRecord?.targetCount
-      });
-      if (dayRecord?.note) {
-        delete dayRecord.note;
-        await immediateSaveHabits(habits.value);
-      }
-    }
-    closeCheckinNoteDialog();
-    return;
-  }
-
-  playBubbleSound();
-  const rewardPayload = toggleHabitCompletion(habit, today, { source: 'manual' });
-  
-  const completedToday = habit.completedToday;
-  if (completedToday && !habit.usePomodoro) {
-    animationOriginalStatus.value[habit.id] = false;
-    showAnimation.value = true;
-    animationHabitId.value = habit.id;
-
-    setTimeout(async () => {
-      await immediateSaveHabits(habits.value);
-      processRewardPayload(rewardPayload);
-      
-      if (habit.noteDocId && (note || focusNotes.length > 0)) {
-        const dayRecord = habit.calendar.find(day => day.date === today);
-        await writeCheckinLogToDoc(habit.noteDocId, {
-          habit,
-          date: today,
-          note: focusNotes.length > 0 ? undefined : note,
-          focusNotes,
-          completedCount: dayRecord?.completedCount,
-          targetCount: dayRecord?.targetCount
-        });
-      }
-      
-      showAnimation.value = false;
-      animationHabitId.value = null;
-      delete animationOriginalStatus.value[habit.id];
-    }, 600);
-  } else {
-    await immediateSaveHabits(habits.value);
-    processRewardPayload(rewardPayload);
-    
-    if (habit.noteDocId && (note || focusNotes.length > 0)) {
-      const dayRecord = habit.calendar.find(day => day.date === today);
-      await writeCheckinLogToDoc(habit.noteDocId, {
-        habit,
-        date: today,
-        note: focusNotes.length > 0 ? undefined : note,
-        focusNotes,
-        completedCount: dayRecord?.completedCount,
-        targetCount: dayRecord?.targetCount
-      });
-    }
-  }
-  
-  closeCheckinNoteDialog();
-};
-
-const handleBindDocFromDrag = async (habit: Habit, docId: string): Promise<void> => {
-  const DOC_ID_PATTERN = /^\d{14}-[a-z0-9]{7}$/i;
-  
-  if (!DOC_ID_PATTERN.test(docId)) {
-    console.warn('[HabitTracker] Invalid doc ID format:', docId);
-    return;
-  }
-
-  habit.noteDocId = docId;
-  habits.value = [...habits.value];
-  await immediateSaveHabits(habits.value);
-};
-
 const toggleHabitListCollapsed = () => {
   isHabitListCollapsed.value = !isHabitListCollapsed.value;
   void updateSettings('sidebar', { habitListCollapsed: isHabitListCollapsed.value });
@@ -1227,7 +892,6 @@ function handleFloatingNav(item: FloatingNavId): void {
   switch (item) {
     case 'home':
       closeNavigationPages();
-      closeCheckinNoteDialog();
       showAddHabitModal.value = false;
       closeEditHabitModal();
       return;
@@ -1278,8 +942,6 @@ async function completeFocusLinkedHabit(habitId: string): Promise<void> {
   const rewardPayload = toggleHabitCompletion(habit, getToday(), { source: 'pomodoro' });
   await immediateSaveHabits(habits.value);
   processRewardPayload(rewardPayload);
-
-  await writePomodoroCheckinLog(habit);
 }
 
 
@@ -1516,6 +1178,7 @@ const maxHourCount = computed(() => {
 
 // 当前选中的习惯
 const selectedHabit = ref<Habit | null>(null);
+const showHabitStatsPanel = ref(false);
 
 // 选中习惯的最长连续打卡 - 缓存计算结果避免重复计算
 const selectedHabitLongestStreak = computed(() =>
@@ -1600,6 +1263,7 @@ function closeTrackerPanels(): void {
   showRewardPage.value = false;
   showGoalPage.value = false;
   showHabitManagerPage.value = false;
+  showHabitStatsPanel.value = false;
   selectedHabit.value = null;
 }
 
@@ -1640,12 +1304,12 @@ function openGoalPage(goalId: string = ''): void {
   showGoalPage.value = true;
 }
 
-const showHabitStats = async (habit: Habit) => {
+const showHabitStats = (habit: Habit) => {
   closeTrackerPanels();
   highlightedRewardEntryId.value = '';
   highlightedGoalId.value = '';
+  showHabitStatsPanel.value = true;
   selectedHabit.value = habit;
-  await loadMonthCheckinNotes(habit);
 };
 
 // 显示编辑习惯模态框
@@ -1669,43 +1333,21 @@ const {
   t,
   saveHabitsNow: saveHabits,
   immediateSaveHabits,
-  triggerHabitsRef: () => triggerRef(habits),
-  normalizeDocId
+  triggerHabitsRef: () => triggerRef(habits)
 });
+
+const openHabitEditor = (habit: Habit): void => {
+  showHabitStatsPanel.value = false;
+  selectedHabit.value = habit;
+  openEditHabitModal();
+};
 
 
 // 关闭统计页面
 const closeHabitStats = () => {
+  showHabitStatsPanel.value = false;
   selectedHabit.value = null;
-  statsMonthCheckinNotes.value = [];
 };
-
-const loadMonthCheckinNotes = async (habit: Habit) => {
-  statsMonthCheckinNotes.value = [];
-  if (habit.noteDocId) {
-    const today = new Date();
-    const offset = habit.statsMonthOffset || 0;
-    const targetDate = new Date(today.getFullYear(), today.getMonth() + offset, 1);
-    const year = targetDate.getFullYear();
-    const month = targetDate.getMonth() + 1;
-
-    try {
-      const notes = await getMonthCheckinNotes(habit.noteDocId, habit, year, month);
-      statsMonthCheckinNotes.value = notes;
-    } catch (error) {
-      console.error('[HabitTracker] Failed to load month checkin notes:', error);
-    }
-  }
-};
-
-watch(
-  () => selectedHabit.value?.statsMonthOffset,
-  () => {
-    if (selectedHabit.value) {
-      loadMonthCheckinNotes(selectedHabit.value);
-    }
-  }
-);
 
 // 切换统计页面视图模式（已移除，统计页面只显示月视图）
 // const toggleStatsViewMode = (habit: Habit) => {

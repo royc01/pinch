@@ -2,6 +2,7 @@ import enUS from '@/i18n/en_US.json';
 import zhCN from '@/i18n/zh_CN.json';
 
 type LocaleMessages = Record<string, unknown>;
+export type TemplateValues = Record<string, string | number>;
 
 const bundledMessages: Record<string, LocaleMessages> = {
   en_US: enUS,
@@ -67,6 +68,17 @@ export function translate(key: string, fallback?: string): string {
   ];
 
   return candidates.find(candidate => candidate !== undefined) ?? key;
+}
+
+export function interpolateTemplate(template: string, values: TemplateValues): string {
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
+    template
+  );
+}
+
+export function formatTemplate(key: string, values: TemplateValues, fallback?: string): string {
+  return interpolateTemplate(translate(key, fallback), values);
 }
 
 export function useI18n() {

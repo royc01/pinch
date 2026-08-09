@@ -232,7 +232,7 @@ import Icon from '@/components/Icon.vue';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubtaskItem from '@/components/SubtaskItem.vue';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { sanitizeTaskHtml, sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { getTaskPriorityLabel } from '@/utils/taskPriority';
@@ -372,12 +372,6 @@ const dueText = computed(() => {
   }
   return dueTimeText.value ? `${dueDateText.value} ${dueTimeText.value}` : dueDateText.value;
 });
-const formatTemplate = (key: string, values: Record<string, string | number>): string => {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    t(key)
-  );
-};
 const dueDateTimestamp = computed(() => getTaskDateTimestamp(task.value.dueDate));
 const todayTimestamp = computed(() => {
   const today = new Date();

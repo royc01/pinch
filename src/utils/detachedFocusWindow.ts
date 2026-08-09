@@ -1,4 +1,4 @@
-import { addFocusSession, upsertFocusSessionRecord, type FocusSessionTargetInput } from '@/api';
+import { addFocusSession, upsertFocusSessionRecord } from '@/api';
 import {
   getActiveFocusSessionOwner,
   setActiveFocusSessionOwner,
@@ -8,6 +8,7 @@ import {
 import { awardFocusSession } from '@/rewardRepository';
 import {
   openFocusTimerLinkedTarget,
+  toFocusSessionTargetInput,
   type FocusTimerLinkedTarget
 } from '@/utils/focusTimerTarget';
 import {
@@ -330,15 +331,6 @@ export function isDetachedFocusWindowSupported(): boolean {
   try {
     const remote = getRemote();
     return !!remote?.getCurrentWindow?.();
-  } catch {
-    return false;
-  }
-}
-
-export function isDetachedFocusHostWindowMinimized(): boolean {
-  try {
-    const currentWindow = getRemote()?.getCurrentWindow?.();
-    return !!currentWindow?.isMinimized?.();
   } catch {
     return false;
   }
@@ -871,15 +863,9 @@ async function persistFocusSession(
   }
 
   const sessionId = `focus-detached-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const sessionTarget: FocusSessionTargetInput | null = target ? {
-    type: target.type,
-    id: target.id,
-    name: target.name,
-    emoji: target.emoji,
-    blockId: target.blockId
-  } : null;
+  const sessionTarget = toFocusSessionTargetInput(target);
 
-  await addFocusSession(normalizedMinutes, sessionTarget);
+  await addFocusSession(normalizedMinutes, sessionTarget, { sessionId });
   await awardFocusSession({
     minutes: normalizedMinutes,
     sessionId,
@@ -907,13 +893,7 @@ async function persistFocusSessionCheckpoint(
     return;
   }
 
-  const sessionTarget: FocusSessionTargetInput | null = target ? {
-    type: target.type,
-    id: target.id,
-    name: target.name,
-    emoji: target.emoji,
-    blockId: target.blockId
-  } : null;
+  const sessionTarget = toFocusSessionTargetInput(target);
 
   await upsertFocusSessionRecord(normalizedSessionId, normalizedMinutes, sessionTarget);
 

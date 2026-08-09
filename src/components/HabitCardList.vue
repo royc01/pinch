@@ -12,9 +12,10 @@
         draggable="true"
         @dragstart="handleHabitDragStart($event, habit)"
         @dragend="handleHabitDragEnd"
-        @dragover.prevent="handleHabitDragOver($event, habit)"
+        @dragover="handleHabitDragOver($event, habit)"
         @dragleave="handleHabitDragLeave"
-        @drop.prevent="handleHabitDrop($event, habit)"
+        @drop="handleHabitDrop($event, habit)"
+        @contextmenu.prevent="emit('edit', habit)"
       >
         <div class="habit-week-view">
           <div class="week-habit-item">
@@ -24,15 +25,6 @@
             <div class="habit-info" @click="emit('show-stats', habit)">
               <div class="habit-title">
                 <span class="habit-name ariaLabel" :aria-label="t('habitTracker.viewHabitDetails')">{{ habit.name }}</span>
-                <button
-                  type="button"
-                  class="habit-doc-btn toolbar__item ariaLabel"
-                  :aria-label="habit.noteDocId ? t('habitTracker.openNoteDoc') : t('habitTracker.bindNoteDoc')"
-                  @click.stop="emit('doc-button', habit)"
-                  @contextmenu.prevent.stop="emit('open-bind-doc', habit)"
-                >
-                  <Icon :name="habit.noteDocId ? 'open' : 'bindDoc'" width="12" height="12" class="icon" />
-                </button>
                 <button class="ariaLabel"
                   type="button"
                   :class="[
@@ -101,7 +93,6 @@
               <SyButton
                 v-else
                 @click="emit('toggle-habit', habit.id)"
-                @contextmenu.prevent="emit('toggle-habit-with-note', habit)"
                 :type="isHabitCompleted(habit) ? 'success' : 'default'"
                 size="small"
                 :class="['check-in-btn', 'ariaLabel', { 'success-animation': showAnimation && animationHabitId === habit.id }]"
@@ -256,17 +247,14 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'show-stats', habit: Habit): void;
-  (event: 'doc-button', habit: Habit): void;
-  (event: 'open-bind-doc', habit: Habit): void;
+  (event: 'edit', habit: Habit): void;
   (event: 'start-focus', habit: Habit): void;
   (event: 'toggle-habit', habitId: string): void;
-  (event: 'toggle-habit-with-note', habit: Habit): void;
   (event: 'toggle-pause', habit: Habit): void;
   (event: 'delete', habitId: string): void;
   (event: 'pomodoro-pause'): void;
   (event: 'pomodoro-resume'): void;
   (event: 'pomodoro-stop'): void;
-  (event: 'bind-doc', habit: Habit, docId: string): void;
   (event: 'reorder', sourceHabitId: string, targetHabitId: string): void;
 }>();
 
@@ -275,41 +263,17 @@ const draggedHabitId = ref<string | null>(null);
 const lastReorderedTargetId = ref<string | null>(null);
 const habitDragMimeType = 'application/x-pinch-habit-card';
 
-const extractDocIdFromDragEvent = (event: DragEvent): string | null => {
-  const dataTransfer = event.dataTransfer;
-  if (!dataTransfer) return null;
-
-  // SiYuan uses the application/siyuan-file format.
-  const formats = ['application/siyuan-file', 'text/plain', 'text/uri-list', 'text/html', 'application/x-siyuan-id'];
-  let textData: string | null = null;
-  
-  for (const format of formats) {
-    const data = dataTransfer.getData(format);
-    if (data) {
-      textData = data;
-      break;
-    }
-  }
-
-  if (!textData) return null;
-
-  // Match the SiYuan document ID format: YYYYMMDDHHMMSS-xxxxxxx.
-  const match = textData.match(/\d{14}-[a-z0-9]{7}/i);
-  
-  return match ? match[0] : null;
-};
-
 const handleHabitDragOver = (event: DragEvent, habit: Habit): void => {
-  event.preventDefault();
   const dataTransfer = event.dataTransfer;
   if (!dataTransfer) return;
 
   const isHabitCardDrag = Array.from(dataTransfer.types).includes(habitDragMimeType);
-  if (isHabitCardDrag && draggedHabitId.value === habit.id) return;
+  if (!isHabitCardDrag || draggedHabitId.value === habit.id) return;
 
+  event.preventDefault();
   dragOverHabitId.value = habit.id;
-  dataTransfer.dropEffect = isHabitCardDrag ? 'move' : 'link';
-  if (isHabitCardDrag && draggedHabitId.value && lastReorderedTargetId.value !== habit.id) {
+  dataTransfer.dropEffect = 'move';
+  if (draggedHabitId.value && lastReorderedTargetId.value !== habit.id) {
     lastReorderedTargetId.value = habit.id;
     emit('reorder', draggedHabitId.value, habit.id);
   }
@@ -341,21 +305,17 @@ const handleHabitDragLeave = (): void => {
 };
 
 const handleHabitDrop = (event: DragEvent, habit: Habit): void => {
-  dragOverHabitId.value = null;
   const draggedId = event.dataTransfer?.getData(habitDragMimeType) || draggedHabitId.value;
-  if (draggedId) {
-    if (draggedId !== habit.id && lastReorderedTargetId.value !== habit.id) {
-      emit('reorder', draggedId, habit.id);
-    }
-    draggedHabitId.value = null;
-    lastReorderedTargetId.value = null;
+  if (!draggedId) {
     return;
   }
-  
-  const docId = extractDocIdFromDragEvent(event);
-  if (docId) {
-    emit('bind-doc', habit, docId);
+  event.preventDefault();
+  dragOverHabitId.value = null;
+  if (draggedId !== habit.id && lastReorderedTargetId.value !== habit.id) {
+    emit('reorder', draggedId, habit.id);
   }
+  draggedHabitId.value = null;
+  lastReorderedTargetId.value = null;
 };
 
 const getRectClipId = (habitId: string) => `rect-clip-${habitId}`;
@@ -385,9 +345,9 @@ const getCheckInButtonAriaLabel = (habit: Habit) => {
   if (!props.isHabitScheduledToday(habit)) {
     return props.t('habitTracker.notScheduledToday');
   }
-  return (habit.usePomodoro && !isHabitCompleted(habit) ? props.t('habitTracker.startFocusTimer') : props.t('habitTracker.checkIn'))
-    + '<br>'
-    + props.t('habitTracker.rightClickFillNote');
+  return habit.usePomodoro && !isHabitCompleted(habit)
+    ? props.t('habitTracker.startFocusTimer')
+    : props.t('habitTracker.checkIn');
 };
 
 const {
@@ -485,28 +445,6 @@ const {
 .habit-name {
   color: var(--b3-theme-on-background);
   margin-right: 6px;
-}
-
-.habit-doc-btn {
-  width: 18px;
-  height: 18px;
-  border: none;
-  background: transparent;
-  border-radius: 4px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  margin-right: 6px;
-}
-
-.habit-doc-btn:hover {
-  background-color: var(--b3-list-hover);
-}
-
-.habit-doc-btn .icon {
-  color: var(--b3-theme-on-surface);
 }
 
 .pomodoro-indicator {

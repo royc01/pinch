@@ -466,7 +466,6 @@
                   :aria-label="getWeekLifelogItemTitle(item)"
                   :style="getWeekLifelogTimelineItemStyle(item)"
                   @click.stop="openLifelogTimeline(item.date)"
-                  @contextmenu.prevent.stop="handleWeekLifelogContextMenu(item)"
                 >
                   <div class="week-lifelog-title">
                     <span
@@ -629,6 +628,7 @@
       :empty-text="t('monthView.lifelogEmpty')"
       :close-label="t('common.close')"
       :delete-label="t('common.delete')"
+      :add-annotation-label="t('lifelogTimeline.addAnnotationLabel')"
       :show-editor="Boolean(lifelogTimelineDayKey)"
       :draft="lifelogTimelineDraft"
       :editor-placeholder="t('monthView.lifelogManualPlaceholder')"
@@ -648,6 +648,7 @@
       @clear-draft="clearLifelogTimelineDraft"
       @delete-item="deleteLifelogTimelineItem"
       @update-item="updateLifelogTimelineItem"
+      @update-annotation="updateLifelogTimelineAnnotation"
     />
 
     <div
@@ -699,9 +700,16 @@ import LifelogTimelinePanel, {
   type LifelogTimelineDateStripDay,
   type LifelogTimelinePanelItem
 } from './LifelogTimelinePanel.vue';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { openHabitTrackerFocusTimer } from '@/main';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
+import {
+  createCalendarTaskDateFields,
+  getEffectiveDueDate,
+  normalizeOptionalDateValue,
+  saveCalendarTaskDates,
+  type CalendarTaskDateFields
+} from '@/utils/calendarTaskDates';
 import { getSiyuanIntlLocaleTag } from '@/utils/locale';
 import { useHabitEmojis } from '@/composables/useHabitEmojis';
 import {
@@ -715,13 +723,14 @@ import {
   type ManualNoteLifelogEvent,
   type TaskCompletedLifelogEvent
 } from '@/utils/lifelogEvents';
-import { HABIT_CHECKIN_LOG_CHANGE_EVENT, useHabitCheckinLog } from '@/composables/useHabitCheckinLog';
 import { eventBus, Events } from '@/utils/eventBus';
 import { publishLifelogTaskSnapshot } from '@/utils/lifelogTaskSnapshot';
 import { publishLifelogTimelineSnapshot } from '@/utils/lifelogTimelineSnapshot';
 import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/utils/habitTaskChips';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveTaskTagIds } from '@/utils/taskTags';
+import { useCheckinNotes } from '@/composables/useCheckinNotes';
+import { getCheckinNoteEventKey } from '@/utils/checkinNoteEvents';
 import {
   normalizeTaskBackgroundColorValue,
   resolveEffectiveTaskBackgroundColor,
@@ -829,8 +838,12 @@ interface MobileMiniCalendarDay {
 
 const props = defineProps<Props>();
 const { t } = useI18n();
-const { getHabitFocusNoteItems } = useHabitCheckinLog();
 const { getMoodSvg } = useHabitEmojis();
+const {
+  ensureDatesLoaded: ensureCheckinNoteDatesLoaded,
+  hydrateTimelineTarget: hydrateCheckinNoteTimelineTarget,
+  updateNote: updateCheckinNote
+} = useCheckinNotes();
 const calendarViewOptions = computed(() => props.calendarViewOptions || []);
 const showFocusRecords = computed(() => props.showFocusRecords !== false);
 const showHabits = computed(() => props.showHabits !== false);
@@ -872,14 +885,6 @@ const taskGroupById = computed(() =>
 const goalById = computed(() =>
   new Map((props.goals || []).map(goal => [goal.id, goal]))
 );
-
-function formatTemplate(key: string, values: Record<string, string | number>): string {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    t(key)
-  );
-}
-
 
 function formatLocaleWeekday(date: Date, width: 'narrow' | 'short'): string {
   return new Intl.DateTimeFormat(getSiyuanIntlLocaleTag(), { weekday: width }).format(date);
@@ -930,7 +935,6 @@ const emit = defineEmits<{
   'calendarViewChange': [view: CalendarViewMode];
   'calendarDisplayToggle': [key: string];
   'sidebarCollapsedChange': [collapsed: boolean];
-  'focusSessionContextmenu': [session: FocusCalendarEvent];
 }>();
 
 interface ExternalTaskDropPoint {
@@ -1180,7 +1184,6 @@ watch(
 const focusSessionRecords = ref<FocusSessionRecord[]>([]);
 const habitRecords = ref<Habit[]>([]);
 const moodRecords = ref<MoodData>({});
-const habitFocusNotesByKey = ref<Map<string, string>>(new Map());
 const lifelogTimelineDayKey = ref<string | null>(null);
 const manualLifelogDrafts = ref<Record<string, string>>({});
 const CREATE_SELECTION_THRESHOLD_PX = 8;
@@ -1489,14 +1492,6 @@ const mobileDragPreviewStyle = computed(() => ({
   top: `${Math.max(12, mobileDragPreview.value.clientY - 14)}px`
 }));
 
-function normalizeOptionalDateValue(value: string | null | undefined): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value : null;
-}
-
-function getEffectiveDueDate(startDate: string, dueDate: string | null | undefined): string {
-  return normalizeOptionalDateValue(dueDate) || startDate;
-}
-
 function handleViewportResize(): void {
   viewportWidth.value = window.innerWidth;
   invalidateWeekDropZoneCache();
@@ -1688,7 +1683,6 @@ async function refreshFocusSessions(): Promise<void> {
     ]);
     focusSessionRecords.value = data.sessionRecords;
     habitRecords.value = habits;
-    habitFocusNotesByKey.value = await loadHabitFocusNotesForFocusSessions(data.sessionRecords, habits);
   } catch (error) {
     console.error('[WeekView] Failed to load focus sessions', error);
   }
@@ -1711,11 +1705,6 @@ function handleFocusSessionUpdate(): void {
   void refreshFocusSessions();
 }
 
-function handleHabitCheckinLogChange(): void {
-  void refreshFocusSessions();
-  void refreshWeekLifelogRecords();
-}
-
 function handleHabitsUpdated(payload?: { source?: string; habits?: Habit[] }): void {
   if (payload?.source === 'week-view') {
     return;
@@ -1733,62 +1722,6 @@ function handleMoodUpdated(payload?: { moodData?: MoodData }): void {
     return;
   }
   void refreshWeekLifelogRecords();
-}
-
-function getFocusSessionRecordId(record: FocusSessionRecord): string {
-  const recordId = typeof record.id === 'string' ? record.id.trim() : '';
-  if (recordId) {
-    return recordId;
-  }
-  const targetId = typeof record.targetId === 'string' ? record.targetId.trim() : '';
-  const date = typeof record.date === 'string' ? record.date.trim() : '';
-  const timestamp = Number(record.timestamp) || 0;
-  const minutes = Math.max(0, Math.round(Number(record.minutes) || 0));
-  return `${targetId}-${date}-${timestamp}-${minutes}`;
-}
-
-function getHabitFocusNoteKey(habitId: string, date: string, sessionId: string): string {
-  return `${habitId}::${date}::${sessionId}`;
-}
-
-async function loadHabitFocusNotesForFocusSessions(
-  records: FocusSessionRecord[],
-  habits: Habit[]
-): Promise<Map<string, string>> {
-  const nextNotes = new Map<string, string>();
-  const visibleDateKeys = new Set(weekDays.value.map(day => day.key));
-  const habitById = new Map(habits.map(habit => [habit.id, habit]));
-  const uniqueHabitDates = new Set<string>();
-
-  for (const record of records) {
-    if (record.targetType !== 'habit' || !record.targetId || !visibleDateKeys.has(record.date)) {
-      continue;
-    }
-    uniqueHabitDates.add(`${record.targetId}::${record.date}`);
-  }
-
-  for (const key of uniqueHabitDates) {
-    const [habitId, date] = key.split('::');
-    const habit = habitById.get(habitId);
-    if (!habit) {
-      continue;
-    }
-
-    if (!habit.noteDocId) {
-      continue;
-    }
-
-    const focusNotes = await getHabitFocusNoteItems(habit.noteDocId, habit, date);
-    for (const focusNote of focusNotes) {
-      const note = focusNote.note.trim();
-      if (!note) {
-        continue;
-      }
-      nextNotes.set(getHabitFocusNoteKey(habitId, date, focusNote.sessionId), note);
-    }
-  }
-
-  return nextNotes;
 }
 
 const weekdays = computed(() => {
@@ -3340,14 +3273,6 @@ const focusSessionsByDay = computed(() => {
     if (!event || !grouped.has(event.date)) {
       continue;
     }
-    if (record.targetType === 'habit' && record.targetId) {
-      const note = habitFocusNotesByKey.value.get(
-        getHabitFocusNoteKey(record.targetId, record.date, getFocusSessionRecordId(record))
-      );
-      if (note) {
-        event.note = note;
-      }
-    }
     grouped.get(event.date)!.push(event);
   }
 
@@ -3579,7 +3504,7 @@ function lifelogEventToTimelineListItem(event: WeekLifelogEvent): LifelogTimelin
     ? t('monthView.lifelogManualNote')
     : event.title;
 
-  return {
+  const item: LifelogTimelinePanelItem = {
     id: `${event.type}-${event.id}`,
     type: event.type,
     date: event.date,
@@ -3601,6 +3526,11 @@ function lifelogEventToTimelineListItem(event: WeekLifelogEvent): LifelogTimelin
       ]
       : undefined
   };
+
+  if (event.type === 'manual-note') {
+    return item;
+  }
+  return hydrateCheckinNoteTimelineTarget(item, event.date, getCheckinNoteEventKey(event));
 }
 
 const lifelogTimelinePanelOpen = computed(() => Boolean(lifelogTimelineDayKey.value));
@@ -3622,6 +3552,11 @@ const lifelogTimelineItems = computed(() => {
       return left.title.localeCompare(right.title, 'zh-Hans-CN');
     });
 });
+watch(lifelogTimelineDayKey, (dayKey) => {
+  if (dayKey) {
+    void ensureCheckinNoteDatesLoaded([dayKey]);
+  }
+}, { immediate: true });
 watch(
   [lifelogTimelineDayKey, lifelogTimelineItems],
   ([dayKey, items]) => {
@@ -3807,6 +3742,17 @@ async function updateLifelogTimelineItem(item: LifelogTimelinePanelItem, text: s
     await persistMoodRecords(nextMoodData);
   } catch (error) {
     console.error('[WeekView] Failed to update manual lifelog entry', error);
+  }
+}
+
+async function updateLifelogTimelineAnnotation(item: LifelogTimelinePanelItem, text: string): Promise<void> {
+  if (!item.annotationKey) {
+    return;
+  }
+  try {
+    await updateCheckinNote(item.annotationDate || item.date || '', item.annotationKey, text);
+  } catch (error) {
+    console.error('[WeekView] Failed to update check-in note', error);
   }
 }
 
@@ -4169,12 +4115,6 @@ function shouldShowWeekLifelogTimelineItem(item: WeekLifelogTimelineItem): boole
   const startMinutes = timeToMinutes(item.startTime);
   const endMinutes = timeToMinutes(item.endTime);
   return endMinutes > visibleStartMinutes && startMinutes < 24 * 60;
-}
-
-function handleWeekLifelogContextMenu(item: WeekLifelogTimelineItem): void {
-  if (item.event.type === 'focus') {
-    emit('focusSessionContextmenu', item.event);
-  }
 }
 
 function shouldShowTimedTaskItem(item: TimedTaskRenderItem): boolean {
@@ -6193,12 +6133,12 @@ function showTaskContextMenu(
     y: anchor?.y ?? window.innerHeight / 2,
     task
   };
-  contextMenuDateDraft.value = {
+  contextMenuDateDraft.value = createCalendarTaskDateFields({
     startDate: task.startDate || '',
     startTime: task.startTime || '',
     dueDate: task.dueDate || '',
     dueTime: task.dueTime || ''
-  };
+  });
   contextMenuRepeatFrequency.value = normalizeRepeatFrequencyForMenu(task.repeatFrequency as RepeatFrequency | undefined);
   contextMenuRepeatRule.value = null;
 
@@ -6208,12 +6148,12 @@ function showTaskContextMenu(
       .then((series) => {
         if (!series) return;
         if (contextMenu.value.task?.id !== task.id) return;
-        contextMenuDateDraft.value = {
+        contextMenuDateDraft.value = createCalendarTaskDateFields({
           startDate: series.startDate || '',
           startTime: series.startTime || '',
           dueDate: series.endDate || '',
           dueTime: series.dueTime || ''
-        };
+        });
         contextMenuRepeatRule.value = series.rule || null;
       })
       .catch(() => {});
@@ -6254,7 +6194,7 @@ function hideContextMenu() {
     y: 0,
     task: null
   };
-  contextMenuDateDraft.value = { startDate: '', startTime: '', dueDate: '', dueTime: '' };
+  contextMenuDateDraft.value = createCalendarTaskDateFields();
   contextMenuRepeatFrequency.value = 'none';
   contextMenuRepeatRule.value = null;
 }
@@ -6267,78 +6207,20 @@ function startFocusForTask(task: Task): void {
 async function applyTaskDates(task: Task) {
   if (!task) return;
 
-  const nextStartDate = contextMenuDateDraft.value.startDate || '';
-  let nextDueDate = contextMenuDateDraft.value.dueDate || '';
-  const nextStartTime = contextMenuDateDraft.value.startTime || '';
-  const nextDueTime = contextMenuDateDraft.value.dueTime || '';
-  if (nextStartDate && nextDueDate && nextDueDate < nextStartDate) {
-    nextDueDate = nextStartDate;
-  }
-
-  const fields = {
-    startDate: nextStartDate,
-    startTime: nextStartTime,
-    dueDate: nextDueDate,
-    dueTime: nextDueTime
-  };
-  let updatedTask: Task | null = null;
-  let repeatPersistenceTarget: Task | undefined;
-  const requestIsRepeatTask = !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none');
-  if (requestIsRepeatTask) {
-    const seriesId = task.repeatSeriesId;
-    const templateTask = !task.isVirtual
-      ? task
-      : localTasks.value.find(item => !item.isVirtual && !!seriesId && item.repeatSeriesId === seriesId);
-    const targetTask = templateTask || task;
-    repeatPersistenceTarget = { ...targetTask };
-    if (!nextStartDate && !nextDueDate && !nextStartTime && !nextDueTime) {
-      taskSyncGuard.suppressRepeatSeriesSync(seriesId || '', targetTask.id);
-      updatedTask = {
-        ...targetTask,
-        repeatFrequency: 'none',
-        repeatSeriesId: undefined,
-        repeatInstanceDate: undefined,
-        isVirtual: false,
-        startDate: '',
-        dueDate: '',
-        startTime: undefined,
-        dueTime: undefined
-      };
-      localTasks.value = localTasks.value.flatMap((item) => {
-        if (item.id === targetTask.id) {
-          return [updatedTask as Task];
-        }
-        if (item.isVirtual && item.repeatSeriesId === seriesId) {
-          return [];
-        }
-        return [item];
-      });
-    } else {
-      updatedTask = patchLocalTask(targetTask.id, {
-        startDate: nextStartDate,
-        dueDate: nextDueDate,
-        startTime: nextStartTime || undefined,
-        dueTime: nextDueTime || undefined
-      });
-    }
-  } else {
-    updatedTask = null;
-  }
-  if (updatedTask) {
-    emitTaskDateChanged(updatedTask);
-  }
-  emit('taskDateSaveRequested', { task, fields, repeatPersistenceTarget, optimisticApplied: !!updatedTask });
+  emit('taskDateSaveRequested', saveCalendarTaskDates({
+    task,
+    fields: contextMenuDateDraft.value,
+    localTasks,
+    patchLocalTask,
+    suppressRepeatSeriesSync: taskSyncGuard.suppressRepeatSeriesSync,
+    emitTaskDateChanged
+  }));
 }
 
 async function clearTaskDates(task: Task): Promise<void> {
   if (!task) return;
 
-  contextMenuDateDraft.value = {
-    startDate: '',
-    startTime: '',
-    dueDate: '',
-    dueTime: ''
-  };
+  contextMenuDateDraft.value = createCalendarTaskDateFields();
   await applyTaskDates(task);
 }
 
@@ -6440,7 +6322,6 @@ onMounted(() => {
   document.addEventListener('dragend', clearWeekDragOverState, true);
   document.addEventListener('drop', clearWeekDragOverState, true);
   window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
-  window.addEventListener(HABIT_CHECKIN_LOG_CHANGE_EVENT, handleHabitCheckinLogChange);
   unsubscribeHabitUpdates = eventBus.on(Events.HABITS_UPDATED, handleHabitsUpdated);
   unsubscribeMoodUpdates = eventBus.on(Events.MOOD_UPDATED, handleMoodUpdated);
   void refreshFocusSessions();
@@ -6474,7 +6355,6 @@ onUnmounted(() => {
   document.removeEventListener('dragend', clearWeekDragOverState, true);
   document.removeEventListener('drop', clearWeekDragOverState, true);
   window.removeEventListener('pinch-focus-session', handleFocusSessionUpdate);
-  window.removeEventListener(HABIT_CHECKIN_LOG_CHANGE_EVENT, handleHabitCheckinLogChange);
   unsubscribeHabitUpdates?.();
   unsubscribeHabitUpdates = null;
   unsubscribeMoodUpdates?.();

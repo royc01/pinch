@@ -84,6 +84,7 @@
             :empty-text="t('moodTracker.noRecords')"
             :close-label="t('common.close')"
             :delete-label="t('common.delete')"
+            :add-annotation-label="t('lifelogTimeline.addAnnotationLabel')"
             :show-editor="Boolean(selectedLifelogDate)"
             :draft="lifelogTimelineDraft"
             :editor-placeholder="t('monthView.lifelogManualPlaceholder')"
@@ -102,6 +103,7 @@
             @clear-draft="clearLifelogTimelineDraft"
             @delete-item="deleteLifelogTimelineItem"
             @update-item="updateLifelogTimelineItem"
+            @update-annotation="updateLifelogTimelineAnnotation"
           />
         </div>
       </div>
@@ -117,7 +119,7 @@ import LifelogTimelinePanel, {
   type LifelogTimelinePanelBadge,
   type LifelogTimelinePanelItem
 } from './LifelogTimelinePanel.vue';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 import {
   deleteFocusSessionRecord,
   getFocusTimerData,
@@ -143,6 +145,8 @@ import {
 } from '@/utils/lifelogTimelineSnapshot';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
+import { useCheckinNotes } from '@/composables/useCheckinNotes';
+import { getCheckinNoteEventKey } from '@/utils/checkinNoteEvents';
 import {
   focusRecordsToLifelogEvents,
   type FocusLifelogEvent,
@@ -186,6 +190,11 @@ interface Props {
 
 const props = defineProps<Props>();
 const { t } = useI18n();
+const {
+  ensureDatesLoaded: ensureCheckinNoteDatesLoaded,
+  hydrateTimelineTarget: hydrateCheckinNoteTimelineTarget,
+  updateNote: updateCheckinNote
+} = useCheckinNotes();
 
 const emit = defineEmits<{
   close: [];
@@ -206,13 +215,6 @@ const lifelogGoals = ref<Goal[]>([]);
 let lifelogTasksLoadRequestId = 0;
 let lifelogMetadataLoadRequestId = 0;
 let lifelogTaskRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-
-const formatTemplate = (key: string, values: Record<string, string | number>): string => {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    t(key)
-  );
-};
 
 const moodScoreMap: Record<string, number> = {
   '🤩': 5,
@@ -650,7 +652,7 @@ function formatHabitLifelogProgress(event: HabitCheckinLifelogEvent): string {
 
 function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timeToSortMinutes(event.startTime, 8 * 60);
-  return {
+  return hydrateCheckinNoteTimelineTarget({
     id: `focus-${event.id}`,
     sourceId: event.id,
     type: event.type,
@@ -661,12 +663,12 @@ function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePane
     note: event.note || '',
     icon: 'timer',
     deletable: true
-  };
+  }, event.date, getCheckinNoteEventKey(event));
 }
 
 function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timestampToSortMinutes(event.checkinTimestamp || event.metadata?.timestamp, 7 * 60);
-  return {
+  return hydrateCheckinNoteTimelineTarget({
     id: `habit-${event.id}`,
     sourceId: event.id,
     type: event.type,
@@ -676,7 +678,7 @@ function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimel
     meta: `${t('habitTracker.checkedIn')} · ${formatHabitLifelogProgress(event)}`,
     note: event.note || '',
     icon: 'squareCheck'
-  };
+  }, event.date, getCheckinNoteEventKey(event));
 }
 
 function getTaskCompletedSourceTask(event: TaskCompletedLifelogEvent): Task | null {
@@ -731,7 +733,7 @@ function getTaskCompletedGoalBadges(event: TaskCompletedLifelogEvent): LifelogTi
 
 function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timeToSortMinutes(event.completedAt, 20 * 60);
-  return {
+  return hydrateCheckinNoteTimelineTarget({
     id: `task-${event.id}`,
     sourceId: event.taskId,
     type: event.type,
@@ -745,7 +747,7 @@ function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimel
       ...getTaskCompletedTagBadges(event),
       ...getTaskCompletedGoalBadges(event)
     ]
-  };
+  }, event.date, getCheckinNoteEventKey(event));
 }
 
 function manualNoteEventToTimelineItem(event: ManualNoteLifelogEvent): LifelogTimelinePanelItem {
@@ -775,7 +777,15 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
 
   const sharedSnapshot = sharedLifelogTimelineSnapshot.value;
   if (sharedSnapshot?.date === dayKey) {
-    return sharedSnapshot.items;
+    return sharedSnapshot.items.map(item => (
+      item.annotationKey
+        ? hydrateCheckinNoteTimelineTarget(
+          item,
+          item.annotationDate || dayKey,
+          item.annotationKey
+        )
+        : item
+    ));
   }
 
   return [
@@ -790,6 +800,11 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
     return left.title.localeCompare(right.title, 'zh-Hans-CN');
   });
 });
+watch(selectedLifelogDate, (dayKey) => {
+  if (dayKey) {
+    void ensureCheckinNoteDatesLoaded([dayKey]);
+  }
+}, { immediate: true });
 
 function formatLifelogDayTitle(dayKey: string): string {
   const date = new Date(dayKey);
@@ -1032,6 +1047,17 @@ async function updateLifelogTimelineItem(item: LifelogTimelinePanelItem, text: s
     await persistMoodRecords(nextMoodData);
   } catch (error) {
     console.error('[MoodCalendarPanel] Failed to update manual lifelog entry', error);
+  }
+}
+
+async function updateLifelogTimelineAnnotation(item: LifelogTimelinePanelItem, text: string): Promise<void> {
+  if (!item.annotationKey) {
+    return;
+  }
+  try {
+    await updateCheckinNote(item.annotationDate || selectedLifelogDate.value, item.annotationKey, text);
+  } catch (error) {
+    console.error('[MoodCalendarPanel] Failed to update check-in note', error);
   }
 }
 

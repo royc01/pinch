@@ -539,7 +539,7 @@ import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from './Icon.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { getRepeatSeriesForTask } from '@/repeatRepository';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
 import { isTaskInGoalScope } from '@/utils/goalTaskMembership';
@@ -598,12 +598,6 @@ const getTaskTitleHtml = (task: Task, fallbackTitle: string): string => {
 };
 const getTaskTitleText = (task: Task, fallbackTitle: string): string => {
   return stripHtml(getTaskTitleHtml(task, fallbackTitle));
-};
-const formatTemplate = (key: string, values: Record<string, string | number>): string => {
-  return Object.entries(values).reduce(
-    (result, [name, value]) => result.replace(new RegExp(`\\{${name}\\}`, 'g'), String(value)),
-    t(key)
-  );
 };
 const collapsedSectionIds = ref<Set<string>>(new Set());
 const draggedDocumentMilestoneId = ref('');
