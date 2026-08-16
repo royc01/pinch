@@ -38,7 +38,8 @@ jobs:
       - name: Verify release versions
         env:
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-        run: node -e "const fs=require('fs'); const expected=process.env.RELEASE_TAG.replace(/^v/,''); const pkg=JSON.parse(fs.readFileSync('package.json')); const plugin=JSON.parse(fs.readFileSync('plugin.json')); if (![pkg.version, plugin.version].every(v=>v===expected)) { console.error('Release tag and manifest versions must match:', {expected, package: pkg.version, plugin: plugin.version}); process.exit(1); }"
+        run: >-
+          node -e "const fs=require('fs'); const expected=process.env.RELEASE_TAG.replace(/^v/,''); const pkg=JSON.parse(fs.readFileSync('package.json')); const plugin=JSON.parse(fs.readFileSync('plugin.json')); if (![pkg.version, plugin.version].every(v=>v===expected)) { console.error('Release tag and manifest versions must match:', {expected, package: pkg.version, plugin: plugin.version}); process.exit(1); }"
 
       - name: Type check production sources
         run: npm run typecheck
