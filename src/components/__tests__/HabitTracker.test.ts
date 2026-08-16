@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import HabitTracker from '../HabitTracker.vue';
-import { getHabits, saveHabits } from '@/api';
+import { getHabits, upsertHabit } from '@/api';
 
 vi.mock('@/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api')>();
@@ -9,6 +9,9 @@ vi.mock('@/api', async (importOriginal) => {
     ...actual,
     getHabits: vi.fn(),
     saveHabits: vi.fn(),
+    upsertHabit: vi.fn(),
+    removeHabit: vi.fn(),
+    reorderHabits: vi.fn(),
     getMoodData: vi.fn().mockResolvedValue({}),
     saveMoodData: vi.fn().mockResolvedValue(undefined),
     getEmojiConf: vi.fn().mockResolvedValue({}),
@@ -123,7 +126,7 @@ const mountHabitTracker = async () => {
 describe('HabitTracker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(saveHabits).mockResolvedValue(undefined);
+    vi.mocked(upsertHabit).mockImplementation(async habit => [habit]);
   });
 
   it('renders the habit panel shell', async () => {
@@ -149,6 +152,7 @@ describe('HabitTracker', () => {
         id: '1',
         name: '晨跑',
         frequency: 'daily',
+        difficulty: 'medium',
         completedToday: false,
         currentStreak: 3,
         totalCompletions: 5,
@@ -175,13 +179,11 @@ describe('HabitTracker', () => {
     await wrapper.find('.modal-submit').trigger('click');
     await flushPromises();
 
-    expect(saveHabits).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
+    expect(upsertHabit).toHaveBeenCalledWith(
+      expect.objectContaining({
           name: '读书',
           frequency: 'daily'
         })
-      ])
     );
   });
 
@@ -191,6 +193,7 @@ describe('HabitTracker', () => {
         id: '1',
         name: '喝水',
         frequency: 'daily',
+        difficulty: 'medium',
         completedToday: false,
         currentStreak: 0,
         totalCompletions: 0,
@@ -204,13 +207,11 @@ describe('HabitTracker', () => {
     await wrapper.find('.habit-toggle').trigger('click');
     await flushPromises();
 
-    expect(saveHabits).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
+    expect(upsertHabit).toHaveBeenCalledWith(
+      expect.objectContaining({
           id: '1',
           name: '喝水'
         })
-      ])
     );
   });
 });

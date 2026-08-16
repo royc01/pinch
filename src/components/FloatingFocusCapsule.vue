@@ -377,6 +377,7 @@ import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { getStoredFocusAudioUrl, playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
 import { awardFocusSession } from '@/rewardRepository';
+import { getLocalCheckinNoteDate, requestCheckinNote } from '@/utils/checkinNotePrompt';
 import {
   closeDetachedFocusWindow,
   handoffDetachedFocusSession,
@@ -498,7 +499,7 @@ const {
   settings: computed(() => userSettings.focus),
   notify: showMicroBreakNotification,
   playSound: () => {
-    void playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, 0.3)
+    void playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, userSettings.focus.customMicroBreakSoundVolume ?? 0.3)
       .then(played => { if (!played) playTaskCompletionSound(0.3); });
   },
   getText: (key) => ({
@@ -774,6 +775,17 @@ const recordFocusSession = async (sessionMinutes: number) => {
     source: 'capsule'
   }).catch(() => {});
   window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, { detail: { minutes: sessionMinutes, sessionId } }));
+  requestCheckinNote({
+    date: getLocalCheckinNoteDate(),
+    eventKey: `focus:${sessionId}`,
+    context: {
+      type: 'focus',
+      sourceId: sessionId,
+      occurredAt: new Date().toISOString(),
+      title: linkedTargetLabel.value || t('focusTimer.title'),
+      meta: `${Math.max(0, Math.round(sessionMinutes))}${t('focusTimer.minuteSuffix')}`
+    }
+  });
 };
 
 function getFocusSessionTargetInput() {
@@ -795,6 +807,19 @@ const {
   upsertSession: upsertFocusSessionRecord,
   onSaved: (detail) => {
     window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, { detail }));
+    if (!detail.checkpoint) {
+      requestCheckinNote({
+        date: getLocalCheckinNoteDate(),
+        eventKey: `focus:${detail.sessionId}`,
+        context: {
+          type: 'focus',
+          sourceId: detail.sessionId,
+          occurredAt: new Date().toISOString(),
+          title: linkedTargetLabel.value || t('focusTimer.title'),
+          meta: `${Math.max(0, Math.round(detail.minutes || 0))}${t('focusTimer.minuteSuffix')}`
+        }
+      });
+    }
   }
 });
 
@@ -867,7 +892,7 @@ async function prepareCompleteSound(): Promise<void> {
 
 async function playCompleteSound(): Promise<void> {
   try {
-    if (await playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, 0.3)) return;
+    if (await playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, userSettings.focus.customCompletionSoundVolume ?? 0.3)) return;
     await prepareCompleteSound();
     const context = completeSoundAudioContext;
     if (!context) return;
@@ -910,7 +935,9 @@ const playWhiteNoise = async () => {
 
   const audio = new Audio(source);
   audio.loop = true;
-  audio.volume = whiteNoiseVolume.value;
+  audio.volume = selectedWhiteNoiseId.value === 'custom'
+    ? (userSettings.focus.customWhiteNoiseVolume ?? 0.3)
+    : whiteNoiseVolume.value;
   whiteNoiseAudio.value = audio;
   void audio.play().catch(() => {});
 };

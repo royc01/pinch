@@ -344,8 +344,10 @@
       :popover-style="taskFilterPopoverStyle"
       :has-active="hasActiveTaskFilters"
       :sections="taskFilterSections"
+      :expression="taskFilterExpression"
       @clear="clearTaskFilters"
       @toggle="handleTaskFilterToggle"
+      @cycle-join="cycleTaskFilterJoin"
     />
     
 
@@ -592,7 +594,9 @@
             <TaskCard
               :data-task-id="row.task.id"
               :task="row.task"
-              :completed="row.task.status === 'completed'"
+               :completed="row.task.status === 'completed'"
+               :disable-status-toggle="isFutureVirtualRepeatPreview(row.task)"
+               :show-start-date="isFutureVirtualRepeatPreview(row.task)"
               variant="sidebar"
               :task-groups="taskGroups"
               :goals="goalDefinitions"
@@ -701,7 +705,9 @@
               <TaskCard
                 :data-task-id="task.id"
                 :task="task"
-                :completed="task.status === 'completed'"
+                 :completed="task.status === 'completed'"
+                 :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
+                 :show-start-date="isFutureVirtualRepeatPreview(task)"
                 variant="sidebar"
                 :task-groups="taskGroups"
                 :goals="goalDefinitions"
@@ -759,7 +765,9 @@
           <TaskCard
             :data-task-id="task.id"
             :task="task"
-            :completed="task.status === 'completed'"
+             :completed="task.status === 'completed'"
+             :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
+             :show-start-date="isFutureVirtualRepeatPreview(task)"
             variant="sidebar"
             :task-groups="taskGroups"
             :goals="goalDefinitions"
@@ -938,12 +946,13 @@ import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
 import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
 import TaskQuickMetaMenu from '@/components/TaskQuickMetaMenu.vue';
 import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
-import { updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
+import { requestTaskCompletionNote, updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
+import { getCheckinNotePromptAnchor } from '@/utils/checkinNotePrompt';
 import { usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useGoals } from '@/composables/useGoals';
 import { useTaskFilters } from '@/composables/useTaskFilters';
-import { useTaskFilterState } from '@/composables/useTaskFilterState';
+import { matchesTaskFilterExpression, useTaskFilterState } from '@/composables/useTaskFilterState';
 import { useI18n } from '@/composables/useI18n';
 import {
   buildTaskDocumentPathLookup,
@@ -1125,7 +1134,8 @@ const {
   goalsLoading,
   loadGoalsData,
   refreshGoalDocuments,
-  saveGoalDefinitions
+  saveGoalDefinitions,
+  saveTaskGoalMembership
 } = useGoals();
 const autoRecognizeTaskDate = computed(() => userSettings.taskManager.autoRecognizeTaskDate === true);
 const taskCompletionSoundEnabled = computed(() => userSettings.taskManager.taskCompletionSoundEnabled !== false);
@@ -2555,7 +2565,7 @@ async function selectTaskEditorGoal(value: string): Promise<void> {
 
   const nextGoals = toggleTaskGoalMembership(goalDefinitions.value, task, value);
   goalDefinitions.value = nextGoals;
-  await saveGoalDefinitions(nextGoals);
+  await saveTaskGoalMembership(task, getGoalIdsForTask(nextGoals, task));
 }
 
 type TaskArchiveViewMode = 'active' | 'archived' | 'all';
@@ -3291,8 +3301,11 @@ const {
   hasActive: hasActiveTaskFilters,
   count: activeTaskFilterCount,
   sections: taskFilterSections,
+  expression: taskFilterExpression,
   clear: clearTaskFilters,
-  handleToggle: handleTaskFilterToggle
+  handleToggle: handleTaskFilterToggle,
+  restoreExpression: restoreTaskFilterExpression,
+  cycleExpressionJoin: cycleTaskFilterJoin
 } = useTaskFilterState({
   statusOptions: taskStatusFilterOptions,
   priorityOptions: taskPriorityFilterOptions,
@@ -3312,6 +3325,7 @@ function restoreTaskPopoverFiltersFromSettings(): void {
   activeTaskUpdatedFilters.value = normalizeStoredFilterValues<TaskUpdateFilterKey>(settings.taskUpdatedFilters, taskUpdatedFilterValueSet);
   activeTaskGroupFilters.value = normalizeStoredGroupFilters(settings.taskGroupFilters);
   activeTaskExtraFilters.value = normalizeStoredFilterValues<TaskExtraFilterKey>(settings.taskExtraFilters, taskExtraFilterValueSet);
+  restoreTaskFilterExpression(settings.taskFilterExpression);
 }
 
 function scheduleTaskPopoverFilterSettingsUpdate(): void {
@@ -3325,7 +3339,8 @@ function scheduleTaskPopoverFilterSettingsUpdate(): void {
       taskDueFilters: [...activeTaskDueFilters.value],
       taskUpdatedFilters: [...activeTaskUpdatedFilters.value],
       taskGroupFilters: [...activeTaskGroupFilters.value],
-      taskExtraFilters: [...activeTaskExtraFilters.value]
+      taskExtraFilters: [...activeTaskExtraFilters.value],
+      taskFilterExpression: taskFilterExpression.value.map(({ group, value, join }) => ({ group, value, join }))
     });
   }, 200);
 }
@@ -3420,7 +3435,8 @@ watch(
     activeTaskDueFilters,
     activeTaskUpdatedFilters,
     activeTaskGroupFilters,
-    activeTaskExtraFilters
+    activeTaskExtraFilters,
+    taskFilterExpression
   ],
   () => {
     if (isHydratingFilters) {
@@ -3851,7 +3867,7 @@ function updateTaskFilterPopoverPosition(): void {
 
   const width = Math.max(
     0,
-    Math.min(320, viewportWidth - horizontalMargin * 2, containerRect.width - 8)
+    Math.min(400, viewportWidth - horizontalMargin * 2, containerRect.width - 8)
   );
   if (width <= 0) {
     return;
@@ -4051,43 +4067,28 @@ function matchesTaskUpdatedFilter(task: Task, filter: TaskUpdateFilterKey): bool
 }
 
 function matchesTaskFilterChips(task: Task): boolean {
-  if (activeTaskStatusFilters.value.length > 0 && !activeTaskStatusFilters.value.includes(task.status)) {
-    return false;
-  }
-
-  if (activeTaskPriorityFilters.value.length > 0 && !activeTaskPriorityFilters.value.includes(task.priority)) {
-    return false;
-  }
-
-  if (!matchesTaskTagFilter(task.tags, task.groupId, activeTaskGroupFilters.value, TASK_GROUP_NONE_ID)) {
-    return false;
-  }
-
-  if (activeTaskDueFilters.value.length > 0 && !activeTaskDueFilters.value.some(filter => matchesTaskDueFilter(task, filter))) {
-    return false;
-  }
-
-  if (activeTaskUpdatedFilters.value.length > 0 && !activeTaskUpdatedFilters.value.some(filter => matchesTaskUpdatedFilter(task, filter))) {
-    return false;
-  }
-
-  if (activeTaskExtraFilters.value.length > 0) {
-    const wantsDescription = activeTaskExtraFilters.value.includes('hasDescription');
-    const wantsSubtasks = activeTaskExtraFilters.value.includes('hasSubtasks');
-    const wantsFocusEstimate = activeTaskExtraFilters.value.includes('hasFocusEstimate');
-    const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
-    const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
-    const hasFocusEstimate = !!task.focusEstimate;
-
-    if ((wantsDescription && hasDescription) || (wantsSubtasks && hasSubtasks) || (wantsFocusEstimate && hasFocusEstimate)) {
-      return true;
+  return matchesTaskFilterExpression(task, taskFilterExpression.value, (candidate, condition) => {
+    switch (condition.group) {
+      case 'status':
+        return candidate.status === condition.value;
+      case 'priority':
+        return candidate.priority === condition.value;
+      case 'group':
+        return matchesTaskTagFilter(candidate.tags, candidate.groupId, [condition.value], TASK_GROUP_NONE_ID);
+      case 'due':
+        return matchesTaskDueFilter(candidate, condition.value as TaskDueFilterKey);
+      case 'updated':
+        return matchesTaskUpdatedFilter(candidate, condition.value as TaskUpdateFilterKey);
+      case 'extra':
+        if (condition.value === 'hasDescription') {
+          return typeof candidate.description === 'string' && candidate.description.trim().length > 0;
+        }
+        if (condition.value === 'hasSubtasks') {
+          return Array.isArray(candidate.subtasks) && candidate.subtasks.length > 0;
+        }
+        return condition.value === 'hasFocusEstimate' && !!candidate.focusEstimate;
     }
-    if (wantsDescription || wantsSubtasks || wantsFocusEstimate) {
-      return false;
-    }
-  }
-
-  return true;
+  });
 }
 
 function matchesTaskSearchValue(value: string | undefined, keyword: string): boolean {
@@ -4458,6 +4459,7 @@ const filteredTasks = computed(() => {
   const visibleVirtualRepeatTaskIds = new Set<string>();
   const todayVirtualSeriesIds = new Set<string>();
   const latestOverdueVirtualBySeries = new Map<string, { id: string; date: number }>();
+  const nearestFutureVirtualBySeries = new Map<string, { id: string; date: number }>();
   for (const task of baseFilteredTasks.value) {
     if (task.isVirtual && task.repeatSeriesId) {
       virtualRepeatSeriesIds.add(task.repeatSeriesId);
@@ -4472,11 +4474,21 @@ const filteredTasks = computed(() => {
         if (!current || taskDate > current.date) {
           latestOverdueVirtualBySeries.set(task.repeatSeriesId, { id: task.id, date: taskDate });
         }
+      } else if (taskDate !== null && taskDate > todayStart) {
+        const current = nearestFutureVirtualBySeries.get(task.repeatSeriesId);
+        if (!current || taskDate < current.date) {
+          nearestFutureVirtualBySeries.set(task.repeatSeriesId, { id: task.id, date: taskDate });
+        }
       }
     }
   }
   for (const [seriesId, instance] of latestOverdueVirtualBySeries) {
     if (!todayVirtualSeriesIds.has(seriesId)) visibleVirtualRepeatTaskIds.add(instance.id);
+  }
+  for (const [seriesId, instance] of nearestFutureVirtualBySeries) {
+    if (!todayVirtualSeriesIds.has(seriesId) && !latestOverdueVirtualBySeries.has(seriesId)) {
+      visibleVirtualRepeatTaskIds.add(instance.id);
+    }
   }
   let domOrderMap: Map<string, number> | undefined;
   const resolveDomOrderMap = () => {
@@ -5766,13 +5778,13 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
   })));
 
   applyExcludedNotebookScope(mergedExcludedNotebookIds);
-  applyExternalDocumentGroups(nextDocumentGroups);
   eventBus.emit(Events.TASK_SCOPE_UPDATED, { excludedNotebookIds: mergedExcludedNotebookIds });
-  eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
   showCompletedTasks.value = nextShowCompletedTasks;
   TaskRepository.setAutoRecognizeTaskDateEnabled(nextAutoRecognizeTaskDate);
   const shouldFinalizeInit = requiresScopeInitialization.value;
   await saveDocumentGroups(nextDocumentGroups);
+  applyExternalDocumentGroups(nextDocumentGroups);
+  eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
   await updateSettings('taskManager', {
     excludedNotebookIds: mergedExcludedNotebookIds,
     showCompletedTasks: nextShowCompletedTasks,
@@ -7187,7 +7199,7 @@ function cleanupEventListeners() {
   queuedIncrementalForceFreshBlockIds.clear();
 }
 
-async function toggleTaskStatus(task: Task) {
+async function toggleTaskStatus(task: Task, event?: MouseEvent) {
   if (skipSet.has(task.id)) {
     return;
   }
@@ -7201,9 +7213,12 @@ async function toggleTaskStatus(task: Task) {
   
   try {
     if (isVirtualRepeatTask) {
-      await TaskRepository.updateRepeatInstanceStatus(task, newStatus);
+      const completedAt = await TaskRepository.updateRepeatInstanceStatus(task, newStatus);
+      if (newStatus === 'completed' && completedAt) {
+        requestTaskCompletionNote(task.id, completedAt, getCheckinNotePromptAnchor(event?.currentTarget ?? null), task.title, task.blockId || task.id);
+      }
     } else if (task.type === 'block' && task.blockId) {
-      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true);
+      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true, getCheckinNotePromptAnchor(event?.currentTarget ?? null));
     }
     
     if (!isVirtualRepeatTask) {
@@ -7892,12 +7907,15 @@ function handleTaskEditorOpenContent(): void {
   void handleTaskClick(task);
 }
 
-function handleTaskCardToggleStatus(task: Task): void {
+function handleTaskCardToggleStatus(task: Task, event?: MouseEvent): void {
+  if (isFutureVirtualRepeatPreview(task)) {
+    return;
+  }
   if (isBatchEditMode.value) {
     toggleTaskBatchSelection(task.id);
     return;
   }
-  void toggleTaskStatus(task);
+  void toggleTaskStatus(task, event);
 }
 
 function getInlineDescriptionDraft(task: Task): string {
@@ -8244,7 +8262,7 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
     if (goalsChanged) {
       const nextGoals = setTaskGoalMembership(goalDefinitions.value, task, nextGoalIds);
       goalDefinitions.value = nextGoals;
-      await saveGoalDefinitions(nextGoals);
+      await saveTaskGoalMembership(task, nextGoalIds);
     }
     if (blockId && !hasPersistedTaskAttrs) {
       publishTaskChange([blockId]);
@@ -9452,15 +9470,16 @@ async function handleQuickCreateCreated(payload: QuickCreateCreatedPayload): Pro
         .filter(goalId => goalId && goalDefinitionsById.value.has(goalId))
       : [];
     if (selectedGoalIds.length > 0 && taskId) {
-      const nextGoals = setTaskGoalMembership(goalDefinitions.value, {
+      const goalTask = {
         taskId,
         blockId,
         notebookId,
         rootId: resolvedRootId || undefined,
         title: task.title
-      }, selectedGoalIds);
+      };
+      const nextGoals = setTaskGoalMembership(goalDefinitions.value, goalTask, selectedGoalIds);
       goalDefinitions.value = nextGoals;
-      await saveGoalDefinitions(nextGoals);
+      await saveTaskGoalMembership(goalTask, selectedGoalIds);
     }
     lastTaskNotebook.value = notebookId;
     lastTaskDocument.value = documentId;
@@ -9480,6 +9499,43 @@ defineExpose({
   openTaskScopeDialog,
   closeTaskScopeDialog
 });
+
+const futureVirtualRepeatPreviewTaskIds = computed(() => {
+  const todayStart = getTodayStartTimestamp();
+  const seriesWithTodayOrOverdueInstance = new Set<string>();
+  const nearestFutureVirtualBySeries = new Map<string, { id: string; date: number }>();
+
+  for (const task of baseFilteredTasks.value) {
+    const seriesId = getTaskRepeatSeriesId(task);
+    if (!task.isVirtual || !seriesId) continue;
+    if (isVirtualTaskForToday(task)) {
+      seriesWithTodayOrOverdueInstance.add(seriesId);
+      continue;
+    }
+    const taskDate = getTaskDueDateTimestamp(task) ?? getTaskStartDateTimestamp(task);
+    if (taskDate === null) continue;
+    if (taskDate < todayStart) {
+      seriesWithTodayOrOverdueInstance.add(seriesId);
+      continue;
+    }
+    if (taskDate > todayStart) {
+      const current = nearestFutureVirtualBySeries.get(seriesId);
+      if (!current || taskDate < current.date) {
+        nearestFutureVirtualBySeries.set(seriesId, { id: task.id, date: taskDate });
+      }
+    }
+  }
+
+  return new Set(
+    Array.from(nearestFutureVirtualBySeries.entries())
+      .filter(([seriesId]) => !seriesWithTodayOrOverdueInstance.has(seriesId))
+      .map(([, instance]) => instance.id)
+  );
+});
+
+function isFutureVirtualRepeatPreview(task: Task): boolean {
+  return futureVirtualRepeatPreviewTaskIds.value.has(task.id);
+}
 
 onMounted(async () => {
   resolveTaskModalTeleportTarget();

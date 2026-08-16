@@ -97,6 +97,11 @@
             :format-pomodoro-time="formatPomodoroTime"
             @show-stats="showHabitStats"
             @edit="openHabitEditor"
+            @manage-logs="openMoodCalendarPanel"
+            @toggle-pause="togglePauseHabit"
+            @delete="deleteHabit"
+            @undo-one="undoOneHabitCheckin"
+            @undo-checkin="undoHabitCheckin"
             @start-focus="openFocusTimerForHabit"
             @toggle-habit="toggleHabit"
             @reorder="reorderHabits"
@@ -170,6 +175,7 @@
       :current-period-text="statsCurrentPeriodText"
       :current-month-streak="statsCurrentMonthStreak"
       :total-month-completions="statsTotalMonthCompletions"
+      :total-completions="statsTotalCompletions"
       :completion-rate="statsCompletionRate"
       :monthly-progress-data="statsMonthlyProgressData"
       :longest-streak="selectedHabitLongestStreak"
@@ -185,8 +191,8 @@
       @edit="openEditHabitModal"
       @delete="selectedHabit && deleteHabit(selectedHabit.id)"
       @toggle-pause="selectedHabit && togglePauseHabit(selectedHabit)"
-      @change-period="selectedHabit && changeStatsCalendarPeriod(selectedHabit, $event)"
-      @toggle-day="selectedHabit && toggleDayCompletion(selectedHabit, $event)"
+      @change-period="handleStatsPeriodChange"
+      @toggle-day="handleStatsDayToggle"
     />
     
     <!-- 总统计面板 -->
@@ -285,6 +291,7 @@
       @visibility-change="handleFocusTimerVisibilityChange"
       @open-settings="openFocusTimerSettings"
     />
+    <CheckinNotePrompt />
 
     <nav class="habit-floating-nav" :style="sidebarModalOverlayStyle" aria-label="快捷导航">
       <button
@@ -404,9 +411,10 @@ import HabitStatsPanel from '@/components/HabitStatsPanel.vue';
 import HabitCardList from '@/components/HabitCardList.vue';
 import MoodCalendarPanel from '@/components/MoodCalendarPanel.vue';
 import FocusTimerHost from '@/components/FocusTimerHost.vue';
+import CheckinNotePrompt from '@/components/CheckinNotePrompt.vue';
 import KanbanView from '@/components/KanbanView.vue';
 import TaskManager from '@/components/TaskManager.vue';
-import { getHabits, saveHabits, Habit, type Task } from '@/api';
+import { getHabits, removeHabit, reorderHabits as persistHabitOrder, upsertHabit, Habit, type Task } from '@/api';
 import { openKanbanView } from '@/main';
 import { useHabitCache } from '@/composables/useHabitCache';
 import { useHabitCheckin } from '@/composables/useHabitCheckin';
@@ -440,7 +448,7 @@ import {
   isHabitScheduledOnDate
 } from '@/composables/useHabitUtils';
 
-const { getCachedDate, getCachedDateParse, getToday } = useHabitCache();
+const { getCachedDate, getCachedDateParse, getToday, clearCache } = useHabitCache();
 
 const isHabitScheduledToday = (habit: Habit): boolean => {
   return isHabitScheduledOnDate(habit, getCachedDateParse(getToday()));
@@ -649,28 +657,64 @@ function createAvatarDataUrl(file: File): Promise<string> {
 }
 
 // 防抖的保存函数 - 优化性能，减少频繁的存储操作
-let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-const debouncedSaveHabits = async (habitsToSave: Habit[]) => {
-  if (saveDebounceTimer) {
-    clearTimeout(saveDebounceTimer);
-  }
-  return new Promise<void>((resolve) => {
-    saveDebounceTimer = setTimeout(async () => {
-      await saveHabits(habitsToSave);
-      emitHabitsUpdated(habitsToSave);
-      resolve();
-    }, 300); // 300ms 防抖延迟
-  });
+type DebouncedHabitSaveBatch = {
+  orderedHabitIds: string[];
+  waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>;
+  timer: ReturnType<typeof setTimeout> | null;
 };
 
-// 立即保存函数（用于关键操作）
-const immediateSaveHabits = async (habitsToSave: Habit[]) => {
-  if (saveDebounceTimer) {
-    clearTimeout(saveDebounceTimer);
-    saveDebounceTimer = null;
+let pendingDebouncedHabitSave: DebouncedHabitSaveBatch | null = null;
+function settleDebouncedHabitSave(
+  batch: DebouncedHabitSaveBatch,
+  result: { ok: true } | { ok: false; error: unknown }
+): void {
+  const waiters = batch.waiters.splice(0);
+  waiters.forEach(({ resolve, reject }) => {
+    if (result.ok === false) {
+      reject(result.error);
+    } else {
+      resolve();
+    }
+  });
+}
+
+async function persistDebouncedHabitSave(batch: DebouncedHabitSaveBatch): Promise<void> {
+  try {
+    habits.value = reconcilePersistedHabits(await persistHabitOrder(batch.orderedHabitIds));
+    emitHabitsUpdated(habits.value);
+    settleDebouncedHabitSave(batch, { ok: true });
+  } catch (error) {
+    console.error('[Habits] Failed to persist debounced habits:', error);
+    settleDebouncedHabitSave(batch, { ok: false, error });
   }
-  await saveHabits(habitsToSave);
-  emitHabitsUpdated(habitsToSave);
+}
+
+const debouncedSaveHabitOrder = (orderedHabitIds: string[]) => {
+  if (pendingDebouncedHabitSave) {
+    if (pendingDebouncedHabitSave.timer !== null) {
+      clearTimeout(pendingDebouncedHabitSave.timer);
+    }
+  } else {
+    pendingDebouncedHabitSave = {
+      orderedHabitIds,
+      waiters: [],
+      timer: null
+    };
+  }
+
+  const batch = pendingDebouncedHabitSave;
+  batch.orderedHabitIds = orderedHabitIds;
+  batch.timer = setTimeout(() => {
+    if (pendingDebouncedHabitSave !== batch) {
+      return;
+    }
+    pendingDebouncedHabitSave = null;
+    void persistDebouncedHabitSave(batch);
+  }, 300);
+
+  return new Promise<void>((resolve, reject) => {
+    batch.waiters.push({ resolve, reject });
+  });
 };
 
 // 习惯数据
@@ -681,6 +725,16 @@ function emitHabitsUpdated(nextHabits: Habit[] = habits.value): void {
     source: 'habit-tracker',
     habits: Array.isArray(nextHabits) ? [...nextHabits] : []
   });
+}
+
+async function persistHabit(habit: Habit): Promise<void> {
+  habits.value = reconcilePersistedHabits(await upsertHabit(habit));
+  emitHabitsUpdated(habits.value);
+}
+
+async function persistHabitRemoval(habitId: string): Promise<void> {
+  habits.value = reconcilePersistedHabits(await removeHabit(habitId));
+  emitHabitsUpdated(habits.value);
 }
 
 function reorderHabits(sourceHabitId: string, targetHabitId: string): void {
@@ -699,7 +753,9 @@ function reorderHabits(sourceHabitId: string, targetHabitId: string): void {
     ...habit,
     sortOrder: orderById.get(habit.id) ?? orderedHabits.length
   }));
-  void debouncedSaveHabits(habits.value);
+  void debouncedSaveHabitOrder(orderedHabits.map(habit => habit.id)).catch((error) => {
+    console.error('[Habits] Failed to persist reordered habits:', error);
+  });
 }
 
 const showAddHabitModal = ref(false);
@@ -797,6 +853,7 @@ const {
   toggleHabitCompletion,
   toggleDayCompletion,
   buildToggleHabit,
+  undoHabitCheckin: undoHabitCheckinRecord,
   processRewardPayload
 } = useHabitCheckin({
   habits,
@@ -810,10 +867,8 @@ const {
   clearWeeklyCompletionCacheForHabit,
   clearCurrentStreakCacheForHabit,
   clearCompletionRateCacheForHabit,
-  debouncedSaveHabits,
-  immediateSaveHabits,
+  saveHabit: persistHabit,
   triggerHabitsRef: () => triggerRef(habits),
-  notifyHabitsChanged: emitHabitsUpdated,
   animationOriginalStatus,
   showAnimation,
   animationHabitId,
@@ -834,7 +889,7 @@ const {
 } = useHabitPomodoro({
   habits,
   getToday,
-  saveHabits,
+  saveHabit: persistHabit,
   toggleHabitCompletion,
   playBubbleSound
 });
@@ -843,6 +898,14 @@ const toggleHabit = buildToggleHabit({
   startPomodoroTimer,
   clearPomodoroForHabit
 });
+
+const undoOneHabitCheckin = async (habit: Habit): Promise<void> => {
+  await undoHabitCheckinRecord(habit, 'one');
+};
+
+const undoHabitCheckin = async (habit: Habit): Promise<void> => {
+  await undoHabitCheckinRecord(habit, 'all');
+};
 const toggleHabitListCollapsed = () => {
   isHabitListCollapsed.value = !isHabitListCollapsed.value;
   void updateSettings('sidebar', { habitListCollapsed: isHabitListCollapsed.value });
@@ -908,8 +971,7 @@ function handleFloatingNav(item: FloatingNavId): void {
       openFocusTimer();
       return;
     case 'records':
-      closeNavigationPages();
-      showMoodCalendar.value = true;
+      openMoodCalendarPanel();
       return;
     case 'goals':
       closeNavigationPages();
@@ -932,6 +994,12 @@ function closeNavigationPages(): void {
   closeGoalPage();
 }
 
+function openMoodCalendarPanel(): void {
+  activeFloatingNav.value = 'records';
+  closeNavigationPages();
+  showMoodCalendar.value = true;
+}
+
 async function completeFocusLinkedHabit(habitId: string): Promise<void> {
   const habit = habits.value.find(item => item.id === habitId);
   if (!habit || habit.isPaused || habit.completedToday) {
@@ -940,7 +1008,7 @@ async function completeFocusLinkedHabit(habitId: string): Promise<void> {
 
   playBubbleSound();
   const rewardPayload = toggleHabitCompletion(habit, getToday(), { source: 'pomodoro' });
-  await immediateSaveHabits(habits.value);
+  await persistHabit(habit);
   processRewardPayload(rewardPayload);
 }
 
@@ -970,6 +1038,8 @@ const visibleHabits = computed(() => sortedHabits.value.filter(habit => !habit.i
 let unsubscribePanelOpenRequest: (() => void) | null = null;
 let unsubscribeFocusTimerOpenRequest: (() => void) | null = null;
 let unsubscribeHabitUpdates: (() => void) | null = null;
+let dateRolloverTimer: number | null = null;
+let lastKnownHabitDate = '';
 
 function normalizeLoadedHabitState(nextHabits: Habit[]): Habit[] {
   const todayStr = getToday();
@@ -981,6 +1051,16 @@ function normalizeLoadedHabitState(nextHabits: Habit[]): Habit[] {
     const todayRecord = habit.calendar.find(day => day.date === todayStr);
     habit.completedToday = todayRecord ? Boolean(todayRecord.completed) : false;
     return habit;
+  });
+}
+
+function reconcilePersistedHabits(nextHabits: Habit[]): Habit[] {
+  const existingById = new Map(habits.value.map(habit => [habit.id, habit]));
+  return normalizeLoadedHabitState(nextHabits).map((nextHabit) => {
+    const existing = existingById.get(nextHabit.id);
+    if (!existing) return nextHabit;
+    Object.assign(existing, nextHabit);
+    return existing;
   });
 }
 
@@ -996,6 +1076,56 @@ function handleHabitsUpdated(payload?: { source?: string; habits?: Habit[] }): v
     clearCompletionRateCacheForHabit(habit.id);
   });
   triggerRef(habits);
+}
+
+function refreshDateDependentHabitState(): void {
+  // `getToday` is intentionally cached during normal rendering. Clear it here so
+  // a callback that fires around midnight cannot reuse yesterday's value.
+  clearCache();
+  const currentDate = getToday();
+  if (currentDate === lastKnownHabitDate) {
+    return;
+  }
+
+  lastKnownHabitDate = currentDate;
+  habits.value = normalizeLoadedHabitState(habits.value);
+  habits.value.forEach(habit => {
+    clearWeeklyCompletionCacheForHabit(habit.id);
+    clearCurrentStreakCacheForHabit(habit.id);
+    clearCompletionRateCacheForHabit(habit.id);
+  });
+  triggerRef(habits);
+  statsRefreshVersion.value++;
+
+  // Keep views such as the week/lifelog page in sync without writing data or
+  // remounting the plugin.
+  emitHabitsUpdated(habits.value);
+}
+
+function scheduleDateRolloverRefresh(): void {
+  if (dateRolloverTimer !== null) {
+    window.clearTimeout(dateRolloverTimer);
+  }
+
+  const nextMidnight = new Date();
+  nextMidnight.setHours(24, 0, 1, 0);
+  const delay = Math.max(1_000, nextMidnight.getTime() - Date.now());
+  dateRolloverTimer = window.setTimeout(() => {
+    dateRolloverTimer = null;
+    refreshDateDependentHabitState();
+    scheduleDateRolloverRefresh();
+  }, delay);
+}
+
+function handleDateRolloverVisibilityChange(): void {
+  if (document.hidden) {
+    return;
+  }
+
+  // Browsers can throttle timers while the app is hidden or the computer is
+  // asleep, so reconcile as soon as the plugin becomes visible again.
+  refreshDateDependentHabitState();
+  scheduleDateRolloverRefresh();
 }
 
 const {
@@ -1025,7 +1155,7 @@ function handlePanelOpenRequest(payload?: HabitTrackerPanelOpenRequest): void {
   if (payload.target === 'habit-detail') {
     const targetHabit = habits.value.find(habit => habit.id === payload.habitId);
     if (targetHabit) {
-      showHabitStats(targetHabit);
+      showHabitStats(targetHabit, payload.returnToRecords === true);
       return;
     }
     openTotalStatsPage();
@@ -1080,6 +1210,7 @@ onMounted(async () => {
     habits.value = normalizeLoadedHabitState(Array.isArray(loadedHabits) ? loadedHabits : []);
     
     const todayStr = getToday();
+    lastKnownHabitDate = todayStr;
 
     // 加载情绪数据
     await loadMoodData();
@@ -1101,6 +1232,8 @@ onMounted(async () => {
       cleanupExpiredStatisticCaches();
     }, 3600000) as unknown as number; // 1小时
     
+    document.addEventListener('visibilitychange', handleDateRolloverVisibilityChange);
+    scheduleDateRolloverRefresh();
   } catch (error) {
     console.error('Error initializing habits:', error);
     // 初始化失败时，使用空数组，确保界面仍能显示
@@ -1128,6 +1261,12 @@ onUnmounted(() => {
   unsubscribeFocusTimerOpenRequest = null;
   unsubscribeHabitUpdates?.();
   unsubscribeHabitUpdates = null;
+
+  document.removeEventListener('visibilitychange', handleDateRolloverVisibilityChange);
+  if (dateRolloverTimer !== null) {
+    window.clearTimeout(dateRolloverTimer);
+    dateRolloverTimer = null;
+  }
 
   // 清理主定时器
   if ((window as any).habitTrackerTimer) {
@@ -1179,6 +1318,10 @@ const maxHourCount = computed(() => {
 // 当前选中的习惯
 const selectedHabit = ref<Habit | null>(null);
 const showHabitStatsPanel = ref(false);
+const returnToMoodCalendarAfterStats = ref(false);
+// `selectedHabit` is a shallow reference to an item in the shallow habits list.
+// Bump this after mutating nested calendar data so the stats panel recomputes immediately.
+const statsRefreshVersion = ref(0);
 
 // 选中习惯的最长连续打卡 - 缓存计算结果避免重复计算
 const selectedHabitLongestStreak = computed(() =>
@@ -1187,6 +1330,7 @@ const selectedHabitLongestStreak = computed(() =>
 
 // 统计面板数据 — 使用 computed 缓存 + try-catch 防止渲染期异常导致界面卡死
 const statsMonthViewData = computed(() => {
+  void statsRefreshVersion.value;
   try {
     return selectedHabit.value ? getStatsMonthViewData(selectedHabit.value) : [];
   } catch (e) {
@@ -1195,6 +1339,7 @@ const statsMonthViewData = computed(() => {
   }
 });
 const statsCurrentPeriodText = computed(() => {
+  void statsRefreshVersion.value;
   try {
     return selectedHabit.value ? getCurrentPeriodText(selectedHabit.value) : '';
   } catch (e) {
@@ -1203,6 +1348,7 @@ const statsCurrentPeriodText = computed(() => {
   }
 });
 const statsCurrentMonthStreak = computed(() => {
+  void statsRefreshVersion.value;
   try {
     return selectedHabit.value ? calculateCurrentMonthStreak(selectedHabit.value) : 0;
   } catch (e) {
@@ -1211,6 +1357,7 @@ const statsCurrentMonthStreak = computed(() => {
   }
 });
 const statsTotalMonthCompletions = computed(() => {
+  void statsRefreshVersion.value;
   try {
     return selectedHabit.value ? calculateTotalMonthCompletions(selectedHabit.value) : 0;
   } catch (e) {
@@ -1218,7 +1365,17 @@ const statsTotalMonthCompletions = computed(() => {
     return 0;
   }
 });
+const statsTotalCompletions = computed(() => {
+  void statsRefreshVersion.value;
+  if (!selectedHabit.value) return 0;
+  return selectedHabit.value.calendar.filter(record => {
+    if (!record.completed) return false;
+    return selectedHabit.value!.frequency !== 'custom'
+      || isHabitScheduledOnDate(selectedHabit.value!, parseDate(record.date));
+  }).length;
+});
 const statsCompletionRate = computed(() => {
+  void statsRefreshVersion.value;
   try {
     return selectedHabit.value ? calculateCompletionRate(selectedHabit.value) : 0;
   } catch (e) {
@@ -1227,6 +1384,7 @@ const statsCompletionRate = computed(() => {
   }
 });
 const statsMonthlyProgressData = computed(() => {
+  void statsRefreshVersion.value;
   try {
     return selectedHabit.value ? getMonthlyProgressData(selectedHabit.value) : [];
   } catch (e) {
@@ -1235,6 +1393,7 @@ const statsMonthlyProgressData = computed(() => {
   }
 });
 const statsTotalCompletionRate = computed(() => {
+  void statsRefreshVersion.value;
   try {
     return selectedHabit.value ? calculateTotalCompletionRate(selectedHabit.value) : 0;
   } catch (e) {
@@ -1243,6 +1402,7 @@ const statsTotalCompletionRate = computed(() => {
   }
 });
 const statsCommonTimeSlot = computed(() => {
+  void statsRefreshVersion.value;
   try {
     return selectedHabit.value ? calculateCommonTimeSlot(selectedHabit.value) : '';
   } catch (e) {
@@ -1251,6 +1411,7 @@ const statsCommonTimeSlot = computed(() => {
   }
 });
 const statsHourDistribution = computed(() => {
+  void statsRefreshVersion.value;
   try {
     return selectedHabit.value ? getHourDistribution(selectedHabit.value) : [];
   } catch (e) {
@@ -1265,6 +1426,7 @@ function closeTrackerPanels(): void {
   showHabitManagerPage.value = false;
   showHabitStatsPanel.value = false;
   selectedHabit.value = null;
+  returnToMoodCalendarAfterStats.value = false;
 }
 
 function closeTotalStatsPage(): void {
@@ -1304,13 +1466,27 @@ function openGoalPage(goalId: string = ''): void {
   showGoalPage.value = true;
 }
 
-const showHabitStats = (habit: Habit) => {
+const showHabitStats = (habit: Habit, returnToRecords = false) => {
   closeTrackerPanels();
+  showMoodCalendar.value = false;
+  returnToMoodCalendarAfterStats.value = returnToRecords;
   highlightedRewardEntryId.value = '';
   highlightedGoalId.value = '';
   showHabitStatsPanel.value = true;
   selectedHabit.value = habit;
 };
+
+async function handleStatsDayToggle(date: string): Promise<void> {
+  if (!selectedHabit.value) return;
+  await toggleDayCompletion(selectedHabit.value, date);
+  statsRefreshVersion.value++;
+}
+
+function handleStatsPeriodChange(direction: number): void {
+  if (!selectedHabit.value) return;
+  changeStatsCalendarPeriod(selectedHabit.value, direction);
+  statsRefreshVersion.value++;
+}
 
 // 显示编辑习惯模态框
 const showEditHabitModal = ref(false);
@@ -1331,13 +1507,14 @@ const {
   showEditHabitModal,
   editedHabit,
   t,
-  saveHabitsNow: saveHabits,
-  immediateSaveHabits,
+  saveHabit: persistHabit,
+  removeHabit: persistHabitRemoval,
   triggerHabitsRef: () => triggerRef(habits)
 });
 
 const openHabitEditor = (habit: Habit): void => {
   showHabitStatsPanel.value = false;
+  returnToMoodCalendarAfterStats.value = false;
   selectedHabit.value = habit;
   openEditHabitModal();
 };
@@ -1345,8 +1522,11 @@ const openHabitEditor = (habit: Habit): void => {
 
 // 关闭统计页面
 const closeHabitStats = () => {
+  const shouldReturnToMoodCalendar = returnToMoodCalendarAfterStats.value;
   showHabitStatsPanel.value = false;
   selectedHabit.value = null;
+  returnToMoodCalendarAfterStats.value = false;
+  if (shouldReturnToMoodCalendar) showMoodCalendar.value = true;
 };
 
 // 切换统计页面视图模式（已移除，统计页面只显示月视图）

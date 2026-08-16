@@ -2,6 +2,8 @@ import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
 import type { Habit, HabitDifficulty, Task } from '@/api';
 import { translate } from '@/composables/useI18n';
+import { enqueueStorageMutation } from '@/storageMutationCoordinator';
+import { isMissingPluginStorageValue } from '@/utils/pluginStorage';
 
 export type RewardSource = 'habit' | 'task' | 'focus' | 'system';
 
@@ -363,7 +365,6 @@ const REWARD_BADGE_GROUPS = REWARD_BADGE_GROUP_ORDER.map(groupId => ({
 }));
 
 let cachedRewardState: RewardState | null = null;
-let rewardMutationQueue: Promise<void> = Promise.resolve();
 
 const DEFAULT_REWARD_SHOP_ITEM_DEFINITIONS: DefaultRewardShopItemDefinition[] = [
   {
@@ -824,7 +825,7 @@ function normalizeRewardState(input: unknown): RewardState {
     ? raw.processedEventKeys
       .filter((key): key is string => typeof key === 'string' && key.trim().length > 0)
       .map(key => key.trim())
-    : [];
+    : ledger.map(entry => entry.eventKey);
   const stats = normalizeRewardStats((raw as { stats?: unknown }).stats, ledger);
 
   return {
@@ -840,6 +841,157 @@ function normalizeRewardState(input: unknown): RewardState {
     processedEventKeys: Array.from(new Set(processedEventKeys)).slice(0, MAX_PROCESSED_EVENT_KEYS),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : ''
   };
+}
+
+function isFiniteNonNegativeInteger(input: unknown): input is number {
+  return typeof input === 'number' && Number.isFinite(input) && Number.isInteger(input) && input >= 0;
+}
+
+function isStoredObject(input: unknown): input is Record<string, unknown> {
+  return !!input && typeof input === 'object' && !Array.isArray(input);
+}
+
+function isMissingStoredValue(input: unknown): input is null | undefined {
+  return input === null || input === undefined;
+}
+
+function isStoredRewardSource(input: unknown): input is RewardSource {
+  return input === 'habit' || input === 'task' || input === 'focus' || input === 'system';
+}
+
+function isStoredTemplateValues(input: unknown): boolean {
+  if (!isStoredObject(input)) {
+    return false;
+  }
+  return Object.entries(input).every(([key, value]) => (
+    key.length > 0
+    && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    && (typeof value !== 'number' || Number.isFinite(value))
+  ));
+}
+
+function isOptionalStoredString(input: unknown): boolean {
+  return isMissingStoredValue(input) || typeof input === 'string';
+}
+
+function isOptionalStoredTemplateValues(input: unknown): boolean {
+  return isMissingStoredValue(input) || isStoredTemplateValues(input);
+}
+
+function isValidStoredRewardEntry(input: unknown): boolean {
+  if (!isStoredObject(input)) {
+    return false;
+  }
+
+  return typeof input.id === 'string'
+    && input.id.trim().length > 0
+    && typeof input.eventKey === 'string'
+    && input.eventKey.trim().length > 0
+    && isStoredRewardSource(input.source)
+    && typeof input.kind === 'string'
+    && input.kind.trim().length > 0
+    && typeof input.title === 'string'
+    && input.title.trim().length > 0
+    && isFiniteNonNegativeInteger(input.xp)
+    && isFiniteNonNegativeInteger(input.coins)
+    && typeof input.createdAt === 'string'
+    && input.createdAt.length > 0
+    && isOptionalStoredString(input.titleKey)
+    && isOptionalStoredTemplateValues(input.titleParams)
+    && isOptionalStoredString(input.detail)
+    && isOptionalStoredString(input.detailKey)
+    && isOptionalStoredTemplateValues(input.detailParams)
+    && isOptionalStoredTemplateValues(input.meta);
+}
+
+function assertOptionalStoredArray(input: Record<string, unknown>, key: string): void {
+  const value = input[key];
+  if (!isMissingStoredValue(value) && !Array.isArray(value)) {
+    throw new Error(`Invalid reward data: ${key} must be an array`);
+  }
+}
+
+function assertValidStoredRewardState(input: Record<string, unknown>): void {
+  // Totals and the ledger are authoritative. The other fields were added over
+  // time or can be rebuilt by normalizeRewardState from this core state.
+  const hasValidCoreState = isFiniteNonNegativeInteger(input.totalXp)
+    && isFiniteNonNegativeInteger(input.totalCoins)
+    && isFiniteNonNegativeInteger(input.spentCoins)
+    && Array.isArray(input.ledger);
+
+  if (!hasValidCoreState) {
+    throw new Error('Invalid reward data: expected a reward state');
+  }
+
+  if (!isMissingStoredValue(input.version) && (
+    !isFiniteNonNegativeInteger(input.version)
+    || input.version > REWARD_STATE_VERSION
+  )) {
+    throw new Error('Invalid reward data: unsupported reward state version');
+  }
+
+  if (!isMissingStoredValue(input.updatedAt) && typeof input.updatedAt !== 'string') {
+    throw new Error('Invalid reward data: updatedAt must be a string');
+  }
+
+  const stats = input.stats;
+  if (!isMissingStoredValue(stats)) {
+    if (!isStoredObject(stats)) {
+      throw new Error('Invalid reward data: stats must be an object');
+    }
+    for (const key of ['habitCompletionCount', 'maxHabitStreak', 'taskCompletionCount', 'focusSessionCount']) {
+      if (!isMissingStoredValue(stats[key]) && !isFiniteNonNegativeInteger(stats[key])) {
+        throw new Error(`Invalid reward data: stats.${key} must be a non-negative integer`);
+      }
+    }
+  }
+
+  assertOptionalStoredArray(input, 'badges');
+  assertOptionalStoredArray(input, 'shopItems');
+  assertOptionalStoredArray(input, 'redemptions');
+  assertOptionalStoredArray(input, 'processedEventKeys');
+
+  if ((input.ledger as unknown[]).some(entry => !isValidStoredRewardEntry(entry))) {
+    throw new Error('Invalid reward data: contains an invalid ledger entry');
+  }
+  if (Array.isArray(input.badges) && input.badges.some(badge => normalizeRewardBadge(badge) === null)) {
+    throw new Error('Invalid reward data: contains an invalid badge');
+  }
+  if (Array.isArray(input.shopItems) && input.shopItems.some(item => (
+    normalizeRewardShopItem(item) === null
+    || !isStoredObject(item)
+    || !Number.isInteger(item.cost)
+    || (item.cost as number) <= 0
+  ))) {
+    throw new Error('Invalid reward data: contains an invalid shop item');
+  }
+  if (Array.isArray(input.redemptions) && input.redemptions.some(redemption => (
+    normalizeRewardRedemption(redemption) === null
+    || !isStoredObject(redemption)
+    || !Number.isInteger(redemption.cost)
+    || (redemption.cost as number) <= 0
+  ))) {
+    throw new Error('Invalid reward data: contains an invalid redemption');
+  }
+  if (Array.isArray(input.processedEventKeys) && input.processedEventKeys.some(key => typeof key !== 'string' || !key.trim())) {
+    throw new Error('Invalid reward data: contains an invalid processed event key');
+  }
+}
+
+function parseStoredRewardState(input: unknown, strict: boolean): RewardState {
+  const parsed = typeof input === 'string'
+    ? JSON.parse(input)
+    : input;
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid reward data');
+  }
+
+  if (strict) {
+    assertValidStoredRewardState(parsed as Record<string, unknown>);
+  }
+
+  return normalizeRewardState(parsed);
 }
 
 function createRewardEntryId(prefix: string = 'reward'): string {
@@ -1056,7 +1208,10 @@ function buildRewardSnapshot(state: RewardState): RewardSnapshot {
   };
 }
 
-async function loadRewardState(forceRefresh: boolean = false): Promise<RewardState> {
+async function loadRewardState(
+  forceRefresh: boolean = false,
+  failClosed: boolean = false
+): Promise<RewardState> {
   if (cachedRewardState && !forceRefresh) {
     return cloneRewardState(cachedRewardState);
   }
@@ -1064,41 +1219,47 @@ async function loadRewardState(forceRefresh: boolean = false): Promise<RewardSta
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      const emptyState = createEmptyRewardState();
-      cachedRewardState = emptyState;
-      return cloneRewardState(emptyState);
+      throw new Error('Plugin is not initialized');
     }
 
     const stored = await plugin.loadData(STORAGE_KEY);
-    const normalized = normalizeRewardState(stored);
+    if (isMissingPluginStorageValue(stored)) {
+      const emptyState = createEmptyRewardState();
+      cachedRewardState = cloneRewardState(emptyState);
+      return emptyState;
+    }
+
+    const normalized = parseStoredRewardState(stored, failClosed);
     cachedRewardState = normalized;
     return cloneRewardState(normalized);
   } catch (error) {
     console.error('[Rewards] Failed to load reward data:', error);
-    const emptyState = createEmptyRewardState();
-    cachedRewardState = emptyState;
-    return cloneRewardState(emptyState);
+    if (failClosed) {
+      throw error;
+    }
+
+    return cachedRewardState
+      ? cloneRewardState(cachedRewardState)
+      : createEmptyRewardState();
   }
 }
 
 async function saveRewardState(state: RewardState): Promise<void> {
-  cachedRewardState = cloneRewardState(state);
-
   try {
     const plugin = usePlugin();
     if (!plugin) {
-      return;
+      throw new Error('Plugin is not initialized');
     }
     await plugin.saveData(STORAGE_KEY, state);
+    cachedRewardState = cloneRewardState(state);
   } catch (error) {
     console.error('[Rewards] Failed to save reward data:', error);
+    throw error;
   }
 }
 
 function enqueueRewardMutation<T>(work: () => Promise<T>): Promise<T> {
-  const next = rewardMutationQueue.then(work, work);
-  rewardMutationQueue = next.then(() => undefined, () => undefined);
-  return next;
+  return enqueueStorageMutation(STORAGE_KEY, work);
 }
 
 function getDailySourceTotals(
@@ -1159,7 +1320,7 @@ function emitRewardUpdate(
 
 async function applyRewardBatch(inputs: RewardAwardInput[]): Promise<RewardBatchResult> {
   return enqueueRewardMutation(async () => {
-    const state = await loadRewardState(false);
+    const state = await loadRewardState(true, true);
     const nowIso = new Date().toISOString();
     const skippedEventKeys: string[] = [];
     const latestEntries: RewardLedgerEntry[] = [];
@@ -1261,14 +1422,21 @@ export function createEmptyRewardSnapshot(): RewardSnapshot {
 }
 
 export async function getRewardSnapshot(forceRefresh: boolean = false): Promise<RewardSnapshot> {
-  const state = await loadRewardState(forceRefresh);
-  const syncTimestamp = state.updatedAt || new Date().toISOString();
-  const badgeSyncResult = unlockBadges(state, syncTimestamp);
-  if (badgeSyncResult.changed) {
-    state.updatedAt = syncTimestamp;
-    await saveRewardState(state);
-  }
-  return buildRewardSnapshot(state);
+  return enqueueRewardMutation(async () => {
+    let state = await loadRewardState(forceRefresh);
+    let syncTimestamp = state.updatedAt || new Date().toISOString();
+    let badgeSyncResult = unlockBadges(state, syncTimestamp);
+    if (badgeSyncResult.changed) {
+      state = await loadRewardState(true, true);
+      syncTimestamp = state.updatedAt || new Date().toISOString();
+      badgeSyncResult = unlockBadges(state, syncTimestamp);
+    }
+    if (badgeSyncResult.changed) {
+      state.updatedAt = syncTimestamp;
+      await saveRewardState(state);
+    }
+    return buildRewardSnapshot(state);
+  });
 }
 
 function normalizeShopItemDraft(input: RewardShopItemDraft): RewardShopItemDraft {
@@ -1304,7 +1472,7 @@ export async function addRewardShopItem(input: RewardShopItemDraft): Promise<Rew
   const normalized = normalizeShopItemDraft(input);
 
   return enqueueRewardMutation(async () => {
-    const state = await loadRewardState(false);
+    const state = await loadRewardState(true, true);
     if (state.shopItems.length >= MAX_SHOP_ITEMS) {
       throw new Error(formatRewardMessage(
         'rewardRepository.errors.maxShopItemsTemplate',
@@ -1346,7 +1514,7 @@ export async function updateRewardShopItem(itemId: string, input: RewardShopItem
   }
 
   return enqueueRewardMutation(async () => {
-    const state = await loadRewardState(false);
+    const state = await loadRewardState(true, true);
     const target = state.shopItems.find(item => item.id === normalizedItemId);
     if (!target) {
       throw new Error(formatRewardMessage(
@@ -1380,7 +1548,7 @@ export async function deleteRewardShopItem(itemId: string): Promise<RewardSnapsh
   }
 
   return enqueueRewardMutation(async () => {
-    const state = await loadRewardState(false);
+    const state = await loadRewardState(true, true);
     const nextItems = state.shopItems.filter(item => item.id !== normalizedItemId);
     if (nextItems.length === state.shopItems.length) {
       throw new Error(formatRewardMessage(
@@ -1409,7 +1577,7 @@ export async function redeemRewardShopItem(itemId: string): Promise<{ snapshot: 
   }
 
   return enqueueRewardMutation(async () => {
-    const state = await loadRewardState(false);
+    const state = await loadRewardState(true, true);
     const item = state.shopItems.find(shopItem => shopItem.id === normalizedItemId);
     if (!item) {
       throw new Error(formatRewardMessage(

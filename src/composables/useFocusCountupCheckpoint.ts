@@ -17,8 +17,8 @@ interface FocusCountupCheckpointOptions<TTarget> {
 export function useFocusCountupCheckpoint<TTarget>(options: FocusCountupCheckpointOptions<TTarget>) {
   const sessionId = ref('');
   const savedMinutes = ref(0);
-  let isSaving = false;
-  let hasPendingSave = false;
+  let pendingSave: { final: boolean; minutesOverride?: number } | null = null;
+  let saveLoopPromise: Promise<void> | null = null;
 
   function ensureSessionId(): string {
     if (!sessionId.value) {
@@ -30,8 +30,7 @@ export function useFocusCountupCheckpoint<TTarget>(options: FocusCountupCheckpoi
   function reset(): void {
     sessionId.value = '';
     savedMinutes.value = 0;
-    isSaving = false;
-    hasPendingSave = false;
+    pendingSave = null;
   }
 
   function restore(snapshot: FocusCountupCheckpointSnapshot): void {
@@ -51,38 +50,42 @@ export function useFocusCountupCheckpoint<TTarget>(options: FocusCountupCheckpoi
       return;
     }
 
-    const minutes = typeof minutesOverride === 'number'
+    const normalizedOverride = typeof minutesOverride === 'number'
       ? Math.max(0, Math.floor(minutesOverride))
-      : getElapsedFocusMinutes();
-    if (minutes <= savedMinutes.value) {
-      return;
+      : undefined;
+    if (pendingSave) {
+      pendingSave.final ||= final;
+      pendingSave.minutesOverride = pendingSave.minutesOverride === undefined || normalizedOverride === undefined
+        ? undefined
+        : Math.max(pendingSave.minutesOverride, normalizedOverride);
+    } else {
+      pendingSave = { final, minutesOverride: normalizedOverride };
     }
 
-    if (isSaving) {
-      hasPendingSave = true;
-      return;
+    if (!saveLoopPromise) {
+      saveLoopPromise = (async () => {
+        while (pendingSave) {
+          const request = pendingSave;
+          pendingSave = null;
+          const minutes = request.minutesOverride ?? getElapsedFocusMinutes();
+          if (minutes <= savedMinutes.value) continue;
+          const nextSessionId = ensureSessionId();
+          await options.upsertSession(nextSessionId, minutes, options.getTarget());
+          const savedDelta = Math.max(0, minutes - savedMinutes.value);
+          savedMinutes.value = Math.max(savedMinutes.value, minutes);
+          if (savedDelta > 0) {
+            options.onSaved?.({
+              minutes: savedDelta,
+              sessionId: nextSessionId,
+              checkpoint: !request.final
+            });
+          }
+        }
+      })().finally(() => {
+        saveLoopPromise = null;
+      });
     }
-
-    isSaving = true;
-    try {
-      const nextSessionId = ensureSessionId();
-      await options.upsertSession(nextSessionId, minutes, options.getTarget());
-      const savedDelta = Math.max(0, minutes - savedMinutes.value);
-      savedMinutes.value = Math.max(savedMinutes.value, minutes);
-      if (savedDelta > 0) {
-        options.onSaved?.({
-          minutes: savedDelta,
-          sessionId: nextSessionId,
-          checkpoint: !final
-        });
-      }
-    } finally {
-      isSaving = false;
-      if (hasPendingSave) {
-        hasPendingSave = false;
-        void save(final);
-      }
-    }
+    return saveLoopPromise;
   }
 
   return {

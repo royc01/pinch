@@ -56,11 +56,15 @@
             :class="{
               'is-outside': !day.inMonth,
               'is-today': day.isToday,
-              'is-selected': day.isSelected
+              'is-selected': day.isSelected,
+              'is-in-range': day.isInRange,
+              'is-range-row-start': day.isRangeRowStart,
+              'is-range-row-end': day.isRangeRowEnd,
+              'is-range-endpoint': day.isStartDate || day.isDueDate
             }"
             @click="selectDate(day.dateStr)"
           >
-            {{ day.label }}
+            <span>{{ day.label }}</span>
           </button>
         </div>
 
@@ -72,7 +76,7 @@
               <div class="date-popover-input-group">
                 <input
                   ref="startDateInputRef"
-                  :value="startDate"
+                  :value="calendarStartDate"
                   type="date"
                   @input="handleDateFieldInput('update:startDate', $event)"
                 />
@@ -178,6 +182,11 @@ type CalendarDay = {
   inMonth: boolean;
   isToday: boolean;
   isSelected: boolean;
+  isStartDate: boolean;
+  isDueDate: boolean;
+  isInRange: boolean;
+  isRangeRowStart: boolean;
+  isRangeRowEnd: boolean;
 };
 
 const props = withDefaults(defineProps<{
@@ -217,6 +226,8 @@ const startDateInputRef = ref<HTMLInputElement | null>(null);
 const dueDateInputRef = ref<HTMLInputElement | null>(null);
 const startTimeInputRef = ref<HTMLInputElement | null>(null);
 const dueTimeInputRef = ref<HTMLInputElement | null>(null);
+const isSelectingDueDate = ref(false);
+const pendingStartDate = ref('');
 const { t } = useI18n();
 const weekDayLabels = [
   t('taskRepeat.weekdayMonShort'),
@@ -228,6 +239,7 @@ const weekDayLabels = [
   t('taskRepeat.weekdaySunShort')
 ];
 const showTaskEditorDetails = computed(() => props.showTaskEditorDetails);
+const calendarStartDate = computed(() => pendingStartDate.value || props.startDate);
 
 const monthLabel = computed(() => {
   const cursor = monthCursor.value;
@@ -243,6 +255,7 @@ const calendarDays = computed<CalendarDay[]>(() => {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const daysInPrevMonth = new Date(year, month, 0).getDate();
   const selected = props.modelValue;
+  const selectedStartDate = showTaskEditorDetails.value ? calendarStartDate.value : '';
   const todayStr = formatDateInput(new Date());
   const days: CalendarDay[] = [];
 
@@ -256,7 +269,7 @@ const calendarDays = computed<CalendarDay[]>(() => {
       dateStr,
       inMonth: false,
       isToday: dateStr === todayStr,
-      isSelected: selected === dateStr
+      isSelected: selected === dateStr || selectedStartDate === dateStr
     });
   }
 
@@ -269,7 +282,7 @@ const calendarDays = computed<CalendarDay[]>(() => {
       dateStr,
       inMonth: true,
       isToday: dateStr === todayStr,
-      isSelected: selected === dateStr
+      isSelected: selected === dateStr || selectedStartDate === dateStr
     });
   }
 
@@ -283,12 +296,27 @@ const calendarDays = computed<CalendarDay[]>(() => {
       dateStr,
       inMonth: false,
       isToday: dateStr === todayStr,
-      isSelected: selected === dateStr
+      isSelected: selected === dateStr || selectedStartDate === dateStr
     });
     nextDay += 1;
   }
 
-  return days;
+  const rangeStart = showTaskEditorDetails.value && selectedStartDate && selected && selectedStartDate <= selected
+    ? selectedStartDate
+    : '';
+  const rangeEnd = rangeStart ? selected : '';
+
+  return days.map((day, index) => {
+    const isInRange = Boolean(rangeStart && rangeEnd && day.dateStr >= rangeStart && day.dateStr <= rangeEnd);
+    return {
+      ...day,
+      isStartDate: selectedStartDate === day.dateStr,
+      isDueDate: selected === day.dateStr,
+      isInRange,
+      isRangeRowStart: isInRange && (index % 7 === 0 || days[index - 1]?.dateStr < rangeStart),
+      isRangeRowEnd: isInRange && (index % 7 === 6 || days[index + 1]?.dateStr > rangeEnd)
+    };
+  });
 });
 
 function formatDateInput(date: Date): string {
@@ -378,6 +406,8 @@ function emitSelection(dateStr: string): void {
 
 function handleModelValueInput(event: Event): void {
   const target = event.target as HTMLInputElement | null;
+  isSelectingDueDate.value = false;
+  pendingStartDate.value = '';
   emit('update:modelValue', target?.value ?? '');
 }
 
@@ -388,6 +418,8 @@ function handleDateFieldInput(
   const target = event.target as HTMLInputElement | null;
   const value = target?.value ?? '';
   if (eventName === 'update:startDate') {
+    isSelectingDueDate.value = false;
+    pendingStartDate.value = '';
     emit('update:startDate', value);
     return;
   }
@@ -416,10 +448,29 @@ function openInputPicker(inputRef: { value: HTMLInputElement | null } | HTMLInpu
 }
 
 function selectDate(dateStr: string): void {
+  if (showTaskEditorDetails.value) {
+    if (!isSelectingDueDate.value) {
+      pendingStartDate.value = dateStr;
+      isSelectingDueDate.value = true;
+      return;
+    }
+
+    emit('update:dateFields', {
+      startDate: pendingStartDate.value,
+      startTime: props.startTime,
+      dueDate: dateStr,
+      dueTime: props.dueTime
+    });
+    isSelectingDueDate.value = false;
+    pendingStartDate.value = '';
+    return;
+  }
   emitSelection(dateStr);
 }
 
 function clearSelection(): void {
+  isSelectingDueDate.value = false;
+  pendingStartDate.value = '';
   if (showTaskEditorDetails.value) {
     emit('update:dateFields', {
       startDate: '',
@@ -453,6 +504,8 @@ function applyQuickDate(key: DateQuickKey): void {
     target = getThisYearEndDate(base);
   }
 
+  isSelectingDueDate.value = false;
+  pendingStartDate.value = '';
   emitSelection(formatDateInput(target));
 }
 
@@ -487,6 +540,17 @@ watch(
     }
     if (props.floating) {
       void nextTick(updatePopoverPosition);
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.visible,
+  (visible, wasVisible) => {
+    if (visible && !wasVisible) {
+      isSelectingDueDate.value = false;
+      pendingStartDate.value = '';
     }
   },
   { immediate: true }
@@ -615,6 +679,10 @@ onUnmounted(() => {
   gap: 4px;
 }
 
+.date-popover-detailed .date-popover-grid {
+  gap: 0;
+}
+
 .date-popover-detail {
   display: flex;
   flex-direction: column;
@@ -739,6 +807,59 @@ onUnmounted(() => {
 
 .date-popover-day:hover {
   background: var(--b3-list-hover);
+}
+
+.date-popover-detailed .date-popover-day {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 0;
+  isolation: isolate;
+}
+
+.date-popover-detailed .date-popover-day.is-selected {
+  background: transparent;
+}
+
+.date-popover-detailed .date-popover-day > span {
+  position: relative;
+  z-index: 2;
+}
+
+.date-popover-detailed .date-popover-day.is-in-range::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: '';
+  background: var(--b3-list-hover);
+}
+
+.date-popover-detailed .date-popover-day.is-range-row-start::before {
+  border-radius: 18px 0 0 18px;
+}
+
+.date-popover-detailed .date-popover-day.is-range-row-end::before {
+  border-radius: 0 18px 18px 0;
+}
+
+.date-popover-detailed .date-popover-day.is-range-endpoint::after {
+  position: absolute;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  content: '';
+  background: var(--b3-theme-on-background);
+}
+
+.date-popover-detailed .date-popover-day.is-range-endpoint > span {
+  color: var(--b3-theme-background);
+}
+
+.date-popover-detailed .date-popover-day.is-in-range:hover {
+  background: transparent;
 }
 
 .date-popover-repeat-section {

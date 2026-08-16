@@ -119,11 +119,11 @@
               @pointercancel="handleMobileTaskPointerCancel"
               @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
             >
-              <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
+              <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task, $event)">
                 <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
               </span>
               <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
-              <span class="mobile-task-chip-title" v-html="getTaskTitleHtml(task)"></span>
+              <TaskTitlePlain class="mobile-task-chip-title" :title="task.title" />
               <span
                 v-if="!isHabitTaskChip(task) && task.priority !== 'none'"
                 class="task-priority-badge ariaLabel"
@@ -256,12 +256,16 @@
                   <span
                     class="task-checkbox-wrapper"
                     @mousedown.stop
-                    @click.stop="toggleTaskStatus(task)"
+                    @click.stop="toggleTaskStatus(task, $event)"
                   >
                     <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                   </span>
                   <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
-                  <span class="task-title-text" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)" v-html="getTaskTitleHtml(task)"></span>
+                  <TaskTitlePlain
+                    class="task-title-text"
+                    :title="task.title"
+                    @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)"
+                  />
                   <span
                     v-if="!isHabitTaskChip(task) && task.priority !== 'none'"
                     class="task-priority-badge ariaLabel"
@@ -301,7 +305,7 @@
                   :ref="setAllDayTaskDragGhostElement"
                   :style="getAllDayTaskDragPreviewStyle(allDayTaskDragPreview, true)"
                 >
-                  <div class="task-chip-title" v-html="getTaskTitleHtml(allDayTaskDragPreview.task)"></div>
+                  <div class="task-chip-title"><TaskTitlePlain :title="allDayTaskDragPreview.task.title" /></div>
                 </div>
               </template>
             </div>
@@ -358,12 +362,12 @@
                 @click="!isHabitTaskChip(task) && handleTaskClick(task, $event)"
                 @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
               >
-                <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
+                <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task, $event)">
                   <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                 </span>
                 <span class="day-expanded-chip-title" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)">
                   <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
-                  <span v-html="getTaskTitleHtml(task)"></span>
+                  <TaskTitlePlain :title="task.title" />
                 </span>
               </div>
               <div v-if="allDayExpandedTasks.length === 0" class="day-expanded-empty">
@@ -526,11 +530,15 @@
                       <span
                         class="task-checkbox-wrapper"
                         @mousedown.stop
-                        @click.stop="toggleTaskStatus(item.task)"
+                        @click.stop="toggleTaskStatus(item.task, $event)"
                       >
                         <TaskCheckbox :checked="item.task.status === 'completed'" :size="12" />
                       </span>
-                      <span class="task-title-text" @click.stop="handleTaskClick(item.task, $event)" v-html="getTaskTitleHtml(item.task)"></span>
+                      <TaskTitlePlain
+                        class="task-title-text"
+                        :title="item.task.title"
+                        @click.stop="handleTaskClick(item.task, $event)"
+                      />
                       <span
                         v-if="item.task.priority !== 'none'"
                         class="task-priority-badge ariaLabel"
@@ -578,7 +586,7 @@
                     :style="getTimedTaskDragPreviewStyle(timedTaskDragPreview, true)"
                   >
                     <div class="timed-task-content">
-                      <div class="timed-task-title" v-html="getTaskTitleHtml(timedTaskDragPreview.task)"></div>
+                      <div class="timed-task-title"><TaskTitlePlain :title="timedTaskDragPreview.task.title" /></div>
                       <div class="timed-task-time">{{ getTimedTaskDragPreviewTimeRange(timedTaskDragPreview) }}</div>
                     </div>
                   </div>
@@ -674,13 +682,15 @@ import {
   getHabits,
   getMoodData,
   saveHabits,
-  saveMoodData,
+  removeMoodEntry,
+  upsertHabit,
+  upsertMoodEntry,
   setBlockAttrs,
   TaskRepository
 } from '@/api';
-import { updateTaskMarkdown } from '@/utils/taskHelpers';
+import { requestTaskCompletionNote, updateTaskMarkdown } from '@/utils/taskHelpers';
+import { getCheckinNotePromptAnchor } from '@/utils/checkinNotePrompt';
 import { getTaskDisplayTitle } from '@/composables/useTaskCommon';
-import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { getTaskPriorityLabel } from '@/utils/taskPriority';
 import { formatDate, formatTime, formatHour } from '@/composables/useDateUtils';
 import { CALENDAR_CONSTANTS } from '@/composables/useCalendarConstants';
@@ -693,6 +703,7 @@ import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, 
 import { persistTaskBackgroundColor } from '@/utils/taskBackgroundColorPersistence';
 import Icon from './Icon.vue';
 import CalendarTaskSidebar from './CalendarTaskSidebar.vue';
+import TaskTitlePlain from './TaskTitlePlain.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import LifelogTimelinePanel, {
@@ -730,7 +741,7 @@ import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/ut
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveTaskTagIds } from '@/utils/taskTags';
 import { useCheckinNotes } from '@/composables/useCheckinNotes';
-import { getCheckinNoteEventKey } from '@/utils/checkinNoteEvents';
+import { getCheckinNoteEventKeys } from '@/utils/checkinNoteEvents';
 import {
   normalizeTaskBackgroundColorValue,
   resolveEffectiveTaskBackgroundColor,
@@ -1245,7 +1256,7 @@ async function toggleHabitTaskChipStatus(task: Task): Promise<void> {
   habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
 
   habitRecords.value = [...habitRecords.value];
-  await saveHabits(habitRecords.value);
+  habitRecords.value = await upsertHabit(habit);
   eventBus.emit(Events.HABITS_UPDATED, { source: 'week-view', habits: habitRecords.value });
 }
 const WEEK_LIFELOG_MINUTES_PER_TEXT_LINE = 18;
@@ -1376,10 +1387,6 @@ const contextMenuDateDraft = ref<{ startDate: string; startTime: string; dueDate
 const contextMenuRepeatFrequency = ref<RepeatFrequency>('none');
 const contextMenuRepeatRule = ref<RepeatRule | null>(null);
 let contextMenuOutsidePointerBound = false;
-
-function getTaskTitleHtml(task: Task): string {
-  return sanitizeTaskTitleHtml(task.title || '');
-}
 
 function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined): RepeatFrequency {
   if (
@@ -3511,6 +3518,7 @@ function lifelogEventToTimelineListItem(event: WeekLifelogEvent): LifelogTimelin
     timeLabel: getWeekLifelogTimeLabel(event, startTime, endTime),
     sortMinutes: startMinutes,
     title,
+    isTaskTitle: event.type === 'task-completed',
     meta: getLifelogTimelineMeta(event),
     note: event.type === 'manual-note' ? event.text : getWeekLifelogEventNote(event),
     icon: event.type === 'habit-checkin' && !event.completed ? 'square' : getWeekLifelogIcon(event.type),
@@ -3530,7 +3538,7 @@ function lifelogEventToTimelineListItem(event: WeekLifelogEvent): LifelogTimelin
   if (event.type === 'manual-note') {
     return item;
   }
-  return hydrateCheckinNoteTimelineTarget(item, event.date, getCheckinNoteEventKey(event));
+  return hydrateCheckinNoteTimelineTarget(item, event.date, getCheckinNoteEventKeys(event));
 }
 
 const lifelogTimelinePanelOpen = computed(() => Boolean(lifelogTimelineDayKey.value));
@@ -3622,9 +3630,16 @@ function clearLifelogTimelineDraft(): void {
 }
 
 async function persistMoodRecords(nextMoodData: MoodData): Promise<void> {
-  await saveMoodData(nextMoodData);
-  moodRecords.value = nextMoodData;
-  eventBus.emit(Events.MOOD_UPDATED, { moodData: nextMoodData });
+  const previous = moodRecords.value;
+  const dates = new Set([...Object.keys(previous), ...Object.keys(nextMoodData)]);
+  let persisted = previous;
+  for (const date of dates) {
+    if (JSON.stringify(previous[date]) === JSON.stringify(nextMoodData[date])) continue;
+    if (nextMoodData[date]) persisted = await upsertMoodEntry(date, nextMoodData[date]);
+    else persisted = await removeMoodEntry(date);
+  }
+  moodRecords.value = persisted;
+  eventBus.emit(Events.MOOD_UPDATED, { moodData: persisted });
 }
 
 async function saveManualLifelogDraft(dayKey: string): Promise<void> {
@@ -6018,7 +6033,7 @@ function handleDocumentMobileTimedTaskPointerCancel(event: PointerEvent): void {
   handleMobileTimedTaskPointerCancel(event);
 }
 
-async function toggleTaskStatus(task: Task) {
+async function toggleTaskStatus(task: Task, event?: MouseEvent) {
   if (isHabitTaskChip(task)) {
     await toggleHabitTaskChipStatus(task);
     return;
@@ -6038,9 +6053,12 @@ async function toggleTaskStatus(task: Task) {
 
   try {
     if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate) {
-      await TaskRepository.updateRepeatInstanceStatus(task, nextStatus);
+      const completedAt = await TaskRepository.updateRepeatInstanceStatus(task, nextStatus);
+      if (nextStatus === 'completed' && completedAt) {
+        requestTaskCompletionNote(task.id, completedAt, getCheckinNotePromptAnchor(event?.currentTarget ?? null), task.title, task.blockId || task.id);
+      }
     } else if (task.type === 'block' && task.blockId) {
-      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true);
+      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true, getCheckinNotePromptAnchor(event?.currentTarget ?? null));
     }
   } catch (error) {
     patchLocalTask(task.id, {

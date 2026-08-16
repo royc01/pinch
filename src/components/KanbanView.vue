@@ -736,6 +736,8 @@
                   :selected-goal-ids="getKanbanTaskCardGoalIds(task)"
                   :show-status-badge="activeBoardGroupBy !== 'status'"
                   :completed="isTaskCompletedVisual(task)"
+                  :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
+                  :show-start-date="isFutureVirtualRepeatPreview(task)"
                   :draggable="!isMobileFrontend && kanbanSupportsDrag && !isKanbanBatchEditMode"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
                   :expanded="isKanbanTaskExpanded(task.id)"
@@ -819,6 +821,8 @@
               :selected-goal-ids="getKanbanTaskCardGoalIds(task)"
               :show-status-badge="true"
               :completed="isTaskCompletedVisual(task)"
+              :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
+              :show-start-date="isFutureVirtualRepeatPreview(task)"
               :draggable="!isMobileFrontend && !task.isVirtual"
               :expanded="isKanbanTaskExpanded(task.id)"
               :show-description="showKanbanTaskCardDetails"
@@ -953,6 +957,8 @@
                   :selected-goal-ids="getKanbanTaskCardGoalIds(task)"
                   :show-status-badge="activeBoardGroupBy !== 'status'"
                   :completed="isTaskCompletedVisual(task)"
+                  :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
+                  :show-start-date="isFutureVirtualRepeatPreview(task)"
                   :draggable="!isMobileFrontend && kanbanSupportsDrag"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
                   :expanded="isKanbanTaskExpanded(task.id)"
@@ -1234,8 +1240,10 @@
       :popover-style="kanbanFilterPopoverStyle"
       :has-active="hasActiveKanbanFilters"
       :sections="kanbanFilterSections"
+      :expression="kanbanFilterExpression"
       @clear="clearKanbanFilters"
       @toggle="handleKanbanFilterToggle"
+      @cycle-join="cycleKanbanFilterJoin"
     />
 
     <TaskFilterPopover
@@ -1244,8 +1252,10 @@
       :popover-style="tableFilterPopoverStyle"
       :has-active="hasActiveTableFilters"
       :sections="tableFilterSections"
+      :expression="tableFilterExpression"
       @clear="clearTableFilters"
       @toggle="handleTableFilterToggle"
+      @cycle-join="cycleTableFilterJoin"
     />
 
     <Teleport to="body">
@@ -1758,7 +1768,8 @@ import {
   getTaskStatusLabel,
   type TaskStatusValue
 } from '@/utils/taskStatus';
-import { updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
+import { requestTaskCompletionNote, updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
+import { getCheckinNotePromptAnchor } from '../utils/checkinNotePrompt';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useNotebooks, stripHtml } from '@/composables/useTaskCommon';
@@ -1830,7 +1841,11 @@ import QuickCreateTaskModal, {
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
-import { useTaskFilterState } from '@/composables/useTaskFilterState';
+import {
+  matchesTaskFilterExpression,
+  useTaskFilterState,
+  type StoredTaskFilterExpressionItem
+} from '@/composables/useTaskFilterState';
 import { useMobileTextInputActivation } from '@/composables/useMobileTextInputActivation';
 import { useI18n } from '@/composables/useI18n';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
@@ -1858,10 +1873,12 @@ import {
   type TaskReminderSelection,
   type TaskReminderType
 } from '@/utils/taskReminder';
+
 import { playTaskCompletionSound } from '@/utils/completionSound';
 import {
   loadDocumentGroups,
   saveDocumentGroups,
+  setDocumentGroupMembership,
   type DocumentGroup,
   type DocumentGroupMember
 } from '@/documentGroupRepository';
@@ -1915,7 +1932,9 @@ const {
   goalsLoading,
   loadGoalsData,
   refreshGoalDocuments,
-  saveGoalDefinitions
+  saveGoalDefinition,
+  saveGoalDefinitions,
+  saveTaskGoalMembership
 } = useGoals();
 
 const formatTemplate = (key: string, values: Record<string, string | number>): string => {
@@ -3014,13 +3033,15 @@ const virtualRepeatSeriesIds = computed(() => {
   return set;
 });
 
-// Keep one actionable virtual instance per repeat series in non-calendar views.
-// Prefer today's occurrence; otherwise retain the most recent overdue occurrence.
+// Keep one virtual instance per repeat series in non-calendar views. Prefer
+// today, then the most recent overdue occurrence, and finally the nearest
+// future occurrence as a read-only preview.
 const visibleVirtualRepeatTaskIds = computed(() => {
   const todayStart = getStartOfDay(new Date()).getTime();
   const todayEnd = todayStart + 24 * 60 * 60 * 1000;
   const todayIds = new Set<string>();
   const latestOverdueBySeries = new Map<string, { id: string; date: number }>();
+  const nearestFutureBySeries = new Map<string, { id: string; date: number }>();
 
   for (const task of tasks.value) {
     if (!task.isVirtual || !task.repeatSeriesId) continue;
@@ -3035,6 +3056,11 @@ const visibleVirtualRepeatTaskIds = computed(() => {
       if (!current || taskDate > current.date) {
         latestOverdueBySeries.set(task.repeatSeriesId, { id: task.id, date: taskDate });
       }
+    } else {
+      const current = nearestFutureBySeries.get(task.repeatSeriesId);
+      if (!current || taskDate < current.date) {
+        nearestFutureBySeries.set(task.repeatSeriesId, { id: task.id, date: taskDate });
+      }
     }
   }
 
@@ -3046,8 +3072,44 @@ const visibleVirtualRepeatTaskIds = computed(() => {
   for (const [seriesId, instance] of latestOverdueBySeries) {
     if (!seriesWithTodayInstance.has(seriesId)) todayIds.add(instance.id);
   }
+  for (const [seriesId, instance] of nearestFutureBySeries) {
+    if (!seriesWithTodayInstance.has(seriesId) && !latestOverdueBySeries.has(seriesId)) {
+      todayIds.add(instance.id);
+    }
+  }
   return todayIds;
 });
+
+const futureVirtualRepeatPreviewTaskIds = computed(() => {
+  const todayStart = getStartOfDay(new Date()).getTime();
+  const todayEnd = todayStart + 24 * 60 * 60 * 1000;
+  const seriesWithTodayOrOverdueInstance = new Set<string>();
+  const nearestFutureBySeries = new Map<string, { id: string; date: number }>();
+
+  for (const task of tasks.value) {
+    if (!task.isVirtual || !task.repeatSeriesId) continue;
+    const taskDate = getTaskDueDateTimestamp(task) ?? getTaskStartDateTimestamp(task);
+    if (taskDate === null) continue;
+    if (taskDate < todayEnd) {
+      seriesWithTodayOrOverdueInstance.add(task.repeatSeriesId);
+      continue;
+    }
+    const current = nearestFutureBySeries.get(task.repeatSeriesId);
+    if (!current || taskDate < current.date) {
+      nearestFutureBySeries.set(task.repeatSeriesId, { id: task.id, date: taskDate });
+    }
+  }
+
+  return new Set(
+    Array.from(nearestFutureBySeries.entries())
+      .filter(([seriesId]) => !seriesWithTodayOrOverdueInstance.has(seriesId))
+      .map(([, instance]) => instance.id)
+  );
+});
+
+function isFutureVirtualRepeatPreview(task: Task): boolean {
+  return futureVirtualRepeatPreviewTaskIds.value.has(task.id);
+}
 
 const activeKanbanEditTask = computed(() =>
   kanbanEditorTaskId.value
@@ -4774,8 +4836,11 @@ const {
   hasActive: hasActiveKanbanFilters,
   count: activeKanbanFilterCount,
   sections: kanbanFilterSections,
+  expression: kanbanFilterExpression,
   clear: clearKanbanFilters,
-  handleToggle: handleKanbanFilterToggle
+  handleToggle: handleKanbanFilterToggle,
+  restoreExpression: restoreKanbanFilterExpression,
+  cycleExpressionJoin: cycleKanbanFilterJoin
 } = useTaskFilterState({
   statusOptions: kanbanStatusFilterOptions,
   priorityOptions: kanbanPriorityFilterOptions,
@@ -4795,6 +4860,7 @@ function restoreTaskFilterPopoverSettings(): void {
   activeKanbanUpdatedFilters.value = normalizeStoredFilterValues<KanbanTaskUpdateFilterKey>(settings.kanbanUpdatedFilters, kanbanUpdatedFilterValueSet);
   activeKanbanGroupFilters.value = normalizeStoredGroupFilters(settings.kanbanGroupFilters);
   activeKanbanExtraFilters.value = normalizeStoredFilterValues<KanbanTaskExtraFilterKey>(settings.kanbanExtraFilters, kanbanExtraFilterValueSet);
+  restoreKanbanFilterExpression(settings.kanbanFilterExpression);
 
   activeTableStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.tableStatusFilters, kanbanStatusFilterValueSet);
   activeTablePriorityFilters.value = normalizeStoredFilterValues<Task['priority']>(settings.tablePriorityFilters, kanbanPriorityFilterValueSet);
@@ -4802,6 +4868,7 @@ function restoreTaskFilterPopoverSettings(): void {
   activeTableUpdatedFilters.value = normalizeStoredFilterValues<KanbanTaskUpdateFilterKey>(settings.tableUpdatedFilters, kanbanUpdatedFilterValueSet);
   activeTableGroupFilters.value = normalizeStoredGroupFilters(settings.tableGroupFilters);
   activeTableExtraFilters.value = normalizeStoredFilterValues<KanbanTaskExtraFilterKey>(settings.tableExtraFilters, kanbanExtraFilterValueSet);
+  restoreTableFilterExpression(settings.tableFilterExpression);
 }
 
 const {
@@ -4814,8 +4881,11 @@ const {
   hasActive: hasActiveTableFilters,
   count: activeTableFilterCount,
   sections: tableFilterSections,
+  expression: tableFilterExpression,
   clear: clearTableFilters,
-  handleToggle: handleTableFilterToggle
+  handleToggle: handleTableFilterToggle,
+  restoreExpression: restoreTableFilterExpression,
+  cycleExpressionJoin: cycleTableFilterJoin
 } = useTaskFilterState({
   statusOptions: kanbanStatusFilterOptions,
   priorityOptions: kanbanPriorityFilterOptions,
@@ -4989,10 +5059,25 @@ async function saveDocumentTabGroupAssignments(nextGroups: DocumentGroup[]): Pro
     members: Array.isArray(group.members) ? group.members.map(member => ({ ...member })) : []
   })));
 
-  applyExternalDocumentGroups(normalizedGroups);
-  eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: normalizedGroups });
+  const menu = documentTabContextMenu.value;
+  if (menu) {
+    const targetGroupIds = normalizedGroups
+      .filter(group => group.members.some(member =>
+        member.documentId === menu.documentId && member.notebookId === menu.notebookId
+      ))
+      .map(group => group.id);
+    await setDocumentGroupMembership({
+      documentId: menu.documentId,
+      notebookId: menu.notebookId,
+      name: menu.text
+    }, targetGroupIds);
+  } else {
+    await saveDocumentGroups(normalizedGroups);
+  }
+  const persistedGroups = await loadDocumentGroups();
+  applyExternalDocumentGroups(persistedGroups);
+  eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: persistedGroups });
   closeDocumentTabContextMenu();
-  await saveDocumentGroups(normalizedGroups);
   await validateDocumentSelection();
 }
 
@@ -5110,7 +5195,8 @@ async function toggleDocumentTabGoalAssignment(goalId: string): Promise<void> {
 
   goalDefinitions.value = nextGoals;
   closeDocumentTabContextMenu();
-  await saveGoalDefinitions(nextGoals);
+  const updatedGoal = nextGoals.find(goal => goal.id === normalizedGoalId);
+  if (updatedGoal) await saveGoalDefinition(updatedGoal);
   await validateDocumentSelection();
 }
 
@@ -5367,11 +5453,11 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
   })));
 
   applyExcludedNotebookScope(mergedExcludedNotebookIds);
-  applyExternalDocumentGroups(nextDocumentGroups);
   eventBus.emit(Events.TASK_SCOPE_UPDATED, { excludedNotebookIds: mergedExcludedNotebookIds });
-  eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
   TaskRepository.setAutoRecognizeTaskDateEnabled(nextAutoRecognizeTaskDate);
   await saveDocumentGroups(nextDocumentGroups);
+  applyExternalDocumentGroups(nextDocumentGroups);
+  eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
   await saveGoalDefinitions(nextGoals);
   showTaskScopeDialog.value = false;
   const hasFilterChanges = resetFiltersForExcludedNotebooks() || normalizeInvalidNotebookFilters();
@@ -5784,6 +5870,34 @@ function isGanttTopLevelTask(task: Task): boolean {
   return true;
 }
 
+function matchesConfiguredTaskFilterExpression(
+  task: Task,
+  expression: readonly StoredTaskFilterExpressionItem[]
+): boolean {
+  return matchesTaskFilterExpression(task, expression, (candidate, condition) => {
+    switch (condition.group) {
+      case 'status':
+        return getTaskVisualStatus(candidate) === condition.value;
+      case 'priority':
+        return candidate.priority === condition.value;
+      case 'group':
+        return matchesTaskTagFilter(candidate.tags, candidate.groupId, [condition.value], TASK_GROUP_NONE_ID);
+      case 'due':
+        return matchesKanbanDueFilter(candidate, condition.value as KanbanTaskDueFilterKey);
+      case 'updated':
+        return matchesKanbanUpdatedFilter(candidate, condition.value as KanbanTaskUpdateFilterKey);
+      case 'extra':
+        if (condition.value === 'hasDescription') {
+          return typeof candidate.description === 'string' && candidate.description.trim().length > 0;
+        }
+        if (condition.value === 'hasSubtasks') {
+          return Array.isArray(candidate.subtasks) && candidate.subtasks.length > 0;
+        }
+        return condition.value === 'hasFocusEstimate' && !!candidate.focusEstimate;
+    }
+  });
+}
+
 function matchesKanbanFiltersByDocumentScope(
   task: Task,
   includeDocumentFilter: boolean,
@@ -5806,40 +5920,7 @@ function matchesKanbanFiltersByDocumentScope(
   if (!showCompletedTasks.value && isTaskCompletedVisual(task)) {
     return false;
   }
-  if (activeKanbanStatusFilters.value.length > 0) {
-    const status = getTaskVisualStatus(task);
-    if (!activeKanbanStatusFilters.value.includes(status)) {
-      return false;
-    }
-  }
-  if (activeKanbanPriorityFilters.value.length > 0 && !activeKanbanPriorityFilters.value.includes(task.priority)) {
-    return false;
-  }
-  if (!matchesTaskTagFilter(task.tags, task.groupId, activeKanbanGroupFilters.value, TASK_GROUP_NONE_ID)) {
-    return false;
-  }
-  if (activeKanbanDueFilters.value.length > 0 && !activeKanbanDueFilters.value.some(filter => matchesKanbanDueFilter(task, filter))) {
-    return false;
-  }
-  if (activeKanbanUpdatedFilters.value.length > 0 && !activeKanbanUpdatedFilters.value.some(filter => matchesKanbanUpdatedFilter(task, filter))) {
-    return false;
-  }
-  if (activeKanbanExtraFilters.value.length > 0) {
-    const wantsDescription = activeKanbanExtraFilters.value.includes('hasDescription');
-    const wantsSubtasks = activeKanbanExtraFilters.value.includes('hasSubtasks');
-    const wantsFocusEstimate = activeKanbanExtraFilters.value.includes('hasFocusEstimate');
-    const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
-    const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
-    const hasFocusEstimate = !!task.focusEstimate;
-
-    if ((wantsDescription && hasDescription) || (wantsSubtasks && hasSubtasks) || (wantsFocusEstimate && hasFocusEstimate)) {
-      return true;
-    }
-    if (wantsDescription || wantsSubtasks || wantsFocusEstimate) {
-      return false;
-    }
-  }
-  return true;
+  return matchesConfiguredTaskFilterExpression(task, kanbanFilterExpression.value);
 }
 
 function getDocumentTabTaskMatcher(view: TaskViewMode): DocumentOptionsTaskMatcher {
@@ -7482,12 +7563,14 @@ watch([
   activeKanbanUpdatedFilters,
   activeKanbanGroupFilters,
   activeKanbanExtraFilters,
+  kanbanFilterExpression,
   activeTableStatusFilters,
   activeTablePriorityFilters,
   activeTableDueFilters,
   activeTableUpdatedFilters,
   activeTableGroupFilters,
-  activeTableExtraFilters
+  activeTableExtraFilters,
+  tableFilterExpression
 ], () => {
   if (isHydratingSettings.value) {
     return;
@@ -7868,7 +7951,7 @@ function updateKanbanFilterPopoverPosition(): void {
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
   const horizontalMargin = 12;
   const verticalMargin = 12;
-  const width = 300;
+  const width = Math.min(400, viewportWidth - horizontalMargin * 2);
   const maxHeight = Math.max(200, Math.min(500, viewportHeight - verticalMargin * 2));
   let left = x;
   let top = y + 8;
@@ -7910,7 +7993,7 @@ function updateTableFilterPopoverPosition(): void {
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
   const horizontalMargin = 12;
   const verticalMargin = 12;
-  const width = 300;
+  const width = Math.min(400, viewportWidth - horizontalMargin * 2);
   const maxHeight = Math.max(200, Math.min(500, viewportHeight - verticalMargin * 2));
   let left = x;
   let top = y + 8;
@@ -8325,7 +8408,10 @@ function handleKanbanTaskContextMenu(task: Task, event: MouseEvent): void {
   void openKanbanEditor(task, event);
 }
 
-function handleKanbanTaskToggleStatus(task: Task): void {
+function handleKanbanTaskToggleStatus(task: Task, event?: MouseEvent): void {
+  if (isFutureVirtualRepeatPreview(task)) {
+    return;
+  }
   if (isKanbanBatchEditMode.value) {
     if (isKanbanBatchCardClickSuppressed()) {
       return;
@@ -8333,7 +8419,7 @@ function handleKanbanTaskToggleStatus(task: Task): void {
     toggleKanbanTaskBatchSelection(task.id);
     return;
   }
-  void toggleTaskStatus(task);
+  void toggleTaskStatus(task, event);
 }
 
 function startFocusForTask(task: Task): void {
@@ -8832,40 +8918,7 @@ function matchesTableFiltersByArchivedState(
   )) return false;
   if (!archivedOnly && !showCompletedTasks.value && isTaskCompletedVisual(task)) return false;
   if (!matchesTableSearch(task)) return false;
-  if (activeTableStatusFilters.value.length > 0) {
-    const status = getTaskVisualStatus(task);
-    if (!activeTableStatusFilters.value.includes(status)) {
-      return false;
-    }
-  }
-  if (activeTablePriorityFilters.value.length > 0 && !activeTablePriorityFilters.value.includes(task.priority)) {
-    return false;
-  }
-  if (!matchesTaskTagFilter(task.tags, task.groupId, activeTableGroupFilters.value, TASK_GROUP_NONE_ID)) {
-    return false;
-  }
-  if (activeTableDueFilters.value.length > 0 && !activeTableDueFilters.value.some(filter => matchesKanbanDueFilter(task, filter))) {
-    return false;
-  }
-  if (activeTableUpdatedFilters.value.length > 0 && !activeTableUpdatedFilters.value.some(filter => matchesKanbanUpdatedFilter(task, filter))) {
-    return false;
-  }
-  if (activeTableExtraFilters.value.length > 0) {
-    const wantsDescription = activeTableExtraFilters.value.includes('hasDescription');
-    const wantsSubtasks = activeTableExtraFilters.value.includes('hasSubtasks');
-    const wantsFocusEstimate = activeTableExtraFilters.value.includes('hasFocusEstimate');
-    const hasDescription = typeof task.description === 'string' && task.description.trim().length > 0;
-    const hasSubtasks = Array.isArray(task.subtasks) && task.subtasks.length > 0;
-    const hasFocusEstimate = !!task.focusEstimate;
-
-    if ((wantsDescription && hasDescription) || (wantsSubtasks && hasSubtasks) || (wantsFocusEstimate && hasFocusEstimate)) {
-      return true;
-    }
-    if (wantsDescription || wantsSubtasks || wantsFocusEstimate) {
-      return false;
-    }
-  }
-  return true;
+  return matchesConfiguredTaskFilterExpression(task, tableFilterExpression.value);
 }
 
 function matchesTableFilters(task: Task): boolean {
@@ -10473,12 +10526,14 @@ async function saveUserSettings() {
       kanbanUpdatedFilters: [...activeKanbanUpdatedFilters.value],
       kanbanGroupFilters: [...activeKanbanGroupFilters.value],
       kanbanExtraFilters: [...activeKanbanExtraFilters.value],
+      kanbanFilterExpression: kanbanFilterExpression.value.map(({ group, value, join }) => ({ group, value, join })),
       tableStatusFilters: [...activeTableStatusFilters.value],
       tablePriorityFilters: [...activeTablePriorityFilters.value],
       tableDueFilters: [...activeTableDueFilters.value],
       tableUpdatedFilters: [...activeTableUpdatedFilters.value],
       tableGroupFilters: [...activeTableGroupFilters.value],
       tableExtraFilters: [...activeTableExtraFilters.value],
+      tableFilterExpression: tableFilterExpression.value.map(({ group, value, join }) => ({ group, value, join })),
       hiddenDocumentTabIds: normalizeNotebookIds(Array.from(hiddenDocumentTabIds.value), { sort: true })
     });
   } catch (error) {
@@ -11985,7 +12040,7 @@ async function handleKanbanEditorGoalSelect(value: string): Promise<void> {
 
   const nextGoals = toggleTaskGoalMembership(goalDefinitions.value, task, value);
   goalDefinitions.value = nextGoals;
-  await saveGoalDefinitions(nextGoals);
+  await saveTaskGoalMembership(task, getGoalIdsForTask(nextGoals, task));
   invalidateTableFilters();
 }
 
@@ -11997,7 +12052,7 @@ async function handleTableGoalUpdate(task: Task, goalId: string): Promise<void> 
 
   const nextGoals = toggleTaskGoalMembership(goalDefinitions.value, task, normalizedGoalId);
   goalDefinitions.value = nextGoals;
-  await saveGoalDefinitions(nextGoals);
+  await saveTaskGoalMembership(task, getGoalIdsForTask(nextGoals, task));
   invalidateTableFilters();
 }
 
@@ -12015,7 +12070,7 @@ async function handleGanttTaskGoalDrop(task: Task, goalId: string): Promise<void
   currentGoalIds.add(normalizedGoalId);
   const nextGoals = setTaskGoalMembership(goalDefinitions.value, task, Array.from(currentGoalIds));
   goalDefinitions.value = nextGoals;
-  await saveGoalDefinitions(nextGoals);
+  await saveTaskGoalMembership(task, Array.from(currentGoalIds));
   invalidateTableFilters();
 }
 
@@ -12036,7 +12091,8 @@ async function handleGanttGoalDueDateChanged(goalId: string, dueDate: string): P
       : item
   ));
   goalDefinitions.value = nextGoals;
-  await saveGoalDefinitions(nextGoals);
+  const updatedGoal = nextGoals.find(item => item.id === normalizedGoalId);
+  if (updatedGoal) await saveGoalDefinition(updatedGoal);
   invalidateTableFilters();
 }
 
@@ -13792,15 +13848,16 @@ async function handleSharedQuickCreateCreated(payload: QuickCreateCreatedPayload
       }
     }
     if (selectedGoalIds.length > 0 && payload.taskId) {
-      const nextGoals = setTaskGoalMembership(goalDefinitions.value, {
+      const goalTask = {
         taskId: payload.taskId,
         blockId: payload.blockId,
         notebookId: payload.notebookId,
         rootId: rootId || undefined,
         title: payload.task.title
-      }, selectedGoalIds);
+      };
+      const nextGoals = setTaskGoalMembership(goalDefinitions.value, goalTask, selectedGoalIds);
       goalDefinitions.value = nextGoals;
-      await saveGoalDefinitions(nextGoals);
+      await saveTaskGoalMembership(goalTask, selectedGoalIds);
     }
 
     const optimisticTask = buildOptimisticTaskForQuickCreate(
@@ -13924,7 +13981,7 @@ function upsertOptimisticQuickCreatedTask(task: Task): void {
   invalidateTableFilters();
 }
 
-async function toggleTaskStatus(task: Task) {
+async function toggleTaskStatus(task: Task, event?: MouseEvent) {
   if (skipSet.has(task.id)) {
     return;
   }
@@ -13938,7 +13995,10 @@ async function toggleTaskStatus(task: Task) {
 
   try {
     if (isVirtualRepeatTask) {
-      await TaskRepository.updateRepeatInstanceStatus(task, newStatus);
+      const completedAt = await TaskRepository.updateRepeatInstanceStatus(task, newStatus);
+      if (newStatus === 'completed' && completedAt) {
+        requestTaskCompletionNote(task.id, completedAt, getCheckinNotePromptAnchor(event?.currentTarget ?? null), task.title, task.blockId || task.id);
+      }
       syncTaskLocalStatusState(task.id, newStatus);
       invalidateTableFilters();
       if (shouldPlayCompletionSound && taskCompletionSoundEnabled.value) {
@@ -13948,7 +14008,7 @@ async function toggleTaskStatus(task: Task) {
     }
 
     if (task.type === 'block' && task.blockId) {
-      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true);
+      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true, getCheckinNotePromptAnchor(event?.currentTarget ?? null));
       crdtRepo.updateTaskField(task.id, 'status', newStatus);
       syncTaskLocalStatusState(task.id, newStatus);
       invalidateTableFilters();

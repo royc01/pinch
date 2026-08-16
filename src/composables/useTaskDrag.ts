@@ -316,22 +316,6 @@ export function useTaskDrag(
     patchLocalTasksBatch(updates, { emit: false });
   }
 
-  function applyRepeatSeriesAllDayMove(
-    snapshot: RepeatSeriesDragSnapshot,
-    deltaDays: number
-  ): void {
-    const updates = snapshot.entries.map(entry => ({
-      id: entry.id,
-      patch: {
-        repeatInstanceDate: entry.isVirtual ? shiftDate(entry.startDate, deltaDays) : undefined,
-        startDate: shiftDate(entry.startDate, deltaDays),
-        dueDate: entry.hasExplicitDueDate ? shiftDate(entry.dueDate, deltaDays) : undefined
-      }
-    }));
-
-    patchLocalTasksBatch(updates, { emit: false });
-  }
-
   function emitRepeatSeriesSnapshotTasks(snapshot: RepeatSeriesDragSnapshot): void {
     for (const entry of snapshot.entries) {
       const syncedTask = getLocalTask(entry.id);
@@ -411,25 +395,6 @@ export function useTaskDrag(
       pending.nextStartTime,
       pending.clearTime
     );
-  }
-
-  function scheduleTimedRepeatPreview(
-    snapshot: RepeatSeriesDragSnapshot,
-    deltaDays: number,
-    nextStartTime: string | undefined,
-    clearTime: boolean
-  ): void {
-    pendingTimedRepeatPreview.value = {
-      snapshot,
-      deltaDays,
-      nextStartTime,
-      clearTime
-    };
-    if (timedRepeatPreviewRafId !== null) return;
-    timedRepeatPreviewRafId = requestAnimationFrame(() => {
-      timedRepeatPreviewRafId = null;
-      flushTimedRepeatPreview();
-    });
   }
 
   function clearTimedRepeatPreview(): void {

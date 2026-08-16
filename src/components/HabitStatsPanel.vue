@@ -53,9 +53,9 @@
               <div class="ariaLabel" 
                 v-for="day in monthViewData" 
                 :key="day.date" 
-                :class="['day', { completed: day.completed, today: day.date === getToday(), 'not-current-month': !day.isCurrentMonth }]"
+                :class="['day', { completed: day.completed, today: day.date === getToday(), 'not-current-month': !day.isCurrentMonth, 'not-scheduled': !day.isScheduled }]"
                 :aria-label="day.date"
-                @click="!habit.isPaused && toggleDayCompletion(day.date)"
+                @click="!habit.isPaused && day.isScheduled && toggleDayCompletion(day.date)"
               >
                 <span class="day-number">{{ day.date.split('-')[2] }}</span>
                 <div v-if="day.targetCount > 1" class="day-progress-container">
@@ -86,7 +86,7 @@
         <div class="stat-row">
             <div class="stat-item">
               <div class="stat-label">{{ t('habitTracker.totalCheckins') }}</div>
-              <div class="stat-value">{{ habit.totalCompletions }}<span>{{ t('habitTracker.timesSuffix') }}</span></div>
+              <div class="stat-value">{{ totalCompletions }}<span>{{ t('habitTracker.timesSuffix') }}</span></div>
               <div class="monthly-progress-chart">
                 <div class="chart-bar" v-for="monthData in monthlyProgressData" :key="monthData.month">
                   <div class="bar-fill" :style="{ height: monthData.percentage + '%' }"></div>
@@ -152,6 +152,7 @@ interface DayData {
   date: string;
   completed: boolean;
   isCurrentMonth: boolean;
+  isScheduled: boolean;
   targetCount?: number;
   completedCount?: number;
 }
@@ -179,6 +180,7 @@ interface Props {
   currentPeriodText: string;
   currentMonthStreak: number;
   totalMonthCompletions: number;
+  totalCompletions: number;
   completionRate: number;
   monthlyProgressData: MonthData[];
   longestStreak: LongestStreak;
@@ -453,6 +455,11 @@ const getToday = (): string => {
         cursor: default;
         font-weight: 600;
         transition: background-color 0.2s;
+
+        &.not-scheduled {
+          cursor: not-allowed;
+          opacity: .3;
+        }
         
         &.completed {
           background: #f98f7a;

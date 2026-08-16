@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getCheckinNoteEventKey,
+  getCheckinNoteEventKeys,
   isCheckinNoteLifelogEvent
 } from './checkinNoteEvents';
 import type {
@@ -41,6 +42,10 @@ describe('checkin note event keys', () => {
     };
 
     expect(getCheckinNoteEventKey(event)).toBe('habit:water:1234');
+    expect(getCheckinNoteEventKeys(event)).toEqual([
+      'habit:water:1234',
+      'habit:water:2026-08-09:2'
+    ]);
   });
 
   it('falls back to a dated habit occurrence for old records', () => {

@@ -3,12 +3,17 @@
     <div class="stats-header">
       <div class="stats-header-content">
         <div class="stats-title">{{ t('moodTracker.calendarTitle') }}</div>
+        <div class="mood-record-view-tabs" role="tablist">
+          <button type="button" role="tab" data-record-view="all" :aria-selected="recordView === 'all'" :class="{ active: recordView === 'all' }" @click="recordView = 'all'">{{ t('checkinNotes.allRecords') }}</button>
+          <button type="button" role="tab" data-record-view="annotations" :aria-selected="recordView === 'annotations'" :class="{ active: recordView === 'annotations' }" @click="recordView = 'annotations'">{{ t('checkinNotes.annotatedRecords') }}</button>
+          <button type="button" role="tab" data-record-view="favorites" :aria-selected="recordView === 'favorites'" :class="{ active: recordView === 'favorites' }" @click="recordView = 'favorites'">{{ t('checkinNotes.favoriteRecords') }}</button>
+        </div>
         <button @click="handleClose" class="icon-button ariaLabel" :aria-label="t('common.close')">
           <Icon name="close" width="16" height="16" class="icon" />
         </button>
       </div>
     </div>
-    <div class="stats-content">
+    <div v-if="recordView === 'all'" class="stats-content">
       <div class="stats-row">
         <div class="mood-stats-container">
           <div class="mood-stats-title">{{ t('moodTracker.statsTitle') }}</div>
@@ -85,6 +90,9 @@
             :close-label="t('common.close')"
             :delete-label="t('common.delete')"
             :add-annotation-label="t('lifelogTimeline.addAnnotationLabel')"
+            :star-label="t('checkinNotes.star')"
+            :unstar-label="t('checkinNotes.unstar')"
+            :open-source-label="t('checkinNotes.openSource')"
             :show-editor="Boolean(selectedLifelogDate)"
             :draft="lifelogTimelineDraft"
             :editor-placeholder="t('monthView.lifelogManualPlaceholder')"
@@ -104,10 +112,40 @@
             @delete-item="deleteLifelogTimelineItem"
             @update-item="updateLifelogTimelineItem"
             @update-annotation="updateLifelogTimelineAnnotation"
-          />
+            @toggle-star="toggleLifelogTimelineStar"
+            @open-source="openLifelogTimelineSource"
+          >
+            <template #after-header>
+              <div v-if="selectedLifelogDate" class="lifelog-daily-summary">
+                <div class="lifelog-daily-summary-item">
+                  <span class="lifelog-daily-summary-value">{{ formatLifelogMinutes(lifelogDaySummary.focusMinutes) }}</span>
+                  <span class="lifelog-daily-summary-label">{{ t('lifelogTimeline.dailyFocusTime') }}</span>
+                </div>
+                <div class="lifelog-daily-summary-item">
+                  <span class="lifelog-daily-summary-value">{{ lifelogDaySummary.completedTasks }}</span>
+                  <span class="lifelog-daily-summary-label">{{ t('lifelogTimeline.dailyCompletedTasks') }}</span>
+                </div>
+                <div class="lifelog-daily-summary-item">
+                  <span class="lifelog-daily-summary-value">{{ lifelogDaySummary.completedHabits }}</span>
+                  <span class="lifelog-daily-summary-label">{{ t('lifelogTimeline.dailyCompletedHabits') }}</span>
+                </div>
+              </div>
+            </template>
+          </LifelogTimelinePanel>
         </div>
       </div>
     </div>
+    <CheckinNotesOverview
+      v-else
+      :month="checkinNoteMonth"
+      :period-label="monthYear"
+      :records="recordViewItems"
+      :mode="recordView"
+      @change-period="changeMonth"
+      @open-event="openCheckinNoteSource"
+      @update-record="updateLifelogTimelineItem"
+      @delete-record="deleteLifelogTimelineItem"
+    />
   </div>
 </template>
 
@@ -119,13 +157,16 @@ import LifelogTimelinePanel, {
   type LifelogTimelinePanelBadge,
   type LifelogTimelinePanelItem
 } from './LifelogTimelinePanel.vue';
+import CheckinNotesOverview from './CheckinNotesOverview.vue';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import {
   deleteFocusSessionRecord,
   getFocusTimerData,
   loadTaskGroups,
-  saveMoodData,
+  removeMoodEntry,
+  upsertMoodEntry,
   TaskRepository,
+  openBlockById,
   type FocusSessionRecord,
   type Habit,
   type MoodData,
@@ -133,8 +174,9 @@ import {
   type Task,
   type TaskGroup
 } from '@/api';
-import { loadGoals, type Goal } from '@/goalRepository';
+import type { CheckinNoteContext } from '@/checkinNoteRepository';
 import { eventBus, Events } from '@/utils/eventBus';
+import { loadGoals, type Goal } from '@/goalRepository';
 import {
   getLifelogTaskSnapshot,
   patchLifelogTaskSnapshotByBlockId
@@ -146,16 +188,20 @@ import {
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { useCheckinNotes } from '@/composables/useCheckinNotes';
-import { getCheckinNoteEventKey } from '@/utils/checkinNoteEvents';
+import { getCheckinNoteEventKeys } from '@/utils/checkinNoteEvents';
+import { getRecordCheckinContext, lifelogEventsToRecordViewItems, type RecordViewItem } from '@/utils/recordViewItems';
 import {
   focusRecordsToLifelogEvents,
+  summarizeFocusLifelogEventsByDay,
   type FocusLifelogEvent,
   type HabitCheckinLifelogEvent,
   habitsToLifelogEvents,
+  summarizeHabitCheckinLifelogEventsByDay,
   moodManualEntriesToLifelogEvents,
   type ManualNoteLifelogEvent,
   type TaskCompletedLifelogEvent,
-  tasksToCompletedLifelogEvents
+  tasksToCompletedLifelogEvents,
+  summarizeTaskCompletedLifelogEventsByDay
 } from '@/utils/lifelogEvents';
 import { resolveTaskTagIds } from '@/utils/taskTags';
 
@@ -204,6 +250,7 @@ const emit = defineEmits<{
 }>();
 
 const hoverPoint = ref(-1);
+const recordView = ref<'all' | 'annotations' | 'favorites'>('all');
 const selectedLifelogDate = ref('');
 const manualLifelogDrafts = ref<Record<string, string>>({});
 const focusSessionRecords = ref<FocusSessionRecord[]>([]);
@@ -245,6 +292,7 @@ const lifelogRepeatWindow = computed(() => {
     endDate: formatDateKey(new Date(year, month + 1, 0))
   };
 });
+const checkinNoteMonth = computed(() => lifelogRepeatWindow.value.startDate.slice(0, 7));
 
 const moodStatsData = computed<MoodStatsData>(() => {
   const today = new Date();
@@ -322,7 +370,7 @@ const compactMonthDays = computed<LifelogTimelineDateStripDay[]>(() => (
         ariaLabel: `${month}/${dayNumber} ${weekdayLabel}`,
         selected: day.date === selectedLifelogDate.value,
         today: day.isToday,
-        hasRecord: Boolean(day.data),
+        hasRecord: Boolean(day.data) || recordViewItems.value.some(record => record.date === day.date),
         moodSvg: day.data?.emoji ? props.getLargeMoodSvg(day.data.emoji) : undefined
       };
     })
@@ -413,7 +461,8 @@ async function refreshLifelogTasks(forceRefresh: boolean = false): Promise<void>
         useLiveDom: false,
         detailLevel: 'full',
         materializeRepeats: true,
-        repeatWindow: lifelogRepeatWindow.value
+        repeatWindow: lifelogRepeatWindow.value,
+        includeCompletedRepeatInstancesByCompletionDate: true
       }
     );
     if (requestId !== lifelogTasksLoadRequestId) {
@@ -536,7 +585,11 @@ const manualNoteLifelogEvents = computed(() => moodManualEntriesToLifelogEvents(
 const focusLifelogEvents = computed(() =>
   focusRecordsToLifelogEvents(focusSessionRecords.value, t('focusTimer.title'))
 );
+const focusSummariesByDay = computed(() => summarizeFocusLifelogEventsByDay(focusLifelogEvents.value));
 const habitCheckinLifelogEvents = computed(() => habitsToLifelogEvents(props.habits || []));
+const habitCheckinSummariesByDay = computed(() => (
+  summarizeHabitCheckinLifelogEventsByDay(habitCheckinLifelogEvents.value)
+));
 const taskCompletedLifelogSourceTasks = computed(() => {
   const tasksById = new Map<string, Task>();
   for (const task of lifelogTasks.value) {
@@ -548,6 +601,9 @@ const taskCompletedLifelogSourceTasks = computed(() => {
   return Array.from(tasksById.values());
 });
 const taskCompletedLifelogEvents = computed(() => tasksToCompletedLifelogEvents(taskCompletedLifelogSourceTasks.value));
+const taskCompletedSummariesByDay = computed(() => (
+  summarizeTaskCompletedLifelogEventsByDay(taskCompletedLifelogEvents.value)
+));
 const taskCompletedLifelogSourceTaskById = computed(() => {
   const taskById = new Map<string, Task>();
   for (const task of taskCompletedLifelogSourceTasks.value) {
@@ -652,7 +708,16 @@ function formatHabitLifelogProgress(event: HabitCheckinLifelogEvent): string {
 
 function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timeToSortMinutes(event.startTime, 8 * 60);
-  return hydrateCheckinNoteTimelineTarget({
+  const context: CheckinNoteContext = {
+    type: 'focus',
+    sourceId: event.sourceId || event.id,
+    occurredAt: typeof event.metadata?.timestamp === 'number'
+      ? new Date(event.metadata.timestamp < 1_000_000_000_000 ? event.metadata.timestamp * 1000 : event.metadata.timestamp).toISOString()
+      : `${event.date}T${event.startTime || '00:00'}:00`,
+    title: event.title,
+    meta: `${t('focusTimer.title')} ﾂｷ ${formatLifelogMinutes(event.minutes)} ﾂｷ ${formatFocusLifelogTarget(event)}`
+  };
+  const item = hydrateCheckinNoteTimelineTarget({
     id: `focus-${event.id}`,
     sourceId: event.id,
     type: event.type,
@@ -663,12 +728,47 @@ function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePane
     note: event.note || '',
     icon: 'timer',
     deletable: true
-  }, event.date, getCheckinNoteEventKey(event));
+  }, event.date, getCheckinNoteEventKeys(event));
+  const openContext = event.targetType === 'habit' && event.targetId
+    ? { type: 'habit' as const, sourceId: event.targetId, occurredAt: context.occurredAt, title: event.title }
+    : event.targetType === 'task' && (event.targetBlockId || event.targetId)
+      ? { type: 'task' as const, sourceId: event.targetBlockId || event.targetId!, occurredAt: context.occurredAt, title: event.title }
+      : undefined;
+  return {
+    ...item,
+    annotationContext: context,
+    openContext,
+    starred: item.annotationStarred,
+    favoritable: Boolean(item.annotation),
+    openable: Boolean(openContext)
+  };
 }
+
+const recordViewItems = computed<RecordViewItem[]>(() => lifelogEventsToRecordViewItems([
+  ...focusLifelogEvents.value,
+  ...habitCheckinLifelogEvents.value,
+  ...taskCompletedLifelogEvents.value,
+  ...manualNoteLifelogEvents.value
+], {
+  focus: event => `${t('focusTimer.title')} · ${formatLifelogMinutes(event.minutes)} · ${formatFocusLifelogTarget(event)}`,
+  habit: event => `${t('habitTracker.checkedIn')} · ${formatHabitLifelogProgress(event)}`,
+  task: () => t('taskManager.statusCompleted'),
+  manualNote: () => t('monthView.lifelogManualNote')
+}));
 
 function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timestampToSortMinutes(event.checkinTimestamp || event.metadata?.timestamp, 7 * 60);
-  return hydrateCheckinNoteTimelineTarget({
+  const occurredAtValue = Number(event.checkinTimestamp ?? event.metadata?.timestamp);
+  const context: CheckinNoteContext = {
+    type: 'habit',
+    sourceId: event.habitId,
+    occurredAt: Number.isFinite(occurredAtValue) && occurredAtValue > 0
+      ? new Date(occurredAtValue < 1_000_000_000_000 ? occurredAtValue * 1000 : occurredAtValue).toISOString()
+      : `${event.date}T00:00:00`,
+    title: event.title,
+    meta: `${t('habitTracker.checkedIn')} ﾂｷ ${formatHabitLifelogProgress(event)}`
+  };
+  const item = hydrateCheckinNoteTimelineTarget({
     id: `habit-${event.id}`,
     sourceId: event.id,
     type: event.type,
@@ -678,7 +778,8 @@ function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimel
     meta: `${t('habitTracker.checkedIn')} · ${formatHabitLifelogProgress(event)}`,
     note: event.note || '',
     icon: 'squareCheck'
-  }, event.date, getCheckinNoteEventKey(event));
+  }, event.date, getCheckinNoteEventKeys(event));
+  return { ...item, annotationContext: context, starred: item.annotationStarred, favoritable: Boolean(item.annotation), openable: true };
 }
 
 function getTaskCompletedSourceTask(event: TaskCompletedLifelogEvent): Task | null {
@@ -733,7 +834,14 @@ function getTaskCompletedGoalBadges(event: TaskCompletedLifelogEvent): LifelogTi
 
 function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timeToSortMinutes(event.completedAt, 20 * 60);
-  return hydrateCheckinNoteTimelineTarget({
+  const context: CheckinNoteContext = {
+    type: 'task',
+    sourceId: event.blockId || event.taskId,
+    occurredAt: event.completedAt,
+    title: event.title,
+    meta: t('taskManager.statusCompleted')
+  };
+  const item = hydrateCheckinNoteTimelineTarget({
     id: `task-${event.id}`,
     sourceId: event.taskId,
     type: event.type,
@@ -747,7 +855,8 @@ function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimel
       ...getTaskCompletedTagBadges(event),
       ...getTaskCompletedGoalBadges(event)
     ]
-  }, event.date, getCheckinNoteEventKey(event));
+  }, event.date, getCheckinNoteEventKeys(event));
+  return { ...item, annotationContext: context, starred: item.annotationStarred, favoritable: Boolean(item.annotation), openable: true };
 }
 
 function manualNoteEventToTimelineItem(event: ManualNoteLifelogEvent): LifelogTimelinePanelItem {
@@ -769,6 +878,15 @@ function manualNoteEventToTimelineItem(event: ManualNoteLifelogEvent): LifelogTi
   };
 }
 
+function recordViewItemToTimelineItem(record: RecordViewItem): LifelogTimelinePanelItem | null {
+  const event = record.event;
+  if (event.type === 'focus') return focusEventToTimelineItem(event as FocusLifelogEvent);
+  if (event.type === 'habit-checkin') return habitEventToTimelineItem(event as HabitCheckinLifelogEvent);
+  if (event.type === 'task-completed') return taskEventToTimelineItem(event as TaskCompletedLifelogEvent);
+  if (event.type === 'manual-note') return manualNoteEventToTimelineItem(event as ManualNoteLifelogEvent);
+  return null;
+}
+
 const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
   const dayKey = selectedLifelogDate.value;
   if (!dayKey) {
@@ -777,28 +895,35 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
 
   const sharedSnapshot = sharedLifelogTimelineSnapshot.value;
   if (sharedSnapshot?.date === dayKey) {
-    return sharedSnapshot.items.map(item => (
-      item.annotationKey
-        ? hydrateCheckinNoteTimelineTarget(
-          item,
-          item.annotationDate || dayKey,
-          item.annotationKey
-        )
-        : item
-    ));
+    return sharedSnapshot.items.map(item => {
+      if (!item.annotationKey) return item;
+      const hydrated = hydrateCheckinNoteTimelineTarget(
+        item,
+        item.annotationDate || dayKey,
+        item.annotationKey
+      );
+      const record = recordViewItems.value.find(candidate => candidate.eventKeys.includes(item.annotationKey || ''));
+      const context = record ? getRecordCheckinContext(record) : undefined;
+      return {
+        ...hydrated,
+        annotationContext: context,
+        starred: hydrated.annotationStarred,
+        favoritable: Boolean(hydrated.annotation),
+        openable: Boolean(context)
+      };
+    });
   }
 
-  return [
-    ...focusLifelogEvents.value.filter(event => event.date === dayKey).map(focusEventToTimelineItem),
-    ...habitCheckinLifelogEvents.value.filter(event => event.date === dayKey).map(habitEventToTimelineItem),
-    ...taskCompletedLifelogEvents.value.filter(event => event.date === dayKey).map(taskEventToTimelineItem),
-    ...manualNoteLifelogEvents.value.filter(event => event.date === dayKey).map(manualNoteEventToTimelineItem)
-  ].sort((left, right) => {
-    if (left.sortMinutes !== right.sortMinutes) {
-      return left.sortMinutes - right.sortMinutes;
-    }
-    return left.title.localeCompare(right.title, 'zh-Hans-CN');
-  });
+  return recordViewItems.value
+    .filter(record => record.date === dayKey)
+    .map(recordViewItemToTimelineItem)
+    .filter((item): item is LifelogTimelinePanelItem => Boolean(item))
+    .sort((left, right) => {
+      if (left.sortMinutes !== right.sortMinutes) {
+        return left.sortMinutes - right.sortMinutes;
+      }
+      return left.title.localeCompare(right.title, 'zh-Hans-CN');
+    });
 });
 watch(selectedLifelogDate, (dayKey) => {
   if (dayKey) {
@@ -825,6 +950,19 @@ const lifelogTimelineDayTitle = computed(() => (
 const lifelogTimelineSubtitle = computed(() => formatTemplate('weekView.lifelogTimelineCountTemplate', {
   count: lifelogTimelineItems.value.length
 }));
+
+const lifelogDaySummary = computed(() => {
+  const date = selectedLifelogDate.value;
+  if (!date) {
+    return { focusMinutes: 0, completedTasks: 0, completedHabits: 0 };
+  }
+
+  return {
+    focusMinutes: focusSummariesByDay.value.get(date)?.minutes || 0,
+    completedTasks: taskCompletedSummariesByDay.value.get(date)?.tasks || 0,
+    completedHabits: habitCheckinSummariesByDay.value.get(date)?.completed || 0
+  };
+});
 
 const lifelogTimelineDraft = computed(() => (
   selectedLifelogDate.value ? (manualLifelogDrafts.value[selectedLifelogDate.value] || '') : ''
@@ -922,9 +1060,33 @@ function clearLifelogTimelineDraft(): void {
 }
 
 async function persistMoodRecords(nextMoodData: MoodData): Promise<void> {
-  await saveMoodData(nextMoodData);
-  emit('mood-data-updated', nextMoodData);
-  eventBus.emit(Events.MOOD_UPDATED, { moodData: nextMoodData });
+  const previous = props.moodData;
+  const dates = new Set([...Object.keys(previous), ...Object.keys(nextMoodData)]);
+  let persisted = previous;
+  for (const date of dates) {
+    if (JSON.stringify(previous[date]) === JSON.stringify(nextMoodData[date])) continue;
+    if (nextMoodData[date]) persisted = await upsertMoodEntry(date, nextMoodData[date]);
+    else persisted = await removeMoodEntry(date);
+  }
+  emit('mood-data-updated', persisted);
+  eventBus.emit(Events.MOOD_UPDATED, { moodData: persisted });
+}
+
+async function openCheckinNoteSource(context: CheckinNoteContext): Promise<void> {
+  if (context.type === 'task') {
+    await openBlockById(context.sourceId, { focus: true });
+    return;
+  }
+  if (context.type === 'habit') {
+    eventBus.emit(Events.HABIT_TRACKER_PANEL_OPEN_REQUEST, {
+      target: 'habit-detail',
+      habitId: context.sourceId,
+      returnToRecords: true
+    });
+    return;
+  }
+  recordView.value = 'all';
+  selectLifelogDate(context.occurredAt.slice(0, 10));
 }
 
 async function saveManualLifelogDraft(dayKey: string): Promise<void> {
@@ -1055,10 +1217,35 @@ async function updateLifelogTimelineAnnotation(item: LifelogTimelinePanelItem, t
     return;
   }
   try {
-    await updateCheckinNote(item.annotationDate || selectedLifelogDate.value, item.annotationKey, text);
+    await updateCheckinNote(
+      item.annotationDate || selectedLifelogDate.value,
+      item.annotationKey,
+      text,
+      item.annotationContext,
+      item.starred === true
+    );
   } catch (error) {
     console.error('[MoodCalendarPanel] Failed to update check-in note', error);
   }
+}
+
+async function toggleLifelogTimelineStar(item: LifelogTimelinePanelItem): Promise<void> {
+  if (!item.annotationKey || !item.annotation?.trim()) return;
+  try {
+    await updateCheckinNote(
+      item.annotationDate || selectedLifelogDate.value,
+      item.annotationKey,
+      item.annotation,
+      item.annotationContext,
+      item.starred !== true
+    );
+  } catch (error) {
+    console.error('[MoodCalendarPanel] Failed to update favorite', error);
+  }
+}
+
+function openLifelogTimelineSource(item: LifelogTimelinePanelItem): void {
+  if (item.openContext) void openCheckinNoteSource(item.openContext);
 }
 
 let unsubscribeTaskChanged: (() => void) | null = null;
@@ -1119,16 +1306,7 @@ onUnmounted(() => {
   display: flex;
   padding: 10px;
   flex-direction: column;
-  --s: 20px;
-  --c1: #2a936a;
-  --c2: #32a176;
-  --_g: radial-gradient(calc(var(--s)/2),var(--c1) 97%,#0000);
-  background:
-    var(--_g),var(--_g) calc(2*var(--s)) calc(2*var(--s)),
-    repeating-conic-gradient(from 45deg,#0000 0 25%,var(--c2) 0 50%) calc(-.707*var(--s)) calc(-.707*var(--s)),
-    repeating-linear-gradient(135deg,var(--c1) calc(var(--s)/-2) calc(var(--s)/2),var(--c2) 0 calc(2.328*var(--s)));
-  background-size: calc(4*var(--s)) calc(4*var(--s));
-  
+  background-color: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
   -ms-overflow-style: none;
   scrollbar-width: none;
   
@@ -1150,7 +1328,6 @@ onUnmounted(() => {
     .stats-title {
       font-size: 18px;
       font-weight: bold;
-      color: var(--b3-theme-background);
     }
     
     .stats-header-content {
@@ -1160,7 +1337,50 @@ onUnmounted(() => {
       
       .stats-title {
         margin: 0;
-        color: var(--b3-theme-background);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--b3-theme-on-background);
+      }
+
+      .mood-record-view-tabs {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        gap: 2px;
+        padding: 2px;
+        border-radius: 9px;
+        background: var(--b3-list-hover);
+        flex-shrink: 0;
+
+        button {
+          min-width: 0;
+          height: 28px;
+          border: 0;
+          border-radius: 7px;
+          padding: 0 8px;
+          color: var(--b3-theme-on-surface);
+          background: transparent;
+          font-size: 13px;
+          line-height: 1;
+          cursor: pointer;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        button:hover {
+          color: var(--b3-theme-on-background);
+          background: var(--b3-theme-background);
+        }
+
+        button.active {
+          color: var(--b3-theme-on-background);
+          background: var(--b3-theme-background);
+          box-shadow: var(--pinch-shadow);
+        }
       }
       
       .icon-button {
@@ -1239,6 +1459,44 @@ onUnmounted(() => {
       border-radius: 8px;
       overflow: hidden;
 
+    }
+
+    .lifelog-daily-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      padding: 0 12px 10px;
+      background: var(--b3-theme-background);
+    }
+
+    .lifelog-daily-summary-item {
+      min-width: 0;
+      padding: 7px 9px;
+      border: 1px solid var(--b3-border-color);
+      border-radius: 8px;
+      background: var(--b3-list-hover);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .lifelog-daily-summary-value {
+      overflow: hidden;
+      color: var(--b3-theme-on-background);
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .lifelog-daily-summary-label {
+      overflow: hidden;
+      color: var(--b3-theme-on-surface);
+      font-size: 11px;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     
     .mood-stats-container {
@@ -1404,6 +1662,61 @@ onUnmounted(() => {
           font-weight: bold;
         }
       }
+    }
+  }
+}
+
+@media (max-width: 520px) {
+  .mood-calendar-panel {
+    padding: 7px;
+
+    .stats-header {
+      padding-bottom: 7px;
+
+      .stats-header-content {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 28px;
+        gap: 6px;
+
+        .stats-title {
+          font-size: 15px;
+        }
+
+        .mood-record-view-tabs {
+          grid-column: 1 / -1;
+          grid-row: 2;
+          width: 100%;
+          box-sizing: border-box;
+
+          button {
+            flex: 1 1 0;
+            padding: 5px 4px;
+            font-size: 11px;
+          }
+        }
+
+        .icon-button {
+          grid-column: 2;
+          grid-row: 1;
+        }
+      }
+    }
+
+    .lifelog-daily-summary {
+      gap: 4px;
+      padding: 0 8px 8px;
+    }
+
+    .lifelog-daily-summary-item {
+      padding: 6px 7px;
+    }
+
+    .lifelog-daily-summary-value {
+      font-size: 12px;
+    }
+
+    .lifelog-daily-summary-label {
+      font-size: 10px;
     }
   }
 }

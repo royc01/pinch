@@ -238,7 +238,7 @@
                 </span>
                 <span class="goal-document-task-text">
                   <span class="goal-item-title-row">
-                    <span class="goal-document-task-title" v-html="getTaskTitleHtml(row.task)"></span>
+                    <TaskTitleRich class="goal-document-task-title" :title="row.task.title" />
                     <span v-if="getTaskGoalBadges(row.task).length > 0" class="goal-membership-badges">
                     <span
                       v-for="goal in getTaskGoalBadges(row.task)"
@@ -293,7 +293,7 @@ import {
   loadFiletreeDocumentTree
 } from '@/utils/filetreeDocumentTree';
 import { isDocumentPathInScope } from '@/utils/taskDocumentScope';
-import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import TaskTitleRich from '@/components/TaskTitleRich.vue';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 import { useI18n } from '@/composables/useI18n';
 
@@ -950,10 +950,6 @@ function hasNotebookPartialTaskSelection(notebookId: string): boolean {
   }
   const checkedCount = tasks.filter(task => isTaskChecked(task)).length;
   return checkedCount > 0 && checkedCount < tasks.length;
-}
-
-function getTaskTitleHtml(task: Task): string {
-  return sanitizeTaskTitleHtml(task.title || '');
 }
 
 function updateGoalName(goalId: string, value: string): void {

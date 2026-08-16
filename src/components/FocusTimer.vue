@@ -573,6 +573,7 @@ import { useMicroBreakReminder } from '@/composables/useMicroBreakReminder';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { getStoredFocusAudioUrl, playCustomFocusAudio, playTaskCompletionSound, prepareCustomFocusAudio, prepareTaskCompletionSound } from '@/utils/completionSound';
 import { awardFocusSession } from '@/rewardRepository';
+import { getLocalCheckinNoteDate, requestCheckinNote } from '@/utils/checkinNotePrompt';
 import FocusTargetIcon from '@/components/FocusTargetIcon.vue';
 import {
   createHabitFocusTarget,
@@ -1128,7 +1129,9 @@ const playAudio = async () => {
   if (!source) return;
   audio.value = new Audio(source);
   audio.value.loop = true;
-  audio.value.volume = volume.value;
+  audio.value.volume = selectedSound.value.id === 'custom'
+    ? (userSettings.focus.customWhiteNoiseVolume ?? 0.3)
+    : volume.value;
 
   audio.value.play().catch(() => {});
 };
@@ -1229,7 +1232,7 @@ const {
   settings: computed(() => userSettings.focus),
   notify: (title, body) => showNotification(title, body, '☕'),
   playSound: () => {
-    void playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, 0.3)
+    void playCustomFocusAudio(userSettings.focus.customMicroBreakSoundFile, userSettings.focus.customMicroBreakSoundVolume ?? 0.3)
       .then(played => { if (!played) playTaskCompletionSound(0.3); });
   },
   getText: (key) => ({
@@ -1509,6 +1512,17 @@ const persistFocusSession = async (minutes: number) => {
   window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, {
     detail: { minutes, sessionId }
   }));
+  requestCheckinNote({
+    date: getLocalCheckinNoteDate(),
+    eventKey: `focus:${sessionId}`,
+    context: {
+      type: 'focus',
+      sourceId: sessionId,
+      occurredAt: new Date().toISOString(),
+      title: linkedTargetDisplayLabel.value || t('focusTimer.title'),
+      meta: `${Math.max(0, Math.round(minutes))}${t('focusTimer.minuteSuffix')}`
+    }
+  });
 };
 
 function getFocusSessionTargetInput() {
@@ -1529,6 +1543,19 @@ const {
   upsertSession: upsertFocusSessionRecord,
   onSaved: (detail) => {
     window.dispatchEvent(new CustomEvent(FOCUS_SESSION_EVENT, { detail }));
+    if (!detail.checkpoint) {
+      requestCheckinNote({
+        date: getLocalCheckinNoteDate(),
+        eventKey: `focus:${detail.sessionId}`,
+        context: {
+          type: 'focus',
+          sourceId: detail.sessionId,
+          occurredAt: new Date().toISOString(),
+          title: linkedTargetDisplayLabel.value || t('focusTimer.title'),
+          meta: `${Math.max(0, Math.round(detail.minutes || 0))}${t('focusTimer.minuteSuffix')}`
+        }
+      });
+    }
   }
 });
 
@@ -1593,7 +1620,7 @@ const startPhaseTimer = () => {
 };
 
 const playCompleteSound = async () => {
-  if (await playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, 0.3)) return;
+  if (await playCustomFocusAudio(userSettings.focus.customCompletionSoundFile, userSettings.focus.customCompletionSoundVolume ?? 0.3)) return;
   try {
     await initAudioContext();
 

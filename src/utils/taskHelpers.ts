@@ -1,4 +1,5 @@
 import { buildTaskStatusAttrs, getBlockAttrs, setBlockAttrs, type TaskStatus, updateTaskListItemMarker } from '../api';
+import { getLocalCheckinNoteDate, requestCheckinNote, type CheckinNotePromptAnchor } from './checkinNotePrompt';
 
 export function skipTaskTemporarily(
   skipSet: Set<string>,
@@ -9,24 +10,52 @@ export function skipTaskTemporarily(
   setTimeout(() => skipSet.delete(taskId), delay);
 }
 
+export function requestTaskCompletionNote(
+  taskId: string,
+  completedAt: string,
+  promptAnchor?: CheckinNotePromptAnchor,
+  taskTitle = '',
+  sourceBlockId = taskId
+): void {
+  if (!taskId || !completedAt) return;
+  const completedDate = new Date(completedAt);
+  requestCheckinNote({
+    date: getLocalCheckinNoteDate(Number.isNaN(completedDate.getTime()) ? new Date() : completedDate),
+    eventKey: `task:${taskId}:${completedAt}`,
+    anchor: promptAnchor,
+    context: taskTitle.trim() ? {
+      type: 'task',
+      sourceId: sourceBlockId,
+      occurredAt: completedAt,
+      title: taskTitle.trim(),
+      meta: 'completed'
+    } : undefined
+  });
+}
+
 export async function updateTaskMarkdown(
   blockId: string,
   completed: boolean,
-  updateCustomStatus: boolean = false
+  updateCustomStatus: boolean = false,
+  promptAnchor?: CheckinNotePromptAnchor
 ): Promise<void> {
   try {
     const marker = completed ? 'x' : ' ';
+    const completedAt = completed && updateCustomStatus ? new Date().toISOString() : '';
     await updateTaskListItemMarker(blockId, marker);
 
     if (updateCustomStatus) {
       const status = completed ? 'completed' : 'pending';
-      await setBlockAttrs(blockId, buildTaskStatusAttrs(status));
+      await setBlockAttrs(blockId, buildTaskStatusAttrs(status, completedAt));
     }
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('siyuan-block-update', {
         detail: { id: blockId, completed }
       }));
+      if (completed && updateCustomStatus) {
+        requestTaskCompletionNote(blockId, completedAt, promptAnchor);
+      }
     }
   } catch (error) {
     console.error('[TaskHelpers] updateTaskMarkdown failed:', { blockId, completed, error });

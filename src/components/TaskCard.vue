@@ -11,20 +11,22 @@
         <div
           class="task-checkbox-wrapper"
           data-disable-description-contextmenu
+          :class="{ 'is-disabled': disableStatusToggle }"
+          :aria-disabled="disableStatusToggle"
           @click.stop="handleToggleStatus"
           @mousedown.stop
         >
-          <TaskCheckbox :checked="isCompleted" :size="18" />
+          <TaskCheckbox :checked="isCompleted" :size="18" :disabled="disableStatusToggle" />
         </div>
         <div class="task-title-wrap" @click="handleCardClick">
           <span v-if="isPinned" class="task-pinned-indicator ariaLabel" :aria-label="t('taskManager.pinned')">
             <Icon name="pinTaskActive" />
           </span>
-          <div
+          <TaskTitleRich
             class="task-title ariaLabel"
             :aria-label="titleAriaLabel"
-            v-html="titleHtml"
-          ></div>
+            :title="task.title"
+          />
         </div>
         <div class="task-card-actions">
           <button
@@ -141,7 +143,7 @@
           +{{ overflowTaskGoalCount }}
         </span>
         <span
-          v-if="task.dueDate"
+          v-if="badgeDateText"
           class="task-due-badge ariaLabel"
           :class="{ 'is-overdue': isOverdue, 'is-due-soon': isDueSoon }"
           :aria-label="dueBadgeTitle"
@@ -232,15 +234,15 @@ import Icon from '@/components/Icon.vue';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import SubtaskItem from '@/components/SubtaskItem.vue';
+import TaskTitleRich from '@/components/TaskTitleRich.vue';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { formatMonthDay } from '@/utils/dateHelpers';
-import { sanitizeTaskHtml, sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { getTaskTitlePlainText, sanitizeTaskHtml } from '@/utils/taskHtml';
 import { getTaskPriorityLabel } from '@/utils/taskPriority';
 import { getTaskStatusLabel } from '@/utils/taskStatus';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { getTaskReminderLabel } from '@/utils/taskReminder';
 import { resolveTaskTagIds } from '@/utils/taskTags';
-import { stripHtml } from '@/composables/useTaskCommon';
 import type { Goal } from '@/goalRepository';
 import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { useTaskFocusProgress } from '@/composables/useTaskFocusProgress';
@@ -277,6 +279,8 @@ const props = defineProps<{
   documentIconSvg?: string;
   disableContextMenu?: boolean;
   disableDescriptionContextMenu?: boolean;
+  disableStatusToggle?: boolean;
+  showStartDate?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -284,7 +288,7 @@ const emit = defineEmits<{
   openContent: [task: Task];
   startFocus: [task: Task];
   toggleExpand: [task: Task];
-  toggleStatus: [task: Task];
+  toggleStatus: [task: Task, event?: MouseEvent];
   descriptionStartEdit: [task: Task];
   descriptionInput: [taskId: string, event: Event];
   descriptionSave: [task: Task];
@@ -300,6 +304,7 @@ const task = computed(() => props.task);
 const showOpenContent = computed(() => props.showOpenContent === true);
 const { actualFocus } = useTaskFocusProgress(task);
 const isCompleted = computed(() => props.completed ?? task.value.status === 'completed');
+const disableStatusToggle = computed(() => props.disableStatusToggle === true);
 const isExpanded = computed(() => !!props.expanded);
 const isDragging = computed(() => !!props.dragging);
 const hasSubtasks = computed(() => (task.value.subtasks?.length ?? 0) > 0);
@@ -337,7 +342,6 @@ const isCollapsed = computed(() => {
   return !isExpanded.value;
 });
 
-const titleHtml = computed(() => sanitizeTaskTitleHtml(task.value.title));
 const titleAriaLabel = computed(() => {
   if (variant.value === 'sidebar') {
     const parts = [props.titleTooltip || ''];
@@ -347,7 +351,7 @@ const titleAriaLabel = computed(() => {
     parts.push(t('taskCard.dragToCalendar'));
     return parts.filter(Boolean).join('<br>');
   }
-  return stripHtml(titleHtml.value).replace(/\s+/g, ' ').trim();
+  return getTaskTitlePlainText(task.value.title);
 });
 const descriptionHtml = computed(() => sanitizeTaskHtml(task.value.description || ''));
 const descriptionDraftValue = computed(() => props.descriptionDraft ?? task.value.description ?? '');
@@ -373,6 +377,14 @@ const dueText = computed(() => {
   return dueTimeText.value ? `${dueDateText.value} ${dueTimeText.value}` : dueDateText.value;
 });
 const dueDateTimestamp = computed(() => getTaskDateTimestamp(task.value.dueDate));
+const startDateText = computed(() => formatMonthDay(task.value.startDate || ''));
+const startDateTimestamp = computed(() => getTaskDateTimestamp(task.value.startDate));
+const showStartDate = computed(() => (
+  props.showStartDate === true
+  || (!task.value.isVirtual
+    && startDateTimestamp.value !== null
+    && startDateTimestamp.value > todayTimestamp.value)
+));
 const todayTimestamp = computed(() => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -411,7 +423,21 @@ const remainingDaysText = computed(() => {
 });
 const reminderText = computed(() => getTaskReminderLabel(task.value.reminderType, task.value.reminderCustomTime));
 const isPinned = computed(() => task.value.pinned === true);
+const startBadgeText = computed(() => {
+  if (!startDateText.value || startDateTimestamp.value === null) return startDateText.value;
+  const days = Math.floor((startDateTimestamp.value - todayTimestamp.value) / MILLISECONDS_PER_DAY);
+  if (days === 0) return t('taskCard.startToday');
+  if (days === 1) return t('taskCard.startTomorrow');
+  if (days > 1 && days <= DUE_SOON_DAY_LIMIT) {
+    return formatTemplate('taskCard.startsInDaysTemplate', { days });
+  }
+  return startDateText.value;
+});
+const badgeDateText = computed(() => showStartDate.value ? startDateText.value : dueDateText.value);
 const dueBadgeText = computed(() => {
+  if (showStartDate.value) {
+    return startBadgeText.value;
+  }
   if (!dueDateText.value) {
     return '';
   }
@@ -427,6 +453,11 @@ const dueBadgeText = computed(() => {
   return dueText.value;
 });
 const dueBadgeTitle = computed(() => {
+  if (showStartDate.value) {
+    return startDateText.value
+      ? formatTemplate('taskCard.startDateTitleTemplate', { startText: startDateText.value })
+      : '';
+  }
   if (!dueDateText.value) {
     return '';
   }
@@ -687,8 +718,11 @@ function handleToggleExpand() {
   emit('toggleExpand', task.value);
 }
 
-function handleToggleStatus() {
-  emit('toggleStatus', task.value);
+function handleToggleStatus(event: MouseEvent) {
+  if (disableStatusToggle.value) {
+    return;
+  }
+  emit('toggleStatus', task.value, event);
 }
 
 function handleDescriptionStart() {
@@ -844,6 +878,10 @@ function getTaskDateTimestamp(value: unknown): number | null {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+}
+
+.task-checkbox-wrapper.is-disabled {
+  cursor: not-allowed;
 }
 
 .task-card-actions {

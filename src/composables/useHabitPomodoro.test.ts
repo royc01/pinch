@@ -55,11 +55,11 @@ describe('useHabitPomodoro', () => {
       isPomodoroPaused: true
     } as Habit;
     const habits = shallowRef([habit]);
-    const saveHabits = vi.fn().mockResolvedValue(undefined);
+    const saveHabit = vi.fn().mockResolvedValue(undefined);
     const pomodoro = useHabitPomodoro({
       habits,
       getToday: () => '2026-08-09',
-      saveHabits,
+      saveHabit,
       toggleHabitCompletion: () => null
     });
 
@@ -75,7 +75,7 @@ describe('useHabitPomodoro', () => {
     expect(habit.pomodoroRemaining).toBeUndefined();
     expect(habit.pomodoroState).toBeUndefined();
     expect(habit.isPomodoroPaused).toBeUndefined();
-    expect(saveHabits).toHaveBeenCalledOnce();
+    expect(saveHabit).toHaveBeenCalledWith(habit);
     expect(focusSessionLock.releaseFocusSession).toHaveBeenCalledOnce();
   });
 
@@ -87,12 +87,12 @@ describe('useHabitPomodoro', () => {
       pomodoroDuration: 1
     } as Habit;
     const habits = shallowRef([habit]);
-    const saveHabits = vi.fn().mockResolvedValue(undefined);
+    const saveHabit = vi.fn().mockResolvedValue(undefined);
     const toggleHabitCompletion = vi.fn(() => null);
     const pomodoro = useHabitPomodoro({
       habits,
       getToday: () => '2026-08-09',
-      saveHabits,
+      saveHabit,
       toggleHabitCompletion
     });
     pomodoro.activePomodoroHabit.value = habit;
@@ -129,7 +129,7 @@ describe('useHabitPomodoro', () => {
     const pomodoro = useHabitPomodoro({
       habits,
       getToday: () => '2026-08-09',
-      saveHabits: vi.fn().mockResolvedValue(undefined),
+      saveHabit: vi.fn().mockResolvedValue(undefined),
       toggleHabitCompletion: () => null
     });
     pomodoro.activePomodoroHabit.value = habit;
@@ -162,7 +162,7 @@ describe('useHabitPomodoro', () => {
     const pomodoro = useHabitPomodoro({
       habits,
       getToday: () => '2026-08-09',
-      saveHabits: vi.fn().mockResolvedValue(undefined),
+      saveHabit: vi.fn().mockResolvedValue(undefined),
       toggleHabitCompletion: () => null
     });
     pomodoro.activePomodoroHabit.value = habit;
@@ -185,7 +185,7 @@ describe('useHabitPomodoro', () => {
     const pomodoro = useHabitPomodoro({
       habits: shallowRef([habit]),
       getToday: () => '2026-08-09',
-      saveHabits: vi.fn().mockResolvedValue(undefined),
+      saveHabit: vi.fn().mockResolvedValue(undefined),
       toggleHabitCompletion: () => null
     });
 

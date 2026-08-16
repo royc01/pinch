@@ -19,6 +19,28 @@
         </button>
       </div>
 
+      <div v-if="expression.length > 0" class="task-filter-expression">
+        <template v-for="(item, index) in expression" :key="item.key">
+          <button
+            v-if="index > 0"
+            type="button"
+            class="task-filter-join"
+            @click="emitCycleJoin(index)"
+          >
+            {{ item.join.toUpperCase() }}
+          </button>
+          <button
+            type="button"
+            class="task-filter-expression-chip"
+            :style="item.style"
+            @click="emitToggle(item.group, item.value)"
+          >
+            <span>{{ item.label }}</span>
+            <span class="task-filter-expression-remove" aria-hidden="true">&times;</span>
+          </button>
+        </template>
+      </div>
+
       <div
         v-for="section in sections"
         :key="section.key"
@@ -60,17 +82,28 @@ interface TaskFilterSection {
   options: TaskFilterOption[];
 }
 
+interface TaskFilterExpressionItem {
+  key: string;
+  group: string;
+  value: string;
+  label: string;
+  style?: Record<string, string>;
+  join: 'and' | 'or' | 'not';
+}
+
 const props = defineProps<{
   visible: boolean;
   popoverStyle?: Record<string, string>;
   title?: string;
   hasActive: boolean;
   sections: TaskFilterSection[];
+  expression?: TaskFilterExpressionItem[];
 }>();
 
 const emit = defineEmits<{
   clear: [];
   toggle: [sectionKey: string, value: string];
+  cycleJoin: [index: number];
 }>();
 
 const popoverRef = ref<HTMLElement | null>(null);
@@ -79,6 +112,7 @@ defineExpose({ popoverEl: popoverRef });
 
 const normalizedStyle = computed(() => props.popoverStyle || {});
 const title = computed(() => props.title || t('taskManager.filterTasks'));
+const expression = computed(() => props.expression || []);
 
 function emitClear(): void {
   emit('clear');
@@ -87,10 +121,15 @@ function emitClear(): void {
 function emitToggle(sectionKey: string, value: string): void {
   emit('toggle', sectionKey, value);
 }
+
+function emitCycleJoin(index: number): void {
+  emit('cycleJoin', index);
+}
 </script>
 
 <style scoped>
 .task-filter-popover {
+  width: min(400px, calc(100vw - 24px));
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--b3-theme-border);
@@ -103,6 +142,55 @@ function emitToggle(sectionKey: string, value: string): void {
   gap: 12px;
   overflow: auto;
   box-sizing: border-box;
+}
+
+.task-filter-expression {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--b3-list-hover);
+}
+
+.task-filter-join {
+  flex: 0 0 auto;
+  border: none;
+  padding: 3px 4px;
+  background: transparent;
+  color: var(--b3-theme-primary);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.task-filter-expression-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: var(--active-task-filter-chip-bg, #f98f7a);
+  color: var(--active-task-filter-chip-color, var(--b3-theme-background));
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.task-filter-expression-chip > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-filter-expression-remove {
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 10px;
 }
 
 .task-filter-popover-floating {

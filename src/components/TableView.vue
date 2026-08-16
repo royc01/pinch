@@ -417,7 +417,7 @@
                   <span v-if="row.task.pinned === true" class="task-pinned-indicator ariaLabel" :aria-label="t('taskManager.pinned')">
                     <Icon name="pinTaskActive" width="16" height="16" />
                   </span>
-                  <div class="task-title" v-html="getTitleHtml(row.task.title)"></div>
+                  <TaskTitleRich class="task-title" :title="row.task.title" />
                 </div>
                 <button
                   type="button"
@@ -578,7 +578,7 @@
                 <div class="subtask-checkbox-wrapper" @click.stop="toggleSubtaskStatus(row.task, row.subtask)">
                   <TaskCheckbox :checked="row.subtask.completed" :size="14" />
                 </div>
-                <span class="subtask-title" v-html="getTitleHtml(row.subtask.title)"></span>
+                <TaskTitleRich class="subtask-title" :title="row.subtask.title" />
                 <SubtaskProgress
                   v-if="row.subtask.subtasks && row.subtask.subtasks.length > 0"
                   :subtasks="row.subtask.subtasks"
@@ -866,7 +866,7 @@ import {
   buildTaskGroupBadges,
   buildTaskGroupOptions
 } from '@/utils/taskGroupShared';
-import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import TaskTitleRich from '@/components/TaskTitleRich.vue';
 import { getTaskPriorityLabel } from '@/utils/taskPriority';
 import { formatRepeatRuleLabel } from '@/utils/repeatRuleLabel';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
@@ -3273,10 +3273,6 @@ function handleTaskRowContextMenu(task: Task, event: MouseEvent) {
   }
   event.preventDefault();
   handleTaskClick(task, event);
-}
-
-function getTitleHtml(title?: string): string {
-  return sanitizeTaskTitleHtml(title || '');
 }
 
 function getTaskDocumentIconRaw(task: Task): string {

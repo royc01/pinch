@@ -11,8 +11,8 @@ interface UseHabitCrudOptions {
   showEditHabitModal: Ref<boolean>;
   editedHabit: Ref<Habit | null>;
   t: (key: string) => string;
-  saveHabitsNow: (habitsToSave: Habit[]) => Promise<void>;
-  immediateSaveHabits: (habitsToSave: Habit[]) => Promise<void>;
+  saveHabit: (habit: Habit) => Promise<void>;
+  removeHabit: (habitId: string) => Promise<void>;
   triggerHabitsRef: () => void;
 }
 
@@ -36,8 +36,8 @@ export const useHabitCrud = ({
   showEditHabitModal,
   editedHabit,
   t,
-  saveHabitsNow,
-  immediateSaveHabits,
+  saveHabit,
+  removeHabit,
   triggerHabitsRef
 }: UseHabitCrudOptions) => {
   const handleAddHabit = async (habitData: NewHabitFormState) => {
@@ -80,7 +80,7 @@ export const useHabitCrud = ({
     };
 
     habits.value = [...habits.value, habit];
-    await saveHabitsNow(habits.value);
+    await saveHabit(habit);
     showAddHabitModal.value = false;
     newHabit.value = createDefaultNewHabit();
   };
@@ -93,7 +93,7 @@ export const useHabitCrud = ({
     selectedHabit.value = null;
     habits.value = habits.value.filter(h => h.id !== habitId);
     triggerHabitsRef();
-    await saveHabitsNow(habits.value);
+    await removeHabit(habitId);
   };
 
   const openEditHabitModal = () => {
@@ -132,14 +132,14 @@ export const useHabitCrud = ({
 
     Object.assign(selectedHabit.value, habit);
     triggerHabitsRef();
-    await immediateSaveHabits(habits.value);
+    await saveHabit(habit);
     closeEditHabitModal();
   };
 
   const togglePauseHabit = async (habit: Habit) => {
     habit.isPaused = !habit.isPaused;
     triggerHabitsRef();
-    await immediateSaveHabits(habits.value);
+    await saveHabit(habit);
   };
 
   return {

@@ -2,6 +2,7 @@ import { computed, type ShallowRef } from 'vue';
 import type { Habit } from '@/api';
 import { cleanExpiredCache, getCachedValue, setCachedValue } from '@/composables/useExpiringCache';
 import { getWeekStart, getWeeklyTarget, isSameWeek } from '@/composables/useHabitUtils';
+import { isHabitScheduledOnDate } from '@/composables/useHabitUtils';
 import { formatTemplate, translate } from '@/composables/useI18n';
 
 const CACHE_TTL = 86400000;
@@ -52,12 +53,33 @@ export const useHabitStatistics = ({
     cleanExpiredCache(weeklyCompletionCache, CACHE_TTL);
   };
 
-  const getActiveDateRange = (habit: Habit) => {
+  /**
+   * Completion rates start on the earlier of the creation date and a completed
+   * backfilled check-in. Future records never move the start date.
+   */
+  const getCompletionStartDate = (habit: Habit, today: Date): Date => {
     const creationDate = new Date(habit.createdAt);
-    const today = new Date();
     creationDate.setHours(0, 0, 0, 0);
+    let startDate = creationDate;
+
+    for (const record of habit.calendar) {
+      if (!record.completed) continue;
+
+      const recordDate = parseDate(record.date);
+      if (Number.isNaN(recordDate.getTime())) continue;
+      recordDate.setHours(0, 0, 0, 0);
+      if (recordDate <= today && recordDate < startDate) {
+        startDate = recordDate;
+      }
+    }
+
+    return startDate;
+  };
+
+  const getActiveDateRange = (habit: Habit) => {
+    const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return { creationDate, today };
+    return { creationDate: getCompletionStartDate(habit, today), today };
   };
 
   const isRecordInActiveDateRange = (recordDate: Date, creationDate: Date, today: Date): boolean => {
@@ -69,6 +91,28 @@ export const useHabitStatistics = ({
 
     const cached = getCachedValue(streakCache, cacheKey, CACHE_TTL);
     if (cached !== null) return cached;
+
+    if (habit.frequency === 'custom') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const start = startDate ? getNormalizedDate(startDate) : getCompletionStartDate(habit, today);
+      let cursor = new Date(today);
+      while (cursor >= start && !isHabitScheduledOnDate(habit, cursor)) {
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      let streak = 0;
+      while (cursor >= start && isHabitScheduledOnDate(habit, cursor)) {
+        const record = habit.calendar.find(item => item.date === formatDate(cursor));
+        if (!record?.completed) break;
+        streak++;
+        cursor.setDate(cursor.getDate() - 1);
+        while (cursor >= start && !isHabitScheduledOnDate(habit, cursor)) {
+          cursor.setDate(cursor.getDate() - 1);
+        }
+      }
+      setCachedValue(streakCache, cacheKey, streak, MAX_CACHE_SIZE);
+      return streak;
+    }
 
     let filteredCalendar = habit.calendar;
     if (startDate) {
@@ -168,7 +212,9 @@ export const useHabitStatistics = ({
       creationDate.getDate()
     );
     creationDate = localCreationDate;
-    const creationDateForCalculation = new Date(creationDate);
+    const todayForCalculation = new Date(today);
+    todayForCalculation.setHours(0, 0, 0, 0);
+    const creationDateForCalculation = getCompletionStartDate(habit, todayForCalculation);
 
     const monthRecords = habit.calendar.filter(record => {
       const recordDate = parseDate(record.date);
@@ -240,6 +286,24 @@ export const useHabitStatistics = ({
       return Math.round(completionRate);
     }
 
+    if (habit.frequency === 'custom') {
+      const periodStart = new Date(currentYear, currentMonth, 1);
+      const startDate = creationDateForCalculation > periodStart ? creationDateForCalculation : periodStart;
+      const endDate = new Date(currentYear, currentMonth, today.getDate());
+      let scheduledDays = 0;
+      let completedScheduledDays = 0;
+
+      for (const cursor = new Date(startDate); cursor <= endDate; cursor.setDate(cursor.getDate() + 1)) {
+        if (!isHabitScheduledOnDate(habit, cursor)) continue;
+        scheduledDays++;
+        const dateKey = formatDate(cursor);
+        const record = habit.calendar.find(item => item.date === dateKey);
+        if (record?.completed) completedScheduledDays++;
+      }
+
+      return scheduledDays > 0 ? Math.round((completedScheduledDays / scheduledDays) * 100) : 0;
+    }
+
     const completedDays = monthRecords.filter(record => record.completed).length;
     let totalDaysInPeriod = 0;
 
@@ -300,6 +364,25 @@ export const useHabitStatistics = ({
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
 
+    if (habit.frequency === 'custom') {
+      const start = getCompletionStartDate(habit, new Date(today.getFullYear(), today.getMonth(), today.getDate()));
+      let cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      while (cursor >= start && (cursor.getMonth() !== currentMonth || !isHabitScheduledOnDate(habit, cursor))) {
+        cursor.setDate(cursor.getDate() - 1);
+      }
+      let streak = 0;
+      while (cursor >= start && cursor.getMonth() === currentMonth && isHabitScheduledOnDate(habit, cursor)) {
+        const record = habit.calendar.find(item => item.date === formatDate(cursor));
+        if (!record?.completed) break;
+        streak++;
+        cursor.setDate(cursor.getDate() - 1);
+        while (cursor >= start && cursor.getMonth() === currentMonth && !isHabitScheduledOnDate(habit, cursor)) {
+          cursor.setDate(cursor.getDate() - 1);
+        }
+      }
+      return streak;
+    }
+
     const creationDate = getNormalizedDate(habit);
     const monthRecords = getMonthRecords(habit, currentYear, currentMonth).sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
@@ -346,8 +429,16 @@ export const useHabitStatistics = ({
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
-    const monthRecords = getMonthRecords(habit, currentYear, currentMonth);
-    return monthRecords.filter(record => record.completed).length;
+    // 补打卡也属于当月的打卡次数；只有完成率需要从创建日开始计算。
+    return habit.calendar.filter(record => {
+      const recordDate = getNormalizedDate(record.date);
+      return (
+        record.completed
+        && recordDate.getFullYear() === currentYear
+        && recordDate.getMonth() === currentMonth
+        && (habit.frequency !== 'custom' || isHabitScheduledOnDate(habit, recordDate))
+      );
+    }).length;
   };
 
   const calculateLongestStreak = (habit: Habit) => {
@@ -363,7 +454,7 @@ export const useHabitStatistics = ({
     }
 
     const sortedCalendar = [...habit.calendar]
-      .filter(record => record.completed)
+      .filter(record => record.completed && (habit.frequency !== 'custom' || isHabitScheduledOnDate(habit, parseDate(record.date))))
       .sort((a, b) => parseDate(a.date).getTime() - parseDate(b.date).getTime());
 
     if (sortedCalendar.length === 0) {
@@ -388,7 +479,18 @@ export const useHabitStatistics = ({
       } else {
         const diffDays = Math.floor((currentDate.getTime() - previousDate.getTime()) / 86400000);
 
-        if (diffDays === 1) {
+        const isCustomScheduledSequence = habit.frequency === 'custom'
+          && (() => {
+            const cursor = new Date(previousDate!);
+            cursor.setDate(cursor.getDate() + 1);
+            while (cursor < currentDate) {
+              if (isHabitScheduledOnDate(habit, cursor)) return false;
+              cursor.setDate(cursor.getDate() + 1);
+            }
+            return true;
+          })();
+
+        if (diffDays === 1 || isCustomScheduledSequence) {
           currentStreak++;
         } else if (diffDays > 1) {
           if (currentStreak > maxStreak) {
@@ -557,6 +659,22 @@ export const useHabitStatistics = ({
     }
 
     const { creationDate, today } = getActiveDateRange(habit);
+    if (habit.frequency === 'custom') {
+      let scheduledDays = 0;
+      let completedScheduledDays = 0;
+
+      for (const cursor = new Date(creationDate); cursor <= today; cursor.setDate(cursor.getDate() + 1)) {
+        if (!isHabitScheduledOnDate(habit, cursor)) continue;
+        scheduledDays++;
+        const record = habit.calendar.find(item => item.date === formatDate(cursor));
+        if (record?.completed) completedScheduledDays++;
+      }
+
+      const result = scheduledDays > 0 ? Math.round((completedScheduledDays / scheduledDays) * 100) : 0;
+      setCachedValue(completionRateCache, cacheKey, result, MAX_CACHE_SIZE);
+      return result;
+    }
+
     const completedCount = habit.calendar.reduce((count, record) => {
       const recordDate = parseDate(record.date);
       recordDate.setHours(0, 0, 0, 0);
@@ -597,7 +715,7 @@ export const useHabitStatistics = ({
     for (const habit of habits.value) {
       // 总计完成次数
       for (const record of habit.calendar) {
-        if (record.completed) {
+        if (record.completed && (habit.frequency !== 'custom' || isHabitScheduledOnDate(habit, parseDate(record.date)))) {
           totalCompletions++;
 
           // 热力图数据

@@ -119,6 +119,133 @@ describe('TaskRepository incremental task fetches', () => {
     await staleRequest;
   });
 
+  it('rejects an incomplete SQL scan without replacing the last good task cache', async () => {
+    const previousPageSize = (await import('./api')).TASK_CONFIG.SQL_PAGE_SIZE;
+    ((await import('./api')).TASK_CONFIG as { SQL_PAGE_SIZE: number }).SQL_PAGE_SIZE = 1;
+    const cachedTask = { ...task, title: 'Last good task' };
+    (TaskRepository as any).memoryCache = {
+      tasks: [cachedTask],
+      timestamp: Date.now(),
+      detailLevel: 'full'
+    };
+    (TaskRepository as any).blockTasksFetchPromise = null;
+    vi.spyOn(TaskRepository as any, 'tryGetKernelLightTasksForFetch').mockResolvedValue(null);
+    const saveCache = vi.spyOn(TaskRepository, 'saveBlockTasksCache');
+    let sqlPage = 0;
+    vi.spyOn(siyuan, 'fetchSyncPost').mockImplementation(async (url: string) => {
+      if (url !== '/api/query/sql') {
+        return { code: 0, data: null } as never;
+      }
+      sqlPage += 1;
+      if (sqlPage === 1) {
+        return {
+          code: 0,
+          data: [{
+            id: 'block-1',
+            content: 'Task',
+            box: 'notebook-1',
+            hpath: '/Doc',
+            sort: 0,
+            updated: '20260810090000',
+            created: '20260810080000',
+            markdown: '* [ ] Task',
+            parent_id: 'list-1',
+            root_id: 'doc-1',
+            type: 'i',
+            subtype: 't',
+            memo: ''
+          }]
+        } as never;
+      }
+      return { code: -1, msg: 'second page failed', data: null } as never;
+    });
+
+    try {
+      await expect(TaskRepository.getBlockTasks(
+        false,
+        undefined,
+        { useLiveDom: false }
+      )).rejects.toMatchObject({
+        name: 'SiyuanApiError',
+        msg: 'second page failed'
+      });
+      expect(saveCache).not.toHaveBeenCalled();
+      expect((TaskRepository as any).memoryCache.tasks).toEqual([cachedTask]);
+    } finally {
+      ((await import('./api')).TASK_CONFIG as { SQL_PAGE_SIZE: number }).SQL_PAGE_SIZE = previousPageSize;
+      (TaskRepository as any).blockTasksFetchPromise = null;
+    }
+  });
+
+  it('does not let an invalidated fetch repopulate or replace task caches', async () => {
+    let resolveStaleFetch: (tasks: Task[]) => void = () => undefined;
+    let resolveFreshFetch: (tasks: Task[]) => void = () => undefined;
+    const staleFetch = new Promise<Task[]>((resolve) => {
+      resolveStaleFetch = resolve;
+    });
+    const freshFetch = new Promise<Task[]>((resolve) => {
+      resolveFreshFetch = resolve;
+    });
+    const freshTask = { ...task, title: 'Fresh task' };
+
+    (TaskRepository as any).memoryCache = {
+      tasks: null,
+      timestamp: 0,
+      detailLevel: 'full'
+    };
+    (TaskRepository as any).blockTasksFetchPromise = null;
+    vi.spyOn(TaskRepository as any, 'tryGetKernelLightTasksForFetch').mockResolvedValue(null);
+    vi.spyOn(TaskRepository as any, 'clearLocalBlockTasksCache').mockImplementation(() => undefined);
+    const fetchTasks = vi.spyOn(TaskRepository as any, 'fetchBlockTasks')
+      .mockImplementationOnce(() => staleFetch)
+      .mockImplementationOnce(() => freshFetch);
+    const saveCache = vi.spyOn(TaskRepository, 'saveBlockTasksCache').mockResolvedValue();
+
+    const staleRequest = TaskRepository.getBlockTasks(false, undefined, { useLiveDom: false });
+    await Promise.resolve();
+    expect(fetchTasks).toHaveBeenCalledTimes(1);
+
+    await TaskRepository.clearCache();
+    const freshRequest = TaskRepository.getBlockTasks(false, undefined, { useLiveDom: false });
+    await Promise.resolve();
+    expect(fetchTasks).toHaveBeenCalledTimes(2);
+    const freshInFlightPromise = (TaskRepository as any).blockTasksFetchPromise?.promise;
+
+    resolveStaleFetch([task]);
+    await expect(staleRequest).resolves.toEqual([task]);
+    expect(saveCache).not.toHaveBeenCalled();
+    expect((TaskRepository as any).memoryCache.tasks).toBeNull();
+    expect((TaskRepository as any).blockTasksFetchPromise?.promise).toBe(freshInFlightPromise);
+
+    resolveFreshFetch([freshTask]);
+    await expect(freshRequest).resolves.toEqual([freshTask]);
+    expect(saveCache).toHaveBeenCalledTimes(1);
+    expect(saveCache).toHaveBeenCalledWith([freshTask]);
+  });
+
+  it('falls back to SQL when the kernel task index is incomplete', async () => {
+    const sqlTask = { ...task, title: 'Task from complete SQL scan' };
+    (TaskRepository as any).memoryCache = {
+      tasks: null,
+      timestamp: 0,
+      detailLevel: 'full'
+    };
+    (TaskRepository as any).blockTasksFetchPromise = null;
+    vi.spyOn(TaskRepository, 'getKernelLightTasks').mockResolvedValue({
+      tasks: [task],
+      elapsedMs: 1,
+      partial: true
+    });
+    const fetchTasks = vi.spyOn(TaskRepository as any, 'fetchBlockTasks').mockResolvedValue([sqlTask]);
+
+    await expect(TaskRepository.getBlockTasks(false, undefined, {
+      useLiveDom: false,
+      detailLevel: 'light'
+    })).resolves.toEqual([sqlTask]);
+
+    expect(fetchTasks).toHaveBeenCalledTimes(1);
+  });
+
   it('publishes task attribute writes for other views', async () => {
     await setBlockAttrs('block-1', {
       'custom-task-priority': 'high'
@@ -136,9 +263,32 @@ describe('TaskRepository incremental task fetches', () => {
     }]);
   });
 
+  it('rejects failed attribute writes without mutating shared task state', async () => {
+    const { syncFromSQL, tasks } = useCrdtTasks();
+    syncFromSQL([task]);
+    vi.spyOn(siyuan, 'fetchSyncPost').mockResolvedValue({
+      code: -1,
+      msg: 'attribute write denied',
+      data: null
+    } as never);
+
+    await expect(setBlockAttrs('block-1', {
+      'custom-task-priority': 'high'
+    })).rejects.toMatchObject({
+      name: 'SiyuanApiError',
+      code: -1,
+      msg: 'attribute write denied',
+      url: '/api/attr/setBlockAttrs'
+    });
+    vi.advanceTimersByTime(100);
+
+    expect(tasks.value[0]?.priority).toBe('none');
+    expect(taskChanges).toEqual([]);
+  });
+
   it('publishes task marker writes without a component-level fallback', async () => {
-    vi.spyOn(siyuan, 'fetchSyncPost').mockResolvedValue({ code: 0, data: [] } as never);
-    await updateTaskListItemMarker('block-1', 'x');
+    vi.spyOn(siyuan, 'fetchSyncPost').mockResolvedValue({ code: 0, data: null } as never);
+    await expect(updateTaskListItemMarker('block-1', 'x')).resolves.toEqual([]);
     vi.advanceTimersByTime(100);
 
     expect(taskChanges).toEqual([{

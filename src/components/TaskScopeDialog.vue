@@ -277,8 +277,13 @@
               </div>
               <div class="custom-audio-actions">
                 <label class="custom-audio-upload">{{ t('taskScopeDialog.uploadFile') }}<input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('whiteNoise', $event)" /></label>
-                <button type="button" class="custom-audio-preview" :disabled="!localCustomWhiteNoiseFile" @click="toggleCustomAudioPreview(localCustomWhiteNoiseFile)">{{ previewingAudioFile && previewingAudioFile === localCustomWhiteNoiseFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
+                <button type="button" class="custom-audio-preview" @click="toggleCustomAudioPreview('whiteNoise', localCustomWhiteNoiseFile)">{{ isPreviewingCustomAudio('whiteNoise', localCustomWhiteNoiseFile) ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
               </div>
+            </div>
+            <div class="volume-control">
+              <span class="volume-icon" :aria-label="t('taskScopeDialog.volume')">🔊</span>
+              <input v-model.number="localCustomWhiteNoiseVolume" type="range" min="0" max="1" step="0.1" class="volume-slider" @input="updateCustomAudioPreviewVolume('whiteNoise')" />
+              <span class="volume-value">{{ Math.round(localCustomWhiteNoiseVolume * 100) }}%</span>
             </div>
           </div>
           <div class="custom-audio-setting">
@@ -291,8 +296,13 @@
               </div>
               <div class="custom-audio-actions">
                 <label class="custom-audio-upload">{{ t('taskScopeDialog.uploadFile') }}<input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('completion', $event)" /></label>
-                <button type="button" class="custom-audio-preview" :disabled="!localCustomCompletionSoundFile" @click="toggleCustomAudioPreview(localCustomCompletionSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomCompletionSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
+                <button type="button" class="custom-audio-preview" @click="toggleCustomAudioPreview('completion', localCustomCompletionSoundFile)">{{ isPreviewingCustomAudio('completion', localCustomCompletionSoundFile) ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
               </div>
+            </div>
+            <div class="volume-control">
+              <span class="volume-icon" :aria-label="t('taskScopeDialog.volume')">🔊</span>
+              <input v-model.number="localCustomCompletionSoundVolume" type="range" min="0" max="1" step="0.1" class="volume-slider" @input="updateCustomAudioPreviewVolume('completion')" />
+              <span class="volume-value">{{ Math.round(localCustomCompletionSoundVolume * 100) }}%</span>
             </div>
           </div>
           <div class="custom-audio-setting">
@@ -305,8 +315,13 @@
               </div>
               <div class="custom-audio-actions">
                 <label class="custom-audio-upload">{{ t('taskScopeDialog.uploadFile') }}<input type="file" accept="audio/*,.mp3,.ogg,.wav,.m4a,.aac,.flac,.webm,.opus" @change="uploadCustomAudio('microBreak', $event)" /></label>
-                <button type="button" class="custom-audio-preview" :disabled="!localCustomMicroBreakSoundFile" @click="toggleCustomAudioPreview(localCustomMicroBreakSoundFile)">{{ previewingAudioFile && previewingAudioFile === localCustomMicroBreakSoundFile ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
+                <button type="button" class="custom-audio-preview" @click="toggleCustomAudioPreview('microBreak', localCustomMicroBreakSoundFile)">{{ isPreviewingCustomAudio('microBreak', localCustomMicroBreakSoundFile) ? t('focusTimer.stop') : t('taskScopeDialog.previewSound') }}</button>
               </div>
+            </div>
+            <div class="volume-control">
+              <span class="volume-icon" :aria-label="t('taskScopeDialog.volume')">🔊</span>
+              <input v-model.number="localCustomMicroBreakSoundVolume" type="range" min="0" max="1" step="0.1" class="volume-slider" @input="updateCustomAudioPreviewVolume('microBreak')" />
+              <span class="volume-value">{{ Math.round(localCustomMicroBreakSoundVolume * 100) }}%</span>
             </div>
           </div>
         </div>
@@ -386,6 +401,16 @@
                 @update:model-value="toggleSidebarSectionVisible(section.id, $event)"
               />
             </div>
+          </div>
+        </div>
+        <div class="task-scope-display-section">
+          <div class="task-scope-display-title">{{ t('taskScopeDialog.completionDisplay') }}</div>
+          <div class="task-scope-auto-item">
+            <div class="task-scope-auto-main">
+              <span class="task-scope-extra-label">{{ t('taskScopeDialog.checkinNotePrompt') }}</span>
+              <div class="task-scope-auto-desc">{{ t('taskScopeDialog.checkinNotePromptDescription') }}</div>
+            </div>
+            <SyCheckbox class="task-scope-toggle" :model-value="localCheckinNotePrompt" @update:model-value="localCheckinNotePrompt = $event" />
           </div>
         </div>
       </div>
@@ -544,10 +569,14 @@ const localMicroBreakMaxIntervalMinutes = ref(5);
 const localMicroBreakDurationSeconds = ref(10);
 const localShortBreakPopup = ref(false);
 const localFocusCompletePopup = ref(false);
+const localCheckinNotePrompt = ref(false);
 const microBreakIntervalMarks = [1, 3, 5, 7, 9, 11, 13, 15];
 const localCustomWhiteNoiseFile = ref('');
 const localCustomCompletionSoundFile = ref('');
 const localCustomMicroBreakSoundFile = ref('');
+const localCustomWhiteNoiseVolume = ref(0.3);
+const localCustomCompletionSoundVolume = ref(0.3);
+const localCustomMicroBreakSoundVolume = ref(0.3);
 interface CustomAudioFile {
   fileName: string;
   label: string;
@@ -559,6 +588,7 @@ const customAudioFiles = ref<Record<CustomAudioKind, CustomAudioFile[]>>({
 });
 const previewAudio = ref<HTMLAudioElement | null>(null);
 const previewingAudioFile = ref('');
+const previewingAudioKind = ref<CustomAudioKind | null>(null);
 const activeTab = ref<TaskScopeDialogTab>('scope');
 const lockClose = computed(() => props.lockClose === true);
 const showExtra = computed(() => props.showExtra !== false);
@@ -750,9 +780,13 @@ function syncLocalSelection(): void {
   localMicroBreakDurationSeconds.value = normalizeMicroBreakDuration(props.focusSettings?.microBreakDurationSeconds);
   localShortBreakPopup.value = props.focusSettings?.shortBreakPopup === true;
   localFocusCompletePopup.value = props.focusSettings?.focusCompletePopup === true;
+  localCheckinNotePrompt.value = props.focusSettings?.checkinNotePrompt === true;
   localCustomWhiteNoiseFile.value = props.focusSettings?.customWhiteNoiseFile || '';
   localCustomCompletionSoundFile.value = props.focusSettings?.customCompletionSoundFile || '';
   localCustomMicroBreakSoundFile.value = props.focusSettings?.customMicroBreakSoundFile || '';
+  localCustomWhiteNoiseVolume.value = normalizeCustomAudioVolume(props.focusSettings?.customWhiteNoiseVolume);
+  localCustomCompletionSoundVolume.value = normalizeCustomAudioVolume(props.focusSettings?.customCompletionSoundVolume);
+  localCustomMicroBreakSoundVolume.value = normalizeCustomAudioVolume(props.focusSettings?.customMicroBreakSoundVolume);
   normalizeMicroBreakIntervals();
   activeTab.value = resolveInitialTab();
 }
@@ -763,6 +797,10 @@ function normalizeMicroBreakInterval(value: number | undefined, fallback: number
 
 function normalizeMicroBreakDuration(value: number | undefined): number {
   return Math.max(1, Math.min(300, Math.floor(Number(value) || 10)));
+}
+
+function normalizeCustomAudioVolume(value: number | undefined): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(value!, 1)) : 0.3;
 }
 
 function normalizeMicroBreakIntervals(): void {
@@ -811,6 +849,12 @@ function getSelectedCustomAudioFile(kind: CustomAudioKind): string {
   if (kind === 'whiteNoise') return localCustomWhiteNoiseFile.value;
   if (kind === 'completion') return localCustomCompletionSoundFile.value;
   return localCustomMicroBreakSoundFile.value;
+}
+
+function getCustomAudioVolume(kind: CustomAudioKind): number {
+  if (kind === 'whiteNoise') return localCustomWhiteNoiseVolume.value;
+  if (kind === 'completion') return localCustomCompletionSoundVolume.value;
+  return localCustomMicroBreakSoundVolume.value;
 }
 
 function selectCustomAudio(kind: CustomAudioKind, fileName: string): void {
@@ -884,21 +928,39 @@ function stopCustomAudioPreview(): void {
     previewAudio.value = null;
   }
   previewingAudioFile.value = '';
+  previewingAudioKind.value = null;
 }
 
-async function toggleCustomAudioPreview(fileName: string): Promise<void> {
-  if (previewingAudioFile.value === fileName) {
+function updateCustomAudioPreviewVolume(kind: CustomAudioKind): void {
+  if (previewAudio.value && previewingAudioKind.value === kind) {
+    previewAudio.value.volume = getCustomAudioVolume(kind);
+  }
+}
+
+function isPreviewingCustomAudio(kind: CustomAudioKind, fileName: string): boolean {
+  return previewingAudioKind.value === kind && previewingAudioFile.value === fileName;
+}
+
+async function getCustomAudioPreviewUrl(kind: CustomAudioKind, fileName: string): Promise<string | null> {
+  if (fileName) return getCustomFocusAudioUrl(fileName);
+  if (kind === 'whiteNoise') return '/plugins/pinch/audio/rain.ogg';
+  return '/plugins/pinch/audio/correct.mp3';
+}
+
+async function toggleCustomAudioPreview(kind: CustomAudioKind, fileName: string): Promise<void> {
+  if (isPreviewingCustomAudio(kind, fileName)) {
     stopCustomAudioPreview();
     return;
   }
   stopCustomAudioPreview();
-  const url = await getCustomFocusAudioUrl(fileName);
+  const url = await getCustomAudioPreviewUrl(kind, fileName);
   if (!url) return;
   const audio = new Audio(url);
-  audio.volume = 0.3;
+  audio.volume = getCustomAudioVolume(kind);
   audio.addEventListener('ended', stopCustomAudioPreview, { once: true });
   previewAudio.value = audio;
   previewingAudioFile.value = fileName;
+  previewingAudioKind.value = kind;
   void audio.play().catch(stopCustomAudioPreview);
 }
 
@@ -1024,9 +1086,13 @@ function save(): void {
       microBreakDurationSeconds: normalizeMicroBreakDuration(localMicroBreakDurationSeconds.value),
       shortBreakPopup: localShortBreakPopup.value,
       focusCompletePopup: localFocusCompletePopup.value,
+      checkinNotePrompt: localCheckinNotePrompt.value,
       customWhiteNoiseFile: localCustomWhiteNoiseFile.value || undefined,
+      customWhiteNoiseVolume: normalizeCustomAudioVolume(localCustomWhiteNoiseVolume.value),
       customCompletionSoundFile: localCustomCompletionSoundFile.value || undefined,
-      customMicroBreakSoundFile: localCustomMicroBreakSoundFile.value || undefined
+      customCompletionSoundVolume: normalizeCustomAudioVolume(localCustomCompletionSoundVolume.value),
+      customMicroBreakSoundFile: localCustomMicroBreakSoundFile.value || undefined,
+      customMicroBreakSoundVolume: normalizeCustomAudioVolume(localCustomMicroBreakSoundVolume.value)
     }
   });
 }
@@ -1374,6 +1440,55 @@ watch(
   right: 0;
   display: flex;
   gap: 6px;
+}
+
+.volume-control {
+  display: flex;
+  align-items: center;
+  width: 260px;
+  gap: 8px;
+  margin-top: 0;
+  padding: 0;
+}
+
+.volume-icon {
+  font-size: 18px;
+  min-width: 20px;
+}
+
+.volume-slider {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--b3-border-color);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #f98f7a;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  background: #f87a6a;
+}
+
+.volume-value {
+  min-width: 38px;
+  text-align: right;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--b3-theme-on-surface);
 }
 
 .custom-audio-upload {

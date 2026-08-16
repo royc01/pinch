@@ -65,6 +65,8 @@ type TaskQueryCursor = {
 
 type TaskRowsQueryResult = {
   rows: KernelTaskRow[];
+  changedBlockIds?: string[];
+  highWatermarkUpdated?: string;
   elapsedMs: number;
   hierarchyElapsedMs?: number;
   pageCount?: number;
@@ -73,6 +75,15 @@ type TaskRowsQueryResult = {
   source: "kernel";
   changedRows?: number;
   incremental?: boolean;
+};
+
+type TaskIndexResult = TaskRowsQueryResult & {
+  indexElapsedMs?: number;
+  cached?: boolean;
+  refreshedAt?: number;
+  fullRefreshedAt?: number;
+  highWatermarkUpdated?: string;
+  ageMs?: number;
 };
 
 type TaskStatsResult = {
@@ -107,6 +118,16 @@ type ParentBlockRow = {
   markdown: string;
 };
 
+type KernelBlockDOMBatchResult = {
+  blocks: Array<{
+    id: string;
+    data: Record<string, unknown>;
+  }>;
+  failedIds: string[];
+  elapsedMs: number;
+  source: "kernel";
+};
+
 const DEFAULT_TASK_LIMIT = 500;
 const MAX_TASK_LIMIT = 5000;
 const TASK_INDEX_TTL_MS = 30 * 1000;
@@ -115,6 +136,8 @@ const TASK_QUERY_PAGE_SIZE = 256;
 const MAX_TASK_QUERY_PAGES = 1000;
 const TASK_PARENT_LOOKUP_BATCH_SIZE = 32;
 const MAX_TASK_PARENT_DEPTH = 12;
+const MAX_BLOCK_DOM_BATCH_SIZE = 512;
+const BLOCK_DOM_BATCH_CONCURRENCY = 8;
 
 type TaskIndexCacheEntry = {
   rows: KernelTaskRow[];
@@ -571,6 +594,24 @@ async function queryTaskRowsByBlockIds(params: KernelTaskListParams = {}): Promi
   };
 }
 
+async function queryExistingBlockIds(blockIds: string[]): Promise<Set<string>> {
+  const normalizedIds = normalizeBlockIds(blockIds);
+  if (normalizedIds.length === 0) {
+    return new Set();
+  }
+
+  const rows = await kernelSql<Array<{ id?: unknown }>>(`
+    SELECT id
+    FROM blocks
+    WHERE id IN (${toSqlStringList(normalizedIds)})
+  `);
+  return new Set(
+    (Array.isArray(rows) ? rows : [])
+      .map(row => String(row?.id || ""))
+      .filter(Boolean)
+  );
+}
+
 async function queryTaskRows(params: KernelTaskListParams = {}): Promise<TaskRowsQueryResult> {
   if (normalizeBlockIds(params.blockIds).length > 0) {
     return queryTaskRowsByBlockIds(params);
@@ -578,14 +619,15 @@ async function queryTaskRows(params: KernelTaskListParams = {}): Promise<TaskRow
 
   const startedAt = Date.now();
   const limit = clampTaskLimit(params.limit);
+  const scanLimit = limit + 1;
   const rows: KernelTaskRow[] = [];
   const seenIds = new Set<string>();
   let cursor: TaskQueryCursor | null = null;
   let pageCount = 0;
   let partial = false;
 
-  while (rows.length < limit && pageCount < MAX_TASK_QUERY_PAGES) {
-    const pageLimit = Math.min(TASK_QUERY_PAGE_SIZE, limit - rows.length);
+  while (rows.length < scanLimit && pageCount < MAX_TASK_QUERY_PAGES) {
+    const pageLimit = Math.min(TASK_QUERY_PAGE_SIZE, scanLimit - rows.length);
     const pageRows = await queryTaskRowsPage(params, cursor, pageLimit);
     pageCount += 1;
     if (pageRows.length === 0) {
@@ -610,9 +652,7 @@ async function queryTaskRows(params: KernelTaskListParams = {}): Promise<TaskRow
     }
   }
 
-  if (rows.length < limit && pageCount >= MAX_TASK_QUERY_PAGES) {
-    partial = true;
-  }
+  partial = rows.length > limit || (rows.length < scanLimit && pageCount >= MAX_TASK_QUERY_PAGES);
 
   const hierarchyStartedAt = Date.now();
   const rowsWithHierarchy = await enrichTaskHierarchy(rows);
@@ -656,23 +696,50 @@ async function queryChangedTaskRows(params: KernelTaskListParams = {}): Promise<
     filters.push(`b.root_id = '${escapeSqlLiteral(documentId)}'`);
   }
 
-  const rows = await kernelSql<any[]>(buildTaskRowsSql(filters, "b.updated DESC, b.id DESC", limit));
+  const rows = await kernelSql<any[]>(buildTaskRowsSql(filters, "b.updated DESC, b.id DESC", limit + 1));
   const normalizedRows = Array.isArray(rows) ? rows.map(normalizeTaskRow).filter(row => row.id) : [];
+  const limitedRows = normalizedRows.slice(0, limit);
+
+  // Dirty IDs intentionally ignore the current scope. A task moved out of a
+  // notebook or document must still remove its old row from that scoped index.
+  const changedBlocks = await kernelSql<Array<{ id?: unknown; updated?: unknown }>>(`
+    SELECT b.id, b.updated
+    FROM blocks b
+    WHERE b.updated >= '${escapeSqlLiteral(sinceUpdated)}'
+    ORDER BY b.updated DESC, b.id DESC
+    LIMIT ${limit + 1}
+  `);
+  const normalizedChangedBlocks = Array.isArray(changedBlocks)
+    ? changedBlocks
+        .map(row => ({
+          id: String(row?.id || ""),
+          updated: normalizeUpdatedValue(row?.updated),
+        }))
+        .filter(row => row.id)
+    : [];
+  const changedBlockIds = Array.from(
+    new Set(normalizedChangedBlocks.slice(0, limit).map(row => row.id))
+  );
   const hierarchyStartedAt = Date.now();
-  const rowsWithHierarchy = await enrichTaskHierarchy(normalizedRows);
+  const rowsWithHierarchy = await enrichTaskHierarchy(limitedRows);
   rowsWithHierarchy.sort(compareTaskRowsByUpdatedDesc);
 
   return {
     rows: rowsWithHierarchy,
+    changedBlockIds,
+    highWatermarkUpdated: normalizedChangedBlocks.reduce<string | undefined>((latest, row) => {
+      if (!row.updated) return latest;
+      return !latest || row.updated > latest ? row.updated : latest;
+    }, undefined),
     elapsedMs: Date.now() - startedAt,
     hierarchyElapsedMs: Date.now() - hierarchyStartedAt,
-    totalScanned: normalizedRows.length,
-    partial: normalizedRows.length >= limit,
+    totalScanned: changedBlockIds.length,
+    partial: normalizedRows.length > limit || normalizedChangedBlocks.length > limit,
     source: "kernel",
   };
 }
 
-async function refreshTaskIndex(params: KernelTaskListParams | number = {}) {
+async function refreshTaskIndex(params: KernelTaskListParams | number = {}): Promise<TaskIndexResult> {
   const normalizedParams = normalizeTaskListParams(params);
   const requestedLimit = clampTaskLimit(normalizedParams.limit);
   const cacheKey = buildTaskIndexCacheKey(normalizedParams);
@@ -703,7 +770,7 @@ async function refreshTaskIndex(params: KernelTaskListParams | number = {}) {
   };
 }
 
-async function refreshTaskIndexIncremental(params: KernelTaskListParams | number = {}) {
+async function refreshTaskIndexIncremental(params: KernelTaskListParams | number = {}): Promise<TaskIndexResult> {
   const normalizedParams = normalizeTaskListParams(params);
   const requestedLimit = clampTaskLimit(normalizedParams.limit);
   const cacheKey = buildTaskIndexCacheKey(normalizedParams);
@@ -718,15 +785,26 @@ async function refreshTaskIndexIncremental(params: KernelTaskListParams | number
     limit: MAX_TASK_LIMIT,
     sinceUpdated: entry.highWatermarkUpdated,
   });
+  if (changed.partial) {
+    return refreshTaskIndex(normalizedParams);
+  }
   const rowsById = new Map<string, KernelTaskRow>();
   for (const row of entry.rows) {
     rowsById.set(row.id, row);
   }
+  const changedBlockIds = new Set(changed.changedBlockIds ?? changed.rows.map(row => row.id));
+  const existingBlockIds = await queryExistingBlockIds(Array.from(rowsById.keys()));
+  for (const blockId of rowsById.keys()) {
+    if (!existingBlockIds.has(blockId)) {
+      changedBlockIds.add(blockId);
+    }
+  }
+  for (const blockId of changedBlockIds) {
+    rowsById.delete(blockId);
+  }
   for (const row of changed.rows) {
     if (doesTaskRowMatchParams(row, normalizedParams)) {
       rowsById.set(row.id, row);
-    } else {
-      rowsById.delete(row.id);
     }
   }
 
@@ -740,7 +818,9 @@ async function refreshTaskIndexIncremental(params: KernelTaskListParams | number
     pageCount: changed.pageCount ?? entry.pageCount,
     partial: entry.partial || changed.partial,
     fullRefreshedAt: entry.fullRefreshedAt,
-    highWatermarkUpdated: getHighWatermarkUpdated(mergedRows) || entry.highWatermarkUpdated,
+    highWatermarkUpdated: changed.highWatermarkUpdated
+      || getHighWatermarkUpdated(mergedRows)
+      || entry.highWatermarkUpdated,
   };
   taskIndexCache.set(cacheKey, nextEntry);
 
@@ -755,14 +835,14 @@ async function refreshTaskIndexIncremental(params: KernelTaskListParams | number
     source: "kernel",
     cached: false,
     incremental: true,
-    changedRows: changed.rows.length,
+    changedRows: changedBlockIds.size,
     refreshedAt: nextEntry.refreshedAt,
     fullRefreshedAt: nextEntry.fullRefreshedAt,
     highWatermarkUpdated: nextEntry.highWatermarkUpdated,
   };
 }
 
-async function getTaskIndex(params: KernelTaskListParams | number = {}) {
+async function getTaskIndex(params: KernelTaskListParams | number = {}): Promise<TaskIndexResult> {
   const normalizedParams = normalizeTaskListParams(params);
   const blockIds = normalizeBlockIds(normalizedParams.blockIds);
   if (blockIds.length > 0) {
@@ -916,6 +996,45 @@ async function getTaskStats(params: KernelTaskListParams = {}): Promise<TaskStat
   };
 }
 
+async function getBlockDOMBatch(
+  params: { ids?: string[] } = {}
+): Promise<KernelBlockDOMBatchResult> {
+  const startedAt = Date.now();
+  const ids = normalizeBlockIds(params.ids).slice(0, MAX_BLOCK_DOM_BATCH_SIZE);
+  const blocks: KernelBlockDOMBatchResult["blocks"] = [];
+  const failedIds: string[] = [];
+  let nextIndex = 0;
+
+  const worker = async (): Promise<void> => {
+    while (nextIndex < ids.length) {
+      const id = ids[nextIndex++];
+      try {
+        const response = await siyuan.client.fetch("/api/block/getBlockDOM", {
+          method: "POST",
+          body: JSON.stringify({ id }),
+        });
+        const payload = await response.json() as SqlResponse<Record<string, unknown>>;
+        if (payload?.code !== 0 || !payload.data || typeof payload.data.dom !== "string") {
+          failedIds.push(id);
+          continue;
+        }
+        blocks.push({ id, data: payload.data });
+      } catch {
+        failedIds.push(id);
+      }
+    }
+  };
+
+  const workerCount = Math.min(BLOCK_DOM_BATCH_CONCURRENCY, ids.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return {
+    blocks,
+    failedIds,
+    elapsedMs: Date.now() - startedAt,
+    source: "kernel",
+  };
+}
+
 siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind("ping", () => ({
     ok: true,
@@ -929,6 +1048,7 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind("getTaskRowsByBlockIds", getTaskRowsByBlockIds, "Get lightweight task rows by block IDs");
   await siyuan.rpc.bind("getTaskRowsByDateRange", getTaskRowsByDateRange, "Get lightweight task rows in a date range");
   await siyuan.rpc.bind("getTaskStats", getTaskStats, "Get lightweight task statistics");
+  await siyuan.rpc.bind("getBlockDOMBatch", getBlockDOMBatch, "Get block DOM for multiple block IDs");
 };
 
 if ("onrunning" in siyuan.plugin.lifecycle) {
@@ -943,4 +1063,5 @@ siyuan.plugin.lifecycle.onunload = async () => {
   await siyuan.rpc.unbind("getTaskRowsByBlockIds");
   await siyuan.rpc.unbind("getTaskRowsByDateRange");
   await siyuan.rpc.unbind("getTaskStats");
+  await siyuan.rpc.unbind("getBlockDOMBatch");
 };

@@ -1,7 +1,7 @@
 <template>
   <svg 
     class="task-checkbox" 
-    :class="{ checked }"
+    :class="{ checked, disabled }"
     viewBox="0 0 1024 1024"
     :width="size"
     :height="size"
@@ -25,6 +25,7 @@
 defineProps<{
   checked: boolean;
   size?: number;
+  disabled?: boolean;
 }>();
 
 defineEmits<{
@@ -49,5 +50,14 @@ defineEmits<{
 .task-checkbox.checked {
   fill: #f98f7a;
   stroke: none;
+}
+
+.task-checkbox.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.task-checkbox.disabled:hover {
+  filter: none;
 }
 </style>

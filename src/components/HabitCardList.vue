@@ -15,7 +15,7 @@
         @dragover="handleHabitDragOver($event, habit)"
         @dragleave="handleHabitDragLeave"
         @drop="handleHabitDrop($event, habit)"
-        @contextmenu.prevent="emit('edit', habit)"
+        @contextmenu.prevent="handleContextMenu($event, habit)"
       >
         <div class="habit-week-view">
           <div class="week-habit-item">
@@ -25,22 +25,14 @@
             <div class="habit-info" @click="emit('show-stats', habit)">
               <div class="habit-title">
                 <span class="habit-name ariaLabel" :aria-label="t('habitTracker.viewHabitDetails')">{{ habit.name }}</span>
-                <button class="ariaLabel"
+                <button v-if="habit.usePomodoro"
                   type="button"
-                  :class="[
-                    'pomodoro-indicator',
-                    'pomodoro-indicator--button',
-                    'ariaLabel',
-                    { 'pomodoro-indicator--hover-reveal': !habit.usePomodoro }
-                  ]"
+                  class="pomodoro-indicator pomodoro-indicator--button ariaLabel"
                   :disabled="habit.isPaused"
                   :aria-label="t('habitTracker.startFocusTimer')"
                   @click.stop="emit('start-focus', habit)"
                 >
-                  <template v-if="habit.usePomodoro">
-                    {{ pomodoroIcon }} {{ habit.pomodoroDuration ? `${habit.pomodoroDuration}min` : '25min' }}
-                  </template>
-                  <template v-else>{{ pomodoroIcon }}</template>
+                  {{ pomodoroIcon }} {{ habit.pomodoroDuration ? `${habit.pomodoroDuration}min` : '25min' }}
                 </button>
               </div>
               <div v-if="manageMode" class="habit-status-text">
@@ -199,10 +191,52 @@
       </div>
     </transition-group>
   </div>
+  <div
+    v-if="contextMenu"
+    class="habit-context-menu"
+    :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+    role="menu"
+    @contextmenu.prevent
+  >
+    <button type="button" role="menuitem" :disabled="contextMenu.habit.isPaused" @click="runContextAction('start-focus')">
+      {{ t('habitTracker.startFocus') }}
+    </button>
+    <button type="button" role="menuitem" @click="runContextAction('edit')">
+      {{ t('habitTracker.editHabit') }}
+    </button>
+    <button type="button" role="menuitem" @click="runContextAction('show-stats')">
+      {{ t('habitTracker.statsView') }}
+    </button>
+    <button type="button" role="menuitem" @click="runContextAction('manage-logs')">
+      {{ t('habitTracker.manageLogs') }}
+    </button>
+    <button type="button" role="menuitem" @click="runContextAction('toggle-pause')">
+      {{ contextMenu.habit.isPaused ? t('habitTracker.resumeCheckin') : t('habitTracker.pauseHabit') }}
+    </button>
+    <button type="button" role="menuitem" @click="runContextAction('delete')">
+      {{ t('habitTracker.deleteHabit') }}
+    </button>
+    <button
+      v-if="canUndoOne(contextMenu.habit)"
+      type="button"
+      role="menuitem"
+      @click="runContextAction('undo-one')"
+    >
+      {{ t('habitTracker.undoOneCheckin') }}
+    </button>
+    <button
+      type="button"
+      role="menuitem"
+      :disabled="!hasTodayCheckin(contextMenu.habit)"
+      @click="runContextAction('undo-checkin')"
+    >
+      {{ t('habitTracker.undoCheckin') }}
+    </button>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, toRefs } from 'vue';
+import { onBeforeUnmount, onMounted, ref, toRefs } from 'vue';
 import type { Habit } from '@/api';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
@@ -248,6 +282,9 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: 'show-stats', habit: Habit): void;
   (event: 'edit', habit: Habit): void;
+  (event: 'manage-logs', habit: Habit): void;
+  (event: 'undo-one', habit: Habit): void;
+  (event: 'undo-checkin', habit: Habit): void;
   (event: 'start-focus', habit: Habit): void;
   (event: 'toggle-habit', habitId: string): void;
   (event: 'toggle-pause', habit: Habit): void;
@@ -262,6 +299,60 @@ const dragOverHabitId = ref<string | null>(null);
 const draggedHabitId = ref<string | null>(null);
 const lastReorderedTargetId = ref<string | null>(null);
 const habitDragMimeType = 'application/x-pinch-habit-card';
+const contextMenu = ref<{ habit: Habit; x: number; y: number } | null>(null);
+
+const handleContextMenu = (event: MouseEvent, habit: Habit): void => {
+  if (props.manageMode) {
+    emit('edit', habit);
+    return;
+  }
+  contextMenu.value = { habit, x: event.clientX, y: event.clientY };
+};
+
+const closeContextMenu = (): void => {
+  contextMenu.value = null;
+};
+
+const handleContextMenuOutsidePointerDown = (event: PointerEvent): void => {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('.habit-context-menu')) return;
+  closeContextMenu();
+};
+
+const runContextAction = (action: 'start-focus' | 'edit' | 'show-stats' | 'manage-logs' | 'toggle-pause' | 'delete' | 'undo-one' | 'undo-checkin'): void => {
+  const habit = contextMenu.value?.habit;
+  closeContextMenu();
+  if (!habit) return;
+  if (action === 'start-focus') emit('start-focus', habit);
+  if (action === 'edit') emit('edit', habit);
+  if (action === 'show-stats') emit('show-stats', habit);
+  if (action === 'manage-logs') emit('manage-logs', habit);
+  if (action === 'toggle-pause') emit('toggle-pause', habit);
+  if (action === 'delete') emit('delete', habit.id);
+  if (action === 'undo-one') emit('undo-one', habit);
+  if (action === 'undo-checkin') emit('undo-checkin', habit);
+};
+
+const hasTodayCheckin = (habit: Habit): boolean => getHabitCache.value(habit.id).todayCompletionCount > 0;
+
+const canUndoOne = (habit: Habit): boolean => {
+  const timesPerDay = Math.max(1, Number(habit.timesPerDay || 1));
+  return timesPerDay > 1 && hasTodayCheckin(habit);
+};
+
+const handleContextMenuKeydown = (event: KeyboardEvent): void => {
+  if (event.key === 'Escape') closeContextMenu();
+};
+
+onMounted(() => {
+  document.addEventListener('pointerdown', handleContextMenuOutsidePointerDown, true);
+  document.addEventListener('keydown', handleContextMenuKeydown);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleContextMenuOutsidePointerDown, true);
+  document.removeEventListener('keydown', handleContextMenuKeydown);
+});
 
 const handleHabitDragOver = (event: DragEvent, habit: Habit): void => {
   const dataTransfer = event.dataTransfer;
@@ -382,6 +473,39 @@ const {
   padding: 0 2px;
 }
 
+.habit-context-menu {
+  position: fixed;
+  z-index: 10001;
+  min-width: 136px;
+  padding: 4px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 8px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+}
+
+.habit-context-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--b3-theme-on-background);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.habit-context-menu button:hover:not(:disabled) {
+  background: var(--b3-list-hover);
+}
+
+.habit-context-menu button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
 .habits-container {
   display: contents;
 }
@@ -460,17 +584,6 @@ const {
   border: none;
   cursor: pointer;
   transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
-}
-
-.pomodoro-indicator--hover-reveal {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.habit-card:hover .pomodoro-indicator--hover-reveal,
-.habit-card:focus-within .pomodoro-indicator--hover-reveal {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 .pomodoro-indicator--button:hover:not(:disabled) {

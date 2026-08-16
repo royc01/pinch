@@ -64,7 +64,12 @@
               <div class="lifelog-timeline-time">{{ item.timeLabel }}</div>
               <div class="lifelog-timeline-card">
                 <div class="lifelog-timeline-card-header">
-                  <span class="lifelog-timeline-card-title">{{ item.title }}</span>
+                  <TaskTitlePlain
+                    v-if="item.isTaskTitle"
+                    class="lifelog-timeline-card-title"
+                    :title="item.title"
+                  />
+                  <span v-else class="lifelog-timeline-card-title">{{ item.title }}</span>
                   <button
                     v-if="item.type === 'manual-note'"
                     type="button"
@@ -139,6 +144,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
+import TaskTitlePlain from '@/components/TaskTitlePlain.vue';
 import { useI18n } from '@/composables/useI18n';
 import type { LifelogTimelinePanelItem } from '@/components/LifelogTimelinePanel.vue';
 import { getFocusTimerData, TaskRepository, type Habit, type Task } from '@/api';
@@ -148,7 +154,7 @@ import {
   tasksToCompletedLifelogEvents
 } from '@/utils/lifelogEvents';
 import { useCheckinNotes } from '@/composables/useCheckinNotes';
-import { getCheckinNoteEventKey } from '@/utils/checkinNoteEvents';
+import { getCheckinNoteEventKeys } from '@/utils/checkinNoteEvents';
 
 interface MoodEmoji {
   id: string;
@@ -230,7 +236,7 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
     .map(event => hydrateCheckinNoteTimelineTarget({
       id: `focus-${event.id}`, sourceId: event.id, type: event.type, timeLabel: `${event.startTime} - ${event.endTime}`,
       sortMinutes: timeToSortMinutes(event.startTime, 8 * 60), title: event.title, meta: t('focusTimer.title'), note: event.note || '', icon: 'timer'
-    }, event.date, getCheckinNoteEventKey(event)));
+    }, event.date, getCheckinNoteEventKeys(event)));
   const habitItems = habitsToLifelogEvents(props.habits)
     .filter(event => event.date === props.selectedDate)
     .map(event => {
@@ -245,15 +251,15 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
       meta: `${t('habitTracker.checkedIn')} · ${progress}${t('habitTracker.timesSuffix')}`,
       note: event.note || '',
       icon: 'squareCheck'
-    }, event.date, getCheckinNoteEventKey(event));
+    }, event.date, getCheckinNoteEventKeys(event));
     });
   const taskItems = tasksToCompletedLifelogEvents(lifelogTasks.value)
     .filter(event => event.date === props.selectedDate)
     .map(event => hydrateCheckinNoteTimelineTarget({
       id: `task-${event.id}`, sourceId: event.taskId, type: event.type,
       timeLabel: formatRecordTime(event.completedAt), sortMinutes: timeToSortMinutes(event.completedAt, 20 * 60),
-      title: event.title, meta: t('taskManager.statusCompleted'), note: event.note || '', icon: 'taskCheckboxChecked'
-    }, event.date, getCheckinNoteEventKey(event)));
+      title: event.title, isTaskTitle: true, meta: t('taskManager.statusCompleted'), note: event.note || '', icon: 'taskCheckboxChecked'
+    }, event.date, getCheckinNoteEventKeys(event)));
   return [...focusItems, ...habitItems, ...taskItems, ...moodEntryItems]
     .sort((left, right) => left.sortMinutes - right.sortMinutes);
 });

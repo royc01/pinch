@@ -3,6 +3,8 @@ import { eventBus, Events } from '@/utils/eventBus';
 import { formatDate } from '@/composables/useDateUtils';
 import { translate } from '@/composables/useI18n';
 import solarLunar from '@/utils/solarLunar.js';
+import { enqueueStorageMutation, enqueueStorageMutations } from '@/storageMutationCoordinator';
+import { isMissingPluginStorageValue } from '@/utils/pluginStorage';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly' | 'custom';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
@@ -118,10 +120,43 @@ export interface RepeatMaterializeOptions {
   endDate?: string;
   includeTemplateDate?: boolean;
   filterBaseTasksToRange?: boolean;
+  /** Include completed instances whose completion date is in range, even if their instance date is not. */
+  includeCompletedOutsideRange?: boolean;
 }
 
 let repeatSeriesCache: { value: RepeatSeries[]; timestamp: number } | null = null;
 let repeatRecordsCache: { value: RepeatRecord[]; timestamp: number } | null = null;
+
+type StorageLoadResult<T> =
+  | { status: 'missing' }
+  | { status: 'loaded'; value: T };
+
+class RepeatStorageError extends Error {
+  readonly file: string;
+  readonly operation: 'read' | 'parse' | 'write';
+  readonly originalError?: unknown;
+
+  constructor(
+    file: string,
+    operation: 'read' | 'parse' | 'write',
+    message: string,
+    originalError?: unknown
+  ) {
+    super(`[RepeatRepository] ${operation} failed for ${file}: ${message}`);
+    this.name = 'RepeatStorageError';
+    this.file = file;
+    this.operation = operation;
+    this.originalError = originalError;
+  }
+}
+
+function serializeStorageMutation<T>(file: string, mutation: () => Promise<T>): Promise<T> {
+  return enqueueStorageMutation(file, mutation);
+}
+
+function serializeStorageMutations<T>(files: string[], mutation: () => Promise<T>): Promise<T> {
+  return enqueueStorageMutations(files, mutation);
+}
 
 function cloneRepeatSeries(series: RepeatSeries): RepeatSeries {
   return {
@@ -168,10 +203,6 @@ function daysBetween(startDate: Date, endDate: Date): number {
 
 function nowDateString(): string {
   return formatDate(new Date());
-}
-
-function toArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
 }
 
 function normalizeFrequency(frequency: unknown): ActiveRepeatFrequency | null {
@@ -474,7 +505,8 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
   templateTask: T,
   recordMap: Map<string, RepeatRecord>,
   range: { start: Date; end: Date },
-  includeTemplateDate = false
+  includeTemplateDate = false,
+  includeRecordedDate = false
 ): T[] {
   const seriesEndDate = getSeriesTerminationDate(series);
   const effectiveRangeEnd = seriesEndDate || range.end;
@@ -485,7 +517,7 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
   const virtualTasks: T[] = [];
   const cursor = new Date(range.start);
   while (cursor <= effectiveRangeEnd) {
-    if (!matchesSeriesDate(series, cursor)) {
+    if (!matchesSeriesDate(series, cursor) && !includeRecordedDate) {
       cursor.setDate(cursor.getDate() + 1);
       continue;
     }
@@ -556,6 +588,14 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
   }
 
   return virtualTasks;
+}
+
+function isCompletionInRange(record: RepeatRecord, range: { start: Date; end: Date }): boolean {
+  if (record.status !== 'completed' || !record.completedAt) return false;
+  const completedAt = new Date(record.completedAt);
+  if (Number.isNaN(completedAt.getTime())) return false;
+  const completedDate = new Date(completedAt.getFullYear(), completedAt.getMonth(), completedAt.getDate());
+  return completedDate.getTime() >= range.start.getTime() && completedDate.getTime() <= range.end.getTime();
 }
 
 function matchesSeriesDate(series: RepeatSeries, date: Date): boolean {
@@ -684,22 +724,44 @@ function getRepeatRuleDateParts(rule: RepeatRule, date: Date): {
   };
 }
 
-async function loadData<T>(file: string, fallback: T): Promise<T> {
+async function loadData<T>(file: string): Promise<StorageLoadResult<T>> {
   const plugin = usePlugin();
-  if (!plugin) return fallback;
-  try {
-    const data = await plugin.loadData(file);
-    if (!data) return fallback;
-    return (typeof data === 'string' ? JSON.parse(data) : data) as T;
-  } catch {
-    return fallback;
+  if (!plugin) {
+    throw new RepeatStorageError(file, 'read', 'plugin is not initialized');
   }
+
+  let data: unknown;
+  try {
+    data = await plugin.loadData(file);
+  } catch (error) {
+    throw new RepeatStorageError(file, 'read', 'storage read rejected', error);
+  }
+
+  if (isMissingPluginStorageValue(data)) {
+    return { status: 'missing' };
+  }
+
+  if (typeof data === 'string') {
+    try {
+      return { status: 'loaded', value: JSON.parse(data) as T };
+    } catch (error) {
+      throw new RepeatStorageError(file, 'parse', 'invalid JSON', error);
+    }
+  }
+
+  return { status: 'loaded', value: data as T };
 }
 
 async function saveData(file: string, value: unknown): Promise<void> {
   const plugin = usePlugin();
-  if (!plugin) return;
-  await plugin.saveData(file, value);
+  if (!plugin) {
+    throw new RepeatStorageError(file, 'write', 'plugin is not initialized');
+  }
+  try {
+    await plugin.saveData(file, value);
+  } catch (error) {
+    throw new RepeatStorageError(file, 'write', 'storage write rejected', error);
+  }
 }
 
 function normalizeSeries(raw: unknown): RepeatSeries | null {
@@ -811,21 +873,53 @@ export async function loadRepeatSeries(): Promise<RepeatSeries[]> {
     return cloneRepeatSeriesList(repeatSeriesCache.value);
   }
 
-  const raw = await loadData<unknown>(REPEAT_SERIES_FILE, []);
-  const normalized = toArray<unknown>(raw).map(normalizeSeries).filter((item): item is RepeatSeries => !!item);
+  try {
+    return cloneRepeatSeriesList(await readRepeatSeriesFromStorage());
+  } catch (error) {
+    if (repeatSeriesCache) {
+      return cloneRepeatSeriesList(repeatSeriesCache.value);
+    }
+    throw error;
+  }
+}
+
+async function readRepeatSeriesFromStorage(): Promise<RepeatSeries[]> {
+  const result = await loadData<unknown>(REPEAT_SERIES_FILE);
+  if (result.status === 'missing') {
+    repeatSeriesCache = { value: [], timestamp: Date.now() };
+    return [];
+  }
+
+  if (!Array.isArray(result.value)) {
+    throw new RepeatStorageError(REPEAT_SERIES_FILE, 'parse', 'expected an array');
+  }
+
+  const normalizedItems = result.value.map(normalizeSeries);
+  if (normalizedItems.some((item) => item === null)) {
+    throw new RepeatStorageError(REPEAT_SERIES_FILE, 'parse', 'contains an invalid repeat series');
+  }
+  const normalized = normalizedItems as RepeatSeries[];
   repeatSeriesCache = {
     value: cloneRepeatSeriesList(normalized),
     timestamp: Date.now()
   };
-  return cloneRepeatSeriesList(normalized);
+  return normalized;
 }
 
-export async function saveRepeatSeries(series: RepeatSeries[]): Promise<void> {
+async function persistRepeatSeries(series: RepeatSeries[]): Promise<void> {
   await saveData(REPEAT_SERIES_FILE, series);
   repeatSeriesCache = {
     value: cloneRepeatSeriesList(series),
     timestamp: Date.now()
   };
+}
+
+export async function saveRepeatSeries(series: RepeatSeries[]): Promise<void> {
+  const snapshot = cloneRepeatSeriesList(series);
+  await serializeStorageMutation(REPEAT_SERIES_FILE, async () => {
+    await readRepeatSeriesFromStorage();
+    await persistRepeatSeries(snapshot);
+  });
 }
 
 export async function getRepeatSeriesForTask(
@@ -848,73 +942,75 @@ export async function updateRepeatSeriesDates(
     emitChange?: boolean;
   } = {}
 ): Promise<RepeatSeries | null> {
-  const seriesList = await loadRepeatSeries();
-  const series = findSeriesForTask(seriesList, task);
-  if (!series) return null;
+  return serializeStorageMutation(REPEAT_SERIES_FILE, async () => {
+    const seriesList = await readRepeatSeriesFromStorage();
+    const series = findSeriesForTask(seriesList, task);
+    if (!series) return null;
 
-  const baseStart = startDate ? parseDate(startDate) : parseDate(series.startDate);
-  if (!baseStart) return null;
-  const normalizedStart = formatDate(baseStart);
+    const baseStart = startDate ? parseDate(startDate) : parseDate(series.startDate);
+    if (!baseStart) return null;
+    const normalizedStart = formatDate(baseStart);
 
-  let normalizedEnd: string | undefined;
-  if (dueDate) {
-    const parsedDue = parseDate(dueDate);
-    if (parsedDue && parsedDue.getTime() >= baseStart.getTime()) {
-      normalizedEnd = formatDate(parsedDue);
+    let normalizedEnd: string | undefined;
+    if (dueDate) {
+      const parsedDue = parseDate(dueDate);
+      if (parsedDue && parsedDue.getTime() >= baseStart.getTime()) {
+        normalizedEnd = formatDate(parsedDue);
+      }
     }
-  }
 
-  const hasStartTimePatch = !!timePatch && Object.prototype.hasOwnProperty.call(timePatch, 'startTime');
-  const hasDueTimePatch = !!timePatch && Object.prototype.hasOwnProperty.call(timePatch, 'dueTime');
-  const normalizedStartTime = hasStartTimePatch
-    ? (typeof timePatch?.startTime === 'string' && timePatch.startTime.trim().length > 0
-      ? timePatch.startTime
-      : undefined)
-    : series.startTime;
-  const normalizedDueTime = hasDueTimePatch
-    ? (typeof timePatch?.dueTime === 'string' && timePatch.dueTime.trim().length > 0
-      ? timePatch.dueTime
-      : undefined)
-    : series.dueTime;
+    const hasStartTimePatch = !!timePatch && Object.prototype.hasOwnProperty.call(timePatch, 'startTime');
+    const hasDueTimePatch = !!timePatch && Object.prototype.hasOwnProperty.call(timePatch, 'dueTime');
+    const normalizedStartTime = hasStartTimePatch
+      ? (typeof timePatch?.startTime === 'string' && timePatch.startTime.trim().length > 0
+        ? timePatch.startTime
+        : undefined)
+      : series.startTime;
+    const normalizedDueTime = hasDueTimePatch
+      ? (typeof timePatch?.dueTime === 'string' && timePatch.dueTime.trim().length > 0
+        ? timePatch.dueTime
+        : undefined)
+      : series.dueTime;
 
-  const updated: RepeatSeries = {
-    ...series,
-    startDate: normalizedStart,
-    endDate: normalizedEnd,
-    // Recurrence materialization prioritizes termination.date over endDate.
-    // Keep both representations aligned when the task editor changes its due
-    // date; otherwise an old termination date keeps producing occurrences
-    // after the newly selected deadline.
-    termination: normalizedEnd
-      ? { type: 'date', date: normalizedEnd }
-      : (series.termination?.type === 'date' ? { type: 'never' } : series.termination),
-    startTime: normalizedStartTime,
-    dueTime: normalizedDueTime,
-    spanDays: normalizedEnd ? daysBetween(baseStart, parseDate(normalizedEnd)!) : 0,
-    updatedAt: new Date().toISOString()
-  };
+    const updated: RepeatSeries = {
+      ...series,
+      startDate: normalizedStart,
+      endDate: normalizedEnd,
+      // Recurrence materialization prioritizes termination.date over endDate.
+      // Keep both representations aligned when the task editor changes its due
+      // date; otherwise an old termination date keeps producing occurrences
+      // after the newly selected deadline.
+      termination: normalizedEnd
+        ? { type: 'date', date: normalizedEnd }
+        : (series.termination?.type === 'date' ? { type: 'never' } : series.termination),
+      startTime: normalizedStartTime,
+      dueTime: normalizedDueTime,
+      spanDays: normalizedEnd ? daysBetween(baseStart, parseDate(normalizedEnd)!) : 0,
+      updatedAt: new Date().toISOString()
+    };
 
-  if (updated.frequency === 'weekly') {
-    updated.weekDays = [baseStart.getDay()];
-  }
+    if (updated.frequency === 'weekly') {
+      updated.weekDays = [baseStart.getDay()];
+    }
 
-  const idx = seriesList.findIndex(item => item.id === series.id);
-  if (idx >= 0) {
-    seriesList[idx] = updated;
-  } else {
-    seriesList.push(updated);
-  }
+    const idx = seriesList.findIndex(item => item.id === series.id);
+    if (idx >= 0) {
+      seriesList[idx] = updated;
+    } else {
+      seriesList.push(updated);
+    }
 
-  await saveRepeatSeries(seriesList);
-  if (options.emitChange !== false) {
-    emitRepeatChanged({
-      blockId: updated.templateBlockId,
-      seriesId: updated.id,
-      frequency: updated.frequency
-    });
-  }
+    await persistRepeatSeries(seriesList);
+    if (options.emitChange !== false) {
+      emitRepeatChanged({
+        blockId: updated.templateBlockId,
+        seriesId: updated.id,
+        frequency: updated.frequency
+      });
+    }
 
-  return updated;
+    return updated;
+  });
 }
 
 export async function updateRepeatSeriesBackgroundColor(
@@ -924,38 +1020,40 @@ export async function updateRepeatSeriesBackgroundColor(
     emitChange?: boolean;
   } = {}
 ): Promise<RepeatSeries | null> {
-  const seriesList = await loadRepeatSeries();
-  const series = findSeriesForTask(seriesList, task);
-  if (!series) return null;
+  return serializeStorageMutation(REPEAT_SERIES_FILE, async () => {
+    const seriesList = await readRepeatSeriesFromStorage();
+    const series = findSeriesForTask(seriesList, task);
+    if (!series) return null;
 
-  const normalizedBackgroundColor = typeof backgroundColor === 'string' && backgroundColor.trim().length > 0
-    ? backgroundColor.trim()
-    : undefined;
+    const normalizedBackgroundColor = typeof backgroundColor === 'string' && backgroundColor.trim().length > 0
+      ? backgroundColor.trim()
+      : undefined;
 
-  const updated: RepeatSeries = {
-    ...series,
-    backgroundColor: normalizedBackgroundColor,
-    updatedAt: new Date().toISOString()
-  };
+    const updated: RepeatSeries = {
+      ...series,
+      backgroundColor: normalizedBackgroundColor,
+      updatedAt: new Date().toISOString()
+    };
 
-  const idx = seriesList.findIndex(item => item.id === series.id);
-  if (idx >= 0) {
-    seriesList[idx] = updated;
-  } else {
-    seriesList.push(updated);
-  }
+    const idx = seriesList.findIndex(item => item.id === series.id);
+    if (idx >= 0) {
+      seriesList[idx] = updated;
+    } else {
+      seriesList.push(updated);
+    }
 
-  await saveRepeatSeries(seriesList);
+    await persistRepeatSeries(seriesList);
 
-  if (options.emitChange !== false) {
-    emitRepeatChanged({
-      blockId: updated.templateBlockId,
-      seriesId: updated.id,
-      frequency: updated.frequency
-    });
-  }
+    if (options.emitChange !== false) {
+      emitRepeatChanged({
+        blockId: updated.templateBlockId,
+        seriesId: updated.id,
+        frequency: updated.frequency
+      });
+    }
 
-  return updated;
+    return updated;
+  });
 }
 
 export async function loadRepeatRecords(): Promise<RepeatRecord[]> {
@@ -963,21 +1061,53 @@ export async function loadRepeatRecords(): Promise<RepeatRecord[]> {
     return cloneRepeatRecords(repeatRecordsCache.value);
   }
 
-  const raw = await loadData<unknown>(REPEAT_RECORDS_FILE, []);
-  const normalized = toArray<unknown>(raw).map(normalizeRecord).filter((item): item is RepeatRecord => !!item);
+  try {
+    return cloneRepeatRecords(await readRepeatRecordsFromStorage());
+  } catch (error) {
+    if (repeatRecordsCache) {
+      return cloneRepeatRecords(repeatRecordsCache.value);
+    }
+    throw error;
+  }
+}
+
+async function readRepeatRecordsFromStorage(): Promise<RepeatRecord[]> {
+  const result = await loadData<unknown>(REPEAT_RECORDS_FILE);
+  if (result.status === 'missing') {
+    repeatRecordsCache = { value: [], timestamp: Date.now() };
+    return [];
+  }
+
+  if (!Array.isArray(result.value)) {
+    throw new RepeatStorageError(REPEAT_RECORDS_FILE, 'parse', 'expected an array');
+  }
+
+  const normalizedItems = result.value.map(normalizeRecord);
+  if (normalizedItems.some((item) => item === null)) {
+    throw new RepeatStorageError(REPEAT_RECORDS_FILE, 'parse', 'contains an invalid repeat record');
+  }
+  const normalized = normalizedItems as RepeatRecord[];
   repeatRecordsCache = {
     value: cloneRepeatRecords(normalized),
     timestamp: Date.now()
   };
-  return cloneRepeatRecords(normalized);
+  return normalized;
 }
 
-export async function saveRepeatRecords(records: RepeatRecord[]): Promise<void> {
+async function persistRepeatRecords(records: RepeatRecord[]): Promise<void> {
   await saveData(REPEAT_RECORDS_FILE, records);
   repeatRecordsCache = {
     value: cloneRepeatRecords(records),
     timestamp: Date.now()
   };
+}
+
+export async function saveRepeatRecords(records: RepeatRecord[]): Promise<void> {
+  const snapshot = cloneRepeatRecords(records);
+  await serializeStorageMutation(REPEAT_RECORDS_FILE, async () => {
+    await readRepeatRecordsFromStorage();
+    await persistRepeatRecords(snapshot);
+  });
 }
 
 function findSeriesForTask(seriesList: RepeatSeries[], task: Pick<RepeatTaskLike, 'id' | 'blockId' | 'repeatSeriesId'>): RepeatSeries | undefined {
@@ -1040,40 +1170,79 @@ export function notifyRepeatChanged(payload: {
   emitRepeatChanged(payload);
 }
 
-export async function setTaskRepeatSeries(task: RepeatTaskLike, repeat: RepeatFrequency | RepeatRuleInput): Promise<RepeatSeries | null> {
-  const { frequency, rule, termination } = normalizeRepeatRuleInput(repeat);
-  const seriesList = await loadRepeatSeries();
+export async function setTaskRepeatSeries(
+  task: RepeatTaskLike,
+  repeat: RepeatFrequency | RepeatRuleInput,
+  options: { emitChange?: boolean } = {}
+): Promise<RepeatSeries | null> {
+  const normalizedRepeat = normalizeRepeatRuleInput(repeat);
+  const storageKeys = normalizedRepeat.frequency === 'none'
+    ? [REPEAT_SERIES_FILE, REPEAT_RECORDS_FILE]
+    : [REPEAT_SERIES_FILE];
+  return serializeStorageMutations(
+    storageKeys,
+    () => setTaskRepeatSeriesUnlocked(task, normalizedRepeat, options)
+  );
+}
+
+async function setTaskRepeatSeriesUnlocked(
+  task: RepeatTaskLike,
+  normalizedRepeat: ReturnType<typeof normalizeRepeatRuleInput>,
+  options: { emitChange?: boolean }
+): Promise<RepeatSeries | null> {
+  const { frequency, rule, termination } = normalizedRepeat;
+  const seriesList = await readRepeatSeriesFromStorage();
   const existing = findSeriesForTask(seriesList, task);
 
   if (frequency === 'none') {
-    const removedSeriesIds = seriesList
+    const matchingSeries = seriesList
       .filter((series) =>
         series.id === task.repeatSeriesId
         || series.templateTaskId === task.id
         || (!!task.blockId && series.templateBlockId === task.blockId)
-      )
-      .map((series) => series.id);
+      );
+    const requestedSeriesId = typeof task.repeatSeriesId === 'string'
+      ? task.repeatSeriesId.trim()
+      : '';
+    const removedSeriesIds = Array.from(new Set([
+      ...matchingSeries.map((series) => series.id),
+      ...(requestedSeriesId ? [requestedSeriesId] : [])
+    ]));
 
     if (removedSeriesIds.length === 0) {
       return null;
     }
 
     const nextSeries = seriesList.filter((series) => !removedSeriesIds.includes(series.id));
-    const records = await loadRepeatRecords();
+    const records = await readRepeatRecordsFromStorage();
     const nextRecords = records.filter((record) => !removedSeriesIds.includes(record.seriesId));
-    await Promise.all([
-      saveRepeatSeries(nextSeries),
-      saveRepeatRecords(nextRecords)
-    ]);
+    const seriesChanged = nextSeries.length !== seriesList.length;
+    const recordsChanged = nextRecords.length !== records.length;
+    if (!seriesChanged && !recordsChanged) {
+      return null;
+    }
+
+    // Commit the authoritative series deletion first. If record cleanup fails,
+    // orphaned records cannot materialize and are safer than an active series
+    // whose instance state was already deleted. A retry carrying repeatSeriesId
+    // can still identify and remove those orphaned records.
+    if (seriesChanged) {
+      await persistRepeatSeries(nextSeries);
+    }
+    if (recordsChanged) {
+      await persistRepeatRecords(nextRecords);
+    }
     const fallbackBlockId =
       task.blockId
       || existing?.templateBlockId
-      || seriesList.find((series) => removedSeriesIds.includes(series.id))?.templateBlockId;
-    emitRepeatChanged({
-      blockId: fallbackBlockId,
-      seriesId: existing?.id || removedSeriesIds[0],
-      frequency: 'none'
-    });
+      || matchingSeries[0]?.templateBlockId;
+    if (options.emitChange !== false) {
+      emitRepeatChanged({
+        blockId: fallbackBlockId,
+        seriesId: existing?.id || removedSeriesIds[0],
+        frequency: 'none'
+      });
+    }
     return null;
   }
 
@@ -1148,12 +1317,14 @@ export async function setTaskRepeatSeries(task: RepeatTaskLike, repeat: RepeatFr
     seriesList.push(nextSeries);
   }
 
-  await saveRepeatSeries(seriesList);
-  emitRepeatChanged({
-    blockId: task.blockId || existing?.templateBlockId,
-    seriesId: nextSeries.id,
-    frequency
-  });
+  await persistRepeatSeries(seriesList);
+  if (options.emitChange !== false) {
+    emitRepeatChanged({
+      blockId: task.blockId || existing?.templateBlockId,
+      seriesId: nextSeries.id,
+      frequency
+    });
+  }
   return nextSeries;
 }
 
@@ -1174,51 +1345,61 @@ export async function getTaskRepeatFrequency(task: RepeatTaskLike): Promise<Repe
   return found.frequency;
 }
 
-export async function setRepeatInstanceStatus(seriesId: string, date: string, status: RepeatTaskStatus): Promise<void> {
+export async function setRepeatInstanceStatus(seriesId: string, date: string, status: RepeatTaskStatus): Promise<string> {
   const normalizedDate = parseDate(date);
-  if (!seriesId || !normalizedDate) return;
+  if (!seriesId || !normalizedDate) return '';
 
-  const seriesList = await loadRepeatSeries();
-  const series = seriesList.find((item) => item.id === seriesId);
-  const targetDate = formatDate(normalizedDate);
-  const key = buildRecordKey(seriesId, targetDate);
-  const records = await loadRepeatRecords();
-  const index = records.findIndex((record) => record.key === key);
+  let series: RepeatSeries | undefined;
+  try {
+    const seriesList = await loadRepeatSeries();
+    series = seriesList.find((item) => item.id === seriesId);
+  } catch {
+    // Series metadata is only used to enrich the change event. Record storage
+    // remains authoritative for this mutation and must fail independently.
+  }
 
-  if (status === 'pending') {
-    if (index >= 0) {
-      records.splice(index, 1);
-      await saveRepeatRecords(records);
-      emitRepeatChanged({
-        blockId: series?.templateBlockId,
-        seriesId: seriesId,
-        frequency: series?.frequency
-      });
+  return serializeStorageMutation(REPEAT_RECORDS_FILE, async () => {
+    const targetDate = formatDate(normalizedDate);
+    const key = buildRecordKey(seriesId, targetDate);
+    const records = await readRepeatRecordsFromStorage();
+    const index = records.findIndex((record) => record.key === key);
+
+    if (status === 'pending') {
+      if (index >= 0) {
+        records.splice(index, 1);
+        await persistRepeatRecords(records);
+        emitRepeatChanged({
+          blockId: series?.templateBlockId,
+          seriesId: seriesId,
+          frequency: series?.frequency
+        });
+      }
+      return '';
     }
-    return;
-  }
 
-  const now = new Date().toISOString();
-  const next: RepeatRecord = {
-    key,
-    seriesId,
-    date: targetDate,
-    status,
-    completedAt: status === 'completed' ? now : undefined,
-    updatedAt: now
-  };
+    const now = new Date().toISOString();
+    const next: RepeatRecord = {
+      key,
+      seriesId,
+      date: targetDate,
+      status,
+      completedAt: status === 'completed' ? now : undefined,
+      updatedAt: now
+    };
 
-  if (index >= 0) {
-    records[index] = next;
-  } else {
-    records.push(next);
-  }
+    if (index >= 0) {
+      records[index] = next;
+    } else {
+      records.push(next);
+    }
 
-  await saveRepeatRecords(records);
-  emitRepeatChanged({
-    blockId: series?.templateBlockId,
-    seriesId: seriesId,
-    frequency: series?.frequency
+    await persistRepeatRecords(records);
+    emitRepeatChanged({
+      blockId: series?.templateBlockId,
+      seriesId: seriesId,
+      frequency: series?.frequency
+    });
+    return next.completedAt || '';
   });
 }
 
@@ -1252,18 +1433,41 @@ export async function materializeRepeatTasks<T extends RepeatTaskLike>(
   const decoratedBaseTasks = await attachRepeatMetadataToTasks(scopedBaseTasks, seriesList);
 
   const virtualTasks: T[] = [];
+  const virtualTaskIds = new Set<string>();
+  const appendVirtualTasks = (tasks: T[]): void => {
+    for (const task of tasks) {
+      if (virtualTaskIds.has(task.id)) continue;
+      virtualTaskIds.add(task.id);
+      virtualTasks.push(task);
+    }
+  };
 
   for (const series of seriesList) {
     const templateTask = taskMapById.get(series.templateTaskId)
       || (series.templateBlockId ? taskMapByBlockId.get(series.templateBlockId) : undefined);
     if (!templateTask) continue;
-    virtualTasks.push(...buildVirtualTasksForSeries(
+    appendVirtualTasks(buildVirtualTasksForSeries(
       series,
       templateTask,
       recordMap,
       range,
       options.includeTemplateDate === true
     ));
+
+    if (options.includeCompletedOutsideRange !== true) continue;
+    for (const record of records) {
+      if (record.seriesId !== series.id || !isCompletionInRange(record, range)) continue;
+      const instanceDate = parseDate(record.date);
+      if (!instanceDate) continue;
+      appendVirtualTasks(buildVirtualTasksForSeries(
+        series,
+        templateTask,
+        recordMap,
+        { start: instanceDate, end: instanceDate },
+        true,
+        true
+      ));
+    }
   }
 
   return [...decoratedBaseTasks, ...virtualTasks] as T[];

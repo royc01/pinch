@@ -131,7 +131,7 @@
               @dragend="handleRowLabelDragEnd"
             >
               <span class="task-checkbox-wrapper gantt-row-checkbox-wrapper" @click.stop="emit('status-toggle', row.primaryTask)" @pointerdown.stop><TaskCheckbox :checked="row.primaryTask.status === 'completed'" :size="18" /></span>
-              <button type="button" class="gantt-row-title gantt-row-title-btn b3-typography" draggable="false" @pointerdown.stop @mousedown.stop @dragstart.stop.prevent @click.stop.prevent="emit('edit-task', row.primaryTask, $event)"><span class="gantt-task-title-content" v-html="getTaskTitleHtml(row.primaryTask, row.title)"></span></button>
+              <button type="button" class="gantt-row-title gantt-row-title-btn b3-typography" draggable="false" @pointerdown.stop @mousedown.stop @dragstart.stop.prevent @click.stop.prevent="emit('edit-task', row.primaryTask, $event)"><TaskTitlePlain class="gantt-task-title-content" :title="row.primaryTask.title" :fallback="row.title" /></button>
               <span v-if="isRepeatTask(row.primaryTask)" class="gantt-row-repeat-badge ariaLabel" :aria-label="t('taskCard.repeatTask')"><Icon name="repeat" width="12" height="12" /></span>
               <button type="button" class="task-card-action-btn task-card-open-btn gantt-row-open-btn ariaLabel" :aria-label="t('taskCard.openContent')" @mousedown.stop @click.stop.prevent="emit('task-click', row.primaryTask)"><Icon name="moreHorizontal" width="14" height="14" /></button>
             </div>
@@ -360,10 +360,11 @@
               @dragstart.stop.prevent
               @click.stop.prevent="emit('edit-task', row.primaryTask, $event)"
             >
-              <span
+              <TaskTitlePlain
                 class="gantt-task-title-content"
-                v-html="getTaskTitleHtml(row.primaryTask, row.title)"
-              ></span>
+                :title="row.primaryTask.title"
+                :fallback="row.title"
+              />
             </button>
             <span
               v-if="isRepeatTask(row.primaryTask)"
@@ -539,6 +540,7 @@ import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from './Icon.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
+import TaskTitlePlain from './TaskTitlePlain.vue';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { getRepeatSeriesForTask } from '@/repeatRepository';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
@@ -550,7 +552,7 @@ import {
   resolveTaskBackgroundColor
 } from '@/utils/taskColor';
 import { TASK_BACKGROUND_COLOR_OPTIONS } from '@/utils/taskGroupShared';
-import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { getTaskTitlePlainText } from '@/utils/taskHtml';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GANTT_ROW_HEIGHT = 42;
@@ -593,11 +595,8 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-const getTaskTitleHtml = (task: Task, fallbackTitle: string): string => {
-  return sanitizeTaskTitleHtml(task.title) || fallbackTitle;
-};
 const getTaskTitleText = (task: Task, fallbackTitle: string): string => {
-  return stripHtml(getTaskTitleHtml(task, fallbackTitle));
+  return getTaskTitlePlainText(task.title) || fallbackTitle;
 };
 const collapsedSectionIds = ref<Set<string>>(new Set());
 const draggedDocumentMilestoneId = ref('');

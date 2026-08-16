@@ -154,11 +154,19 @@ const main = async () => {
       `"version": "${newVersion}"`,
     )
     writeFileSync('./package.json', packageUpdated, 'utf8')
+
+    const lockContent = readFileSync('./package-lock.json', 'utf8')
+    const lock = JSON.parse(lockContent)
+    lock.version = newVersion
+    if (lock.packages?.['']) {
+      lock.packages[''].version = newVersion
+    }
+    writeFileSync('./package-lock.json', `${JSON.stringify(lock, null, 2)}\n`, 'utf8')
     console.log('✅  package.json updated')
 
     console.log('🔄  \x1B[90m Ready to commit new version and create tag...\x1B[0m')
     exec(
-      `git add ./plugin.json ./package.json && git commit -m "chore: update version to ${newVersion}" && git push && git tag v${newVersion}`,
+      `git add ./plugin.json ./package.json ./package-lock.json && git commit -m "chore: update version to ${newVersion}" && git push && git tag v${newVersion}`,
       (err, stdout) => {
         if (err) {
           console.error('\x1B[31m%s\x1B[0m', '❌  Error for adding and committing:', err)

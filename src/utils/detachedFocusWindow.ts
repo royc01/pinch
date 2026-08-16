@@ -2010,7 +2010,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         whiteNoiseAudio.loop = true;
       }
       whiteNoiseAudio.muted = false;
-      whiteNoiseAudio.volume = whiteNoiseVolume;
+      whiteNoiseAudio.volume = selectedWhiteNoiseId === 'custom' && Number.isFinite(microBreakSettings?.customWhiteNoiseVolume)
+        ? Math.max(0, Math.min(microBreakSettings.customWhiteNoiseVolume, 1))
+        : whiteNoiseVolume;
       whiteNoiseAudio.play().catch(() => {});
     }
 
@@ -2081,7 +2083,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         const audio = await getMicroBreakAudio(settings.customMicroBreakSoundFile);
         if (!audio) return;
         audio.muted = false;
-        audio.volume = 0.3;
+        audio.volume = Number.isFinite(settings.customMicroBreakSoundVolume)
+          ? Math.max(0, Math.min(settings.customMicroBreakSoundVolume, 1))
+          : 0.3;
         audio.currentTime = 0;
         audio.play().catch(() => {});
       } catch {}
@@ -2102,7 +2106,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       try {
         if (customCompletionAudio) {
           customCompletionAudio.muted = false;
-          customCompletionAudio.volume = 0.3;
+          customCompletionAudio.volume = Number.isFinite(microBreakSettings?.customCompletionSoundVolume)
+            ? Math.max(0, Math.min(microBreakSettings.customCompletionSoundVolume, 1))
+            : 0.3;
           customCompletionAudio.currentTime = 0;
           await customCompletionAudio.play();
           return;

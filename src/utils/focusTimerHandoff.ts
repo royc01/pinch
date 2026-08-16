@@ -27,7 +27,11 @@ export type FocusTimerHandoffState = {
     shortBreakPopup?: boolean;
     focusCompletePopup?: boolean;
     customWhiteNoiseFile?: string;
+    customWhiteNoiseVolume?: number;
+    customCompletionSoundFile?: string;
+    customCompletionSoundVolume?: number;
     customMicroBreakSoundFile?: string;
+    customMicroBreakSoundVolume?: number;
   };
   linkedTarget: FocusTimerLinkedTarget | null;
 };

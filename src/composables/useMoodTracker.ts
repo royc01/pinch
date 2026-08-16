@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import { getMoodData, saveMoodData, type MoodData } from '@/api';
+import { getMoodData, removeMoodEntry, upsertMoodEntry, type MoodData } from '@/api';
 import { eventBus, Events } from '@/utils/eventBus';
 
 type MoodEntryInput = {
@@ -24,15 +24,19 @@ export function useMoodTracker() {
     emoji: '',
     note: ''
   });
+  let openRequestId = 0;
 
   async function loadMoodData(): Promise<void> {
     moodData.value = await getMoodData();
   }
 
   async function openMoodTracker(date: string): Promise<void> {
-    selectedDate.value = date;
+    const requestedDate = date;
+    const requestId = ++openRequestId;
+    selectedDate.value = requestedDate;
     const allMoodData = await getMoodData();
-    const dateEntry = allMoodData[date];
+    if (requestId !== openRequestId || selectedDate.value !== requestedDate) return;
+    const dateEntry = allMoodData[requestedDate];
     moodEntry.value = dateEntry
       ? {
           emoji: dateEntry.emoji || '',
@@ -40,7 +44,7 @@ export function useMoodTracker() {
           entries: [
             ...(dateEntry.note
               ? [{
-                  id: `mood-note-${date}`,
+                  id: `mood-note-${requestedDate}`,
                   text: dateEntry.note,
                   createdAt: dateEntry.timestamp,
                   updatedAt: dateEntry.timestamp
@@ -54,14 +58,16 @@ export function useMoodTracker() {
   }
 
   async function handleSaveMoodEntry(entry: MoodEntryInput): Promise<void> {
+    const targetDate = selectedDate.value;
+    if (!targetDate) return;
     try {
       const moodDataLocal = await getMoodData();
-      const existingEntry = moodDataLocal[selectedDate.value];
+      const existingEntry = moodDataLocal[targetDate];
       const now = new Date().toISOString();
       const existingEntries = [
         ...(existingEntry?.note
           ? [{
-              id: `mood-note-${selectedDate.value}`,
+                  id: `mood-note-${targetDate}`,
               text: existingEntry.note,
               createdAt: existingEntry.timestamp,
               updatedAt: existingEntry.timestamp
@@ -83,52 +89,50 @@ export function useMoodTracker() {
             }
           ]
         : submittedEntries;
-      moodDataLocal[selectedDate.value] = {
+      const nextEntry = {
         emoji: entry.emoji,
         note: '',
         timestamp: now,
         ...(nextEntries.length ? { entries: nextEntries } : {})
       };
-      await saveMoodData(moodDataLocal);
-      moodData.value = moodDataLocal;
-      eventBus.emit(Events.MOOD_UPDATED, { moodData: moodDataLocal });
+      const persisted = await upsertMoodEntry(targetDate, nextEntry);
+      moodData.value = persisted;
+      eventBus.emit(Events.MOOD_UPDATED, { moodData: persisted });
     } catch (error) {
       console.error('保存情绪数据失败:', error);
     }
   }
 
   async function handleDeleteMoodEntry(): Promise<void> {
-    if (!selectedDate.value) return;
+    const targetDate = selectedDate.value;
+    if (!targetDate) return;
     try {
       const moodDataLocal = await getMoodData();
-      const existingEntry = moodDataLocal[selectedDate.value];
+      const existingEntry = moodDataLocal[targetDate];
       if (existingEntry?.entries?.length) {
-        moodDataLocal[selectedDate.value] = {
+        const persisted = await upsertMoodEntry(targetDate, {
           emoji: '',
           note: '',
           timestamp: new Date().toISOString(),
           entries: existingEntry.entries
-        };
+        });
+        moodData.value = persisted;
       } else {
-        delete moodDataLocal[selectedDate.value];
+        moodData.value = await removeMoodEntry(targetDate);
       }
-      await saveMoodData(moodDataLocal);
-      moodData.value = moodDataLocal;
-      eventBus.emit(Events.MOOD_UPDATED, { moodData: moodDataLocal });
+      eventBus.emit(Events.MOOD_UPDATED, { moodData: moodData.value });
     } catch (error) {
       console.error('删除情绪数据失败:', error);
     }
   }
 
   async function handleClearMoodEntry(): Promise<void> {
-    if (!selectedDate.value) return;
+    const targetDate = selectedDate.value;
+    if (!targetDate) return;
     try {
-      const moodDataLocal = await getMoodData();
-      delete moodDataLocal[selectedDate.value];
-      await saveMoodData(moodDataLocal);
-      moodData.value = moodDataLocal;
+      moodData.value = await removeMoodEntry(targetDate);
       moodEntry.value = { emoji: '', note: '' };
-      eventBus.emit(Events.MOOD_UPDATED, { moodData: moodDataLocal });
+      eventBus.emit(Events.MOOD_UPDATED, { moodData: moodData.value });
     } catch (error) {
       console.error('清除每日记录失败:', error);
     }

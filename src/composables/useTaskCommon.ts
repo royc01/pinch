@@ -3,7 +3,7 @@ import { lsNotebooks } from '@/api';
 import type { SubTask, Task } from '@/api';
 import { translate } from '@/composables/useI18n';
 import { getTaskStatusLabel } from '@/utils/taskStatus';
-import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
+import { getTaskTitlePlainText } from '@/utils/taskHtml';
 
 export function getStatusLabel(status: string): string {
   return getTaskStatusLabel(status, key => translate(key, status));
@@ -68,7 +68,7 @@ function normalizeTitleText(value: string): string {
 }
 
 function getPlainTaskTitle(value: string): string {
-  return normalizeTitleText(stripHtml(sanitizeTaskTitleHtml(value)));
+  return normalizeTitleText(getTaskTitlePlainText(value));
 }
 
 function appendTitleCachePart(parts: string[], value: string): void {

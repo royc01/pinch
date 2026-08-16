@@ -40,12 +40,44 @@ const mountHabitCardList = () => mount(HabitCardList, {
 });
 
 describe('HabitCardList', () => {
-  it('opens the habit editor on a card context menu', async () => {
+  it('opens an action menu on a card context menu', async () => {
     const wrapper = mountHabitCardList();
 
     await wrapper.find('.habit-card').trigger('contextmenu');
 
+    expect(wrapper.find('.habit-context-menu').exists()).toBe(true);
+    expect(wrapper.find('.habit-context-menu').text()).toContain('habitTracker.startFocus');
+  });
+
+  it('emits the selected context-menu action', async () => {
+    const wrapper = mountHabitCardList();
+    await wrapper.find('.habit-card').trigger('contextmenu');
+
+    await wrapper.findAll('.habit-context-menu button')[1].trigger('click');
+
     expect(wrapper.emitted('edit')).toEqual([[habit]]);
+  });
+
+  it('emits stats, pause, and delete actions from the context menu', async () => {
+    const wrapper = mountHabitCardList();
+    await wrapper.find('.habit-card').trigger('contextmenu');
+
+    const clickAction = async (label: string) => {
+      await wrapper.findAll('.habit-context-menu button')
+        .find(button => button.text() === label)!
+        .trigger('click');
+    };
+
+    await clickAction('habitTracker.statsView');
+    expect(wrapper.emitted('show-stats')).toEqual([[habit]]);
+
+    await wrapper.find('.habit-card').trigger('contextmenu');
+    await clickAction('habitTracker.pauseHabit');
+    expect(wrapper.emitted('toggle-pause')).toEqual([[habit]]);
+
+    await wrapper.find('.habit-card').trigger('contextmenu');
+    await clickAction('habitTracker.deleteHabit');
+    expect(wrapper.emitted('delete')).toEqual([['habit-1']]);
   });
 
   it('does not render the legacy document binding control', () => {

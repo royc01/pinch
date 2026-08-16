@@ -3,6 +3,7 @@ import type { Habit } from '@/api';
 import { awardHabitRewards, type HabitRewardPayload } from '@/rewardRepository';
 import { translate } from '@/composables/useI18n';
 import { isHabitScheduledOnDate } from '@/composables/useHabitUtils';
+import { requestCheckinNote } from '@/utils/checkinNotePrompt';
 
 interface UseHabitCheckinOptions {
   habits: ShallowRef<Habit[]>;
@@ -16,10 +17,8 @@ interface UseHabitCheckinOptions {
   clearWeeklyCompletionCacheForHabit: (habitId: string) => void;
   clearCurrentStreakCacheForHabit: (habitId: string) => void;
   clearCompletionRateCacheForHabit: (habitId: string) => void;
-  debouncedSaveHabits: (habitsToSave: Habit[]) => Promise<void>;
-  immediateSaveHabits: (habitsToSave: Habit[]) => Promise<void>;
+  saveHabit: (habit: Habit) => Promise<void>;
   triggerHabitsRef: () => void;
-  notifyHabitsChanged?: (habits: Habit[]) => void;
   animationOriginalStatus: Ref<Record<string, boolean>>;
   showAnimation: Ref<boolean>;
   animationHabitId: Ref<string | null>;
@@ -46,10 +45,8 @@ export const useHabitCheckin = ({
   clearWeeklyCompletionCacheForHabit,
   clearCurrentStreakCacheForHabit,
   clearCompletionRateCacheForHabit,
-  debouncedSaveHabits,
-  immediateSaveHabits,
+  saveHabit,
   triggerHabitsRef,
-  notifyHabitsChanged,
   animationOriginalStatus,
   showAnimation,
   animationHabitId,
@@ -63,6 +60,9 @@ export const useHabitCheckin = ({
     date: string,
     options: { source?: 'manual' | 'calendar' | 'pomodoro' } = {}
   ): HabitRewardPayload | null => {
+    if (habit.frequency === 'custom' && !isHabitScheduledOnDate(habit, parseDate(date))) {
+      return null;
+    }
     let dayRecord = habit.calendar.find(day => day.date === date);
     if (!dayRecord && !isHabitScheduledOnDate(habit, parseDate(date))) {
       return null;
@@ -129,7 +129,9 @@ export const useHabitCheckin = ({
     const todayStr = formatDate(now);
     habit.completedToday = date === todayStr && dayRecord.completed;
 
-    habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
+    habit.totalCompletions = habit.calendar.filter(day =>
+      day.completed && (habit.frequency !== 'custom' || isHabitScheduledOnDate(habit, parseDate(day.date)))
+    ).length;
     clearCurrentStreakCacheForHabit(habit.id);
     habit.currentStreak = calculateCurrentStreak(habit);
     const nextWeeklyCompleted = habit.frequency?.startsWith('weekly')
@@ -140,7 +142,6 @@ export const useHabitCheckin = ({
       : false;
     clearCompletionRateCacheForHabit(habit.id);
     triggerHabitsRef();
-    notifyHabitsChanged?.(habits.value);
 
     const nextCompletedCount = dayRecord.completedCount || 0;
     const becameCompleted = !previousDayCompleted && dayRecord.completed;
@@ -182,7 +183,7 @@ export const useHabitCheckin = ({
 
   const toggleDayCompletion = async (habit: Habit, date: string) => {
     const rewardPayload = toggleHabitCompletion(habit, date, { source: 'calendar' });
-    await debouncedSaveHabits(habits.value);
+    await saveHabit(habit);
     triggerHabitsRef();
 
     if (habit.frequency?.startsWith('weekly')) {
@@ -193,6 +194,43 @@ export const useHabitCheckin = ({
     clearCompletionRateCacheForHabit(habit.id);
 
     processRewardPayload(rewardPayload);
+  };
+
+  const undoHabitCheckin = async (habit: Habit, mode: 'one' | 'all'): Promise<void> => {
+    const today = getToday();
+    const record = habit.calendar.find(day => day.date === today);
+    if (!record || (record.completedCount || 0) <= 0) return;
+
+    if (mode === 'all') {
+      habit.calendar = habit.calendar.filter(day => day !== record);
+    } else {
+      const timestamps = Array.isArray(record.checkinTimestamps)
+        ? [...record.checkinTimestamps]
+        : (record.timestamp ? [record.timestamp] : []);
+      timestamps.pop();
+      record.completedCount = Math.max(0, (record.completedCount || 0) - 1);
+      if (record.completedCount === 0) {
+        habit.calendar = habit.calendar.filter(day => day !== record);
+      } else {
+        record.checkinTimestamps = timestamps;
+        record.timestamp = timestamps[0];
+        const targetCount = Number(record.targetCount || habit.timesPerDay || 1);
+        record.completed = record.completedCount >= targetCount;
+      }
+    }
+
+    const updatedRecord = habit.calendar.find(day => day.date === today);
+    habit.completedToday = !!updatedRecord?.completed;
+    habit.totalCompletions = habit.calendar.filter(day =>
+      day.completed && (habit.frequency !== 'custom' || isHabitScheduledOnDate(habit, parseDate(day.date)))
+    ).length;
+    clearWeeklyCompletionCacheForHabit(habit.id);
+    clearCurrentStreakCacheForHabit(habit.id);
+    clearCompletionRateCacheForHabit(habit.id);
+    habit.currentStreak = calculateCurrentStreak(habit);
+    delete animationOriginalStatus.value[habit.id];
+    triggerHabitsRef();
+    await saveHabit(habit);
   };
 
   const buildToggleHabit = ({
@@ -233,7 +271,7 @@ export const useHabitCheckin = ({
             delete animationOriginalStatus.value[habit.id];
 
             habits.value = [...habits.value];
-            await immediateSaveHabits(habits.value);
+            await saveHabit(habit);
 
             nextTick(() => {
               habit.currentStreak = calculateCurrentMonthStreak(habit);
@@ -245,8 +283,9 @@ export const useHabitCheckin = ({
 
         if (startFocusTimerForHabit) {
           if (activePomodoroHabit.value) {
-            clearPomodoroForHabit(activePomodoroHabit.value, { clearActive: true });
-            await immediateSaveHabits(habits.value);
+            const previousActiveHabit = activePomodoroHabit.value;
+            clearPomodoroForHabit(previousActiveHabit, { clearActive: true });
+            await saveHabit(previousActiveHabit);
           }
 
           startFocusTimerForHabit(habit);
@@ -307,7 +346,7 @@ export const useHabitCheckin = ({
             triggerHabitsRef();
           }
 
-          await immediateSaveHabits(habits.value);
+          await saveHabit(habit);
 
           nextTick(() => {
             habit.currentStreak = calculateCurrentMonthStreak(habit);
@@ -321,6 +360,19 @@ export const useHabitCheckin = ({
       }
 
       const rewardPayload = toggleHabitCompletion(habit, today, { source: 'manual' });
+      const record = habit.calendar.find(day => day.date === today);
+      const timestamp = record?.checkinTimestamps?.at(-1) || record?.timestamp;
+      if (rewardPayload && timestamp) requestCheckinNote({
+        date: today,
+        eventKey: `habit:${habit.id}:${Math.round(timestamp)}`,
+        context: {
+          type: 'habit',
+          sourceId: habit.id,
+          occurredAt: new Date(timestamp).toISOString(),
+          title: habit.name,
+          meta: `${record?.completedCount || 1}`
+        }
+      });
 
       const completedToday = habit.completedToday;
       if (completedToday && !habit.usePomodoro) {
@@ -332,14 +384,19 @@ export const useHabitCheckin = ({
         animationHabitId.value = habit.id;
 
         setTimeout(async () => {
-          await immediateSaveHabits(habits.value);
-          processRewardPayload(rewardPayload);
-          showAnimation.value = false;
-          animationHabitId.value = null;
-          delete animationOriginalStatus.value[habit.id];
+          try {
+            await saveHabit(habit);
+            processRewardPayload(rewardPayload);
+          } catch (error) {
+            console.error('[Habits] Failed to persist animated check-in:', error);
+          } finally {
+            showAnimation.value = false;
+            animationHabitId.value = null;
+            delete animationOriginalStatus.value[habit.id];
+          }
         }, 600);
       } else {
-        await immediateSaveHabits(habits.value);
+        await saveHabit(habit);
         processRewardPayload(rewardPayload);
       }
     };
@@ -348,6 +405,7 @@ export const useHabitCheckin = ({
   return {
     toggleHabitCompletion,
     toggleDayCompletion,
+    undoHabitCheckin,
     buildToggleHabit,
     processRewardPayload
   };

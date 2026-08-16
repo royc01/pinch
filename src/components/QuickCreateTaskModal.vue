@@ -185,12 +185,13 @@
               </button>
             </div>
             <div class="quick-create-submit-group">
-                  <button type="button" class="quick-create-btn confirm" @click="handleSubmit">
+                  <button type="button" class="quick-create-btn confirm" :disabled="isSubmittingQuickCreate" @click="handleSubmit">
                     {{ tt('kanbanView.create', tt('taskManager.save')) }}
                   </button>
                   <button
                     type="button"
                     class="quick-create-submit-arrow quick-create-btn confirm ariaLabel"
+                    :disabled="isSubmittingQuickCreate"
                     :aria-label="tt('kanbanView.create', tt('taskManager.save'))"
                     @click.stop="quickCreateShortcutMenuOpen = !quickCreateShortcutMenuOpen"
                   >
@@ -273,6 +274,7 @@ import {
   getIDsByHPath,
   pushMsg,
   setBlockAttrs,
+  updateBlock,
   type TaskPriority,
   type TaskStatus,
   type TaskGroup
@@ -405,6 +407,9 @@ let quickCreateProtyle: Protyle | null = null;
 let quickCreateDraft: (QuickCreateTarget & { blockId: string; taskId: string }) | null = null;
 let isInitializingQuickCreateDraft = false;
 let isRelocatingQuickCreateDraft = false;
+const isSubmittingQuickCreate = ref(false);
+let pendingRelocationTitle = '';
+let shouldReinitializeQuickCreateDraft = false;
 const taskModalQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
 const taskModalPriorityPopover = ref<{
   position: { x: number; y: number };
@@ -787,13 +792,14 @@ async function initializeQuickCreateDraft(): Promise<void> {
   ) {
     return;
   }
-  const plugin = usePlugin();
-  const target = await resolveQuickCreateTarget();
-  if (!plugin?.app || !target) {
-    return;
-  }
   isInitializingQuickCreateDraft = true;
+  const requestedTargetKey = `${selectedNotebook.value}:${selectedDocument.value}`;
   try {
+    const plugin = usePlugin();
+    const target = await resolveQuickCreateTarget();
+    if (!plugin?.app || !target) {
+      return;
+    }
     const context = props.taskContext || {};
     const groupId = context.groupId || localTask.value.groupId || undefined;
     const created = await TaskRepository.createBlockTask({
@@ -809,11 +815,17 @@ async function initializeQuickCreateDraft(): Promise<void> {
       tags: localTask.value.tags,
       groupId
     }, target.notebookId, target.docPath, { emitTaskAdded: false });
-    if (!props.show) {
+    const currentTargetKey = `${selectedNotebook.value}:${selectedDocument.value}`;
+    if (!props.show || currentTargetKey !== requestedTargetKey) {
       await deleteQuickCreateDraftBlock(created.blockId);
+      shouldReinitializeQuickCreateDraft = props.show;
       return;
     }
     quickCreateDraft = { ...target, blockId: created.blockId, taskId: created.taskId };
+    if (pendingRelocationTitle) {
+      await updateBlock('markdown', `* [ ] ${pendingRelocationTitle}`, created.blockId);
+      pendingRelocationTitle = '';
+    }
     await persistQuickCreateDraftMetadata();
     const paragraphId = await resolveQuickCreateParagraphBlockId(created.blockId);
     await nextTick();
@@ -837,6 +849,10 @@ async function initializeQuickCreateDraft(): Promise<void> {
     await pushMsg(tt('kanbanView.createTaskFailedRetry'), 3000);
   } finally {
     isInitializingQuickCreateDraft = false;
+    if (shouldReinitializeQuickCreateDraft && props.show) {
+      shouldReinitializeQuickCreateDraft = false;
+      void nextTick(initializeQuickCreateDraft);
+    }
   }
 }
 
@@ -865,6 +881,9 @@ async function recreateQuickCreateDraft(): Promise<void> {
   }
   isRelocatingQuickCreateDraft = true;
   try {
+    pendingRelocationTitle = quickCreateDraft
+      ? await readQuickCreateDraftTitle(quickCreateDraft.blockId)
+      : '';
     await discardQuickCreateDraft();
     await nextTick();
     await initializeQuickCreateDraft();
@@ -990,8 +1009,13 @@ watch(() => props.show, (show) => {
 });
 
 watch([selectedNotebook, selectedDocument], () => {
-  if (props.show && quickCreateDraft) {
+  if (!props.show) return;
+  if (quickCreateDraft) {
     void recreateQuickCreateDraft();
+  } else if (isInitializingQuickCreateDraft) {
+    shouldReinitializeQuickCreateDraft = true;
+  } else {
+    void initializeQuickCreateDraft();
   }
 });
 
@@ -1030,40 +1054,46 @@ async function handleClose(): Promise<void> {
 }
 
 async function handleSubmit(): Promise<void> {
-  const draft = quickCreateDraft;
-  if (!draft) {
-    await initializeQuickCreateDraft();
-    return;
+  if (isSubmittingQuickCreate.value) return;
+  isSubmittingQuickCreate.value = true;
+  try {
+    const draft = quickCreateDraft;
+    if (!draft) {
+      await initializeQuickCreateDraft();
+      return;
+    }
+    await persistQuickCreateDraftMetadata();
+    const title = await readQuickCreateDraftTitle(draft.blockId);
+    if (!title) {
+      await pushMsg(tt('kanbanView.enterTaskTitle'), 2000);
+      return;
+    }
+    const normalizedHeadingTitle = props.createHeading
+      ? normalizeHeadingTitle(headingTitle.value)
+      : '';
+    if (props.createHeading && !normalizedHeadingTitle) {
+      await pushMsg(tt('kanbanView.enterHeadingName'), 2000);
+      return;
+    }
+    const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
+    const createdTask: NewTask = {
+      ...localTask.value,
+      title,
+      status: props.taskContext?.status || localTask.value.status || 'pending',
+      tags: tagState.tagIds,
+      groupId: tagState.primaryTagId,
+      goalIds: [...localTask.value.goalIds]
+    };
+    quickCreateDraft = null;
+    destroyQuickCreateProtyle();
+    emit('created', {
+      ...draft,
+      headingTitle: normalizedHeadingTitle || undefined,
+      task: createdTask
+    });
+  } finally {
+    isSubmittingQuickCreate.value = false;
   }
-  await persistQuickCreateDraftMetadata();
-  const title = await readQuickCreateDraftTitle(draft.blockId);
-  if (!title) {
-    await pushMsg(tt('kanbanView.enterTaskTitle'), 2000);
-    return;
-  }
-  const normalizedHeadingTitle = props.createHeading
-    ? normalizeHeadingTitle(headingTitle.value)
-    : '';
-  if (props.createHeading && !normalizedHeadingTitle) {
-    await pushMsg(tt('kanbanView.enterHeadingName'), 2000);
-    return;
-  }
-  const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
-  const createdTask: NewTask = {
-    ...localTask.value,
-    title,
-    status: props.taskContext?.status || localTask.value.status || 'pending',
-    tags: tagState.tagIds,
-    groupId: tagState.primaryTagId,
-    goalIds: [...localTask.value.goalIds]
-  };
-  quickCreateDraft = null;
-  destroyQuickCreateProtyle();
-  emit('created', {
-    ...draft,
-    headingTitle: normalizedHeadingTitle || undefined,
-    task: createdTask
-  });
 }
 </script>
 

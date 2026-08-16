@@ -7,56 +7,38 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
-  build:
+  quality-and-release:
     runs-on: ubuntu-latest
     steps:
-      # Checkout
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Install Node.js
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           registry-url: "https://registry.npmjs.org"
+          cache: npm
 
-        # Install pnpm
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        id: pnpm-install
-        with:
-          version: 8
-          run_install: false
-
-      # Get pnpm store directory
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      # Setup pnpm cache
-      - name: Setup pnpm cache
-        uses: actions/cache@v3
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      # Install dependencies
       - name: Install dependencies
-        run: pnpm install
+        run: npm ci
 
-      # Build for production, 这一步会生成一个 package.zip
+      - name: Verify release versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node -e "const fs=require('fs'); const expected=process.env.RELEASE_TAG.replace(/^v/,''); const pkg=JSON.parse(fs.readFileSync('package.json')); const plugin=JSON.parse(fs.readFileSync('plugin.json')); if (![pkg.version, plugin.version].every(v=>v===expected)) { console.error('Release tag and manifest versions must match:', {expected, package: pkg.version, plugin: plugin.version}); process.exit(1); }"
+
+      - name: Type check production sources
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm run test:run
+
       - name: Build for production
-        run: pnpm build
+        run: npm run build
 
-      # Check if package.zip was created
       - name: Verify package.zip exists
         run: |
           if [ ! -f "package.zip" ]; then

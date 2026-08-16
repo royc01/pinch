@@ -8,7 +8,7 @@ type PomodoroAction = 'pause' | 'resume' | 'start' | 'stop';
 interface UseHabitPomodoroOptions {
   habits: ShallowRef<Habit[]>;
   getToday: () => string;
-  saveHabits: (habitsToSave: Habit[]) => Promise<void>;
+  saveHabit: (habit: Habit) => Promise<void>;
   toggleHabitCompletion: (habit: Habit, date: string, options?: { source?: 'manual' | 'calendar' | 'pomodoro' }) => HabitRewardPayload | null;
   playBubbleSound?: () => void;
 }
@@ -26,7 +26,7 @@ interface PomodoroCountdownConfig {
 export const useHabitPomodoro = ({
   habits,
   getToday,
-  saveHabits,
+  saveHabit,
   toggleHabitCompletion,
   playBubbleSound
 }: UseHabitPomodoroOptions) => {
@@ -99,7 +99,7 @@ export const useHabitPomodoro = ({
     const today = getToday();
     const rewardPayload = toggleHabitCompletion(habit, today, { source: 'pomodoro' });
     clearPomodoroForHabit(habit);
-    await saveHabits(habits.value);
+    await saveHabit(habit);
     if (rewardPayload) {
       // 延迟奖励计算，避免与保存 I/O 竞争主线程
       setTimeout(() => {
@@ -219,7 +219,7 @@ export const useHabitPomodoro = ({
         break;
     }
 
-    await saveHabits(habits.value);
+    await saveHabit(targetHabit);
   };
 
   const stopCurrentPomodoro = async () => {

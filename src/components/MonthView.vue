@@ -187,12 +187,12 @@
                       @click="!isHabitTaskChip(task) && handleTaskClick(task, $event)"
                       @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
                     >
-                      <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task)">
+                      <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task, $event)">
                         <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                       </span>
                       <span class="day-expanded-chip-title" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)">
                         <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
-                        <span v-html="getTaskTitleHtml(task)"></span>
+                        <TaskTitlePlain :title="task.title" />
                       </span>
                     </div>
                     <div v-if="getExpandedTasksForDay(day, week).length === 0" class="day-expanded-empty">
@@ -240,12 +240,16 @@
                   <span
                     class="task-checkbox-wrapper"
                     @mousedown.stop
-                    @click.stop="toggleTaskStatus(task)"
+                    @click.stop="toggleTaskStatus(task, $event)"
                   >
                     <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
                   </span>
                   <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
-                  <span class="task-title-text" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)" v-html="getTaskTitleHtml(task)"></span>
+                  <TaskTitlePlain
+                    class="task-title-text"
+                    :title="task.title"
+                    @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)"
+                  />
                   <span
                     v-if="!isHabitTaskChip(task) && task.priority !== 'none'"
                     class="task-priority-badge ariaLabel"
@@ -278,7 +282,7 @@
               <template v-if="allDayTaskDragPreview && week.some(day => day.key === allDayTaskDragPreview.startDate)">
                 <div class="month-task-drag-outline" :style="getMonthTaskDragPreviewStyle(allDayTaskDragPreview, week, false)"></div>
                 <div class="task-chip month-task-drag-ghost" :ref="setMonthTaskDragGhostElement" :style="getMonthTaskDragPreviewStyle(allDayTaskDragPreview, week, true)">
-                  <div class="task-chip-title" v-html="getTaskTitleHtml(allDayTaskDragPreview.task)"></div>
+                  <div class="task-chip-title"><TaskTitlePlain :title="allDayTaskDragPreview.task.title" /></div>
                 </div>
               </template>
             </div>
@@ -363,14 +367,16 @@ import {
   getFocusTimerData,
   getHabits,
   getMoodData,
+  removeMoodEntry,
   saveHabits,
-  saveMoodData,
+  upsertMoodEntry,
+  upsertHabit,
   setBlockAttrs,
   TaskRepository
 } from '@/api';
-import { updateTaskMarkdown } from '@/utils/taskHelpers';
+import { requestTaskCompletionNote, updateTaskMarkdown } from '@/utils/taskHelpers';
+import { getCheckinNotePromptAnchor } from '@/utils/checkinNotePrompt';
 import { getTaskDisplayTitle } from '@/composables/useTaskCommon';
-import { sanitizeTaskTitleHtml } from '@/utils/taskHtml';
 import { getTaskPriorityLabel } from '@/utils/taskPriority';
 import { formatDate } from '@/composables/useDateUtils';
 import { useTaskDrag } from '@/composables/useTaskDrag';
@@ -395,6 +401,7 @@ import {
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
 import CalendarTaskSidebar from './CalendarTaskSidebar.vue';
+import TaskTitlePlain from './TaskTitlePlain.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import LifelogTimelinePanel, {
@@ -437,7 +444,7 @@ import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/ut
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveTaskTagIds } from '@/utils/taskTags';
 import { useCheckinNotes } from '@/composables/useCheckinNotes';
-import { getCheckinNoteEventKey } from '@/utils/checkinNoteEvents';
+import { getCheckinNoteEventKeys } from '@/utils/checkinNoteEvents';
 
 interface Props {
   tasks: Task[];
@@ -669,10 +676,6 @@ let mobileTaskChipPointerMoveRafId: number | null = null;
 let unsubscribeHabitUpdates: (() => void) | null = null;
 let unsubscribeMoodUpdates: (() => void) | null = null;
 
-function getTaskTitleHtml(task: Task): string {
-  return sanitizeTaskTitleHtml(task.title || '');
-}
-
 function syncCompactMobileLayout() {
   isCompactMobileLayout.value = window.innerWidth <= MOBILE_BREAKPOINT;
   invalidateMonthDropZoneCache();
@@ -730,7 +733,7 @@ async function toggleHabitTaskChipStatus(task: Task): Promise<void> {
   habit.totalCompletions = habit.calendar.filter(day => day.completed).length;
 
   habitRecords.value = [...habitRecords.value];
-  await saveHabits(habitRecords.value);
+  habitRecords.value = await upsertHabit(habit);
   eventBus.emit(Events.HABITS_UPDATED, { source: 'month-view', habits: habitRecords.value });
 }
 
@@ -1942,7 +1945,7 @@ function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePane
     note: event.note || '',
     icon: getLifelogTimelineIcon(event.type),
     deletable: true
-  }, event.date, getCheckinNoteEventKey(event));
+  }, event.date, getCheckinNoteEventKeys(event));
 }
 
 function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimelinePanelItem {
@@ -1958,7 +1961,7 @@ function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimel
     note: event.note || '',
     meta: `${statusText} · ${formatHabitLifelogProgress(event)}`,
     icon: event.completed ? getLifelogTimelineIcon(event.type) : 'square'
-  }, event.date, getCheckinNoteEventKey(event));
+  }, event.date, getCheckinNoteEventKeys(event));
 }
 
 function getTaskCompletedSourceTask(event: TaskCompletedLifelogEvent): Task | null {
@@ -2020,6 +2023,7 @@ function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimel
     timeLabel: formatTaskCompletedTime(event),
     sortMinutes,
     title: event.title,
+    isTaskTitle: true,
     meta: t('taskManager.statusCompleted'),
     note: event.note || '',
     icon: getLifelogTimelineIcon(event.type),
@@ -2027,7 +2031,7 @@ function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimel
       ...getTaskCompletedTagBadges(event),
       ...getTaskCompletedGoalBadges(event)
     ]
-  }, event.date, getCheckinNoteEventKey(event));
+  }, event.date, getCheckinNoteEventKeys(event));
 }
 
 function manualNoteEventToTimelineItem(event: ManualNoteLifelogEvent): LifelogTimelinePanelItem {
@@ -2280,9 +2284,16 @@ function clearManualLifelogDraft(dayKey: string): void {
 }
 
 async function persistMoodRecords(nextMoodData: MoodData): Promise<void> {
-  await saveMoodData(nextMoodData);
-  moodRecords.value = nextMoodData;
-  eventBus.emit(Events.MOOD_UPDATED, { moodData: nextMoodData });
+  const previous = moodRecords.value;
+  const dates = new Set([...Object.keys(previous), ...Object.keys(nextMoodData)]);
+  let persisted = previous;
+  for (const date of dates) {
+    if (JSON.stringify(previous[date]) === JSON.stringify(nextMoodData[date])) continue;
+    if (nextMoodData[date]) persisted = await upsertMoodEntry(date, nextMoodData[date]);
+    else persisted = await removeMoodEntry(date);
+  }
+  moodRecords.value = persisted;
+  eventBus.emit(Events.MOOD_UPDATED, { moodData: persisted });
 }
 
 async function saveManualLifelogDraft(dayKey: string): Promise<void> {
@@ -3970,7 +3981,7 @@ onMounted(() => {
   }
 });
 
-async function toggleTaskStatus(task: Task) {
+async function toggleTaskStatus(task: Task, event?: MouseEvent) {
   if (isHabitTaskChip(task)) {
     await toggleHabitTaskChipStatus(task);
     return;
@@ -3990,9 +4001,12 @@ async function toggleTaskStatus(task: Task) {
 
   try {
     if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate) {
-      await TaskRepository.updateRepeatInstanceStatus(task, nextStatus);
+      const completedAt = await TaskRepository.updateRepeatInstanceStatus(task, nextStatus);
+      if (nextStatus === 'completed' && completedAt) {
+        requestTaskCompletionNote(task.id, completedAt, getCheckinNotePromptAnchor(event?.currentTarget ?? null), task.title, task.blockId || task.id);
+      }
     } else if (task.type === 'block' && task.blockId) {
-      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true);
+      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true, getCheckinNotePromptAnchor(event?.currentTarget ?? null));
     }
   } catch (error) {
     patchLocalTask(task.id, {

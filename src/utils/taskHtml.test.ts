@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeTaskTitleHtml } from './taskHtml';
+import { getTaskTitlePlainText, sanitizeTaskTitleHtml } from './taskHtml';
 
 describe('sanitizeTaskTitleHtml', () => {
   it('preserves SiYuan inline background attribute markers', () => {
@@ -58,5 +58,15 @@ describe('sanitizeTaskTitleHtml', () => {
     expect(title).toBe(
       '241<span data-type="block-ref" data-subtype="s" data-id="">24</span>'
     );
+  });
+
+  it('removes a trailing SiYuan attribute marker from plain text', () => {
+    expect(getTaskTitlePlainText('sad11 {: style="background-color: var(--b3-font-background10);"}'))
+      .toBe('sad11');
+  });
+
+  it('parses HTML-escaped task titles before rendering them', () => {
+    expect(sanitizeTaskTitleHtml('&lt;strong&gt;sad11&lt;/strong&gt;'))
+      .toBe('<span data-type="strong">sad11</span>');
   });
 });

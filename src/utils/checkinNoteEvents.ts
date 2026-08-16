@@ -20,29 +20,49 @@ export function getCheckinNoteEventKey(event: CheckinNoteLifelogEvent | LifelogE
     return sessionId ? `focus:${sessionId}` : null;
   }
 
-  if (event.type === 'habit-checkin') {
-    const habitId = normalizeText(event.habitId);
+  if (event.type === 'habit-checkin' && 'habitId' in event) {
+    const habitEvent = event as HabitCheckinLifelogEvent;
+    const habitId = normalizeText(habitEvent.habitId);
     if (!habitId) {
       return null;
     }
 
-    const timestamp = Number(event.checkinTimestamp ?? event.metadata?.timestamp);
+    const timestamp = Number(habitEvent.checkinTimestamp ?? habitEvent.metadata?.timestamp);
     if (Number.isFinite(timestamp) && timestamp > 0) {
       return `habit:${habitId}:${Math.round(timestamp)}`;
     }
 
-    const date = normalizeText(event.date);
-    const occurrence = Math.max(1, Math.round(Number(event.checkinIndex ?? event.completedCount) || 1));
+    const date = normalizeText(habitEvent.date);
+    const occurrence = Math.max(1, Math.round(Number(habitEvent.checkinIndex ?? habitEvent.completedCount) || 1));
     return date ? `habit:${habitId}:${date}:${occurrence}` : null;
   }
 
-  if (event.type === 'task-completed') {
-    const taskId = normalizeText(event.taskId);
-    const completedAt = normalizeText(event.completedAt);
+  if (event.type === 'task-completed' && 'taskId' in event) {
+    const taskEvent = event as TaskCompletedLifelogEvent;
+    const taskId = normalizeText(taskEvent.taskId);
+    const completedAt = normalizeText(taskEvent.completedAt);
     return taskId && completedAt ? `task:${taskId}:${completedAt}` : null;
   }
 
   return null;
+}
+
+export function getCheckinNoteEventKeys(event: CheckinNoteLifelogEvent | LifelogEvent): string[] {
+  const primaryKey = getCheckinNoteEventKey(event);
+  if (!primaryKey) {
+    return [];
+  }
+
+  if (event.type !== 'habit-checkin' || !('habitId' in event)) {
+    return [primaryKey];
+  }
+
+  const habitEvent = event as HabitCheckinLifelogEvent;
+  const habitId = normalizeText(habitEvent.habitId);
+  const date = normalizeText(habitEvent.date);
+  const occurrence = Math.max(1, Math.round(Number(habitEvent.checkinIndex ?? habitEvent.completedCount) || 1));
+  const legacyKey = habitId && date ? `habit:${habitId}:${date}:${occurrence}` : '';
+  return legacyKey && legacyKey !== primaryKey ? [primaryKey, legacyKey] : [primaryKey];
 }
 
 export function isCheckinNoteLifelogEvent(event: LifelogEvent): event is CheckinNoteLifelogEvent {

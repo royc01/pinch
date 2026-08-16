@@ -207,7 +207,8 @@ export class TaskCRDTEngine {
           node: event.node
         };
 
-        task[event.field] = currentField ? mergeField(currentField, incoming) : incoming;
+        (task as unknown as Record<string, CRDTField<any>>)[event.field] =
+          currentField ? mergeField(currentField, incoming) : incoming;
         break;
       }
 

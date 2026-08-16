@@ -59,14 +59,46 @@ describe('useFocusCountupCheckpoint', () => {
 
     const pendingSave = checkpoint.save();
     elapsedSeconds = 5 * 60;
-    await checkpoint.save();
+    const queuedSave = checkpoint.save();
     finishFirstSave?.();
-    await pendingSave;
+    await Promise.all([pendingSave, queuedSave]);
     await flushMicrotasks();
 
     expect(upsertSession).toHaveBeenNthCalledWith(1, 'session-2', 2, null);
     expect(upsertSession).toHaveBeenNthCalledWith(2, 'session-2', 5, null);
     expect(checkpoint.savedMinutes.value).toBe(5);
+  });
+
+  it('preserves final state and the final minute override while a checkpoint is saving', async () => {
+    let finishFirstSave: (() => void) | undefined;
+    const firstSave = new Promise<void>((resolve) => {
+      finishFirstSave = resolve;
+    });
+    const upsertSession = vi.fn()
+      .mockImplementationOnce(() => firstSave)
+      .mockResolvedValueOnce(undefined);
+    const onSaved = vi.fn();
+    const checkpoint = useFocusCountupCheckpoint({
+      isEnabled: () => true,
+      getElapsedSeconds: () => 2 * 60,
+      createSessionId: () => 'session-final',
+      getTarget: () => null,
+      upsertSession,
+      onSaved
+    });
+
+    const checkpointSave = checkpoint.save(false, 2);
+    const finalSave = checkpoint.save(true, 7);
+    finishFirstSave?.();
+    await Promise.all([checkpointSave, finalSave]);
+
+    expect(upsertSession).toHaveBeenNthCalledWith(2, 'session-final', 7, null);
+    expect(onSaved).toHaveBeenLastCalledWith({
+      minutes: 5,
+      sessionId: 'session-final',
+      checkpoint: false
+    });
+    expect(checkpoint.savedMinutes.value).toBe(7);
   });
 
   it('does not persist while count-up mode is inactive and restores handoff state', async () => {

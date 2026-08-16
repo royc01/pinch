@@ -28,12 +28,15 @@ import { formatTaskTitleHtml } from "@/utils/taskTitleFormat";
 import { escapeSqlLiteral } from "@/utils/sql";
 import { usePlugin } from "@/main";
 import { translate } from "@/composables/useI18n";
+import { enqueueStorageMutation } from "@/storageMutationCoordinator";
+import { isMissingPluginStorageValue } from "@/utils/pluginStorage";
 import { formatDate as formatLocalDate } from "@/composables/useDateUtils";
 import { awardTaskCompletion } from "@/rewardRepository";
 import {
   attachRepeatMetadataToTasks,
   loadRepeatSeries,
   materializeRepeatTasks,
+  notifyRepeatChanged,
   setTaskRepeatSeries,
   getTaskRepeatFrequency,
   setRepeatInstanceStatus,
@@ -63,13 +66,32 @@ import {
   getKernelTaskRowsByBlockIds,
   getKernelTaskRowsByDateRange,
   getKernelTaskStats,
+  getKernelBlockDOMBatch,
   isKernelRpcUnavailable
 } from "@/kernelRpc";
 
-async function request(url: string, data: any) {
-  let response: IWebSocketData = await fetchSyncPost(url, data);
-  let res = response.code === 0 ? response.data : null;
-  return res;
+export class SiyuanApiError extends Error {
+  readonly code: number;
+  readonly msg: string;
+  readonly url: string;
+
+  constructor(url: string, code: number, msg: string) {
+    const normalizedMessage = typeof msg === 'string' ? msg : '';
+    const detail = normalizedMessage.trim() || 'Unknown SiYuan API error';
+    super(`SiYuan API request failed (${code}) at ${url}: ${detail}`);
+    this.name = 'SiyuanApiError';
+    this.code = code;
+    this.msg = normalizedMessage;
+    this.url = url;
+  }
+}
+
+async function request<T = any>(url: string, data: any): Promise<T> {
+  const response: IWebSocketData = await fetchSyncPost(url, data);
+  if (response.code !== 0) {
+    throw new SiyuanApiError(url, response.code, response.msg);
+  }
+  return response.data as T;
 }
 
 async function closeOpenMobileKanbanDialogIfNeeded(): Promise<void> {
@@ -470,12 +492,9 @@ export async function updateTaskListItemMarker(
     marker: normalizedMarker
   };
   const url = "/api/block/updateTaskListItemMarker";
-  const result = await request(url, data);
-  if (result === null) {
-    throw new Error(`updateTaskListItemMarker failed for block ${id}`);
-  }
+  const result = await request<unknown>(url, data);
   publishTaskChange([id]);
-  return result;
+  return Array.isArray(result) ? result as IResdoOperations[] : [];
 }
 
 // **************************************** Attributes ****************************************
@@ -680,6 +699,59 @@ export async function currentTime(): Promise<number> {
 export async function getEmojiConf(): Promise<any> {
   let url = "/api/system/getEmojiConf";
   return request(url, {});
+}
+
+const HABITS_STORAGE_KEY = 'Pinch-habit.json';
+const MOOD_STORAGE_KEY = 'Pinch-mood.json';
+const FOCUS_TIMER_STORAGE_KEY = 'Pinch-focus-timer.json';
+const storageHealthFailures = new Map<string, Error>();
+
+function requireStoragePlugin(errorMessage: string): NonNullable<ReturnType<typeof usePlugin>> {
+  const plugin = usePlugin();
+  if (!plugin) {
+    throw new Error(errorMessage);
+  }
+  return plugin;
+}
+
+function asStorageError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function markStorageHealthFailure(storageKey: string, error: unknown): void {
+  if (!storageHealthFailures.has(storageKey)) {
+    storageHealthFailures.set(storageKey, asStorageError(error));
+  }
+}
+
+function clearStorageHealthFailure(storageKey: string): void {
+  storageHealthFailures.delete(storageKey);
+}
+
+function assertStorageHealthy(storageKey: string): void {
+  const failure = storageHealthFailures.get(storageKey);
+  if (failure) {
+    throw new Error(
+      `Cannot mutate ${storageKey} until a successful reload; last read failed: ${failure.message}`
+    );
+  }
+}
+
+function enqueueHealthyStorageMutation<T>(
+  storageKey: string,
+  mutation: () => Promise<T>
+): Promise<T> {
+  return enqueueStorageMutation(storageKey, async () => {
+    assertStorageHealthy(storageKey);
+    try {
+      const result = await mutation();
+      clearStorageHealthFailure(storageKey);
+      return result;
+    } catch (error) {
+      markStorageHealthFailure(storageKey, error);
+      throw error;
+    }
+  });
 }
 
 // **************************************** Habit Tracker ****************************************
@@ -891,29 +963,80 @@ function normalizeHabitCalendar(calendar: unknown): HabitCalendarDay[] {
   return normalized;
 }
 
+function normalizeHabits(rawHabits: unknown): Habit[] {
+  if (!Array.isArray(rawHabits)) {
+    throw new Error('[Habits] Invalid data format, expected an array');
+  }
+
+  const todayStr = formatLocalDate(new Date());
+  return rawHabits
+    .map(raw => normalizeHabit(raw, todayStr))
+    .filter((habit): habit is Habit => habit !== null);
+}
+
+function assertValidStoredHabits(rawHabits: unknown): asserts rawHabits is unknown[] {
+  if (!Array.isArray(rawHabits)) {
+    throw new Error('[Habits] Invalid data format, expected an array');
+  }
+
+  rawHabits.forEach((rawHabit, habitIndex) => {
+    if (!rawHabit || typeof rawHabit !== 'object' || Array.isArray(rawHabit)) {
+      throw new Error(`[Habits] Invalid habit entry at index ${habitIndex}`);
+    }
+
+    const habit = rawHabit as Partial<Habit>;
+    if (
+      typeof habit.id !== 'string'
+      || !habit.id.trim()
+      || typeof habit.name !== 'string'
+      || !habit.name.trim()
+    ) {
+      throw new Error(`[Habits] Invalid habit entry at index ${habitIndex}`);
+    }
+
+    const calendar = habit.calendar;
+    if (!Array.isArray(calendar)) {
+      throw new Error(`[Habits] Invalid calendar for habit at index ${habitIndex}`);
+    }
+    calendar.forEach((day, dayIndex) => {
+      if (!day || typeof day !== 'object' || typeof day.date !== 'string' || !day.date) {
+        throw new Error(`[Habits] Invalid calendar entry at index ${habitIndex}:${dayIndex}`);
+      }
+    });
+  });
+}
+
+async function loadHabitsFromStorage(strict: boolean): Promise<Habit[]> {
+  const plugin = requireStoragePlugin(
+    translate('api.errors.pluginNotInitialized', 'Plugin is not initialized')
+  );
+  const data = await plugin.loadData(HABITS_STORAGE_KEY);
+  if (isMissingPluginStorageValue(data)) {
+    return [];
+  }
+
+  const parsed: unknown = typeof data === 'string' ? JSON.parse(data) : data;
+  if (strict) {
+    assertValidStoredHabits(parsed);
+  }
+  return normalizeHabits(parsed);
+}
+
+async function writeHabits(habits: Habit[]): Promise<void> {
+  const plugin = requireStoragePlugin(
+    translate('api.errors.pluginNotInitialized', 'Plugin is not initialized')
+  );
+  await plugin.saveData(HABITS_STORAGE_KEY, normalizeHabits(Array.isArray(habits) ? habits : []));
+}
+
 // 获取习惯数据
 export async function getHabits(): Promise<Habit[]> {
   try {
-    const plugin = usePlugin();
-    if (!plugin) {
-      console.error('[Habits] plugin is not initialized');
-      return [];
-    }
-
-    const data = await plugin.loadData('Pinch-habit.json');
-    if (!data) return [];
-
-    const parsedRaw: unknown = typeof data === 'string' ? JSON.parse(data) : data;
-    if (!Array.isArray(parsedRaw)) {
-      console.error('[Habits] Invalid data format, expected an array');
-      return [];
-    }
-
-    const todayStr = formatLocalDate(new Date());
-    return parsedRaw
-      .map(raw => normalizeHabit(raw, todayStr))
-      .filter((habit): habit is Habit => habit !== null);
+    const habits = await loadHabitsFromStorage(false);
+    clearStorageHealthFailure(HABITS_STORAGE_KEY);
+    return habits;
   } catch (error) {
+    markStorageHealthFailure(HABITS_STORAGE_KEY, error);
     console.error('Error reading habits:', error);
     return [];
   }
@@ -922,22 +1045,74 @@ export async function getHabits(): Promise<Habit[]> {
 // 保存习惯数据
 export async function saveHabits(habits: Habit[]): Promise<void> {
   try {
-    const plugin = usePlugin();
-    if (!plugin) {
-      console.error('[Habits] plugin is not initialized');
-      throw new Error(translate('api.errors.pluginNotInitialized', 'Plugin is not initialized'));
-    }
-
-    const todayStr = formatLocalDate(new Date());
-    const source = Array.isArray(habits) ? habits : [];
-
-    const habitsToSave: Habit[] = source
-      .map(habit => normalizeHabit(habit, todayStr))
-      .filter((habit): habit is Habit => habit !== null);
-
-    await plugin.saveData('Pinch-habit.json', habitsToSave);
+    await enqueueHealthyStorageMutation(HABITS_STORAGE_KEY, async () => {
+      await loadHabitsFromStorage(true);
+      await writeHabits(habits);
+    });
   } catch (error) {
     console.error('Error saving habits:', error);
+    throw error;
+  }
+}
+
+export async function upsertHabit(habit: Habit): Promise<Habit[]> {
+  try {
+    return await enqueueHealthyStorageMutation(HABITS_STORAGE_KEY, async () => {
+      const habits = await loadHabitsFromStorage(true);
+      const normalized = normalizeHabits([habit])[0];
+      if (!normalized) {
+        throw new Error('[Habits] Invalid habit');
+      }
+      const index = habits.findIndex(item => item.id === normalized.id);
+      const nextHabits = index >= 0
+        ? habits.map((item, itemIndex) => itemIndex === index ? normalized : item)
+        : [...habits, normalized];
+      await writeHabits(nextHabits);
+      return normalizeHabits(nextHabits);
+    });
+  } catch (error) {
+    console.error('Error upserting habit:', error);
+    throw error;
+  }
+}
+
+export async function removeHabit(habitId: string): Promise<Habit[]> {
+  try {
+    return await enqueueHealthyStorageMutation(HABITS_STORAGE_KEY, async () => {
+      const habits = await loadHabitsFromStorage(true);
+      const normalizedId = typeof habitId === 'string' ? habitId.trim() : '';
+      if (!normalizedId) {
+        throw new Error('[Habits] Invalid habit id');
+      }
+      const nextHabits = habits.filter(item => item.id !== normalizedId);
+      await writeHabits(nextHabits);
+      return normalizeHabits(nextHabits);
+    });
+  } catch (error) {
+    console.error('Error removing habit:', error);
+    throw error;
+  }
+}
+
+export async function reorderHabits(orderedHabitIds: readonly string[]): Promise<Habit[]> {
+  try {
+    return await enqueueHealthyStorageMutation(HABITS_STORAGE_KEY, async () => {
+      const habits = await loadHabitsFromStorage(true);
+      const orderById = new Map(
+        orderedHabitIds
+          .map(id => typeof id === 'string' ? id.trim() : '')
+          .filter(Boolean)
+          .map((id, index) => [id, index])
+      );
+      const nextHabits = habits.map(habit => ({
+        ...habit,
+        sortOrder: orderById.get(habit.id) ?? orderById.size
+      }));
+      await writeHabits(nextHabits);
+      return normalizeHabits(nextHabits);
+    });
+  } catch (error) {
+    console.error('Error reordering habits:', error);
     throw error;
   }
 }
@@ -1013,34 +1188,68 @@ function normalizeMoodEntry(raw: unknown): MoodEntry | null {
   };
 }
 
+function normalizeMoodData(rawMoodData: unknown, strict: boolean = false): MoodData {
+  if (!rawMoodData || typeof rawMoodData !== 'object' || Array.isArray(rawMoodData)) {
+    throw new Error('[Mood] Invalid data format, expected an object');
+  }
+
+  const normalized: MoodData = {};
+  for (const [date, entry] of Object.entries(rawMoodData as Record<string, unknown>)) {
+    const dateKey = typeof date === 'string' ? date.trim() : '';
+    if (strict && (!dateKey || !entry || typeof entry !== 'object' || Array.isArray(entry))) {
+      throw new Error(`[Mood] Invalid mood entry for date ${date || '<empty>'}`);
+    }
+    if (strict) {
+      const manualEntries = (entry as Partial<MoodEntry>).entries;
+      if (manualEntries !== undefined) {
+        if (!Array.isArray(manualEntries)) {
+          throw new Error(`[Mood] Invalid manual entries for date ${dateKey}`);
+        }
+        manualEntries.forEach((manualEntry, index) => {
+          if (!normalizeMoodManualEntry(manualEntry)) {
+            throw new Error(`[Mood] Invalid manual entry for date ${dateKey} at index ${index}`);
+          }
+        });
+      }
+    }
+    const normalizedEntry = normalizeMoodEntry(entry);
+    if (strict && !normalizedEntry) {
+      throw new Error(`[Mood] Invalid mood entry for date ${dateKey}`);
+    }
+    if (dateKey && normalizedEntry) {
+      normalized[dateKey] = normalizedEntry;
+    }
+  }
+  return normalized;
+}
+
+async function loadMoodDataFromStorage(strict: boolean): Promise<MoodData> {
+  const plugin = requireStoragePlugin(
+    translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to read data')
+  );
+  const data = await plugin.loadData(MOOD_STORAGE_KEY);
+  if (isMissingPluginStorageValue(data)) {
+    return {};
+  }
+
+  const parsed: unknown = typeof data === 'string' ? JSON.parse(data) : data;
+  return normalizeMoodData(parsed, strict);
+}
+
+async function writeMoodData(moodData: MoodData): Promise<void> {
+  const plugin = requireStoragePlugin(
+    translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to save data')
+  );
+  await plugin.saveData(MOOD_STORAGE_KEY, normalizeMoodData(moodData || {}));
+}
+
 export async function getMoodData(): Promise<MoodData> {
   try {
-    const plugin = usePlugin();
-    if (!plugin) {
-      console.error('Plugin is not initialized, unable to read data');
-      return {};
-    }
-    
-    const data = await plugin.loadData('Pinch-mood.json');
-    
-    if (data) {
-      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-      if (!parsed || typeof parsed !== 'object') {
-        return {};
-      }
-      const normalized: MoodData = {};
-      for (const [date, entry] of Object.entries(parsed as Record<string, unknown>)) {
-        const dateKey = typeof date === 'string' ? date.trim() : '';
-        const normalizedEntry = normalizeMoodEntry(entry);
-        if (dateKey && normalizedEntry) {
-          normalized[dateKey] = normalizedEntry;
-        }
-      }
-      return normalized;
-    } else {
-      return {};
-    }
+    const moodData = await loadMoodDataFromStorage(false);
+    clearStorageHealthFailure(MOOD_STORAGE_KEY);
+    return moodData;
   } catch (error) {
+    markStorageHealthFailure(MOOD_STORAGE_KEY, error);
     console.error('Error reading mood data:', error);
     return {};
   }
@@ -1049,24 +1258,50 @@ export async function getMoodData(): Promise<MoodData> {
 // 保存情绪数据
 export async function saveMoodData(moodData: MoodData): Promise<void> {
   try {
-    const plugin = usePlugin();
-    if (!plugin) {
-      console.error('Plugin is not initialized, unable to save data');
-      throw new Error(translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to save data'));
-    }
-    
-    // 直接保存对象，无需额外序列化
-    const normalized: MoodData = {};
-    for (const [date, entry] of Object.entries(moodData || {})) {
-      const dateKey = typeof date === 'string' ? date.trim() : '';
-      const normalizedEntry = normalizeMoodEntry(entry);
-      if (dateKey && normalizedEntry) {
-        normalized[dateKey] = normalizedEntry;
-      }
-    }
-    await plugin.saveData('Pinch-mood.json', normalized);
+    await enqueueHealthyStorageMutation(MOOD_STORAGE_KEY, async () => {
+      await loadMoodDataFromStorage(true);
+      await writeMoodData(moodData);
+    });
   } catch (error) {
     console.error('Error saving mood data:', error);
+    throw error;
+  }
+}
+
+export async function upsertMoodEntry(date: string, entry: MoodEntry): Promise<MoodData> {
+  try {
+    return await enqueueHealthyStorageMutation(MOOD_STORAGE_KEY, async () => {
+      const moodData = await loadMoodDataFromStorage(true);
+      const dateKey = typeof date === 'string' ? date.trim() : '';
+      const normalizedEntry = normalizeMoodEntry(entry);
+      if (!dateKey || !normalizedEntry) {
+        throw new Error('[Mood] Invalid date or mood entry');
+      }
+      const nextMoodData = { ...moodData, [dateKey]: normalizedEntry };
+      await writeMoodData(nextMoodData);
+      return normalizeMoodData(nextMoodData);
+    });
+  } catch (error) {
+    console.error('Error upserting mood entry:', error);
+    throw error;
+  }
+}
+
+export async function removeMoodEntry(date: string): Promise<MoodData> {
+  try {
+    return await enqueueHealthyStorageMutation(MOOD_STORAGE_KEY, async () => {
+      const moodData = await loadMoodDataFromStorage(true);
+      const dateKey = typeof date === 'string' ? date.trim() : '';
+      if (!dateKey) {
+        throw new Error('[Mood] Invalid date');
+      }
+      const nextMoodData = { ...moodData };
+      delete nextMoodData[dateKey];
+      await writeMoodData(nextMoodData);
+      return normalizeMoodData(nextMoodData);
+    });
+  } catch (error) {
+    console.error('Error removing mood entry:', error);
     throw error;
   }
 }
@@ -1113,34 +1348,115 @@ export interface FocusStatsSummary {
   recentDays: DailyFocusRecord[]; // 最近 7 天记录
 }
 
+type FocusTimerMutationResult<T> = {
+  value: T;
+  changed: boolean;
+};
+
+function createEmptyFocusTimerData(): FocusTimerData {
+  return { dailyRecords: [], sessionRecords: [] };
+}
+
+function assertValidStoredDailyFocusRecords(records: unknown[]): void {
+  records.forEach((record, index) => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      throw new Error(`[FocusTimer] Invalid daily record at index ${index}`);
+    }
+
+    const candidate = record as Partial<DailyFocusRecord>;
+    if (
+      typeof candidate.date !== 'string'
+      || !/^\d{4}-\d{2}-\d{2}$/.test(candidate.date)
+      || typeof candidate.sessions !== 'number'
+      || !Number.isFinite(candidate.sessions)
+      || typeof candidate.minutes !== 'number'
+      || !Number.isFinite(candidate.minutes)
+      || typeof candidate.timestamp !== 'number'
+      || !Number.isFinite(candidate.timestamp)
+    ) {
+      throw new Error(`[FocusTimer] Invalid daily record at index ${index}`);
+    }
+  });
+}
+
+function normalizeFocusTimerData(rawData: unknown, strict: boolean = false): FocusTimerData {
+  if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) {
+    throw new Error('[FocusTimer] Invalid data format, expected an object');
+  }
+
+  const parsed = rawData as Partial<FocusTimerData>;
+  if (strict && !Array.isArray(parsed.dailyRecords)) {
+    throw new Error('[FocusTimer] Invalid data format, expected dailyRecords array');
+  }
+  if (parsed.dailyRecords !== undefined && !Array.isArray(parsed.dailyRecords)) {
+    throw new Error('[FocusTimer] Invalid daily records format, expected an array');
+  }
+  if (parsed.sessionRecords !== undefined && !Array.isArray(parsed.sessionRecords)) {
+    throw new Error('[FocusTimer] Invalid session records format, expected an array');
+  }
+
+  const dailyRecords = Array.isArray(parsed.dailyRecords) ? parsed.dailyRecords : [];
+  const sessionRecords = normalizeFocusSessionRecords(parsed.sessionRecords);
+  if (strict) {
+    assertValidStoredDailyFocusRecords(dailyRecords);
+    if (Array.isArray(parsed.sessionRecords) && sessionRecords.length !== parsed.sessionRecords.length) {
+      throw new Error('[FocusTimer] Invalid session record');
+    }
+  }
+
+  return {
+    dailyRecords,
+    sessionRecords
+  };
+}
+
+async function loadFocusTimerDataFromStorage(strict: boolean): Promise<FocusTimerData> {
+  const plugin = requireStoragePlugin(
+    translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to read data')
+  );
+  const data = await plugin.loadData(FOCUS_TIMER_STORAGE_KEY);
+  if (isMissingPluginStorageValue(data)) {
+    return createEmptyFocusTimerData();
+  }
+
+  const parsed: unknown = typeof data === 'string' ? JSON.parse(data) : data;
+  return normalizeFocusTimerData(parsed, strict);
+}
+
+async function writeFocusTimerData(data: FocusTimerData): Promise<void> {
+  const plugin = requireStoragePlugin(
+    translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to save data')
+  );
+  const normalized = normalizeFocusTimerData(data, true);
+  await plugin.saveData(FOCUS_TIMER_STORAGE_KEY, {
+    dailyRecords: normalized.dailyRecords,
+    sessionRecords: normalized.sessionRecords
+  });
+}
+
+async function mutateFocusTimerData<T>(
+  mutation: (data: FocusTimerData) => FocusTimerMutationResult<T>
+): Promise<T> {
+  return enqueueHealthyStorageMutation(FOCUS_TIMER_STORAGE_KEY, async () => {
+    const data = await loadFocusTimerDataFromStorage(true);
+    const result = mutation(data);
+    if (result.changed) {
+      await writeFocusTimerData(data);
+    }
+    return result.value;
+  });
+}
+
 // 获取专注计时数据
 export async function getFocusTimerData(): Promise<FocusTimerData> {
   try {
-    const plugin = usePlugin();
-    if (!plugin) {
-      console.error('Plugin is not initialized, unable to read data');
-      return { dailyRecords: [], sessionRecords: [] };
-    }
-    
-    const data = await plugin.loadData('Pinch-focus-timer.json');
-    
-    if (data) {
-      const parsed = (typeof data === 'string' ? JSON.parse(data) : data) as Partial<FocusTimerData>;
-      const dailyRecords = Array.isArray(parsed.dailyRecords) ? parsed.dailyRecords : [];
-      const sessionRecords = normalizeFocusSessionRecords(parsed.sessionRecords);
-
-      return {
-        dailyRecords,
-        sessionRecords
-      };
-    } else {
-      // 文件不存在时返回空结构，避免首启报错
-      return { dailyRecords: [], sessionRecords: [] };
-    }
+    const data = await loadFocusTimerDataFromStorage(false);
+    clearStorageHealthFailure(FOCUS_TIMER_STORAGE_KEY);
+    return data;
   } catch (error) {
+    markStorageHealthFailure(FOCUS_TIMER_STORAGE_KEY, error);
     console.error('Error reading focus timer data:', error);
-    // 读取失败时返回空结构
-    return { dailyRecords: [], sessionRecords: [] };
+    return createEmptyFocusTimerData();
   }
 }
 
@@ -1184,16 +1500,9 @@ export async function getFocusStatsSummary(): Promise<FocusStatsSummary> {
 // 保存专注计时数据
 export async function saveFocusTimerData(data: FocusTimerData): Promise<void> {
   try {
-    const plugin = usePlugin();
-    if (!plugin) {
-      console.error('Plugin is not initialized, unable to save data');
-      throw new Error(translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to save data'));
-    }
-    
-    // 直接保存对象，无需额外序列化
-    await plugin.saveData('Pinch-focus-timer.json', {
-      dailyRecords: Array.isArray(data.dailyRecords) ? data.dailyRecords : [],
-      sessionRecords: Array.isArray(data.sessionRecords) ? data.sessionRecords : []
+    await enqueueHealthyStorageMutation(FOCUS_TIMER_STORAGE_KEY, async () => {
+      await loadFocusTimerDataFromStorage(true);
+      await writeFocusTimerData(data);
     });
   } catch (error) {
     console.error('Error saving focus timer data:', error);
@@ -1266,43 +1575,44 @@ export async function addFocusSession(
   options: { date?: string; timestamp?: number; sessionId?: string } = {}
 ): Promise<void> {
   try {
-    const data = await getFocusTimerData();
-    const today = formatLocalDate(new Date());
-    const date = typeof options.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(options.date)
-      ? options.date
-      : today;
-    const now = Number.isFinite(options.timestamp) ? Number(options.timestamp) : Date.now();
-    const sessionId = typeof options.sessionId === 'string' && options.sessionId.trim().length > 0
-      ? options.sessionId.trim()
-      : `focus-session-${now}-${Math.random().toString(36).slice(2, 8)}`;
+    await mutateFocusTimerData((data) => {
+      const today = formatLocalDate(new Date());
+      const date = typeof options.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(options.date)
+        ? options.date
+        : today;
+      const now = Number.isFinite(options.timestamp) ? Number(options.timestamp) : Date.now();
+      const sessionId = typeof options.sessionId === 'string' && options.sessionId.trim().length > 0
+        ? options.sessionId.trim()
+        : `focus-session-${now}-${Math.random().toString(36).slice(2, 8)}`;
 
-    let todayRecord = data.dailyRecords.find(record => record.date === date);
-    if (todayRecord) {
-      todayRecord.sessions += 1;
-      todayRecord.minutes += duration;
-      todayRecord.timestamp = now;
-    } else {
-      data.dailyRecords.push({
+      let todayRecord = data.dailyRecords.find(record => record.date === date);
+      if (todayRecord) {
+        todayRecord.sessions += 1;
+        todayRecord.minutes += duration;
+        todayRecord.timestamp = now;
+      } else {
+        data.dailyRecords.push({
+          date,
+          sessions: 1,
+          minutes: duration,
+          timestamp: now
+        });
+      }
+
+      data.sessionRecords.push({
+        id: sessionId,
         date,
-        sessions: 1,
         minutes: duration,
-        timestamp: now
+        timestamp: now,
+        targetType: target?.type ?? 'unlinked',
+        targetId: target?.id,
+        targetName: target?.name,
+        targetEmoji: target?.emoji,
+        targetBlockId: target?.blockId
       });
-    }
 
-    data.sessionRecords.push({
-      id: sessionId,
-      date,
-      minutes: duration,
-      timestamp: now,
-      targetType: target?.type ?? 'unlinked',
-      targetId: target?.id,
-      targetName: target?.name,
-      targetEmoji: target?.emoji,
-      targetBlockId: target?.blockId
+      return { value: undefined, changed: true };
     });
-
-    await saveFocusTimerData(data);
   } catch (error) {
     console.error('Error adding focus session:', error);
     throw error;
@@ -1321,64 +1631,64 @@ export async function upsertFocusSessionRecord(
       return;
     }
 
-    const data = await getFocusTimerData();
-    const today = formatLocalDate(new Date());
-    const now = Date.now();
-    const existingRecord = data.sessionRecords.find(record => record.id === normalizedSessionId);
-    const recordDate = existingRecord?.date || today;
-    const previousMinutes = existingRecord ? Math.max(0, Math.floor(Number(existingRecord.minutes) || 0)) : 0;
-    const minuteDelta = minutes - previousMinutes;
+    await mutateFocusTimerData((data) => {
+      const today = formatLocalDate(new Date());
+      const now = Date.now();
+      const existingRecord = data.sessionRecords.find(record => record.id === normalizedSessionId);
+      const recordDate = existingRecord?.date || today;
+      const previousMinutes = existingRecord ? Math.max(0, Math.floor(Number(existingRecord.minutes) || 0)) : 0;
+      const minuteDelta = minutes - previousMinutes;
 
-    if (existingRecord && minuteDelta <= 0) {
-      existingRecord.timestamp = now;
-      existingRecord.targetType = target?.type ?? existingRecord.targetType ?? 'unlinked';
-      existingRecord.targetId = target?.id ?? existingRecord.targetId;
-      existingRecord.targetName = target?.name ?? existingRecord.targetName;
-      existingRecord.targetEmoji = target?.emoji ?? existingRecord.targetEmoji;
-      existingRecord.targetBlockId = target?.blockId ?? existingRecord.targetBlockId;
-      await saveFocusTimerData(data);
-      return;
-    }
+      if (existingRecord && minuteDelta <= 0) {
+        existingRecord.timestamp = now;
+        existingRecord.targetType = target?.type ?? existingRecord.targetType ?? 'unlinked';
+        existingRecord.targetId = target?.id ?? existingRecord.targetId;
+        existingRecord.targetName = target?.name ?? existingRecord.targetName;
+        existingRecord.targetEmoji = target?.emoji ?? existingRecord.targetEmoji;
+        existingRecord.targetBlockId = target?.blockId ?? existingRecord.targetBlockId;
+        return { value: undefined, changed: true };
+      }
 
-    let dailyRecord = data.dailyRecords.find(record => record.date === recordDate);
-    if (!dailyRecord) {
-      dailyRecord = {
-        date: recordDate,
-        sessions: 0,
-        minutes: 0,
-        timestamp: now
-      };
-      data.dailyRecords.push(dailyRecord);
-    }
+      let dailyRecord = data.dailyRecords.find(record => record.date === recordDate);
+      if (!dailyRecord) {
+        dailyRecord = {
+          date: recordDate,
+          sessions: 0,
+          minutes: 0,
+          timestamp: now
+        };
+        data.dailyRecords.push(dailyRecord);
+      }
 
-    if (existingRecord) {
-      existingRecord.minutes = minutes;
-      existingRecord.timestamp = now;
-      existingRecord.targetType = target?.type ?? existingRecord.targetType ?? 'unlinked';
-      existingRecord.targetId = target?.id ?? existingRecord.targetId;
-      existingRecord.targetName = target?.name ?? existingRecord.targetName;
-      existingRecord.targetEmoji = target?.emoji ?? existingRecord.targetEmoji;
-      existingRecord.targetBlockId = target?.blockId ?? existingRecord.targetBlockId;
-      dailyRecord.minutes += minuteDelta;
-      dailyRecord.timestamp = now;
-    } else {
-      data.sessionRecords.push({
-        id: normalizedSessionId,
-        date: recordDate,
-        minutes,
-        timestamp: now,
-        targetType: target?.type ?? 'unlinked',
-        targetId: target?.id,
-        targetName: target?.name,
-        targetEmoji: target?.emoji,
-        targetBlockId: target?.blockId
-      });
-      dailyRecord.sessions += 1;
-      dailyRecord.minutes += minutes;
-      dailyRecord.timestamp = now;
-    }
+      if (existingRecord) {
+        existingRecord.minutes = minutes;
+        existingRecord.timestamp = now;
+        existingRecord.targetType = target?.type ?? existingRecord.targetType ?? 'unlinked';
+        existingRecord.targetId = target?.id ?? existingRecord.targetId;
+        existingRecord.targetName = target?.name ?? existingRecord.targetName;
+        existingRecord.targetEmoji = target?.emoji ?? existingRecord.targetEmoji;
+        existingRecord.targetBlockId = target?.blockId ?? existingRecord.targetBlockId;
+        dailyRecord.minutes += minuteDelta;
+        dailyRecord.timestamp = now;
+      } else {
+        data.sessionRecords.push({
+          id: normalizedSessionId,
+          date: recordDate,
+          minutes,
+          timestamp: now,
+          targetType: target?.type ?? 'unlinked',
+          targetId: target?.id,
+          targetName: target?.name,
+          targetEmoji: target?.emoji,
+          targetBlockId: target?.blockId
+        });
+        dailyRecord.sessions += 1;
+        dailyRecord.minutes += minutes;
+        dailyRecord.timestamp = now;
+      }
 
-    await saveFocusTimerData(data);
+      return { value: undefined, changed: true };
+    });
   } catch (error) {
     console.error('Error upserting focus session:', error);
     throw error;
@@ -1392,31 +1702,31 @@ export async function deleteFocusSessionRecord(sessionId: string): Promise<boole
       return false;
     }
 
-    const data = await getFocusTimerData();
-    const targetIndex = data.sessionRecords.findIndex(record => record.id === normalizedSessionId);
-    if (targetIndex < 0) {
-      return false;
-    }
-
-    const [removedRecord] = data.sessionRecords.splice(targetIndex, 1);
-    const recordDate = typeof removedRecord.date === 'string' ? removedRecord.date.trim() : '';
-    const removedMinutes = Math.max(0, Math.floor(Number(removedRecord.minutes) || 0));
-    const dailyRecord = recordDate
-      ? data.dailyRecords.find(record => record.date === recordDate)
-      : undefined;
-
-    if (dailyRecord) {
-      dailyRecord.sessions = Math.max(0, Math.floor(Number(dailyRecord.sessions) || 0) - 1);
-      dailyRecord.minutes = Math.max(0, Math.floor(Number(dailyRecord.minutes) || 0) - removedMinutes);
-      dailyRecord.timestamp = Date.now();
-
-      if (dailyRecord.sessions <= 0 && dailyRecord.minutes <= 0) {
-        data.dailyRecords = data.dailyRecords.filter(record => record !== dailyRecord);
+    return await mutateFocusTimerData((data) => {
+      const targetIndex = data.sessionRecords.findIndex(record => record.id === normalizedSessionId);
+      if (targetIndex < 0) {
+        return { value: false, changed: false };
       }
-    }
 
-    await saveFocusTimerData(data);
-    return true;
+      const [removedRecord] = data.sessionRecords.splice(targetIndex, 1);
+      const recordDate = typeof removedRecord.date === 'string' ? removedRecord.date.trim() : '';
+      const removedMinutes = Math.max(0, Math.floor(Number(removedRecord.minutes) || 0));
+      const dailyRecord = recordDate
+        ? data.dailyRecords.find(record => record.date === recordDate)
+        : undefined;
+
+      if (dailyRecord) {
+        dailyRecord.sessions = Math.max(0, Math.floor(Number(dailyRecord.sessions) || 0) - 1);
+        dailyRecord.minutes = Math.max(0, Math.floor(Number(dailyRecord.minutes) || 0) - removedMinutes);
+        dailyRecord.timestamp = Date.now();
+
+        if (dailyRecord.sessions <= 0 && dailyRecord.minutes <= 0) {
+          data.dailyRecords = data.dailyRecords.filter(record => record !== dailyRecord);
+        }
+      }
+
+      return { value: true, changed: true };
+    });
   } catch (error) {
     console.error('Error deleting focus session:', error);
     throw error;
@@ -1846,6 +2156,7 @@ export interface TaskFetchOptions {
   repeatWindow?: TaskRepeatWindow;
   includeRepeatTemplateDate?: boolean;
   constrainBaseTasksToRepeatWindow?: boolean;
+  includeCompletedRepeatInstancesByCompletionDate?: boolean;
 }
 
 function generateTaskId(): string {
@@ -1872,6 +2183,7 @@ export class TaskRepository {
     detailLevel: TaskFetchDetailLevel;
   }>();
   private static incrementalTaskFetchPromises = new Map<string, Promise<Map<string, Task>>>();
+  private static cacheGeneration = 0;
   private static rootTaskMetadataCache = new Map<string, RootTaskMetadataCacheEntry>();
   private static excludedNotebookIds = new Set<string>();
   private static inferredDatePersistingBlockIds = new Set<string>();
@@ -2188,6 +2500,9 @@ export class TaskRepository {
         scope,
         { force: !useCache }
       );
+      if (result.partial) {
+        return null;
+      }
       return result.tasks;
     } catch (error) {
       if (!isKernelRpcUnavailable(error)) {
@@ -2398,10 +2713,11 @@ export class TaskRepository {
     blockIds: string[],
     scope: TaskQueryScope | null,
     useLiveDom: boolean,
-    detailLevel: TaskFetchDetailLevel
+    detailLevel: TaskFetchDetailLevel,
+    cacheGeneration: number = this.cacheGeneration
   ): string {
     const blockIdsKey = Array.from(new Set(blockIds)).sort().join(',');
-    return `${this.buildScopeCacheKey(scope, useLiveDom, detailLevel)}|${blockIdsKey}`;
+    return `${cacheGeneration}|${this.buildScopeCacheKey(scope, useLiveDom, detailLevel)}|${blockIdsKey}`;
   }
 
   private static cloneSubtasksForSharedFetch(subtasks?: SubTask[]): SubTask[] | undefined {
@@ -2451,8 +2767,10 @@ export class TaskRepository {
       return;
     }
 
+    this.cacheGeneration += 1;
     this.excludedNotebookIds = new Set(normalized);
     this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
+    this.blockTasksFetchPromise = null;
     this.scopedMemoryCache.clear();
     this.scopedBlockTasksFetchPromises.clear();
     this.incrementalTaskFetchPromises.clear();
@@ -3335,7 +3653,8 @@ export class TaskRepository {
     return materializeRepeatTasks(blockTasks, {
       ...resolveTaskRepeatMaterializeOptions(options.repeatWindow),
       includeTemplateDate: options.includeRepeatTemplateDate === true,
-      filterBaseTasksToRange: options.constrainBaseTasksToRepeatWindow === true
+      filterBaseTasksToRange: options.constrainBaseTasksToRepeatWindow === true,
+      includeCompletedOutsideRange: options.includeCompletedRepeatInstancesByCompletionDate === true
     });
   }
 
@@ -3446,10 +3765,11 @@ export class TaskRepository {
         return scopedInFlight.promise;
       }
 
+      const cacheGeneration = this.cacheGeneration;
       const scopedFetchPromise = (async () => {
         const kernelTasks = await this.tryGetKernelLightTasksForFetch(useCache, normalizedScope, options);
         const tasks = kernelTasks ?? await this.fetchBlockTasks(normalizedScope, useLiveDom, detailLevel);
-        if (useCache) {
+        if (useCache && cacheGeneration === this.cacheGeneration) {
           this.setScopedMemoryCache(scopedCacheKey, tasks, detailLevel);
         }
         return tasks;
@@ -3462,7 +3782,9 @@ export class TaskRepository {
       try {
         return await scopedFetchPromise;
       } finally {
-        this.scopedBlockTasksFetchPromises.delete(scopedCacheKey);
+        if (this.scopedBlockTasksFetchPromises.get(scopedCacheKey)?.promise === scopedFetchPromise) {
+          this.scopedBlockTasksFetchPromises.delete(scopedCacheKey);
+        }
       }
     }
 
@@ -3474,9 +3796,13 @@ export class TaskRepository {
       return this.blockTasksFetchPromise.promise;
     }
 
+    const cacheGeneration = this.cacheGeneration;
     const globalFetchPromise = (async () => {
       const kernelTasks = await this.tryGetKernelLightTasksForFetch(useCache, null, options);
       const tasks = kernelTasks ?? await this.fetchBlockTasks(null, useLiveDom, detailLevel);
+      if (cacheGeneration !== this.cacheGeneration) {
+        return tasks;
+      }
       if (detailLevel === 'full') {
         await this.saveBlockTasksCache(tasks);
       } else {
@@ -3492,7 +3818,9 @@ export class TaskRepository {
     try {
       return await globalFetchPromise;
     } finally {
-      this.blockTasksFetchPromise = null;
+      if (this.blockTasksFetchPromise?.promise === globalFetchPromise) {
+        this.blockTasksFetchPromise = null;
+      }
     }
   }
 
@@ -4347,6 +4675,7 @@ export class TaskRepository {
       }
       } catch (error) {
         handleError('Failed to get task list', error);
+        throw error;
       }
       
       return shouldFilterTopLevelCompleted
@@ -4365,8 +4694,10 @@ export class TaskRepository {
   }
   
   static async clearCache(): Promise<void> {
+    this.cacheGeneration += 1;
     this.clearLocalBlockTasksCache();
     this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
+    this.blockTasksFetchPromise = null;
     this.scopedMemoryCache.clear();
     this.scopedBlockTasksFetchPromises.clear();
     this.incrementalTaskFetchPromises.clear();
@@ -4753,10 +5084,21 @@ export class TaskRepository {
     if (task.type !== 'block') {
       return null;
     }
-    const series = await setTaskRepeatSeries(task, frequency);
     const repeatFrequency = typeof frequency === 'string' ? frequency : frequency.frequency;
-    if (repeatFrequency !== 'none' && task.status === 'pending' && task.blockId) {
-      await setBlockAttrs(task.blockId, buildTaskStatusAttrs('in-progress'));
+    const pendingTaskBlockId = repeatFrequency !== 'none'
+      && task.status === 'pending'
+      ? task.blockId
+      : undefined;
+    const series = await setTaskRepeatSeries(task, frequency, {
+      emitChange: !pendingTaskBlockId
+    });
+    if (pendingTaskBlockId) {
+      await setBlockAttrs(pendingTaskBlockId, buildTaskStatusAttrs('in-progress'));
+      notifyRepeatChanged({
+        blockId: pendingTaskBlockId,
+        seriesId: series?.id,
+        frequency: series?.frequency ?? repeatFrequency
+      });
     }
     return series;
   }
@@ -4768,18 +5110,21 @@ export class TaskRepository {
     return getTaskRepeatFrequency(task);
   }
 
-  static async updateRepeatInstanceStatus(task: Task, status: TaskStatus): Promise<void> {
+  static async updateRepeatInstanceStatus(task: Task, status: TaskStatus): Promise<string> {
     if (!task.repeatSeriesId || !task.repeatInstanceDate) {
-      return;
+      return '';
     }
-    await setRepeatInstanceStatus(task.repeatSeriesId, task.repeatInstanceDate, status);
+    const completedAt = await setRepeatInstanceStatus(task.repeatSeriesId, task.repeatInstanceDate, status);
     if (status === 'completed') {
       void awardTaskCompletion({
         ...task,
         status,
-        completedAt: task.completedAt || new Date().toISOString()
+        completedAt: completedAt || task.completedAt || new Date().toISOString()
+      }).catch((error) => {
+        console.error('[Rewards] Failed to award repeat task completion:', error);
       });
     }
+    return completedAt;
   }
 
   static async moveTask(taskId: string, targetRootId: string): Promise<{ blockId: string; parentId: string }> {
@@ -4861,7 +5206,8 @@ export class TaskRepository {
     scopedIds: string[],
     scope: TaskQueryScope | null,
     useLiveDom: boolean,
-    detailLevel: TaskFetchDetailLevel
+    detailLevel: TaskFetchDetailLevel,
+    cacheGeneration: number
   ): Promise<Map<string, Task>> {
     if (!useLiveDom && detailLevel === 'light') {
       try {
@@ -4897,6 +5243,7 @@ export class TaskRepository {
 
     if (
       enrichedTaskMap.size > 0 &&
+      cacheGeneration === this.cacheGeneration &&
       this.memoryCache.tasks &&
       this.memoryCache.detailLevel === 'full'
     ) {
@@ -4965,11 +5312,13 @@ export class TaskRepository {
       }
 
       const detailLevel = this.resolveTaskFetchDetailLevel(options);
+      const cacheGeneration = this.cacheGeneration;
       const fetchKey = this.buildIncrementalTaskFetchKey(
         scopedIds,
         normalizedScope,
         useLiveDom,
-        detailLevel
+        detailLevel,
+        cacheGeneration
       );
       const inFlight = options.forceFresh === true
         ? undefined
@@ -4982,7 +5331,8 @@ export class TaskRepository {
         scopedIds,
         normalizedScope,
         useLiveDom,
-        detailLevel
+        detailLevel,
+        cacheGeneration
       );
       if (options.forceFresh !== true) {
         this.incrementalTaskFetchPromises.set(fetchKey, fetchPromise);
@@ -5020,13 +5370,38 @@ export async function getBlockDOMBatch(ids: string[]): Promise<Map<string, Block
   if (ids.length === 0) return new Map();
 
   const result = new Map<string, BlockDOMResponse>();
-  const uniqueIds = [...new Set(ids)];
-  const maxConcurrent = Math.min(6, uniqueIds.length);
+  const uniqueIds = [...new Set(ids.filter(id => typeof id === 'string' && id.trim().length > 0))];
+  const fallbackIds = new Set<string>();
+
+  const kernelBatchSize = 512;
+  for (let index = 0; index < uniqueIds.length; index += kernelBatchSize) {
+    const batchIds = uniqueIds.slice(index, index + kernelBatchSize);
+    try {
+      const response = await getKernelBlockDOMBatch(batchIds);
+      const returnedIds = new Set<string>();
+      for (const block of response.blocks || []) {
+        if (!block || typeof block.id !== 'string' || typeof block.data?.dom !== 'string') continue;
+        result.set(block.id, block.data as BlockDOMResponse);
+        returnedIds.add(block.id);
+      }
+      for (const id of batchIds) {
+        if (!returnedIds.has(id)) fallbackIds.add(id);
+      }
+    } catch (error) {
+      log_debug('Kernel DOM batch unavailable; falling back to direct requests', { error });
+      batchIds.forEach(id => fallbackIds.add(id));
+    }
+  }
+
+  if (fallbackIds.size === 0) return result;
+
+  const pendingIds = Array.from(fallbackIds);
+  const maxConcurrent = Math.min(6, pendingIds.length);
   let nextIndex = 0;
 
   const worker = async (): Promise<void> => {
-    while (nextIndex < uniqueIds.length) {
-      const id = uniqueIds[nextIndex++];
+    while (nextIndex < pendingIds.length) {
+      const id = pendingIds[nextIndex++];
       try {
         result.set(id, await getBlockDOM(id));
       } catch (error) {

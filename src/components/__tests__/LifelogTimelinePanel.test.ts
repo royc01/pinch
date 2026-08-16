@@ -37,6 +37,26 @@ function mountPanel(item: LifelogTimelinePanelItem) {
 }
 
 describe('LifelogTimelinePanel annotations', () => {
+  it('renders record actions in the card header and emits them', async () => {
+    const item = makeItem({ favoritable: true, openable: true, deletable: true, starred: true });
+    const wrapper = mountPanel(item);
+
+    const actions = wrapper.find('.lifelog-timeline-card-actions');
+    expect(actions.findAll('button')).toHaveLength(3);
+    await actions.find('.lifelog-timeline-action.active').trigger('click');
+    await actions.findAll('.lifelog-timeline-action')[1].trigger('click');
+
+    expect(wrapper.emitted('toggle-star')).toEqual([[item]]);
+    expect(wrapper.emitted('open-source')).toEqual([[item]]);
+  });
+
+  it('does not render a favorite action when the item is not favoritable', () => {
+    const wrapper = mountPanel(makeItem({ openable: true, favoritable: false }));
+
+    expect(wrapper.find('.lifelog-timeline-action[aria-label="Favorite"]').exists()).toBe(false);
+    expect(wrapper.find('.lifelog-timeline-action[aria-label="Open source"]').exists()).toBe(true);
+  });
+
   it('adds an annotation without changing the item note', async () => {
     const item = makeItem({ note: 'Original task description', annotationEditable: true });
     const wrapper = mountPanel(item);

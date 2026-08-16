@@ -7,7 +7,7 @@
     @wheel.stop
   >
     <aside class="lifelog-timeline-panel" @mousedown.stop @click.stop>
-      <div class="lifelog-timeline-header">
+      <div v-if="dateStripDays.length > 0 || title || subtitle || variant === 'drawer'" class="lifelog-timeline-header">
         <div class="lifelog-timeline-title-wrap">
           <div v-if="dateStripDays.length > 0" class="lifelog-timeline-calendar-header">
             <div class="lifelog-timeline-calendar-controls">
@@ -81,16 +81,25 @@
           <Icon name="close" width="12" height="12" />
         </button>
       </div>
+      <slot name="after-header"></slot>
       <div class="lifelog-timeline-list">
         <div v-if="items.length === 0" class="lifelog-timeline-empty">
           {{ emptyText }}
         </div>
-        <div
-          v-for="item in items"
-          :key="item.id"
-          class="lifelog-timeline-item"
-          :class="`is-${item.type}`"
-        >
+        <template v-for="item in items" :key="item.id">
+          <div
+            v-if="item.groupLabel"
+            class="lifelog-timeline-group-header"
+            :data-date="item.date"
+          >
+            <span class="lifelog-timeline-group-title">{{ item.groupLabel }}</span>
+            <span v-if="item.groupCountText" class="lifelog-timeline-group-count">{{ item.groupCountText }}</span>
+          </div>
+          <div
+            class="lifelog-timeline-item"
+            :class="[`is-${item.type}`, { 'is-highlighted': item.highlighted }]"
+            :data-date="item.date"
+          >
           <div class="lifelog-timeline-line">
             <span class="lifelog-timeline-dot">
               <span v-if="item.moodSvg" class="lifelog-timeline-dot-emoji" v-html="item.moodSvg"></span>
@@ -100,19 +109,51 @@
           </div>
           <div class="lifelog-timeline-content">
             <div class="lifelog-timeline-time">{{ item.timeLabel }}</div>
-            <div class="lifelog-timeline-card">
+            <div
+              class="lifelog-timeline-card"
+              :draggable="Boolean(getCardDragMarkdown(item))"
+              @dragstart="handleCardDragStart($event, item)"
+            >
               <div class="lifelog-timeline-card-header">
-                <span class="lifelog-timeline-card-title">{{ item.title }}</span>
-                <button
-                  v-if="item.deletable"
-                  type="button"
-                  class="lifelog-timeline-delete ariaLabel"
-                 
-                  :aria-label="deleteLabel"
-                  @click.stop="requestDeleteItem(item)"
+                <TaskTitlePlain
+                  v-if="item.isTaskTitle"
+                  class="lifelog-timeline-card-title"
+                  :title="item.title"
+                />
+                <span v-else class="lifelog-timeline-card-title">{{ item.title }}</span>
+                <div
+                  v-if="item.favoritable || item.openable || item.deletable"
+                  class="lifelog-timeline-card-actions"
                 >
-                  <Icon name="trash" width="11" height="11" />
-                </button>
+                  <button
+                    v-if="item.favoritable"
+                    type="button"
+                    class="lifelog-timeline-action ariaLabel"
+                    :class="{ active: item.starred }"
+                    :aria-label="item.starred ? unstarLabel : starLabel"
+                    @click.stop="emit('toggle-star', item)"
+                  >
+                    <Icon :name="item.starred ? 'pinTaskActive' : 'pinTask'" width="14" height="14" />
+                  </button>
+                  <button
+                    v-if="item.openable"
+                    type="button"
+                    class="lifelog-timeline-action ariaLabel"
+                    :aria-label="openSourceLabel"
+                    @click.stop="emit('open-source', item)"
+                  >
+                    <Icon name="open" width="14" height="14" />
+                  </button>
+                  <button
+                    v-if="item.deletable"
+                    type="button"
+                    class="lifelog-timeline-action is-delete ariaLabel"
+                    :aria-label="deleteLabel"
+                    @click.stop="requestDeleteItem(item)"
+                  >
+                    <Icon name="trash" width="14" height="14" />
+                  </button>
+                </div>
               </div>
               <div
                 v-if="item.type !== 'manual-note'"
@@ -200,7 +241,8 @@
               </button>
             </div>
           </div>
-        </div>
+          </div>
+        </template>
       </div>
       <div v-if="showEditor" class="lifelog-timeline-editor">
         <textarea
@@ -260,9 +302,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import type { CheckinNoteContext } from '@/checkinNoteRepository';
 import type { LifelogEventType } from '@/utils/lifelogEvents';
 import EmojiIcon from './EmojiIcon.vue';
 import Icon from './Icon.vue';
+import TaskTitlePlain from './TaskTitlePlain.vue';
 
 export interface LifelogTimelinePanelItem {
   id: string;
@@ -272,6 +316,7 @@ export interface LifelogTimelinePanelItem {
   timeLabel: string;
   sortMinutes: number;
   title: string;
+  isTaskTitle?: boolean;
   meta: string;
   note: string;
   icon: string;
@@ -283,6 +328,14 @@ export interface LifelogTimelinePanelItem {
   annotationDate?: string;
   annotation?: string;
   annotationEditable?: boolean;
+  annotationContext?: CheckinNoteContext;
+  openContext?: CheckinNoteContext;
+  starred?: boolean;
+  favoritable?: boolean;
+  openable?: boolean;
+  highlighted?: boolean;
+  groupLabel?: string;
+  groupCountText?: string;
   badges?: LifelogTimelinePanelBadge[];
 }
 
@@ -320,6 +373,9 @@ const props = withDefaults(defineProps<{
   deleteConfirmTitle?: string;
   deleteConfirmMessage?: string;
   addAnnotationLabel?: string;
+  starLabel?: string;
+  unstarLabel?: string;
+  openSourceLabel?: string;
   variant?: 'drawer' | 'embedded';
   fillHeight?: boolean;
   dateStripDays?: LifelogTimelineDateStripDay[];
@@ -335,6 +391,9 @@ const props = withDefaults(defineProps<{
   deleteConfirmTitle: 'Delete this record?',
   deleteConfirmMessage: 'This action cannot be undone.',
   addAnnotationLabel: 'Add note',
+  starLabel: 'Favorite',
+  unstarLabel: 'Remove favorite',
+  openSourceLabel: 'Open source',
   variant: 'drawer',
   fillHeight: false,
   dateStripDays: () => [],
@@ -353,6 +412,8 @@ const emit = defineEmits<{
   'delete-item': [item: LifelogTimelinePanelItem];
   'update-item': [item: LifelogTimelinePanelItem, text: string];
   'update-annotation': [item: LifelogTimelinePanelItem, text: string];
+  'toggle-star': [item: LifelogTimelinePanelItem];
+  'open-source': [item: LifelogTimelinePanelItem];
 }>();
 
 const isDraftEmpty = computed(() => !props.draft.trim());
@@ -420,6 +481,45 @@ function handleDraftInput(event: Event): void {
 
 function changePeriod(offset: number): void {
   emit('change-period', offset);
+}
+
+function escapeDragHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeDragMarkdownTitle(value: string): string {
+  return value.replace(/<[^>]*>/g, '').replace(/[\\`*_{}[\]()#+.!|>-]/g, '\\$&').replace(/\r?\n/g, ' ').trim();
+}
+
+function getCardDragContent(item: LifelogTimelinePanelItem): string {
+  return (item.annotation || item.note || '').trim();
+}
+
+function getCardDragMarkdown(item: LifelogTimelinePanelItem): string {
+  const content = getCardDragContent(item);
+  if (!content) return '';
+  return `##### ${escapeDragMarkdownTitle(item.timeLabel)} ${escapeDragMarkdownTitle(item.title)}\n\n${content}`;
+}
+
+function handleCardDragStart(event: DragEvent, item: LifelogTimelinePanelItem): void {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('button, textarea, input')) {
+    event.preventDefault();
+    return;
+  }
+  const markdown = getCardDragMarkdown(item);
+  if (!markdown || !event.dataTransfer) return;
+  const title = `${item.timeLabel} ${item.title.replace(/<[^>]*>/g, '').trim()}`.trim();
+  const content = getCardDragContent(item);
+  event.dataTransfer.effectAllowed = 'copy';
+  event.dataTransfer.setData('text/plain', markdown);
+  event.dataTransfer.setData('text/markdown', markdown);
+  event.dataTransfer.setData('text/html', `<h5>${escapeDragHtml(title)}</h5><p>${escapeDragHtml(content).replace(/\r?\n/g, '<br>')}</p>`);
 }
 
 function requestDeleteItem(item: LifelogTimelinePanelItem): void {
@@ -836,6 +936,14 @@ function handleBackdropMouseDown(): void {
   background: var(--b3-theme-background);
 }
 
+.lifelog-timeline-card[draggable='true'] {
+  cursor: grab;
+}
+
+.lifelog-timeline-card[draggable='true']:active {
+  cursor: grabbing;
+}
+
 
 .lifelog-timeline-card-header {
   display: flex;
@@ -855,21 +963,92 @@ function handleBackdropMouseDown(): void {
   font-weight: 600;
 }
 
-.lifelog-timeline-delete {
-  width: 22px;
-  height: 22px;
+.lifelog-timeline-card-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+@media (max-width: 420px) {
+  .lifelog-timeline-list {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .lifelog-timeline-item {
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 6px;
+  }
+
+}
+
+.lifelog-timeline-group-header {
+  z-index: 3;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 -2px 8px;
+  padding: 9px 4px 6px;
+  border-bottom: 1px solid var(--b3-border-color);
+  background: var(--b3-list-background);
+}
+
+.lifelog-timeline-group-header:not(:first-child) {
+  margin-top: 14px;
+}
+
+.lifelog-timeline-group-title {
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lifelog-timeline-group-count {
+  flex: 0 0 auto;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 10px;
+}
+
+.lifelog-timeline-item.is-highlighted .lifelog-timeline-card {
+  outline: 2px solid var(--b3-theme-primary);
+  outline-offset: 2px;
+  animation: lifelog-timeline-highlight 1.8s ease-out;
+}
+
+@keyframes lifelog-timeline-highlight {
+  0%, 35% { background: color-mix(in srgb, var(--b3-theme-primary) 16%, var(--b3-theme-background)); }
+  100% { background: var(--b3-theme-background); }
+}
+
+.lifelog-timeline-action {
+  width: 20px;
+  height: 20px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--b3-theme-on-surface);
+  color: var(--b3-theme-on-background);
   cursor: pointer;
-  opacity: 0.74;
+  opacity: 0.35;
+  transition: opacity 0.2s, background-color 0.2s, transform 0.2s;
 }
 
-.lifelog-timeline-delete:hover {
+.lifelog-timeline-action:hover {
+  background: var(--b3-list-hover);
+  opacity: 1;
+}
+
+.lifelog-timeline-action.active {
+  color: #ffcc4d;
+  opacity: 1;
+}
+
+.lifelog-timeline-action.is-delete:hover {
   background: var(--b3-list-hover);
   color: var(--b3-theme-error);
   opacity: 1;

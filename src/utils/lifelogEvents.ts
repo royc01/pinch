@@ -1,4 +1,5 @@
 import type { FocusSessionRecord, Habit, HabitCalendarDay, MoodData, MoodEntry, MoodManualEntry, Task } from '@/api';
+import { getTaskTitlePlainText } from '@/utils/taskHtml';
 
 export type LifelogEventType =
   | 'focus'
@@ -29,6 +30,7 @@ export interface FocusLifelogEvent extends LifelogEvent {
   minutes: number;
   targetType: FocusSessionRecord['targetType'];
   targetId?: string;
+  targetBlockId?: string;
   laneIndex?: number;
   laneCount?: number;
 }
@@ -102,15 +104,6 @@ export interface ManualNoteDaySummary {
   notes: number;
 }
 
-const HTML_ENTITY_MAP: Record<string, string> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  nbsp: ' '
-};
-
 function padTimePart(value: number): string {
   return String(value).padStart(2, '0');
 }
@@ -160,38 +153,6 @@ export function getLifelogLocalDateKey(value: string | undefined): string {
   return parsed ? formatLocalDate(parsed) : '';
 }
 
-function decodeHtmlEntities(value: string): string {
-  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
-    const normalized = entity.toLowerCase();
-    if (normalized.startsWith('#x')) {
-      const codePoint = Number.parseInt(normalized.slice(2), 16);
-      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
-    }
-    if (normalized.startsWith('#')) {
-      const codePoint = Number.parseInt(normalized.slice(1), 10);
-      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
-    }
-    return HTML_ENTITY_MAP[normalized] ?? match;
-  });
-}
-
-function stripHtmlToText(value: string): string {
-  let text = value;
-  for (let index = 0; index < 2; index += 1) {
-    const decoded = decodeHtmlEntities(text);
-    if (decoded === text) {
-      break;
-    }
-    text = decoded;
-  }
-  return text
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 export function createFocusEventTitle(record: FocusSessionRecord, fallbackTitle: string): string {
   const targetName = typeof record.targetName === 'string' ? record.targetName.trim() : '';
   const targetEmoji = typeof record.targetEmoji === 'string' ? record.targetEmoji.trim() : '';
@@ -227,6 +188,7 @@ export function focusRecordToLifelogEvent(
     sourceType: 'focus-session',
     targetType: record.targetType,
     targetId: record.targetId,
+    targetBlockId: record.targetBlockId,
     metadata: {
       timestamp
     }
@@ -359,7 +321,7 @@ export function taskCompletedToLifelogEvent(task: Task): TaskCompletedLifelogEve
   }
   const normalizedCompletedAt = completedDate.toISOString();
 
-  const plainTitle = typeof task.title === 'string' ? stripHtmlToText(task.title) : '';
+  const plainTitle = getTaskTitlePlainText(task.title);
   const title = plainTitle
     ? plainTitle
     : 'Task';

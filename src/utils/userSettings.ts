@@ -2,6 +2,7 @@ import { usePlugin } from '../main';
 import { normalizeNotebookIds } from './taskViewShared';
 import type { TaskViewGroupMode } from './taskGrouping';
 import type { TaskDateKeywordConfig } from './taskDateParser';
+import type { StoredTaskFilterExpressionItem } from '@/composables/useTaskFilterState';
 
 export type TaskViewSwitcherId = 'kanban' | 'list' | 'table' | 'quadrant' | 'gantt' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
 export type SidebarSectionId = 'week-dates' | 'habit-list' | 'stand-container';
@@ -18,12 +19,16 @@ export interface UserSettings {
     microBreakDurationSeconds?: number;
     shortBreakPopup?: boolean;
     focusCompletePopup?: boolean;
+    checkinNotePrompt?: boolean;
     whiteNoiseEnabled?: boolean;
     selectedWhiteNoiseId?: string;
     whiteNoiseVolume?: number;
     customWhiteNoiseFile?: string;
+    customWhiteNoiseVolume?: number;
     customCompletionSoundFile?: string;
+    customCompletionSoundVolume?: number;
     customMicroBreakSoundFile?: string;
+    customMicroBreakSoundVolume?: number;
   };
   kanban: {
     currentView?: TaskViewSwitcherId;
@@ -81,12 +86,14 @@ export interface UserSettings {
     kanbanUpdatedFilters?: string[];
     kanbanGroupFilters?: string[];
     kanbanExtraFilters?: string[];
+    kanbanFilterExpression?: StoredTaskFilterExpressionItem[];
     tableStatusFilters?: string[];
     tablePriorityFilters?: string[];
     tableDueFilters?: string[];
     tableUpdatedFilters?: string[];
     tableGroupFilters?: string[];
     tableExtraFilters?: string[];
+    tableFilterExpression?: StoredTaskFilterExpressionItem[];
     hiddenViewSwitcherIds?: TaskViewSwitcherId[];
   };
   taskManager: {
@@ -117,6 +124,7 @@ export interface UserSettings {
     taskUpdatedFilters?: string[];
     taskGroupFilters?: string[];
     taskExtraFilters?: string[];
+    taskFilterExpression?: StoredTaskFilterExpressionItem[];
   };
   sidebar: {
     selectedNotebook: string;
@@ -140,9 +148,13 @@ export const DEFAULT_SETTINGS: UserSettings = {
     microBreakDurationSeconds: 10,
     shortBreakPopup: false,
     focusCompletePopup: false,
+    checkinNotePrompt: false,
     whiteNoiseEnabled: false,
     selectedWhiteNoiseId: 'rain',
-    whiteNoiseVolume: 0.3
+    whiteNoiseVolume: 0.3,
+    customWhiteNoiseVolume: 0.3,
+    customCompletionSoundVolume: 0.3,
+    customMicroBreakSoundVolume: 0.3
   },
   kanban: {
     currentView: 'table',
@@ -195,12 +207,14 @@ export const DEFAULT_SETTINGS: UserSettings = {
     kanbanUpdatedFilters: [],
     kanbanGroupFilters: [],
     kanbanExtraFilters: [],
+    kanbanFilterExpression: [],
     tableStatusFilters: [],
     tablePriorityFilters: [],
     tableDueFilters: [],
     tableUpdatedFilters: [],
     tableGroupFilters: [],
     tableExtraFilters: [],
+    tableFilterExpression: [],
     hiddenViewSwitcherIds: []
   },
   taskManager: {
@@ -228,7 +242,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     taskDueFilters: [],
     taskUpdatedFilters: [],
     taskGroupFilters: [],
-    taskExtraFilters: []
+    taskExtraFilters: [],
+    taskFilterExpression: []
   },
   sidebar: {
     selectedNotebook: 'all',
@@ -260,6 +275,30 @@ function normalizeStringArray(input: unknown): string[] {
     }
     seen.add(value);
     normalized.push(value);
+  }
+  return normalized;
+}
+
+function normalizeTaskFilterExpression(input: unknown): StoredTaskFilterExpressionItem[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const groups = new Set(['status', 'priority', 'group', 'due', 'updated', 'extra']);
+  const seen = new Set<string>();
+  const normalized: StoredTaskFilterExpressionItem[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Record<string, unknown>;
+    const group = typeof item.group === 'string' ? item.group : '';
+    const value = typeof item.value === 'string' ? item.value.trim() : '';
+    const key = `${group}:${value}`;
+    if (!groups.has(group) || !value || seen.has(key)) continue;
+    normalized.push({
+      group: group as StoredTaskFilterExpressionItem['group'],
+      value,
+      join: item.join === 'or' || item.join === 'not' ? item.join : 'and'
+    });
+    seen.add(key);
   }
   return normalized;
 }
@@ -415,12 +454,14 @@ function mergeWithDefaults(input: unknown): UserSettings {
       kanbanUpdatedFilters: normalizeStringArray((rawKanban as { kanbanUpdatedFilters?: unknown }).kanbanUpdatedFilters),
       kanbanGroupFilters: normalizeStringArray((rawKanban as { kanbanGroupFilters?: unknown }).kanbanGroupFilters),
       kanbanExtraFilters: normalizeStringArray((rawKanban as { kanbanExtraFilters?: unknown }).kanbanExtraFilters),
+      kanbanFilterExpression: normalizeTaskFilterExpression((rawKanban as { kanbanFilterExpression?: unknown }).kanbanFilterExpression),
       tableStatusFilters: normalizeStringArray((rawKanban as { tableStatusFilters?: unknown }).tableStatusFilters),
       tablePriorityFilters: normalizeStringArray((rawKanban as { tablePriorityFilters?: unknown }).tablePriorityFilters),
       tableDueFilters: normalizeStringArray((rawKanban as { tableDueFilters?: unknown }).tableDueFilters),
       tableUpdatedFilters: normalizeStringArray((rawKanban as { tableUpdatedFilters?: unknown }).tableUpdatedFilters),
       tableGroupFilters: normalizeStringArray((rawKanban as { tableGroupFilters?: unknown }).tableGroupFilters),
       tableExtraFilters: normalizeStringArray((rawKanban as { tableExtraFilters?: unknown }).tableExtraFilters),
+      tableFilterExpression: normalizeTaskFilterExpression((rawKanban as { tableFilterExpression?: unknown }).tableFilterExpression),
       hiddenViewSwitcherIds: normalizeAllowedStringArray(
         (rawKanban as { hiddenViewSwitcherIds?: unknown }).hiddenViewSwitcherIds,
         TASK_VIEW_SWITCHER_IDS
@@ -436,6 +477,7 @@ function mergeWithDefaults(input: unknown): UserSettings {
       taskUpdatedFilters: normalizeStringArray((rawTaskManager as { taskUpdatedFilters?: unknown }).taskUpdatedFilters),
       taskGroupFilters: normalizeStringArray((rawTaskManager as { taskGroupFilters?: unknown }).taskGroupFilters),
       taskExtraFilters: normalizeStringArray((rawTaskManager as { taskExtraFilters?: unknown }).taskExtraFilters),
+      taskFilterExpression: normalizeTaskFilterExpression((rawTaskManager as { taskFilterExpression?: unknown }).taskFilterExpression),
       dateRecognitionKeywords: normalizeDateRecognitionKeywords(
         (rawTaskManager as { dateRecognitionKeywords?: unknown }).dateRecognitionKeywords
       ),

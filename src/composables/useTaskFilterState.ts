@@ -1,7 +1,14 @@
-import { computed, ref, unref, type Ref } from 'vue';
+import { computed, shallowRef, unref, watch, type Ref } from 'vue';
 import { translate } from '@/composables/useI18n';
 
 export type TaskFilterSectionKey = 'status' | 'priority' | 'group' | 'due' | 'updated' | 'extra';
+export type TaskFilterJoin = 'and' | 'or' | 'not';
+
+export interface StoredTaskFilterExpressionItem {
+  group: TaskFilterSectionKey;
+  value: string;
+  join: TaskFilterJoin;
+}
 
 export interface TaskFilterOption<T extends string = string> {
   value: T;
@@ -28,6 +35,38 @@ export interface TaskFilterChip {
   style?: Record<string, string>;
 }
 
+export interface TaskFilterExpressionItem extends TaskFilterChip {
+  join: TaskFilterJoin;
+}
+
+export function matchesTaskFilterExpression<T>(
+  task: T,
+  expression: readonly StoredTaskFilterExpressionItem[],
+  matchesCondition: (task: T, condition: StoredTaskFilterExpressionItem) => boolean
+): boolean {
+  if (expression.length === 0) {
+    return true;
+  }
+
+  let result = matchesCondition(task, expression[0]);
+  for (let index = 1; index < expression.length; index++) {
+    const condition = expression[index];
+    const matched = matchesCondition(task, condition);
+    switch (condition.join) {
+      case 'or':
+        result = result || matched;
+        break;
+      case 'not':
+        result = result && !matched;
+        break;
+      default:
+        result = result && matched;
+        break;
+    }
+  }
+  return result;
+}
+
 type MaybeRef<T> = T | Ref<T>;
 
 export function useTaskFilterState<
@@ -47,12 +86,13 @@ export function useTaskFilterState<
   updatedSingle?: boolean;
   sectionTitles?: Partial<Record<TaskFilterSectionKey, string>>;
 }) {
-  const activeStatusFilters = ref<TStatus[]>([]);
-  const activePriorityFilters = ref<TPriority[]>([]);
-  const activeDueFilters = ref<TDue[]>([]);
-  const activeUpdatedFilters = ref<TUpdated[]>([]);
-  const activeGroupFilters = ref<string[]>([]);
-  const activeExtraFilters = ref<TExtra[]>([]);
+  const activeStatusFilters = shallowRef<TStatus[]>([]);
+  const activePriorityFilters = shallowRef<TPriority[]>([]);
+  const activeDueFilters = shallowRef<TDue[]>([]);
+  const activeUpdatedFilters = shallowRef<TUpdated[]>([]);
+  const activeGroupFilters = shallowRef<string[]>([]);
+  const activeExtraFilters = shallowRef<TExtra[]>([]);
+  const expressionState = shallowRef<StoredTaskFilterExpressionItem[]>([]);
 
   const groupOptions = computed(() => {
     const resolved = unref(options.groupOptions);
@@ -69,40 +109,77 @@ export function useTaskFilterState<
     ...options.sectionTitles
   };
 
-  const toggleFilterValue = <T extends string>(filterRef: Ref<T[]>, value: T): void => {
-    filterRef.value = filterRef.value.includes(value)
-      ? filterRef.value.filter(item => item !== value)
-      : [...filterRef.value, value];
+  const toggleFilterValue = <T extends string>(
+    filterRef: Ref<T[]>,
+    group: TaskFilterSectionKey,
+    value: T
+  ): void => {
+    if (filterRef.value.includes(value)) {
+      filterRef.value = filterRef.value.filter(item => item !== value);
+      expressionState.value = expressionState.value.filter(item => !(item.group === group && item.value === value));
+      return;
+    }
+
+    filterRef.value = [...filterRef.value, value];
+    let sameGroupIndex = -1;
+    for (let index = expressionState.value.length - 1; index >= 0; index--) {
+      if (expressionState.value[index].group === group) {
+        sameGroupIndex = index;
+        break;
+      }
+    }
+    if (sameGroupIndex >= 0) {
+      expressionState.value = [
+        ...expressionState.value.slice(0, sameGroupIndex + 1),
+        { group, value, join: 'or' },
+        ...expressionState.value.slice(sameGroupIndex + 1)
+      ];
+      return;
+    }
+    expressionState.value = [...expressionState.value, { group, value, join: 'and' }];
   };
 
   const toggleStatus = (value: TStatus): void => {
-    toggleFilterValue(activeStatusFilters, value);
+    toggleFilterValue(activeStatusFilters, 'status', value);
   };
 
   const togglePriority = (value: TPriority): void => {
-    toggleFilterValue(activePriorityFilters, value);
+    toggleFilterValue(activePriorityFilters, 'priority', value);
   };
 
   const toggleDue = (value: TDue): void => {
-    toggleFilterValue(activeDueFilters, value);
+    toggleFilterValue(activeDueFilters, 'due', value);
   };
 
   const toggleUpdated = (value: TUpdated): void => {
     if (options.updatedSingle === false) {
-      toggleFilterValue(activeUpdatedFilters, value);
+      toggleFilterValue(activeUpdatedFilters, 'updated', value);
       return;
     }
-    activeUpdatedFilters.value = activeUpdatedFilters.value.includes(value)
-      ? []
-      : [value];
+    for (const activeValue of activeUpdatedFilters.value) {
+      if (activeValue !== value) {
+        expressionState.value = expressionState.value.filter(item => !(item.group === 'updated' && item.value === activeValue));
+      }
+    }
+    if (activeUpdatedFilters.value.includes(value)) {
+      activeUpdatedFilters.value = [];
+      expressionState.value = expressionState.value.filter(item => !(item.group === 'updated' && item.value === value));
+      return;
+    }
+    activeUpdatedFilters.value = [value];
+    const previous = expressionState.value[expressionState.value.length - 1];
+    expressionState.value = [
+      ...expressionState.value,
+      { group: 'updated', value, join: previous?.group === 'updated' ? 'or' : 'and' }
+    ];
   };
 
   const toggleGroup = (value: string): void => {
-    toggleFilterValue(activeGroupFilters, value);
+    toggleFilterValue(activeGroupFilters, 'group', value);
   };
 
   const toggleExtra = (value: TExtra): void => {
-    toggleFilterValue(activeExtraFilters, value);
+    toggleFilterValue(activeExtraFilters, 'extra', value);
   };
 
   const clear = (): void => {
@@ -112,6 +189,7 @@ export function useTaskFilterState<
     activeUpdatedFilters.value = [];
     activeGroupFilters.value = [];
     activeExtraFilters.value = [];
+    expressionState.value = [];
   };
 
   const hasActive = computed(() =>
@@ -175,6 +253,68 @@ export function useTaskFilterState<
       label: findLabel(options.extraOptions, value)
     }))
   ]);
+
+  const expression = computed<TaskFilterExpressionItem[]>(() => {
+    const chipMap = new Map(chips.value.map(chip => [`${chip.group}:${chip.value}`, chip]));
+    return expressionState.value.flatMap(item => {
+      const chip = chipMap.get(`${item.group}:${item.value}`);
+      return chip ? [{ ...chip, join: item.join }] : [];
+    });
+  });
+
+  const restoreExpression = (stored: unknown): void => {
+    const chipMap = new Map(chips.value.map(chip => [`${chip.group}:${chip.value}`, chip]));
+    const restored: StoredTaskFilterExpressionItem[] = [];
+    const seen = new Set<string>();
+    if (Array.isArray(stored)) {
+      for (const raw of stored) {
+        if (!raw || typeof raw !== 'object') continue;
+        const item = raw as Partial<StoredTaskFilterExpressionItem>;
+        const key = `${item.group}:${item.value}`;
+        if (!chipMap.has(key) || seen.has(key)) continue;
+        restored.push({
+          group: item.group as TaskFilterSectionKey,
+          value: item.value as string,
+          join: item.join === 'or' || item.join === 'not' ? item.join : 'and'
+        });
+        seen.add(key);
+      }
+    }
+
+    for (const chip of chips.value) {
+      const key = `${chip.group}:${chip.value}`;
+      if (seen.has(key)) continue;
+      const previous = restored[restored.length - 1];
+      restored.push({
+        group: chip.group,
+        value: chip.value,
+        join: previous?.group === chip.group ? 'or' : 'and'
+      });
+    }
+    expressionState.value = restored;
+  };
+
+  const cycleExpressionJoin = (index: number): void => {
+    if (index <= 0 || index >= expressionState.value.length) return;
+    const joins: TaskFilterJoin[] = ['and', 'or', 'not'];
+    const current = expressionState.value[index];
+    const nextJoin = joins[(joins.indexOf(current.join) + 1) % joins.length];
+    expressionState.value = expressionState.value.map((item, itemIndex) => (
+      itemIndex === index ? { ...item, join: nextJoin } : item
+    ));
+  };
+
+  watch(
+    [
+      activeStatusFilters,
+      activePriorityFilters,
+      activeDueFilters,
+      activeUpdatedFilters,
+      activeGroupFilters,
+      activeExtraFilters
+    ],
+    () => restoreExpression(expressionState.value)
+  );
 
   const sections = computed<TaskFilterSection[]>(() => [
     {
@@ -267,6 +407,7 @@ export function useTaskFilterState<
     hasActive,
     count,
     chips,
+    expression,
     sections,
     toggleStatus,
     togglePriority,
@@ -275,6 +416,8 @@ export function useTaskFilterState<
     toggleGroup,
     toggleExtra,
     clear,
-    handleToggle
+    handleToggle,
+    restoreExpression,
+    cycleExpressionJoin
   };
 }

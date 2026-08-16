@@ -47,6 +47,7 @@ export const eventBus = new EventBus();
 export interface HabitTrackerPanelOpenRequest {
   target: 'habit-total' | 'habit-detail' | 'reward' | 'goal' | 'views';
   habitId?: string;
+  returnToRecords?: boolean;
   goalId?: string;
   rewardEntryId?: string;
 }
@@ -65,7 +66,7 @@ export interface FocusTimerPanelOpenRequest {
 }
 
 export interface TaskViewSwitchRequest {
-  view?: 'kanban' | 'table' | 'gantt' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table' | 'stats';
+  view?: 'kanban' | 'table' | 'quadrant' | 'gantt' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table' | 'stats';
   source?: string;
   documentId?: string;
 }

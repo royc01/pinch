@@ -72,6 +72,16 @@ export type KernelTaskStatsResult = {
   ageMs?: number;
 };
 
+export type KernelBlockDOMBatchResult = {
+  blocks: Array<{
+    id: string;
+    data: Record<string, unknown>;
+  }>;
+  failedIds: string[];
+  elapsedMs: number;
+  source: "kernel";
+};
+
 export class KernelRpcUnavailableError extends Error {
   constructor(message: string) {
     super(message);
@@ -193,4 +203,8 @@ export function getKernelTaskStats(
   params: Omit<KernelTaskIndexParams, 'blockIds'> = {}
 ): Promise<KernelTaskStatsResult> {
   return callPinchKernel<KernelTaskStatsResult>("getTaskStats", params);
+}
+
+export function getKernelBlockDOMBatch(ids: string[]): Promise<KernelBlockDOMBatchResult> {
+  return callPinchKernel<KernelBlockDOMBatchResult>("getBlockDOMBatch", { ids });
 }

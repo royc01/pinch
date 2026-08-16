@@ -135,10 +135,10 @@
               :checked="row.task.status === 'completed'"
               :size="14"
           /></span>
-          <span
+          <TaskTitlePlain
             class="calendar-task-sidebar-task-title"
-            v-html="getTaskTitleHtml(row.task)"
-          ></span>
+            :title="row.task.title"
+          />
         </button>
       </template>
       <div
@@ -154,7 +154,7 @@
       class="calendar-task-sidebar-drag-ghost"
       :style="{ transform: `translate3d(${pointerDrag.clientX + 12}px, ${pointerDrag.clientY + 12}px, 0)` }"
     >
-      <span v-html="getTaskTitleHtml(pointerDrag.task)"></span>
+      <TaskTitlePlain :title="pointerDrag.task.title" />
     </div>
   </aside>
 </template>
@@ -163,10 +163,10 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import type { Task } from "@/api";
 import { getTaskDisplayTitle } from "@/composables/useTaskCommon";
-import { sanitizeTaskTitleHtml } from "@/utils/taskHtml";
 import { useI18n } from "@/composables/useI18n";
 import Icon from "./Icon.vue";
 import TaskCheckbox from "./TaskCheckbox.vue";
+import TaskTitlePlain from './TaskTitlePlain.vue';
 
 const props = defineProps<{
   tasks: Task[];
@@ -206,9 +206,6 @@ let suppressNextTaskClick = false;
 const ROW_HEIGHT = 28;
 const OVERSCAN = 12;
 
-function getTaskTitleHtml(task: Task) {
-  return sanitizeTaskTitleHtml(task.title || "");
-}
 function handleTaskClick(event: MouseEvent, task: Task) {
   if (suppressNextTaskClick) {
     suppressNextTaskClick = false;

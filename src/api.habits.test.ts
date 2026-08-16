@@ -99,6 +99,7 @@ describe('habit persistence normalization', () => {
     plugin.loadData.mockResolvedValue([rawHabit, null])
 
     await expect(getHabits()).resolves.toEqual([normalizedHabit])
+    plugin.loadData.mockResolvedValue([normalizedHabit])
     await saveHabits([rawHabit, null] as unknown as Habit[])
 
     expect(plugin.saveData).toHaveBeenCalledWith('Pinch-habit.json', [normalizedHabit])

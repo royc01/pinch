@@ -191,7 +191,6 @@ export function computeTaskReminderTimestamp(task: TaskReminderAware): number | 
       return baseTimestamp - 60 * 60 * 1000;
     case '1d':
       return baseTimestamp - 24 * 60 * 60 * 1000;
-    case 'custom':
     default:
       return null;
   }

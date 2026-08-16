@@ -89,6 +89,14 @@ describe('lifelog task completion events', () => {
 
     expect(event?.title).toBe('sad11');
   });
+
+  it('removes a trailing SiYuan style marker from completed task titles', () => {
+    const event = taskCompletedToLifelogEvent(createTask({
+      title: 'sad11 {: style="background-color: var(--b3-font-background10);"}'
+    }));
+
+    expect(event?.title).toBe('sad11');
+  });
 });
 
 describe('lifelog mood manual note events', () => {

@@ -84,6 +84,9 @@ export default defineConfig(({ mode }) => {
         ],
         external: ["siyuan", "process"],
         output: {
+          // SiYuan evaluates plugin entry code without a filesystem module path,
+          // so relative require() calls for CJS chunks cannot be resolved.
+          inlineDynamicImports: true,
           entryFileNames: "[name].js",
           assetFileNames: (assetInfo) => {
             if (assetInfo.name === "style.css") {

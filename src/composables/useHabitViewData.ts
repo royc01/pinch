@@ -241,6 +241,7 @@ export const useHabitViewData = ({
       completed: item.data ? item.data.completed : false,
       completedCount: item.data ? item.data.completedCount || 0 : 0,
       targetCount: item.data ? item.data.targetCount || 1 : 1,
+      isScheduled: isHabitScheduledOnDate(habit, new Date(`${item.date}T00:00:00`)),
       isCurrentMonth: item.isCurrentMonth
     }));
   };

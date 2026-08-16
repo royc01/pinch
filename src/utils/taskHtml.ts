@@ -15,6 +15,23 @@ function cacheHtml(cache: Map<string, string>, key: string, value: string): stri
   return value;
 }
 
+function decodeTaskTitleEntities(value: string): string {
+  let decoded = value;
+  // Task titles can arrive from the SiYuan DOM with one or two layers of HTML
+  // escaping. Decode before parsing so both the rich and plain renderers see
+  // the same inline structure.
+  for (let index = 0; index < 2; index += 1) {
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = decoded;
+    const next = textarea.value;
+    if (next === decoded) {
+      break;
+    }
+    decoded = next;
+  }
+  return decoded;
+}
+
 function mergeDataTypeValues(...values: string[]): string {
   const seen = new Set<string>();
   const merged: string[] = [];
@@ -46,7 +63,7 @@ function applyInlineAttributeMarkers(container: HTMLElement): void {
       continue;
     }
 
-    const previous = node.previousElementSibling;
+    const previous = node.previousSibling instanceof Element ? node.previousSibling : null;
     const style = marker[1].match(stylePattern)?.slice(1).find(value => value !== undefined);
     if (previous instanceof HTMLElement && style) {
       previous.setAttribute('style', style);
@@ -253,9 +270,26 @@ export function sanitizeTaskTitleHtml(rawHtml?: string): string {
     return cached;
   }
 
-  const normalized = formatTaskTitleHtml(title);
+  const normalized = formatTaskTitleHtml(decodeTaskTitleEntities(title));
   const sanitized = sanitizeTaskHtml(normalized);
   return cacheHtml(sanitizedTaskTitleHtmlCache, title, stripTaskPrefix(sanitized));
+}
+
+/**
+ * Produce the same text users see in compact calendar chips, without any
+ * inline formatting markup or SiYuan attribute markers.
+ */
+export function getTaskTitlePlainText(rawHtml?: string): string {
+  const html = sanitizeTaskTitleHtml(rawHtml);
+  if (!html) {
+    return '';
+  }
+
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  return (container.textContent || container.innerText || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function stripTaskPrefix(text: string): string {

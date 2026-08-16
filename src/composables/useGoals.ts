@@ -1,6 +1,7 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import { TaskRepository, type Task } from '@/api';
-import { loadGoals, saveGoals, type Goal } from '@/goalRepository';
+import { loadGoals, saveGoals, updateGoalTaskMembership, upsertGoal, type Goal } from '@/goalRepository';
+import type { GoalTaskSource } from '@/utils/goalTaskMembership';
 import { buildGoalProgressSummaries, type GoalProgressStatus } from '@/utils/goalProgress';
 import { loadGoalScopeDocuments, type GoalScopeDocument } from '@/utils/goalScopeDocuments';
 import { eventBus, Events } from '@/utils/eventBus';
@@ -156,6 +157,16 @@ export const useGoals = () => {
     await loadGoalsData({ taskUseCache: false });
   };
 
+  const saveTaskGoalMembership = async (task: GoalTaskSource, goalIds: readonly string[]) => {
+    goalDefinitions.value = await updateGoalTaskMembership(task, goalIds);
+    await loadGoalsData({ taskUseCache: false });
+  };
+
+  const saveGoalDefinition = async (goal: Goal) => {
+    goalDefinitions.value = await upsertGoal(goal);
+    await loadGoalsData({ taskUseCache: false });
+  };
+
   onMounted(() => {
     mountedConsumers += 1;
     if (mountedConsumers !== 1) {
@@ -221,6 +232,8 @@ export const useGoals = () => {
     goalsError,
     loadGoalsData,
     refreshGoalDocuments,
-    saveGoalDefinitions
+    saveGoalDefinitions,
+    saveGoalDefinition,
+    saveTaskGoalMembership
   };
 };

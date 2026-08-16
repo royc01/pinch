@@ -1,6 +1,14 @@
-import { loadDocumentGroups, type DocumentGroup, type DocumentGroupMember } from './documentGroupRepository';
+import {
+  loadDocumentGroups,
+  loadDocumentGroupsStrict,
+  type DocumentGroup,
+  type DocumentGroupMember
+} from './documentGroupRepository';
 import { usePlugin } from './main';
 import { eventBus, Events } from './utils/eventBus';
+import { setTaskGoalMembership, type GoalTaskSource } from './utils/goalTaskMembership';
+import { enqueueStorageMutation } from './storageMutationCoordinator';
+import { isMissingPluginStorageValue } from './utils/pluginStorage';
 
 export interface GoalTaskMember {
   taskId: string;
@@ -34,6 +42,51 @@ interface GoalStorage {
 
 const GOALS_STORAGE_KEY = 'Pinch-goals.json';
 const GOALS_STORAGE_VERSION = 3;
+
+let goalsCache: Goal[] | null = null;
+let goalsReadFailure: Error | null = null;
+
+function cloneGoal(goal: Goal): Goal {
+  return {
+    ...goal,
+    members: goal.members.map(member => ({ ...member })),
+    excludedDocumentKeys: goal.excludedDocumentKeys ? [...goal.excludedDocumentKeys] : undefined,
+    taskMembers: goal.taskMembers ? goal.taskMembers.map(member => ({ ...member })) : undefined,
+    excludedTaskMembers: goal.excludedTaskMembers
+      ? goal.excludedTaskMembers.map(member => ({ ...member }))
+      : undefined
+  };
+}
+
+function cloneGoals(goals: Goal[]): Goal[] {
+  return goals.map(cloneGoal);
+}
+
+function requireGoalPlugin(): NonNullable<ReturnType<typeof usePlugin>> {
+  const plugin = usePlugin();
+  if (!plugin) {
+    throw new Error('[Goals] Plugin is not initialized');
+  }
+  return plugin;
+}
+
+function enqueueGoalMutation<T>(work: () => Promise<T>): Promise<T> {
+  return enqueueStorageMutation(GOALS_STORAGE_KEY, work);
+}
+
+function markGoalReadFailure(error: unknown): Error {
+  const normalized = error instanceof Error ? error : new Error(String(error));
+  goalsReadFailure ||= normalized;
+  return normalized;
+}
+
+function assertGoalsHealthy(): void {
+  if (goalsReadFailure) {
+    throw new Error(
+      `Cannot mutate ${GOALS_STORAGE_KEY} until a successful reload; last read failed: ${goalsReadFailure.message}`
+    );
+  }
+}
 
 function cloneGoalMembers(members: DocumentGroupMember[]): DocumentGroupMember[] {
   return members.map(member => ({ ...member }));
@@ -226,12 +279,159 @@ function hasLegacyGoalShape(input: unknown): boolean {
   return documentGroupId.length > 0;
 }
 
-async function persistGoals(goals: Goal[], emitEvent: boolean): Promise<Goal[]> {
-  const plugin = usePlugin();
-  if (!plugin) {
-    console.error('[Goals] persistGoals: plugin not ready');
-    return normalizeGoals(goals);
+function assertValidGoalMembers(input: unknown, goalIndex: number): void {
+  if (input === undefined) {
+    return;
   }
+  if (!Array.isArray(input)) {
+    throw new Error(`[Goals] Invalid members for goal at index ${goalIndex}`);
+  }
+  input.forEach((raw, memberIndex) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`[Goals] Invalid member at index ${goalIndex}:${memberIndex}`);
+    }
+    const member = raw as Record<string, unknown>;
+    if (
+      typeof member.documentId !== 'string'
+      || !member.documentId.trim()
+      || typeof member.notebookId !== 'string'
+      || !member.notebookId.trim()
+    ) {
+      throw new Error(`[Goals] Invalid member at index ${goalIndex}:${memberIndex}`);
+    }
+    for (const key of ['name', 'path']) {
+      if (member[key] !== undefined && typeof member[key] !== 'string') {
+        throw new Error(`[Goals] Invalid member ${key} at index ${goalIndex}:${memberIndex}`);
+      }
+    }
+  });
+}
+
+function assertValidGoalTaskMembers(input: unknown, goalIndex: number, field: string): void {
+  if (input === undefined) {
+    return;
+  }
+  if (!Array.isArray(input)) {
+    throw new Error(`[Goals] Invalid ${field} for goal at index ${goalIndex}`);
+  }
+  input.forEach((raw, memberIndex) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`[Goals] Invalid ${field} member at index ${goalIndex}:${memberIndex}`);
+    }
+    const member = raw as Record<string, unknown>;
+    if (typeof member.taskId !== 'string' || !member.taskId.trim()) {
+      throw new Error(`[Goals] Invalid ${field} member at index ${goalIndex}:${memberIndex}`);
+    }
+    for (const key of ['blockId', 'repeatSeriesId', 'notebookId', 'rootId', 'title', 'addedAt']) {
+      if (member[key] !== undefined && typeof member[key] !== 'string') {
+        throw new Error(`[Goals] Invalid ${field}.${key} at index ${goalIndex}:${memberIndex}`);
+      }
+    }
+  });
+}
+
+function assertValidGoals(input: unknown): asserts input is unknown[] {
+  if (!Array.isArray(input)) {
+    throw new Error('[Goals] Invalid data format, expected goals array');
+  }
+  input.forEach((raw, goalIndex) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`[Goals] Invalid goal at index ${goalIndex}`);
+    }
+    const goal = raw as Record<string, unknown>;
+    if (
+      typeof goal.id !== 'string'
+      || !goal.id.trim()
+      || typeof goal.name !== 'string'
+      || !goal.name.trim()
+    ) {
+      throw new Error(`[Goals] Invalid goal at index ${goalIndex}`);
+    }
+    assertValidGoalMembers(goal.members, goalIndex);
+    assertValidGoalTaskMembers(goal.taskMembers, goalIndex, 'taskMembers');
+    assertValidGoalTaskMembers(goal.excludedTaskMembers, goalIndex, 'excludedTaskMembers');
+    if (goal.excludedDocumentKeys !== undefined) {
+      if (!Array.isArray(goal.excludedDocumentKeys)) {
+        throw new Error(`[Goals] Invalid exclusions for goal at index ${goalIndex}`);
+      }
+      goal.excludedDocumentKeys.forEach((key, keyIndex) => {
+        if (typeof key !== 'string' || !/^[^:\s]+:[^:\s]+$/.test(key.trim())) {
+          throw new Error(`[Goals] Invalid exclusion at index ${goalIndex}:${keyIndex}`);
+        }
+      });
+    }
+    if (goal.documentGroupId !== undefined && (typeof goal.documentGroupId !== 'string' || !goal.documentGroupId.trim())) {
+      throw new Error(`[Goals] Invalid legacy document group for goal at index ${goalIndex}`);
+    }
+    if (goal.emoji !== undefined && typeof goal.emoji !== 'string') {
+      throw new Error(`[Goals] Invalid emoji for goal at index ${goalIndex}`);
+    }
+    if (goal.order !== undefined && (typeof goal.order !== 'number' || !Number.isFinite(goal.order))) {
+      throw new Error(`[Goals] Invalid order for goal at index ${goalIndex}`);
+    }
+    if (goal.dueDate !== undefined && typeof goal.dueDate !== 'string') {
+      throw new Error(`[Goals] Invalid dueDate for goal at index ${goalIndex}`);
+    }
+    for (const key of ['createdAt', 'updatedAt']) {
+      if (goal[key] !== undefined && typeof goal[key] !== 'string') {
+        throw new Error(`[Goals] Invalid ${key} for goal at index ${goalIndex}`);
+      }
+    }
+  });
+}
+
+interface ParsedGoalStorage {
+  goals: unknown[];
+  version: number;
+  needsLegacyGroups: boolean;
+}
+
+function parseGoalStorage(raw: unknown, strict: boolean): ParsedGoalStorage {
+  if (isMissingPluginStorageValue(raw)) {
+    return { goals: [], version: GOALS_STORAGE_VERSION, needsLegacyGroups: false };
+  }
+
+  const parsed: unknown = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  const isLegacyArray = Array.isArray(parsed);
+  const storage = !isLegacyArray && parsed && typeof parsed === 'object'
+    ? parsed as Partial<GoalStorage>
+    : null;
+  const goals = isLegacyArray ? parsed : storage?.goals;
+  if (!Array.isArray(goals)) {
+    throw new Error('[Goals] Invalid data format');
+  }
+  if (strict) {
+    assertValidGoals(goals);
+  }
+  const version = isLegacyArray
+    ? 0
+    : (typeof storage?.version === 'number' ? storage.version : 0);
+  return {
+    goals,
+    version,
+    needsLegacyGroups: goals.some(hasLegacyGoalShape)
+  };
+}
+
+async function readGoalStorage(strict: boolean): Promise<ParsedGoalStorage> {
+  const plugin = requireGoalPlugin();
+  return parseGoalStorage(await plugin.loadData(GOALS_STORAGE_KEY), strict);
+}
+
+async function readAndNormalizeGoals(strict: boolean): Promise<{ goals: Goal[]; needsMigration: boolean }> {
+  const storage = await readGoalStorage(strict);
+  const legacyGroups = storage.needsLegacyGroups
+    ? await (strict ? loadDocumentGroupsStrict() : loadDocumentGroups())
+    : [];
+  const goals = normalizeGoals(storage.goals, legacyGroups);
+  return {
+    goals,
+    needsMigration: storage.version !== GOALS_STORAGE_VERSION || storage.needsLegacyGroups
+  };
+}
+
+async function persistGoals(goals: Goal[], emitEvent: boolean): Promise<Goal[]> {
+  const plugin = requireGoalPlugin();
 
   const nowIso = new Date().toISOString();
   const normalizedGoals = normalizeGoals(goals).map((goal, index) => ({
@@ -251,18 +451,15 @@ async function persistGoals(goals: Goal[], emitEvent: boolean): Promise<Goal[]> 
     updatedAt: nowIso
   };
 
-  try {
-    await plugin.saveData(GOALS_STORAGE_KEY, payload);
-    if (emitEvent) {
-      eventBus.emit(Events.GOALS_UPDATED, {
-        goals: normalizedGoals
-      });
-    }
-  } catch (error) {
-    console.error('[Goals] persistGoals: save failed', error);
+  await plugin.saveData(GOALS_STORAGE_KEY, payload);
+  goalsCache = cloneGoals(normalizedGoals);
+  if (emitEvent) {
+    eventBus.emit(Events.GOALS_UPDATED, {
+      goals: cloneGoals(normalizedGoals)
+    });
   }
 
-  return normalizedGoals;
+  return cloneGoals(normalizedGoals);
 }
 
 export function normalizeGoals(input: unknown, legacyGroups: DocumentGroup[] = []): Goal[] {
@@ -285,45 +482,113 @@ export function normalizeGoals(input: unknown, legacyGroups: DocumentGroup[] = [
 }
 
 export async function loadGoals(): Promise<Goal[]> {
-  const plugin = usePlugin();
-  if (!plugin) {
-    console.error('[Goals] loadGoals: plugin not ready');
-    return [];
-  }
-
   try {
-    const raw = await plugin.loadData(GOALS_STORAGE_KEY);
-    if (!raw) {
-      return [];
+    let snapshot = await readAndNormalizeGoals(false);
+    goalsReadFailure = null;
+
+    if (snapshot.needsMigration) {
+      snapshot = await enqueueGoalMutation(async () => {
+        assertGoalsHealthy();
+        const latest = await readAndNormalizeGoals(true);
+        if (latest.needsMigration) {
+          const migratedGoals = await persistGoals(latest.goals, false);
+          return { goals: migratedGoals, needsMigration: false };
+        }
+        return latest;
+      });
     }
 
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    const parsedGoals = Array.isArray(parsed)
-      ? parsed
-      : (Array.isArray((parsed as Partial<GoalStorage> | null)?.goals)
-        ? (parsed as Partial<GoalStorage>).goals!
-        : []);
-    const storageVersion = !Array.isArray(parsed) && typeof (parsed as Partial<GoalStorage> | null)?.version === 'number'
-      ? (parsed as Partial<GoalStorage>).version!
-      : 0;
-    const needsLegacyGroups = parsedGoals.some(hasLegacyGoalShape);
-    const legacyGroups = needsLegacyGroups
-      ? await loadDocumentGroups()
-      : [];
-    const normalizedGoals = normalizeGoals(parsedGoals, legacyGroups);
-
-    if (storageVersion !== GOALS_STORAGE_VERSION || needsLegacyGroups) {
-      await persistGoals(normalizedGoals, false);
-    }
-
-    return normalizedGoals;
+    goalsCache = cloneGoals(snapshot.goals);
+    return cloneGoals(snapshot.goals);
   } catch (error) {
+    const normalizedError = markGoalReadFailure(error);
     console.error('[Goals] loadGoals: read failed', error);
+    if (goalsCache) {
+      return cloneGoals(goalsCache);
+    }
+    throw normalizedError;
   }
-
-  return [];
 }
 
 export async function saveGoals(goals: Goal[]): Promise<void> {
-  await persistGoals(goals, true);
+  await enqueueGoalMutation(async () => {
+    assertGoalsHealthy();
+    try {
+      await readGoalStorage(true);
+      await persistGoals(goals, true);
+      goalsReadFailure = null;
+    } catch (error) {
+      markGoalReadFailure(error);
+      console.error('[Goals] saveGoals: failed to persist data', error);
+      throw error;
+    }
+  });
+}
+
+export async function upsertGoal(goal: Goal): Promise<Goal[]> {
+  return enqueueGoalMutation(async () => {
+    assertGoalsHealthy();
+    try {
+      const snapshot = await readAndNormalizeGoals(true);
+      const normalizedGoal = normalizeGoal(goal, new Map());
+      if (!normalizedGoal) {
+        throw new Error('[Goals] Invalid goal');
+      }
+      const index = snapshot.goals.findIndex(item => item.id === normalizedGoal.id);
+      normalizedGoal.order = index >= 0 ? snapshot.goals[index].order : snapshot.goals.length;
+      const nextGoals = index >= 0
+        ? snapshot.goals.map((item, itemIndex) => itemIndex === index ? normalizedGoal : item)
+        : [...snapshot.goals, normalizedGoal];
+      const persisted = await persistGoals(nextGoals, true);
+      goalsReadFailure = null;
+      return persisted;
+    } catch (error) {
+      markGoalReadFailure(error);
+      console.error('[Goals] upsertGoal: failed to persist data', error);
+      throw error;
+    }
+  });
+}
+
+export async function removeGoal(goalId: string): Promise<Goal[]> {
+  return enqueueGoalMutation(async () => {
+    assertGoalsHealthy();
+    try {
+      const snapshot = await readAndNormalizeGoals(true);
+      const normalizedId = typeof goalId === 'string' ? goalId.trim() : '';
+      if (!normalizedId) {
+        throw new Error('[Goals] Invalid goal id');
+      }
+      const persisted = await persistGoals(
+        snapshot.goals.filter(goal => goal.id !== normalizedId),
+        true
+      );
+      goalsReadFailure = null;
+      return persisted;
+    } catch (error) {
+      markGoalReadFailure(error);
+      console.error('[Goals] removeGoal: failed to persist data', error);
+      throw error;
+    }
+  });
+}
+
+export async function updateGoalTaskMembership(
+  task: GoalTaskSource,
+  goalIds: readonly string[]
+): Promise<Goal[]> {
+  return enqueueGoalMutation(async () => {
+    assertGoalsHealthy();
+    try {
+      const snapshot = await readAndNormalizeGoals(true);
+      const nextGoals = setTaskGoalMembership(snapshot.goals, task, goalIds);
+      const persisted = await persistGoals(nextGoals, true);
+      goalsReadFailure = null;
+      return persisted;
+    } catch (error) {
+      markGoalReadFailure(error);
+      console.error('[Goals] updateGoalTaskMembership: failed to persist data', error);
+      throw error;
+    }
+  });
 }

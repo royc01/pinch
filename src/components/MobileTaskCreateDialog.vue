@@ -44,7 +44,7 @@ import QuickCreateTaskModal, { type Document, type Notebook, type QuickCreateCre
 import { useI18n } from '@/composables/useI18n';
 import { useMobileTextInputActivation } from '@/composables/useMobileTextInputActivation';
 import { useUserSettings } from '@/composables/useUserSettings';
-import { loadGoals, saveGoals, type Goal } from '@/goalRepository';
+import { loadGoals, updateGoalTaskMembership, type Goal } from '@/goalRepository';
 import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID } from '@/utils/pinchInbox';
 import { setTaskGoalMembership } from '@/utils/goalTaskMembership';
 import { normalizeTaskGroupOrderIds } from '@/utils/taskGroupShared';
@@ -265,15 +265,15 @@ async function handleQuickCreateCreated(payload: QuickCreateCreatedPayload): Pro
         .filter(goalId => goalId && goalDefinitions.value.some(goal => goal.id === goalId))
       : [];
     if (selectedGoalIds.length > 0 && taskId) {
-      const nextGoals = setTaskGoalMembership(goalDefinitions.value, {
+      const goalTask = {
         taskId,
         blockId,
         notebookId,
         rootId: resolvedRootId || undefined,
         title: task.title
-      }, selectedGoalIds);
-      goalDefinitions.value = nextGoals;
-      await saveGoals(nextGoals);
+      };
+      goalDefinitions.value = setTaskGoalMembership(goalDefinitions.value, goalTask, selectedGoalIds);
+      goalDefinitions.value = await updateGoalTaskMembership(goalTask, selectedGoalIds);
     }
     await updateSettings('taskManager', {
       lastTaskNotebook: notebookId,
