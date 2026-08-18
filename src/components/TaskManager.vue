@@ -948,6 +948,7 @@ import TaskQuickMetaMenu from '@/components/TaskQuickMetaMenu.vue';
 import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
 import { requestTaskCompletionNote, updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { getCheckinNotePromptAnchor } from '@/utils/checkinNotePrompt';
+import { escapeSqlLiteral } from '@/utils/sql';
 import { usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useGoals } from '@/composables/useGoals';
@@ -7209,6 +7210,9 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
   const newStatus = task.status === 'completed' ? 'pending' : 'completed';
   const shouldPlayCompletionSound = !wasCompleted && newStatus === 'completed';
   const isVirtualRepeatTask = !!task.isVirtual && !!task.repeatSeriesId && !!task.repeatInstanceDate;
+  const checkinNotePromptAnchor = getCheckinNotePromptAnchor(
+    event?.currentTarget instanceof Element ? event.currentTarget : null
+  );
   
   skipTaskTemporarily(skipSet, task.id);
   
@@ -7216,10 +7220,10 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     if (isVirtualRepeatTask) {
       const completedAt = await TaskRepository.updateRepeatInstanceStatus(task, newStatus);
       if (newStatus === 'completed' && completedAt) {
-        requestTaskCompletionNote(task.id, completedAt, getCheckinNotePromptAnchor(event?.currentTarget ?? null), task.title, task.blockId || task.id);
+        requestTaskCompletionNote(task.id, completedAt, checkinNotePromptAnchor, task.title, task.blockId || task.id);
       }
     } else if (task.type === 'block' && task.blockId) {
-      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true, getCheckinNotePromptAnchor(event?.currentTarget ?? null));
+      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true, checkinNotePromptAnchor);
     }
     
     if (!isVirtualRepeatTask) {
