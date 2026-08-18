@@ -199,6 +199,46 @@ describe('repeat repository storage safety', () => {
       .resolves.toBe('2026-08-11T09:30:00.000Z');
   });
 
+  it('automates unmodified instance status only inside its start and due time', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 11, 9, 30));
+    installMemoryStorage();
+    const templateTask = {
+      ...createTask('scheduled'),
+      status: 'pending' as const,
+      startDate: '2026-08-09',
+      dueDate: '2026-08-09',
+      startTime: '09:00',
+      dueTime: '10:00'
+    };
+    const series = await repository.setTaskRepeatSeries(templateTask, 'daily');
+
+    let tasks = await repository.materializeRepeatTasks([templateTask], {
+      startDate: '2026-08-09',
+      endDate: '2026-08-12'
+    });
+    expect(tasks.find(item => item.repeatInstanceDate === '2026-08-10')?.status).toBe('delayed');
+    expect(tasks.find(item => item.repeatInstanceDate === '2026-08-11')?.status).toBe('in-progress');
+    expect(tasks.find(item => item.repeatInstanceDate === '2026-08-12')?.status).toBe('pending');
+
+    await repository.setRepeatInstanceStatus(series!.id, '2026-08-11', 'pending');
+    vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+    tasks = await repository.materializeRepeatTasks([templateTask], {
+      startDate: '2026-08-09',
+      endDate: '2026-08-12'
+    });
+    expect(tasks.find(item => item.repeatInstanceDate === '2026-08-11')?.status).toBe('pending');
+
+    const records = await repository.loadRepeatRecords();
+    expect(records).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        seriesId: series!.id,
+        date: '2026-08-11',
+        status: 'pending'
+      })
+    ]));
+  });
+
   it('includes an overdue instance in a completion window when it was completed during that window', async () => {
     vi.useFakeTimers();
     installMemoryStorage();

@@ -1,4 +1,5 @@
 import { escapeSqlLiteral } from './utils/sql';
+import { getAutomaticScheduledTaskStatus } from './utils/taskStatusAutomation';
 
 declare const siyuan: any;
 
@@ -16,6 +17,7 @@ type KernelTaskRow = {
   is_subtask?: boolean;
   custom_task_id?: string;
   custom_task_status?: string;
+  custom_task_status_automatic?: string;
   custom_task_priority?: string;
   custom_task_due_date?: string;
   custom_task_due_time?: string;
@@ -249,6 +251,17 @@ function formatLocalDate(date: Date): string {
 
 function resolveTaskRowStatus(row: KernelTaskRow): string {
   const status = normalizeScopeValue(row.custom_task_status);
+  const automatic = ["1", "true", "TRUE", "yes", "YES"].includes(
+    normalizeScopeValue(row.custom_task_status_automatic)
+  );
+  if (automatic && status !== "completed") {
+    return getAutomaticScheduledTaskStatus({
+      startDate: row.custom_task_start_date,
+      startTime: row.custom_task_start_time,
+      dueDate: row.custom_task_due_date,
+      dueTime: row.custom_task_due_time
+    });
+  }
   if (status) {
     return status;
   }
@@ -324,6 +337,7 @@ function normalizeTaskRow(row: any): KernelTaskRow {
     is_subtask: row?.is_subtask === true,
     custom_task_id: row?.custom_task_id || undefined,
     custom_task_status: row?.custom_task_status || undefined,
+    custom_task_status_automatic: row?.custom_task_status_automatic || undefined,
     custom_task_priority: row?.custom_task_priority || undefined,
     custom_task_due_date: row?.custom_task_due_date || undefined,
     custom_task_due_time: row?.custom_task_due_time || undefined,
@@ -404,6 +418,7 @@ function buildTaskRowsSql(filters: string[], orderBy: string, limit: number): st
     SELECT b.id, b.content, b.markdown, b.box, b.hpath, b.root_id, b.parent_id, b.updated, b.created,
            MAX(CASE WHEN a.name = 'custom-task-id' THEN a.value END) AS custom_task_id,
            MAX(CASE WHEN a.name = 'custom-task-status' THEN a.value END) AS custom_task_status,
+           MAX(CASE WHEN a.name = 'custom-task-status-automatic' THEN a.value END) AS custom_task_status_automatic,
            MAX(CASE WHEN a.name = 'custom-task-priority' THEN a.value END) AS custom_task_priority,
            MAX(CASE WHEN a.name = 'custom-task-due-date' THEN a.value END) AS custom_task_due_date,
            MAX(CASE WHEN a.name = 'custom-task-due-time' THEN a.value END) AS custom_task_due_time,

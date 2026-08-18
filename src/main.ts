@@ -123,7 +123,6 @@ function openMobilePinchPluginPage(): boolean {
       'position:fixed',
       'inset:0',
       'z-index:10000',
-      'background:var(--b3-theme-background)',
       'overflow:hidden'
     ].join(';');
 
@@ -132,7 +131,9 @@ function openMobilePinchPluginPage(): boolean {
       'width:100%',
       'height:100%',
       'box-sizing:border-box',
-      'padding-top:calc(env(safe-area-inset-top) + 48px)'
+      // Keep room for the close button without adding the status-bar inset
+      // on top of the regular mobile header height.
+      'padding-top:max(48px, env(safe-area-inset-top, 0px))'
     ].join(';');
     panel.appendChild(mountElement);
 

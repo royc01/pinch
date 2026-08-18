@@ -438,6 +438,12 @@ describe('TaskRepository incremental task fetches', () => {
     expect(parseStatus({ 'custom-task-status': 'delayed' }, '- [x] finished')).toBe('completed');
     expect(parseStatus({ 'custom-task-status': 'delayed' }, '- [ ] waiting')).toBe('delayed');
     expect(parseStatus({ 'custom-task-status': 'in-progress' }, 'plain task text')).toBe('in-progress');
+    expect(parseStatus({
+      'custom-task-status': 'in-progress',
+      'custom-task-status-automatic': '1',
+      'custom-task-start-date': '2000-01-01',
+      'custom-task-due-date': '2000-01-01'
+    }, 'plain task text')).toBe('delayed');
     expect(parseStatus({ 'custom-task-status': 'unknown' }, 'plain task text')).toBe('pending');
   });
 });

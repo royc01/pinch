@@ -5,6 +5,7 @@ import { translate } from '@/composables/useI18n';
 import solarLunar from '@/utils/solarLunar.js';
 import { enqueueStorageMutation, enqueueStorageMutations } from '@/storageMutationCoordinator';
 import { isMissingPluginStorageValue } from '@/utils/pluginStorage';
+import { getAutomaticScheduledTaskStatus } from '@/utils/taskStatusAutomation';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly' | 'custom';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
@@ -530,7 +531,6 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
 
     const recordKey = buildRecordKey(series.id, instanceDate);
     const record = recordMap.get(recordKey);
-    const status = record?.status || 'in-progress';
 
     const templateTitle = typeof templateTask.title === 'string' ? templateTask.title : '';
     const templateDescription = typeof templateTask.description === 'string' ? templateTask.description : '';
@@ -550,6 +550,17 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
     const isRepeatWindow = series.rule?.unit === 'month'
       && !!series.rule.windowStartDay
       && !!series.rule.windowEndDay;
+    const instanceDueDate = isRepeatWindow ? (() => {
+      const due = new Date(cursor);
+      due.setDate(due.getDate() + (series.rule!.windowEndDay! - series.rule!.windowStartDay!));
+      return formatDate(due);
+    })() : instanceDate;
+    const status = record?.status || getAutomaticScheduledTaskStatus({
+      startDate: instanceDate,
+      dueDate: instanceDueDate,
+      startTime: series.startTime || templateTask.startTime,
+      dueTime: series.dueTime || templateTask.dueTime
+    });
     virtualTasks.push({
       ...templateTask,
       id: buildVirtualTaskId(series.id, instanceDate),
@@ -562,13 +573,7 @@ function buildVirtualTasksForSeries<T extends RepeatTaskLike>(
       repeatInstanceDate: instanceDate,
       status,
       startDate: instanceDate,
-      dueDate: isRepeatWindow ? (() => {
-        const due = new Date(cursor);
-        // The rule is the source of truth: spanDays can be absent in older
-        // persisted series, while the window bounds are always explicit.
-        due.setDate(due.getDate() + (series.rule!.windowEndDay! - series.rule!.windowStartDay!));
-        return formatDate(due);
-      })() : instanceDate,
+      dueDate: instanceDueDate,
       startTime: series.startTime || templateTask.startTime,
       dueTime: series.dueTime || templateTask.dueTime,
       // Keep virtual instances aligned with latest template edits (title/priority/description/tags).
@@ -1364,19 +1369,6 @@ export async function setRepeatInstanceStatus(seriesId: string, date: string, st
     const records = await readRepeatRecordsFromStorage();
     const index = records.findIndex((record) => record.key === key);
 
-    if (status === 'pending') {
-      if (index >= 0) {
-        records.splice(index, 1);
-        await persistRepeatRecords(records);
-        emitRepeatChanged({
-          blockId: series?.templateBlockId,
-          seriesId: seriesId,
-          frequency: series?.frequency
-        });
-      }
-      return '';
-    }
-
     const now = new Date().toISOString();
     const next: RepeatRecord = {
       key,
@@ -1529,7 +1521,7 @@ export async function rebuildAffectedRepeatTasks<T extends RepeatTaskLike>(
       : targetSeries.startDate,
     startTime: targetSeries.startTime,
     dueTime: targetSeries.dueTime,
-    status: templateTask.status === 'pending' ? 'in-progress' as const : templateTask.status
+    status: templateTask.status
   } as T;
   const templateChanged = (
     templateTask.repeatSeriesId !== alignedTemplateTask.repeatSeriesId

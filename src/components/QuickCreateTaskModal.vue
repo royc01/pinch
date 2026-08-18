@@ -295,6 +295,7 @@ import {
 import { PINCH_DAILY_NOTE_OPTION_ID, PINCH_INBOX_OPTION_ID, isPinchInboxValue } from '@/utils/pinchInbox';
 import { PINCH_INBOX_PATH } from '@/utils/pinchInbox';
 import { buildTaskTagAttrs } from '@/utils/taskTags';
+import { extractQuickCreateDraftTitle } from '@/utils/quickCreateDraftTitle';
 import type { Goal } from '@/goalRepository';
 import { usePlugin } from '@/main';
 import { eventBus, Events } from '@/utils/eventBus';
@@ -1036,12 +1037,7 @@ async function readQuickCreateDraftTitle(blockId: string): Promise<string> {
       : typeof response?.kramdown === 'string'
         ? response.kramdown
         : '';
-    return markdown
-      .replace(/^- \[[ xX]\]\s*/, '')
-      .replace(/^\u200B/, '')
-      .trim()
-      .split('\n')[0]
-      ?.trim() || '';
+    return extractQuickCreateDraftTitle(markdown);
   } catch {
     return '';
   }
@@ -1530,9 +1526,9 @@ async function handleSubmit(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 8px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--b3-theme-border);
-  margin-bottom: 12px;
+  margin-top: 12px;
 }
 
 .task-modal-quick-panel.is-date {
@@ -1679,10 +1675,11 @@ async function handleSubmit(): Promise<void> {
   margin-right: auto;
 }
 
-.task-modal-footer {
+.modal-footer.task-modal-footer {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 0 20px 16px;
 }
 
 .task-modal-action-btn {

@@ -1762,6 +1762,7 @@ import {
   normalizeTaskGroupOrderIds
 } from '@/utils/taskGroupShared';
 import { buildTaskPriorityOptions } from '@/utils/taskPriority';
+import { getInitialAutomaticTaskStatus } from '@/utils/taskStatusAutomation';
 import {
   buildTaskStatusFilterOptions,
   buildTaskStatusSelectOptions,
@@ -2974,6 +2975,9 @@ useMobileTextInputActivation(kanbanViewRef);
 let suppressNextKanbanEditorOutsideMouseDown = false;
 let kanbanEditorProtyle: Protyle | null = null;
 const kanbanEditorTaskId = ref<string | null>(null);
+// Content edits use the repeat template block, while status belongs to the
+// selected occurrence.
+const kanbanEditorStatusTaskId = ref<string | null>(null);
 
 function getCalendarDockEditorMountElement(): HTMLElement | null {
   const exposed = calendarDockEditorPanelRef.value as { bodyEl?: HTMLElement | { value?: HTMLElement | null } } | null;
@@ -11500,6 +11504,7 @@ function hideCalendarDockEditorHost(): void {
 function resetKanbanEditorState(): void {
   suppressNextKanbanEditorOutsideMouseDown = false;
   kanbanEditorTaskId.value = null;
+  kanbanEditorStatusTaskId.value = null;
   kanbanEditorDraft.value = null;
   kanbanEditorQuickPanel.value = null;
   kanbanEditorRepeatFrequency.value = 'none';
@@ -11928,6 +11933,7 @@ async function saveKanbanEditorDateFields(
   if (!targetTask || targetTask.type !== 'block' || !blockId) {
     return;
   }
+  const automaticStatus = getInitialAutomaticTaskStatus(targetTask, normalizedFields);
   try {
     const isRepeatTask = isRepeatTaskEntity(targetTask);
     if (isRepeatTask) {
@@ -11981,13 +11987,15 @@ async function saveKanbanEditorDateFields(
           startDate: updatedSeries.startDate || '',
           startTime: updatedSeries.startTime || undefined,
           dueDate: updatedSeries.endDate || '',
-          dueTime: updatedSeries.dueTime || undefined
+          dueTime: updatedSeries.dueTime || undefined,
+          status: automaticStatus || targetTask.status
         };
         await TaskRepository.updateTask(updatedTask.id, {
           startDate: updatedTask.startDate,
           startTime: updatedTask.startTime,
           dueDate: updatedTask.dueDate,
-          dueTime: updatedTask.dueTime
+          dueTime: updatedTask.dueTime,
+          ...(automaticStatus ? { status: automaticStatus, statusAutomatic: true } : {})
         });
         applyKanbanEditorTaskDateChange(updatedTask);
         notifyRepeatChanged({
@@ -12005,13 +12013,15 @@ async function saveKanbanEditorDateFields(
       startDate: normalizedFields.startDate || '',
       startTime: normalizedFields.startTime || undefined,
       dueDate: normalizedFields.dueDate || '',
-      dueTime: normalizedFields.dueTime || undefined
+      dueTime: normalizedFields.dueTime || undefined,
+      status: automaticStatus || targetTask.status
     };
     await TaskRepository.updateTask(updatedTask.id, {
       startDate: updatedTask.startDate,
       startTime: updatedTask.startTime,
       dueDate: updatedTask.dueDate,
-      dueTime: updatedTask.dueTime
+      dueTime: updatedTask.dueTime,
+      ...(automaticStatus ? { status: automaticStatus, statusAutomatic: true } : {})
     });
     applyKanbanEditorTaskDateChange(updatedTask);
     invalidateTableFilters();
@@ -12129,7 +12139,10 @@ async function handleKanbanEditorStatusSelect(status: Task['status']): Promise<v
     return;
   }
   activeKanbanEditDraft.value.status = status;
-  await handleStatusUpdate(activeKanbanEditTask.value, status);
+  const statusTask = (kanbanEditorStatusTaskId.value
+    ? tasks.value.find(item => item.id === kanbanEditorStatusTaskId.value)
+    : null) || activeKanbanEditTask.value;
+  await handleStatusUpdate(statusTask, status);
   invalidateTableFilters();
 }
 
@@ -12788,6 +12801,10 @@ async function openKanbanEditor(
     && kanbanEditorTaskId.value === targetTask.id
     && kanbanEditorProtyle
   ) {
+    kanbanEditorStatusTaskId.value = task.id;
+    if (kanbanEditorDraft.value) {
+      kanbanEditorDraft.value.status = task.status || 'pending';
+    }
     resolveCalendarDockEditorTarget();
     return;
   }
@@ -12805,6 +12822,7 @@ async function openKanbanEditor(
     calendarDockEditorRendered.value = false;
   }
   kanbanEditorTaskId.value = targetTask.id;
+  kanbanEditorStatusTaskId.value = task.id;
   const normalizedReminder = normalizeTaskReminderSelection(targetTask);
   const normalizedDateFields = normalizeKanbanEditorDateFields({
     startDate: typeof targetTask.startDate === 'string' ? targetTask.startDate : '',
@@ -12815,7 +12833,7 @@ async function openKanbanEditor(
   const tagState = buildTaskTagState(targetTask.tags, targetTask.groupId);
   kanbanEditorDraft.value = {
     taskId: targetTask.id,
-    status: targetTask.status || 'pending',
+    status: task.status || targetTask.status || 'pending',
     startDate: normalizedDateFields.startDate,
     startTime: normalizedDateFields.startTime,
     dueDate: normalizedDateFields.dueDate,
@@ -14344,6 +14362,14 @@ async function handleStatusUpdate(task: Task, status: Task['status']) {
   }
 }
 
+async function setTaskStatusAutomatically(task: Task, status: Task['status']): Promise<void> {
+  await TaskRepository.updateTask(task.id, {
+    status,
+    statusAutomatic: true
+  });
+  syncTaskLocalStatusState(task.id, status);
+}
+
 async function handleGroupUpdate(task: Task, groupId: string) {
   const currentTagIds = resolveTaskTagIds(task.tags, task.groupId);
   const nextTagIds = groupId ? setPrimaryTaskTag(currentTagIds, groupId) : [];
@@ -14365,6 +14391,7 @@ async function handleTaskTagUpdate(task: Task, tagIds: string[]) {
 }
 
 async function handleStartDateUpdate(task: Task, startDate: string) {
+  const automaticStatus = getInitialAutomaticTaskStatus(task, { startDate });
   await applyBlockTaskFieldUpdate(
     task,
     { 'custom-task-start-date': startDate || '' },
@@ -14372,9 +14399,13 @@ async function handleStartDateUpdate(task: Task, startDate: string) {
     startDate,
     'Failed to update start date'
   );
+  if (automaticStatus) {
+    await setTaskStatusAutomatically(task, automaticStatus);
+  }
 }
 
 async function handleDueDateUpdate(task: Task, dueDate: string) {
+  const automaticStatus = getInitialAutomaticTaskStatus(task, { dueDate });
   await applyBlockTaskFieldUpdate(
     task,
     { 'custom-task-due-date': dueDate || '' },
@@ -14382,6 +14413,9 @@ async function handleDueDateUpdate(task: Task, dueDate: string) {
     dueDate,
     'Failed to update due date'
   );
+  if (automaticStatus) {
+    await setTaskStatusAutomatically(task, automaticStatus);
+  }
 }
 
 async function handleStartTimeUpdate(task: Task, startTime: string) {
@@ -14496,7 +14530,7 @@ function syncTaskLocalStatusState(taskId: string, status: Task['status']): void 
   targetTask.updatedAt = nowIso;
   syncCalendarLifelogTask(targetTask);
 
-  if (kanbanEditorDraft.value?.taskId === taskId) {
+  if (kanbanEditorDraft.value?.taskId === taskId || kanbanEditorStatusTaskId.value === taskId) {
     kanbanEditorDraft.value.status = status;
   }
 }
@@ -15180,6 +15214,7 @@ async function handleStatusDrop(targetStatus: Task['status']) {
       });
       await updateTaskMarkdown(task.blockId, targetStatus === 'completed');
     }
+    syncTaskLocalStatusState(taskId, targetStatus as Task['status']);
     if (!wasCompleted && targetStatus === 'completed' && taskCompletionSoundEnabled.value) {
       playTaskCompletionSound();
     }

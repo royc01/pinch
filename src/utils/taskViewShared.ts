@@ -220,9 +220,6 @@ export function applyRepeatRuleOptimisticToTasks(
         templateTask.repeatSeriesId = seriesId;
         templateTask.repeatInstanceDate = undefined;
         templateTask.isVirtual = false;
-        if (templateTask.status === 'pending') {
-          templateTask.status = 'in-progress';
-        }
       }
       touched = true;
     }

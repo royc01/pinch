@@ -977,6 +977,7 @@ import { emitOptimisticBlockTaskAdded } from '@/utils/taskCreationSync';
 import { publishTaskChange, type TaskChangePayload } from '@/utils/taskChangeCoordinator';
 import { syncTaskEditorDraftFromAttributeChanges } from '@/utils/taskEditorDraftSync';
 import { createTaskStatusAttributeSync } from '@/utils/taskStatusAttributeSync';
+import { getInitialAutomaticTaskStatus } from '@/utils/taskStatusAutomation';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 import { getCrdtRepository, useCrdtTasks } from '@/crdtStore';
 import { applyTaskAttributeMutation } from '@/utils/taskMutationService';
@@ -8120,6 +8121,7 @@ async function handleTaskQuickDateSave(): Promise<void> {
 
   const currentFields = await resolveCurrentTaskDateFields(task);
   const nextFields = normalizeTaskEditorDateFields(taskQuickDateDraft.value);
+  const automaticStatus = getInitialAutomaticTaskStatus(task, nextFields);
 
   if (isSameTaskEditorDateFields(currentFields, nextFields)) {
     closeTaskQuickDateMenu();
@@ -8141,13 +8143,19 @@ async function handleTaskQuickDateSave(): Promise<void> {
         'custom-task-start-date': nextFields.startDate,
         'custom-task-due-date': nextFields.dueDate,
         'custom-task-start-time': nextFields.startTime,
-        'custom-task-due-time': nextFields.dueTime
+        'custom-task-due-time': nextFields.dueTime,
+        ...(automaticStatus ? buildTaskStatusAttrs(automaticStatus, undefined, true) : {})
       });
       await TaskRepository.clearCache();
     }
 
     const nowIso = new Date().toISOString();
     const updatedTask = applyTaskDateFieldsLocally(task, nextFields, nowIso);
+    if (automaticStatus) {
+      updatedTask.status = automaticStatus;
+      patchTask(tasks.value, task.id, targetTask => { targetTask.status = automaticStatus; }, 'id');
+      crdtRepo.updateTaskField(task.id, 'status', automaticStatus);
+    }
     eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
     scheduleKernelTaskIndexRefresh();
     await refreshInternalState();
@@ -8173,6 +8181,7 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
   const currentFields = await resolveCurrentTaskDateFields(task);
   const nextFields = normalizeTaskEditorDateFields(taskQuickMetaDraft.value);
   const datesChanged = !isSameTaskEditorDateFields(currentFields, nextFields);
+  const automaticStatus = datesChanged ? getInitialAutomaticTaskStatus(task, nextFields) : null;
   const nextPriority = isBatchPriority(taskQuickMetaDraft.value.priority)
     ? taskQuickMetaDraft.value.priority
     : 'none';
@@ -8210,6 +8219,9 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
       attrsToPersist['custom-task-due-date'] = nextFields.dueDate;
       attrsToPersist['custom-task-start-time'] = nextFields.startTime;
       attrsToPersist['custom-task-due-time'] = nextFields.dueTime;
+      if (automaticStatus) {
+        Object.assign(attrsToPersist, buildTaskStatusAttrs(automaticStatus, undefined, true));
+      }
     }
     if (priorityChanged) {
       attrsToPersist['custom-task-priority'] = nextPriority;
@@ -8230,6 +8242,11 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
     const nowIso = new Date().toISOString();
     if (datesChanged && !dateSavedByRepeat) {
       const updatedTask = applyTaskDateFieldsLocally(task, nextFields, nowIso);
+      if (automaticStatus) {
+        updatedTask.status = automaticStatus;
+        patchTask(tasks.value, task.id, targetTask => { targetTask.status = automaticStatus; }, 'id');
+        crdtRepo.updateTaskField(task.id, 'status', automaticStatus);
+      }
       eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
     }
     if (priorityChanged || tagsChanged || reminderChanged) {
@@ -8703,6 +8720,7 @@ async function saveRepeatTaskDateFields(
   }
 
   const targetTask = await resolveTaskEditorTargetTask(task);
+  const automaticStatus = getInitialAutomaticTaskStatus(targetTask, fields);
   const blockId = typeof targetTask.blockId === 'string' ? targetTask.blockId.trim() : '';
   const repeatSeriesId = targetTask.repeatSeriesId;
   const repeatPersistenceTarget = { ...targetTask };
@@ -8768,7 +8786,8 @@ async function saveRepeatTaskDateFields(
       'custom-task-start-date': persistedFields.startDate,
       'custom-task-due-date': persistedFields.dueDate,
       'custom-task-start-time': persistedFields.startTime,
-      'custom-task-due-time': persistedFields.dueTime
+      'custom-task-due-time': persistedFields.dueTime,
+      ...(automaticStatus ? buildTaskStatusAttrs(automaticStatus, undefined, true) : {})
     });
     await TaskRepository.clearCache();
   }
@@ -8780,6 +8799,11 @@ async function saveRepeatTaskDateFields(
     repeatInstanceDate: undefined,
     isVirtual: false
   });
+  if (automaticStatus) {
+    updatedTask.status = automaticStatus;
+    patchTask(tasks.value, targetTask.id, currentTask => { currentTask.status = automaticStatus; }, 'id');
+    crdtRepo.updateTaskField(targetTask.id, 'status', automaticStatus);
+  }
 
   eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
   notifyRepeatChanged({
@@ -8794,6 +8818,7 @@ async function saveRepeatTaskDateFields(
 
 async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields): Promise<void> {
   const normalizedFields = normalizeTaskEditorDateFields(value);
+  const automaticStatus = getInitialAutomaticTaskStatus(task, normalizedFields);
   const currentFields = await resolveCurrentTaskDateFields(task);
   const activeDraft = activeTaskEditDraft.value;
   const normalizedDraft = activeDraft?.taskId === task.id
@@ -8823,7 +8848,8 @@ async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields):
       'custom-task-start-date': normalizedFields.startDate || '',
       'custom-task-due-date': normalizedFields.dueDate || '',
       'custom-task-start-time': normalizedFields.startTime || '',
-      'custom-task-due-time': normalizedFields.dueTime || ''
+      'custom-task-due-time': normalizedFields.dueTime || '',
+      ...(automaticStatus ? buildTaskStatusAttrs(automaticStatus, undefined, true) : {})
     },
     isUnchanged: draft => {
       const normalizedDraft = normalizeTaskEditorDateFields(draft);
@@ -8841,12 +8867,14 @@ async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields):
       targetTask.startTime = normalizedFields.startTime;
       targetTask.dueDate = normalizedFields.dueDate;
       targetTask.dueTime = normalizedFields.dueTime;
+      if (automaticStatus) targetTask.status = automaticStatus;
     },
     syncCrdt: () => {
       crdtRepo.updateTaskField(task.id, 'startDate', normalizedFields.startDate);
       crdtRepo.updateTaskField(task.id, 'startTime', normalizedFields.startTime);
       crdtRepo.updateTaskField(task.id, 'dueDate', normalizedFields.dueDate);
       crdtRepo.updateTaskField(task.id, 'dueTime', normalizedFields.dueTime);
+      if (automaticStatus) crdtRepo.updateTaskField(task.id, 'status', automaticStatus);
     },
     refreshKernelIndex: true
   });

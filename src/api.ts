@@ -30,13 +30,13 @@ import { usePlugin } from "@/main";
 import { translate } from "@/composables/useI18n";
 import { enqueueStorageMutation } from "@/storageMutationCoordinator";
 import { isMissingPluginStorageValue } from "@/utils/pluginStorage";
+import { getAutomaticScheduledTaskStatus } from "@/utils/taskStatusAutomation";
 import { formatDate as formatLocalDate } from "@/composables/useDateUtils";
 import { awardTaskCompletion } from "@/rewardRepository";
 import {
   attachRepeatMetadataToTasks,
   loadRepeatSeries,
   materializeRepeatTasks,
-  notifyRepeatChanged,
   setTaskRepeatSeries,
   getTaskRepeatFrequency,
   setRepeatInstanceStatus,
@@ -1889,20 +1889,27 @@ export type TaskStatus = 'pending' | 'in-progress' | 'delayed' | 'completed' | '
 export type TaskPriority = 'none' | 'high' | 'medium' | 'low';
 export type TaskType = 'standalone' | 'block';
 const TASK_COMPLETED_AT_ATTR = 'custom-task-completed-at';
+const TASK_STATUS_AUTOMATIC_ATTR = 'custom-task-status-automatic';
 
-export function buildTaskStatusAttrs(status: TaskStatus, completedAt?: string): Record<string, string> {
+export function buildTaskStatusAttrs(
+  status: TaskStatus,
+  completedAt?: string,
+  automatic = false
+): Record<string, string> {
   if (status === 'completed') {
     const normalizedCompletedAt = typeof completedAt === 'string' && completedAt.trim().length > 0
       ? completedAt.trim()
       : new Date().toISOString();
     return {
       'custom-task-status': status,
+      [TASK_STATUS_AUTOMATIC_ATTR]: automatic ? '1' : '',
       [TASK_COMPLETED_AT_ATTR]: normalizedCompletedAt
     };
   }
 
   return {
     'custom-task-status': status,
+    [TASK_STATUS_AUTOMATIC_ATTR]: automatic ? '1' : '',
     [TASK_COMPLETED_AT_ATTR]: ''
   };
 }
@@ -1926,6 +1933,8 @@ export interface Task {
   type: TaskType;
   title: string;
   status: TaskStatus;
+  /** Internal persistence hint used when a status is controlled by task dates. */
+  statusAutomatic?: boolean;
   priority: TaskPriority;
   pinned?: boolean;
   dueDate?: string;
@@ -2220,6 +2229,7 @@ export class TaskRepository {
       'custom-task-id': row.custom_task_id,
       'custom-task-priority': row.custom_task_priority,
       'custom-task-status': row.custom_task_status,
+      [TASK_STATUS_AUTOMATIC_ATTR]: row.custom_task_status_automatic,
       'custom-task-due-date': row.custom_task_due_date,
       'custom-task-due-time': row.custom_task_due_time,
       'custom-task-start-date': row.custom_task_start_date,
@@ -3141,6 +3151,7 @@ export class TaskRepository {
     const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
     const markdownMatch = markdown?.match(/\[(x|X| )\]/);
     const markdownCompleted = markdownMatch ? (markdownMatch[1] === 'x' || markdownMatch[1] === 'X') : null;
+    const automatic = this.parseTaskBooleanFlag(attrs[TASK_STATUS_AUTOMATIC_ATTR]);
 
     // Completed signals from DOM/Markdown are authoritative.
     if (completedByDOM === true || markdownCompleted === true) {
@@ -3148,6 +3159,14 @@ export class TaskRepository {
     }
 
     if (completedByDOM === false || markdownCompleted === false) {
+      if (automatic) {
+        return getAutomaticScheduledTaskStatus({
+          startDate: attrs['custom-task-start-date'],
+          startTime: attrs['custom-task-start-time'],
+          dueDate: attrs['custom-task-due-date'],
+          dueTime: attrs['custom-task-due-time']
+        });
+      }
       if (hasValidAttrStatus && attrStatus !== 'completed') {
         return attrStatus!;
       }
@@ -3155,6 +3174,14 @@ export class TaskRepository {
     }
 
     if (hasValidAttrStatus) {
+      if (automatic && attrStatus !== 'completed') {
+        return getAutomaticScheduledTaskStatus({
+          startDate: attrs['custom-task-start-date'],
+          startTime: attrs['custom-task-start-time'],
+          dueDate: attrs['custom-task-due-date'],
+          dueTime: attrs['custom-task-due-time']
+        });
+      }
       return attrStatus!;
     }
 
@@ -3839,6 +3866,7 @@ export class TaskRepository {
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-id' THEN a.value END) as custom_task_id,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-priority' THEN a.value END) as custom_task_priority,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-status' THEN a.value END) as custom_task_status,
+               GROUP_CONCAT(CASE WHEN a.name = 'custom-task-status-automatic' THEN a.value END) as custom_task_status_automatic,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-due-date' THEN a.value END) as custom_task_due_date,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-due-time' THEN a.value END) as custom_task_due_time,
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-date' THEN a.value END) as custom_task_start_date,
@@ -3858,7 +3886,7 @@ export class TaskRepository {
                GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
          FROM blocks b
          LEFT JOIN attributes a ON b.id = a.block_id
-          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-urgent', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
+          AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-status-automatic', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-urgent', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
         WHERE b.id IN (${idsClause})
           ${this.buildNotebookScopeSql('b')}
           ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -3993,6 +4021,7 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-id' THEN a.value END) as custom_task_id,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-priority' THEN a.value END) as custom_task_priority,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-status' THEN a.value END) as custom_task_status,
+                 GROUP_CONCAT(CASE WHEN a.name = 'custom-task-status-automatic' THEN a.value END) as custom_task_status_automatic,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-due-date' THEN a.value END) as custom_task_due_date,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-due-time' THEN a.value END) as custom_task_due_time,
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-start-date' THEN a.value END) as custom_task_start_date,
@@ -4012,7 +4041,7 @@ export class TaskRepository {
                  GROUP_CONCAT(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) as custom_task_archive_reason
           FROM blocks b
           LEFT JOIN attributes a ON b.id = a.block_id
-            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-urgent', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
+            AND a.name IN ('custom-task-id', 'custom-task-priority', 'custom-task-status', 'custom-task-status-automatic', 'custom-task-due-date', 'custom-task-due-time', 'custom-task-start-date', 'custom-task-start-time', 'custom-task-tags', 'custom-task-description', 'custom-task-reminder-type', 'custom-task-reminder-custom-time', 'custom-task-focus-estimate', 'custom-task-group', 'custom-task-pinned', 'custom-task-background-color', 'custom-task-urgent', 'custom-task-archived', 'custom-task-completed-at', 'custom-task-archived-at', 'custom-task-archive-reason')
           WHERE (b.type = 'i' OR b.type = 'p')
             ${this.buildNotebookScopeSql('b')}
             ${this.buildTaskQueryScopeSql(scope, 'b')}
@@ -4981,8 +5010,13 @@ export class TaskRepository {
 
     const attrsToUpdate: { [key: string]: string } = {};
     if (updates.status !== undefined) {
-      const statusAttrs = buildTaskStatusAttrs(updates.status, updates.completedAt);
+      const statusAttrs = buildTaskStatusAttrs(
+        updates.status,
+        updates.completedAt,
+        updates.statusAutomatic === true
+      );
       attrsToUpdate['custom-task-status'] = statusAttrs['custom-task-status'];
+      attrsToUpdate[TASK_STATUS_AUTOMATIC_ATTR] = statusAttrs[TASK_STATUS_AUTOMATIC_ATTR];
       attrsToUpdate[TASK_COMPLETED_AT_ATTR] = statusAttrs[TASK_COMPLETED_AT_ATTR];
     }
     if (updates.priority !== undefined) {
@@ -5084,23 +5118,7 @@ export class TaskRepository {
     if (task.type !== 'block') {
       return null;
     }
-    const repeatFrequency = typeof frequency === 'string' ? frequency : frequency.frequency;
-    const pendingTaskBlockId = repeatFrequency !== 'none'
-      && task.status === 'pending'
-      ? task.blockId
-      : undefined;
-    const series = await setTaskRepeatSeries(task, frequency, {
-      emitChange: !pendingTaskBlockId
-    });
-    if (pendingTaskBlockId) {
-      await setBlockAttrs(pendingTaskBlockId, buildTaskStatusAttrs('in-progress'));
-      notifyRepeatChanged({
-        blockId: pendingTaskBlockId,
-        seriesId: series?.id,
-        frequency: series?.frequency ?? repeatFrequency
-      });
-    }
-    return series;
+    return setTaskRepeatSeries(task, frequency);
   }
 
   static async getTaskRepeatRule(task: Task): Promise<RepeatFrequency> {
