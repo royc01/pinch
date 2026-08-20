@@ -61,7 +61,29 @@
                     :placeholder="tt('kanbanView.enterHeadingName')"
                   />
                 </div>
-                <div ref="quickCreateProtyleMountRef" class="quick-create-protyle"></div>
+                <div class="quick-create-title-editor">
+                  <button
+                    type="button"
+                    class="quick-create-editor-mode-switch ariaLabel"
+                    :aria-label="quickCreateEditorModeSwitchLabel"
+                    :title="quickCreateEditorModeSwitchLabel"
+                    :disabled="!quickCreateDraft || isSubmittingQuickCreate"
+                    @click.stop="toggleQuickCreateEditorMode"
+                  >
+                    <Icon name="edit" width="14" height="14" />
+                    <span>{{ quickCreateEditorModeSwitchText }}</span>
+                  </button>
+                  <textarea
+                    v-if="quickCreateEditorMode === 'plain'"
+                    ref="quickCreatePlainInputRef"
+                    v-model="localTask.title"
+                    class="quick-create-plain-input b3-text-field"
+                    rows="3"
+                    :placeholder="tt('taskManager.taskTitlePlaceholder')"
+                    @keydown="handleQuickCreatePlainKeydown"
+                  ></textarea>
+                  <div v-else ref="quickCreateProtyleMountRef" class="quick-create-protyle"></div>
+                </div>
             <div v-if="taskModalQuickPanel === 'group'" class="task-modal-group-panel">
               <div class="task-modal-group-header">
                 <span class="task-modal-group-title">{{ tt('taskManager.selectTag') }}</span>
@@ -401,7 +423,9 @@ const selectedDocument = ref<string>('');
 const quickCreateLocation = ref<'last' | 'inbox' | 'daily-note'>('last');
 const headingTitle = ref('');
 const quickCreateHeadingRef = ref<HTMLInputElement | null>(null);
+const quickCreatePlainInputRef = ref<HTMLTextAreaElement | null>(null);
 const quickCreateProtyleMountRef = ref<HTMLElement | null>(null);
+const quickCreateEditorMode = ref<'plain' | 'protyle'>('plain');
 const quickCreateSubmitShortcut = ref<'enter' | 'ctrl-enter'>('ctrl-enter');
 const quickCreateShortcutMenuOpen = ref(false);
 let quickCreateProtyle: Protyle | null = null;
@@ -522,6 +546,14 @@ const taskModalSelectedGoalLabels = computed(() => (
 
 const isCenteredPresentation = computed(() => props.presentation === 'center');
 const contentTransitionName = computed(() => isCenteredPresentation.value ? 'pop' : 'slide');
+const quickCreateEditorModeSwitchText = computed(() => quickCreateEditorMode.value === 'plain'
+  ? tt('taskManager.useProtyleEditor', 'Advanced mode')
+  : tt('taskManager.usePlainTextEditor', 'Normal mode')
+);
+const quickCreateEditorModeSwitchLabel = computed(() => quickCreateEditorMode.value === 'plain'
+  ? tt('taskManager.switchToProtyleEditor', 'Switch to Protyle editor')
+  : tt('taskManager.switchToPlainTextEditor', 'Switch to plain text editor')
+);
 
 const notebookOptions = computed(() => {
   return props.notebooks.map(nb => ({ value: nb.id, text: nb.name }));
@@ -640,15 +672,31 @@ function handleQuickCreateProtyleKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Enter' || event.isComposing || !quickCreateDraft) {
     return;
   }
-  const shouldSubmit = quickCreateSubmitShortcut.value === 'enter'
-    ? !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey
-    : (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
-  if (!shouldSubmit) {
+  if (!shouldSubmitQuickCreate(event)) {
     return;
   }
   event.preventDefault();
   event.stopPropagation();
   void handleSubmit();
+}
+
+function shouldSubmitQuickCreate(event: KeyboardEvent): boolean {
+  return quickCreateSubmitShortcut.value === 'enter'
+    ? !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey
+    : (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
+}
+
+function handleQuickCreatePlainKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || event.isComposing || !shouldSubmitQuickCreate(event)) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  void handleSubmit();
+}
+
+function normalizePlainTaskTitle(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function normalizeNotebookDocPath(notebookId: string, hPath: string): string {
@@ -746,6 +794,44 @@ function destroyQuickCreateProtyle(): void {
   quickCreateProtyleMountRef.value?.replaceChildren();
 }
 
+async function initializeQuickCreateProtyle(): Promise<void> {
+  if (quickCreateEditorMode.value !== 'protyle' || quickCreateProtyle || !quickCreateDraft) {
+    return;
+  }
+  const plugin = usePlugin();
+  if (!plugin?.app) return;
+  const paragraphId = await resolveQuickCreateParagraphBlockId(quickCreateDraft.blockId);
+  await nextTick();
+  const mount = quickCreateProtyleMountRef.value;
+  if (!mount || !props.show || quickCreateEditorMode.value !== 'protyle') return;
+  quickCreateProtyle = new Protyle(plugin.app, mount, {
+    blockId: paragraphId,
+    mode: 'wysiwyg',
+    render: { breadcrumb: false }
+  });
+  mount.addEventListener('keydown', handleQuickCreateProtyleKeydown, true);
+  focusQuickCreateProtyle();
+}
+
+async function toggleQuickCreateEditorMode(): Promise<void> {
+  if (isSubmittingQuickCreate.value || !quickCreateDraft) return;
+  if (quickCreateEditorMode.value === 'plain') {
+    await updateBlock(
+      'markdown',
+      `* [ ] ${normalizePlainTaskTitle(localTask.value.title) || '\u200B'}`,
+      quickCreateDraft.blockId
+    );
+    quickCreateEditorMode.value = 'protyle';
+    await initializeQuickCreateProtyle();
+    return;
+  }
+  localTask.value.title = await readQuickCreateDraftTitle(quickCreateDraft.blockId);
+  destroyQuickCreateProtyle();
+  quickCreateEditorMode.value = 'plain';
+  await nextTick();
+  quickCreatePlainInputRef.value?.focus();
+}
+
 function focusQuickCreateProtyle(): void {
   let attempts = 0;
   const focus = () => {
@@ -796,9 +882,8 @@ async function initializeQuickCreateDraft(): Promise<void> {
   isInitializingQuickCreateDraft = true;
   const requestedTargetKey = `${selectedNotebook.value}:${selectedDocument.value}`;
   try {
-    const plugin = usePlugin();
     const target = await resolveQuickCreateTarget();
-    if (!plugin?.app || !target) {
+    if (!target) {
       return;
     }
     const context = props.taskContext || {};
@@ -828,22 +913,11 @@ async function initializeQuickCreateDraft(): Promise<void> {
       pendingRelocationTitle = '';
     }
     await persistQuickCreateDraftMetadata();
-    const paragraphId = await resolveQuickCreateParagraphBlockId(created.blockId);
-    await nextTick();
-    const mount = quickCreateProtyleMountRef.value;
-    if (!mount || !props.show) {
-      return;
-    }
-    quickCreateProtyle = new Protyle(plugin.app, mount, {
-      blockId: paragraphId,
-      mode: 'wysiwyg',
-      render: { breadcrumb: false }
-    });
-    mount.addEventListener('keydown', handleQuickCreateProtyleKeydown, true);
+    await initializeQuickCreateProtyle();
     if (props.createHeading) {
       quickCreateHeadingRef.value?.focus();
     } else {
-      focusQuickCreateProtyle();
+      quickCreatePlainInputRef.value?.focus();
     }
   } catch (error) {
     console.error('[QuickCreateTaskModal] Failed to initialize draft:', error);
@@ -882,9 +956,11 @@ async function recreateQuickCreateDraft(): Promise<void> {
   }
   isRelocatingQuickCreateDraft = true;
   try {
-    pendingRelocationTitle = quickCreateDraft
-      ? await readQuickCreateDraftTitle(quickCreateDraft.blockId)
-      : '';
+    pendingRelocationTitle = quickCreateEditorMode.value === 'plain'
+      ? normalizePlainTaskTitle(localTask.value.title)
+      : quickCreateDraft
+        ? await readQuickCreateDraftTitle(quickCreateDraft.blockId)
+        : '';
     await discardQuickCreateDraft();
     await nextTick();
     await initializeQuickCreateDraft();
@@ -972,6 +1048,7 @@ function resolveDefaultGroupId(): string {
 watch(() => props.show, (show) => {
   if (show) {
     localTask.value = { ...defaultTask };
+    quickCreateEditorMode.value = 'plain';
     headingTitle.value = '';
     localTask.value.groupId = resolveDefaultGroupId();
     localTask.value.tags = localTask.value.groupId ? [localTask.value.groupId] : [];
@@ -1059,10 +1136,15 @@ async function handleSubmit(): Promise<void> {
       return;
     }
     await persistQuickCreateDraftMetadata();
-    const title = await readQuickCreateDraftTitle(draft.blockId);
+    const title = quickCreateEditorMode.value === 'plain'
+      ? normalizePlainTaskTitle(localTask.value.title)
+      : await readQuickCreateDraftTitle(draft.blockId);
     if (!title) {
       await pushMsg(tt('kanbanView.enterTaskTitle'), 2000);
       return;
+    }
+    if (quickCreateEditorMode.value === 'plain') {
+      await updateBlock('markdown', `* [ ] ${title}`, draft.blockId);
     }
     const normalizedHeadingTitle = props.createHeading
       ? normalizeHeadingTitle(headingTitle.value)
@@ -1187,6 +1269,39 @@ async function handleSubmit(): Promise<void> {
   box-sizing: border-box;
 }
 
+.quick-create-title-editor {
+  position: relative;
+}
+
+.quick-create-editor-mode-switch {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--b3-theme-on-background);
+  background: var(--b3-list-hover);
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.quick-create-editor-mode-switch:hover {
+  color: var(--b3-theme-on-background);
+  opacity: 1;
+}
+
+.quick-create-editor-mode-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.quick-create-plain-input,
 .quick-create-protyle {
   display: block;
   width: 100%;
@@ -1200,6 +1315,14 @@ async function handleSubmit(): Promise<void> {
   overflow: auto;
   background: var(--b3-theme-background);
   color: var(--b3-theme-on-background);
+}
+
+.quick-create-plain-input {
+  padding: 14px 94px 14px 14px;
+  resize: none;
+  font-family: inherit;
+  line-height: 1.5;
+  background-color: var(--b3-theme-background) !important;
 }
 
 .quick-create-protyle :deep(.protyle),

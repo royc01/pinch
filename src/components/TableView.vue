@@ -73,7 +73,6 @@
               </div>
             </div>
           </th>
-          <th v-if="column.key === 'status'" class="col-status"></th>
           <th v-if="column.key === 'title'" class="col-title is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
             <div class="th-content">
               <span>{{ getTableColumnLabel('title') }}</span>
@@ -138,9 +137,12 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="column.key === 'frequency'" class="col-frequency is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
+          <th v-if="column.key === 'frequency'" class="col-frequency sortable is-resizable" :class="{ active: sortColumn === 'frequency' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('frequency')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('frequency') }}</span>
+              <span class="sort-indicator" :class="getSortIndicatorClass('frequency')">
+                <Icon name="sortIndicator" width="14" height="14" />
+              </span>
             </div>
             <button
               type="button"
@@ -153,8 +155,13 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="column.key === 'group'" class="col-group is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
-            {{ getTableColumnLabel('group') }}
+          <th v-if="column.key === 'group'" class="col-group sortable is-resizable" :class="{ active: sortColumn === 'group' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('group')">
+            <div class="th-content">
+              <span>{{ getTableColumnLabel('group') }}</span>
+              <span class="sort-indicator" :class="getSortIndicatorClass('group')">
+                <Icon name="sortIndicator" width="14" height="14" />
+              </span>
+            </div>
             <button
               type="button"
               class="column-resize-handle ariaLabel"
@@ -166,8 +173,13 @@
               @click.stop.prevent
             ></button>
           </th>
-          <th v-if="column.key === 'goal'" class="col-goal is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
-            {{ getTableColumnLabel('goal') }}
+          <th v-if="column.key === 'goal'" class="col-goal sortable is-resizable" :class="{ active: sortColumn === 'goal' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('goal')">
+            <div class="th-content">
+              <span>{{ getTableColumnLabel('goal') }}</span>
+              <span class="sort-indicator" :class="getSortIndicatorClass('goal')">
+                <Icon name="sortIndicator" width="14" height="14" />
+              </span>
+            </div>
             <button
               type="button"
               class="column-resize-handle ariaLabel"
@@ -406,19 +418,20 @@
               </span>
               <span v-else class="expand-arrow-placeholder"></span>
             </td>
-            <td v-if="column.key === 'status'" class="col-status">
-              <div class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(row.task)">
-                <TaskCheckbox :checked="row.task.status === 'completed'" :size="16" />
-              </div>
-            </td>
             <td v-if="column.key === 'title'" class="col-title">
               <div class="title-wrapper">
+                <div class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(row.task)">
+                  <TaskCheckbox :checked="row.task.status === 'completed'" :size="16" />
+                </div>
                 <div class="title-main" @click="handleTaskClick(row.task, $event)">
                   <span v-if="row.task.pinned === true" class="task-pinned-indicator ariaLabel" :aria-label="t('taskManager.pinned')">
                     <Icon name="pinTaskActive" width="16" height="16" />
                   </span>
                   <TaskTitleRich class="task-title" :title="row.task.title" />
                 </div>
+                <span v-if="getTaskProgressText(row.task)" class="task-progress-text">
+                  {{ getTaskProgressText(row.task) }}
+                </span>
                 <button
                   type="button"
                   class="title-open-btn ariaLabel"
@@ -466,6 +479,7 @@
                   :aria-label="getPriorityTitle(row.task.priority)"
                 >
                   <Icon name="flag" width="12" height="12" />
+                  <span>{{ getPriorityTitle(row.task.priority) }}</span>
                 </span>
               </div>
             </td>
@@ -475,7 +489,7 @@
               </span>
             </td>
             <td v-if="column.key === 'frequency'" class="col-frequency" @click.stop="openRepeatEditor(row.task, $event)">
-              <span class="task-editor-property-pill frequency-display">{{ getRepeatFrequencyText(row.task) }}</span>
+              <span v-if="getRepeatFrequencyText(row.task)" class="frequency-display">{{ getRepeatFrequencyText(row.task) }}</span>
             </td>
             <td v-if="column.key === 'group'" class="col-group" @click.stop="toggleGroupPopover(row.task, $event)">
               <div v-if="getTaskGroupBadges(row.task).length > 0" class="group-badge-list">
@@ -562,27 +576,31 @@
             :class="{
               'subtask-completed': row.subtask.completed,
               'is-terminal-row': terminalTableRowKeys.has(row.key),
-              'is-last-subtask': isLastSubtaskRow(row.task, row.subtask)
+              'is-last-subtask': row.isLast
             }"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
           >
             <template v-for="column in visibleTableColumns" :key="column.key">
-            <td v-if="column.key === 'expand'" class="col-expand">
-              <span class="subtask-tree-stem" aria-hidden="true"></span>
-            </td>
-            <td v-if="column.key === 'status'" class="col-status">
-              <span class="subtask-tree-branch" aria-hidden="true"></span>
-            </td>
+            <td v-if="column.key === 'expand'" class="col-expand"></td>
             <td v-if="column.key === 'title'" class="col-title">
-              <div class="subtask-title-cell">
+              <span
+                class="subtask-tree-branch"
+                :class="{ 'has-following-sibling': !row.isLast }"
+                :style="{ '--subtask-depth': row.depth }"
+                aria-hidden="true"
+              ></span>
+              <span
+                v-for="depth in row.continuationDepths"
+                :key="depth"
+                class="subtask-tree-continuation"
+                :style="{ '--subtask-depth': depth }"
+                aria-hidden="true"
+              ></span>
+              <div class="subtask-title-cell" :style="{ '--subtask-depth': row.depth }">
                 <div class="subtask-checkbox-wrapper" @click.stop="toggleSubtaskStatus(row.task, row.subtask)">
                   <TaskCheckbox :checked="row.subtask.completed" :size="14" />
                 </div>
                 <TaskTitleRich class="subtask-title" :title="row.subtask.title" />
-                <SubtaskProgress
-                  v-if="row.subtask.subtasks && row.subtask.subtasks.length > 0"
-                  :subtasks="row.subtask.subtasks"
-                />
               </div>
             </td>
             <td
@@ -621,6 +639,7 @@
                   :aria-label="getPriorityTitle(getSubtaskPriority(row.subtask))"
                 >
                   <Icon name="flag" width="12" height="12" />
+                  <span>{{ getPriorityTitle(getSubtaskPriority(row.subtask)) }}</span>
                 </span>
               </div>
             </td>
@@ -629,9 +648,7 @@
                 {{ getStatusLabel(getSubtaskStatus(row.subtask)) }}
               </span>
             </td>
-            <td v-if="column.key === 'frequency'" class="col-frequency">
-              <span class="task-editor-property-pill frequency-display">-</span>
-            </td>
+            <td v-if="column.key === 'frequency'" class="col-frequency"></td>
             <td v-if="column.key === 'group'" class="col-group" @click.stop="toggleSubtaskGroupPopover(row.task, row.subtask, $event)">
               <span
                 v-if="getSubtaskGroupLabel(row.subtask)"
@@ -839,7 +856,6 @@
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { getFocusTimerData, Task, TaskGroup, type FocusSessionRecord } from '@/api';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
-import SubtaskProgress from '@/components/SubtaskProgress.vue';
 import Icon from '@/components/Icon.vue';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
@@ -927,6 +943,9 @@ type TableVirtualSubtaskRow = {
   heightKey: string;
   task: Task;
   subtask: TableSubtask;
+  depth: number;
+  isLast: boolean;
+  continuationDepths: number[];
 };
 
 type TableVirtualRow = TableVirtualGroupRow | TableVirtualTaskRow | TableVirtualSubtaskRow;
@@ -958,14 +977,14 @@ type ResizableTableColumnKey =
   | 'createdDate'
   | 'updatedDate';
 
-type TableColumnKey = 'expand' | 'status' | ResizableTableColumnKey | 'location';
+type TableColumnKey = 'expand' | ResizableTableColumnKey | 'location';
 
 type TableColumnDefinition = {
   key: TableColumnKey;
   className: string;
 };
 
-type ConfigurableTableColumnKey = Exclude<TableColumnKey, 'expand' | 'status' | 'title'>;
+type ConfigurableTableColumnKey = Exclude<TableColumnKey, 'expand' | 'title'>;
 type TableColumnSettingGroup = {
   title: string;
   columns: Array<{ key: ConfigurableTableColumnKey; label: string }>;
@@ -1033,7 +1052,7 @@ function getPriorityTitle(priority: Task['priority']): string {
 function getRepeatFrequencyText(task: Pick<Task, 'id' | 'repeatFrequency'>): string {
   const frequency = task.repeatFrequency;
   if (!frequency || frequency === 'none') {
-    return '-';
+    return '';
   }
   if (frequency === 'custom') {
     return formatRepeatRuleLabel(repeatRuleByTaskId.value.get(task.id), t);
@@ -1085,7 +1104,6 @@ function getCurrentGroupLabel(label: string): string {
 
 const TABLE_COLUMNS: readonly TableColumnDefinition[] = [
   { key: 'expand', className: 'col-expand' },
-  { key: 'status', className: 'col-status' },
   { key: 'title', className: 'col-title' },
   { key: 'description', className: 'col-description' },
   { key: 'priority', className: 'col-priority' },
@@ -1163,7 +1181,7 @@ const tableColumnSettingGroups = computed<TableColumnSettingGroup[]>(() => [
 const TABLE_COLUMN_MIN_WIDTHS: Record<ResizableTableColumnKey, number> = {
   title: 150,
   description: 200,
-  priority: 60,
+  priority: 110,
   statusText: 60,
   frequency: 130,
   group: 110,
@@ -1179,8 +1197,7 @@ const TABLE_COLUMN_MIN_WIDTHS: Record<ResizableTableColumnKey, number> = {
 };
 
 const TABLE_FIXED_COLUMN_WIDTHS: Partial<Record<TableColumnKey, number>> = {
-  expand: 40,
-  status: 40
+  expand: 40
 };
 
 type TableSubtask = NonNullable<Task['subtasks']>[number];
@@ -1229,7 +1246,7 @@ const priorityPopover = ref<TablePopoverTarget | null>(null);
 const statusPopover = ref<TablePopoverTarget | null>(null);
 const groupPopover = ref<TablePopoverTarget | null>(null);
 const goalPopover = ref<TablePopoverTarget | null>(null);
-type SortableColumn = 'priority' | 'status' | 'startDate' | 'dueDate' | 'completedAt' | 'createdAt' | 'updatedAt';
+type SortableColumn = 'priority' | 'status' | 'frequency' | 'group' | 'goal' | 'startDate' | 'dueDate' | 'completedAt' | 'createdAt' | 'updatedAt';
 
 const sortColumn = ref<SortableColumn | null>(null);
 const sortDirection = ref<'asc' | 'desc'>('asc');
@@ -1523,7 +1540,7 @@ async function hydrateTableColumnVisibility(): Promise<void> {
 }
 
 function isTableColumnVisible(column: TableColumnKey): boolean {
-  if (column === 'expand' || column === 'status' || column === 'title') {
+  if (column === 'expand' || column === 'title') {
     return true;
   }
   return visibleConfigurableColumns.value.has(column);
@@ -1951,6 +1968,13 @@ function getTaskDocumentGroupStyle(task: Task): Record<string, string> | undefin
   };
 }
 
+function compareOptionalTableText(left: string, right: string): number {
+  if (!left && !right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+  return left.localeCompare(right, undefined, { sensitivity: 'base' });
+}
+
 const sortedTasks = computed(() => {
   const domOrderMap = buildLiveTaskDomOrderMap();
   if (!sortColumn.value) {
@@ -1958,18 +1982,33 @@ const sortedTasks = computed(() => {
   }
 
   const tasks = [...displayableTasks.value];
+  const textSortKeys = new Map<Task, string>();
+  if (sortColumn.value === 'frequency') {
+    tasks.forEach(task => textSortKeys.set(task, getRepeatFrequencyText(task)));
+  } else if (sortColumn.value === 'group') {
+    tasks.forEach(task => textSortKeys.set(
+      task,
+      getTaskGroupBadges(task).map(badge => badge.label).join(' ')
+    ));
+  } else if (sortColumn.value === 'goal') {
+    tasks.forEach(task => textSortKeys.set(
+      task,
+      getTaskGoalBadges(task).map(badge => badge.label).join(' ')
+    ));
+  }
   tasks.sort((a, b) => {
-    const isAPinned = a.pinned === true;
-    const isBPinned = b.pinned === true;
-    if (isAPinned && !isBPinned) return -1;
-    if (!isAPinned && isBPinned) return 1;
-
     let comparison = 0;
 
     if (sortColumn.value === 'priority') {
       comparison = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99);
     } else if (sortColumn.value === 'status') {
       comparison = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+    } else if (sortColumn.value === 'frequency') {
+      comparison = compareOptionalTableText(textSortKeys.get(a) || '', textSortKeys.get(b) || '');
+    } else if (sortColumn.value === 'group') {
+      comparison = compareOptionalTableText(textSortKeys.get(a) || '', textSortKeys.get(b) || '');
+    } else if (sortColumn.value === 'goal') {
+      comparison = compareOptionalTableText(textSortKeys.get(a) || '', textSortKeys.get(b) || '');
     } else if (sortColumn.value === 'startDate') {
       if (!a.startDate) return 1;
       if (!b.startDate) return -1;
@@ -1993,6 +2032,11 @@ const sortedTasks = computed(() => {
     }
 
     if (comparison === 0) {
+      const isAPinned = a.pinned === true;
+      const isBPinned = b.pinned === true;
+      if (isAPinned && !isBPinned) return -1;
+      if (!isAPinned && isBPinned) return 1;
+
       const documentSortResult = compareTaskDocumentSortKey(a, b, domOrderMap);
       if (documentSortResult !== 0) {
         return documentSortResult;
@@ -2177,6 +2221,23 @@ function getVisibleSubtasks(task: Task): TableSubtask[] {
     : [];
 }
 
+function getTaskProgressText(task: Task): string {
+  if (!task.subtasks?.length) {
+    return '';
+  }
+  let total = 0;
+  let completed = 0;
+  const stack: TableSubtask[][] = [task.subtasks];
+  while (stack.length > 0) {
+    for (const subtask of stack.pop()!) {
+      total += 1;
+      if (subtask.completed) completed += 1;
+      if (subtask.subtasks?.length) stack.push(subtask.subtasks);
+    }
+  }
+  return `${completed}/${total}`;
+}
+
 function buildTaskVirtualRows(task: Task): TableVirtualRow[] {
   const rows: TableVirtualRow[] = [
     {
@@ -2188,25 +2249,41 @@ function buildTaskVirtualRows(task: Task): TableVirtualRow[] {
   ];
   const visibleSubtasks = getVisibleSubtasks(task);
   if (visibleSubtasks.length > 0 && expandedTasks.value.has(task.id)) {
-    for (const subtask of visibleSubtasks) {
-      rows.push({
-        kind: 'subtask',
-        key: `subtask:${task.id}:${subtask.id}`,
-        heightKey: `subtask:${task.id}:${subtask.id}`,
-        task,
-        subtask
+    const appendSubtasks = (
+      subtasks: TableSubtask[],
+      depth: number,
+      parentPath: string,
+      continuationDepths: number[]
+    ): void => {
+      subtasks.forEach((subtask, index) => {
+        const path = `${parentPath}:${subtask.id}`;
+        const isLast = index === subtasks.length - 1;
+        rows.push({
+          kind: 'subtask',
+          key: `subtask:${task.id}:${path}`,
+          heightKey: `subtask:${task.id}:${path}`,
+          task,
+          subtask,
+          depth,
+          isLast,
+          continuationDepths
+        });
+        const children = Array.isArray(subtask.subtasks)
+          ? subtask.subtasks.filter(child => hasVisibleTaskTitle(child.title))
+          : [];
+        if (children.length > 0) {
+          appendSubtasks(
+            children,
+            depth + 1,
+            path,
+            isLast ? continuationDepths : [...continuationDepths, depth]
+          );
+        }
       });
-    }
+    };
+    appendSubtasks(visibleSubtasks, 1, 'root', []);
   }
   return rows;
-}
-
-function isLastSubtaskRow(task: Task, subtask: TableSubtask): boolean {
-  const visibleSubtasks = getVisibleSubtasks(task);
-  if (visibleSubtasks.length === 0) {
-    return false;
-  }
-  return visibleSubtasks[visibleSubtasks.length - 1]?.id === subtask.id;
 }
 
 const tableRows = computed<TableVirtualRow[]>(() => {
@@ -2481,7 +2558,7 @@ const tableColumnCssVars = computed<Record<string, string>>(() => {
 });
 
 function isTableColumnDraggable(column: TableColumnKey): boolean {
-  return column !== 'expand' && column !== 'status';
+  return column !== 'expand';
 }
 
 function getDraggedTableColumn(event: DragEvent): TableColumnKey | null {
@@ -2845,7 +2922,11 @@ function resetColumnWidth(column: ResizableTableColumnKey): void {
     return;
   }
   const defaultWidths = getDefaultTableColumnWidths();
-  const defaultWidth = defaultWidths[column];
+  // The natural table layout can make the title column as wide as its longest
+  // task. Reset it to its compact minimum so titles remain truncated instead.
+  const defaultWidth = column === 'title'
+    ? TABLE_COLUMN_MIN_WIDTHS.title
+    : defaultWidths[column];
   if (typeof defaultWidth !== 'number' || defaultWidth <= 0) {
     return;
   }
@@ -4006,19 +4087,10 @@ defineExpose({
   white-space: nowrap;
   position: relative;
   box-sizing: border-box;
+  border-bottom: 1px solid var(--b3-border-color);
 }
 
-.tasks-table thead th:first-child {
-  border-top-left-radius: 10px;
-  border-bottom-left-radius: 10px;
-}
-
-.tasks-table thead th:last-child {
-  border-top-right-radius: 10px;
-  border-bottom-right-radius: 10px;
-}
-
-.tasks-table th:not(:last-child):not(.col-expand):not(.col-status)::after {
+.tasks-table th:not(:last-child):not(.col-expand)::after {
   content: '';
   position: absolute;
   right: 0;
@@ -4036,8 +4108,12 @@ defineExpose({
   padding-right: 18px;
 }
 
-.tasks-table th.is-resizable:hover::after {
-  opacity: 0.18;
+.tasks-table th.is-resizable:not(:last-child):not(.col-expand)::after {
+  opacity: 0;
+}
+
+.tasks-table th.is-resizable:not(:last-child):not(.col-expand):hover::after {
+  opacity: 0.85;
 }
 
 .tasks-table th.sortable {
@@ -4046,7 +4122,7 @@ defineExpose({
   transition: background-color 0.2s;
 }
 
-.tasks-table th.sortable:hover {
+.tasks-table th:hover {
   background-color: var(--b3-list-hover);
 }
 
@@ -4073,8 +4149,10 @@ defineExpose({
 .column-resize-handle {
   position: absolute;
   top: 0;
-  right: -6px;
-  width: 12px;
+  /* Keep the complete hit area inside its own header cell.  The right half
+     previously overlapped the next header, which intercepted double-clicks. */
+  right: 0;
+  width: 16px;
   height: 100%;
   padding: 0;
   border: none;
@@ -4082,12 +4160,22 @@ defineExpose({
   cursor: col-resize;
   z-index: 3;
   touch-action: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.tasks-table th.is-resizable:hover .column-resize-handle,
+.column-resize-handle.is-active,
+.column-resize-handle:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .column-resize-handle::before {
   content: '';
   position: absolute;
-  left: 50%;
+  left: 100%;
   top: 50%;
   transform: translate(-50%, -50%);
   width: 3px;
@@ -4158,6 +4246,10 @@ defineExpose({
   box-sizing: border-box;
 }
 
+.tasks-table td:not(:last-child) {
+  border-right: 1px solid var(--b3-border-color);
+}
+
 .task-row.is-terminal-row > td,
 .subtask-row.is-terminal-row > td {
   border-bottom: none;
@@ -4175,85 +4267,70 @@ defineExpose({
   transition: background-color 0.15s;
 }
 
-.task-row > td::before,
-.subtask-row > td::before {
-  content: '';
-  position: absolute;
-  inset: 3px 4px;
-  border-radius: 8px;
-  background: transparent;
-  pointer-events: none;
-  transition: background-color 0.15s ease;
-}
-
-.task-row > td:hover::before,
-.subtask-row > td:hover::before {
+.task-row > td:hover,
+.subtask-row > td:hover {
   background-color: var(--b3-list-hover);
 }
 
-.task-row > td > *,
-.subtask-row > td > * {
-  position: relative;
-  z-index: 1;
-}
-
-.subtask-row:not(.is-last-subtask) > td.col-expand,
-.subtask-row:not(.is-last-subtask) > td.col-status {
+.task-row:has(+ .subtask-row) > td.col-expand,
+.task-row:has(+ .subtask-row) > td.col-title,
+.subtask-row > td.col-expand,
+.subtask-row > td.col-title {
   border-bottom: none;
 }
 
-.subtask-row > td.col-expand > .subtask-tree-stem,
-.subtask-row > td.col-status > .subtask-tree-branch {
+.subtask-row:has(+ .task-row) > td.col-expand,
+.subtask-row:has(+ .task-row) > td.col-title {
+  border-bottom: 1px solid var(--b3-border-color);
+}
+
+.subtask-row > td.col-title > .subtask-tree-branch {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
 }
 
-.subtask-row > td.col-expand > .subtask-tree-stem::before {
-  content: '';
-  position: absolute;
-  right: -19px;
-  top: -6px;
-  bottom: -1px;
-  width: 1px;
-  border-radius: 999px;
-  background: var(--b3-border-color);
-  opacity: 0.9;
-}
-
-.subtask-row.is-last-subtask > td.col-expand > .subtask-tree-stem::before {
-  bottom: calc(50% + 12px);
-}
-
-.subtask-row > td.col-status > .subtask-tree-branch {
+.subtask-row > td.col-title > .subtask-tree-branch {
   overflow: visible;
 }
 
-.subtask-row > td.col-status > .subtask-tree-branch::before {
-  content: "";
+.subtask-row > td.col-title > .subtask-tree-continuation {
   position: absolute;
-  left: 30px;
-  top: 50%;
-  width: calc(100% - 24px);
-  height: 1.5px;
-  transform: translateY(-50%);
-  border-radius: 999px;
+  top: 0;
+  bottom: 0;
+  left: calc(18px + (var(--subtask-depth, 1) - 1) * 24px);
+  z-index: 0;
+  width: 1.5px;
   background: var(--b3-border-color);
-  opacity: 0.9;
+  pointer-events: none;
 }
 
-.subtask-row > td.col-status > .subtask-tree-branch::after {
+
+.subtask-row > td.col-title > .subtask-tree-branch::after {
   content: '';
   position: absolute;
-  left: 18px;
+  left: calc(18px + (var(--subtask-depth, 1) - 1) * 24px);
   top: 0px;
+  width: 1.5px;
+  background: var(--b3-border-color);
+}
+
+.subtask-row > td.col-title > .subtask-tree-branch.has-following-sibling::after {
+  height: calc(100% + 1px);
+}
+
+.subtask-row > td.col-title > .subtask-tree-branch::before {
+  content: '';
+  position: absolute;
+  left: calc(18px + (var(--subtask-depth, 1) - 1) * 24px);
+  top: -6px;
   width: 12px;
-  height: calc(50% + 1px);
+  height: calc(50% + 7px);
   box-sizing: border-box;
   border-left: 1.5px solid var(--b3-border-color);
   border-bottom: 1.5px solid var(--b3-border-color);
-  border-bottom-left-radius: 20px;
+  border-bottom-left-radius: 12px;
 }
 
 .group-row td {
@@ -4275,7 +4352,6 @@ defineExpose({
   text-align: left;
   cursor: pointer;
   border-radius: 10px;
-  margin-top: 6px;
 }
 
 .group-row-content:focus-visible {
@@ -4397,19 +4473,18 @@ defineExpose({
   text-align: center;
 }
 
-.col-status {
-  width: var(--table-col-status-width, 40px);
-  min-width: var(--table-col-status-width, 40px);
-  max-width: var(--table-col-status-width, 40px);
-  text-align: center;
+.tasks-table td.col-expand {
+  border-right: none;
 }
-
-
 
 .task-checkbox-wrapper {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .subtask-checkbox-wrapper {
@@ -4427,9 +4502,16 @@ defineExpose({
 }
 
 .col-title {
-  width: var(--table-col-title-width, auto);
+  width: var(--table-col-title-width, 150px);
   min-width: var(--table-col-title-width, 150px);
+  max-width: var(--table-col-title-width, 150px);
   vertical-align: middle;
+}
+
+.col-title .th-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .title-wrapper {
@@ -4498,13 +4580,24 @@ defineExpose({
   height: 16px;
 }
 
-.task-title {
+.task-title-rich.task-title {
+  display: block;
   font-size: 14px;
   color: var(--b3-theme-on-background);
   line-height: 1.4;
-  word-break: break-word;
   flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-progress-text {
+  flex: 0 0 auto;
+  margin-right: 2px;
+  color: var(--b3-theme-on-surface);
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .title-open-btn {
@@ -4586,18 +4679,22 @@ defineExpose({
 
 
 .col-priority {
-  width: var(--table-col-priority-width, 60px);
-  min-width: var(--table-col-priority-width, 60px);
-  text-align: center;
+  width: var(--table-col-priority-width, 110px);
+  min-width: var(--table-col-priority-width, 110px);
+  text-align: left;
 }
 
 .task-priority-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .priority-select {
@@ -4619,7 +4716,7 @@ defineExpose({
 .col-status-text {
   width: var(--table-col-status-text-width, 60px);
   min-width: var(--table-col-status-text-width, 60px);
-  text-align: center;
+  text-align: left;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -4627,7 +4724,7 @@ defineExpose({
 .col-frequency {
   width: var(--table-col-frequency-width, 130px);
   min-width: var(--table-col-frequency-width, 130px);
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
   color: var(--b3-theme-on-surface);
   cursor: pointer;
@@ -4638,13 +4735,7 @@ defineExpose({
 }
 
 .frequency-display {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   max-width: 100%;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--b3-list-hover);
   color: var(--b3-theme-on-background);
   font-size: 12px;
   line-height: 1.25;
@@ -4656,14 +4747,14 @@ defineExpose({
 .col-group {
   width: var(--table-col-group-width, 110px);
   min-width: var(--table-col-group-width, 110px);
-  text-align: center;
+  text-align: left;
   cursor: pointer;
 }
 
 .col-goal {
   width: var(--table-col-goal-width, 120px);
   min-width: var(--table-col-goal-width, 120px);
-  text-align: center;
+  text-align: left;
 }
 
 .tasks-table td.col-goal {
@@ -4675,7 +4766,7 @@ defineExpose({
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
-  justify-content: center;
+  justify-content: flex-start;
   max-width: 100%;
 }
 
@@ -4854,7 +4945,7 @@ defineExpose({
 .col-completed-date,
 .col-created-date,
 .col-updated-date {
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
   color: var(--b3-theme-on-surface);
   cursor: pointer;
@@ -4912,35 +5003,22 @@ defineExpose({
   cursor: pointer;
 }
 
-.col-status-text .th-content,
-.col-frequency .th-content,
-.col-start-date .th-content,
-.col-start-time .th-content,
-.col-due-date .th-content,
-.col-due-time .th-content,
-.col-focus-duration .th-content,
-.col-completed-date .th-content,
-.col-created-date .th-content,
-.col-updated-date .th-content {
-  justify-content: center;
-}
-
 .date-display {
   display: block;
-  padding: 4px 8px;
-  text-align: center;
+  padding: 4px 0;
+  text-align: left;
 }
 
 .time-display {
   display: block;
-  padding: 4px 8px;
-  text-align: center;
+  padding: 4px 0;
+  text-align: left;
 }
 
 .focus-duration-display {
   display: block;
-  padding: 4px 8px;
-  text-align: center;
+  padding: 4px 0;
+  text-align: left;
   color: var(--b3-theme-on-surface);
 }
 
@@ -4998,6 +5076,7 @@ defineExpose({
   align-items: center;
   gap: 8px;
   min-height: 24px;
+  padding-left: calc(24px + (var(--subtask-depth, 1) - 1) * 24px);
 }
 
 .subtask-title {
