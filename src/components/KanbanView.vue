@@ -763,6 +763,7 @@
                   @description-save="saveInlineDescriptionEdit"
                   @description-cancel="cancelInlineDescriptionEdit"
                   @subtask-toggle="handleSubtaskToggle"
+                  @subtask-open="handleSubtaskOpen"
                   @dragstart="handleDragStart"
                   @dragend="handleDragEnd"
                 />
@@ -837,7 +838,8 @@
               @open-content="openKanbanTaskContentInRight"
               @start-focus="startFocusForTask"
               @toggle-status="handleKanbanTaskToggleStatus"
-              @toggle-expand="toggleKanbanTaskExpand"
+               @toggle-expand="toggleKanbanTaskExpand"
+               @subtask-open="handleSubtaskOpen"
               @dragstart="handleQuadrantDragStart"
               @dragend="handleQuadrantDragEnd"
             />
@@ -983,6 +985,7 @@
                   @description-save="saveInlineDescriptionEdit"
                   @description-cancel="cancelInlineDescriptionEdit"
                   @subtask-toggle="handleSubtaskToggle"
+                  @subtask-open="handleSubtaskOpen"
                   @dragstart="handleDragStart"
                   @dragend="handleDragEnd"
                 />
@@ -1009,8 +1012,9 @@
       @task-click="handleTaskClick"
       @open-click="openKanbanTaskContentInRight"
       @start-focus="startFocusForTask"
-      @status-toggle="toggleTaskStatus"
-      @subtask-toggle="handleSubtaskToggle"
+       @status-toggle="toggleTaskStatus"
+       @subtask-toggle="handleSubtaskToggle"
+       @subtask-click="handleSubtaskOpen"
       @description-update="handleDescriptionUpdate"
       @priority-update="handlePriorityUpdate"
       @status-update="handleStatusUpdate"
@@ -3115,9 +3119,10 @@ function isFutureVirtualRepeatPreview(task: Task): boolean {
   return futureVirtualRepeatPreviewTaskIds.value.has(task.id);
 }
 
+const activeKanbanEditOverride = ref<Task | null>(null);
 const activeKanbanEditTask = computed(() =>
   kanbanEditorTaskId.value
-    ? (tasks.value.find(task => task.id === kanbanEditorTaskId.value) || null)
+    ? (activeKanbanEditOverride.value || tasks.value.find(task => task.id === kanbanEditorTaskId.value) || null)
     : null
 );
 const isActiveKanbanTaskPinned = computed(() => activeKanbanEditTask.value?.pinned === true);
@@ -10663,19 +10668,30 @@ const incrementalUpdateQueue = createBlockIdBatchQueue({
 
 function setupEventListeners() {
   const unsubscribeChanged = eventBus.on(Events.TASK_CHANGED, (data?: TaskChangePayload) => {
-    if (data?.blockIds && data.blockIds.length > 0) {
-      if (data.attributeChanges) {
-        syncTaskEditorDraftFromAttributeChanges(
-          activeKanbanEditTask.value,
-          activeKanbanEditDraft.value,
-          data.attributeChanges
-        );
-        invalidateTableFilters();
-        void nextTick(() => {
-          scheduleAllKanbanMetricsUpdates();
-          scheduleListViewMetricsUpdate();
-        });
-      }
+      if (data?.blockIds && data.blockIds.length > 0) {
+        if (data.attributeChanges) {
+          // A subtask editor uses a full task snapshot which is intentionally
+          // separate from the nested table row. Patch both snapshots before
+          // deriving the draft, otherwise the draft reads the old editor
+          // snapshot and makes the selected value flash back.
+          applyBroadcastAttributesToActiveEditor(data.attributeChanges);
+          applyBroadcastAttributesToSubtasks(data.attributeChanges);
+          syncTaskEditorDraftFromAttributeChanges(
+            activeKanbanEditTask.value,
+            activeKanbanEditDraft.value,
+            data.attributeChanges
+          );
+          invalidateTableFilters();
+          void nextTick(() => {
+            scheduleAllKanbanMetricsUpdates();
+            scheduleListViewMetricsUpdate();
+          });
+          // Attribute writes already patch the view's task tree synchronously.
+          // Do not immediately replace it with a parent-block incremental DOM
+          // response: that response contains only compact child summaries and
+          // makes table subtask cells appear empty until a manual refresh.
+          return;
+        }
       const blockIds = data.forceRefresh === true
         ? data.blockIds
         : filterSuppressedBlockIds(data.blockIds);
@@ -10976,55 +10992,44 @@ function mergeSubtaskCustomFields(
   previousSubtasks: SubTask[] | undefined,
   nextSubtasks: SubTask[] | undefined
 ): SubTask[] | undefined {
-  if (!nextSubtasks || nextSubtasks.length === 0) {
+  if (!previousSubtasks || previousSubtasks.length === 0) {
     return nextSubtasks;
+  }
+  if (!nextSubtasks || nextSubtasks.length === 0) {
+    // Incremental DOM reads can be incomplete during a block transaction.
+    // Never interpret an empty child summary as deletion of the whole tree.
+    return previousSubtasks;
   }
 
   const previousByNodeId = new Map<string, SubTask>();
   collectSubtasksByNodeId(previousSubtasks, previousByNodeId);
 
   const mergeItem = (item: SubTask): SubTask => {
-    const merged: SubTask = { ...item };
     const previous = item.nodeId ? previousByNodeId.get(item.nodeId) : undefined;
-    if (previous) {
-      if (merged.status === undefined && previous.status !== undefined) {
-        merged.status = previous.status;
-      }
-      if (merged.priority === undefined && previous.priority !== undefined) {
-        merged.priority = previous.priority;
-      }
-      if (merged.description === undefined && previous.description !== undefined) {
-        merged.description = previous.description;
-      }
-      if (merged.groupId === undefined && previous.groupId !== undefined) {
-        merged.groupId = previous.groupId;
-      }
-      if (merged.startDate === undefined && previous.startDate !== undefined) {
-        merged.startDate = previous.startDate;
-      }
-      if (merged.dueDate === undefined && previous.dueDate !== undefined) {
-        merged.dueDate = previous.dueDate;
-      }
-      if (merged.startTime === undefined && previous.startTime !== undefined) {
-        merged.startTime = previous.startTime;
-      }
-      if (merged.dueTime === undefined && previous.dueTime !== undefined) {
-        merged.dueTime = previous.dueTime;
-      }
-      if (merged.createdAt === undefined && previous.createdAt !== undefined) {
-        merged.createdAt = previous.createdAt;
-      }
-      if (merged.updatedAt === undefined && previous.updatedAt !== undefined) {
-        merged.updatedAt = previous.updatedAt;
-      }
+    if (!previous) {
+      return item;
     }
-    if (item.subtasks && item.subtasks.length > 0) {
-      merged.subtasks = item.subtasks.map(child => mergeItem(child));
-    }
-    return merged;
+
+    const completionChanged = typeof item.completed === 'boolean' && item.completed !== previous.completed;
+    return {
+      ...previous,
+      title: item.title || previous.title,
+      completed: typeof item.completed === 'boolean' ? item.completed : previous.completed,
+      // DOM summaries only know checked/unchecked. Preserve custom statuses
+      // such as delayed unless a checkbox change actually occurred.
+      status: completionChanged ? item.status : previous.status,
+      subtasks: mergeSubtaskCustomFields(previous.subtasks, item.subtasks)
+    };
   };
 
-  return nextSubtasks.map(item => mergeItem(item));
+  const merged = nextSubtasks.map(item => mergeItem(item));
+  const nextNodeIds = new Set(nextSubtasks.map(item => item.nodeId).filter(Boolean));
+  previousSubtasks.forEach((item) => {
+    if (!item.nodeId || !nextNodeIds.has(item.nodeId)) {
+      merged.push(item);
+    }
+  });
+  return merged;
 }
 
 function collectSubtaskLookup(
@@ -11503,6 +11508,7 @@ function hideCalendarDockEditorHost(): void {
 
 function resetKanbanEditorState(): void {
   suppressNextKanbanEditorOutsideMouseDown = false;
+  activeKanbanEditOverride.value = null;
   kanbanEditorTaskId.value = null;
   kanbanEditorStatusTaskId.value = null;
   kanbanEditorDraft.value = null;
@@ -12821,6 +12827,7 @@ async function openKanbanEditor(
     calendarDockEditorVisible.value = false;
     calendarDockEditorRendered.value = false;
   }
+  activeKanbanEditOverride.value = targetTask;
   kanbanEditorTaskId.value = targetTask.id;
   kanbanEditorStatusTaskId.value = task.id;
   const normalizedReminder = normalizeTaskReminderSelection(targetTask);
@@ -13247,6 +13254,34 @@ function handleGanttTaskColorChanged(updatedTask: Task): void {
 
 async function handleGanttTaskDateChanged(updatedTask: Task) {
   try {
+    const parentTask = tasks.value.find(candidate => {
+      const contains = (subtasks: SubTask[] | undefined): boolean => (subtasks || []).some(subtask =>
+        subtask.id === updatedTask.id
+        || subtask.nodeId === updatedTask.blockId
+        || contains(subtask.subtasks)
+      );
+      return contains(candidate.subtasks);
+    });
+    const subtaskBlockId = typeof updatedTask.blockId === 'string' ? updatedTask.blockId.trim() : '';
+    if (parentTask && subtaskBlockId) {
+      await setBlockAttrs(subtaskBlockId, {
+        'custom-task-start-date': updatedTask.startDate || '',
+        'custom-task-start-time': updatedTask.startTime || '',
+        'custom-task-due-date': updatedTask.dueDate || '',
+        'custom-task-due-time': updatedTask.dueTime || ''
+      });
+      patchSubtaskInTask(parentTask, updatedTask.id, (subtask) => {
+        subtask.startDate = updatedTask.startDate || '';
+        subtask.startTime = updatedTask.startTime || undefined;
+        subtask.dueDate = updatedTask.dueDate || '';
+        subtask.dueTime = updatedTask.dueTime || undefined;
+        subtask.updatedAt = new Date().toISOString();
+      });
+      tasks.value = [...tasks.value];
+      eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
+      return;
+    }
+
     const isRepeatTask = isRepeatTaskEntity(updatedTask);
     if (isRepeatTask) {
       const nextStartDate = updatedTask.startDate || null;
@@ -14004,6 +14039,19 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     return;
   }
 
+  const parentTask = tasks.value.find(candidate => {
+    const contains = (subtasks: SubTask[] | undefined): boolean => (subtasks || []).some(subtask =>
+      subtask.id === task.id
+      || subtask.nodeId === task.blockId
+      || contains(subtask.subtasks)
+    );
+    return contains(candidate.subtasks);
+  });
+  if (parentTask) {
+    await handleSubtaskToggle(parentTask, task as SubTask);
+    return;
+  }
+
   const wasCompleted = task.status === 'completed';
   const newStatus = task.status === 'completed' ? 'pending' : 'completed';
   const shouldPlayCompletionSound = !wasCompleted && newStatus === 'completed';
@@ -14065,6 +14113,23 @@ async function handleSubtaskToggle(parentTask: Task, subtask: Task['subtasks'][0
   TaskRepository.updateSubtaskInCache(parentTask.id, subtask.id, newCompleted).catch(() => {});
 }
 
+async function handleSubtaskOpen(
+  _parentTask: Task,
+  subtask: SubTask,
+  event?: MouseEvent
+): Promise<void> {
+  if (isKanbanBatchEditMode.value) {
+    return;
+  }
+  const blockId = typeof subtask.nodeId === 'string' ? subtask.nodeId.trim() : '';
+  if (!blockId) {
+    return;
+  }
+  const fullTask = await TaskRepository.getTaskByBlockId(blockId, true).catch(() => null);
+  const editorTask = fullTask || ({ ...subtask, blockId, type: 'block' } as Task);
+  await openKanbanEditor(editorTask, event || new MouseEvent('click'));
+}
+
 function normalizeSubtaskPriority(value: unknown): Task['priority'] {
   if (value === 'high' || value === 'medium' || value === 'low' || value === 'none') {
     return value;
@@ -14083,6 +14148,77 @@ function normalizeSubtaskStatus(value: unknown): Task['status'] {
     return value;
   }
   return 'pending';
+}
+
+/** Apply a side-panel attribute broadcast directly to the table's nested rows. */
+function applyBroadcastAttributesToSubtasks(attributeChanges: Record<string, Record<string, string>>): void {
+  let changed = false;
+  const patchSubtasks = (subtasks: SubTask[] | undefined): void => {
+    if (!subtasks) return;
+    for (const subtask of subtasks) {
+      const blockId = subtask.nodeId || subtask.blockId;
+      const attrs = blockId ? attributeChanges[blockId] : undefined;
+      if (attrs) {
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-priority')) {
+          subtask.priority = normalizeSubtaskPriority(attrs['custom-task-priority']);
+        }
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-status')) {
+          const status = normalizeSubtaskStatus(attrs['custom-task-status']);
+          subtask.status = status;
+          subtask.completed = status === 'completed';
+        }
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-description')) {
+          subtask.description = attrs['custom-task-description'] || '';
+        }
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-start-date')) subtask.startDate = attrs['custom-task-start-date'] || '';
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-start-time')) subtask.startTime = attrs['custom-task-start-time'] || undefined;
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-due-date')) subtask.dueDate = attrs['custom-task-due-date'] || '';
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-due-time')) subtask.dueTime = attrs['custom-task-due-time'] || undefined;
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-group')) subtask.groupId = attrs['custom-task-group'] || undefined;
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-completed-at')) subtask.completedAt = attrs['custom-task-completed-at'] || undefined;
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-pinned')) subtask.pinned = attrs['custom-task-pinned'] === '1';
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-reminder-type')) subtask.reminderType = (attrs['custom-task-reminder-type'] || undefined) as Task['reminderType'];
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-reminder-custom-time')) subtask.reminderCustomTime = attrs['custom-task-reminder-custom-time'] || undefined;
+        subtask.updatedAt = new Date().toISOString();
+        changed = true;
+      }
+      patchSubtasks(subtask.subtasks);
+    }
+  };
+  tasks.value.forEach(task => patchSubtasks(task.subtasks));
+  if (changed) {
+    // Nested mutation is reactive, and changing the array identity also
+    // invalidates the virtual table's derived row cache immediately.
+    tasks.value = [...tasks.value];
+  }
+}
+
+/** Keep the detached full-editor task snapshot in sync with nested-row broadcasts. */
+function applyBroadcastAttributesToActiveEditor(attributeChanges: Record<string, Record<string, string>>): void {
+  const activeTask = activeKanbanEditOverride.value;
+  const blockId = typeof activeTask?.blockId === 'string' ? activeTask.blockId.trim() : '';
+  const attrs = blockId ? attributeChanges[blockId] : undefined;
+  if (!activeTask || !attrs) return;
+
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-priority')) {
+    activeTask.priority = normalizeSubtaskPriority(attrs['custom-task-priority']);
+  }
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-status')) {
+    activeTask.status = normalizeSubtaskStatus(attrs['custom-task-status']);
+  }
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-description')) {
+    activeTask.description = attrs['custom-task-description'] || '';
+  }
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-start-date')) activeTask.startDate = attrs['custom-task-start-date'] || '';
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-start-time')) activeTask.startTime = attrs['custom-task-start-time'] || undefined;
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-due-date')) activeTask.dueDate = attrs['custom-task-due-date'] || '';
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-due-time')) activeTask.dueTime = attrs['custom-task-due-time'] || undefined;
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-group')) activeTask.groupId = attrs['custom-task-group'] || undefined;
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-completed-at')) activeTask.completedAt = attrs['custom-task-completed-at'] || undefined;
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-pinned')) activeTask.pinned = attrs['custom-task-pinned'] === '1';
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-reminder-type')) activeTask.reminderType = (attrs['custom-task-reminder-type'] || undefined) as Task['reminderType'];
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-reminder-custom-time')) activeTask.reminderCustomTime = attrs['custom-task-reminder-custom-time'] || undefined;
+  activeTask.updatedAt = new Date().toISOString();
 }
 
 function getSubtaskStatusValue(subtask: SubTask): Task['status'] {

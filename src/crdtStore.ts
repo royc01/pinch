@@ -2,6 +2,7 @@ import { ref, type Ref } from 'vue';
 import { CRDTTaskRepository } from './crdtAdapter';
 import type { Task } from './api';
 import { buildTaskTagState, parseTaskTagIdsAttribute } from './utils/taskTags';
+import { normalizeTaskReminderType } from './utils/taskReminder';
 
 interface StoreState {
   repo: CRDTTaskRepository;
@@ -176,6 +177,47 @@ export function applyTaskAttributeChanges(
         updateField(task.id, 'focusEstimate', parseTaskFocusEstimateAttribute(attrs['custom-task-focus-estimate'] || ''));
       }
     });
+
+    // Subtasks are stored as part of their top-level task's tree rather than
+    // independent CRDT records. Apply the same optimistic attribute patch to
+    // that tree so views do not briefly render a stale (or metadata-less)
+    // child while the parent incremental query is settling.
+    const patchNestedSubtasks = (subtasks: Task['subtasks'] | undefined): boolean => {
+      if (!Array.isArray(subtasks)) return false;
+      let changed = false;
+      for (const subtask of subtasks) {
+        if (subtask.blockId === normalizedBlockId || subtask.nodeId === normalizedBlockId) {
+          if (hasPriority) subtask.priority = normalizeTaskPriorityAttribute(attrs['custom-task-priority'] || '');
+          if (hasStatus) subtask.status = normalizeTaskStatusAttribute(attrs['custom-task-status'] || '');
+          if (hasCompletedAt) subtask.completedAt = attrs['custom-task-completed-at'] || undefined;
+          if (hasTags || hasGroup) {
+            const tagIds = hasTags ? parseTaskTagIdsAttribute(attrs['custom-task-tags'] || '') : (subtask.tags || []);
+            const tagState = buildTaskTagState(tagIds, hasGroup ? attrs['custom-task-group'] : subtask.groupId);
+            subtask.tags = [...tagState.tagIds];
+            subtask.groupId = tagState.primaryTagId || undefined;
+          }
+          if (hasPinned) subtask.pinned = parseTaskBooleanAttribute(attrs['custom-task-pinned'] || '');
+          if (hasDescription) subtask.description = attrs['custom-task-description'] || '';
+          if (hasStartDate) subtask.startDate = attrs['custom-task-start-date'] || '';
+          if (hasStartTime) subtask.startTime = attrs['custom-task-start-time'] || undefined;
+          if (hasDueDate) subtask.dueDate = attrs['custom-task-due-date'] || '';
+          if (hasDueTime) subtask.dueTime = attrs['custom-task-due-time'] || undefined;
+          if (hasReminderType) subtask.reminderType = normalizeTaskReminderType(attrs['custom-task-reminder-type']);
+          if (hasReminderCustomTime) subtask.reminderCustomTime = attrs['custom-task-reminder-custom-time'] || undefined;
+          if (hasBackgroundColor) subtask.backgroundColor = attrs['custom-task-background-color'] || undefined;
+          if (hasUrgent) subtask.urgent = parseTaskBooleanAttribute(attrs['custom-task-urgent'] || '');
+          if (hasFocusEstimate) subtask.focusEstimate = parseTaskFocusEstimateAttribute(attrs['custom-task-focus-estimate'] || '');
+          changed = true;
+        }
+        if (patchNestedSubtasks(subtask.subtasks)) changed = true;
+      }
+      return changed;
+    };
+    const parentTasksWithPatchedSubtasks = state.repo.getTasks().filter(task => patchNestedSubtasks(task.subtasks));
+    if (parentTasksWithPatchedSubtasks.length > 0) {
+      state.repo.syncIncrementalTasks(parentTasksWithPatchedSubtasks);
+      applied = true;
+    }
 
     state.tasks.value = state.repo.getTasks();
     applied = true;

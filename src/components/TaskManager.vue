@@ -622,6 +622,7 @@
               @description-save="saveInlineDescriptionEdit"
               @description-cancel="cancelInlineDescriptionEdit"
               @subtask-toggle="handleCardSubtaskToggle"
+              @subtask-open="handleCardSubtaskOpen"
               @dragstart="handleDragStart"
             />
           </div>
@@ -734,6 +735,7 @@
                 @description-save="saveInlineDescriptionEdit"
                 @description-cancel="cancelInlineDescriptionEdit"
                 @subtask-toggle="handleCardSubtaskToggle"
+                @subtask-open="handleCardSubtaskOpen"
                 @dragstart="handleDragStart"
               />
             </div>
@@ -794,6 +796,7 @@
             @description-save="saveInlineDescriptionEdit"
             @description-cancel="cancelInlineDescriptionEdit"
             @subtask-toggle="handleCardSubtaskToggle"
+            @subtask-open="handleCardSubtaskOpen"
             @dragstart="handleDragStart"
           />
         </div>
@@ -945,7 +948,7 @@ import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
 import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
 import TaskQuickMetaMenu from '@/components/TaskQuickMetaMenu.vue';
-import { TaskRepository, Task, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
+import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
 import { requestTaskCompletionNote, updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { getCheckinNotePromptAnchor } from '@/utils/checkinNotePrompt';
 import { escapeSqlLiteral } from '@/utils/sql';
@@ -1625,9 +1628,10 @@ const batchEditTagActionOptions: Array<{ value: TaskTagBatchAction; text: string
 const taskGroupStatusOrder: Task['status'][] = [...TASK_STATUS_VALUES];
 
 const taskModalTeleportTo = computed(() => taskModalTeleportTarget.value || 'body');
+const activeTaskEditOverride = ref<Task | null>(null);
 const activeTaskEditTask = computed(() =>
   taskEditMenuTaskId.value
-    ? (tasks.value.find(task => task.id === taskEditMenuTaskId.value) || null)
+    ? (activeTaskEditOverride.value || tasks.value.find(task => task.id === taskEditMenuTaskId.value) || null)
     : null
 );
 const isActiveTaskPinned = computed(() => activeTaskEditTask.value?.pinned === true);
@@ -2216,6 +2220,7 @@ function applyExternalTaskGroups(groups: TaskGroup[]): void {
 
 function closeTaskEditMenu(): void {
   taskEditDraft.value = null;
+  activeTaskEditOverride.value = null;
   taskEditMenuTaskId.value = null;
 }
 
@@ -4202,6 +4207,54 @@ function areTaskDateIdentitiesRelated(
   return false;
 }
 
+/**
+ * Incremental block queries return child items from the DOM, which only has
+ * presentation fields. Retain the existing complete subtree and overlay just
+ * the live title/completion state so a child attribute change cannot erase its
+ * siblings or descendants.
+ */
+function mergeIncrementalSubtaskPresentation(
+  existingSubtasks: NonNullable<Task['subtasks']>,
+  incomingSubtasks: NonNullable<Task['subtasks']>
+): NonNullable<Task['subtasks']> {
+  const existingByIdentity = new Map<string, NonNullable<Task['subtasks']>[number]>();
+  for (const subtask of existingSubtasks) {
+    if (subtask.nodeId) existingByIdentity.set(`node:${subtask.nodeId}`, subtask);
+    existingByIdentity.set(`id:${subtask.id}`, subtask);
+  }
+
+  const merged = incomingSubtasks.map((incoming) => {
+    const existing = (incoming.nodeId ? existingByIdentity.get(`node:${incoming.nodeId}`) : undefined)
+      || existingByIdentity.get(`id:${incoming.id}`);
+    if (!existing) return incoming;
+
+    const incomingChildren = Array.isArray(incoming.subtasks) ? incoming.subtasks : [];
+    const existingChildren = Array.isArray(existing.subtasks) ? existing.subtasks : [];
+    return {
+      ...existing,
+      title: incoming.title || existing.title,
+      completed: typeof incoming.completed === 'boolean' ? incoming.completed : existing.completed,
+      status: incoming.status || existing.status,
+      subtasks: incomingChildren.length > 0
+        ? mergeIncrementalSubtaskPresentation(existingChildren, incomingChildren)
+        : existing.subtasks
+    };
+  });
+  const incomingIdentities = new Set(incomingSubtasks.flatMap(subtask => [
+    `id:${subtask.id}`,
+    ...(subtask.nodeId ? [`node:${subtask.nodeId}`] : [])
+  ]));
+  // A DOM response can be partial while a transaction is settling. Keep any
+  // missing existing children until a dedicated delete/full-refresh event
+  // confirms otherwise.
+  for (const existing of existingSubtasks) {
+    const isPresent = incomingIdentities.has(`id:${existing.id}`)
+      || (!!existing.nodeId && incomingIdentities.has(`node:${existing.nodeId}`));
+    if (!isPresent) merged.push(existing);
+  }
+  return merged;
+}
+
 function patchTaskByDateIdentity(
   taskList: Task[],
   updatedTask: Task,
@@ -4242,16 +4295,22 @@ function rememberLocalTaskFieldOverride<K extends keyof Task>(
 
 function applyLocalTaskFieldOverrides(task: Task): Task {
   const override = localTaskFieldOverrides.get(task.id);
-  if (!override) {
-    return task;
-  }
-  if (override.expiresAt <= Date.now()) {
+  if (override && override.expiresAt <= Date.now()) {
     localTaskFieldOverrides.delete(task.id);
+  }
+
+  const activeOverride = localTaskFieldOverrides.get(task.id);
+  const subtasks = Array.isArray(task.subtasks)
+    ? task.subtasks.map(subtask => applyLocalTaskFieldOverrides(subtask as Task) as typeof subtask)
+    : task.subtasks;
+
+  if (!activeOverride && subtasks === task.subtasks) {
     return task;
   }
   return {
     ...task,
-    ...override.values
+    ...(activeOverride?.values || {}),
+    subtasks
   };
 }
 
@@ -5574,6 +5633,19 @@ function handleCardSubtaskToggle(task: Task, subtask: any): void {
   handleSubtaskToggle(task.id, subtask);
 }
 
+async function handleCardSubtaskOpen(_parentTask: Task, subtask: SubTask): Promise<void> {
+  const blockId = typeof subtask.nodeId === 'string' ? subtask.nodeId.trim() : '';
+  if (!blockId || isBatchEditMode.value) return;
+
+  const fullTask = await TaskRepository.getTaskByBlockId(blockId, true).catch(() => null);
+  const editorTask = fullTask || ({ ...subtask, blockId, type: 'block' } as Task);
+  if (!ensureTaskEditDraft(editorTask)) return;
+
+  activeTaskEditOverride.value = editorTask;
+  taskEditMenuTaskId.value = editorTask.id;
+  await openTaskEditorPopover(editorTask);
+}
+
 function updateTaskIndex() {
   blockIdToTaskIndex.clear();
   subtaskToParentMap.clear();
@@ -6268,18 +6340,24 @@ function setupEventListeners() {
       !blockIdToTaskIndex.has(blockId) && !subtaskToParentMap.has(blockId)
     ) === true;
     scheduleTaskDocumentOptionsRefresh(hasUnknownTaskBlock ? 0 : undefined);
-    if (data?.blockIds && data.blockIds.length > 0) {
-      if (data.attributeChanges) {
-        syncTaskEditorDraftFromAttributeChanges(
-          activeTaskEditTask.value,
-          activeTaskEditDraft.value,
-          data.attributeChanges
-        );
-        invalidateCache();
-        invalidateSortCache();
-        updateTaskIndex();
-      }
-      queueIncrementalUpdates(
+      if (data?.blockIds && data.blockIds.length > 0) {
+        if (data.attributeChanges) {
+          syncTaskEditorDraftFromAttributeChanges(
+            activeTaskEditTask.value,
+            activeTaskEditDraft.value,
+            data.attributeChanges
+          );
+          invalidateCache();
+          invalidateSortCache();
+          updateTaskIndex();
+          // setBlockAttrs has already applied these attributes to the CRDT
+          // task tree synchronously. A second immediate fetch by only the
+          // parent block returns DOM-only child summaries and can overwrite
+          // every descendant's metadata. Let the coalesced kernel echo/full
+          // refresh reconcile it instead.
+          return;
+        }
+        queueIncrementalUpdates(
         data.blockIds,
         INCREMENTAL_QUEUE_DELAY_MS,
         data.forceRefresh === true
@@ -6615,6 +6693,12 @@ async function incrementalUpdateTasks(
       }
       if (forcedTitle) {
         newTask.title = forcedTitle;
+      }
+      const currentTask = blockIdToTaskIndex.get(blockId)?.task;
+      if (currentTask?.subtasks && newTask.subtasks) {
+        newTask.subtasks = mergeIncrementalSubtaskPresentation(currentTask.subtasks, newTask.subtasks);
+      } else if (currentTask?.subtasks && !newTask.subtasks) {
+        newTask.subtasks = currentTask.subtasks;
       }
       crdtRepo.syncIncrementalTasks([newTask]);
       updatedTasks.push(newTask);
@@ -8027,6 +8111,10 @@ async function applyTaskEditorFieldUpdate(
   }
 
   options.syncDraft(editedTask);
+  // A subtask opened in the editor is an override rather than a top-level
+  // item in `tasks`. Keep that editor instance in sync before its own
+  // attribute-change broadcast is delivered.
+  options.syncTask(task);
   // Reflect editor changes in task cards before the block-attribute request
   // finishes. In particular, a newly added focus estimate controls whether
   // the focus-progress badge is rendered.
@@ -8046,6 +8134,9 @@ async function applyTaskEditorFieldUpdate(
     && !!task.repeatFrequency
   );
   if (options.localOverrides) {
+    for (const [field, value] of Object.entries(options.localOverrides) as Array<[keyof Task, Task[keyof Task]]>) {
+      rememberLocalTaskFieldOverride(task.id, field, value);
+    }
     rememberRepeatTaskFieldOverrides(task, options.localOverrides);
   }
   // Register the optimistic field in CRDT before the attribute transaction.

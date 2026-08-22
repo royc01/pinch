@@ -600,7 +600,13 @@
                 <div class="subtask-checkbox-wrapper" @click.stop="toggleSubtaskStatus(row.task, row.subtask)">
                   <TaskCheckbox :checked="row.subtask.completed" :size="14" />
                 </div>
-                <TaskTitleRich class="subtask-title" :title="row.subtask.title" />
+                <button
+                  type="button"
+                  class="subtask-title"
+                  @click.stop="handleSubtaskClick(row.task, row.subtask, $event)"
+                >
+                  <TaskTitleRich :title="row.subtask.title" />
+                </button>
               </div>
             </td>
             <td
@@ -1212,6 +1218,7 @@ const emit = defineEmits<{
   openClick: [task: Task];
   statusToggle: [task: Task];
   subtaskToggle: [task: Task, subtask: TableSubtask];
+  subtaskClick: [task: Task, subtask: TableSubtask, event?: MouseEvent];
   descriptionUpdate: [task: Task, description: string];
   priorityUpdate: [task: Task, priority: Task['priority']];
   statusUpdate: [task: Task, status: Task['status']];
@@ -3342,6 +3349,10 @@ function handleTaskClick(task: Task, event?: MouseEvent) {
   emit('taskClick', task, event);
 }
 
+function handleSubtaskClick(task: Task, subtask: TableSubtask, event?: MouseEvent): void {
+  emit('subtaskClick', task, subtask, event);
+}
+
 function handleTaskRowContextMenu(task: Task, event: MouseEvent) {
   const target = event.target instanceof Element
     ? event.target
@@ -5080,6 +5091,14 @@ defineExpose({
 }
 
 .subtask-title {
+  display: block;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
   font-size: 13px;
   color: var(--b3-theme-on-background);
   line-height: 1.4;

@@ -130,7 +130,19 @@
               @dragstart="handleRowLabelDragStart($event, row.primaryTask)"
               @dragend="handleRowLabelDragEnd"
             >
-              <span class="task-checkbox-wrapper gantt-row-checkbox-wrapper" @click.stop="emit('status-toggle', row.primaryTask)" @pointerdown.stop><TaskCheckbox :checked="row.primaryTask.status === 'completed'" :size="18" /></span>
+              <button
+                v-if="row.hasSubtasks"
+                type="button"
+                class="gantt-task-subtask-toggle ariaLabel"
+                :aria-label="t('taskManager.subtasks')"
+                :aria-expanded="row.subtasksExpanded"
+                @pointerdown.stop
+                @click.stop="toggleTaskSubtasks(row.primaryTask)"
+              >
+                <Icon :name="row.subtasksExpanded ? 'chevronDown' : 'chevronRight'" width="14" height="14" />
+              </button>
+              <span v-else class="gantt-task-subtask-spacer" aria-hidden="true"></span>
+              <span class="task-checkbox-wrapper gantt-row-checkbox-wrapper" :style="{ marginLeft: `${(row.depth || 0) * 18}px` }" @click.stop="emit('status-toggle', row.primaryTask)" @pointerdown.stop><TaskCheckbox :checked="row.primaryTask.status === 'completed'" :size="18" /></span>
               <button type="button" class="gantt-row-title gantt-row-title-btn b3-typography" draggable="false" @pointerdown.stop @mousedown.stop @dragstart.stop.prevent @click.stop.prevent="emit('edit-task', row.primaryTask, $event)"><TaskTitlePlain class="gantt-task-title-content" :title="row.primaryTask.title" :fallback="row.title" /></button>
               <span v-if="isRepeatTask(row.primaryTask)" class="gantt-row-repeat-badge ariaLabel" :aria-label="t('taskCard.repeatTask')"><Icon name="repeat" width="12" height="12" /></span>
               <button type="button" class="task-card-action-btn task-card-open-btn gantt-row-open-btn ariaLabel" :aria-label="t('taskCard.openContent')" @mousedown.stop @click.stop.prevent="emit('task-click', row.primaryTask)"><Icon name="moreHorizontal" width="14" height="14" /></button>
@@ -344,8 +356,21 @@
             @dragstart="handleRowLabelDragStart($event, row.primaryTask)"
             @dragend="handleRowLabelDragEnd"
           >
+            <button
+              v-if="row.hasSubtasks"
+              type="button"
+              class="gantt-task-subtask-toggle ariaLabel"
+              :aria-label="t('taskManager.subtasks')"
+              :aria-expanded="row.subtasksExpanded"
+              @pointerdown.stop
+              @click.stop="toggleTaskSubtasks(row.primaryTask)"
+            >
+              <Icon :name="row.subtasksExpanded ? 'chevronDown' : 'chevronRight'" width="14" height="14" />
+            </button>
+            <span v-else class="gantt-task-subtask-spacer" aria-hidden="true"></span>
             <span
               class="task-checkbox-wrapper gantt-row-checkbox-wrapper"
+              :style="{ marginLeft: `${(row.depth || 0) * 18}px` }"
               @click.stop="emit('status-toggle', row.primaryTask)"
               @pointerdown.stop
             >
@@ -534,7 +559,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { TaskRepository } from '@/api';
-import type { Task, TaskGroup } from '@/api';
+import type { SubTask, Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from './Icon.vue';
@@ -599,6 +624,9 @@ const getTaskTitleText = (task: Task, fallbackTitle: string): string => {
   return getTaskTitlePlainText(task.title) || fallbackTitle;
 };
 const collapsedSectionIds = ref<Set<string>>(new Set());
+const expandedSubtaskTaskIds = ref<Set<string>>(new Set());
+const hydratedTasksByBlockId = ref<Map<string, Task>>(new Map());
+let subtaskHydrationRequestId = 0;
 const draggedDocumentMilestoneId = ref('');
 const dragOverDocumentMilestoneId = ref('');
 const unscheduledSectionModes = ref<Map<string, UnscheduledDisplayMode>>(new Map());
@@ -709,6 +737,9 @@ interface GanttRow {
   end?: Date;
   bars: GanttBar[];
   isUnscheduled?: boolean;
+  depth?: number;
+  hasSubtasks?: boolean;
+  subtasksExpanded?: boolean;
 }
 
 interface GanttSection {
@@ -858,24 +889,80 @@ function hasVisibleTaskTitle(task: Task): boolean {
 
 const displayableTasks = computed(() => {
   const query = ganttSearchQuery.value.trim().toLocaleLowerCase();
-  return props.tasks.filter((task) => {
+  return props.tasks.map(task => {
+    const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+    const hydratedTask = blockId ? hydratedTasksByBlockId.value.get(blockId) : undefined;
+    if (!hydratedTask) return task;
+    // The full-tree cache supplies descendants only. Keep the parent fields
+    // from the current view snapshot, which is updated immediately after a
+    // drag; otherwise an older hydrated parent briefly overwrites its new bar.
+    return {
+      ...hydratedTask,
+      ...task,
+      subtasks: hydratedTask.subtasks || task.subtasks
+    };
+  }).filter((task) => {
     if (!hasVisibleTaskTitle(task)) return false;
     return !query || stripHtml(task.title).toLocaleLowerCase().includes(query);
   });
 });
+
+async function hydrateGanttSubtaskTrees(tasks: Task[]): Promise<void> {
+  const blockIds = tasks
+    .map(task => typeof task.blockId === 'string' ? task.blockId.trim() : '')
+    .filter(Boolean);
+  if (blockIds.length === 0) {
+    hydratedTasksByBlockId.value = new Map();
+    return;
+  }
+
+  const requestId = ++subtaskHydrationRequestId;
+  try {
+    // Calendar list loads may intentionally use a light snapshot. The Gantt
+    // outline needs the full tree, otherwise a parent cannot expose its
+    // subtask toggle even though the task itself is visible.
+    // The incremental block-id API intentionally returns a compact DOM tree.
+    // Use the full SQL tree here so nested task attributes and descendants are
+    // available to the Gantt outline.
+    const fullTasks = await TaskRepository.getBlockTasks(
+      false,
+      undefined,
+      { useLiveDom: false, detailLevel: 'full' }
+    );
+    if (requestId !== subtaskHydrationRequestId) return;
+    const refreshed = new Map<string, Task>();
+    const requestedIds = new Set(blockIds);
+    fullTasks.forEach(task => {
+      if (task.blockId && requestedIds.has(task.blockId)) {
+        refreshed.set(task.blockId, task);
+      }
+    });
+    hydratedTasksByBlockId.value = refreshed;
+  } catch (error) {
+    console.warn('[GanttView] Failed to hydrate task subtrees:', error);
+  }
+}
+
+watch(
+  () => props.tasks,
+  (tasks) => { void hydrateGanttSubtaskTrees(tasks); },
+  { immediate: true, deep: false }
+);
 
 function isRepeatTask(task: Task): boolean {
   return !!task.repeatSeriesId || (!!task.repeatFrequency && task.repeatFrequency !== 'none') || !!task.repeatInstanceDate || !!task.isVirtual;
 }
 
 function getTaskGanttRange(task: Task, startDateValue?: string, dueDateValue?: string): { start: Date; end: Date } | null {
+  const effectiveStartDate = startDateValue ?? task.startDate;
+  const effectiveDueDate = dueDateValue ?? task.dueDate;
   if (isRepeatTask(task)) {
-    const instanceDate = parseTaskDate(task.repeatInstanceDate || startDateValue || dueDateValue);
+    const instanceDate = parseTaskDate(task.repeatInstanceDate || effectiveStartDate || effectiveDueDate);
     return instanceDate ? { start: instanceDate, end: instanceDate } : null;
   }
 
-  const taskStart = parseTaskDate(startDateValue || dueDateValue);
-  const taskEnd = parseTaskDate(dueDateValue || startDateValue);
+  const taskStart = parseTaskDate(effectiveStartDate || effectiveDueDate);
+  const taskEnd = parseTaskDate(effectiveDueDate || effectiveStartDate);
   if (!taskStart || !taskEnd) return null;
 
   return taskStart.getTime() <= taskEnd.getTime()
@@ -1954,6 +2041,94 @@ function buildUnscheduledTaskRow(task: Task): GanttRow {
   };
 }
 
+function asGanttSubtask(subtask: SubTask): Task {
+  return {
+    ...subtask,
+    id: subtask.id,
+    title: subtask.title,
+    type: subtask.type || 'block',
+    status: subtask.status || (subtask.completed ? 'completed' : 'pending')
+  } as Task;
+}
+
+function getTaskRowIdentity(task: Task): string {
+  return task.blockId || (task as Task & { nodeId?: string }).nodeId || task.id;
+}
+
+function hasSubtasks(task: Task): boolean {
+  return Array.isArray(task.subtasks) && task.subtasks.length > 0;
+}
+
+function toggleTaskSubtasks(task: Task): void {
+  const id = getTaskRowIdentity(task);
+  if (!id || !hasSubtasks(task)) return;
+  const next = new Set(expandedSubtaskTaskIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedSubtaskTaskIds.value = next;
+}
+
+function appendTaskAndExpandedSubtasks(
+  target: GanttRenderRow[],
+  row: GanttRow,
+  sectionId: string | undefined,
+  keyPrefix: string,
+  isRootTask: boolean = true
+): void {
+  const task = row.primaryTask;
+  const taskId = getTaskRowIdentity(task);
+  const taskHasSubtasks = hasSubtasks(task);
+  const isExpanded = !isRootTask || expandedSubtaskTaskIds.value.has(taskId);
+  const depth = row.depth || 0;
+  target.push({
+    ...row,
+    kind: 'task',
+    sectionId,
+    key: `${keyPrefix}:${row.key}`,
+    depth,
+    // Only the displayed parent owns the disclosure control. Once opened, it
+    // reveals the entire descendant tree in one action.
+    hasSubtasks: isRootTask && taskHasSubtasks,
+    subtasksExpanded: isRootTask && taskHasSubtasks && isExpanded
+  });
+  if (!taskHasSubtasks || !isExpanded) return;
+
+  task.subtasks!.forEach((subtask, index) => {
+    const child = asGanttSubtask(subtask);
+    // Child rows inherit their parent's scheduled or unscheduled lane.
+    appendTaskAndExpandedSubtasks(target, {
+      ...row,
+      key: `${row.key}:subtask:${getTaskRowIdentity(child) || index}`,
+      primaryTask: child,
+      title: stripHtml(child.title) || t('taskManager.untitledTask'),
+      bars: buildGanttSubtaskBars(child, row, index),
+      depth: depth + 1
+    }, sectionId, keyPrefix, false);
+  });
+}
+
+function buildGanttSubtaskBars(child: Task, parentRow: GanttRow, index: number): GanttBar[] {
+  // Child tasks live inside the parent tree instead of props.tasks. Apply the
+  // same optimistic dates used by top-level bars so releasing a drag cannot
+  // briefly render the stale tree position before the persisted tree reloads.
+  const optimisticDates = optimisticTaskDates.value.get(child.id);
+  const displayTask = optimisticDates
+    ? { ...child, startDate: optimisticDates.startDate, dueDate: optimisticDates.dueDate }
+    : child;
+  const range = getTaskGanttRange(displayTask);
+  if (!range || range.end < timelineStart.value || range.start > timelineEnd.value) {
+    return [];
+  }
+  return [{
+    key: `${parentRow.key}:subtask:${getTaskRowIdentity(child) || index}`,
+    task: displayTask,
+    title: stripHtml(displayTask.title) || t('taskManager.untitledTask'),
+    start: range.start,
+    end: range.end,
+    barStyle: buildClippedBarStyle(range.start, range.end) || {}
+  }];
+}
+
 function buildUnscheduledRows(
   scheduledRows: GanttRow[],
   matchesTask: (task: Task) => boolean
@@ -2456,13 +2631,10 @@ const renderRows = computed<GanttRenderRow[]>(() => {
     taskRows: GanttRow[]
   ): void => {
     taskRows.forEach((row) => {
-      rows.push({
+      appendTaskAndExpandedSubtasks(rows, {
         ...row,
-        kind: 'task',
-        sectionId,
-        key: `${keyPrefix}:${row.key}`,
         bars: []
-      });
+      }, sectionId, keyPrefix);
     });
   };
 
@@ -2506,23 +2678,15 @@ const renderRows = computed<GanttRenderRow[]>(() => {
     };
 
     scheduledRows.forEach((row) => {
-      const gridRow = rows.length + 2;
-      rows.push({
+      appendTaskAndExpandedSubtasks(rows, {
         ...row,
-        kind: 'task',
-        sectionId: section.id,
-        key: `${section.id}:${row.key}`,
         bars: row.bars.map(bar => ({
           ...bar,
           isBeyondSectionDue: !!section.dueDate
             && bar.end > section.dueDate
-            && bar.task.status !== 'completed',
-          barStyle: {
-            ...bar.barStyle,
-            gridRow: `${gridRow}`
-          }
+            && bar.task.status !== 'completed'
         }))
-      });
+      }, section.id, section.id);
     });
 
     if (unscheduledMode === 'collapsed') {
@@ -2564,19 +2728,7 @@ const renderRows = computed<GanttRenderRow[]>(() => {
     };
 
     scheduledTaskRows.value.forEach((row) => {
-      const gridRow = rows.length + 2;
-      rows.push({
-        ...row,
-        kind: 'task',
-        key: row.key,
-        bars: row.bars.map(bar => ({
-          ...bar,
-          barStyle: {
-            ...bar.barStyle,
-            gridRow: `${gridRow}`
-          }
-        }))
-      });
+      appendTaskAndExpandedSubtasks(rows, row, undefined, '');
     });
 
     if (unscheduledMode === 'collapsed') {
@@ -3312,6 +3464,30 @@ const timelineHeaderStyle = computed(() => ({
   text-align: left;
   cursor: default;
   box-sizing: border-box;
+}
+
+.gantt-task-subtask-toggle,
+.gantt-task-subtask-spacer {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+}
+
+.gantt-task-subtask-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--b3-theme-on-surface-light);
+  background: transparent;
+  cursor: pointer;
+}
+
+.gantt-task-subtask-toggle:hover {
+  color: var(--b3-theme-on-background);
+  background: var(--b3-list-hover);
 }
 
 .gantt-document-milestone-rail {

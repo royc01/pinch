@@ -65,6 +65,7 @@
             v-for="(week, weekIndex) in calendarWeeks" 
             :key="`week-${weekIndex}`"
             class="week-row"
+            :style="getWeekRowStyle(week)"
           >
             <div class="week-days-grid">
               <div 
@@ -137,74 +138,11 @@
                     {{ day.lunarInfo.isFestival ? (day.lunarInfo.lunarFestival || day.lunarInfo.festival) : (day.lunarInfo.isTerm ? day.lunarInfo.term : day.lunarInfo.dayCn) }}
                   </div>
                 </div>
-                <div
-                  v-if="shouldShowHiddenCountForDay(day, week) && !isDayExpanded(day.key)"
-                  class="more-tasks-placeholder day-more"
-                  :style="getDayMoreStyle(week)"
-                >
-                  <button
-                    type="button"
-                    class="more-tasks-pill ariaLabel"
-                   
-                    :aria-label="getHiddenTasksLabel(getHiddenTaskCountForDay(day, week))"
-                    @mousedown.stop
-                    @click.stop="expandDayTasks(day.key)"
-                  >
-                    +{{ getHiddenTaskCountForDay(day, week) }}
-                  </button>
-                </div>
-                <div
-                  v-if="isDayExpanded(day.key)"
-                  class="day-expanded-panel"
-                  @mousedown.stop
-                  @click.stop
-                >
-                  <div class="day-expanded-header">
-                    <span class="day-expanded-title">{{ t('monthView.dayTasks') }}</span>
-                    <button
-                      type="button"
-                      class="day-expanded-close"
-                      @click.stop="collapseDayTasks(day.key)"
-                    >
-                      {{ t('monthView.collapse') }}
-                    </button>
-                  </div>
-                  <div class="day-expanded-list">
-                    <div
-                      v-for="task in getExpandedTasksForDay(day, week)"
-                      :key="`expanded-${day.key}-${task.id}`"
-                      class="day-expanded-chip ariaLabel"
-                      :aria-label="getTaskDisplayTitle(task)"
-                      :style="getExpandedTaskChipStyle(task)"
-                      :class="{
-                        'task-completed': task.status === 'completed',
-                        'day-expanded-habit-task-chip': isHabitTaskChip(task)
-                      }"
-                      @pointerdown="!isHabitTaskChip(task) && handleMobileTaskPointerDown($event, task)"
-                      @pointermove="handleMobileTaskPointerMove"
-                      @pointerup="handleMobileTaskPointerUp"
-                      @pointercancel="handleMobileTaskPointerCancel"
-                      @click="!isHabitTaskChip(task) && handleTaskClick(task, $event)"
-                      @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
-                    >
-                      <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task, $event)">
-                        <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
-                      </span>
-                      <span class="day-expanded-chip-title" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)">
-                        <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
-                        <TaskTitlePlain :title="task.title" />
-                      </span>
-                    </div>
-                    <div v-if="getExpandedTasksForDay(day, week).length === 0" class="day-expanded-empty">
-                      {{ t('taskManager.noTasks') }}
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
             <div class="week-tasks-layer">
               <div 
-                v-for="task in getVisibleTasksForWeek(week)" 
+                v-for="task in getTasksForWeek(week)"
                 :key="task.id"
                 class="ariaLabel"
                 :aria-label="getTaskDisplayTitle(task)"
@@ -839,8 +777,6 @@ function normalizeRepeatFrequencyForMenu(frequency: RepeatFrequency | undefined)
 }
 
 const pendingDeletion = ref(new Set<string>());
-const weekRowHeights = ref<Record<string, number>>({});
-const expandedDayKeys = ref<Set<string>>(new Set());
 const lifelogDayKey = ref<string | null>(null);
 const taskSyncGuard = useTaskSyncGuard(localTasks);
 const {
@@ -1527,25 +1463,6 @@ const calendarDays = computed(() => {
   return days;
 });
 
-watch(calendarDays, (days) => {
-  if (expandedDayKeys.value.size === 0) {
-    return;
-  }
-  const validDayKeys = new Set(days.map(day => day.key));
-  let changed = false;
-  const next = new Set<string>();
-  expandedDayKeys.value.forEach((dayKey) => {
-    if (validDayKeys.has(dayKey)) {
-      next.add(dayKey);
-    } else {
-      changed = true;
-    }
-  });
-  if (changed || next.size !== expandedDayKeys.value.size) {
-    expandedDayKeys.value = next;
-  }
-});
-
 const calendarWeeks = computed(() => {
   const weeks = [];
   const days = calendarDays.value;
@@ -1564,33 +1481,11 @@ watch(
   }
 );
 
-watch(
-  () => Array.from(expandedDayKeys.value).join('|'),
-  () => {
-    invalidateMonthDropZoneCache();
-  }
-);
-
-watch(
-  () => Object.entries(weekRowHeights.value)
-    .map(([weekKey, height]) => `${weekKey}:${height}`)
-    .join('|'),
-  () => {
-    invalidateMonthDropZoneCache();
-  }
-);
-
 type WeekTask = Task & {
   startDayOfWeek: number;
   endDayOfWeek: number;
   spanDays: number;
   position: number;
-};
-
-type WeekRenderData = {
-  tasks: WeekTask[];
-  visibleTasks: WeekTask[];
-  hiddenCountByDayKey: Record<string, number>;
 };
 
 const weeklyTasks = computed(() => {
@@ -1653,139 +1548,36 @@ function getWeekKey(week: any[]): string {
   return week.map((d: any) => d.key).join('-');
 }
 
-function getMaxVisibleTasksForWeek(week: any[]): number {
+function getTasksForWeek(week: any[]): WeekTask[] {
   const weekKey = getWeekKey(week);
-  const rowHeight = weekRowHeights.value[weekKey];
-  if (!rowHeight) return 3;
+  return weeklyTasks.value.get(weekKey) || [];
+}
 
+function getWeekRowStyle(week: any[]): Record<string, string> {
   const {
-    dateNumberHeight: DATE_NUMBER_HEIGHT,
-    slotHeight: SLOT_HEIGHT
+    topOffset: TOP_OFFSET,
+    positionStep: POSITION_STEP,
+    chipHeight: CHIP_HEIGHT
   } = monthTaskLayout.value;
+  const tasks = getTasksForWeek(week);
+  const highestPosition = tasks.reduce((highest, task) => Math.max(highest, task.position ?? 0), -1);
+  const bottomPadding = isCompactMobileLayout.value ? 6 : 10;
+  const requiredHeight = highestPosition < 0
+    ? TOP_OFFSET + CHIP_HEIGHT + bottomPadding
+    : TOP_OFFSET + highestPosition * POSITION_STEP + CHIP_HEIGHT + bottomPadding;
 
-  const count = Math.floor((rowHeight - DATE_NUMBER_HEIGHT) / SLOT_HEIGHT);
-  
-  return Math.max(1, count);
-}
-
-const weekRenderDataMap = computed(() => {
-  const map = new Map<string, WeekRenderData>();
-
-  for (const week of calendarWeeks.value) {
-    const weekKey = getWeekKey(week);
-    const tasks = weeklyTasks.value.get(weekKey) || [];
-    const maxTasks = getMaxVisibleTasksForWeek(week);
-
-    const visibleTasks = tasks.filter(task => task.position < maxTasks);
-    const hiddenTasks = tasks.filter(task => task.position >= maxTasks);
-    const hiddenCountByDayKey: Record<string, number> = {};
-    const weekDayKeySet = new Set(week.map((day) => day.key));
-
-    for (const task of hiddenTasks) {
-      const startValue = task.startDate || task.dueDate;
-      if (!startValue) continue;
-
-      const taskStart = new Date(startValue);
-      if (Number.isNaN(taskStart.getTime())) continue;
-      taskStart.setHours(0, 0, 0, 0);
-
-      const startDayKey = formatDate(taskStart);
-      if (!weekDayKeySet.has(startDayKey)) continue;
-
-      hiddenCountByDayKey[startDayKey] = (hiddenCountByDayKey[startDayKey] || 0) + 1;
-    }
-
-    map.set(weekKey, {
-      tasks,
-      visibleTasks,
-      hiddenCountByDayKey
-    });
-  }
-
-  return map;
-});
-
-function getVisibleTasksForWeek(week: any[]): WeekTask[] {
-  const weekKey = getWeekKey(week);
-  return weekRenderDataMap.value.get(weekKey)?.visibleTasks || [];
-}
-
-function getHiddenTaskCountForDay(day: any, week: any[]): number {
-  const weekKey = getWeekKey(week);
-  const weekData = weekRenderDataMap.value.get(weekKey);
-  if (!weekData) return 0;
-  return weekData.hiddenCountByDayKey[day.key] || 0;
-}
-
-function shouldShowHiddenCountForDay(day: any, week: any[]): boolean {
-  return getHiddenTaskCountForDay(day, week) > 0;
-}
-
-function getHiddenTasksLabel(count: number): string {
-  return formatTemplate('monthView.moreTasksTemplate', { count });
+  return {
+    minHeight: `${requiredHeight}px`
+  };
 }
 
 function getPriorityTitle(priority: string | undefined): string {
   return getTaskPriorityLabel(priority, t);
 }
 
-function getDayMoreStyle(week: any[]): Record<string, string> {
-  const {
-    topOffset: TOP_OFFSET,
-    positionStep: POSITION_STEP,
-    chipHeight: CHIP_HEIGHT
-  } = monthTaskLayout.value;
-  const maxTasks = getMaxVisibleTasksForWeek(week);
-  const rowIndex = Math.max(0, maxTasks - 1);
-  const visualHeight = CHIP_HEIGHT + (isCompactMobileLayout.value ? 2 : 6);
-
-  return {
-    top: `${TOP_OFFSET + rowIndex * POSITION_STEP}px`,
-    height: `${visualHeight}px`
-  };
-}
-
-function getDayMoreReserveWidthPx(): number {
-  return isCompactMobileLayout.value ? 24 : 34;
-}
-
-function getTaskMoreReserveWidth(task: WeekTask, week: any[]): number {
-  const maxTasks = getMaxVisibleTasksForWeek(week);
-  const rowIndex = Math.max(0, maxTasks - 1);
-  const position = task.position ?? (taskPositionsMap.value.get(task.id) ?? 0);
-  if (position !== rowIndex) {
-    return 0;
-  }
-
-  const weekData = weekRenderDataMap.value.get(getWeekKey(week));
-  const endDay = week[task.endDayOfWeek];
-  if (!weekData || !endDay) {
-    return 0;
-  }
-
-  return (weekData.hiddenCountByDayKey[endDay.key] || 0) > 0 ? getDayMoreReserveWidthPx() : 0;
-}
-
-function isDayExpanded(dayKey: string): boolean {
-  return expandedDayKeys.value.has(dayKey);
-}
-
-function expandDayTasks(dayKey: string): void {
-  if (!dayKey) return;
-  expandedDayKeys.value = new Set([dayKey]);
-}
-
-function collapseDayTasks(dayKey: string): void {
-  if (!dayKey || !expandedDayKeys.value.has(dayKey)) return;
-  const next = new Set(expandedDayKeys.value);
-  next.delete(dayKey);
-  expandedDayKeys.value = next;
-}
-
 function openLifelogDay(dayKey: string): void {
   if (!dayKey) return;
   lifelogDayKey.value = dayKey;
-  expandedDayKeys.value = new Set();
 }
 
 function closeLifelogDay(): void {
@@ -2373,29 +2165,6 @@ function formatMoodTimestamp(event: MoodLifelogEvent): string {
   return `${String(timestamp.getHours()).padStart(2, '0')}:${String(timestamp.getMinutes()).padStart(2, '0')}`;
 }
 
-function getExpandedTasksForDay(day: any, week: any[]): WeekTask[] {
-  const weekKey = getWeekKey(week);
-  const weekData = weekRenderDataMap.value.get(weekKey);
-  if (!weekData) return [];
-
-  const dayIndex = week.findIndex(item => item.key === day.key);
-  if (dayIndex < 0) return [];
-
-  return weekData.tasks
-    .filter(task => task.startDayOfWeek <= dayIndex && task.endDayOfWeek >= dayIndex)
-    .sort((a, b) => {
-      const positionDelta = (a.position ?? 0) - (b.position ?? 0);
-      if (positionDelta !== 0) {
-        return positionDelta;
-      }
-      const startDelta = a.startDayOfWeek - b.startDayOfWeek;
-      if (startDelta !== 0) {
-        return startDelta;
-      }
-      return (a.title || '').localeCompare(b.title || '', 'zh-CN');
-    });
-}
-
 function getTaskStyle(task: any, week: any[]): Record<string, string> {
   const {
     positionStep: TASK_POSITION_STEP,
@@ -2407,7 +2176,7 @@ function getTaskStyle(task: any, week: any[]): Record<string, string> {
   
   const leftPercent = (task.startDayOfWeek / 7) * 100;
   const widthPercent = (task.spanDays / 7) * 100;
-  const widthOffset = (isCompactMobileLayout.value ? 6 : 24) + getTaskMoreReserveWidth(task, week);
+  const widthOffset = isCompactMobileLayout.value ? 6 : 24;
   const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task, props.taskGroups);
   const bgColor = resolveTaskBackgroundColor(effectiveBackgroundColor);
   
@@ -2446,14 +2215,6 @@ function getMonthTaskDragPreviewStyle(preview: NonNullable<typeof allDayTaskDrag
     style.transform = `translate3d(${preview.floatingLeft}px, ${preview.floatingTop}px, 0)`;
   }
   return style;
-}
-
-function getExpandedTaskChipStyle(task: WeekTask): Record<string, string> {
-  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task, props.taskGroups);
-  return {
-    background: resolveTaskBackgroundColor(effectiveBackgroundColor),
-    '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
-  };
 }
 
 function isMobileTaskChipSelected(taskId: string): boolean {
@@ -3004,32 +2765,27 @@ async function handleDrop(day: MonthCalendarDay, event: DragEvent) {
 }
 
 function previousMonth() {
-  expandedDayKeys.value = new Set();
   closeLifelogDay();
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() - 1, 1);
 }
 
 function nextMonth() {
-  expandedDayKeys.value = new Set();
   closeLifelogDay();
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + 1, 1);
 }
 
 function goToToday(): void {
-  expandedDayKeys.value = new Set();
   closeLifelogDay();
   const today = new Date();
   baseDate.value = new Date(today.getFullYear(), today.getMonth(), 1);
 }
 
 function focusMonth(date: Date): void {
-  expandedDayKeys.value = new Set();
   closeLifelogDay();
   baseDate.value = new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
 function changeLifelogTimelinePeriod(offset: number): void {
-  expandedDayKeys.value = new Set();
   const nextDate = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + (offset < 0 ? -1 : 1), 1);
   baseDate.value = nextDate;
   const year = nextDate.getFullYear();
@@ -3049,7 +2805,6 @@ function handleWheel(event: WheelEvent) {
   }
 
   event.preventDefault();
-  expandedDayKeys.value = new Set();
   closeLifelogDay();
   
   const daysToScroll = event.deltaY > 0 ? 7 : -7;
@@ -3805,15 +3560,6 @@ function handleGlobalClick(event: MouseEvent) {
     }
   }
 
-  if (expandedDayKeys.value.size > 0) {
-    const clickedInsideExpandedPanel = !!targetElement?.closest('.day-expanded-panel');
-    const clickedExpandTrigger = !!targetElement?.closest('.more-tasks-placeholder.day-more');
-    const clickedInsideContextMenu = !!targetElement?.closest('.context-menu, .time-popover-overlay, .time-popover, .date-popover-overlay, .date-popover, .repeat-dialog-overlay, .repeat-dialog');
-    if (!clickedInsideExpandedPanel && !clickedExpandTrigger && !clickedInsideContextMenu) {
-      expandedDayKeys.value = new Set();
-    }
-  }
-
   if (lifelogDayKey.value) {
     const clickedInsideLifelogPanel = !!targetElement?.closest('.lifelog-timeline-panel');
     const clickedLifelogTrigger = !!targetElement?.closest('.day-number, .day-focus-summary, .day-habit-summary, .day-task-summary, .day-compact-lifelog-summary, .day-mood-summary');
@@ -3918,27 +3664,6 @@ async function setTaskBackgroundColor(task: Task, color: string) {
 }
 
 
-function updateWeekRowHeights() {
-  const weeksContainer = document.querySelector('.weeks-container');
-  if (!weeksContainer) return;
-  
-  const weekRows = Array.from(weeksContainer.querySelectorAll('.week-row'));
-  const newHeights: Record<string, number> = {};
-  
-  weekRows.forEach((row) => {
-    const height = row.getBoundingClientRect().height;
-    const days = Array.from(row.querySelectorAll('.day-cell'));
-    const weekKey = days.map(d => d.getAttribute('data-day-key')).filter(Boolean).join('-');
-    if (weekKey) {
-      newHeights[weekKey] = height;
-    }
-  });
-  
-  weekRowHeights.value = newHeights;
-}
-
-let resizeObserver: ResizeObserver | null = null;
-
 onMounted(() => {
   document.addEventListener('keydown', handleCalendarTaskDateClearKeydown);
   document.addEventListener('pointerdown', handleCalendarTaskSelectionOutsidePointerDown);
@@ -3970,15 +3695,6 @@ onMounted(() => {
   eventManager.add(document, 'dragend', clearDragOverState as EventListener, 'dragCleanup');
   eventManager.add(document, 'drop', clearDragOverState as EventListener, 'dragCleanup');
 
-  updateWeekRowHeights();
-
-  const weeksContainer = document.querySelector('.weeks-container');
-  if (weeksContainer) {
-    resizeObserver = new ResizeObserver(() => {
-      updateWeekRowHeights();
-    });
-    resizeObserver.observe(weeksContainer as Element);
-  }
 });
 
 async function toggleTaskStatus(task: Task, event?: MouseEvent) {
@@ -4134,10 +3850,6 @@ onUnmounted(() => {
 
   clearDragOverState();
 
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
-  
   if (dragOverDayUpdateTimer) {
     clearTimeout(dragOverDayUpdateTimer);
     dragOverDayUpdateTimer = null;
@@ -4273,9 +3985,10 @@ onUnmounted(() => {
 
 .calendar-grid {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .weekday-header {
@@ -4304,7 +4017,6 @@ onUnmounted(() => {
 .week-row {
   position: relative;
   flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -4712,11 +4424,6 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.day-expanded-chip-title :deep(*) {
-  display: inline;
-  white-space: nowrap;
-}
-
 .habit-emoji {
   display: inline-flex;
   align-items: center;
@@ -4744,151 +4451,6 @@ onUnmounted(() => {
   text-align: center;
   padding: 8px 4px;
   font-style: italic;
-}
-
-.more-tasks-placeholder {
-  position: absolute;
-  left: 32px;
-  right: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  pointer-events: none;
-  z-index: 9;
-}
-
-.more-tasks-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  box-sizing: border-box;
-  width: var(--more-pill-reserve-width);
-  max-width: calc(100% - 4px);
-  padding: 0 6px;
-  border: 1px dashed var(--b3-border-color);
-  border-radius: 6px;
-  background: var(--b3-list-hover);
-  color: var(--b3-theme-on-surface);
-  font-size: inherit;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-  pointer-events: auto;
-  transition: background-color 0.2s;
-}
-
-.more-tasks-pill:hover {
-  background: var(--b3-font-background2);
-}
-
-.more-tasks-placeholder.day-more {
-  left: 4px;
-  right: 4px;
-  --more-pill-reserve-width: 30px;
-  font-size: 11px;
-}
-
-.day-expanded-panel {
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  top: 28px;
-  border: 1px solid var(--b3-border-color);
-  border-radius: 8px;
-  background: var(--b3-theme-background);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  overflow: visible;
-}
-
-.day-expanded-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 6px;
-}
-
-.day-expanded-title {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--b3-theme-on-surface);
-}
-
-.day-expanded-close {
-  border: none;
-  border-radius: 999px;
-  background: var(--b3-theme-background);
-  color: var(--b3-theme-on-surface);
-  font-size: 10px;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-
-.day-expanded-list {
-  overflow: visible;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.day-expanded-chip {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 18px;
-  border-radius: 6px;
-  padding: 2px 6px;
-  border-left: 2px solid transparent;
-  position: relative;
-  background: var(--b3-theme-surface);
-}
-
-.day-expanded-chip::before {
-  content: '';
-  position: absolute;
-  left: 1px;
-  top: 3px;
-  bottom: 3px;
-  width: 4px;
-  border-radius: 999px;
-  background: var(--pinch-task-chip-color, var(--pinch-color6));
-  pointer-events: none;
-}
-
-.day-expanded-habit-task-chip {
-  box-shadow: var(--pinch-shadow);
-}
-
-.day-expanded-chip.task-completed {
-  opacity: 0.6;
-}
-
-.day-expanded-chip-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 10px;
-  line-height: 1.3;
-  color: var(--b3-theme-on-background);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.day-expanded-empty {
-  padding: 8px 4px;
-  font-size: 10px;
-  text-align: center;
-  color: var(--b3-theme-on-surface);
-  opacity: 0.6;
 }
 
 .mobile-drag-preview {
@@ -4955,7 +4517,6 @@ onUnmounted(() => {
   }
 }
 
-.day-expanded-chip,
 .habit-task-chip,
 .task-chip,
 .task-chip-title {
@@ -5088,43 +4649,10 @@ onUnmounted(() => {
     display: block;
   }
 
-  .placeholder-text,
-  .more-tasks-placeholder {
+  .placeholder-text {
     font-size: 9px;
   }
 
-  .more-tasks-pill {
-    padding: 0 5px;
-  }
-
-  .more-tasks-placeholder.day-more {
-    --more-pill-reserve-width: 30px;
-    font-size: 9px;
-  }
-
-  .day-expanded-panel {
-    position: fixed;
-    left: 0;
-    right: 0;
-    top: auto;
-    bottom: 0;
-    width: auto;
-    max-width: none;
-    border-radius: 12px 12px 0 0;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
-    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.16);
-    z-index: 1200;
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  .day-expanded-title,
-  .day-expanded-close,
-  .day-expanded-chip-title,
-  .day-expanded-empty {
-    font-size: 9px;
-  }
 }
 
 </style>

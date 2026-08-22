@@ -67,7 +67,7 @@
                     class="quick-create-editor-mode-switch ariaLabel"
                     :aria-label="quickCreateEditorModeSwitchLabel"
                     :title="quickCreateEditorModeSwitchLabel"
-                    :disabled="!quickCreateDraft || isSubmittingQuickCreate"
+                    :disabled="isSubmittingQuickCreate"
                     @click.stop="toggleQuickCreateEditorMode"
                   >
                     <Icon name="edit" width="14" height="14" />
@@ -814,8 +814,12 @@ async function initializeQuickCreateProtyle(): Promise<void> {
 }
 
 async function toggleQuickCreateEditorMode(): Promise<void> {
-  if (isSubmittingQuickCreate.value || !quickCreateDraft) return;
+  if (isSubmittingQuickCreate.value) return;
   if (quickCreateEditorMode.value === 'plain') {
+    // Protyle needs a real block to edit. Plain mode deliberately stays local
+    // until the user submits, so merely opening the dialog creates no document.
+    await initializeQuickCreateDraft();
+    if (!quickCreateDraft) return;
     await updateBlock(
       'markdown',
       `* [ ] ${normalizePlainTaskTitle(localTask.value.title) || '\u200B'}`,
@@ -1080,7 +1084,6 @@ watch(() => props.show, (show) => {
       : selectedDocument.value === PINCH_DAILY_NOTE_OPTION_ID
         ? 'daily-note'
         : 'last';
-    void nextTick(initializeQuickCreateDraft);
   } else if (quickCreateDraft) {
     void discardQuickCreateDraft();
   }
@@ -1092,8 +1095,6 @@ watch([selectedNotebook, selectedDocument], () => {
     void recreateQuickCreateDraft();
   } else if (isInitializingQuickCreateDraft) {
     shouldReinitializeQuickCreateDraft = true;
-  } else {
-    void initializeQuickCreateDraft();
   }
 });
 
@@ -1130,21 +1131,14 @@ async function handleSubmit(): Promise<void> {
   if (isSubmittingQuickCreate.value) return;
   isSubmittingQuickCreate.value = true;
   try {
-    const draft = quickCreateDraft;
-    if (!draft) {
-      await initializeQuickCreateDraft();
-      return;
-    }
-    await persistQuickCreateDraftMetadata();
-    const title = quickCreateEditorMode.value === 'plain'
+    let title = quickCreateEditorMode.value === 'plain'
       ? normalizePlainTaskTitle(localTask.value.title)
-      : await readQuickCreateDraftTitle(draft.blockId);
+      : quickCreateDraft
+        ? await readQuickCreateDraftTitle(quickCreateDraft.blockId)
+        : '';
     if (!title) {
       await pushMsg(tt('kanbanView.enterTaskTitle'), 2000);
       return;
-    }
-    if (quickCreateEditorMode.value === 'plain') {
-      await updateBlock('markdown', `* [ ] ${title}`, draft.blockId);
     }
     const normalizedHeadingTitle = props.createHeading
       ? normalizeHeadingTitle(headingTitle.value)
@@ -1152,6 +1146,17 @@ async function handleSubmit(): Promise<void> {
     if (props.createHeading && !normalizedHeadingTitle) {
       await pushMsg(tt('kanbanView.enterHeadingName'), 2000);
       return;
+    }
+    if (!quickCreateDraft) {
+      await initializeQuickCreateDraft();
+    }
+    const draft = quickCreateDraft;
+    if (!draft) return;
+    await persistQuickCreateDraftMetadata();
+    if (quickCreateEditorMode.value === 'plain') {
+      await updateBlock('markdown', `* [ ] ${title}`, draft.blockId);
+    } else {
+      title = await readQuickCreateDraftTitle(draft.blockId);
     }
     const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
     const createdTask: NewTask = {

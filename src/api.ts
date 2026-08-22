@@ -1862,24 +1862,6 @@ function log_debug(msg: string, data?: any) {
   }
 }
 
-export interface SubTask {
-  id: string;
-  title: string;
-  completed: boolean;
-  nodeId?: string;
-  status?: TaskStatus;
-  priority?: TaskPriority;
-  description?: string;
-  groupId?: string;
-  startDate?: string;
-  dueDate?: string;
-  startTime?: string;
-  dueTime?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  subtasks?: SubTask[];
-}
-
 export interface EmojiConfig {
   [key: string]: unknown;
   [key: number]: unknown;
@@ -1970,6 +1952,18 @@ export interface Task {
   /** Transient flag for a virtual recurrence whose occurrence spans a date window. */
   isRepeatWindow?: boolean;
 }
+
+/**
+ * A subtask is persisted as an ordinary task-list block. Keeping the full
+ * task shape here lets every task editor capability work at any tree depth.
+ */
+export type SubTask = Pick<Task, 'id' | 'title'> & Partial<Omit<Task, 'id' | 'title' | 'subtasks'>> & {
+  /** Compatibility state for compact tree renderers; mirrors `status`. */
+  completed: boolean;
+  subtasks?: SubTask[];
+  /** The list-item block that owns this task. */
+  nodeId?: string;
+};
 
 export interface TaskFocusEstimate {
   unit: 'minutes' | 'pomodoros';
@@ -3511,10 +3505,18 @@ export class TaskRepository {
         const nested = directList ? parseSubtaskList(directList) : [];
 
         result.push({
-          id: `sub_${nodeId}`,
+          id: `block_${nodeId}`,
+          type: 'block',
           title,
+          status: completed ? 'completed' : 'pending',
           completed,
+          priority: 'none',
+          tags: [],
+          blockId: nodeId,
           nodeId,
+          rootId: '',
+          createdAt: '',
+          updatedAt: '',
           subtasks: nested.length > 0 ? nested : undefined
         });
       }
@@ -3996,7 +3998,10 @@ export class TaskRepository {
     const tasks: Task[] = [];
     const BATCH_SIZE = TASK_CONFIG.BATCH_SIZE;
     const shouldFilterTopLevelCompleted = !useLiveDom && scope?.includeCompleted === false;
-    const shouldBuildNestedSubtasks = !useLiveDom && detailLevel === 'full';
+    // The live-DOM path is used by incremental refreshes. It must retain the
+    // same complete child-task metadata as the SQL path; otherwise an
+    // attribute update replaces a rich subtask with title/completion only.
+    const shouldBuildNestedSubtasks = detailLevel === 'full';
     
     try {
       const completionSqlForTree = useLiveDom
@@ -4367,46 +4372,30 @@ export class TaskRepository {
           const completed = !!markdownMatch && (markdownMatch[1] === 'x' || markdownMatch[1] === 'X');
           const title = buildFastTitleFromBlock(childBlock) || 'Untitled';
           const status = this.parseTaskStatus(childAttrs, markdown, completed);
-          const priorityRaw = typeof childAttrs['custom-task-priority'] === 'string'
-            ? childAttrs['custom-task-priority'].trim()
-            : '';
-          const priority: TaskPriority = (priorityRaw === 'high'
-            || priorityRaw === 'medium'
-            || priorityRaw === 'low'
-            || priorityRaw === 'none')
-            ? priorityRaw
-            : 'none';
-          const description = typeof childAttrs['custom-task-description'] === 'string'
-            ? childAttrs['custom-task-description']
-            : '';
-          const groupId = typeof childAttrs['custom-task-group'] === 'string'
-            ? childAttrs['custom-task-group'].trim()
-            : '';
           const dateRange = this.resolveTaskDateRange(childAttrs, title, {
             allowInferFromTitle: false,
             createdAtRaw: childBlock.created
           });
-          const startTime = typeof childAttrs['custom-task-start-time'] === 'string'
-            ? childAttrs['custom-task-start-time'].trim()
-            : '';
-          const dueTime = typeof childAttrs['custom-task-due-time'] === 'string'
-            ? childAttrs['custom-task-due-time'].trim()
-            : '';
+          const taskFields = this.buildTaskFieldsFromAttrs(childAttrs, dateRange);
+          const archived = this.parseTaskArchivedFlag(childAttrs['custom-task-archived']);
+          const childTaskId = childAttrs['custom-task-id'] || `block_${childId}`;
           const nestedSubtasks = buildSqlSubtasksForParent(childId, path);
 
           subtasks.push({
-            id: `sub_${childId}`,
+            id: childTaskId,
+            type: 'block',
             title,
-            completed,
-            nodeId: childId,
             status,
-            priority,
-            description,
-            groupId: groupId || undefined,
-            startDate: dateRange.startDate,
-            dueDate: dateRange.dueDate,
-            startTime: startTime || dateRange.startTime || undefined,
-            dueTime: dueTime || dateRange.dueTime || undefined,
+            completed,
+            ...taskFields,
+            blockId: childId,
+            nodeId: childId,
+            rootId: childBlock.root_id,
+            hPath: childBlock.hpath,
+            notebookId: childBlock.box,
+            icon: detailLevel === 'full' ? rootIcons.get(childBlock.root_id) || '📄' : '📄',
+            archived,
+            completedAt: this.resolveTaskCompletedAt(childAttrs, status, childBlock.updated),
             createdAt: this.parseBlockDateTime(childBlock.created),
             updatedAt: this.parseBlockDateTime(childBlock.updated),
             subtasks: nestedSubtasks.length > 0 ? nestedSubtasks : undefined
@@ -4563,7 +4552,39 @@ export class TaskRepository {
             }
           };
 
-          const subtasks = this.parseSubtasksFromParsedDoc(doc, parentBlock.id);
+          const liveSubtasks = this.parseSubtasksFromParsedDoc(doc, parentBlock.id);
+          const sqlSubtasks = shouldBuildNestedSubtasks
+            ? buildSqlSubtasksForParent(parentBlock.id)
+            : [];
+          const mergeLiveSubtaskPresentation = (
+            fullSubtasks: SubTask[],
+            liveItems: SubTask[]
+          ): SubTask[] => {
+            const liveByNodeId = new Map(
+              liveItems
+                .filter(item => typeof item.nodeId === 'string' && item.nodeId.length > 0)
+                .map(item => [item.nodeId!, item])
+            );
+            return fullSubtasks.map((subtask) => {
+              const liveItem = subtask.nodeId ? liveByNodeId.get(subtask.nodeId) : undefined;
+              const isCompleted = liveItem?.completed;
+              const status = typeof isCompleted === 'boolean'
+                ? (isCompleted ? 'completed' : (subtask.status === 'completed' ? 'pending' : subtask.status))
+                : subtask.status;
+              return {
+                ...subtask,
+                title: liveItem?.title || subtask.title,
+                completed: typeof isCompleted === 'boolean' ? isCompleted : subtask.completed,
+                status,
+                subtasks: subtask.subtasks
+                  ? mergeLiveSubtaskPresentation(subtask.subtasks, liveItem?.subtasks || [])
+                  : undefined
+              };
+            });
+          };
+          const subtasks = sqlSubtasks.length > 0
+            ? mergeLiveSubtaskPresentation(sqlSubtasks, liveSubtasks)
+            : liveSubtasks;
           collectSubtaskNodeIds(subtasks);
           
           const titleHtml = this.getTaskTitleHtmlFromElement(parentListItem, parentBlock.id);

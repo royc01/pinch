@@ -166,6 +166,9 @@ export function useTaskDrag(
   // pointer position when the mouse is released.
   let timedTaskMoveRafId: number | null = null;
   let pendingTimedTaskMoveEvent: MouseEvent | null = null;
+  let allDayTaskMoveRafId: number | null = null;
+  let pendingAllDayTaskMoveEvent: MouseEvent | null = null;
+  let handleDateChangedDuringDrag = false;
   let timedTaskHandleMoveRafId: number | null = null;
   let pendingTimedTaskHandleMoveEvent: MouseEvent | null = null;
   let lastTimedTaskPreviewKey = '';
@@ -434,6 +437,36 @@ export function useTaskDrag(
     timedTaskDragPreview.value = null;
   }
 
+  // Month view has up to six task layers.  Coalescing all-day moves to the
+  // paint cadence avoids recalculating every layer for each high-frequency
+  // pointer event, while the mouseup path still processes the exact drop point.
+  function queueAllDayTaskMove(event: MouseEvent): void {
+    pendingAllDayTaskMoveEvent = event;
+    if (allDayTaskMoveRafId !== null) return;
+    allDayTaskMoveRafId = requestAnimationFrame(() => {
+      allDayTaskMoveRafId = null;
+      const pendingEvent = pendingAllDayTaskMoveEvent;
+      pendingAllDayTaskMoveEvent = null;
+      if (pendingEvent) updateAllDayTaskPosition(pendingEvent);
+    });
+  }
+
+  function flushAllDayTaskMove(event?: MouseEvent): void {
+    if (allDayTaskMoveRafId !== null) {
+      cancelAnimationFrame(allDayTaskMoveRafId);
+      allDayTaskMoveRafId = null;
+    }
+    const pendingEvent = event || pendingAllDayTaskMoveEvent;
+    pendingAllDayTaskMoveEvent = null;
+    if (pendingEvent) updateAllDayTaskPosition(pendingEvent);
+  }
+
+  function clearAllDayTaskMove(): void {
+    if (allDayTaskMoveRafId !== null) cancelAnimationFrame(allDayTaskMoveRafId);
+    allDayTaskMoveRafId = null;
+    pendingAllDayTaskMoveEvent = null;
+  }
+
   function queueTimedTaskHandleMove(event: MouseEvent): void {
     pendingTimedTaskHandleMoveEvent = event;
     if (timedTaskHandleMoveRafId !== null) return;
@@ -654,6 +687,7 @@ export function useTaskDrag(
     };
 
     dragLastUpdatedDate.value = '';
+    handleDateChangedDuringDrag = false;
     isDragging.value = true;
 
     event.preventDefault();
@@ -715,9 +749,7 @@ export function useTaskDrag(
       : { dueDate: targetDateStr };
 
     const updatedTask = patchLocalTask(task.id, patch);
-    if (updatedTask) {
-      emitTaskDateChanged(updatedTask);
-    }
+    handleDateChangedDuringDrag = !!updatedTask;
 
     if (task.type === 'block' && task.blockId) {
       scheduleSave(task.blockId, {
@@ -729,12 +761,20 @@ export function useTaskDrag(
   }
 
   async function handleHandleMouseUp() {
+    const taskId = draggingHandle.value?.task.id;
+    if (handleDateChangedDuringDrag && taskId) {
+      const updatedTask = getLocalTask(taskId);
+      if (updatedTask) {
+        emitTaskDateChanged(updatedTask);
+      }
+    }
     cleanupDragListeners();
     isDragging.value = false;
   }
 
   function cleanupDragListeners() {
     draggingHandle.value = null;
+    handleDateChangedDuringDrag = false;
     resetMonthDayCellHitRects();
     removeEventListeners('mousemove');
     removeEventListeners('mouseup');
@@ -779,11 +819,11 @@ export function useTaskDrag(
 
     event.preventDefault();
 
-    addEventListener(document, 'mousemove', handleTaskMouseMove);
+    addEventListener(document, 'mousemove', queueAllDayTaskMove);
     addEventListener(document, 'mouseup', handleTaskMouseUp);
   }
 
-  function handleTaskMouseMove(event: MouseEvent) {
+  function updateAllDayTaskPosition(event: MouseEvent) {
     if (!draggingTask.value) return;
 
     const { task, originalStart, originalDue, pointerOffsetDays, clickOffsetX, clickOffsetY, width, height } = draggingTask.value;
@@ -897,6 +937,8 @@ export function useTaskDrag(
   async function handleTaskMouseUp(event: MouseEvent) {
     if (!draggingTask.value) return;
 
+    flushAllDayTaskMove(event);
+
     const { task, originalStart, originalDue, repeatSeriesSnapshot } = draggingTask.value;
 
     const targetData = findDayColumnFromEvent(event);
@@ -930,6 +972,7 @@ export function useTaskDrag(
     removeEventListeners('mousemove');
     removeEventListeners('mouseup');
     draggingTask.value = null;
+    clearAllDayTaskMove();
     dragLastUpdatedDate.value = '';
     resetMonthDayCellHitRects();
 

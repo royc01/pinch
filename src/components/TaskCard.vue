@@ -220,6 +220,7 @@
           :level="1"
           :parent-task-id="task.id"
           @toggle="(_taskId, child) => handleSubtaskToggle(child)"
+          @open="(_taskId, child) => handleSubtaskOpen(child)"
         />
       </div>
 
@@ -294,6 +295,7 @@ const emit = defineEmits<{
   descriptionSave: [task: Task];
   descriptionCancel: [taskId: string];
   subtaskToggle: [task: Task, subtask: SubTask];
+  subtaskOpen: [task: Task, subtask: SubTask];
   dragstart: [event: DragEvent, task: Task];
   dragend: [event: DragEvent, task: Task];
 }>();
@@ -764,6 +766,10 @@ function handleSubtaskToggle(subtask: SubTask) {
   emit('subtaskToggle', task.value, subtask);
 }
 
+function handleSubtaskOpen(subtask: SubTask) {
+  emit('subtaskOpen', task.value, subtask);
+}
+
 function handleDragStart(event: DragEvent) {
   if (!props.draggable) return;
   emit('dragstart', event, task.value);
@@ -980,7 +986,7 @@ function getTaskDateTimestamp(value: unknown): number | null {
   gap: 3px;
   align-items: center;
   flex-wrap: wrap;
-  margin-top: 6px;
+  margin-top: 2px;
   margin-left: 26px;
 }
 
@@ -1146,8 +1152,8 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .task-subtasks {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin: 6px 0;
+  margin-top: 6px;
+  gap: 6px;
 }
 
 .task-subtasks.collapsed {
