@@ -7520,7 +7520,10 @@ function handleTaskEditorDescriptionInput(value: string): void {
 
 function handleTaskEditorDateFieldsUpdate(value: TaskEditorDateFields): void {
   if (!activeTaskEditTask.value || !activeTaskEditDraft.value) return;
-  const normalizedFields = normalizeTaskEditorDateFields(value);
+  const normalizedFields = normalizeTaskEditorDateFields(
+    value,
+    isRepeatTaskForDateSave(activeTaskEditTask.value)
+  );
   syncTaskEditorDraftDateFields(activeTaskEditTask.value.id, normalizedFields);
   void quickSaveTaskDateFields(activeTaskEditTask.value, normalizedFields);
 }
@@ -8215,7 +8218,7 @@ async function handleTaskQuickDateSave(): Promise<void> {
     || menuTask;
 
   const currentFields = await resolveCurrentTaskDateFields(task);
-  const nextFields = normalizeTaskEditorDateFields(taskQuickDateDraft.value);
+  const nextFields = normalizeTaskEditorDateFields(taskQuickDateDraft.value, isRepeatTaskForDateSave(task));
   const automaticStatus = getInitialAutomaticTaskStatus(task, nextFields);
 
   if (isSameTaskEditorDateFields(currentFields, nextFields)) {
@@ -8274,7 +8277,7 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
     || menuTask;
 
   const currentFields = await resolveCurrentTaskDateFields(task);
-  const nextFields = normalizeTaskEditorDateFields(taskQuickMetaDraft.value);
+  const nextFields = normalizeTaskEditorDateFields(taskQuickMetaDraft.value, isRepeatTaskForDateSave(task));
   const datesChanged = !isSameTaskEditorDateFields(currentFields, nextFields);
   const automaticStatus = datesChanged ? getInitialAutomaticTaskStatus(task, nextFields) : null;
   const nextPriority = isBatchPriority(taskQuickMetaDraft.value.priority)
@@ -8697,14 +8700,16 @@ function normalizeTaskEditorDateFields(value: {
   startTime?: string;
   dueDate?: string;
   dueTime?: string;
-}): TaskEditorDateFields {
+}, preserveDueTimeWithoutDueDate = false): TaskEditorDateFields {
   const startDate = normalizeDateInputValue(value.startDate || '');
   let dueDate = normalizeDateInputValue(value.dueDate || '');
   if (startDate && dueDate && dueDate < startDate) {
     dueDate = startDate;
   }
   const startTime = startDate ? normalizeTimeInputValue(value.startTime || '') : '';
-  const dueTime = dueDate ? normalizeTimeInputValue(value.dueTime || '') : '';
+  const dueTime = dueDate || preserveDueTimeWithoutDueDate
+    ? normalizeTimeInputValue(value.dueTime || '')
+    : '';
   return {
     startDate,
     startTime,
@@ -8743,7 +8748,7 @@ async function getRepeatTaskDateFields(task: Task): Promise<TaskEditorDateFields
     startTime: series.startTime || '',
     dueDate: series.endDate || '',
     dueTime: series.dueTime || ''
-  });
+  }, true);
 }
 
 async function resolveCurrentTaskDateFields(task: Task): Promise<TaskEditorDateFields> {
@@ -8912,12 +8917,13 @@ async function saveRepeatTaskDateFields(
 }
 
 async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields): Promise<void> {
-  const normalizedFields = normalizeTaskEditorDateFields(value);
+  const isRepeatTask = isRepeatTaskForDateSave(task);
+  const normalizedFields = normalizeTaskEditorDateFields(value, isRepeatTask);
   const automaticStatus = getInitialAutomaticTaskStatus(task, normalizedFields);
   const currentFields = await resolveCurrentTaskDateFields(task);
   const activeDraft = activeTaskEditDraft.value;
   const normalizedDraft = activeDraft?.taskId === task.id
-    ? normalizeTaskEditorDateFields(activeDraft)
+    ? normalizeTaskEditorDateFields(activeDraft, isRepeatTask)
     : currentFields;
   if (
     isSameTaskEditorDateFields(normalizedDraft, normalizedFields)
@@ -8947,7 +8953,7 @@ async function quickSaveTaskDateFields(task: Task, value: TaskEditorDateFields):
       ...(automaticStatus ? buildTaskStatusAttrs(automaticStatus, undefined, true) : {})
     },
     isUnchanged: draft => {
-      const normalizedDraft = normalizeTaskEditorDateFields(draft);
+      const normalizedDraft = normalizeTaskEditorDateFields(draft, isRepeatTask);
       return isSameTaskEditorDateFields(normalizedDraft, normalizedFields)
         && isSameTaskEditorDateFields(currentFields, normalizedFields);
     },

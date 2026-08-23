@@ -614,15 +614,17 @@ export function useTaskDrag(
       originalStartDate: string;
       clickOffsetY?: number;
       durationMs?: number;
+      lockDate?: boolean;
     }
   ): TimedTaskDropResolution | null {
-    const { originalStartDate, clickOffsetY = 0, durationMs } = payload;
+    const { originalStartDate, clickOffsetY = 0, durationMs, lockDate = false } = payload;
     const elements = document.elementsFromPoint(event.clientX, event.clientY);
     const target = event.target as HTMLElement | null;
 
     const allDayColumn = (elements.find(el => el.classList.contains('all-day-column')) as HTMLElement | undefined)
       || (target?.closest('.all-day-column') as HTMLElement | null);
     if (allDayColumn) {
+      if (lockDate) return null;
       const dayKey = allDayColumn.getAttribute('data-day-key') || originalStartDate;
       return {
         kind: 'all-day',
@@ -634,7 +636,9 @@ export function useTaskDrag(
       || (target?.closest('.day-column') as HTMLElement | null);
     if (!dayColumn) return null;
 
-    const dayKey = dayColumn.getAttribute('data-day-key') || originalStartDate;
+    const dayKey = lockDate
+      ? originalStartDate
+      : (dayColumn.getAttribute('data-day-key') || originalStartDate);
     const daysScrollElement = (elements.find(el => el.classList.contains('days-scroll')) as HTMLElement | undefined)
       || (dayColumn.closest('.days-scroll') as HTMLElement | null)
       || (target?.closest('.days-scroll') as HTMLElement | null);
@@ -673,6 +677,9 @@ export function useTaskDrag(
     if (event.button !== 0) return;
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event)) return;
+    // These handles resize an all-day task by changing its dates. Recurring
+    // tasks keep their scheduled dates fixed in the calendar.
+    if (isRepeatTask(task)) return;
     resetMonthDayCellHitRects();
 
     const effectiveStartDate = task.startDate || task.dueDate;
@@ -835,8 +842,9 @@ export function useTaskDrag(
       return;
     }
 
+    const isRecurringTask = isRepeatTask(task);
     const targetDate = targetData.date;
-    const targetDateStr = formatDate(targetDate);
+    const targetDateStr = isRecurringTask ? originalStart : formatDate(targetDate);
     let timedStartTime = '09:00';
     let timedDueTime = '10:00';
 
@@ -863,7 +871,9 @@ export function useTaskDrag(
     const originalPointerDate = new Date(originalStartDate);
     originalPointerDate.setDate(originalPointerDate.getDate() + pointerOffsetDays);
 
-    const daysDiff = Math.round((targetDate.getTime() - originalPointerDate.getTime()) / (1000 * 60 * 60 * 24));
+    const daysDiff = isRecurringTask
+      ? 0
+      : Math.round((targetDate.getTime() - originalPointerDate.getTime()) / (1000 * 60 * 60 * 24));
 
     const newStartDate = new Date(originalStart);
     newStartDate.setDate(newStartDate.getDate() + daysDiff);
@@ -945,7 +955,7 @@ export function useTaskDrag(
     const preview = allDayTaskDragPreview.value;
     allDayTaskDragPreview.value = null;
     timedTaskDragPreview.value = null;
-    if (preview && preview.task.id === task.id && targetData && !targetData.isTimedArea) {
+    if (preview && preview.task.id === task.id && targetData && !targetData.isTimedArea && !isRepeatTask(task)) {
       const updatedTask = patchLocalTask(task.id, {
         startDate: preview.startDate,
         dueDate: preview.dueDate || undefined
@@ -995,7 +1005,7 @@ export function useTaskDrag(
         }
 
         const targetDate = repeatSeriesSnapshot
-          ? newDayKey
+          ? originalStart
           : (currentTask.isVirtual && currentTask.repeatInstanceDate
           ? currentTask.repeatInstanceDate
           : newDayKey);
@@ -1145,6 +1155,49 @@ export function useTaskDrag(
               dueTime: task.dueTime
             });
           }
+        }
+      } else if (currentTask && targetData && !targetData.isTimedArea && isRepeatTask(currentTask)) {
+        // Returning a recurring task to the all-day strip only removes its
+        // time; its rule continues to own the occurrence date.
+        if (repeatSeriesSnapshot) {
+          for (const entry of repeatSeriesSnapshot.entries) {
+            patchLocalTask(entry.id, { startTime: undefined, dueTime: undefined });
+          }
+        } else {
+          patchLocalTask(currentTask.id, { startTime: undefined, dueTime: undefined });
+        }
+        try {
+          const series = await getRepeatSeriesForTask(currentTask);
+          if (series) {
+            await updateRepeatSeriesDates(
+              currentTask,
+              series.startDate,
+              series.endDate || null,
+              { startTime: null, dueTime: null },
+              { emitChange: false }
+            );
+            const templateBlockId = series.templateBlockId
+              || localTasks.value.find(item => !item.isVirtual && item.repeatSeriesId === series.id)?.blockId;
+            if (templateBlockId) {
+              await setBlockAttrs(templateBlockId, {
+                'custom-task-start-time': null,
+                'custom-task-due-time': null
+              });
+            }
+            notifyRepeatChanged({
+              blockId: templateBlockId,
+              seriesId: series.id,
+              frequency: series.frequency
+            });
+          }
+          if (repeatSeriesSnapshot) {
+            emitRepeatSeriesSnapshotTasks(repeatSeriesSnapshot);
+          } else {
+            const updatedTask = getLocalTask(currentTask.id);
+            if (updatedTask) emitTaskDateChanged(updatedTask);
+          }
+        } catch (_error) {
+          if (repeatSeriesSnapshot) restoreRepeatSeriesDragSnapshot(repeatSeriesSnapshot);
         }
       } else if (currentTask && isRepeatTask(currentTask)) {
         const currentStart = currentTask.startDate || currentTask.dueDate || null;
@@ -1330,7 +1383,9 @@ export function useTaskDrag(
     const daysScrollElement = target.closest('.days-scroll') as HTMLElement;
     if (!dayColumn || !daysScrollElement) return;
 
-    const newDayKey = dayColumn.getAttribute('data-day-key');
+    const newDayKey = isRepeatTask(task)
+      ? (type === 'start' ? task.startDate : task.dueDate) || dayColumn.getAttribute('data-day-key')
+      : dayColumn.getAttribute('data-day-key');
     if (!newDayKey) return;
 
     const scrollRect = daysScrollElement.getBoundingClientRect();
@@ -1592,6 +1647,7 @@ export function useTaskDrag(
     const allDaySection = target.closest('.all-day-section') as HTMLElement;
 
     if (allDaySection) {
+      if (isRepeatTask(task)) return;
       const allDayColumn = target.closest('.all-day-column') as HTMLElement;
       if (allDayColumn) {
         const newDayKey = allDayColumn.getAttribute('data-day-key') || originalStartDate;
@@ -1632,7 +1688,9 @@ export function useTaskDrag(
     const dayColumn = target.closest('.day-column') as HTMLElement;
     if (!daysScrollElement || !dayColumn) return;
 
-    const newDayKey = dayColumn.getAttribute('data-day-key') || originalStartDate;
+    const newDayKey = isRepeatTask(task)
+      ? originalStartDate
+      : (dayColumn.getAttribute('data-day-key') || originalStartDate);
 
     const scrollRect = daysScrollElement.getBoundingClientRect();
     const scrollTop = daysScrollElement.scrollTop;
@@ -1701,7 +1759,8 @@ export function useTaskDrag(
     const finalDrop = resolveTimedTaskDropFromEvent(event, {
       originalStartDate,
       clickOffsetY,
-      durationMs
+      durationMs,
+      lockDate: isRepeatTask(task)
     });
 
     // Release the visual drag state before any async persistence.  This makes

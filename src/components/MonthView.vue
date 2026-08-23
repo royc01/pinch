@@ -1,6 +1,6 @@
 ﻿<template>
   <div class="month-view">
-    <div class="month-view-layout">
+    <div class="calendar-view-layout">
       <CalendarTaskSidebar
         v-if="!sidebarCollapsed"
         :tasks="sidebarTasks || tasks"
@@ -148,6 +148,7 @@
                 :aria-label="getTaskDisplayTitle(task)"
                 :class="[isHabitTaskChip(task) ? 'habit-task-chip' : 'task-chip', {
                   'task-completed': task.status === 'completed',
+                  'is-repeat-task': !isHabitTaskChip(task) && isRepeatTaskEntity(task),
                   'task-dragging': draggingTask?.task.id === task.id,
                   'keyboard-selected': selectedCalendarTaskId === task.id,
                   'mobile-selected': !isHabitTaskChip(task) && shouldShowMobileTaskChipControls(task.id)
@@ -175,6 +176,13 @@
                   :class="{ 'task-dragging': draggingTask?.task.id === task.id }"
                   @mousedown="!isHabitTaskChip(task) && handleTaskMouseDownWithSelection($event, task)"
                 >
+                  <Icon
+                    v-if="!isHabitTaskChip(task) && isRepeatTaskEntity(task)"
+                    name="repeat"
+                    class="task-repeat-icon"
+                    width="11"
+                    height="11"
+                  />
                   <span
                     class="task-checkbox-wrapper"
                     @mousedown.stop
@@ -217,9 +225,14 @@
                 ></div>
                 </div>
               </div>
-              <template v-if="allDayTaskDragPreview && week.some(day => day.key === allDayTaskDragPreview.startDate)">
+              <template v-if="allDayTaskDragPreview && isMonthTaskDragPreviewInWeek(allDayTaskDragPreview, week)">
                 <div class="month-task-drag-outline" :style="getMonthTaskDragPreviewStyle(allDayTaskDragPreview, week, false)"></div>
-                <div class="task-chip month-task-drag-ghost" :ref="setMonthTaskDragGhostElement" :style="getMonthTaskDragPreviewStyle(allDayTaskDragPreview, week, true)">
+                <div
+                  v-if="week.some(day => day.key === allDayTaskDragPreview.startDate)"
+                  class="task-chip month-task-drag-ghost"
+                  :ref="setMonthTaskDragGhostElement"
+                  :style="getMonthTaskDragPreviewStyle(allDayTaskDragPreview, week, true)"
+                >
                   <div class="task-chip-title"><TaskTitlePlain :title="allDayTaskDragPreview.task.title" /></div>
                 </div>
               </template>
@@ -306,7 +319,6 @@ import {
   getHabits,
   getMoodData,
   removeMoodEntry,
-  saveHabits,
   upsertMoodEntry,
   upsertHabit,
   setBlockAttrs,
@@ -1385,10 +1397,6 @@ const weekdays = computed(() => [
   t('date.weekdaySunShort')
 ]);
 
-const monthTitle = computed(() => {
-  return `${baseDate.value.getFullYear()} ${baseDate.value.getMonth() + 1}${t('date.monthSuffix')}`;
-});
-
 const calendarDays = computed(() => {
   const days = [];
   
@@ -1461,6 +1469,12 @@ const calendarDays = computed(() => {
   }
   
   return days;
+});
+
+const monthTitle = computed(() => {
+  const highlightedDay = calendarDays.value.find(day => !day.isOtherMonth);
+  const date = highlightedDay?.date ?? baseDate.value;
+  return `${date.getFullYear()} ${date.getMonth() + 1}${t('date.monthSuffix')}`;
 });
 
 const calendarWeeks = computed(() => {
@@ -2205,16 +2219,41 @@ async function updateLifelogTimelineAnnotation(item: LifelogTimelinePanelItem, t
 }
 
 function getMonthTaskDragPreviewStyle(preview: NonNullable<typeof allDayTaskDragPreview.value>, week: any[], followPointer: boolean): Record<string, string> {
-  const startDayOfWeek = week.findIndex(day => day.key === preview.startDate);
-  const dueDate = preview.dueDate || preview.startDate;
-  const endDayOfWeek = week.findIndex(day => day.key === dueDate);
-  if (startDayOfWeek < 0 || endDayOfWeek < startDayOfWeek) return { display: 'none' };
+  const segment = getMonthTaskDragPreviewSegment(preview, week);
+  if (!segment) return { display: 'none' };
+  const { startDayOfWeek, endDayOfWeek } = segment;
   const style = getTaskStyle({ ...preview.task, startDayOfWeek, endDayOfWeek, spanDays: endDayOfWeek - startDayOfWeek + 1 }, week);
   if (followPointer) {
     style.left = '0px'; style.top = '0px'; style.width = `${preview.width}px`; style.height = `${preview.height}px`;
     style.transform = `translate3d(${preview.floatingLeft}px, ${preview.floatingTop}px, 0)`;
   }
   return style;
+}
+
+function getMonthTaskDragPreviewSegment(
+  preview: NonNullable<typeof allDayTaskDragPreview.value>,
+  week: Array<{ key: string }>
+): { startDayOfWeek: number; endDayOfWeek: number } | null {
+  const startDate = preview.startDate;
+  const dueDate = preview.dueDate || startDate;
+  const weekStart = week[0]?.key;
+  const weekEnd = week[week.length - 1]?.key;
+  if (!weekStart || !weekEnd || dueDate < weekStart || startDate > weekEnd) return null;
+
+  const segmentStart = startDate < weekStart ? weekStart : startDate;
+  const segmentEnd = dueDate > weekEnd ? weekEnd : dueDate;
+  const startDayOfWeek = week.findIndex(day => day.key === segmentStart);
+  const endDayOfWeek = week.findIndex(day => day.key === segmentEnd);
+  return startDayOfWeek < 0 || endDayOfWeek < startDayOfWeek
+    ? null
+    : { startDayOfWeek, endDayOfWeek };
+}
+
+function isMonthTaskDragPreviewInWeek(
+  preview: NonNullable<typeof allDayTaskDragPreview.value>,
+  week: Array<{ key: string }>
+): boolean {
+  return getMonthTaskDragPreviewSegment(preview, week) !== null;
 }
 
 function isMobileTaskChipSelected(taskId: string): boolean {
@@ -3719,10 +3758,10 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate) {
       const completedAt = await TaskRepository.updateRepeatInstanceStatus(task, nextStatus);
       if (nextStatus === 'completed' && completedAt) {
-        requestTaskCompletionNote(task.id, completedAt, getCheckinNotePromptAnchor(event?.currentTarget ?? null), task.title, task.blockId || task.id);
+        requestTaskCompletionNote(task.id, completedAt, getCheckinNotePromptAnchor(event?.currentTarget instanceof Element ? event.currentTarget : null), task.title, task.blockId || task.id);
       }
     } else if (task.type === 'block' && task.blockId) {
-      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true, getCheckinNotePromptAnchor(event?.currentTarget ?? null));
+      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true, getCheckinNotePromptAnchor(event?.currentTarget instanceof Element ? event.currentTarget : null));
     }
   } catch (error) {
     patchLocalTask(task.id, {
@@ -3869,13 +3908,6 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 
-.month-view-layout {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  overflow: hidden;
-}
-
 .calendar-container {
   flex: 1;
   min-width: 0;
@@ -3883,6 +3915,8 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
   background: var(--b3-theme-background);
+  border-radius: 16px;
+  box-shadow: var(--pinch-shadow);
 }
 
 .calendar-toolbar {
@@ -3904,6 +3938,7 @@ onUnmounted(() => {
 .calendar-toolbar-top {
   display: flex;
   align-items: center;
+  padding-top: 8px;
 }
 
 .calendar-view-switcher {
@@ -3953,7 +3988,6 @@ onUnmounted(() => {
   cursor: pointer;
   color: var(--b3-theme-on-background);
   transition: background-color 0.2s;
-  box-shadow: var(--pinch-shadow);
 }
 
 .nav-btn:hover {
@@ -3962,7 +3996,7 @@ onUnmounted(() => {
 
 .month-title {
   font-size: 26px;
-  font-weight: 500;
+  font-weight: 700;
   color: var(--b3-theme-on-background);
 }
 
@@ -4252,7 +4286,7 @@ onUnmounted(() => {
 }
 
 .task-chip {
-  padding: 3px 6px;
+  padding: 3px 5px;
   border-radius: 6px;
   font-size: 11px;
   cursor: default;
@@ -4384,6 +4418,29 @@ onUnmounted(() => {
 
 .task-chip-title.task-dragging {
   cursor: grabbing;
+}
+
+.task-chip.is-repeat-task::before {
+  display: none;
+}
+
+.task-chip.is-repeat-task .task-chip-title {
+  margin-left: 0;
+  padding-left: 11px;
+}
+
+.task-repeat-icon {
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  box-sizing: content-box;
+  width: 10px;
+  height: 10px;
+  padding: 2px;
+  border-radius: 4px;
+  color: #fff;
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  transform: translateY(-50%);
 }
 
 .task-chip.keyboard-selected {

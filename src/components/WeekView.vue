@@ -1,5 +1,5 @@
 <template>
-  <div class="week-view-layout">
+  <div class="calendar-view-layout">
     <CalendarTaskSidebar
       v-if="!sidebarCollapsed"
       :tasks="sidebarTasks || tasks"
@@ -226,6 +226,7 @@
                   :class="[
                     isHabitTaskChip(task) ? 'all-day-habit-task' : 'all-day-task',
                     !isHabitTaskChip(task) ? `priority-${task.priority}` : '',
+                    { 'is-repeat-task': !isHabitTaskChip(task) && isRepeatTaskEntity(task) },
                     { 'task-completed': task.status === 'completed' },
                     { 'mobile-selected': !isHabitTaskChip(task) && shouldShowMobileAllDayTaskControls(task.id) },
                     { 'keyboard-selected': selectedCalendarTaskId === task.id }
@@ -253,6 +254,13 @@
                   :class="{ 'task-dragging': draggingTask?.task.id === task.id }"
                   @mousedown="!isHabitTaskChip(task) && handleAllDayTaskMouseDown($event, task)"
                 >
+                  <Icon
+                    v-if="!isHabitTaskChip(task) && isRepeatTaskEntity(task)"
+                    name="repeat"
+                    class="task-repeat-icon"
+                    width="11"
+                    height="11"
+                  />
                   <span
                     class="task-checkbox-wrapper"
                     @mousedown.stop
@@ -681,7 +689,6 @@ import {
   getFocusTimerData,
   getHabits,
   getMoodData,
-  saveHabits,
   removeMoodEntry,
   upsertHabit,
   upsertMoodEntry,
@@ -718,8 +725,7 @@ import {
   createCalendarTaskDateFields,
   getEffectiveDueDate,
   normalizeOptionalDateValue,
-  saveCalendarTaskDates,
-  type CalendarTaskDateFields
+  saveCalendarTaskDates
 } from '@/utils/calendarTaskDates';
 import { getSiyuanIntlLocaleTag } from '@/utils/locale';
 import { useHabitEmojis } from '@/composables/useHabitEmojis';
@@ -2635,11 +2641,9 @@ async function applyRepeatSeriesDrop(
   const series = await getRepeatSeriesForTask(task);
   if (!series) return false;
 
-  const draggedInstanceDate = task.repeatInstanceDate
-    || task.startDate
-    || task.dueDate
-    || series.startDate;
-  const deltaDays = getDayDiff(draggedInstanceDate, payload.targetDate);
+  // A recurrence's calendar date is defined by its rule. Calendar dragging may
+  // still adjust the time, but must never shift the series to another day.
+  const deltaDays = 0;
   const nextSeriesStart = shiftDate(series.startDate, deltaDays);
   const nextSeriesEnd = series.endDate ? shiftDate(series.endDate, deltaDays) : null;
 
@@ -4397,10 +4401,14 @@ function applyMobileAllDayTaskMovePreview(
   }, { emit: false });
 }
 
-function resolveMobileAllDayTaskMoveTarget(point: ExternalTaskDropPoint): MobileTimedTaskDropTarget | null {
+function resolveMobileAllDayTaskMoveTarget(
+  point: ExternalTaskDropPoint,
+  gesture: MobileAllDayTaskGesture
+): MobileTimedTaskDropTarget | null {
   const dropZoneCache = getWeekDropZoneCache();
   const allDayZone = findWeekDayHitZone(point, dropZoneCache.allDayZones);
   if (allDayZone) {
+    if (isRepeatTaskEntity(gesture.task)) return null;
     return {
       kind: 'all-day',
       day: allDayZone.day,
@@ -4418,6 +4426,9 @@ function resolveMobileAllDayTaskMoveTarget(point: ExternalTaskDropPoint): Mobile
   if (!timedZone) {
     return null;
   }
+  const lockedDay = isRepeatTaskEntity(gesture.task)
+    ? weekDays.value.find(day => day.key === (gesture.task.startDate || gesture.task.dueDate)) || timedZone.day
+    : timedZone.day;
   const scrollTop = scrollElement.scrollTop;
   const offsetY = point.clientY - scrollRect.top + scrollTop;
   const inactiveOffsetMinutes = (isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0) * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
@@ -4429,17 +4440,17 @@ function resolveMobileAllDayTaskMoveTarget(point: ExternalTaskDropPoint): Mobile
   const hours = Math.floor(clampedMinutes / 60);
   const minutes = clampedMinutes % 60;
   const startTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-  const startDateTime = new Date(`${timedZone.day.key}T${startTime}`);
+  const startDateTime = new Date(`${lockedDay.key}T${startTime}`);
   const dueDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000);
   const dueTime = formatTime(dueDateTime);
   const dueDate = formatDate(dueDateTime);
   return {
     kind: 'timed',
-    day: timedZone.day,
+    day: lockedDay,
     startTime,
     dueTime,
     dueDate,
-    label: formatMobileTimedTaskDropLabel(timedZone.day, startTime, dueTime)
+    label: formatMobileTimedTaskDropLabel(lockedDay, startTime, dueTime)
   };
 }
 
@@ -4520,7 +4531,7 @@ function updateMobileAllDayTaskMoveFeedback(
   gesture: MobileAllDayTaskGesture,
   point: ExternalTaskDropPoint
 ): MobileTimedTaskDropTarget | null {
-  const target = resolveMobileAllDayTaskMoveTarget(point);
+  const target = resolveMobileAllDayTaskMoveTarget(point, gesture);
   updateMobileAllDayTaskDragState(target);
   applyMobileAllDayTaskMovePreview(gesture, target);
   mobileDragPreview.value = {
@@ -4537,6 +4548,9 @@ function previewMobileAllDayTaskHandleDrag(
   gesture: MobileAllDayTaskGesture,
   point: ExternalTaskDropPoint
 ): boolean {
+  if (isRepeatTaskEntity(gesture.task)) {
+    return false;
+  }
   const target = resolveMobileAllDayTaskDropTarget(point);
   if (!target) {
     resetMobileDragFeedback();
@@ -5082,6 +5096,7 @@ function resolveMobileTimedTaskDropTarget(
   const dropZoneCache = getWeekDropZoneCache();
   const allDayZone = findWeekDayHitZone(point, dropZoneCache.allDayZones);
   if (allDayZone) {
+    if (isRepeatTaskEntity(gesture.task)) return null;
     return {
       kind: 'all-day',
       day: allDayZone.day,
@@ -5099,6 +5114,9 @@ function resolveMobileTimedTaskDropTarget(
   if (!timedZone) {
     return null;
   }
+  const lockedDay = isRepeatTaskEntity(gesture.task)
+    ? weekDays.value.find(day => day.key === (gesture.task.startDate || gesture.task.dueDate)) || timedZone.day
+    : timedZone.day;
   const scrollTop = scrollElement.scrollTop;
   const offsetY = point.clientY - scrollRect.top + scrollTop - (gesture.clickOffsetY || 0);
   const inactiveOffsetMinutes = (isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0) * 60 / CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT;
@@ -5113,17 +5131,17 @@ function resolveMobileTimedTaskDropTarget(
   const safeDurationMs = Number.isFinite(gesture.durationMs)
     ? Math.max(15 * 60 * 1000, Number(gesture.durationMs))
     : 60 * 60 * 1000;
-  const startDateTime = new Date(`${timedZone.day.key}T${startTime}`);
+  const startDateTime = new Date(`${lockedDay.key}T${startTime}`);
   const dueDateTime = new Date(startDateTime.getTime() + safeDurationMs);
   const dueTime = formatTime(dueDateTime);
   const dueDate = formatDate(dueDateTime);
   return {
     kind: 'timed',
-    day: timedZone.day,
+    day: lockedDay,
     startTime,
     dueTime,
     dueDate,
-    label: formatMobileTimedTaskDropLabel(timedZone.day, startTime, dueTime)
+    label: formatMobileTimedTaskDropLabel(lockedDay, startTime, dueTime)
   };
 }
 
@@ -5225,13 +5243,16 @@ function previewMobileTimedTaskHandleDrag(
   if (!currentTask) {
     return false;
   }
+  const lockedDayKey = isRepeatTaskEntity(gesture.task)
+    ? (gesture.mode === 'resize-start' ? gesture.originalStartDate : gesture.originalDueDate)
+    : target.dayKey;
 
   if (gesture.repeatSeriesSnapshot) {
     applyMobileTimedTaskRepeatHandlePreview(
       gesture.repeatSeriesSnapshot,
       gesture.task.id,
       gesture.mode === 'resize-start' ? 'start' : 'end',
-      target.dayKey,
+      lockedDayKey,
       target.time
     );
   } else {
@@ -5752,7 +5773,7 @@ async function finishMobileAllDayTaskPointer(event: PointerEvent, cancelled: boo
       clientY: event.clientY
     };
     const target = !cancelled && gesture.moved
-      ? resolveMobileAllDayTaskMoveTarget(point)
+      ? resolveMobileAllDayTaskMoveTarget(point, gesture)
       : null;
     const task = gesture.task;
     const shouldAllowTapClick = !cancelled && !gesture.moved && gesture.timerId == null;
@@ -6055,10 +6076,10 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     if (task.isVirtual && task.repeatSeriesId && task.repeatInstanceDate) {
       const completedAt = await TaskRepository.updateRepeatInstanceStatus(task, nextStatus);
       if (nextStatus === 'completed' && completedAt) {
-        requestTaskCompletionNote(task.id, completedAt, getCheckinNotePromptAnchor(event?.currentTarget ?? null), task.title, task.blockId || task.id);
+        requestTaskCompletionNote(task.id, completedAt, getCheckinNotePromptAnchor(event?.currentTarget instanceof Element ? event.currentTarget : null), task.title, task.blockId || task.id);
       }
     } else if (task.type === 'block' && task.blockId) {
-      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true, getCheckinNotePromptAnchor(event?.currentTarget ?? null));
+      await updateTaskMarkdown(task.blockId, nextStatus === 'completed', true, getCheckinNotePromptAnchor(event?.currentTarget instanceof Element ? event.currentTarget : null));
     }
   } catch (error) {
     patchLocalTask(task.id, {
@@ -6384,19 +6405,14 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.week-view-layout {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  overflow: hidden;
-}
-
 .week-view {
   flex: 1;
   display: flex;
   flex-direction: column;
   background: var(--b3-theme-background);
   overflow: hidden;
+  border-radius: 16px;
+  box-shadow: var(--pinch-shadow);
 }
 
 .calendar-toolbar {
@@ -6466,7 +6482,6 @@ onUnmounted(() => {
   cursor: pointer;
   color: var(--b3-theme-on-background);
   transition: background-color 0.2s;
-  box-shadow: var(--pinch-shadow);
 }
 
 .nav-btn:hover {
@@ -6475,7 +6490,7 @@ onUnmounted(() => {
 
 .header-title {
   font-size: 26px;
-  font-weight: 500;
+  font-weight: 700;
   color: var(--b3-theme-on-background);
 }
 
@@ -6489,6 +6504,7 @@ onUnmounted(() => {
 .calendar-toolbar-top {
   display: flex;
   align-items: center;
+  padding-top: 8px;
 }
 
 .today-btn {
@@ -7007,6 +7023,10 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+.all-day-task.is-repeat-task::before {
+  display: none;
+}
+
 .all-day-habit-task {
   padding: 3px 6px;
   border-radius: 20px;
@@ -7096,6 +7116,25 @@ onUnmounted(() => {
   margin: 0 4px;
   cursor: grab;
   user-select: none;
+}
+
+.all-day-task.is-repeat-task .task-chip-title {
+  margin-left: 0;
+  padding-left: 11px;
+}
+
+.all-day-task .task-repeat-icon {
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  box-sizing: content-box;
+  width: 10px;
+  height: 10px;
+  padding: 2px;
+  border-radius: 4px;
+  color: #fff;
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  transform: translateY(-50%);
 }
 
 .task-checkbox-wrapper {

@@ -55,6 +55,17 @@
   --pinch-menu-shadow: var(--b3-border-color) 0px 0px 0 0.5px, rgba(0, 0, 0, 0.05) 0px 1px 2px 0px, rgba(15, 15, 15, 0.2) 0px 9px 24px;
 }
 
+// Shared layout for calendar views that contain the task sidebar and main content.
+.calendar-view-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  padding: 10px;
+  gap: 10px;
+  background-color: var(--b3-list-hover);
+}
+
 html[data-theme-mode='dark'],
 body[data-theme-mode='dark'],
 body.b3-theme-dark,

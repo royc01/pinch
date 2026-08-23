@@ -1191,7 +1191,7 @@ async function handleSubmit(): Promise<void> {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  z-index: 8;
+  z-index: 11;
 }
 
 .modal-overlay.is-centered {

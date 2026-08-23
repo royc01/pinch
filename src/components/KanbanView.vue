@@ -738,7 +738,7 @@
                   :completed="isTaskCompletedVisual(task)"
                   :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
                   :show-start-date="isFutureVirtualRepeatPreview(task)"
-                  :draggable="!isMobileFrontend && kanbanSupportsDrag && !isKanbanBatchEditMode"
+                  :draggable="canDragTaskInCurrentBoard(task, isKanbanBatchEditMode)"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
                   :expanded="isKanbanTaskExpanded(task.id)"
                   :description-editing="inlineEditingDescriptionTaskId === task.id"
@@ -961,7 +961,7 @@
                   :completed="isTaskCompletedVisual(task)"
                   :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
                   :show-start-date="isFutureVirtualRepeatPreview(task)"
-                  :draggable="!isMobileFrontend && kanbanSupportsDrag"
+                  :draggable="canDragTaskInCurrentBoard(task)"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
                   :expanded="isKanbanTaskExpanded(task.id)"
                   :description-editing="inlineEditingDescriptionTaskId === task.id"
@@ -3463,7 +3463,7 @@ const kanbanListGroupActionColumn = computed<KanbanColumn | null>(() => {
   if (activeBoardGroupBy.value === 'heading') return addHeadingColumn;
   return null;
 });
-const kanbanSupportsDrag = computed(() => activeBoardGroupBy.value !== 'date' && activeBoardGroupBy.value !== 'document');
+const kanbanSupportsDrag = computed(() => activeBoardGroupBy.value !== 'date');
 const kanbanColumns = computed<KanbanColumn[]>(() => {
   if (activeBoardGroupBy.value === 'group') {
     return [...groupColumns.value, addGroupColumn];
@@ -11837,14 +11837,16 @@ function normalizeKanbanEditorDateFields(value: {
   startTime?: string;
   dueDate?: string;
   dueTime?: string;
-}): KanbanEditorDateFields {
+}, preserveDueTimeWithoutDueDate = false): KanbanEditorDateFields {
   const startDate = normalizeDateInputValue(value.startDate || '');
   let dueDate = normalizeDateInputValue(value.dueDate || '');
   if (startDate && dueDate && dueDate < startDate) {
     dueDate = startDate;
   }
   const startTime = startDate ? normalizeTimeInputValue(value.startTime || '') : '';
-  const dueTime = dueDate ? normalizeTimeInputValue(value.dueTime || '') : '';
+  const dueTime = dueDate || preserveDueTimeWithoutDueDate
+    ? normalizeTimeInputValue(value.dueTime || '')
+    : '';
   return {
     startDate,
     startTime,
@@ -11862,14 +11864,15 @@ function isSameKanbanEditorDateFields(a: KanbanEditorDateFields, b: KanbanEditor
 
 function handleKanbanEditorDateFieldsUpdate(value: KanbanEditorDateFields): void {
   if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) return;
-  const normalizedFields = normalizeKanbanEditorDateFields(value);
-  const draftFields = normalizeKanbanEditorDateFields(activeKanbanEditDraft.value);
+  const isRepeatTask = isRepeatTaskEntity(activeKanbanEditTask.value);
+  const normalizedFields = normalizeKanbanEditorDateFields(value, isRepeatTask);
+  const draftFields = normalizeKanbanEditorDateFields(activeKanbanEditDraft.value, isRepeatTask);
   const currentFields = normalizeKanbanEditorDateFields({
     startDate: (activeKanbanEditTask.value.startDate || '').toString(),
     startTime: (activeKanbanEditTask.value.startTime || '').toString(),
     dueDate: (activeKanbanEditTask.value.dueDate || '').toString(),
     dueTime: (activeKanbanEditTask.value.dueTime || '').toString()
-  });
+  }, isRepeatTask);
   if (isSameKanbanEditorDateFields(draftFields, normalizedFields)
     && isSameKanbanEditorDateFields(currentFields, normalizedFields)) {
     return;
@@ -11927,7 +11930,10 @@ async function saveKanbanEditorDateFields(
   value: KanbanEditorDateFields,
   options: { repeatPersistenceTarget?: Task; optimisticApplied?: boolean } = {}
 ): Promise<void> {
-  const normalizedFields = normalizeKanbanEditorDateFields(value);
+  const normalizedFields = normalizeKanbanEditorDateFields(
+    value,
+    isRepeatTaskEntity(task) || isRepeatTaskEntity(options.repeatPersistenceTarget)
+  );
   const shouldClearRepeatDates = !normalizedFields.startDate
     && !normalizedFields.startTime
     && !normalizedFields.dueDate
@@ -12836,7 +12842,7 @@ async function openKanbanEditor(
     startTime: typeof targetTask.startTime === 'string' ? targetTask.startTime : '',
     dueDate: typeof targetTask.dueDate === 'string' ? targetTask.dueDate : '',
     dueTime: typeof targetTask.dueTime === 'string' ? targetTask.dueTime : ''
-  });
+  }, isRepeatTaskEntity(targetTask));
   const tagState = buildTaskTagState(targetTask.tags, targetTask.groupId);
   kanbanEditorDraft.value = {
     taskId: targetTask.id,
@@ -14975,8 +14981,18 @@ function handleGroupColumnReorderDragEnd(): void {
   clearGroupColumnReorderDragState();
 }
 
+function canDragTaskInCurrentBoard(task: Task, isBatchEditing = false): boolean {
+  if (isMobileFrontend || !kanbanSupportsDrag.value || isBatchEditing) {
+    return false;
+  }
+  // Moving a task between document columns changes its containing document, so
+  // only persisted block tasks can participate. Virtual repeat instances have
+  // no block that can be moved.
+  return activeBoardGroupBy.value !== 'document' || (task.type === 'block' && !!task.blockId);
+}
+
 function handleDragStart(event: DragEvent, task: Task) {
-  if (isMobileFrontend || !kanbanSupportsDrag.value) return;
+  if (!canDragTaskInCurrentBoard(task, isKanbanBatchEditMode.value)) return;
 
   draggedTask.value = task;
   if (event.dataTransfer) {
@@ -15019,6 +15035,19 @@ function handleDragOver(event: DragEvent, column: KanbanColumn) {
     }
     const currentHeadingKey = getHeadingColumnIdForTask(draggedTask.value);
     if (currentHeadingKey !== column.id) {
+      dragOverColumnId.value = column.id;
+    }
+    return;
+  }
+
+  if (activeBoardGroupBy.value === 'document') {
+    if (column.type !== 'document' || !column.documentId) {
+      return;
+    }
+    const currentDocumentId = typeof draggedTask.value.rootId === 'string'
+      ? draggedTask.value.rootId.trim()
+      : '';
+    if (currentDocumentId !== column.documentId) {
       dragOverColumnId.value = column.id;
     }
     return;
@@ -15146,8 +15175,62 @@ async function handleDrop(event: DragEvent, column: KanbanColumn) {
     return;
   }
 
+  if (activeBoardGroupBy.value === 'document') {
+    if (column.type !== 'document') {
+      return;
+    }
+    await handleDocumentDrop(column);
+    return;
+  }
+
   if (column.type === 'status' && column.status) {
     await handleStatusDrop(column.status);
+  }
+}
+
+async function handleDocumentDrop(column: KanbanColumn): Promise<void> {
+  const task = draggedTask.value;
+  const targetDocumentId = typeof column.documentId === 'string' ? column.documentId.trim() : '';
+  if (!task || task.type !== 'block' || !task.blockId || !targetDocumentId) {
+    return;
+  }
+
+  const currentDocumentId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+  if (currentDocumentId === targetDocumentId) {
+    return;
+  }
+
+  isDropping.value = true;
+  draggedTask.value = null;
+  dragOverColumnId.value = null;
+  try {
+    const moveResult = await TaskRepository.moveTask(task.id, targetDocumentId);
+    // The kernel index can lag behind a block move. Update the local snapshot
+    // first so the card immediately leaves its source document column, then
+    // refresh the index in the background to reconcile its final metadata.
+    const targetNotebookId = typeof column.notebookId === 'string' ? column.notebookId.trim() : '';
+    const optimisticTasks = tasks.value.map(currentTask => (
+      currentTask.id === task.id
+        ? {
+          ...currentTask,
+          rootId: targetDocumentId,
+          notebookId: targetNotebookId || currentTask.notebookId
+        }
+        : currentTask
+    ));
+    crdtRepo.syncFromSQLTasks(optimisticTasks);
+    tasks.value = filterTasksByNotebookScope(applyDraggedStatusLocks(crdtRepo.getTasks()));
+    invalidateTableFilters();
+    if (moveResult.blockId) {
+      publishTaskChange([moveResult.blockId]);
+    }
+    scheduleKernelTaskIndexRefresh(120, false, true);
+    scheduleRefreshTasks(680, 'silent-full');
+  } catch (error) {
+    console.error('[KanbanView] Failed to move task to document via drag:', error);
+    await pushMsg(t('kanbanView.moveTaskFailedRetry'), 3000);
+  } finally {
+    isDropping.value = false;
   }
 }
 

@@ -89,63 +89,73 @@
       </button>
     </div>
     <div
-      ref="listRef"
       class="calendar-task-sidebar-list"
-      @scroll="updateViewport"
     >
       <div
-        v-if="rows.length > 0"
-        :style="{ height: `${virtualRange.top}px` }"
-      ></div>
-      <template v-for="row in visibleRows" :key="row.key">
+        v-for="notebook in groups"
+        :key="notebook.id"
+        class="calendar-task-sidebar-notebook-group"
+      >
         <button
-          v-if="row.kind === 'group'"
           type="button"
-          class="calendar-task-sidebar-group-header"
-          :class="{ collapsed: collapsedIds.has(row.group.id) }"
-          @click="toggleGroup(row.group.id)"
+          class="calendar-task-sidebar-group-header calendar-task-sidebar-notebook-header"
+          :class="{ collapsed: collapsedIds.has(notebook.id) }"
+          @click="toggleGroup(notebook.id)"
         >
           <span class="calendar-task-sidebar-group-toggle"
             ><Icon name="chevronDown" width="16" height="16"
           /></span>
+          <EmojiIcon
+            v-if="notebook.icon"
+            class="calendar-task-sidebar-notebook-icon"
+            :value="notebook.icon"
+          />
           <span class="calendar-task-sidebar-group-name">{{
-            row.group.name
+            notebook.name
           }}</span>
           <span class="calendar-task-sidebar-group-count">{{
-            row.group.tasks.length
+            notebook.taskCount
           }}</span>
         </button>
-        <button
-          v-else
-          type="button"
-          class="calendar-task-sidebar-task ariaLabel"
-          draggable="false"
-          :class="{ 'is-pointer-dragging': pointerDrag.active && pointerDrag.task?.id === row.task.id }"
-          :aria-label="getTaskDisplayTitle(row.task)"
-          @pointerdown="handleTaskPointerDown($event, row.task)"
-          @dragstart.prevent
-          @click="handleTaskClick($event, row.task)"
-        >
-          <span
-            class="task-checkbox-wrapper calendar-task-sidebar-task-checkbox"
-            @pointerdown.stop
-            @dragstart.stop
-            @click.stop="emit('task-toggle', row.task)"
-            ><TaskCheckbox
-              :checked="row.task.status === 'completed'"
-              :size="14"
-          /></span>
-          <TaskTitlePlain
-            class="calendar-task-sidebar-task-title"
-            :title="row.task.title"
-          />
-        </button>
-      </template>
-      <div
-        v-if="rows.length > 0"
-        :style="{ height: `${virtualRange.bottom}px` }"
-      ></div>
-      <div v-if="rows.length === 0" class="calendar-task-sidebar-empty">
+        <template v-if="!collapsedIds.has(notebook.id)">
+          <template v-for="document in notebook.documents" :key="document.id">
+            <button
+              type="button"
+              class="calendar-task-sidebar-group-header calendar-task-sidebar-document-header"
+              :class="{ collapsed: collapsedIds.has(document.id) }"
+              @click="toggleGroup(document.id)"
+            >
+              <span class="calendar-task-sidebar-group-toggle"
+                ><Icon name="chevronDown" width="14" height="14"
+              /></span>
+              <span class="calendar-task-sidebar-group-name">{{ document.name }}</span>
+              <span class="calendar-task-sidebar-group-count">{{ document.tasks.length }}</span>
+            </button>
+            <button
+              v-for="task in collapsedIds.has(document.id) ? [] : document.tasks"
+              :key="task.id"
+              type="button"
+              class="calendar-task-sidebar-task calendar-task-sidebar-document-task ariaLabel"
+              draggable="false"
+              :class="{ 'is-pointer-dragging': pointerDrag.active && pointerDrag.task?.id === task.id }"
+              :aria-label="getTaskDisplayTitle(task)"
+              @pointerdown="handleTaskPointerDown($event, task)"
+              @dragstart.prevent
+              @click="handleTaskClick($event, task)"
+            >
+              <span
+                class="task-checkbox-wrapper calendar-task-sidebar-task-checkbox"
+                @pointerdown.stop
+                @dragstart.stop
+                @click.stop="emit('task-toggle', task)"
+                ><TaskCheckbox :checked="task.status === 'completed'" :size="14"
+              /></span>
+              <TaskTitlePlain class="calendar-task-sidebar-task-title" :title="task.title" />
+            </button>
+          </template>
+        </template>
+      </div>
+      <div v-if="groups.length === 0" class="calendar-task-sidebar-empty">
         {{ t("taskManager.noTasks") }}
       </div>
     </div>
@@ -160,11 +170,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
-import type { Task } from "@/api";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { lsNotebooks, type Task } from "@/api";
 import { getTaskDisplayTitle } from "@/composables/useTaskCommon";
 import { useI18n } from "@/composables/useI18n";
+import { normalizeDocumentIconValue } from "@/utils/documentIcon";
+import { getTaskTitlePlainText } from "@/utils/taskHtml";
 import Icon from "./Icon.vue";
+import EmojiIcon from "./EmojiIcon.vue";
 import TaskCheckbox from "./TaskCheckbox.vue";
 import TaskTitlePlain from './TaskTitlePlain.vue';
 
@@ -186,12 +199,13 @@ const emit = defineEmits<{
   "calendar-task-drag-cancel": [];
 }>();
 const { t } = useI18n();
+const COLLAPSED_GROUPS_STORAGE_KEY = "pinch-calendar-sidebar-collapsed-groups";
 const query = ref("");
 const showCompleted = ref(false);
-const collapsedIds = ref(new Set<string>());
+const collapsedIds = ref(loadCollapsedGroupIds());
+const notebookNames = ref(new Map<string, string>());
+const notebookIcons = ref(new Map<string, string>());
 const miniMonth = ref(new Date());
-const listRef = ref<HTMLElement | null>(null);
-const viewport = ref({ top: 0, height: 0 });
 const POINTER_DRAG_THRESHOLD = 4;
 const pointerDrag = ref<{
   active: boolean;
@@ -203,8 +217,6 @@ const pointerDrag = ref<{
   clientY: number;
 }>({ active: false, task: null, pointerId: null, startX: 0, startY: 0, clientX: 0, clientY: 0 });
 let suppressNextTaskClick = false;
-const ROW_HEIGHT = 28;
-const OVERSCAN = 12;
 
 function handleTaskClick(event: MouseEvent, task: Task) {
   if (suppressNextTaskClick) {
@@ -279,20 +291,32 @@ function shiftMonth(offset: number) {
     1,
   );
 }
-function documentId(task: Task) {
-  const notebookId = task.notebookId?.trim() || "";
-  const rootId = task.rootId?.trim() || "";
-  if (notebookId && rootId) return `${notebookId}:${rootId}`;
-  if (rootId) return rootId;
-  const path = task.hPath?.trim() || "";
-  return path ? `path:${path}` : "__unassigned_document__";
+function notebookId(task: Task) {
+  return task.notebookId?.trim() || "__unassigned_notebook__";
 }
-function documentTitle(task: Task) {
+function hasVisibleTaskTitle(task: Task) {
+  const title = getTaskTitlePlainText(task.title);
+  return Boolean(title) && !/^\(untitled\)$/i.test(title);
+}
+function notebookName(id: string) {
+  return id === "__unassigned_notebook__"
+    ? t("ganttView.unassignedDocument")
+    : notebookNames.value.get(id) || id;
+}
+function notebookIcon(id: string) {
+  return notebookIcons.value.get(id) || "";
+}
+function documentId(task: Task, taskNotebookId: string) {
+  const rootId = task.rootId?.trim() || "";
+  if (rootId) return `document:${taskNotebookId}:${rootId}`;
   const path = task.hPath?.trim() || "";
-  const parts = path
-    .split("/")
-    .map((part) => part.trim())
-    .filter(Boolean);
+  return path
+    ? `document:${taskNotebookId}:path:${path}`
+    : `document:${taskNotebookId}:__unassigned__`;
+}
+function documentName(task: Task) {
+  const path = task.hPath?.trim() || "";
+  const parts = path.split("/").filter(Boolean);
   if (parts.length) return parts[parts.length - 1];
   return (
     props.documentTitleByRootId?.get(task.rootId?.trim() || "")?.trim() ||
@@ -301,87 +325,96 @@ function documentTitle(task: Task) {
 }
 const groups = computed(() => {
   const search = query.value.trim().toLocaleLowerCase();
-  const result = new Map<string, { id: string; name: string; tasks: Task[] }>();
+  const result = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      icon: string;
+      documents: Map<string, { id: string; name: string; tasks: Task[] }>;
+    }
+  >();
   for (const task of props.tasks) {
     if (
       task.isVirtual ||
       task.archived ||
       (!showCompleted.value && task.status === "completed") ||
+      !hasVisibleTaskTitle(task) ||
       (search &&
         !getTaskDisplayTitle(task).toLocaleLowerCase().includes(search))
     )
       continue;
-    const id = documentId(task);
+    const id = notebookId(task);
     if (!result.has(id))
-      result.set(id, { id, name: documentTitle(task), tasks: [] });
-    result.get(id)!.tasks.push(task);
+      result.set(id, {
+        id: `notebook:${id}`,
+        name: notebookName(id),
+        icon: notebookIcon(id),
+        documents: new Map(),
+      });
+    const documentKey = documentId(task, id);
+    const documents = result.get(id)!.documents;
+    if (!documents.has(documentKey))
+      documents.set(documentKey, { id: documentKey, name: documentName(task), tasks: [] });
+    documents.get(documentKey)!.tasks.push(task);
   }
   return [...result.values()]
-    .map((group) => ({
-      ...group,
-      tasks: group.tasks.sort((a, b) =>
-        getTaskDisplayTitle(a).localeCompare(getTaskDisplayTitle(b)),
+    .map((notebook) => ({
+      ...notebook,
+      documents: [...notebook.documents.values()]
+        .map((document) => ({
+          ...document,
+          tasks: document.tasks.sort((a, b) =>
+            getTaskDisplayTitle(a).localeCompare(getTaskDisplayTitle(b)),
+          ),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      taskCount: [...notebook.documents.values()].reduce(
+        (count, document) => count + document.tasks.length,
+        0,
       ),
     }))
     .sort((a, b) =>
-      a.id === "__unassigned_document__"
+      a.id === "notebook:__unassigned_notebook__"
         ? 1
-        : b.id === "__unassigned_document__"
+        : b.id === "notebook:__unassigned_notebook__"
           ? -1
           : a.name.localeCompare(b.name),
     );
 });
-type SidebarRow =
-  | {
-      key: string;
-      kind: "group";
-      group: { id: string; name: string; tasks: Task[] };
-    }
-  | { key: string; kind: "task"; task: Task };
-const rows = computed<SidebarRow[]>(() =>
-  groups.value.flatMap((group) => [
-    { key: `group:${group.id}`, kind: "group" as const, group },
-    ...(collapsedIds.value.has(group.id)
-      ? []
-      : group.tasks.map((task) => ({
-          key: `task:${task.id}`,
-          kind: "task" as const,
-          task,
-        }))),
-  ]),
-);
-const virtualRange = computed(() => {
-  const count = rows.value.length;
-  if (count <= 80) return { start: 0, end: count, top: 0, bottom: 0 };
-  const start = Math.min(
-    count,
-    Math.max(0, Math.floor(viewport.value.top / ROW_HEIGHT) - OVERSCAN),
-  );
-  const end = Math.min(
-    count,
-    Math.ceil((viewport.value.top + viewport.value.height) / ROW_HEIGHT) +
-      OVERSCAN,
-  );
-  return {
-    start,
-    end,
-    top: start * ROW_HEIGHT,
-    bottom: Math.max(0, (count - end) * ROW_HEIGHT),
-  };
-});
-const visibleRows = computed(() =>
-  rows.value.slice(virtualRange.value.start, virtualRange.value.end),
-);
-function updateViewport() {
-  const element = listRef.value;
-  if (element)
-    viewport.value = { top: element.scrollTop, height: element.clientHeight };
-}
 function toggleGroup(id: string) {
   const next = new Set(collapsedIds.value);
   next.has(id) ? next.delete(id) : next.add(id);
   collapsedIds.value = next;
-  nextTick(updateViewport);
+  saveCollapsedGroupIds(next);
+}
+
+function loadCollapsedGroupIds(): Set<string> {
+  if (typeof localStorage === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(COLLAPSED_GROUPS_STORAGE_KEY);
+    const stored = raw ? JSON.parse(raw) : [];
+    return new Set(
+      Array.isArray(stored)
+        ? stored.filter((id): id is string => typeof id === "string")
+        : [],
+    );
+  } catch (error) {
+    console.warn("[CalendarTaskSidebar] Failed to load collapsed groups", error);
+    return new Set();
+  }
+}
+
+function saveCollapsedGroupIds(ids: Set<string>) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(
+      COLLAPSED_GROUPS_STORAGE_KEY,
+      JSON.stringify([...ids]),
+    );
+  } catch (error) {
+    console.warn("[CalendarTaskSidebar] Failed to save collapsed groups", error);
+  }
 }
 function clearPointerDrag(emitCancel = false) {
   const wasActive = pointerDrag.value.active;
@@ -444,13 +477,28 @@ function handleTaskPointerCancel(event: PointerEvent) {
   clearPointerDrag(true);
 }
 onMounted(() => {
-  updateViewport();
-  window.addEventListener("resize", updateViewport);
+  void loadNotebookNames();
 });
 onUnmounted(() => {
-  window.removeEventListener("resize", updateViewport);
   removePointerDragListeners();
 });
+
+async function loadNotebookNames() {
+  try {
+    const result = await lsNotebooks();
+    notebookNames.value = new Map(
+      (result.notebooks || []).map((notebook) => [notebook.id, notebook.name]),
+    );
+    notebookIcons.value = new Map(
+      (result.notebooks || []).map((notebook) => [
+        notebook.id,
+        normalizeDocumentIconValue(notebook.icon) || "📁",
+      ]),
+    );
+  } catch (error) {
+    console.warn("[CalendarTaskSidebar] Failed to load notebook names", error);
+  }
+}
 </script>
 
 <style scoped>
@@ -461,9 +509,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   position: relative;
-  border-right: 1px solid var(--b3-theme-border);
-  background: var(--b3-theme-background);
-  overflow: hidden;
+  gap:10px;
 }
 .calendar-task-sidebar-task.is-pointer-dragging {
   opacity: 0.32;
@@ -493,12 +539,11 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   height: 30px;
-  margin: 8px 6px;
-  padding: 0 14px;
-  border: 1px solid var(--b3-theme-border);
+  padding: 0 10px;
   border-radius: 21px;
   color: var(--b3-theme-on-surface);
   background: var(--b3-theme-background);
+  box-shadow: var(--pinch-shadow);
 }
 .calendar-task-sidebar-search input {
   flex: 1;
@@ -534,8 +579,16 @@ onUnmounted(() => {
 .calendar-task-sidebar-list {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   overflow-y: auto;
-  padding: 6px;
+}
+.calendar-task-sidebar-notebook-group {
+  padding: 5px;
+  border-radius: 16px;
+  background: var(--b3-theme-background);
+  box-shadow: var(--pinch-shadow);
 }
 .calendar-task-sidebar-group + .calendar-task-sidebar-group {
   margin-top: 5px;
@@ -553,10 +606,20 @@ onUnmounted(() => {
   height: 28px;
   padding: 0 10px 0 5px;
   border-radius: 8px;
-  background: var(--b3-list-hover);
+  background: transparent;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
+}
+.calendar-task-sidebar-document-header {
+  margin-top: 2px;
+  padding-left: 15px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 400;
+}
+.calendar-task-sidebar-document-header:hover {
+  background: var(--b3-list-hover);
 }
 .calendar-task-sidebar-task {
   gap: 5px;
@@ -566,6 +629,9 @@ onUnmounted(() => {
   background: transparent;
   cursor: grab;
   font-size: 13px;
+}
+.calendar-task-sidebar-document-task {
+  padding-left: 28px;
 }
 .calendar-task-sidebar-task:hover {
   background: var(--b3-list-hover);
@@ -588,6 +654,13 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.calendar-task-sidebar-notebook-icon {
+  flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
+  margin-right: 4px;
+  font-size: 14px;
 }
 .calendar-task-sidebar-group-name {
   flex: 1;
@@ -617,6 +690,9 @@ onUnmounted(() => {
 .calendar-task-mini-calendar {
   padding: 7px 10px;
   border-bottom: 1px solid var(--b3-theme-border);
+  background-color: var(--b3-theme-background);
+  border-radius: 16px;
+  box-shadow: var(--pinch-shadow);
 }
 .calendar-task-mini-header {
   display: flex;
@@ -694,13 +770,11 @@ onUnmounted(() => {
   background: currentColor;
   transform: translateX(-50%);
 }
-.calendar-task-sidebar {
-  margin: 0 0 10px 10px;
-  border-radius: 8px;
-  background: var(--b3-list-hover);
-}
 .calendar-task-sidebar-display-options {
-  border-bottom: 1px solid var(--b3-theme-border);
+  background-color: var(--b3-theme-background);
+  border-radius: 16px;
+  box-shadow: var(--pinch-shadow);
+  padding: 8px 0;
 }
 .calendar-task-sidebar-display-option {
   height: 26px;
@@ -715,8 +789,8 @@ onUnmounted(() => {
   border-top: 1px solid var(--b3-theme-border);
 }
 .calendar-task-sidebar-switch {
-  width: 30px;
-  height: 18px;
+  width: 26px;
+  height: 14px;
   padding: 2px;
   border: 0;
   border-radius: 9px;
@@ -726,15 +800,15 @@ onUnmounted(() => {
 }
 .calendar-task-sidebar-switch i {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--b3-theme-background);
   box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
   transition: transform 0.15s ease;
 }
 .calendar-task-sidebar-switch.active {
-  background: var(--b3-theme-primary);
+  background: #f98f7a;
 }
 .calendar-task-sidebar-switch.active i {
   transform: translateX(12px);
