@@ -127,6 +127,8 @@ export interface RepeatMaterializeOptions {
 
 let repeatSeriesCache: { value: RepeatSeries[]; timestamp: number } | null = null;
 let repeatRecordsCache: { value: RepeatRecord[]; timestamp: number } | null = null;
+let repeatSeriesLoadPromise: Promise<RepeatSeries[]> | null = null;
+let repeatRecordsLoadPromise: Promise<RepeatRecord[]> | null = null;
 
 type StorageLoadResult<T> =
   | { status: 'missing' }
@@ -878,13 +880,27 @@ export async function loadRepeatSeries(): Promise<RepeatSeries[]> {
     return cloneRepeatSeriesList(repeatSeriesCache.value);
   }
 
-  try {
-    return cloneRepeatSeriesList(await readRepeatSeriesFromStorage());
-  } catch (error) {
-    if (repeatSeriesCache) {
-      return cloneRepeatSeriesList(repeatSeriesCache.value);
+  if (repeatSeriesLoadPromise) {
+    return cloneRepeatSeriesList(await repeatSeriesLoadPromise);
+  }
+
+  const loadPromise = (async () => {
+    try {
+      return await readRepeatSeriesFromStorage();
+    } catch (error) {
+      if (repeatSeriesCache) {
+        return cloneRepeatSeriesList(repeatSeriesCache.value);
+      }
+      throw error;
     }
-    throw error;
+  })();
+  repeatSeriesLoadPromise = loadPromise;
+  try {
+    return cloneRepeatSeriesList(await loadPromise);
+  } finally {
+    if (repeatSeriesLoadPromise === loadPromise) {
+      repeatSeriesLoadPromise = null;
+    }
   }
 }
 
@@ -1066,13 +1082,27 @@ export async function loadRepeatRecords(): Promise<RepeatRecord[]> {
     return cloneRepeatRecords(repeatRecordsCache.value);
   }
 
-  try {
-    return cloneRepeatRecords(await readRepeatRecordsFromStorage());
-  } catch (error) {
-    if (repeatRecordsCache) {
-      return cloneRepeatRecords(repeatRecordsCache.value);
+  if (repeatRecordsLoadPromise) {
+    return cloneRepeatRecords(await repeatRecordsLoadPromise);
+  }
+
+  const loadPromise = (async () => {
+    try {
+      return await readRepeatRecordsFromStorage();
+    } catch (error) {
+      if (repeatRecordsCache) {
+        return cloneRepeatRecords(repeatRecordsCache.value);
+      }
+      throw error;
     }
-    throw error;
+  })();
+  repeatRecordsLoadPromise = loadPromise;
+  try {
+    return cloneRepeatRecords(await loadPromise);
+  } finally {
+    if (repeatRecordsLoadPromise === loadPromise) {
+      repeatRecordsLoadPromise = null;
+    }
   }
 }
 

@@ -45,6 +45,51 @@ describe('UserSettingsManager', () => {
     });
   });
 
+  it('hydrates a local snapshot without waiting for plugin storage', () => {
+    const storage = {
+      getItem: vi.fn().mockReturnValue(JSON.stringify({ kanban: { currentView: 'list' } })),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+    const manager = new UserSettingsManager();
+
+    expect(manager.loadLocalSnapshot()).toMatchObject({ kanban: { currentView: 'list' } });
+    expect(pluginMock.loadData).not.toHaveBeenCalled();
+  });
+
+  it('uses the local snapshot for direct loads too', async () => {
+    const storage = {
+      getItem: vi.fn().mockReturnValue(JSON.stringify({ taskManager: { filterSource: 'notebook:notebook-a' } })),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+    const manager = new UserSettingsManager();
+
+    await expect(manager.load()).resolves.toMatchObject({
+      taskManager: { filterSource: 'notebook:notebook-a' }
+    });
+    expect(pluginMock.loadData).not.toHaveBeenCalled();
+  });
+
+  it('does not let stale plugin storage overwrite the local snapshot', async () => {
+    const storage = {
+      getItem: vi.fn().mockReturnValue(JSON.stringify({ kanban: { kanbanFilterSource: 'notebook:local' } })),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+    pluginMock.loadData.mockResolvedValue({ kanban: { kanbanFilterSource: 'all' } });
+    const manager = new UserSettingsManager();
+
+    manager.loadLocalSnapshot();
+    await expect(manager.load({ refresh: true })).resolves.toMatchObject({
+      kanban: { kanbanFilterSource: 'notebook:local' }
+    });
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
   it('writes concurrent updates in their call order', async () => {
     pluginMock.loadData.mockResolvedValue(null);
     let releaseFirstWrite!: () => void;
@@ -73,5 +118,24 @@ describe('UserSettingsManager', () => {
       'all',
       'notebook:notebook-a',
     ]);
+  });
+
+  it('updates the local snapshot before an asynchronous plugin save completes', async () => {
+    pluginMock.loadData.mockResolvedValue(null);
+    let releaseSave!: () => void;
+    pluginMock.saveData.mockReturnValue(new Promise<void>(resolve => {
+      releaseSave = resolve;
+    }));
+    const manager = new UserSettingsManager();
+    await manager.load();
+
+    const update = manager.update('taskManager', { filterSource: 'notebook:notebook-a' });
+
+    expect(globalThis.localStorage.setItem).toHaveBeenLastCalledWith(
+      'siyuan-stand-settings',
+      expect.stringContaining('notebook:notebook-a')
+    );
+    releaseSave();
+    await update;
   });
 });

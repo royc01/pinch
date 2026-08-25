@@ -2472,6 +2472,21 @@ export class TaskRepository {
     options: TaskFetchOptions & { force?: boolean } = {}
   ): Promise<{ tasks: Task[]; elapsedMs: number; cached?: boolean; indexElapsedMs?: number; changedRows?: number; incremental?: boolean }> {
     const result = await this.getKernelLightTasks(limit, scope, { force: options.force });
+    const rootIds = Array.from(new Set(
+      result.tasks
+        .map(task => typeof task.rootId === 'string' ? task.rootId.trim() : '')
+        .filter(rootId => rootId.length > 0)
+    ));
+    if (rootIds.length > 0) {
+      const { rootIcons } = await this.resolveRootTaskMetadata(rootIds);
+      if (rootIcons.size > 0) {
+        result.tasks = result.tasks.map(task => {
+          const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+          const icon = rootId ? rootIcons.get(rootId) : '';
+          return icon ? { ...task, icon } : task;
+        });
+      }
+    }
     if (options.materializeRepeats === false) {
       return result;
     }

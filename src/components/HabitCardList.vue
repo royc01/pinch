@@ -24,8 +24,15 @@
             </div>
             <div class="habit-info" @click="emit('show-stats', habit)">
               <div class="habit-title">
-                <span class="habit-name ariaLabel" :aria-label="t('habitTracker.viewHabitDetails')">{{ habit.name }}</span>
-                <button v-if="habit.usePomodoro"
+                 <span class="habit-name ariaLabel" :aria-label="t('habitTracker.viewHabitDetails')">{{ habit.name }}</span>
+                 <span
+                   v-if="getHabitFocusDurationText(habit.id)"
+                   class="habit-focus-duration-badge ariaLabel"
+                   :aria-label="getHabitFocusDurationTitle(habit.id)"
+                 >
+                   ⏰ {{ getHabitFocusDurationText(habit.id) }}
+                 </span>
+                 <button v-if="habit.usePomodoro"
                   type="button"
                   class="pomodoro-indicator pomodoro-indicator--button ariaLabel"
                   :disabled="habit.isPaused"
@@ -236,8 +243,8 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, toRefs } from 'vue';
-import type { Habit } from '@/api';
+import { computed, onBeforeUnmount, onMounted, ref, toRefs } from 'vue';
+import { getFocusTimerData, type FocusSessionRecord, type Habit } from '@/api';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
@@ -300,6 +307,46 @@ const draggedHabitId = ref<string | null>(null);
 const lastReorderedTargetId = ref<string | null>(null);
 const habitDragMimeType = 'application/x-pinch-habit-card';
 const contextMenu = ref<{ habit: Habit; x: number; y: number } | null>(null);
+const focusSessionRecords = ref<FocusSessionRecord[]>([]);
+
+const focusMinutesByHabitId = computed(() => {
+  const minutesByHabitId = new Map<string, number>();
+  for (const record of focusSessionRecords.value) {
+    if (record.targetType !== 'habit' || !record.targetId) continue;
+    const minutes = Number(record.minutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) continue;
+    const habitId = record.targetId.trim();
+    if (!habitId) continue;
+    minutesByHabitId.set(habitId, (minutesByHabitId.get(habitId) || 0) + minutes);
+  }
+  return minutesByHabitId;
+});
+
+async function refreshHabitFocusDurations(): Promise<void> {
+  try {
+    focusSessionRecords.value = (await getFocusTimerData()).sessionRecords;
+  } catch {
+    focusSessionRecords.value = [];
+  }
+}
+
+function handleFocusSessionUpdate(): void {
+  void refreshHabitFocusDurations();
+}
+
+function getHabitFocusDurationText(habitId: string): string {
+  const roundedMinutes = Math.max(0, Math.round(focusMinutesByHabitId.value.get(habitId) || 0));
+  if (roundedMinutes <= 0) return '';
+  if (roundedMinutes < 60) return `${roundedMinutes}m`;
+  const hours = Math.floor(roundedMinutes / 60);
+  const minutes = roundedMinutes % 60;
+  return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
+}
+
+function getHabitFocusDurationTitle(habitId: string): string {
+  const duration = getHabitFocusDurationText(habitId);
+  return duration ? `${props.t('tableView.columnFocusDuration')}：${duration}` : '';
+}
 
 const handleContextMenu = (event: MouseEvent, habit: Habit): void => {
   if (props.manageMode) {
@@ -347,11 +394,14 @@ const handleContextMenuKeydown = (event: KeyboardEvent): void => {
 onMounted(() => {
   document.addEventListener('pointerdown', handleContextMenuOutsidePointerDown, true);
   document.addEventListener('keydown', handleContextMenuKeydown);
+  window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
+  void refreshHabitFocusDurations();
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handleContextMenuOutsidePointerDown, true);
   document.removeEventListener('keydown', handleContextMenuKeydown);
+  window.removeEventListener('pinch-focus-session', handleFocusSessionUpdate);
 });
 
 const handleHabitDragOver = (event: DragEvent, habit: Habit): void => {
@@ -569,6 +619,17 @@ const {
 .habit-name {
   color: var(--b3-theme-on-background);
   margin-right: 6px;
+}
+
+.habit-focus-duration-badge {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--b3-theme-on-surface);
+  background: var(--b3-list-hover);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .pomodoro-indicator {

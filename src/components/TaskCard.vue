@@ -152,6 +152,14 @@
           {{ dueBadgeText }}
         </span>
         <span
+          v-if="focusDurationText"
+          class="task-focus-duration-badge ariaLabel"
+          :aria-label="focusDurationTitle"
+        >
+          <span aria-hidden="true">⏰</span>
+          {{ focusDurationText }}
+        </span>
+        <span
           v-if="reminderText"
           class="task-reminder-badge ariaLabel"
           :aria-label="reminderText"
@@ -198,7 +206,7 @@
             v-html="documentIconSvg"
           ></span>
           <EmojiIcon
-            v-else
+            v-else-if="!documentIconPending"
             class="task-document-emoji-icon"
             :value="documentIconRaw"
             fallback="📄"
@@ -278,6 +286,8 @@ const props = defineProps<{
   documentTitleOverride?: string;
   documentIconOverride?: string;
   documentIconSvg?: string;
+  /** Hide the fallback while the document's actual icon is still being resolved. */
+  documentIconPending?: boolean;
   disableContextMenu?: boolean;
   disableDescriptionContextMenu?: boolean;
   disableStatusToggle?: boolean;
@@ -572,11 +582,18 @@ const showBadges = computed(() => {
   const due = !!task.value.dueDate;
   return due
     || !!reminderText.value
+    || !!focusDurationText.value
     || resolvedTaskTagBadges.value.length > 0
     || resolvedTaskGoalBadges.value.length > 0
     || isRepeatBadgeVisible.value;
 });
 const focusEstimate = computed(() => task.value.focusEstimate);
+const focusDurationText = computed(() => formatFocusDuration(actualFocus.value.minutes));
+const focusDurationTitle = computed(() => (
+  focusDurationText.value
+    ? `${t('tableView.columnFocusDuration')}：${focusDurationText.value}`
+    : ''
+));
 const focusProgressActual = computed(() => (
   focusEstimate.value?.unit === 'pomodoros'
     ? actualFocus.value.sessions
@@ -607,6 +624,15 @@ const focusProgressAriaLabel = computed(() => formatTemplate('taskManager.focusP
   progress: focusProgressPercent.value
 }));
 const showFocusProgress = computed(() => props.showBadges !== false && !!focusEstimate.value);
+
+function formatFocusDuration(minutes: number): string {
+  const roundedMinutes = Math.max(0, Math.round(minutes));
+  if (roundedMinutes <= 0) return '';
+  if (roundedMinutes < 60) return `${roundedMinutes}m`;
+  const hours = Math.floor(roundedMinutes / 60);
+  const restMinutes = roundedMinutes % 60;
+  return restMinutes > 0 ? `${hours}h${restMinutes}m` : `${hours}h`;
+}
 
 const subtaskStats = computed(() => countSubtasks(task.value.subtasks));
 const progressText = computed(() => {
@@ -1162,6 +1188,7 @@ function getTaskDateTimestamp(value: unknown): number | null {
 
 
 .task-due-badge,
+.task-focus-duration-badge,
 .task-reminder-badge {
   display: flex;
   align-items: center;

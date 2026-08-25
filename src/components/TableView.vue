@@ -357,6 +357,7 @@
                 </span>
                 <span v-if="row.group.mode === 'document'" class="group-row-document-icon" aria-hidden="true">
                   <EmojiIcon
+                    v-if="documentIconsReady"
                     class="group-row-document-emoji-icon"
                     :value="getTaskDocumentGroupIconRaw(row.group)"
                     fallback="📄"
@@ -560,6 +561,7 @@
               <div class="location-cell task-document-title ariaLabel" :aria-label="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
                   <EmojiIcon
+                    v-if="!isTaskDocumentIconPending(row.task)"
                     class="task-document-emoji-icon"
                     :value="getTaskDocumentIconRaw(row.task)"
                     fallback="📄"
@@ -693,6 +695,7 @@
               <div class="location-cell task-document-title ariaLabel" :aria-label="row.task.hPath || ''">
                 <span class="task-document-icon" aria-hidden="true">
                   <EmojiIcon
+                    v-if="!isTaskDocumentIconPending(row.task)"
                     class="task-document-emoji-icon"
                     :value="getTaskDocumentIconRaw(row.task)"
                     fallback="📄"
@@ -917,6 +920,8 @@ interface Props {
   hideHeadingDocumentPrefix?: boolean;
   headingGroups?: Map<string, TaskHeadingGroupMeta>;
   documentIconByRootId?: Map<string, string>;
+  /** True after the parent has finished resolving custom/dynamic document icons. */
+  documentIconsReady?: boolean;
   documentTitleByRootId?: Map<string, string>;
 }
 
@@ -3376,6 +3381,13 @@ function getTaskDocumentIconRaw(task: Task): string {
     }
   }
   return typeof task.icon === 'string' ? task.icon.trim() : '';
+}
+
+function isTaskDocumentIconPending(task: Task): boolean {
+  return task.type === 'block'
+    && typeof task.rootId === 'string'
+    && task.rootId.trim().length > 0
+    && !props.documentIconsReady;
 }
 
 function resolveTaskGoalIds(task: Task): string[] {

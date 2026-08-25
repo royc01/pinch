@@ -79,17 +79,10 @@
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
-import { showMessage } from 'siyuan';
-import { TaskRepository, lsNotebooks } from '@/api';
 import EmojiIcon from '@/components/EmojiIcon.vue';
-import { type TaskScopeDialogSavePayload } from '@/components/TaskScopeDialog.vue';
 import { useGoals, type GoalListItem } from '@/composables/useGoals';
-import { useUserSettings } from '@/composables/useUserSettings';
-import { loadDocumentGroups, saveDocumentGroups, type DocumentGroup } from '@/documentGroupRepository';
 import { openTaskViewByRequest } from '@/main';
 import { buildGoalDocumentSource } from '@/utils/documentGroupSource';
-import { eventBus, Events } from '@/utils/eventBus';
-import { normalizeNotebookIds } from '@/utils/taskViewShared';
 import Icon from './Icon.vue';
 import { useI18n } from '@/composables/useI18n';
 
@@ -107,69 +100,16 @@ const emit = defineEmits<{
 }>();
 const { t } = useI18n();
 
-const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const {
-  goalDefinitions,
-  goalDocuments,
   goalItems,
   goalsLoading,
-  goalsError,
-  loadGoalsData,
-  refreshGoalDocuments,
-  saveGoalDefinitions
+  goalsError
 } = useGoals();
 
-const showGoalManager = ref(false);
-const goalDocumentsRefreshing = ref(false);
-const goalManagerInitialTab = ref<'scope' | 'document-groups' | 'goals'>('goals');
-const documentGroups = ref<DocumentGroup[]>([]);
 const goalPagePanelRef = ref<HTMLElement | null>(null);
-const scopeNotebooks = ref<Array<{ id: string; name: string }>>([]);
-const scopeExcludedNotebookIds = ref<string[]>([]);
-const scopeShowCompletedTasks = ref(true);
-const scopeAutoRecognizeTaskDate = ref(false);
-const scopeTaskCompletionSoundEnabled = ref(true);
-const scopeShowDocumentGroupNotebookPath = ref(true);
-const isGlobalDateRecognitionRunning = ref(false);
 
 function openGoalManager(): void {
   emit('open-task-scope', 'goals');
-}
-
-async function handleGlobalRecognizeTaskDates(): Promise<void> {
-  if (isGlobalDateRecognitionRunning.value) {
-    return;
-  }
-
-  isGlobalDateRecognitionRunning.value = true;
-  try {
-    const result = await TaskRepository.recognizeDatesForUndatedTasks();
-    if (result.scanned === 0) {
-      showMessage(t('goalPanel.noRecognizableDates'), 2200, 'info');
-      return;
-    }
-
-    if (result.updated > 0) {
-      if (result.failed > 0) {
-        showMessage(`${t('taskManager.dateWriteSuccessPrefix')} ${result.updated} ${t('taskManager.dateWriteSuccessMiddle')}，${result.failed} ${t('taskManager.dateWriteFailedSuffix')}`, 3200, 'error');
-      } else {
-        showMessage(`${t('taskManager.dateRecognizedWrittenPrefix')} ${result.updated} ${t('taskManager.dateRecognizedWrittenSuffix')}`, 2200, 'info');
-      }
-      return;
-    }
-
-    if (result.recognized === 0) {
-      showMessage(`${t('taskManager.scannedPrefix')} ${result.scanned} ${t('taskManager.scannedNoWritableDateSuffix')}`, 2800, 'info');
-      return;
-    }
-
-    showMessage(`${t('taskManager.recognizedPrefix')} ${result.recognized} ${t('taskManager.recognizedMiddle')}，${t('taskManager.writeFailedPrefix')} ${result.failed} ${t('taskManager.itemSuffix')}`, 3200, 'error');
-  } catch (error) {
-    console.error('[GoalPanel] Global task date recognition failed:', error);
-    showMessage(t('taskManager.globalDateRecognizeFailed'), 3200, 'error');
-  } finally {
-    isGlobalDateRecognitionRunning.value = false;
-  }
 }
 
 function describeGoalProgress(goal: GoalListItem): string {
@@ -187,7 +127,7 @@ function describeGoalProgress(goal: GoalListItem): string {
 
 function formatDueDate(dueDate: string): string {
   if (!dueDate) return '';
-  const [year, month, day] = dueDate.split('-');
+  const [, month, day] = dueDate.split('-');
   return `${month}${t('goalPanel.monthSuffix')}${day}${t('goalPanel.daySuffix')}`;
 }
 
@@ -198,43 +138,6 @@ function isGoalOverdue(goal: GoalListItem): boolean {
   const due = new Date(goal.dueDate);
   due.setHours(0, 0, 0, 0);
   return due < today;
-}
-
-async function handleGoalSave(payload: TaskScopeDialogSavePayload): Promise<void> {
-  const visibleNotebookIds = new Set(scopeNotebooks.value.map(notebook => notebook.id));
-  const hiddenExcludedNotebookIds = scopeExcludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
-  const mergedExcludedNotebookIds = normalizeNotebookIds([
-    ...hiddenExcludedNotebookIds,
-    ...payload.excludedNotebookIds
-  ]);
-  const nextDocumentGroups = sortDocumentGroups((payload.documentGroups || []).map(group => ({
-    ...group,
-    members: Array.isArray(group.members) ? group.members.map(member => ({ ...member })) : []
-  })));
-
-  scopeExcludedNotebookIds.value = mergedExcludedNotebookIds;
-  scopeShowCompletedTasks.value = payload.showCompletedTasks;
-  scopeAutoRecognizeTaskDate.value = payload.autoRecognizeTaskDate;
-  scopeTaskCompletionSoundEnabled.value = payload.taskCompletionSoundEnabled;
-  scopeShowDocumentGroupNotebookPath.value = payload.showDocumentGroupNotebookPath;
-
-  TaskRepository.setExcludedNotebookIds(mergedExcludedNotebookIds);
-  TaskRepository.setAutoRecognizeTaskDateEnabled(payload.autoRecognizeTaskDate);
-
-  await updateSettings('taskManager', {
-    excludedNotebookIds: mergedExcludedNotebookIds,
-    showCompletedTasks: payload.showCompletedTasks,
-    autoRecognizeTaskDate: payload.autoRecognizeTaskDate,
-    dateRecognitionKeywords: payload.dateRecognitionKeywords,
-    taskCompletionSoundEnabled: payload.taskCompletionSoundEnabled,
-    showDocumentGroupNotebookPath: payload.showDocumentGroupNotebookPath
-  });
-
-  documentGroups.value = nextDocumentGroups;
-  await saveDocumentGroups(nextDocumentGroups);
-  eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
-  await saveGoalDefinitions(payload.goals);
-  showGoalManager.value = false;
 }
 
 async function openGoalSourceInGoalView(goal: GoalListItem): Promise<void> {
@@ -265,7 +168,6 @@ function scrollToHighlightedGoal(): void {
 
 watch([() => props.show, () => props.highlightGoalId, () => goalItems.value.length], ([visible]) => {
   if (!visible) {
-    showGoalManager.value = false;
     return;
   }
   scrollToHighlightedGoal();
@@ -276,7 +178,7 @@ watch([() => props.show, () => props.highlightGoalId, () => goalItems.value.leng
 .goal-page-panel {
   position: absolute;
   inset: 0;
-  z-index: 10;
+  z-index: 2;
   box-sizing: border-box;
   overflow-y: auto;
   overscroll-behavior: contain;

@@ -4,6 +4,7 @@
       <CalendarTaskSidebar
         v-if="!sidebarCollapsed"
         :tasks="sidebarTasks || tasks"
+        :notebooks="notebooks"
         :document-title-by-root-id="documentTitleByRootId"
         :display-options="displayOptions"
         @task-toggle="toggleTaskStatus"
@@ -400,6 +401,7 @@ interface Props {
   tasks: Task[];
   sidebarTasks?: Task[];
   sidebarCollapsed?: boolean;
+  notebooks?: Array<{ id: string; name: string; icon?: string }>;
   lifelogTasks?: Task[];
   taskGroups?: TaskGroup[];
   documentTitleByRootId?: Map<string, string>;
@@ -1026,6 +1028,27 @@ function handleMoodUpdated(payload?: { moodData?: MoodData }): void {
   }
   void refreshMoodRecords();
 }
+
+// These datasets can be sizable in long-lived workspaces. Load them only
+// when the corresponding calendar layer is visible, while still fetching
+// them immediately if a user turns that layer on after the calendar opens.
+watch(showFocusRecords, (visible, wasVisible) => {
+  if (visible && !wasVisible) {
+    void refreshFocusSessions();
+  }
+});
+
+watch([showHabits, showHabitLifelog], ([showTaskChips, showLifelog], previous) => {
+  if ((showTaskChips || showLifelog) && !(previous[0] || previous[1])) {
+    void refreshHabitCheckins();
+  }
+});
+
+watch(showRecordsLifelog, (visible, wasVisible) => {
+  if (visible && !wasVisible) {
+    void refreshMoodRecords();
+  }
+});
 
 function getFocusDaySummary(dayKey: string) {
   return focusSummariesByDay.value.get(dayKey) || null;
@@ -3720,9 +3743,15 @@ onMounted(() => {
   window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
   unsubscribeHabitUpdates = eventBus.on(Events.HABITS_UPDATED, handleHabitsUpdated);
   unsubscribeMoodUpdates = eventBus.on(Events.MOOD_UPDATED, handleMoodUpdated);
-  void refreshFocusSessions();
-  void refreshHabitCheckins();
-  void refreshMoodRecords();
+  if (showFocusRecords.value) {
+    void refreshFocusSessions();
+  }
+  if (showHabits.value || showHabitLifelog.value) {
+    void refreshHabitCheckins();
+  }
+  if (showRecordsLifelog.value) {
+    void refreshMoodRecords();
+  }
 
   const container = document.querySelector('.month-view');
   if (container) {
@@ -4300,6 +4329,7 @@ onUnmounted(() => {
   pointer-events: auto;
   position: relative;
   margin-left: 5px;
+  animation: pinch-month-task-fade-in 180ms ease-out both;
 }
 
 .task-chip::before {
@@ -4328,6 +4358,19 @@ onUnmounted(() => {
   pointer-events: auto;
   position: relative;
   margin-left: 5px;
+  animation: pinch-month-task-fade-in 180ms ease-out both;
+}
+
+@keyframes pinch-month-task-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-chip,
+  .habit-task-chip {
+    animation: none;
+  }
 }
 
 .habit-task-chip.task-completed {

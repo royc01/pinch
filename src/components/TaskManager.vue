@@ -57,6 +57,25 @@
               <span>{{ t('taskManager.kernelCheckedAt') }}</span>
               <strong>{{ kernelDiagnosticsCheckedAtText }}</strong>
             </div>
+            <div class="kernel-diagnostics-section-title">{{ t('taskManager.loadDiagnostics') }}</div>
+            <div class="kernel-diagnostics-grid">
+              <span>{{ t('taskManager.loadSidebar') }} · {{ t('taskManager.loadSettingsReady') }}</span>
+              <strong>{{ formatTaskLoadMilestone(taskLoadDiagnostics.sidebar, 'settingsMs') }}</strong>
+              <span>{{ t('taskManager.loadSidebar') }} · {{ t('taskManager.loadFirstTasks') }}</span>
+              <strong>{{ formatTaskLoadFirstTasks(taskLoadDiagnostics.sidebar) }}</strong>
+              <span>{{ t('taskManager.loadSidebar') }} · {{ t('taskManager.loadMetadataReady') }}</span>
+              <strong>{{ formatTaskLoadMilestone(taskLoadDiagnostics.sidebar, 'metadataMs') }}</strong>
+              <span>{{ t('taskManager.loadSidebar') }} · {{ t('taskManager.loadReconciled') }}</span>
+              <strong>{{ formatTaskLoadReconciled(taskLoadDiagnostics.sidebar) }}</strong>
+              <span>{{ t('taskManager.loadView') }} · {{ t('taskManager.loadSettingsReady') }}</span>
+              <strong>{{ formatTaskLoadMilestone(taskLoadDiagnostics.view, 'settingsMs') }}</strong>
+              <span>{{ t('taskManager.loadView') }} · {{ t('taskManager.loadFirstTasks') }}</span>
+              <strong>{{ formatTaskLoadFirstTasks(taskLoadDiagnostics.view) }}</strong>
+              <span>{{ t('taskManager.loadView') }} · {{ t('taskManager.loadMetadataReady') }}</span>
+              <strong>{{ formatTaskLoadMilestone(taskLoadDiagnostics.view, 'metadataMs') }}</strong>
+              <span>{{ t('taskManager.loadView') }} · {{ t('taskManager.loadReconciled') }}</span>
+              <strong>{{ formatTaskLoadReconciled(taskLoadDiagnostics.view) }}</strong>
+            </div>
             <div v-if="kernelDiagnostics.partial" class="kernel-diagnostics-warning">
               {{ t('taskManager.kernelPartialWarning') }}
             </div>
@@ -1020,7 +1039,15 @@ import {
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
 import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput, type RepeatTermination } from '@/repeatRepository';
-import { isRepeatTask as isRepeatTaskEntity } from '@/utils/repeatTaskUtils';
+import { isRepeatTask as isRepeatTaskEntity, selectVisibleRepeatInstanceIds } from '@/utils/repeatTaskUtils';
+import {
+  beginTaskLoadTrace,
+  markTaskLoadFirstTasks,
+  markTaskLoadMilestone,
+  markTaskLoadReconciled,
+  taskLoadDiagnostics,
+  type TaskLoadTrace
+} from '@/utils/taskLoadDiagnostics';
 import {
   loadDocumentGroups,
   saveDocumentGroups,
@@ -3087,21 +3114,18 @@ function flushFilterSettingsUpdate(): void {
 }
 
 watch([filterNotebook, filterDocument], ([newNotebook]) => {
-  const previousDocument = filterDocument.value;
-  normalizeDocumentSelection(newNotebook);
   if (isHydratingFilters) {
     return;
   }
+
+  normalizeDocumentSelection(newNotebook);
   if (requiresScopeInitialization.value) {
     return;
   }
 
   scheduleTaskScopeRefresh(100);
-
-  if (filterDocument.value !== previousDocument) {
-    return;
-  }
-
+  // Persist the normalized final pair. Selecting a source can legitimately
+  // reset its document to `all`; that must not discard the source update.
   scheduleFilterSettingsUpdate();
 });
 
@@ -3541,12 +3565,22 @@ function isScopeCoveredByDataset(target?: TaskQueryScope): boolean {
 
 function getCurrentTaskQueryScope(): TaskQueryScope | undefined {
   const mode = archiveViewMode.value;
-  const includeArchived = mode === 'all';
   const archivedOnly = mode === 'archived';
-  const includeCompleted = mode === 'active'
-    ? showCompletedTasks.value || taskListViewMode.value === 'timeline'
-    : true;
   const activeSource = parsedFilterSource.value;
+  // Match the main view's default complete snapshot. Visibility settings are
+  // already applied locally in `filteredTasks`, so keeping completed tasks in
+  // this shared fetch does not change the sidebar result.
+  const useSharedAllTaskSnapshot = mode === 'active'
+    && activeSource.kind === 'all'
+    && filterDocument.value === 'all';
+  const includeCompleted = useSharedAllTaskSnapshot
+    ? true
+    : (mode === 'active' ? showCompletedTasks.value || taskListViewMode.value === 'timeline' : true);
+  // The main view's default background refresh includes archived tasks. Fetch
+  // that same broad snapshot for the sidebar's default scope so both surfaces
+  // can share TaskRepository's in-flight scoped request. The sidebar already
+  // filters archived cards locally in `filteredTasks`.
+  const includeArchived = mode === 'all' || useSharedAllTaskSnapshot;
   if (activeSource.kind === 'all' && filterDocument.value === 'all' && includeCompleted && !includeArchived && !archivedOnly) {
     return undefined;
   }
@@ -3563,7 +3597,44 @@ function getCurrentTaskQueryScope(): TaskQueryScope | undefined {
   if (activeSource.kind === 'notebook') {
     scope.notebookId = activeSource.id;
   }
+  if (filterDocument.value !== 'all') {
+    const selectedDocument = sourceDocuments.value.find(document => document.id === filterDocument.value);
+    if (selectedDocument) {
+      // A document ID is globally addressable by the kernel. Retain the
+      // notebook when available so the query remains selective even if a
+      // legacy database contains duplicate root IDs.
+      scope.documentId = selectedDocument.id;
+      scope.notebookId = selectedDocument.notebookId;
+    }
+  }
   return scope;
+}
+
+function formatTaskLoadMilestone(
+  trace: TaskLoadTrace | null | undefined,
+  key: 'settingsMs' | 'metadataMs'
+): string {
+  return formatKernelDiagnosticMs(trace?.[key]);
+}
+
+function formatTaskLoadSource(trace: TaskLoadTrace): string {
+  switch (trace.firstTasksSource) {
+    case 'cache': return t('taskManager.loadSourceCache');
+    case 'kernel': return t('taskManager.loadSourceKernel');
+    case 'full': return t('taskManager.loadSourceFull');
+    case 'empty': return t('taskManager.loadSourceEmpty');
+    default: return '--';
+  }
+}
+
+function formatTaskLoadFirstTasks(trace: TaskLoadTrace | null | undefined): string {
+  if (!trace || trace.firstTasksMs === undefined) return '--';
+  return `${formatKernelDiagnosticMs(trace.firstTasksMs)} · ${formatTaskLoadSource(trace)} · ${trace.firstTaskCount ?? 0}`;
+}
+
+function formatTaskLoadReconciled(trace: TaskLoadTrace | null | undefined): string {
+  if (!trace || trace.reconcileMs === undefined) return '--';
+  return `${formatKernelDiagnosticMs(trace.reconcileMs)} · ${trace.reconciledTaskCount ?? 0}`;
 }
 
 function scheduleTaskScopeRefresh(delay = 100): void {
@@ -4517,38 +4588,16 @@ const filteredTasks = computed(() => {
   const searchKeyword = taskSearchQuery.value.trim().toLocaleLowerCase();
   const todayStart = getTodayStartTimestamp();
   const virtualRepeatSeriesIds = new Set<string>();
-  const visibleVirtualRepeatTaskIds = new Set<string>();
-  const todayVirtualSeriesIds = new Set<string>();
-  const latestOverdueVirtualBySeries = new Map<string, { id: string; date: number }>();
-  const nearestFutureVirtualBySeries = new Map<string, { id: string; date: number }>();
+  const visibleVirtualRepeatTaskIds = selectVisibleRepeatInstanceIds(
+    baseFilteredTasks.value,
+    todayStart,
+    isVirtualTaskForToday,
+    getTaskStartDateTimestamp,
+    getTaskDueDateTimestamp
+  );
   for (const task of baseFilteredTasks.value) {
     if (task.isVirtual && task.repeatSeriesId) {
       virtualRepeatSeriesIds.add(task.repeatSeriesId);
-      if (isVirtualTaskForToday(task)) {
-        todayVirtualSeriesIds.add(task.repeatSeriesId);
-        visibleVirtualRepeatTaskIds.add(task.id);
-        continue;
-      }
-      const taskDate = getTaskDueDateTimestamp(task) ?? getTaskStartDateTimestamp(task);
-      if (taskDate !== null && taskDate < todayStart) {
-        const current = latestOverdueVirtualBySeries.get(task.repeatSeriesId);
-        if (!current || taskDate > current.date) {
-          latestOverdueVirtualBySeries.set(task.repeatSeriesId, { id: task.id, date: taskDate });
-        }
-      } else if (taskDate !== null && taskDate > todayStart) {
-        const current = nearestFutureVirtualBySeries.get(task.repeatSeriesId);
-        if (!current || taskDate < current.date) {
-          nearestFutureVirtualBySeries.set(task.repeatSeriesId, { id: task.id, date: taskDate });
-        }
-      }
-    }
-  }
-  for (const [seriesId, instance] of latestOverdueVirtualBySeries) {
-    if (!todayVirtualSeriesIds.has(seriesId)) visibleVirtualRepeatTaskIds.add(instance.id);
-  }
-  for (const [seriesId, instance] of nearestFutureVirtualBySeries) {
-    if (!todayVirtualSeriesIds.has(seriesId) && !latestOverdueVirtualBySeries.has(seriesId)) {
-      visibleVirtualRepeatTaskIds.add(instance.id);
     }
   }
   let domOrderMap: Map<string, number> | undefined;
@@ -5930,20 +5979,11 @@ async function refreshTasks(
     source = 'general'
   } = options;
   const requestedScope = getCurrentTaskQueryScope();
-  const shouldBroadenScope =
-    !useLiveDom
-    && (source === 'filter-switch' || source === 'mounted-reconcile')
-    && requestedScope
-    && (requestedScope.notebookId || requestedScope.documentId)
-    && tasks.value.length > 0
-    && tasks.value.length <= FILTER_SWITCH_BROAD_LOAD_THRESHOLD;
-  const loadScope = shouldBroadenScope
-    ? {
-      includeCompleted: requestedScope.includeCompleted,
-      includeArchived: requestedScope.includeArchived,
-      archivedOnly: requestedScope.archivedOnly
-    }
-    : requestedScope;
+  // Keep the backend query scoped to the current source. Previously filter
+  // switches intentionally broadened small datasets to an unscoped query,
+  // which made every source change wait for all notebooks before narrowing
+  // the result in the UI.
+  const loadScope = requestedScope;
   const now = Date.now();
   const SKIP_DELAY = 500;
   if (!force && !ignoreThrottle && now - lastRefreshTime < SKIP_DELAY) {
@@ -9667,6 +9707,7 @@ function isFutureVirtualRepeatPreview(task: Task): boolean {
 }
 
 onMounted(async () => {
+  const loadTraceId = beginTaskLoadTrace('sidebar');
   resolveTaskModalTeleportTarget();
   taskScrollContainerRef.value = resolveTaskScrollContainer();
   taskScrollContainerRef.value?.addEventListener('scroll', handleTaskListScroll, { passive: true });
@@ -9685,23 +9726,10 @@ onMounted(async () => {
   window.addEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
   taskModalTeleportTarget.value?.addEventListener('scroll', handleTaskFilterPopoverViewportChange, true);
   await loadSettings();
+  markTaskLoadMilestone('sidebar', loadTraceId, 'settingsMs');
   isTaskListCollapsed.value = userSettings.sidebar.taskListCollapsed === true;
   TaskRepository.setAutoRecognizeTaskDateEnabled(userSettings.taskManager.autoRecognizeTaskDate === true);
-  taskGroups.value = await loadTaskGroups();
-  documentGroups.value = sortDocumentGroups(await loadDocumentGroups());
-  const storedGroupId = typeof userSettings.taskManager.selectedGroupId === 'string'
-    ? userSettings.taskManager.selectedGroupId
-    : '';
-  if (storedGroupId && taskGroups.value.some(group => group.id === storedGroupId && group.hidden !== true)) {
-    lastSelectedTaskGroupId.value = storedGroupId;
-  } else {
-    lastSelectedTaskGroupId.value = '';
-  }
   applyExcludedNotebookScope(normalizeNotebookIds(userSettings.taskManager.excludedNotebookIds));
-
-  await loadNotebooks();
-  await refreshTaskDocumentOptions(true);
-  
   filterNotebook.value = userSettings.taskManager.filterSource
     || (userSettings.taskManager.filterNotebook && userSettings.taskManager.filterNotebook !== 'all'
       ? buildNotebookDocumentSource(userSettings.taskManager.filterNotebook)
@@ -9714,13 +9742,23 @@ onMounted(async () => {
   showTaskCardDetails.value = normalizeTaskCardDetailsVisible(userSettings.taskManager.showTaskCardDetails);
   restoreTaskPopoverFiltersFromSettings();
   ensureActiveNotebookFilterInScope();
-  
-  normalizeDocumentSelection(filterNotebook.value);
   setupEventListeners();
   startSkipSetCleanup();
 
   const scopeInitialized = userSettings.taskManager.scopeInitialized === true;
   if (!scopeInitialized) {
+    const taskGroupsLoadPromise = loadTaskGroups();
+    const documentGroupsLoadPromise = loadDocumentGroups();
+    const taskDocumentsLoadPromise = (async () => {
+      await loadNotebooks();
+      await refreshTaskDocumentOptions(true);
+    })();
+    [taskGroups.value, documentGroups.value] = await Promise.all([
+      taskGroupsLoadPromise,
+      documentGroupsLoadPromise.then(sortDocumentGroups)
+    ]);
+    await taskDocumentsLoadPromise;
+    markTaskLoadMilestone('sidebar', loadTraceId, 'metadataMs');
     requiresScopeInitialization.value = true;
     taskScopeDialogInitialTab.value = 'scope';
     showTaskScopeDialog.value = true;
@@ -9731,14 +9769,17 @@ onMounted(async () => {
   loading.value = true;
   try {
     const cachedTasks = await TaskRepository.getCachedTasksOnly({
-      includeRepeatTemplateDate: true,
-      repeatWindow: resolveTaskManagerRepeatWindow()
+      // Repeat rules and instance records live in separate plugin files. Do
+      // not block the cached first paint on those reads; mounted reconciliation
+      // immediately rebuilds the authoritative, materialized task snapshot.
+      materializeRepeats: false
     });
     if (cachedTasks.length > 0) {
       hydrateMemoTitlesFromLiveDom(cachedTasks, TASK_TITLE_HYDRATE_LIMIT);
       tasks.value = syncTaskSnapshotWithLocalOverrides(cachedTasks);
       hydrateMemoTitlesFromLiveDom(tasks.value, TASK_TITLE_HYDRATE_LIMIT);
       await refreshInternalState();
+      markTaskLoadFirstTasks('sidebar', loadTraceId, 'cache', tasks.value.length);
       if (tasks.value.length > 0 && tasks.value.length <= FILTER_SWITCH_BROAD_LOAD_THRESHOLD) {
         lastLoadedScope = { includeCompleted: showCompletedTasks.value, includeArchived: false };
       }
@@ -9746,15 +9787,54 @@ onMounted(async () => {
       const prefilled = await prefillKernelLightTasks(getCurrentTaskQueryScope() || null);
       if (prefilled) {
         await refreshInternalState();
+        markTaskLoadFirstTasks('sidebar', loadTraceId, 'kernel', tasks.value.length);
+      } else {
+        markTaskLoadFirstTasks('sidebar', loadTraceId, 'empty', 0);
       }
     }
   } finally {
     loading.value = false;
   }
 
+  // The active notebook and its task-source documents are enough to validate
+  // the usual restored source. Group definitions come from separate plugin
+  // storage and can load afterward without delaying sidebar readiness.
+  await (async () => {
+    await loadNotebooks();
+    // The full document tree is only needed in the scope dialog. Loading it
+    // here scans every notebook and delays sidebar metadata unnecessarily.
+    await refreshTaskDocumentOptions(true, { includeNotebookDocuments: false });
+  })();
+  markTaskLoadMilestone('sidebar', loadTraceId, 'metadataMs');
+
+  const loadGroupMetadata = async (): Promise<void> => {
+    const [nextTaskGroups, nextDocumentGroups] = await Promise.all([
+      loadTaskGroups(),
+      loadDocumentGroups()
+    ]);
+    taskGroups.value = nextTaskGroups;
+    documentGroups.value = sortDocumentGroups(nextDocumentGroups);
+    const storedGroupId = typeof userSettings.taskManager.selectedGroupId === 'string'
+      ? userSettings.taskManager.selectedGroupId
+      : '';
+    lastSelectedTaskGroupId.value = storedGroupId
+      && taskGroups.value.some(group => group.id === storedGroupId && group.hidden !== true)
+      ? storedGroupId
+      : '';
+  };
+  const groupMetadataPromise = loadGroupMetadata();
+  // A restored document group cannot be validated until its definition is
+  // available. Notebook and "all" sources proceed without this extra wait.
+  if (parsedFilterSource.value.kind === 'group') {
+    await groupMetadataPromise;
+  }
+  normalizeDocumentSelection(filterNotebook.value);
   isHydratingFilters = false;
-  // First paint from cache, then silently reconcile with source of truth once.
-  void refreshTasks(true, { showLoading: false, compareExisting: true, source: 'mounted-reconcile' });
+  // Reconcile after source metadata is ready so a restored source cannot
+  // briefly issue a broad all-notebooks query.
+  void refreshTasks(true, { showLoading: false, compareExisting: true, source: 'mounted-reconcile' })
+    .finally(() => markTaskLoadReconciled('sidebar', loadTraceId, tasks.value.length));
+  void groupMetadataPromise;
 });
 
 onUnmounted(() => {
@@ -9925,7 +10005,7 @@ onUnmounted(() => {
 }
 
 .task-kernel-status {
-  display: none;
+  /*display: none;*/
   &.active,
   &.is-connected {
     svg {
@@ -10661,6 +10741,13 @@ onUnmounted(() => {
   opacity: 0.88;
   transform: scale(0.985);
   box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.18), 0 10px 22px rgba(15, 23, 42, 0.14);
+}
+
+.kernel-diagnostics-section-title {
+  margin: 10px 0 6px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .task-manager-calendar-drag-ghost {

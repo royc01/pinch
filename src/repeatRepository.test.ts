@@ -77,6 +77,24 @@ describe('repeat repository storage safety', () => {
     expect(mockPlugin.saveData).toHaveBeenCalledTimes(1);
   });
 
+  it('shares concurrent repeat-storage reads', async () => {
+    let releaseSeriesRead!: () => void;
+    const pendingSeriesRead = new Promise<unknown>(resolve => {
+      releaseSeriesRead = () => resolve([]);
+    });
+    mockPlugin.loadData.mockImplementation((key: string) => {
+      if (key === REPEAT_SERIES_FILE) return pendingSeriesRead;
+      return Promise.resolve([]);
+    });
+
+    const first = repository.loadRepeatSeries();
+    const second = repository.loadRepeatSeries();
+
+    expect(mockPlugin.loadData).toHaveBeenCalledTimes(1);
+    releaseSeriesRead();
+    await expect(Promise.all([first, second])).resolves.toEqual([[], []]);
+  });
+
   it.each(['', '   '])('treats a blank series file as missing storage', async (storedValue) => {
     mockPlugin.loadData.mockResolvedValue(storedValue);
     mockPlugin.saveData.mockResolvedValue(undefined);

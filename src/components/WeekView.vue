@@ -3,6 +3,7 @@
     <CalendarTaskSidebar
       v-if="!sidebarCollapsed"
       :tasks="sidebarTasks || tasks"
+      :notebooks="notebooks"
       :document-title-by-root-id="documentTitleByRootId"
       :display-options="displayOptions"
       :selected-start-date="currentWeekStart"
@@ -766,6 +767,7 @@ interface Props {
   tasks: Task[];
   sidebarTasks?: Task[];
   sidebarCollapsed?: boolean;
+  notebooks?: Array<{ id: string; name: string; icon?: string }>;
   documentTitleByRootId?: Map<string, string>;
   lifelogTasks?: Task[];
   fixedDaysCount?: number;
@@ -6670,6 +6672,7 @@ onUnmounted(() => {
   border-radius: 8px;
   background: var(--pinch-background7);
   cursor: pointer;
+  animation: pinch-week-task-fade-in 180ms ease-out both;
 }
 
 .mobile-task-chip::before {
@@ -7009,6 +7012,7 @@ onUnmounted(() => {
   pointer-events: auto;
   position: relative;
   margin-left: 5px;
+  animation: pinch-week-task-fade-in 180ms ease-out both;
 }
 
 .all-day-task::before {
@@ -7649,6 +7653,20 @@ onUnmounted(() => {
   flex-direction: column;
   transition: background-color 0.15s, box-shadow 0.15s, transform 0.15s;
   z-index: 2;
+  animation: pinch-week-task-fade-in 180ms ease-out both;
+}
+
+@keyframes pinch-week-task-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-task-chip,
+  .all-day-task,
+  .timed-task {
+    animation: none;
+  }
 }
 
 .timed-task-handle {

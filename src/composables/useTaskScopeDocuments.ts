@@ -251,7 +251,10 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
         )`;
   }
 
-  async function refreshTaskDocumentOptions(force = false): Promise<void> {
+  async function refreshTaskDocumentOptions(
+    force = false,
+    options: { includeNotebookDocuments?: boolean } = {}
+  ): Promise<void> {
     if (
       !force &&
       taskDocumentsByNotebook.value.size > 0 &&
@@ -279,38 +282,40 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
       );
 
       const nextMap = new Map<string, TaskScopeTaskDocument[]>();
-      const documentRows = await sql(`
-        SELECT b.id, b.box, b.hpath, b.content, b.parent_id, b.path AS storage_path
-        FROM blocks b
-        WHERE b.type = 'd'
-          ${buildScopeSql()}
-        ORDER BY b.box, b.id
-      `) as Array<{
-        id?: string;
-        box?: string;
-        hpath?: string;
-        content?: string;
-        parent_id?: string;
-        storage_path?: string;
-      }>;
       const nextNotebookDocuments = new Map<string, TaskScopeTaskDocument[]>();
-      for (const row of documentRows || []) {
-        const notebookId = typeof row?.box === 'string' ? row.box.trim() : '';
-        const id = typeof row?.id === 'string' ? row.id.trim() : '';
-        if (!notebookId || !id) continue;
-        const path = typeof row?.hpath === 'string' ? row.hpath.trim() : '';
-        const parentId = typeof row?.parent_id === 'string' ? row.parent_id.trim() : '';
-        const storagePath = typeof row?.storage_path === 'string' ? row.storage_path.trim() : '';
-        const documents = nextNotebookDocuments.get(notebookId) || [];
-        documents.push({
-          id,
-          name: resolveDocumentDisplayName({ id, name: row?.content, path }),
-          notebookId,
-          path: path || undefined,
-          parentId: parentId || undefined,
-          storagePath: storagePath || undefined
-        });
-        nextNotebookDocuments.set(notebookId, documents);
+      if (options.includeNotebookDocuments !== false) {
+        const documentRows = await sql(`
+          SELECT b.id, b.box, b.hpath, b.content, b.parent_id, b.path AS storage_path
+          FROM blocks b
+          WHERE b.type = 'd'
+            ${buildScopeSql()}
+          ORDER BY b.box, b.id
+        `) as Array<{
+          id?: string;
+          box?: string;
+          hpath?: string;
+          content?: string;
+          parent_id?: string;
+          storage_path?: string;
+        }>;
+        for (const row of documentRows || []) {
+          const notebookId = typeof row?.box === 'string' ? row.box.trim() : '';
+          const id = typeof row?.id === 'string' ? row.id.trim() : '';
+          if (!notebookId || !id) continue;
+          const path = typeof row?.hpath === 'string' ? row.hpath.trim() : '';
+          const parentId = typeof row?.parent_id === 'string' ? row.parent_id.trim() : '';
+          const storagePath = typeof row?.storage_path === 'string' ? row.storage_path.trim() : '';
+          const documents = nextNotebookDocuments.get(notebookId) || [];
+          documents.push({
+            id,
+            name: resolveDocumentDisplayName({ id, name: row?.content, path }),
+            notebookId,
+            path: path || undefined,
+            parentId: parentId || undefined,
+            storagePath: storagePath || undefined
+          });
+          nextNotebookDocuments.set(notebookId, documents);
+        }
       }
       for (const row of rows || []) {
         const notebookId = typeof row?.box === 'string' ? row.box.trim() : '';

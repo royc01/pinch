@@ -170,8 +170,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
-import { lsNotebooks, type Task } from "@/api";
+import { computed, onUnmounted, ref } from "vue";
+import { type Task } from "@/api";
 import { getTaskDisplayTitle } from "@/composables/useTaskCommon";
 import { useI18n } from "@/composables/useI18n";
 import { normalizeDocumentIconValue } from "@/utils/documentIcon";
@@ -183,6 +183,7 @@ import TaskTitlePlain from './TaskTitlePlain.vue';
 
 const props = defineProps<{
   tasks: Task[];
+  notebooks?: Array<{ id: string; name: string; icon?: string }>;
   documentTitleByRootId?: Map<string, string>;
   selectedStartDate?: Date;
   selectedDaysCount?: number;
@@ -203,8 +204,15 @@ const COLLAPSED_GROUPS_STORAGE_KEY = "pinch-calendar-sidebar-collapsed-groups";
 const query = ref("");
 const showCompleted = ref(false);
 const collapsedIds = ref(loadCollapsedGroupIds());
-const notebookNames = ref(new Map<string, string>());
-const notebookIcons = ref(new Map<string, string>());
+const notebookNames = computed(() => new Map(
+  (props.notebooks || []).map(notebook => [notebook.id, notebook.name])
+));
+const notebookIcons = computed(() => new Map(
+  (props.notebooks || []).map(notebook => [
+    notebook.id,
+    normalizeDocumentIconValue(notebook.icon) || ''
+  ])
+));
 const miniMonth = ref(new Date());
 const POINTER_DRAG_THRESHOLD = 4;
 const pointerDrag = ref<{
@@ -301,7 +309,7 @@ function hasVisibleTaskTitle(task: Task) {
 function notebookName(id: string) {
   return id === "__unassigned_notebook__"
     ? t("ganttView.unassignedDocument")
-    : notebookNames.value.get(id) || id;
+    : notebookNames.value.get(id) || t("taskManager.loading");
 }
 function notebookIcon(id: string) {
   return notebookIcons.value.get(id) || "";
@@ -476,13 +484,11 @@ function handleTaskPointerCancel(event: PointerEvent) {
   removePointerDragListeners();
   clearPointerDrag(true);
 }
-onMounted(() => {
-  void loadNotebookNames();
-});
 onUnmounted(() => {
   removePointerDragListeners();
 });
 
+/* Legacy per-mount notebook request. The parent now owns this shared data. 
 async function loadNotebookNames() {
   try {
     const result = await lsNotebooks();
@@ -499,6 +505,7 @@ async function loadNotebookNames() {
     console.warn("[CalendarTaskSidebar] Failed to load notebook names", error);
   }
 }
+*/
 </script>
 
 <style scoped>
@@ -583,6 +590,7 @@ async function loadNotebookNames() {
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
+  animation: pinch-calendar-sidebar-fade-in 160ms ease-out both;
 }
 .calendar-task-sidebar-notebook-group {
   padding: 5px;
@@ -629,6 +637,24 @@ async function loadNotebookNames() {
   background: transparent;
   cursor: grab;
   font-size: 13px;
+  animation: pinch-calendar-sidebar-task-fade-in 180ms ease-out both;
+}
+
+@keyframes pinch-calendar-sidebar-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pinch-calendar-sidebar-task-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calendar-task-sidebar-list,
+  .calendar-task-sidebar-task {
+    animation: none;
+  }
 }
 .calendar-task-sidebar-document-task {
   padding-left: 28px;

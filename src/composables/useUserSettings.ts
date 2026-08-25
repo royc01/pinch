@@ -15,6 +15,23 @@ let loadingPromise: Promise<void> | null = null;
 export function useUserSettings() {
   async function loadSettings() {
     if (isInitialized) return;
+    const localSnapshot = userSettingsManager.loadLocalSnapshot();
+    if (localSnapshot) {
+      Object.assign(state.focus, localSnapshot.focus);
+      Object.assign(state.kanban, localSnapshot.kanban);
+      Object.assign(state.taskManager, localSnapshot.taskManager);
+      Object.assign(state.sidebar, localSnapshot.sidebar);
+      isInitialized = true;
+      void userSettingsManager.load({ refresh: true }).then((loaded) => {
+        Object.assign(state.focus, loaded.focus);
+        Object.assign(state.kanban, loaded.kanban);
+        Object.assign(state.taskManager, loaded.taskManager);
+        Object.assign(state.sidebar, loaded.sidebar);
+      }).catch((error) => {
+        console.error('[useUserSettings] Background settings refresh failed:', error);
+      });
+      return;
+    }
     // The dock and a task view can mount together. Every caller must wait for
     // the same load, rather than proceeding with DEFAULT_SETTINGS while the
     // first caller is still reading persisted preferences.

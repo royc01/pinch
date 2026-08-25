@@ -512,11 +512,33 @@ function mergeWithDefaults(input: unknown): UserSettings {
 
 export class UserSettingsManager {
   private settings: UserSettings | null = null;
+  private localSnapshotLoaded = false;
   private loadPromise: Promise<UserSettings> | null = null;
   private saveQueue: Promise<void> = Promise.resolve();
+
+  loadLocalSnapshot(): UserSettings | null {
+    if (this.settings) return this.settings;
+    try {
+      if (typeof localStorage === 'undefined') return null;
+      const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!raw) return null;
+      this.settings = mergeWithDefaults(JSON.parse(raw));
+      this.localSnapshotLoaded = true;
+      return this.settings;
+    } catch (error) {
+      console.warn('[UserSettings] Failed to read local settings snapshot:', error);
+      return null;
+    }
+  }
   
-  async load(): Promise<UserSettings> {
-    if (this.settings) {
+  async load(options: { refresh?: boolean } = {}): Promise<UserSettings> {
+    // Settings can also be requested by startup helpers that do not use the
+    // Vue composable. Always try the synchronous local snapshot here so an
+    // earlier caller cannot put the sidebar behind a slow plugin load.
+    if (!this.settings) {
+      this.loadLocalSnapshot();
+    }
+    if (this.settings && options.refresh !== true) {
       return this.settings;
     }
 
@@ -533,6 +555,7 @@ export class UserSettingsManager {
   }
 
   private async loadFromStorage(): Promise<UserSettings> {
+    const localSnapshot = this.localSnapshotLoaded ? this.settings : null;
     
     try {
       const plugin = usePlugin();
@@ -541,16 +564,18 @@ export class UserSettingsManager {
       
       if (data) {
         const settings = typeof data === 'string' ? JSON.parse(data) : data;
-        this.settings = mergeWithDefaults(settings);
+        this.settings = localSnapshot || mergeWithDefaults(settings);
       } else {
-        this.settings = mergeWithDefaults(null);
+        this.settings = localSnapshot || mergeWithDefaults(null);
       }
     } catch (error) {
       console.error('[UserSettings] 加载设置失败，使用默认设置:', error);
-      this.settings = mergeWithDefaults(null);
+      this.settings = localSnapshot || mergeWithDefaults(null);
     }
     
-    this.syncToLocalStorage();
+    if (!localSnapshot) {
+      this.syncToLocalStorage();
+    }
     return this.settings;
   }
   
@@ -587,6 +612,12 @@ export class UserSettingsManager {
       ...value
     };
     this.settings = mergeWithDefaults(this.settings);
+
+    // The UI restores this snapshot synchronously on the next mount. Keep it
+    // current before awaiting plugin storage, otherwise a reload between a
+    // source selection and saveData resolving restores the previous "all"
+    // filter and never reapplies the later background refresh.
+    this.syncToLocalStorage();
     
     try {
       await this.enqueueSave(this.settings);
@@ -594,7 +625,6 @@ export class UserSettingsManager {
       console.error('[UserSettings] 更新设置失败:', error);
     }
     
-    this.syncToLocalStorage();
   }
   
   async get<K extends keyof UserSettings>(section: K): Promise<UserSettings[K]> {
@@ -633,6 +663,7 @@ export class UserSettingsManager {
 
   clear(): void {
     this.settings = null;
+    this.localSnapshotLoaded = false;
     try {
       localStorage.removeItem(LOCAL_STORAGE_KEY);
     } catch (error) {
