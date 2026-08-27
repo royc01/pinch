@@ -1,5 +1,5 @@
 <template>
-  <aside class="calendar-task-sidebar">
+  <aside class="calendar-task-sidebar" :class="{ 'initial-content-animation': isInitialContentAnimation }">
     <div class="calendar-task-mini-calendar">
       <div class="calendar-task-mini-header">
         <span>{{ miniCalendarTitle }}</span>
@@ -170,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { type Task } from "@/api";
 import { getTaskDisplayTitle } from "@/composables/useTaskCommon";
 import { useI18n } from "@/composables/useI18n";
@@ -203,6 +203,24 @@ const { t } = useI18n();
 const COLLAPSED_GROUPS_STORAGE_KEY = "pinch-calendar-sidebar-collapsed-groups";
 const query = ref("");
 const showCompleted = ref(false);
+const isInitialContentAnimation = ref(false);
+let initialContentAnimationTimer: ReturnType<typeof setTimeout> | null = null;
+let hasAnimatedInitialTasks = false;
+
+function playInitialContentAnimation(): void {
+  if (hasAnimatedInitialTasks) return;
+  hasAnimatedInitialTasks = true;
+  isInitialContentAnimation.value = true;
+  initialContentAnimationTimer = setTimeout(() => {
+    isInitialContentAnimation.value = false;
+  }, 400);
+}
+
+watch(() => props.tasks.length, (count) => {
+  if (count > 0) {
+    playInitialContentAnimation();
+  }
+}, { immediate: true });
 const collapsedIds = ref(loadCollapsedGroupIds());
 const notebookNames = computed(() => new Map(
   (props.notebooks || []).map(notebook => [notebook.id, notebook.name])
@@ -485,6 +503,9 @@ function handleTaskPointerCancel(event: PointerEvent) {
   clearPointerDrag(true);
 }
 onUnmounted(() => {
+  if (initialContentAnimationTimer) {
+    clearTimeout(initialContentAnimationTimer);
+  }
   removePointerDragListeners();
 });
 
@@ -590,7 +611,6 @@ async function loadNotebookNames() {
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
-  animation: pinch-calendar-sidebar-fade-in 160ms ease-out both;
 }
 .calendar-task-sidebar-notebook-group {
   padding: 5px;
@@ -637,7 +657,6 @@ async function loadNotebookNames() {
   background: transparent;
   cursor: grab;
   font-size: 13px;
-  animation: pinch-calendar-sidebar-task-fade-in 180ms ease-out both;
 }
 
 @keyframes pinch-calendar-sidebar-fade-in {
@@ -651,10 +670,18 @@ async function loadNotebookNames() {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .calendar-task-sidebar-list,
-  .calendar-task-sidebar-task {
-    animation: none;
+  .initial-content-animation .calendar-task-sidebar-list,
+  .initial-content-animation .calendar-task-sidebar-task {
+    animation: none !important;
   }
+}
+
+.initial-content-animation .calendar-task-sidebar-list {
+  animation: pinch-calendar-sidebar-fade-in 160ms ease-out both;
+}
+
+.initial-content-animation .calendar-task-sidebar-task {
+  animation: pinch-calendar-sidebar-task-fade-in 180ms ease-out both;
 }
 .calendar-task-sidebar-document-task {
   padding-left: 28px;

@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="month-view">
+  <div class="month-view" :class="{ 'initial-content-animation': isInitialContentAnimation }">
     <div class="calendar-view-layout">
       <CalendarTaskSidebar
         v-if="!sidebarCollapsed"
@@ -53,7 +53,24 @@
           </button>
           </div>
         </div>
-        <div class="month-title">{{ monthTitle }}</div>
+        <div class="month-title-row">
+          <div class="month-title">{{ monthTitle }}</div>
+          <button
+            type="button"
+            class="month-task-collapse-btn ariaLabel"
+            :class="{ active: isTasksCollapsed }"
+            :aria-label="t(isTasksCollapsed ? 'monthView.expand' : 'monthView.collapse')"
+            :title="t(isTasksCollapsed ? 'monthView.expand' : 'monthView.collapse')"
+            @click="toggleTasksCollapsed"
+          >
+            <svg v-if="!isTasksCollapsed" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M11.29,9.71a1,1,0,0,0,1.42,0l5-5a1,1,0,1,0-1.42-1.42L12,7.59,7.71,3.29A1,1,0,0,0,6.29,4.71Zm1.42,4.58a1,1,0,0,0-1.42,0l-5,5a1,1,0,0,0,1.42,1.42L12,16.41l4.29,4.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42Z" />
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M16.29,14.29,12,18.59l-4.29-4.3a1,1,0,0,0-1.42,1.42l5,5a1,1,0,0,0,1.42,0l5-5a1,1,0,0,0-1.42-1.42ZM7.71,9.71,12,5.41l4.29,4.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42l-5-5a1,1,0,0,0-1.42,0l-5,5A1,1,0,0,0,7.71,9.71Z" />
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="calendar-grid">
         <div class="weekday-header">
@@ -61,7 +78,7 @@
             {{ weekday }}
           </div>
         </div>
-        <div class="weeks-container">
+        <div ref="weeksContainerRef" class="weeks-container">
           <div 
             v-for="(week, weekIndex) in calendarWeeks" 
             :key="`week-${weekIndex}`"
@@ -143,7 +160,7 @@
             </div>
             <div class="week-tasks-layer">
               <div 
-                v-for="task in getTasksForWeek(week)"
+                v-for="task in getTasksForWeek(week).filter(isTaskVisibleInMonth)"
                 :key="task.id"
                 class="ariaLabel"
                 :aria-label="getTaskDisplayTitle(task)"
@@ -177,13 +194,14 @@
                   :class="{ 'task-dragging': draggingTask?.task.id === task.id }"
                   @mousedown="!isHabitTaskChip(task) && handleTaskMouseDownWithSelection($event, task)"
                 >
-                  <Icon
+                  <svg
                     v-if="!isHabitTaskChip(task) && isRepeatTaskEntity(task)"
-                    name="repeat"
                     class="task-repeat-icon"
-                    width="11"
-                    height="11"
-                  />
+                    viewBox="0 0 1024 1024"
+                    aria-hidden="true"
+                  >
+                    <path d="M987.088 362.926c23.912 45.21 37.31 96.8 36.904 151.5C1022.678 690.73 877.12 832 700.808 832H384v94.99c0 44.95-52.354 64.536-81.942 34.95l-160-160c-18.744-18.746-18.744-49.138 0-67.882l160-160C332.276 543.84 384 565.372 384 608v96h317.75c105.624 0 193.15-84.364 194.24-189.984 0.31-30.09-6.34-58.624-18.436-84.092-8.724-18.37-4.842-40.248 9.6-54.568 9.49-9.412 17.282-17.11 23.752-23.572 22.736-22.704 61.158-17.262 76.182 11.142zM128.01 509.984c1.09-105.62 88.616-189.984 194.24-189.984H640v95.01c0 44.748 52.242 64.624 81.942 34.93l160-160c18.744-18.746 18.744-49.138 0-67.882l-160-160C692.028 32.154 640 52.512 640 97.09V192H323.192C146.88 192 1.322 333.27 0.01 509.576c-0.408 54.7 12.99 106.29 36.904 151.5 15.024 28.404 53.446 33.846 76.182 11.14 6.47-6.462 14.26-14.16 23.752-23.572 14.44-14.32 18.324-36.196 9.6-54.568-12.098-25.47-18.748-54.002-18.438-84.092z" />
+                  </svg>
                   <span
                     class="task-checkbox-wrapper"
                     @mousedown.stop
@@ -226,6 +244,21 @@
                 ></div>
                 </div>
               </div>
+              <template v-if="isTasksCollapsed">
+                <button
+                  v-for="(day, dayIndex) in week"
+                  :key="`more-tasks-${day.key}`"
+                  v-show="getCollapsedTaskCount(week, dayIndex) > 0"
+                  type="button"
+                  class="month-more-tasks-btn"
+                  :style="getMoreTasksButtonStyle(dayIndex)"
+                  :aria-label="formatTemplate('monthView.moreTasksTemplate', { count: getCollapsedTaskCount(week, dayIndex) })"
+                  @mousedown.stop
+                  @click.stop="openDayTasks(day.key, week, dayIndex, $event)"
+                >
+                  +{{ getCollapsedTaskCount(week, dayIndex) }}
+                </button>
+              </template>
               <template v-if="allDayTaskDragPreview && isMonthTaskDragPreviewInWeek(allDayTaskDragPreview, week)">
                 <div class="month-task-drag-outline" :style="getMonthTaskDragPreviewStyle(allDayTaskDragPreview, week, false)"></div>
                 <div
@@ -266,6 +299,55 @@
       @start-focus="startFocusForTask(contextMenu.task!)"
       @editTask="handleContextMenuEditTask(contextMenu.task!)"
     />
+
+    <div
+      v-if="dayTasksDialogKey"
+      class="month-day-tasks-overlay"
+      role="presentation"
+      @click.self="closeDayTasks"
+    >
+      <section class="month-day-tasks-dialog" :style="dayTasksDialogStyle" role="dialog" aria-modal="true" :aria-label="t('monthView.dayTasks')">
+        <header class="month-day-tasks-dialog-header">
+          <h3>{{ t('monthView.dayTasks') }}</h3>
+          <button
+            type="button"
+            class="task-editor-sidebar-close ariaLabel"
+            :aria-label="t('common.close')"
+            @click="closeDayTasks"
+          >
+            <Icon name="close" width="16" height="16" />
+          </button>
+        </header>
+        <div class="month-day-tasks-list">
+          <button
+            v-for="task in dayTasksDialogTasks"
+            :key="task.id"
+            type="button"
+            class="month-day-task-chip"
+            :class="{
+              'task-completed': task.status === 'completed',
+              'is-repeat-task': !isHabitTaskChip(task) && isRepeatTaskEntity(task)
+            }"
+            :style="getDayTaskChipStyle(task)"
+            @mousedown="!isHabitTaskChip(task) && handleTaskMouseDownWithSelection($event, task)"
+            @click="handleDayTaskDialogClick(task, $event)"
+          >
+            <span v-if="!isRepeatTaskEntity(task)" class="month-day-task-chip-accent"></span>
+            <svg
+              v-if="!isHabitTaskChip(task) && isRepeatTaskEntity(task)"
+              class="month-day-task-repeat-icon"
+              viewBox="0 0 1024 1024"
+              aria-hidden="true"
+            >
+              <path d="M987.088 362.926c23.912 45.21 37.31 96.8 36.904 151.5C1022.678 690.73 877.12 832 700.808 832H384v94.99c0 44.95-52.354 64.536-81.942 34.95l-160-160c-18.744-18.746-18.744-49.138 0-67.882l160-160C332.276 543.84 384 565.372 384 608v96h317.75c105.624 0 193.15-84.364 194.24-189.984 0.31-30.09-6.34-58.624-18.436-84.092-8.724-18.37-4.842-40.248 9.6-54.568 9.49-9.412 17.282-17.11 23.752-23.572 22.736-22.704 61.158-17.262 76.182 11.142zM128.01 509.984c1.09-105.62 88.616-189.984 194.24-189.984H640v95.01c0 44.748 52.242 64.624 81.942 34.93l160-160c18.744-18.746 18.744-49.138 0-67.882l-160-160C692.028 32.154 640 52.512 640 97.09V192H323.192C146.88 192 1.322 333.27 0.01 509.576c-0.408 54.7 12.99 106.29 36.904 151.5 15.024 28.404 53.446 33.846 76.182 11.14 6.47-6.462 14.26-14.16 23.752-23.572 14.44-14.32 18.324-36.196 9.6-54.568-12.098-25.47-18.748-54.002-18.438-84.092z" />
+            </svg>
+            <TaskCheckbox v-if="!isHabitTaskChip(task)" :checked="task.status === 'completed'" :size="12" />
+            <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
+            <TaskTitlePlain class="month-day-task-chip-title" :title="task.title" />
+          </button>
+        </div>
+      </section>
+    </div>
 
     <LifelogTimelinePanel
       :show="lifelogTimelinePanelOpen"
@@ -311,7 +393,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import type { FocusSessionRecord, Habit, MoodData, MoodManualEntry, Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
 import {
@@ -396,6 +478,7 @@ import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { resolveTaskTagIds } from '@/utils/taskTags';
 import { useCheckinNotes } from '@/composables/useCheckinNotes';
 import { getCheckinNoteEventKeys } from '@/utils/checkinNoteEvents';
+import { useUserSettings } from '@/composables/useUserSettings';
 
 interface Props {
   tasks: Task[];
@@ -430,6 +513,7 @@ interface MonthCalendarDay {
   date: Date;
   isOtherMonth: boolean;
   isToday: boolean;
+  lunarInfo: LunarInfo | null;
 }
 
 interface ExternalTaskDropPoint {
@@ -514,6 +598,7 @@ type PointerCaptureSession = {
 
 const props = defineProps<Props>();
 const { t } = useI18n();
+const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const { getMoodSvg } = useHabitEmojis();
 const {
   ensureDatesLoaded: ensureCheckinNoteDatesLoaded,
@@ -596,6 +681,18 @@ const MOBILE_DRAG_LONG_PRESS_MS = 280;
 const MOBILE_DRAG_MOVE_THRESHOLD_PX = 18;
 const MOBILE_TASK_CHIP_OPERATION_MOVE_THRESHOLD_PX = 10;
 const isCompactMobileLayout = ref(false);
+const isInitialContentAnimation = ref(false);
+let initialContentAnimationTimer: ReturnType<typeof setTimeout> | null = null;
+let hasAnimatedInitialTasks = false;
+
+function playInitialContentAnimation(): void {
+  if (hasAnimatedInitialTasks) return;
+  hasAnimatedInitialTasks = true;
+  isInitialContentAnimation.value = true;
+  initialContentAnimationTimer = setTimeout(() => {
+    isInitialContentAnimation.value = false;
+  }, 400);
+}
 
 let dragOverDayUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingDragOverDay: string | null = null;
@@ -631,6 +728,7 @@ let unsubscribeMoodUpdates: (() => void) | null = null;
 function syncCompactMobileLayout() {
   isCompactMobileLayout.value = window.innerWidth <= MOBILE_BREAKPOINT;
   invalidateMonthDropZoneCache();
+  void nextTick().then(syncCollapsedTaskSlots);
 }
 
 function getLocalTodayKey(): string {
@@ -1184,6 +1282,9 @@ function getTasksHash(tasks: Task[]): string {
 
 watch(() => props.tasks, (newTasks) => {
   taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
+  if (newTasks.length > 0) {
+    playInitialContentAnimation();
+  }
 }, { deep: true });
 
 function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date } | null {
@@ -1420,8 +1521,8 @@ const weekdays = computed(() => [
   t('date.weekdaySunShort')
 ]);
 
-const calendarDays = computed(() => {
-  const days = [];
+const calendarDays = computed<MonthCalendarDay[]>(() => {
+  const days: MonthCalendarDay[] = [];
   
   const startDate = new Date(baseDate.value);
   startDate.setHours(0, 0, 0, 0);
@@ -1500,8 +1601,8 @@ const monthTitle = computed(() => {
   return `${date.getFullYear()} ${date.getMonth() + 1}${t('date.monthSuffix')}`;
 });
 
-const calendarWeeks = computed(() => {
-  const weeks = [];
+const calendarWeeks = computed<MonthCalendarDay[][]>(() => {
+  const weeks: MonthCalendarDay[][] = [];
   const days = calendarDays.value;
   
   for (let i = 0; i < days.length; i += 7) {
@@ -1524,6 +1625,39 @@ type WeekTask = Task & {
   spanDays: number;
   position: number;
 };
+
+const isTasksCollapsed = ref(false);
+const collapsedVisibleTaskSlots = ref(1);
+const dayTasksDialogKey = ref<string | null>(null);
+const dayTasksDialogTasks = ref<WeekTask[]>([]);
+const dayTasksDialogStyle = ref<Record<string, string>>({});
+const weeksContainerRef = ref<HTMLElement | null>(null);
+let monthTasksResizeObserver: ResizeObserver | null = null;
+
+function syncCollapsedTaskSlots(): void {
+  if (!isTasksCollapsed.value || !weeksContainerRef.value || calendarWeeks.value.length === 0) {
+    return;
+  }
+
+  const { topOffset, positionStep, chipHeight } = monthTaskLayout.value;
+  const bottomPadding = isCompactMobileLayout.value ? 6 : 10;
+  const weekHeight = weeksContainerRef.value.clientHeight / calendarWeeks.value.length;
+  const slots = Math.floor((weekHeight - topOffset - chipHeight - bottomPadding) / positionStep) + 1;
+  collapsedVisibleTaskSlots.value = Math.max(1, slots);
+}
+
+async function toggleTasksCollapsed(): Promise<void> {
+  isTasksCollapsed.value = !isTasksCollapsed.value;
+  void updateSettings('kanban', { monthTasksCollapsed: isTasksCollapsed.value });
+  if (isTasksCollapsed.value) {
+    await nextTick();
+    syncCollapsedTaskSlots();
+  }
+}
+
+watch([calendarWeeks, isTasksCollapsed], () => {
+  void nextTick().then(syncCollapsedTaskSlots);
+});
 
 const weeklyTasks = computed(() => {
   const result = new Map<string, WeekTask[]>();
@@ -1590,12 +1724,76 @@ function getTasksForWeek(week: any[]): WeekTask[] {
   return weeklyTasks.value.get(weekKey) || [];
 }
 
+function isTaskVisibleInMonth(task: WeekTask): boolean {
+  return !isTasksCollapsed.value || task.position < collapsedVisibleTaskSlots.value;
+}
+
+function getTasksForDay(week: any[], dayIndex: number): WeekTask[] {
+  return getTasksForWeek(week)
+    .filter(task => task.startDayOfWeek <= dayIndex && task.endDayOfWeek >= dayIndex)
+    .sort((first, second) => first.position - second.position);
+}
+
+function getCollapsedTaskCount(week: any[], dayIndex: number): number {
+  return getTasksForDay(week, dayIndex)
+    .filter(task => task.position >= collapsedVisibleTaskSlots.value)
+    .length;
+}
+
+function getMoreTasksButtonStyle(dayIndex: number): Record<string, string> {
+  const { topOffset, positionStep } = monthTaskLayout.value;
+  return {
+    right: `calc(${((6 - dayIndex) / 7) * 100}% + 6px)`,
+    top: `${topOffset + (collapsedVisibleTaskSlots.value - 1) * positionStep}px`
+  };
+}
+
+function shouldReserveMoreTasksSpace(task: WeekTask, week: any[]): boolean {
+  if (!isTasksCollapsed.value || task.position !== collapsedVisibleTaskSlots.value - 1 || task.spanDays !== 1) {
+    return false;
+  }
+  return getCollapsedTaskCount(week, task.startDayOfWeek) > 0;
+}
+
+function openDayTasks(dayKey: string, week: any[], dayIndex: number, event: MouseEvent): void {
+  const trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  const rect = trigger?.getBoundingClientRect();
+  const margin = 8;
+  const dialogWidth = Math.min(280, window.innerWidth - margin * 2);
+  const spaceBelow = window.innerHeight - (rect?.bottom ?? margin) - margin;
+  const showAbove = spaceBelow < 180 && (rect?.top ?? 0) > spaceBelow;
+  const maxHeight = Math.max(80, showAbove ? (rect?.top ?? margin) - margin : spaceBelow);
+  const left = Math.min(
+    Math.max(margin, (rect?.right ?? margin) - dialogWidth),
+    window.innerWidth - dialogWidth - margin
+  );
+
+  dayTasksDialogStyle.value = {
+    left: `${left}px`,
+    maxHeight: `${maxHeight}px`
+  };
+  if (showAbove) {
+    dayTasksDialogStyle.value.bottom = `${window.innerHeight - (rect?.top ?? margin) + 6}px`;
+  } else {
+    dayTasksDialogStyle.value.top = `${Math.max(margin, (rect?.bottom ?? margin) + 6)}px`;
+  }
+  dayTasksDialogKey.value = dayKey;
+  dayTasksDialogTasks.value = getTasksForDay(week, dayIndex);
+}
+
+function closeDayTasks(): void {
+  dayTasksDialogKey.value = null;
+  dayTasksDialogTasks.value = [];
+  dayTasksDialogStyle.value = {};
+}
+
 function getWeekRowStyle(week: any[]): Record<string, string> {
   const {
     topOffset: TOP_OFFSET,
     positionStep: POSITION_STEP,
     chipHeight: CHIP_HEIGHT
   } = monthTaskLayout.value;
+  if (isTasksCollapsed.value) return {};
   const tasks = getTasksForWeek(week);
   const highestPosition = tasks.reduce((highest, task) => Math.max(highest, task.position ?? 0), -1);
   const bottomPadding = isCompactMobileLayout.value ? 6 : 10;
@@ -2213,7 +2411,8 @@ function getTaskStyle(task: any, week: any[]): Record<string, string> {
   
   const leftPercent = (task.startDayOfWeek / 7) * 100;
   const widthPercent = (task.spanDays / 7) * 100;
-  const widthOffset = isCompactMobileLayout.value ? 6 : 24;
+  const widthOffset = (isCompactMobileLayout.value ? 6 : 24)
+    + (shouldReserveMoreTasksSpace(task, week) ? 31 : 0);
   const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task, props.taskGroups);
   const bgColor = resolveTaskBackgroundColor(effectiveBackgroundColor);
   
@@ -2228,6 +2427,21 @@ function getTaskStyle(task: any, week: any[]): Record<string, string> {
       background: bgColor,
     '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
   };
+}
+
+function getDayTaskChipStyle(task: Task): Record<string, string> {
+  const effectiveBackgroundColor = resolveEffectiveTaskBackgroundColor(task, props.taskGroups);
+  return {
+    background: resolveTaskBackgroundColor(effectiveBackgroundColor),
+    '--pinch-task-chip-color': resolveTaskAccentColor(effectiveBackgroundColor)
+  };
+}
+
+function handleDayTaskDialogClick(task: Task, event: MouseEvent): void {
+  if (isHabitTaskChip(task)) {
+    return;
+  }
+  handleTaskClick(task, event);
 }
 
 async function updateLifelogTimelineAnnotation(item: LifelogTimelinePanelItem, text: string): Promise<void> {
@@ -3727,13 +3941,24 @@ async function setTaskBackgroundColor(task: Task, color: string) {
 
 
 onMounted(() => {
+  void loadSettings().then(() => {
+    isTasksCollapsed.value = userSettings.kanban.monthTasksCollapsed === true;
+    void nextTick().then(syncCollapsedTaskSlots);
+  });
   document.addEventListener('keydown', handleCalendarTaskDateClearKeydown);
   document.addEventListener('pointerdown', handleCalendarTaskSelectionOutsidePointerDown);
   window.addEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
   emitVisibleCalendarRange();
   taskSyncGuard.syncTasks(props.tasks, false, getTasksHash);
+  if (props.tasks.length > 0) {
+    playInitialContentAnimation();
+  }
   syncCompactMobileLayout();
   window.addEventListener('resize', syncCompactMobileLayout);
+  if (weeksContainerRef.value) {
+    monthTasksResizeObserver = new ResizeObserver(syncCollapsedTaskSlots);
+    monthTasksResizeObserver.observe(weeksContainerRef.value);
+  }
   document.addEventListener('pointermove', handleDocumentMobileTaskPointerMove);
   document.addEventListener('pointerup', handleDocumentMobileTaskPointerUp);
   document.addEventListener('pointercancel', handleDocumentMobileTaskPointerCancel);
@@ -3893,6 +4118,9 @@ defineExpose({
 });
 
 onUnmounted(() => {
+  if (initialContentAnimationTimer) {
+    clearTimeout(initialContentAnimationTimer);
+  }
   document.removeEventListener('keydown', handleCalendarTaskDateClearKeydown);
   document.removeEventListener('pointerdown', handleCalendarTaskSelectionOutsidePointerDown);
   window.removeEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
@@ -3905,6 +4133,8 @@ onUnmounted(() => {
   document.removeEventListener('pointerup', handleDocumentMobileTaskChipPointerUp);
   document.removeEventListener('pointercancel', handleDocumentMobileTaskChipPointerCancel);
   window.removeEventListener('resize', syncCompactMobileLayout);
+  monthTasksResizeObserver?.disconnect();
+  monthTasksResizeObserver = null;
   window.removeEventListener('pinch-focus-session', handleFocusSessionUpdate);
   unsubscribeHabitUpdates?.();
   unsubscribeHabitUpdates = null;
@@ -4027,6 +4257,38 @@ onUnmounted(() => {
   font-size: 26px;
   font-weight: 700;
   color: var(--b3-theme-on-background);
+}
+
+.month-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.month-task-collapse-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.month-task-collapse-btn:hover,
+.month-task-collapse-btn.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.month-task-collapse-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
 }
 
 .today-btn {
@@ -4314,6 +4576,148 @@ onUnmounted(() => {
   padding-left: 32px;
 }
 
+.month-more-tasks-btn {
+  position: absolute;
+  height: 22px;
+  min-width: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  box-shadow: var(--pinch-shadow);
+  font: inherit;
+  font-size: 12px;
+  line-height: 24px;
+  text-align: center;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 3;
+}
+
+.month-more-tasks-btn:hover {
+  background: var(--b3-theme-primary-lightest);
+  color: var(--b3-theme-primary);
+}
+
+.month-day-tasks-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: transparent;
+}
+
+.month-day-tasks-dialog {
+  position: fixed;
+  width: min(280px, calc(100vw - 16px));
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+}
+
+.month-day-tasks-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 8px;
+}
+
+.month-day-tasks-dialog-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--b3-theme-on-background);
+}
+
+.task-editor-sidebar-close {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.task-editor-sidebar-close:hover {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-error);
+}
+
+.month-day-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px 10px;
+}
+
+.month-day-task-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 16px;
+  gap: 2px;
+  padding: 3px 5px 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--b3-theme-on-background);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: content-box;
+}
+
+.month-day-task-chip:hover {
+  filter: brightness(0.97);
+}
+
+.month-day-task-chip.task-completed {
+  opacity: 0.6;
+}
+
+.month-day-task-chip-accent {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 1px;
+  width: 4px;
+  border-radius: 99px;
+  background: var(--pinch-task-chip-color, var(--pinch-color6));
+}
+
+.month-day-task-repeat-icon {
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  box-sizing: content-box;
+  width: 10px;
+  height: 10px;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--pinch-task-chip-color, var(--pinch-color6));
+  transform: translateY(-50%);
+}
+
+.month-day-task-chip.is-repeat-task {
+  padding-left: 16px;
+}
+
+.month-day-task-chip-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .task-chip {
   padding: 3px 5px;
   border-radius: 6px;
@@ -4329,7 +4733,6 @@ onUnmounted(() => {
   pointer-events: auto;
   position: relative;
   margin-left: 5px;
-  animation: pinch-month-task-fade-in 180ms ease-out both;
 }
 
 .task-chip::before {
@@ -4358,7 +4761,6 @@ onUnmounted(() => {
   pointer-events: auto;
   position: relative;
   margin-left: 5px;
-  animation: pinch-month-task-fade-in 180ms ease-out both;
 }
 
 @keyframes pinch-month-task-fade-in {
@@ -4367,10 +4769,15 @@ onUnmounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .task-chip,
-  .habit-task-chip {
-    animation: none;
+  .initial-content-animation .task-chip,
+  .initial-content-animation .habit-task-chip {
+    animation: none !important;
   }
+}
+
+.initial-content-animation .task-chip,
+.initial-content-animation .habit-task-chip {
+  animation: pinch-month-task-fade-in 180ms ease-out both;
 }
 
 .habit-task-chip.task-completed {
@@ -4448,6 +4855,7 @@ onUnmounted(() => {
 }
 
 .task-checkbox-wrapper {
+  --task-checkbox-border: var(--pinch-color6);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4481,8 +4889,7 @@ onUnmounted(() => {
   height: 10px;
   padding: 2px;
   border-radius: 4px;
-  color: #fff;
-  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  color: var(--pinch-task-chip-color, var(--pinch-color6));
   transform: translateY(-50%);
 }
 

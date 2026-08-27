@@ -11,6 +11,7 @@
       :default-group-id="defaultGroupId"
       :last-selected-notebook="lastSelectedNotebook"
       :last-selected-document="lastSelectedDocument"
+      :allow-unlisted-default-document="userSettings.taskManager.defaultTaskCreateTarget === 'specified-document'"
       presentation="center"
       @close="emit('close')"
       @created="handleQuickCreateCreated"
@@ -109,6 +110,9 @@ const lastSelectedDocument = computed(() => {
   }
   if (userSettings.taskManager.defaultTaskCreateTarget === 'daily-note') {
     return PINCH_DAILY_NOTE_OPTION_ID;
+  }
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'specified-document') {
+    return userSettings.taskManager.defaultTaskCreateDocument || '';
   }
   return typeof userSettings.taskManager.lastTaskDocument === 'string'
     ? userSettings.taskManager.lastTaskDocument

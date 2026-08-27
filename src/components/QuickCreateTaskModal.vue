@@ -16,19 +16,76 @@
         >
           <div class="modal-header">
             <h3>{{ createHeading ? tt('kanbanView.newHeadingAndTask') : tt('taskManager.newTask') }}</h3>
-            <button
-              type="button"
-              class="icon-button ariaLabel"
-              :aria-label="tt('common.close')"
-              @click.stop="handleClose"
-            >
-              <Icon name="close" width="16" height="16" />
-            </button>
+            <div class="modal-header-actions">
+              <div v-if="taskModalGoalOptions.length" class="quick-create-goal-select">
+                <button
+                  type="button"
+                  class="quick-create-goal-button ariaLabel"
+                  :class="{ 'is-active': quickCreateGoalDropdownOpen, 'has-value': localTask.goalIds.length > 0 }"
+                  :aria-label="tt('taskScopeDialog.goals')"
+                  @click.stop="quickCreateGoalDropdownOpen = !quickCreateGoalDropdownOpen"
+                >
+                  <Icon name="target" width="15" height="15" />
+                  <span v-if="quickCreateSelectedGoalOptions.length" class="quick-create-goal-badge-list">
+                    <span
+                      v-for="option in quickCreateSelectedGoalOptions"
+                      :key="option.value"
+                      class="task-editor-property-pill is-goal task-group-badge task-goal-badge quick-create-goal-badge"
+                    >
+                      <EmojiIcon
+                        v-if="option.emoji"
+                        class="task-goal-badge-emoji"
+                        :value="option.emoji"
+                      />
+                      {{ option.label }}
+                    </span>
+                  </span>
+                  <span v-else class="quick-create-goal-placeholder">{{ tt('taskScopeDialog.goals') }}</span>
+                  <Icon name="chevronDown" width="14" height="14" />
+                </button>
+                <div v-if="quickCreateGoalDropdownOpen" class="quick-create-goal-dropdown" @click.stop>
+                  <button
+                    type="button"
+                    class="quick-create-goal-option"
+                    :class="{ active: localTask.goalIds.length === 0 }"
+                    @click="clearQuickCreateGoals"
+                  >
+                    {{ tt('taskManager.noGoal', '无目标') }}
+                  </button>
+                  <button
+                    v-for="option in taskModalGoalOptions"
+                    :key="option.value"
+                    type="button"
+                    class="quick-create-goal-option"
+                    :class="{ active: isTaskModalGoalSelected(option.value) }"
+                    @click="selectTaskModalGoal(option.value)"
+                  >
+                    <EmojiIcon v-if="option.emoji" :value="option.emoji" />
+                    <span class="quick-create-goal-option-label">{{ option.label }}</span>
+                    <Icon
+                      v-if="isTaskModalGoalSelected(option.value)"
+                      class="quick-create-goal-check"
+                      name="taskCheckboxChecked"
+                      width="14"
+                      height="14"
+                    />
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="icon-button ariaLabel"
+                :aria-label="tt('common.close')"
+                @click.stop="handleClose"
+              >
+                <Icon name="close" width="16" height="16" />
+              </button>
+            </div>
           </div>
           <div class="modal-body quick-create-modal-body">
                 <div
                   class="quick-create-target-row"
-                  :class="{ 'is-special': quickCreateLocation !== 'last' }"
+                  :class="{ 'is-special': quickCreateLocation === 'inbox' || quickCreateLocation === 'daily-note' }"
                 >
                   <div class="quick-create-field">
                     <label>{{ tt('taskScopeDialog.defaultTaskCreateTarget') }}</label>
@@ -46,7 +103,7 @@
                       @update:model-value="handleNotebookChange"
                     />
                   </div>
-                  <div v-if="quickCreateLocation === 'last'" class="quick-create-field">
+                  <div v-if="quickCreateLocation === 'last' || quickCreateLocation === 'specified-document'" class="quick-create-field">
                     <label>{{ tt('taskManager.document') }}</label>
                     <SySelect v-model="selectedDocument" :options="documentOptions" />
                   </div>
@@ -109,26 +166,6 @@
                     {{ tt('taskManager.primaryTagShort') }}
                   </span>
                 </button>
-              </div>
-              <div v-if="taskModalGoalOptions.length > 0" class="task-modal-goal-section">
-                <div class="task-modal-goal-title">{{ tt('taskScopeDialog.goals') }}</div>
-                <div class="task-modal-group-chip-list">
-                  <button
-                    v-for="option in taskModalGoalOptions"
-                    :key="option.value"
-                    type="button"
-                    class="task-modal-group-chip task-modal-goal-chip"
-                    :class="{ active: isTaskModalGoalSelected(option.value) }"
-                    @click="selectTaskModalGoal(option.value)"
-                  >
-                    <EmojiIcon
-                      v-if="option.emoji"
-                      class="task-modal-goal-chip-emoji"
-                      :value="option.emoji"
-                    />
-                    <span class="task-modal-group-chip-label">{{ option.label }}</span>
-                  </button>
-                </div>
               </div>
             </div>
             <div v-if="showTaskModalDescriptionPanel" class="task-modal-quick-panel">
@@ -308,6 +345,7 @@ import {
   buildTaskGroupOptions
 } from '@/utils/taskGroupShared';
 import { TASK_PRIORITY_STYLES } from '@/utils/taskPriority';
+import { loadFiletreeDocumentTree } from '@/utils/filetreeDocumentTree';
 import { buildTaskTagState, toggleTaskTagSelection } from '@/utils/taskTags';
 import {
   getTaskReminderLabel,
@@ -380,9 +418,11 @@ interface Props {
   documents: Document[];
   lastSelectedNotebook?: string;
   lastSelectedDocument?: string;
+  allowUnlistedDefaultDocument?: boolean;
   groups?: TaskGroup[];
   goals?: Goal[];
   defaultGroupId?: string;
+  defaultGoalId?: string;
   presentation?: 'sheet' | 'center';
   overlayStyle?: Record<string, string>;
   resolveTarget?: (notebookId: string, documentId: string) => Promise<QuickCreateTarget | null>;
@@ -420,7 +460,8 @@ watch(localTask, () => {
 }, { deep: true });
 const selectedNotebook = ref<string>('');
 const selectedDocument = ref<string>('');
-const quickCreateLocation = ref<'last' | 'inbox' | 'daily-note'>('last');
+const filetreeDocuments = ref<Document[]>([]);
+const quickCreateLocation = ref<'last' | 'inbox' | 'daily-note' | 'specified-document'>('last');
 const headingTitle = ref('');
 const quickCreateHeadingRef = ref<HTMLInputElement | null>(null);
 const quickCreatePlainInputRef = ref<HTMLTextAreaElement | null>(null);
@@ -433,6 +474,7 @@ let quickCreateDraft: (QuickCreateTarget & { blockId: string; taskId: string }) 
 let isInitializingQuickCreateDraft = false;
 let isRelocatingQuickCreateDraft = false;
 const isSubmittingQuickCreate = ref(false);
+const quickCreateGoalDropdownOpen = ref(false);
 let pendingRelocationTitle = '';
 let shouldReinitializeQuickCreateDraft = false;
 const taskModalQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | null>(null);
@@ -484,21 +526,17 @@ const taskModalSelectedGroupId = computed(() => {
 const taskModalGroupLabel = computed(() => {
   const tagIds = taskModalSelectedTagIds.value;
   if (tagIds.length === 0) {
-    const goalLabels = taskModalSelectedGoalLabels.value;
-    if (goalLabels.length > 0) {
-      return goalLabels.length > 1 ? `${goalLabels[0]} +${goalLabels.length - 1}` : goalLabels[0];
-    }
     return tt('taskManager.noTag');
   }
   const primaryTagId = tagIds[0] || '';
   const group = (props.groups || []).find(item => item.id === primaryTagId);
   const primaryLabel = group?.name || tt('taskManager.tags');
-  const extraCount = Math.max(0, tagIds.length - 1) + taskModalSelectedGoalLabels.value.length;
+  const extraCount = Math.max(0, tagIds.length - 1);
   return extraCount > 0 ? `${primaryLabel} +${extraCount}` : primaryLabel;
 });
 
 const taskModalHasGroupButtonLabel = computed(() => (
-  taskModalSelectedGroupId.value !== TASK_GROUP_NONE_ID || localTask.value.goalIds.length > 0
+  taskModalSelectedGroupId.value !== TASK_GROUP_NONE_ID
 ));
 
 const taskModalGroupColorValue = computed(() => {
@@ -538,10 +576,9 @@ const taskModalGoalOptions = computed(() => (
   }))
 ));
 
-const taskModalSelectedGoalLabels = computed(() => (
+const quickCreateSelectedGoalOptions = computed(() => (
   taskModalGoalOptions.value
     .filter(option => localTask.value.goalIds.includes(option.value))
-    .map(option => `${option.emoji ? `${option.emoji} ` : ''}${option.label}`)
 ));
 
 const isCenteredPresentation = computed(() => props.presentation === 'center');
@@ -562,7 +599,8 @@ const notebookOptions = computed(() => {
 const quickCreateLocationOptions = computed(() => [
   { value: 'last', text: tt('taskScopeDialog.defaultTaskCreateTargetLast') },
   { value: 'inbox', text: tt('taskScopeDialog.defaultTaskCreateTargetInbox') },
-  { value: 'daily-note', text: tt('taskScopeDialog.defaultTaskCreateTargetDailyNote') }
+  { value: 'daily-note', text: tt('taskScopeDialog.defaultTaskCreateTargetDailyNote') },
+  { value: 'specified-document', text: tt('taskScopeDialog.defaultTaskCreateTargetSpecifiedDocument') }
 ]);
 
 function isInboxDocument(doc: Document): boolean {
@@ -572,14 +610,14 @@ function isInboxDocument(doc: Document): boolean {
 }
 
 function getInboxDocumentValue(notebookId: string): string {
-  const docsForNotebook = props.documents.filter(d => d.notebookId === notebookId);
+  const docsForNotebook = availableDocuments.value.filter(d => d.notebookId === notebookId);
   const inboxDoc = docsForNotebook.find(isInboxDocument);
   return inboxDoc?.id || PINCH_INBOX_OPTION_ID;
 }
 
 const documentOptions = computed(() => {
   if (!selectedNotebook.value) return [];
-  const docs = props.documents.filter(d => d.notebookId === selectedNotebook.value);
+  const docs = availableDocuments.value.filter(d => d.notebookId === selectedNotebook.value);
   const hasInboxDoc = docs.some(isInboxDocument);
   const docOptions = docs.map(d => ({ value: d.id, text: d.name }));
   const specialOptions = [
@@ -590,6 +628,36 @@ const documentOptions = computed(() => {
   }
   return [...specialOptions, { value: PINCH_INBOX_OPTION_ID, text: tt('taskManager.pinchInbox') }, ...docOptions];
 });
+
+const availableDocuments = computed<Document[]>(() => {
+  const documentsByKey = new Map<string, Document>();
+  [...props.documents, ...filetreeDocuments.value].forEach((document) => {
+    documentsByKey.set(`${document.notebookId}:${document.id}`, document);
+  });
+  return Array.from(documentsByKey.values());
+});
+
+async function loadNotebookDocumentTree(notebookId: string): Promise<void> {
+  if (!notebookId) {
+    filetreeDocuments.value = [];
+    return;
+  }
+  try {
+    const documents = await loadFiletreeDocumentTree(notebookId);
+    if (selectedNotebook.value !== notebookId) return;
+    filetreeDocuments.value = documents.map(document => ({
+      id: document.id,
+      name: document.name,
+      notebookId: document.notebookId,
+      path: document.storagePath
+    }));
+  } catch (error) {
+    console.warn('[QuickCreateTaskModal] Failed to load notebook document tree:', error);
+    if (selectedNotebook.value === notebookId) {
+      filetreeDocuments.value = [];
+    }
+  }
+}
 
 function tt(key: string, fallback?: string): string {
   const translated = props.t?.(key);
@@ -639,6 +707,11 @@ function selectTaskModalGoal(value: string): void {
   localTask.value.goalIds = Array.from(current);
 }
 
+function clearQuickCreateGoals(): void {
+  localTask.value.goalIds = [];
+  quickCreateGoalDropdownOpen.value = false;
+}
+
 function handleNotebookChange() {
   selectedDocument.value = selectedDocument.value === PINCH_DAILY_NOTE_OPTION_ID
     ? PINCH_DAILY_NOTE_OPTION_ID
@@ -646,7 +719,7 @@ function handleNotebookChange() {
 }
 
 function handleQuickCreateLocationChange(value: string): void {
-  const location = value === 'inbox' || value === 'daily-note' ? value : 'last';
+  const location = value === 'inbox' || value === 'daily-note' || value === 'specified-document' ? value : 'last';
   quickCreateLocation.value = location;
   if (location === 'inbox') {
     selectedDocument.value = PINCH_INBOX_OPTION_ID;
@@ -762,7 +835,7 @@ async function resolveQuickCreateTarget(): Promise<QuickCreateTarget | null> {
   if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
     return { notebookId, documentId, docPath: await ensureDailyNoteDocument(notebookId) };
   }
-  const document = props.documents.find(item => item.id === documentId && item.notebookId === notebookId);
+  const document = availableDocuments.value.find(item => item.id === documentId && item.notebookId === notebookId);
   const documentPath = document?.path || await getHPathByID(documentId).catch(() => '');
   if (!documentPath) {
     return null;
@@ -1029,8 +1102,15 @@ function handleTaskModalDescriptionCommit() {
 }
 
 function handleTaskModalOutsideClick(event: MouseEvent): void {
-  if (!props.show || !taskModalPriorityPopover.value) return;
+  if (!props.show) return;
   const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+  const isInsideGoalSelect = path.some(node =>
+    node instanceof HTMLElement && node.classList.contains('quick-create-goal-select')
+  );
+  if (!isInsideGoalSelect) {
+    quickCreateGoalDropdownOpen.value = false;
+  }
+  if (!taskModalPriorityPopover.value) return;
   const isInsidePopover = path.some(node =>
     node instanceof HTMLElement && node.classList.contains('priority-popover')
   );
@@ -1049,6 +1129,11 @@ function resolveDefaultGroupId(): string {
   return exists ? candidate : '';
 }
 
+function resolveDefaultGoalId(): string {
+  const candidate = (props.defaultGoalId || '').trim();
+  return candidate;
+}
+
 watch(() => props.show, (show) => {
   if (show) {
     localTask.value = { ...defaultTask };
@@ -1056,8 +1141,11 @@ watch(() => props.show, (show) => {
     headingTitle.value = '';
     localTask.value.groupId = resolveDefaultGroupId();
     localTask.value.tags = localTask.value.groupId ? [localTask.value.groupId] : [];
+    const defaultGoalId = resolveDefaultGoalId();
+    localTask.value.goalIds = defaultGoalId ? [defaultGoalId] : [];
     taskModalQuickPanel.value = null;
     taskModalPriorityPopover.value = null;
+    quickCreateGoalDropdownOpen.value = false;
 
     const hasPreferredNotebook = !!props.lastSelectedNotebook &&
       props.notebooks.some(nb => nb.id === props.lastSelectedNotebook);
@@ -1065,7 +1153,6 @@ watch(() => props.show, (show) => {
       ? props.lastSelectedNotebook!
       : (props.notebooks[0]?.id || '');
 
-    const docsForNotebook = props.documents.filter(d => d.notebookId === selectedNotebook.value);
     const fallbackDocumentValue = getInboxDocumentValue(selectedNotebook.value);
     const rawPreferredDocument = props.lastSelectedDocument || '';
     const preferredDocument = rawPreferredDocument === PINCH_INBOX_OPTION_ID
@@ -1073,11 +1160,15 @@ watch(() => props.show, (show) => {
       : rawPreferredDocument;
     const isSpecialDocument = preferredDocument === PINCH_DAILY_NOTE_OPTION_ID;
     const hasPreferredDocument = !!props.lastSelectedDocument
-      && (isSpecialDocument || docsForNotebook.some(doc => doc.id === preferredDocument));
+      && (props.allowUnlistedDefaultDocument === true
+        || isSpecialDocument
+        || props.documents.some(doc => doc.id === preferredDocument && doc.notebookId === selectedNotebook.value));
     selectedDocument.value = hasPreferredDocument
       ? preferredDocument!
       : fallbackDocumentValue;
-    quickCreateLocation.value = rawPreferredDocument === PINCH_INBOX_OPTION_ID
+    quickCreateLocation.value = props.allowUnlistedDefaultDocument === true
+      ? 'specified-document'
+      : rawPreferredDocument === PINCH_INBOX_OPTION_ID
       ? 'inbox'
       : selectedDocument.value === PINCH_INBOX_OPTION_ID
       ? 'inbox'
@@ -1097,6 +1188,22 @@ watch([selectedNotebook, selectedDocument], () => {
     shouldReinitializeQuickCreateDraft = true;
   }
 });
+
+watch(() => props.defaultGoalId, () => {
+  if (!props.show || localTask.value.goalIds.length > 0) {
+    return;
+  }
+  const defaultGoalId = resolveDefaultGoalId();
+  if (defaultGoalId) {
+    localTask.value.goalIds = [defaultGoalId];
+  }
+});
+
+watch([() => props.show, selectedNotebook], ([show, notebookId]) => {
+  if (show && notebookId) {
+    void loadNotebookDocumentTree(notebookId);
+  }
+}, { immediate: true });
 
 onMounted(() => {
   document.addEventListener('mousedown', handleTaskModalOutsideClick, true);
@@ -1123,6 +1230,7 @@ async function readQuickCreateDraftTitle(blockId: string): Promise<string> {
 
 async function handleClose(): Promise<void> {
   quickCreateShortcutMenuOpen.value = false;
+  quickCreateGoalDropdownOpen.value = false;
   await discardQuickCreateDraft();
   emit('close');
 }
@@ -1191,7 +1299,7 @@ async function handleSubmit(): Promise<void> {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  z-index: 11;
+  z-index: 10;
 }
 
 .modal-overlay.is-centered {
@@ -1431,7 +1539,7 @@ async function handleSubmit(): Promise<void> {
 @media (max-width: 768px) {
   .modal-overlay.is-centered {
     padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
-    z-index: 80;
+    z-index: 10000;
   }
 
   .modal-content.is-centered {
@@ -1504,10 +1612,134 @@ async function handleSubmit(): Promise<void> {
   padding: 16px 20px;
 }
 
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .modal-header h3 {
   margin: 0;
   font-size: 16px;
   color: var(--b3-theme-on-background);
+}
+
+.quick-create-goal-select {
+  position: relative;
+}
+
+.quick-create-goal-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.quick-create-goal-placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.quick-create-goal-badge-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.quick-create-goal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 120px;
+  min-height: 16px;
+  padding: 1px 4px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--pinch-background6);
+  color: var(--b3-theme-on-background);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-create-goal-badge .task-goal-badge-emoji {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.quick-create-goal-button:hover,
+.quick-create-goal-button.is-active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.quick-create-goal-button.has-value {
+  border-color: transparent;
+  color: var(--b3-theme-on-surface);
+}
+
+.quick-create-goal-dropdown {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  max-width: 260px;
+  max-height: 240px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 6px;
+  background: var(--b3-theme-surface);
+  box-shadow: var(--b3-dialog-shadow);
+}
+
+.quick-create-goal-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  text-align: left;
+}
+
+.quick-create-goal-option:hover,
+.quick-create-goal-option.active {
+  background: var(--b3-list-hover);
+}
+
+.quick-create-goal-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-create-goal-check {
+  flex: 0 0 auto;
+  color: var(--b3-theme-primary);
 }
 
 .icon-button {

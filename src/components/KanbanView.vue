@@ -1657,26 +1657,31 @@
       </Transition>
     </Teleport>
 
-    <QuickCreateTaskModal
-      :show="quickCreateDialog.show"
-      :t="taskModalTranslate"
-      :notebooks="taskModalNotebooks"
-      :documents="taskModalDocuments"
-      :groups="taskGroups"
-      :goals="goalDefinitions"
-      :last-selected-notebook="quickCreateDialog.defaultNotebookId"
-      :last-selected-document="quickCreateDialog.defaultDocumentId"
-      :default-group-id="quickCreateDefaultGroupId"
-      :task-context="quickCreateTaskContext"
-      :resolve-target="resolveSharedQuickCreateTarget"
-      :create-heading="quickCreateDialog.mode === 'heading-task'"
-      presentation="center"
-      @close="closeSharedQuickCreate"
-      @created="handleSharedQuickCreateCreated"
-      @manage-groups="openTaskGroupDialog"
-    />
-    <TaskScopeDialog
-      :show="showTaskScopeDialog"
+    <Teleport to="body">
+      <QuickCreateTaskModal
+        :show="quickCreateDialog.show"
+        :t="taskModalTranslate"
+        :notebooks="taskModalNotebooks"
+        :documents="taskModalDocuments"
+        :groups="taskGroups"
+        :goals="goalDefinitions"
+        :last-selected-notebook="quickCreateDialog.defaultNotebookId"
+        :last-selected-document="quickCreateDialog.defaultDocumentId"
+        :allow-unlisted-default-document="userSettings.taskManager.defaultTaskCreateTarget === 'specified-document'"
+        :default-group-id="quickCreateDefaultGroupId"
+        :default-goal-id="quickCreateDialog.defaultGoalId"
+        :task-context="quickCreateTaskContext"
+        :resolve-target="resolveSharedQuickCreateTarget"
+        :create-heading="quickCreateDialog.mode === 'heading-task'"
+        presentation="center"
+        @close="closeSharedQuickCreate"
+        @created="handleSharedQuickCreateCreated"
+        @manage-groups="openTaskGroupDialog"
+      />
+    </Teleport>
+    <Teleport to="body">
+      <TaskScopeDialog
+        :show="showTaskScopeDialog"
       :notebooks="notebooks"
       :excluded-notebook-ids="excludedNotebookIds"
       :show-scope-tab="true"
@@ -1699,14 +1704,16 @@
       :sidebar-section-options="taskScopeSidebarSectionOptions"
       :hidden-sidebar-section-ids="userSettings.sidebar.hiddenSectionIds"
       :sidebar-section-order="userSettings.sidebar.sectionOrder"
-      :default-task-create-target="userSettings.taskManager.defaultTaskCreateTarget"
-      :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
+        :default-task-create-target="userSettings.taskManager.defaultTaskCreateTarget"
+        :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
+        :default-task-create-document="userSettings.taskManager.defaultTaskCreateDocument"
       :focus-settings="userSettings.focus"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
       @refresh-documents="handleTaskScopeDocumentsRefresh"
-      @save="handleTaskScopeSave"
-    />
+        @save="handleTaskScopeSave"
+      />
+    </Teleport>
     <div
       v-if="documentTabContextMenu"
       ref="documentTabContextMenuRef"
@@ -1785,15 +1792,17 @@
         </div>
       </div>
     </div>
-    <TaskGroupDialog
-      :show="showTaskGroupDialog"
-      :groups="taskGroups"
-      :auto-add="taskGroupDialogAutoAdd"
-      :include-none-option="true"
-      :order-ids="kanbanGroupColumnOrder"
-      @close="closeTaskGroupDialog"
-      @save="handleTaskGroupSave"
-    />
+    <Teleport to="body">
+      <TaskGroupDialog
+        :show="showTaskGroupDialog"
+        :groups="taskGroups"
+        :auto-add="taskGroupDialogAutoAdd"
+        :include-none-option="true"
+        :order-ids="kanbanGroupColumnOrder"
+        @close="closeTaskGroupDialog"
+        @save="handleTaskGroupSave"
+      />
+    </Teleport>
   </div>
 </template>
 
@@ -3631,7 +3640,7 @@ interface QuickCreateTarget {
 }
 
 interface QuickCreateContext {
-  columnType: 'status' | 'group' | 'heading';
+  columnType: 'status' | 'group' | 'heading' | 'document';
   status?: Task['status'];
   groupId?: string;
   headingMeta?: TaskHeadingGroupMeta;
@@ -3642,6 +3651,7 @@ interface OpenQuickCreateOptions {
   context?: QuickCreateContext;
   preferredNotebookId?: string;
   preferredDocumentId?: string;
+  defaultGoalId?: string;
   preferLastTaskTarget?: boolean;
   mode?: 'task' | 'heading-task';
 }
@@ -3666,13 +3676,15 @@ const quickCreateDialog = ref<{
   context: QuickCreateContext | null;
   defaultNotebookId: string;
   defaultDocumentId: string;
+  defaultGoalId: string;
 }>({
   show: false,
   mode: 'task',
   payload: null,
   context: null,
   defaultNotebookId: '',
-  defaultDocumentId: ''
+  defaultDocumentId: '',
+  defaultGoalId: ''
 });
 const quickCreateDefaultGroupId = computed(() => {
   const context = quickCreateDialog.value.context;
@@ -4491,6 +4503,17 @@ function buildQuickCreateOptionsForColumn(column: KanbanColumn): OpenQuickCreate
     return options;
   }
 
+  // Creating from a document column is an explicit placement action. It must
+  // take precedence over the global default target (including a configured
+  // specified document), so the new task stays in the column's document.
+  if (column.type === 'document' && sampleTarget) {
+    options.context = {
+      columnType: 'document',
+      fixedTarget: sampleTarget
+    };
+    return options;
+  }
+
   if (column.type === 'heading' && column.headingMeta) {
     let fixedTarget = sampleTarget;
     if (!fixedTarget && column.headingMeta.rootId) {
@@ -4522,7 +4545,10 @@ function openQuickCreateForKanbanColumn(column: KanbanColumn): void {
   if (!canCreateTaskInColumn(column)) {
     return;
   }
-  void handleTaskCreateRequested(getDefaultCreateTaskPayload(), buildQuickCreateOptionsForColumn(column));
+  const source = parseDocumentSource(activeSourceFilterType.value);
+  const options = buildQuickCreateOptionsForColumn(column);
+  options.defaultGoalId = source.kind === 'goal' ? source.id : '';
+  void handleTaskCreateRequested(getDefaultCreateTaskPayload(), options);
 }
 
 function resolveTableGroupSampleTask(payload: TableGroupActionPayload): Task | null {
@@ -5510,6 +5536,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     sidebarSectionOrder,
     defaultTaskCreateTarget,
     defaultTaskCreateNotebook,
+    defaultTaskCreateDocument,
     focusSettings
   } = payload;
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
@@ -5540,7 +5567,8 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     defaultTaskCreateTarget: defaultTaskCreateTarget as typeof userSettings.taskManager.defaultTaskCreateTarget,
-    defaultTaskCreateNotebook
+    defaultTaskCreateNotebook,
+    defaultTaskCreateDocument
   });
   await updateSettings('kanban', {
     hiddenViewSwitcherIds: hiddenTaskViewIds as TaskViewSwitcherId[]
@@ -9922,6 +9950,7 @@ async function loadTasks(
     mode?: TaskLoadMode;
     repeatWindow?: TaskRepeatWindow | null;
     view?: TaskViewMode;
+    preserveCalendarContent?: boolean;
   } = {}
 ) {
   const requestView = options.view || currentView.value;
@@ -9936,7 +9965,16 @@ async function loadTasks(
     : repeatWindow;
   const taskLoadScope = getTaskLoadScope();
   const requestId = ++latestTaskLoadRequestId;
-  const shouldStageCalendarTasks = isCalendarTaskViewMode(requestView) && currentView.value === requestView;
+  // Only gate the calendar while it has not received its first snapshot for
+  // the active view. Once data is visible, a refresh must keep rendering the
+  // previous snapshot until its replacement arrives. Passing an empty array
+  // here temporarily clears both the task chips and CalendarTaskSidebar,
+  // which also recreates the sidebar and makes its expanded state appear to
+  // have been reset.
+  const shouldStageCalendarTasks = isCalendarTaskViewMode(requestView)
+    && currentView.value === requestView
+    && !calendarTaskDataReady.value
+    && options.preserveCalendarContent !== true;
   if (shouldStageCalendarTasks) {
     calendarTaskDataReady.value = false;
   }
@@ -9973,7 +10011,7 @@ async function loadTasks(
       try {
         // The two snapshots are independent. Starting both requests together
         // removes one full backend round trip from the calendar's first paint.
-        const [{ tasks: rangedTasks }, baseTasks] = await Promise.all([
+        const [rangeResult, baseTasks] = await Promise.all([
           TaskRepository.getKernelLightTasksByDateRange(
             fetchRepeatWindow.startDate,
             fetchRepeatWindow.endDate,
@@ -9994,7 +10032,14 @@ async function loadTasks(
             }
           )
         ]);
-        sqlTasks = mergeTasksById(rangedTasks, baseTasks);
+        // A partial range index is safe for a preview but not as the source of
+        // truth: repeat instances exist only in this result, so accepting it
+        // would replace the calendar with an incomplete set until a later
+        // refresh happens to return every page.
+        if (rangeResult.partial) {
+          throw new Error('Calendar range task query returned a partial result');
+        }
+        sqlTasks = mergeTasksById(rangeResult.tasks, baseTasks);
       } catch (error) {
         if (!isKernelRpcUnavailable(error)) {
           console.debug('[KanbanView] kernel date-range task fetch skipped', error);
@@ -10188,6 +10233,7 @@ function scheduleKernelTaskIndexRefresh(delay = 220, reloadCalendarTasks = true,
         await loadTasks(false, {
           silent: true,
           validateSelection: false,
+          preserveCalendarContent: true,
           mode,
           repeatWindow: mode === 'light-with-repeats'
             ? resolveRequestedRepeatWindowForView(currentView.value)
@@ -10873,7 +10919,12 @@ function setupEventListeners() {
         scheduleRefreshTasks(100, 'silent-full');
         return;
       }
-      scheduleRefreshTasks(140, 'silent-full');
+      // The incremental rebuild above already has the current repeat records
+      // and only replaces instances from this series.  A forced full reload
+      // here can race the kernel index update triggered by opening an editor
+      // or toggling an instance.  That transient query may contain just this
+      // repeat series, and syncTaskSnapshot would then replace every other
+      // calendar chip until the user manually refreshed.
       return;
     }
     if (payload?.task?.type === 'block' && payload.task.blockId) {
@@ -12039,7 +12090,9 @@ function handleGanttSectionTaskCreateRequested(sectionId: string): void {
     void pushMsg(t('kanbanView.selectNotebookAndDocument'), 3000);
     return;
   }
+  const source = parseDocumentSource(activeSourceFilterType.value);
   void handleTaskCreateRequested(getDefaultCreateTaskPayload(), {
+    defaultGoalId: source.kind === 'goal' ? source.id : '',
     context: {
       columnType: 'status',
       status: 'pending',
@@ -13525,15 +13578,17 @@ function getCurrentSidebarFilterSelection(): { sourceValue: string; documentId: 
 }
 
 function getTaskLoadScope(): TaskQueryScope {
-  const { sourceValue, documentId } = getCurrentSidebarFilterSelection();
+  const { sourceValue } = getCurrentSidebarFilterSelection();
   const source = parseDocumentSource(sourceValue);
   const scope: TaskQueryScope = { includeArchived: true };
   if (source.kind === 'notebook') {
     scope.notebookId = source.id;
   }
-  if (documentId !== 'all') {
-    scope.documentId = documentId;
-  }
+  // Document tabs are built from the loaded task set. Restricting a refresh to
+  // the currently selected tab replaces that set with one document, which then
+  // makes every other tab disappear (and leaves other notebook tabs empty).
+  // Keep the source-level scope for efficient loading; apply the document
+  // selection only when rendering/filtering tasks locally.
   return scope;
 }
 
@@ -13863,11 +13918,13 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
     preferredDocumentId = options.context.fixedTarget.documentId;
   } else {
     const defaultLocation = getDefaultQuickCreateLocation();
-    if (defaultLocation === 'inbox' || defaultLocation === 'daily-note') {
+    if (defaultLocation === 'inbox' || defaultLocation === 'daily-note' || defaultLocation === 'specified-document') {
       preferredNotebookId = getDefaultQuickCreateNotebook(preferredNotebookId);
       preferredDocumentId = defaultLocation === 'inbox'
-      ? PINCH_INBOX_OPTION_ID
-      : PINCH_DAILY_NOTE_OPTION_ID;
+        ? PINCH_INBOX_OPTION_ID
+        : defaultLocation === 'daily-note'
+          ? PINCH_DAILY_NOTE_OPTION_ID
+          : userSettings.taskManager.defaultTaskCreateDocument || '';
     }
   }
 
@@ -13876,7 +13933,7 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
     : getDefaultQuickCreateNotebook(preferredNotebookId);
   const isSpecialDocument = preferredDocumentId === PINCH_INBOX_OPTION_ID
     || preferredDocumentId === PINCH_DAILY_NOTE_OPTION_ID;
-  const hasPreferredDocument = isSpecialDocument || getDocumentEntriesByNotebook(defaultNotebookId)
+  const hasPreferredDocument = isSpecialDocument || getDefaultQuickCreateLocation() === 'specified-document' || getDocumentEntriesByNotebook(defaultNotebookId)
     .some(document => document.id === preferredDocumentId);
 
   const mode = options.mode === 'heading-task' ? 'heading-task' : 'task';
@@ -13886,7 +13943,8 @@ async function handleTaskCreateRequested(payload: CreateTaskPayload, options: Op
     payload,
     context: options.context || null,
     defaultNotebookId,
-    defaultDocumentId: hasPreferredDocument ? preferredDocumentId : ''
+    defaultDocumentId: hasPreferredDocument ? preferredDocumentId : '',
+    defaultGoalId: options.defaultGoalId || (sidebarSource.kind === 'goal' ? sidebarSource.id : '')
   };
 }
 
@@ -13919,7 +13977,8 @@ function resetQuickCreateDialog(): void {
     payload: null,
     context: null,
     defaultNotebookId: '',
-    defaultDocumentId: ''
+    defaultDocumentId: '',
+    defaultGoalId: ''
   };
 }
 
@@ -14096,9 +14155,9 @@ async function handleSharedQuickCreateCreated(payload: QuickCreateCreatedPayload
   }
 }
 
-function getDefaultQuickCreateLocation(): 'last' | 'inbox' | 'daily-note' {
+function getDefaultQuickCreateLocation(): 'last' | 'inbox' | 'daily-note' | 'specified-document' {
   const configured = userSettings.taskManager.defaultTaskCreateTarget;
-  return configured === 'inbox' || configured === 'daily-note' ? configured : 'last';
+  return configured === 'inbox' || configured === 'daily-note' || configured === 'specified-document' ? configured : 'last';
 }
 
 function getDefaultQuickCreateNotebook(fallbackNotebookId: string): string {

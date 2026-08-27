@@ -22,6 +22,7 @@
       :class="{
       'mobile-week-grid-mode': isMobileWeekGridMode,
       'mobile-day-view-mode': isMobileDayViewMode,
+      'initial-content-animation': isInitialContentAnimation,
       'mobile-three-day-view-mode': isMobileThreeDayViewMode
       }"
     >
@@ -255,13 +256,14 @@
                   :class="{ 'task-dragging': draggingTask?.task.id === task.id }"
                   @mousedown="!isHabitTaskChip(task) && handleAllDayTaskMouseDown($event, task)"
                 >
-                  <Icon
+                  <svg
                     v-if="!isHabitTaskChip(task) && isRepeatTaskEntity(task)"
-                    name="repeat"
                     class="task-repeat-icon"
-                    width="11"
-                    height="11"
-                  />
+                    viewBox="0 0 1024 1024"
+                    aria-hidden="true"
+                  >
+                    <path d="M987.088 362.926c23.912 45.21 37.31 96.8 36.904 151.5C1022.678 690.73 877.12 832 700.808 832H384v94.99c0 44.95-52.354 64.536-81.942 34.95l-160-160c-18.744-18.746-18.744-49.138 0-67.882l160-160C332.276 543.84 384 565.372 384 608v96h317.75c105.624 0 193.15-84.364 194.24-189.984 0.31-30.09-6.34-58.624-18.436-84.092-8.724-18.37-4.842-40.248 9.6-54.568 9.49-9.412 17.282-17.11 23.752-23.572 22.736-22.704 61.158-17.262 76.182 11.142zM128.01 509.984c1.09-105.62 88.616-189.984 194.24-189.984H640v95.01c0 44.748 52.242 64.624 81.942 34.93l160-160c18.744-18.746 18.744-49.138 0-67.882l-160-160C692.028 32.154 640 52.512 640 97.09V192H323.192C146.88 192 1.322 333.27 0.01 509.576c-0.408 54.7 12.99 106.29 36.904 151.5 15.024 28.404 53.446 33.846 76.182 11.14 6.47-6.462 14.26-14.16 23.752-23.572 14.44-14.32 18.324-36.196 9.6-54.568-12.098-25.47-18.748-54.002-18.438-84.092z" />
+                  </svg>
                   <span
                     class="task-checkbox-wrapper"
                     @mousedown.stop
@@ -1108,6 +1110,18 @@ const currentWeekStart = ref(resolveInitialWeekStart());
 const daysSwitcherOpen = ref(false);
 const sidebarCollapsed = computed(() => props.sidebarCollapsed === true);
 const currentTime = ref(new Date());
+const isInitialContentAnimation = ref(false);
+let initialContentAnimationTimer: ReturnType<typeof setTimeout> | null = null;
+let hasAnimatedInitialTasks = false;
+
+function playInitialContentAnimation(): void {
+  if (hasAnimatedInitialTasks) return;
+  hasAnimatedInitialTasks = true;
+  isInitialContentAnimation.value = true;
+  initialContentAnimationTimer = setTimeout(() => {
+    isInitialContentAnimation.value = false;
+  }, 400);
+}
 const isAllDaySectionCollapsed = ref(false);
 const INACTIVE_HOURS_OFFSET = 240; // 5 小时栁E��+5 个 hour-cell ÁE48px
 const isInactiveHoursCollapsed = ref(true);
@@ -1688,6 +1702,9 @@ function getTasksHash(tasks: Task[]): string {
 
 watch(() => props.tasks, (newTasks) => {
   taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
+  if (newTasks.length > 0) {
+    playInitialContentAnimation();
+  }
 }, { deep: true, immediate: true });
 
 async function refreshFocusSessions(): Promise<void> {
@@ -6371,6 +6388,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (initialContentAnimationTimer) {
+    clearTimeout(initialContentAnimationTimer);
+  }
   document.removeEventListener('keydown', handleCalendarTaskDateClearKeydown);
   window.removeEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
   if (timeUpdateInterval) {
@@ -6672,7 +6692,6 @@ onUnmounted(() => {
   border-radius: 8px;
   background: var(--pinch-background7);
   cursor: pointer;
-  animation: pinch-week-task-fade-in 180ms ease-out both;
 }
 
 .mobile-task-chip::before {
@@ -7012,7 +7031,6 @@ onUnmounted(() => {
   pointer-events: auto;
   position: relative;
   margin-left: 5px;
-  animation: pinch-week-task-fade-in 180ms ease-out both;
 }
 
 .all-day-task::before {
@@ -7136,12 +7154,12 @@ onUnmounted(() => {
   height: 10px;
   padding: 2px;
   border-radius: 4px;
-  color: #fff;
-  background: var(--pinch-task-chip-color, var(--pinch-color6));
+  color: var(--pinch-task-chip-color, var(--pinch-color6));
   transform: translateY(-50%);
 }
 
 .task-checkbox-wrapper {
+  --task-checkbox-border: var(--pinch-color6);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7653,7 +7671,6 @@ onUnmounted(() => {
   flex-direction: column;
   transition: background-color 0.15s, box-shadow 0.15s, transform 0.15s;
   z-index: 2;
-  animation: pinch-week-task-fade-in 180ms ease-out both;
 }
 
 @keyframes pinch-week-task-fade-in {
@@ -7662,11 +7679,17 @@ onUnmounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mobile-task-chip,
-  .all-day-task,
-  .timed-task {
-    animation: none;
+  .initial-content-animation .mobile-task-chip,
+  .initial-content-animation .all-day-task,
+  .initial-content-animation .timed-task {
+    animation: none !important;
   }
+}
+
+.initial-content-animation .mobile-task-chip,
+.initial-content-animation .all-day-task,
+.initial-content-animation .timed-task {
+  animation: pinch-week-task-fade-in 180ms ease-out both;
 }
 
 .timed-task-handle {

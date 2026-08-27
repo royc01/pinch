@@ -6,7 +6,7 @@ import type { StoredTaskFilterExpressionItem } from '@/composables/useTaskFilter
 
 export type TaskViewSwitcherId = 'kanban' | 'list' | 'table' | 'quadrant' | 'gantt' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
 export type SidebarSectionId = 'week-dates' | 'habit-list' | 'stand-container';
-export type TaskCreateDefaultTarget = 'last' | 'inbox' | 'daily-note';
+export type TaskCreateDefaultTarget = 'last' | 'inbox' | 'daily-note' | 'specified-document';
 
 export interface UserSettings {
   focus: {
@@ -34,6 +34,7 @@ export interface UserSettings {
     currentView?: TaskViewSwitcherId;
     lastCalendarView?: 'month' | 'week' | 'three-day' | 'day';
     calendarSidebarCollapsed?: boolean;
+    monthTasksCollapsed?: boolean;
     filterType: string;
     filterSource?: string;
     filterDocument: string;
@@ -114,6 +115,7 @@ export interface UserSettings {
     lastTaskDocument?: string;
     defaultTaskCreateTarget?: TaskCreateDefaultTarget;
     defaultTaskCreateNotebook?: string;
+    defaultTaskCreateDocument?: string;
     selectedGroupId?: string;
     taskListGroupBy?: 'none' | TaskViewGroupMode;
     taskListViewMode?: 'kanban' | 'list' | 'timeline';
@@ -160,6 +162,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     currentView: 'table',
     lastCalendarView: 'month',
     calendarSidebarCollapsed: false,
+    monthTasksCollapsed: false,
     filterType: 'all',
     filterSource: 'all',
     filterDocument: 'all',
@@ -233,6 +236,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     scopeInitialized: false,
     defaultTaskCreateTarget: 'last',
     defaultTaskCreateNotebook: '',
+    defaultTaskCreateDocument: '',
     selectedGroupId: 'all',
     taskListGroupBy: 'none',
     taskListViewMode: 'kanban',
@@ -405,7 +409,7 @@ const SIDEBAR_SECTION_IDS: readonly SidebarSectionId[] = [
   'habit-list',
   'stand-container'
 ];
-const TASK_CREATE_DEFAULT_TARGETS: readonly TaskCreateDefaultTarget[] = ['last', 'inbox', 'daily-note'];
+const TASK_CREATE_DEFAULT_TARGETS: readonly TaskCreateDefaultTarget[] = ['last', 'inbox', 'daily-note', 'specified-document'];
 
 function mergeWithDefaults(input: unknown): UserSettings {
   const raw = input && typeof input === 'object' ? (input as Partial<UserSettings>) : {};
@@ -488,7 +492,10 @@ function mergeWithDefaults(input: unknown): UserSettings {
       ),
       defaultTaskCreateNotebook: typeof (rawTaskManager as { defaultTaskCreateNotebook?: unknown }).defaultTaskCreateNotebook === 'string'
         ? (rawTaskManager as { defaultTaskCreateNotebook: string }).defaultTaskCreateNotebook.trim()
-        : DEFAULT_SETTINGS.taskManager.defaultTaskCreateNotebook
+        : DEFAULT_SETTINGS.taskManager.defaultTaskCreateNotebook,
+      defaultTaskCreateDocument: typeof (rawTaskManager as { defaultTaskCreateDocument?: unknown }).defaultTaskCreateDocument === 'string'
+        ? (rawTaskManager as { defaultTaskCreateDocument: string }).defaultTaskCreateDocument.trim()
+        : DEFAULT_SETTINGS.taskManager.defaultTaskCreateDocument
     },
     sidebar: {
       ...DEFAULT_SETTINGS.sidebar,

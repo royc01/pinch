@@ -560,7 +560,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1200;
+  z-index: 10000;
 }
 
 .task-group-dialog {
@@ -834,7 +834,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1400;
+  z-index: 10001;
 }
 
 .task-group-color-modal {

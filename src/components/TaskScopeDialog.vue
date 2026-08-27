@@ -196,6 +196,14 @@
               :options="defaultTaskCreateNotebookOptions"
             />
           </div>
+          <div v-if="localDefaultTaskCreateTarget === 'specified-document'" class="task-scope-display-item">
+            <span class="task-scope-name">{{ t('taskScopeDialog.defaultTaskCreateDocument') }}</span>
+            <SySelect
+              v-model="localDefaultTaskCreateDocument"
+              class="task-scope-setting-select"
+              :options="defaultTaskCreateDocumentOptions"
+            />
+          </div>
         </div>
       </div>
 
@@ -458,6 +466,7 @@ import type { TaskDateKeywordConfig } from '@/utils/taskDateParser';
 import type { UserSettings } from '@/utils/userSettings';
 import { putFile, readDir, removeFile } from '@/api';
 import { getCustomFocusAudioUrl } from '@/utils/completionSound';
+import { loadFiletreeDocumentTree, type FiletreeDocumentTreeDocument } from '@/utils/filetreeDocumentTree';
 
 interface NotebookItem {
   id: string;
@@ -488,6 +497,7 @@ export interface TaskScopeDialogSavePayload {
   sidebarSectionOrder: string[];
   defaultTaskCreateTarget: string;
   defaultTaskCreateNotebook: string;
+  defaultTaskCreateDocument: string;
   focusSettings: UserSettings['focus'];
 }
 
@@ -530,6 +540,7 @@ interface Props {
   sidebarSectionOrder?: string[];
   defaultTaskCreateTarget?: string;
   defaultTaskCreateNotebook?: string;
+  defaultTaskCreateDocument?: string;
   focusSettings?: UserSettings['focus'];
 }
 
@@ -560,6 +571,8 @@ const localHiddenSidebarSectionIds = ref<string[]>([]);
 const localSidebarSectionOrder = ref<string[]>([]);
 const localDefaultTaskCreateTarget = ref('last');
 const localDefaultTaskCreateNotebook = ref('');
+const localDefaultTaskCreateDocument = ref('');
+const defaultTaskCreateDocuments = ref<FiletreeDocumentTreeDocument[]>([]);
 const localMicroBreakEnabled = ref(false);
 const localMicroBreakPopup = ref(true);
 const localMicroBreakSystemNotification = ref(false);
@@ -695,13 +708,18 @@ const orderedSidebarSections = computed(() => {
 const defaultTaskCreateTargetOptions = computed(() => [
   { value: 'last', text: t('taskScopeDialog.defaultTaskCreateTargetLast') },
   { value: 'inbox', text: t('taskScopeDialog.defaultTaskCreateTargetInbox') },
-  { value: 'daily-note', text: t('taskScopeDialog.defaultTaskCreateTargetDailyNote') }
+  { value: 'daily-note', text: t('taskScopeDialog.defaultTaskCreateTargetDailyNote') },
+  { value: 'specified-document', text: t('taskScopeDialog.defaultTaskCreateTargetSpecifiedDocument') }
 ]);
 const defaultTaskCreateNotebookOptions = computed(() => [
   { value: '', text: t('taskScopeDialog.defaultTaskCreateNotebookFollow') },
   ...props.notebooks
     .filter(notebook => !localExcludedNotebookIds.value.includes(notebook.id))
     .map(notebook => ({ value: notebook.id, text: notebook.name }))
+]);
+const defaultTaskCreateDocumentOptions = computed(() => [
+  { value: '', text: t('taskScopeDialog.defaultTaskCreateDocumentSelect') },
+  ...defaultTaskCreateDocuments.value.map(document => ({ value: document.id, text: document.name }))
 ]);
 
 function resolveInitialTab(): TaskScopeDialogTab {
@@ -771,6 +789,9 @@ function syncLocalSelection(): void {
   localSidebarSectionOrder.value = normalizeOptionIds(props.sidebarSectionOrder || [], sidebarSectionOptions.value);
   localDefaultTaskCreateTarget.value = normalizeDefaultTaskCreateTarget(props.defaultTaskCreateTarget);
   localDefaultTaskCreateNotebook.value = normalizeDefaultTaskCreateNotebook(props.defaultTaskCreateNotebook);
+  localDefaultTaskCreateDocument.value = typeof props.defaultTaskCreateDocument === 'string'
+    ? props.defaultTaskCreateDocument.trim()
+    : '';
   localMicroBreakEnabled.value = props.focusSettings?.microBreakEnabled === true;
   localMicroBreakPopup.value = props.focusSettings?.microBreakPopup !== false;
   localMicroBreakSystemNotification.value = props.focusSettings?.microBreakSystemNotification === true;
@@ -965,12 +986,31 @@ async function toggleCustomAudioPreview(kind: CustomAudioKind, fileName: string)
 }
 
 function normalizeDefaultTaskCreateTarget(value: string | undefined): string {
-  return value === 'inbox' || value === 'daily-note' ? value : 'last';
+  return value === 'inbox' || value === 'daily-note' || value === 'specified-document' ? value : 'last';
 }
 
 function normalizeDefaultTaskCreateNotebook(value: string | undefined): string {
   const normalized = typeof value === 'string' ? value.trim() : '';
   return defaultTaskCreateNotebookOptions.value.some(option => option.value === normalized) ? normalized : '';
+}
+
+function normalizeDefaultTaskCreateDocument(value: string | undefined): string {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return defaultTaskCreateDocumentOptions.value.some(option => option.value === normalized) ? normalized : '';
+}
+
+async function loadDefaultTaskCreateDocuments(): Promise<void> {
+  const notebookId = localDefaultTaskCreateNotebook.value;
+  if (!notebookId || !props.show) {
+    defaultTaskCreateDocuments.value = [];
+    return;
+  }
+  try {
+    defaultTaskCreateDocuments.value = await loadFiletreeDocumentTree(notebookId);
+  } catch (error) {
+    console.warn('[TaskScopeDialog] Failed to load default task create documents:', error);
+    defaultTaskCreateDocuments.value = [];
+  }
 }
 
 function isNotebookEnabled(notebookId: string): boolean {
@@ -1076,6 +1116,7 @@ function save(): void {
     sidebarSectionOrder: normalizeOptionIds(localSidebarSectionOrder.value, sidebarSectionOptions.value),
     defaultTaskCreateTarget: normalizeDefaultTaskCreateTarget(localDefaultTaskCreateTarget.value),
     defaultTaskCreateNotebook: normalizeDefaultTaskCreateNotebook(localDefaultTaskCreateNotebook.value),
+    defaultTaskCreateDocument: normalizeDefaultTaskCreateDocument(localDefaultTaskCreateDocument.value),
     focusSettings: {
       microBreakEnabled: localMicroBreakEnabled.value,
       microBreakPopup: localMicroBreakPopup.value,
@@ -1118,6 +1159,7 @@ watch(
     () => props.sidebarSectionOrder,
     () => props.defaultTaskCreateTarget,
     () => props.defaultTaskCreateNotebook,
+    () => props.defaultTaskCreateDocument,
     () => props.focusSettings
   ],
   ([show]) => {
@@ -1128,6 +1170,10 @@ watch(
   },
   { immediate: true, deep: true }
 );
+
+watch([() => props.show, localDefaultTaskCreateNotebook], () => {
+  void loadDefaultTaskCreateDocuments();
+}, { immediate: true });
 </script>
 
 <style scoped>
@@ -1138,7 +1184,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10;
+  z-index: 10000;
 }
 
 .task-scope-dialog {

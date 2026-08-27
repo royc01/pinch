@@ -830,7 +830,7 @@
       </button>
     </div>
     
-    <Teleport :to="taskModalTeleportTo" :disabled="!taskModalTeleportTarget">
+    <Teleport to="body">
       <QuickCreateTaskModal
         :show="showTaskModal"
         :t="t"
@@ -839,8 +839,10 @@
         :groups="taskGroups"
         :goals="goalDefinitions"
         :default-group-id="taskModalDefaultGroupId"
+        :default-goal-id="taskModalDefaultGoalId"
         :lastSelectedNotebook="taskModalDefaultNotebook"
         :lastSelectedDocument="taskModalDefaultDocument"
+        :allow-unlisted-default-document="userSettings.taskManager.defaultTaskCreateTarget === 'specified-document'"
         presentation="center"
         :overlay-style="taskModalOverlayStyle"
         @close="showTaskModal = false"
@@ -848,8 +850,9 @@
         @manage-groups="openTaskGroupDialog"
       />
     </Teleport>
-    <TaskScopeDialog
-      :show="showTaskScopeDialog"
+    <Teleport to="body">
+      <TaskScopeDialog
+        :show="showTaskScopeDialog"
       :notebooks="notebooks"
       :excluded-notebook-ids="excludedNotebookIds"
       :show-scope-tab="true"
@@ -879,14 +882,16 @@
       :sidebar-section-options="taskScopeSidebarSectionOptions"
       :hidden-sidebar-section-ids="userSettings.sidebar.hiddenSectionIds"
       :sidebar-section-order="userSettings.sidebar.sectionOrder"
-      :default-task-create-target="userSettings.taskManager.defaultTaskCreateTarget"
-      :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
+        :default-task-create-target="userSettings.taskManager.defaultTaskCreateTarget"
+        :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
+        :default-task-create-document="userSettings.taskManager.defaultTaskCreateDocument"
       :focus-settings="userSettings.focus"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
       @refresh-documents="handleTaskScopeDocumentsRefresh"
-      @save="handleTaskScopeSave"
-    />
+        @save="handleTaskScopeSave"
+      />
+    </Teleport>
     <TaskDateQuickMenu
       :show="taskQuickDateMenu.show"
       :x="taskQuickDateMenu.x"
@@ -932,14 +937,16 @@
       @save="handleTaskQuickMetaSave"
       @close="closeTaskQuickMetaMenu"
     />
-    <TaskGroupDialog
-      :show="showTaskGroupDialog"
-      :groups="taskGroups"
-      :include-none-option="true"
-      :order-ids="userSettings.kanban.kanbanGroupColumnOrder"
-      @close="showTaskGroupDialog = false"
-      @save="handleTaskGroupSave"
-    />
+    <Teleport to="body">
+      <TaskGroupDialog
+        :show="showTaskGroupDialog"
+        :groups="taskGroups"
+        :include-none-option="true"
+        :order-ids="userSettings.kanban.kanbanGroupColumnOrder"
+        @close="showTaskGroupDialog = false"
+        @save="handleTaskGroupSave"
+      />
+    </Teleport>
     <div
       v-if="desktopCalendarPointerGesture?.started && desktopCalendarPointerGesture.task"
       class="task-manager-calendar-drag-ghost"
@@ -2989,6 +2996,9 @@ function getConfiguredDefaultTaskNotebook(): string {
 }
 
 const taskModalDefaultNotebook = computed(() => {
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'specified-document') {
+    return getConfiguredDefaultTaskNotebook() || lastTaskNotebook.value || '';
+  }
   const selectedDocument = sourceDocuments.value.find(doc => doc.id === filterDocument.value);
   if (selectedDocument) {
     return selectedDocument.notebookId;
@@ -3008,6 +3018,9 @@ const taskModalDefaultDocument = computed(() => {
   }
   if (userSettings.taskManager.defaultTaskCreateTarget === 'inbox') {
     return PINCH_INBOX_OPTION_ID;
+  }
+  if (userSettings.taskManager.defaultTaskCreateTarget === 'specified-document') {
+    return userSettings.taskManager.defaultTaskCreateDocument || '';
   }
   if (filterDocument.value !== 'all') {
     return filterDocument.value;
@@ -3127,6 +3140,11 @@ watch([filterNotebook, filterDocument], ([newNotebook]) => {
   // Persist the normalized final pair. Selecting a source can legitimately
   // reset its document to `all`; that must not discard the source update.
   scheduleFilterSettingsUpdate();
+});
+
+const taskModalDefaultGoalId = computed(() => {
+  const source = parsedFilterSource.value;
+  return source.kind === 'goal' ? source.id : '';
 });
 
 watch([goalDefinitions, goalItems, goalsLoading], () => {
@@ -5887,6 +5905,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     sidebarSectionOrder,
     defaultTaskCreateTarget,
     defaultTaskCreateNotebook,
+    defaultTaskCreateDocument,
     focusSettings
   } = payload;
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
@@ -5917,6 +5936,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     defaultTaskCreateTarget: defaultTaskCreateTarget as typeof userSettings.taskManager.defaultTaskCreateTarget,
     defaultTaskCreateNotebook,
+    defaultTaskCreateDocument,
     ...(shouldFinalizeInit ? { scopeInitialized: true } : {})
   });
   await updateSettings('kanban', {
@@ -10005,7 +10025,7 @@ onUnmounted(() => {
 }
 
 .task-kernel-status {
-  /*display: none;*/
+  display: none;
   &.active,
   &.is-connected {
     svg {
