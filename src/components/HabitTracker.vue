@@ -1553,7 +1553,7 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
 
   .habit-floating-nav {
     position: absolute;
-    z-index: 3;
+    z-index: 10;
     left: 0;
     bottom: 0;
     display: flex;

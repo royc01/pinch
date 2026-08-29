@@ -84,6 +84,7 @@
             :key="`week-${weekIndex}`"
             class="week-row"
             :style="getWeekRowStyle(week)"
+            :ref="(element) => setWeekRowRef(week, element)"
           >
             <div class="week-days-grid">
               <div 
@@ -160,7 +161,7 @@
             </div>
             <div class="week-tasks-layer">
               <div 
-                v-for="task in getTasksForWeek(week).filter(isTaskVisibleInMonth)"
+                v-for="task in getTasksForWeek(week).filter(task => isTaskVisibleInMonth(task, week))"
                 :key="task.id"
                 class="ariaLabel"
                 :aria-label="getTaskDisplayTitle(task)"
@@ -251,7 +252,7 @@
                   v-show="getCollapsedTaskCount(week, dayIndex) > 0"
                   type="button"
                   class="month-more-tasks-btn"
-                  :style="getMoreTasksButtonStyle(dayIndex)"
+                  :style="getMoreTasksButtonStyle(week, dayIndex)"
                   :aria-label="formatTemplate('monthView.moreTasksTemplate', { count: getCollapsedTaskCount(week, dayIndex) })"
                   @mousedown.stop
                   @click.stop="openDayTasks(day.key, week, dayIndex, $event)"
@@ -393,7 +394,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue';
 import type { FocusSessionRecord, Habit, MoodData, MoodManualEntry, Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
 import {
@@ -1627,12 +1628,26 @@ type WeekTask = Task & {
 };
 
 const isTasksCollapsed = ref(false);
-const collapsedVisibleTaskSlots = ref(1);
+const collapsedVisibleTaskSlots = ref(new Map<string, number>());
 const dayTasksDialogKey = ref<string | null>(null);
 const dayTasksDialogTasks = ref<WeekTask[]>([]);
 const dayTasksDialogStyle = ref<Record<string, string>>({});
 const weeksContainerRef = ref<HTMLElement | null>(null);
+const weekRowElements = new Map<string, HTMLElement>();
 let monthTasksResizeObserver: ResizeObserver | null = null;
+
+function setWeekRowRef(week: any[], element: Element | ComponentPublicInstance | null): void {
+  const weekKey = getWeekKey(week);
+  if (element instanceof HTMLElement) {
+    weekRowElements.set(weekKey, element);
+  } else {
+    weekRowElements.delete(weekKey);
+  }
+}
+
+function getCollapsedVisibleTaskSlots(week: any[]): number {
+  return collapsedVisibleTaskSlots.value.get(getWeekKey(week)) ?? 1;
+}
 
 function syncCollapsedTaskSlots(): void {
   if (!isTasksCollapsed.value || !weeksContainerRef.value || calendarWeeks.value.length === 0) {
@@ -1640,10 +1655,19 @@ function syncCollapsedTaskSlots(): void {
   }
 
   const { topOffset, positionStep, chipHeight } = monthTaskLayout.value;
-  const bottomPadding = isCompactMobileLayout.value ? 6 : 10;
-  const weekHeight = weeksContainerRef.value.clientHeight / calendarWeeks.value.length;
-  const slots = Math.floor((weekHeight - topOffset - chipHeight - bottomPadding) / positionStep) + 1;
-  collapsedVisibleTaskSlots.value = Math.max(1, slots);
+  // The task layer itself is inset by 6px. Keep only that required clearance so
+  // a nearly-full row can still use its final task slot.
+  const bottomPadding = isCompactMobileLayout.value ? 4 : 6;
+  const fallbackWeekHeight = weeksContainerRef.value.clientHeight / calendarWeeks.value.length;
+  const nextSlots = new Map<string, number>();
+
+  for (const week of calendarWeeks.value) {
+    const rowHeight = weekRowElements.get(getWeekKey(week))?.clientHeight || fallbackWeekHeight;
+    const slots = Math.floor((rowHeight - topOffset - chipHeight - bottomPadding) / positionStep) + 1;
+    nextSlots.set(getWeekKey(week), Math.max(1, slots));
+  }
+
+  collapsedVisibleTaskSlots.value = nextSlots;
 }
 
 async function toggleTasksCollapsed(): Promise<void> {
@@ -1724,8 +1748,8 @@ function getTasksForWeek(week: any[]): WeekTask[] {
   return weeklyTasks.value.get(weekKey) || [];
 }
 
-function isTaskVisibleInMonth(task: WeekTask): boolean {
-  return !isTasksCollapsed.value || task.position < collapsedVisibleTaskSlots.value;
+function isTaskVisibleInMonth(task: WeekTask, week: any[]): boolean {
+  return !isTasksCollapsed.value || task.position < getCollapsedVisibleTaskSlots(week);
 }
 
 function getTasksForDay(week: any[], dayIndex: number): WeekTask[] {
@@ -1736,20 +1760,20 @@ function getTasksForDay(week: any[], dayIndex: number): WeekTask[] {
 
 function getCollapsedTaskCount(week: any[], dayIndex: number): number {
   return getTasksForDay(week, dayIndex)
-    .filter(task => task.position >= collapsedVisibleTaskSlots.value)
+    .filter(task => task.position >= getCollapsedVisibleTaskSlots(week))
     .length;
 }
 
-function getMoreTasksButtonStyle(dayIndex: number): Record<string, string> {
+function getMoreTasksButtonStyle(week: any[], dayIndex: number): Record<string, string> {
   const { topOffset, positionStep } = monthTaskLayout.value;
   return {
     right: `calc(${((6 - dayIndex) / 7) * 100}% + 6px)`,
-    top: `${topOffset + (collapsedVisibleTaskSlots.value - 1) * positionStep}px`
+    top: `${topOffset + (getCollapsedVisibleTaskSlots(week) - 1) * positionStep}px`
   };
 }
 
 function shouldReserveMoreTasksSpace(task: WeekTask, week: any[]): boolean {
-  if (!isTasksCollapsed.value || task.position !== collapsedVisibleTaskSlots.value - 1 || task.spanDays !== 1) {
+  if (!isTasksCollapsed.value || task.position !== getCollapsedVisibleTaskSlots(week) - 1 || task.spanDays !== 1) {
     return false;
   }
   return getCollapsedTaskCount(week, task.startDayOfWeek) > 0;

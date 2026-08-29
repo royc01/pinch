@@ -1539,7 +1539,7 @@ async function handleSubmit(): Promise<void> {
 @media (max-width: 768px) {
   .modal-overlay.is-centered {
     padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
-    z-index: 10000;
+    z-index: 10;
   }
 
   .modal-content.is-centered {

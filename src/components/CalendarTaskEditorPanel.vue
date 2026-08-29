@@ -171,7 +171,6 @@ import { computed, ref } from 'vue';
 import type { Task } from '@/api';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput, RepeatTermination } from '@/repeatRepository';
 import CalendarTaskDateSection from '@/components/CalendarTaskDateSection.vue';
-import Icon from '@/components/Icon.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
 import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
