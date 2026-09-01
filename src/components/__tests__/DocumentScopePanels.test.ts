@@ -73,6 +73,7 @@ describe('document scope management panels', () => {
     })
 
     await flushPromises()
+    await wrapper.find('.document-group-panel-toggle').trigger('click')
 
     expect(wrapper.find('.document-checkbox-list').exists()).toBe(true)
     expect(wrapper.find('.document-checkbox-name').text()).toBe('Instant document')
@@ -125,6 +126,7 @@ describe('document scope management panels', () => {
     })
 
     await flushPromises()
+    await wrapper.find('.goal-panel-toggle').trigger('click')
 
     expect(wrapper.find('.goal-checkbox-list').exists()).toBe(true)
     expect(wrapper.find('.goal-checkbox-name').text()).toBe('Instant document')
