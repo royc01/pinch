@@ -50,6 +50,7 @@ export interface HabitTrackerPanelOpenRequest {
   returnToRecords?: boolean;
   goalId?: string;
   rewardEntryId?: string;
+  returnToSettingsHome?: boolean;
 }
 
 export interface FocusTimerPanelOpenRequest {
@@ -93,6 +94,7 @@ export const Events = {
   TASK_GROUPS_UPDATED: 'task-groups-updated',
   DOCUMENT_GROUPS_UPDATED: 'document-groups-updated',
   TASK_SCOPE_UPDATED: 'task-scope-updated',
+  TASK_SCOPE_HOME_OPEN_REQUEST: 'task-scope-home-open-request',
   TASK_TOGGLED: 'task-toggled',
   LIFELOG_TASKS_UPDATED: 'lifelog-tasks-updated',
   LIFELOG_TIMELINE_UPDATED: 'lifelog-timeline-updated',

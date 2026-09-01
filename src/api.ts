@@ -783,6 +783,9 @@ export interface Habit {
   pomodoroState?: 'work' | 'shortBreak' | 'longBreak';
   isPaused?: boolean;
   isPomodoroPaused?: boolean;
+  /** Shared taxonomy IDs. The first entry is the habit's primary tag. */
+  tagIds?: string[];
+  primaryTagId?: string;
 }
 
 export type HabitDifficulty = 'easy' | 'medium' | 'hard';
@@ -901,6 +904,14 @@ function normalizeHabit(raw: unknown, todayStr: string): Habit | null {
     frequency: normalizeHabitFrequency(habit.frequency),
     customSchedule: normalizeHabitCustomSchedule(habit.customSchedule),
     completionMode: normalizeHabitCompletionMode(habit.completionMode),
+    ...(Array.isArray(habit.tagIds) ? (() => {
+      const tagIds = normalizeTagIds(habit.tagIds);
+      const requestedPrimary = normalizeTagId(habit.primaryTagId);
+      return {
+        tagIds,
+        ...(tagIds.length > 0 ? { primaryTagId: tagIds.includes(requestedPrimary) ? requestedPrimary : tagIds[0] } : {})
+      };
+    })() : {}),
     calendar,
     completedToday: todayRecord ? Boolean(todayRecord.completed) : false,
     currentStreak:
@@ -1991,12 +2002,19 @@ export function serializeTaskFocusEstimate(value: TaskFocusEstimate | undefined)
 export interface TaskGroup {
   id: string;
   name: string;
+  /** Optional emoji or custom icon selected from SiYuan's icon picker. */
+  icon?: string;
   color?: string;
   hidden?: boolean;
   order?: number;
   createdAt?: string;
   updatedAt?: string;
+  /** Empty for a root tag. Parent tags form a tree, never a graph. */
+  parentId?: string;
 }
+
+/** Preferred name for the shared task / habit taxonomy. */
+export type Tag = TaskGroup;
 
 interface TaskGroupStorage {
   version: number;
@@ -2004,8 +2022,36 @@ interface TaskGroupStorage {
   updatedAt: string;
 }
 
-const TASK_GROUPS_STORAGE_KEY = 'Pinch-task-groups.json';
-const TASK_GROUPS_STORAGE_VERSION = 1;
+const TAGS_STORAGE_KEY = 'Pinch-tags.json';
+const LEGACY_TASK_GROUPS_STORAGE_KEY = 'Pinch-task-groups.json';
+const TAGS_STORAGE_VERSION = 2;
+/** Root is level 1, so a tag may have at most two ancestors. */
+export const MAX_TAG_LEVELS = 3;
+
+function normalizeTagId(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeTagIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.map(normalizeTagId).filter(Boolean)));
+}
+
+function normalizeTagIcon(value: unknown): string | undefined {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return undefined;
+  // SiYuan's picker returns Unicode code points for native emoji (for example
+  // `1f637`); convert those before rendering or persisting the tag.
+  if (!raw.includes('.') && !raw.includes('/') && /^[0-9a-fA-F]+(?:-[0-9a-fA-F]+)*$/.test(raw)) {
+    try {
+      const points = raw.split('-').map(part => Number.parseInt(part, 16));
+      if (points.every(Number.isFinite)) return String.fromCodePoint(...points);
+    } catch {
+      // Keep custom icon values unchanged.
+    }
+  }
+  return raw;
+}
 
 function normalizeTaskGroups(input: unknown): TaskGroup[] {
   if (!Array.isArray(input)) return [];
@@ -2014,39 +2060,75 @@ function normalizeTaskGroups(input: unknown): TaskGroup[] {
   for (const raw of input) {
     if (!raw || typeof raw !== 'object') continue;
     const group = raw as Record<string, unknown>;
-    const id = typeof group.id === 'string' ? group.id.trim() : '';
+    const id = normalizeTagId(group.id);
     const name = typeof group.name === 'string' ? group.name.trim() : '';
     if (!id || !name) continue;
 
     const color = typeof group.color === 'string' ? group.color : undefined;
+    const icon = normalizeTagIcon(group.icon);
     const hidden = group.hidden === true;
     const order = typeof group.order === 'number' && Number.isFinite(group.order) ? group.order : undefined;
     const createdAt = typeof group.createdAt === 'string' ? group.createdAt : undefined;
     const updatedAt = typeof group.updatedAt === 'string' ? group.updatedAt : undefined;
+    const parentId = normalizeTagId(group.parentId);
 
     normalized.push({
       id,
       name,
+      icon,
       color,
       hidden,
       order,
       createdAt,
       updatedAt
+      , parentId: parentId && parentId !== id ? parentId : undefined
     });
   }
 
+  const ids = new Set(normalized.map(group => group.id));
+  const byId = new Map(normalized.map(group => [group.id, group]));
+  for (const group of normalized) {
+    if (!group.parentId || !ids.has(group.parentId)) {
+      group.parentId = undefined;
+      continue;
+    }
+    const ancestors = new Set<string>([group.id]);
+    let parentId = group.parentId;
+    while (parentId) {
+      if (ancestors.has(parentId)) {
+        group.parentId = undefined;
+        break;
+      }
+      ancestors.add(parentId);
+      parentId = byId.get(parentId)?.parentId;
+    }
+  }
+  for (const group of normalized) {
+    let depth = 0;
+    let parentId = group.parentId;
+    const ancestors = new Set<string>([group.id]);
+    while (parentId && !ancestors.has(parentId)) {
+      ancestors.add(parentId);
+      depth += 1;
+      if (depth >= MAX_TAG_LEVELS) {
+        group.parentId = undefined;
+        break;
+      }
+      parentId = byId.get(parentId)?.parentId;
+    }
+  }
   return normalized;
 }
 
-export async function loadTaskGroups(): Promise<TaskGroup[]> {
+export async function loadTags(): Promise<Tag[]> {
   const plugin = usePlugin();
   if (!plugin) {
-    console.error('[TaskGroups] loadTaskGroups: plugin is not initialized');
+    console.error('[Tags] loadTags: plugin is not initialized');
     return [];
   }
 
   try {
-    const raw = await plugin.loadData(TASK_GROUPS_STORAGE_KEY);
+    const raw = await plugin.loadData(TAGS_STORAGE_KEY) || await plugin.loadData(LEGACY_TASK_GROUPS_STORAGE_KEY);
     if (!raw) return [];
 
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
@@ -2059,31 +2141,43 @@ export async function loadTaskGroups(): Promise<TaskGroup[]> {
       return normalizeTaskGroups(storage.groups);
     }
   } catch (error) {
-    console.error('[TaskGroups] loadTaskGroups: failed to read data', error);
+    console.error('[Tags] loadTags: failed to read data', error);
   }
 
   return [];
 }
 
-export async function saveTaskGroups(groups: TaskGroup[]): Promise<void> {
+/** Backward-compatible task-facing alias for the shared tag taxonomy. */
+export async function loadTaskGroups(): Promise<TaskGroup[]> {
+  return loadTags();
+}
+
+export async function saveTags(groups: Tag[]): Promise<void> {
   const plugin = usePlugin();
   if (!plugin) {
-    console.error('[TaskGroups] saveTaskGroups: plugin is not initialized');
+    console.error('[Tags] saveTags: plugin is not initialized');
     return;
   }
 
   const normalizedGroups = normalizeTaskGroups(groups);
   const payload: TaskGroupStorage = {
-    version: TASK_GROUPS_STORAGE_VERSION,
+    version: TAGS_STORAGE_VERSION,
     groups: normalizedGroups,
     updatedAt: new Date().toISOString()
   };
 
   try {
-    await plugin.saveData(TASK_GROUPS_STORAGE_KEY, payload);
+    await plugin.saveData(TAGS_STORAGE_KEY, payload);
+    // Keep the legacy location in sync for existing installations and integrations.
+    await plugin.saveData(LEGACY_TASK_GROUPS_STORAGE_KEY, payload);
   } catch (error) {
-    console.error('[TaskGroups] saveTaskGroups: failed to write data', error);
+    console.error('[Tags] saveTags: failed to write data', error);
   }
+}
+
+/** Backward-compatible task-facing alias for the shared tag taxonomy. */
+export async function saveTaskGroups(groups: TaskGroup[]): Promise<void> {
+  return saveTags(groups);
 }
 
 export interface TaskQueryScope {

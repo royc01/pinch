@@ -4,10 +4,16 @@ import {
   buildTaskTagAttrs,
   buildTaskTagState,
   filterKnownTaskTagIds,
+  matchesTaskTagFilter,
   parseTaskTagIdsAttribute
 } from './taskTags';
 
 describe('task tags', () => {
+  it('matches a parent filter against its descendant tags', () => {
+    const descendants = new Map([['work', new Set(['work', 'writing'])]]);
+    expect(matchesTaskTagFilter(['writing'], '', ['work'], '__none__', descendants)).toBe(true);
+  });
+
   it('removes unknown tag IDs before a batch action persists the tag state', () => {
     const currentState = buildTaskTagState(
       ['group_orphan', 'group_writing'],

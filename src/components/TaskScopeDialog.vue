@@ -1,75 +1,68 @@
 <template>
-  <div v-if="show" class="task-scope-overlay" @click.self="handleClose">
+  <div
+    v-if="show"
+    :class="presentation === 'sidebar'
+      ? ['task-scope-page', { 'is-elevated': elevated }]
+      : 'task-scope-overlay'"
+    :style="pageStyle"
+    @click.self="presentation !== 'sidebar' && handleClose"
+  >
     <div class="task-scope-dialog" :class="{ 'with-document-groups': hasWideLayout }" @click.stop>
       <div class="task-scope-header">
-        <div class="task-scope-title">{{ dialogTitle }}</div>
+        <button
+          v-if="activeTab !== 'home'"
+          type="button"
+          class="task-scope-back"
+          @click="activeTab = 'home'"
+        >
+          <Icon name="left" width="16" height="16" />
+          <span>{{ dialogTitle }}</span>
+        </button>
+        <div v-else class="task-scope-title">{{ dialogTitle }}</div>
         <button v-if="!lockClose" type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="handleClose">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
 
-      <div class="task-scope-hint">
-        {{ activeHint }}
+      <div v-if="activeTab === 'home'" class="task-scope-content task-scope-home">
+        <div v-for="(group, groupIndex) in settingsNavGroups" :key="groupIndex" class="task-scope-home-group">
+          <button
+            v-for="item in group"
+            :key="item.id"
+            type="button"
+            class="task-scope-home-item"
+            @click="handleSettingsNavItemClick(item.id)"
+          >
+            <span class="task-scope-home-item-main">
+              <span class="task-scope-home-item-icon">
+                <Icon v-if="item.icon" :name="item.icon" :width="item.iconSize" :height="item.iconSize" />
+              </span>
+              <span>{{ item.label }}</span>
+            </span>
+            <Icon name="right" width="16" height="16" />
+          </button>
+        </div>
       </div>
 
-      <div v-if="showTabs" class="task-scope-tabs">
-        <button
-          v-if="hasDisplayTab"
-          type="button"
-          class="task-scope-tab"
-          :class="{ active: activeTab === 'display' }"
-          @click="activeTab = 'display'"
-        >
-          {{ t('taskScopeDialog.displaySettings') }}
-        </button>
-        <button
-          type="button"
-          class="task-scope-tab"
-          :class="{ active: activeTab === 'task-settings' }"
-          @click="activeTab = 'task-settings'"
-        >
-          {{ t('taskScopeDialog.taskSettings') }}
-        </button>
-        <button
-          type="button"
-          class="task-scope-tab"
-          :class="{ active: activeTab === 'pomodoro-settings' }"
-          @click="activeTab = 'pomodoro-settings'"
-        >
-          {{ t('taskScopeDialog.pomodoroSettings') }}
-        </button>
-        <button
-          v-if="hasGoalTab"
-          type="button"
-          class="task-scope-tab"
-          :class="{ active: activeTab === 'goals' }"
-          @click="activeTab = 'goals'"
-        >
-          {{ t('taskScopeDialog.goals') }}
-        </button>
-        <button
-          v-if="hasDocumentGroupTab"
-          type="button"
-          class="task-scope-tab"
-          :class="{ active: activeTab === 'document-groups' }"
-          @click="activeTab = 'document-groups'"
-        >
-          {{ t('taskScopeDialog.documentGroups') }}
-        </button>
-        <button
-          v-if="showScopeTab"
-          type="button"
-          class="task-scope-tab"
-          :class="{ active: activeTab === 'scope' }"
-          @click="activeTab = 'scope'"
-        >
-          {{ t('taskScopeDialog.scopeSettings') }}
-        </button>
-      </div>
+      <div v-else class="task-scope-scroll">
+        <div class="task-scope-hint">
+          <Icon
+            name="focusBackfillHint"
+            width="14"
+            height="14"
+            class="task-scope-hint-icon"
+          />
+          <span>{{ activeHint }}</span>
+        </div>
 
       <div v-if="activeTab === 'scope'" class="task-scope-content scope-tab-content">
-        <div class="task-scope-summary">
-          {{ t('taskScopeDialog.enabledPrefix') }} {{ notebooks.length - localExcludedNotebookIds.length }} / {{ notebooks.length }}
+        <div class="task-scope-summary-row">
+          <div class="task-scope-summary">
+            {{ t('taskScopeDialog.enabledPrefix') }} {{ notebooks.length - localExcludedNotebookIds.length }} / {{ notebooks.length }}
+          </div>
+          <SyButton class="task-scope-btn plain" @click="clearExcluded">
+            {{ t('taskScopeDialog.enableAll') }}
+          </SyButton>
         </div>
         <div v-if="showExtra" class="task-scope-extra">
           <span class="task-scope-extra-label">{{ t('taskScopeDialog.showCompletedTasks') }}</span>
@@ -85,12 +78,12 @@
             :key="notebook.id"
             class="task-scope-item"
           >
+            <span class="task-scope-name">{{ notebook.name }}</span>
             <SyCheckbox
               class="task-scope-toggle"
               :model-value="isNotebookEnabled(notebook.id)"
               @update:model-value="toggleNotebookEnabled(notebook.id, $event)"
             />
-            <span class="task-scope-name">{{ notebook.name }}</span>
           </label>
 
           <div v-if="notebooks.length === 0" class="task-scope-empty">
@@ -134,7 +127,8 @@
           </div>
           <details class="task-scope-keyword-settings">
             <summary class="task-scope-keyword-summary">
-              {{ t('taskScopeDialog.dateRecognitionKeywords') }}
+              <span>{{ t('taskScopeDialog.dateRecognitionKeywords') }}</span>
+              <Icon class="task-scope-keyword-arrow" name="right" width="16" height="16" />
             </summary>
             <div class="task-scope-keyword-desc">
               {{ t('taskScopeDialog.dateRecognitionKeywordsDesc') }}
@@ -345,6 +339,17 @@
           @refresh-documents="emit('refresh-documents')"
         />
       </div>
+      <div v-else-if="activeTab === 'tags'" class="task-scope-content tags-tab-content">
+        <TaskGroupDialog
+          :show="true"
+          embedded
+          auto-save
+          :groups="localTaskGroups"
+          :include-none-option="true"
+          :order-ids="taskGroupOrderIds"
+          @save="handleTagSave"
+        />
+      </div>
       <div v-else-if="activeTab === 'goals'" class="task-scope-content goals-tab-content">
         <GoalManagerPanel
           :goals="localGoals"
@@ -422,41 +427,22 @@
           </div>
         </div>
       </div>
-
-      <div class="task-scope-actions">
-        <SyButton
-          v-if="activeTab === 'scope' && showScopeTab"
-          class="task-scope-btn plain"
-          @click="clearExcluded"
-        >
-          {{ t('taskScopeDialog.enableAll') }}
-        </SyButton>
-        <div
-          v-else-if="activeTab === 'document-groups' && showDocumentGroupNotebookPathToggle"
-          class="task-scope-action-setting"
-        >
-          <span class="task-scope-extra-label">{{ t('taskScopeDialog.showDocumentNotebookPath') }}</span>
-          <SyCheckbox
-            class="task-scope-toggle"
-            :model-value="localShowDocumentGroupNotebookPath"
-            @update:model-value="localShowDocumentGroupNotebookPath = $event"
-          />
-        </div>
-        <SyButton class="task-scope-btn confirm" @click="save">{{ confirmText || t('common.save') }}</SyButton>
       </div>
+
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import DocumentGroupManagerPanel from '@/components/DocumentGroupManagerPanel.vue';
+import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import GoalManagerPanel from '@/components/GoalManagerPanel.vue';
-import type { Task } from '@/api';
+import type { Task, TaskGroup } from '@/api';
 import type { DocumentGroup } from '@/documentGroupRepository';
 import type { Goal } from '@/goalRepository';
 import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
@@ -542,17 +528,27 @@ interface Props {
   defaultTaskCreateNotebook?: string;
   defaultTaskCreateDocument?: string;
   focusSettings?: UserSettings['focus'];
+  presentation?: 'overlay' | 'sidebar';
+  /** Raise only settings opened from an active task editor. */
+  elevated?: boolean;
+  pageStyle?: Record<string, string>;
+  taskGroups?: TaskGroup[];
+  taskGroupOrderIds?: string[];
 }
 
 const props = defineProps<Props>();
 const { t } = useI18n();
-type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
+type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
+type SettingsTabId = Exclude<TaskScopeDialogTab, 'home'>;
+type SettingsNavItemId = SettingsTabId | 'reward-shop';
 
 const emit = defineEmits<{
   close: [];
   save: [payload: TaskScopeDialogSavePayload];
   'global-recognize-date': [];
   'refresh-documents': [];
+  'save-tags': [payload: { groups: TaskGroup[]; orderIds: string[] }];
+  'open-reward-shop': [];
 }>();
 
 const localExcludedNotebookIds = ref<string[]>([]);
@@ -565,6 +561,7 @@ const localRangeKeywordsText = ref('');
 const localAfternoonKeywordsText = ref('');
 const localShowDocumentGroupNotebookPath = ref(true);
 const localDocumentGroups = ref<DocumentGroup[]>([]);
+const localTaskGroups = ref<TaskGroup[]>([]);
 const localGoals = ref<Goal[]>([]);
 const localHiddenTaskViewIds = ref<string[]>([]);
 const localHiddenSidebarSectionIds = ref<string[]>([]);
@@ -602,13 +599,14 @@ const customAudioFiles = ref<Record<CustomAudioKind, CustomAudioFile[]>>({
 const previewAudio = ref<HTMLAudioElement | null>(null);
 const previewingAudioFile = ref('');
 const previewingAudioKind = ref<CustomAudioKind | null>(null);
-const activeTab = ref<TaskScopeDialogTab>('scope');
+const activeTab = ref<TaskScopeDialogTab>('home');
+const autoSaveReady = ref(false);
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const lockClose = computed(() => props.lockClose === true);
 const showExtra = computed(() => props.showExtra !== false);
 const globalDateRecognizing = computed(() => props.globalDateRecognizing === true);
 const documentsRefreshing = computed(() => props.documentsRefreshing === true);
 const showScopeTab = computed(() => props.showScopeTab !== false);
-const showDocumentGroupNotebookPathToggle = computed(() => props.showDocumentGroupNotebookPathToggle !== false);
 const getMicroBreakIntervalIndex = (value: number) => {
   const exactIndex = microBreakIntervalMarks.indexOf(value);
   if (exactIndex >= 0) return exactIndex;
@@ -630,13 +628,13 @@ const microBreakRangeFillStyle = computed(() => {
 });
 const dialogTitle = computed(() => props.title || t('taskScopeDialog.settings'));
 const dialogHint = computed(() => props.hint || t('taskManager.scopeHint'));
-const confirmText = computed(() => props.confirmText || t('common.save'));
 const hasDocumentGroupTab = computed(() =>
   Array.isArray(props.documentGroups) && Array.isArray(props.documentGroupDocuments)
 );
 const hasGoalTab = computed(() =>
   Array.isArray(props.goals) && Array.isArray(props.goalDocuments)
 );
+const hasTagTab = computed(() => Array.isArray(props.taskGroups));
 const taskViewOptions = computed(() => props.taskViewOptions || []);
 const taskViewOptionIds = computed(() =>
   Array.from(new Set(taskViewOptions.value.flatMap(option => option.hiddenIds?.length ? option.hiddenIds : [option.id])))
@@ -645,9 +643,9 @@ const sidebarSectionOptions = computed(() => props.sidebarSectionOptions || []);
 const hasDisplayTab = computed(() =>
   taskViewOptions.value.length > 0 || sidebarSectionOptions.value.length > 0
 );
-const hasWideLayout = computed(() => hasDocumentGroupTab.value || hasGoalTab.value || hasDisplayTab.value);
-const availableTabs = computed<TaskScopeDialogTab[]>(() => {
-  const tabs: TaskScopeDialogTab[] = [];
+const hasWideLayout = computed(() => hasDocumentGroupTab.value || hasGoalTab.value || hasTagTab.value || hasDisplayTab.value);
+const availableTabs = computed<SettingsTabId[]>(() => {
+  const tabs: SettingsTabId[] = [];
   if (hasDisplayTab.value) {
     tabs.push('display');
   }
@@ -659,12 +657,67 @@ const availableTabs = computed<TaskScopeDialogTab[]>(() => {
   if (hasDocumentGroupTab.value) {
     tabs.push('document-groups');
   }
+  if (hasTagTab.value) {
+    tabs.push('tags');
+  }
   if (showScopeTab.value) {
     tabs.push('scope');
   }
   return tabs;
 });
-const showTabs = computed(() => availableTabs.value.length > 1);
+const settingsNavItems = computed(() => {
+  const tabItems = availableTabs.value.map(id => ({
+  id,
+   iconSize: ['display', 'scope', 'task-settings'].includes(id) ? 18 : 22,
+  icon: id === 'display'
+    ? 'displayNav'
+    : id === 'scope'
+      ? 'scopeNav'
+      : id === 'task-settings'
+        ? 'taskSettingsNav'
+      : id === 'pomodoro-settings'
+      ? 'focusNav'
+      : id === 'goals'
+      ? 'goalNav'
+      : id === 'document-groups'
+        ? 'documentGroupNav'
+        : id === 'tags'
+          ? 'tagNav'
+        : '',
+  label: id === 'display'
+    ? t('taskScopeDialog.displaySettings')
+    : id === 'task-settings'
+      ? t('taskScopeDialog.taskSettings')
+      : id === 'pomodoro-settings'
+        ? t('taskScopeDialog.pomodoroSettings')
+        : id === 'goals'
+          ? t('taskScopeDialog.goals')
+          : id === 'document-groups'
+            ? t('taskScopeDialog.documentGroups')
+            : id === 'tags'
+              ? t('taskScopeDialog.tagManagement')
+              : t('taskScopeDialog.scopeSettings')
+  }));
+  const rewardShopItem = { id: 'reward-shop' as const, icon: 'rewardShopNav', iconSize: 22, label: t('taskScopeDialog.rewardShop') };
+  const taskSettingsIndex = tabItems.findIndex(item => item.id === 'task-settings');
+  return taskSettingsIndex < 0
+    ? [...tabItems, rewardShopItem]
+    : [...tabItems.slice(0, taskSettingsIndex), rewardShopItem, ...tabItems.slice(taskSettingsIndex)];
+});
+const settingsNavGroups = computed(() => {
+  const primaryIds = new Set<SettingsNavItemId>(['display', 'scope']);
+  const primary = settingsNavItems.value.filter(item => primaryIds.has(item.id));
+  const secondary = settingsNavItems.value.filter(item => !primaryIds.has(item.id));
+  return [primary, secondary].filter(group => group.length > 0);
+});
+
+function handleSettingsNavItemClick(id: SettingsNavItemId): void {
+  if (id === 'reward-shop') {
+    emit('open-reward-shop');
+    return;
+  }
+  activeTab.value = id;
+}
 const documentGroupDocuments = computed(() => props.documentGroupDocuments || []);
 const allDocumentGroupDocuments = computed(() => props.allDocumentGroupDocuments || []);
 const goalDocuments = computed(() => props.goalDocuments || []);
@@ -676,8 +729,10 @@ const activeHint = computed(() =>
       ? t('taskScopeDialog.taskSettingsHint')
       : activeTab.value === 'pomodoro-settings'
         ? t('taskScopeDialog.pomodoroSettingsHint')
-      : activeTab.value === 'document-groups'
-        ? t('taskScopeDialog.documentGroupsHint')
+       : activeTab.value === 'document-groups'
+         ? t('taskScopeDialog.documentGroupsHint')
+         : activeTab.value === 'tags'
+           ? t('taskGroupDialog.hint')
         : activeTab.value === 'goals'
           ? t('taskScopeDialog.goalsHint')
           : t('taskScopeDialog.displaySettingsHint')
@@ -698,6 +753,11 @@ function cloneGoals(goals: Goal[]): Goal[] {
     taskMembers: Array.isArray(goal.taskMembers) ? goal.taskMembers.map(member => ({ ...member })) : [],
     excludedTaskMembers: Array.isArray(goal.excludedTaskMembers) ? goal.excludedTaskMembers.map(member => ({ ...member })) : []
   }));
+}
+
+function handleTagSave(payload: { groups: TaskGroup[]; orderIds: string[] }): void {
+  localTaskGroups.value = payload.groups.map(group => ({ ...group }));
+  emit('save-tags', payload);
 }
 
 const orderedSidebarSections = computed(() => {
@@ -724,10 +784,11 @@ const defaultTaskCreateDocumentOptions = computed(() => [
 
 function resolveInitialTab(): TaskScopeDialogTab {
   const requestedTab = props.initialTab;
+  if (requestedTab === 'home') return 'home';
   if (requestedTab && availableTabs.value.includes(requestedTab)) {
     return requestedTab;
   }
-  return availableTabs.value[0] || 'scope';
+  return 'home';
 }
 
 function normalizeOptionIds(ids: string[] | undefined, options: TaskScopeDisplayOption[]): string[] {
@@ -769,7 +830,8 @@ function buildDateRecognitionKeywords(): TaskDateKeywordConfig {
   };
 }
 
-function syncLocalSelection(): void {
+function syncLocalSelection(resetActiveTab = false): void {
+  autoSaveReady.value = false;
   const visibleNotebookIds = new Set(props.notebooks.map(notebook => notebook.id));
   localExcludedNotebookIds.value = normalizeNotebookIds(props.excludedNotebookIds).filter(id => visibleNotebookIds.has(id));
   localShowCompletedTasks.value = props.showCompletedTasks !== false;
@@ -781,6 +843,7 @@ function syncLocalSelection(): void {
   localAfternoonKeywordsText.value = formatKeywordText(props.dateRecognitionKeywords?.afternoon);
   localShowDocumentGroupNotebookPath.value = props.showDocumentGroupNotebookPath !== false;
   localDocumentGroups.value = cloneDocumentGroups(props.documentGroups || []);
+  localTaskGroups.value = (props.taskGroups || []).map(group => ({ ...group }));
   localGoals.value = cloneGoals(props.goals || []);
   localHiddenTaskViewIds.value = normalizeOptionIds(props.hiddenTaskViewIds || [], taskViewOptionIds.value.map(id => ({ id, label: id })))
     .filter(id => (props.hiddenTaskViewIds || []).includes(id));
@@ -809,7 +872,10 @@ function syncLocalSelection(): void {
   localCustomCompletionSoundVolume.value = normalizeCustomAudioVolume(props.focusSettings?.customCompletionSoundVolume);
   localCustomMicroBreakSoundVolume.value = normalizeCustomAudioVolume(props.focusSettings?.customMicroBreakSoundVolume);
   normalizeMicroBreakIntervals();
-  activeTab.value = resolveInitialTab();
+  if (resetActiveTab) {
+    activeTab.value = resolveInitialTab();
+  }
+  void nextTick(() => { autoSaveReady.value = true; });
 }
 
 function normalizeMicroBreakInterval(value: number | undefined, fallback: number): number {
@@ -1138,6 +1204,15 @@ function save(): void {
   });
 }
 
+function scheduleAutoSave(): void {
+  if (!autoSaveReady.value) return;
+  if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    autoSaveTimer = null;
+    save();
+  }, 400);
+}
+
 watch(
   [
     () => props.show,
@@ -1152,6 +1227,7 @@ watch(
     () => props.initialTab,
     () => props.documentGroups,
     () => props.goals,
+    () => props.taskGroups,
     () => props.taskViewOptions,
     () => props.hiddenTaskViewIds,
     () => props.sidebarSectionOptions,
@@ -1162,18 +1238,61 @@ watch(
     () => props.defaultTaskCreateDocument,
     () => props.focusSettings
   ],
-  ([show]) => {
+  ([show, , , , , , , , , initialTab], previousValues) => {
     if (show) {
-      syncLocalSelection();
-      void loadCustomAudioFiles();
+      const previousShow = previousValues?.[0];
+      const previousInitialTab = previousValues?.[9];
+      const shouldReset = show !== previousShow || initialTab !== previousInitialTab;
+      if (shouldReset) {
+        syncLocalSelection(true);
+        void loadCustomAudioFiles();
+      }
     }
   },
   { immediate: true, deep: true }
 );
 
+// Metadata is loaded in the background after the settings page can already be
+// opened. Populate the initially empty local copies when that first result
+// arrives, without overwriting edits already made in this dialog.
+watch(
+  [
+    () => props.documentGroups,
+    () => props.goals,
+    () => props.taskGroups
+  ],
+  ([documentGroups, goals, taskGroups]) => {
+    if (!props.show) return;
+    if (localDocumentGroups.value.length === 0 && documentGroups?.length) {
+      localDocumentGroups.value = cloneDocumentGroups(documentGroups);
+    }
+    if (localGoals.value.length === 0 && goals?.length) {
+      localGoals.value = cloneGoals(goals);
+    }
+    if (localTaskGroups.value.length === 0 && taskGroups?.length) {
+      localTaskGroups.value = taskGroups.map(group => ({ ...group }));
+    }
+  },
+  { deep: true }
+);
+
 watch([() => props.show, localDefaultTaskCreateNotebook], () => {
   void loadDefaultTaskCreateDocuments();
 }, { immediate: true });
+
+watch([
+  localExcludedNotebookIds, localShowCompletedTasks, localAutoRecognizeTaskDate,
+  localTaskCompletionSoundEnabled, localStartKeywordsText, localDueKeywordsText,
+  localRangeKeywordsText, localAfternoonKeywordsText, localShowDocumentGroupNotebookPath,
+  localDocumentGroups, localGoals, localHiddenTaskViewIds, localHiddenSidebarSectionIds,
+  localSidebarSectionOrder, localDefaultTaskCreateTarget, localDefaultTaskCreateNotebook,
+  localDefaultTaskCreateDocument, localMicroBreakEnabled, localMicroBreakPopup,
+  localMicroBreakSystemNotification, localMicroBreakSound, localMicroBreakMinIntervalMinutes,
+  localMicroBreakMaxIntervalMinutes, localMicroBreakDurationSeconds, localShortBreakPopup,
+  localFocusCompletePopup, localCheckinNotePrompt, localCustomWhiteNoiseFile,
+  localCustomCompletionSoundFile, localCustomMicroBreakSoundFile, localCustomWhiteNoiseVolume,
+  localCustomCompletionSoundVolume, localCustomMicroBreakSoundVolume
+], scheduleAutoSave, { deep: true });
 </script>
 
 <style scoped>
@@ -1182,9 +1301,37 @@ watch([() => props.show, localDefaultTaskCreateNotebook], () => {
   inset: 0;
   background: rgba(0, 0, 0, 0.35);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  z-index: 10000;
+  z-index: 10;
+}
+
+.task-scope-page {
+  position: fixed;
+  z-index: 4;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  box-sizing: border-box;
+  background-color: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.task-scope-page.is-elevated {
+  z-index: 30;
+}
+
+.task-scope-page .task-scope-dialog,
+.task-scope-page .task-scope-dialog.with-document-groups {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: inherit;
+  box-shadow: none;
+  background-color: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
+  overflow-y: auto;
 }
 
 .task-scope-dialog {
@@ -1213,15 +1360,119 @@ watch([() => props.show, localDefaultTaskCreateNotebook], () => {
 }
 
 .task-scope-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   color: var(--b3-theme-on-background);
 }
 
+.task-scope-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.task-scope-home {
+  flex: 0 0 auto;
+  min-height: max-content;
+  gap: 16px;
+  padding: 16px 14px;
+}
+
+.task-scope-home-group {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--b3-theme-background);
+}
+
+.task-scope-home-item {
+  flex: 0 0 52px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.task-scope-home-item-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.task-scope-home-item-icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+}
+
+.task-scope-home-item-icon svg {
+  display: block;
+}
+
+.task-scope-home-item + .task-scope-home-item::before {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 18px;
+  height: 1px;
+  background: var(--b3-border-color);
+  content: '';
+}
+
 .task-scope-hint {
-  padding: 12px 14px 2px 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 14px 0;
+  padding: 8px 10px;
+  border-radius: 16px;
+  background: var(--pinch-background4);
+  box-shadow: inset 0 0 0 1px var(--pinch-color4);
   font-size: 12px;
-  color: var(--b3-theme-on-surface);
+  color: var(--pinch-group-color4);
+  opacity: 0.5;
+}
+
+.task-scope-hint-icon {
+  align-self: flex-start;
+  flex: 0 0 auto;
+  margin-top: 0;
+  color: var(--pinch-group-color4);
+  opacity: 0.5;
+}
+
+.task-scope-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.task-scope-scroll .task-scope-content {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
 }
 
 .task-scope-tabs {
@@ -1273,19 +1524,25 @@ watch([() => props.show, localDefaultTaskCreateNotebook], () => {
 }
 
 .scope-tab-content {
-  padding-top: 6px;
+  gap: 12px;
+  padding: 8px 14px 12px;
+  overflow-y: auto;
 }
 
 .document-groups-tab-content {
   padding-top: 8px;
   min-width: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .goals-tab-content {
   padding-top: 8px;
   min-width: 0;
-  overflow: hidden;
+  overflow-y: auto;
+}
+
+.tags-tab-content {
+  padding: 8px 14px 12px;
 }
 
 .display-tab-content {
@@ -1294,16 +1551,210 @@ watch([() => props.show, localDefaultTaskCreateNotebook], () => {
   overflow-y: auto;
 }
 
+/* Keep display settings consistent with the grouped cards on the settings home. */
+.display-tab-content .task-scope-display-section {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 0;
+  border-radius: 16px;
+  background: var(--b3-theme-background);
+}
+
+.display-tab-content .task-scope-display-title {
+  padding: 12px 18px 6px;
+  background: transparent;
+}
+
+.display-tab-content .task-scope-display-grid {
+  display: block;
+}
+
+.display-tab-content .task-scope-display-item {
+  flex: 0 0 52px;
+  position: relative;
+  min-height: 52px;
+  padding: 0 18px;
+}
+
+.display-tab-content .task-scope-display-item + .task-scope-display-item,
+.display-tab-content .task-scope-display-grid .task-scope-display-item + .task-scope-display-item,
+.display-tab-content .task-scope-display-grid .task-scope-display-item:nth-child(n + 3) {
+  border: 0;
+}
+
+.display-tab-content .task-scope-display-item + .task-scope-display-item::before {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 18px;
+  height: 1px;
+  background: var(--b3-border-color);
+  content: '';
+}
+
+.display-tab-content .task-scope-display-grid .task-scope-display-item:nth-child(even) {
+  border-left: 0;
+}
+
+.display-tab-content .task-scope-auto-item {
+  flex: 0 0 auto;
+  position: relative;
+  padding: 12px 18px;
+}
+
+.display-tab-content .task-scope-auto-item + .task-scope-auto-item {
+  border: 0;
+}
+
+.display-tab-content .task-scope-auto-item + .task-scope-auto-item::before {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 18px;
+  height: 1px;
+  background: var(--b3-border-color);
+  content: '';
+}
+
 .task-settings-tab-content {
   gap: 12px;
   padding: 8px 14px 12px;
   overflow-y: auto;
 }
 
+/* Task settings use the same grouped-card language as the settings home. */
+.task-settings-tab-content .task-scope-auto-setting,
+.task-settings-tab-content .task-scope-display-section {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 0;
+  border-radius: 16px;
+  background: var(--b3-theme-background);
+}
+
+.task-settings-tab-content .task-scope-auto-setting {
+  border-top: 0;
+}
+
+.task-settings-tab-content .task-scope-auto-item {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 52px;
+  padding: 10px 18px;
+}
+
+.task-settings-tab-content .task-scope-auto-item + .task-scope-auto-item,
+.task-settings-tab-content .task-scope-auto-item + .task-scope-keyword-settings,
+.task-settings-tab-content .task-scope-display-item + .task-scope-display-item {
+  border: 0;
+}
+
+.task-settings-tab-content .task-scope-auto-item + .task-scope-auto-item::before,
+.task-settings-tab-content .task-scope-auto-item + .task-scope-keyword-settings::before,
+.task-settings-tab-content .task-scope-display-item + .task-scope-display-item::before {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 18px;
+  height: 1px;
+  background: var(--b3-border-color);
+  content: '';
+}
+
+.task-settings-tab-content .task-scope-keyword-settings {
+  position: relative;
+  border-top: 0;
+  padding: 0 18px 12px;
+}
+
+.task-settings-tab-content .task-scope-keyword-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  list-style: none;
+}
+
+.task-settings-tab-content .task-scope-keyword-summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-settings-tab-content .task-scope-keyword-arrow {
+  transition: transform 0.18s ease;
+}
+
+.task-settings-tab-content .task-scope-keyword-settings[open] .task-scope-keyword-arrow {
+  transform: rotate(90deg);
+}
+
+.task-settings-tab-content .task-scope-display-title {
+  padding: 12px 18px 6px;
+  background: transparent;
+}
+
+.task-settings-tab-content .task-scope-display-item {
+  position: relative;
+  flex: 0 0 52px;
+  min-height: 52px;
+  padding: 0 18px;
+}
+
 .pomodoro-settings-tab-content {
   gap: 12px;
   padding: 8px 14px 12px;
   overflow-y: auto;
+}
+
+/* Keep pomodoro controls in the same card layout as the rest of settings. */
+.pomodoro-settings-tab-content .task-scope-display-section {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 0;
+  border-radius: 16px;
+  background: var(--b3-theme-background);
+}
+
+.pomodoro-settings-tab-content .task-scope-display-title {
+  padding: 12px 18px 6px;
+  background: transparent;
+}
+
+.pomodoro-settings-tab-content .task-scope-auto-item,
+.pomodoro-settings-tab-content .custom-audio-setting,
+.pomodoro-settings-tab-content .micro-break-options {
+  position: relative;
+  border-top: 0;
+}
+
+.pomodoro-settings-tab-content .task-scope-auto-item {
+  flex: 0 0 auto;
+  min-height: 52px;
+  padding: 10px 18px;
+}
+
+.pomodoro-settings-tab-content .task-scope-auto-item + .task-scope-auto-item,
+.pomodoro-settings-tab-content .task-scope-auto-item + .micro-break-options,
+.pomodoro-settings-tab-content .task-scope-auto-item + .custom-audio-setting,
+.pomodoro-settings-tab-content .custom-audio-setting + .custom-audio-setting {
+  border-top: 0;
+}
+
+.pomodoro-settings-tab-content .task-scope-auto-item + .task-scope-auto-item::before,
+.pomodoro-settings-tab-content .task-scope-auto-item + .micro-break-options::before,
+.pomodoro-settings-tab-content .task-scope-auto-item + .custom-audio-setting::before,
+.pomodoro-settings-tab-content .custom-audio-setting + .custom-audio-setting::before {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 18px;
+  height: 1px;
+  background: var(--b3-border-color);
+  content: '';
+}
+
+.pomodoro-settings-tab-content .micro-break-options,
+.pomodoro-settings-tab-content .custom-audio-setting {
+  padding: 12px 18px;
 }
 
 .micro-break-options {
@@ -1594,11 +2045,6 @@ watch([() => props.show, localDefaultTaskCreateNotebook], () => {
   line-height: 12px;
 }
 
-.task-settings-tab-content .task-scope-auto-setting {
-  border: 1px solid var(--b3-border-color);
-  border-radius: 8px;
-}
-
 .task-scope-display-section {
   border: 1px solid var(--b3-border-color);
   border-radius: 8px;
@@ -1683,10 +2129,16 @@ watch([() => props.show, localDefaultTaskCreateNotebook], () => {
 }
 
 .task-scope-summary {
-  padding: 0 14px 8px 14px;
   font-size: 12px;
   color: var(--b3-theme-on-surface);
   opacity: 0.75;
+}
+
+.task-scope-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .task-scope-extra {
@@ -1804,19 +2256,34 @@ watch([() => props.show, localDefaultTaskCreateNotebook], () => {
 }
 
 .task-scope-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 14px 12px 14px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--b3-theme-background);
 }
 
 .task-scope-item {
+  flex: 0 0 52px;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 13px;
   color: var(--b3-theme-on-background);
-  padding: 6px 0;
+  min-height: 52px;
+  padding: 0 18px;
   cursor: pointer;
+}
+
+.task-scope-item + .task-scope-item::before {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 18px;
+  height: 1px;
+  background: var(--b3-border-color);
+  content: '';
 }
 
 .task-scope-toggle {
@@ -1824,6 +2291,7 @@ watch([() => props.show, localDefaultTaskCreateNotebook], () => {
 }
 
 .task-scope-name {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

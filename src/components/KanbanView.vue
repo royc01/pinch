@@ -350,8 +350,13 @@
             type="search"
             :placeholder="t('taskManager.searchTasks')"
             :aria-label="t('taskManager.searchTasks')"
+            @focus="tableSearchHistoryVisible = true"
+            @click="tableSearchHistoryVisible = true"
+            @blur="recordTableSearch(); tableSearchHistoryVisible = false"
+            @keydown.enter="recordTableSearch"
             @keydown.esc.stop.prevent="handleTableSearchEscape"
           />
+          <TaskSearchHistoryPopover :visible="tableSearchHistoryVisible" @reuse="reuseTableSearchHistory" />
           <button
             v-if="tableSearchQuery && !isMobileTaskSearchCollapsed"
             type="button"
@@ -515,8 +520,13 @@
                 type="search"
                 :placeholder="t('taskManager.searchTasks')"
                 :aria-label="t('taskManager.searchTasks')"
+                @focus="tableSearchHistoryVisible = true"
+                @click="tableSearchHistoryVisible = true"
+                @blur="recordTableSearch(); tableSearchHistoryVisible = false"
+                @keydown.enter="recordTableSearch"
                 @keydown.esc.stop.prevent="handleTableSearchEscape"
               />
+              <TaskSearchHistoryPopover :visible="tableSearchHistoryVisible" @reuse="reuseTableSearchHistory" />
               <button
                 v-if="tableSearchQuery && !isMobileTaskSearchCollapsed"
                 type="button"
@@ -1443,6 +1453,7 @@
           @update:description="handleKanbanEditorDescriptionInput"
           @update-dates="handleKanbanEditorDateFieldsUpdate"
           @select-group="handleKanbanEditorGroupSelect"
+          @remove-group="handleKanbanEditorGroupRemove"
           @select-goal="handleKanbanEditorGoalSelect"
           @select-reminder="handleKanbanEditorReminderSelect"
           @select-status="handleKanbanEditorStatusSelect"
@@ -1581,6 +1592,7 @@
             @update:panel="kanbanEditorQuickPanel = $event"
             @update:description="handleKanbanEditorDescriptionInput"
             @select-group="handleKanbanEditorGroupSelect"
+            @remove-group="handleKanbanEditorGroupRemove"
             @select-goal="handleKanbanEditorGoalSelect"
             @select-reminder="handleKanbanEditorReminderSelect"
             @select-status="handleKanbanEditorStatusSelect"
@@ -1708,9 +1720,12 @@
         :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
         :default-task-create-document="userSettings.taskManager.defaultTaskCreateDocument"
       :focus-settings="userSettings.focus"
+      :task-groups="taskGroups"
+      :task-group-order-ids="userSettings.kanban.kanbanGroupColumnOrder"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
       @refresh-documents="handleTaskScopeDocumentsRefresh"
+      @save-tags="handleTaskGroupSave"
         @save="handleTaskScopeSave"
       />
     </Teleport>
@@ -1891,6 +1906,7 @@ import {
   type TaskViewGroupMode
 } from '@/utils/taskGrouping';
 import Icon from '@/components/Icon.vue';
+import TaskSearchHistoryPopover from '@/components/TaskSearchHistoryPopover.vue';
 import SourceFilterSelect from '@/components/SourceFilterSelect.vue';
 import CalendarTaskEditorPanel, { type CalendarTaskEditorColorOption } from '@/components/CalendarTaskEditorPanel.vue';
 import TaskCard from '@/components/TaskCard.vue';
@@ -1910,6 +1926,7 @@ import {
 } from '@/composables/useTaskFilterState';
 import { useMobileTextInputActivation } from '@/composables/useMobileTextInputActivation';
 import { useI18n } from '@/composables/useI18n';
+import { recordTaskSearchHistory } from '@/utils/taskSearchHistory';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import KanbanColumnTitlePrefix from '@/components/KanbanColumnTitlePrefix.vue';
 import TableView from '@/components/TableView.vue';
@@ -2032,7 +2049,7 @@ const calendarLifelogTasks = ref<Task[]>([]);
 let calendarLifelogLoadRequestId = 0;
 const showTaskScopeDialog = ref(false);
 const taskScopeDocumentsRefreshing = ref(false);
-type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
+type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
 const taskScopeDialogInitialTab = ref<TaskScopeDialogTab>('task-settings');
 const isGlobalDateRecognitionRunning = ref(false);
 const showTaskGroupDialog = ref(false);
@@ -2798,6 +2815,7 @@ type KanbanTaskExtraFilterKey = 'hasDescription' | 'hasSubtasks' | 'hasFocusEsti
 const tableFilterType = ref('all');
 const tableFilterDocument = ref('all');
 const tableSearchQuery = ref('');
+const tableSearchHistoryVisible = ref(false);
 const normalizedTableSearch = computed(() => normalizeSearchText(tableSearchQuery.value));
 const isMobileTaskSearchCollapsed = computed(() =>
   isMobileFrontend && !isMobileTableSearchExpanded.value && !tableSearchQuery.value
@@ -5046,7 +5064,7 @@ function resetFiltersForExcludedNotebooks(): boolean {
   return changed;
 }
 
-async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'task-settings') {
+async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'home') {
   if (notebooks.value.length === 0) {
     await loadNotebooks();
   }
@@ -5304,8 +5322,7 @@ async function openGoalManagerFromTabMenu(): Promise<void> {
 
 async function openTaskGroupQuickCreate(): Promise<void> {
   await ensureTaskGroupsLoaded();
-  taskGroupDialogAutoAdd.value = true;
-  showTaskGroupDialog.value = true;
+  await openTaskScopeDialog('tags');
 }
 
 async function openHeadingAndTaskQuickCreate(): Promise<void> {
@@ -5326,8 +5343,7 @@ function handleActionColumnClick(column: KanbanColumn): void {
 
 async function openTaskGroupDialog(): Promise<void> {
   await ensureTaskGroupsLoaded();
-  taskGroupDialogAutoAdd.value = false;
-  showTaskGroupDialog.value = true;
+  await openTaskScopeDialog('tags');
 }
 
 function closeTaskGroupDialog(): void {
@@ -5557,7 +5573,6 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
   applyExternalDocumentGroups(nextDocumentGroups);
   eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
   await saveGoalDefinitions(nextGoals);
-  showTaskScopeDialog.value = false;
   const hasFilterChanges = resetFiltersForExcludedNotebooks() || normalizeInvalidNotebookFilters();
 
   await updateSettings('taskManager', {
@@ -7449,6 +7464,16 @@ function handleTableSearchEscape(): void {
   closeMobileTableSearch(true);
 }
 
+function recordTableSearch(): void {
+  recordTaskSearchHistory(tableSearchQuery.value);
+}
+
+function reuseTableSearchHistory(query: string): void {
+  tableSearchQuery.value = query;
+  recordTableSearch();
+  tableSearchHistoryVisible.value = false;
+}
+
 function selectPrimaryMobileView(option: PrimaryViewSwitcherOption): void {
   selectPrimaryView(option);
   closeMobileViewSwitcher();
@@ -7609,6 +7634,27 @@ setupFilterTypeWatcher(listFilterType, listFilterDocument, () => getDocumentTabT
 setupFilterTypeWatcher(tableFilterType, tableFilterDocument, () => getDocumentTabTaskMatcher('table'));
 setupFilterTypeWatcher(ganttFilterType, ganttFilterDocument, () => getDocumentTabTaskMatcher('gantt'));
 setupFilterTypeWatcher(monthFilterType, monthFilterDocument, () => getDocumentTabTaskMatcher('month'));
+
+watch(calendarFilterType, () => {
+  if (isHydratingSettings.value) {
+    return;
+  }
+  const view = currentView.value;
+  if (!isCalendarTaskViewMode(view)) {
+    return;
+  }
+  calendarTaskDataReady.value = false;
+  // The kernel's incremental index can occasionally return a reduced
+  // snapshot. Use the same authoritative refresh as the manual button so a
+  // source switch never replaces visible tasks with an incomplete result.
+  void loadTasks(true, {
+    silent: true,
+    validateSelection: false,
+    mode: 'light-with-repeats',
+    repeatWindow: resolveRequestedRepeatWindowForView(view),
+    view
+  });
+});
 
 const ensureTableDocumentSelection = () => {
   const options = toFilterDocumentOptions(tableFilterType.value, {
@@ -13592,6 +13638,16 @@ function getTaskLoadScope(): TaskQueryScope {
   return scope;
 }
 
+async function handleKanbanEditorGroupRemove(value: string): Promise<void> {
+  if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) return;
+  const nextTagIds = kanbanEditorSelectedTagIds.value.filter(tagId => tagId !== value);
+  const nextTagState = buildTaskTagState(nextTagIds);
+  activeKanbanEditDraft.value.tags = [...nextTagState.tagIds];
+  activeKanbanEditDraft.value.groupId = nextTagState.primaryTagId;
+  await applyBlockTaskTagUpdate(activeKanbanEditTask.value, nextTagState.tagIds, 'Failed to update task group');
+  invalidateTableFilters();
+}
+
 function taskModalTranslate(key: string): string {
   return t(key);
 }
@@ -14003,7 +14059,23 @@ async function resolveQuickCreateTarget(
       docPath: await ensureDailyNoteDocument(notebookId)
     };
   }
-  return resolveCreateTarget(notebookId, documentId);
+  const notebook = notebooks.value.find(item => item.id === notebookId);
+  if (!notebook || !documentId || documentId === 'all') {
+    return null;
+  }
+
+  // Do not rely on an existing task to discover the document path. A newly
+  // selected (or empty) document has no task record yet, which made the view
+  // quick-create dialog silently abandon submission.
+  const hPath = await getHPathByID(documentId).catch(() => '');
+  if (!hPath) {
+    return null;
+  }
+  return {
+    notebookId,
+    documentId,
+    docPath: normalizeDocPath(notebook.name, hPath)
+  };
 }
 
 async function resolveSharedQuickCreateTarget(
@@ -15752,7 +15824,12 @@ onMounted(async () => {
   let initialLoadCompletionPromise: Promise<void> | null = null;
   if (!shouldRunMountedReconcile) {
     const shouldLoadInitialTasksInBackground = initialLoadMode === 'light-with-repeats';
-    const initialTaskLoadPromise = loadTasks(false, {
+    // Calendar's light snapshot is allowed to render in the background, but
+    // it must not reuse an in-progress or stale task-index snapshot as its
+    // final result. A manual refresh already forces this path; doing the same
+    // for the initial calendar load prevents an occasional sparse calendar
+    // after the plugin has been reloaded.
+    const initialTaskLoadPromise = loadTasks(isCalendarTaskViewMode(initialView), {
       silent: shouldLoadInitialTasksInBackground,
       validateSelection: false,
       mode: initialLoadMode,
@@ -16787,6 +16864,7 @@ watch(kanbanColumns, () => {
 
 
 .task-search {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;

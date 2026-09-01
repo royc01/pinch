@@ -63,8 +63,8 @@
             </div>
             <div class="title ariaLabel" :aria-label="t('habitTracker.calendarDisplayTip')">{{ t('habitTracker.title') }}</div>
           </div>
-          <div class="header-actions">
-            <SyButton
+           <div class="header-actions">
+             <SyButton
               @click="showHabitManagerPage = true"
               id="habit-manage-btn"
               class="habit-manage-btn ariaLabel"
@@ -94,7 +94,8 @@
           :get-calendar-view-data="getCalendarViewData"
           :is-habit-scheduled-today="isHabitScheduledToday"
           :pomodoro-state-class="pomodoroStateClass"
-            :format-pomodoro-time="formatPomodoroTime"
+           :format-pomodoro-time="formatPomodoroTime"
+           :tags="habitTags"
             @show-stats="showHabitStats"
             @edit="openHabitEditor"
             @manage-logs="openMoodCalendarPanel"
@@ -151,7 +152,8 @@
           :get-calendar-view-data="getCalendarViewData"
           :is-habit-scheduled-today="isHabitScheduledToday"
           :pomodoro-state-class="pomodoroStateClass"
-            :format-pomodoro-time="formatPomodoroTime"
+             :format-pomodoro-time="formatPomodoroTime"
+           :tags="habitTags"
           manage-mode
             @show-stats="showHabitStats"
             @edit="openHabitEditor"
@@ -236,6 +238,7 @@
       :completion-mode-options="completionModeOptions"
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
+      :tags="habitTags"
       :t="t"
       :overlay-style="sidebarModalOverlayStyle"
       @close="closeEditHabitModal"
@@ -252,6 +255,7 @@
       :completion-mode-options="completionModeOptions"
       :times-per-day-options="timesPerDayOptions"
       :pomodoro-duration-options="pomodoroDurationOptions"
+      :tags="habitTags"
       :t="t"
       :overlay-style="sidebarModalOverlayStyle"
       @close="showAddHabitModal = false"
@@ -414,7 +418,7 @@ import FocusTimerHost from '@/components/FocusTimerHost.vue';
 import CheckinNotePrompt from '@/components/CheckinNotePrompt.vue';
 import KanbanView from '@/components/KanbanView.vue';
 import TaskManager from '@/components/TaskManager.vue';
-import { getHabits, removeHabit, reorderHabits as persistHabitOrder, upsertHabit, Habit, type Task } from '@/api';
+import { getHabits, removeHabit, reorderHabits as persistHabitOrder, upsertHabit, loadTags, Habit, type Tag, type Task } from '@/api';
 import { openKanbanView } from '@/main';
 import { useHabitCache } from '@/composables/useHabitCache';
 import { useHabitCheckin } from '@/composables/useHabitCheckin';
@@ -477,9 +481,10 @@ const {
 } = useHabitEmojis();
 
 const { t } = useI18n();
+const habitTags = ref<Tag[]>([]);
 const { rewardSnapshot } = useRewards();
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
-type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
+type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
 type TaskManagerExpose = {
   openTaskScopeDialog: (initialTab?: TaskScopeDialogTab) => Promise<void> | void;
   closeTaskScopeDialog: () => void;
@@ -761,6 +766,7 @@ function reorderHabits(sourceHabitId: string, targetHabitId: string): void {
 const showAddHabitModal = ref(false);
 const showTotalStatsPage = ref(false);
 const showRewardPage = ref(false);
+const returnToSettingsHomeAfterReward = ref(false);
 const showGoalPage = ref(false);
 const showHabitManagerPage = ref(false);
 const highlightedRewardEntryId = ref('');
@@ -928,7 +934,7 @@ function openFocusTimerForTask(task: Task): void {
 }
 
 function openTaskSettings(): void {
-  void taskManagerRef.value?.openTaskScopeDialog('display');
+  void taskManagerRef.value?.openTaskScopeDialog('home');
 }
 
 function openGoalTaskScope(): void {
@@ -1163,7 +1169,7 @@ function handlePanelOpenRequest(payload?: HabitTrackerPanelOpenRequest): void {
   }
 
   if (payload.target === 'reward') {
-    openRewardPage(payload.rewardEntryId || '');
+    openRewardPage(payload.rewardEntryId || '', payload.returnToSettingsHome === true);
     return;
   }
 
@@ -1191,6 +1197,7 @@ onMounted(async () => {
   }
 
   await loadSettings();
+  habitTags.value = await loadTags();
   isHabitListCollapsed.value = userSettings.sidebar.habitListCollapsed === true;
   unsubscribePanelOpenRequest = eventBus.on(
     Events.HABIT_TRACKER_PANEL_OPEN_REQUEST,
@@ -1436,6 +1443,10 @@ function closeTotalStatsPage(): void {
 function closeRewardPage(): void {
   showRewardPage.value = false;
   highlightedRewardEntryId.value = '';
+  if (returnToSettingsHomeAfterReward.value) {
+    returnToSettingsHomeAfterReward.value = false;
+    eventBus.emit(Events.TASK_SCOPE_HOME_OPEN_REQUEST);
+  }
 }
 
 function closeGoalPage(): void {
@@ -1452,10 +1463,11 @@ function openTotalStatsPage(): void {
   showTotalStatsPage.value = true;
 }
 
-function openRewardPage(entryId: string = ''): void {
+function openRewardPage(entryId: string = '', returnToSettingsHome = false): void {
   closeTrackerPanels();
   highlightedGoalId.value = '';
   highlightedRewardEntryId.value = entryId;
+  returnToSettingsHomeAfterReward.value = returnToSettingsHome;
   showRewardPage.value = true;
 }
 
@@ -1602,6 +1614,7 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
 
   :deep(.mood-calendar-panel),
   :deep(.goal-page-panel),
+  :deep(.task-scope-page),
   :deep(.reward-page-panel),
    :deep(.focus-timer-panel),
    :deep(.habit-manage-panel),
@@ -1942,6 +1955,8 @@ watch([showAddHabitModal, showEditHabitModal, showMoodTracker], ([showAdd, showE
 
   .habit-manager-header .header-actions {
     display: flex;
+    align-items: center;
+    gap: 2px;
   }
 
   .habit-manage-panel {

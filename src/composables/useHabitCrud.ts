@@ -77,6 +77,8 @@ export const useHabitCrud = ({
       createdAt: new Date().toISOString(),
       usePomodoro: habitData.usePomodoro || false,
       pomodoroDuration: parseInt(String(habitData.pomodoroDuration), 10) || 25
+      , tagIds: Array.from(new Set(habitData.tagIds || [])),
+      primaryTagId: habitData.primaryTagId || habitData.tagIds?.[0]
     };
 
     habits.value = [...habits.value, habit];

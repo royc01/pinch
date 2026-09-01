@@ -112,7 +112,8 @@
           :style="group.style"
           :aria-label="group.label"
         >
-          <Icon name="group" width="12" height="12" />
+          <EmojiIcon v-if="group.icon" class="task-group-badge-icon" :value="group.icon" />
+          <Icon v-else name="group" width="12" height="12" />
           {{ group.label }}
         </span>
         <span
@@ -520,6 +521,19 @@ const repeatBadgeTitle = computed(() => t('taskCard.repeatTask'));
 const isOverdue = computed(() => overdueDays.value > 0);
 const isDueSoon = computed(() => remainingDays.value !== null && remainingDays.value <= DUE_SOON_DAY_LIMIT);
 
+function getTaskTagPathLabel(tagId: string): string {
+  const groupsById = new Map((props.taskGroups || []).map(group => [group.id, group]));
+  const labels: string[] = [];
+  const visited = new Set<string>();
+  let current = groupsById.get(tagId);
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    labels.unshift(current.name?.trim() || t('taskManager.tags'));
+    current = current.parentId ? groupsById.get(current.parentId) : undefined;
+  }
+  return labels.join('/');
+}
+
 const resolvedTaskTagBadges = computed(() => (
   resolveTaskTagIds(task.value.tags, task.value.groupId)
     .flatMap((tagId) => {
@@ -531,8 +545,9 @@ const resolvedTaskTagBadges = computed(() => (
       }
       const rawColor = group.color || '';
       return [{
-        id: tagId,
-        label: group.name || t('taskManager.tags'),
+         id: tagId,
+          label: getTaskTagPathLabel(tagId),
+         icon: group.icon,
         style: rawColor ? {
           background: resolveGroupColorCss(rawColor),
           borderColor: resolveGroupColorLayerCss(rawColor),
@@ -1278,6 +1293,12 @@ function getTaskDateTimestamp(value: unknown): number | null {
 
 .task-group-badge-more {
   justify-content: center;
+}
+
+.task-group-badge-icon {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
 }
 
 .task-goal-badge {

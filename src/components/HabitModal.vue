@@ -41,6 +41,28 @@
           <label>{{ t('habitTracker.habitName') }}</label>
           <SyInput v-model="localHabit.name" :placeholder="t('habitTracker.habitNamePlaceholder')" />
         </div>
+        <div v-if="tagPickerOptions.length > 1" class="form-group">
+          <label>{{ t('taskManager.tags') }}</label>
+          <button
+            ref="tagPickerTriggerRef"
+            type="button"
+            class="habit-tag-picker-trigger"
+            :class="{ 'is-active': showTagPicker }"
+            :aria-label="t('taskManager.tags')"
+            @click.stop="toggleTagPicker"
+          >
+            <span class="task-editor-property-value is-chip-list">
+              <template v-if="selectedTagButtonItems.length">
+                <span v-for="tag in selectedTagButtonItems" :key="tag.value" class="task-editor-property-pill" :style="tag.style">
+                  <EmojiIcon v-if="tag.icon" class="task-editor-group-button-emoji" :value="tag.icon" />
+                  <Icon v-else name="group" width="12" height="12" aria-hidden="true" />
+                  {{ tag.label }}
+                </span>
+              </template>
+              <span v-else class="task-editor-property-placeholder">{{ t('taskManager.noTag') }}</span>
+            </span>
+          </button>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label>{{ t('habitTracker.frequency') }}</label>
@@ -166,10 +188,19 @@
       </Transition>
     </div>
   </Transition>
+  <TagPickerPopover
+    :show="showTagPicker"
+    :style="tagPickerStyle"
+    :options="tagPickerOptions"
+    :selected-ids="localHabit?.tagIds || []"
+    @select="toggleTag"
+    @remove="toggleTag"
+    @clear="clearTags"
+  />
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, nextTick, onBeforeUnmount } from 'vue';
 import { openEmoji } from 'siyuan';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
@@ -177,7 +208,9 @@ import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
-import type { Habit as ApiHabit, HabitCustomScheduleCalendar, HabitCustomScheduleType, HabitDifficulty } from '@/api';
+import TagPickerPopover from '@/components/TagPickerPopover.vue';
+import type { Habit as ApiHabit, HabitCustomScheduleCalendar, HabitCustomScheduleType, HabitDifficulty, Tag } from '@/api';
+import { buildTaskGroupOptions, type TaskGroupOption } from '@/utils/taskGroupShared';
 
 interface Habit extends ApiHabit {
   weeklyGoal?: number;
@@ -193,6 +226,8 @@ interface NewHabit {
   timesPerDay: string | number;
   usePomodoro: boolean;
   pomodoroDuration: string | number;
+  tagIds: string[];
+  primaryTagId?: string;
 }
 
 interface Option {
@@ -211,6 +246,7 @@ interface Props {
   pomodoroDurationOptions: Option[];
   t: (key: string) => string;
   overlayStyle?: Record<string, string>;
+  tags?: Tag[];
 }
 
 const props = defineProps<Props>();
@@ -229,6 +265,89 @@ const buttonText = computed(() => {
 });
 
 const localHabit = ref<Habit | NewHabit | null>(null);
+const tagPickerTriggerRef = ref<HTMLElement | null>(null);
+const showTagPicker = ref(false);
+const tagPickerStyle = ref<Record<string, string>>({});
+const tagPickerOptions = computed(() => buildTaskGroupOptions(props.tags || [], {
+  none: props.t('taskManager.noTag'),
+  fallback: props.t('taskManager.noTag')
+}));
+const selectedTagButtonItems = computed(() => {
+  const optionsByValue = new Map(tagPickerOptions.value.map(option => [option.value, option]));
+  return (localHabit.value?.tagIds || []).map(value => {
+    const option = optionsByValue.get(value);
+    if (!option || option.special) return null;
+    return {
+      value,
+      label: getTagPathLabel(option, optionsByValue),
+      icon: option.icon?.trim(),
+      style: resolveTagStyle(option)
+    };
+  }).filter((item): item is NonNullable<typeof item> => item !== null);
+});
+
+function toggleTag(tagId: string): void {
+  if (!localHabit.value) return;
+  const current = localHabit.value.tagIds || [];
+  const tagIds = current.includes(tagId) ? current.filter(id => id !== tagId) : [...current, tagId];
+  localHabit.value.tagIds = tagIds;
+  localHabit.value.primaryTagId = tagIds.includes(localHabit.value.primaryTagId || '')
+    ? localHabit.value.primaryTagId
+    : tagIds[0];
+}
+
+function clearTags(): void {
+  if (!localHabit.value) return;
+  localHabit.value.tagIds = [];
+  localHabit.value.primaryTagId = undefined;
+}
+
+function getTagPathLabel(option: TaskGroupOption, optionsByValue: ReadonlyMap<string, TaskGroupOption>): string {
+  const labels: string[] = [];
+  const visited = new Set<string>();
+  let current: TaskGroupOption | undefined = option;
+  while (current && !visited.has(current.value)) {
+    visited.add(current.value);
+    if (current.label.trim()) labels.unshift(current.label.trim());
+    current = current.parentId ? optionsByValue.get(current.parentId) : undefined;
+  }
+  return labels.join('/');
+}
+
+function resolveTagStyle(option: TaskGroupOption): Record<string, string> {
+  return {
+    ...(option.colorCss ? { background: option.colorCss, borderColor: option.colorCss } : {}),
+    ...(option.textColor ? { color: option.textColor } : {})
+  };
+}
+
+function toggleTagPicker(): void {
+  showTagPicker.value = !showTagPicker.value;
+  if (showTagPicker.value) void nextTick(updateTagPickerPosition);
+}
+
+function updateTagPickerPosition(): void {
+  const trigger = tagPickerTriggerRef.value;
+  if (!trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.min(360, Math.max(240, rect.width));
+  tagPickerStyle.value = {
+    left: `${Math.round(Math.min(window.innerWidth - width - 8, Math.max(8, rect.left)))}px`,
+    top: `${Math.round(Math.min(window.innerHeight - 8, rect.bottom + 6))}px`,
+    width: `${Math.round(width)}px`
+  };
+}
+
+function handleTagPickerOutsideMouseDown(event: MouseEvent): void {
+  if (!showTagPicker.value) return;
+  const target = event.target as HTMLElement | null;
+  if (!target?.closest('.tag-picker-popover') && !tagPickerTriggerRef.value?.contains(target)) {
+    showTagPicker.value = false;
+  }
+}
+
+document.addEventListener('mousedown', handleTagPickerOutsideMouseDown);
+onBeforeUnmount(() => document.removeEventListener('mousedown', handleTagPickerOutsideMouseDown));
 const selectedYearMonth = ref(1);
 
 const customScheduleTypeOptions = computed(() => [
@@ -292,6 +411,7 @@ const yearDayOptions = computed(() =>
 
 watch(() => props.habit, (newHabit) => {
   if (newHabit) {
+    showTagPicker.value = false;
     localHabit.value = JSON.parse(JSON.stringify(newHabit));
     ensureCustomSchedule();
     syncSelectedYearMonth();
@@ -616,6 +736,55 @@ const handleSubmit = () => {
   font-size: 14px;
   color: var(--b3-theme-on-background);
 }
+
+.habit-tag-picker-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  padding: 5px 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.habit-tag-picker-trigger:hover,
+.habit-tag-picker-trigger.is-active { background: var(--b3-list-hover); }
+
+.task-editor-property-value {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  color: var(--b3-theme-on-background);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.task-editor-property-value.is-chip-list { flex-wrap: wrap; }
+
+.task-editor-property-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.task-editor-property-placeholder {
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  opacity: .62;
+}
+
+.task-editor-group-button-emoji { flex: 0 0 auto; }
 
 .emoji-selector {
   position: relative;

@@ -1,33 +1,34 @@
 <template>
-  <div v-if="show" class="task-group-overlay" @click.self="emit('close')">
+  <div v-if="show" :class="embedded ? 'task-group-embedded' : 'task-group-overlay'" @click.self="!embedded && emit('close')">
     <div class="task-group-dialog" @click.stop>
-      <div class="task-group-header">
+      <div v-if="!embedded" class="task-group-header">
         <div class="task-group-title">{{ t('taskManager.tagManager') }}</div>
         <button type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="emit('close')">
           <Icon name="close" width="14" height="14" class="icon" />
         </button>
       </div>
-      <div class="task-group-hint">{{ t('taskGroupDialog.hint') }}</div>
       <div class="task-group-list">
         <div v-if="localGroups.length === 0" class="task-group-empty">{{ t('taskManager.noTags') }}</div>
         <div v-else class="task-group-grid">
           <div
-            v-for="(group, index) in localGroups"
+            v-for="({ group, depth }) in displayedGroups"
             :key="group.id"
+            :style="{ '--tag-depth': depth }"
             class="task-group-card"
             :class="{
               'is-dragging': isGroupCardDragging(group),
               'is-drag-over': isGroupCardDragOver(group),
-              'is-drag-over-before': isGroupCardDragOverBefore(group),
-              'is-drag-over-after': isGroupCardDragOverAfter(group),
+              'is-drag-over-before': isGroupCardDragOverBefore(group) && !isGroupCardDragOverChild(group),
+              'is-drag-over-after': isGroupCardDragOverAfter(group) && !isGroupCardDragOverChild(group),
               'is-hidden': group.hidden === true && !isNoneOption(group),
-              'is-special': isNoneOption(group)
+              'is-special': isNoneOption(group),
+              'is-drag-over-child': isGroupCardDragOverChild(group)
             }"
             @dragover.prevent="handleGroupCardDragOver($event, group)"
             @dragleave="handleGroupCardDragLeave($event, group)"
             @drop.prevent="handleGroupCardDrop($event, group)"
-          >
-            <div class="task-group-card-body">
+            >
+              <div class="task-group-card-body">
               <div class="task-group-card-row">
                 <button
                   type="button"
@@ -39,6 +40,15 @@
                   @dragend="handleGroupCardDragEnd"
                 >
                   <Icon name="dragHandle" width="16" height="16" />
+                </button>
+                <button
+                  v-if="!isNoneOption(group)"
+                  type="button"
+                  class="task-group-icon-button ariaLabel"
+                  :aria-label="t('taskGroupDialog.pickTagIcon')"
+                  @click="openGroupIconPicker(group, $event)"
+                >
+                  <EmojiIcon :value="group.icon" fallback="🏷️" />
                 </button>
                 <div v-if="isNoneOption(group)" class="task-group-special-field">
                   <span class="task-group-name-static">{{ t('taskManager.noTag') }}</span>
@@ -61,9 +71,9 @@
                   role="button"
                   tabindex="0"
                   :aria-label="t('taskGroupDialog.pickTagColor')"
-                  @click="openColorPicker(index)"
-                  @keydown.enter.prevent="openColorPicker(index)"
-                  @keydown.space.prevent="openColorPicker(index)"
+                  @click="openColorPicker(getLocalGroupIndex(group))"
+                  @keydown.enter.prevent="openColorPicker(getLocalGroupIndex(group))"
+                  @keydown.space.prevent="openColorPicker(getLocalGroupIndex(group))"
                 />
                 <button
                   v-if="!isNoneOption(group)"
@@ -72,7 +82,7 @@
                   :class="{ active: group.hidden === true }"
                  
                   :aria-label="group.hidden ? t('taskGroupDialog.showTag') : t('taskGroupDialog.hideTag')"
-                  @click="toggleGroupHidden(index)"
+                  @click="toggleGroupHidden(getLocalGroupIndex(group))"
                 >
                   <Icon :name="group.hidden ? 'eyeOff' : 'eye'" width="16" height="16" />
                 </button>
@@ -81,18 +91,26 @@
                   type="button"
                   class="task-group-delete ariaLabel"
                   :aria-label="t('taskGroupDialog.deleteTag')"
-                  @click="removeGroup(index)"
+                  @click="removeGroup(getLocalGroupIndex(group))"
                 >
                   <Icon name="trash" width="16" height="16" />
                 </button>
               </div>
             </div>
+            <span
+              class="task-group-drop-indicator"
+              :class="{
+                'is-visible': isGroupCardDragOver(group) && !isGroupCardDragOverChild(group),
+                'is-before': isGroupCardDragOverBefore(group),
+                'is-after': isGroupCardDragOverAfter(group)
+              }"
+              aria-hidden="true"
+            ></span>
           </div>
         </div>
       </div>
       <div class="task-group-actions">
         <SyButton class="task-group-btn plain" @click="addGroup">{{ t('taskGroupDialog.addTag') }}</SyButton>
-        <SyButton class="task-group-btn confirm" @click="save">{{ t('common.save') }}</SyButton>
       </div>
     </div>
   </div>
@@ -140,11 +158,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, nextTick } from 'vue';
+import { openEmoji } from 'siyuan';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import Icon from '@/components/Icon.vue';
-import type { TaskGroup } from '@/api';
+import EmojiIcon from '@/components/EmojiIcon.vue';
+import { MAX_TAG_LEVELS, type TaskGroup } from '@/api';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import {
   TASK_BACKGROUND_COLOR_OPTIONS,
@@ -159,6 +179,8 @@ interface Props {
   autoAdd?: boolean;
   includeNoneOption?: boolean;
   orderIds?: string[];
+  embedded?: boolean;
+  autoSave?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -185,6 +207,36 @@ const colorPickerIndex = ref<number | null>(null);
 const draggedGroupId = ref<string | null>(null);
 const dragOverGroupId = ref<string | null>(null);
 const dragOverGroupPosition = ref<'before' | 'after' | null>(null);
+const dragOverAsChild = ref(false);
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const autoSaveReady = ref(false);
+
+const displayedGroups = computed(() => {
+  const children = new Map<string, TaskGroupDialogItem[]>();
+  const roots: TaskGroupDialogItem[] = [];
+  const knownIds = new Set(localGroups.value.map(resolveGroupId));
+  for (const group of localGroups.value) {
+    if (isNoneOption(group) || !group.parentId || !knownIds.has(group.parentId)) {
+      roots.push(group);
+      continue;
+    }
+    const items = children.get(group.parentId) || [];
+    items.push(group);
+    children.set(group.parentId, items);
+  }
+  const result: Array<{ group: TaskGroupDialogItem; depth: number }> = [];
+  const visit = (group: TaskGroupDialogItem, depth: number, visited: Set<string>) => {
+    const id = resolveGroupId(group);
+    if (visited.has(id)) return;
+    visited.add(id);
+    result.push({ group, depth });
+    for (const child of children.get(id) || []) visit(child, depth + 1, visited);
+  };
+  const visited = new Set<string>();
+  for (const root of roots) visit(root, 0, visited);
+  for (const group of localGroups.value) visit(group, 0, visited);
+  return result;
+});
 
 function generateGroupId(): string {
   return `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -244,11 +296,13 @@ function normalizeGroup(group: TaskGroupDialogItem, index: number, now: string):
   return {
     id,
     name,
+    icon: typeof group.icon === 'string' && group.icon.trim() ? group.icon.trim() : undefined,
     color,
     hidden,
     order: index,
     createdAt: group.createdAt || now,
     updatedAt: now
+    , parentId: typeof group.parentId === 'string' && group.parentId.trim() ? group.parentId.trim() : undefined
   };
 }
 
@@ -256,13 +310,86 @@ function resolveGroupId(group: TaskGroupDialogItem): string {
   return typeof group.id === 'string' ? group.id.trim() : '';
 }
 
+function getLocalGroupIndex(group: TaskGroupDialogItem): number {
+  return localGroups.value.findIndex(item => resolveGroupId(item) === resolveGroupId(group));
+}
+
+function openGroupIconPicker(group: TaskGroupDialogItem, event: MouseEvent): void {
+  const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
+  openEmoji({
+    position: rect ? { x: Math.round(rect.left), y: Math.round(rect.bottom) } : { x: event.clientX, y: event.clientY },
+    selectedCB: (icon: string) => { group.icon = normalizeTagIcon(icon); },
+    hideDynamicIcon: false,
+    hideCustomIcon: false
+  });
+}
+
+function normalizeTagIcon(value: string): string {
+  const raw = value.trim();
+  if (!raw.includes('.') && !raw.includes('/') && /^[0-9a-fA-F]+(?:-[0-9a-fA-F]+)*$/.test(raw)) {
+    try {
+      return String.fromCodePoint(...raw.split('-').map(part => Number.parseInt(part, 16)));
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
+function wouldCreateTagCycle(sourceId: string, targetId: string): boolean {
+  let currentId = targetId;
+  const byId = new Map(localGroups.value.map(group => [resolveGroupId(group), group]));
+  const visited = new Set<string>();
+  while (currentId && !visited.has(currentId)) {
+    if (currentId === sourceId) return true;
+    visited.add(currentId);
+    currentId = byId.get(currentId)?.parentId || '';
+  }
+  return false;
+}
+
+function getTagDepthInEditor(tagId: string): number {
+  const byId = new Map(localGroups.value.map(group => [resolveGroupId(group), group]));
+  let depth = 0;
+  let currentId = byId.get(tagId)?.parentId || '';
+  const visited = new Set<string>();
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    depth += 1;
+    currentId = byId.get(currentId)?.parentId || '';
+  }
+  return depth;
+}
+
+function getSubtreeHeight(tagId: string): number {
+  const children = new Map<string, string[]>();
+  for (const group of localGroups.value) {
+    if (!group.parentId) continue;
+    const items = children.get(group.parentId) || [];
+    items.push(resolveGroupId(group));
+    children.set(group.parentId, items);
+  }
+  const visit = (id: string, visited: Set<string>): number => {
+    if (visited.has(id)) return 0;
+    visited.add(id);
+    return Math.max(0, ...(children.get(id) || []).map(childId => 1 + visit(childId, new Set(visited))));
+  };
+  return visit(tagId, new Set());
+}
+
+function canNestGroup(sourceId: string, targetId: string): boolean {
+  return getTagDepthInEditor(targetId) + 1 + getSubtreeHeight(sourceId) < MAX_TAG_LEVELS;
+}
+
 function clearGroupDragState(): void {
   draggedGroupId.value = null;
   dragOverGroupId.value = null;
   dragOverGroupPosition.value = null;
+  dragOverAsChild.value = false;
 }
 
 function syncLocalGroups(): void {
+  autoSaveReady.value = false;
   const nextGroups = (props.groups || []).map(group => ({ ...group })) as TaskGroupDialogItem[];
   if (props.includeNoneOption !== true) {
     localGroups.value = nextGroups;
@@ -280,6 +407,7 @@ function syncLocalGroups(): void {
     })
     .filter((group): group is TaskGroupDialogItem => !!group);
   clearGroupDragState();
+  void nextTick(() => { autoSaveReady.value = true; });
 }
 
 function moveLocalGroupOrder(sourceId: string, targetId: string, position: 'before' | 'after'): void {
@@ -328,6 +456,10 @@ function isGroupCardDragOverAfter(group: TaskGroupDialogItem): boolean {
   return isGroupCardDragOver(group) && dragOverGroupPosition.value === 'after';
 }
 
+function isGroupCardDragOverChild(group: TaskGroupDialogItem): boolean {
+  return isGroupCardDragOver(group) && dragOverAsChild.value;
+}
+
 function resolveGroupCardDropPosition(event: DragEvent): 'before' | 'after' {
   const currentTarget = event.currentTarget;
   if (!(currentTarget instanceof HTMLElement)) {
@@ -336,6 +468,14 @@ function resolveGroupCardDropPosition(event: DragEvent): 'before' | 'after' {
   const rect = currentTarget.getBoundingClientRect();
   const midpoint = rect.top + rect.height / 2;
   return event.clientY < midpoint ? 'before' : 'after';
+}
+
+function shouldDropAsChild(event: DragEvent, group: TaskGroupDialogItem): boolean {
+  if (isNoneOption(group)) return false;
+  const currentTarget = event.currentTarget;
+  if (!(currentTarget instanceof HTMLElement)) return false;
+  const rect = currentTarget.getBoundingClientRect();
+  return event.clientX > rect.left + Math.min(84, rect.width * 0.28);
 }
 
 function handleGroupCardDragStart(event: DragEvent, group: TaskGroupDialogItem): void {
@@ -359,7 +499,7 @@ function handleGroupCardDragOver(event: DragEvent, group: TaskGroupDialogItem): 
     return;
   }
   const targetId = resolveGroupId(group);
-  if (!targetId || targetId === sourceId) {
+  if (!targetId || targetId === sourceId || wouldCreateTagCycle(sourceId, targetId)) {
     dragOverGroupId.value = null;
     dragOverGroupPosition.value = null;
     return;
@@ -371,6 +511,7 @@ function handleGroupCardDragOver(event: DragEvent, group: TaskGroupDialogItem): 
   }
   dragOverGroupId.value = targetId;
   dragOverGroupPosition.value = resolveGroupCardDropPosition(event);
+  dragOverAsChild.value = shouldDropAsChild(event, group) && canNestGroup(sourceId, targetId);
 }
 
 function handleGroupCardDragLeave(event: DragEvent, group: TaskGroupDialogItem): void {
@@ -389,6 +530,7 @@ function handleGroupCardDragLeave(event: DragEvent, group: TaskGroupDialogItem):
   }
   dragOverGroupId.value = null;
   dragOverGroupPosition.value = null;
+  dragOverAsChild.value = false;
 }
 
 function handleGroupCardDrop(event: DragEvent, group: TaskGroupDialogItem): void {
@@ -396,11 +538,26 @@ function handleGroupCardDrop(event: DragEvent, group: TaskGroupDialogItem): void
   const sourceId = draggedGroupId.value;
   const targetId = resolveGroupId(group);
   const dropPosition = resolveGroupCardDropPosition(event);
+  const asChild = shouldDropAsChild(event, group) && canNestGroup(sourceId, targetId);
   clearGroupDragState();
   if (!sourceId || !targetId || sourceId === targetId) {
     return;
   }
-  moveLocalGroupOrder(sourceId, targetId, dropPosition);
+  if (wouldCreateTagCycle(sourceId, targetId)) return;
+  const nextGroups = localGroups.value.map(item => ({ ...item }));
+  const sourceIndex = nextGroups.findIndex(item => resolveGroupId(item) === sourceId);
+  const targetIndex = nextGroups.findIndex(item => resolveGroupId(item) === targetId);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+  const [moved] = nextGroups.splice(sourceIndex, 1);
+  const targetIndexAfterRemoval = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+  if (asChild && !isNoneOption(group)) {
+    moved.parentId = targetId;
+    nextGroups.splice(targetIndexAfterRemoval + 1, 0, moved);
+  } else {
+    moved.parentId = nextGroups[targetIndexAfterRemoval]?.parentId;
+    nextGroups.splice(targetIndexAfterRemoval + (dropPosition === 'after' ? 1 : 0), 0, moved);
+  }
+  localGroups.value = nextGroups;
 }
 
 function handleGroupCardDragEnd(): void {
@@ -419,6 +576,7 @@ function addGroup(): void {
       order: localGroups.value.length,
       createdAt: now,
       updatedAt: now
+      , parentId: undefined
     }
   ];
 }
@@ -535,6 +693,15 @@ function save(): void {
   emit('save', { groups: normalized, orderIds });
 }
 
+function scheduleAutoSave(): void {
+  if (props.autoSave !== true || !autoSaveReady.value) return;
+  if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    autoSaveTimer = null;
+    save();
+  }, 400);
+}
+
 watch(
   () => props.show,
   (show) => {
@@ -550,6 +717,8 @@ watch(
   },
   { immediate: true }
 );
+
+watch(localGroups, scheduleAutoSave, { deep: true });
 </script>
 
 <style scoped>
@@ -561,6 +730,18 @@ watch(
   align-items: center;
   justify-content: center;
   z-index: 10000;
+}
+
+.task-group-embedded {
+  min-height: 0;
+}
+
+.task-group-embedded .task-group-dialog {
+  max-height: none;
+  box-shadow: none;
+  border: none;
+  border-radius: 16px;
+  overflow: visible;
 }
 
 .task-group-dialog {
@@ -604,58 +785,73 @@ watch(
   color: var(--b3-theme-on-background);
 }
 
-.task-group-hint {
-  padding: 10px 16px 12px 16px;
-  font-size: 12px;
-  color: var(--b3-theme-on-surface);
-}
-
 .task-group-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0 16px 12px 16px;
+  padding: 8px;
 }
 
 .task-group-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 12px;
+  gap: 10px;
 }
 
 .task-group-card {
   position: relative;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* Let the sorting indicator render in the gap between sibling cards. */
+  overflow: visible;
   border: 1px solid transparent;
   border-radius: 10px;
+  margin-left: calc(var(--tag-depth, 0) * 18px);
   transition: border-color 0.12s ease, background-color 0.12s ease, opacity 0.12s ease;
 }
 
-.task-group-card.is-drag-over {
-  border-color: var(--b3-theme-primary);
-  background: rgba(59, 130, 246, 0.08);
+.task-group-card.is-drag-over-child {
+  background: color-mix(in srgb, var(--b3-theme-primary) 12%, var(--b3-theme-background));
 }
 
-.task-group-card.is-drag-over-before::before,
-.task-group-card.is-drag-over-after::after {
+.task-group-card.is-drag-over-before,
+.task-group-card.is-drag-over-after {
+  z-index: 2;
+}
+
+.task-group-drop-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -10px;
+  height: 10px;
+  pointer-events: auto;
+  z-index: 3;
+}
+
+.task-group-drop-indicator::after {
   content: '';
   position: absolute;
-  left: 4px;
-  right: 4px;
-  height: 3px;
+  top: 2.5px;
+  right: 0;
+  left: 0;
+  height: 5px;
+  background: var(--b3-theme-primary);
   border-radius: 999px;
-  background: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
-  pointer-events: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--b3-theme-primary) 55%, transparent);
+  opacity: 0;
+  transform: scaleX(0.82);
+  transform-origin: center;
+  transition: opacity 0.16s ease, transform 0.16s ease;
 }
 
-.task-group-card.is-drag-over-before::before {
-  top: 2px;
+.task-group-drop-indicator.is-visible::after {
+  opacity: 1;
+  transform: scaleX(1);
 }
 
-.task-group-card.is-drag-over-after::after {
-  bottom: 2px;
+.task-group-drop-indicator.is-after {
+  top: auto;
+  bottom: -10px;
 }
 
 .task-group-card.is-dragging {
@@ -669,7 +865,8 @@ watch(
 .task-group-card-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
+  padding: 4px 0;
 }
 
 .task-group-card-row {
@@ -714,6 +911,23 @@ watch(
   color: var(--group-input-color, var(--b3-theme-on-background));
   border-color: var(--group-input-border, var(--b3-border-color));
 }
+
+.task-group-icon-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 7px;
+  background: var(--b3-theme-background);
+  cursor: pointer;
+}
+
+.task-group-icon-button:hover { background: var(--b3-list-hover); }
+.task-group-icon-button :deep(.emoji-icon) { width: 16px; height: 16px; }
 
 .task-group-special-field {
   flex: 1;
@@ -914,9 +1128,11 @@ watch(
 
 .task-group-actions {
   display: flex;
-  justify-content: space-between;
-  padding: 12px 16px;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 8px 8px;
 }
+
 
 .task-group-btn {
   min-width: 96px;

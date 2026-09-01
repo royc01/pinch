@@ -288,12 +288,47 @@
       <input
         ref="taskSearchInputRef"
         v-model="taskSearchQuery"
-            type="text"
-            class="task-search-input ariaLabel"
-            :placeholder="t('taskManager.searchTasks')"
-            :aria-label="t('taskManager.searchTasks')"
-            @keydown.esc.stop.prevent="closeTaskSearch"
-          />
+        type="text"
+        class="task-search-input ariaLabel"
+        :placeholder="t('taskManager.searchTasks')"
+        :aria-label="t('taskManager.searchTasks')"
+        @focus="handleTaskSearchFocus"
+        @click="taskSearchHistoryVisible = true"
+        @blur="taskSearchHistoryVisible = false"
+        @keydown.enter.stop.prevent="commitTaskSearch"
+        @keydown.esc.stop.prevent="closeTaskSearch"
+      />
+      <div
+        v-if="taskSearchHistoryVisible && taskSearchHistory.length"
+        class="task-search-history"
+        role="listbox"
+        :aria-label="t('taskManager.searchTasks')"
+      >
+        <div class="task-search-history-title">{{ t('taskManager.recentSearches') }}</div>
+        <div
+          v-for="query in taskSearchHistory"
+          :key="query"
+          class="task-search-history-item"
+          role="option"
+          tabindex="0"
+          @mousedown.prevent
+          @click="reuseTaskSearch(query)"
+          @keydown.enter.prevent="reuseTaskSearch(query)"
+          @keydown.space.prevent="reuseTaskSearch(query)"
+        >
+          <Icon name="clock" width="16" height="16" />
+          <span>{{ query }}</span>
+          <button
+            type="button"
+            class="task-search-history-delete ariaLabel"
+            :aria-label="t('common.delete')"
+            @mousedown.prevent.stop
+            @click.stop="removeTaskSearchHistory(query)"
+          >
+            <Icon name="trash" width="14" height="14" />
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-if="isBatchEditMode && !isTaskListCollapsed" class="task-batch-toolbar">
@@ -448,6 +483,7 @@
             @update:description="handleTaskEditorDescriptionInput"
             @update-dates="handleTaskEditorDateFieldsUpdate"
             @select-group="selectTaskEditorGroup"
+            @remove-group="removeTaskEditorGroup"
             @select-goal="selectTaskEditorGoal"
             @select-reminder="handleTaskEditorReminderSelect"
             @select-status="handleTaskEditorStatusSelect"
@@ -456,7 +492,7 @@
             @select-priority="handleTaskEditorPrioritySelect"
             @save-repeat-rule="handleTaskEditorRepeatRuleSave"
             @commit-description="handleTaskEditorDescriptionCommit"
-            @manage-groups="openTaskGroupDialog"
+            @manage-groups="openTaskGroupDialogFromEditor"
             @manage-goals="void openTaskScopeDialog('goals')"
           />
           <div
@@ -850,9 +886,11 @@
         @manage-groups="openTaskGroupDialog"
       />
     </Teleport>
-    <Teleport to="body">
-      <TaskScopeDialog
+    <TaskScopeDialog
         :show="showTaskScopeDialog"
+      presentation="sidebar"
+      :elevated="taskScopeDialogElevated"
+      :page-style="taskScopePageStyle"
       :notebooks="notebooks"
       :excluded-notebook-ids="excludedNotebookIds"
       :show-scope-tab="true"
@@ -886,12 +924,15 @@
         :default-task-create-notebook="userSettings.taskManager.defaultTaskCreateNotebook"
         :default-task-create-document="userSettings.taskManager.defaultTaskCreateDocument"
       :focus-settings="userSettings.focus"
+      :task-groups="taskGroups"
+      :task-group-order-ids="userSettings.kanban.kanbanGroupColumnOrder"
       @close="showTaskScopeDialog = false"
       @global-recognize-date="handleGlobalRecognizeTaskDates"
       @refresh-documents="handleTaskScopeDocumentsRefresh"
-        @save="handleTaskScopeSave"
-      />
-    </Teleport>
+      @save-tags="handleTaskGroupSave"
+      @open-reward-shop="openRewardShop"
+      @save="handleTaskScopeSave"
+    />
     <TaskDateQuickMenu
       :show="taskQuickDateMenu.show"
       :x="taskQuickDateMenu.x"
@@ -937,16 +978,6 @@
       @save="handleTaskQuickMetaSave"
       @close="closeTaskQuickMetaMenu"
     />
-    <Teleport to="body">
-      <TaskGroupDialog
-        :show="showTaskGroupDialog"
-        :groups="taskGroups"
-        :include-none-option="true"
-        :order-ids="userSettings.kanban.kanbanGroupColumnOrder"
-        @close="showTaskGroupDialog = false"
-        @save="handleTaskGroupSave"
-      />
-    </Teleport>
     <div
       v-if="desktopCalendarPointerGesture?.started && desktopCalendarPointerGesture.task"
       class="task-manager-calendar-drag-ghost"
@@ -965,7 +996,6 @@ import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import QuickCreateTaskModal, { type Notebook, type Document as TaskDocument, type QuickCreateCreatedPayload } from '@/components/QuickCreateTaskModal.vue';
 import TaskScopeDialog, { type TaskScopeDialogSavePayload, type TaskScopeDisplayOption } from '@/components/TaskScopeDialog.vue';
 import { taskViewSwitcherDisplayOptions } from '@/utils/taskViewSwitcher';
-import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
 import SourceFilterSelect from '@/components/SourceFilterSelect.vue';
 import Icon from '@/components/Icon.vue';
@@ -1101,6 +1131,7 @@ import {
   toggleTaskTagSelection,
   type TaskTagBatchAction
 } from '@/utils/taskTags';
+import { getTagDescendantIds } from '@/utils/tagTree';
 import {
   getEffectiveGoalIdsForTask,
   getGoalIdsForTask,
@@ -1214,10 +1245,12 @@ const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
 const showTaskScopeDialog = ref(false);
 const taskScopeDocumentsRefreshing = ref(false);
-type TaskScopeDialogTab = 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'goals' | 'display';
+type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
 const taskScopeDialogInitialTab = ref<TaskScopeDialogTab>('scope');
+const taskScopeDialogElevated = ref(false);
+const taskScopePageStyle = ref<Record<string, string>>({});
+let taskScopePageResizeObserver: ResizeObserver | null = null;
 const isGlobalDateRecognitionRunning = ref(false);
-const showTaskGroupDialog = ref(false);
 const requiresScopeInitialization = ref(false);
 const excludedNotebookIds = ref<string[]>([]);
 const showCompletedTasks = ref(true);
@@ -1327,6 +1360,11 @@ const kernelDiagnosticsChecking = ref(false);
 const kernelDiagnostics = ref<KernelDiagnosticsState>({ status: 'idle' });
 const taskSearchVisible = ref(false);
 const taskSearchQuery = ref('');
+const taskSearchHistoryVisible = ref(false);
+const taskSearchHistory = ref<string[]>([]);
+const TASK_SEARCH_HISTORY_STORAGE_KEY = 'pinch-task-search-history';
+const TASK_SEARCH_HISTORY_LIMIT = 8;
+let suppressTaskSearchHistoryOnNextFocus = false;
 const taskListViewMode = ref<TaskListViewMode>('kanban');
 const taskListGroupBy = ref<TaskListGroupMode>('none');
 const timelineTaskFilter = ref<TimelineTaskFilter>('all');
@@ -1359,6 +1397,9 @@ const taskMoveSelectedNotebook = ref('');
 const taskMoveSelectedDocument = ref('');
 const taskFilterPopoverVisible = ref(false);
 const taskGroups = ref<TaskGroup[]>([]);
+const tagDescendantIdsByTag = computed(() => new Map(
+  taskGroups.value.map(tag => [tag.id, getTagDescendantIds(taskGroups.value, tag.id)])
+));
 const visibleTaskGroups = computed(() =>
   taskGroups.value.filter(group => group.hidden !== true)
 );
@@ -2054,7 +2095,11 @@ function openTaskModal(): void {
 }
 
 function openTaskGroupDialog(): void {
-  showTaskGroupDialog.value = true;
+  void openTaskScopeDialog('tags');
+}
+
+function openTaskGroupDialogFromEditor(): void {
+  void openTaskScopeDialog('tags', true);
 }
 
 function applyExternalDocumentGroups(groups: DocumentGroup[]): void {
@@ -2206,7 +2251,8 @@ async function handleTaskGroupSave(payload: TaskGroupDialogSavePayload): Promise
     saved = true;
   } catch {
   } finally {
-    showTaskGroupDialog.value = false;
+    // The tag manager is embedded in TaskScopeDialog; keep that settings
+    // surface open after saving so the user can continue managing the tree.
   }
   if (saved) {
     try {
@@ -2295,8 +2341,61 @@ function closeKernelDiagnostics(): void {
 }
 
 function closeTaskSearch(): void {
+  commitTaskSearch();
   taskSearchVisible.value = false;
+  taskSearchHistoryVisible.value = false;
   taskSearchQuery.value = '';
+}
+
+function handleTaskSearchFocus(): void {
+  if (suppressTaskSearchHistoryOnNextFocus) {
+    suppressTaskSearchHistoryOnNextFocus = false;
+    return;
+  }
+  taskSearchHistoryVisible.value = true;
+}
+
+function loadTaskSearchHistory(): void {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TASK_SEARCH_HISTORY_STORAGE_KEY) || '[]');
+    if (Array.isArray(stored)) {
+      taskSearchHistory.value = stored
+        .filter((query): query is string => typeof query === 'string' && Boolean(query.trim()))
+        .slice(0, TASK_SEARCH_HISTORY_LIMIT);
+    }
+  } catch {
+    taskSearchHistory.value = [];
+  }
+}
+
+function persistTaskSearchHistory(): void {
+  try {
+    localStorage.setItem(TASK_SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(taskSearchHistory.value));
+  } catch {
+    // Search remains available even if the browser blocks local storage.
+  }
+}
+
+function commitTaskSearch(): void {
+  const query = taskSearchQuery.value.trim();
+  if (!query) return;
+  taskSearchHistory.value = [
+    query,
+    ...taskSearchHistory.value.filter(item => item !== query)
+  ].slice(0, TASK_SEARCH_HISTORY_LIMIT);
+  persistTaskSearchHistory();
+}
+
+function reuseTaskSearch(query: string): void {
+  taskSearchQuery.value = query;
+  commitTaskSearch();
+  taskSearchHistoryVisible.value = false;
+  void nextTick(() => taskSearchInputRef.value?.focus());
+}
+
+function removeTaskSearchHistory(query: string): void {
+  taskSearchHistory.value = taskSearchHistory.value.filter(item => item !== query);
+  persistTaskSearchHistory();
 }
 
 function toggleTaskSearch(): void {
@@ -2308,6 +2407,7 @@ function toggleTaskSearch(): void {
     return;
   }
   taskSearchVisible.value = true;
+  suppressTaskSearchHistoryOnNextFocus = true;
   void nextTick(() => {
     taskSearchInputRef.value?.focus();
     taskSearchInputRef.value?.select();
@@ -4170,7 +4270,7 @@ function matchesTaskFilterChips(task: Task): boolean {
       case 'priority':
         return candidate.priority === condition.value;
       case 'group':
-        return matchesTaskTagFilter(candidate.tags, candidate.groupId, [condition.value], TASK_GROUP_NONE_ID);
+        return matchesTaskTagFilter(candidate.tags, candidate.groupId, [condition.value], TASK_GROUP_NONE_ID, tagDescendantIdsByTag.value);
       case 'due':
         return matchesTaskDueFilter(candidate, condition.value as TaskDueFilterKey);
       case 'updated':
@@ -5793,11 +5893,14 @@ function ensureActiveNotebookFilterInScope(): void {
   }
 }
 
-async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'scope') {
+async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'home', elevated = false) {
   if (notebooks.value.length === 0) {
     await loadNotebooks();
   }
   taskScopeDialogInitialTab.value = initialTab;
+  taskScopeDialogElevated.value = elevated;
+  updateTaskScopePageStyle();
+  observeTaskScopePageSize();
   showTaskScopeDialog.value = true;
   if (initialTab === 'goals') {
     // The goal manager can render the shared snapshot immediately. A fresh
@@ -5810,8 +5913,48 @@ async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'scope') {
   }
 }
 
+function removeTaskEditorGroup(value: string): void {
+  if (!activeTaskEditTask.value || !activeTaskEditDraft.value) return;
+  void quickSaveTaskTags(activeTaskEditTask.value, taskEditorSelectedTagIds.value.filter(tagId => tagId !== value));
+}
+
+function openRewardShop(): void {
+  showTaskScopeDialog.value = false;
+  eventBus.emit(Events.HABIT_TRACKER_PANEL_OPEN_REQUEST, { target: 'reward', returnToSettingsHome: true });
+}
+
+function updateTaskScopePageStyle(): void {
+  const sidebar = taskManagerContainerRef.value?.closest('.Pinch-habit-container');
+  if (!sidebar) {
+    taskScopePageStyle.value = { inset: '0' };
+    return;
+  }
+  const rect = sidebar.getBoundingClientRect();
+  taskScopePageStyle.value = {
+    left: `${Math.round(rect.left)}px`,
+    top: `${Math.round(rect.top)}px`,
+    width: `${Math.round(rect.width)}px`,
+    height: `${Math.round(rect.height)}px`
+  };
+}
+
+function observeTaskScopePageSize(): void {
+  const sidebar = taskManagerContainerRef.value?.closest('.Pinch-habit-container');
+  taskScopePageResizeObserver?.disconnect();
+  taskScopePageResizeObserver = null;
+  if (!sidebar || typeof ResizeObserver === 'undefined') return;
+  taskScopePageResizeObserver = new ResizeObserver(() => updateTaskScopePageStyle());
+  taskScopePageResizeObserver.observe(sidebar);
+}
+
+function stopObservingTaskScopePageSize(): void {
+  taskScopePageResizeObserver?.disconnect();
+  taskScopePageResizeObserver = null;
+}
+
 function closeTaskScopeDialog(): void {
   showTaskScopeDialog.value = false;
+  stopObservingTaskScopePageSize();
 }
 
 async function refreshTaskScopeDocumentSources(
@@ -5952,7 +6095,6 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     requiresScopeInitialization.value = false;
   }
   await saveGoalDefinitions(nextGoals);
-  showTaskScopeDialog.value = false;
   ensureActiveNotebookFilterInScope();
   normalizeDocumentSelection(filterNotebook.value);
   await refreshTasks(true, { showLoading: false, compareExisting: false, source: 'scope-save' });
@@ -6659,6 +6801,11 @@ function setupEventListeners() {
     }
   );
 
+  const unsubscribeTaskScopeHomeOpenRequested = eventBus.on(
+    Events.TASK_SCOPE_HOME_OPEN_REQUEST,
+    () => void openTaskScopeDialog('home')
+  );
+
   const unsubscribeTaskEditorOpenRequested = eventBus.on(
     Events.TASK_EDITOR_OPEN_REQUEST,
     (payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null }) => {
@@ -6682,6 +6829,7 @@ function setupEventListeners() {
     unsubscribeGroupsUpdated,
     unsubscribeDocumentGroupsUpdated,
     unsubscribeTaskScopeUpdated,
+    unsubscribeTaskScopeHomeOpenRequested,
     unsubscribeTaskEditorOpenRequested,
     unsubscribeTaskQuickMetaOpenRequested
   );
@@ -9727,6 +9875,7 @@ function isFutureVirtualRepeatPreview(task: Task): boolean {
 }
 
 onMounted(async () => {
+  loadTaskSearchHistory();
   const loadTraceId = beginTaskLoadTrace('sidebar');
   resolveTaskModalTeleportTarget();
   taskScrollContainerRef.value = resolveTaskScrollContainer();
@@ -9858,6 +10007,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopObservingTaskScopePageSize();
   clearMobileCalendarPointerGesture();
   clearDesktopCalendarPointerGesture(true);
   document.removeEventListener('pointermove', handleDocumentMobileTaskPointerMove);
@@ -10188,6 +10338,7 @@ onUnmounted(() => {
 }
 
 .task-search-row {
+  position: relative;
   margin: -4px 0 12px;
   padding: 0 2px;
   box-sizing: border-box;
@@ -10215,6 +10366,82 @@ onUnmounted(() => {
 .task-search-input:focus {
   border-color: #f98f7a;
   box-shadow: 0 0 0 3px rgba(249, 143, 122, 0.14);
+}
+
+.task-search-history {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% - 10px);
+  right: 2px;
+  left: 2px;
+  overflow: hidden;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+}
+
+.task-search-history-title {
+  padding: 9px 12px 5px;
+  color: var(--b3-theme-on-surface);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.task-search-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px 7px 12px;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  outline: none;
+}
+
+.task-search-history-item:hover,
+.task-search-history-item:focus-visible {
+  background: var(--b3-list-hover);
+}
+
+.task-search-history-item > svg {
+  flex: 0 0 auto;
+  color: var(--b3-theme-on-surface);
+}
+
+.task-search-history-item > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.task-search-history-delete {
+  display: inline-flex;
+  visibility: hidden;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--b3-theme-on-surface);
+  background: transparent;
+  cursor: pointer;
+}
+
+.task-search-history-item:hover .task-search-history-delete,
+.task-search-history-item:focus-within .task-search-history-delete {
+  visibility: visible;
+}
+
+.task-search-history-delete:hover {
+  color: var(--b3-theme-error);
+  background: var(--b3-list-hover);
 }
 
 .task-batch-toolbar {

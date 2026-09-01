@@ -64,7 +64,12 @@
         type="search"
         :placeholder="t('taskManager.searchTasks')"
         :aria-label="t('taskManager.searchTasks')"
+        @focus="searchHistoryVisible = true"
+        @click="searchHistoryVisible = true"
+        @blur="recordSearch(); searchHistoryVisible = false"
+        @keydown.enter="recordSearch"
       />
+      <TaskSearchHistoryPopover :visible="searchHistoryVisible" @reuse="reuseSearchHistory" />
       <button
         v-if="query"
         type="button"
@@ -180,6 +185,8 @@ import Icon from "./Icon.vue";
 import EmojiIcon from "./EmojiIcon.vue";
 import TaskCheckbox from "./TaskCheckbox.vue";
 import TaskTitlePlain from './TaskTitlePlain.vue';
+import TaskSearchHistoryPopover from './TaskSearchHistoryPopover.vue';
+import { recordTaskSearchHistory } from '@/utils/taskSearchHistory';
 
 const props = defineProps<{
   tasks: Task[];
@@ -202,6 +209,17 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const COLLAPSED_GROUPS_STORAGE_KEY = "pinch-calendar-sidebar-collapsed-groups";
 const query = ref("");
+const searchHistoryVisible = ref(false);
+
+function recordSearch(): void {
+  recordTaskSearchHistory(query.value);
+}
+
+function reuseSearchHistory(value: string): void {
+  query.value = value;
+  recordSearch();
+  searchHistoryVisible.value = false;
+}
 const showCompleted = ref(false);
 const isInitialContentAnimation = ref(false);
 let initialContentAnimationTimer: ReturnType<typeof setTimeout> | null = null;
@@ -562,6 +580,7 @@ async function loadNotebookNames() {
   will-change: transform;
 }
 .calendar-task-sidebar-search {
+  position: relative;
   box-sizing: border-box;
   display: flex;
   align-items: center;

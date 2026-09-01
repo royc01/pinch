@@ -112,7 +112,8 @@
                 :aria-label="group.label"
                 :style="getTagBadgeStyle(group)"
               >
-                <Icon name="group" width="12" height="12" aria-hidden="true" />
+                <EmojiIcon v-if="group.icon" class="task-group-badge-icon" :value="group.icon" aria-hidden="true" />
+                <Icon v-else name="group" width="12" height="12" aria-hidden="true" />
                 <span class="task-quick-pill-label">{{ group.label }}</span>
               </span>
             </button>
@@ -202,6 +203,7 @@ interface TaskGroupOption {
   colorCss?: string;
   borderColor?: string;
   textColor?: string;
+  icon?: string;
 }
 
 interface TaskGoalOption {
@@ -609,6 +611,12 @@ watch(
 
 .task-group-badge svg {
   flex: 0 0 auto;
+}
+
+.task-group-badge-icon {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
 }
 
 .task-quick-tag-option:hover .task-group-badge,

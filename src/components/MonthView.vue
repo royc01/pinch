@@ -94,6 +94,8 @@
                 :data-day-key="day.key"
                 :class="{
                   'other-month': day.isOtherMonth,
+                  'other-month-entering': otherMonthAnimationKeys.has(day.key),
+                  'current-month-entering': currentMonthAnimationKeys.has(day.key),
                   'today': day.isToday,
                   'drag-over': dragOverDay === day.key,
                   'create-selecting': isDayInCreateSelection(day.key)
@@ -1611,6 +1613,37 @@ const calendarWeeks = computed<MonthCalendarDay[][]>(() => {
   }
   
   return weeks;
+});
+
+const otherMonthAnimationKeys = ref(new Set<string>());
+const currentMonthAnimationKeys = ref(new Set<string>());
+let monthBackgroundTransitionVersion = 0;
+
+watch(calendarDays, (days, previousDays) => {
+  if (!previousDays) return;
+
+  const previousDaysByKey = new Map(previousDays.map(day => [day.key, day]));
+  const otherMonthKeys = days
+    .filter(day => previousDaysByKey.get(day.key)?.isOtherMonth === false && day.isOtherMonth)
+    .map(day => day.key);
+  const currentMonthKeys = days
+    .filter(day => previousDaysByKey.get(day.key)?.isOtherMonth === true && !day.isOtherMonth)
+    .map(day => day.key);
+
+  if (otherMonthKeys.length === 0 && currentMonthKeys.length === 0) return;
+
+  otherMonthAnimationKeys.value = new Set(otherMonthKeys);
+  currentMonthAnimationKeys.value = new Set(currentMonthKeys);
+  const transitionVersion = ++monthBackgroundTransitionVersion;
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (transitionVersion !== monthBackgroundTransitionVersion) return;
+        otherMonthAnimationKeys.value = new Set();
+        currentMonthAnimationKeys.value = new Set();
+      });
+    });
+  });
 });
 
 watch(
@@ -4270,7 +4303,7 @@ onUnmounted(() => {
   border-radius: 7px;
   cursor: pointer;
   color: var(--b3-theme-on-background);
-  transition: background-color 0.2s;
+  transition: background-color 0.22s ease;
 }
 
 .nav-btn:hover {
@@ -4386,7 +4419,7 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  transition: background-color 0.2s;
+  transition: background-color 1s ease-out;
   box-sizing: border-box;
   position: relative;
   overflow: visible;
@@ -4394,6 +4427,26 @@ onUnmounted(() => {
 
 .day-cell.other-month .day-number {
   opacity: 0.5;
+}
+
+.day-cell.other-month {
+  background: color-mix(in srgb, var(--b3-body-background) 40%, var(--b3-theme-background));
+}
+
+.day-cell.other-month-entering {
+  background-color: var(--b3-theme-background);
+}
+
+.day-cell.current-month-entering {
+  background-color: color-mix(in srgb, var(--b3-body-background) 40%, var(--b3-theme-background));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .day-cell,
+  .day-cell.other-month {
+    transition: none;
+    animation: none;
+  }
 }
 
 .day-info {

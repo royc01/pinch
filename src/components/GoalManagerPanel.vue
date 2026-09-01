@@ -19,16 +19,18 @@
           {{ t('goalManager.emptyGoals') }}
         </div>
         <div v-else class="goal-list">
-          <div
+          <template
             v-for="goal in localGoals"
             :key="goal.id"
+          >
+          <div
             class="goal-item"
             :class="{ active: goal.id === selectedGoalId }"
             role="button"
             tabindex="0"
-            @click="selectedGoalId = goal.id"
-            @keydown.enter.prevent="selectedGoalId = goal.id"
-            @keydown.space.prevent="selectedGoalId = goal.id"
+            @click="toggleGoalPanel(goal.id)"
+            @keydown.enter.prevent="toggleGoalPanel(goal.id)"
+            @keydown.space.prevent="toggleGoalPanel(goal.id)"
           >
             <div class="goal-item-main">
               <button
@@ -44,10 +46,11 @@
                 class="goal-name-input"
                 :model-value="goal.name"
                 :placeholder="t('goalManager.goalNamePlaceholder')"
+                @click.stop
                 @update:model-value="updateGoalName(goal.id, $event)"
               />
               <span class="goal-count">
-                {{ goal.members.length }}/{{ goal.taskMembers?.length || 0 }}
+                {{ getGoalTaskCount(goal) }}
               </span>
               <button
                 type="button"
@@ -57,6 +60,16 @@
                 @click.stop="removeGoal(goal.id)"
               >
                 <Icon name="trash" width="16" height="16" />
+              </button>
+              <button
+                type="button"
+                class="goal-panel-toggle ariaLabel"
+                :class="{ expanded: goal.id === expandedGoalId }"
+                :aria-label="t(goal.id === expandedGoalId ? 'common.collapse' : 'common.expand')"
+                :aria-expanded="goal.id === expandedGoalId"
+                @click.stop="toggleGoalPanel(goal.id)"
+              >
+                <Icon name="chevronRight" width="16" height="16" />
               </button>
             </div>
             <div class="goal-item-footer">
@@ -82,23 +95,19 @@
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="goal-panel goal-document-panel">
-        <div class="goal-panel-header">
-          <div class="goal-panel-header-main">
-            <span>{{ t('goalManager.goalDocuments') }}</span>
-            <span v-if="selectedGoal" class="goal-current">{{ selectedGoal.name || t('taskManager.untitledGoal') }}</span>
-          </div>
-          <div class="goal-panel-header-actions">
-            <span class="goal-panel-note">{{ t('goalManager.currentTaskDocumentsOnly') }}</span>
+      <div v-if="goal.id === expandedGoalId" class="goal-panel goal-document-panel" @click.stop>
+        <div class="goal-document-content">
+          <div class="goal-document-search-row">
+            <SyInput
+              class="goal-search-input"
+              :model-value="documentSearch"
+              :placeholder="t('documentGroup.searchDocuments')"
+              @update:model-value="documentSearch = $event"
+            />
             <button
               type="button"
               class="goal-document-refresh ariaLabel"
               :class="{ 'is-refreshing': documentsRefreshing }"
-             
               :aria-label="t('taskScopeDialog.refreshDocuments')"
               :disabled="documentsRefreshing"
               @click.stop="refreshDocuments"
@@ -106,18 +115,6 @@
               <Icon name="refresh" width="14" height="14" class="refresh-icon" />
             </button>
           </div>
-        </div>
-
-        <div v-if="!selectedGoal" class="goal-empty">
-          {{ t('goalManager.selectGoalFirst') }}
-        </div>
-        <template v-else>
-          <SyInput
-            class="goal-search-input"
-            :model-value="documentSearch"
-            :placeholder="t('documentGroup.searchDocuments')"
-            @update:model-value="documentSearch = $event"
-          />
           <div v-if="(documentTreeLoading || documentsRefreshing) && allGoalDocuments.length === 0" class="goal-empty">
             {{ t('taskManager.loading') }}
           </div>
@@ -262,7 +259,11 @@
               </div>
             </div>
           </div>
-        </template>
+        </div>
+      </div>
+          </div>
+          </template>
+        </div>
       </div>
     </div>
   </div>
@@ -354,6 +355,7 @@ const emit = defineEmits<{
 
 const localGoals = ref<Goal[]>([]);
 const selectedGoalId = ref('');
+const expandedGoalId = ref('');
 const documentSearch = ref('');
 const expandedDocumentKeys = ref(new Set<string>());
 const collapsedNotebookIds = ref(new Set<string>());
@@ -393,6 +395,13 @@ function syncLocalGoals(): void {
   const hasSelected = nextGoals.some(goal => goal.id === selectedGoalId.value);
   localGoals.value = nextGoals;
   selectedGoalId.value = hasSelected ? selectedGoalId.value : nextGoals[0]?.id || '';
+  if (!nextGoals.some(goal => goal.id === expandedGoalId.value)) expandedGoalId.value = '';
+  documentSearch.value = '';
+}
+
+function toggleGoalPanel(goalId: string): void {
+  selectedGoalId.value = goalId;
+  expandedGoalId.value = expandedGoalId.value === goalId ? '' : goalId;
   documentSearch.value = '';
 }
 
@@ -504,6 +513,10 @@ function isVisibleGoalTask(task: Task): boolean {
 }
 
 const visibleGoalTasks = computed(() => (props.tasks || []).filter(isVisibleGoalTask));
+
+function getGoalTaskCount(goal: Goal): number {
+  return visibleGoalTasks.value.filter(task => isTaskInGoalScope(goal, task)).length;
+}
 
 const notebookLevelTasksByNotebookId = computed(() => {
   const tasksByNotebookId = new Map<string, Task[]>();
@@ -1060,6 +1073,7 @@ function addGoal(): void {
   };
 
   selectedGoalId.value = nextGoal.id;
+  expandedGoalId.value = '';
   documentSearch.value = '';
   emitGoals([...localGoals.value, nextGoal]);
 }
@@ -1079,6 +1093,7 @@ function removeGoal(goalId: string): void {
     selectedGoalId.value = nextGoals[0]?.id || '';
     documentSearch.value = '';
   }
+  if (expandedGoalId.value === goalId) expandedGoalId.value = '';
   emitGoals(nextGoals);
 }
 
@@ -1295,34 +1310,30 @@ watch(
 
 <style scoped>
 .goal-panel-root {
-  display: flex;
-  flex: 1 1 auto;
+  display: block;
   width: 100%;
-  min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
+  container-type: inline-size;
 }
 
 .goal-panel-body {
-  flex: 1 1 auto;
-  width: 100%;
-  min-height: 0;
+  width: calc(100% - 24px);
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(220px, 240px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin: 0 12px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .goal-panel {
-  height: calc( 100% - 16px );
+  height: auto;
   min-height: 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 8px;
+  padding: 4px;
   border-radius: 10px;
   background-color: var(--Sv-theme-surface, var(--b3-theme-surface));
   overflow: hidden;
@@ -1412,6 +1423,18 @@ watch(
   animation: goal-document-refresh-spin 0.8s linear infinite;
 }
 
+.goal-document-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.goal-document-search-row .goal-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 @keyframes goal-document-refresh-spin {
   from {
     transform: rotate(0deg);
@@ -1454,6 +1477,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
 .goal-checkbox-list {
@@ -1461,6 +1486,20 @@ watch(
   flex-direction: column;
   gap: 10px;
   padding-right: 2px;
+}
+
+.goal-document-panel {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  margin-top: 8px;
+  overflow: visible;
+}
+
+.goal-document-panel .goal-checkbox-list {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
 }
 
 .goal-notebook-card {
@@ -1634,13 +1673,12 @@ watch(
   padding: 8px;
   border: none;
   border-radius: 10px;
-  background: var(--b3-list-hover);
+  background: var(--b3-theme-background);
   cursor: pointer;
   text-align: left;
   box-sizing: border-box;
 }
-
-.goal-item.active,.goal-item:hover {
+.goal-item:hover {
   background: var(--b3-theme-background);
   box-shadow: var(--pinch-shadow);
 }
@@ -1716,6 +1754,34 @@ watch(
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+
+.goal-panel-toggle {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.goal-panel-toggle:hover {
+  background: var(--b3-list-hover);
+}
+
+.goal-panel-toggle svg {
+  fill: currentColor;
+  transition: transform 0.16s ease;
+}
+
+.goal-panel-toggle.expanded svg {
+  transform: rotate(90deg);
 }
 
 .goal-item-footer {
@@ -1801,10 +1867,6 @@ watch(
   background: var(--b3-theme-background);
 }
 
-.goal-search-input {
-  margin-bottom: 10px;
-}
-
 .goal-checkbox-item {
   display: flex;
   align-items: flex-start;
@@ -1882,11 +1944,6 @@ watch(
 }
 
 @media (max-width: 720px) {
-  .goal-panel-body {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(180px, 220px) minmax(0, 1fr);
-  }
-
   .goal-panel-header {
     flex-direction: column;
     align-items: stretch;

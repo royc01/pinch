@@ -15,7 +15,12 @@
             type="search"
             :placeholder="t('taskManager.searchTasks')"
             :aria-label="t('taskManager.searchTasks')"
+            @focus="ganttSearchHistoryVisible = true"
+            @click="ganttSearchHistoryVisible = true"
+            @blur="recordGanttSearch(); ganttSearchHistoryVisible = false"
+            @keydown.enter="recordGanttSearch"
           />
+          <TaskSearchHistoryPopover :visible="ganttSearchHistoryVisible" @reuse="reuseGanttSearchHistory" />
           <button
             v-if="ganttSearchQuery"
             type="button"
@@ -566,6 +571,8 @@ import Icon from './Icon.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskTitlePlain from './TaskTitlePlain.vue';
+import TaskSearchHistoryPopover from './TaskSearchHistoryPopover.vue';
+import { recordTaskSearchHistory } from '@/utils/taskSearchHistory';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { getRepeatSeriesForTask } from '@/repeatRepository';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput } from '@/repeatRepository';
@@ -653,6 +660,17 @@ const shellScrollTop = ref(0);
 const labelColumnWidth = ref(DEFAULT_LABEL_COLUMN_WIDTH);
 const hoveredRenderRowKey = ref<string | null>(null);
 const ganttSearchQuery = ref('');
+const ganttSearchHistoryVisible = ref(false);
+
+function recordGanttSearch(): void {
+  recordTaskSearchHistory(ganttSearchQuery.value);
+}
+
+function reuseGanttSearchHistory(query: string): void {
+  ganttSearchQuery.value = query;
+  recordGanttSearch();
+  ganttSearchHistoryVisible.value = false;
+}
 const showCompletedTaskRows = ref(false);
 const currentTime = ref(new Date());
 const contextMenu = ref<{ show: boolean; x: number; y: number; task: Task | null }>({
@@ -3089,6 +3107,7 @@ const timelineHeaderStyle = computed(() => ({
 }
 
 .gantt-task-search {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;

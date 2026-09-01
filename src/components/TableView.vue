@@ -733,41 +733,16 @@
       @close="statusPopover = null"
     />
 
-    <Teleport to="body">
-      <div
-        v-if="groupPopover"
-        class="group-popover"
-        :style="groupPopoverStyle"
-        @click.stop
-        @mousedown.stop
-      >
-        <div class="group-popover-header">
-          <span class="group-popover-title">{{ t('tableView.selectGroup') }}</span>
-          <button type="button" class="group-popover-manage" @click.stop="handleGroupManage">
-            {{ t('tableView.manageGroups') }}
-          </button>
-        </div>
-        <div class="group-popover-chip-list">
-          <button
-            v-for="option in groupPopoverOptions"
-            :key="option.value"
-            type="button"
-            class="group-popover-chip"
-            :class="{ active: isGroupPopoverOptionSelected(option.value), primary: isGroupPopoverPrimaryOption(option.value), special: option.special }"
-            :style="{
-              '--group-chip-bg': option.colorCss || 'var(--b3-list-hover)',
-              '--group-chip-color': option.textColor || 'var(--b3-theme-on-surface)'
-            }"
-            @click="selectGroupFromPopover(option.value)"
-          >
-            <span class="group-popover-chip-label">{{ option.label }}</span>
-            <span v-if="isGroupPopoverPrimaryOption(option.value)" class="group-popover-chip-primary">
-              {{ t('taskManager.primaryTagShort') }}
-            </span>
-          </button>
-        </div>
-      </div>
-    </Teleport>
+    <TagPickerPopover
+      :show="Boolean(groupPopover)"
+      :style="groupPopoverStyle"
+      :options="groupPopoverOptions"
+      :selected-ids="groupPopoverSelectedTagIds"
+      @select="selectGroupFromPopover"
+      @remove="removeGroupFromPopover"
+      @clear="selectGroupFromPopover(TASK_GROUP_NONE_ID)"
+      @manage="handleGroupManage"
+    />
 
     <Teleport to="body">
       <div
@@ -873,6 +848,7 @@ import StatusPopover from '@/components/StatusPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskTimePopover from '@/components/TaskTimePopover.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
+import TagPickerPopover from '@/components/TagPickerPopover.vue';
 import { getStatusLabel, formatLocaleDate } from '@/composables/useTaskCommon';
 import {
   getTaskHeadingGroupMeta,
@@ -1853,13 +1829,13 @@ function compareTasksDefault(a: Task, b: Task, domOrderMap?: Map<string, number>
 }
 
 const groupLookup = computed(() => {
-  const map = new Map<string, { name: string; background: string; color: string }>();
+  const map = new Map<string, { name: string; background: string; color: string; icon?: string }>();
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
     const name = group.name?.trim() || getGroupFallbackLabel();
     const background = resolveGroupColorCss(group.color || '');
     const color = resolveGroupTextColor(group.color || '');
-    map.set(group.id, { name, background, color });
+    map.set(group.id, { name, background, color, icon: group.icon });
   }
   return map;
 });
@@ -3840,6 +3816,20 @@ function selectGroupFromPopover(value: string): void {
     : toggleTaskTagSelection(currentTagIds, value);
   if (areTaskTagIdsEqual(currentTagIds, nextTagIds)) return;
   emit('tagUpdate', task, nextTagIds);
+}
+
+function removeGroupFromPopover(value: string): void {
+  const popover = groupPopover.value;
+  if (!popover) return;
+  if (popover.subtaskId) {
+    selectGroupFromPopover(TASK_GROUP_NONE_ID);
+    return;
+  }
+  const task = props.tasks.find(t => t.id === popover.taskId);
+  if (!task) return;
+  const currentTagIds = resolveTaskTagIds(task.tags, task.groupId);
+  const nextTagIds = currentTagIds.filter(tagId => tagId !== value);
+  if (!areTaskTagIdsEqual(currentTagIds, nextTagIds)) emit('tagUpdate', task, nextTagIds);
 }
 
 function handleGroupManage(): void {

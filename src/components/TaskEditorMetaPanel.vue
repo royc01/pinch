@@ -122,45 +122,34 @@
       @select="handleStatusSelect"
       @close="emitPanelUpdate(null)"
     />
+    <TagPickerPopover
+      v-if="layout === 'properties' && propertyPicker === 'tags'"
+      :show="true"
+      :style="propertyPopoverStyle"
+      :options="groupOptions"
+      :selected-ids="selectedTagIds"
+      @select="emitSelectGroup"
+      @remove="emitRemoveGroup"
+      @clear="emitSelectGroup(TASK_GROUP_NONE_ID)"
+      @manage="emitManageCurrentProperty"
+    />
     <Teleport to="body">
       <div
-        v-if="layout === 'properties' && propertyPicker"
+        v-if="layout === 'properties' && propertyPicker === 'goals'"
         class="task-editor-property-popover"
         :style="propertyPopoverStyle"
         @mousedown.stop
         @click.stop
       >
         <div class="task-editor-property-popover-header">
-          <span>{{ propertyPicker === 'tags' ? t('taskManager.tags') : t('taskScopeDialog.goals') }}</span>
-          <button
-            v-if="showGroupManage"
-            type="button"
-            class="task-group-manage-btn"
-            @click.stop="emitManageCurrentProperty"
-          >
-            {{ t('taskManager.manage') }}
-          </button>
+          <span>{{ t('taskScopeDialog.goals') }}</span>
+          <div class="task-editor-property-popover-actions">
+            <button v-if="showGroupManage" type="button" class="task-group-manage-btn" @click.stop="emitManageCurrentProperty">
+              {{ t('taskManager.manage') }}
+            </button>
+          </div>
         </div>
-        <div v-if="propertyPicker === 'tags'" class="task-group-chip-list">
-          <button
-            v-for="option in groupOptions"
-            :key="option.value"
-            type="button"
-            class="task-group-chip"
-            :class="{ active: isGroupOptionSelected(option.value), primary: isPrimaryGroupOption(option.value), special: option.special }"
-            :style="{
-              '--group-chip-bg': option.colorCss || 'var(--b3-list-hover)',
-              '--group-chip-color': option.textColor || 'var(--b3-theme-on-surface)'
-            }"
-            @click="emitSelectGroup(option.value)"
-          >
-            <span class="task-group-chip-label">{{ option.label }}</span>
-            <span v-if="isPrimaryGroupOption(option.value)" class="task-group-chip-primary">
-              {{ t('taskManager.primaryTagShort') }}
-            </span>
-          </button>
-        </div>
-        <div v-else class="task-group-chip-list">
+        <div class="task-group-chip-list">
           <button
             v-for="option in goalOptions"
             :key="option.value"
@@ -310,6 +299,12 @@
               class="task-editor-property-pill"
               :style="item.style"
             >
+              <EmojiIcon
+                v-if="item.icon"
+                class="task-editor-group-button-emoji"
+                :value="item.icon"
+              />
+              <Icon v-else name="group" width="12" height="12" aria-hidden="true" />
               {{ item.label }}
             </span>
           </template>
@@ -545,6 +540,7 @@ import TaskDatePopover from '@/components/TaskDatePopover.vue';
 import TaskReminderPopover from '@/components/TaskReminderPopover.vue';
 import TaskRepeatEditor from '@/components/TaskRepeatEditor.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
+import TagPickerPopover from '@/components/TagPickerPopover.vue';
 import { useI18n } from '@/composables/useI18n';
 import type { RepeatFrequency, RepeatRule, RepeatRuleInput, RepeatTermination } from '@/repeatRepository';
 import { formatRepeatRuleLabel } from '@/utils/repeatRuleLabel';
@@ -578,6 +574,7 @@ type TaskEditorGroupButtonItem = {
   kind: 'tag' | 'goal';
   label: string;
   emoji?: string;
+  icon?: string;
   style: Record<string, string>;
 };
 
@@ -657,6 +654,7 @@ const emit = defineEmits<{
   'update:description': [value: string];
   'update-dates': [value: TaskEditorDateFields];
   'select-group': [value: string];
+  'remove-group': [value: string];
   'select-goal': [value: string];
   'select-reminder': [value: TaskReminderSelection];
   'select-status': [value: TaskStatus];
@@ -760,12 +758,13 @@ const selectedTagButtonItems = computed<TaskEditorGroupButtonItem[]>(() => {
   return props.selectedTagIds
     .map(tagId => {
       const option = optionByValue.get(tagId);
-      const label = option?.label || tagId;
+      const label = getTagPathLabel(tagId, optionByValue);
       return label
         ? {
           key: `tag:${tagId}`,
           kind: 'tag' as const,
           label,
+          icon: option?.icon?.trim(),
           style: resolveGroupButtonItemStyle(option)
         }
         : null;
@@ -806,6 +805,23 @@ const groupButtonAriaLabel = computed(() => {
   }
   return sections.length > 0 ? sections.join('; ') : t('taskManager.noTag');
 });
+
+function getTagPathLabel(tagId: string, optionsByValue: ReadonlyMap<string, TaskGroupOption>): string {
+  const labels: string[] = [];
+  const visited = new Set<string>();
+  let current = optionsByValue.get(tagId);
+
+  while (current && !visited.has(current.value)) {
+    visited.add(current.value);
+    const label = current.label.trim();
+    if (label) {
+      labels.unshift(label);
+    }
+    current = current.parentId ? optionsByValue.get(current.parentId) : undefined;
+  }
+
+  return labels.join('/').trim() || tagId;
+}
 
 function emitPanelUpdate(value: TaskEditorPanel): void {
   emit('update:panel', value);
@@ -1087,6 +1103,9 @@ function handleDescriptionCommit(): void {
 
 function emitSelectGroup(value: string): void {
   emit('select-group', value);
+}
+function emitRemoveGroup(value: string): void {
+  emit('remove-group', value);
 }
 
 function emitSelectGoal(value: string): void {
@@ -1782,6 +1801,79 @@ button.task-repeat-settings-item:hover {
   color: var(--b3-theme-on-background);
   font-size: 12px;
   font-weight: 600;
+}
+
+.task-editor-property-popover-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-editor-tag-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 7px;
+  color: var(--b3-theme-on-surface);
+  background: var(--b3-list-hover);
+}
+
+.task-editor-tag-search:focus-within {
+  border-color: var(--b3-theme-primary);
+}
+
+.task-editor-tag-search-icon {
+  font-size: 19px;
+  line-height: 1;
+}
+
+.task-editor-tag-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--b3-theme-on-background);
+  background: transparent;
+  font: inherit;
+}
+
+.task-editor-tag-picker-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-editor-tag-picker-title {
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.task-editor-tag-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.task-editor-tag-chip-grid .task-group-chip {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.task-editor-tag-chip-grid .task-group-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-editor-tag-chip-icon {
+  flex: 0 0 auto;
+  line-height: 1;
 }
 
 .task-editor-group-panel {

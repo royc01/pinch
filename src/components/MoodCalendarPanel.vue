@@ -1344,10 +1344,11 @@ onUnmounted(() => {
         color: var(--b3-theme-on-background);
       }
 
-      .mood-record-view-tabs {
-        display: inline-flex;
-        align-items: center;
-        min-width: 0;
+       .mood-record-view-tabs {
+         display: inline-flex;
+         align-items: center;
+         margin-left: auto;
+         min-width: 0;
         gap: 2px;
         padding: 2px;
         border-radius: 9px;
@@ -1394,11 +1395,11 @@ onUnmounted(() => {
         align-items: center;
         justify-content: center;
         
-        .icon {
-          width: 16px;
-          height: 16px;
-          color: var(--b3-theme-background);
-          fill: var(--b3-theme-background);
+         .icon {
+           width: 16px;
+           height: 16px;
+           color: var(--b3-theme-on-surface);
+           fill: var(--b3-theme-on-surface);
         }
         
         &:hover {
@@ -1682,10 +1683,11 @@ onUnmounted(() => {
           font-size: 15px;
         }
 
-        .mood-record-view-tabs {
-          grid-column: 1 / -1;
-          grid-row: 2;
-          width: 100%;
+         .mood-record-view-tabs {
+           grid-column: 1 / -1;
+           grid-row: 2;
+           margin-left: 0;
+           width: 100%;
           box-sizing: border-box;
 
           button {
@@ -1736,8 +1738,8 @@ onUnmounted(() => {
 .icon-button .icon {
   width: 16px;
   height: 16px;
-  color: var(--b3-theme-background);
-  fill: var(--b3-theme-background);
+  color: var(--b3-theme-on-surface);
+  fill: var(--b3-theme-on-surface);
 }
 
 .icon-button:hover {

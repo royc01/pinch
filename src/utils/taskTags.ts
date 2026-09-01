@@ -145,7 +145,8 @@ export function matchesTaskTagFilter(
   tags: unknown,
   groupId: unknown,
   activeFilterIds: readonly string[],
-  noneId: string
+  noneId: string,
+  descendantIdsByTag?: ReadonlyMap<string, ReadonlySet<string>>
 ): boolean {
   if (activeFilterIds.length === 0) {
     return true;
@@ -154,5 +155,8 @@ export function matchesTaskTagFilter(
   if (tagIds.length === 0) {
     return activeFilterIds.includes(noneId);
   }
-  return tagIds.some((tagId) => activeFilterIds.includes(tagId));
+  return activeFilterIds.some((filterId) => {
+    const matchingIds = descendantIdsByTag?.get(filterId);
+    return matchingIds ? tagIds.some(tagId => matchingIds.has(tagId)) : tagIds.includes(filterId);
+  });
 }

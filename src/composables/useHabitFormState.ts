@@ -12,6 +12,8 @@ export interface NewHabitFormState {
   timesPerDay: string;
   usePomodoro: boolean;
   pomodoroDuration: string;
+  tagIds: string[];
+  primaryTagId?: string;
 }
 
 export const createDefaultNewHabit = (): NewHabitFormState => ({
@@ -29,7 +31,8 @@ export const createDefaultNewHabit = (): NewHabitFormState => ({
   completionMode: 'fixed',
   timesPerDay: '1',
   usePomodoro: false,
-  pomodoroDuration: '25'
+  pomodoroDuration: '25',
+  tagIds: []
 });
 
 export const useHabitFormState = (t: (key: string) => string) => {

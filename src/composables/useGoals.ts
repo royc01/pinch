@@ -61,16 +61,27 @@ export const useGoals = () => {
     goalsError.value = '';
 
     try {
-      const [nextGoals, tasks] = await Promise.all([
-        loadGoals(),
-        TaskRepository.getBlockTasks(taskUseCache, undefined, { useLiveDom: false })
-      ]);
+      const goalsPromise = loadGoals();
+      const tasksPromise = TaskRepository.getBlockTasks(taskUseCache, undefined, { useLiveDom: false });
+      // Keep a rejection observed while goal definitions are resolved first.
+      // We still await it below so task-scan failures follow the normal error path.
+      void tasksPromise.catch(() => undefined);
+      const nextGoals = await goalsPromise;
 
       if (loadId !== latestLoadId) {
         return;
       }
 
+      // Tags are available with each task, whereas goal labels come from this
+      // separate repository. Publish definitions immediately so goal badges do
+      // not wait for the more expensive full task scan used for progress.
       goalDefinitions.value = nextGoals;
+      const tasks = await tasksPromise;
+
+      if (loadId !== latestLoadId) {
+        return;
+      }
+
       goalTasks.value = tasks;
       goalItems.value = buildGoalProgressSummaries(nextGoals, tasks).map((summary) => ({
         ...summary.goal,

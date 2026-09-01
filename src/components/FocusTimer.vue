@@ -2065,6 +2065,8 @@ watch(isLinkedTargetLocked, (locked) => {
   display: flex;
   align-items: center;
   min-width: 0;
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .timer-content {

@@ -23,9 +23,18 @@
               <EmojiIcon class="habit-emoji" :value="habit.emoji" :fallback="fallbackHabitEmoji" />
             </div>
             <div class="habit-info" @click="emit('show-stats', habit)">
-              <div class="habit-title">
-                 <span class="habit-name ariaLabel" :aria-label="t('habitTracker.viewHabitDetails')">{{ habit.name }}</span>
-                 <span
+                <div class="habit-title">
+                  <span class="habit-name ariaLabel" :aria-label="t('habitTracker.viewHabitDetails')">{{ habit.name }}</span>
+                  <span
+                    v-for="tag in getHabitTagBadges(habit)"
+                    :key="tag.id"
+                    class="habit-tag-chip ariaLabel"
+                    :style="getHabitTagBadgeStyle(tag)"
+                  >
+                    <EmojiIcon v-if="tag.icon" class="habit-tag-icon" :value="tag.icon" />
+                    {{ tag.name }}
+                  </span>
+                  <span
                    v-if="getHabitFocusDurationText(habit.id)"
                    class="habit-focus-duration-badge ariaLabel"
                    :aria-label="getHabitFocusDurationTitle(habit.id)"
@@ -40,8 +49,8 @@
                   @click.stop="emit('start-focus', habit)"
                 >
                   {{ pomodoroIcon }} {{ habit.pomodoroDuration ? `${habit.pomodoroDuration}min` : '25min' }}
-                </button>
-              </div>
+                  </button>
+                </div>
               <div v-if="manageMode" class="habit-status-text">
                 <span :class="['habit-status-badge', habit.isPaused ? 'paused' : 'active']">
                   {{ habit.isPaused ? t('habitTracker.pausedStatus') : t('habitTracker.activeStatus') }}
@@ -244,12 +253,13 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, toRefs } from 'vue';
-import { getFocusTimerData, type FocusSessionRecord, type Habit } from '@/api';
+import { getFocusTimerData, type FocusSessionRecord, type Habit, type Tag } from '@/api';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
 import { buildHabitColorStyle, normalizeHabitEmojiColorIndex, resolveHabitEmojiColorIndex } from '@/utils/habitEmojiColor';
+import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 
 interface HabitCacheData {
   weeklyCompleted: boolean;
@@ -281,6 +291,7 @@ const props = withDefaults(defineProps<{
   isHabitScheduledToday: (habit: Habit) => boolean;
   pomodoroStateClass: (state: string | undefined) => string;
   formatPomodoroTime: (seconds: number) => string;
+  tags?: Tag[];
   manageMode?: boolean;
 }>(), {
   manageMode: false
@@ -307,6 +318,20 @@ const draggedHabitId = ref<string | null>(null);
 const lastReorderedTargetId = ref<string | null>(null);
 const habitDragMimeType = 'application/x-pinch-habit-card';
 const contextMenu = ref<{ habit: Habit; x: number; y: number } | null>(null);
+const tagById = computed(() => new Map((props.tags || []).map(tag => [tag.id, tag])));
+
+function getHabitTagBadges(habit: Habit): Tag[] {
+  return (habit.tagIds || []).map(id => tagById.value.get(id)).filter((tag): tag is Tag => !!tag);
+}
+
+function getHabitTagBadgeStyle(tag: Tag): Record<string, string> {
+  const rawColor = typeof tag.color === 'string' ? tag.color.trim() : '';
+  return rawColor ? {
+    background: resolveGroupColorCss(rawColor),
+    borderColor: resolveGroupColorLayerCss(rawColor),
+    color: resolveGroupTextColor(rawColor)
+  } : {};
+}
 const focusSessionRecords = ref<FocusSessionRecord[]>([]);
 
 const focusMinutesByHabitId = computed(() => {
@@ -621,9 +646,33 @@ const {
   margin-right: 6px;
 }
 
+.habit-tag-chip {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  max-width: 120px;
+  margin-right: 4px;
+  box-sizing: border-box;
+  height: 17px;
+  gap: 2px;
+  padding: 1px 4px;
+  border-radius: 6px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-surface);
+  font-size: 10px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.habit-tag-icon { width: 11px; height: 11px; vertical-align: -1px; }
+
 .habit-focus-duration-badge {
   flex: 0 0 auto;
   margin-right: 6px;
+  box-sizing: border-box;
+  height: 17px;
   padding: 2px 6px;
   border-radius: 6px;
   color: var(--b3-theme-on-surface);

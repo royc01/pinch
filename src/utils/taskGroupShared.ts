@@ -9,23 +9,27 @@ export interface TaskBackgroundColorOption {
 export interface TaskGroupOption {
   value: string;
   label: string;
+  parentId?: string;
   special?: boolean;
   color?: string;
   colorCss?: string;
   borderColor?: string;
   textColor?: string;
+  icon?: string;
 }
 
 export interface TaskGroupBadge {
   id: string;
   label: string;
   style?: Record<string, string>;
+  icon?: string;
 }
 
 export interface TaskGroupBadgeMeta {
   name?: string;
   background?: string;
   color?: string;
+  icon?: string;
 }
 
 export const TASK_GROUP_NONE_ID = '__none__';
@@ -89,11 +93,13 @@ export function buildTaskGroupOption(
   return {
     value: group.id,
     label: resolveTaskGroupFallbackLabel(group, fallbackLabel),
+    parentId: group.parentId,
     special: false,
     ...(options.includeColor ? { color: rawColor } : {}),
     colorCss: resolveGroupColorCss(rawColor),
     ...(options.includeBorderColor ? { borderColor: resolveGroupColorLayerCss(rawColor) } : {}),
-    textColor: resolveGroupTextColor(rawColor)
+    textColor: resolveGroupTextColor(rawColor),
+    icon: group.icon
   };
 }
 
@@ -127,6 +133,7 @@ export function buildTaskGroupBadges(
     return {
       id: groupId,
       label: meta?.name || groupId,
+      icon: meta?.icon,
       style: meta?.background
         ? {
             '--group-badge-bg': meta.background,

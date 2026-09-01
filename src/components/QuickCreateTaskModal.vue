@@ -835,8 +835,11 @@ async function resolveQuickCreateTarget(): Promise<QuickCreateTarget | null> {
   if (documentId === PINCH_DAILY_NOTE_OPTION_ID) {
     return { notebookId, documentId, docPath: await ensureDailyNoteDocument(notebookId) };
   }
-  const document = availableDocuments.value.find(item => item.id === documentId && item.notebookId === notebookId);
-  const documentPath = document?.path || await getHPathByID(documentId).catch(() => '');
+  // `loadFiletreeDocumentTree` exposes a storage path (for example,
+  // `/Projects.sy/Plan.sy`), while getIDsByHPath expects an HPath
+  // (`/Projects/Plan`). Always resolve the selected document by ID so a
+  // manually selected document is not submitted with its storage path.
+  const documentPath = await getHPathByID(documentId).catch(() => '');
   if (!documentPath) {
     return null;
   }
@@ -1255,6 +1258,49 @@ async function handleSubmit(): Promise<void> {
       await pushMsg(tt('kanbanView.enterHeadingName'), 2000);
       return;
     }
+    const context = props.taskContext || {};
+    const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
+    const createdTask: NewTask = {
+      ...localTask.value,
+      title,
+      status: context.status || localTask.value.status || 'pending',
+      tags: tagState.tagIds,
+      groupId: tagState.primaryTagId,
+      goalIds: [...localTask.value.goalIds]
+    };
+
+    // Plain-text creation does not need an editable draft block. Creating the
+    // final task directly avoids the placeholder creation, metadata write, and
+    // title update round trips used by advanced mode.
+    if (quickCreateEditorMode.value === 'plain' && !quickCreateDraft) {
+      const target = await resolveQuickCreateTarget();
+      if (!target) {
+        await pushMsg(tt('kanbanView.createTaskFailedRetry'), 3000);
+        return;
+      }
+      try {
+        const created = await TaskRepository.createBlockTask({
+          ...createdTask,
+          startDate: context.startDate,
+          dueDate: context.dueDate || createdTask.dueDate || undefined,
+          startTime: context.startTime,
+          dueTime: context.dueTime,
+          description: createdTask.description || undefined,
+          reminderType: createdTask.reminderType,
+          reminderCustomTime: createdTask.reminderCustomTime
+        }, target.notebookId, target.docPath);
+        emit('created', {
+          ...target,
+          ...created,
+          headingTitle: normalizedHeadingTitle || undefined,
+          task: createdTask
+        });
+      } catch (error) {
+        console.error('[QuickCreateTaskModal] Failed to create task:', error);
+        await pushMsg(tt('kanbanView.createTaskFailedRetry'), 3000);
+      }
+      return;
+    }
     if (!quickCreateDraft) {
       await initializeQuickCreateDraft();
     }
@@ -1266,15 +1312,6 @@ async function handleSubmit(): Promise<void> {
     } else {
       title = await readQuickCreateDraftTitle(draft.blockId);
     }
-    const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
-    const createdTask: NewTask = {
-      ...localTask.value,
-      title,
-      status: props.taskContext?.status || localTask.value.status || 'pending',
-      tags: tagState.tagIds,
-      groupId: tagState.primaryTagId,
-      goalIds: [...localTask.value.goalIds]
-    };
     quickCreateDraft = null;
     destroyQuickCreateProtyle();
     emit('created', {

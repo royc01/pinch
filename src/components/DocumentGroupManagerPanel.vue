@@ -11,13 +11,18 @@
           {{ t('documentGroup.emptyGroups') }}
         </div>
         <div v-else class="document-group-list">
-          <button
+          <template
             v-for="group in localGroups"
             :key="group.id"
-            type="button"
+          >
+          <div
             class="document-group-item"
             :class="{ active: group.id === selectedGroupId }"
-            @click="selectedGroupId = group.id"
+            role="button"
+            tabindex="0"
+            @click="toggleGroupPanel(group.id)"
+            @keydown.enter.prevent="toggleGroupPanel(group.id)"
+            @keydown.space.prevent="toggleGroupPanel(group.id)"
           >
             <div class="document-group-item-main">
               <button
@@ -32,6 +37,7 @@
                 class="document-group-name-input"
                 :model-value="group.name"
                 :placeholder="t('documentGroup.groupNamePlaceholder')"
+                @click.stop
                 @update:model-value="updateGroupName(group.id, $event)"
               />
               <span class="document-group-count">{{ group.members.length }}</span>
@@ -44,40 +50,37 @@
               >
                 <Icon name="trash" width="16" height="16" />
               </button>
+              <button
+                type="button"
+                class="document-group-panel-toggle ariaLabel"
+                :class="{ expanded: group.id === expandedGroupId }"
+                :aria-label="t(group.id === expandedGroupId ? 'common.collapse' : 'common.expand')"
+                :aria-expanded="group.id === expandedGroupId"
+                @click.stop="toggleGroupPanel(group.id)"
+              >
+                <Icon name="chevronRight" width="16" height="16" />
+              </button>
             </div>
-          </button>
-        </div>
-      </div>
-
-      <div class="document-group-panel document-list-panel">
-        <div class="document-group-panel-header">
-          <div class="document-group-panel-header-main">
-            <span>{{ t('documentGroup.documents') }}</span>
-            <span v-if="selectedGroup" class="document-group-current">{{ selectedGroup.name || t('documentGroup.untitledGroup') }}</span>
+      <div v-if="group.id === expandedGroupId" class="document-group-panel document-list-panel" @click.stop>
+        <div class="document-list-content">
+          <div class="document-group-search-row">
+            <SyInput
+              class="document-group-search-input"
+              :model-value="documentSearch"
+              :placeholder="t('documentGroup.searchDocuments')"
+              @update:model-value="documentSearch = $event"
+            />
+            <button
+              type="button"
+              class="document-panel-refresh ariaLabel"
+              :class="{ 'is-refreshing': documentsRefreshing }"
+              :aria-label="t('taskScopeDialog.refreshDocuments')"
+              :disabled="documentsRefreshing"
+              @click.stop="refreshDocuments"
+            >
+              <Icon name="refresh" width="14" height="14" class="refresh-icon" />
+            </button>
           </div>
-          <button
-            type="button"
-            class="document-panel-refresh ariaLabel"
-            :class="{ 'is-refreshing': documentsRefreshing }"
-           
-            :aria-label="t('taskScopeDialog.refreshDocuments')"
-            :disabled="documentsRefreshing"
-            @click.stop="refreshDocuments"
-          >
-            <Icon name="refresh" width="14" height="14" class="refresh-icon" />
-          </button>
-        </div>
-
-        <div v-if="!selectedGroup" class="document-group-empty">
-          {{ t('documentGroup.selectGroupFirst') }}
-        </div>
-        <template v-else>
-          <SyInput
-            class="document-group-search-input"
-            :model-value="documentSearch"
-            :placeholder="t('documentGroup.searchDocuments')"
-            @update:model-value="documentSearch = $event"
-          />
           <div v-if="(documentTreeLoading || documentsRefreshing) && allDocuments.length === 0" class="document-group-empty">
             {{ t('taskManager.loading') }}
           </div>
@@ -177,7 +180,11 @@
               </div>
             </div>
           </div>
-        </template>
+        </div>
+      </div>
+          </div>
+          </template>
+        </div>
       </div>
     </div>
   </div>
@@ -240,6 +247,7 @@ const emit = defineEmits<{
 
 const localGroups = ref<DocumentGroup[]>([]);
 const selectedGroupId = ref('');
+const expandedGroupId = ref('');
 const documentSearch = ref('');
 const expandedDocumentKeys = ref(new Set<string>());
 const collapsedNotebookIds = ref(new Set<string>());
@@ -273,6 +281,13 @@ function syncLocalGroups(): void {
   const hasSelected = nextGroups.some(group => group.id === selectedGroupId.value);
   localGroups.value = nextGroups;
   selectedGroupId.value = hasSelected ? selectedGroupId.value : nextGroups[0]?.id || '';
+  if (!nextGroups.some(group => group.id === expandedGroupId.value)) expandedGroupId.value = '';
+}
+
+function toggleGroupPanel(groupId: string): void {
+  selectedGroupId.value = groupId;
+  expandedGroupId.value = expandedGroupId.value === groupId ? '' : groupId;
+  documentSearch.value = '';
 }
 
 function emitGroups(nextGroups: DocumentGroup[]): void {
@@ -648,6 +663,7 @@ function addGroup(): void {
   };
   const nextGroups = [...localGroups.value, nextGroup];
   selectedGroupId.value = nextGroup.id;
+  expandedGroupId.value = '';
   emitGroups(nextGroups);
 }
 
@@ -663,6 +679,7 @@ function removeGroup(groupId: string): void {
   if (selectedGroupId.value === group.id) {
     selectedGroupId.value = nextGroups[0]?.id || '';
   }
+  if (expandedGroupId.value === group.id) expandedGroupId.value = '';
   emitGroups(nextGroups);
 }
 
@@ -850,29 +867,25 @@ watch(
 
 <style scoped>
 .document-group-panel-root {
-  display: flex;
-  flex: 1 1 auto;
+  display: block;
   width: 100%;
-  min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
+  container-type: inline-size;
 }
 
 .document-group-body {
-  flex: 1 1 auto;
-  width: 100%;
-  min-height: 0;
+  width: calc(100% - 24px);
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(220px, 240px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-  overflow: hidden;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  gap: 8px;
   margin: 0 12px;
 }
 
 .document-group-panel {
-  height: calc(100% - 16px);
+  height: auto;
   min-height: 0;
   min-width: 0;
   display: flex;
@@ -958,6 +971,18 @@ watch(
   animation: document-panel-refresh-spin 0.8s linear infinite;
 }
 
+.document-group-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.document-group-search-row .document-group-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 @keyframes document-panel-refresh-spin {
   from {
     transform: rotate(0deg);
@@ -986,13 +1011,13 @@ watch(
   padding: 8px;
   border: none;
   border-radius: 10px;
-  background: var(--b3-list-hover);
+  background: var(--b3-theme-background);
   cursor: pointer;
   text-align: left;
   box-sizing: border-box;
 }
 
-.document-group-item.active,.document-group-item:hover {
+.document-group-item:hover {
   background: var(--b3-theme-background);
   box-shadow: var(--pinch-shadow);
 }
@@ -1038,10 +1063,6 @@ watch(
   min-width: 0;
 }
 
-.document-group-search-input {
-  margin-bottom: 10px;
-}
-
 .document-group-count {
   min-width: 22px;
   text-align: center;
@@ -1072,6 +1093,34 @@ watch(
   width: 16px;
   height: 16px;
   fill: currentColor;
+}
+
+.document-group-panel-toggle {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.document-group-panel-toggle:hover {
+  background: var(--b3-list-hover);
+}
+
+.document-group-panel-toggle svg {
+  fill: currentColor;
+  transition: transform 0.16s ease;
+}
+
+.document-group-panel-toggle.expanded svg {
+  transform: rotate(90deg);
 }
 
 .document-checkbox-list {
@@ -1299,20 +1348,22 @@ watch(
   color: var(--b3-theme-on-surface);
 }
 
-@media (max-width: 720px) {
-  .document-group-body {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, auto) minmax(0, 1fr);
-  }
+.document-group-list {
+  flex: 0 0 auto;
+  overflow: visible;
+}
 
-  .group-list-panel {
-    border-right: none;
-    border-bottom: 1px solid var(--b3-border-color);
-  }
+.document-list-panel {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  margin-top: 8px;
+  overflow: visible;
+}
 
-  .group-list-panel,
-  .document-list-panel {
-    min-height: 0;
-  }
+.document-list-panel .document-checkbox-list {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
 }
 </style>
