@@ -1,6 +1,11 @@
 <template>
-  <div class="document-group-panel-root">
+  <div class="document-group-panel-root" :class="{ 'is-split-layout': layout === 'split' }">
     <div class="document-group-body">
+      <div
+        v-if="layout === 'split'"
+        :id="documentPanelTargetId"
+        class="document-list-panel-host"
+      ></div>
       <div class="document-group-panel group-list-panel">
         <div class="document-group-panel-header">
           <span>{{ t('documentGroup.title') }}</span>
@@ -17,13 +22,14 @@
           >
           <div
             class="document-group-item"
-            :class="{ active: group.id === selectedGroupId }"
+            :class="{ active: group.id === activeGroupId }"
             role="button"
             tabindex="0"
             @click="toggleGroupPanel(group.id)"
             @keydown.enter.prevent="toggleGroupPanel(group.id)"
             @keydown.space.prevent="toggleGroupPanel(group.id)"
           >
+            <div class="document-group-item-details">
             <div class="document-group-item-main">
               <button
                 type="button"
@@ -61,7 +67,9 @@
                 <Icon name="chevronRight" width="16" height="16" />
               </button>
             </div>
-      <div v-if="group.id === expandedGroupId" class="document-group-panel document-list-panel" @click.stop>
+            </div>
+      <Teleport :to="`#${documentPanelTargetId}`" :disabled="layout !== 'split'" defer>
+      <div v-if="layout === 'split' ? group.id === activeGroupId : group.id === expandedGroupId" class="document-group-panel document-list-panel" @click.stop>
         <div class="document-list-content">
           <div class="document-group-search-row">
             <SyInput
@@ -182,6 +190,7 @@
           </div>
         </div>
       </div>
+      </Teleport>
           </div>
           </template>
         </div>
@@ -230,6 +239,7 @@ interface DocumentNotebookTreeGroup {
 }
 
 interface Props {
+  layout?: 'split' | 'stacked';
   groups: DocumentGroup[];
   documents: DocumentGroupManagerDocument[];
   allDocuments?: DocumentGroupManagerDocument[];
@@ -238,6 +248,7 @@ interface Props {
 
 const props = defineProps<Props>();
 const { t } = useI18n();
+const documentPanelTargetId = `document-list-panel-target-${Math.random().toString(36).slice(2)}`;
 const documentsRefreshing = computed(() => props.documentsRefreshing === true);
 
 const emit = defineEmits<{
@@ -247,6 +258,7 @@ const emit = defineEmits<{
 
 const localGroups = ref<DocumentGroup[]>([]);
 const selectedGroupId = ref('');
+const activeGroupId = computed(() => selectedGroupId.value || localGroups.value[0]?.id || '');
 const expandedGroupId = ref('');
 const documentSearch = ref('');
 const expandedDocumentKeys = ref(new Set<string>());
@@ -286,7 +298,11 @@ function syncLocalGroups(): void {
 
 function toggleGroupPanel(groupId: string): void {
   selectedGroupId.value = groupId;
-  expandedGroupId.value = expandedGroupId.value === groupId ? '' : groupId;
+  if (props.layout !== 'split' && expandedGroupId.value === groupId) {
+    expandedGroupId.value = '';
+    return;
+  }
+  expandedGroupId.value = groupId;
   documentSearch.value = '';
 }
 
@@ -890,7 +906,7 @@ watch(
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 8px;
+  padding: 4px;
   border-radius: 10px;
   background-color: var(--Sv-theme-surface, var(--b3-theme-surface));
   overflow: hidden;
@@ -1123,6 +1139,17 @@ watch(
   transform: rotate(90deg);
 }
 
+/* The split editor layout uses the adjacent panel rather than an inline
+ * disclosure, so its active control keeps the directional icon unchanged. */
+.document-group-panel-root.is-split-layout .document-group-panel-toggle.expanded {
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.document-group-panel-root.is-split-layout .document-group-panel-toggle.expanded svg {
+  transform: none;
+}
+
 .document-checkbox-list {
   display: flex;
   flex-direction: column;
@@ -1349,6 +1376,9 @@ watch(
 }
 
 .document-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   flex: 0 0 auto;
   overflow: visible;
 }
@@ -1361,9 +1391,70 @@ watch(
   overflow: visible;
 }
 
+.document-group-item-details {
+  min-width: 0;
+}
+
+.document-group-panel-root.is-split-layout,
+.document-group-panel-root.is-split-layout .document-group-body {
+  height: 100%;
+  min-height: 0;
+}
+
+.document-group-panel-root.is-split-layout .document-group-body {
+  display: grid;
+  grid-template-columns: 42% calc(58% - 8px);
+  column-gap: 8px;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.document-group-panel-root.is-split-layout .group-list-panel {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+}
+
+.document-group-panel-root.is-split-layout .document-group-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.document-list-panel-host {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.document-group-panel-root.is-split-layout .document-list-panel-host > .document-list-panel {
+  height: 100%;
+  margin-top: 0;
+}
+
+.document-group-panel-root.is-split-layout .document-list-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.document-group-panel-root.is-split-layout .document-group-search-row {
+  flex: 0 0 auto;
+}
+
+.document-group-panel-root.is-split-layout .document-list-panel .document-checkbox-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .document-list-panel .document-checkbox-list {
   flex: 0 0 auto;
   min-height: auto;
   overflow: visible;
 }
+
 </style>

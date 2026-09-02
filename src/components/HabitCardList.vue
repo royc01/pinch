@@ -9,7 +9,9 @@
         :key="habit.id"
         :class="['habit-card', { completed: isHabitCompleted(habit), paused: habit.isPaused, dragging: draggedHabitId === habit.id, 'drag-over': dragOverHabitId === habit.id && !draggedHabitId }]"
         :style="getHabitColorStyle(habit)"
-        draggable="true"
+        :draggable="!isTouchInteraction"
+        @touchstart.passive="disableNativeTouchDrag"
+        @pointerdown="handleHabitPointerDown"
         @dragstart="handleHabitDragStart($event, habit)"
         @dragend="handleHabitDragEnd"
         @dragover="handleHabitDragOver($event, habit)"
@@ -214,6 +216,22 @@
     role="menu"
     @contextmenu.prevent
   >
+    <button
+      type="button"
+      role="menuitem"
+      :disabled="!canMoveContextHabit(-1)"
+      @click="runContextAction('move-up')"
+    >
+      {{ t('habitTracker.moveUp') }}
+    </button>
+    <button
+      type="button"
+      role="menuitem"
+      :disabled="!canMoveContextHabit(1)"
+      @click="runContextAction('move-down')"
+    >
+      {{ t('habitTracker.moveDown') }}
+    </button>
     <button type="button" role="menuitem" :disabled="contextMenu.habit.isPaused" @click="runContextAction('start-focus')">
       {{ t('habitTracker.startFocus') }}
     </button>
@@ -316,6 +334,7 @@ const emit = defineEmits<{
 const dragOverHabitId = ref<string | null>(null);
 const draggedHabitId = ref<string | null>(null);
 const lastReorderedTargetId = ref<string | null>(null);
+const isTouchInteraction = ref(false);
 const habitDragMimeType = 'application/x-pinch-habit-card';
 const contextMenu = ref<{ habit: Habit; x: number; y: number } | null>(null);
 const tagById = computed(() => new Map((props.tags || []).map(tag => [tag.id, tag])));
@@ -381,6 +400,21 @@ const handleContextMenu = (event: MouseEvent, habit: Habit): void => {
   contextMenu.value = { habit, x: event.clientX, y: event.clientY };
 };
 
+const disableNativeTouchDrag = (event: Event): void => {
+  isTouchInteraction.value = true;
+  (event.currentTarget as HTMLElement).draggable = false;
+};
+
+const handleHabitPointerDown = (event: PointerEvent): void => {
+  if (event.pointerType === 'touch') {
+    disableNativeTouchDrag(event);
+    return;
+  }
+  if (event.pointerType !== 'mouse') return;
+  isTouchInteraction.value = false;
+  (event.currentTarget as HTMLElement).draggable = true;
+};
+
 const closeContextMenu = (): void => {
   contextMenu.value = null;
 };
@@ -391,10 +425,24 @@ const handleContextMenuOutsidePointerDown = (event: PointerEvent): void => {
   closeContextMenu();
 };
 
-const runContextAction = (action: 'start-focus' | 'edit' | 'show-stats' | 'manage-logs' | 'toggle-pause' | 'delete' | 'undo-one' | 'undo-checkin'): void => {
+const canMoveContextHabit = (direction: -1 | 1): boolean => {
+  const habit = contextMenu.value?.habit;
+  if (!habit) return false;
+  const currentIndex = props.sortedHabits.findIndex(item => item.id === habit.id);
+  const targetIndex = currentIndex + direction;
+  return currentIndex >= 0 && targetIndex >= 0 && targetIndex < props.sortedHabits.length;
+};
+
+const runContextAction = (action: 'move-up' | 'move-down' | 'start-focus' | 'edit' | 'show-stats' | 'manage-logs' | 'toggle-pause' | 'delete' | 'undo-one' | 'undo-checkin'): void => {
   const habit = contextMenu.value?.habit;
   closeContextMenu();
   if (!habit) return;
+  if (action === 'move-up' || action === 'move-down') {
+    const currentIndex = props.sortedHabits.findIndex(item => item.id === habit.id);
+    const targetHabit = props.sortedHabits[currentIndex + (action === 'move-up' ? -1 : 1)];
+    if (targetHabit) emit('reorder', habit.id, targetHabit.id);
+    return;
+  }
   if (action === 'start-focus') emit('start-focus', habit);
   if (action === 'edit') emit('edit', habit);
   if (action === 'show-stats') emit('show-stats', habit);
@@ -603,6 +651,10 @@ const {
 
 .habit-card.completed {
   box-shadow: inset 0 0 0 100px rgba(0, 0, 0, 0.03), var(--pinch-shadow);
+}
+
+.habit-card.completed.dragging {
+  box-shadow: 0 0 0 2px #f98f7a, rgba(0, 0, 0, 0.12) 0 4px 12px 0;
 }
 
 .habit-card.drag-over {

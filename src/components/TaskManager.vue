@@ -5897,6 +5897,11 @@ async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'home', elev
   if (notebooks.value.length === 0) {
     await loadNotebooks();
   }
+  // Tag definitions are loaded independently from the task list.  Await them
+  // before mounting the settings editor so its initial snapshot is complete.
+  if (taskGroups.value.length === 0) {
+    taskGroups.value = await loadTaskGroups();
+  }
   taskScopeDialogInitialTab.value = initialTab;
   taskScopeDialogElevated.value = elevated;
   updateTaskScopePageStyle();

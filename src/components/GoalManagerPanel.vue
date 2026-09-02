@@ -1,5 +1,5 @@
 <template>
-  <div class="goal-panel-root">
+  <div class="goal-panel-root" :class="{ 'is-split-layout': layout === 'split' }">
     <TaskDatePopover
       :visible="dueDatePopover.visible"
       :anchor-el="dueDatePopover.anchorEl"
@@ -9,6 +9,11 @@
       @close="closeDueDatePopover"
     />
     <div class="goal-panel-body">
+      <div
+        v-if="layout === 'split'"
+        :id="documentPanelTargetId"
+        class="goal-document-panel-host"
+      ></div>
       <div class="goal-panel goal-list-panel">
         <div class="goal-panel-header">
           <span>{{ t('goalManager.goalList') }}</span>
@@ -25,13 +30,14 @@
           >
           <div
             class="goal-item"
-            :class="{ active: goal.id === selectedGoalId }"
+            :class="{ active: goal.id === activeGoalId }"
             role="button"
             tabindex="0"
             @click="toggleGoalPanel(goal.id)"
             @keydown.enter.prevent="toggleGoalPanel(goal.id)"
             @keydown.space.prevent="toggleGoalPanel(goal.id)"
           >
+            <div class="goal-item-details">
             <div class="goal-item-main">
               <button
                 type="button"
@@ -95,7 +101,9 @@
                 </div>
               </div>
             </div>
-      <div v-if="goal.id === expandedGoalId" class="goal-panel goal-document-panel" @click.stop>
+            </div>
+      <Teleport :to="`#${documentPanelTargetId}`" :disabled="layout !== 'split'" defer>
+      <div v-if="layout === 'split' ? goal.id === activeGoalId : goal.id === expandedGoalId" class="goal-panel goal-document-panel" @click.stop>
         <div class="goal-document-content">
           <div class="goal-document-search-row">
             <SyInput
@@ -261,6 +269,7 @@
           </div>
         </div>
       </div>
+      </Teleport>
           </div>
           </template>
         </div>
@@ -299,6 +308,7 @@ import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 import { useI18n } from '@/composables/useI18n';
 
 interface Props {
+  layout?: 'split' | 'stacked';
   goals: Goal[];
   documents: GoalScopeDocument[];
   allDocuments?: GoalScopeDocument[];
@@ -346,6 +356,7 @@ type GoalTreeDocument = GoalScopeDocument & {
 
 const props = defineProps<Props>();
 const { t } = useI18n();
+const documentPanelTargetId = `goal-document-panel-target-${Math.random().toString(36).slice(2)}`;
 const documentsRefreshing = computed(() => props.documentsRefreshing === true);
 
 const emit = defineEmits<{
@@ -355,6 +366,7 @@ const emit = defineEmits<{
 
 const localGoals = ref<Goal[]>([]);
 const selectedGoalId = ref('');
+const activeGoalId = computed(() => selectedGoalId.value || localGoals.value[0]?.id || '');
 const expandedGoalId = ref('');
 const documentSearch = ref('');
 const expandedDocumentKeys = ref(new Set<string>());
@@ -401,7 +413,11 @@ function syncLocalGoals(): void {
 
 function toggleGoalPanel(goalId: string): void {
   selectedGoalId.value = goalId;
-  expandedGoalId.value = expandedGoalId.value === goalId ? '' : goalId;
+  if (props.layout !== 'split' && expandedGoalId.value === goalId) {
+    expandedGoalId.value = '';
+    return;
+  }
+  expandedGoalId.value = goalId;
   documentSearch.value = '';
 }
 
@@ -1496,11 +1512,72 @@ watch(
   overflow: visible;
 }
 
+.goal-item-details {
+  min-width: 0;
+}
+
+.goal-panel-root.is-split-layout,
+.goal-panel-root.is-split-layout .goal-panel-body {
+  height: 100%;
+  min-height: 0;
+}
+
+.goal-panel-root.is-split-layout .goal-panel-body {
+  display: grid;
+  grid-template-columns: 42% calc(58% - 8px);
+  column-gap: 8px;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.goal-panel-root.is-split-layout .goal-list-panel {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+}
+
+.goal-panel-root.is-split-layout .goal-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.goal-document-panel-host {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.goal-panel-root.is-split-layout .goal-document-panel-host > .goal-document-panel {
+  height: 100%;
+  margin-top: 0;
+}
+
+.goal-panel-root.is-split-layout .goal-document-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.goal-panel-root.is-split-layout .goal-document-search-row {
+  flex: 0 0 auto;
+}
+
+.goal-panel-root.is-split-layout .goal-document-panel .goal-checkbox-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .goal-document-panel .goal-checkbox-list {
   flex: 0 0 auto;
   min-height: auto;
   overflow: visible;
 }
+
 
 .goal-notebook-card {
   padding: 6px;
@@ -1782,6 +1859,17 @@ watch(
 
 .goal-panel-toggle.expanded svg {
   transform: rotate(90deg);
+}
+
+/* The split editor layout uses the adjacent panel rather than an inline
+ * disclosure, so its active control keeps the directional icon unchanged. */
+.goal-panel-root.is-split-layout .goal-panel-toggle.expanded {
+  background: var(--b3-theme-on-background);
+  color: var(--b3-theme-background);
+}
+
+.goal-panel-root.is-split-layout .goal-panel-toggle.expanded svg {
+  transform: none;
 }
 
 .goal-item-footer {

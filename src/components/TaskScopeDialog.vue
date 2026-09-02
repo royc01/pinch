@@ -5,26 +5,62 @@
       ? ['task-scope-page', { 'is-elevated': elevated }]
       : 'task-scope-overlay'"
     :style="pageStyle"
-    @click.self="presentation !== 'sidebar' && handleClose"
+    @click="handleOverlayClick"
   >
-    <div class="task-scope-dialog" :class="{ 'with-document-groups': hasWideLayout }" @click.stop>
+    <div
+      class="task-scope-dialog"
+      :class="{
+        'with-document-groups': hasWideLayout,
+        'is-sidebar-presentation': isSidebarPresentation
+      }"
+      @click.stop
+    >
       <div class="task-scope-header">
-        <button
-          v-if="activeTab !== 'home'"
-          type="button"
-          class="task-scope-back"
-          @click="activeTab = 'home'"
-        >
-          <Icon name="left" width="16" height="16" />
-          <span>{{ dialogTitle }}</span>
-        </button>
-        <div v-else class="task-scope-title">{{ dialogTitle }}</div>
-        <button v-if="!lockClose" type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="handleClose">
-          <Icon name="close" width="14" height="14" class="icon" />
-        </button>
+        <template v-if="isSidebarPresentation">
+          <button
+            v-if="activeTab !== 'home'"
+            type="button"
+            class="task-scope-back"
+            @click="activeTab = 'home'"
+          >
+            <Icon name="left" width="16" height="16" />
+            <span>{{ dialogTitle }}</span>
+          </button>
+          <div v-else class="task-scope-title">{{ dialogTitle }}</div>
+          <button v-if="!lockClose" type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="handleClose">
+            <Icon name="close" width="14" height="14" class="icon" />
+          </button>
+        </template>
+        <template v-else>
+          <div class="task-scope-header-side">
+            <div class="task-scope-title">{{ dialogTitle }}</div>
+          </div>
+          <div class="task-scope-header-main">
+            <button v-if="!lockClose" type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="handleClose">
+              <Icon name="close" width="14" height="14" class="icon" />
+            </button>
+          </div>
+        </template>
       </div>
 
-      <div v-if="activeTab === 'home'" class="task-scope-content task-scope-home">
+      <div class="task-scope-body">
+        <nav v-if="!isSidebarPresentation" class="task-scope-side-nav" :aria-label="dialogTitle">
+          <button
+            v-for="item in editorSettingsNavItems"
+            :key="item.id"
+            type="button"
+            class="task-scope-side-nav-item"
+            :class="{ active: activeTab === item.id }"
+            @click="handleSettingsNavItemClick(item.id)"
+          >
+            <span class="task-scope-home-item-icon">
+              <Icon v-if="item.icon" :name="item.icon" :width="item.iconSize" :height="item.iconSize" />
+            </span>
+            <span>{{ item.label }}</span>
+          </button>
+        </nav>
+
+      <div v-if="isSidebarPresentation && activeTab === 'home'" class="task-scope-content task-scope-home">
         <div v-for="(group, groupIndex) in settingsNavGroups" :key="groupIndex" class="task-scope-home-group">
           <button
             v-for="item in group"
@@ -331,6 +367,7 @@
 
       <div v-else-if="activeTab === 'document-groups'" class="task-scope-content document-groups-tab-content">
         <DocumentGroupManagerPanel
+          :layout="isSidebarPresentation ? 'stacked' : 'split'"
           :groups="localDocumentGroups"
           :documents="documentGroupDocuments"
           :all-documents="allDocumentGroupDocuments"
@@ -352,6 +389,7 @@
       </div>
       <div v-else-if="activeTab === 'goals'" class="task-scope-content goals-tab-content">
         <GoalManagerPanel
+          :layout="isSidebarPresentation ? 'stacked' : 'split'"
           :goals="localGoals"
           :documents="goalDocuments"
           :all-documents="allDocumentGroupDocuments"
@@ -426,6 +464,7 @@
             <SyCheckbox class="task-scope-toggle" :model-value="localCheckinNotePrompt" @update:model-value="localCheckinNotePrompt = $event" />
           </div>
         </div>
+      </div>
       </div>
       </div>
 
@@ -603,6 +642,7 @@ const activeTab = ref<TaskScopeDialogTab>('home');
 const autoSaveReady = ref(false);
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 const lockClose = computed(() => props.lockClose === true);
+const isSidebarPresentation = computed(() => props.presentation === 'sidebar');
 const showExtra = computed(() => props.showExtra !== false);
 const globalDateRecognizing = computed(() => props.globalDateRecognizing === true);
 const documentsRefreshing = computed(() => props.documentsRefreshing === true);
@@ -710,6 +750,9 @@ const settingsNavGroups = computed(() => {
   const secondary = settingsNavItems.value.filter(item => !primaryIds.has(item.id));
   return [primary, secondary].filter(group => group.length > 0);
 });
+const editorSettingsNavItems = computed(() =>
+  settingsNavItems.value.filter(item => item.id !== 'reward-shop')
+);
 
 function handleSettingsNavItemClick(id: SettingsNavItemId): void {
   if (id === 'reward-shop') {
@@ -784,11 +827,13 @@ const defaultTaskCreateDocumentOptions = computed(() => [
 
 function resolveInitialTab(): TaskScopeDialogTab {
   const requestedTab = props.initialTab;
-  if (requestedTab === 'home') return 'home';
+  if (requestedTab === 'home') {
+    return isSidebarPresentation.value ? 'home' : (availableTabs.value[0] || 'task-settings');
+  }
   if (requestedTab && availableTabs.value.includes(requestedTab)) {
     return requestedTab;
   }
-  return 'home';
+  return isSidebarPresentation.value ? 'home' : (availableTabs.value[0] || 'task-settings');
 }
 
 function normalizeOptionIds(ids: string[] | undefined, options: TaskScopeDisplayOption[]): string[] {
@@ -1164,6 +1209,12 @@ function handleClose(): void {
   emit('close');
 }
 
+function handleOverlayClick(event: MouseEvent): void {
+  if (!isSidebarPresentation.value && event.target === event.currentTarget) {
+    handleClose();
+  }
+}
+
 function save(): void {
   stopCustomAudioPreview();
   emit('save', {
@@ -1301,7 +1352,7 @@ watch([
   inset: 0;
   background: rgba(0, 0, 0, 0.35);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   z-index: 10;
 }
@@ -1352,11 +1403,97 @@ watch([
   overflow: hidden;
 }
 
+/* The editor dialog keeps every settings category one click away. Sidebar
+ * settings retain the original home-and-detail navigation. */
+.task-scope-dialog:not(.is-sidebar-presentation) {
+  width: min(900px, calc(100% - 24px));
+  height: min(80vh, 640px);
+  max-height: min(80vh, 640px);
+  overflow: hidden;
+}
+
+.task-scope-dialog:not(.is-sidebar-presentation).with-document-groups {
+  width: min(900px, calc(100% - 24px));
+  height: min(80vh, 640px);
+  max-height: min(80vh, 640px);
+}
+
 .task-scope-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
+}
+
+.task-scope-dialog:not(.is-sidebar-presentation) .task-scope-header {
+  padding: 0;
+}
+
+.task-scope-header-side {
+  display: flex;
+  flex: 0 0 196px;
+  box-sizing: border-box;
+  align-items: center;
+  min-width: 0;
+  min-height: 50px;
+  padding: 0 14px;
+  background: var(--b3-theme-background);
+}
+
+.task-scope-header-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  min-height: 50px;
+  padding: 0 14px;
+  background: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
+}
+
+.task-scope-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.task-scope-side-nav {
+  display: flex;
+  flex: 0 0 196px;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  overflow-y: auto;
+  background: var(--b3-theme-background);
+}
+
+.task-scope-side-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+}
+
+.task-scope-side-nav-item:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-scope-side-nav-item.active {
+  background: var(--b3-list-hover);
+}
+
+.task-scope-side-nav-item .task-scope-home-item-icon {
+  opacity: 0.8;
 }
 
 .task-scope-title {
@@ -1469,10 +1606,48 @@ watch([
   overflow-y: auto;
 }
 
+.task-scope-dialog:not(.is-sidebar-presentation) .task-scope-scroll {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--b3-body-background) 50%, var(--b3-theme-background));
+}
+
 .task-scope-scroll .task-scope-content {
   flex: 0 0 auto;
   min-height: auto;
   overflow: visible;
+}
+
+/* In the editor dialog, ordinary settings pages occupy the remaining grid row
+ * and scroll within it. Goal and document-group pages keep their panel-owned
+ * split layouts below. */
+.task-scope-dialog:not(.is-sidebar-presentation) .task-scope-scroll .task-scope-content:not(.goals-tab-content):not(.document-groups-tab-content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.task-scope-dialog:not(.is-sidebar-presentation) .goals-tab-content,
+.task-scope-dialog:not(.is-sidebar-presentation) .document-groups-tab-content {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+}
+
+.task-scope-dialog:not(.is-sidebar-presentation) .goals-tab-content > :deep(.goal-panel-root),
+.task-scope-dialog:not(.is-sidebar-presentation) .document-groups-tab-content > :deep(.document-group-panel-root) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.task-scope-dialog:not(.is-sidebar-presentation) .goals-tab-content > :deep(.goal-panel-root.is-split-layout),
+.task-scope-dialog:not(.is-sidebar-presentation) .document-groups-tab-content > :deep(.document-group-panel-root.is-split-layout) {
+  position: absolute;
+  inset: 0;
 }
 
 .task-scope-tabs {

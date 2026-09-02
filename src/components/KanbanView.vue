@@ -1,5 +1,13 @@
 ﻿﻿<template>
-    <div ref="kanbanViewRef" class="kanban-view" :class="{ 'is-settings-ready': isSettingsLoaded }">
+    <div
+      ref="kanbanViewRef"
+      class="kanban-view"
+      :class="{ 'is-settings-ready': isSettingsLoaded }"
+      @touchstart.stop
+      @touchmove.stop
+      @touchend.stop
+      @touchcancel.stop
+    >
       <div v-if="!isSettingsLoaded" class="kanban-loading-shell" aria-hidden="true">
         <div class="kanban-loading-toolbar">
           <span class="kanban-loading-pill"></span>
@@ -5068,6 +5076,9 @@ async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'home') {
   if (notebooks.value.length === 0) {
     await loadNotebooks();
   }
+  // The settings dialog snapshots its tag editor at mount time.  Ensure the
+  // independently loaded tag metadata is available before that happens.
+  await ensureTaskGroupsLoaded();
   closeDocumentTabContextMenu();
   taskScopeDialogInitialTab.value = initialTab;
   showTaskScopeDialog.value = true;
@@ -17918,6 +17929,8 @@ watch(kanbanColumns, () => {
   gap: 10px;
   flex: 1;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
   align-items: flex-start;
   min-height: 0;
   margin: 0 10px;

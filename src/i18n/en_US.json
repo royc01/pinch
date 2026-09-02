@@ -114,6 +114,8 @@
   "habitTracker.startFocusTimer": "Start focus timer",
   "habitTracker.startFocus": "Start focus",
   "habitTracker.manageLogs": "Manage logs",
+  "habitTracker.moveUp": "Move up",
+  "habitTracker.moveDown": "Move down",
   "habitTracker.undoOneCheckin": "Undo one check-in",
   "habitTracker.undoCheckin": "Undo check-in",
   "habitTracker.statsView": "Stats view",

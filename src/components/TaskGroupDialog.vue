@@ -695,6 +695,10 @@ function save(): void {
 
 function scheduleAutoSave(): void {
   if (props.autoSave !== true || !autoSaveReady.value) return;
+  // A newly added row is intentionally blank until the user types its name.
+  // Treating that transient row as a save would normalize it away and could
+  // accidentally persist an empty tag collection.
+  if (localGroups.value.some(group => !isNoneOption(group) && !(group.name || '').trim())) return;
   if (autoSaveTimer !== null) clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(() => {
     autoSaveTimer = null;

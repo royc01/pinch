@@ -112,6 +112,8 @@
     "habitTracker.startFocusTimer":  "开始专注计时",
     "habitTracker.startFocus":  "开始专注",
     "habitTracker.manageLogs":  "管理日志",
+    "habitTracker.moveUp": "上移",
+    "habitTracker.moveDown": "下移",
     "habitTracker.undoOneCheckin":  "撤销一次",
     "habitTracker.undoCheckin":  "撤销打卡",
     "habitTracker.statsView":  "统计视图",
