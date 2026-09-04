@@ -29,7 +29,7 @@ import { escapeSqlLiteral } from "@/utils/sql";
 import { usePlugin } from "@/main";
 import { translate } from "@/composables/useI18n";
 import { enqueueStorageMutation } from "@/storageMutationCoordinator";
-import { isMissingPluginStorageValue } from "@/utils/pluginStorage";
+import { isMissingPluginStorageValue, isPluginLifecycleEndedError } from "@/utils/pluginStorage";
 import { getAutomaticScheduledTaskStatus } from "@/utils/taskStatusAutomation";
 import { formatDate as formatLocalDate } from "@/composables/useDateUtils";
 import { awardTaskCompletion } from "@/rewardRepository";
@@ -1331,7 +1331,7 @@ export interface FocusSessionRecord {
   date: string; // YYYY-MM-DD
   minutes: number;
   timestamp: number;
-  targetType: 'habit' | 'task' | 'unlinked';
+  targetType: 'habit' | 'task' | 'tag' | 'unlinked';
   targetId?: string;
   targetName?: string;
   targetEmoji?: string;
@@ -1339,7 +1339,7 @@ export interface FocusSessionRecord {
 }
 
 export interface FocusSessionTargetInput {
-  type: 'habit' | 'task';
+  type: 'habit' | 'task' | 'tag';
   id: string;
   name: string;
   emoji?: string;
@@ -1465,6 +1465,9 @@ export async function getFocusTimerData(): Promise<FocusTimerData> {
     clearStorageHealthFailure(FOCUS_TIMER_STORAGE_KEY);
     return data;
   } catch (error) {
+    if (isPluginLifecycleEndedError(error)) {
+      return createEmptyFocusTimerData();
+    }
     markStorageHealthFailure(FOCUS_TIMER_STORAGE_KEY, error);
     console.error('Error reading focus timer data:', error);
     return createEmptyFocusTimerData();
@@ -1546,7 +1549,7 @@ function normalizeFocusSessionRecords(records: unknown): FocusSessionRecord[] {
       continue;
     }
 
-    const targetType = record.targetType === 'habit' || record.targetType === 'task'
+    const targetType = record.targetType === 'habit' || record.targetType === 'task' || record.targetType === 'tag'
       ? record.targetType
       : 'unlinked';
     const targetId = typeof record.targetId === 'string' && record.targetId.trim().length > 0
@@ -2141,6 +2144,7 @@ export async function loadTags(): Promise<Tag[]> {
       return normalizeTaskGroups(storage.groups);
     }
   } catch (error) {
+    if (isPluginLifecycleEndedError(error)) return [];
     console.error('[Tags] loadTags: failed to read data', error);
   }
 
@@ -2171,6 +2175,7 @@ export async function saveTags(groups: Tag[]): Promise<void> {
     // Keep the legacy location in sync for existing installations and integrations.
     await plugin.saveData(LEGACY_TASK_GROUPS_STORAGE_KEY, payload);
   } catch (error) {
+    if (isPluginLifecycleEndedError(error)) return;
     console.error('[Tags] saveTags: failed to write data', error);
   }
 }

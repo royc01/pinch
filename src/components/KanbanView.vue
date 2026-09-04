@@ -2845,6 +2845,10 @@ const isSettingsLoaded = ref(false);
 // read. Keep persistence paused from setup onward, otherwise the temporary
 // default view can save its "all" source before loadUserSettings restores it.
 const isHydratingSettings = ref(true);
+// The first visible task snapshot can be a partial cache result. Do not treat
+// a persisted document tab as invalid until its authoritative reconciliation
+// has finished, otherwise a reload can replace it with `all` permanently.
+const isDocumentTabSelectionValidationReady = ref(false);
 
 const { notebooks, loadNotebooks } = useNotebooks();
 const taskGroups = ref<TaskGroup[]>([]);
@@ -6682,8 +6686,45 @@ const currentDocumentFilter = computed<string>({
       default:
         break;
     }
+    // A plugin reload can begin before the normal 200ms settings debounce
+    // fires. Persist a document-tab selection immediately so the synchronous
+    // local settings snapshot restores it instead of falling back to `all`.
+    void persistCurrentDocumentTabSelection();
   }
 });
+
+async function persistCurrentDocumentTabSelection(): Promise<void> {
+  if (isHydratingSettings.value) {
+    return;
+  }
+  const documentId = currentDocumentFilter.value;
+  switch (currentView.value) {
+    case 'kanban':
+    case 'quadrant':
+      await updateSettings('kanban', { kanbanFilterDocument: documentId });
+      return;
+    case 'list':
+      await updateSettings('kanban', { listFilterDocument: documentId });
+      return;
+    case 'table':
+    case 'archive-table':
+    case 'stats':
+      await updateSettings('kanban', { tableFilterDocument: documentId });
+      return;
+    case 'gantt':
+      await updateSettings('kanban', { ganttFilterDocument: documentId });
+      return;
+    case 'month':
+      await updateSettings('kanban', { monthFilterDocument: documentId });
+      return;
+    case 'week':
+      await updateSettings('kanban', { weekFilterDocument: documentId });
+      return;
+    case 'three-day':
+    case 'day':
+      await updateSettings('kanban', { dayFilterDocument: documentId });
+  }
+}
 
 const statsViewTasks = computed(() =>
   tasks.value.filter(task =>
@@ -7631,6 +7672,13 @@ function setupFilterTypeWatcher(
   taskMatcher?: () => DocumentOptionsTaskMatcher
 ): void {
   watch(typeRef, (newType) => {
+    // A restored source changes before its task snapshot is available. Its
+    // option list therefore temporarily contains only `all`; defer validation
+    // until the initial authoritative reconciliation rather than erasing the
+    // persisted document tab during mount.
+    if (!isDocumentTabSelectionValidationReady.value) {
+      return;
+    }
     const matcher = taskMatcher ? taskMatcher() : undefined;
     const options = toFilterDocumentOptions(newType, { taskMatcher: matcher });
     const allowedValues = new Set(options.map(option => option.value));
@@ -7668,6 +7716,9 @@ watch(calendarFilterType, () => {
 });
 
 const ensureTableDocumentSelection = () => {
+  if (!isDocumentTabSelectionValidationReady.value) {
+    return;
+  }
   const options = toFilterDocumentOptions(tableFilterType.value, {
     excludeCompletedOnlyDocs: shouldHideCompletedOnlyDocumentTabs('table'),
     taskMatcher: getDocumentTabTaskMatcher('table')
@@ -7683,6 +7734,14 @@ watch(tableFilterType, () => {
 });
 
 watch(visibleDocumentOptions, (options) => {
+  // Settings are restored before the first task snapshot arrives. At that
+  // point the option list contains only `all`, so validating here would erase
+  // a persisted document-tab selection before its document can be rebuilt.
+  // A later task snapshot triggers this watcher again and performs the normal
+  // invalid-selection fallback for genuinely unavailable documents.
+  if (!isDocumentTabSelectionValidationReady.value || tasks.value.length === 0) {
+    return;
+  }
   const allowedValues = new Set(options.map(option => option.value));
   if (!allowedValues.has(currentDocumentFilter.value)) {
     currentDocumentFilter.value = 'all';
@@ -10777,6 +10836,9 @@ async function saveUserSettings() {
 }
 
 async function validateDocumentSelection() {
+  if (!isDocumentTabSelectionValidationReady.value) {
+    return;
+  }
   let hasChanges = false;
 
   if (kanbanFilterDocument.value !== 'all' && !shouldDeferGoalSourceValidation(kanbanFilterType.value)) {
@@ -10845,6 +10907,14 @@ async function validateDocumentSelection() {
   if (hasChanges) {
     await saveUserSettings();
   }
+}
+
+function completeInitialDocumentTabSelectionValidation(): void {
+  if (isDocumentTabSelectionValidationReady.value) {
+    return;
+  }
+  isDocumentTabSelectionValidationReady.value = true;
+  void validateDocumentSelection();
 }
 
 function queueIncrementalUpdates(
@@ -15791,14 +15861,11 @@ onMounted(async () => {
   await loadUserSettings({ validateSources: false });
   const restoredSource = parseDocumentSource(getCurrentSidebarFilterSelection().sourceValue);
   const requiresDocumentGroups = restoredSource.kind === 'group';
-  const requiresTaskGroups =
-    (currentView.value === 'kanban' && kanbanGroupBy.value === 'group')
-    || (currentView.value === 'list' && listGroupBy.value === 'group')
-    || ((currentView.value === 'table' || currentView.value === 'archive-table') && tableGroupBy.value === 'group');
   const documentGroupsLoadPromise = requiresDocumentGroups ? loadDocumentGroups() : null;
-  const taskGroupsLoadPromise = requiresTaskGroups && shouldWarmTaskGroups
-    ? ensureTaskGroupsLoaded()
-    : null;
+  // Tags are rendered on cards and in the table's tag column even when the
+  // current grouping mode is not "group". Load their metadata for each view
+  // that can display those badges so the first paint never falls back to IDs.
+  const taskGroupsLoadPromise = shouldWarmTaskGroups ? ensureTaskGroupsLoaded() : null;
   let shouldRunMountedReconcile = false;
   if (initialLoadMode === 'full') {
     try {
@@ -15880,20 +15947,22 @@ onMounted(async () => {
       silent: true,
       validateSelection: false,
       mode: initialLoadMode
-    }).finally(() => markTaskLoadReconciled('view', loadTraceId, tasks.value.length));
+    }).finally(() => {
+      markTaskLoadReconciled('view', loadTraceId, tasks.value.length);
+      completeInitialDocumentTabSelectionValidation();
+    });
   } else if (initialLoadCompletionPromise) {
     void initialLoadCompletionPromise.finally(() => {
       markTaskLoadReconciled('view', loadTraceId, tasks.value.length);
+      completeInitialDocumentTabSelectionValidation();
     });
   } else {
     markTaskLoadReconciled('view', loadTraceId, tasks.value.length);
+    completeInitialDocumentTabSelectionValidation();
   }
   if (normalizeInvalidNotebookFilters()) {
     await saveUserSettings();
   }
-  window.requestAnimationFrame(() => {
-    void validateDocumentSelection();
-  });
   startSkipSetCleanup();
   document.addEventListener('mousedown', handleKanbanEditorOutsideClick);
   window.addEventListener('keydown', handleKanbanEditorKeydown);

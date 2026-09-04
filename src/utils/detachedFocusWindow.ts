@@ -13,6 +13,7 @@ import {
 } from '@/utils/focusTimerTarget';
 import {
   loadHabitFocusTargetOptions,
+  loadTagFocusTargetOptions,
   loadTaskFocusTargetOptions,
   type FocusTargetPickerMode
 } from '@/utils/focusTimerTargetPicker';
@@ -132,6 +133,7 @@ let latestLinkedTarget: FocusTimerLinkedTarget | null = null;
 let latestThemeSnapshot: DetachedFocusTheme | null = null;
 let latestHabitTargetOptions: FocusTimerLinkedTarget[] = [];
 let latestTaskTargetOptions: FocusTimerLinkedTarget[] = [];
+let latestTagTargetOptions: FocusTimerLinkedTarget[] = [];
 let latestFocusSettings: Record<string, unknown> | null = null;
 let targetOptionsRefreshPromise: Promise<void> | null = null;
 let pendingDetachedFocusOpenSettings = false;
@@ -245,7 +247,7 @@ export function subscribeDetachedMicroBreakCancel(listener: () => void): () => v
 }
 
 async function loadFocusTargetOptions(mode: FocusTargetPickerMode): Promise<FocusTimerLinkedTarget[]> {
-  const cached = mode === 'habit' ? latestHabitTargetOptions : latestTaskTargetOptions;
+  const cached = mode === 'habit' ? latestHabitTargetOptions : mode === 'tag' ? latestTagTargetOptions : latestTaskTargetOptions;
   if (cached.length > 0) {
     return cached;
   }
@@ -255,6 +257,7 @@ async function loadFocusTargetOptions(mode: FocusTargetPickerMode): Promise<Focu
   if (mode === 'habit') {
     return latestHabitTargetOptions;
   }
+  if (mode === 'tag') return latestTagTargetOptions;
 
   return latestTaskTargetOptions;
 }
@@ -279,6 +282,11 @@ async function refreshDetachedFocusTargetOptions(mode?: FocusTargetPickerMode): 
         latestTaskTargetOptions = await loadTaskFocusTargetOptions();
       } catch (error) {
         console.error('[DetachedFocusWindow] Failed to load task candidates:', error);
+      }
+    }
+    if (!mode || mode === 'tag') {
+      try { latestTagTargetOptions = await loadTagFocusTargetOptions(); } catch (error) {
+        console.error('[DetachedFocusWindow] Failed to load tag candidates:', error);
       }
     }
   })();
@@ -1604,11 +1612,14 @@ function buildDetachedFocusWindowHtmlV2(initialState: DetachedFocusWindowState):
     clearLinkedTarget: translate('focusTimer.clearLinkedTarget'),
     linkHabit: translate('focusTimer.linkHabit'),
     linkTask: translate('focusTimer.linkTask'),
+    linkTag: translate('focusTimer.linkTag'),
     selectHabit: translate('focusTimer.selectHabit'),
     selectTask: translate('focusTimer.selectTask'),
+    selectTag: translate('focusTimer.selectTag'),
     close: translate('common.close'),
     searchHabit: translate('focusTimer.searchHabit'),
     searchTask: translate('focusTimer.searchTask'),
+    searchTag: translate('focusTimer.searchTag'),
     loading: translate('taskManager.loading'),
     focusDuration: translate('focusTimer.focusDuration'),
     minuteSuffix: translate('focusTimer.minuteSuffix'),
@@ -1744,6 +1755,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
                 type="button"
                 class="linked-habit-banner__action"
               >${htmlText.linkTask}</button>
+              <button id="pickTagButton" type="button" class="linked-habit-banner__action">${htmlText.linkTag}</button>
             </div>
             <div id="targetPicker" class="linked-habit-banner__picker" hidden>
               <div class="linked-habit-banner__picker-header">
@@ -1862,7 +1874,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       isLoadingTargetOptions: false,
       targetOptionsError: '',
       habitTargetOptions: [],
-      taskTargetOptions: []
+      taskTargetOptions: [],
+      tagTargetOptions: []
     };
 
     const initialState = ${serializedState};
@@ -1903,6 +1916,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     const linkedTargetActionsEl = document.getElementById('linkedTargetActions');
     const pickHabitButtonEl = document.getElementById('pickHabitButton');
     const pickTaskButtonEl = document.getElementById('pickTaskButton');
+    const pickTagButtonEl = document.getElementById('pickTagButton');
     const targetPickerEl = document.getElementById('targetPicker');
     const targetPickerTitleEl = document.getElementById('targetPickerTitle');
     const targetPickerCloseEl = document.getElementById('targetPickerClose');
@@ -2365,9 +2379,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     }
 
     function getTargetOptions() {
-      return state.targetPickerMode === 'habit'
-        ? state.habitTargetOptions
-        : state.taskTargetOptions;
+      return state.targetPickerMode === 'habit' ? state.habitTargetOptions : state.targetPickerMode === 'tag' ? state.tagTargetOptions : state.taskTargetOptions;
     }
 
     function getFilteredTargetOptions() {
@@ -2521,6 +2533,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
           if (normalizedOptions.length > 0 || state.habitTargetOptions.length === 0) {
             state.habitTargetOptions = normalizedOptions;
           }
+        } else if (mode === 'tag') {
+          if (normalizedOptions.length > 0 || state.tagTargetOptions.length === 0) state.tagTargetOptions = normalizedOptions;
         } else if (normalizedOptions.length > 0 || state.taskTargetOptions.length === 0) {
           state.taskTargetOptions = normalizedOptions;
         }
@@ -2690,6 +2704,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
 
       state.habitTargetOptions = Array.isArray(payload.habit) ? payload.habit : [];
       state.taskTargetOptions = Array.isArray(payload.task) ? payload.task : [];
+      state.tagTargetOptions = Array.isArray(payload.tag) ? payload.tag : [];
 
       if (state.targetPickerMode) {
         render();
@@ -2772,18 +2787,19 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       if (pickTaskButtonEl) {
         pickTaskButtonEl.disabled = linkedTargetLocked;
       }
+      if (pickTagButtonEl) pickTagButtonEl.disabled = linkedTargetLocked;
       if (targetPickerEl) {
         targetPickerEl.hidden = !state.targetPickerMode;
       }
       if (targetPickerTitleEl) {
-        targetPickerTitleEl.textContent = state.targetPickerMode === 'task' ? I18N.selectTask : I18N.selectHabit;
+        targetPickerTitleEl.textContent = state.targetPickerMode === 'task' ? I18N.selectTask : state.targetPickerMode === 'tag' ? I18N.selectTag : I18N.selectHabit;
       }
       if (targetPickerCloseEl) {
         targetPickerCloseEl.disabled = linkedTargetLocked;
         targetPickerCloseEl.innerHTML = iconMarkup('close', 12, 12);
       }
       if (targetSearchInputEl) {
-        targetSearchInputEl.placeholder = state.targetPickerMode === 'task' ? I18N.searchTask : I18N.searchHabit;
+        targetSearchInputEl.placeholder = state.targetPickerMode === 'task' ? I18N.searchTask : state.targetPickerMode === 'tag' ? I18N.searchTag : I18N.searchHabit;
         targetSearchInputEl.disabled = linkedTargetLocked || state.isLoadingTargetOptions;
         if (targetSearchInputEl.value !== state.targetSearch) {
           targetSearchInputEl.value = state.targetSearch;
@@ -3232,6 +3248,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       event.preventDefault();
       void openTargetPicker('task');
     });
+    pickTagButtonEl?.addEventListener('click', (event) => { event.preventDefault(); void openTargetPicker('tag'); });
 
     targetPickerCloseEl?.addEventListener('click', (event) => {
       event.preventDefault();
@@ -3324,7 +3341,8 @@ function syncDetachedFocusWindowTargetOptions(): void {
 
   const payload = serializeForScript({
     habit: latestHabitTargetOptions,
-    task: latestTaskTargetOptions
+    task: latestTaskTargetOptions,
+    tag: latestTagTargetOptions
   });
 
   detachedFocusWindow.webContents?.executeJavaScript?.(

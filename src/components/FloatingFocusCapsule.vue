@@ -130,23 +130,54 @@
                   <Icon name="close" width="12" height="12" class="icon" />
                 </button>
               </div>
-              <div v-else class="linked-habit-banner__actions">
-                <button
+              <div v-else>
+                <div v-if="targetPresets.length" class="linked-habit-banner__presets">
+                  <span class="linked-habit-banner__presets-label">{{ t('focusTimer.targetPresets') }}</span>
+                  <div
+                    v-for="target in targetPresets"
+                    :key="`preset-${target.type}-${target.id}`"
+                    class="linked-habit-banner__preset-wrap"
+                  >
+                    <button
+                      type="button"
+                      class="linked-habit-banner__preset"
+                      :disabled="isLinkedTargetLocked"
+                      @click="selectLinkedTarget(target)"
+                    >
+                      <FocusTargetIcon class="linked-habit-banner__emoji" :icon="getTargetEmoji(target)" />
+                      <span>{{ target.name }}</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="linked-habit-banner__preset-remove ariaLabel"
+                      :aria-label="t('focusTimer.removeTargetPreset')"
+                      @click="removeTargetPreset(target)"
+                    >
+                      <Icon name="close" width="10" height="10" class="icon" />
+                    </button>
+                  </div>
+                </div>
+                <div class="linked-habit-banner__actions">
+                  <button
                   type="button"
                   class="linked-habit-banner__action"
                   :disabled="isLinkedTargetLocked"
                   @click="openTargetPicker('habit')"
                 >
                   {{ t('focusTimer.linkHabit') }}
-                </button>
-                <button
+                  </button>
+                  <button
                   type="button"
                   class="linked-habit-banner__action"
                   :disabled="isLinkedTargetLocked"
                   @click="openTargetPicker('task')"
                 >
                   {{ t('focusTimer.linkTask') }}
-                </button>
+                  </button>
+                  <button type="button" class="linked-habit-banner__action" :disabled="isLinkedTargetLocked" @click="openTargetPicker('tag')">
+                    {{ t('focusTimer.linkTag') }}
+                  </button>
+                </div>
               </div>
               <div v-if="targetPickerMode" class="linked-habit-banner__picker">
                 <div class="linked-habit-banner__picker-header">
@@ -177,24 +208,33 @@
                   {{ targetPickerEmptyText }}
                 </div>
                 <div v-else class="linked-habit-banner__picker-list">
-                  <button
+                  <div
                     v-for="target in filteredTargetOptions"
                     :key="`${target.type}-${target.id}`"
-                    type="button"
                     class="linked-habit-banner__picker-item"
-                    @click="selectLinkedTarget(target)"
                   >
-                    <span class="linked-habit-banner__picker-item-main">
-                      <FocusTargetIcon class="linked-habit-banner__emoji" :icon="getTargetEmoji(target)" />
-                      <span class="linked-habit-banner__picker-item-name">{{ target.name }}</span>
-                    </span>
-                    <span
-                      v-if="target.type === 'habit' && target.preferredDuration"
-                      class="linked-habit-banner__picker-item-meta"
-                    >
-                      {{ target.preferredDuration }}m
-                    </span>
-                  </button>
+                    <button type="button" class="linked-habit-banner__picker-item-select" @click="selectLinkedTarget(target)">
+                      <span class="linked-habit-banner__picker-item-main">
+                        <FocusTargetIcon class="linked-habit-banner__emoji" :icon="getTargetEmoji(target)" />
+                        <span class="linked-habit-banner__picker-item-name">{{ target.name }}</span>
+                      </span>
+                      <span
+                        v-if="target.type === 'habit' && target.preferredDuration"
+                        class="linked-habit-banner__picker-item-meta"
+                      >
+                        {{ target.preferredDuration }}m
+                      </span>
+                    </button>
+                    <label class="linked-habit-banner__preset-toggle">
+                      <input
+                        class="b3-switch fn__flex-center"
+                        type="checkbox"
+                        :checked="isTargetPreset(target)"
+                        :aria-label="t('focusTimer.setTargetPreset')"
+                        @change="toggleTargetPreset(target, ($event.target as HTMLInputElement).checked)"
+                      />
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -395,9 +435,15 @@ import {
   getFocusTargetDisplayLabel,
   getFocusTargetEmoji,
   loadHabitFocusTargetOptions,
+  loadTagFocusTargetOptions,
   loadTaskFocusTargetOptions,
   type FocusTargetPickerMode
 } from '@/utils/focusTimerTargetPicker';
+import {
+  getFocusTimerTargetPresetKey,
+  loadFocusTimerTargetPresets,
+  saveFocusTimerTargetPreset
+} from '@/utils/focusTimerTargetPresets';
 
 type TimerMode = 'countdown' | 'countup';
 type DurationOption = number | 'unlimited';
@@ -483,6 +529,8 @@ const isLoadingTargetOptions = ref(false);
 const targetOptionsError = ref('');
 const habitTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
 const taskTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
+const tagTargetOptions = ref<FocusTimerLinkedTarget[]>([]);
+const targetPresets = ref<FocusTimerLinkedTarget[]>(loadFocusTimerTargetPresets());
 
 const showMicroBreakNotification = (title: string, body: string) => {
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
@@ -537,22 +585,21 @@ const linkedTargetLabel = computed(() => {
 });
 const linkedTargetDisplayEmoji = computed(() => getFocusTargetEmoji(linkedTarget.value));
 const canOpenLinkedTarget = computed(() =>
-  !!linkedTarget.value && (linkedTarget.value.type === 'habit' || !!linkedTarget.value.blockId)
+  !!linkedTarget.value && (linkedTarget.value.type === 'habit' || linkedTarget.value.type === 'task' && !!linkedTarget.value.blockId)
 );
 const filteredTargetOptions = computed(() => {
   const source = targetPickerMode.value === 'habit'
-    ? habitTargetOptions.value
-    : taskTargetOptions.value;
+    ? habitTargetOptions.value : targetPickerMode.value === 'tag' ? tagTargetOptions.value : taskTargetOptions.value;
   return filterFocusTargetOptions(source, targetSearch.value);
 });
 const targetPickerTitle = computed(() =>
-  targetPickerMode.value === 'habit' ? t('focusTimer.selectHabit') : t('focusTimer.selectTask')
+  targetPickerMode.value === 'habit' ? t('focusTimer.selectHabit') : targetPickerMode.value === 'tag' ? t('focusTimer.selectTag') : t('focusTimer.selectTask')
 );
 const targetPickerPlaceholder = computed(() =>
-  targetPickerMode.value === 'habit' ? t('focusTimer.searchHabit') : t('focusTimer.searchTask')
+  targetPickerMode.value === 'habit' ? t('focusTimer.searchHabit') : targetPickerMode.value === 'tag' ? t('focusTimer.searchTag') : t('focusTimer.searchTask')
 );
 const targetPickerEmptyText = computed(() =>
-  `${t('focusTimer.noLinkablePrefix')}${targetPickerMode.value === 'habit' ? t('focusTimer.habit') : t('focusTimer.task')}`
+  `${t('focusTimer.noLinkablePrefix')}${targetPickerMode.value === 'habit' ? t('focusTimer.habit') : targetPickerMode.value === 'tag' ? t('focusTimer.tag') : t('focusTimer.task')}`
 );
 const phaseDurationSeconds = computed(() =>
   (isBreakMode.value ? shortBreakDuration.value : durationMinutes.value) * 60
@@ -1312,11 +1359,13 @@ const openTargetPicker = async (mode: FocusTargetPickerMode) => {
   try {
     if (mode === 'habit') {
       habitTargetOptions.value = await loadHabitFocusTargetOptions();
-    } else {
+    } else if (mode === 'task') {
       taskTargetOptions.value = await loadTaskFocusTargetOptions();
+    } else {
+      tagTargetOptions.value = await loadTagFocusTargetOptions();
     }
   } catch {
-    targetOptionsError.value = `${t('focusTimer.loadTargetFailedPrefix')}${mode === 'habit' ? t('focusTimer.habit') : t('focusTimer.task')}${t('focusTimer.loadTargetFailedSuffix')}`;
+    targetOptionsError.value = `${t('focusTimer.loadTargetFailedPrefix')}${mode === 'habit' ? t('focusTimer.habit') : mode === 'tag' ? t('focusTimer.tag') : t('focusTimer.task')}${t('focusTimer.loadTargetFailedSuffix')}`;
   } finally {
     isLoadingTargetOptions.value = false;
   }
@@ -1329,6 +1378,17 @@ const selectLinkedTarget = (target: FocusTimerLinkedTarget) => {
 
   emit('update-linked-target', target);
   closeTargetPicker();
+};
+
+const isTargetPreset = (target: FocusTimerLinkedTarget) =>
+  targetPresets.value.some(preset => getFocusTimerTargetPresetKey(preset) === getFocusTimerTargetPresetKey(target));
+
+const toggleTargetPreset = (target: FocusTimerLinkedTarget, enabled: boolean) => {
+  targetPresets.value = saveFocusTimerTargetPreset(target, enabled);
+};
+
+const removeTargetPreset = (target: FocusTimerLinkedTarget) => {
+  targetPresets.value = saveFocusTimerTargetPreset(target, false);
 };
 
 const clearLinkedTarget = () => {
@@ -2089,6 +2149,75 @@ defineExpose({
   gap: 8px;
 }
 
+.linked-habit-banner__presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.linked-habit-banner__presets-label {
+  font-size: 12px;
+  color: var(--b3-theme-on-surface);
+}
+
+.linked-habit-banner__preset-wrap {
+  position: relative;
+}
+
+.linked-habit-banner__preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 140px;
+  padding: 5px 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.linked-habit-banner__preset span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linked-habit-banner__preset:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.linked-habit-banner__preset-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--b3-theme-on-surface);
+  color: var(--b3-theme-background);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.linked-habit-banner__preset-wrap:hover .linked-habit-banner__preset-remove,
+.linked-habit-banner__preset-remove:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .linked-habit-banner__chip {
   flex: 1 1 auto;
   min-width: 0;
@@ -2237,10 +2366,14 @@ defineExpose({
   gap: 6px;
   max-height: 220px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .linked-habit-banner__picker-item {
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2248,6 +2381,34 @@ defineExpose({
   padding: 8px 10px;
   border-radius: 10px;
   cursor: pointer;
+}
+
+.linked-habit-banner__picker-item-select {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.linked-habit-banner__preset-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.linked-habit-banner__preset-toggle input:focus-visible {
+  outline: 2px solid var(--b3-theme-primary);
+  outline-offset: 2px;
 }
 
 .linked-habit-banner__picker-item:hover:not(:disabled) {

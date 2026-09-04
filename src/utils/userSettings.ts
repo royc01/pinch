@@ -1,4 +1,5 @@
 import { usePlugin } from '../main';
+import { isPluginLifecycleEndedError } from './pluginStorage';
 import { normalizeNotebookIds } from './taskViewShared';
 import type { TaskViewGroupMode } from './taskGrouping';
 import type { TaskDateKeywordConfig } from './taskDateParser';
@@ -576,6 +577,9 @@ export class UserSettingsManager {
         this.settings = localSnapshot || mergeWithDefaults(null);
       }
     } catch (error) {
+      if (isPluginLifecycleEndedError(error)) {
+        return this.settings ?? mergeWithDefaults(null);
+      }
       console.error('[UserSettings] 加载设置失败，使用默认设置:', error);
       this.settings = localSnapshot || mergeWithDefaults(null);
     }
@@ -600,6 +604,7 @@ export class UserSettingsManager {
     try {
       await this.enqueueSave(this.settings);
     } catch (error) {
+      if (isPluginLifecycleEndedError(error)) return;
       console.error('[UserSettings] 保存设置失败:', error);
     }
     
@@ -629,6 +634,7 @@ export class UserSettingsManager {
     try {
       await this.enqueueSave(this.settings);
     } catch (error) {
+      if (isPluginLifecycleEndedError(error)) return;
       console.error('[UserSettings] 更新设置失败:', error);
     }
     

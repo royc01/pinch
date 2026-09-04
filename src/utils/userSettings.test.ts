@@ -138,4 +138,20 @@ describe('UserSettingsManager', () => {
     releaseSave();
     await update;
   });
+
+  it('keeps the local update and suppresses an expected unload-time storage error', async () => {
+    pluginMock.loadData.mockResolvedValue(null);
+    pluginMock.saveData.mockRejectedValue({ code: 410, msg: 'Plugin lifecycle has ended' });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const manager = new UserSettingsManager();
+    await manager.load();
+
+    await expect(manager.update('kanban', { kanbanFilterSource: 'notebook:notebook-a' })).resolves.toBeUndefined();
+    expect(globalThis.localStorage.setItem).toHaveBeenLastCalledWith(
+      'siyuan-stand-settings',
+      expect.stringContaining('notebook:notebook-a')
+    );
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
 });

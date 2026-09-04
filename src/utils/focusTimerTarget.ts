@@ -1,9 +1,9 @@
-import { openBlockById, type FocusSessionTargetInput, type Habit, type Task } from '@/api';
+import { openBlockById, type FocusSessionTargetInput, type Habit, type Tag, type Task } from '@/api';
 import { eventBus, Events } from '@/utils/eventBus';
 import { translate } from '@/composables/useI18n';
 
 export interface FocusTimerLinkedTarget {
-  type: 'habit' | 'task';
+  type: 'habit' | 'task' | 'tag';
   id: string;
   name: string;
   searchText?: string;
@@ -64,6 +64,10 @@ export function createTaskFocusTarget(
   };
 }
 
+export function createTagFocusTarget(tag: Pick<Tag, 'id' | 'name' | 'icon' | 'color'>): FocusTimerLinkedTarget {
+  return { type: 'tag', id: tag.id, name: tag.name || translate('focusTimer.untitledTag'), emoji: tag.icon || '🏷️' };
+}
+
 export async function openFocusTimerLinkedTarget(target: FocusTimerLinkedTarget): Promise<boolean> {
   if (target.type === 'habit') {
     eventBus.emit(Events.HABIT_TRACKER_PANEL_OPEN_REQUEST, {
@@ -73,9 +77,5 @@ export async function openFocusTimerLinkedTarget(target: FocusTimerLinkedTarget)
     return true;
   }
 
-  if (!target.blockId) {
-    return false;
-  }
-
-  return openBlockById(target.blockId);
+  return target.type === 'task' && target.blockId ? openBlockById(target.blockId) : false;
 }

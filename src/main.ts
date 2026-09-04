@@ -1000,21 +1000,23 @@ export function init(pluginInstance: Plugin) {
     },
     data: {},
     type: "Pinch-habit",
-    init: (dock) => {
+    init: function() {
+      const dock = this;
       const container = document.createElement('div');
       container.id = 'Pinch-habit-app';
       container.style.width = '100%';
       container.style.height = '100%';
       app = createApp(App);
 
-      if (dock.element) {
-        pinchDockElement = dock.element as HTMLElement;
-        dock.element.innerHTML = '';
-        dock.element.style.overflow = 'hidden';
-        if (window.getComputedStyle(dock.element).position === 'static') {
-          dock.element.style.position = 'relative';
+      const dockElement = dock.element as HTMLElement | undefined;
+      if (dockElement) {
+        pinchDockElement = dockElement;
+        dockElement.innerHTML = '';
+        dockElement.style.overflow = 'hidden';
+        if (window.getComputedStyle(dockElement).position === 'static') {
+          dockElement.style.position = 'relative';
         }
-        dock.element.appendChild(container);
+        dockElement.appendChild(container);
         app.mount(container);
       }
     },

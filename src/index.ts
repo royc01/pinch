@@ -5,6 +5,7 @@ import {
 import "@/index.scss";
 import PluginInfoString from '@/../plugin.json'
 import { destroy, init } from '@/main'
+import { configurePinchKernelRpc } from '@/kernelRpc'
 import { publishTaskChange, resetTaskChangeCoordinator } from '@/utils/taskChangeCoordinator'
 
 let PluginInfo = {
@@ -54,6 +55,7 @@ export default class HabitTrackerPlugin extends Plugin {
       this.isElectron = false
     }
 
+    configurePinchKernelRpc(this.kernel?.rpc);
     init(this);
   }
 
@@ -160,6 +162,7 @@ export default class HabitTrackerPlugin extends Plugin {
   }
 
   onunload() {
+    configurePinchKernelRpc(null)
     resetTaskChangeCoordinator()
     destroy()
   }

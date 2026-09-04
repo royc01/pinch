@@ -879,6 +879,7 @@ import {
 import { resolveDocumentIconColorIndex } from '@/utils/documentIconColor';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { usePlugin } from '@/main';
+import { isPluginLifecycleEndedError } from '@/utils/pluginStorage';
 import type { Goal } from '@/goalRepository';
 import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { getDocumentCreationSortKey } from '@/utils/taskViewShared';
@@ -1485,6 +1486,7 @@ async function savePluginTableColumnVisibility(visibleColumns: Set<ConfigurableT
       createTableColumnVisibilitySnapshot(visibleColumns)
     );
   } catch (error) {
+    if (isPluginLifecycleEndedError(error)) return;
     console.warn('[TableView]', t('tableView.saveColumnSettingsFailed'), error);
   }
 }
@@ -1507,6 +1509,7 @@ async function loadPluginTableColumnVisibility(): Promise<Set<ConfigurableTableC
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     return normalizeTableColumnVisibilitySnapshot(parsed);
   } catch (error) {
+    if (isPluginLifecycleEndedError(error)) return null;
     console.warn('[TableView]', t('tableView.readColumnSettingsFailed'), error);
     return null;
   }

@@ -96,9 +96,11 @@ describe('kernel task index incremental refresh', () => {
 
     const refreshIndex = handlers.get('refreshTaskIndex');
     const refreshIncremental = handlers.get('refreshTaskIndexIncremental');
+    const getTaskRowsByBlockIds = handlers.get('getTaskRowsByBlockIds');
     const getBlockDOMBatch = handlers.get('getBlockDOMBatch');
     expect(refreshIndex).toBeTypeOf('function');
     expect(refreshIncremental).toBeTypeOf('function');
+    expect(getTaskRowsByBlockIds).toBeTypeOf('function');
     expect(getBlockDOMBatch).toBeTypeOf('function');
 
     const domBatch = await getBlockDOMBatch!({ ids: ['block-1', 'block-1', 'block-2'] });
@@ -111,6 +113,20 @@ describe('kernel task index incremental refresh', () => {
 
     const initial = await refreshIndex!({ limit: 10 });
     expect(initial.rows.map((row: any) => row.id)).toEqual(['block-1', 'block-2']);
+
+    const taskSqlStatements = fetchSql.mock.calls
+      .filter(([url]) => url === '/api/query/sql')
+      .map(([, init]) => JSON.parse(init.body || '{}').stmt as string)
+      .filter(stmt => stmt.includes('SELECT b.id, b.content'));
+    expect(taskSqlStatements[0]).toContain('AND a.name IN (');
+    expect(taskSqlStatements[0]).toContain("'custom-task-due-date'");
+
+    const taskQueryCountBeforeMissingIds = taskRowsQueryCount;
+    const missingIds = await getTaskRowsByBlockIds!({
+      blockIds: ['missing-block-1', 'missing-block-2', 'missing-block-3']
+    });
+    expect(missingIds.rows).toEqual([]);
+    expect(taskRowsQueryCount - taskQueryCountBeforeMissingIds).toBe(1);
 
     const incremental = await refreshIncremental!({ limit: 10 });
     expect(incremental.rows).toEqual([]);

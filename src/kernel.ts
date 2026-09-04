@@ -136,10 +136,35 @@ const TASK_INDEX_TTL_MS = 30 * 1000;
 const TASK_INDEX_FULL_REFRESH_MS = 5 * 60 * 1000;
 const TASK_QUERY_PAGE_SIZE = 256;
 const MAX_TASK_QUERY_PAGES = 1000;
-const TASK_PARENT_LOOKUP_BATCH_SIZE = 32;
+const TASK_ID_LOOKUP_BATCH_SIZE = 256;
+const TASK_PARENT_LOOKUP_BATCH_SIZE = 128;
+const TASK_SQL_BATCH_CONCURRENCY = 4;
 const MAX_TASK_PARENT_DEPTH = 12;
 const MAX_BLOCK_DOM_BATCH_SIZE = 512;
 const BLOCK_DOM_BATCH_CONCURRENCY = 8;
+const TASK_ATTRIBUTE_NAMES = [
+  'custom-task-id',
+  'custom-task-status',
+  'custom-task-status-automatic',
+  'custom-task-priority',
+  'custom-task-due-date',
+  'custom-task-due-time',
+  'custom-task-start-date',
+  'custom-task-start-time',
+  'custom-task-tags',
+  'custom-task-description',
+  'custom-task-reminder-type',
+  'custom-task-reminder-custom-time',
+  'custom-task-focus-estimate',
+  'custom-task-group',
+  'custom-task-pinned',
+  'custom-task-background-color',
+  'custom-task-urgent',
+  'custom-task-archived',
+  'custom-task-completed-at',
+  'custom-task-archived-at',
+  'custom-task-archive-reason',
+] as const;
 
 type TaskIndexCacheEntry = {
   rows: KernelTaskRow[];
@@ -207,6 +232,36 @@ function normalizeNotebookIds(value: unknown): string[] {
 
 function toSqlStringList(values: string[]): string {
   return values.map(value => `'${escapeSqlLiteral(value)}'`).join(", ");
+}
+
+async function mapBatchesWithConcurrency<T, R>(
+  values: T[],
+  batchSize: number,
+  concurrency: number,
+  mapper: (batch: T[]) => Promise<R[]>,
+): Promise<R[]> {
+  if (values.length === 0) {
+    return [];
+  }
+
+  const batches: T[][] = [];
+  for (let index = 0; index < values.length; index += batchSize) {
+    batches.push(values.slice(index, index + batchSize));
+  }
+
+  const results: R[][] = new Array(batches.length);
+  let nextBatchIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), batches.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextBatchIndex < batches.length) {
+      const batchIndex = nextBatchIndex;
+      nextBatchIndex += 1;
+      results[batchIndex] = await mapper(batches[batchIndex]);
+    }
+  });
+
+  await Promise.all(workers);
+  return results.flat();
 }
 
 function buildTaskIndexCacheKey(params: KernelTaskListParams = {}): string {
@@ -438,7 +493,9 @@ function buildTaskRowsSql(filters: string[], orderBy: string, limit: number): st
            MAX(CASE WHEN a.name = 'custom-task-archived-at' THEN a.value END) AS custom_task_archived_at,
            MAX(CASE WHEN a.name = 'custom-task-archive-reason' THEN a.value END) AS custom_task_archive_reason
     FROM blocks b
-    LEFT JOIN attributes a ON a.block_id = b.id
+     LEFT JOIN attributes a
+       ON a.block_id = b.id
+      AND a.name IN (${toSqlStringList([...TASK_ATTRIBUTE_NAMES])})
     WHERE ${filters.join("\n      AND ")}
     GROUP BY b.id
     ORDER BY ${orderBy}
@@ -484,13 +541,6 @@ async function fetchParentRowsByIds(ids: string[]): Promise<ParentBlockRow[]> {
         .filter(row => row.id)
     : [];
 
-  if (normalizedRows.length < uniqueIds.length && uniqueIds.length > 1) {
-    const midpoint = Math.ceil(uniqueIds.length / 2);
-    const leftRows = await fetchParentRowsByIds(uniqueIds.slice(0, midpoint));
-    const rightRows = await fetchParentRowsByIds(uniqueIds.slice(midpoint));
-    return [...leftRows, ...rightRows];
-  }
-
   return normalizedRows;
 }
 
@@ -513,23 +563,20 @@ async function enrichTaskHierarchy(rows: KernelTaskRow[]): Promise<KernelTaskRow
   let lookupIds = Array.from(pendingLookupIds);
   for (let depth = 0; depth < MAX_TASK_PARENT_DEPTH && lookupIds.length > 0; depth += 1) {
     const nextLookupIds = new Set<string>();
-    for (let i = 0; i < lookupIds.length; i += TASK_PARENT_LOOKUP_BATCH_SIZE) {
-      const batchIds = lookupIds
-        .slice(i, i + TASK_PARENT_LOOKUP_BATCH_SIZE)
-        .filter(id => id && !parentById.has(id));
-      if (batchIds.length === 0) {
-        continue;
+    const unresolvedIds = lookupIds.filter(id => id && !parentById.has(id));
+    const parentRows = await mapBatchesWithConcurrency(
+      unresolvedIds,
+      TASK_PARENT_LOOKUP_BATCH_SIZE,
+      TASK_SQL_BATCH_CONCURRENCY,
+      fetchParentRowsByIds,
+    );
+    for (const parentRow of parentRows) {
+      parentById.set(parentRow.id, parentRow.parent_id || "");
+      if (isTaskBlockShape(parentRow)) {
+        taskBlockIds.add(parentRow.id);
       }
-
-      const parentRows = await fetchParentRowsByIds(batchIds);
-      for (const parentRow of parentRows) {
-        parentById.set(parentRow.id, parentRow.parent_id || "");
-        if (isTaskBlockShape(parentRow)) {
-          taskBlockIds.add(parentRow.id);
-        }
-        if (parentRow.parent_id && !parentById.has(parentRow.parent_id)) {
-          nextLookupIds.add(parentRow.parent_id);
-        }
+      if (parentRow.parent_id && !parentById.has(parentRow.parent_id)) {
+        nextLookupIds.add(parentRow.parent_id);
       }
     }
     lookupIds = Array.from(nextLookupIds);
@@ -573,24 +620,19 @@ async function queryTaskRowsByBlockIds(params: KernelTaskListParams = {}): Promi
   }
 
   const fetchRowsForIds = async (ids: string[]): Promise<KernelTaskRow[]> => {
-    if (ids.length === 0) {
-      return [];
-    }
     const filters = buildTaskFilters(params);
     filters.push(`b.id IN (${toSqlStringList(ids)})`);
     const rows = await kernelSql<any[]>(buildTaskRowsSql(filters, "b.updated DESC, b.id DESC", ids.length));
-    const normalizedRows = Array.isArray(rows) ? rows.map(normalizeTaskRow).filter(row => row.id) : [];
-    if (normalizedRows.length < ids.length && ids.length > 1) {
-      const midpoint = Math.ceil(ids.length / 2);
-      const leftRows = await fetchRowsForIds(ids.slice(0, midpoint));
-      const rightRows = await fetchRowsForIds(ids.slice(midpoint));
-      return [...leftRows, ...rightRows];
-    }
-    return normalizedRows;
+    return Array.isArray(rows) ? rows.map(normalizeTaskRow).filter(row => row.id) : [];
   };
 
   const rowsById = new Map<string, KernelTaskRow>();
-  const rawRows = await fetchRowsForIds(requestedIds);
+  const rawRows = await mapBatchesWithConcurrency(
+    requestedIds,
+    TASK_ID_LOOKUP_BATCH_SIZE,
+    TASK_SQL_BATCH_CONCURRENCY,
+    fetchRowsForIds,
+  );
   for (const row of rawRows) {
     rowsById.set(row.id, row);
   }

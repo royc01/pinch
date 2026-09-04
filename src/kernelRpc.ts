@@ -1,9 +1,14 @@
+import type { IKernelPluginRpc } from "siyuan";
+
 const PINCH_KERNEL_PLUGIN_NAME = "pinch";
 const PINCH_KERNEL_RPC_TIMEOUT_MS = 12000;
 const PINCH_KERNEL_RPC_RETRY_AFTER_MS = 30000;
 
 let kernelRpcUnavailableUntil = 0;
 let lastKernelRpcUnavailableReason = "";
+let officialKernelRpc: KernelPluginRpc | null = null;
+
+type KernelPluginRpc = Pick<IKernelPluginRpc, "call">;
 
 type JsonRpcSuccess<T> = {
   jsonrpc: "2.0";
@@ -94,6 +99,34 @@ function markKernelRpcUnavailable(error: unknown): void {
   lastKernelRpcUnavailableReason = error instanceof Error ? error.message : String(error || "Kernel RPC unavailable");
 }
 
+export function configurePinchKernelRpc(rpc?: KernelPluginRpc | null): void {
+  officialKernelRpc = rpc || null;
+  if (officialKernelRpc) {
+    kernelRpcUnavailableUntil = 0;
+    lastKernelRpcUnavailableReason = "";
+  }
+}
+
+async function callOfficialKernelRpc<T>(method: string, params?: unknown): Promise<T | null> {
+  const handler = officialKernelRpc?.call?.[method];
+  if (typeof handler !== "function") {
+    return null;
+  }
+
+  let timeoutId = 0;
+  try {
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = window.setTimeout(() => {
+        reject(new KernelRpcUnavailableError(`Kernel RPC request timed out: ${method}`));
+      }, PINCH_KERNEL_RPC_TIMEOUT_MS);
+    });
+    const request = params === undefined ? handler() : handler(params);
+    return await Promise.race([request, timeout]) as T;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export function isKernelRpcUnavailable(error: unknown): boolean {
   return error instanceof KernelRpcUnavailableError ||
     (error instanceof Error && error.name === "KernelRpcUnavailableError");
@@ -102,6 +135,17 @@ export function isKernelRpcUnavailable(error: unknown): boolean {
 export async function callPinchKernel<T>(method: string, params?: unknown): Promise<T> {
   if (Date.now() < kernelRpcUnavailableUntil) {
     throw new KernelRpcUnavailableError(lastKernelRpcUnavailableReason || "Kernel RPC is temporarily unavailable");
+  }
+
+  if (officialKernelRpc?.call?.[method]) {
+    try {
+      return await callOfficialKernelRpc<T>(method, params) as T;
+    } catch (error) {
+      if (isKernelRpcUnavailable(error)) {
+        markKernelRpcUnavailable(error);
+      }
+      throw error;
+    }
   }
 
   const id = Date.now();

@@ -1,12 +1,13 @@
-import { getHabits, TaskRepository } from '@/api';
+import { getHabits, loadTags, TaskRepository } from '@/api';
 import {
   createHabitFocusTarget,
+  createTagFocusTarget,
   createTaskFocusTarget,
   type FocusTimerLinkedTarget
 } from '@/utils/focusTimerTarget';
 import { translate } from '@/composables/useI18n';
 
-export type FocusTargetPickerMode = 'habit' | 'task';
+export type FocusTargetPickerMode = 'habit' | 'task' | 'tag';
 
 export async function loadHabitFocusTargetOptions(): Promise<FocusTimerLinkedTarget[]> {
   const habits = await getHabits();
@@ -35,6 +36,14 @@ export async function loadTaskFocusTargetOptions(): Promise<FocusTimerLinkedTarg
     .map(task => createTaskFocusTarget(task));
 }
 
+export async function loadTagFocusTargetOptions(): Promise<FocusTimerLinkedTarget[]> {
+  const tags = await loadTags();
+  return tags
+    .filter(tag => !tag.hidden)
+    .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.name.localeCompare(right.name))
+    .map(tag => createTagFocusTarget(tag));
+}
+
 export function filterFocusTargetOptions(
   options: FocusTimerLinkedTarget[],
   keyword: string
@@ -57,6 +66,13 @@ export function getFocusTargetDisplayLabel(
     return '';
   }
 
+  const typeLabel = target.type === 'task'
+    ? translate('focusTimer.task')
+    : target.type === 'tag'
+      ? translate('focusTimer.tag')
+      : translate('focusTimer.habit');
+  return `${typeLabel}：${target.name}`;
+
   return `${target.type === 'task' ? translate('focusTimer.task') : translate('focusTimer.habit')}：${target.name}`;
 }
 
@@ -67,6 +83,10 @@ export function getFocusTargetEmoji(target: FocusTimerLinkedTarget | null | unde
 
   if (target.emoji) {
     return target.emoji;
+  }
+
+  if (target.type === 'tag') {
+    return '🏷️';
   }
 
   return target.type === 'task' ? '✅' : '📝';
