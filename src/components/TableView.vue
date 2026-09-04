@@ -2074,12 +2074,13 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
   }
 
   if (resolvedGroupMode.value === 'heading') {
-    const buckets = new Map<string, { label: string; tasks: Task[] }>();
+    const buckets = new Map<string, { label: string; order: number; tasks: Task[] }>();
     for (const task of sortedTasks.value) {
       const meta = getTaskHeadingGroupMeta(task, props.headingGroups);
       if (!buckets.has(meta.key)) {
         buckets.set(meta.key, {
           label: meta.label,
+          order: meta.order ?? Number.MAX_SAFE_INTEGER,
           tasks: []
         });
       }
@@ -2092,9 +2093,17 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
         id: key,
         mode: 'heading' as const,
         label: group.label,
+        order: group.order,
         tasks: group.tasks
       }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+      .sort((a, b) => {
+        const orderDelta = a.order - b.order;
+        if (orderDelta !== 0) {
+          return orderDelta;
+        }
+        return a.label.localeCompare(b.label, 'zh-CN');
+      })
+      .map(({ order: _order, ...group }) => group);
   }
 
   if (resolvedGroupMode.value === 'date') {
