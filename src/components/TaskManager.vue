@@ -190,6 +190,8 @@
             v-if="taskGroupMenuVisible"
             class="task-group-menu-popover"
             @click.stop
+            @pointermove="handleTaskGroupMenuPointerMove"
+            @mouseleave="taskGroupMenuSubmenu = null"
           >
             <button
               v-for="option in taskListViewOptions"
@@ -205,19 +207,85 @@
               </span>
             </button>
             <div class="task-group-menu-divider"></div>
-            <button
-              v-for="option in taskListGroupOptions"
-              :key="option.value"
-              type="button"
-              class="task-group-menu-item"
-              :class="{ active: taskListGroupBy === option.value }"
-              @click.stop="selectTaskListGroup(option.value)"
+            <div
+              class="task-group-menu-submenu-host"
+              @mouseenter="openTaskGroupMenuSubmenu('group')"
             >
-              <span>{{ option.label }}</span>
-              <span v-if="taskListGroupBy === option.value" class="task-group-menu-check">
-                <Icon name="taskCheckboxChecked" width="12" height="12" />
-              </span>
-            </button>
+              <button
+                type="button"
+                class="task-group-menu-item task-group-menu-submenu-trigger"
+                :class="{ active: taskGroupMenuSubmenu === 'group' }"
+                :aria-label="t('taskManager.groupTasks')"
+                :aria-expanded="taskGroupMenuSubmenu === 'group'"
+                @click.stop="toggleTaskGroupMenuSubmenu('group')"
+              >
+                <span>{{ activeTaskListGroupLabel }}</span>
+                <Icon name="chevronRight" width="13" height="13" />
+              </button>
+              <div
+                v-if="taskGroupMenuSubmenu === 'group'"
+                class="task-group-menu-submenu"
+                :class="{ 'opens-right': taskGroupMenuSubmenuSide === 'right' }"
+              >
+                <button
+                  v-for="option in taskListGroupOptions"
+                  :key="option.value"
+                  type="button"
+                  class="task-group-menu-item"
+                  :class="{ active: taskListGroupBy === option.value }"
+                  @click.stop="selectTaskListGroup(option.value)"
+                >
+                  <span>{{ option.label }}</span>
+                  <span v-if="taskListGroupBy === option.value" class="task-group-menu-check">
+                    <Icon name="taskCheckboxChecked" width="12" height="12" />
+                  </span>
+                </button>
+              </div>
+            </div>
+            <div
+              class="task-group-menu-submenu-host"
+              @mouseenter="openTaskGroupMenuSubmenu('sort')"
+            >
+              <button
+                type="button"
+                class="task-group-menu-item task-group-menu-submenu-trigger"
+                :class="{ active: taskGroupMenuSubmenu === 'sort' }"
+                :aria-label="t('taskManager.sortTasks')"
+                :aria-expanded="taskGroupMenuSubmenu === 'sort'"
+                @click.stop="toggleTaskGroupMenuSubmenu('sort')"
+              >
+                <span>{{ activeTaskListSortLabel }}</span>
+                <Icon name="chevronRight" width="13" height="13" />
+              </button>
+              <div
+                v-if="taskGroupMenuSubmenu === 'sort'"
+                class="task-group-menu-submenu"
+                :class="{ 'opens-right': taskGroupMenuSubmenuSide === 'right' }"
+              >
+                <button
+                  v-for="option in taskListSortOptions"
+                  :key="`sort:${option.value}`"
+                  type="button"
+                  class="task-group-menu-item"
+                  :class="{ active: taskListSortBy === option.value }"
+                  @click.stop="selectTaskListSort(option.value)"
+                >
+                  <span>{{ option.label }}</span>
+                  <span v-if="taskListSortBy === option.value" class="task-group-menu-check">
+                    <Icon name="taskCheckboxChecked" width="12" height="12" />
+                  </span>
+                </button>
+                <div v-if="taskListSortBy !== 'default'" class="task-group-menu-divider"></div>
+                <button
+                  v-if="taskListSortBy !== 'default'"
+                  type="button"
+                  class="task-group-menu-item"
+                  @click.stop="toggleTaskListSortDirection"
+                >
+                  <span>{{ taskListSortDirection === 'asc' ? t('taskManager.sortAscending') : t('taskManager.sortDescending') }}</span>
+                </button>
+              </div>
+            </div>
             <div class="task-group-menu-divider"></div>
             <button
               type="button"
@@ -635,12 +703,18 @@
               'mobile-calendar-drag-source': shouldEnableMobileCalendarDrag(),
               'mobile-calendar-dragging': mobileCalendarDraggingTaskId === row.task.id,
               'calendar-pointer-drag-source': shouldEnableDesktopCalendarPointerDrag(),
-              'calendar-pointer-dragging': desktopCalendarDraggingTaskId === row.task.id
+              'calendar-pointer-dragging': desktopCalendarDraggingTaskId === row.task.id,
+              'manual-task-dragging': manualTaskDrag.sourceId === row.task.id,
+              'manual-task-drop-before': isManualTaskDropTarget(row.task.id, 'before'),
+              'manual-task-drop-after': isManualTaskDropTarget(row.task.id, 'after')
             }"
             @pointerdown="handleMobileTaskPointerDown($event, row.task)"
             @pointermove="handleMobileTaskPointerMove"
             @pointerup="handleMobileTaskPointerUp"
             @pointercancel="handleMobileTaskPointerCancel"
+            @dragover="handleManualTaskDragOver($event, row.task, null)"
+            @dragleave="handleManualTaskDragLeave($event, row.task.id)"
+            @drop="handleManualTaskDrop($event, row.task, null)"
           >
             <div v-if="row.timelineLabel !== null" class="task-timeline-entry-meta">
               <span class="task-timeline-time">{{ row.timelineLabel }}</span>
@@ -678,7 +752,8 @@
               @description-cancel="cancelInlineDescriptionEdit"
               @subtask-toggle="handleCardSubtaskToggle"
               @subtask-open="handleCardSubtaskOpen"
-              @dragstart="handleDragStart"
+              @dragstart="handleDragStart($event, row.task, null)"
+              @dragend="handleManualTaskDragEnd"
             />
           </div>
         </template>
@@ -747,12 +822,18 @@
                 'mobile-calendar-drag-source': shouldEnableMobileCalendarDrag(),
                 'mobile-calendar-dragging': mobileCalendarDraggingTaskId === task.id,
                 'calendar-pointer-drag-source': shouldEnableDesktopCalendarPointerDrag(),
-                'calendar-pointer-dragging': desktopCalendarDraggingTaskId === task.id
+                'calendar-pointer-dragging': desktopCalendarDraggingTaskId === task.id,
+                'manual-task-dragging': manualTaskDrag.sourceId === task.id,
+                'manual-task-drop-before': isManualTaskDropTarget(task.id, 'before'),
+                'manual-task-drop-after': isManualTaskDropTarget(task.id, 'after')
               }"
               @pointerdown="handleMobileTaskPointerDown($event, task)"
               @pointermove="handleMobileTaskPointerMove"
               @pointerup="handleMobileTaskPointerUp"
               @pointercancel="handleMobileTaskPointerCancel"
+              @dragover="handleManualTaskDragOver($event, task, section.key)"
+              @dragleave="handleManualTaskDragLeave($event, task.id)"
+              @drop="handleManualTaskDrop($event, task, section.key)"
             >
               <div v-if="taskListViewMode === 'timeline' && getTaskTimelineLabel(section, task) !== null" class="task-timeline-entry-meta">
                 <span class="task-timeline-time">{{ getTaskTimelineLabel(section, task) }}</span>
@@ -791,7 +872,8 @@
                 @description-cancel="cancelInlineDescriptionEdit"
                 @subtask-toggle="handleCardSubtaskToggle"
                 @subtask-open="handleCardSubtaskOpen"
-                @dragstart="handleDragStart"
+                @dragstart="handleDragStart($event, task, section.key)"
+                @dragend="handleManualTaskDragEnd"
               />
             </div>
           </div>
@@ -812,12 +894,18 @@
             'mobile-calendar-drag-source': shouldEnableMobileCalendarDrag(),
             'mobile-calendar-dragging': mobileCalendarDraggingTaskId === task.id,
             'calendar-pointer-drag-source': shouldEnableDesktopCalendarPointerDrag(),
-            'calendar-pointer-dragging': desktopCalendarDraggingTaskId === task.id
+            'calendar-pointer-dragging': desktopCalendarDraggingTaskId === task.id,
+            'manual-task-dragging': manualTaskDrag.sourceId === task.id,
+            'manual-task-drop-before': isManualTaskDropTarget(task.id, 'before'),
+            'manual-task-drop-after': isManualTaskDropTarget(task.id, 'after')
           }"
           @pointerdown="handleMobileTaskPointerDown($event, task)"
           @pointermove="handleMobileTaskPointerMove"
           @pointerup="handleMobileTaskPointerUp"
           @pointercancel="handleMobileTaskPointerCancel"
+          @dragover="handleManualTaskDragOver($event, task, null)"
+          @dragleave="handleManualTaskDragLeave($event, task.id)"
+          @drop="handleManualTaskDrop($event, task, null)"
         >
           <TaskCard
             :data-task-id="task.id"
@@ -852,7 +940,8 @@
             @description-cancel="cancelInlineDescriptionEdit"
             @subtask-toggle="handleCardSubtaskToggle"
             @subtask-open="handleCardSubtaskOpen"
-            @dragstart="handleDragStart"
+            @dragstart="handleDragStart($event, task, null)"
+            @dragend="handleManualTaskDragEnd"
           />
         </div>
       </div>
@@ -1075,6 +1164,16 @@ import {
   compareTaskCreatedAtDesc,
   compareTaskDocumentSortKey
 } from '@/utils/taskSortShared';
+import {
+  applyManualTaskOrderWithinGroups,
+  getDefaultTaskManualOrderGroupKey,
+  moveTaskInManualOrder,
+  reconcileManualTaskOrder,
+  sortTasksKeepingPinnedManualOrder,
+  type TaskDropPosition,
+  type TaskSortDirection,
+  type TaskSortField
+} from '@/utils/taskSorting';
 import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput, type RepeatTermination } from '@/repeatRepository';
 import { isRepeatTask as isRepeatTaskEntity, selectVisibleRepeatInstanceIds } from '@/utils/repeatTaskUtils';
 import {
@@ -1294,6 +1393,7 @@ type TaskUpdateFilterKey = 'today' | 'thisWeek' | 'thisMonth';
 type TaskExtraFilterKey = 'hasDescription' | 'hasSubtasks' | 'hasFocusEstimate';
 type TaskListViewMode = 'kanban' | 'list' | 'timeline';
 type TaskListGroupMode = 'none' | 'status' | 'group' | 'heading' | 'date' | 'document';
+type TaskListSortField = TaskSortField;
 type TimelineTaskFilter = 'all' | 'incomplete' | 'completed' | 'overdue' | 'unscheduled';
 interface TaskGroupedSection {
   key: string;
@@ -1355,6 +1455,8 @@ const taskFilterPopoverRef = ref<InstanceType<typeof TaskFilterPopover> | null>(
 const taskFilterPopoverStyle = ref<Record<string, string>>({});
 const taskSearchInputRef = ref<HTMLInputElement | null>(null);
 const taskGroupMenuVisible = ref(false);
+const taskGroupMenuSubmenu = ref<'group' | 'sort' | null>(null);
+const taskGroupMenuSubmenuSide = ref<'left' | 'right'>('left');
 const kernelDiagnosticsVisible = ref(false);
 const kernelDiagnosticsChecking = ref(false);
 const kernelDiagnostics = ref<KernelDiagnosticsState>({ status: 'idle' });
@@ -1367,6 +1469,15 @@ const TASK_SEARCH_HISTORY_LIMIT = 8;
 let suppressTaskSearchHistoryOnNextFocus = false;
 const taskListViewMode = ref<TaskListViewMode>('kanban');
 const taskListGroupBy = ref<TaskListGroupMode>('none');
+const taskListSortBy = ref<TaskListSortField>('default');
+const taskListSortDirection = ref<TaskSortDirection>('asc');
+const taskManualOrder = ref<string[]>([]);
+const manualTaskDrag = ref<{
+  sourceId: string;
+  sourceSectionKey: string | null;
+  targetId: string | null;
+  position: TaskDropPosition | null;
+}>({ sourceId: '', sourceSectionKey: null, targetId: null, position: null });
 const timelineTaskFilter = ref<TimelineTaskFilter>('all');
 const timelineTaskFilterOptions = computed<Array<{ value: TimelineTaskFilter; label: string }>>(() => [
   { value: 'all', label: t('taskManager.all') },
@@ -1687,6 +1798,25 @@ const taskListGroupOptions: Array<{ value: TaskListGroupMode; label: string }> =
   { value: 'group', label: t('taskManager.groupByTag') },
   { value: 'heading', label: t('taskManager.groupByHeading') }
 ];
+const taskListSortOptions: Array<{ value: TaskListSortField; label: string }> = [
+  { value: 'default', label: t('taskManager.sortDefault') },
+  { value: 'dueDate', label: t('taskManager.sortDueDate') },
+  { value: 'startDate', label: t('taskManager.sortStartDate') },
+  { value: 'priority', label: t('taskManager.sortPriority') },
+  { value: 'createdAt', label: t('taskManager.sortCreatedAt') },
+  { value: 'updatedAt', label: t('taskManager.sortUpdatedAt') },
+  { value: 'title', label: t('taskManager.sortTitle') }
+];
+const activeTaskListGroupLabel = computed(() =>
+  taskListGroupOptions.find(option => option.value === taskListGroupBy.value)?.label
+  || taskListGroupOptions[0]?.label
+  || ''
+);
+const activeTaskListSortLabel = computed(() =>
+  taskListSortOptions.find(option => option.value === taskListSortBy.value)?.label
+  || taskListSortOptions[0]?.label
+  || ''
+);
 const batchEditStatusOptions = buildTaskStatusSelectOptions(t);
 const batchEditPriorityOptions: Array<{ value: string; text: string }> = [
   { value: '', text: t('taskManager.priorityNoChange') },
@@ -2334,6 +2464,7 @@ function closeTaskFilterPopover(): void {
 
 function closeTaskGroupMenu(): void {
   taskGroupMenuVisible.value = false;
+  taskGroupMenuSubmenu.value = null;
 }
 
 function closeKernelDiagnostics(): void {
@@ -2427,6 +2558,32 @@ function toggleTaskGroupMenu(): void {
   closeTaskFilterPopover();
   closeKernelDiagnostics();
   taskGroupMenuVisible.value = !taskGroupMenuVisible.value;
+  taskGroupMenuSubmenu.value = null;
+}
+
+function openTaskGroupMenuSubmenu(submenu: 'group' | 'sort'): void {
+  updateTaskGroupMenuSubmenuSide();
+  taskGroupMenuSubmenu.value = submenu;
+}
+
+function toggleTaskGroupMenuSubmenu(submenu: 'group' | 'sort'): void {
+  updateTaskGroupMenuSubmenuSide();
+  taskGroupMenuSubmenu.value = taskGroupMenuSubmenu.value === submenu ? null : submenu;
+}
+
+function updateTaskGroupMenuSubmenuSide(): void {
+  const popover = taskGroupMenuControlRef.value?.querySelector<HTMLElement>('.task-group-menu-popover');
+  if (!popover) return;
+  taskGroupMenuSubmenuSide.value = popover.getBoundingClientRect().left >= 180 ? 'left' : 'right';
+}
+
+function handleTaskGroupMenuPointerMove(event: PointerEvent): void {
+  const target = event.target instanceof Element
+    ? event.target
+    : (event.target instanceof Node ? event.target.parentElement : null);
+  if (!target?.closest('.task-group-menu-submenu-host')) {
+    taskGroupMenuSubmenu.value = null;
+  }
 }
 
 function toggleKernelDiagnostics(): void {
@@ -2601,6 +2758,14 @@ function selectTaskListGroup(mode: TaskListGroupMode): void {
   closeTaskGroupMenu();
 }
 
+function selectTaskListSort(field: TaskListSortField): void {
+  taskListSortBy.value = field;
+}
+
+function toggleTaskListSortDirection(): void {
+  taskListSortDirection.value = taskListSortDirection.value === 'asc' ? 'desc' : 'asc';
+}
+
 function toggleBatchEditModeFromMenu(): void {
   toggleBatchEditMode();
   closeTaskGroupMenu();
@@ -2720,6 +2885,17 @@ function normalizeTaskListGroupMode(value: unknown): TaskListGroupMode {
 
 function normalizeTaskListViewMode(value: unknown): TaskListViewMode {
   return value === 'list' || value === 'timeline' ? value : 'kanban';
+}
+
+function normalizeTaskListSortField(value: unknown): TaskListSortField {
+  if (value === 'dueDate' || value === 'startDate' || value === 'priority' || value === 'createdAt' || value === 'updatedAt' || value === 'title') {
+    return value;
+  }
+  return 'default';
+}
+
+function normalizeTaskSortDirection(value: unknown): TaskSortDirection {
+  return value === 'desc' ? 'desc' : 'asc';
 }
 
 function normalizeTaskCardDetailsVisible(value: unknown): boolean {
@@ -3317,12 +3493,20 @@ watch(taskListGroupBy, (mode) => {
   }
 });
 
-watch([taskListViewMode, showTaskCardDetails], () => {
+watch([taskListViewMode, showTaskCardDetails, taskListSortBy, taskListSortDirection], () => {
   if (isHydratingFilters) {
     return;
   }
   scheduleTaskListGroupSettingsUpdate();
 });
+
+watch(
+  () => userSettings.taskManager.taskManualOrder,
+  (order) => {
+    taskManualOrder.value = [...(order || [])];
+  },
+  { deep: true }
+);
 
 const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
 const taskStatusFilterOptions: Array<{ value: Task['status']; label: string }> = buildTaskStatusFilterOptions(t);
@@ -3502,6 +3686,8 @@ function scheduleTaskListGroupSettingsUpdate(): void {
     await updateSettings('taskManager', {
       taskListGroupBy: taskListGroupBy.value,
       taskListViewMode: taskListViewMode.value,
+      taskListSortBy: taskListSortBy.value,
+      taskListSortDirection: taskListSortDirection.value,
       showTaskCardDetails: showTaskCardDetails.value
     });
   }, 200);
@@ -3517,6 +3703,8 @@ function flushTaskListGroupSettingsUpdate(): void {
   void updateSettings('taskManager', {
     taskListGroupBy: taskListGroupBy.value,
     taskListViewMode: taskListViewMode.value,
+    taskListSortBy: taskListSortBy.value,
+    taskListSortDirection: taskListSortDirection.value,
     showTaskCardDetails: showTaskCardDetails.value
   });
 }
@@ -4698,7 +4886,7 @@ function matchesActiveSourceFilter(task: Task): boolean {
   return group.members.some(member => matchesTaskDocumentMemberScope(task, member));
 }
 
-const filteredTasks = computed(() => {
+const automaticallySortedTasks = computed(() => {
   // Manual invalidation hook for mutation paths that should force re-sorting.
   void taskSortVersion.value;
   const mode = archiveViewMode.value;
@@ -4776,6 +4964,11 @@ const filteredTasks = computed(() => {
     if (!isAPinned && isBPinned) {
       return 1;
     }
+    // Pinned tasks deliberately retain their existing/manual order. Array.sort
+    // is stable, and the saved manual order is applied after this comparison.
+    if (isAPinned && isBPinned) {
+      return 0;
+    }
 
     if (isACompleted && isBCompleted) {
       const updatedA = Date.parse(a.updatedAt || '');
@@ -4832,6 +5025,24 @@ const filteredTasks = computed(() => {
   });
 
   return result;
+});
+
+const filteredTasks = computed(() => {
+  const automaticallySorted = automaticallySortedTasks.value;
+  if (taskListSortBy.value === 'default') {
+    const todayStart = getTodayStartTimestamp();
+    return applyManualTaskOrderWithinGroups(
+      automaticallySorted,
+      taskManualOrder.value,
+      task => getDefaultTaskManualOrderGroupKey(task, task.status, todayStart)
+    );
+  }
+  return sortTasksKeepingPinnedManualOrder(
+    automaticallySorted,
+    taskListSortBy.value,
+    taskListSortDirection.value,
+    taskManualOrder.value
+  );
 });
 
 const hasHiddenCompletedTasks = computed(() => {
@@ -9360,7 +9571,28 @@ async function quickSaveTaskTags(task: Task, tagIds: string[]): Promise<void> {
   });
 }
 
-function handleDragStart(event: DragEvent, task: Task) {
+function canManuallyReorderTasks(): boolean {
+  return taskListSortBy.value === 'default'
+    && taskListViewMode.value !== 'timeline'
+    && !isBatchEditMode.value
+    && !isMobileFrontend
+    && !shouldEnableDesktopCalendarPointerDrag();
+}
+
+function resetManualTaskDrag(): void {
+  manualTaskDrag.value = {
+    sourceId: '',
+    sourceSectionKey: null,
+    targetId: null,
+    position: null
+  };
+}
+
+function isManualTaskDropTarget(taskId: string, position: TaskDropPosition): boolean {
+  return manualTaskDrag.value.targetId === taskId && manualTaskDrag.value.position === position;
+}
+
+function handleDragStart(event: DragEvent, task: Task, sectionKey: string | null = null) {
   if (isMobileFrontend || shouldEnableDesktopCalendarPointerDrag()) {
     event.preventDefault();
     return;
@@ -9370,6 +9602,78 @@ function handleDragStart(event: DragEvent, task: Task) {
     event.dataTransfer.setData('application/json', JSON.stringify(task));
     event.dataTransfer.setData('text/plain', task.id);
   }
+  if (canManuallyReorderTasks()) {
+    manualTaskDrag.value = {
+      sourceId: task.id,
+      sourceSectionKey: sectionKey,
+      targetId: null,
+      position: null
+    };
+  }
+}
+
+function handleManualTaskDragOver(event: DragEvent, task: Task, sectionKey: string | null): void {
+  const drag = manualTaskDrag.value;
+  const sourceTask = automaticallySortedTasks.value.find(item => item.id === drag.sourceId);
+  if (
+    !canManuallyReorderTasks()
+    || !drag.sourceId
+    || drag.sourceId === task.id
+    || drag.sourceSectionKey !== sectionKey
+    || !sourceTask
+    || getDefaultTaskManualOrderGroupKey(sourceTask) !== getDefaultTaskManualOrderGroupKey(task)
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move';
+  }
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  manualTaskDrag.value.targetId = task.id;
+  manualTaskDrag.value.position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+}
+
+function handleManualTaskDragLeave(event: DragEvent, taskId: string): void {
+  if (manualTaskDrag.value.targetId !== taskId) return;
+  const currentTarget = event.currentTarget as HTMLElement | null;
+  const relatedTarget = event.relatedTarget;
+  if (currentTarget && relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) return;
+  manualTaskDrag.value.targetId = null;
+  manualTaskDrag.value.position = null;
+}
+
+function handleManualTaskDrop(event: DragEvent, task: Task, sectionKey: string | null): void {
+  const drag = manualTaskDrag.value;
+  const position = drag.position;
+  if (
+    !canManuallyReorderTasks()
+    || !drag.sourceId
+    || drag.sourceId === task.id
+    || drag.sourceSectionKey !== sectionKey
+    || drag.targetId !== task.id
+    || !position
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  const seededOrder = reconcileManualTaskOrder(
+    taskManualOrder.value,
+    automaticallySortedTasks.value.map(item => item.id)
+  );
+  const nextOrder = moveTaskInManualOrder(seededOrder, drag.sourceId, task.id, position);
+  taskManualOrder.value = nextOrder;
+  resetManualTaskDrag();
+  void updateSettings('taskManager', { taskManualOrder: nextOrder });
+}
+
+function handleManualTaskDragEnd(): void {
+  resetManualTaskDrag();
 }
 
 function shouldEnableMobileCalendarDrag(): boolean {
@@ -9913,6 +10217,9 @@ onMounted(async () => {
   showCompletedTasks.value = userSettings.taskManager.showCompletedTasks !== false;
   taskListGroupBy.value = normalizeTaskListGroupMode(userSettings.taskManager.taskListGroupBy);
   taskListViewMode.value = normalizeTaskListViewMode(userSettings.taskManager.taskListViewMode);
+  taskListSortBy.value = normalizeTaskListSortField(userSettings.taskManager.taskListSortBy);
+  taskListSortDirection.value = normalizeTaskSortDirection(userSettings.taskManager.taskListSortDirection);
+  taskManualOrder.value = [...(userSettings.taskManager.taskManualOrder || [])];
   showTaskCardDetails.value = normalizeTaskCardDetailsVisible(userSettings.taskManager.showTaskCardDetails);
   restoreTaskPopoverFiltersFromSettings();
   ensureActiveNotebookFilterInScope();
@@ -10826,6 +11133,35 @@ onUnmounted(() => {
   gap: 2px;
 }
 
+.task-group-menu-submenu-host {
+  position: relative;
+  width: 100%;
+}
+
+.task-group-menu-submenu {
+  position: absolute;
+  top: -6px;
+  right: calc(100% - 2px);
+  width: 168px;
+  max-height: min(360px, calc(100vh - 24px));
+  overflow-y: auto;
+  box-sizing: border-box;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+  z-index: 16;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-group-menu-submenu.opens-right {
+  right: auto;
+  left: calc(100% - 2px);
+}
+
 .task-group-menu-item {
   width: 100%;
   border: none;
@@ -10840,6 +11176,17 @@ onUnmounted(() => {
   justify-content: space-between;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.task-group-menu-submenu-trigger > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-group-menu-submenu-trigger > svg {
+  flex: 0 0 auto;
 }
 
 .task-group-menu-item:hover {
@@ -10866,6 +11213,13 @@ onUnmounted(() => {
   margin: 2px 4px;
   background: var(--b3-border-color);
   opacity: 0.7;
+}
+
+.task-group-menu-label {
+  padding: 6px 10px 2px;
+  color: var(--b3-theme-on-surface-light);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .task-filter-btn {
@@ -10975,6 +11329,32 @@ onUnmounted(() => {
 
 .task-batch-item {
   border-radius: 10px;
+  position: relative;
+}
+
+.task-batch-item.manual-task-dragging {
+  opacity: 0.45;
+}
+
+.task-batch-item.manual-task-drop-before::before,
+.task-batch-item.manual-task-drop-after::after {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--b3-theme-primary);
+  pointer-events: none;
+}
+
+.task-batch-item.manual-task-drop-before::before {
+  top: -4px;
+}
+
+.task-batch-item.manual-task-drop-after::after {
+  bottom: -4px;
 }
 
 .task-batch-item.mobile-calendar-drag-source {

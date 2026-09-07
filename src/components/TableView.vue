@@ -342,7 +342,11 @@
           <tr
             v-if="row.kind === 'group'"
             class="group-row"
+            :class="{ 'task-drag-over': tableTaskDragOverGroupKey === row.group.key }"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
+            @dragover="handleTableGroupDragOver($event, row.group)"
+            @dragleave="handleTableGroupDragLeave($event, row.group.key)"
+            @drop="handleTableGroupDrop($event, row.group)"
           >
             <td :colspan="tableColumnCount">
               <button
@@ -401,11 +405,20 @@
               `priority-${row.task.priority}`,
               {
                 'task-completed': row.task.status === 'completed',
-                'is-terminal-row': terminalTableRowKeys.has(row.key)
+                'is-terminal-row': terminalTableRowKeys.has(row.key),
+                'is-task-dragging': tableDraggedTaskId === row.task.id,
+                'manual-task-drop-before': isTableTaskDropTarget(row.task.id, 'before'),
+                'manual-task-drop-after': isTableTaskDropTarget(row.task.id, 'after')
               }
             ]"
+            :draggable="canDragTableTask(row.task)"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
             @contextmenu="handleTaskRowContextMenu(row.task, $event)"
+            @dragstart="handleTableTaskDragStart($event, row.task)"
+            @dragover="handleTableTaskDragOver($event, row.task)"
+            @dragleave="handleTableTaskDragLeave($event, row.task.id)"
+            @drop="handleTableTaskDrop($event, row.task)"
+            @dragend="resetTableTaskDrag"
           >
             <template v-for="column in visibleTableColumns" :key="column.key">
             <td v-if="column.key === 'expand'" class="col-expand">
@@ -884,6 +897,15 @@ import type { Goal } from '@/goalRepository';
 import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { getDocumentCreationSortKey } from '@/utils/taskViewShared';
 import { getRepeatSeriesForTask, type RepeatFrequency, type RepeatRule, type RepeatRuleInput, type RepeatTermination } from '@/repeatRepository';
+import {
+  applyManualTaskOrder,
+  applyManualTaskOrderWithinGroups,
+  getDefaultTaskManualOrderGroupKey,
+  sortTasksKeepingPinnedManualOrder,
+  type TaskDropPosition,
+  type TaskSortDirection,
+  type TaskSortField
+} from '@/utils/taskSorting';
 
 interface Props {
   tasks: Task[];
@@ -900,6 +922,10 @@ interface Props {
   /** True after the parent has finished resolving custom/dynamic document icons. */
   documentIconsReady?: boolean;
   documentTitleByRootId?: Map<string, string>;
+  manualTaskOrder?: string[];
+  taskDragEnabled?: boolean;
+  taskSortBy?: TaskSortField;
+  taskSortDirection?: TaskSortDirection;
 }
 
 type TableTaskGroupSection = {
@@ -1224,6 +1250,7 @@ const emit = defineEmits<{
   startTimeUpdate: [task: Task, startTime: string];
   dueTimeUpdate: [task: Task, dueTime: string];
   repeatRuleUpdate: [task: Task, repeat: RepeatFrequency | RepeatRuleInput];
+  taskDrop: [payload: { source: Task; target: Task; position: TaskDropPosition }];
 }>();
 
 const expandedTasks = ref<Set<string>>(new Set());
@@ -1239,6 +1266,12 @@ type SortableColumn = 'priority' | 'status' | 'frequency' | 'group' | 'goal' | '
 
 const sortColumn = ref<SortableColumn | null>(null);
 const sortDirection = ref<'asc' | 'desc'>('asc');
+const tableDraggedTaskId = ref<string | null>(null);
+const tableTaskDropTarget = ref<{ taskId: string | null; position: TaskDropPosition | null }>({
+  taskId: null,
+  position: null
+});
+const tableTaskDragOverGroupKey = ref<string | null>(null);
 const tableContainerRef = ref<HTMLElement | null>(null);
 const defaultTableColumnWidths = ref<Partial<Record<TableColumnKey, number>>>({});
 const tableColumnWidths = ref<Partial<Record<TableColumnKey, number>>>({});
@@ -1777,6 +1810,11 @@ function compareTasksDefault(a: Task, b: Task, domOrderMap?: Map<string, number>
   if (!isAPinned && isBPinned) {
     return 1;
   }
+  // Pinned tasks deliberately retain their existing/manual order. Array.sort
+  // is stable, and the saved manual order is applied after this comparison.
+  if (isAPinned && isBPinned) {
+    return 0;
+  }
 
   if (isACompleted && isBCompleted) {
     const updatedA = Date.parse(a.updatedAt || '');
@@ -1969,10 +2007,27 @@ function compareOptionalTableText(left: string, right: string): number {
 const sortedTasks = computed(() => {
   const domOrderMap = buildLiveTaskDomOrderMap();
   if (!sortColumn.value) {
-    return [...displayableTasks.value].sort((a, b) => compareTasksDefault(a, b, domOrderMap));
+    const tasks = [...displayableTasks.value].sort((a, b) => compareTasksDefault(a, b, domOrderMap));
+    if (props.taskSortBy && props.taskSortBy !== 'default') {
+      return sortTasksKeepingPinnedManualOrder(
+        tasks,
+        props.taskSortBy,
+        props.taskSortDirection || 'asc',
+        props.manualTaskOrder || []
+      );
+    }
+    return applyManualTaskOrderWithinGroups(
+      tasks,
+      props.manualTaskOrder || [],
+      task => getDefaultTaskManualOrderGroupKey(task, task.status, getTodayStartTimestamp())
+    );
   }
 
-  const tasks = [...displayableTasks.value];
+  const pinnedTasks = applyManualTaskOrder(
+    displayableTasks.value.filter(task => task.pinned === true),
+    props.manualTaskOrder || []
+  );
+  const tasks = displayableTasks.value.filter(task => task.pinned !== true);
   const textSortKeys = new Map<Task, string>();
   if (sortColumn.value === 'frequency') {
     tasks.forEach(task => textSortKeys.set(task, getRepeatFrequencyText(task)));
@@ -2023,11 +2078,6 @@ const sortedTasks = computed(() => {
     }
 
     if (comparison === 0) {
-      const isAPinned = a.pinned === true;
-      const isBPinned = b.pinned === true;
-      if (isAPinned && !isBPinned) return -1;
-      if (!isAPinned && isBPinned) return 1;
-
       const documentSortResult = compareTaskDocumentSortKey(a, b, domOrderMap);
       if (documentSortResult !== 0) {
         return documentSortResult;
@@ -2037,8 +2087,136 @@ const sortedTasks = computed(() => {
     return sortDirection.value === 'asc' ? comparison : -comparison;
   });
 
-  return tasks;
+  return [...pinnedTasks, ...tasks];
 });
+
+function resetTableTaskDropTarget(): void {
+  tableTaskDropTarget.value = { taskId: null, position: null };
+  tableTaskDragOverGroupKey.value = null;
+}
+
+function resetTableTaskDrag(): void {
+  tableDraggedTaskId.value = null;
+  resetTableTaskDropTarget();
+}
+
+function isTableTaskDropTarget(taskId: string, position: TaskDropPosition): boolean {
+  return tableTaskDropTarget.value.taskId === taskId
+    && tableTaskDropTarget.value.position === position;
+}
+
+function canDragTableTask(task: Task): boolean {
+  if (
+    props.taskDragEnabled === false
+    || (props.taskSortBy && props.taskSortBy !== 'default')
+    || sortColumn.value
+    || resolvedGroupMode.value === 'date'
+  ) {
+    return false;
+  }
+  if (resolvedGroupMode.value === 'heading' || resolvedGroupMode.value === 'document') {
+    return task.type === 'block' && !!task.blockId;
+  }
+  return true;
+}
+
+function canDropTableTask(source: Task, target: Task): boolean {
+  if (source.id === target.id || !canDragTableTask(source)) return false;
+  const targetStatus = resolvedGroupMode.value === 'status' ? target.status : source.status;
+  const todayStart = getTodayStartTimestamp();
+  return getDefaultTaskManualOrderGroupKey(source, targetStatus, todayStart)
+    === getDefaultTaskManualOrderGroupKey(target, target.status, todayStart);
+}
+
+function isTableTaskDragBlockedTarget(target: EventTarget | null): boolean {
+  const element = target instanceof Element
+    ? target
+    : (target instanceof Node ? target.parentElement : null);
+  return !!element?.closest('button, input, textarea, select, a, [contenteditable="true"]');
+}
+
+function handleTableTaskDragStart(event: DragEvent, task: Task): void {
+  if (!canDragTableTask(task) || isTableTaskDragBlockedTarget(event.target)) {
+    event.preventDefault();
+    return;
+  }
+  tableDraggedTaskId.value = task.id;
+  resetTableTaskDropTarget();
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', task.id);
+  }
+}
+
+function handleTableTaskDragOver(event: DragEvent, target: Task): void {
+  const source = props.tasks.find(task => task.id === tableDraggedTaskId.value);
+  if (!source || !canDropTableTask(source, target)) {
+    resetTableTaskDropTarget();
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  const row = event.currentTarget as HTMLTableRowElement | null;
+  if (!row) return;
+  const rect = row.getBoundingClientRect();
+  tableTaskDropTarget.value = {
+    taskId: target.id,
+    position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  };
+  tableTaskDragOverGroupKey.value = null;
+}
+
+function handleTableTaskDragLeave(event: DragEvent, taskId: string): void {
+  if (tableTaskDropTarget.value.taskId !== taskId) return;
+  const row = event.currentTarget as HTMLElement | null;
+  const relatedTarget = event.relatedTarget;
+  if (row && relatedTarget instanceof Node && row.contains(relatedTarget)) return;
+  tableTaskDropTarget.value = { taskId: null, position: null };
+}
+
+function emitTableTaskDrop(event: DragEvent, target: Task, position: TaskDropPosition): void {
+  const source = props.tasks.find(task => task.id === tableDraggedTaskId.value);
+  if (!source || !canDropTableTask(source, target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  emit('taskDrop', { source, target, position });
+  resetTableTaskDrag();
+}
+
+function handleTableTaskDrop(event: DragEvent, target: Task): void {
+  const position = tableTaskDropTarget.value.taskId === target.id
+    ? tableTaskDropTarget.value.position
+    : null;
+  if (position) emitTableTaskDrop(event, target, position);
+}
+
+function getTableGroupDropTarget(group: TableTaskGroupSection): Task | null {
+  const source = props.tasks.find(item => item.id === tableDraggedTaskId.value);
+  if (!source) return null;
+  return group.tasks.find(task => canDropTableTask(source, task)) || null;
+}
+
+function handleTableGroupDragOver(event: DragEvent, group: TableTaskGroupSection): void {
+  if (!getTableGroupDropTarget(group)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  tableTaskDropTarget.value = { taskId: null, position: null };
+  tableTaskDragOverGroupKey.value = group.key;
+}
+
+function handleTableGroupDragLeave(event: DragEvent, groupKey: string): void {
+  if (tableTaskDragOverGroupKey.value !== groupKey) return;
+  const row = event.currentTarget as HTMLElement | null;
+  const relatedTarget = event.relatedTarget;
+  if (row && relatedTarget instanceof Node && row.contains(relatedTarget)) return;
+  tableTaskDragOverGroupKey.value = null;
+}
+
+function handleTableGroupDrop(event: DragEvent, group: TableTaskGroupSection): void {
+  const target = getTableGroupDropTarget(group);
+  if (target) emitTableTaskDrop(event, target, 'before');
+}
 
 const expandableTasks = computed(() =>
   sortedTasks.value.filter(task => getVisibleSubtasks(task).length > 0)
@@ -3143,6 +3321,8 @@ onMounted(() => {
   }
   window.addEventListener('resize', handleTableViewportResize);
   window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
+  window.addEventListener('blur', resetTableTaskDrag);
+  document.addEventListener('dragend', resetTableTaskDrag, true);
   document.addEventListener('mousedown', handleDocumentMouseDown);
 });
 
@@ -3169,6 +3349,8 @@ onUnmounted(() => {
   tableContainerResizeObserver = null;
   window.removeEventListener('resize', handleTableViewportResize);
   window.removeEventListener('pinch-focus-session', handleFocusSessionUpdate);
+  window.removeEventListener('blur', resetTableTaskDrag);
+  document.removeEventListener('dragend', resetTableTaskDrag, true);
   document.removeEventListener('mousedown', handleDocumentMouseDown);
 });
 
@@ -3340,6 +3522,11 @@ function emitGroupArchiveTasks(group: TableTaskGroupSection): void {
 
 function handleTaskClick(task: Task, event?: MouseEvent) {
   emit('taskClick', task, event);
+}
+
+function clearColumnSort(): void {
+  sortColumn.value = null;
+  sortDirection.value = 'asc';
 }
 
 function handleSubtaskClick(task: Task, subtask: TableSubtask, event?: MouseEvent): void {
@@ -3962,7 +4149,8 @@ function toggleAllTaskDetails(): void {
 defineExpose({
   hasExpandableTasks,
   areAllExpandableTasksExpanded,
-  toggleAllTaskDetails
+  toggleAllTaskDetails,
+  clearColumnSort
 });
 </script>
 
@@ -4286,6 +4474,27 @@ defineExpose({
   transition: background-color 0.15s;
 }
 
+.task-row[draggable='true'] {
+  cursor: grab;
+}
+
+.task-row[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.task-row.is-task-dragging {
+  opacity: 0.55;
+  transition: none;
+}
+
+.task-row.manual-task-drop-before > td {
+  box-shadow: inset 0 2px 0 var(--b3-theme-primary);
+}
+
+.task-row.manual-task-drop-after > td {
+  box-shadow: inset 0 -2px 0 var(--b3-theme-primary);
+}
+
 .task-row > td,
 .subtask-row > td {
   position: relative;
@@ -4377,6 +4586,15 @@ defineExpose({
   text-align: left;
   cursor: pointer;
   border-radius: 10px;
+}
+
+.group-row.task-drag-over .group-row-content {
+  color: var(--b3-theme-on-background);
+  background: rgba(59, 130, 246, 0.15);
+  outline: 2px dashed #3b82f6;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+  transition: none;
 }
 
 .group-row-content:focus-visible {

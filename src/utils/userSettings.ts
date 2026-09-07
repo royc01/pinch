@@ -2,6 +2,7 @@ import { usePlugin } from '../main';
 import { isPluginLifecycleEndedError } from './pluginStorage';
 import { normalizeNotebookIds } from './taskViewShared';
 import type { TaskViewGroupMode } from './taskGrouping';
+import type { TaskSortDirection, TaskSortField } from './taskSorting';
 import type { TaskDateKeywordConfig } from './taskDateParser';
 import type { StoredTaskFilterExpressionItem } from '@/composables/useTaskFilterState';
 
@@ -54,6 +55,14 @@ export interface UserSettings {
     kanbanGroupBy?: TaskViewGroupMode;
     listGroupBy?: TaskViewGroupMode;
     tableGroupBy?: TaskViewGroupMode;
+    kanbanSortBy?: TaskSortField;
+    kanbanSortDirection?: TaskSortDirection;
+    listSortBy?: TaskSortField;
+    listSortDirection?: TaskSortDirection;
+    tableSortBy?: TaskSortField;
+    tableSortDirection?: TaskSortDirection;
+    archiveTableSortBy?: TaskSortField;
+    archiveTableSortDirection?: TaskSortDirection;
     showKanbanTaskCardDetails?: boolean;
     quadrantUrgentDays?: 1 | 3 | 7 | 10 | 15;
     tableFilterUpdatedRange: string;
@@ -120,6 +129,9 @@ export interface UserSettings {
     selectedGroupId?: string;
     taskListGroupBy?: 'none' | TaskViewGroupMode;
     taskListViewMode?: 'kanban' | 'list' | 'timeline';
+    taskListSortBy?: 'default' | 'dueDate' | 'startDate' | 'priority' | 'createdAt' | 'updatedAt' | 'title';
+    taskListSortDirection?: 'asc' | 'desc';
+    taskManualOrder?: string[];
     showTaskCardDetails?: boolean;
     taskStatusFilters?: string[];
     taskPriorityFilters?: string[];
@@ -182,6 +194,14 @@ export const DEFAULT_SETTINGS: UserSettings = {
     kanbanGroupBy: 'status',
     listGroupBy: 'status',
     tableGroupBy: 'status',
+    kanbanSortBy: 'default',
+    kanbanSortDirection: 'asc',
+    listSortBy: 'default',
+    listSortDirection: 'asc',
+    tableSortBy: 'default',
+    tableSortDirection: 'asc',
+    archiveTableSortBy: 'default',
+    archiveTableSortDirection: 'asc',
     showKanbanTaskCardDetails: true,
     quadrantUrgentDays: 7,
     tableFilterUpdatedRange: 'all',
@@ -241,6 +261,9 @@ export const DEFAULT_SETTINGS: UserSettings = {
     selectedGroupId: 'all',
     taskListGroupBy: 'none',
     taskListViewMode: 'kanban',
+    taskListSortBy: 'default',
+    taskListSortDirection: 'asc',
+    taskManualOrder: [],
     showTaskCardDetails: true,
     taskStatusFilters: [],
     taskPriorityFilters: [],
@@ -379,6 +402,21 @@ function normalizeAllowedString<T extends string>(input: unknown, allowed: reado
     : fallback;
 }
 
+function normalizeTaskSortField(value: unknown): TaskSortField {
+  return value === 'dueDate'
+    || value === 'startDate'
+    || value === 'priority'
+    || value === 'createdAt'
+    || value === 'updatedAt'
+    || value === 'title'
+    ? value
+    : 'default';
+}
+
+function normalizeTaskSortDirection(value: unknown): TaskSortDirection {
+  return value === 'desc' ? 'desc' : 'asc';
+}
+
 function normalizeOrderedAllowedStringArray<T extends string>(
   input: unknown,
   allowed: readonly T[]
@@ -445,6 +483,14 @@ function mergeWithDefaults(input: unknown): UserSettings {
       )
         ? (rawKanban as { quadrantUrgentDays: 1 | 3 | 7 | 10 | 15 }).quadrantUrgentDays
         : DEFAULT_SETTINGS.kanban.quadrantUrgentDays,
+      kanbanSortBy: normalizeTaskSortField((rawKanban as { kanbanSortBy?: unknown }).kanbanSortBy),
+      kanbanSortDirection: normalizeTaskSortDirection((rawKanban as { kanbanSortDirection?: unknown }).kanbanSortDirection),
+      listSortBy: normalizeTaskSortField((rawKanban as { listSortBy?: unknown }).listSortBy),
+      listSortDirection: normalizeTaskSortDirection((rawKanban as { listSortDirection?: unknown }).listSortDirection),
+      tableSortBy: normalizeTaskSortField((rawKanban as { tableSortBy?: unknown }).tableSortBy),
+      tableSortDirection: normalizeTaskSortDirection((rawKanban as { tableSortDirection?: unknown }).tableSortDirection),
+      archiveTableSortBy: normalizeTaskSortField((rawKanban as { archiveTableSortBy?: unknown }).archiveTableSortBy),
+      archiveTableSortDirection: normalizeTaskSortDirection((rawKanban as { archiveTableSortDirection?: unknown }).archiveTableSortDirection),
       hiddenDocumentTabIds: normalizeNotebookIds((rawKanban as { hiddenDocumentTabIds?: unknown }).hiddenDocumentTabIds),
       ganttDocumentOrderBySource: normalizeDocumentOrderBySource(
         (rawKanban as { ganttDocumentOrderBySource?: unknown }).ganttDocumentOrderBySource
@@ -482,6 +528,7 @@ function mergeWithDefaults(input: unknown): UserSettings {
       taskUpdatedFilters: normalizeStringArray((rawTaskManager as { taskUpdatedFilters?: unknown }).taskUpdatedFilters),
       taskGroupFilters: normalizeStringArray((rawTaskManager as { taskGroupFilters?: unknown }).taskGroupFilters),
       taskExtraFilters: normalizeStringArray((rawTaskManager as { taskExtraFilters?: unknown }).taskExtraFilters),
+      taskManualOrder: normalizeStringArray((rawTaskManager as { taskManualOrder?: unknown }).taskManualOrder),
       taskFilterExpression: normalizeTaskFilterExpression((rawTaskManager as { taskFilterExpression?: unknown }).taskFilterExpression),
       dateRecognitionKeywords: normalizeDateRecognitionKeywords(
         (rawTaskManager as { dateRecognitionKeywords?: unknown }).dateRecognitionKeywords

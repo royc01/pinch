@@ -882,6 +882,9 @@ async function initializeQuickCreateProtyle(): Promise<void> {
   if (!mount || !props.show || quickCreateEditorMode.value !== 'protyle') return;
   quickCreateProtyle = new Protyle(plugin.app, mount, {
     blockId: paragraphId,
+    // The quick-create dialog only needs inline task editing. Lite retains
+    // Protyle's block editing behavior without initializing the full editor UI.
+    lite: true,
     mode: 'wysiwyg',
     render: { breadcrumb: false }
   });

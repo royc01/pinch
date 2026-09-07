@@ -395,7 +395,7 @@
             type="button"
             class="task-group-menu-btn ariaLabel"
             :class="{
-              active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks || currentView === 'list',
+              active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || activeTaskViewSortBy !== 'default' || !showCompletedTasks || currentView === 'list',
               'is-batch-active': currentView === 'kanban' && isKanbanBatchEditMode
             }"
            
@@ -410,23 +410,85 @@
             class="task-group-menu-popover"
             :class="{ 'quadrant-settings-popover': currentView === 'quadrant' }"
             @click.stop
+            @pointermove="handleTaskViewGroupMenuPointerMove"
+            @mouseleave="taskViewGroupMenuSubmenu = null"
           >
             <template v-if="currentTaskViewGroupOptions.length">
-              <button
-                v-for="option in currentTaskViewGroupOptions"
-                :key="`task-group:${option.value}`"
-                type="button"
-                class="task-group-menu-item"
-                :class="{ active: activeTaskViewGroupMode === option.value }"
-                @click.stop="selectTaskViewGroupMode(option.value)"
-              >
-                <span>{{ option.text }}</span>
-                <span v-if="activeTaskViewGroupMode === option.value" class="task-group-menu-check">
-                  <Icon name="taskCheckboxChecked" width="12" height="12" />
-                </span>
-              </button>
-              <div class="task-group-menu-divider"></div>
+              <div class="task-group-menu-submenu-host" @mouseenter="openTaskViewGroupMenuSubmenu('group')">
+                <button
+                  type="button"
+                  class="task-group-menu-item task-group-menu-submenu-trigger"
+                  :class="{ active: taskViewGroupMenuSubmenu === 'group' }"
+                  :aria-label="t('taskManager.groupTasks')"
+                  :aria-expanded="taskViewGroupMenuSubmenu === 'group'"
+                  @click.stop="toggleTaskViewGroupMenuSubmenu('group')"
+                >
+                  <span>{{ activeTaskViewGroupLabel }}</span>
+                  <Icon name="chevronRight" width="13" height="13" />
+                </button>
+                <div
+                  v-if="taskViewGroupMenuSubmenu === 'group'"
+                  class="task-group-menu-submenu"
+                  :class="{ 'opens-right': taskViewGroupMenuSubmenuSide === 'right' }"
+                >
+                  <button
+                    v-for="option in currentTaskViewGroupOptions"
+                    :key="`task-group:${option.value}`"
+                    type="button"
+                    class="task-group-menu-item"
+                    :class="{ active: activeTaskViewGroupMode === option.value }"
+                    @click.stop="selectTaskViewGroupMode(option.value)"
+                  >
+                    <span>{{ option.text }}</span>
+                    <span v-if="activeTaskViewGroupMode === option.value" class="task-group-menu-check">
+                      <Icon name="taskCheckboxChecked" width="12" height="12" />
+                    </span>
+                  </button>
+                </div>
+              </div>
             </template>
+            <div v-if="supportsTaskViewSort" class="task-group-menu-submenu-host" @mouseenter="openTaskViewGroupMenuSubmenu('sort')">
+              <button
+                type="button"
+                class="task-group-menu-item task-group-menu-submenu-trigger"
+                :class="{ active: taskViewGroupMenuSubmenu === 'sort' }"
+                :aria-label="t('taskManager.sortTasks')"
+                :aria-expanded="taskViewGroupMenuSubmenu === 'sort'"
+                @click.stop="toggleTaskViewGroupMenuSubmenu('sort')"
+              >
+                <span>{{ activeTaskViewSortLabel }}</span>
+                <Icon name="chevronRight" width="13" height="13" />
+              </button>
+              <div
+                v-if="taskViewGroupMenuSubmenu === 'sort'"
+                class="task-group-menu-submenu"
+                :class="{ 'opens-right': taskViewGroupMenuSubmenuSide === 'right' }"
+              >
+                <button
+                  v-for="option in taskViewSortOptions"
+                  :key="`task-sort:${option.value}`"
+                  type="button"
+                  class="task-group-menu-item"
+                  :class="{ active: activeTaskViewSortBy === option.value }"
+                  @click.stop="selectTaskViewSort(option.value)"
+                >
+                  <span>{{ option.text }}</span>
+                  <span v-if="activeTaskViewSortBy === option.value" class="task-group-menu-check">
+                    <Icon name="taskCheckboxChecked" width="12" height="12" />
+                  </span>
+                </button>
+                <div v-if="activeTaskViewSortBy !== 'default'" class="task-group-menu-divider"></div>
+                <button
+                  v-if="activeTaskViewSortBy !== 'default'"
+                  type="button"
+                  class="task-group-menu-item"
+                  @click.stop="toggleTaskViewSortDirection"
+                >
+                  <span>{{ activeTaskViewSortDirection === 'asc' ? t('taskManager.sortAscending') : t('taskManager.sortDescending') }}</span>
+                </button>
+              </div>
+            </div>
+            <div v-if="currentTaskViewGroupOptions.length || supportsTaskViewSort" class="task-group-menu-divider"></div>
             <button
               v-if="currentView === 'kanban'"
               type="button"
@@ -564,7 +626,7 @@
               <button
                 type="button"
                 class="task-group-menu-btn ariaLabel"
-                :class="{ active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || !showCompletedTasks }"
+                :class="{ active: taskViewGroupMenuVisible || activeTaskViewGroupMode !== 'status' || activeTaskViewSortBy !== 'default' || !showCompletedTasks }"
                
                 :aria-label="t('kanbanView.viewSettings')"
                 @click.stop="toggleTaskViewGroupMenu"
@@ -576,20 +638,82 @@
                 ref="taskViewGroupMenuPopoverRef"
                 class="task-group-menu-popover"
                 @click.stop
+                @pointermove="handleTaskViewGroupMenuPointerMove"
+                @mouseleave="taskViewGroupMenuSubmenu = null"
               >
-                <button
-                  v-for="option in currentTaskViewGroupOptions"
-                  :key="`table-group:${option.value}`"
-                  type="button"
-                  class="task-group-menu-item"
-                  :class="{ active: activeTaskViewGroupMode === option.value }"
-                  @click.stop="selectTaskViewGroupMode(option.value)"
-                >
-                  <span>{{ option.text }}</span>
-                  <span v-if="activeTaskViewGroupMode === option.value" class="task-group-menu-check">
-                    <Icon name="taskCheckboxChecked" width="12" height="12" />
-                  </span>
-                </button>
+                <div class="task-group-menu-submenu-host" @mouseenter="openTaskViewGroupMenuSubmenu('group')">
+                  <button
+                    type="button"
+                    class="task-group-menu-item task-group-menu-submenu-trigger"
+                    :class="{ active: taskViewGroupMenuSubmenu === 'group' }"
+                    :aria-label="t('taskManager.groupTasks')"
+                    :aria-expanded="taskViewGroupMenuSubmenu === 'group'"
+                    @click.stop="toggleTaskViewGroupMenuSubmenu('group')"
+                  >
+                    <span>{{ activeTaskViewGroupLabel }}</span>
+                    <Icon name="chevronRight" width="13" height="13" />
+                  </button>
+                  <div
+                    v-if="taskViewGroupMenuSubmenu === 'group'"
+                    class="task-group-menu-submenu"
+                    :class="{ 'opens-right': taskViewGroupMenuSubmenuSide === 'right' }"
+                  >
+                    <button
+                      v-for="option in currentTaskViewGroupOptions"
+                      :key="`table-group:${option.value}`"
+                      type="button"
+                      class="task-group-menu-item"
+                      :class="{ active: activeTaskViewGroupMode === option.value }"
+                      @click.stop="selectTaskViewGroupMode(option.value)"
+                    >
+                      <span>{{ option.text }}</span>
+                      <span v-if="activeTaskViewGroupMode === option.value" class="task-group-menu-check">
+                        <Icon name="taskCheckboxChecked" width="12" height="12" />
+                      </span>
+                    </button>
+                  </div>
+                </div>
+                <div class="task-group-menu-submenu-host" @mouseenter="openTaskViewGroupMenuSubmenu('sort')">
+                  <button
+                    type="button"
+                    class="task-group-menu-item task-group-menu-submenu-trigger"
+                    :class="{ active: taskViewGroupMenuSubmenu === 'sort' }"
+                    :aria-label="t('taskManager.sortTasks')"
+                    :aria-expanded="taskViewGroupMenuSubmenu === 'sort'"
+                    @click.stop="toggleTaskViewGroupMenuSubmenu('sort')"
+                  >
+                    <span>{{ activeTaskViewSortLabel }}</span>
+                    <Icon name="chevronRight" width="13" height="13" />
+                  </button>
+                  <div
+                    v-if="taskViewGroupMenuSubmenu === 'sort'"
+                    class="task-group-menu-submenu"
+                    :class="{ 'opens-right': taskViewGroupMenuSubmenuSide === 'right' }"
+                  >
+                    <button
+                      v-for="option in taskViewSortOptions"
+                      :key="`table-sort:${option.value}`"
+                      type="button"
+                      class="task-group-menu-item"
+                      :class="{ active: activeTaskViewSortBy === option.value }"
+                      @click.stop="selectTaskViewSort(option.value)"
+                    >
+                      <span>{{ option.text }}</span>
+                      <span v-if="activeTaskViewSortBy === option.value" class="task-group-menu-check">
+                        <Icon name="taskCheckboxChecked" width="12" height="12" />
+                      </span>
+                    </button>
+                    <div v-if="activeTaskViewSortBy !== 'default'" class="task-group-menu-divider"></div>
+                    <button
+                      v-if="activeTaskViewSortBy !== 'default'"
+                      type="button"
+                      class="task-group-menu-item"
+                      @click.stop="toggleTaskViewSortDirection"
+                    >
+                      <span>{{ activeTaskViewSortDirection === 'asc' ? t('taskManager.sortAscending') : t('taskManager.sortDescending') }}</span>
+                    </button>
+                  </div>
+                </div>
                 <div class="task-group-menu-divider"></div>
                 <button
                   type="button"
@@ -633,8 +757,12 @@
           column.type === 'group' ? 'group-column' : '',
           column.type === 'heading' ? 'heading-column' : '',
           column.type === 'date' ? 'date-column' : '',
-          column.type === 'action' ? 'action-column' : ''
+          column.type === 'action' ? 'action-column' : '',
+          { 'drag-over': dragOverColumnId === column.id }
         ]"
+        @dragover="handleDragOver($event, column)"
+        @dragleave="handleDragLeave($event, column)"
+        @drop="handleDrop($event, column)"
       >
         <template v-if="column.type === 'action'">
           <div class="column-tasks action-column-body">
@@ -766,10 +894,6 @@
           </div>
           <div 
             class="column-tasks"
-            :class="{ 'drag-over': dragOverColumnId === column.id }"
-            @dragover.prevent="handleDragOver($event, column)"
-            @dragleave="handleDragLeave"
-            @drop="handleDrop($event, column)"
             @scroll="handleKanbanColumnScroll($event, column)"
             :ref="(el) => setKanbanColumnTasksRef(column.id, el as HTMLElement | null)"
           >
@@ -783,8 +907,16 @@
                 :key="task.id"
                 class="kanban-batch-item"
                 :data-task-id="task.id"
-                :class="{ selected: isKanbanTaskBatchSelected(task.id), 'is-batch-mode': isKanbanBatchEditMode }"
+                :class="{
+                  selected: isKanbanTaskBatchSelected(task.id),
+                  'is-batch-mode': isKanbanBatchEditMode,
+                  'manual-task-drop-before': isViewManualTaskDropTarget(task.id, 'before'),
+                  'manual-task-drop-after': isViewManualTaskDropTarget(task.id, 'after')
+                }"
                 @contextmenu="handleKanbanTaskContextMenu(task, $event)"
+                @dragover="handleViewManualTaskDragOver($event, task, column)"
+                @dragleave="handleViewManualTaskDragLeave($event, task.id)"
+                @drop="handleViewManualTaskDrop($event, task, column)"
               >
                 <TaskCard
                   :task="task"
@@ -849,9 +981,9 @@
         :key="quadrant.id"
         class="quadrant-section"
         :class="[`quadrant-${quadrant.id}`, { 'is-drag-over': quadrantDragOverId === quadrant.id }]"
-        @dragover.prevent="handleQuadrantDragOver(quadrant.id)"
+        @dragover="handleQuadrantDragOver($event, quadrant.id)"
         @dragleave="handleQuadrantDragLeave($event)"
-        @drop.prevent="void handleQuadrantDrop(quadrant.id)"
+        @drop="void handleQuadrantDrop($event, quadrant.id)"
       >
         <header class="quadrant-section-header">
           <h3>{{ quadrant.title }}</h3>
@@ -868,10 +1000,18 @@
             :style="getQuadrantSpacerStyle(quadrant.id, quadrant.tasks)"
           >
             <div
-              v-for="task in getVisibleQuadrantTasks(quadrant.id, quadrant.tasks)"
-              :key="task.id"
-              class="quadrant-task"
-              @contextmenu="handleKanbanTaskContextMenu(task, $event)"
+               v-for="task in getVisibleQuadrantTasks(quadrant.id, quadrant.tasks)"
+               :key="task.id"
+               class="quadrant-task"
+               :data-task-id="task.id"
+               :class="{
+                 'manual-task-drop-before': isQuadrantManualTaskDropTarget(task.id, 'before'),
+                 'manual-task-drop-after': isQuadrantManualTaskDropTarget(task.id, 'after')
+               }"
+               @contextmenu="handleKanbanTaskContextMenu(task, $event)"
+               @dragover="handleQuadrantTaskDragOver($event, task, quadrant.id)"
+               @dragleave="handleQuadrantTaskDragLeave($event, task.id)"
+               @drop="void handleQuadrantTaskDrop($event, task, quadrant.id)"
             >
             <TaskCard
               :task="task"
@@ -883,7 +1023,8 @@
               :completed="isTaskCompletedVisual(task)"
               :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
               :show-start-date="isFutureVirtualRepeatPreview(task)"
-              :draggable="!isMobileFrontend && !task.isVirtual"
+               :draggable="!isMobileFrontend && !task.isVirtual"
+               :dragging="quadrantDraggedTask?.id === task.id"
               :expanded="isKanbanTaskExpanded(task.id)"
               :show-description="showKanbanTaskCardDetails"
               :show-badges="showKanbanTaskCardDetails"
@@ -946,8 +1087,8 @@
               section.column.type === 'date' ? 'date-column' : '',
               { 'drag-over': dragOverColumnId === section.column.id }
             ]"
-            @dragover.prevent="handleDragOver($event, section.column)"
-            @dragleave="handleDragLeave"
+            @dragover="handleDragOver($event, section.column)"
+            @dragleave="handleDragLeave($event, section.column)"
             @drop="handleDrop($event, section.column)"
           >
             <header class="kanban-list-section-header">
@@ -1006,10 +1147,17 @@
               <div
                 v-for="task in getVisibleTasksForListSection(section)"
                 :key="task.id"
-                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, (task.tags || []).join(','), task.focusEstimate?.unit, task.focusEstimate?.value, task.isVirtual, task.taskId, task.blockId, task.sourceBlockId, task.repeatSeriesId, goalDefinitions, getKanbanTaskCardGoalIds(task).join(','), getTaskDocumentTitle(task), getTaskDocumentIcon(task), getTaskDocumentIconSvg(task, listFilterDocument), shouldShowBoardTaskDocumentTitle(task, listFilterDocument), activeBoardGroupBy, isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id)]"
+                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, (task.tags || []).join(','), task.focusEstimate?.unit, task.focusEstimate?.value, task.isVirtual, task.taskId, task.blockId, task.sourceBlockId, task.repeatSeriesId, goalDefinitions, getKanbanTaskCardGoalIds(task).join(','), getTaskDocumentTitle(task), getTaskDocumentIcon(task), getTaskDocumentIconSvg(task, listFilterDocument), shouldShowBoardTaskDocumentTitle(task, listFilterDocument), activeBoardGroupBy, isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id), viewManualTaskDrag.targetId === task.id, viewManualTaskDrag.position]"
                 class="kanban-list-task-item"
                 :data-task-id="task.id"
+                :class="{
+                  'manual-task-drop-before': isViewManualTaskDropTarget(task.id, 'before'),
+                  'manual-task-drop-after': isViewManualTaskDropTarget(task.id, 'after')
+                }"
                 @contextmenu="handleKanbanTaskContextMenu(task, $event)"
+                @dragover="handleViewManualTaskDragOver($event, task, section.column)"
+                @dragleave="handleViewManualTaskDragLeave($event, task.id)"
+                @drop="handleViewManualTaskDrop($event, task, section.column)"
               >
                 <TaskCard
                   :task="task"
@@ -1071,6 +1219,10 @@
        :document-icon-by-root-id="documentIconByRootId"
        :document-icons-ready="documentIconsReady"
        :document-title-by-root-id="documentTitleByRootId"
+       :manual-task-order="userSettings.taskManager.taskManualOrder || []"
+       :task-drag-enabled="!isMobileFrontend && activeTaskViewSortBy === 'default'"
+       :task-sort-by="activeTaskViewSortBy"
+       :task-sort-direction="activeTaskViewSortDirection"
       @task-click="handleTaskClick"
       @open-click="openKanbanTaskContentInRight"
       @start-focus="startFocusForTask"
@@ -1099,8 +1251,9 @@
       @due-date-update="handleDueDateUpdate"
       @start-time-update="handleStartTimeUpdate"
       @due-time-update="handleDueTimeUpdate"
-      @repeat-rule-update="handleTableRepeatRuleUpdate"
-    />
+       @repeat-rule-update="handleTableRepeatRuleUpdate"
+       @task-drop="handleTableTaskDrop"
+     />
     <GanttView
       v-if="currentView === 'gantt'"
       :tasks="ganttViewTasks"
@@ -1381,6 +1534,51 @@
         <button type="button" class="kanban-batch-context-menu-item" :disabled="isKanbanBatchApplying" @mouseenter="kanbanBatchMenuSubmenu = null; kanbanBatchTagSubmenuAction = null" @click="clearKanbanBatchTags">
           {{ t('kanbanView.clearBatchTags') }}
         </button>
+        <div class="kanban-batch-context-menu-divider"></div>
+        <button type="button" class="kanban-batch-context-menu-item" :disabled="kanbanBatchSelectedCount === 0 || isKanbanBatchApplying" @mouseenter="kanbanBatchMenuSubmenu = null; kanbanBatchTagSubmenuAction = null" @click="openKanbanBatchMoveDialog">
+          {{ t('taskManager.moveTask') }}
+        </button>
+        <button type="button" class="kanban-batch-context-menu-item" :disabled="kanbanBatchSelectedCount === 0 || isKanbanBatchApplying" @mouseenter="kanbanBatchMenuSubmenu = null; kanbanBatchTagSubmenuAction = null" @click="archiveKanbanBatchTasks">
+          {{ t('taskManager.archiveTask') }}
+        </button>
+        <button type="button" class="kanban-batch-context-menu-item danger" :disabled="kanbanBatchSelectedCount === 0 || isKanbanBatchApplying" @mouseenter="kanbanBatchMenuSubmenu = null; kanbanBatchTagSubmenuAction = null" @click="deleteKanbanBatchTasks">
+          {{ t('taskManager.deleteTask') }}
+        </button>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="showKanbanTaskMoveDialog && kanbanBatchMoveTaskIds.length > 0"
+        class="kanban-task-move-dialog-overlay"
+        @click.self="closeKanbanTaskMoveDialog"
+      >
+        <div class="kanban-task-move-dialog" @click.stop>
+          <div class="kanban-task-move-dialog-header">
+            <span class="kanban-task-move-dialog-title">{{ t('taskManager.moveTask') }}</span>
+            <button type="button" class="kanban-task-move-dialog-close ariaLabel" :aria-label="t('common.close')" @click.stop="closeKanbanTaskMoveDialog">
+              <Icon name="close" width="16" height="16" />
+            </button>
+          </div>
+          <div class="kanban-task-move-dialog-body">
+            <div class="kanban-task-move-dialog-field">
+              <label>{{ t('taskManager.notebook') }}</label>
+              <SySelect :model-value="kanbanMoveSelectedNotebook" :options="kanbanMoveNotebookOptions" @update:model-value="handleKanbanMoveNotebookChange(String($event || ''))" />
+            </div>
+            <div class="kanban-task-move-dialog-field">
+              <label>{{ t('taskManager.document') }}</label>
+              <SySelect :model-value="kanbanMoveSelectedDocument" :options="kanbanMoveDocumentOptions" @update:model-value="kanbanMoveSelectedDocument = String($event || '')" />
+            </div>
+            <div v-if="kanbanMoveTargetUnchanged" class="kanban-task-move-dialog-hint">{{ t('taskManager.alreadyInDocument') }}</div>
+            <div v-else-if="kanbanMoveDocumentOptions.length === 0" class="kanban-task-move-dialog-hint">{{ t('taskManager.noDocumentOptions') }}</div>
+          </div>
+          <div class="kanban-task-move-dialog-footer">
+            <button type="button" class="kanban-task-move-dialog-btn cancel" @click.stop="closeKanbanTaskMoveDialog">{{ t('common.cancel') }}</button>
+            <button type="button" class="kanban-task-move-dialog-btn confirm" :disabled="!canSubmitKanbanMove" @click.stop="handleKanbanMove">
+              {{ isKanbanTaskMoveSubmitting ? t('taskManager.moving') : t('taskManager.move') }}
+            </button>
+          </div>
+        </div>
       </div>
     </Teleport>
 
@@ -1525,7 +1723,7 @@
                 type="button"
                 class="kanban-task-move-dialog-btn confirm"
                 :disabled="!canSubmitKanbanMove"
-                @click.stop="handleKanbanEditorMove"
+                @click.stop="handleKanbanMove"
               >
                 {{ isKanbanTaskMoveSubmitting ? t('taskManager.moving') : t('taskManager.move') }}
               </button>
@@ -1664,7 +1862,7 @@
                       type="button"
                       class="kanban-task-move-dialog-btn confirm"
                       :disabled="!canSubmitKanbanMove"
-                      @click.stop="handleKanbanEditorMove"
+                      @click.stop="handleKanbanMove"
                     >
                       {{ isKanbanTaskMoveSubmitting ? t('taskManager.moving') : t('taskManager.move') }}
                     </button>
@@ -2005,6 +2203,16 @@ import {
   toggleTaskGoalMembership
 } from '@/utils/goalTaskMembership';
 import type { SidebarSectionId, TaskViewSwitcherId } from '@/utils/userSettings';
+import {
+  applyManualTaskOrderWithinGroups,
+  getDefaultTaskManualOrderGroupKey,
+  moveTaskInManualOrder,
+  reconcileManualTaskOrder,
+  sortTasksKeepingPinnedManualOrder,
+  type TaskDropPosition,
+  type TaskSortDirection,
+  type TaskSortField
+} from '@/utils/taskSorting';
 
 const FLOATING_FOCUS_STORAGE_KEY = 'pinch-floating-focus-enabled';
 const DESCENDANT_DOCUMENT_ICON_SVG = '<svg t="1781940701340" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="18335" width="200" height="200"><path d="M256 130.688c22.08 0 40 17.92 40 40v163.84h265.728a140.8 140.8 0 1 1 0 80H296v106.88A216 216 0 0 0 512 737.536h49.728a140.8 140.8 0 1 1 0 80H512a296 296 0 0 1-296-296V375.424a38.784 38.784 0 0 1 0-1.792V170.688c0-22.08 17.92-40 40-40z m440.704 183.04a60.736 60.736 0 1 0 0 121.536 60.736 60.736 0 0 0 0-121.472z m0 403.008a60.736 60.736 0 1 0 0 121.472 60.736 60.736 0 0 0 0-121.472z" p-id="18336"></path></svg>';
@@ -2163,6 +2371,15 @@ const baseViewSwitcherOptions: ViewSwitcherOption[] = [
   { value: 'archive-table', text: t('kanbanView.viewArchive'), icon: 'archive' },
   { value: 'stats', text: t('kanbanView.viewStats'), icon: 'stats' }
 ];
+const taskViewSortOptions: Array<{ value: TaskSortField; text: string }> = [
+  { value: 'default', text: t('taskManager.sortDefault') },
+  { value: 'dueDate', text: t('taskManager.sortDueDate') },
+  { value: 'startDate', text: t('taskManager.sortStartDate') },
+  { value: 'priority', text: t('taskManager.sortPriority') },
+  { value: 'createdAt', text: t('taskManager.sortCreatedAt') },
+  { value: 'updatedAt', text: t('taskManager.sortUpdatedAt') },
+  { value: 'title', text: t('taskManager.sortTitle') }
+];
 const viewSwitcherOptions = computed(() => {
   const hidden = new Set(userSettings.kanban.hiddenViewSwitcherIds || []);
   const visible = baseViewSwitcherOptions.filter(option => !hidden.has(option.value));
@@ -2284,6 +2501,21 @@ function normalizeTaskViewMode(value: unknown): TaskViewMode {
     return value;
   }
   return 'table';
+}
+
+function normalizeTaskViewSortField(value: unknown): TaskSortField {
+  return value === 'dueDate'
+    || value === 'startDate'
+    || value === 'priority'
+    || value === 'createdAt'
+    || value === 'updatedAt'
+    || value === 'title'
+    ? value
+    : 'default';
+}
+
+function normalizeTaskViewSortDirection(value: unknown): TaskSortDirection {
+  return value === 'desc' ? 'desc' : 'asc';
 }
 
 function isCalendarTaskViewMode(view: TaskViewMode): view is CalendarTaskViewMode {
@@ -2677,11 +2909,19 @@ const { start: startSkipSetCleanup, stop: stopSkipSetCleanup } = createPeriodicS
 const kanbanFilterType = ref('all');
 const kanbanFilterDocument = ref('all');
 const kanbanGroupBy = ref<TaskViewGroupMode>('status');
+const kanbanSortBy = ref<TaskSortField>('default');
+const kanbanSortDirection = ref<TaskSortDirection>('asc');
 const listFilterType = ref('all');
 const listFilterDocument = ref('all');
 const listGroupBy = ref<TaskViewGroupMode>('status');
+const listSortBy = ref<TaskSortField>('default');
+const listSortDirection = ref<TaskSortDirection>('asc');
 const kanbanGroupColumnOrder = ref<string[]>([]);
 const tableGroupBy = ref<TaskViewGroupMode>('status');
+const tableSortBy = ref<TaskSortField>('default');
+const tableSortDirection = ref<TaskSortDirection>('asc');
+const archiveTableSortBy = ref<TaskSortField>('default');
+const archiveTableSortDirection = ref<TaskSortDirection>('asc');
 const ganttFilterType = ref('all');
 const ganttFilterDocument = ref('all');
 const ganttMilestonesEnabled = ref(false);
@@ -2724,6 +2964,7 @@ const kanbanBatchLassoStart = ref<{ x: number; y: number } | null>(null);
 const isKanbanBatchLassoSelecting = ref(false);
 let kanbanBatchLassoSuppressCardClickUntil = 0;
 let kanbanBatchLassoBaseSelection = new Set<string>();
+let isKanbanBatchLassoAdditive = false;
 let kanbanBatchLassoMoveHandler: ((event: MouseEvent) => void) | null = null;
 let kanbanBatchLassoUpHandler: ((event: MouseEvent) => void) | null = null;
 const documentTabsDropdownVisible = ref(false);
@@ -2757,6 +2998,8 @@ let documentIconRefreshSeq = 0;
 let documentMetadataRefreshTimer: number | null = null;
 let documentMetadataRefreshSeq = 0;
 const taskViewGroupMenuVisible = ref(false);
+const taskViewGroupMenuSubmenu = ref<'group' | 'sort' | null>(null);
+const taskViewGroupMenuSubmenuSide = ref<'left' | 'right'>('left');
 const taskViewGroupMenuControlRef = ref<HTMLElement | null>(null);
 const taskViewGroupMenuPopoverRef = ref<HTMLElement | null>(null);
 const calendarDisplayMenuVisible = ref(false);
@@ -2905,6 +3148,10 @@ const pendingOptimisticQuickCreatedTasks = new Map<string, { task: Task; expires
 const PENDING_OPTIMISTIC_QUICK_CREATE_TTL_MS = 8000;
 const draggedTask = ref<Task | null>(null);
 const dragOverColumnId = ref<string | null>(null);
+const viewManualTaskDrag = ref<{
+  targetId: string | null;
+  position: TaskDropPosition | null;
+}>({ targetId: null, position: null });
 const draggedGroupColumnId = ref<string | null>(null);
 const dragOverGroupColumnId = ref<string | null>(null);
 const dragOverGroupColumnPosition = ref<'before' | 'after' | null>(null);
@@ -3128,6 +3375,7 @@ const kanbanEditorRepeatFrequency = ref<RepeatFrequency>('none');
 const kanbanEditorRepeatRule = ref<RepeatRule | null>(null);
 const showKanbanTaskMoveDialog = ref(false);
 const isKanbanTaskMoveSubmitting = ref(false);
+const kanbanBatchMoveTaskIds = ref<string[]>([]);
 const kanbanMoveSelectedNotebook = ref('');
 const kanbanMoveSelectedDocument = ref('');
 const openingKanbanEditorBlockIds = new Set<string>();
@@ -3255,12 +3503,16 @@ const quadrantSections = computed(() => {
   }
   const sortContext = createSidebarSortContext();
   for (const section of sections) {
-    sortTasksLikeSidebar(section.tasks, sortContext);
+    sortTasksForCurrentTaskView(section.tasks, sortContext);
   }
   return sections;
 });
 const quadrantDraggedTask = ref<Task | null>(null);
 const quadrantDragOverId = ref<TaskQuadrantId | null>(null);
+const quadrantManualTaskDrag = ref<{
+  targetId: string | null;
+  position: TaskDropPosition | null;
+}>({ targetId: null, position: null });
 const quadrantSectionMetrics = ref<Record<string, { scrollTop: number; height: number }>>({});
 const QUADRANT_VIRTUAL_THRESHOLD = 60;
 const QUADRANT_VIRTUAL_CARD_HEIGHT = 110;
@@ -3977,17 +4229,19 @@ const kanbanMoveDocumentOptions = computed(() =>
 );
 
 const kanbanMoveTargetUnchanged = computed(() => {
-  const activeTask = activeKanbanEditTask.value;
-  if (!activeTask) {
+  const moveTasks = getKanbanMoveTasks();
+  if (moveTasks.length === 0) {
     return false;
   }
-  return kanbanMoveSelectedNotebook.value === (activeTask.notebookId || '')
-    && kanbanMoveSelectedDocument.value === (activeTask.rootId || '');
+  return moveTasks.every(task =>
+    kanbanMoveSelectedNotebook.value === (task.notebookId || '')
+    && kanbanMoveSelectedDocument.value === (task.rootId || '')
+  );
 });
 
 const canSubmitKanbanMove = computed(() => {
-  const activeTask = activeKanbanEditTask.value;
-  return !!activeTask?.blockId
+  const moveTasks = getKanbanMoveTasks();
+  return moveTasks.some(task => !!task.blockId)
     && !!kanbanMoveSelectedNotebook.value
     && !!kanbanMoveSelectedDocument.value
     && !kanbanMoveTargetUnchanged.value
@@ -4579,6 +4833,12 @@ function openQuickCreateForKanbanColumn(column: KanbanColumn): void {
   const options = buildQuickCreateOptionsForColumn(column);
   options.defaultGoalId = source.kind === 'goal' ? source.id : '';
   void handleTaskCreateRequested(getDefaultCreateTaskPayload(), options);
+}
+
+interface TableTaskDropPayload {
+  source: Task;
+  target: Task;
+  position: TaskDropPosition;
 }
 
 function resolveTableGroupSampleTask(payload: TableGroupActionPayload): Task | null {
@@ -6811,15 +7071,62 @@ const documentTabContextMenuStyle = computed<Record<string, string>>(() => {
 const activeTaskViewGroupMode = computed<TaskViewGroupMode>(() =>
   isBoardTaskView.value ? activeBoardGroupBy.value : activeTableGroupBy.value
 );
+const supportsTaskViewSort = computed(() =>
+  currentView.value === 'kanban'
+  || currentView.value === 'list'
+  || currentView.value === 'table'
+  || currentView.value === 'archive-table'
+);
+const activeTaskViewSortBy = computed<TaskSortField>({
+  get() {
+    if (currentView.value === 'kanban') return kanbanSortBy.value;
+    if (currentView.value === 'list') return listSortBy.value;
+    if (currentView.value === 'archive-table') return archiveTableSortBy.value;
+    if (currentView.value === 'table') return tableSortBy.value;
+    return 'default';
+  },
+  set(value) {
+    if (currentView.value === 'kanban') kanbanSortBy.value = value;
+    else if (currentView.value === 'list') listSortBy.value = value;
+    else if (currentView.value === 'archive-table') archiveTableSortBy.value = value;
+    else if (currentView.value === 'table') tableSortBy.value = value;
+  }
+});
+const activeTaskViewSortDirection = computed<TaskSortDirection>({
+  get() {
+    if (currentView.value === 'kanban') return kanbanSortDirection.value;
+    if (currentView.value === 'list') return listSortDirection.value;
+    if (currentView.value === 'archive-table') return archiveTableSortDirection.value;
+    if (currentView.value === 'table') return tableSortDirection.value;
+    return 'asc';
+  },
+  set(value) {
+    if (currentView.value === 'kanban') kanbanSortDirection.value = value;
+    else if (currentView.value === 'list') listSortDirection.value = value;
+    else if (currentView.value === 'archive-table') archiveTableSortDirection.value = value;
+    else if (currentView.value === 'table') tableSortDirection.value = value;
+  }
+});
 const currentTaskViewGroupOptions = computed(() => {
   if (currentView.value === 'quadrant') {
     return [];
   }
   return isBoardTaskView.value ? kanbanGroupModeOptions : tableGroupModeOptions;
 });
+const activeTaskViewGroupLabel = computed(() =>
+  currentTaskViewGroupOptions.value.find(option => option.value === activeTaskViewGroupMode.value)?.text
+  || currentTaskViewGroupOptions.value[0]?.text
+  || ''
+);
+const activeTaskViewSortLabel = computed(() =>
+  taskViewSortOptions.find(option => option.value === activeTaskViewSortBy.value)?.text
+  || taskViewSortOptions[0]?.text
+  || ''
+);
 
 function closeTaskViewGroupMenu(): void {
   taskViewGroupMenuVisible.value = false;
+  taskViewGroupMenuSubmenu.value = null;
 }
 
 function toggleAllTableTaskDetailsFromMenu(): void {
@@ -6834,6 +7141,7 @@ function closeCalendarDisplayMenu(): void {
 function toggleTaskViewGroupMenu(): void {
   const nextVisible = !taskViewGroupMenuVisible.value;
   taskViewGroupMenuVisible.value = nextVisible;
+  taskViewGroupMenuSubmenu.value = null;
   if (!nextVisible) {
     return;
   }
@@ -6942,6 +7250,22 @@ function selectTaskViewGroupMode(mode: TaskViewGroupMode): void {
     tableGroupBy.value = mode;
   }
   closeTaskViewGroupMenu();
+}
+
+function selectTaskViewSort(field: TaskSortField): void {
+  activeTaskViewSortBy.value = field;
+  if (isTableTaskView.value) {
+    tableViewRef.value?.clearColumnSort();
+  }
+  handleDragEnd();
+  handleQuadrantDragEnd();
+}
+
+function toggleTaskViewSortDirection(): void {
+  activeTaskViewSortDirection.value = activeTaskViewSortDirection.value === 'asc' ? 'desc' : 'asc';
+  if (isTableTaskView.value) {
+    tableViewRef.value?.clearColumnSort();
+  }
 }
 
 function toggleKanbanBatchEditModeFromMenu(): void {
@@ -7516,6 +7840,31 @@ function handleTableSearchEscape(): void {
   closeMobileTableSearch(true);
 }
 
+function updateTaskViewGroupMenuSubmenuSide(): void {
+  const popover = taskViewGroupMenuPopoverRef.value;
+  if (!popover) return;
+  taskViewGroupMenuSubmenuSide.value = popover.getBoundingClientRect().left >= 180 ? 'left' : 'right';
+}
+
+function openTaskViewGroupMenuSubmenu(submenu: 'group' | 'sort'): void {
+  updateTaskViewGroupMenuSubmenuSide();
+  taskViewGroupMenuSubmenu.value = submenu;
+}
+
+function toggleTaskViewGroupMenuSubmenu(submenu: 'group' | 'sort'): void {
+  updateTaskViewGroupMenuSubmenuSide();
+  taskViewGroupMenuSubmenu.value = taskViewGroupMenuSubmenu.value === submenu ? null : submenu;
+}
+
+function handleTaskViewGroupMenuPointerMove(event: PointerEvent): void {
+  const target = event.target instanceof Element
+    ? event.target
+    : (event.target instanceof Node ? event.target.parentElement : null);
+  if (!target?.closest('.task-group-menu-submenu-host')) {
+    taskViewGroupMenuSubmenu.value = null;
+  }
+}
+
 function recordTableSearch(): void {
   recordTaskSearchHistory(tableSearchQuery.value);
 }
@@ -7795,6 +8144,14 @@ watch([
   kanbanGroupBy,
   listGroupBy,
   tableGroupBy,
+  kanbanSortBy,
+  kanbanSortDirection,
+  listSortBy,
+  listSortDirection,
+  tableSortBy,
+  tableSortDirection,
+  archiveTableSortBy,
+  archiveTableSortDirection,
   showKanbanTaskCardDetails,
   kanbanFilterType,
   kanbanFilterDocument,
@@ -8095,6 +8452,11 @@ function compareTasksLikeSidebar(a: Task, b: Task, todayStart: number, domOrderM
   if (!isAPinned && isBPinned) {
     return 1;
   }
+  // Pinned tasks deliberately retain their existing/manual order. Array.sort
+  // is stable, and the saved manual order is applied after this comparison.
+  if (isAPinned && isBPinned) {
+    return 0;
+  }
 
   if (isACompleted && isBCompleted) {
     const updatedA = Date.parse(a.updatedAt || '');
@@ -8178,7 +8540,30 @@ function createSidebarSortContext(): SidebarSortContext {
 function sortTasksLikeSidebar(taskList: Task[], context?: SidebarSortContext): Task[] {
   const resolvedContext = context || createSidebarSortContext();
   const { todayStart, domOrderMap } = resolvedContext;
-  return taskList.sort((a, b) => compareTasksLikeSidebar(a, b, todayStart, domOrderMap));
+  taskList.sort((a, b) => compareTasksLikeSidebar(a, b, todayStart, domOrderMap));
+  const manuallyOrdered = applyManualTaskOrderWithinGroups(
+    taskList,
+    userSettings.taskManager.taskManualOrder || [],
+    task => getDefaultTaskManualOrderGroupKey(task, getTaskVisualStatus(task), todayStart)
+  );
+  if (manuallyOrdered !== taskList) {
+    taskList.splice(0, taskList.length, ...manuallyOrdered);
+  }
+  return taskList;
+}
+
+function sortTasksForCurrentTaskView(taskList: Task[], context?: SidebarSortContext): Task[] {
+  if (supportsTaskViewSort.value && activeTaskViewSortBy.value !== 'default') {
+    const automaticallySorted = sortTasksKeepingPinnedManualOrder(
+      taskList,
+      activeTaskViewSortBy.value,
+      activeTaskViewSortDirection.value,
+      userSettings.taskManager.taskManualOrder || []
+    );
+    taskList.splice(0, taskList.length, ...automaticallySorted);
+    return taskList;
+  }
+  return sortTasksLikeSidebar(taskList, context);
 }
 
 function getStartOfDay(date: Date): Date {
@@ -8349,6 +8734,7 @@ function resetKanbanBatchLasso(): void {
   kanbanBatchLassoStart.value = null;
   isKanbanBatchLassoSelecting.value = false;
   kanbanBatchLassoBaseSelection = new Set();
+  isKanbanBatchLassoAdditive = false;
 }
 
 function removeKanbanBatchLassoListeners(): void {
@@ -8449,16 +8835,19 @@ function handleKanbanBatchLassoMouseMove(event: MouseEvent): void {
     height: rect.height
   };
   const intersectedTaskIds = collectKanbanBatchLassoTaskIds(rect);
-  const next = new Set(kanbanBatchLassoBaseSelection);
-  // Toggle selection for tasks inside lasso area:
-  // selected -> unselected, unselected -> selected.
-  intersectedTaskIds.forEach((taskId) => {
-    if (next.has(taskId)) {
-      next.delete(taskId);
-    } else {
-      next.add(taskId);
-    }
-  });
+  const next = isKanbanBatchLassoAdditive
+    ? new Set(kanbanBatchLassoBaseSelection)
+    : new Set<string>();
+  if (isKanbanBatchLassoAdditive) {
+    // Ctrl/Cmd + lasso toggles the tasks inside the selection area.
+    intersectedTaskIds.forEach((taskId) => {
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+    });
+  } else {
+    // A regular lasso replaces the current selection.
+    intersectedTaskIds.forEach(taskId => next.add(taskId));
+  }
   kanbanBatchSelectedTaskIds.value = next;
 }
 
@@ -8475,6 +8864,13 @@ function handleKanbanBatchLassoMouseDown(event: MouseEvent): void {
   }
   removeKanbanBatchLassoListeners();
   resetKanbanBatchLasso();
+  isKanbanBatchLassoAdditive = event.ctrlKey || event.metaKey;
+  const targetElement = event.target instanceof Element
+    ? event.target
+    : (event.target instanceof Node ? event.target.parentElement : null);
+  if (!isKanbanBatchLassoAdditive && !targetElement?.closest('.kanban-batch-item')) {
+    clearKanbanBatchSelection();
+  }
   kanbanBatchLassoBaseSelection = new Set(kanbanBatchSelectedTaskIds.value);
   kanbanBatchLassoStart.value = { x: event.clientX, y: event.clientY };
   kanbanBatchLassoMoveHandler = handleKanbanBatchLassoMouseMove;
@@ -8562,6 +8958,105 @@ async function applyKanbanBatchTagEdit(action: TaskTagBatchAction, groupId: stri
 
 async function clearKanbanBatchTags(): Promise<void> {
   await applyKanbanBatchTagEdit('set-primary', TASK_GROUP_NONE_ID);
+}
+
+function getKanbanMoveTasks(): Task[] {
+  const selectedIds = kanbanBatchMoveTaskIds.value;
+  if (selectedIds.length > 0) {
+    return selectedIds
+      .map(taskId => tasks.value.find(task => task.id === taskId))
+      .filter((task): task is Task => !!task);
+  }
+  return activeKanbanEditTask.value ? [activeKanbanEditTask.value] : [];
+}
+
+async function archiveKanbanBatchTasks(): Promise<void> {
+  const selectedTasks = Array.from(kanbanBatchSelectedTaskIds.value)
+    .map(taskId => tasks.value.find(task => task.id === taskId))
+    .filter((task): task is Task => !!task && !task.archived);
+  if (selectedTasks.length === 0 || isKanbanBatchApplying.value) return;
+  if (!window.confirm(t('taskManager.confirmArchiveTasks'))) return;
+
+  isKanbanBatchApplying.value = true;
+  try {
+    const results = await Promise.allSettled(selectedTasks.map(task => TaskRepository.archiveTask(task.id, 'manual')));
+    const nowIso = new Date().toISOString();
+    let successCount = 0;
+    results.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return;
+      const task = selectedTasks[index];
+      task.archived = true;
+      task.archivedAt = nowIso;
+      task.archiveReason = 'manual';
+      task.updatedAt = nowIso;
+      successCount += 1;
+    });
+    invalidateTableFilters();
+    if (successCount > 0) clearKanbanBatchSelection();
+    closeKanbanBatchMenu();
+    if (successCount < selectedTasks.length) {
+      await pushMsg(t('kanbanView.archiveOperationFailedRetry'), 3000);
+    }
+  } catch (error) {
+    console.error('[KanbanView] Failed to archive batch tasks:', error);
+    await pushMsg(t('kanbanView.archiveOperationFailedRetry'), 3000);
+  } finally {
+    isKanbanBatchApplying.value = false;
+  }
+}
+
+async function deleteKanbanBatchTasks(): Promise<void> {
+  const selectedTasks = Array.from(kanbanBatchSelectedTaskIds.value)
+    .map(taskId => tasks.value.find(task => task.id === taskId))
+    .filter((task): task is Task => !!task);
+  if (selectedTasks.length === 0 || isKanbanBatchApplying.value) return;
+  if (!window.confirm(t('taskManager.confirmDeleteTasks'))) return;
+
+  isKanbanBatchApplying.value = true;
+  try {
+    const results = await Promise.allSettled(selectedTasks.map(task => TaskRepository.deleteTask(task.id)));
+    let successCount = 0;
+    results.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return;
+      const task = selectedTasks[index];
+      crdtRepo.deleteTask(task.id, Date.now());
+      const blockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+      if (blockId) eventBus.emit(Events.TASK_DELETED, { blockId });
+      successCount += 1;
+    });
+    tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
+    invalidateTableFilters();
+    if (successCount > 0) clearKanbanBatchSelection();
+    closeKanbanBatchMenu();
+    if (successCount < selectedTasks.length) {
+      await pushMsg(t('kanbanView.deleteTaskFailedRetry'), 3000);
+    }
+  } catch (error) {
+    console.error('[KanbanView] Failed to delete batch tasks:', error);
+    await pushMsg(t('kanbanView.deleteTaskFailedRetry'), 3000);
+  } finally {
+    isKanbanBatchApplying.value = false;
+  }
+}
+
+async function openKanbanBatchMoveDialog(): Promise<void> {
+  const selectedTasks = Array.from(kanbanBatchSelectedTaskIds.value)
+    .map(taskId => tasks.value.find(task => task.id === taskId))
+    .filter((task): task is Task => !!task && task.type === 'block' && !!task.blockId);
+  if (selectedTasks.length === 0) {
+    await pushMsg(t('kanbanView.taskCannotMove'), 2000);
+    return;
+  }
+  if (notebooks.value.length === 0) await loadNotebooks();
+
+  const firstTask = selectedTasks[0];
+  kanbanBatchMoveTaskIds.value = selectedTasks.map(task => task.id);
+  kanbanMoveSelectedNotebook.value = notebooks.value.some(notebook => notebook.id === firstTask.notebookId)
+    ? firstTask.notebookId
+    : (notebooks.value[0]?.id || '');
+  syncKanbanMoveSelectedDocument(firstTask.rootId);
+  closeKanbanBatchMenu();
+  showKanbanTaskMoveDialog.value = true;
 }
 
 function toggleSelectAllVisibleKanbanTasks(): void {
@@ -9357,7 +9852,7 @@ const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
   const sortContext = createSidebarSortContext();
   for (const groupKey of Object.keys(grouped) as KanbanDateGroupKey[]) {
     const list = grouped[groupKey];
-    sortTasksLikeSidebar(list, sortContext);
+    sortTasksForCurrentTaskView(list, sortContext);
     const originalIndex = new Map<string, number>();
     list.forEach((task, index) => {
       originalIndex.set(task.id, index);
@@ -9396,7 +9891,7 @@ const kanbanTasksByGroup = computed<Record<string, Task[]>>(() => {
 
   const sortContext = createSidebarSortContext();
   for (const list of Object.values(grouped)) {
-    sortTasksLikeSidebar(list, sortContext);
+    sortTasksForCurrentTaskView(list, sortContext);
   }
 
   return grouped;
@@ -9416,7 +9911,7 @@ const kanbanTasksByHeading = computed<Record<string, Task[]>>(() => {
 
   const sortContext = createSidebarSortContext();
   for (const list of Object.values(grouped)) {
-    sortTasksLikeSidebar(list, sortContext);
+    sortTasksForCurrentTaskView(list, sortContext);
   }
 
   return grouped;
@@ -9472,7 +9967,7 @@ const kanbanTasksByDate = computed<Record<KanbanDateGroupKey, Task[]>>(() => {
 
   const sortContext = createSidebarSortContext();
   for (const list of Object.values(grouped)) {
-    sortTasksLikeSidebar(list, sortContext);
+    sortTasksForCurrentTaskView(list, sortContext);
   }
 
   return grouped;
@@ -9490,7 +9985,7 @@ const kanbanTasksByDocument = computed<Record<string, Task[]>>(() => {
 
   const sortContext = createSidebarSortContext();
   for (const list of Object.values(grouped)) {
-    sortTasksLikeSidebar(list, sortContext);
+    sortTasksForCurrentTaskView(list, sortContext);
   }
 
   return grouped;
@@ -10695,14 +11190,22 @@ async function loadUserSettings(options: { validateSources?: boolean } = {}) {
         : 'all');
     kanbanFilterDocument.value = settings.kanbanFilterDocument || 'all';
     kanbanGroupBy.value = resolveStoredTaskViewGroupMode(settings.kanbanGroupBy, settings.kanbanGroupMode, 'status');
+    kanbanSortBy.value = normalizeTaskViewSortField(settings.kanbanSortBy);
+    kanbanSortDirection.value = normalizeTaskViewSortDirection(settings.kanbanSortDirection);
     listFilterType.value = settings.listFilterSource
       || (settings.listFilterType && settings.listFilterType !== 'all'
         ? buildNotebookDocumentSource(settings.listFilterType)
         : 'all');
     listFilterDocument.value = settings.listFilterDocument || 'all';
     listGroupBy.value = resolveStoredTaskViewGroupMode(settings.listGroupBy, settings.listGroupMode, 'status');
+    listSortBy.value = normalizeTaskViewSortField(settings.listSortBy);
+    listSortDirection.value = normalizeTaskViewSortDirection(settings.listSortDirection);
     kanbanGroupColumnOrder.value = normalizeTaskGroupOrderIds(settings.kanbanGroupColumnOrder);
     tableGroupBy.value = resolveStoredTaskViewGroupMode(settings.tableGroupBy, settings.tableGroupMode, 'status');
+    tableSortBy.value = normalizeTaskViewSortField(settings.tableSortBy);
+    tableSortDirection.value = normalizeTaskViewSortDirection(settings.tableSortDirection);
+    archiveTableSortBy.value = normalizeTaskViewSortField(settings.archiveTableSortBy);
+    archiveTableSortDirection.value = normalizeTaskViewSortDirection(settings.archiveTableSortDirection);
     showKanbanTaskCardDetails.value = settings.showKanbanTaskCardDetails !== false;
     const urgencyIndex = QUADRANT_URGENCY_DAY_OPTIONS.indexOf(settings.quadrantUrgentDays || 7);
     quadrantUrgencyDayIndex.value = urgencyIndex >= 0 ? urgencyIndex : QUADRANT_URGENCY_DAY_OPTIONS.indexOf(7);
@@ -10785,6 +11288,14 @@ async function saveUserSettings() {
       kanbanGroupBy: kanbanGroupBy.value,
       listGroupBy: listGroupBy.value,
       tableGroupBy: tableGroupBy.value,
+      kanbanSortBy: kanbanSortBy.value,
+      kanbanSortDirection: kanbanSortDirection.value,
+      listSortBy: listSortBy.value,
+      listSortDirection: listSortDirection.value,
+      tableSortBy: tableSortBy.value,
+      tableSortDirection: tableSortDirection.value,
+      archiveTableSortBy: archiveTableSortBy.value,
+      archiveTableSortDirection: archiveTableSortDirection.value,
       showKanbanTaskCardDetails: showKanbanTaskCardDetails.value,
       quadrantUrgentDays: quadrantUrgentDays.value,
       kanbanFilterType: kanbanSource.kind === 'notebook' ? kanbanSource.id : 'all',
@@ -12587,6 +13098,7 @@ async function openKanbanTaskMoveDialog(): Promise<void> {
   }
 
   kanbanEditorQuickPanel.value = null;
+  kanbanBatchMoveTaskIds.value = [];
 
   const currentNotebookId = typeof task.notebookId === 'string' ? task.notebookId.trim() : '';
   kanbanMoveSelectedNotebook.value = notebooks.value.some(notebook => notebook.id === currentNotebookId)
@@ -12599,6 +13111,7 @@ async function openKanbanTaskMoveDialog(): Promise<void> {
 function closeKanbanTaskMoveDialog(): void {
   showKanbanTaskMoveDialog.value = false;
   isKanbanTaskMoveSubmitting.value = false;
+  kanbanBatchMoveTaskIds.value = [];
 }
 
 function handleKanbanMoveNotebookChange(value: string): void {
@@ -12615,6 +13128,11 @@ async function handleKanbanEditorMove(): Promise<void> {
   isKanbanTaskMoveSubmitting.value = true;
   try {
     const moveResult = await TaskRepository.moveTask(task.id, kanbanMoveSelectedDocument.value);
+    applyOptimisticKanbanDocumentMove(
+      [task.id],
+      kanbanMoveSelectedDocument.value,
+      kanbanMoveSelectedNotebook.value
+    );
     closeKanbanTaskMoveDialog();
     closeKanbanEditor();
     if (moveResult.blockId) {
@@ -13717,6 +14235,88 @@ function getTaskLoadScope(): TaskQueryScope {
   // Keep the source-level scope for efficient loading; apply the document
   // selection only when rendering/filtering tasks locally.
   return scope;
+}
+
+async function handleKanbanMove(): Promise<void> {
+  if (kanbanBatchMoveTaskIds.value.length === 0) {
+    await handleKanbanEditorMove();
+    return;
+  }
+  if (!canSubmitKanbanMove.value) return;
+
+  const moveTasks = getKanbanMoveTasks();
+  isKanbanTaskMoveSubmitting.value = true;
+  try {
+    const results = await Promise.allSettled(
+      moveTasks.map(task => TaskRepository.moveTask(task.id, kanbanMoveSelectedDocument.value))
+    );
+    let successCount = 0;
+    const movedTaskIds: string[] = [];
+    results.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return;
+      successCount += 1;
+      movedTaskIds.push(moveTasks[index].id);
+      if (result.value.blockId) {
+        publishTaskChange([result.value.blockId]);
+      }
+    });
+    applyOptimisticKanbanDocumentMove(
+      movedTaskIds,
+      kanbanMoveSelectedDocument.value,
+      kanbanMoveSelectedNotebook.value
+    );
+    closeKanbanTaskMoveDialog();
+    if (successCount > 0) clearKanbanBatchSelection();
+    scheduleKernelTaskIndexRefresh(120, false, true);
+    scheduleRefreshTasks(680, 'silent-full');
+    if (successCount < moveTasks.length) {
+      await pushMsg(t('kanbanView.moveTaskFailedRetry'), 3000);
+    }
+  } catch (error) {
+    console.error('[KanbanView] Failed to move batch tasks:', error);
+    isKanbanTaskMoveSubmitting.value = false;
+    await pushMsg(t('kanbanView.moveTaskFailedRetry'), 3000);
+  }
+}
+
+function applyOptimisticKanbanDocumentMove(
+  taskIds: Iterable<string>,
+  targetDocumentId: string,
+  targetNotebookId: string
+): void {
+  const movedTaskIds = new Set(taskIds);
+  const documentId = typeof targetDocumentId === 'string' ? targetDocumentId.trim() : '';
+  const notebookId = typeof targetNotebookId === 'string' ? targetNotebookId.trim() : '';
+  if (movedTaskIds.size === 0 || !documentId) return;
+  const targetDocumentPath = typeof documentScopeMetadataByRootId.value.get(documentId)?.path === 'string'
+    ? documentScopeMetadataByRootId.value.get(documentId)?.path.trim() || ''
+    : '';
+
+  const optimisticTasks = tasks.value.map(task => (
+    movedTaskIds.has(task.id)
+      ? {
+        ...task,
+        rootId: documentId,
+        notebookId: notebookId || task.notebookId,
+        hPath: targetDocumentPath
+      }
+      : task
+  ));
+  // A batch move can reach the block API before the kernel task index catches
+  // up. Preserve the new document identity through that short stale-index
+  // window so a reload cannot recreate the source document column.
+  movedTaskIds.forEach(taskId => {
+    rememberLocalTaskFieldOverride(taskId, 'rootId', documentId, 12_000);
+    rememberLocalTaskFieldOverride(taskId, 'hPath', targetDocumentPath, 12_000);
+    if (notebookId) {
+      rememberLocalTaskFieldOverride(taskId, 'notebookId', notebookId, 12_000);
+    }
+  });
+  crdtRepo.syncFromSQLTasks(optimisticTasks);
+  tasks.value = filterTasksByNotebookScope(
+    applyLocalTaskFieldOverridesToList(applyDraggedStatusLocks(crdtRepo.getTasks()))
+  );
+  invalidateTableFilters();
 }
 
 async function handleKanbanEditorGroupRemove(value: string): Promise<void> {
@@ -15331,7 +15931,12 @@ function handleGroupColumnReorderDragEnd(): void {
 }
 
 function canDragTaskInCurrentBoard(task: Task, isBatchEditing = false): boolean {
-  if (isMobileFrontend || !kanbanSupportsDrag.value || isBatchEditing) {
+  if (
+    isMobileFrontend
+    || !kanbanSupportsDrag.value
+    || isBatchEditing
+    || activeTaskViewSortBy.value !== 'default'
+  ) {
     return false;
   }
   // Moving a task between document columns changes its containing document, so
@@ -15340,9 +15945,265 @@ function canDragTaskInCurrentBoard(task: Task, isBatchEditing = false): boolean 
   return activeBoardGroupBy.value !== 'document' || (task.type === 'block' && !!task.blockId);
 }
 
+function getTableTaskDropColumn(task: Task): KanbanColumn | null {
+  if (activeTableGroupBy.value === 'group') {
+    const columnId = getGroupColumnIdForTask(task);
+    return {
+      id: columnId,
+      title: '',
+      type: 'group',
+      groupId: columnId === TASK_GROUP_NONE_ID ? '' : columnId
+    };
+  }
+  if (activeTableGroupBy.value === 'heading') {
+    const headingMeta = getTaskHeadingGroupMeta(task, taskHeadingGroups.value);
+    return {
+      id: headingMeta.key,
+      title: headingMeta.label,
+      type: 'heading',
+      headingMeta
+    };
+  }
+  if (activeTableGroupBy.value === 'document') {
+    const documentId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+    if (!documentId) return null;
+    return {
+      id: getDocumentColumnIdForTask(task),
+      title: getTaskDocumentTitle(task),
+      type: 'document',
+      documentId,
+      notebookId: typeof task.notebookId === 'string' ? task.notebookId.trim() : ''
+    };
+  }
+  if (activeTableGroupBy.value === 'date') return null;
+  const status = getTaskVisualStatus(task);
+  return { id: `status-${status}`, title: '', type: 'status', status };
+}
+
+function getTableTaskDropGroupId(task: Task): string {
+  if (activeTableGroupBy.value === 'group') return getGroupColumnIdForTask(task);
+  if (activeTableGroupBy.value === 'heading') return getHeadingColumnIdForTask(task);
+  if (activeTableGroupBy.value === 'document') return getDocumentColumnIdForTask(task);
+  if (activeTableGroupBy.value === 'date') return '';
+  return `status-${getTaskVisualStatus(task)}`;
+}
+
+async function handleTableTaskDrop(payload: TableTaskDropPayload): Promise<void> {
+  if (isMobileFrontend || activeTableGroupBy.value === 'date') return;
+  const source = tasks.value.find(task => task.id === payload.source.id);
+  const target = tasks.value.find(task => task.id === payload.target.id);
+  if (!source || !target || source.id === target.id) return;
+
+  const targetColumn = getTableTaskDropColumn(target);
+  if (!targetColumn) return;
+  const targetGroupId = targetColumn.id;
+  const sourceGroupId = getTableTaskDropGroupId(source);
+  const seededOrder = reconcileManualTaskOrder(
+    userSettings.taskManager.taskManualOrder || [],
+    [
+      ...activeOrArchiveTableViewTasks.value.map(task => task.id),
+      source.id,
+      target.id
+    ]
+  );
+  const nextOrder = moveTaskInManualOrder(
+    seededOrder,
+    source.id,
+    target.id,
+    payload.position
+  );
+
+  draggedTask.value = source;
+  try {
+    if (sourceGroupId !== targetGroupId) {
+      if (activeTableGroupBy.value === 'group') {
+        await handleGroupDrop(targetColumn);
+      } else if (activeTableGroupBy.value === 'heading') {
+        await handleHeadingDrop(targetColumn);
+      } else if (activeTableGroupBy.value === 'document') {
+        await handleDocumentDrop(targetColumn);
+      } else if (targetColumn.type === 'status' && targetColumn.status) {
+        await handleStatusDrop(targetColumn.status);
+      }
+    }
+
+    const movedTask = tasks.value.find(task => task.id === source.id) || source;
+    if (getTableTaskDropGroupId(movedTask) === targetGroupId) {
+      await updateSettings('taskManager', { taskManualOrder: nextOrder });
+    }
+  } finally {
+    handleDragEnd();
+  }
+}
+
+function getTaskBoardColumnId(task: Task): string {
+  if (activeBoardGroupBy.value === 'group') return getGroupColumnIdForTask(task);
+  if (activeBoardGroupBy.value === 'heading') return getHeadingColumnIdForTask(task);
+  if (activeBoardGroupBy.value === 'document') return getDocumentColumnIdForTask(task);
+  if (activeBoardGroupBy.value === 'date') return '';
+  return `status-${getTaskVisualStatus(task)}`;
+}
+
+function resetViewManualTaskDrag(): void {
+  if (viewManualTaskDrag.value.targetId === null && viewManualTaskDrag.value.position === null) {
+    return;
+  }
+  viewManualTaskDrag.value = { targetId: null, position: null };
+}
+
+function isViewManualTaskDropTarget(taskId: string, position: TaskDropPosition): boolean {
+  return viewManualTaskDrag.value.targetId === taskId
+    && viewManualTaskDrag.value.position === position;
+}
+
+function canUseViewManualTaskDrop(task: Task, column: KanbanColumn): boolean {
+  const source = draggedTask.value;
+  const todayStart = getStartOfDay(new Date()).getTime();
+  const sourceTargetStatus = column.type === 'status' && column.status
+    ? column.status
+    : source ? getTaskVisualStatus(source) : 'pending';
+  return !isMobileFrontend
+    && (currentView.value === 'kanban' || currentView.value === 'list')
+    && !isKanbanBatchEditMode.value
+    && column.type !== 'action'
+    && column.type !== 'date'
+    && !!source
+    && source.id !== task.id
+    && (column.type !== 'heading' || (!!column.headingMeta && source.type === 'block' && !!source.blockId))
+    && (column.type !== 'document' || (!!column.documentId && source.type === 'block' && !!source.blockId))
+    && getDefaultTaskManualOrderGroupKey(source, sourceTargetStatus, todayStart)
+      === getDefaultTaskManualOrderGroupKey(task, getTaskVisualStatus(task), todayStart);
+}
+
+function setViewManualTaskDropTarget(taskId: string, position: TaskDropPosition): void {
+  dragOverColumnId.value = null;
+  if (
+    viewManualTaskDrag.value.targetId !== taskId
+    || viewManualTaskDrag.value.position !== position
+  ) {
+    viewManualTaskDrag.value = { targetId: taskId, position };
+  }
+}
+
+function resolveViewManualTaskDropFromColumn(event: DragEvent, column: KanbanColumn): boolean {
+  const container = event.currentTarget as HTMLElement | null;
+  if (!container || !draggedTask.value) return false;
+  const eventElement = event.target instanceof Element
+    ? event.target
+    : (event.target instanceof Node ? event.target.parentElement : null);
+  if (eventElement?.closest('.kanban-batch-item, .kanban-list-task-item')) {
+    return false;
+  }
+
+  const tasksById = new Map(getTasksForColumn(column).map(task => [task.id, task]));
+  const candidates = Array.from(container.querySelectorAll<HTMLElement>(
+    '.kanban-batch-item[data-task-id], .kanban-list-task-item[data-task-id]'
+  ))
+    .map((element) => {
+      const taskId = element.dataset.taskId || '';
+      const task = tasksById.get(taskId);
+      return task && canUseViewManualTaskDrop(task, column)
+        ? { element, task }
+        : null;
+    })
+    .filter((candidate): candidate is { element: HTMLElement; task: Task } => candidate !== null);
+  if (candidates.length === 0) return false;
+
+  let closest = candidates[0];
+  let closestRect = closest.element.getBoundingClientRect();
+  let closestDistance = Math.abs(event.clientY - (closestRect.top + closestRect.height / 2));
+  for (let index = 1; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    const rect = candidate.element.getBoundingClientRect();
+    const distance = Math.abs(event.clientY - (rect.top + rect.height / 2));
+    if (distance < closestDistance) {
+      closest = candidate;
+      closestRect = rect;
+      closestDistance = distance;
+    }
+  }
+
+  const position = event.clientY < closestRect.top + closestRect.height / 2 ? 'before' : 'after';
+  setViewManualTaskDropTarget(closest.task.id, position);
+  return true;
+}
+
+function handleViewManualTaskDragOver(event: DragEvent, task: Task, column: KanbanColumn): void {
+  if (!canUseViewManualTaskDrop(task, column)) {
+    resetViewManualTaskDrag();
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move';
+  }
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+  setViewManualTaskDropTarget(task.id, position);
+}
+
+function handleViewManualTaskDragLeave(event: DragEvent, taskId: string): void {
+  if (viewManualTaskDrag.value.targetId !== taskId) return;
+  const currentTarget = event.currentTarget as HTMLElement | null;
+  const relatedTarget = event.relatedTarget;
+  if (currentTarget && relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) return;
+  resetViewManualTaskDrag();
+}
+
+async function handleViewManualTaskDrop(event: DragEvent, task: Task, column: KanbanColumn): Promise<void> {
+  const source = draggedTask.value;
+  const position = viewManualTaskDrag.value.position;
+  if (
+    !source
+    || !position
+    || viewManualTaskDrag.value.targetId !== task.id
+    || !canUseViewManualTaskDrop(task, column)
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  const sourceColumnId = getTaskBoardColumnId(source);
+  const seededOrder = reconcileManualTaskOrder(
+    userSettings.taskManager.taskManualOrder || [],
+    [
+      ...visibleKanbanTasks.value.map(item => item.id),
+      source.id,
+      task.id
+    ]
+  );
+  const nextOrder = moveTaskInManualOrder(seededOrder, source.id, task.id, position);
+
+  if (sourceColumnId === column.id) {
+    handleDragEnd();
+    await updateSettings('taskManager', { taskManualOrder: nextOrder });
+    return;
+  }
+
+  // A cross-column optimistic update unmounts the source card before the
+  // browser can emit dragend, so clear both highlight states from drop itself.
+  resetViewManualTaskDrag();
+  try {
+    await handleDrop(event, column, true);
+    const movedTask = tasks.value.find(item => item.id === source.id) || source;
+    if (getTaskBoardColumnId(movedTask) === column.id) {
+      await updateSettings('taskManager', { taskManualOrder: nextOrder });
+    }
+  } finally {
+    dragOverColumnId.value = null;
+    resetViewManualTaskDrag();
+  }
+}
+
 function handleDragStart(event: DragEvent, task: Task) {
   if (!canDragTaskInCurrentBoard(task, isKanbanBatchEditMode.value)) return;
 
+  resetViewManualTaskDrag();
   draggedTask.value = task;
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
@@ -15354,6 +16215,7 @@ function handleDragStart(event: DragEvent, task: Task) {
 function handleDragEnd() {
   draggedTask.value = null;
   dragOverColumnId.value = null;
+  resetViewManualTaskDrag();
 }
 
 function handleDragOver(event: DragEvent, column: KanbanColumn) {
@@ -15363,6 +16225,10 @@ function handleDragOver(event: DragEvent, column: KanbanColumn) {
   if (!draggedTask.value) {
     return;
   }
+  if (resolveViewManualTaskDropFromColumn(event, column)) {
+    return;
+  }
+  resetViewManualTaskDrag();
 
   if (activeBoardGroupBy.value === 'group') {
     if (column.type !== 'group') {
@@ -15407,12 +16273,30 @@ function handleDragOver(event: DragEvent, column: KanbanColumn) {
   }
 }
 
-function handleDragLeave() {
-  dragOverColumnId.value = null;
+function handleDragLeave(event: DragEvent, column: KanbanColumn): void {
+  const container = event.currentTarget as HTMLElement | null;
+  const relatedTarget = event.relatedTarget;
+  if (container && relatedTarget instanceof Node && container.contains(relatedTarget)) {
+    return;
+  }
+  if (dragOverColumnId.value === column.id) {
+    dragOverColumnId.value = null;
+  }
+  resetViewManualTaskDrag();
+}
+
+function handleGlobalTaskDragEnd(): void {
+  handleDragEnd();
+  handleQuadrantDragEnd();
+}
+
+function handleGlobalTaskDrop(): void {
+  window.setTimeout(() => handleDragEnd(), 0);
 }
 
 function handleQuadrantDragStart(event: DragEvent, task: Task): void {
   if (isMobileFrontend || task.isVirtual) return;
+  resetQuadrantManualTaskDrag();
   quadrantDraggedTask.value = task;
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
@@ -15423,11 +16307,130 @@ function handleQuadrantDragStart(event: DragEvent, task: Task): void {
 function handleQuadrantDragEnd(): void {
   quadrantDraggedTask.value = null;
   quadrantDragOverId.value = null;
+  resetQuadrantManualTaskDrag();
 }
 
-function handleQuadrantDragOver(quadrantId: TaskQuadrantId): void {
-  if (quadrantDraggedTask.value) {
-    quadrantDragOverId.value = quadrantId;
+function resetQuadrantManualTaskDrag(): void {
+  if (
+    quadrantManualTaskDrag.value.targetId === null
+    && quadrantManualTaskDrag.value.position === null
+  ) return;
+  quadrantManualTaskDrag.value = { targetId: null, position: null };
+}
+
+function isQuadrantManualTaskDropTarget(taskId: string, position: TaskDropPosition): boolean {
+  return quadrantManualTaskDrag.value.targetId === taskId
+    && quadrantManualTaskDrag.value.position === position;
+}
+
+function getQuadrantDropFields(task: Task, quadrantId: TaskQuadrantId): Pick<Task, 'priority' | 'urgent'> | null {
+  const currentQuadrant = getTaskQuadrant(task, new Date(), quadrantUrgentDays.value);
+  const targetImportant = quadrantId === 'important-urgent' || quadrantId === 'important-not-urgent';
+  const targetUrgent = quadrantId === 'important-urgent' || quadrantId === 'not-important-urgent';
+  const priority: Task['priority'] = currentQuadrant.important === targetImportant
+    ? task.priority
+    : (targetImportant ? 'high' : 'low');
+  const urgent = currentQuadrant.urgent === targetUrgent ? task.urgent === true : targetUrgent;
+  const projectedTask = { ...task, priority, urgent };
+  if (getTaskQuadrant(projectedTask, new Date(), quadrantUrgentDays.value).id !== quadrantId) {
+    return null;
+  }
+  return { priority, urgent };
+}
+
+function canUseQuadrantManualTaskDrop(task: Task, quadrantId: TaskQuadrantId): boolean {
+  const source = quadrantDraggedTask.value;
+  const nextFields = source ? getQuadrantDropFields(source, quadrantId) : null;
+  if (!source || !nextFields || source.id === task.id) return false;
+  const projectedSource = { ...source, ...nextFields };
+  const todayStart = getStartOfDay(new Date()).getTime();
+  return getDefaultTaskManualOrderGroupKey(projectedSource, getTaskVisualStatus(source), todayStart)
+    === getDefaultTaskManualOrderGroupKey(task, getTaskVisualStatus(task), todayStart);
+}
+
+function setQuadrantManualTaskDropTarget(taskId: string, position: TaskDropPosition): void {
+  quadrantDragOverId.value = null;
+  if (
+    quadrantManualTaskDrag.value.targetId !== taskId
+    || quadrantManualTaskDrag.value.position !== position
+  ) {
+    quadrantManualTaskDrag.value = { targetId: taskId, position };
+  }
+}
+
+function resolveQuadrantManualTaskDropFromSection(event: DragEvent, quadrantId: TaskQuadrantId): boolean {
+  const container = event.currentTarget as HTMLElement | null;
+  if (!container || !quadrantDraggedTask.value) return false;
+  const eventElement = event.target instanceof Element
+    ? event.target
+    : (event.target instanceof Node ? event.target.parentElement : null);
+  if (eventElement?.closest('.quadrant-task')) return false;
+
+  const quadrant = quadrantSections.value.find(section => section.id === quadrantId);
+  const tasksById = new Map((quadrant?.tasks || []).map(task => [task.id, task]));
+  const candidates = Array.from(container.querySelectorAll<HTMLElement>('.quadrant-task[data-task-id]'))
+    .map((element) => {
+      const task = tasksById.get(element.dataset.taskId || '');
+      return task && canUseQuadrantManualTaskDrop(task, quadrantId) ? { element, task } : null;
+    })
+    .filter((candidate): candidate is { element: HTMLElement; task: Task } => candidate !== null);
+  if (candidates.length === 0) return false;
+
+  let closest = candidates[0];
+  let closestRect = closest.element.getBoundingClientRect();
+  let closestDistance = Math.abs(event.clientY - (closestRect.top + closestRect.height / 2));
+  for (let index = 1; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    const rect = candidate.element.getBoundingClientRect();
+    const distance = Math.abs(event.clientY - (rect.top + rect.height / 2));
+    if (distance < closestDistance) {
+      closest = candidate;
+      closestRect = rect;
+      closestDistance = distance;
+    }
+  }
+  const position = event.clientY < closestRect.top + closestRect.height / 2 ? 'before' : 'after';
+  setQuadrantManualTaskDropTarget(closest.task.id, position);
+  return true;
+}
+
+function handleQuadrantTaskDragOver(event: DragEvent, task: Task, quadrantId: TaskQuadrantId): void {
+  if (!canUseQuadrantManualTaskDrop(task, quadrantId)) {
+    resetQuadrantManualTaskDrag();
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  setQuadrantManualTaskDropTarget(
+    task.id,
+    event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+  );
+}
+
+function handleQuadrantTaskDragLeave(event: DragEvent, taskId: string): void {
+  if (quadrantManualTaskDrag.value.targetId !== taskId) return;
+  const target = event.currentTarget as HTMLElement | null;
+  const relatedTarget = event.relatedTarget;
+  if (target && relatedTarget instanceof Node && target.contains(relatedTarget)) return;
+  resetQuadrantManualTaskDrag();
+}
+
+function handleQuadrantDragOver(event: DragEvent, quadrantId: TaskQuadrantId): void {
+  if (!quadrantDraggedTask.value) return;
+  event.preventDefault();
+  if (resolveQuadrantManualTaskDropFromSection(event, quadrantId)) return;
+  resetQuadrantManualTaskDrag();
+  if (getQuadrantDropFields(quadrantDraggedTask.value, quadrantId)) {
+    const currentQuadrantId = getTaskQuadrant(
+      quadrantDraggedTask.value,
+      new Date(),
+      quadrantUrgentDays.value
+    ).id;
+    quadrantDragOverId.value = currentQuadrantId === quadrantId ? null : quadrantId;
   }
 }
 
@@ -15439,9 +16442,57 @@ function handleQuadrantDragLeave(event: DragEvent): void {
     return;
   }
   quadrantDragOverId.value = null;
+  resetQuadrantManualTaskDrag();
 }
 
-async function handleQuadrantDrop(quadrantId: TaskQuadrantId): Promise<void> {
+async function handleQuadrantTaskDrop(
+  event: DragEvent,
+  target: Task,
+  quadrantId: TaskQuadrantId
+): Promise<void> {
+  const source = quadrantDraggedTask.value;
+  const position = quadrantManualTaskDrag.value.position;
+  if (
+    !source
+    || !position
+    || quadrantManualTaskDrag.value.targetId !== target.id
+    || !canUseQuadrantManualTaskDrop(target, quadrantId)
+  ) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  const seededOrder = reconcileManualTaskOrder(
+    userSettings.taskManager.taskManualOrder || [],
+    [...visibleKanbanTasks.value.map(task => task.id), source.id, target.id]
+  );
+  const nextOrder = moveTaskInManualOrder(seededOrder, source.id, target.id, position);
+  const sourceQuadrantId = getTaskQuadrant(source, new Date(), quadrantUrgentDays.value).id;
+  if (sourceQuadrantId === quadrantId) {
+    handleQuadrantDragEnd();
+    await updateSettings('taskManager', { taskManualOrder: nextOrder });
+    return;
+  }
+
+  await handleQuadrantDrop(event, quadrantId, true);
+  const movedTask = tasks.value.find(task => task.id === source.id) || source;
+  if (getTaskQuadrant(movedTask, new Date(), quadrantUrgentDays.value).id === quadrantId) {
+    await updateSettings('taskManager', { taskManualOrder: nextOrder });
+  }
+}
+
+async function handleQuadrantDrop(
+  event: DragEvent,
+  quadrantId: TaskQuadrantId,
+  skipManualOrder = false
+): Promise<void> {
+  event.preventDefault();
+  if (!skipManualOrder && quadrantManualTaskDrag.value.targetId && quadrantManualTaskDrag.value.position) {
+    const target = tasks.value.find(task => task.id === quadrantManualTaskDrag.value.targetId);
+    if (target) {
+      await handleQuadrantTaskDrop(event, target, quadrantId);
+      return;
+    }
+  }
   const dragged = quadrantDraggedTask.value;
   handleQuadrantDragEnd();
   if (!dragged || dragged.isVirtual) return;
@@ -15449,11 +16500,11 @@ async function handleQuadrantDrop(quadrantId: TaskQuadrantId): Promise<void> {
   const taskIndex = tasks.value.findIndex(task => task.id === dragged.id);
   if (taskIndex === -1) return;
 
-  const targetImportant = quadrantId === 'important-urgent' || quadrantId === 'important-not-urgent';
-  const targetUrgent = quadrantId === 'important-urgent' || quadrantId === 'not-important-urgent';
   const currentTask = tasks.value[taskIndex];
-  const nextPriority: Task['priority'] = targetImportant ? 'high' : 'low';
-  const nextUrgent = targetUrgent;
+  const nextFields = getQuadrantDropFields(currentTask, quadrantId);
+  if (!nextFields) return;
+  const nextPriority = nextFields.priority;
+  const nextUrgent = nextFields.urgent;
   if (currentTask.priority === nextPriority && currentTask.urgent === nextUrgent) return;
 
   const previousTask = currentTask;
@@ -15501,12 +16552,21 @@ async function handleQuadrantDrop(quadrantId: TaskQuadrantId): Promise<void> {
   }
 }
 
-async function handleDrop(event: DragEvent, column: KanbanColumn) {
+async function handleDrop(event: DragEvent, column: KanbanColumn, skipManualOrder = false) {
   if (isMobileFrontend) return;
 
   event.preventDefault();
   
   if (!draggedTask.value) return;
+
+  if (!skipManualOrder && viewManualTaskDrag.value.targetId && viewManualTaskDrag.value.position) {
+    const targetTask = getTasksForColumn(column)
+      .find(task => task.id === viewManualTaskDrag.value.targetId);
+    if (targetTask) {
+      await handleViewManualTaskDrop(event, targetTask, column);
+      return;
+    }
+  }
 
   if (activeBoardGroupBy.value === 'group') {
     if (column.type !== 'group') {
@@ -15969,6 +17029,9 @@ onMounted(async () => {
   window.addEventListener('resize', handleKanbanEditorViewportChange);
   window.addEventListener('scroll', updateDocumentTabsDropdownPosition, true);
   window.addEventListener('resize', updateKanbanListColumnCount);
+  document.addEventListener('dragend', handleGlobalTaskDragEnd, true);
+  document.addEventListener('drop', handleGlobalTaskDrop);
+  window.addEventListener('blur', handleGlobalTaskDragEnd);
   nextTick(() => {
     updateCompactViewSwitcherMode();
     updateKanbanListColumnCount();
@@ -16021,6 +17084,9 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleKanbanEditorViewportChange);
   window.removeEventListener('scroll', updateDocumentTabsDropdownPosition, true);
   window.removeEventListener('resize', updateKanbanListColumnCount);
+  document.removeEventListener('dragend', handleGlobalTaskDragEnd, true);
+  document.removeEventListener('drop', handleGlobalTaskDrop);
+  window.removeEventListener('blur', handleGlobalTaskDragEnd);
   if (kanbanViewResizeObserver) {
     kanbanViewResizeObserver.disconnect();
     kanbanViewResizeObserver = null;
@@ -16901,6 +17967,35 @@ watch(kanbanColumns, () => {
   gap: 2px;
 }
 
+.task-group-menu-submenu-host {
+  position: relative;
+  width: 100%;
+}
+
+.task-group-menu-submenu {
+  position: absolute;
+  top: -6px;
+  right: calc(100% - 2px);
+  width: 168px;
+  max-height: min(360px, calc(100vh - 24px));
+  overflow-y: auto;
+  box-sizing: border-box;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 10px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+  z-index: 16;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-group-menu-submenu.opens-right {
+  right: auto;
+  left: calc(100% - 2px);
+}
+
 .task-group-menu-item {
   width: 100%;
   border: none;
@@ -16915,6 +18010,17 @@ watch(kanbanColumns, () => {
   justify-content: space-between;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.task-group-menu-submenu-trigger > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-group-menu-submenu-trigger > svg {
+  flex: 0 0 auto;
 }
 
 .task-group-menu-item:hover {
@@ -18067,9 +19173,17 @@ watch(kanbanColumns, () => {
 }
 
 .kanban-list-section.drag-over {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14), #0000000f 0 2px 8px;
-  background: rgba(59, 130, 246, 0.08);
+  background: rgba(59, 130, 246, 0.15);
+  outline: 2px dashed #3b82f6;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+  transition: none;
+}
+
+.kanban-list-section.drag-over > .kanban-list-section-header,
+.kanban-list-section.drag-over > .kanban-list-section-body {
+  background: transparent;
+  transition: none;
 }
 
 .kanban-list-section-header {
@@ -18412,6 +19526,36 @@ watch(kanbanColumns, () => {
   gap: 8px;
 }
 
+.kanban-batch-item,
+.kanban-list-task-item {
+  position: relative;
+}
+
+.kanban-batch-item.manual-task-drop-before::before,
+.kanban-list-task-item.manual-task-drop-before::before,
+.kanban-batch-item.manual-task-drop-after::after,
+.kanban-list-task-item.manual-task-drop-after::after {
+  content: '';
+  position: absolute;
+  z-index: 4;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--b3-theme-primary);
+  pointer-events: none;
+}
+
+.kanban-batch-item.manual-task-drop-before::before,
+.kanban-list-task-item.manual-task-drop-before::before {
+  top: -4px;
+}
+
+.kanban-batch-item.manual-task-drop-after::after,
+.kanban-list-task-item.manual-task-drop-after::after {
+  bottom: -4px;
+}
+
 .kanban-batch-item.is-batch-mode :deep(.task-card.variant-kanban) {
   cursor: pointer;
 }
@@ -18440,13 +19584,13 @@ watch(kanbanColumns, () => {
 }
 
 .kanban-task-move-dialog-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.25);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2;
+  z-index: 340;
 }
 
 .kanban-task-move-dialog {
@@ -18556,12 +19700,13 @@ watch(kanbanColumns, () => {
   cursor: not-allowed;
 }
 
-.column-tasks.drag-over {
+.kanban-column.drag-over {
   background: rgba(59, 130, 246, 0.15);
-  border: 2px dashed #3b82f6;
-  border-radius: 8px;
+  outline: 2px dashed #3b82f6;
+  outline-offset: -2px;
+  border-radius: 15px;
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
-  transition: all 0.2s ease;
+  transition: none;
 }
 
 
@@ -18685,8 +19830,11 @@ watch(kanbanColumns, () => {
 }
 
 .quadrant-section.is-drag-over {
-  border-color: var(--b3-theme-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
+  background: rgba(59, 130, 246, 0.15);
+  outline: 2px dashed #3b82f6;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+  transition: none;
 }
 
 .quadrant-section-header {
@@ -18745,6 +19893,31 @@ watch(kanbanColumns, () => {
   gap: 8px;
   min-width: 0;
   box-sizing: border-box;
+}
+
+.quadrant-task {
+  position: relative;
+}
+
+.quadrant-task.manual-task-drop-before::before,
+.quadrant-task.manual-task-drop-after::after {
+  content: '';
+  position: absolute;
+  z-index: 4;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--b3-theme-primary);
+  pointer-events: none;
+}
+
+.quadrant-task.manual-task-drop-before::before {
+  top: -4px;
+}
+
+.quadrant-task.manual-task-drop-after::after {
+  bottom: -4px;
 }
 
 .quadrant-empty {

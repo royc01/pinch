@@ -132,13 +132,14 @@ describe('TaskRepository incremental task fetches', () => {
     vi.spyOn(TaskRepository as any, 'tryGetKernelLightTasksForFetch').mockResolvedValue(null);
     const saveCache = vi.spyOn(TaskRepository, 'saveBlockTasksCache');
     let sqlPage = 0;
-    vi.spyOn(siyuan, 'fetchSyncPost').mockImplementation(async (url: string) => {
+    vi.spyOn(siyuan, 'fetchPost').mockImplementation((url: string, _data: any, callback?: (response: any) => void) => {
       if (url !== '/api/query/sql') {
-        return { code: 0, data: null } as never;
+        callback?.({ code: 0, data: null });
+        return;
       }
       sqlPage += 1;
       if (sqlPage === 1) {
-        return {
+        callback?.({
           code: 0,
           data: [{
             id: 'block-1',
@@ -155,9 +156,10 @@ describe('TaskRepository incremental task fetches', () => {
             subtype: 't',
             memo: ''
           }]
-        } as never;
+        });
+        return;
       }
-      return { code: -1, msg: 'second page failed', data: null } as never;
+      callback?.({ code: -1, msg: 'second page failed', data: null });
     });
 
     try {
@@ -266,11 +268,9 @@ describe('TaskRepository incremental task fetches', () => {
   it('rejects failed attribute writes without mutating shared task state', async () => {
     const { syncFromSQL, tasks } = useCrdtTasks();
     syncFromSQL([task]);
-    vi.spyOn(siyuan, 'fetchSyncPost').mockResolvedValue({
-      code: -1,
-      msg: 'attribute write denied',
-      data: null
-    } as never);
+    vi.spyOn(siyuan, 'fetchPost').mockImplementation((_url: string, _data: any, _callback?: (response: any) => void, _headers?: any, failCallback?: (response: any) => void) => {
+      failCallback?.({ code: -1, msg: 'attribute write denied', data: null });
+    });
 
     await expect(setBlockAttrs('block-1', {
       'custom-task-priority': 'high'
@@ -287,7 +287,9 @@ describe('TaskRepository incremental task fetches', () => {
   });
 
   it('publishes task marker writes without a component-level fallback', async () => {
-    vi.spyOn(siyuan, 'fetchSyncPost').mockResolvedValue({ code: 0, data: null } as never);
+    vi.spyOn(siyuan, 'fetchPost').mockImplementation((_url: string, _data: any, callback?: (response: any) => void) => {
+      callback?.({ code: 0, data: null });
+    });
     await expect(updateTaskListItemMarker('block-1', 'x')).resolves.toEqual([]);
     vi.advanceTimersByTime(100);
 

@@ -18,6 +18,7 @@ describe('UserSettingsManager', () => {
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
       value: {
+        getItem: vi.fn().mockReturnValue(null),
         setItem: vi.fn(),
         removeItem: vi.fn(),
       },
@@ -71,6 +72,84 @@ describe('UserSettingsManager', () => {
       taskManager: { filterSource: 'notebook:notebook-a' }
     });
     expect(pluginMock.loadData).not.toHaveBeenCalled();
+  });
+
+  it('normalizes the persisted manual task order', () => {
+    const storage = {
+      getItem: vi.fn().mockReturnValue(JSON.stringify({
+        taskManager: { taskManualOrder: [' task-a ', 'task-a', '', 42, 'task-b'] }
+      })),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+    const manager = new UserSettingsManager();
+
+    expect(manager.loadLocalSnapshot()?.taskManager.taskManualOrder).toEqual(['task-a', 'task-b']);
+  });
+
+  it('restores the independent task view sort settings', () => {
+    const storage = {
+      getItem: vi.fn().mockReturnValue(JSON.stringify({
+        kanban: {
+          kanbanSortBy: 'priority',
+          kanbanSortDirection: 'desc',
+          listSortBy: 'dueDate',
+          listSortDirection: 'asc',
+          tableSortBy: 'title',
+          tableSortDirection: 'desc',
+          archiveTableSortBy: 'updatedAt',
+          archiveTableSortDirection: 'asc'
+        }
+      })),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+    const manager = new UserSettingsManager();
+
+    expect(manager.loadLocalSnapshot()?.kanban).toMatchObject({
+      kanbanSortBy: 'priority',
+      kanbanSortDirection: 'desc',
+      listSortBy: 'dueDate',
+      listSortDirection: 'asc',
+      tableSortBy: 'title',
+      tableSortDirection: 'desc',
+      archiveTableSortBy: 'updatedAt',
+      archiveTableSortDirection: 'asc'
+    });
+  });
+
+  it('falls back for invalid task view sort settings', () => {
+    const storage = {
+      getItem: vi.fn().mockReturnValue(JSON.stringify({
+        kanban: {
+          kanbanSortBy: 'invalid',
+          kanbanSortDirection: 'invalid',
+          listSortBy: null,
+          listSortDirection: null,
+          tableSortBy: 42,
+          tableSortDirection: 42,
+          archiveTableSortBy: {},
+          archiveTableSortDirection: []
+        }
+      })),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+    const manager = new UserSettingsManager();
+
+    expect(manager.loadLocalSnapshot()?.kanban).toMatchObject({
+      kanbanSortBy: 'default',
+      kanbanSortDirection: 'asc',
+      listSortBy: 'default',
+      listSortDirection: 'asc',
+      tableSortBy: 'default',
+      tableSortDirection: 'asc',
+      archiveTableSortBy: 'default',
+      archiveTableSortDirection: 'asc'
+    });
   });
 
   it('does not let stale plugin storage overwrite the local snapshot', async () => {

@@ -9,7 +9,7 @@ describe('getBlockDOMBatch', () => {
   });
 
   it('loads multiple block DOM responses through one kernel RPC request', async () => {
-    const directFetch = vi.spyOn(siyuan, 'fetchSyncPost');
+    const directFetch = vi.spyOn(siyuan, 'fetchPost');
     const rpcFetch = vi.fn(async (_url: string, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body || '{}'));
       return {
@@ -44,9 +44,9 @@ describe('getBlockDOMBatch', () => {
   });
 
   it('retries only entries missing from a partial kernel response', async () => {
-    const directFetch = vi.spyOn(siyuan, 'fetchSyncPost').mockImplementation(async (url: string, data: any) => {
+    const directFetch = vi.spyOn(siyuan, 'fetchPost').mockImplementation((url: string, data: any, callback?: (response: any) => void) => {
       expect(url).toBe('/api/block/getBlockDOM');
-      return { code: 0, data: { dom: `<div>${data.id}</div>` } } as never;
+      callback?.({ code: 0, data: { dom: `<div>${data.id}</div>` } });
     });
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
       const request = JSON.parse(String(init?.body || '{}'));
@@ -68,7 +68,7 @@ describe('getBlockDOMBatch', () => {
     const result = await getBlockDOMBatch(['block-1', 'block-2']);
 
     expect(directFetch).toHaveBeenCalledTimes(1);
-    expect(directFetch).toHaveBeenCalledWith('/api/block/getBlockDOM', { id: 'block-2' });
+    expect(directFetch).toHaveBeenCalledWith('/api/block/getBlockDOM', { id: 'block-2' }, expect.any(Function), undefined, expect.any(Function));
     expect(result.get('block-1')?.dom).toBe('<div>one</div>');
     expect(result.get('block-2')?.dom).toBe('<div>block-2</div>');
   });

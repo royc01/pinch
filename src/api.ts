@@ -7,7 +7,7 @@
  */
 
 import {
-  fetchSyncPost,
+  fetchPost,
   getFrontend,
   getAllEditor,
   IWebSocketData,
@@ -87,11 +87,28 @@ export class SiyuanApiError extends Error {
 }
 
 async function request<T = any>(url: string, data: any): Promise<T> {
-  const response: IWebSocketData = await fetchSyncPost(url, data);
+  const response = await postRequest(url, data);
   if (response.code !== 0) {
     throw new SiyuanApiError(url, response.code, response.msg);
   }
   return response.data as T;
+}
+
+function postRequest(url: string, data: any): Promise<IWebSocketData> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const resolveOnce = (response: IWebSocketData) => {
+      if (settled) return;
+      settled = true;
+      resolve(response);
+    };
+    const rejectOnce = (response: IWebSocketData) => {
+      if (settled) return;
+      settled = true;
+      reject(new SiyuanApiError(url, response?.code ?? -1, response?.msg ?? 'Request failed'));
+    };
+    fetchPost(url, data, resolveOnce, undefined, rejectOnce);
+  });
 }
 
 async function closeOpenMobileKanbanDialogIfNeeded(): Promise<void> {
@@ -565,7 +582,7 @@ export async function getFile(path: string): Promise<any> {
   };
   let url = "/api/file/getFile";
   try {
-    let file = await fetchSyncPost(url, data);
+    let file = await postRequest(url, data);
     return file;
   } catch (error_msg) {
     return null;

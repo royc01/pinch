@@ -871,7 +871,7 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .task-card {
   background: var(--b3-theme-background);
   box-shadow: var(--pinch-shadow);
-  transition: box-shadow 0.2s, transform 0.2s;
+  transition: box-shadow 0.2s;
   display: flex;
   align-items: flex-start;
   gap: 10px;
