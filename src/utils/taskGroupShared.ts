@@ -69,6 +69,23 @@ export function normalizeTaskGroupOrderIds(input: unknown): string[] {
   return normalized;
 }
 
+export function resolveTaskGroupDisplayOrder(availableIds: readonly string[], storedOrder: unknown): string[] {
+  const normalizedStoredOrder = normalizeTaskGroupOrderIds(storedOrder);
+  const groupIds = availableIds.filter(id => id !== TASK_GROUP_NONE_ID);
+  const groupIdSet = new Set(groupIds);
+  const noneIndex = normalizedStoredOrder.indexOf(TASK_GROUP_NONE_ID);
+  const noneSlot = noneIndex >= 0
+    ? normalizedStoredOrder
+      .slice(0, noneIndex)
+      .filter(id => groupIdSet.has(id))
+      .length
+    : 0;
+
+  const resolved = [...groupIds];
+  resolved.splice(Math.max(0, Math.min(noneSlot, resolved.length)), 0, TASK_GROUP_NONE_ID);
+  return resolved;
+}
+
 export function resolveTaskGroupFallbackLabel(
   group: TaskGroup | null | undefined,
   fallbackLabel: string

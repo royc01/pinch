@@ -84,7 +84,7 @@
               </div>
             </div>
             <div class="habit-actions">
-              <SyCheckbox
+              <SySwitch
                 v-if="manageMode"
                 class="habit-pause-switch ariaLabel"
                 :model-value="!habit.isPaused"
@@ -275,7 +275,7 @@ import { getFocusTimerData, type FocusSessionRecord, type Habit, type Tag } from
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
-import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
+import SySwitch from '@/components/SiyuanTheme/SySwitch.vue';
 import { buildHabitColorStyle, normalizeHabitEmojiColorIndex, resolveHabitEmojiColorIndex } from '@/utils/habitEmojiColor';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 

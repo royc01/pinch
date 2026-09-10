@@ -1,5 +1,6 @@
 import { reactive } from 'vue';
 import { userSettings as userSettingsManager, UserSettings, DEFAULT_SETTINGS } from '@/utils/userSettings';
+import { configureTaskStatuses } from '@/utils/taskStatus';
 
 const state = reactive<UserSettings>({
   focus: { ...DEFAULT_SETTINGS.focus },
@@ -7,6 +8,7 @@ const state = reactive<UserSettings>({
   taskManager: { ...DEFAULT_SETTINGS.taskManager },
   sidebar: { ...DEFAULT_SETTINGS.sidebar }
 });
+configureTaskStatuses(state.taskManager.taskStatuses);
 
 let isLoading = false;
 let isInitialized = false;
@@ -20,12 +22,14 @@ export function useUserSettings() {
       Object.assign(state.focus, localSnapshot.focus);
       Object.assign(state.kanban, localSnapshot.kanban);
       Object.assign(state.taskManager, localSnapshot.taskManager);
+      configureTaskStatuses(state.taskManager.taskStatuses);
       Object.assign(state.sidebar, localSnapshot.sidebar);
       isInitialized = true;
       void userSettingsManager.load({ refresh: true }).then((loaded) => {
         Object.assign(state.focus, loaded.focus);
         Object.assign(state.kanban, loaded.kanban);
         Object.assign(state.taskManager, loaded.taskManager);
+        configureTaskStatuses(state.taskManager.taskStatuses);
         Object.assign(state.sidebar, loaded.sidebar);
       }).catch((error) => {
         console.error('[useUserSettings] Background settings refresh failed:', error);
@@ -43,6 +47,7 @@ export function useUserSettings() {
           Object.assign(state.focus, loaded.focus);
           Object.assign(state.kanban, loaded.kanban);
           Object.assign(state.taskManager, loaded.taskManager);
+          configureTaskStatuses(state.taskManager.taskStatuses);
           Object.assign(state.sidebar, loaded.sidebar);
           isInitialized = true;
         } catch (error) {
@@ -67,6 +72,9 @@ export function useUserSettings() {
     updates: Partial<UserSettings[K]>
   ): Promise<void> {
     Object.assign(state[section], updates);
+    if (section === 'taskManager' && 'taskStatuses' in updates) {
+      configureTaskStatuses(state.taskManager.taskStatuses);
+    }
     await userSettingsManager.update(section, updates);
   }
   
@@ -74,6 +82,7 @@ export function useUserSettings() {
     if (settings.focus) Object.assign(state.focus, settings.focus);
     if (settings.kanban) Object.assign(state.kanban, settings.kanban);
     if (settings.taskManager) Object.assign(state.taskManager, settings.taskManager);
+    if (settings.taskManager?.taskStatuses) configureTaskStatuses(state.taskManager.taskStatuses);
     if (settings.sidebar) Object.assign(state.sidebar, settings.sidebar);
     await userSettingsManager.save(settings);
   }

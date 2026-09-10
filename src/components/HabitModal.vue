@@ -164,7 +164,7 @@
         
         <div class="form-group">
           <label>
-            <SyCheckbox 
+            <SySwitch
               v-model="localHabit.usePomodoro"
               class="pomodoro-checkbox"
             />
@@ -207,7 +207,7 @@ import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
-import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
+import SySwitch from '@/components/SiyuanTheme/SySwitch.vue';
 import TagPickerPopover from '@/components/TagPickerPopover.vue';
 import type { Habit as ApiHabit, HabitCustomScheduleCalendar, HabitCustomScheduleType, HabitDifficulty, Tag } from '@/api';
 import { buildTaskGroupOptions, type TaskGroupOption } from '@/utils/taskGroupShared';

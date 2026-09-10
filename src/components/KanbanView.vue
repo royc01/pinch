@@ -781,18 +781,18 @@
           <div
             class="column-header"
             :class="{
-              'group-column-reorder-header': canReorderGroupColumn(column),
-              'group-column-reorder-target': isGroupColumnReorderTarget(column),
-              'group-column-reorder-before': isGroupColumnReorderBefore(column),
-              'group-column-reorder-after': isGroupColumnReorderAfter(column),
-              'group-column-reorder-dragging': isGroupColumnBeingDragged(column)
+              'group-column-reorder-header': canReorderGroupColumn(column) || canReorderStatusColumn(column),
+              'group-column-reorder-target': isColumnReorderTarget(column),
+              'group-column-reorder-before': isColumnReorderBefore(column),
+              'group-column-reorder-after': isColumnReorderAfter(column),
+              'group-column-reorder-dragging': isColumnBeingReordered(column)
             }"
-            :draggable="canReorderGroupColumn(column)"
-            @dragstart="handleGroupColumnReorderDragStart($event, column)"
-            @dragover.prevent="handleGroupColumnReorderDragOver($event, column)"
-            @dragleave="handleGroupColumnReorderDragLeave($event, column)"
-            @drop.prevent="handleGroupColumnReorderDrop($event, column)"
-            @dragend="handleGroupColumnReorderDragEnd"
+            :draggable="canReorderGroupColumn(column) || canReorderStatusColumn(column)"
+            @dragstart="handleColumnReorderDragStart($event, column)"
+            @dragover.prevent="handleColumnReorderDragOver($event, column)"
+            @dragleave="handleColumnReorderDragLeave($event, column)"
+            @drop.prevent="handleColumnReorderDrop($event, column)"
+            @dragend="handleColumnReorderDragEnd"
           >
             <div class="column-header-main">
               <div
@@ -1210,6 +1210,7 @@
       ref="tableViewRef"
       :tasks="activeOrArchiveTableViewTasks"
        :task-groups="taskGroups"
+       :task-group-order-ids="kanbanGroupColumnOrder"
        :goals="goalDefinitions"
        :goal-ids-for-task="getKanbanTaskCardGoalIds"
        :group-mode="activeTableGroupBy"
@@ -1223,6 +1224,7 @@
        :task-drag-enabled="!isMobileFrontend && activeTaskViewSortBy === 'default'"
        :task-sort-by="activeTaskViewSortBy"
        :task-sort-direction="activeTaskViewSortDirection"
+       @sort-change="handleTableSortChange"
       @task-click="handleTaskClick"
       @open-click="openKanbanTaskContentInRight"
       @start-focus="startFocusForTask"
@@ -1253,7 +1255,8 @@
       @due-time-update="handleDueTimeUpdate"
        @repeat-rule-update="handleTableRepeatRuleUpdate"
        @task-drop="handleTableTaskDrop"
-     />
+       @group-reorder="handleTableGroupReorder"
+      />
     <GanttView
       v-if="currentView === 'gantt'"
       :tasks="ganttViewTasks"
@@ -1907,6 +1910,7 @@
       :date-recognition-keywords="userSettings.taskManager.dateRecognitionKeywords"
       :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
+      :task-statuses="userSettings.taskManager.taskStatuses"
       :show-document-group-notebook-path="showDocumentGroupNotebookPath"
       :show-extra="false"
       :initial-tab="taskScopeDialogInitialTab"
@@ -2041,15 +2045,18 @@ import {
   TASK_GROUP_NONE_ID,
   buildTaskGroupOptions,
   getTaskGroupColorValue,
-  normalizeTaskGroupOrderIds
+  normalizeTaskGroupOrderIds,
+  resolveTaskGroupDisplayOrder
 } from '@/utils/taskGroupShared';
 import { buildTaskPriorityOptions } from '@/utils/taskPriority';
 import { getInitialAutomaticTaskStatus } from '@/utils/taskStatusAutomation';
 import {
   buildTaskStatusFilterOptions,
   buildTaskStatusSelectOptions,
+  getTaskStatusDefinitions,
   getTaskStatusLabel,
-  type TaskStatusValue
+  isClosedTaskStatus,
+  resolveTaskStatusColor
 } from '@/utils/taskStatus';
 import { requestTaskCompletionNote, updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
 import { getCheckinNotePromptAnchor } from '../utils/checkinNotePrompt';
@@ -2799,7 +2806,7 @@ function mergeTasksById(primaryTasks: Task[], secondaryTasks: Task[]): Task[] {
 }
 
 function hasTaskCompletionRecord(task: Task): boolean {
-  return task.status === 'completed'
+  return isClosedTaskStatus(task.status)
     || (typeof task.completedAt === 'string' && task.completedAt.trim().length > 0);
 }
 
@@ -3155,6 +3162,9 @@ const viewManualTaskDrag = ref<{
 const draggedGroupColumnId = ref<string | null>(null);
 const dragOverGroupColumnId = ref<string | null>(null);
 const dragOverGroupColumnPosition = ref<'before' | 'after' | null>(null);
+const draggedStatusColumnId = ref<string | null>(null);
+const dragOverStatusColumnId = ref<string | null>(null);
+const dragOverStatusColumnPosition = ref<'before' | 'after' | null>(null);
 const archivingKanbanColumnIds = ref<Set<string>>(new Set());
 const kanbanColumnMetrics = ref<Record<string, { scrollTop: number; height: number }>>({});
 const isDropping = ref(false);
@@ -3633,13 +3643,14 @@ type KanbanListMasonryColumn = {
   heightScore: number;
 };
 
-const kanbanStatusColumnOrder: TaskStatusValue[] = ['pending', 'in-progress', 'completed', 'delayed', 'cancelled'];
-const statusColumns: KanbanColumn[] = kanbanStatusColumnOrder.map(status => ({
-  id: `status-${status}`,
-  status,
-  title: getTaskStatusLabel(status, t),
+const statusColumns = computed<KanbanColumn[]>(() => getTaskStatusDefinitions()
+  .filter(status => status.hidden !== true)
+  .map(status => ({
+  id: `status-${status.id}`,
+  status: status.id,
+  title: getTaskStatusLabel(status.id, t),
   type: 'status'
-}));
+})));
 const kanbanDateGroups: Array<{ key: KanbanDateGroupKey; title: string; dotColor: string }> = [
   { key: 'overdue', title: t('taskManager.overdue'), dotColor: '#ef4444' },
   { key: 'today', title: t('taskManager.today'), dotColor: '#f59e0b' },
@@ -3664,20 +3675,7 @@ const taskGroupIdSet = computed(() => {
 });
 
 function resolveKanbanGroupColumnOrder(availableIds: string[], storedOrder: string[]): string[] {
-  const normalizedStoredOrder = normalizeTaskGroupOrderIds(storedOrder);
-  const visibleGroupIds = availableIds.filter(id => id !== TASK_GROUP_NONE_ID);
-  const visibleGroupIdSet = new Set(visibleGroupIds);
-  const noneIndex = normalizedStoredOrder.indexOf(TASK_GROUP_NONE_ID);
-  const noneSlot = noneIndex >= 0
-    ? normalizedStoredOrder
-      .slice(0, noneIndex)
-      .filter(id => id !== TASK_GROUP_NONE_ID && visibleGroupIdSet.has(id))
-      .length
-    : 0;
-
-  const resolved = [...visibleGroupIds];
-  resolved.splice(Math.max(0, Math.min(noneSlot, resolved.length)), 0, TASK_GROUP_NONE_ID);
-  return resolved;
+  return resolveTaskGroupDisplayOrder(availableIds, storedOrder);
 }
 
 const baseGroupColumns = computed<KanbanColumn[]>(() => {
@@ -3831,8 +3829,8 @@ const kanbanColumns = computed<KanbanColumn[]>(() => {
     return documentColumns.value;
   }
   return showCompletedTasks.value
-    ? statusColumns
-    : statusColumns.filter(column => column.status !== 'completed');
+    ? statusColumns.value
+    : statusColumns.value.filter(column => column.status !== 'completed');
 });
 
 const kanbanListSections = computed<KanbanListSection[]>(() =>
@@ -3984,7 +3982,7 @@ const quickCreateTaskContext = computed<QuickCreateTaskContext>(() => {
     dueTime: payload?.dueTime || ''
   };
 });
-const kanbanStatusFilterOptions: Array<{ value: Task['status']; label: string }> = buildTaskStatusFilterOptions(t);
+const kanbanStatusFilterOptions = computed<Array<{ value: Task['status']; label: string }>>(() => buildTaskStatusFilterOptions(t));
 const kanbanPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = buildTaskPriorityOptions(t);
 const kanbanDueFilterOptions: Array<{ value: KanbanTaskDueFilterKey; label: string }> = [
   { value: 'overdue', label: t('taskManager.dueOverdue') },
@@ -4004,7 +4002,7 @@ const kanbanExtraFilterOptions: Array<{ value: KanbanTaskExtraFilterKey; label: 
   { value: 'hasSubtasks', label: t('taskManager.hasSubtasks') },
   { value: 'hasFocusEstimate', label: t('taskManager.hasFocusEstimate') }
 ];
-const kanbanBatchStatusOptions = buildTaskStatusSelectOptions(t);
+const kanbanBatchStatusOptions = computed(() => buildTaskStatusSelectOptions(t));
 const kanbanBatchPriorityOptions: Array<{ value: string; text: string }> = [
   { value: '', text: t('taskManager.priorityNoChange') },
   { value: 'none', text: t('taskManager.priorityNone') },
@@ -4017,7 +4015,7 @@ const kanbanBatchTagActionOptions: Array<{ value: TaskTagBatchAction; text: stri
   { value: 'add', text: t('taskManager.batchAddTag') },
   { value: 'remove', text: t('taskManager.batchRemoveTag') }
 ];
-const kanbanStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(kanbanStatusFilterOptions.map(option => option.value));
+const kanbanStatusFilterValueSet = computed<ReadonlySet<Task['status']>>(() => new Set(kanbanStatusFilterOptions.value.map(option => option.value)));
 const kanbanPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(kanbanPriorityFilterOptions.map(option => option.value));
 const kanbanDueFilterValueSet: ReadonlySet<KanbanTaskDueFilterKey> = new Set(kanbanDueFilterOptions.map(option => option.value));
 const kanbanUpdatedFilterValueSet: ReadonlySet<KanbanTaskUpdateFilterKey> = new Set(kanbanUpdatedFilterOptions.map(option => option.value));
@@ -4306,6 +4304,8 @@ function buildActiveKanbanGroupChipStyle(groupId: string): Record<string, string
 
 function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
   if (column.type === 'status') {
+    const configured = getTaskStatusDefinitions().find(status => status.id === column.status);
+    if (configured) return { backgroundColor: resolveTaskStatusColor(configured.color) };
     if (column.status === 'pending') {
       return { backgroundColor: '#f59e0b' };
     }
@@ -5229,7 +5229,7 @@ const {
   restoreExpression: restoreKanbanFilterExpression,
   cycleExpressionJoin: cycleKanbanFilterJoin
 } = useTaskFilterState({
-  statusOptions: kanbanStatusFilterOptions,
+  statusOptions: kanbanStatusFilterOptions.value,
   priorityOptions: kanbanPriorityFilterOptions,
   dueOptions: kanbanDueFilterOptions,
   updatedOptions: kanbanUpdatedFilterOptions,
@@ -5241,7 +5241,7 @@ const {
 
 function restoreTaskFilterPopoverSettings(): void {
   const settings = userSettings.kanban;
-  activeKanbanStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.kanbanStatusFilters, kanbanStatusFilterValueSet);
+  activeKanbanStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.kanbanStatusFilters, kanbanStatusFilterValueSet.value);
   activeKanbanPriorityFilters.value = normalizeStoredFilterValues<Task['priority']>(settings.kanbanPriorityFilters, kanbanPriorityFilterValueSet);
   activeKanbanDueFilters.value = normalizeStoredFilterValues<KanbanTaskDueFilterKey>(settings.kanbanDueFilters, kanbanDueFilterValueSet);
   activeKanbanUpdatedFilters.value = normalizeStoredFilterValues<KanbanTaskUpdateFilterKey>(settings.kanbanUpdatedFilters, kanbanUpdatedFilterValueSet);
@@ -5249,7 +5249,7 @@ function restoreTaskFilterPopoverSettings(): void {
   activeKanbanExtraFilters.value = normalizeStoredFilterValues<KanbanTaskExtraFilterKey>(settings.kanbanExtraFilters, kanbanExtraFilterValueSet);
   restoreKanbanFilterExpression(settings.kanbanFilterExpression);
 
-  activeTableStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.tableStatusFilters, kanbanStatusFilterValueSet);
+  activeTableStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.tableStatusFilters, kanbanStatusFilterValueSet.value);
   activeTablePriorityFilters.value = normalizeStoredFilterValues<Task['priority']>(settings.tablePriorityFilters, kanbanPriorityFilterValueSet);
   activeTableDueFilters.value = normalizeStoredFilterValues<KanbanTaskDueFilterKey>(settings.tableDueFilters, kanbanDueFilterValueSet);
   activeTableUpdatedFilters.value = normalizeStoredFilterValues<KanbanTaskUpdateFilterKey>(settings.tableUpdatedFilters, kanbanUpdatedFilterValueSet);
@@ -5274,7 +5274,7 @@ const {
   restoreExpression: restoreTableFilterExpression,
   cycleExpressionJoin: cycleTableFilterJoin
 } = useTaskFilterState({
-  statusOptions: kanbanStatusFilterOptions,
+  statusOptions: kanbanStatusFilterOptions.value,
   priorityOptions: kanbanPriorityFilterOptions,
   dueOptions: kanbanDueFilterOptions,
   updatedOptions: kanbanUpdatedFilterOptions,
@@ -5829,7 +5829,11 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     defaultTaskCreateNotebook,
     defaultTaskCreateDocument,
     focusSettings
+    ,taskStatuses
   } = payload;
+  const removedTaskStatusIds = (userSettings.taskManager.taskStatuses || [])
+    .map(status => status.id)
+    .filter(id => !taskStatuses.some(status => status.id === id));
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
   const mergedExcludedNotebookIds = normalizeNotebookIds([
@@ -5844,6 +5848,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
   applyExcludedNotebookScope(mergedExcludedNotebookIds);
   eventBus.emit(Events.TASK_SCOPE_UPDATED, { excludedNotebookIds: mergedExcludedNotebookIds });
   TaskRepository.setAutoRecognizeTaskDateEnabled(nextAutoRecognizeTaskDate);
+  await migrateRemovedTaskStatuses(removedTaskStatusIds);
   await saveDocumentGroups(nextDocumentGroups);
   applyExternalDocumentGroups(nextDocumentGroups);
   eventBus.emit(Events.DOCUMENT_GROUPS_UPDATED, { groups: nextDocumentGroups });
@@ -5855,6 +5860,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
     dateRecognitionKeywords: nextDateRecognitionKeywords,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    taskStatuses,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     defaultTaskCreateTarget: defaultTaskCreateTarget as typeof userSettings.taskManager.defaultTaskCreateTarget,
     defaultTaskCreateNotebook,
@@ -6306,7 +6312,7 @@ function matchesKanbanFiltersByDocumentScope(
   )) {
     return false;
   }
-  if (!showCompletedTasks.value && isTaskCompletedVisual(task)) {
+  if (!showCompletedTasks.value && getTaskVisualStatus(task) === 'completed') {
     return false;
   }
   return matchesConfiguredTaskFilterExpression(task, kanbanFilterExpression.value);
@@ -6563,6 +6569,15 @@ function getTaskDocumentIcon(task: Task): string {
   return fallback || '📄';
 }
 
+async function migrateRemovedTaskStatuses(removedStatusIds: string[]): Promise<void> {
+  if (removedStatusIds.length === 0) return;
+  const removed = new Set(removedStatusIds);
+  const allTasks = await TaskRepository.getAllTasks(false, undefined, { materializeRepeats: false });
+  await Promise.all(allTasks
+    .filter(task => task.isVirtual !== true && removed.has(task.status))
+    .map(task => TaskRepository.updateTask(task.id, { status: 'pending' })));
+}
+
 function isTaskDocumentIconPending(task: Task): boolean {
   return task.type === 'block'
     && typeof task.rootId === 'string'
@@ -6806,7 +6821,7 @@ const documentTabTaskProgressById = computed(() => {
     }
     const progress = progressById.get(task.rootId) || { completed: 0, total: 0 };
     progress.total += 1;
-    if (task.status === 'completed') {
+    if (isClosedTaskStatus(task.status)) {
       progress.completed += 1;
     }
     progressById.set(task.rootId, progress);
@@ -7266,6 +7281,14 @@ function toggleTaskViewSortDirection(): void {
   if (isTableTaskView.value) {
     tableViewRef.value?.clearColumnSort();
   }
+}
+
+function handleTableSortChange(field: TaskSortField, direction: TaskSortDirection): void {
+  if (currentView.value !== 'table' && currentView.value !== 'archive-table') {
+    return;
+  }
+  activeTaskViewSortBy.value = field;
+  activeTaskViewSortDirection.value = direction;
 }
 
 function toggleKanbanBatchEditModeFromMenu(): void {
@@ -8430,12 +8453,12 @@ function getTaskVisualStatus(task: Task): Task['status'] {
 }
 
 function isTaskCompletedVisual(task: Task): boolean {
-  return getTaskVisualStatus(task) === 'completed';
+  return isClosedTaskStatus(getTaskVisualStatus(task));
 }
 
 function compareTasksLikeSidebar(a: Task, b: Task, todayStart: number, domOrderMap?: Map<string, number>): number {
-  const isACompleted = getTaskVisualStatus(a) === 'completed';
-  const isBCompleted = getTaskVisualStatus(b) === 'completed';
+  const isACompleted = isClosedTaskStatus(getTaskVisualStatus(a));
+  const isBCompleted = isClosedTaskStatus(getTaskVisualStatus(b));
 
   if (isACompleted && !isBCompleted) {
     return 1;
@@ -9667,7 +9690,7 @@ function matchesTableFiltersByArchivedState(
     tableFilterType.value,
     includeDocumentFilter ? tableFilterDocument.value : 'all'
   )) return false;
-  if (!archivedOnly && !showCompletedTasks.value && isTaskCompletedVisual(task)) return false;
+  if (!archivedOnly && !showCompletedTasks.value && getTaskVisualStatus(task) === 'completed') return false;
   if (!matchesTableSearch(task)) return false;
   return matchesConfiguredTaskFilterExpression(task, tableFilterExpression.value);
 }
@@ -9805,13 +9828,11 @@ function setTaskHeadingGroupMetaForIds(
 }
 
 const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
-  const grouped: Record<string, Task[]> = {
-    'pending': [],
-    'in-progress': [],
-    'delayed': [],
-    'completed': [],
-    'cancelled': []
-  };
+  // The column registry is configurable; seed every configured ID so a
+  // custom status can both render a column and receive its tasks.
+  const grouped: Record<string, Task[]> = Object.fromEntries(
+    getTaskStatusDefinitions().map(status => [status.id, [] as Task[]])
+  );
 
   const sourceTasks = visibleKanbanTasks.value;
   const dayMs = 24 * 60 * 60 * 1000;
@@ -9825,9 +9846,7 @@ const kanbanTasksByVisualStatus = computed<Record<string, Task[]>>(() => {
 
   for (const task of sourceTasks) {
     const status = getTaskVisualStatus(task);
-    if (grouped[status]) {
-      grouped[status].push(task);
-    }
+    (grouped[status] ||= []).push(task);
   }
 
   const isTimestampInDateGroup = (timestamp: number | null, groupKey: KanbanDateGroupKey): boolean => {
@@ -11986,14 +12005,14 @@ async function fastSyncTaskFromDom(
       const previousStatus = task.status;
       const previousCompletedAt = task.completedAt;
       const nextStatus: Task['status'] = completed
-        ? 'completed'
-        : (task.status === 'completed' ? 'pending' : (task.status || 'pending'));
+        ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
+        : (isClosedTaskStatus(task.status) ? 'pending' : (task.status || 'pending'));
       if (task.status !== nextStatus) {
         task.status = nextStatus;
         changed = true;
       }
       if (completed) {
-        const nextCompletedAt = previousStatus !== 'completed' || !task.completedAt
+        const nextCompletedAt = !isClosedTaskStatus(previousStatus) || !task.completedAt
           ? new Date().toISOString()
           : task.completedAt;
         if (task.completedAt !== nextCompletedAt) {
@@ -15006,9 +15025,9 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     return;
   }
 
-  const wasCompleted = task.status === 'completed';
-  const newStatus = task.status === 'completed' ? 'pending' : 'completed';
-  const shouldPlayCompletionSound = !wasCompleted && newStatus === 'completed';
+  const wasCompleted = isClosedTaskStatus(task.status);
+  const newStatus = wasCompleted ? 'pending' : 'completed';
+  const shouldPlayCompletionSound = !wasCompleted && isClosedTaskStatus(newStatus);
   const isVirtualRepeatTask = !!task.isVirtual && !!task.repeatSeriesId && !!task.repeatInstanceDate;
   const eventTarget = event?.currentTarget instanceof Element ? event.currentTarget : null;
 
@@ -15434,7 +15453,7 @@ async function handlePriorityUpdate(task: Task, priority: Task['priority']) {
 }
 
 async function handleStatusUpdate(task: Task, status: Task['status']) {
-  const wasCompleted = task.status === 'completed';
+  const wasCompleted = isClosedTaskStatus(task.status);
   await applyBlockTaskFieldUpdate(
     task,
     { 'custom-task-status': status },
@@ -15442,12 +15461,12 @@ async function handleStatusUpdate(task: Task, status: Task['status']) {
     status,
     'Failed to update task status',
     async (blockId) => {
-      await updateTaskMarkdown(blockId, status === 'completed');
+      await updateTaskMarkdown(blockId, isClosedTaskStatus(status));
     }
   );
-  if (!wasCompleted && status === 'completed' && taskCompletionSoundEnabled.value) {
+  if (!wasCompleted && isClosedTaskStatus(status) && taskCompletionSoundEnabled.value) {
     const refreshedTask = tasks.value.find(item => item.id === task.id);
-    if (refreshedTask?.status === 'completed') {
+    if (isClosedTaskStatus(refreshedTask?.status)) {
       playTaskCompletionSound();
     }
   }
@@ -15604,7 +15623,7 @@ function syncTaskLocalStatusState(taskId: string, status: Task['status']): void 
   const nowIso = new Date().toISOString();
   const nowTs = Date.now();
   crdtRepo.updateTaskField(taskId, 'status', status, nowTs);
-  crdtRepo.updateTaskField(taskId, 'completedAt', status === 'completed' ? nowIso : undefined, nowTs);
+  crdtRepo.updateTaskField(taskId, 'completedAt', isClosedTaskStatus(status) ? nowIso : undefined, nowTs);
   updateTasks();
   const updatedTaskIndex = tasks.value.findIndex(t => t.id === taskId);
   if (updatedTaskIndex === -1) {
@@ -15613,7 +15632,7 @@ function syncTaskLocalStatusState(taskId: string, status: Task['status']): void 
 
   const targetTask = tasks.value[updatedTaskIndex];
   targetTask.status = status;
-  if (status === 'completed') {
+  if (isClosedTaskStatus(status)) {
     targetTask.completedAt = targetTask.completedAt || nowIso;
   } else {
     delete targetTask.completedAt;
@@ -15723,6 +15742,18 @@ function canReorderGroupColumn(column: KanbanColumn): boolean {
   return resolveGroupColumnDragId(column).length > 0;
 }
 
+function resolveStatusColumnDragId(column: KanbanColumn): string {
+  return column.type === 'status' && typeof column.status === 'string' ? column.status.trim() : '';
+}
+
+function canReorderStatusColumn(column: KanbanColumn): boolean {
+  return !isMobileFrontend
+    && kanbanGroupBy.value === 'status'
+    && !isKanbanBatchEditMode.value
+    && !isColumnTitleEditing(column)
+    && resolveStatusColumnDragId(column).length > 0;
+}
+
 function isGroupColumnReorderTarget(column: KanbanColumn): boolean {
   const groupId = resolveGroupColumnDragId(column);
   return !!groupId && dragOverGroupColumnId.value === groupId;
@@ -15741,10 +15772,50 @@ function isGroupColumnBeingDragged(column: KanbanColumn): boolean {
   return !!groupId && draggedGroupColumnId.value === groupId;
 }
 
+function isStatusColumnReorderTarget(column: KanbanColumn): boolean {
+  const statusId = resolveStatusColumnDragId(column);
+  return !!statusId && dragOverStatusColumnId.value === statusId;
+}
+
+function isStatusColumnReorderBefore(column: KanbanColumn): boolean {
+  return isStatusColumnReorderTarget(column) && dragOverStatusColumnPosition.value === 'before';
+}
+
+function isStatusColumnReorderAfter(column: KanbanColumn): boolean {
+  return isStatusColumnReorderTarget(column) && dragOverStatusColumnPosition.value === 'after';
+}
+
+function isStatusColumnBeingDragged(column: KanbanColumn): boolean {
+  const statusId = resolveStatusColumnDragId(column);
+  return !!statusId && draggedStatusColumnId.value === statusId;
+}
+
+function isColumnReorderTarget(column: KanbanColumn): boolean {
+  return isGroupColumnReorderTarget(column) || isStatusColumnReorderTarget(column);
+}
+
+function isColumnReorderBefore(column: KanbanColumn): boolean {
+  return isGroupColumnReorderBefore(column) || isStatusColumnReorderBefore(column);
+}
+
+function isColumnReorderAfter(column: KanbanColumn): boolean {
+  return isGroupColumnReorderAfter(column) || isStatusColumnReorderAfter(column);
+}
+
+function isColumnBeingReordered(column: KanbanColumn): boolean {
+  return isGroupColumnBeingDragged(column) || isStatusColumnBeingDragged(column);
+}
+
 function clearGroupColumnReorderDragState(): void {
   draggedGroupColumnId.value = null;
   dragOverGroupColumnId.value = null;
   dragOverGroupColumnPosition.value = null;
+}
+
+function clearStatusColumnReorderDragState(): void {
+  draggedStatusColumnId.value = null;
+  dragOverStatusColumnId.value = null;
+  dragOverStatusColumnPosition.value = null;
 }
 
 function resolveGroupColumnDropPosition(event: DragEvent): 'before' | 'after' {
@@ -15852,6 +15923,87 @@ async function reorderTaskGroupsByColumnDrag(
     console.error('[KanbanView] Failed to save tag column order:', error);
     await pushMsg(t('kanbanView.saveTagColumnOrderFailed'), 2600);
   }
+}
+
+async function reorderStatusColumnsByDrag(
+  sourceStatusId: string,
+  targetStatusId: string,
+  position: 'before' | 'after'
+): Promise<void> {
+  const currentStatuses = getTaskStatusDefinitions();
+  const currentIds = currentStatuses.map(status => status.id);
+  const nextIds = moveGroupColumnOrderByPosition(currentIds, sourceStatusId, targetStatusId, position);
+  if (currentIds.join('|') === nextIds.join('|')) return;
+  const statusesById = new Map(currentStatuses.map(status => [status.id, status]));
+  const nextStatuses = nextIds
+    .map(id => statusesById.get(id))
+    .filter((status): status is NonNullable<typeof status> => !!status);
+  await updateSettings('taskManager', { taskStatuses: nextStatuses });
+}
+
+function handleColumnReorderDragStart(event: DragEvent, column: KanbanColumn): void {
+  if (canReorderGroupColumn(column)) {
+    handleGroupColumnReorderDragStart(event, column);
+    return;
+  }
+  if (!canReorderStatusColumn(column)) return;
+  const statusId = resolveStatusColumnDragId(column);
+  draggedStatusColumnId.value = statusId;
+  dragOverStatusColumnId.value = null;
+  dragOverStatusColumnPosition.value = null;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', statusId);
+  }
+}
+
+function handleColumnReorderDragOver(event: DragEvent, column: KanbanColumn): void {
+  if (draggedGroupColumnId.value) {
+    handleGroupColumnReorderDragOver(event, column);
+    return;
+  }
+  if (!draggedStatusColumnId.value || !canReorderStatusColumn(column)) return;
+  const statusId = resolveStatusColumnDragId(column);
+  if (!statusId || statusId === draggedStatusColumnId.value) {
+    dragOverStatusColumnId.value = null;
+    dragOverStatusColumnPosition.value = null;
+    return;
+  }
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  dragOverStatusColumnId.value = statusId;
+  dragOverStatusColumnPosition.value = resolveGroupColumnDropPosition(event);
+}
+
+function handleColumnReorderDragLeave(event: DragEvent, column: KanbanColumn): void {
+  if (draggedGroupColumnId.value) {
+    handleGroupColumnReorderDragLeave(event, column);
+    return;
+  }
+  const statusId = resolveStatusColumnDragId(column);
+  if (!statusId || dragOverStatusColumnId.value !== statusId) return;
+  const target = event.currentTarget;
+  const related = event.relatedTarget;
+  if (target instanceof Node && related instanceof Node && target.contains(related)) return;
+  dragOverStatusColumnId.value = null;
+  dragOverStatusColumnPosition.value = null;
+}
+
+async function handleColumnReorderDrop(event: DragEvent, column: KanbanColumn): Promise<void> {
+  if (draggedGroupColumnId.value) {
+    await handleGroupColumnReorderDrop(event, column);
+    return;
+  }
+  const sourceStatusId = draggedStatusColumnId.value;
+  const targetStatusId = resolveStatusColumnDragId(column);
+  const position = resolveGroupColumnDropPosition(event);
+  clearStatusColumnReorderDragState();
+  if (!sourceStatusId || !targetStatusId || sourceStatusId === targetStatusId || !canReorderStatusColumn(column)) return;
+  await reorderStatusColumnsByDrag(sourceStatusId, targetStatusId, position);
+}
+
+function handleColumnReorderDragEnd(): void {
+  clearGroupColumnReorderDragState();
+  clearStatusColumnReorderDragState();
 }
 
 function handleGroupColumnReorderDragStart(event: DragEvent, column: KanbanColumn): void {
@@ -16034,6 +16186,18 @@ async function handleTableTaskDrop(payload: TableTaskDropPayload): Promise<void>
   } finally {
     handleDragEnd();
   }
+}
+
+async function handleTableGroupReorder(payload: {
+  sourceGroupId: string;
+  targetGroupId: string;
+  position: 'before' | 'after';
+}): Promise<void> {
+  await reorderTaskGroupsByColumnDrag(
+    payload.sourceGroupId,
+    payload.targetGroupId,
+    payload.position
+  );
 }
 
 function getTaskBoardColumnId(task: Task): string {

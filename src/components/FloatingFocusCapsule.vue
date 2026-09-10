@@ -226,12 +226,10 @@
                       </span>
                     </button>
                     <label class="linked-habit-banner__preset-toggle">
-                      <input
-                        class="b3-switch fn__flex-center"
-                        type="checkbox"
-                        :checked="isTargetPreset(target)"
+                      <SySwitch
+                        :model-value="isTargetPreset(target)"
                         :aria-label="t('focusTimer.setTargetPreset')"
-                        @change="toggleTargetPreset(target, ($event.target as HTMLInputElement).checked)"
+                        @update:model-value="toggleTargetPreset(target, $event)"
                       />
                     </label>
                   </div>
@@ -331,10 +329,7 @@
             <div class="setting-section white-noise-setting">
               <div class="setting-label">
                 <span>{{ t('focusTimer.whiteNoise') }}</span>
-                <label class="switch">
-                  <input v-model="whiteNoiseEnabled" type="checkbox" @change="toggleWhiteNoise" />
-                  <span class="slider round"></span>
-                </label>
+                <SySwitch :model-value="whiteNoiseEnabled" @update:model-value="handleWhiteNoiseToggle" />
               </div>
               <div class="floating-focus__sound-selector" :class="{ disabled: !whiteNoiseEnabled }">
                 <button
@@ -409,6 +404,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRefs, watch } from 'vue';
 import Icon from '@/components/Icon.vue';
 import FocusTargetIcon from '@/components/FocusTargetIcon.vue';
+import SySwitch from '@/components/SiyuanTheme/SySwitch.vue';
 import { addFocusSession, upsertFocusSessionRecord } from '@/api';
 import { useFocusCountupCheckpoint } from '@/composables/useFocusCountupCheckpoint';
 import { useFocusSessionLock } from '@/composables/useFocusSessionLock';
@@ -996,6 +992,11 @@ const toggleWhiteNoise = () => {
     playWhiteNoise();
   }
   void persistWhiteNoiseSettings();
+};
+
+const handleWhiteNoiseToggle = (enabled: boolean) => {
+  whiteNoiseEnabled.value = enabled;
+  toggleWhiteNoise();
 };
 
 const selectWhiteNoise = (soundId: string) => {
@@ -1986,59 +1987,6 @@ defineExpose({
   color: var(--b3-theme-on-surface-light);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.switch-container {
-  display: flex;
-  align-items: center;
-}
-
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-}
-
-.switch input {
-  width: 0;
-  height: 0;
-  opacity: 0;
-}
-
-.slider {
-  position: absolute;
-  inset: 0;
-  cursor: pointer;
-  background-color: var(--b3-border-color);
-  transition: .4s;
-}
-
-.slider::before {
-  position: absolute;
-  bottom: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  background-color: white;
-  content: '';
-  transition: .4s;
-}
-
-.switch input:checked + .slider {
-  background-color: #f98f7a;
-}
-
-.switch input:checked + .slider::before {
-  transform: translateX(20px);
-}
-
-.slider.round {
-  border-radius: 24px;
-}
-
-.slider.round::before {
-  border-radius: 50%;
 }
 
 .micro-break-overlay {

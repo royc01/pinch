@@ -102,7 +102,7 @@
         </div>
         <div v-if="showExtra" class="task-scope-extra">
           <span class="task-scope-extra-label">{{ t('taskScopeDialog.showCompletedTasks') }}</span>
-          <SyCheckbox
+          <SySwitch
             class="task-scope-toggle"
             :model-value="localShowCompletedTasks"
             @update:model-value="localShowCompletedTasks = $event"
@@ -115,7 +115,7 @@
             class="task-scope-item"
           >
             <span class="task-scope-name">{{ notebook.name }}</span>
-            <SyCheckbox
+            <SySwitch
               class="task-scope-toggle"
               :model-value="isNotebookEnabled(notebook.id)"
               @update:model-value="toggleNotebookEnabled(notebook.id, $event)"
@@ -147,7 +147,7 @@
                 {{ t('taskScopeDialog.autoRecognizeDateDesc') }}
               </div>
             </div>
-            <SyCheckbox
+            <SySwitch
               class="task-scope-toggle"
               :model-value="localAutoRecognizeTaskDate"
               @update:model-value="localAutoRecognizeTaskDate = $event"
@@ -155,7 +155,7 @@
           </div>
           <div class="task-scope-auto-item">
             <span class="task-scope-extra-label">{{ t('taskScopeDialog.taskCompletionSound') }}</span>
-            <SyCheckbox
+            <SySwitch
               class="task-scope-toggle"
               :model-value="localTaskCompletionSoundEnabled"
               @update:model-value="localTaskCompletionSoundEnabled = $event"
@@ -235,6 +235,61 @@
             />
           </div>
         </div>
+
+        <div class="task-scope-display-section task-status-settings">
+          <div class="task-scope-display-title">{{ t('taskScopeDialog.customStatuses') }}</div>
+          <div class="task-scope-auto-desc task-status-settings-desc">{{ t('taskScopeDialog.customStatusesHint') }}</div>
+          <div
+            v-for="status in localTaskStatuses"
+            :key="status.id"
+            class="task-status-setting-row"
+            :class="{
+              'is-dragging': draggedTaskStatusId === status.id,
+              'is-drag-over-before': dragOverTaskStatusId === status.id && dragOverTaskStatusPosition === 'before',
+              'is-drag-over-after': dragOverTaskStatusId === status.id && dragOverTaskStatusPosition === 'after'
+            }"
+            @dragover.prevent="handleTaskStatusDragOver($event, status.id)"
+            @dragleave="handleTaskStatusDragLeave($event, status.id)"
+            @drop.prevent="handleTaskStatusDrop($event, status.id)"
+          >
+            <button
+              type="button"
+              class="task-group-drag-handle task-status-drag-handle ariaLabel"
+              draggable="true"
+              :aria-label="t('taskGroupDialog.dragToSort')"
+              @dragstart="handleTaskStatusDragStart($event, status.id)"
+              @dragend="clearTaskStatusDragState"
+            ><Icon name="dragHandle" width="16" height="16" /></button>
+            <SyInput
+              v-model="status.name"
+              class="task-status-name-input"
+              :class="{ 'is-built-in': status.builtIn }"
+              :aria-label="t('taskScopeDialog.statusName')"
+              :placeholder="status.id"
+              :readonly="status.builtIn"
+              maxlength="40"
+              :style="getTaskStatusInputStyle(status)"
+            />
+            <Icon
+              v-if="!status.builtIn"
+              name="palette"
+              class="task-group-color-button task-status-color-button ariaLabel"
+              width="18"
+              height="18"
+              :style="{ color: resolveTaskStatusColor(status.color) }"
+              role="button"
+              tabindex="0"
+              :aria-label="t('taskScopeDialog.statusColor')"
+              @click="openStatusColorPicker(status.id)"
+              @keydown.enter.prevent="openStatusColorPicker(status.id)"
+              @keydown.space.prevent="openStatusColorPicker(status.id)"
+            />
+            <span v-else class="task-status-built-in-dot" :style="{ backgroundColor: resolveTaskStatusColor(status.color) }" aria-hidden="true" />
+            <button type="button" class="task-group-visibility task-status-visibility ariaLabel" :class="{ active: status.hidden === true }" :aria-label="status.hidden ? t('taskScopeDialog.showStatusColumn') : t('taskScopeDialog.hideStatusColumn')" @click="toggleTaskStatusHidden(status.id)"><Icon :name="status.hidden ? 'eyeOff' : 'eye'" width="16" height="16" /></button>
+            <button v-if="!status.builtIn" type="button" class="task-group-delete task-status-remove ariaLabel" :aria-label="t('common.delete')" @click="removeTaskStatus(status.id)"><Icon name="trash" width="16" height="16" /></button>
+          </div>
+          <SyButton class="task-scope-inline-btn task-status-add" @click="addTaskStatus">{{ t('taskScopeDialog.addStatus') }}</SyButton>
+        </div>
       </div>
 
       <div v-else-if="activeTab === 'pomodoro-settings'" class="task-scope-content pomodoro-settings-tab-content">
@@ -245,20 +300,20 @@
               <span class="task-scope-extra-label">{{ t('focusTimer.microBreak') }}</span>
               <div class="task-scope-auto-desc">{{ t('focusTimer.microBreakDescription') }}</div>
             </div>
-            <SyCheckbox class="task-scope-toggle" :model-value="localMicroBreakEnabled" @update:model-value="localMicroBreakEnabled = $event" />
+            <SySwitch class="task-scope-toggle" :model-value="localMicroBreakEnabled" @update:model-value="localMicroBreakEnabled = $event" />
           </div>
           <div v-if="localMicroBreakEnabled" class="micro-break-options">
             <label class="micro-break-option">
               <span>{{ t('focusTimer.microBreakPopup') }}</span>
-              <SyCheckbox class="task-scope-toggle" :model-value="localMicroBreakPopup" @update:model-value="localMicroBreakPopup = $event" />
+              <SySwitch class="task-scope-toggle" :model-value="localMicroBreakPopup" @update:model-value="localMicroBreakPopup = $event" />
             </label>
             <label class="micro-break-option">
               <span>{{ t('focusTimer.microBreakSystemNotification') }}</span>
-              <SyCheckbox class="task-scope-toggle" :model-value="localMicroBreakSystemNotification" @update:model-value="localMicroBreakSystemNotification = $event" />
+              <SySwitch class="task-scope-toggle" :model-value="localMicroBreakSystemNotification" @update:model-value="localMicroBreakSystemNotification = $event" />
             </label>
             <label class="micro-break-option">
               <span>{{ t('focusTimer.microBreakSound') }}</span>
-              <SyCheckbox class="task-scope-toggle" :model-value="localMicroBreakSound" @update:model-value="localMicroBreakSound = $event" />
+              <SySwitch class="task-scope-toggle" :model-value="localMicroBreakSound" @update:model-value="localMicroBreakSound = $event" />
             </label>
             <label class="micro-break-number">
               <span>{{ t('focusTimer.microBreakDuration') }}</span>
@@ -296,14 +351,14 @@
               <span class="task-scope-extra-label">{{ t('focusTimer.shortBreakPopup') }}</span>
               <div class="task-scope-auto-desc">{{ t('focusTimer.shortBreakPopupDescription') }}</div>
             </div>
-            <SyCheckbox class="task-scope-toggle" :model-value="localShortBreakPopup" @update:model-value="localShortBreakPopup = $event" />
+            <SySwitch class="task-scope-toggle" :model-value="localShortBreakPopup" @update:model-value="localShortBreakPopup = $event" />
           </div>
           <div class="task-scope-auto-item">
             <div class="task-scope-auto-main">
               <span class="task-scope-extra-label">{{ t('focusTimer.focusCompletePopup') }}</span>
               <div class="task-scope-auto-desc">{{ t('focusTimer.focusCompletePopupDescription') }}</div>
             </div>
-            <SyCheckbox class="task-scope-toggle" :model-value="localFocusCompletePopup" @update:model-value="localFocusCompletePopup = $event" />
+            <SySwitch class="task-scope-toggle" :model-value="localFocusCompletePopup" @update:model-value="localFocusCompletePopup = $event" />
           </div>
           <div class="custom-audio-setting">
             <span>{{ t('taskScopeDialog.customWhiteNoise') }}</span>
@@ -409,7 +464,7 @@
               class="task-scope-display-item"
             >
               <span class="task-scope-name">{{ option.label }}</span>
-              <SyCheckbox
+              <SySwitch
                 class="task-scope-toggle"
                 :model-value="isTaskViewVisible(option.id)"
                 @update:model-value="toggleTaskViewVisible(option.id, $event)"
@@ -446,7 +501,7 @@
               >
                 <Icon name="arrowDown" width="14" height="14" class="icon" />
               </button>
-              <SyCheckbox
+              <SySwitch
                 class="task-scope-toggle"
                 :model-value="isSidebarSectionVisible(section.id)"
                 @update:model-value="toggleSidebarSectionVisible(section.id, $event)"
@@ -461,7 +516,7 @@
               <span class="task-scope-extra-label">{{ t('taskScopeDialog.checkinNotePrompt') }}</span>
               <div class="task-scope-auto-desc">{{ t('taskScopeDialog.checkinNotePromptDescription') }}</div>
             </div>
-            <SyCheckbox class="task-scope-toggle" :model-value="localCheckinNotePrompt" @update:model-value="localCheckinNotePrompt = $event" />
+            <SySwitch class="task-scope-toggle" :model-value="localCheckinNotePrompt" @update:model-value="localCheckinNotePrompt = $event" />
           </div>
         </div>
       </div>
@@ -470,14 +525,29 @@
 
     </div>
   </div>
+  <Teleport to="body">
+    <div v-if="colorPickerStatusId" class="task-status-color-modal-mask" @click.self="closeStatusColorPicker">
+      <div class="task-status-color-modal">
+        <div class="task-status-color-modal-header">
+          <span>{{ t('taskScopeDialog.statusColor') }}</span>
+          <button type="button" class="icon-button ariaLabel" :aria-label="t('common.close')" @click="closeStatusColorPicker"><Icon name="close" width="12" height="12" /></button>
+        </div>
+        <div class="task-status-color-modal-grid">
+          <button v-for="option in statusColorOptions" :key="option.value" type="button" class="task-status-color-swatch ariaLabel" :class="{ active: option.value === activeStatusPickerColor }" :style="{ background: option.css }" :aria-label="option.value" @click="selectStatusColor(option.value)" />
+        </div>
+        <div class="task-status-color-modal-actions"><button type="button" class="task-status-color-cancel" @click="closeStatusColorPicker">{{ t('common.cancel') }}</button></div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
-import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
+import SySwitch from '@/components/SiyuanTheme/SySwitch.vue';
 import SySelect from '@/components/SiyuanTheme/SySelect.vue';
+import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import DocumentGroupManagerPanel from '@/components/DocumentGroupManagerPanel.vue';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import GoalManagerPanel from '@/components/GoalManagerPanel.vue';
@@ -486,9 +556,12 @@ import type { DocumentGroup } from '@/documentGroupRepository';
 import type { Goal } from '@/goalRepository';
 import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
 import { normalizeNotebookIds } from '@/utils/taskViewShared';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 import type { TaskDateKeywordConfig } from '@/utils/taskDateParser';
 import type { UserSettings } from '@/utils/userSettings';
+import { normalizeTaskStatusDefinitions, resolveTaskStatusColor, type TaskStatusDefinition } from '@/utils/taskStatus';
+import { TASK_BACKGROUND_COLOR_OPTIONS } from '@/utils/taskGroupShared';
+import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { putFile, readDir, removeFile } from '@/api';
 import { getCustomFocusAudioUrl } from '@/utils/completionSound';
 import { loadFiletreeDocumentTree, type FiletreeDocumentTreeDocument } from '@/utils/filetreeDocumentTree';
@@ -524,6 +597,7 @@ export interface TaskScopeDialogSavePayload {
   defaultTaskCreateNotebook: string;
   defaultTaskCreateDocument: string;
   focusSettings: UserSettings['focus'];
+  taskStatuses: TaskStatusDefinition[];
 }
 
 export interface TaskScopeDisplayOption {
@@ -567,6 +641,7 @@ interface Props {
   defaultTaskCreateNotebook?: string;
   defaultTaskCreateDocument?: string;
   focusSettings?: UserSettings['focus'];
+  taskStatuses?: TaskStatusDefinition[];
   presentation?: 'overlay' | 'sidebar';
   /** Raise only settings opened from an active task editor. */
   elevated?: boolean;
@@ -609,6 +684,15 @@ const localDefaultTaskCreateTarget = ref('last');
 const localDefaultTaskCreateNotebook = ref('');
 const localDefaultTaskCreateDocument = ref('');
 const defaultTaskCreateDocuments = ref<FiletreeDocumentTreeDocument[]>([]);
+const localTaskStatuses = ref<TaskStatusDefinition[]>([]);
+const draggedTaskStatusId = ref<string | null>(null);
+const dragOverTaskStatusId = ref<string | null>(null);
+const dragOverTaskStatusPosition = ref<'before' | 'after' | null>(null);
+const colorPickerStatusId = ref<string | null>(null);
+const statusColorOptions = TASK_BACKGROUND_COLOR_OPTIONS;
+const activeStatusPickerColor = computed(() =>
+  localTaskStatuses.value.find(status => status.id === colorPickerStatusId.value)?.color || ''
+);
 const localMicroBreakEnabled = ref(false);
 const localMicroBreakPopup = ref(true);
 const localMicroBreakSystemNotification = ref(false);
@@ -875,6 +959,104 @@ function buildDateRecognitionKeywords(): TaskDateKeywordConfig {
   };
 }
 
+function addTaskStatus(): void {
+  const ids = new Set(localTaskStatuses.value.map(status => status.id));
+  let index = 1;
+  let id = `custom-${index}`;
+  while (ids.has(id)) id = `custom-${++index}`;
+  localTaskStatuses.value.push({ id, name: '', color: 'pinch-background1' });
+}
+
+function openStatusColorPicker(id: string): void {
+  colorPickerStatusId.value = id;
+}
+
+function closeStatusColorPicker(): void {
+  colorPickerStatusId.value = null;
+}
+
+function selectStatusColor(color: string): void {
+  const status = localTaskStatuses.value.find(item => item.id === colorPickerStatusId.value);
+  if (status && !status.builtIn) status.color = color;
+  closeStatusColorPicker();
+}
+
+function toggleTaskStatusHidden(id: string): void {
+  const status = localTaskStatuses.value.find(item => item.id === id);
+  if (status) status.hidden = !status.hidden;
+}
+
+function getTaskStatusInputStyle(status: TaskStatusDefinition): Record<string, string> {
+  if (status.builtIn) return {};
+  const rawColor = typeof status.color === 'string' ? status.color.trim() : '';
+  if (!rawColor) return {};
+  return {
+    '--group-input-bg': resolveGroupColorCss(rawColor),
+    '--group-input-color': resolveGroupTextColor(rawColor),
+    '--group-input-border': resolveGroupColorLayerCss(rawColor)
+  };
+}
+
+function removeTaskStatus(id: string): void {
+  const status = localTaskStatuses.value.find(item => item.id === id);
+  if (!status || status.builtIn) return;
+  const label = status.name || status.id;
+  if (!window.confirm(formatTemplate('taskScopeDialog.confirmDeleteStatus', { status: label }))) return;
+  localTaskStatuses.value = localTaskStatuses.value.filter(status => status.id !== id);
+}
+
+function clearTaskStatusDragState(): void {
+  draggedTaskStatusId.value = null;
+  dragOverTaskStatusId.value = null;
+  dragOverTaskStatusPosition.value = null;
+}
+
+function handleTaskStatusDragStart(event: DragEvent, id: string): void {
+  draggedTaskStatusId.value = id;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', id);
+  }
+}
+
+function resolveTaskStatusDropPosition(event: DragEvent): 'before' | 'after' {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) return 'after';
+  const rect = target.getBoundingClientRect();
+  return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+}
+
+function handleTaskStatusDragOver(event: DragEvent, id: string): void {
+  if (!draggedTaskStatusId.value || draggedTaskStatusId.value === id) return;
+  dragOverTaskStatusId.value = id;
+  dragOverTaskStatusPosition.value = resolveTaskStatusDropPosition(event);
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleTaskStatusDragLeave(event: DragEvent, id: string): void {
+  if (dragOverTaskStatusId.value !== id) return;
+  const target = event.currentTarget;
+  const related = event.relatedTarget;
+  if (target instanceof Node && related instanceof Node && target.contains(related)) return;
+  dragOverTaskStatusId.value = null;
+  dragOverTaskStatusPosition.value = null;
+}
+
+function handleTaskStatusDrop(event: DragEvent, targetId: string): void {
+  const sourceId = draggedTaskStatusId.value;
+  const position = resolveTaskStatusDropPosition(event);
+  clearTaskStatusDragState();
+  if (!sourceId || sourceId === targetId) return;
+  const next = [...localTaskStatuses.value];
+  const sourceIndex = next.findIndex(status => status.id === sourceId);
+  const targetIndex = next.findIndex(status => status.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+  const [moved] = next.splice(sourceIndex, 1);
+  const targetAfterRemoval = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+  next.splice(position === 'before' ? targetAfterRemoval : targetAfterRemoval + 1, 0, moved);
+  localTaskStatuses.value = next;
+}
+
 function syncLocalSelection(resetActiveTab = false): void {
   autoSaveReady.value = false;
   const visibleNotebookIds = new Set(props.notebooks.map(notebook => notebook.id));
@@ -900,6 +1082,7 @@ function syncLocalSelection(resetActiveTab = false): void {
   localDefaultTaskCreateDocument.value = typeof props.defaultTaskCreateDocument === 'string'
     ? props.defaultTaskCreateDocument.trim()
     : '';
+  localTaskStatuses.value = normalizeTaskStatusDefinitions(props.taskStatuses).map(status => ({ ...status }));
   localMicroBreakEnabled.value = props.focusSettings?.microBreakEnabled === true;
   localMicroBreakPopup.value = props.focusSettings?.microBreakPopup !== false;
   localMicroBreakSystemNotification.value = props.focusSettings?.microBreakSystemNotification === true;
@@ -1251,7 +1434,8 @@ function save(): void {
       customCompletionSoundVolume: normalizeCustomAudioVolume(localCustomCompletionSoundVolume.value),
       customMicroBreakSoundFile: localCustomMicroBreakSoundFile.value || undefined,
       customMicroBreakSoundVolume: normalizeCustomAudioVolume(localCustomMicroBreakSoundVolume.value)
-    }
+    },
+    taskStatuses: normalizeTaskStatusDefinitions(localTaskStatuses.value)
   });
 }
 
@@ -1335,7 +1519,7 @@ watch([
   localExcludedNotebookIds, localShowCompletedTasks, localAutoRecognizeTaskDate,
   localTaskCompletionSoundEnabled, localStartKeywordsText, localDueKeywordsText,
   localRangeKeywordsText, localAfternoonKeywordsText, localShowDocumentGroupNotebookPath,
-  localDocumentGroups, localGoals, localHiddenTaskViewIds, localHiddenSidebarSectionIds,
+  localDocumentGroups, localGoals, localTaskStatuses, localHiddenTaskViewIds, localHiddenSidebarSectionIds,
   localSidebarSectionOrder, localDefaultTaskCreateTarget, localDefaultTaskCreateNotebook,
   localDefaultTaskCreateDocument, localMicroBreakEnabled, localMicroBreakPopup,
   localMicroBreakSystemNotification, localMicroBreakSound, localMicroBreakMinIntervalMinutes,
@@ -1872,6 +2056,210 @@ watch([
   flex: 0 0 52px;
   min-height: 52px;
   padding: 0 18px;
+}
+
+.task-status-settings {
+  padding-bottom: 14px;
+}
+
+.task-status-settings-desc {
+  padding: 0 18px 10px;
+}
+
+.task-status-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+}
+
+.task-status-name-input {
+  min-width: 0;
+  flex: 1;
+  background: var(--group-input-bg, var(--b3-list-hover)) !important;
+  color: var(--group-input-color, var(--b3-theme-on-background));
+  border-color: var(--group-input-border, var(--b3-border-color));
+}
+
+.task-status-name-input::placeholder {
+  color: var(--group-input-color, var(--b3-theme-on-background));
+  opacity: 0.7;
+}
+
+.task-status-name-input.is-built-in {
+  cursor: default;
+  color: var(--b3-theme-on-surface-light);
+}
+
+.task-status-color-button {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  fill: currentColor;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.task-status-color-button:hover { background: var(--b3-list-hover); }
+.task-status-color-button:focus-visible { outline: 2px solid var(--b3-theme-primary); outline-offset: 2px; }
+
+.task-status-built-in-dot {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border-radius: 50%;
+}
+
+.task-status-remove {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-status-setting-row {
+  position: relative;
+}
+
+.task-status-setting-row.is-dragging {
+  opacity: 0.45;
+}
+
+.task-status-setting-row.is-drag-over-before::before,
+.task-status-setting-row.is-drag-over-after::after {
+  position: absolute;
+  right: 14px;
+  left: 14px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--b3-theme-primary);
+  content: '';
+}
+
+.task-status-setting-row.is-drag-over-before::before { top: 0; }
+.task-status-setting-row.is-drag-over-after::after { bottom: 0; }
+
+.task-status-drag-handle {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: grab;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-status-drag-handle:hover { background: var(--b3-list-hover); }
+.task-status-drag-handle:active { cursor: grabbing; }
+.task-status-drag-handle :deep(svg) { width: 16px; height: 16px; fill: currentColor; }
+
+.task-status-remove:hover {
+  background: var(--b3-list-hover);
+}
+
+.task-status-remove :deep(svg) { fill: currentColor; }
+
+.task-status-visibility {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-status-visibility:hover,
+.task-status-visibility.active {
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+}
+
+.task-status-visibility :deep(svg) { width: 16px; height: 16px; fill: currentColor; }
+
+.task-status-color-modal-mask {
+  position: fixed;
+  z-index: 1001;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.task-status-color-modal {
+  width: min(320px, calc(100vw - 32px));
+  padding: 14px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 12px;
+  background: var(--b3-theme-background);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.task-status-color-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.task-status-color-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
+.task-status-color-swatch {
+  height: 30px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.task-status-color-swatch.active { border-color: var(--b3-theme-primary); }
+
+.task-status-color-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.task-status-color-cancel {
+  border: 0;
+  border-radius: 5px;
+  padding: 6px 10px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+
+.task-status-add {
+  margin: 6px 18px 0;
 }
 
 .pomodoro-settings-tab-content {

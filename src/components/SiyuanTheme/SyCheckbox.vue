@@ -1,13 +1,10 @@
 <template>
-  <input
-    class="b3-switch fn__flex-center"
-    type="checkbox"
-    :checked="modelValue"
-    @input="$emit('update:modelValue', ($event.target as HTMLInputElement).checked)"
-  />
+  <SySwitch v-bind="$attrs" :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" />
 </template>
 
 <script setup lang="ts">
-defineProps(['modelValue'])
-defineEmits(['update:modelValue'])
+import SySwitch from './SySwitch.vue';
+
+defineProps<{ modelValue: boolean }>();
+const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>();
 </script>

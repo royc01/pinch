@@ -4,7 +4,7 @@ import {
 } from "siyuan";
 import "@/index.scss";
 import PluginInfoString from '@/../plugin.json'
-import { destroy, init } from '@/main'
+import { destroy, init, onLayoutReady } from '@/main'
 import { configurePinchKernelRpc } from '@/kernelRpc'
 import { publishTaskChange, resetTaskChangeCoordinator } from '@/utils/taskChangeCoordinator'
 
@@ -61,6 +61,7 @@ export default class HabitTrackerPlugin extends Plugin {
 
   onLayoutReady() {
     this.setupWebSocketListener();
+    onLayoutReady(this);
   }
 
   private setupWebSocketListener() {

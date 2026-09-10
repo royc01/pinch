@@ -1,7 +1,7 @@
 ﻿<template>
   <div
     :class="rootClasses"
-    :draggable="draggable"
+    :draggable="draggable && !isDescriptionEditing"
     @dragstart="handleDragStart"
     @dragend="handleDragEnd"
     @contextmenu="handleContextMenu"
@@ -55,7 +55,7 @@
           >
             <Icon name="repeat" class="task-repeat-icon" width="12" height="12" />
           </span>
-          <span v-if="showStatusBadge" class="status-badge" :class="`status-${task.status}`">
+          <span v-if="showStatusBadge" class="status-badge" :class="`status-${task.status}`" :style="statusBadgeStyle">
             {{ statusBadgeText }}
           </span>
           <span v-if="showProgressText" class="task-progress-text">{{ progressText }}</span>
@@ -80,12 +80,12 @@
         class="task-description"
         :class="{
           collapsed: isCollapsed,
-          'is-editing': descriptionEditing
+          'is-editing': isDescriptionEditing
         }"
         @click.stop="handleDescriptionStart"
       >
         <textarea
-          v-if="descriptionEditing"
+          v-if="isDescriptionEditing"
           ref="descriptionTextareaRef"
           class="task-description-inline-edit"
           data-disable-description-contextmenu
@@ -249,7 +249,7 @@ import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { getTaskTitlePlainText, sanitizeTaskHtml } from '@/utils/taskHtml';
 import { getTaskPriorityLabel } from '@/utils/taskPriority';
-import { getTaskStatusLabel } from '@/utils/taskStatus';
+import { getTaskStatusDefinitions, getTaskStatusLabel } from '@/utils/taskStatus';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { getTaskReminderLabel } from '@/utils/taskReminder';
 import { resolveTaskTagIds } from '@/utils/taskTags';
@@ -309,6 +309,7 @@ const emit = defineEmits<{
   subtaskOpen: [task: Task, subtask: SubTask];
   dragstart: [event: DragEvent, task: Task];
   dragend: [event: DragEvent, task: Task];
+  contextMenu: [task: Task, event: MouseEvent];
 }>();
 
 const variant = computed(() => props.variant ?? 'sidebar');
@@ -331,7 +332,7 @@ const canExpand = computed(() => {
 const showDescription = computed(() => {
   const hasDescription = typeof task.value.description === 'string' && task.value.description.trim().length > 0;
   if (props.showDescription === false) return false;
-  if (props.descriptionEditing) return true;
+  if (isDescriptionEditing.value) return true;
   if (props.showDescription !== undefined) {
     return props.showDescription && hasDescription;
   }
@@ -346,7 +347,7 @@ const showSubtasks = computed(() => {
   return !!props.expanded;
 });
 const isCollapsed = computed(() => {
-  if (props.descriptionEditing) {
+  if (isDescriptionEditing.value) {
     return false;
   }
   if (isKanban.value) {
@@ -582,12 +583,22 @@ const statusBadgeText = computed(() => {
   if (props.showStatusBadge !== true) {
     return '';
   }
-  if (['in-progress', 'delayed', 'cancelled'].includes(task.value.status)) {
+  const status = getTaskStatusDefinitions().find(item => item.id === task.value.status);
+  if (status && task.value.status !== 'pending' && task.value.status !== 'completed') {
     return getTaskStatusLabel(task.value.status, t);
   }
   return '';
 });
 const showStatusBadge = computed(() => statusBadgeText.value.length > 0);
+const statusBadgeStyle = computed<Record<string, string>>(() => {
+  const status = getTaskStatusDefinitions().find(item => item.id === task.value.status);
+  if (!status || status.builtIn) return {};
+  return {
+    background: resolveGroupColorCss(status.color),
+    color: resolveGroupTextColor(status.color),
+    borderColor: resolveGroupColorLayerCss(status.color)
+  };
+});
 
 const showProgressText = computed(() => hasSubtasks.value);
 const showBadges = computed(() => {
@@ -671,10 +682,27 @@ const rootClasses = computed(() => [
 
 const descriptionTextareaRef = ref<HTMLTextAreaElement | null>(null);
 const descriptionBodyRef = ref<HTMLElement | null>(null);
+const localDescriptionEditing = ref(false);
+let pendingDescriptionEdit = false;
+const isDescriptionEditing = computed(() => props.descriptionEditing === true || localDescriptionEditing.value);
 let descriptionResizeObserver: ResizeObserver | null = null;
 
 watch(
   () => props.descriptionEditing,
+  (isEditing) => {
+    if (isEditing) {
+      pendingDescriptionEdit = false;
+      localDescriptionEditing.value = true;
+      return;
+    }
+    if (!pendingDescriptionEdit) {
+      localDescriptionEditing.value = false;
+    }
+  }
+);
+
+watch(
+  isDescriptionEditing,
   (isEditing) => {
     if (!isEditing) return;
     void nextTick(() => {
@@ -688,7 +716,7 @@ watch(
 );
 
 watch(
-  [variant, showDescription, () => props.descriptionEditing, () => task.value.description, () => props.expanded],
+  [variant, showDescription, isDescriptionEditing, () => task.value.description, () => props.expanded],
   () => {
     scheduleDescriptionExpandabilityMeasure();
   },
@@ -726,7 +754,7 @@ function updateDescriptionExpandability(): void {
     descriptionCanExpand.value = false;
     return;
   }
-  if (props.descriptionEditing) {
+  if (isDescriptionEditing.value) {
     return;
   }
   const descriptionEl = descriptionBodyRef.value;
@@ -769,7 +797,18 @@ function handleToggleStatus(event: MouseEvent) {
 }
 
 function handleDescriptionStart() {
+  openDescriptionEditor();
   emit('descriptionStartEdit', task.value);
+}
+
+function openDescriptionEditor(): void {
+  pendingDescriptionEdit = true;
+  localDescriptionEditing.value = true;
+}
+
+function closeDescriptionEditor(): void {
+  pendingDescriptionEdit = false;
+  localDescriptionEditing.value = false;
 }
 
 function handleDescriptionInput(event: Event) {
@@ -777,10 +816,12 @@ function handleDescriptionInput(event: Event) {
 }
 
 function handleDescriptionSave() {
+  pendingDescriptionEdit = false;
   emit('descriptionSave', task.value);
 }
 
 function handleDescriptionCancel() {
+  closeDescriptionEditor();
   emit('descriptionCancel', task.value.id);
 }
 
@@ -800,8 +841,13 @@ function handleContextMenu(event: MouseEvent) {
     return;
   }
   event.preventDefault();
-  emit('descriptionStartEdit', task.value);
+  emit('contextMenu', task.value, event);
 }
+
+defineExpose({
+  openDescriptionEditor,
+  closeDescriptionEditor
+});
 
 function handleSubtaskToggle(subtask: SubTask) {
   emit('subtaskToggle', task.value, subtask);
@@ -812,7 +858,10 @@ function handleSubtaskOpen(subtask: SubTask) {
 }
 
 function handleDragStart(event: DragEvent) {
-  if (!props.draggable) return;
+  if (!props.draggable || isDescriptionEditing.value) {
+    event.preventDefault();
+    return;
+  }
   emit('dragstart', event, task.value);
 }
 
@@ -1157,23 +1206,23 @@ function getTaskDateTimestamp(value: unknown): number | null {
 
 .task-description-inline-edit {
   width: 100%;
-  min-height: 72px;
+  min-height: 56px;
   margin: 0;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: var(--b3-theme-on-surface);
-  font-size: 13px;
-  line-height: 1.5;
+  padding: 6px 8px;
+  border: 1px solid var(--b3-theme-border);
+  border-radius: 6px;
+  background: var(--b3-list-hover);
+  color: var(--b3-theme-on-background);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.45;
   resize: vertical;
   box-sizing: border-box;
   outline: none;
 }
 
 .task-description-inline-edit:focus {
-  background: transparent;
-  box-shadow: inset 0 0 0 1px var(--b3-theme-primary);
+  border-color: #f98f7a;
 }
 
 .task-description.collapsed {
@@ -1220,6 +1269,7 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .status-badge {
   display: flex;
   align-items: center;
+  border: 1px solid transparent;
   border-radius: 6px;
   font-weight: 500;
   gap: 2px;

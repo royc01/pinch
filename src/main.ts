@@ -720,6 +720,12 @@ function registerTaskViewHotkeyCommands(pluginInstance: Plugin): void {
   });
 }
 
+function registerTaskCommands(pluginInstance: Plugin): void {
+  registerTaskEditorHotkeyCommand(pluginInstance);
+  registerGlobalTaskCreateCommand(pluginInstance);
+  registerTaskViewHotkeyCommands(pluginInstance);
+}
+
 function createMobileBreadcrumbTaskButton() {
   let longPressTimer: number | null = null;
   let handledLongPress = false;
@@ -954,9 +960,6 @@ export function init(pluginInstance: Plugin) {
   usePlugin(pluginInstance);
   registerIcons(pluginInstance);
   registerTopBarViewButton(pluginInstance);
-  registerTaskEditorHotkeyCommand(pluginInstance);
-  registerGlobalTaskCreateCommand(pluginInstance);
-  registerTaskViewHotkeyCommands(pluginInstance);
   registerTaskBlockIconMenu(pluginInstance);
   registerTaskQuickMetaInputTrigger();
   startMobileBreadcrumbButtonObserver();
@@ -1095,6 +1098,10 @@ function prepareMobileKanbanDialogChrome(dialog: Dialog) {
       closeMobileKanbanDialog();
     });
   }
+}
+
+export function onLayoutReady(pluginInstance: Plugin): void {
+  registerTaskCommands(pluginInstance);
 }
 
 function openKanbanMobileDialog(): boolean {

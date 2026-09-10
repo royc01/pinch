@@ -31,6 +31,7 @@ import { translate } from "@/composables/useI18n";
 import { enqueueStorageMutation } from "@/storageMutationCoordinator";
 import { isMissingPluginStorageValue, isPluginLifecycleEndedError } from "@/utils/pluginStorage";
 import { getAutomaticScheduledTaskStatus } from "@/utils/taskStatusAutomation";
+import { isClosedTaskStatus, isKnownTaskStatus } from "@/utils/taskStatus";
 import { formatDate as formatLocalDate } from "@/composables/useDateUtils";
 import { awardTaskCompletion } from "@/rewardRepository";
 import {
@@ -1898,7 +1899,8 @@ export interface EmojiConfig {
   [key: number]: unknown;
 }
 
-export type TaskStatus = 'pending' | 'in-progress' | 'delayed' | 'completed' | 'cancelled';
+/** A status is user-configurable; built-in values remain supported for compatibility. */
+export type TaskStatus = string;
 export type TaskPriority = 'none' | 'high' | 'medium' | 'low';
 export type TaskType = 'standalone' | 'block';
 const TASK_COMPLETED_AT_ATTR = 'custom-task-completed-at';
@@ -1909,7 +1911,7 @@ export function buildTaskStatusAttrs(
   completedAt?: string,
   automatic = false
 ): Record<string, string> {
-  if (status === 'completed') {
+  if (isClosedTaskStatus(status)) {
     const normalizedCompletedAt = typeof completedAt === 'string' && completedAt.trim().length > 0
       ? completedAt.trim()
       : new Date().toISOString();
@@ -1928,7 +1930,7 @@ export function buildTaskStatusAttrs(
 }
 
 function taskStatusToTaskMarker(status: TaskStatus | undefined): " " | "x" {
-  return status === 'completed' ? 'x' : ' ';
+  return isClosedTaskStatus(status) ? 'x' : ' ';
 }
 
 async function syncTaskListItemMarkerByStatus(
@@ -3271,16 +3273,15 @@ export class TaskRepository {
     markdown: string,
     completedByDOM: boolean | null
   ): TaskStatus {
-    const validStatuses: TaskStatus[] = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
     const attrStatus = attrs['custom-task-status'] as TaskStatus | undefined;
-    const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
+    const hasValidAttrStatus = !!(attrStatus && isKnownTaskStatus(attrStatus));
     const markdownMatch = markdown?.match(/\[(x|X| )\]/);
     const markdownCompleted = markdownMatch ? (markdownMatch[1] === 'x' || markdownMatch[1] === 'X') : null;
     const automatic = this.parseTaskBooleanFlag(attrs[TASK_STATUS_AUTOMATIC_ATTR]);
 
     // Completed signals from DOM/Markdown are authoritative.
     if (completedByDOM === true || markdownCompleted === true) {
-      return 'completed';
+      return hasValidAttrStatus && isClosedTaskStatus(attrStatus) ? attrStatus : 'completed';
     }
 
     if (completedByDOM === false || markdownCompleted === false) {
@@ -3292,14 +3293,14 @@ export class TaskRepository {
           dueTime: attrs['custom-task-due-time']
         });
       }
-      if (hasValidAttrStatus && attrStatus !== 'completed') {
+      if (hasValidAttrStatus && !isClosedTaskStatus(attrStatus)) {
         return attrStatus!;
       }
       return 'pending';
     }
 
     if (hasValidAttrStatus) {
-      if (automatic && attrStatus !== 'completed') {
+      if (automatic && !isClosedTaskStatus(attrStatus)) {
         return getAutomaticScheduledTaskStatus({
           startDate: attrs['custom-task-start-date'],
           startTime: attrs['custom-task-start-time'],
@@ -3858,7 +3859,7 @@ export class TaskRepository {
     const tasks = data.tasks.map((t: Task) => ({
       ...t,
       icon: unicodeToEmoji(t.icon),
-      completedAt: t.completedAt || (t.status === 'completed' ? this.parseBlockDateTime(t.updatedAt) || undefined : undefined)
+      completedAt: t.completedAt || (isClosedTaskStatus(t.status) ? this.parseBlockDateTime(t.updatedAt) || undefined : undefined)
     }));
 
     this.memoryCache = { tasks, timestamp: now, detailLevel: 'full' };
@@ -4747,10 +4748,8 @@ export class TaskRepository {
             }
           }
           
-          const validStatuses = ['pending', 'in-progress', 'delayed', 'completed', 'cancelled'];
-          
-          const attrStatus = attrs['custom-task-status'] as 'pending' | 'in-progress' | 'delayed' | 'completed' | 'cancelled' | undefined;
-          const hasValidAttrStatus = !!(attrStatus && validStatuses.includes(attrStatus));
+          const attrStatus = attrs['custom-task-status'] as TaskStatus | undefined;
+          const hasValidAttrStatus = !!(attrStatus && isKnownTaskStatus(attrStatus));
           const isCompletedBySignals =
             isCurrentCompleted === true ||
             apiDomStatus === 'completed' ||
@@ -4761,9 +4760,9 @@ export class TaskRepository {
             markdownStatus === 'pending';
 
           if (isCompletedBySignals) {
-            status = 'completed';
+            status = hasValidAttrStatus && isClosedTaskStatus(attrStatus) ? attrStatus : 'completed';
           } else if (isUncheckedBySignals) {
-            if (hasValidAttrStatus && attrStatus !== 'completed') {
+            if (hasValidAttrStatus && !isClosedTaskStatus(attrStatus)) {
               status = attrStatus!;
             } else {
               status = 'pending';
@@ -4964,13 +4963,13 @@ export class TaskRepository {
     if (task.status && task.status !== 'pending') {
       attrs['custom-task-status'] = task.status;
     }
-    if (task.status === 'completed') {
+    if (isClosedTaskStatus(task.status)) {
       attrs[TASK_COMPLETED_AT_ATTR] = typeof task.completedAt === 'string' && task.completedAt.trim().length > 0
         ? task.completedAt.trim()
         : new Date().toISOString();
     }
 
-    const taskMarkdown = task.status === 'completed' ? `- [x] ${trimmedTitle}` : `- [ ] ${trimmedTitle}`;
+    const taskMarkdown = isClosedTaskStatus(task.status) ? `- [x] ${trimmedTitle}` : `- [ ] ${trimmedTitle}`;
 
     try {
       log_debug('Creating block task', { notebookId, docPath, taskMarkdown });
@@ -5285,7 +5284,7 @@ export class TaskRepository {
       return '';
     }
     const completedAt = await setRepeatInstanceStatus(task.repeatSeriesId, task.repeatInstanceDate, status);
-    if (status === 'completed') {
+    if (isClosedTaskStatus(status)) {
       void awardTaskCompletion({
         ...task,
         status,

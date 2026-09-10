@@ -55,7 +55,7 @@
                     class="table-column-settings-item"
                   >
                     <span class="table-column-settings-item-label">{{ column.label }}</span>
-                    <SyCheckbox
+                    <SySwitch
                       class="table-column-settings-switch"
                       :model-value="isTableColumnVisible(column.key)"
                       :aria-label="getColumnVisibilityAria(column.label)"
@@ -73,9 +73,12 @@
               </div>
             </div>
           </th>
-          <th v-if="column.key === 'title'" class="col-title is-resizable" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key">
+          <th v-if="column.key === 'title'" class="col-title sortable is-resizable" :class="{ active: sortColumn === 'title' }" :draggable="isTableColumnDraggable(column.key)" :data-table-column="column.key" @click="toggleSort('title')">
             <div class="th-content">
               <span>{{ getTableColumnLabel('title') }}</span>
+              <span class="sort-indicator" :class="getSortIndicatorClass('title')">
+                <Icon name="sortIndicator" width="14" height="14" />
+              </span>
             </div>
             <button
               type="button"
@@ -342,11 +345,17 @@
           <tr
             v-if="row.kind === 'group'"
             class="group-row"
-            :class="{ 'task-drag-over': tableTaskDragOverGroupKey === row.group.key }"
+            :class="{
+              'task-drag-over': tableTaskDragOverGroupKey === row.group.key,
+              'group-row-reorder-dragging': isTableGroupBeingReordered(row.group),
+              'group-row-reorder-target': isTableGroupReorderTarget(row.group),
+              'group-row-reorder-before': isTableGroupReorderBefore(row.group),
+              'group-row-reorder-after': isTableGroupReorderAfter(row.group)
+            }"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
-            @dragover="handleTableGroupDragOver($event, row.group)"
-            @dragleave="handleTableGroupDragLeave($event, row.group.key)"
-            @drop="handleTableGroupDrop($event, row.group)"
+            @dragover="handleTableGroupRowDragOver($event, row.group)"
+            @dragleave="handleTableGroupRowDragLeave($event, row.group)"
+            @drop="handleTableGroupRowDrop($event, row.group)"
           >
             <td :colspan="tableColumnCount">
               <button
@@ -354,7 +363,10 @@
                 class="group-row-content"
                 :style="row.group.style"
                 :aria-expanded="!isGroupCollapsed(row.group.id)"
+                :draggable="canReorderTableGroup(row.group)"
                 @click="toggleGroupCollapse(row.group.id)"
+                @dragstart.stop="handleTableGroupReorderDragStart($event, row.group)"
+                @dragend="clearTableGroupReorderDragState"
               >
                 <span class="group-row-arrow" :class="{ collapsed: isGroupCollapsed(row.group.id) }" aria-hidden="true">
                   <Icon name="chevronDown" width="16" height="16" />
@@ -855,7 +867,7 @@ import { getFocusTimerData, Task, TaskGroup, type FocusSessionRecord } from '@/a
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import Icon from '@/components/Icon.vue';
 import EmojiIcon from '@/components/EmojiIcon.vue';
-import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
+import SySwitch from '@/components/SiyuanTheme/SySwitch.vue';
 import PriorityPopover from '@/components/PriorityPopover.vue';
 import StatusPopover from '@/components/StatusPopover.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
@@ -878,7 +890,8 @@ import { resolveGroupColorCss, resolveGroupTextColor } from '@/utils/groupColor'
 import {
   TASK_GROUP_NONE_ID,
   buildTaskGroupBadges,
-  buildTaskGroupOptions
+  buildTaskGroupOptions,
+  resolveTaskGroupDisplayOrder
 } from '@/utils/taskGroupShared';
 import TaskTitleRich from '@/components/TaskTitleRich.vue';
 import { getTaskPriorityLabel } from '@/utils/taskPriority';
@@ -910,6 +923,7 @@ import {
 interface Props {
   tasks: Task[];
   taskGroups?: TaskGroup[];
+  taskGroupOrderIds?: string[];
   goals?: Goal[];
   goalIdsForTask?: (task: Task) => string[];
   groupMode?: TaskViewGroupMode;
@@ -1241,6 +1255,7 @@ const emit = defineEmits<{
   subtaskDueDateUpdate: [task: Task, subtask: TableSubtask, dueDate: string];
   subtaskStartTimeUpdate: [task: Task, subtask: TableSubtask, startTime: string];
   subtaskDueTimeUpdate: [task: Task, subtask: TableSubtask, dueTime: string];
+  sortChange: [field: TaskSortField, direction: TaskSortDirection];
   'manage-groups': [];
   'manage-goals': [];
   groupCreateTask: [payload: { mode: 'group' | 'heading'; groupId: string; groupLabel: string; sampleTaskId?: string }];
@@ -1251,6 +1266,7 @@ const emit = defineEmits<{
   dueTimeUpdate: [task: Task, dueTime: string];
   repeatRuleUpdate: [task: Task, repeat: RepeatFrequency | RepeatRuleInput];
   taskDrop: [payload: { source: Task; target: Task; position: TaskDropPosition }];
+  groupReorder: [payload: { sourceGroupId: string; targetGroupId: string; position: 'before' | 'after' }];
 }>();
 
 const expandedTasks = ref<Set<string>>(new Set());
@@ -1262,7 +1278,7 @@ const priorityPopover = ref<TablePopoverTarget | null>(null);
 const statusPopover = ref<TablePopoverTarget | null>(null);
 const groupPopover = ref<TablePopoverTarget | null>(null);
 const goalPopover = ref<TablePopoverTarget | null>(null);
-type SortableColumn = 'priority' | 'status' | 'frequency' | 'group' | 'goal' | 'startDate' | 'dueDate' | 'completedAt' | 'createdAt' | 'updatedAt';
+type SortableColumn = 'title' | 'priority' | 'status' | 'frequency' | 'group' | 'goal' | 'startDate' | 'dueDate' | 'completedAt' | 'createdAt' | 'updatedAt';
 
 const sortColumn = ref<SortableColumn | null>(null);
 const sortDirection = ref<'asc' | 'desc'>('asc');
@@ -1272,6 +1288,9 @@ const tableTaskDropTarget = ref<{ taskId: string | null; position: TaskDropPosit
   position: null
 });
 const tableTaskDragOverGroupKey = ref<string | null>(null);
+const tableDraggedGroupId = ref<string | null>(null);
+const tableGroupDragOverId = ref<string | null>(null);
+const tableGroupDragOverPosition = ref<'before' | 'after' | null>(null);
 const tableContainerRef = ref<HTMLElement | null>(null);
 const defaultTableColumnWidths = ref<Partial<Record<TableColumnKey, number>>>({});
 const tableColumnWidths = ref<Partial<Record<TableColumnKey, number>>>({});
@@ -1628,7 +1647,8 @@ function clearSortForHiddenColumn(
     dueDate: 'dueDate',
     completedDate: 'completedAt',
     createdDate: 'createdAt',
-    updatedDate: 'updatedAt'
+    updatedDate: 'updatedAt',
+    title: 'title'
   };
   if (sortColumn.value === sortColumnByTableColumn[column]) {
     sortColumn.value = null;
@@ -1893,9 +1913,7 @@ const documentGroupOrderIndex = computed(() => new Map(
 ));
 const documentIconColorVersion = ref(0);
 const customGroupOrder = computed(() => {
-  const order: Array<{ id: string; label: string; style?: Record<string, string> }> = [
-    { id: '', label: getNoGroupLabel() }
-  ];
+  const groupsById = new Map<string, { id: string; label: string; style?: Record<string, string> }>();
   for (const group of props.taskGroups || []) {
     if (!group || !group.id) continue;
     const background = resolveGroupColorCss(group.color || '');
@@ -1904,13 +1922,21 @@ const customGroupOrder = computed(() => {
       '--group-badge-bg': background,
       '--group-badge-color': color
     } : undefined;
-    order.push({
+    groupsById.set(group.id, {
       id: group.id,
       label: group.name?.trim() || getGroupFallbackLabel(),
       style
     });
   }
-  return order;
+  return resolveTaskGroupDisplayOrder(
+    [TASK_GROUP_NONE_ID, ...groupsById.keys()],
+    props.taskGroupOrderIds
+  ).map((groupId) => {
+    if (groupId === TASK_GROUP_NONE_ID) {
+      return { id: '', label: getNoGroupLabel() };
+    }
+    return groupsById.get(groupId)!;
+  });
 });
 
 const goalPopoverOptions = computed(() => (
@@ -2047,6 +2073,8 @@ const sortedTasks = computed(() => {
 
     if (sortColumn.value === 'priority') {
       comparison = (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99);
+    } else if (sortColumn.value === 'title') {
+      comparison = a.title.localeCompare(b.title, 'zh-CN', { sensitivity: 'base' });
     } else if (sortColumn.value === 'status') {
       comparison = (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
     } else if (sortColumn.value === 'frequency') {
@@ -2216,6 +2244,118 @@ function handleTableGroupDragLeave(event: DragEvent, groupKey: string): void {
 function handleTableGroupDrop(event: DragEvent, group: TableTaskGroupSection): void {
   const target = getTableGroupDropTarget(group);
   if (target) emitTableTaskDrop(event, target, 'before');
+}
+
+function getTableGroupReorderId(group: TableTaskGroupSection): string {
+  if (group.mode !== 'group') return '';
+  return group.id || TASK_GROUP_NONE_ID;
+}
+
+function canReorderTableGroup(group: TableTaskGroupSection): boolean {
+  return resolvedGroupMode.value === 'group' && getTableGroupReorderId(group).length > 0;
+}
+
+function isTableGroupReorderTarget(group: TableTaskGroupSection): boolean {
+  const groupId = getTableGroupReorderId(group);
+  return !!groupId && tableGroupDragOverId.value === groupId;
+}
+
+function isTableGroupReorderBefore(group: TableTaskGroupSection): boolean {
+  return isTableGroupReorderTarget(group) && tableGroupDragOverPosition.value === 'before';
+}
+
+function isTableGroupReorderAfter(group: TableTaskGroupSection): boolean {
+  return isTableGroupReorderTarget(group) && tableGroupDragOverPosition.value === 'after';
+}
+
+function isTableGroupBeingReordered(group: TableTaskGroupSection): boolean {
+  const groupId = getTableGroupReorderId(group);
+  return !!groupId && tableDraggedGroupId.value === groupId;
+}
+
+function clearTableGroupReorderDragState(): void {
+  tableDraggedGroupId.value = null;
+  tableGroupDragOverId.value = null;
+  tableGroupDragOverPosition.value = null;
+}
+
+function getTableGroupDropPosition(event: DragEvent): 'before' | 'after' {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) return 'after';
+  const rect = target.getBoundingClientRect();
+  return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+}
+
+function handleTableGroupReorderDragStart(event: DragEvent, group: TableTaskGroupSection): void {
+  if (!canReorderTableGroup(group)) {
+    event.preventDefault();
+    return;
+  }
+  const groupId = getTableGroupReorderId(group);
+  tableDraggedGroupId.value = groupId;
+  tableGroupDragOverId.value = null;
+  tableGroupDragOverPosition.value = null;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', groupId);
+  }
+}
+
+function handleTableGroupReorderDragOver(event: DragEvent, group: TableTaskGroupSection): void {
+  const targetGroupId = getTableGroupReorderId(group);
+  if (!tableDraggedGroupId.value || !canReorderTableGroup(group) || targetGroupId === tableDraggedGroupId.value) {
+    tableGroupDragOverId.value = null;
+    tableGroupDragOverPosition.value = null;
+    return;
+  }
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  tableGroupDragOverId.value = targetGroupId;
+  tableGroupDragOverPosition.value = getTableGroupDropPosition(event);
+}
+
+function handleTableGroupReorderDragLeave(event: DragEvent, group: TableTaskGroupSection): void {
+  const groupId = getTableGroupReorderId(group);
+  if (!groupId || tableGroupDragOverId.value !== groupId) return;
+  const target = event.currentTarget;
+  const relatedTarget = event.relatedTarget;
+  if (target instanceof Node && relatedTarget instanceof Node && target.contains(relatedTarget)) return;
+  tableGroupDragOverId.value = null;
+  tableGroupDragOverPosition.value = null;
+}
+
+function handleTableGroupReorderDrop(event: DragEvent, group: TableTaskGroupSection): void {
+  const sourceGroupId = tableDraggedGroupId.value;
+  const targetGroupId = getTableGroupReorderId(group);
+  const position = getTableGroupDropPosition(event);
+  clearTableGroupReorderDragState();
+  if (!sourceGroupId || !targetGroupId || sourceGroupId === targetGroupId || !canReorderTableGroup(group)) return;
+  event.preventDefault();
+  emit('groupReorder', { sourceGroupId, targetGroupId, position });
+}
+
+function handleTableGroupRowDragOver(event: DragEvent, group: TableTaskGroupSection): void {
+  if (tableDraggedGroupId.value) {
+    handleTableGroupReorderDragOver(event, group);
+    return;
+  }
+  handleTableGroupDragOver(event, group);
+}
+
+function handleTableGroupRowDragLeave(event: DragEvent, group: TableTaskGroupSection): void {
+  if (tableDraggedGroupId.value) {
+    handleTableGroupReorderDragLeave(event, group);
+    return;
+  }
+  handleTableGroupDragLeave(event, group.key);
+}
+
+function handleTableGroupRowDrop(event: DragEvent, group: TableTaskGroupSection): void {
+  if (tableDraggedGroupId.value) {
+    handleTableGroupReorderDrop(event, group);
+    return;
+  }
+  handleTableGroupDrop(event, group);
 }
 
 const expandableTasks = computed(() =>
@@ -3366,6 +3506,7 @@ function toggleSort(column: SortableColumn) {
     sortColumn.value = column;
     sortDirection.value = 'asc';
   }
+  emit('sortChange', sortColumn.value || 'default', sortDirection.value);
 }
 
 function getSortIndicatorClass(column: SortableColumn): Record<string, boolean> {
@@ -4586,6 +4727,31 @@ defineExpose({
   text-align: left;
   cursor: pointer;
   border-radius: 10px;
+}
+
+.group-row-content[draggable='true'] {
+  cursor: grab;
+  user-select: none;
+}
+
+.group-row-content[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.group-row-reorder-dragging .group-row-content {
+  opacity: 0.58;
+}
+
+.group-row-reorder-target .group-row-content {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.group-row-reorder-before .group-row-content {
+  box-shadow: inset 0 3px 0 #3b82f6;
+}
+
+.group-row-reorder-after .group-row-content {
+  box-shadow: inset 0 -3px 0 #3b82f6;
 }
 
 .group-row.task-drag-over .group-row-content {

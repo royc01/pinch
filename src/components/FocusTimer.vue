@@ -6,7 +6,7 @@
         <div class="stats-header-actions">
           <div class="mini-focus-toggle">
             <span class="mini-focus-label">{{ t('focusTimer.enableMini') }}</span>
-           <SyCheckbox
+           <SySwitch
               :model-value="miniEnabled"
               @update:model-value="emit('update:miniEnabled', $event)"
             />
@@ -150,12 +150,10 @@
                   </span>
                 </button>
                 <label class="linked-habit-banner__preset-toggle">
-                  <input
-                    class="b3-switch fn__flex-center"
-                    type="checkbox"
-                    :checked="isTargetPreset(target)"
+                  <SySwitch
+                    :model-value="isTargetPreset(target)"
                     :aria-label="t('focusTimer.setTargetPreset')"
-                    @change="toggleTargetPreset(target, ($event.target as HTMLInputElement).checked)"
+                    @update:model-value="toggleTargetPreset(target, $event)"
                   />
                 </label>
               </div>
@@ -264,12 +262,7 @@
         <div class="setting-section">
           <div class="setting-label">
             <span>{{ t('focusTimer.whiteNoise') }}</span>
-            <div class="switch-container">
-              <label class="switch">
-                <input type="checkbox" :checked="enableAudio" @change="handleAudioToggle" />
-                <span class="slider round"></span>
-              </label>
-            </div>
+            <SySwitch :model-value="enableAudio" @update:model-value="handleAudioToggle" />
           </div>
           <div class="sound-selector" :class="{ disabled: isDownloading || !enableAudio }">
             <button class="ariaLabel" v-for="sound in soundOptions" :key="sound.id"
@@ -591,7 +584,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, toRefs, watch } from 'vue';
 import Icon from './Icon.vue';
-import SyCheckbox from '@/components/SiyuanTheme/SyCheckbox.vue';
+import SySwitch from '@/components/SiyuanTheme/SySwitch.vue';
 import {
   addFocusSession,
   deleteFocusSessionRecord,
@@ -1165,9 +1158,7 @@ const updatePomodoroSets = () => {
   );
 };
 
-const handleAudioToggle = async (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  const checked = target.checked;
+const handleAudioToggle = async (checked: boolean) => {
   
   if (checked && !isDownloading.value) {
     enableAudio.value = true;
@@ -2936,62 +2927,6 @@ watch(isLinkedTargetLocked, (locked) => {
   font-size: 14px;
   font-weight: 500;
   color: var(--b3-theme-on-surface);
-}
-
-.switch-container {
-  display: flex;
-  align-items: center;
-}
-
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-}
-
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--b3-border-color);
-  transition: .4s;
-}
-
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  transition: .4s;
-}
-
-input:checked + .slider {
-  background-color: #f98f7a;
-}
-
-input:checked + .slider:before {
-  transform: translateX(20px);
-}
-
-.slider.round {
-  border-radius: 24px;
-}
-
-.slider.round:before {
-  border-radius: 50%;
 }
 
 .sound-selector.disabled {

@@ -69,7 +69,19 @@
           @pointerleave="isSidebarResizeReady = false"
           @pointerdown="handleSidebarPointerDown"
         >
-          <div class="gantt-sidebar-header"></div>
+          <div class="gantt-sidebar-header">
+            <button
+              type="button"
+              class="gantt-title-sort-btn ariaLabel"
+              :aria-label="t('taskManager.sortTitle')"
+              :aria-pressed="ganttTitleSortDirection !== 'default'"
+              @click="toggleGanttTitleSort"
+            >
+              <span class="sort-indicator" :class="getGanttTitleSortIndicatorClass()">
+                <Icon name="sortIndicator" width="14" height="14" />
+              </span>
+            </button>
+          </div>
           <template v-for="{ row, rowIndex } in visibleRenderRows" :key="`sidebar:${row.key}`">
             <div
               v-if="showDocumentMilestones && row.kind === 'section'"
@@ -661,6 +673,23 @@ const labelColumnWidth = ref(DEFAULT_LABEL_COLUMN_WIDTH);
 const hoveredRenderRowKey = ref<string | null>(null);
 const ganttSearchQuery = ref('');
 const ganttSearchHistoryVisible = ref(false);
+const ganttTitleSortDirection = ref<'asc' | 'desc' | 'default'>('default');
+
+function toggleGanttTitleSort(): void {
+  ganttTitleSortDirection.value = ganttTitleSortDirection.value === 'asc'
+    ? 'desc'
+    : ganttTitleSortDirection.value === 'desc'
+      ? 'default'
+      : 'asc';
+}
+
+function getGanttTitleSortIndicatorClass(): Record<string, boolean> {
+  return {
+    'is-active': ganttTitleSortDirection.value !== 'default',
+    'is-asc': ganttTitleSortDirection.value === 'asc',
+    'is-desc': ganttTitleSortDirection.value === 'desc'
+  };
+}
 
 function recordGanttSearch(): void {
   recordTaskSearchHistory(ganttSearchQuery.value);
@@ -959,6 +988,18 @@ async function hydrateGanttSubtaskTrees(tasks: Task[]): Promise<void> {
   } catch (error) {
     console.warn('[GanttView] Failed to hydrate task subtrees:', error);
   }
+}
+
+function sortGanttRowsByTitle(rows: GanttRow[]): GanttRow[] {
+  const direction = ganttTitleSortDirection.value;
+  if (direction === 'default') return rows;
+
+  const multiplier = direction === 'asc' ? 1 : -1;
+  return [...rows].sort((left, right) => {
+    const titleDiff = left.title.localeCompare(right.title, 'zh-Hans-CN');
+    if (titleDiff !== 0) return titleDiff * multiplier;
+    return left.key.localeCompare(right.key) * multiplier;
+  });
 }
 
 watch(
@@ -2674,8 +2715,8 @@ const renderRows = computed<GanttRenderRow[]>(() => {
 
     if (collapsed) return;
 
-    const scheduledRows = section.rows.filter(row => !row.isUnscheduled);
-    const unscheduledRows = section.rows.filter(row => row.isUnscheduled);
+    const scheduledRows = sortGanttRowsByTitle(section.rows.filter(row => !row.isUnscheduled));
+    const unscheduledRows = sortGanttRowsByTitle(section.rows.filter(row => row.isUnscheduled));
     const incompleteUnscheduledRows = unscheduledRows.filter(row => row.primaryTask.status !== 'completed');
     const unscheduledMode = getUnscheduledDisplayMode(section.id);
     const pushUnscheduledToggleRow = (
@@ -2725,7 +2766,7 @@ const renderRows = computed<GanttRenderRow[]>(() => {
 
   if (props.groupMode === 'none') {
     const rows: GanttRenderRow[] = [];
-    const unscheduledRows = buildUnscheduledRows(scheduledTaskRows.value, () => true);
+    const unscheduledRows = sortGanttRowsByTitle(buildUnscheduledRows(scheduledTaskRows.value, () => true));
     const incompleteUnscheduledRows = unscheduledRows.filter(row => row.primaryTask.status !== 'completed');
     const unscheduledMode = getUnscheduledDisplayMode(UNGROUPED_UNSCHEDULED_SECTION_ID);
     const pushUnscheduledToggleRow = (
@@ -2745,7 +2786,7 @@ const renderRows = computed<GanttRenderRow[]>(() => {
       );
     };
 
-    scheduledTaskRows.value.forEach((row) => {
+    sortGanttRowsByTitle(scheduledTaskRows.value).forEach((row) => {
       appendTaskAndExpandedSubtasks(rows, row, undefined, '');
     });
 
@@ -2966,6 +3007,56 @@ const timelineHeaderStyle = computed(() => ({
   border-bottom: 1px solid color-mix(in srgb, var(--b3-theme-on-background) 30%, var(--b3-theme-background));
   background: var(--b3-theme-background);
   box-sizing: border-box;
+}
+
+.gantt-title-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+}
+
+.gantt-title-sort-btn:hover,
+.gantt-title-sort-btn:focus-visible {
+  background: var(--b3-list-hover);
+  outline: none;
+}
+
+.gantt-title-sort-btn .sort-indicator {
+  --sort-indicator-active: #f98f7a;
+  display: flex;
+  align-items: center;
+  opacity: 0.5;
+}
+
+.gantt-title-sort-btn:hover .sort-indicator,
+.gantt-title-sort-btn .sort-indicator.is-active {
+  opacity: 1;
+}
+
+.gantt-title-sort-btn .sort-indicator :deep(.sort-indicator-top),
+.gantt-title-sort-btn .sort-indicator :deep(.sort-indicator-bottom) {
+  fill: currentColor;
+  opacity: 0.4;
+  transition: fill 0.15s ease, opacity 0.15s ease;
+}
+
+.gantt-title-sort-btn .sort-indicator.is-active :deep(.sort-indicator-top),
+.gantt-title-sort-btn .sort-indicator.is-active :deep(.sort-indicator-bottom) {
+  opacity: 0.45;
+}
+
+.gantt-title-sort-btn .sort-indicator.is-asc :deep(.sort-indicator-top),
+.gantt-title-sort-btn .sort-indicator.is-desc :deep(.sort-indicator-bottom) {
+  fill: var(--sort-indicator-active);
+  opacity: 1;
 }
 
 .gantt-completed-toggle-btn {

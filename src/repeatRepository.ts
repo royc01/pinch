@@ -6,10 +6,11 @@ import solarLunar from '@/utils/solarLunar.js';
 import { enqueueStorageMutation, enqueueStorageMutations } from '@/storageMutationCoordinator';
 import { isMissingPluginStorageValue } from '@/utils/pluginStorage';
 import { getAutomaticScheduledTaskStatus } from '@/utils/taskStatusAutomation';
+import { isClosedTaskStatus, isKnownTaskStatus } from '@/utils/taskStatus';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly' | 'custom';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
-type RepeatTaskStatus = 'pending' | 'in-progress' | 'delayed' | 'completed' | 'cancelled';
+type RepeatTaskStatus = string;
 export type RepeatRuleUnit = 'day' | 'week' | 'month' | 'year';
 export type RepeatRuleCalendar = 'solar' | 'lunar';
 
@@ -855,13 +856,7 @@ function normalizeRecord(raw: unknown): RepeatRecord | null {
   const item = raw as Partial<RepeatRecord>;
   if (typeof item.seriesId !== 'string' || !item.seriesId) return null;
   if (typeof item.date !== 'string' || !parseDate(item.date)) return null;
-  if (
-    item.status !== 'pending'
-    && item.status !== 'in-progress'
-    && item.status !== 'delayed'
-    && item.status !== 'completed'
-    && item.status !== 'cancelled'
-  ) {
+  if (typeof item.status !== 'string' || !isKnownTaskStatus(item.status)) {
     return null;
   }
 
@@ -1405,7 +1400,7 @@ export async function setRepeatInstanceStatus(seriesId: string, date: string, st
       seriesId,
       date: targetDate,
       status,
-      completedAt: status === 'completed' ? now : undefined,
+      completedAt: isClosedTaskStatus(status) ? now : undefined,
       updatedAt: now
     };
 

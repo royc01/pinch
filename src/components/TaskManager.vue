@@ -723,7 +723,7 @@
             <TaskCard
               :data-task-id="row.task.id"
               :task="row.task"
-               :completed="row.task.status === 'completed'"
+               :completed="isClosedTaskStatus(row.task.status)"
                :disable-status-toggle="isFutureVirtualRepeatPreview(row.task)"
                :show-start-date="isFutureVirtualRepeatPreview(row.task)"
               variant="sidebar"
@@ -741,12 +741,14 @@
               :show-open-content="row.task.type === 'block'"
               :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
               :disable-context-menu="shouldEnableMobileCalendarDrag()"
+              :ref="(el) => setTaskCardRef(row.task.id, el)"
               @card-click="handleTaskCardClick"
               @open-content="handleTaskClick"
               @start-focus="handleTaskCardStartFocus"
               @toggle-status="handleTaskCardToggleStatus"
               @toggle-expand="handleCardToggleExpand"
-              @description-start-edit="startInlineDescriptionEdit"
+              @context-menu="handleTaskCardContextMenu"
+              @description-start-edit="handleTaskCardDescriptionStart"
               @description-input="handleInlineDescriptionInput"
               @description-save="saveInlineDescriptionEdit"
               @description-cancel="cancelInlineDescriptionEdit"
@@ -842,7 +844,7 @@
               <TaskCard
                 :data-task-id="task.id"
                 :task="task"
-                 :completed="task.status === 'completed'"
+                 :completed="isClosedTaskStatus(task.status)"
                  :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
                  :show-start-date="isFutureVirtualRepeatPreview(task)"
                 variant="sidebar"
@@ -860,13 +862,14 @@
                 :show-open-content="task.type === 'block'"
                 :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
                 :disable-context-menu="shouldEnableMobileCalendarDrag()"
-                :ref="(el) => setTaskRowRef(task.id, el)"
+                :ref="(el) => setTaskCardRef(task.id, el)"
                 @card-click="handleTaskCardClick"
                 @open-content="handleTaskClick"
                 @start-focus="handleTaskCardStartFocus"
                 @toggle-status="handleTaskCardToggleStatus"
                 @toggle-expand="handleCardToggleExpand"
-                @description-start-edit="startInlineDescriptionEdit"
+                @context-menu="handleTaskCardContextMenu"
+                @description-start-edit="handleTaskCardDescriptionStart"
                 @description-input="handleInlineDescriptionInput"
                 @description-save="saveInlineDescriptionEdit"
                 @description-cancel="cancelInlineDescriptionEdit"
@@ -910,7 +913,7 @@
           <TaskCard
             :data-task-id="task.id"
             :task="task"
-             :completed="task.status === 'completed'"
+             :completed="isClosedTaskStatus(task.status)"
              :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
              :show-start-date="isFutureVirtualRepeatPreview(task)"
             variant="sidebar"
@@ -928,13 +931,14 @@
             :show-open-content="task.type === 'block'"
             :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
             :disable-context-menu="shouldEnableMobileCalendarDrag()"
-            :ref="(el) => setTaskRowRef(task.id, el)"
+            :ref="(el) => setTaskCardRef(task.id, el)"
             @card-click="handleTaskCardClick"
             @open-content="handleTaskClick"
             @start-focus="handleTaskCardStartFocus"
             @toggle-status="handleTaskCardToggleStatus"
             @toggle-expand="handleCardToggleExpand"
-            @description-start-edit="startInlineDescriptionEdit"
+            @context-menu="handleTaskCardContextMenu"
+            @description-start-edit="handleTaskCardDescriptionStart"
             @description-input="handleInlineDescriptionInput"
             @description-save="saveInlineDescriptionEdit"
             @description-cancel="cancelInlineDescriptionEdit"
@@ -988,6 +992,7 @@
       :date-recognition-keywords="userSettings.taskManager.dateRecognitionKeywords"
       :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
+      :task-statuses="userSettings.taskManager.taskStatuses"
       :show-document-group-notebook-path="showDocumentGroupNotebookPath"
       :show-extra="false"
       :lock-close="requiresScopeInitialization"
@@ -1067,6 +1072,23 @@
       @save="handleTaskQuickMetaSave"
       @close="closeTaskQuickMetaMenu"
     />
+    <TaskCardContextMenu
+      :state="taskCardContextMenu"
+      :status-options="taskCardContextStatusOptions"
+      :priority-options="taskCardContextPriorityOptions"
+      :tag-options="taskGroupPickerOptions"
+      @select-status="handleTaskCardContextStatus"
+      @select-priority="handleTaskCardContextPriority"
+      @toggle-tag="handleTaskCardContextToggleTag"
+      @remove-tag="handleTaskCardContextRemoveTag"
+      @clear-tags="handleTaskCardContextClearTags"
+      @manage-tags="handleTaskCardContextManageTags"
+      @toggle-pin="handleTaskCardContextTogglePin"
+      @edit-description="handleTaskCardContextDescription"
+      @move="handleTaskCardContextMove"
+      @archive="handleTaskCardContextArchive"
+      @delete="handleTaskCardContextDelete"
+    />
     <div
       v-if="desktopCalendarPointerGesture?.started && desktopCalendarPointerGesture.task"
       class="task-manager-calendar-drag-ghost"
@@ -1093,6 +1115,7 @@ import TaskEditorPanelShell from '@/components/TaskEditorPanelShell.vue';
 import TaskEditorProtyleBody from '@/components/TaskEditorProtyleBody.vue';
 import TaskDateQuickMenu from '@/components/TaskDateQuickMenu.vue';
 import TaskQuickMetaMenu from '@/components/TaskQuickMetaMenu.vue';
+import TaskCardContextMenu from '@/components/TaskCardContextMenu.vue';
 import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, parseTaskFocusEstimate, serializeTaskFocusEstimate, getFocusTimerData, lsNotebooks, getIDsByHPath, setBlockAttrs, getBlockAttrs, getBlockDOM, sql, openBlockById, loadTaskGroups, saveTaskGroups, DEFAULT_TASK_REPEAT_MATERIALIZE_OPTIONS, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '@/api';
 import { requestTaskCompletionNote, updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { getCheckinNotePromptAnchor } from '@/utils/checkinNotePrompt';
@@ -1116,10 +1139,11 @@ import {
 } from '@/utils/taskGroupShared';
 import { buildTaskPriorityOptions } from '@/utils/taskPriority';
 import {
-  TASK_STATUS_VALUES,
   buildTaskStatusFilterOptions,
   buildTaskStatusSelectOptions,
-  getTaskStatusLabel
+  getTaskStatusDefinitions,
+  getTaskStatusLabel,
+  isClosedTaskStatus
 } from '@/utils/taskStatus';
 import { eventBus, Events } from '@/utils/eventBus';
 import { emitOptimisticBlockTaskAdded } from '@/utils/taskCreationSync';
@@ -1440,8 +1464,9 @@ interface KernelDiagnosticsState {
 const taskEditDraft = ref<TaskEditDraft | null>(null);
 const taskEditorActualFocus = ref({ minutes: 0, sessions: 0 });
 const inlineEditingDescriptionTaskId = ref<string | null>(null);
-const inlineDescriptionDraftByTaskId = ref(new Map<string, string>());
+const inlineDescriptionDraftByTaskId = new Map<string, string>();
 const inlineDescriptionSavingTaskIds = new Set<string>();
+let inlineDescriptionContextSyncRaf: number | null = null;
 const isTaskListCollapsed = ref(false);
 const notebooks = ref<Notebook[]>([]);
 const skipSet = new Set<string>();
@@ -1769,6 +1794,10 @@ const taskVirtualRange = ref({ start: 0, end: 0, top: 0, bottom: 0 });
 let taskVirtualRaf: number | null = null;
 const taskHeightCache = new Map<string, number>();
 const taskRowElements = new Map<string, HTMLElement>();
+const taskCardInstances = new Map<string, {
+  openDescriptionEditor?: () => void;
+  closeDescriptionEditor?: () => void;
+}>();
 const timelineVirtualRowHeightCache = new Map<string, number>();
 const timelineVirtualRowElements = new Map<string, HTMLElement>();
 const taskHeightVersion = ref(0);
@@ -1817,7 +1846,7 @@ const activeTaskListSortLabel = computed(() =>
   || taskListSortOptions[0]?.label
   || ''
 );
-const batchEditStatusOptions = buildTaskStatusSelectOptions(t);
+const batchEditStatusOptions = computed(() => buildTaskStatusSelectOptions(t));
 const batchEditPriorityOptions: Array<{ value: string; text: string }> = [
   { value: '', text: t('taskManager.priorityNoChange') },
   { value: 'none', text: t('taskManager.priorityNone') },
@@ -1830,7 +1859,14 @@ const batchEditTagActionOptions: Array<{ value: TaskTagBatchAction; text: string
   { value: 'add', text: t('taskManager.batchAddTag') },
   { value: 'remove', text: t('taskManager.batchRemoveTag') }
 ];
-const taskGroupStatusOrder: Task['status'][] = [...TASK_STATUS_VALUES];
+const taskGroupStatusOrder = computed<Task['status'][]>(() => getTaskStatusDefinitions().map(status => status.id));
+const taskCardContextMenu = ref<{ task: Task; x: number; y: number } | null>(null);
+const taskCardContextStatusOptions = computed(() => buildTaskStatusSelectOptions(t)
+  .filter(option => option.value)
+  .map(option => ({ value: String(option.value), label: option.text })));
+const taskCardContextPriorityOptions = computed(() => batchEditPriorityOptions
+  .filter(option => option.value)
+  .map(option => ({ value: option.value, label: option.text })));
 
 const taskModalTeleportTo = computed(() => taskModalTeleportTarget.value || 'body');
 const activeTaskEditOverride = ref<Task | null>(null);
@@ -2226,6 +2262,18 @@ function openTaskModal(): void {
 
 function openTaskGroupDialog(): void {
   void openTaskScopeDialog('tags');
+}
+
+function setTaskCardRef(taskId: string, el: unknown): void {
+  setTaskRowRef(taskId, el);
+  if (el && typeof el === 'object' && 'openDescriptionEditor' in el) {
+    taskCardInstances.set(taskId, el as {
+      openDescriptionEditor?: () => void;
+      closeDescriptionEditor?: () => void;
+    });
+    return;
+  }
+  taskCardInstances.delete(taskId);
 }
 
 function openTaskGroupDialogFromEditor(): void {
@@ -3509,7 +3557,7 @@ watch(
 );
 
 const priorityOrder = { 'high': 0, 'medium': 1, 'low': 2, 'none': 3 };
-const taskStatusFilterOptions: Array<{ value: Task['status']; label: string }> = buildTaskStatusFilterOptions(t);
+const taskStatusFilterOptions = computed<Array<{ value: Task['status']; label: string }>>(() => buildTaskStatusFilterOptions(t));
 const taskPriorityFilterOptions: Array<{ value: Task['priority']; label: string }> = buildTaskPriorityOptions(t);
 const taskDueFilterOptions: Array<{ value: TaskDueFilterKey; label: string }> = [
   { value: 'overdue', label: t('taskManager.dueOverdue') },
@@ -3529,7 +3577,7 @@ const taskExtraFilterOptions: Array<{ value: TaskExtraFilterKey; label: string }
   { value: 'hasSubtasks', label: t('taskManager.hasSubtasks') },
   { value: 'hasFocusEstimate', label: t('taskManager.hasFocusEstimate') }
 ];
-const taskStatusFilterValueSet: ReadonlySet<Task['status']> = new Set(taskStatusFilterOptions.map(option => option.value));
+const taskStatusFilterValueSet = computed<ReadonlySet<Task['status']>>(() => new Set(taskStatusFilterOptions.value.map(option => option.value)));
 const taskPriorityFilterValueSet: ReadonlySet<Task['priority']> = new Set(taskPriorityFilterOptions.map(option => option.value));
 const taskDueFilterValueSet: ReadonlySet<TaskDueFilterKey> = new Set(taskDueFilterOptions.map(option => option.value));
 const taskUpdatedFilterValueSet: ReadonlySet<TaskUpdateFilterKey> = new Set(taskUpdatedFilterOptions.map(option => option.value));
@@ -3640,7 +3688,7 @@ const {
   restoreExpression: restoreTaskFilterExpression,
   cycleExpressionJoin: cycleTaskFilterJoin
 } = useTaskFilterState({
-  statusOptions: taskStatusFilterOptions,
+  statusOptions: taskStatusFilterOptions.value,
   priorityOptions: taskPriorityFilterOptions,
   dueOptions: taskDueFilterOptions,
   updatedOptions: taskUpdatedFilterOptions,
@@ -3652,7 +3700,7 @@ const {
 
 function restoreTaskPopoverFiltersFromSettings(): void {
   const settings = userSettings.taskManager;
-  activeTaskStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.taskStatusFilters, taskStatusFilterValueSet);
+  activeTaskStatusFilters.value = normalizeStoredFilterValues<Task['status']>(settings.taskStatusFilters, taskStatusFilterValueSet.value);
   activeTaskPriorityFilters.value = normalizeStoredFilterValues<Task['priority']>(settings.taskPriorityFilters, taskPriorityFilterValueSet);
   activeTaskDueFilters.value = normalizeStoredFilterValues<TaskDueFilterKey>(settings.taskDueFilters, taskDueFilterValueSet);
   activeTaskUpdatedFilters.value = normalizeStoredFilterValues<TaskUpdateFilterKey>(settings.taskUpdatedFilters, taskUpdatedFilterValueSet);
@@ -4946,8 +4994,8 @@ const automaticallySortedTasks = computed(() => {
   });
 
   const result = [...baseFiltered].sort((a, b) => {
-    const isACompleted = a.status === 'completed';
-    const isBCompleted = b.status === 'completed';
+    const isACompleted = isClosedTaskStatus(a.status);
+    const isBCompleted = isClosedTaskStatus(b.status);
 
     if (isACompleted && !isBCompleted) {
       return 1;
@@ -5288,26 +5336,29 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
 
   if (mode === 'status') {
     const grouped = new Map<Task['status'], Task[]>();
-    taskGroupStatusOrder.forEach(status => grouped.set(status, []));
+    taskGroupStatusOrder.value.forEach(status => grouped.set(status, []));
     tasksWithoutPinnedSection.forEach((task) => {
       const status = grouped.has(task.status) ? task.status : 'pending';
       grouped.get(status)?.push(task);
     });
-    return prependPinnedSection(taskGroupStatusOrder
+    return prependPinnedSection(taskGroupStatusOrder.value
+      // Status grouping intentionally keeps empty status sections visible. When
+      // completed tasks are hidden, only the completed section should
+      // disappear; the other empty sections remain available as drop targets.
+      .filter(status => showCompletedTasks.value || status !== 'completed')
       .map((status, index) => ({
         key: `status:${status}`,
         label: getTaskStatusLabel(status, t),
         tasks: grouped.get(status) || [],
         order: index
-      }))
-      .filter(section => section.tasks.length > 0));
+      })));
   }
 
   if (mode === 'group') {
     const grouped = new Map<string, Task[]>();
     const completedTasks: Task[] = [];
     tasksWithoutPinnedSection.forEach((task) => {
-      if (task.status === 'completed') {
+      if (isClosedTaskStatus(task.status)) {
         completedTasks.push(task);
         return;
       }
@@ -6007,6 +6058,142 @@ function handleCardToggleExpand(task: Task): void {
   toggleTaskExpand(task.id);
 }
 
+function closeTaskCardContextMenu(): void {
+  taskCardContextMenu.value = null;
+}
+
+function getTaskCardContextTask(): Task | null {
+  return taskCardContextMenu.value?.task || null;
+}
+
+function handleTaskCardContextMenu(task: Task, event: MouseEvent): void {
+  if (isBatchEditMode.value) {
+    toggleTaskBatchSelection(task.id);
+    return;
+  }
+  taskCardContextMenu.value = {
+    task,
+    x: event.clientX,
+    y: event.clientY
+  };
+}
+
+async function handleTaskCardContextStatus(status: Task['status']): Promise<void> {
+  const task = getTaskCardContextTask();
+  closeTaskCardContextMenu();
+  if (!task) return;
+  const editableTask = await prepareTaskCardContextAction(task);
+  if (editableTask) await quickSaveTaskStatus(editableTask, status);
+}
+
+async function handleTaskCardContextPriority(priority: Task['priority']): Promise<void> {
+  const task = getTaskCardContextTask();
+  closeTaskCardContextMenu();
+  if (!task) return;
+  const editableTask = await prepareTaskCardContextAction(task);
+  if (editableTask) await quickSaveTaskPriority(editableTask, priority);
+}
+
+async function handleTaskCardContextToggleTag(tagId: string): Promise<void> {
+  const task = getTaskCardContextTask();
+  if (!task) return;
+  const editableTask = await prepareTaskCardContextAction(task);
+  if (!editableTask) return;
+  const tagIds = buildTaskTagState(editableTask.tags, editableTask.groupId).tagIds;
+  await quickSaveTaskTags(editableTask, toggleTaskTagSelection(tagIds, tagId));
+}
+
+async function handleTaskCardContextRemoveTag(tagId: string): Promise<void> {
+  const task = getTaskCardContextTask();
+  if (!task) return;
+  const editableTask = await prepareTaskCardContextAction(task);
+  if (!editableTask) return;
+  await quickSaveTaskTags(editableTask, buildTaskTagState(editableTask.tags, editableTask.groupId).tagIds.filter(id => id !== tagId));
+}
+
+async function handleTaskCardContextClearTags(): Promise<void> {
+  const task = getTaskCardContextTask();
+  if (!task) return;
+  const editableTask = await prepareTaskCardContextAction(task);
+  if (editableTask) await quickSaveTaskTags(editableTask, []);
+}
+
+async function handleTaskCardContextTogglePin(): Promise<void> {
+  const task = getTaskCardContextTask();
+  closeTaskCardContextMenu();
+  if (!task) return;
+  const editableTask = await prepareTaskCardContextAction(task);
+  if (editableTask) await quickSaveTaskPinned(editableTask, editableTask.pinned !== true);
+}
+
+function handleTaskCardContextManageTags(): void {
+  closeTaskCardContextMenu();
+  void openTaskScopeDialog('tags');
+}
+
+function handleTaskCardContextDescription(): void {
+  const task = getTaskCardContextTask();
+  if (!task) return;
+  taskCardInstances.get(task.id)?.openDescriptionEditor?.();
+  closeTaskCardContextMenu();
+  scheduleInlineDescriptionEdit(task);
+}
+
+function handleTaskCardDescriptionStart(task: Task): void {
+  scheduleInlineDescriptionEdit(task);
+}
+
+function cancelPendingInlineDescriptionContextSync(): void {
+  if (inlineDescriptionContextSyncRaf !== null) {
+    cancelAnimationFrame(inlineDescriptionContextSyncRaf);
+    inlineDescriptionContextSyncRaf = null;
+  }
+}
+
+function scheduleInlineDescriptionEdit(task: Task): void {
+  primeInlineDescriptionEdit(task);
+  cancelPendingInlineDescriptionContextSync();
+  requestAnimationFrame(() => {
+    inlineDescriptionContextSyncRaf = requestAnimationFrame(() => {
+      inlineDescriptionContextSyncRaf = null;
+      startInlineDescriptionEdit(task, true);
+    });
+  });
+}
+
+async function prepareTaskCardContextAction(task: Task): Promise<Task | null> {
+  const targetTask = await resolveTaskEditorTargetTask(task);
+  await hydrateTaskFocusEstimate(targetTask);
+  if (!ensureTaskEditDraft(targetTask)) return null;
+  activeTaskEditOverride.value = targetTask;
+  taskEditMenuTaskId.value = targetTask.id;
+  return targetTask;
+}
+
+async function handleTaskCardContextMove(): Promise<void> {
+  const task = getTaskCardContextTask();
+  closeTaskCardContextMenu();
+  if (task && await prepareTaskCardContextAction(task)) {
+    await openTaskMoveDialog();
+  }
+}
+
+async function handleTaskCardContextArchive(): Promise<void> {
+  const task = getTaskCardContextTask();
+  closeTaskCardContextMenu();
+  if (task && await prepareTaskCardContextAction(task)) {
+    await handleTaskEditorArchiveToggle();
+  }
+}
+
+async function handleTaskCardContextDelete(): Promise<void> {
+  const task = getTaskCardContextTask();
+  closeTaskCardContextMenu();
+  if (task && await prepareTaskCardContextAction(task)) {
+    await handleTaskEditorDelete();
+  }
+}
+
 function handleCardSubtaskToggle(task: Task, subtask: any): void {
   handleSubtaskToggle(task.id, subtask);
 }
@@ -6266,7 +6453,11 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     defaultTaskCreateNotebook,
     defaultTaskCreateDocument,
     focusSettings
+    ,taskStatuses
   } = payload;
+  const removedTaskStatusIds = (userSettings.taskManager.taskStatuses || [])
+    .map(status => status.id)
+    .filter(id => !taskStatuses.some(status => status.id === id));
   const visibleNotebookIds = new Set(notebooks.value.map(notebook => notebook.id));
   const hiddenExcludedNotebookIds = excludedNotebookIds.value.filter(id => !visibleNotebookIds.has(id));
   const mergedExcludedNotebookIds = normalizeNotebookIds([
@@ -6282,6 +6473,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
   eventBus.emit(Events.TASK_SCOPE_UPDATED, { excludedNotebookIds: mergedExcludedNotebookIds });
   showCompletedTasks.value = nextShowCompletedTasks;
   TaskRepository.setAutoRecognizeTaskDateEnabled(nextAutoRecognizeTaskDate);
+  await migrateRemovedTaskStatuses(removedTaskStatusIds);
   const shouldFinalizeInit = requiresScopeInitialization.value;
   await saveDocumentGroups(nextDocumentGroups);
   applyExternalDocumentGroups(nextDocumentGroups);
@@ -6292,6 +6484,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
     dateRecognitionKeywords: nextDateRecognitionKeywords,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    taskStatuses,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     defaultTaskCreateTarget: defaultTaskCreateTarget as typeof userSettings.taskManager.defaultTaskCreateTarget,
     defaultTaskCreateNotebook,
@@ -6676,7 +6869,7 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
         const previousCompletedAt = task.completedAt;
         const nextStatus: Task['status'] = liveCompleted
           ? 'completed'
-          : (task.status === 'completed' ? 'pending' : (task.status || 'pending'));
+        : (isClosedTaskStatus(task.status) ? 'pending' : (task.status || 'pending'));
         if (task.status !== nextStatus) {
           task.status = nextStatus;
           changed = true;
@@ -7714,8 +7907,8 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     return;
   }
   
-  const wasCompleted = task.status === 'completed';
-  const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+  const wasCompleted = isClosedTaskStatus(task.status);
+  const newStatus = isClosedTaskStatus(task.status) ? 'pending' : 'completed';
   const shouldPlayCompletionSound = !wasCompleted && newStatus === 'completed';
   const isVirtualRepeatTask = !!task.isVirtual && !!task.repeatSeriesId && !!task.repeatInstanceDate;
   const checkinNotePromptAnchor = getCheckinNotePromptAnchor(
@@ -8082,6 +8275,17 @@ function handleTaskFilterOutsideClick(event: MouseEvent): void {
   }
 
   const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+  if (taskCardContextMenu.value) {
+    const clickedInsideTaskCardContextMenu = path.some(node =>
+      node instanceof HTMLElement && (
+        node.classList.contains('task-card-context-menu')
+        || node.classList.contains('tag-picker-popover')
+      )
+    );
+    if (!clickedInsideTaskCardContextMenu) {
+      closeTaskCardContextMenu();
+    }
+  }
   const resolvePopoverElement = (refValue: InstanceType<typeof TaskFilterPopover> | null): HTMLElement | null => {
     const exposed = refValue as { popoverEl?: HTMLElement | { value?: HTMLElement | null } } | null;
     const popoverEl = exposed?.popoverEl;
@@ -8435,18 +8639,24 @@ function handleTaskCardToggleStatus(task: Task, event?: MouseEvent): void {
 }
 
 function getInlineDescriptionDraft(task: Task): string {
-  if (inlineDescriptionDraftByTaskId.value.has(task.id)) {
-    return inlineDescriptionDraftByTaskId.value.get(task.id) || '';
+  if (inlineDescriptionDraftByTaskId.has(task.id)) {
+    return inlineDescriptionDraftByTaskId.get(task.id) || '';
   }
   return task.description || '';
 }
 
 function handleInlineDescriptionInput(taskId: string, event: Event): void {
   const target = event.target as HTMLTextAreaElement | null;
-  inlineDescriptionDraftByTaskId.value.set(taskId, target?.value || '');
+  inlineDescriptionDraftByTaskId.set(taskId, target?.value || '');
 }
 
-function startInlineDescriptionEdit(task: Task): void {
+function primeInlineDescriptionEdit(task: Task): void {
+  if (!inlineDescriptionDraftByTaskId.has(task.id)) {
+    inlineDescriptionDraftByTaskId.set(task.id, task.description || '');
+  }
+}
+
+function startInlineDescriptionEdit(task: Task, preserveExistingDraft = false): void {
   if (isBatchEditMode.value) {
     toggleTaskBatchSelection(task.id);
     return;
@@ -8455,39 +8665,45 @@ function startInlineDescriptionEdit(task: Task): void {
     return;
   }
   inlineEditingDescriptionTaskId.value = task.id;
-  inlineDescriptionDraftByTaskId.value.set(task.id, task.description || '');
+  if (!preserveExistingDraft) {
+    inlineDescriptionDraftByTaskId.set(task.id, task.description || '');
+  } else {
+    primeInlineDescriptionEdit(task);
+  }
 }
 
 function clearInlineDescriptionEdit(taskId: string): void {
+  taskCardInstances.get(taskId)?.closeDescriptionEditor?.();
   if (inlineEditingDescriptionTaskId.value === taskId) {
     inlineEditingDescriptionTaskId.value = null;
   }
-  inlineDescriptionDraftByTaskId.value.delete(taskId);
+  inlineDescriptionDraftByTaskId.delete(taskId);
 }
 
 function cancelInlineDescriptionEdit(taskId: string): void {
+  cancelPendingInlineDescriptionContextSync();
   clearInlineDescriptionEdit(taskId);
 }
 
 async function saveInlineDescriptionEdit(task: Task): Promise<void> {
   const taskId = task.id;
-  if (inlineEditingDescriptionTaskId.value !== taskId) {
+  if (inlineEditingDescriptionTaskId.value !== taskId && !inlineDescriptionDraftByTaskId.has(taskId)) {
     return;
   }
   if (inlineDescriptionSavingTaskIds.has(taskId)) {
     return;
   }
 
-  const description = inlineDescriptionDraftByTaskId.value.get(taskId) || '';
-  const targetTask = await resolveTaskEditorTargetTask(task);
-  const targetTaskId = targetTask.id;
-  if (description === (targetTask.description || '')) {
-    clearInlineDescriptionEdit(taskId);
-    return;
-  }
-
+  const description = inlineDescriptionDraftByTaskId.get(taskId) || '';
   inlineDescriptionSavingTaskIds.add(taskId);
+  cancelPendingInlineDescriptionContextSync();
+  clearInlineDescriptionEdit(taskId);
   try {
+    const targetTask = await resolveTaskEditorTargetTask(task);
+    const targetTaskId = targetTask.id;
+    if (description === (targetTask.description || '')) {
+      return;
+    }
     const blockId = targetTask.type === 'block' && targetTask.blockId ? targetTask.blockId : '';
     if (blockId) {
       await setBlockAttrs(blockId, {
@@ -8513,7 +8729,6 @@ async function saveInlineDescriptionEdit(task: Task): Promise<void> {
   } catch {
   } finally {
     inlineDescriptionSavingTaskIds.delete(taskId);
-    clearInlineDescriptionEdit(taskId);
   }
 }
 
@@ -9036,7 +9251,7 @@ async function applyBatchEdit(): Promise<void> {
 }
 
 async function quickSaveTaskStatus(task: Task, status: Task['status']): Promise<void> {
-  const wasCompleted = task.status === 'completed';
+  const wasCompleted = isClosedTaskStatus(task.status);
   await applyTaskEditorFieldUpdate(task, {
     attrs: {
       'custom-task-status': status
@@ -9047,7 +9262,7 @@ async function quickSaveTaskStatus(task: Task, status: Task['status']): Promise<
     },
     syncTask: targetTask => {
       targetTask.status = status;
-      if (status === 'completed') {
+      if (isClosedTaskStatus(status)) {
         targetTask.completedAt = targetTask.completedAt || new Date().toISOString();
       } else {
         delete targetTask.completedAt;
@@ -9057,13 +9272,13 @@ async function quickSaveTaskStatus(task: Task, status: Task['status']): Promise<
       crdtRepo.updateTaskField(task.id, 'status', status);
     },
     beforePersist: async (blockId) => {
-      await updateTaskMarkdown(blockId, status === 'completed');
+      await updateTaskMarkdown(blockId, isClosedTaskStatus(status));
     }
   });
 
-  if (!wasCompleted && status === 'completed' && taskCompletionSoundEnabled.value) {
+  if (!wasCompleted && isClosedTaskStatus(status) && taskCompletionSoundEnabled.value) {
     const refreshedTask = tasks.value.find(item => item.id === task.id);
-    if (refreshedTask?.status === 'completed') {
+    if (isClosedTaskStatus(refreshedTask?.status)) {
       playTaskCompletionSound();
     }
   }
@@ -9577,6 +9792,15 @@ function canManuallyReorderTasks(): boolean {
     && !isBatchEditMode.value
     && !isMobileFrontend
     && !shouldEnableDesktopCalendarPointerDrag();
+}
+
+async function migrateRemovedTaskStatuses(removedStatusIds: string[]): Promise<void> {
+  if (removedStatusIds.length === 0) return;
+  const removed = new Set(removedStatusIds);
+  const allTasks = await TaskRepository.getAllTasks(false, undefined, { materializeRepeats: false });
+  await Promise.all(allTasks
+    .filter(task => task.isVirtual !== true && removed.has(task.status))
+    .map(task => TaskRepository.updateTask(task.id, { status: 'pending' })));
 }
 
 function resetManualTaskDrag(): void {
@@ -10355,6 +10579,7 @@ onUnmounted(() => {
     taskTitleHydrateTimer = null;
   }
   taskRowElements.clear();
+  taskCardInstances.clear();
   taskHeightCache.clear();
   timelineVirtualRowElements.clear();
   timelineVirtualRowHeightCache.clear();

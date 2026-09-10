@@ -5,6 +5,7 @@ import type { TaskViewGroupMode } from './taskGrouping';
 import type { TaskSortDirection, TaskSortField } from './taskSorting';
 import type { TaskDateKeywordConfig } from './taskDateParser';
 import type { StoredTaskFilterExpressionItem } from '@/composables/useTaskFilterState';
+import { normalizeTaskStatusDefinitions, type TaskStatusDefinition } from '@/utils/taskStatus';
 
 export type TaskViewSwitcherId = 'kanban' | 'list' | 'table' | 'quadrant' | 'gantt' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
 export type SidebarSectionId = 'week-dates' | 'habit-list' | 'stand-container';
@@ -140,6 +141,8 @@ export interface UserSettings {
     taskGroupFilters?: string[];
     taskExtraFilters?: string[];
     taskFilterExpression?: StoredTaskFilterExpressionItem[];
+    /** Globally available task workflow states. */
+    taskStatuses?: TaskStatusDefinition[];
   };
   sidebar: {
     selectedNotebook: string;
@@ -271,7 +274,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     taskUpdatedFilters: [],
     taskGroupFilters: [],
     taskExtraFilters: [],
-    taskFilterExpression: []
+    taskFilterExpression: [],
+    taskStatuses: normalizeTaskStatusDefinitions([])
   },
   sidebar: {
     selectedNotebook: 'all',
@@ -530,6 +534,7 @@ function mergeWithDefaults(input: unknown): UserSettings {
       taskExtraFilters: normalizeStringArray((rawTaskManager as { taskExtraFilters?: unknown }).taskExtraFilters),
       taskManualOrder: normalizeStringArray((rawTaskManager as { taskManualOrder?: unknown }).taskManualOrder),
       taskFilterExpression: normalizeTaskFilterExpression((rawTaskManager as { taskFilterExpression?: unknown }).taskFilterExpression),
+      taskStatuses: normalizeTaskStatusDefinitions((rawTaskManager as { taskStatuses?: unknown }).taskStatuses),
       dateRecognitionKeywords: normalizeDateRecognitionKeywords(
         (rawTaskManager as { dateRecognitionKeywords?: unknown }).dateRecognitionKeywords
       ),

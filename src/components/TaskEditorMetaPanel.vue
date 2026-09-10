@@ -547,7 +547,7 @@ import { formatRepeatRuleLabel } from '@/utils/repeatRuleLabel';
 import type { TaskReminderSelection, TaskReminderType } from '@/utils/taskReminder';
 import { TASK_GROUP_NONE_ID, type TaskGroupOption } from '@/utils/taskGroupShared';
 import { buildTaskPriorityShortOptions } from '@/utils/taskPriority';
-import { getTaskStatusLabel } from '@/utils/taskStatus';
+import { getTaskStatusLabel, isKnownTaskStatus } from '@/utils/taskStatus';
 import solarLunar from '@/utils/solarLunar.js';
 
 type TaskStatus = Task['status'];
@@ -1163,7 +1163,7 @@ function emitDateFields(partialValue: Partial<TaskEditorDateFields>): void {
 }
 
 function normalizeStatusValue(value: unknown): TaskStatus {
-  if (value === 'pending' || value === 'in-progress' || value === 'delayed' || value === 'completed' || value === 'cancelled') {
+  if (typeof value === 'string' && isKnownTaskStatus(value)) {
     return value;
   }
   return 'pending';
