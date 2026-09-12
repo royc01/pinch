@@ -13,6 +13,9 @@
       <button type="button" class="task-card-context-menu-item" @click="emit('togglePin')">
         {{ state.task.pinned === true ? t('taskManager.unpinTask') : t('taskManager.pinTask') }}
       </button>
+      <button v-if="showEnterBatchEdit" type="button" class="task-card-context-menu-item" @click="emit('enterBatchEdit')">
+        {{ t('taskManager.enterBatchEdit') }}
+      </button>
       <div class="task-card-context-divider"></div>
       <div
         v-for="item in submenuItems"
@@ -86,7 +89,7 @@ import TagPickerPopover from '@/components/TagPickerPopover.vue';
 import { useI18n } from '@/composables/useI18n';
 import type { TaskGroupOption } from '@/utils/taskGroupShared';
 
-type ContextMenuState = { task: Task; x: number; y: number } | null;
+type ContextMenuState = { task: Task; x: number; y: number; source?: 'view' | 'sidebar'; sourceView?: string } | null;
 type MenuOption = { value: string; label: string };
 
 const props = defineProps<{
@@ -94,6 +97,7 @@ const props = defineProps<{
   statusOptions: MenuOption[];
   priorityOptions: MenuOption[];
   tagOptions: TaskGroupOption[];
+  showEnterBatchEdit?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -104,6 +108,7 @@ const emit = defineEmits<{
   clearTags: [];
   manageTags: [];
   togglePin: [];
+  enterBatchEdit: [];
   editDescription: [];
   move: [];
   archive: [];
@@ -111,6 +116,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const showEnterBatchEdit = computed(() => props.showEnterBatchEdit === true);
 const menuRef = ref<HTMLElement | null>(null);
 const activeSubmenu = ref<string | null>(null);
 const submenuOpensLeft = ref(false);

@@ -6,6 +6,8 @@ import "@/index.scss";
 import PluginInfoString from '@/../plugin.json'
 import { destroy, init, onLayoutReady } from '@/main'
 import { configurePinchKernelRpc } from '@/kernelRpc'
+import { invalidateBlockDOMCache } from '@/api'
+import { invalidatePluginStorageReadCache } from '@/utils/pluginStorage'
 import { publishTaskChange, resetTaskChangeCoordinator } from '@/utils/taskChangeCoordinator'
 
 let PluginInfo = {
@@ -19,6 +21,8 @@ try {
 const {
   version,
 } = PluginInfo
+
+type PluginDataChangeReason = 'sync' | 'overwrite';
 
 export default class HabitTrackerPlugin extends Plugin {
   public isMobile: boolean
@@ -151,6 +155,7 @@ export default class HabitTrackerPlugin extends Plugin {
     }
 
     if (changedIds.size > 0) {
+      invalidateBlockDOMCache();
       publishTaskChange(changedIds, 'ws');
     }
 
@@ -166,5 +171,17 @@ export default class HabitTrackerPlugin extends Plugin {
     configurePinchKernelRpc(null)
     resetTaskChangeCoordinator()
     destroy()
+  }
+
+  /**
+   * SiYuan reloads a plugin by default when its persisted data changes. On
+   * multi-window workspaces that reload can re-mount every task surface and
+   * immediately reissue all queries. Keep the mounted UI, but discard the
+   * short-lived JSON snapshots so another frontend's storage write is visible
+   * to its next logical refresh.
+   */
+  onDataChanged(_reason?: PluginDataChangeReason): void {
+    void _reason;
+    invalidatePluginStorageReadCache();
   }
 }

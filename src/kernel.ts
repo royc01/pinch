@@ -52,6 +52,7 @@ type KernelTaskListParams = {
   endDate?: string;
   includeSubtasks?: boolean;
   sinceUpdated?: string;
+  includeRemindersOnly?: boolean;
 };
 
 type SqlResponse<T> = {
@@ -131,10 +132,13 @@ type KernelBlockDOMBatchResult = {
 };
 
 const DEFAULT_TASK_LIMIT = 500;
-const MAX_TASK_LIMIT = 5000;
+// Keep the index large enough for real workspaces. Callers still pass a
+// smaller presentation limit; this cap is only the maximum rows retained by
+// one cached scope before a result is marked partial.
+const MAX_TASK_LIMIT = 20000;
 const TASK_INDEX_TTL_MS = 30 * 1000;
 const TASK_INDEX_FULL_REFRESH_MS = 5 * 60 * 1000;
-const TASK_QUERY_PAGE_SIZE = 256;
+const TASK_QUERY_PAGE_SIZE = 1000;
 const MAX_TASK_QUERY_PAGES = 1000;
 const TASK_ID_LOOKUP_BATCH_SIZE = 256;
 const TASK_PARENT_LOOKUP_BATCH_SIZE = 128;
@@ -271,6 +275,7 @@ function buildTaskIndexCacheKey(params: KernelTaskListParams = {}): string {
     normalizeScopeValue(params.notebookId) || "*",
     normalizeNotebookIds(params.excludedNotebookIds).join(",") || "*",
     normalizeScopeValue(params.documentId) || "*",
+    params.includeRemindersOnly ? "reminders-only" : "all-tasks",
   ].join("|");
 }
 
@@ -463,6 +468,15 @@ function buildTaskFilters(params: KernelTaskListParams = {}): string[] {
           AND archived_attr.name = 'custom-task-archived'
           AND archived_attr.value IN ${archivedValueSql}
       )`);
+  }
+
+  if (params.includeRemindersOnly) {
+    filters.push(`EXISTS (
+      SELECT 1 FROM attributes reminder_attr
+      WHERE reminder_attr.block_id = b.id
+        AND reminder_attr.name = 'custom-task-reminder-type'
+        AND TRIM(COALESCE(reminder_attr.value, '')) <> ''
+    )`);
   }
 
   return filters;

@@ -8,6 +8,15 @@
       @touchend.stop
       @touchcancel.stop
     >
+      <!-- Keep a shared context-menu host mounted even when the sidebar dock
+           is closed. Its menu is teleported to body, while the task list
+           itself remains hidden. -->
+      <TaskManager
+        v-if="!isMobileFrontend"
+        class="kanban-context-menu-host"
+        :context-menu-host="true"
+        aria-hidden="true"
+      />
       <div v-if="!isSettingsLoaded" class="kanban-loading-shell" aria-hidden="true">
         <div class="kanban-loading-toolbar">
           <span class="kanban-loading-pill"></span>
@@ -9179,7 +9188,16 @@ function handleKanbanTaskContextMenu(task: Task, event: MouseEvent): void {
     return;
   }
   event.preventDefault();
-  void openKanbanEditor(task, event);
+  closeKanbanEditor();
+  // Keep view cards consistent with the task cards in the sidebar by
+  // delegating the context menu to the shared TaskManager menu.
+  eventBus.emit(Events.TASK_CARD_CONTEXT_MENU_OPEN_REQUEST, {
+    task,
+    x: event.clientX,
+    y: event.clientY,
+    source: 'view',
+    sourceView: currentView.value
+  });
 }
 
 function handleKanbanTaskToggleStatus(task: Task, event?: MouseEvent): void {
@@ -10621,7 +10639,7 @@ async function loadTasks(
         // Keep the fast first paint consistent with the full load: repeat
         // instances must already include their persisted completion records.
         const { tasks: lightTasks } = await TaskRepository.getKernelMaterializedTasks(
-          5000,
+          20000,
           taskLoadScope,
           { includeRepeatTemplateDate: true }
         );
@@ -10857,7 +10875,7 @@ function scheduleKernelTaskIndexRefresh(delay = 220, reloadCalendarTasks = true,
   kernelTaskIndexRefreshTimer = window.setTimeout(async () => {
     kernelTaskIndexRefreshTimer = null;
     try {
-      await refreshKernelTaskIndex({ limit: 5000, includeArchived: true, force });
+      await refreshKernelTaskIndex({ limit: 20000, includeArchived: true, force });
       if (reloadCalendarTasks && isCalendarView.value) {
         const mode = resolveTaskLoadModeForView(currentView.value);
         await loadTasks(false, {
@@ -11708,6 +11726,15 @@ function setupEventListeners() {
     }
   );
 
+  const unsubscribeTaskCardEnterBatchEdit = eventBus.on(
+    Events.TASK_CARD_ENTER_BATCH_EDIT_REQUEST,
+    (payload?: { task?: Task | null }) => {
+      if (currentView.value !== 'kanban' || !payload?.task) return;
+      toggleKanbanBatchEditMode();
+      kanbanBatchSelectedTaskIds.value = new Set([payload.task.id]);
+    }
+  );
+
   eventUnsubscribers.push(
     unsubscribeChanged,
     unsubscribeDeleted,
@@ -11717,7 +11744,8 @@ function setupEventListeners() {
     unsubscribeGroupsUpdated,
     unsubscribeDocumentGroupsUpdated,
     unsubscribeTaskScopeUpdated,
-    unsubscribeViewSwitchRequested
+    unsubscribeViewSwitchRequested,
+    unsubscribeTaskCardEnterBatchEdit
   );
 }
 
@@ -17107,7 +17135,7 @@ onMounted(async () => {
         markTaskLoadFirstTasks('view', loadTraceId, 'cache', cachedTasks.length);
       } else {
         const { tasks: lightTasks } = await TaskRepository.getKernelMaterializedTasks(
-          5000,
+          20000,
           initialTaskScope,
           { includeRepeatTemplateDate: true }
         );
@@ -17431,6 +17459,10 @@ watch(kanbanColumns, () => {
 </script>
 
 <style scoped>
+.kanban-context-menu-host {
+  display: none;
+}
+
 @property --document-tabs-mask-start {
   syntax: "<length>";
   inherits: false;

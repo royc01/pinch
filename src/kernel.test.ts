@@ -8,12 +8,12 @@ describe('kernel task index incremental refresh', () => {
     vi.restoreAllMocks();
   });
 
-  it('removes ghost rows and marks a 5000-row index as truncated', async () => {
+  it('removes ghost rows and marks an over-capacity index as truncated', async () => {
     const handlers = new Map<string, KernelHandler>();
     let taskRowsQueryCount = 0;
     let queryMode: 'ghosts' | 'limit' = 'ghosts';
     let cappedRowsOffset = 0;
-    const cappedRows = Array.from({ length: 5001 }, (_, index) => ({
+    const cappedRows = Array.from({ length: 20001 }, (_, index) => ({
       id: `capped-block-${String(index).padStart(4, '0')}`,
       content: `Task ${index}`,
       markdown: `* [ ] Task ${index}`,
@@ -141,11 +141,11 @@ describe('kernel task index incremental refresh', () => {
 
     queryMode = 'limit';
     const capped = await refreshIndex!({
-      limit: 5000,
+      limit: 20000,
       notebookId: 'cap-notebook'
     });
-    expect(capped.rows).toHaveLength(5000);
-    expect(capped.totalScanned).toBe(5001);
+    expect(capped.rows).toHaveLength(20000);
+    expect(capped.totalScanned).toBe(20001);
     expect(capped.partial).toBe(true);
   });
 });

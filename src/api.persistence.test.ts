@@ -11,6 +11,7 @@ import {
   upsertHabit,
   upsertMoodEntry,
 } from './api'
+import { invalidatePluginStorageReadCache } from './utils/pluginStorage'
 import {
   afterEach,
   beforeEach,
@@ -77,6 +78,7 @@ const storageReadFailureCases: Array<[
 
 describe('JSON data persistence safety', () => {
   beforeEach(async () => {
+    invalidatePluginStorageReadCache()
     plugin.loadData.mockReset().mockResolvedValue(null)
     plugin.saveData.mockReset().mockResolvedValue(undefined)
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -85,9 +87,11 @@ describe('JSON data persistence safety', () => {
     await getFocusTimerData()
     plugin.loadData.mockClear()
     plugin.saveData.mockClear()
+    invalidatePluginStorageReadCache()
   })
 
   afterEach(() => {
+    invalidatePluginStorageReadCache()
     vi.restoreAllMocks()
   })
 

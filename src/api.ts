@@ -29,7 +29,13 @@ import { escapeSqlLiteral } from "@/utils/sql";
 import { usePlugin } from "@/main";
 import { translate } from "@/composables/useI18n";
 import { enqueueStorageMutation } from "@/storageMutationCoordinator";
-import { isMissingPluginStorageValue, isPluginLifecycleEndedError } from "@/utils/pluginStorage";
+import {
+  isMissingPluginStorageValue,
+  isPluginLifecycleEndedError,
+  invalidatePluginStorageReadCache,
+  readPluginStorageData,
+  updatePluginStorageReadCache
+} from "@/utils/pluginStorage";
 import { getAutomaticScheduledTaskStatus } from "@/utils/taskStatusAutomation";
 import { isClosedTaskStatus, isKnownTaskStatus } from "@/utils/taskStatus";
 import { formatDate as formatLocalDate } from "@/composables/useDateUtils";
@@ -204,34 +210,91 @@ export async function openBlockById(
 
 // **************************************** Noteboook ****************************************
 
+const NOTEBOOK_LIST_CACHE_TTL_MS = 5_000;
+let notebookListCache: { data: IReslsNotebooks; expiresAt: number } | null = null;
+let notebookListInFlight: Promise<IReslsNotebooks> | null = null;
+let notebookListCacheGeneration = 0;
+
+function cloneNotebookList(result: IReslsNotebooks): IReslsNotebooks {
+  return {
+    ...result,
+    notebooks: Array.isArray(result?.notebooks)
+      ? result.notebooks.map(notebook => ({ ...notebook }))
+      : []
+  };
+}
+
+/** Drop the short shared notebook-list snapshot after a notebook mutation. */
+export function invalidateNotebookListCache(): void {
+  notebookListCacheGeneration += 1;
+  notebookListCache = null;
+  notebookListInFlight = null;
+}
+
 export async function lsNotebooks(): Promise<IReslsNotebooks> {
-  let url = "/api/notebook/lsNotebooks";
-  return request(url, "");
+  const now = Date.now();
+  if (notebookListCache && notebookListCache.expiresAt > now) {
+    return cloneNotebookList(notebookListCache.data);
+  }
+  if (notebookListInFlight) {
+    return notebookListInFlight.then(cloneNotebookList);
+  }
+
+  const generation = notebookListCacheGeneration;
+  const requestPromise = request<IReslsNotebooks>('/api/notebook/lsNotebooks', '').then((result) => {
+    const normalized = cloneNotebookList(result);
+    if (generation === notebookListCacheGeneration) {
+      notebookListCache = {
+        data: normalized,
+        expiresAt: Date.now() + NOTEBOOK_LIST_CACHE_TTL_MS
+      };
+    }
+    return normalized;
+  });
+  notebookListInFlight = requestPromise;
+
+  try {
+    return cloneNotebookList(await requestPromise);
+  } finally {
+    if (notebookListInFlight === requestPromise) {
+      notebookListInFlight = null;
+    }
+  }
 }
 
 export async function openNotebook(notebook: NotebookId) {
   let url = "/api/notebook/openNotebook";
-  return request(url, { notebook: notebook });
+  const result = await request(url, { notebook: notebook });
+  invalidateNotebookListCache();
+  return result;
 }
 
 export async function closeNotebook(notebook: NotebookId) {
   let url = "/api/notebook/closeNotebook";
-  return request(url, { notebook: notebook });
+  const result = await request(url, { notebook: notebook });
+  invalidateNotebookListCache();
+  return result;
 }
 
 export async function renameNotebook(notebook: NotebookId, name: string) {
   let url = "/api/notebook/renameNotebook";
-  return request(url, { notebook: notebook, name: name });
+  const result = await request(url, { notebook: notebook, name: name });
+  invalidateNotebookListCache();
+  return result;
 }
 
 export async function createNotebook(name: string): Promise<Notebook> {
   let url = "/api/notebook/createNotebook";
-  return request(url, { name: name });
+  const result = await request<Notebook>(url, { name: name });
+  invalidateNotebookListCache();
+  return result;
 }
 
 export async function removeNotebook(notebook: NotebookId) {
   let url = "/api/notebook/removeNotebook";
-  return request(url, { notebook: notebook });
+  const result = await request(url, { notebook: notebook });
+  invalidateNotebookListCache();
+  return result;
 }
 
 export async function getNotebookConf(
@@ -248,7 +311,9 @@ export async function setNotebookConf(
 ): Promise<NotebookConf> {
   let data = { notebook: notebook, conf: conf };
   let url = "/api/notebook/setNotebookConf";
-  return request(url, data);
+  const result = await request<NotebookConf>(url, data);
+  invalidateNotebookListCache();
+  return result;
 }
 
 // **************************************** File Tree ****************************************
@@ -389,7 +454,9 @@ export async function insertBlock(
     parentID: parentID,
   };
   let url = "/api/block/insertBlock";
-  return request(url, payload);
+  const result = await request<IResdoOperations[]>(url, payload);
+  invalidateBlockDOMCache();
+  return result;
 }
 
 export async function prependBlock(
@@ -403,7 +470,9 @@ export async function prependBlock(
     parentID: parentID,
   };
   let url = "/api/block/prependBlock";
-  return request(url, payload);
+  const result = await request<IResdoOperations[]>(url, payload);
+  invalidateBlockDOMCache();
+  return result;
 }
 
 export async function appendBlock(
@@ -417,7 +486,9 @@ export async function appendBlock(
     parentID: parentID,
   };
   let url = "/api/block/appendBlock";
-  return request(url, payload);
+  const result = await request<IResdoOperations[]>(url, payload);
+  invalidateBlockDOMCache();
+  return result;
 }
 
 function refreshOpenDocumentIfVisible(rootId: string): void {
@@ -441,7 +512,9 @@ export async function updateBlock(
     id: id,
   };
   let url = "/api/block/updateBlock";
-  return request(url, payload);
+  const result = await request<IResdoOperations[]>(url, payload);
+  invalidateBlockDOMCache();
+  return result;
 }
 
 export async function deleteBlock(id: BlockId): Promise<IResdoOperations[]> {
@@ -449,7 +522,9 @@ export async function deleteBlock(id: BlockId): Promise<IResdoOperations[]> {
     id: id,
   };
   let url = "/api/block/deleteBlock";
-  return request(url, data);
+  const result = await request<IResdoOperations[]>(url, data);
+  invalidateBlockDOMCache();
+  return result;
 }
 
 export async function moveBlock(
@@ -463,7 +538,9 @@ export async function moveBlock(
     parentID: parentID,
   };
   let url = "/api/block/moveBlock";
-  return request(url, data);
+  const result = await request<IResdoOperations[]>(url, data);
+  invalidateBlockDOMCache();
+  return result;
 }
 
 export async function getBlockKramdown(
@@ -497,7 +574,9 @@ export async function transferBlockRef(
     refIDs: refIDs,
   };
   let url = "/api/block/transferBlockRef";
-  return request(url, data);
+  const result = await request(url, data);
+  invalidateBlockDOMCache();
+  return result;
 }
 
 export async function updateTaskListItemMarker(
@@ -511,6 +590,7 @@ export async function updateTaskListItemMarker(
   };
   const url = "/api/block/updateTaskListItemMarker";
   const result = await request<unknown>(url, data);
+  invalidateBlockDOMCache();
   publishTaskChange([id]);
   return Array.isArray(result) ? result as IResdoOperations[] : [];
 }
@@ -526,6 +606,7 @@ export async function setBlockAttrs(
   };
   let url = "/api/attr/setBlockAttrs";
   const result = await request(url, data);
+  invalidateBlockDOMCache();
   applyTaskAttributeMutation(id, attrs);
   return result;
 }
@@ -533,21 +614,111 @@ export async function setBlockAttrs(
 export async function getBlockAttrs(
   id: BlockId
 ): Promise<{ [key: string]: string }> {
-  let data = {
-    id: id,
-  };
-  let url = "/api/attr/getBlockAttrs";
-  return request(url, data);
+  const normalizedId = normalizeBlockAttrsId(id);
+  if (!normalizedId) {
+    return request('/api/attr/getBlockAttrs', { id });
+  }
+
+  const now = Date.now();
+  const cached = getCachedBlockAttrs(normalizedId, now);
+  if (cached) {
+    return cloneBlockAttrs(cached);
+  }
+
+  const inFlight = blockAttrsInFlight.get(normalizedId);
+  if (inFlight) {
+    return inFlight.then(cloneBlockAttrs);
+  }
+
+  const generation = blockAttrsCacheGeneration;
+  const requestPromise = request<{ [key: string]: string }>('/api/attr/getBlockAttrs', {
+    id: normalizedId,
+  }).then((attrs) => {
+    const normalizedAttrs = cloneBlockAttrs(attrs);
+    if (generation === blockAttrsCacheGeneration) {
+      cacheBlockAttrs(normalizedId, normalizedAttrs);
+    }
+    return normalizedAttrs;
+  });
+
+  blockAttrsInFlight.set(normalizedId, requestPromise);
+  void requestPromise.then(
+    () => {
+      if (blockAttrsInFlight.get(normalizedId) === requestPromise) {
+        blockAttrsInFlight.delete(normalizedId);
+      }
+    },
+    () => {
+      if (blockAttrsInFlight.get(normalizedId) === requestPromise) {
+        blockAttrsInFlight.delete(normalizedId);
+      }
+    }
+  );
+
+  return requestPromise.then(cloneBlockAttrs);
 }
 
 // **************************************** SQL ****************************************
 
-export async function sql(sql: string): Promise<any[]> {
-  let sqldata = {
-    stmt: sql,
-  };
-  let url = "/api/query/sql";
-  return request(url, sqldata);
+/**
+ * SiYuan serializes SQL work internally. Letting every mounted Pinch surface
+ * open its own SQL request only builds up browser connections while the kernel
+ * is already busy. Keep one shared lane and merge identical pending queries.
+ */
+const MAX_CONCURRENT_SQL_REQUESTS = 1;
+let activeSqlRequestCount = 0;
+const queuedSqlRequests: Array<() => void> = [];
+const pendingSqlRequests = new Map<string, Promise<any[]>>();
+
+function startQueuedSqlRequests(): void {
+  while (activeSqlRequestCount < MAX_CONCURRENT_SQL_REQUESTS && queuedSqlRequests.length > 0) {
+    queuedSqlRequests.shift()?.();
+  }
+}
+
+function enqueueSqlRequest<T>(operation: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const run = () => {
+      activeSqlRequestCount += 1;
+      void Promise.resolve()
+        .then(operation)
+        .then(resolve, reject)
+        .finally(() => {
+          activeSqlRequestCount -= 1;
+          startQueuedSqlRequests();
+        });
+    };
+
+    if (activeSqlRequestCount < MAX_CONCURRENT_SQL_REQUESTS) {
+      run();
+      return;
+    }
+
+    queuedSqlRequests.push(run);
+  });
+}
+
+export function sql(statement: string): Promise<any[]> {
+  const existingRequest = pendingSqlRequests.get(statement);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const requestPromise = enqueueSqlRequest(() => request<any[]>("/api/query/sql", { stmt: statement }));
+  pendingSqlRequests.set(statement, requestPromise);
+  void requestPromise.then(
+    () => {
+      if (pendingSqlRequests.get(statement) === requestPromise) {
+        pendingSqlRequests.delete(statement);
+      }
+    },
+    () => {
+      if (pendingSqlRequests.get(statement) === requestPromise) {
+        pendingSqlRequests.delete(statement);
+      }
+    }
+  );
+  return requestPromise;
 }
 
 export async function getBlockByID(blockId: string): Promise<Block> {
@@ -590,6 +761,11 @@ export async function getFile(path: string): Promise<any> {
   }
 }
 
+function getCurrentPluginAppId(): string | null {
+  const appId = usePlugin()?.app?.appId;
+  return typeof appId === 'string' && appId.length > 0 ? appId : null;
+}
+
 export async function putFile(path: string, isDir: boolean, file: any) {
     let form = new FormData();
     form.append('path', path);
@@ -598,13 +774,19 @@ export async function putFile(path: string, isDir: boolean, file: any) {
     // https://github.com/terwer/siyuan-plugin-importer/blob/v1.4.1/src/api/kernel-api.ts
     form.append('modTime', Math.floor(Date.now() / 1000).toString());
     form.append('file', file);
+    const appId = getCurrentPluginAppId();
+    if (appId) {
+      form.append('app', appId);
+    }
     let url = '/api/file/putFile';
     return request(url, form);
 }
 
 export async function removeFile(path: string) {
+  const appId = getCurrentPluginAppId();
   let data = {
     path: path,
+    ...(appId ? { app: appId } : {}),
   };
   let url = "/api/file/removeFile";
   return request(url, data);
@@ -737,6 +919,9 @@ function asStorageError(error: unknown): Error {
 }
 
 function markStorageHealthFailure(storageKey: string, error: unknown): void {
+  // A cached success must not count as a successful recovery after a strict
+  // storage read failed.
+  invalidatePluginStorageReadCache([storageKey]);
   if (!storageHealthFailures.has(storageKey)) {
     storageHealthFailures.set(storageKey, asStorageError(error));
   }
@@ -1039,23 +1224,31 @@ async function loadHabitsFromStorage(strict: boolean): Promise<Habit[]> {
   const plugin = requireStoragePlugin(
     translate('api.errors.pluginNotInitialized', 'Plugin is not initialized')
   );
-  const data = await plugin.loadData(HABITS_STORAGE_KEY);
-  if (isMissingPluginStorageValue(data)) {
-    return [];
-  }
+  return readPluginStorageData(
+    HABITS_STORAGE_KEY,
+    async () => {
+      const data = await plugin.loadData(HABITS_STORAGE_KEY);
+      if (isMissingPluginStorageValue(data)) {
+        return [];
+      }
 
-  const parsed: unknown = typeof data === 'string' ? JSON.parse(data) : data;
-  if (strict) {
-    assertValidStoredHabits(parsed);
-  }
-  return normalizeHabits(parsed);
+      const parsed: unknown = typeof data === 'string' ? JSON.parse(data) : data;
+      if (strict) {
+        assertValidStoredHabits(parsed);
+      }
+      return normalizeHabits(parsed);
+    },
+    { force: strict }
+  );
 }
 
 async function writeHabits(habits: Habit[]): Promise<void> {
   const plugin = requireStoragePlugin(
     translate('api.errors.pluginNotInitialized', 'Plugin is not initialized')
   );
-  await plugin.saveData(HABITS_STORAGE_KEY, normalizeHabits(Array.isArray(habits) ? habits : []));
+  const normalized = normalizeHabits(Array.isArray(habits) ? habits : []);
+  await plugin.saveData(HABITS_STORAGE_KEY, normalized);
+  updatePluginStorageReadCache(HABITS_STORAGE_KEY, normalized);
 }
 
 // 获取习惯数据
@@ -1256,20 +1449,28 @@ async function loadMoodDataFromStorage(strict: boolean): Promise<MoodData> {
   const plugin = requireStoragePlugin(
     translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to read data')
   );
-  const data = await plugin.loadData(MOOD_STORAGE_KEY);
-  if (isMissingPluginStorageValue(data)) {
-    return {};
-  }
+  return readPluginStorageData(
+    MOOD_STORAGE_KEY,
+    async () => {
+      const data = await plugin.loadData(MOOD_STORAGE_KEY);
+      if (isMissingPluginStorageValue(data)) {
+        return {};
+      }
 
-  const parsed: unknown = typeof data === 'string' ? JSON.parse(data) : data;
-  return normalizeMoodData(parsed, strict);
+      const parsed: unknown = typeof data === 'string' ? JSON.parse(data) : data;
+      return normalizeMoodData(parsed, strict);
+    },
+    { force: strict }
+  );
 }
 
 async function writeMoodData(moodData: MoodData): Promise<void> {
   const plugin = requireStoragePlugin(
     translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to save data')
   );
-  await plugin.saveData(MOOD_STORAGE_KEY, normalizeMoodData(moodData || {}));
+  const normalized = normalizeMoodData(moodData || {});
+  await plugin.saveData(MOOD_STORAGE_KEY, normalized);
+  updatePluginStorageReadCache(MOOD_STORAGE_KEY, normalized);
 }
 
 export async function getMoodData(): Promise<MoodData> {
@@ -1443,13 +1644,19 @@ async function loadFocusTimerDataFromStorage(strict: boolean): Promise<FocusTime
   const plugin = requireStoragePlugin(
     translate('api.errors.pluginSaveUnavailable', 'Plugin is not initialized, unable to read data')
   );
-  const data = await plugin.loadData(FOCUS_TIMER_STORAGE_KEY);
-  if (isMissingPluginStorageValue(data)) {
-    return createEmptyFocusTimerData();
-  }
+  return readPluginStorageData(
+    FOCUS_TIMER_STORAGE_KEY,
+    async () => {
+      const data = await plugin.loadData(FOCUS_TIMER_STORAGE_KEY);
+      if (isMissingPluginStorageValue(data)) {
+        return createEmptyFocusTimerData();
+      }
 
-  const parsed: unknown = typeof data === 'string' ? JSON.parse(data) : data;
-  return normalizeFocusTimerData(parsed, strict);
+      const parsed: unknown = typeof data === 'string' ? JSON.parse(data) : data;
+      return normalizeFocusTimerData(parsed, strict);
+    },
+    { force: strict }
+  );
 }
 
 async function writeFocusTimerData(data: FocusTimerData): Promise<void> {
@@ -1461,6 +1668,7 @@ async function writeFocusTimerData(data: FocusTimerData): Promise<void> {
     dailyRecords: normalized.dailyRecords,
     sessionRecords: normalized.sessionRecords
   });
+  updatePluginStorageReadCache(FOCUS_TIMER_STORAGE_KEY, normalized);
 }
 
 async function mutateFocusTimerData<T>(
@@ -1819,6 +2027,198 @@ export interface BlockDOMResponse {
   [key: string]: unknown;
 }
 
+/**
+ * Several independently mounted task surfaces request the same document DOM
+ * during a reconciliation burst. A short shared cache and per-block in-flight
+ * coalescing prevents that burst from becoming hundreds of duplicate RPCs.
+ */
+const BLOCK_DOM_CACHE_TTL_MS = 5_000;
+const BLOCK_DOM_CACHE_MAX_ENTRIES = 512;
+const BLOCK_ATTRS_CACHE_TTL_MS = 5_000;
+const BLOCK_ATTRS_CACHE_MAX_ENTRIES = 1_024;
+// The task-tree scan touches a large number of non-task ancestors. Retain
+// their parent links across the nearby task views that start together, then
+// clear them together with DOM data after a document mutation.
+const TASK_PARENT_CACHE_MAX_ENTRIES = 50_000;
+
+type BlockDOMCacheEntry = {
+  data: BlockDOMResponse;
+  expiresAt: number;
+};
+
+type BlockAttrs = { [key: string]: string };
+
+type BlockAttrsCacheEntry = {
+  data: BlockAttrs;
+  expiresAt: number;
+};
+
+const blockDOMCache = new Map<string, BlockDOMCacheEntry>();
+const blockDOMInFlight = new Map<string, Promise<BlockDOMResponse | undefined>>();
+const pendingBlockDOMIds = new Set<string>();
+const pendingBlockDOMWaiters = new Map<string, Array<(dom: BlockDOMResponse | undefined) => void>>();
+let blockDOMFlushScheduled = false;
+const blockAttrsCache = new Map<string, BlockAttrsCacheEntry>();
+const blockAttrsInFlight = new Map<string, Promise<BlockAttrs>>();
+const taskParentCache = new Map<string, string>();
+let blockDOMCacheGeneration = 0;
+let blockAttrsCacheGeneration = 0;
+let taskParentCacheGeneration = 0;
+
+function normalizeBlockDOMIds(ids: Iterable<string>): string[] {
+  const normalized = new Set<string>();
+  for (const id of ids) {
+    if (typeof id !== 'string') continue;
+    const value = id.trim();
+    if (value) normalized.add(value);
+  }
+  return Array.from(normalized);
+}
+
+function pruneBlockDOMCache(now: number): void {
+  for (const [id, entry] of blockDOMCache) {
+    if (entry.expiresAt <= now) {
+      blockDOMCache.delete(id);
+    }
+  }
+}
+
+function getCachedBlockDOM(id: string, now: number): BlockDOMResponse | undefined {
+  const entry = blockDOMCache.get(id);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= now) {
+    blockDOMCache.delete(id);
+    return undefined;
+  }
+  return entry.data;
+}
+
+function cacheBlockDOM(id: string, data: BlockDOMResponse): void {
+  blockDOMCache.delete(id);
+  blockDOMCache.set(id, {
+    data,
+    expiresAt: Date.now() + BLOCK_DOM_CACHE_TTL_MS
+  });
+
+  while (blockDOMCache.size > BLOCK_DOM_CACHE_MAX_ENTRIES) {
+    const oldestId = blockDOMCache.keys().next().value;
+    if (!oldestId) break;
+    blockDOMCache.delete(oldestId);
+  }
+}
+
+function normalizeBlockAttrsId(id: unknown): string {
+  return typeof id === 'string' ? id.trim() : '';
+}
+
+function cloneBlockAttrs(attrs: BlockAttrs | null | undefined): BlockAttrs {
+  return attrs && typeof attrs === 'object' ? { ...attrs } : {};
+}
+
+function getCachedBlockAttrs(id: string, now: number): BlockAttrs | undefined {
+  const entry = blockAttrsCache.get(id);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= now) {
+    blockAttrsCache.delete(id);
+    return undefined;
+  }
+  return entry.data;
+}
+
+function cacheBlockAttrs(id: string, attrs: BlockAttrs): void {
+  blockAttrsCache.delete(id);
+  blockAttrsCache.set(id, {
+    data: cloneBlockAttrs(attrs),
+    expiresAt: Date.now() + BLOCK_ATTRS_CACHE_TTL_MS
+  });
+
+  while (blockAttrsCache.size > BLOCK_ATTRS_CACHE_MAX_ENTRIES) {
+    const oldestId = blockAttrsCache.keys().next().value;
+    if (!oldestId) break;
+    blockAttrsCache.delete(oldestId);
+  }
+}
+
+function cacheTaskParent(id: string, parentId: string, generation = taskParentCacheGeneration): void {
+  if (generation !== taskParentCacheGeneration) return;
+  taskParentCache.delete(id);
+  taskParentCache.set(id, parentId);
+
+  while (taskParentCache.size > TASK_PARENT_CACHE_MAX_ENTRIES) {
+    const oldestId = taskParentCache.keys().next().value;
+    if (!oldestId) break;
+    taskParentCache.delete(oldestId);
+  }
+}
+
+/** Invalidate all DOM snapshots after a document mutation. */
+export function invalidateBlockDOMCache(): void {
+  blockDOMCacheGeneration += 1;
+  blockAttrsCacheGeneration += 1;
+  taskParentCacheGeneration += 1;
+  // A request begun before an edit must not populate the cache after it.
+  blockDOMInFlight.clear();
+  blockDOMCache.clear();
+  pendingBlockDOMIds.clear();
+  pendingBlockDOMWaiters.forEach((waiters) => waiters.forEach(resolve => resolve(undefined)));
+  pendingBlockDOMWaiters.clear();
+  blockDOMFlushScheduled = false;
+  blockAttrsInFlight.clear();
+  blockAttrsCache.clear();
+  taskParentCache.clear();
+}
+
+function scheduleBlockDOMLoad(id: string): Promise<BlockDOMResponse | undefined> {
+  const existing = blockDOMInFlight.get(id);
+  if (existing) return existing;
+
+  const promise = new Promise<BlockDOMResponse | undefined>((resolve) => {
+    const waiters = pendingBlockDOMWaiters.get(id) || [];
+    waiters.push(resolve);
+    pendingBlockDOMWaiters.set(id, waiters);
+    pendingBlockDOMIds.add(id);
+  });
+  blockDOMInFlight.set(id, promise);
+
+  if (!blockDOMFlushScheduled) {
+    blockDOMFlushScheduled = true;
+    queueMicrotask(() => {
+      blockDOMFlushScheduled = false;
+      const ids = Array.from(pendingBlockDOMIds);
+      pendingBlockDOMIds.clear();
+      if (ids.length === 0) return;
+      const generation = blockDOMCacheGeneration;
+      const batchEntries = ids.map((queuedId) => {
+        const entry = {
+          id: queuedId,
+          promise: blockDOMInFlight.get(queuedId),
+          waiters: pendingBlockDOMWaiters.get(queuedId) || []
+        };
+        pendingBlockDOMWaiters.delete(queuedId);
+        return entry;
+      });
+      void loadBlockDOMBatch(ids).then((loaded) => {
+        batchEntries.forEach((entry) => {
+          const dom = generation === blockDOMCacheGeneration
+            ? loaded.get(entry.id)
+            : undefined;
+          if (dom) cacheBlockDOM(entry.id, dom);
+          entry.waiters.forEach(resolve => resolve(dom));
+        });
+      }).catch(() => {
+        batchEntries.forEach(entry => entry.waiters.forEach(resolve => resolve(undefined)));
+      }).finally(() => {
+        batchEntries.forEach((entry) => {
+          if (blockDOMInFlight.get(entry.id) === entry.promise) {
+            blockDOMInFlight.delete(entry.id);
+          }
+        });
+      });
+    });
+  }
+  return promise;
+}
+
 const DEBUG = false;
 
 export const TASK_CONFIG = {
@@ -1829,7 +2229,10 @@ export const TASK_CONFIG = {
   MAX_SQL_SCAN: 20000,
   MAX_SUBTASK_DEPTH: 10,
   MAX_DOM_ORDER_SYNC: 120,
-  PARENT_LOOKUP_BATCH_SIZE: 32,
+  // 512 IDs is about a 10 KB SQL payload for SiYuan block IDs. It is already
+  // the proven batch size of the kernel DOM API and prevents a large task tree
+  // from turning one ancestor walk into hundreds of SQL round trips.
+  PARENT_LOOKUP_BATCH_SIZE: 512,
   DEBOUNCE_DELAY: 2000,
   SKIP_DELAY: 500,
   MUTATION_SKIP_DURATION: 1000,
@@ -2046,6 +2449,7 @@ interface TaskGroupStorage {
 
 const TAGS_STORAGE_KEY = 'Pinch-tags.json';
 const LEGACY_TASK_GROUPS_STORAGE_KEY = 'Pinch-task-groups.json';
+const TAGS_STORAGE_READ_CACHE_KEY = `${TAGS_STORAGE_KEY}:${LEGACY_TASK_GROUPS_STORAGE_KEY}`;
 const TAGS_STORAGE_VERSION = 2;
 /** Root is level 1, so a tag may have at most two ancestors. */
 export const MAX_TAG_LEVELS = 3;
@@ -2150,18 +2554,24 @@ export async function loadTags(): Promise<Tag[]> {
   }
 
   try {
-    const raw = await plugin.loadData(TAGS_STORAGE_KEY) || await plugin.loadData(LEGACY_TASK_GROUPS_STORAGE_KEY);
-    if (!raw) return [];
+    return await readPluginStorageData(
+      TAGS_STORAGE_READ_CACHE_KEY,
+      async () => {
+        const raw = await plugin.loadData(TAGS_STORAGE_KEY)
+          || await plugin.loadData(LEGACY_TASK_GROUPS_STORAGE_KEY);
+        if (!raw) return [];
 
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (Array.isArray(parsed)) {
-      return normalizeTaskGroups(parsed);
-    }
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (Array.isArray(parsed)) {
+          return normalizeTaskGroups(parsed);
+        }
 
-    const storage = parsed as Partial<TaskGroupStorage> | null;
-    if (storage && Array.isArray(storage.groups)) {
-      return normalizeTaskGroups(storage.groups);
-    }
+        const storage = parsed as Partial<TaskGroupStorage> | null;
+        return storage && Array.isArray(storage.groups)
+          ? normalizeTaskGroups(storage.groups)
+          : [];
+      }
+    );
   } catch (error) {
     if (isPluginLifecycleEndedError(error)) return [];
     console.error('[Tags] loadTags: failed to read data', error);
@@ -2193,6 +2603,7 @@ export async function saveTags(groups: Tag[]): Promise<void> {
     await plugin.saveData(TAGS_STORAGE_KEY, payload);
     // Keep the legacy location in sync for existing installations and integrations.
     await plugin.saveData(LEGACY_TASK_GROUPS_STORAGE_KEY, payload);
+    updatePluginStorageReadCache(TAGS_STORAGE_READ_CACHE_KEY, normalizedGroups);
   } catch (error) {
     if (isPluginLifecycleEndedError(error)) return;
     console.error('[Tags] saveTags: failed to write data', error);
@@ -2236,6 +2647,10 @@ export interface TaskStatsSummary {
 }
 
 type TaskFetchDetailLevel = 'full' | 'light';
+
+/** Maximum rows requested from the kernel task index. Presentation callers
+ * may still slice this result locally, but must not force a partial index. */
+export const KERNEL_TASK_INDEX_LIMIT = 20000;
 
 type RootTaskMetadataCacheEntry = {
   updatedAt: string;
@@ -2293,6 +2708,7 @@ export class TaskRepository {
   private static blockTasksFetchPromise: {
     promise: Promise<Task[]>;
     detailLevel: TaskFetchDetailLevel;
+    useLiveDom: boolean;
   } | null = null;
   private static scopedMemoryCache = new Map<string, {
     tasks: Task[];
@@ -2519,7 +2935,7 @@ export class TaskRepository {
   ): Promise<{ tasks: Task[]; elapsedMs: number; cached?: boolean; indexElapsedMs?: number; pageCount?: number; partial?: boolean; totalMatched?: number }> {
     const startedAt = Date.now();
     const result = await getKernelTaskRowsByDateRange(startDate, endDate, {
-      limit: 5000,
+      limit: KERNEL_TASK_INDEX_LIMIT,
       includeCompleted: scope?.includeCompleted,
       includeArchived: scope?.includeArchived,
       archivedOnly: scope?.archivedOnly,
@@ -2570,7 +2986,7 @@ export class TaskRepository {
     options: { startDate?: string; endDate?: string; includeSubtasks?: boolean; force?: boolean } = {}
   ): Promise<TaskStatsSummary> {
     return getKernelTaskStats({
-      limit: 5000,
+      limit: KERNEL_TASK_INDEX_LIMIT,
       includeCompleted: scope?.includeCompleted,
       includeArchived: scope?.includeArchived,
       archivedOnly: scope?.archivedOnly,
@@ -2585,24 +3001,34 @@ export class TaskRepository {
   }
 
   static async getKernelMaterializedTasks(
-    limit = 5000,
+    limit = KERNEL_TASK_INDEX_LIMIT,
     scope?: TaskQueryScope | null,
-    options: TaskFetchOptions & { force?: boolean } = {}
-  ): Promise<{ tasks: Task[]; elapsedMs: number; cached?: boolean; indexElapsedMs?: number; changedRows?: number; incremental?: boolean }> {
+    options: TaskFetchOptions & { force?: boolean; hydrateDocumentMetadata?: boolean } = {}
+  ): Promise<{
+    tasks: Task[];
+    elapsedMs: number;
+    cached?: boolean;
+    indexElapsedMs?: number;
+    changedRows?: number;
+    incremental?: boolean;
+    partial?: boolean;
+  }> {
     const result = await this.getKernelLightTasks(limit, scope, { force: options.force });
-    const rootIds = Array.from(new Set(
-      result.tasks
-        .map(task => typeof task.rootId === 'string' ? task.rootId.trim() : '')
-        .filter(rootId => rootId.length > 0)
-    ));
-    if (rootIds.length > 0) {
-      const { rootIcons } = await this.resolveRootTaskMetadata(rootIds);
-      if (rootIcons.size > 0) {
-        result.tasks = result.tasks.map(task => {
-          const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
-          const icon = rootId ? rootIcons.get(rootId) : '';
-          return icon ? { ...task, icon } : task;
-        });
+    if (options.hydrateDocumentMetadata !== false) {
+      const rootIds = Array.from(new Set(
+        result.tasks
+          .map(task => typeof task.rootId === 'string' ? task.rootId.trim() : '')
+          .filter(rootId => rootId.length > 0)
+      ));
+      if (rootIds.length > 0) {
+        const { rootIcons } = await this.resolveRootTaskMetadata(rootIds);
+        if (rootIcons.size > 0) {
+          result.tasks = result.tasks.map(task => {
+            const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+            const icon = rootId ? rootIcons.get(rootId) : '';
+            return icon ? { ...task, icon } : task;
+          });
+        }
       }
     }
     if (options.materializeRepeats === false) {
@@ -2622,6 +3048,47 @@ export class TaskRepository {
     };
   }
 
+  /** Load only tasks that carry reminder metadata for the scheduler. */
+  static async getKernelReminderTasks(
+    limit = KERNEL_TASK_INDEX_LIMIT,
+    scope?: TaskQueryScope | null,
+    options: TaskFetchOptions & { force?: boolean } = {}
+  ): Promise<{
+    tasks: Task[];
+    elapsedMs: number;
+    cached?: boolean;
+    partial?: boolean;
+  }> {
+    const startedAt = Date.now();
+    const result = await getKernelTaskIndex({
+      limit,
+      includeCompleted: scope?.includeCompleted,
+      includeArchived: scope?.includeArchived,
+      archivedOnly: scope?.archivedOnly,
+      notebookId: scope?.notebookId,
+      excludedNotebookIds: this.getExcludedNotebookIdsSorted(),
+      documentId: scope?.documentId,
+      includeRemindersOnly: true,
+      force: options.force
+    });
+    const tasks = result.rows
+      .filter(row => !this.isKernelSubtaskRow(row))
+      .map(row => this.buildLightTaskFromKernelRow(row));
+    const materialized = options.materializeRepeats === false
+      ? tasks
+      : await materializeRepeatTasks(tasks, {
+          ...resolveTaskRepeatMaterializeOptions(options.repeatWindow),
+          includeTemplateDate: options.includeRepeatTemplateDate === true,
+          filterBaseTasksToRange: options.constrainBaseTasksToRepeatWindow === true
+        });
+    return {
+      tasks: materialized,
+      elapsedMs: Date.now() - startedAt,
+      cached: result.cached,
+      partial: result.partial
+    };
+  }
+
   private static async tryGetKernelLightTasksForFetch(
     useCache: boolean,
     scope: TaskQueryScope | null,
@@ -2633,7 +3100,7 @@ export class TaskRepository {
 
     try {
       const result = await this.getKernelLightTasks(
-        5000,
+        KERNEL_TASK_INDEX_LIMIT,
         scope,
         { force: !useCache }
       );
@@ -2895,6 +3362,77 @@ export class TaskRepository {
       if (!oldestKey) break;
       this.scopedMemoryCache.delete(oldestKey);
     }
+  }
+
+  private static filterTasksFromBroadCache(tasks: Task[], scope: TaskQueryScope): Task[] | null {
+    // The unscoped cache is the active-task dataset. It can safely satisfy a
+    // narrower notebook/document request, but never an archived-only or
+    // include-archived request.
+    if (scope.includeArchived === true || scope.archivedOnly === true) return null;
+    return tasks.filter(task => {
+      if (scope.includeCompleted === false && isClosedTaskStatus(task.status)) return false;
+      if (scope.notebookId && task.notebookId !== scope.notebookId) return false;
+      if (scope.documentId && task.rootId !== scope.documentId) return false;
+      return true;
+    });
+  }
+
+  /**
+   * Reuse the all-archive snapshot for an active-task request. This is kept
+   * separate from the generic memory cache because that cache may itself be
+   * an active-only result; the scoped key below proves the source really did
+   * include archived rows before we filter them locally.
+   */
+  private static filterTasksFromAllArchiveSnapshot(
+    tasks: Task[],
+    scope: TaskQueryScope | null
+  ): Task[] | null {
+    if (scope?.archivedOnly || scope?.includeArchived === true) return null;
+    return tasks.filter(task => {
+      if (scope?.includeCompleted === false && isClosedTaskStatus(task.status)) return false;
+      if (scope?.notebookId && task.notebookId !== scope.notebookId) return false;
+      if (scope?.documentId && task.rootId !== scope.documentId) return false;
+      return task.archived !== true;
+    });
+  }
+
+  private static buildAllArchiveScope(scope: TaskQueryScope | null): TaskQueryScope {
+    return {
+      includeCompleted: scope?.includeCompleted !== false,
+      includeArchived: true,
+      notebookId: scope?.notebookId,
+      documentId: scope?.documentId
+    };
+  }
+
+  private static async getTasksFromAllArchiveSnapshot(
+    scope: TaskQueryScope | null,
+    useLiveDom: boolean,
+    detailLevel: TaskFetchDetailLevel,
+    useCache: boolean,
+    forceFresh: boolean
+  ): Promise<Task[] | null> {
+    if (!useCache || forceFresh || scope?.archivedOnly || scope?.includeArchived === true) {
+      return null;
+    }
+
+    const broadKey = this.buildScopeCacheKey(this.buildAllArchiveScope(scope), useLiveDom, detailLevel);
+    const now = Date.now();
+    const cached = this.scopedMemoryCache.get(broadKey);
+    if (
+      cached &&
+      now - cached.timestamp < this.SCOPED_MEMORY_CACHE_DURATION &&
+      this.isTaskFetchDetailLevelSatisfied(cached.detailLevel, detailLevel)
+    ) {
+      return this.filterTasksFromAllArchiveSnapshot(cached.tasks, scope);
+    }
+
+    const inFlight = this.scopedBlockTasksFetchPromises.get(broadKey);
+    if (inFlight && this.isTaskFetchDetailLevelSatisfied(inFlight.detailLevel, detailLevel)) {
+      const tasks = await inFlight.promise;
+      return this.filterTasksFromAllArchiveSnapshot(tasks, scope);
+    }
+    return null;
   }
 
   static setExcludedNotebookIds(notebookIds: string[] = []): void {
@@ -3892,6 +4430,20 @@ export class TaskRepository {
     const detailLevel = this.resolveTaskFetchDetailLevel(options);
     const isScopedQuery = !!normalizedScope;
     const now = Date.now();
+    const cacheGeneration = this.cacheGeneration;
+
+    if (useCache && options.forceFresh !== true) {
+      const archiveSnapshotTasks = await this.getTasksFromAllArchiveSnapshot(
+        normalizedScope,
+        useLiveDom,
+        detailLevel,
+        useCache,
+        false
+      );
+      if (archiveSnapshotTasks) {
+        return archiveSnapshotTasks;
+      }
+    }
 
     // 1. 内存缓存
     if (!isScopedQuery && useCache && this.memoryCache.tasks &&
@@ -3921,12 +4473,40 @@ export class TaskRepository {
         }
       }
 
+      if (
+        useCache && options.forceFresh !== true &&
+        this.memoryCache.tasks &&
+        now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION &&
+        this.isTaskFetchDetailLevelSatisfied(this.memoryCache.detailLevel, detailLevel)
+      ) {
+        const filtered = this.filterTasksFromBroadCache(this.memoryCache.tasks, normalizedScope!);
+        if (filtered) {
+          this.setScopedMemoryCache(scopedCacheKey, filtered, this.memoryCache.detailLevel);
+          return filtered;
+        }
+      }
+
+      if (
+        options.forceFresh !== true &&
+        this.blockTasksFetchPromise &&
+        this.isTaskFetchDetailLevelSatisfied(this.blockTasksFetchPromise.detailLevel, detailLevel) &&
+        (!useLiveDom || this.blockTasksFetchPromise.useLiveDom)
+      ) {
+        const broadTasks = await this.blockTasksFetchPromise.promise;
+        const filtered = this.filterTasksFromBroadCache(broadTasks, normalizedScope!);
+        if (filtered) {
+          if (useCache && cacheGeneration === this.cacheGeneration) {
+            this.setScopedMemoryCache(scopedCacheKey, filtered, this.blockTasksFetchPromise?.detailLevel || detailLevel);
+          }
+          return filtered;
+        }
+      }
+
       const scopedInFlight = this.scopedBlockTasksFetchPromises.get(scopedCacheKey);
       if (scopedInFlight && this.isTaskFetchDetailLevelSatisfied(scopedInFlight.detailLevel, detailLevel)) {
         return scopedInFlight.promise;
       }
 
-      const cacheGeneration = this.cacheGeneration;
       const scopedFetchPromise = (async () => {
         const kernelTasks = await this.tryGetKernelLightTasksForFetch(useCache, normalizedScope, options);
         const tasks = kernelTasks ?? await this.fetchBlockTasks(normalizedScope, useLiveDom, detailLevel);
@@ -3957,7 +4537,6 @@ export class TaskRepository {
       return this.blockTasksFetchPromise.promise;
     }
 
-    const cacheGeneration = this.cacheGeneration;
     const globalFetchPromise = (async () => {
       const kernelTasks = await this.tryGetKernelLightTasksForFetch(useCache, null, options);
       const tasks = kernelTasks ?? await this.fetchBlockTasks(null, useLiveDom, detailLevel);
@@ -3973,7 +4552,8 @@ export class TaskRepository {
     })();
     this.blockTasksFetchPromise = {
       promise: globalFetchPromise,
-      detailLevel
+      detailLevel,
+      useLiveDom
     };
 
     try {
@@ -4227,7 +4807,9 @@ export class TaskRepository {
       const ancestorParentById = new Map<string, string>();
 
       allBlocks.forEach((block) => {
-        ancestorParentById.set(block.id, block.parent_id || '');
+        const parentId = block.parent_id || '';
+        ancestorParentById.set(block.id, parentId);
+        cacheTaskParent(block.id, parentId);
       });
 
       const fetchParentRowsByIds = async (ids: string[]): Promise<Array<{ id: string; parent_id: string }>> => {
@@ -4235,31 +4817,54 @@ export class TaskRepository {
         if (uniqueIds.length === 0) {
           return [];
         }
-        const idsClause = uniqueIds
-          .map(id => `'${this.escapeSqlLiteral(id)}'`)
-          .join(',');
-        const rows = await sql(`
-          SELECT id, parent_id
-          FROM blocks
-          WHERE id IN (${idsClause})
-        `) as Array<{ id?: string; parent_id?: string }>;
-        const normalizedRows = Array.isArray(rows)
-          ? rows
-            .map((row) => ({
-              id: typeof row?.id === 'string' ? row.id : '',
-              parent_id: typeof row?.parent_id === 'string' ? row.parent_id : ''
-            }))
-            .filter(row => row.id.length > 0)
-          : [];
+        const parentById = new Map<string, string>();
+        const uncachedIds: string[] = [];
 
-        if (uniqueIds.length <= 1 || normalizedRows.length >= uniqueIds.length) {
-          return normalizedRows;
+        for (const id of uniqueIds) {
+          const cachedParentId = taskParentCache.get(id);
+          if (cachedParentId !== undefined) {
+            parentById.set(id, cachedParentId);
+          } else {
+            uncachedIds.push(id);
+          }
         }
 
-        const midpoint = Math.ceil(uniqueIds.length / 2);
-        const leftRows = await fetchParentRowsByIds(uniqueIds.slice(0, midpoint));
-        const rightRows = await fetchParentRowsByIds(uniqueIds.slice(midpoint));
-        return [...leftRows, ...rightRows];
+        if (uncachedIds.length > 0) {
+          const parentCacheGeneration = taskParentCacheGeneration;
+          const idsClause = uncachedIds
+            .map(id => `'${this.escapeSqlLiteral(id)}'`)
+            .join(',');
+          const rows = await sql(`
+            SELECT id, parent_id
+            FROM blocks
+            WHERE id IN (${idsClause})
+          `) as Array<{ id?: string; parent_id?: string }>;
+          const fetchedParentById = new Map<string, string>();
+
+          if (Array.isArray(rows)) {
+            rows.forEach((row) => {
+              if (typeof row?.id !== 'string' || row.id.length === 0) return;
+              fetchedParentById.set(
+                row.id,
+                typeof row.parent_id === 'string' ? row.parent_id : ''
+              );
+            });
+          }
+
+          // A missing row is a deleted or unavailable ancestor. Splitting the
+          // same incomplete batch recursively cannot recover it, but it can
+          // turn one sparse lookup into hundreds of SQL requests.
+          uncachedIds.forEach((id) => {
+            const parentId = fetchedParentById.get(id) || '';
+            cacheTaskParent(id, parentId, parentCacheGeneration);
+            parentById.set(id, parentId);
+          });
+        }
+
+        return uniqueIds.map(id => ({
+          id,
+          parent_id: parentById.get(id) || ''
+        }));
       };
 
       let ancestorLookupIds = Array.from(
@@ -4875,6 +5480,7 @@ export class TaskRepository {
   
   static async clearCache(): Promise<void> {
     this.cacheGeneration += 1;
+    invalidateBlockDOMCache();
     this.clearLocalBlockTasksCache();
     this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
     this.blockTasksFetchPromise = null;
@@ -5525,7 +6131,7 @@ export class TaskRepository {
 }
 
 // 获取块 DOM 数据
-export async function getBlockDOM(
+async function requestBlockDOM(
   id: BlockId
 ): Promise<BlockDOMResponse> {
   let data = {
@@ -5535,16 +6141,13 @@ export async function getBlockDOM(
   return request(url, data);
 }
 
-export async function getBlockDOMBatch(ids: string[]): Promise<Map<string, BlockDOMResponse>> {
-  if (ids.length === 0) return new Map();
-
+async function loadBlockDOMBatch(ids: string[]): Promise<Map<string, BlockDOMResponse>> {
   const result = new Map<string, BlockDOMResponse>();
-  const uniqueIds = [...new Set(ids.filter(id => typeof id === 'string' && id.trim().length > 0))];
   const fallbackIds = new Set<string>();
 
   const kernelBatchSize = 512;
-  for (let index = 0; index < uniqueIds.length; index += kernelBatchSize) {
-    const batchIds = uniqueIds.slice(index, index + kernelBatchSize);
+  for (let index = 0; index < ids.length; index += kernelBatchSize) {
+    const batchIds = ids.slice(index, index + kernelBatchSize);
     try {
       const response = await getKernelBlockDOMBatch(batchIds);
       const returnedIds = new Set<string>();
@@ -5572,7 +6175,7 @@ export async function getBlockDOMBatch(ids: string[]): Promise<Map<string, Block
     while (nextIndex < pendingIds.length) {
       const id = pendingIds[nextIndex++];
       try {
-        result.set(id, await getBlockDOM(id));
+        result.set(id, await requestBlockDOM(id));
       } catch (error) {
         log_debug('Failed to get block DOM', { id, error });
       }
@@ -5580,5 +6183,66 @@ export async function getBlockDOMBatch(ids: string[]): Promise<Map<string, Block
   };
 
   await Promise.all(Array.from({ length: maxConcurrent }, worker));
+  return result;
+}
+
+export async function getBlockDOM(id: BlockId): Promise<BlockDOMResponse> {
+  const normalizedId = normalizeBlockDOMIds([id])[0];
+  if (!normalizedId) {
+    throw new SiyuanApiError('/api/block/getBlockDOM', -1, 'A block ID is required');
+  }
+
+  const dom = (await getBlockDOMBatch([normalizedId])).get(normalizedId);
+  if (!dom) {
+    throw new SiyuanApiError('/api/block/getBlockDOM', -1, `Block DOM is unavailable: ${normalizedId}`);
+  }
+  return dom;
+}
+
+export async function getBlockDOMBatch(ids: string[]): Promise<Map<string, BlockDOMResponse>> {
+  const uniqueIds = normalizeBlockDOMIds(ids);
+  if (uniqueIds.length === 0) return new Map();
+
+  const result = new Map<string, BlockDOMResponse>();
+  const pendingById = new Map<string, Promise<BlockDOMResponse | undefined>>();
+  const missingIds: string[] = [];
+  const now = Date.now();
+  pruneBlockDOMCache(now);
+
+  for (const id of uniqueIds) {
+    const cached = getCachedBlockDOM(id, now);
+    if (cached) {
+      result.set(id, cached);
+      continue;
+    }
+
+    const inFlight = blockDOMInFlight.get(id);
+    if (inFlight) {
+      pendingById.set(id, inFlight);
+      continue;
+    }
+
+    missingIds.push(id);
+  }
+
+  if (missingIds.length > 0) {
+    for (const id of missingIds) {
+      const domPromise = scheduleBlockDOMLoad(id);
+      pendingById.set(id, domPromise);
+      void domPromise.then(() => {
+        if (blockDOMInFlight.get(id) === domPromise) {
+          blockDOMInFlight.delete(id);
+        }
+      });
+    }
+  }
+
+  await Promise.all(Array.from(pendingById, async ([id, promise]) => {
+    const dom = await promise;
+    if (dom) {
+      result.set(id, dom);
+    }
+  }));
+
   return result;
 }

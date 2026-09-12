@@ -51,6 +51,7 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
 const MOBILE_NOTIFICATION_CHANNEL_NAME = 'Pinch Habit';
 const REMINDER_RETRY_MS = 60 * 1000;
 const DESKTOP_NOTIFICATION_AUTO_CLOSE_MS = 12 * 1000;
+const FULL_REFRESH_DELAY_MS = 240;
 
 const reminderTimers = new Map<string, number>();
 const scheduledReminders = new Map<string, ScheduledReminder>();
@@ -63,6 +64,9 @@ let started = false;
 let persistTimer: number | null = null;
 let blockRefreshTimer: number | null = null;
 let fullRefreshTimer: number | null = null;
+let fullRefreshInFlight: Promise<void> | null = null;
+let nextFullRefreshAllowedAt = 0;
+let lastRefreshErrorAt = Number.NEGATIVE_INFINITY;
 let unsubscribeHandlers: Array<() => void> = [];
 
 function getReminderNotificationTitle(): string {
@@ -752,32 +756,85 @@ async function refreshReminderByBlockIds(blockIds: string[]): Promise<void> {
   pruneFiredReminderMap();
 }
 
-async function refreshAllReminders(): Promise<void> {
-  const tasks = await TaskRepository.getAllTasks(false, undefined, { useLiveDom: false });
-  if (shouldUseMobileNativeNotifications()) {
-    await syncAllMobileReminders(tasks);
+function reportReminderRefreshError(operation: string, error: unknown): void {
+  const now = Date.now();
+  if (now - lastRefreshErrorAt < REMINDER_RETRY_MS) {
     return;
   }
+  lastRefreshErrorAt = now;
+  console.warn(`[Task reminder] ${operation}; will retry later.`, error);
+}
 
-  await loadFiredReminderMap();
-  const nextIdentities = new Set<string>();
-
-  tasks.forEach((task) => {
-    const identity = getTaskIdentity(task);
-    if (!identity) {
-      return;
+async function loadTasksForFullReminderRefresh(): Promise<Task[]> {
+  try {
+    // Reminder scheduling needs task fields, not document DOM, icons, or
+    // ordering. The kernel index turns a full refresh into one bounded plugin
+    // RPC request instead of a frontend-driven SQL scan in the normal case.
+    const kernelResult = await TaskRepository.getKernelReminderTasks(undefined, undefined, {
+      includeRepeatTemplateDate: true,
+      materializeRepeats: true
+    });
+    if (!kernelResult.partial) {
+      return kernelResult.tasks;
     }
-    nextIdentities.add(identity);
-    applyTaskReminder(task, identity);
-  });
+  } catch (error) {
+    console.debug('[Task reminder] kernel task index unavailable; using SQL fallback.', error);
+  }
 
-  Array.from(scheduledReminders.keys()).forEach((identity) => {
-    if (!nextIdentities.has(identity)) {
-      clearReminder(identity);
+  // A partial index must not make reminders disappear. api.sql() serializes
+  // this fallback, preventing a busy workspace from opening many connections.
+  return TaskRepository.getAllTasks(false, undefined, { useLiveDom: false });
+}
+
+function refreshAllReminders(): Promise<void> {
+  if (fullRefreshInFlight) {
+    return fullRefreshInFlight;
+  }
+
+  const refreshPromise = (async () => {
+    try {
+      const tasks = await loadTasksForFullReminderRefresh();
+      if (shouldUseMobileNativeNotifications()) {
+        await syncAllMobileReminders(tasks);
+        nextFullRefreshAllowedAt = 0;
+        return;
+      }
+
+      await loadFiredReminderMap();
+      const nextIdentities = new Set<string>();
+
+      tasks.forEach((task) => {
+        const identity = getTaskIdentity(task);
+        if (!identity) {
+          return;
+        }
+        nextIdentities.add(identity);
+        applyTaskReminder(task, identity);
+      });
+
+      Array.from(scheduledReminders.keys()).forEach((identity) => {
+        if (!nextIdentities.has(identity)) {
+          clearReminder(identity);
+        }
+      });
+
+      pruneFiredReminderMap();
+      nextFullRefreshAllowedAt = 0;
+    } catch (error) {
+      // Preserve the last valid schedule. Repeating a failing full scan after
+      // every focus/visibility event used to amplify one transport failure.
+      nextFullRefreshAllowedAt = Date.now() + REMINDER_RETRY_MS;
+      reportReminderRefreshError('Full reminder refresh failed', error);
+    }
+  })();
+
+  fullRefreshInFlight = refreshPromise;
+  void refreshPromise.then(() => {
+    if (fullRefreshInFlight === refreshPromise) {
+      fullRefreshInFlight = null;
     }
   });
-
-  pruneFiredReminderMap();
+  return refreshPromise;
 }
 
 function queueBlockRefresh(blockIds: string[]): void {
@@ -795,7 +852,9 @@ function queueBlockRefresh(blockIds: string[]): void {
     blockRefreshTimer = null;
     const blockIdsToRefresh = Array.from(pendingBlockIds);
     pendingBlockIds.clear();
-    void refreshReminderByBlockIds(blockIdsToRefresh);
+    void refreshReminderByBlockIds(blockIdsToRefresh).catch((error) => {
+      reportReminderRefreshError('Block reminder refresh failed', error);
+    });
   }, 180);
 }
 
@@ -804,10 +863,11 @@ function queueFullRefresh(): void {
     window.clearTimeout(fullRefreshTimer);
   }
 
+  const delay = Math.max(FULL_REFRESH_DELAY_MS, nextFullRefreshAllowedAt - Date.now());
   fullRefreshTimer = window.setTimeout(() => {
     fullRefreshTimer = null;
     void refreshAllReminders();
-  }, 240);
+  }, delay);
 }
 
 export function startTaskReminderScheduler(): void {
@@ -889,6 +949,9 @@ export function stopTaskReminderScheduler(): void {
     writeLocalJson(FIRED_REMINDER_LOCAL_STORAGE_KEY, firedReminderMap);
   }
 
+  fullRefreshInFlight = null;
+  nextFullRefreshAllowedAt = 0;
+  lastRefreshErrorAt = Number.NEGATIVE_INFINITY;
   pendingBlockIds.clear();
   clearAllReminders();
   clearAllTrackedNotifications();

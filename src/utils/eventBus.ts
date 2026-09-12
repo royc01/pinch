@@ -100,6 +100,8 @@ export const Events = {
   LIFELOG_TIMELINE_UPDATED: 'lifelog-timeline-updated',
   TASK_EDITOR_OPEN_REQUEST: 'task-editor-open-request',
   TASK_QUICK_META_OPEN_REQUEST: 'task-quick-meta-open-request',
+  TASK_CARD_CONTEXT_MENU_OPEN_REQUEST: 'task-card-context-menu-open-request',
+  TASK_CARD_ENTER_BATCH_EDIT_REQUEST: 'task-card-enter-batch-edit-request',
   KANBAN_VIEW_SWITCH_REQUEST: 'kanban-view-switch-request',
   MOBILE_KANBAN_DIALOG_CLOSE_REQUEST: 'mobile-kanban-dialog-close-request',
   HABIT_TRACKER_PANEL_OPEN_REQUEST: 'habit-tracker-panel-open-request',

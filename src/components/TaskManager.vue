@@ -563,69 +563,44 @@
             @manage-groups="openTaskGroupDialogFromEditor"
             @manage-goals="void openTaskScopeDialog('goals')"
           />
-          <div
-            v-if="showTaskMoveDialog"
-            class="task-move-dialog-overlay"
-            @click.self="closeTaskMoveDialog"
-          >
-            <div class="task-move-dialog" @click.stop>
-              <div class="task-move-dialog-header">
-                <span class="task-move-dialog-title">{{ t('taskManager.moveTask') }}</span>
-                <button
-                  type="button"
-                  class="task-move-dialog-close ariaLabel"
-                 
-                  :aria-label="t('common.close')"
-                  @click.stop="closeTaskMoveDialog"
-                >
-                  <Icon name="close" width="16" height="16" />
-                </button>
-              </div>
-              <div class="task-move-dialog-body">
-                <div class="task-move-dialog-field">
-                  <label>{{ t('taskManager.notebook') }}</label>
-                  <SySelect
-                    :model-value="taskMoveSelectedNotebook"
-                    :options="taskMoveNotebookOptions"
-                    @update:model-value="handleTaskMoveNotebookChange"
-                  />
-                </div>
-                <div class="task-move-dialog-field">
-                  <label>{{ t('taskManager.document') }}</label>
-                  <SySelect
-                    :model-value="taskMoveSelectedDocument"
-                    :options="taskMoveDocumentOptions"
-                    @update:model-value="taskMoveSelectedDocument = String($event || '')"
-                  />
-                </div>
-                <div v-if="taskMoveTargetUnchanged" class="task-move-dialog-hint">
-                  {{ t('taskManager.alreadyInDocument') }}
-                </div>
-                <div v-else-if="taskMoveDocumentOptions.length === 0" class="task-move-dialog-hint">
-                  {{ t('taskManager.noDocumentOptions') }}
-                </div>
-              </div>
-              <div class="task-move-dialog-actions">
-                <button
-                  type="button"
-                  class="task-move-dialog-btn"
-                  @click.stop="closeTaskMoveDialog"
-                >
-                  {{ t('common.cancel') }}
-                </button>
-                <button
-                  type="button"
-                  class="task-move-dialog-btn primary"
-                  :disabled="!canSubmitTaskMove"
-                  @click.stop="handleTaskEditorMove"
-                >
-                  {{ isTaskMoveSubmitting ? t('taskManager.moving') : t('taskManager.move') }}
-                </button>
-              </div>
-            </div>
-          </div>
         </TaskEditorPanelShell>
       </Transition>
+    </Teleport>
+
+    <Teleport :to="taskMoveDialogTeleportTo">
+      <div
+        v-if="showTaskMoveDialog"
+        class="task-move-dialog-overlay"
+        :class="{ 'is-sidebar': !!taskModalTeleportTarget && !forceGlobalTaskMoveDialog }"
+        @click.self="closeTaskMoveDialog"
+      >
+        <div class="task-move-dialog" @click.stop>
+          <div class="task-move-dialog-header">
+            <span class="task-move-dialog-title">{{ t('taskManager.moveTask') }}</span>
+            <button type="button" class="task-move-dialog-close ariaLabel" :aria-label="t('common.close')" @click.stop="closeTaskMoveDialog">
+              <Icon name="close" width="16" height="16" />
+            </button>
+          </div>
+          <div class="task-move-dialog-body">
+            <div class="task-move-dialog-field">
+              <label>{{ t('taskManager.notebook') }}</label>
+              <SySelect :model-value="taskMoveSelectedNotebook" :options="taskMoveNotebookOptions" @update:model-value="handleTaskMoveNotebookChange" />
+            </div>
+            <div class="task-move-dialog-field">
+              <label>{{ t('taskManager.document') }}</label>
+              <SySelect :model-value="taskMoveSelectedDocument" :options="taskMoveDocumentOptions" @update:model-value="taskMoveSelectedDocument = String($event || '')" />
+            </div>
+            <div v-if="taskMoveTargetUnchanged" class="task-move-dialog-hint">{{ t('taskManager.alreadyInDocument') }}</div>
+            <div v-else-if="taskMoveDocumentOptions.length === 0" class="task-move-dialog-hint">{{ t('taskManager.noDocumentOptions') }}</div>
+          </div>
+          <div class="task-move-dialog-actions">
+            <button type="button" class="task-move-dialog-btn" @click.stop="closeTaskMoveDialog">{{ t('common.cancel') }}</button>
+            <button type="button" class="task-move-dialog-btn primary" :disabled="!canSubmitTaskMove" @click.stop="handleTaskEditorMove">
+              {{ isTaskMoveSubmitting ? t('taskManager.moving') : t('taskManager.move') }}
+            </button>
+          </div>
+        </div>
+      </div>
     </Teleport>
 
     <div v-if="loading" class="loading" v-show="!isTaskListCollapsed">{{ t('taskManager.loading') }}</div>
@@ -1074,6 +1049,7 @@
     />
     <TaskCardContextMenu
       :state="taskCardContextMenu"
+      :show-enter-batch-edit="taskCardContextMenu?.source === 'view' && taskCardContextMenu?.sourceView === 'kanban'"
       :status-options="taskCardContextStatusOptions"
       :priority-options="taskCardContextPriorityOptions"
       :tag-options="taskGroupPickerOptions"
@@ -1084,6 +1060,7 @@
       @clear-tags="handleTaskCardContextClearTags"
       @manage-tags="handleTaskCardContextManageTags"
       @toggle-pin="handleTaskCardContextTogglePin"
+      @enter-batch-edit="handleTaskCardContextEnterBatchEdit"
       @edit-description="handleTaskCardContextDescription"
       @move="handleTaskCardContextMove"
       @archive="handleTaskCardContextArchive"
@@ -1301,9 +1278,11 @@ interface DesktopCalendarPointerGesture {
 const props = withDefaults(defineProps<{
   enableMobileCalendarDrag?: boolean;
   enableCalendarPointerDrag?: boolean;
+  contextMenuHost?: boolean;
 }>(), {
   enableMobileCalendarDrag: false,
-  enableCalendarPointerDrag: false
+  enableCalendarPointerDrag: false,
+  contextMenuHost: false
 });
 
 const emit = defineEmits<{
@@ -1860,7 +1839,7 @@ const batchEditTagActionOptions: Array<{ value: TaskTagBatchAction; text: string
   { value: 'remove', text: t('taskManager.batchRemoveTag') }
 ];
 const taskGroupStatusOrder = computed<Task['status'][]>(() => getTaskStatusDefinitions().map(status => status.id));
-const taskCardContextMenu = ref<{ task: Task; x: number; y: number } | null>(null);
+const taskCardContextMenu = ref<{ task: Task; x: number; y: number; source?: 'view' | 'sidebar'; sourceView?: string } | null>(null);
 const taskCardContextStatusOptions = computed(() => buildTaskStatusSelectOptions(t)
   .filter(option => option.value)
   .map(option => ({ value: String(option.value), label: option.text })));
@@ -1869,6 +1848,10 @@ const taskCardContextPriorityOptions = computed(() => batchEditPriorityOptions
   .map(option => ({ value: option.value, label: option.text })));
 
 const taskModalTeleportTo = computed(() => taskModalTeleportTarget.value || 'body');
+const forceGlobalTaskMoveDialog = ref(false);
+const taskMoveDialogTeleportTo = computed(() => forceGlobalTaskMoveDialog.value
+  ? 'body'
+  : (taskModalTeleportTarget.value || 'body'));
 const activeTaskEditOverride = ref<Task | null>(null);
 const activeTaskEditTask = computed(() =>
   taskEditMenuTaskId.value
@@ -2707,7 +2690,7 @@ function isKernelSubtaskRow(row: Record<string, unknown>): boolean {
 function buildKernelDiagnosticsParams(): KernelTaskIndexParams {
   const scope = getCurrentTaskQueryScope();
   return {
-    limit: 5000,
+    limit: 20000,
     includeCompleted: scope?.includeCompleted,
     includeArchived: scope?.includeArchived,
     archivedOnly: scope?.archivedOnly,
@@ -6131,6 +6114,16 @@ function handleTaskCardContextManageTags(): void {
   void openTaskScopeDialog('tags');
 }
 
+function handleTaskCardContextEnterBatchEdit(): void {
+  const task = getTaskCardContextTask();
+  const isViewMenu = taskCardContextMenu.value?.source === 'view';
+  closeTaskCardContextMenu();
+  if (!isViewMenu || !task) {
+    return;
+  }
+  eventBus.emit(Events.TASK_CARD_ENTER_BATCH_EDIT_REQUEST, { task });
+}
+
 function handleTaskCardContextDescription(): void {
   const task = getTaskCardContextTask();
   if (!task) return;
@@ -6171,11 +6164,21 @@ async function prepareTaskCardContextAction(task: Task): Promise<Task | null> {
 }
 
 async function handleTaskCardContextMove(): Promise<void> {
-  const task = getTaskCardContextTask();
+  const contextState = taskCardContextMenu.value;
+  const task = contextState?.task || null;
+  forceGlobalTaskMoveDialog.value = contextState?.source === 'view';
   closeTaskCardContextMenu();
-  if (task && await prepareTaskCardContextAction(task)) {
-    await openTaskMoveDialog();
+  if (!task) {
+    forceGlobalTaskMoveDialog.value = false;
+    return;
   }
+
+  const preparedTask = await prepareTaskCardContextAction(task);
+  if (!preparedTask) {
+    return;
+  }
+
+  await openTaskMoveDialog();
 }
 
 async function handleTaskCardContextArchive(): Promise<void> {
@@ -6616,7 +6619,7 @@ async function prefillKernelLightTasks(scope: TaskQueryScope | null | undefined)
     // Materialize repeats even for the fast first paint so completed virtual
     // instances never flash as pending before the full reconciliation arrives.
     const { tasks: lightTasks } = await TaskRepository.getKernelMaterializedTasks(
-      5000,
+      20000,
       scope || null,
       {
         includeRepeatTemplateDate: true,
@@ -6675,7 +6678,7 @@ function mergeKernelSyncedTasks(kernelTasks: Task[], currentTasks: Task[]): Task
 async function syncRepeatChangedFromKernel(): Promise<boolean> {
   try {
     const { tasks: kernelTasks } = await TaskRepository.getKernelMaterializedTasks(
-      5000,
+      20000,
       getCurrentTaskQueryScope() || null,
       {
         force: true,
@@ -6733,7 +6736,7 @@ function scheduleKernelTaskIndexRefresh(delay = 220): void {
   kernelTaskIndexRefreshTimer = window.setTimeout(async () => {
     kernelTaskIndexRefreshTimer = null;
     try {
-      await refreshKernelTaskIndex({ limit: 5000, includeArchived: true });
+      await refreshKernelTaskIndex({ limit: 20000, includeArchived: true });
     } catch (error) {
       if (!isKernelRpcUnavailable(error)) {
         console.debug('[TaskManager] kernel task index refresh after date change skipped', error);
@@ -7229,6 +7232,38 @@ function setupEventListeners() {
     }
   );
 
+  // View task cards use the same context menu as cards in this sidebar.
+  // Ignore requests from the mobile task drawer instance so only the
+  // desktop/sidebar menu is rendered when both instances are mounted.
+  const unsubscribeTaskCardContextMenuOpenRequested = eventBus.on(
+    Events.TASK_CARD_CONTEXT_MENU_OPEN_REQUEST,
+    (payload?: { task?: Task | null; x?: number; y?: number; source?: 'view' | 'sidebar'; sourceView?: string }) => {
+      if (props.enableMobileCalendarDrag || !payload?.task) {
+        return;
+      }
+      if (props.contextMenuHost) {
+        const sidebarHost = document.querySelector<HTMLElement>('.stand-container .task-manager-container');
+        const sidebarContainer = sidebarHost?.closest<HTMLElement>('.stand-container');
+        const sidebarVisible = !!sidebarHost
+          && getComputedStyle(sidebarHost).display !== 'none'
+          && (!sidebarContainer || getComputedStyle(sidebarContainer).display !== 'none');
+        if (sidebarVisible) {
+          return;
+        }
+      }
+      if (payload.source !== 'view' && props.contextMenuHost) {
+        return;
+      }
+      taskCardContextMenu.value = {
+        task: payload.task,
+        x: Number.isFinite(payload.x) ? Number(payload.x) : 0,
+        y: Number.isFinite(payload.y) ? Number(payload.y) : 0,
+        source: payload.source || 'view',
+        sourceView: payload.sourceView
+      };
+    }
+  );
+
   eventUnsubscribers.push(
     unsubscribe,
     unsubscribeDeleted,
@@ -7240,7 +7275,8 @@ function setupEventListeners() {
     unsubscribeTaskScopeUpdated,
     unsubscribeTaskScopeHomeOpenRequested,
     unsubscribeTaskEditorOpenRequested,
-    unsubscribeTaskQuickMetaOpenRequested
+    unsubscribeTaskQuickMetaOpenRequested,
+    unsubscribeTaskCardContextMenuOpenRequested
   );
 }
 
@@ -8111,6 +8147,7 @@ async function openTaskMoveDialog(): Promise<void> {
 
 function closeTaskMoveDialog(): void {
   showTaskMoveDialog.value = false;
+  forceGlobalTaskMoveDialog.value = false;
   isTaskMoveSubmitting.value = false;
 }
 
@@ -10464,11 +10501,15 @@ onMounted(async () => {
     ]);
     await taskDocumentsLoadPromise;
     markTaskLoadMilestone('sidebar', loadTraceId, 'metadataMs');
-    requiresScopeInitialization.value = true;
-    taskScopeDialogInitialTab.value = 'scope';
-    showTaskScopeDialog.value = true;
+    if (!props.contextMenuHost) {
+      requiresScopeInitialization.value = true;
+      taskScopeDialogInitialTab.value = 'scope';
+      showTaskScopeDialog.value = true;
+    }
     isHydratingFilters = false;
-    return;
+    if (!props.contextMenuHost) {
+      return;
+    }
   }
 
   loading.value = true;
@@ -11083,15 +11124,20 @@ onUnmounted(() => {
 }
 
 .task-move-dialog-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 8;
+  z-index: 340;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(0, 0, 0, 0.32);
+  background: rgba(0, 0, 0, 0.25);
 }
+
+.task-move-dialog-overlay.is-sidebar {
+  position: absolute;
+}
+
 
 .task-move-dialog {
   width: min(100%, 360px);

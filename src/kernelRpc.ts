@@ -6,7 +6,7 @@ const PINCH_KERNEL_RPC_RETRY_AFTER_MS = 30000;
 
 let kernelRpcUnavailableUntil = 0;
 let lastKernelRpcUnavailableReason = "";
-let officialKernelRpc: KernelPluginRpc | null = null;
+const kernelRpcInFlight = new Map<string, Promise<unknown>>();
 
 type KernelPluginRpc = Pick<IKernelPluginRpc, "call">;
 
@@ -99,32 +99,21 @@ function markKernelRpcUnavailable(error: unknown): void {
   lastKernelRpcUnavailableReason = error instanceof Error ? error.message : String(error || "Kernel RPC unavailable");
 }
 
-export function configurePinchKernelRpc(rpc?: KernelPluginRpc | null): void {
-  officialKernelRpc = rpc || null;
-  if (officialKernelRpc) {
-    kernelRpcUnavailableUntil = 0;
-    lastKernelRpcUnavailableReason = "";
-  }
-}
-
-async function callOfficialKernelRpc<T>(method: string, params?: unknown): Promise<T | null> {
-  const handler = officialKernelRpc?.call?.[method];
-  if (typeof handler !== "function") {
-    return null;
-  }
-
-  let timeoutId = 0;
-  try {
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timeoutId = window.setTimeout(() => {
-        reject(new KernelRpcUnavailableError(`Kernel RPC request timed out: ${method}`));
-      }, PINCH_KERNEL_RPC_TIMEOUT_MS);
-    });
-    const request = params === undefined ? handler() : handler(params);
-    return await Promise.race([request, timeout]) as T;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
+export function configurePinchKernelRpc(_rpc?: KernelPluginRpc | null): void {
+  /*
+   * Do not use Plugin.kernel.rpc.call here.
+   *
+   * On affected SiYuan builds that client keeps retrying a pending request
+   * after the caller has already timed out. Those detached retries reuse the
+   * same JSON-RPC ID and turn one logical Pinch operation into dozens of HTTP
+   * requests. The direct plugin endpoint supports AbortController, so each
+   * Pinch request remains bounded. Keep this lifecycle function for callers
+   * on older SiYuan versions, but deliberately ignore the supplied client.
+   */
+  void _rpc;
+  kernelRpcUnavailableUntil = 0;
+  lastKernelRpcUnavailableReason = "";
+  kernelRpcInFlight.clear();
 }
 
 export function isKernelRpcUnavailable(error: unknown): boolean {
@@ -137,17 +126,30 @@ export async function callPinchKernel<T>(method: string, params?: unknown): Prom
     throw new KernelRpcUnavailableError(lastKernelRpcUnavailableReason || "Kernel RPC is temporarily unavailable");
   }
 
-  if (officialKernelRpc?.call?.[method]) {
-    try {
-      return await callOfficialKernelRpc<T>(method, params) as T;
-    } catch (error) {
-      if (isKernelRpcUnavailable(error)) {
-        markKernelRpcUnavailable(error);
-      }
-      throw error;
-    }
+  const key = `${method}:${params === undefined ? "" : JSON.stringify(params)}`;
+  const existing = kernelRpcInFlight.get(key);
+  if (existing) {
+    return existing as Promise<T>;
   }
 
+  const request = callPinchKernelHttp<T>(method, params);
+  kernelRpcInFlight.set(key, request);
+  void request.then(
+    () => {
+      if (kernelRpcInFlight.get(key) === request) {
+        kernelRpcInFlight.delete(key);
+      }
+    },
+    () => {
+      if (kernelRpcInFlight.get(key) === request) {
+        kernelRpcInFlight.delete(key);
+      }
+    }
+  );
+  return request;
+}
+
+async function callPinchKernelHttp<T>(method: string, params?: unknown): Promise<T> {
   const id = Date.now();
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => {
@@ -209,9 +211,10 @@ export type KernelTaskIndexParams = {
   endDate?: string;
   includeSubtasks?: boolean;
   sinceUpdated?: string;
+  includeRemindersOnly?: boolean;
 };
 
-export function refreshKernelTaskIndex(params: KernelTaskIndexParams | number = { limit: 5000 }): Promise<KernelTaskRowsResult> {
+export function refreshKernelTaskIndex(params: KernelTaskIndexParams | number = { limit: 20000 }): Promise<KernelTaskRowsResult> {
   const payload = typeof params === 'number' ? { limit: params } : params;
   return callPinchKernel<KernelTaskRowsResult>("refreshTaskIndex", payload);
 }
