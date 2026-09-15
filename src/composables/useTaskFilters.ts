@@ -36,7 +36,9 @@ function getKanbanCacheKey(
 
 function getTitleVisibilityCacheKey(tasks: Task[]): string {
   return tasks
-    .map(task => `${task.id}:${hasVisibleTaskTitle(task.title) ? 1 : 0}`)
+    // Include archive state so an in-place optimistic archive/unarchive update
+    // invalidates the derived filter cache without requiring a full reload.
+    .map(task => `${task.id}:${task.archived === true ? 1 : 0}:${hasVisibleTaskTitle(task.title) ? 1 : 0}`)
     .join('|');
 }
 

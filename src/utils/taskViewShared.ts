@@ -6,6 +6,7 @@ export interface RepeatRulePayload {
   blockId?: string;
   seriesId?: string;
   frequency?: string;
+  templateUpdates?: Record<string, unknown>;
 }
 
 export { normalizeNotebookIds };

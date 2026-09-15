@@ -3,6 +3,7 @@ import { eventBus, Events } from './eventBus';
 import {
   publishTaskAttributeChange,
   publishTaskChange,
+  publishTaskStructureChange,
   resetTaskChangeCoordinator,
   type TaskChangePayload
 } from './taskChangeCoordinator';
@@ -91,6 +92,47 @@ describe('task change coordinator', () => {
       blockIds: [],
       revision: 1
     }]);
+  });
+
+  it('marks structural moves for forced cross-view reconciliation', () => {
+    publishTaskStructureChange(['source-task', 'target-task', 'source-task']);
+
+    vi.advanceTimersByTime(8);
+
+    expect(changes).toEqual([{
+      blockIds: ['source-task', 'target-task'],
+      revision: 1,
+      forceRefresh: true,
+      structureChange: true
+    }]);
+  });
+
+  it('keeps a delayed websocket echo marked as structural', () => {
+    publishTaskStructureChange(['source-task']);
+    vi.advanceTimersByTime(8);
+    expect(changes[0]).toMatchObject({ structureChange: true });
+
+    // The ordinary local-echo window is shorter than the structural one.
+    vi.advanceTimersByTime(300);
+    publishTaskChange(['source-task'], 'ws');
+    vi.advanceTimersByTime(80);
+    vi.advanceTimersByTime(8);
+
+    expect(changes[1]).toMatchObject({
+      blockIds: ['source-task'],
+      forceRefresh: true,
+      structureChange: true
+    });
+  });
+
+  it('does not mark ordinary websocket echoes as structural', () => {
+    publishTaskChange(['task-a']);
+    vi.advanceTimersByTime(8);
+    publishTaskChange(['task-a'], 'ws');
+    vi.advanceTimersByTime(80);
+    vi.advanceTimersByTime(8);
+    expect(changes[1]).toMatchObject({ forceRefresh: true });
+    expect(changes[1]?.structureChange).toBeUndefined();
   });
 
   it('publishes only task attribute writes', () => {

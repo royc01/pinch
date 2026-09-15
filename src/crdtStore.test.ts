@@ -77,4 +77,78 @@ describe('shared task attribute changes', () => {
     expect(globalTasks.value[0].focusEstimate).toEqual({ unit: 'minutes', value: 30 });
     expect(sidebarTasks.value[0].focusEstimate).toEqual({ unit: 'minutes', value: 30 });
   });
+
+  it('updates archive state in every active task store', () => {
+    const { syncFromSQL: syncGlobalTasks, tasks: globalTasks } = useCrdtTasks();
+    const { syncFromSQL: syncSidebarTasks, tasks: sidebarTasks } = useCrdtTasks('task-manager');
+    syncGlobalTasks([{ ...task }]);
+    syncSidebarTasks([{ ...task }]);
+
+    expect(applyTaskAttributeChanges('block-1', {
+      'custom-task-archived': '1',
+      'custom-task-archived-at': '2026-09-15T08:00:00.000Z',
+      'custom-task-archive-reason': 'manual'
+    })).toBe(true);
+
+    expect(globalTasks.value[0]).toMatchObject({
+      archived: true,
+      archivedAt: '2026-09-15T08:00:00.000Z',
+      archiveReason: 'manual'
+    });
+    expect(sidebarTasks.value[0]).toMatchObject({
+      archived: true,
+      archivedAt: '2026-09-15T08:00:00.000Z',
+      archiveReason: 'manual'
+    });
+
+    applyTaskAttributeChanges('block-1', {
+      'custom-task-archived': '',
+      'custom-task-archived-at': '',
+      'custom-task-archive-reason': ''
+    });
+
+    expect(globalTasks.value[0]).toMatchObject({ archived: false });
+    expect(globalTasks.value[0].archivedAt).toBeUndefined();
+    expect(globalTasks.value[0].archiveReason).toBeUndefined();
+  });
+
+  it('updates archive state for nested subtasks', () => {
+    const nested = {
+      ...task,
+      id: 'parent-task',
+      blockId: 'parent-block',
+      subtasks: [{ ...task, id: 'child-task', blockId: 'child-block', title: 'Child', completed: false }]
+    };
+    const { syncFromSQL, tasks } = useCrdtTasks();
+    syncFromSQL([nested]);
+
+    applyTaskAttributeChanges('child-block', {
+      'custom-task-archived': 'true',
+      'custom-task-archive-reason': 'auto'
+    });
+
+    expect(tasks.value[0].subtasks?.[0]).toMatchObject({ archived: true, archiveReason: 'auto' });
+  });
+
+  it('mirrors template archive changes to virtual repeat instances', () => {
+    const template = { ...task, repeatSeriesId: 'series-1' };
+    const virtual = {
+      ...task,
+      id: 'series-1:2026-09-16',
+      blockId: undefined,
+      isVirtual: true,
+      repeatSeriesId: 'series-1',
+      repeatInstanceDate: '2026-09-16'
+    };
+    const { syncFromSQL, tasks } = useCrdtTasks();
+    syncFromSQL([template, virtual]);
+
+    applyTaskAttributeChanges('block-1', {
+      'custom-task-archived': '1',
+      'custom-task-archive-reason': 'manual'
+    });
+
+    expect(tasks.value.find(item => item.id === template.id)).toMatchObject({ archived: true });
+    expect(tasks.value.find(item => item.id === virtual.id)).toMatchObject({ archived: true });
+  });
 });

@@ -612,6 +612,8 @@
         'is-list-view': taskListViewMode === 'list',
         'is-timeline-view': taskListViewMode === 'timeline'
       }"
+      @dragover="handleTaskListDragOver"
+      @drop="handleTaskListDrop"
       v-show="!isTaskListCollapsed"
     >
       <div v-if="displayedTasks.length === 0" class="empty-state">
@@ -666,10 +668,10 @@
               </div>
             </header>
           </section>
-          <div
-            v-else-if="row.type === 'task' && row.task"
-            :ref="(el) => setTimelineVirtualRowRef(row.key, el)"
-            class="task-batch-item timeline-virtual-task"
+             <div
+               v-else-if="row.type === 'task' && row.task"
+               :ref="(el) => setTimelineVirtualRowRef(row.key, el)"
+               class="task-batch-item timeline-virtual-task"
             :class="{
               selected: isTaskBatchSelected(row.task.id),
               'is-batch-mode': isBatchEditMode,
@@ -681,7 +683,10 @@
               'calendar-pointer-dragging': desktopCalendarDraggingTaskId === row.task.id,
               'manual-task-dragging': manualTaskDrag.sourceId === row.task.id,
               'manual-task-drop-before': isManualTaskDropTarget(row.task.id, 'before'),
-              'manual-task-drop-after': isManualTaskDropTarget(row.task.id, 'after')
+              'manual-task-drop-after': isManualTaskDropTarget(row.task.id, 'after'),
+              'manual-task-drop-inside': isManualTaskDropTarget(row.task.id, 'inside'),
+              'subtask-detach-drop-before': isDetachedDropTarget(row.task.id, 'before'),
+              'subtask-detach-drop-after': isDetachedDropTarget(row.task.id, 'after')
             }"
             @pointerdown="handleMobileTaskPointerDown($event, row.task)"
             @pointermove="handleMobileTaskPointerMove"
@@ -695,10 +700,11 @@
               <span class="task-timeline-time">{{ row.timelineLabel }}</span>
               <span class="task-timeline-node"></span>
             </div>
-            <TaskCard
-              :data-task-id="row.task.id"
+             <TaskCard
+               v-memo="[row.task.status, row.task.priority, row.task.title, row.task.description, row.task.subtasks, getInlineDescriptionDraft(row.task), row.task.dueDate, row.task.dueTime, row.task.groupId, row.task.pinned, row.task.focusEstimate?.unit, row.task.focusEstimate?.value, row.task.taskId, row.task.sourceBlockId, (row.task.tags || []).join(','), row.task.blockId, row.task.repeatSeriesId, taskGroups, goalDefinitions, getTaskManagerGoalIds(row.task).join(','), expandedSubtasks.has(row.task.id), expandedDescriptions.has(row.task.id), shouldShowTaskCardDetails, inlineEditingDescriptionTaskId === row.task.id, isBatchEditMode, shouldUseNativeTaskCardDrag(), shouldEnableMobileCalendarDrag(), shouldEnableDesktopCalendarPointerDrag(), isFutureVirtualRepeatPreview(row.task)]"
+               :data-task-id="row.task.id"
               :task="row.task"
-               :completed="isClosedTaskStatus(row.task.status)"
+               :completed="isCompletedTaskStatus(row.task.status)"
                :disable-status-toggle="isFutureVirtualRepeatPreview(row.task)"
                :show-start-date="isFutureVirtualRepeatPreview(row.task)"
               variant="sidebar"
@@ -729,6 +735,8 @@
               @description-cancel="cancelInlineDescriptionEdit"
               @subtask-toggle="handleCardSubtaskToggle"
               @subtask-open="handleCardSubtaskOpen"
+              @subtask-drop="handleSubtaskDrop"
+              @subtask-sibling-drop="handleSubtaskSiblingDrop"
               @dragstart="handleDragStart($event, row.task, null)"
               @dragend="handleManualTaskDragEnd"
             />
@@ -788,10 +796,10 @@
             </div>
           </header>
           <div v-if="!isTaskGroupSectionCollapsed(section.key)" class="task-group-section-body">
-            <div
-              v-for="task in section.tasks"
-              :key="task.id"
-              class="task-batch-item"
+             <div
+               v-for="task in section.tasks"
+               :key="task.id"
+               class="task-batch-item"
               :class="{
                 selected: isTaskBatchSelected(task.id),
                 'is-batch-mode': isBatchEditMode,
@@ -802,7 +810,10 @@
                 'calendar-pointer-dragging': desktopCalendarDraggingTaskId === task.id,
                 'manual-task-dragging': manualTaskDrag.sourceId === task.id,
                 'manual-task-drop-before': isManualTaskDropTarget(task.id, 'before'),
-                'manual-task-drop-after': isManualTaskDropTarget(task.id, 'after')
+                'manual-task-drop-after': isManualTaskDropTarget(task.id, 'after'),
+                'manual-task-drop-inside': isManualTaskDropTarget(task.id, 'inside'),
+                'subtask-detach-drop-before': isDetachedDropTarget(task.id, 'before'),
+                'subtask-detach-drop-after': isDetachedDropTarget(task.id, 'after')
               }"
               @pointerdown="handleMobileTaskPointerDown($event, task)"
               @pointermove="handleMobileTaskPointerMove"
@@ -816,10 +827,11 @@
                 <span class="task-timeline-time">{{ getTaskTimelineLabel(section, task) }}</span>
                 <span class="task-timeline-node"></span>
               </div>
-              <TaskCard
-                :data-task-id="task.id"
+               <TaskCard
+                 v-memo="[task.status, task.priority, task.title, task.description, task.subtasks, getInlineDescriptionDraft(task), task.dueDate, task.dueTime, task.groupId, task.pinned, task.focusEstimate?.unit, task.focusEstimate?.value, task.taskId, task.sourceBlockId, (task.tags || []).join(','), task.blockId, task.repeatSeriesId, taskGroups, goalDefinitions, getTaskManagerGoalIds(task).join(','), expandedSubtasks.has(task.id), expandedDescriptions.has(task.id), shouldShowTaskCardDetails, inlineEditingDescriptionTaskId === task.id, isBatchEditMode, shouldUseNativeTaskCardDrag(), shouldEnableMobileCalendarDrag(), shouldEnableDesktopCalendarPointerDrag(), isFutureVirtualRepeatPreview(task)]"
+                 :data-task-id="task.id"
                 :task="task"
-                 :completed="isClosedTaskStatus(task.status)"
+                 :completed="isCompletedTaskStatus(task.status)"
                  :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
                  :show-start-date="isFutureVirtualRepeatPreview(task)"
                 variant="sidebar"
@@ -850,6 +862,8 @@
                 @description-cancel="cancelInlineDescriptionEdit"
                 @subtask-toggle="handleCardSubtaskToggle"
                 @subtask-open="handleCardSubtaskOpen"
+                @subtask-drop="handleSubtaskDrop"
+                @subtask-sibling-drop="handleSubtaskSiblingDrop"
                 @dragstart="handleDragStart($event, task, section.key)"
                 @dragend="handleManualTaskDragEnd"
               />
@@ -862,10 +876,10 @@
         class="task-virtual-spacer"
         :style="taskVirtualSpacerStyle"
       >
-        <div
-          v-for="task in virtualDisplayedTasks"
-          :key="task.id"
-          class="task-batch-item"
+           <div
+             v-for="task in virtualDisplayedTasks"
+             :key="task.id"
+             class="task-batch-item"
           :class="{
             selected: isTaskBatchSelected(task.id),
             'is-batch-mode': isBatchEditMode,
@@ -875,7 +889,10 @@
             'calendar-pointer-dragging': desktopCalendarDraggingTaskId === task.id,
             'manual-task-dragging': manualTaskDrag.sourceId === task.id,
             'manual-task-drop-before': isManualTaskDropTarget(task.id, 'before'),
-            'manual-task-drop-after': isManualTaskDropTarget(task.id, 'after')
+            'manual-task-drop-after': isManualTaskDropTarget(task.id, 'after'),
+            'manual-task-drop-inside': isManualTaskDropTarget(task.id, 'inside'),
+            'subtask-detach-drop-before': isDetachedDropTarget(task.id, 'before'),
+            'subtask-detach-drop-after': isDetachedDropTarget(task.id, 'after')
           }"
           @pointerdown="handleMobileTaskPointerDown($event, task)"
           @pointermove="handleMobileTaskPointerMove"
@@ -885,10 +902,11 @@
           @dragleave="handleManualTaskDragLeave($event, task.id)"
           @drop="handleManualTaskDrop($event, task, null)"
         >
-          <TaskCard
-            :data-task-id="task.id"
+           <TaskCard
+             v-memo="[task.status, task.priority, task.title, task.description, task.subtasks, getInlineDescriptionDraft(task), task.dueDate, task.dueTime, task.groupId, task.pinned, task.focusEstimate?.unit, task.focusEstimate?.value, task.taskId, task.sourceBlockId, (task.tags || []).join(','), task.blockId, task.repeatSeriesId, taskGroups, goalDefinitions, getTaskManagerGoalIds(task).join(','), expandedSubtasks.has(task.id), expandedDescriptions.has(task.id), shouldShowTaskCardDetails, inlineEditingDescriptionTaskId === task.id, isBatchEditMode, shouldUseNativeTaskCardDrag(), shouldEnableMobileCalendarDrag(), shouldEnableDesktopCalendarPointerDrag(), isFutureVirtualRepeatPreview(task)]"
+             :data-task-id="task.id"
             :task="task"
-             :completed="isClosedTaskStatus(task.status)"
+              :completed="isCompletedTaskStatus(task.status)"
              :disable-status-toggle="isFutureVirtualRepeatPreview(task)"
              :show-start-date="isFutureVirtualRepeatPreview(task)"
             variant="sidebar"
@@ -919,6 +937,8 @@
             @description-cancel="cancelInlineDescriptionEdit"
             @subtask-toggle="handleCardSubtaskToggle"
             @subtask-open="handleCardSubtaskOpen"
+            @subtask-drop="handleSubtaskDrop"
+            @subtask-sibling-drop="handleSubtaskSiblingDrop"
             @dragstart="handleDragStart($event, task, null)"
             @dragend="handleManualTaskDragEnd"
           />
@@ -1120,7 +1140,8 @@ import {
   buildTaskStatusSelectOptions,
   getTaskStatusDefinitions,
   getTaskStatusLabel,
-  isClosedTaskStatus
+   isClosedTaskStatus,
+   isCompletedTaskStatus
 } from '@/utils/taskStatus';
 import { eventBus, Events } from '@/utils/eventBus';
 import { emitOptimisticBlockTaskAdded } from '@/utils/taskCreationSync';
@@ -1134,6 +1155,7 @@ import { applyTaskAttributeMutation } from '@/utils/taskMutationService';
 import { formatMonthDay } from '@/utils/dateHelpers';
 import { createBlockIdBatchQueue } from '@/utils/blockIdBatchQueue';
 import { createPeriodicSetCleanup } from '@/utils/setCleanup';
+import { detachTaskInHierarchy, reparentTaskInHierarchy } from '@/utils/taskHierarchyOptimistic';
 import {
   normalizeTaskBlockIds as normalizeBlockIds,
   queryTaskAncestorContextRows as queryAncestorContextRows,
@@ -1342,6 +1364,10 @@ try {
 const MOBILE_CALENDAR_DRAG_LONG_PRESS_MS = 280;
 const MOBILE_CALENDAR_DRAG_MOVE_THRESHOLD_PX = 18;
 const DESKTOP_CALENDAR_DRAG_MOVE_THRESHOLD_PX = 4;
+// Multiple TaskManager instances can be mounted (for example, the hidden
+// context-menu host in KanbanView and the visible sidebar). Keep a single
+// hierarchy move per native drop event across those instances.
+const handledGlobalSubtaskDropEvents = new WeakSet<Event>();
 const loading = ref(false);
 const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
@@ -1480,8 +1506,36 @@ const manualTaskDrag = ref<{
   sourceId: string;
   sourceSectionKey: string | null;
   targetId: string | null;
-  position: TaskDropPosition | null;
+  position: TaskDropPosition | 'inside' | null;
 }>({ sourceId: '', sourceSectionKey: null, targetId: null, position: null });
+const detachedSubtaskDrag = ref<{ sourceId: string; parentTaskId: string } | null>(null);
+const detachedDropTarget = ref<{ taskId: string | null; position: 'before' | 'after' | 'end' | null }>({ taskId: null, position: null });
+const structureMoveInFlight = ref(false);
+
+function handleSubtaskDragStartEvent(event: Event): void {
+  const detail = (event as CustomEvent).detail as { sourceId?: string; parentTaskId?: string } | undefined;
+  const sourceId = typeof detail?.sourceId === 'string' ? detail.sourceId.trim() : '';
+  const parentTaskId = typeof detail?.parentTaskId === 'string' ? detail.parentTaskId.trim() : '';
+  if (sourceId && parentTaskId) {
+    detachedSubtaskDrag.value = { sourceId, parentTaskId };
+    resetManualTaskDrag();
+  }
+}
+
+function handleSubtaskDragEndEvent(): void {
+  detachedSubtaskDrag.value = null;
+  detachedDropTarget.value = { taskId: null, position: null };
+  resetManualTaskDrag();
+}
+
+function handleGlobalDragEnd(): void {
+  // Native dragend is not guaranteed to bubble from nested SubtaskItem rows
+  // (their handler intentionally stops propagation). Always clear the
+  // sidebar's drop markers at the document boundary as a final safeguard.
+  resetManualTaskDrag();
+  detachedSubtaskDrag.value = null;
+  detachedDropTarget.value = { taskId: null, position: null };
+}
 const timelineTaskFilter = ref<TimelineTaskFilter>('all');
 const timelineTaskFilterOptions = computed<Array<{ value: TimelineTaskFilter; label: string }>>(() => [
   { value: 'all', label: t('taskManager.all') },
@@ -2394,7 +2448,7 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
       crdtRepo.updateTaskField(taskId, 'tags', [...(updatedTask?.tags || [])]);
       crdtRepo.updateTaskField(taskId, 'groupId', updatedTask?.groupId || undefined);
     });
-    await refreshInternalState();
+    refreshInternalState();
   }
 
 }
@@ -4853,7 +4907,7 @@ function syncRepeatTaskFieldOverridesToCrdt(task: Task, values: Partial<Task>): 
   }
 }
 
-async function refreshInternalState() {
+function refreshInternalState(): void {
   invalidateCache();
   invalidateSortCache();
   updateTaskIndex();
@@ -4880,7 +4934,7 @@ const {
   logPrefix: '[TaskManager]'
 });
 
-function getTaskManagerGoalIds(task: Task): string[] {
+function computeTaskManagerGoalIds(task: Task): string[] {
   return Array.from(new Set([
     ...goalDefinitions.value
       .filter(goal => isTaskDirectGoalMember(goal, task)
@@ -4889,6 +4943,44 @@ function getTaskManagerGoalIds(task: Task): string[] {
       .map(goal => goal.id),
     ...getGoalIdsForTask(goalDefinitions.value, task)
   ]));
+}
+
+// Goal membership is read by every rendered task row. Cache lazily so a
+// virtualized list does not calculate memberships for off-screen tasks.
+const taskManagerGoalIdsCache = new Map<string, {
+  task: Task;
+  goals: typeof goalDefinitions.value;
+  signature: string;
+  ids: string[];
+}>();
+
+function getTaskManagerGoalSignature(task: Task): string {
+  return [
+    task.id,
+    task.blockId || '',
+    task.repeatSeriesId || '',
+    task.notebookId || '',
+    task.rootId || '',
+    task.title || ''
+  ].join('|');
+}
+
+function getTaskManagerGoalIds(task: Task): string[] {
+  const goals = goalDefinitions.value;
+  const signature = getTaskManagerGoalSignature(task);
+  const cached = taskManagerGoalIdsCache.get(task.id);
+  if (cached && cached.task === task && cached.goals === goals && cached.signature === signature) {
+    return cached.ids;
+  }
+
+  const ids = computeTaskManagerGoalIds(task);
+  taskManagerGoalIdsCache.set(task.id, { task, goals, signature, ids });
+  while (taskManagerGoalIdsCache.size > 5000) {
+    const oldestTaskId = taskManagerGoalIdsCache.keys().next().value;
+    if (!oldestTaskId) break;
+    taskManagerGoalIdsCache.delete(oldestTaskId);
+  }
+  return ids;
 }
 
 function matchesActiveSourceFilter(task: Task): boolean {
@@ -5605,12 +5697,6 @@ function toggleTaskGroupSectionCollapse(sectionKey: string): void {
   });
 }
 
-const hasExpandedTaskDetails = computed(() =>
-  expandedSubtasks.value.size > 0
-  || expandedDescriptions.value.size > 0
-  || inlineEditingDescriptionTaskId.value !== null
-);
-
 const timelineVirtualRows = computed<TimelineVirtualRow[]>(() => {
   if (taskListViewMode.value !== 'timeline') {
     return [];
@@ -5646,13 +5732,11 @@ const shouldUseTaskVirtualList = computed(() =>
   taskListViewMode.value === 'kanban'
   && taskListGroupBy.value === 'none'
   && displayedTasks.value.length > TASK_VIRTUAL_THRESHOLD
-  && !hasExpandedTaskDetails.value
 );
 
 const shouldUseTimelineVirtualList = computed(() =>
   taskListViewMode.value === 'timeline'
   && timelineVirtualRows.value.length > TIMELINE_VIRTUAL_THRESHOLD
-  && !hasExpandedTaskDetails.value
 );
 
 watch([taskListGroupBy, displayedTasks], ([mode]) => {
@@ -5976,9 +6060,7 @@ function applyRepeatRuleOptimistic(payload: RepeatRulePayload): boolean {
     tasks.value = nextTasks;
   }
   if (touched) {
-    invalidateCache();
-    invalidateSortCache();
-    updateTaskIndex();
+    refreshInternalState();
   }
   return touched;
 }
@@ -5988,7 +6070,13 @@ async function applyRepeatRuleIncremental(payload: RepeatRulePayload, requestId:
   // Virtual instances are regenerated from the series. Never carry a stale
   // optimistic override from a previous template-date broadcast into that
   // replacement snapshot, or the new instances become ordinary list cards.
-  clearLocalRepeatInstanceOverrides(payload.seriesId);
+  // A template field broadcast (for example an inline description edit) has
+  // already installed fresh overrides for the virtual cards. Do not clear
+  // those overrides before rebuilding, or the rebuild briefly restores the
+  // previous template value.
+  if (!payload.templateUpdates || Object.keys(payload.templateUpdates).length === 0) {
+    clearLocalRepeatInstanceOverrides(payload.seriesId);
+  }
   try {
     const { nextTasks, touched, handled } = await rebuildAffectedRepeatTasks(
       tasks.value,
@@ -6006,13 +6094,34 @@ async function applyRepeatRuleIncremental(payload: RepeatRulePayload, requestId:
     }
 
     tasks.value = syncTaskSnapshotWithLocalOverrides(nextTasks);
-    invalidateCache();
-    invalidateSortCache();
-    updateTaskIndex();
+    refreshInternalState();
     return true;
   } catch {
     return false;
   }
+}
+
+function applyRepeatTemplateBroadcastUpdates(payload: {
+  seriesId?: string;
+  templateUpdates?: Record<string, unknown>;
+}): void {
+  const seriesId = typeof payload.seriesId === 'string' ? payload.seriesId.trim() : '';
+  const updates = payload.templateUpdates;
+  if (!seriesId || !updates || Object.keys(updates).length === 0) {
+    return;
+  }
+
+  const now = Date.now();
+  tasks.value.forEach((task) => {
+    if (task.repeatSeriesId !== seriesId) {
+      return;
+    }
+    for (const [field, value] of Object.entries(updates) as Array<[keyof Task, Task[keyof Task]]>) {
+      crdtRepo.updateTaskField(task.id, field as any, value, now);
+      rememberLocalTaskFieldOverride(task.id, field, value);
+    }
+  });
+  tasks.value = applyLocalTaskFieldOverridesToList(crdtRepo.getTasks());
 }
 
 function toggleTaskExpand(taskId: string) {
@@ -6022,10 +6131,8 @@ function toggleTaskExpand(taskId: string) {
   if (hasSubtasks) {
     if (expandedSubtasks.value.has(taskId)) {
       expandedSubtasks.value.delete(taskId);
-      expandedDescriptions.value.delete(taskId);
     } else {
       expandedSubtasks.value.add(taskId);
-      expandedDescriptions.value.add(taskId);
     }
   } else {
     if (expandedDescriptions.value.has(taskId)) {
@@ -6034,7 +6141,67 @@ function toggleTaskExpand(taskId: string) {
       expandedDescriptions.value.add(taskId);
     }
   }
-  scheduleTaskTitleHydration(120);
+  taskHeightVersion.value += 1;
+  nextTick(() => {
+    scheduleTaskRowMeasure();
+    scheduleTaskVirtualUpdate();
+    scheduleTaskTitleHydration(120);
+  });
+}
+
+function reconcileLocalDescriptionOverrideFromAttribute(blockId: string, description: string): void {
+  const task = tasks.value.find(item => item.type === 'block' && item.blockId === blockId);
+  if (!task) {
+    return;
+  }
+
+  const clearIfDifferent = (taskId: string): void => {
+    const override = localTaskFieldOverrides.get(taskId);
+    if (!override || !Object.prototype.hasOwnProperty.call(override.values, 'description')) {
+      return;
+    }
+    if (override.values.description === description) {
+      return;
+    }
+    const nextValues = { ...override.values };
+    delete nextValues.description;
+    if (Object.keys(nextValues).length === 0) {
+      localTaskFieldOverrides.delete(taskId);
+    } else {
+      localTaskFieldOverrides.set(taskId, { ...override, values: nextValues });
+    }
+  };
+
+  clearIfDifferent(task.id);
+  const seriesId = getTaskRepeatSeriesId(task);
+  if (seriesId) {
+    tasks.value.forEach((item) => {
+      if (item.isVirtual && item.repeatSeriesId === seriesId) {
+        clearIfDifferent(item.id);
+      }
+    });
+  }
+}
+
+function applyDescriptionAttributeToSidebarTasks(blockId: string, description: string): void {
+  const template = tasks.value.find(item => item.type === 'block' && item.blockId === blockId);
+  if (!template) {
+    return;
+  }
+  const seriesId = getTaskRepeatSeriesId(template);
+  const affected = tasks.value.filter(item => (
+    item.id === template.id || (!!seriesId && item.isVirtual && item.repeatSeriesId === seriesId)
+  ));
+  if (affected.length === 0) {
+    return;
+  }
+
+  affected.forEach((item) => {
+    item.description = description;
+    crdtRepo.updateTaskField(item.id, 'description', description);
+    rememberLocalTaskFieldOverride(item.id, 'description', description);
+  });
+  refreshInternalState();
 }
 
 function handleCardToggleExpand(task: Task): void {
@@ -6279,9 +6446,7 @@ function applyExcludedNotebookScope(ids: string[]): void {
   const scopedTasks = filterTasksByNotebookScope(tasks.value);
   if (scopedTasks.length !== tasks.value.length) {
     tasks.value = syncTaskSnapshotWithLocalOverrides(scopedTasks);
-    invalidateCache();
-    invalidateSortCache();
-    updateTaskIndex();
+    refreshInternalState();
   }
   lastLoadedScope = null;
 }
@@ -6316,6 +6481,102 @@ async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'home', elev
   }
   if (initialTab === 'scope' || initialTab === 'document-groups') {
     void refreshTaskScopeDocumentSourcesInBackground({ includeGoalsData: true });
+  }
+}
+
+async function handleSubtaskDrop(event: DragEvent, target: SubTask, position: 'before' | 'inside' | 'after' = 'inside', parentTaskId = ''): Promise<void> {
+  const text = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  const transferParent = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim() || '';
+  const sourceId = text.startsWith('subtask:') ? text.slice('subtask:'.length).trim() : text;
+  const targetId = target.nodeId || target.id;
+  if (!sourceId || !targetId || sourceId === targetId) return;
+
+  // Dropping a descendant directly onto its immediate parent is interpreted as
+  // “move out one level” (make it a sibling of that parent).  Treating this as
+  // a regular inside drop would be a cycle; previously the cycle guard simply
+  // returned, leaving the native drag operation to remove the source row from
+  // view without persisting the intended move.
+  const sourceParent = transferParent || findContainingTaskId(sourceId) || '';
+  if (position === 'inside' && sourceParent && taskIdsReferToSameTask(sourceParent, targetId)) {
+    event.preventDefault();
+    event.stopPropagation();
+    detachedSubtaskDrag.value = null;
+    detachedDropTarget.value = { taskId: null, position: null };
+    resetManualTaskDrag();
+    try {
+      structureMoveInFlight.value = true;
+      await TaskRepository.moveTaskOutOfParent(sourceId, sourceParent, targetId, 'after');
+      await refreshAfterTaskStructureMove();
+    } catch (error) {
+      console.error('[TaskManager] Failed to move descendant out of parent:', error);
+    } finally {
+      structureMoveInFlight.value = false;
+    }
+    return;
+  }
+
+  if (isTaskInDraggedSubtree(sourceId, targetId)) {
+    console.warn('[TaskManager] Ignoring cyclic subtask drop', { sourceId, targetId });
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  detachedSubtaskDrag.value = null;
+  detachedDropTarget.value = { taskId: null, position: null };
+  resetManualTaskDrag();
+  // Apply the tree mutation immediately for nested drops.  The kernel
+  // transaction and its DOM projection settle asynchronously, so waiting for
+  // the follow-up refresh leaves the source card briefly rendered at its old
+  // level (the apparent "rollback" seen in the sidebar).
+  const optimisticApplied = position === 'inside'
+    ? optimisticallyReparentTaskInSidebar(sourceId, targetId)
+    : false;
+  try {
+    structureMoveInFlight.value = true;
+    if (position === 'inside') {
+      await TaskRepository.moveTaskIntoTask(sourceId, targetId);
+    } else {
+      structureMoveInFlight.value = true;
+      await TaskRepository.moveTaskOutOfParent(sourceId, parentTaskId || transferParent, targetId, position);
+    }
+    await refreshAfterTaskStructureMove({ sourceId, targetId });
+  } catch (error) {
+    if (optimisticApplied) {
+      // Restore the authoritative snapshot if the structural request failed.
+      try {
+        await refreshTasks(true, {
+          showLoading: false,
+          compareExisting: false,
+          ignoreThrottle: true,
+          source: 'manual-refresh'
+        });
+      } catch (refreshError) {
+        console.error('[TaskManager] Failed to restore sidebar after optimistic move:', refreshError);
+      }
+    }
+    console.error('[TaskManager] Failed to move task into subtask:', error);
+  } finally {
+    structureMoveInFlight.value = false;
+  }
+}
+
+async function handleSubtaskSiblingDrop(event: DragEvent, target: SubTask, position: 'before' | 'after', parentTaskId: string): Promise<void> {
+  const text = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  const sourceId = text.startsWith('subtask:') ? text.slice('subtask:'.length).trim() : text;
+  if (!sourceId || !target?.id || sourceId === target.id) return;
+  if (isTaskInDraggedSubtree(sourceId, target.nodeId || target.id)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  resetManualTaskDrag();
+  structureMoveInFlight.value = true;
+  try {
+    const sourceParent = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim() || parentTaskId;
+    await TaskRepository.moveTaskOutOfParent(sourceId, sourceParent, target.nodeId || target.id, position);
+    await refreshAfterTaskStructureMove();
+  } catch (error) {
+    console.error('[TaskManager] Failed to move subtask as sibling:', error);
+  } finally {
+    structureMoveInFlight.value = false;
   }
 }
 
@@ -6871,8 +7132,10 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
         const previousStatus = task.status;
         const previousCompletedAt = task.completedAt;
         const nextStatus: Task['status'] = liveCompleted
-          ? 'completed'
-        : (isClosedTaskStatus(task.status) ? 'pending' : (task.status || 'pending'));
+          // A checked marker cannot distinguish completed from cancelled;
+          // preserve the task's existing terminal status when possible.
+          ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
+          : (task.status === 'cancelled' ? 'cancelled' : (task.status === 'completed' ? 'pending' : (task.status || 'pending')));
         if (task.status !== nextStatus) {
           task.status = nextStatus;
           changed = true;
@@ -6909,9 +7172,7 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
   }
 
   if (changed) {
-    invalidateCache();
-    invalidateSortCache();
-    updateTaskIndex();
+    refreshInternalState();
   }
 
   return changed;
@@ -6949,21 +7210,85 @@ const {
 
 
 function setupEventListeners() {
+  // The hidden desktop context-menu host only needs to receive menu requests.
+  // Do not attach the full task synchronization pipeline: a visible
+  // TaskManager (sidebar) already owns those global task events.
+  if (props.contextMenuHost) {
+    const unsubscribeTaskEditorOpenRequested = eventBus.on(
+      Events.TASK_EDITOR_OPEN_REQUEST,
+      (payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null }) => {
+        void openTaskDateMenuFromExternalRequest(payload);
+      }
+    );
+    const unsubscribeTaskQuickMetaOpenRequested = eventBus.on(
+      Events.TASK_QUICK_META_OPEN_REQUEST,
+      (payload?: { blockId?: string; rootId?: string; anchorX?: number; anchorY?: number; task?: Task | null; removeTrigger?: () => void }) => {
+        void openTaskQuickMetaMenuFromExternalRequest(payload);
+      }
+    );
+    const unsubscribeTaskCardContextMenuOpenRequested = eventBus.on(
+      Events.TASK_CARD_CONTEXT_MENU_OPEN_REQUEST,
+      (payload?: { task?: Task | null; x?: number; y?: number; source?: 'view' | 'sidebar'; sourceView?: string }) => {
+        if (!payload?.task || payload.source !== 'view') {
+          return;
+        }
+        const sidebarHost = document.querySelector<HTMLElement>('.stand-container .task-manager-container');
+        const sidebarContainer = sidebarHost?.closest<HTMLElement>('.stand-container');
+        const sidebarVisible = !!sidebarHost
+          && getComputedStyle(sidebarHost).display !== 'none'
+          && (!sidebarContainer || getComputedStyle(sidebarContainer).display !== 'none');
+        if (sidebarVisible) {
+          return;
+        }
+        taskCardContextMenu.value = {
+          task: payload.task,
+          x: Number.isFinite(payload.x) ? Number(payload.x) : 0,
+          y: Number.isFinite(payload.y) ? Number(payload.y) : 0,
+          source: payload.source,
+          sourceView: payload.sourceView
+        };
+      }
+    );
+    eventUnsubscribers.push(
+      unsubscribeTaskEditorOpenRequested,
+      unsubscribeTaskQuickMetaOpenRequested,
+      unsubscribeTaskCardContextMenuOpenRequested
+    );
+    return;
+  }
+
   const unsubscribe = eventBus.on(Events.TASK_CHANGED, (data?: TaskChangePayload) => {
+    if (structureMoveInFlight.value) return;
+    if (data?.structureChange) {
+      // Structural moves alter both parent subtasks and top-level membership;
+      // reconcile the complete snapshot so all TaskManager instances update.
+      // Allow the kernel's delete/insert transaction and DOM projection to
+      // settle first; an eager read here can briefly reintroduce the old
+      // parent hierarchy before the authoritative snapshot catches up.
+      scheduleFallbackRefresh(true, 1800, 'immediate');
+      return;
+    }
     const hasUnknownTaskBlock = data?.blockIds?.some(blockId =>
       !blockIdToTaskIndex.has(blockId) && !subtaskToParentMap.has(blockId)
     ) === true;
     scheduleTaskDocumentOptionsRefresh(hasUnknownTaskBlock ? 0 : undefined);
       if (data?.blockIds && data.blockIds.length > 0) {
         if (data.attributeChanges) {
+          for (const [blockId, attrs] of Object.entries(data.attributeChanges)) {
+            if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-description')) {
+              const description = typeof attrs['custom-task-description'] === 'string'
+                ? attrs['custom-task-description']
+                : '';
+              reconcileLocalDescriptionOverrideFromAttribute(blockId, description);
+              applyDescriptionAttributeToSidebarTasks(blockId, description);
+            }
+          }
           syncTaskEditorDraftFromAttributeChanges(
             activeTaskEditTask.value,
             activeTaskEditDraft.value,
             data.attributeChanges
           );
-          invalidateCache();
-          invalidateSortCache();
-          updateTaskIndex();
+          refreshInternalState();
           // setBlockAttrs has already applied these attributes to the CRDT
           // task tree synchronously. A second immediate fetch by only the
           // parent block returns DOM-only child summaries and can overwrite
@@ -6982,24 +7307,25 @@ function setupEventListeners() {
   });
 
   const unsubscribeDeleted = eventBus.on(Events.TASK_DELETED, ({ blockId }: { blockId: string }) => {
+    if (structureMoveInFlight.value) return;
     scheduleTaskDocumentOptionsRefresh(320);
     optimisticTaskSyncGuards.delete(blockId);
     recentlyDeletedTaskBlockIds.set(blockId, Date.now() + RECENTLY_DELETED_TASK_GUARD_MS);
     const taskIndex = blockIdToTaskIndex.get(blockId);
     if (taskIndex && !taskIndex.isSubtask) {
       tasks.value = tasks.value.filter(t => t.blockId !== blockId);
-      invalidateCache();
-      invalidateSortCache();
-      updateTaskIndex();
+      refreshInternalState();
     }
   });
 
   const unsubscribeUpdated = eventBus.on(Events.TASK_UPDATED, ({ blockId }: { blockId: string }) => {
+    if (structureMoveInFlight.value) return;
     scheduleTaskDocumentOptionsRefresh();
     queueIncrementalUpdates([blockId]);
   });
 
-  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string; task?: Task }) => {
+  const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string; templateUpdates?: Record<string, unknown>; task?: Task }) => {
+    if (structureMoveInFlight.value) return;
     scheduleTaskDocumentOptionsRefresh(0);
     const optimisticTask = payload?.task;
     if (isRecentlyDeletedTaskBlock(optimisticTask?.blockId)) {
@@ -7016,13 +7342,12 @@ function setupEventListeners() {
       });
       crdtRepo.syncIncrementalTasks([optimisticTask]);
       tasks.value = crdtRepo.getTasks();
-      invalidateCache();
-      invalidateSortCache();
-      await updateTaskIndex();
+      refreshInternalState();
       window.setTimeout(() => queueIncrementalUpdates([optimisticTask.blockId!], 0, true), 300);
       return;
     }
     if (payload?.reason === 'repeat-changed' && payload.frequency) {
+      applyRepeatTemplateBroadcastUpdates(payload);
       const requestId = ++repeatReconcileRequestId;
       const fastPathApplied = await applyRepeatRuleIncremental(payload, requestId);
       if (requestId !== repeatReconcileRequestId) {
@@ -7338,7 +7663,7 @@ async function incrementalUpdateTasks(
       const forcedTitle = patchedParentTitles.get(blockId);
       if (forcedStatus) {
         newTask.status = forcedStatus;
-        if (forcedStatus === 'completed') {
+        if (isCompletedTaskStatus(forcedStatus)) {
           newTask.completedAt = newTask.completedAt || new Date().toISOString();
         } else {
           delete newTask.completedAt;
@@ -7380,7 +7705,7 @@ async function incrementalUpdateTasks(
       removedTasks += 1;
     }
     
-    if (updatedTasks.length > 0 || removedTasks > 0) {
+      if (updatedTasks.length > 0 || removedTasks > 0) {
       let nextTasks = crdtRepo.getTasks();
       if (removedTaskIds.size > 0) {
         nextTasks = nextTasks.filter(task => !removedTaskIds.has(task.id));
@@ -7388,7 +7713,7 @@ async function incrementalUpdateTasks(
         nextTasks = syncTaskSnapshotWithLocalOverrides(nextTasks);
       }
       tasks.value = applyLocalTaskFieldOverridesToList(nextTasks);
-      await updateTaskIndex(); 
+      updateTaskIndex();
       consecutiveFallbackFailures = 0;
 
       if (missingRequestedIds.length > 0) {
@@ -7449,7 +7774,7 @@ async function pruneInvalidParentsFromEvents(
       invalidateCache();
       invalidateSortCache();
       tasks.value = getTasksWithLocalOverrides();
-      await updateTaskIndex();
+      updateTaskIndex();
     }
     return removedBlockIds.length;
   } catch {
@@ -7769,8 +8094,11 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
           const previousStatus = task.status;
           const previousCompletedAt = task.completedAt;
           const nextStatus: Task['status'] = completed
-            ? 'completed'
-            : (task.status === 'completed' ? 'pending' : (task.status || 'pending'));
+            // DOM/Markdown only exposes a checked marker. Preserve whichever
+            // terminal status is already attached to the task instead of
+            // collapsing cancelled into completed during synchronization.
+            ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
+            : (task.status === 'cancelled' ? 'cancelled' : (task.status === 'completed' ? 'pending' : (task.status || 'pending')));
           nextStatusForTask = nextStatus;
           if (task.status !== nextStatus) {
             task.status = nextStatus;
@@ -7822,9 +8150,7 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
     }
   }
   if (hasPatched) {
-    invalidateCache();
-    invalidateSortCache();
-    updateTaskIndex();
+    refreshInternalState();
   }
 
   return {
@@ -7943,7 +8269,7 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     return;
   }
   
-  const wasCompleted = isClosedTaskStatus(task.status);
+  const wasCompleted = isCompletedTaskStatus(task.status);
   const newStatus = isClosedTaskStatus(task.status) ? 'pending' : 'completed';
   const shouldPlayCompletionSound = !wasCompleted && newStatus === 'completed';
   const isVirtualRepeatTask = !!task.isVirtual && !!task.repeatSeriesId && !!task.repeatInstanceDate;
@@ -7980,7 +8306,7 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
       editedTask.status = newStatus;
     }
     
-    await refreshInternalState();
+    refreshInternalState();
     
     if (!isVirtualRepeatTask && !(task.type === 'block' && task.blockId)) {
       publishTaskChange(task.blockId ? [task.blockId] : []);
@@ -8006,7 +8332,7 @@ async function handleSubtaskToggle(parentTaskId: string, subtask: any) {
     st.completed = newCompleted;
   });
   
-  await refreshInternalState();
+  refreshInternalState();
   
   if (subtask.nodeId) {
     updateTaskMarkdown(subtask.nodeId, newCompleted).catch(() => {});
@@ -8238,7 +8564,7 @@ async function handleTaskEditorArchiveToggle(): Promise<void> {
         currentTask.archiveReason = undefined;
         currentTask.updatedAt = nowIso;
       }, 'id');
-      await refreshInternalState();
+      refreshInternalState();
       return;
     }
 
@@ -8249,7 +8575,7 @@ async function handleTaskEditorArchiveToggle(): Promise<void> {
       currentTask.archiveReason = 'manual';
       currentTask.updatedAt = nowIso;
     }, 'id');
-    await refreshInternalState();
+    refreshInternalState();
     closeTaskEditorSidebar();
   } catch {
   }
@@ -8272,13 +8598,13 @@ async function handleTaskEditorDelete(): Promise<void> {
     if (task.id) {
       crdtRepo.deleteTask(task.id, Date.now());
       tasks.value = crdtRepo.getTasks();
-      await updateTaskIndex();
+      updateTaskIndex();
     }
     closeTaskEditorSidebar();
     if (blockId) {
       eventBus.emit(Events.TASK_DELETED, { blockId });
     } else {
-      await refreshInternalState();
+      refreshInternalState();
     }
   } catch {
   }
@@ -8561,6 +8887,20 @@ async function resolveTaskEditorTargetTask(task: Task): Promise<Task> {
     return templateTask;
   }
 
+  // The detached view context-menu host intentionally does not load the full
+  // task snapshot. Resolve a virtual instance back to its persisted template
+  // through the repeat series metadata so archive/move/delete actions never
+  // attempt to write using the synthetic virtual task id.
+  const templateBlockId = typeof series?.templateBlockId === 'string' && series.templateBlockId.trim()
+    ? series.templateBlockId.trim()
+    : (typeof task.sourceBlockId === 'string' ? task.sourceBlockId.trim() : '');
+  if (templateBlockId) {
+    const fetchedTemplate = await TaskRepository.getTaskByBlockId(templateBlockId, true).catch(() => null);
+    if (fetchedTemplate && !fetchedTemplate.isVirtual) {
+      return fetchedTemplate;
+    }
+  }
+
   const sameBlockTask = task.blockId
     ? tasks.value.find(item => !item.isVirtual && item.blockId === task.blockId)
     : null;
@@ -8742,6 +9082,11 @@ async function saveInlineDescriptionEdit(task: Task): Promise<void> {
       return;
     }
     const blockId = targetTask.type === 'block' && targetTask.blockId ? targetTask.blockId : '';
+    // Register the optimistic value before the async attribute write so the
+    // sidebar cannot repaint an older snapshot delivered during that await.
+    rememberLocalTaskFieldOverride(targetTaskId, 'description', description);
+    rememberRepeatTaskFieldOverrides(targetTask, { description });
+    crdtRepo.updateTaskField(targetTaskId, 'description', description);
     if (blockId) {
       await setBlockAttrs(blockId, {
         'custom-task-description': description || ''
@@ -8749,18 +9094,18 @@ async function saveInlineDescriptionEdit(task: Task): Promise<void> {
       await TaskRepository.clearCache();
     }
 
-    crdtRepo.updateTaskField(targetTaskId, 'description', description);
     patchTask(tasks.value, targetTaskId, (item) => {
       item.description = description;
       item.updatedAt = new Date().toISOString();
     }, 'id');
     const repeatTouched = syncRepeatTaskDescriptionLocally(targetTask, description);
-    await refreshInternalState();
+    refreshInternalState();
     if (repeatTouched) {
       notifyRepeatChanged({
         blockId,
         seriesId: getTaskRepeatSeriesId(targetTask),
-        frequency: targetTask.repeatFrequency
+        frequency: targetTask.repeatFrequency,
+        templateUpdates: { description }
       });
     }
   } catch {
@@ -8848,7 +9193,7 @@ async function applyTaskEditorFieldUpdate(
     patchTask(tasks.value, task.id, (targetTask) => {
       targetTask.updatedAt = new Date().toISOString();
     }, 'id');
-    await refreshInternalState();
+    refreshInternalState();
     if (options.refreshKernelIndex) {
       scheduleKernelTaskIndexRefresh();
     }
@@ -8932,7 +9277,7 @@ async function handleTaskQuickDateSave(): Promise<void> {
     }
     eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
     scheduleKernelTaskIndexRefresh();
-    await refreshInternalState();
+    refreshInternalState();
     closeTaskQuickDateMenu();
   } catch (error) {
     console.error('[TaskManager] Failed to update task quick date:', error);
@@ -9065,7 +9410,7 @@ async function handleTaskQuickMetaSave(closeAfterSave = true): Promise<void> {
     // attribute has been applied, even though the quick menu stays open for
     // additional edits.
     consumeTaskQuickMetaTrigger();
-    await refreshInternalState();
+    refreshInternalState();
     if (closeAfterSave) {
       closeTaskQuickMetaMenu();
     }
@@ -9197,7 +9542,9 @@ async function applyBatchEdit(): Promise<void> {
         applyTaskAttributeMutation(item.blockId, item.attrs);
         await setBlockAttrs(item.blockId, item.attrs);
         if (item.nextStatus) {
-          await updateTaskMarkdown(item.blockId, item.nextStatus === 'completed');
+          // Only completed is represented by a checked marker; cancelled is
+          // persisted as an explicit unchecked workflow status.
+          await updateTaskMarkdown(item.blockId, isCompletedTaskStatus(item.nextStatus));
         }
       })
     );
@@ -9222,9 +9569,11 @@ async function applyBatchEdit(): Promise<void> {
       patchTask(tasks.value, update.task.id, (targetTask) => {
         if (update.nextStatus) {
           targetTask.status = update.nextStatus;
-          if (update.nextStatus === 'completed') {
+          if (isCompletedTaskStatus(update.nextStatus)) {
             targetTask.completedAt = targetTask.completedAt || nowIso;
-            hasNewlyCompletedTask = true;
+            if (update.nextStatus === 'completed') {
+              hasNewlyCompletedTask = true;
+            }
           } else {
             delete targetTask.completedAt;
           }
@@ -9271,7 +9620,7 @@ async function applyBatchEdit(): Promise<void> {
       }
     });
 
-    await refreshInternalState();
+    refreshInternalState();
     if (hasNewlyCompletedTask && taskCompletionSoundEnabled.value) {
       playTaskCompletionSound();
     }
@@ -9288,7 +9637,7 @@ async function applyBatchEdit(): Promise<void> {
 }
 
 async function quickSaveTaskStatus(task: Task, status: Task['status']): Promise<void> {
-  const wasCompleted = isClosedTaskStatus(task.status);
+  const wasCompleted = isCompletedTaskStatus(task.status);
   await applyTaskEditorFieldUpdate(task, {
     attrs: {
       'custom-task-status': status
@@ -9299,7 +9648,7 @@ async function quickSaveTaskStatus(task: Task, status: Task['status']): Promise<
     },
     syncTask: targetTask => {
       targetTask.status = status;
-      if (isClosedTaskStatus(status)) {
+      if (isCompletedTaskStatus(status)) {
         targetTask.completedAt = targetTask.completedAt || new Date().toISOString();
       } else {
         delete targetTask.completedAt;
@@ -9309,13 +9658,13 @@ async function quickSaveTaskStatus(task: Task, status: Task['status']): Promise<
       crdtRepo.updateTaskField(task.id, 'status', status);
     },
     beforePersist: async (blockId) => {
-      await updateTaskMarkdown(blockId, isClosedTaskStatus(status));
+      await updateTaskMarkdown(blockId, isCompletedTaskStatus(status));
     }
   });
 
-  if (!wasCompleted && isClosedTaskStatus(status) && taskCompletionSoundEnabled.value) {
+  if (!wasCompleted && isCompletedTaskStatus(status) && taskCompletionSoundEnabled.value) {
     const refreshedTask = tasks.value.find(item => item.id === task.id);
-    if (isClosedTaskStatus(refreshedTask?.status)) {
+    if (isCompletedTaskStatus(refreshedTask?.status)) {
       playTaskCompletionSound();
     }
   }
@@ -9588,7 +9937,7 @@ async function saveRepeatTaskDateFields(
     frequency: updatedSeries.frequency
   });
   scheduleKernelTaskIndexRefresh();
-  await refreshInternalState();
+  refreshInternalState();
   return updatedTask;
 }
 
@@ -9686,9 +10035,7 @@ async function quickSaveTaskRepeatRule(task: Task, repeat: RepeatFrequency | Rep
       targetTask.updatedAt = new Date().toISOString();
     }, 'id');
   }
-  invalidateCache();
-  invalidateSortCache();
-  updateTaskIndex();
+  refreshInternalState();
 
   try {
     const series = await TaskRepository.setTaskRepeatRule(task, repeat);
@@ -9728,15 +10075,13 @@ async function quickSaveTaskRepeatRule(task: Task, repeat: RepeatFrequency | Rep
       );
       if (rebuilt.handled && rebuilt.touched) {
         tasks.value = syncTaskSnapshotWithLocalOverrides(rebuilt.nextTasks);
-        invalidateCache();
-        invalidateSortCache();
-        updateTaskIndex();
+        refreshInternalState();
       }
       // This second notification is intentionally after all template writes;
       // other mounted views then reconcile against the same final snapshot.
       notifyRepeatChanged(repeatPayload);
     }
-    await refreshInternalState();
+    refreshInternalState();
   } catch {
   }
 }
@@ -9849,11 +10194,189 @@ function resetManualTaskDrag(): void {
   };
 }
 
-function isManualTaskDropTarget(taskId: string, position: TaskDropPosition): boolean {
-  return manualTaskDrag.value.targetId === taskId && manualTaskDrag.value.position === position;
+function isManualTaskDropTarget(taskId: string, position: TaskDropPosition | 'inside'): boolean {
+  return (manualTaskDrag.value.targetId === taskId && manualTaskDrag.value.position === position)
+    || (detachedSubtaskDrag.value !== null
+      && detachedDropTarget.value.taskId === taskId
+      && detachedDropTarget.value.position === position);
+}
+
+function isDetachedDropTarget(taskId: string, position: 'before' | 'after'): boolean {
+  return detachedSubtaskDrag.value !== null
+    && detachedDropTarget.value.taskId === taskId
+    && detachedDropTarget.value.position === position;
+}
+
+function isTaskInDraggedSubtree(sourceId: string, targetId: string): boolean {
+  const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+  const source = normalize(sourceId);
+  const target = normalize(targetId);
+  if (!source || !target || source === target) return true;
+  const matches = (task: any, id: string): boolean => normalize(task?.id) === id || normalize(task?.blockId) === id || normalize(task?.nodeId) === id;
+  const contains = (task: any, wanted: string): boolean => {
+    if (!task) return false;
+    if (matches(task, wanted)) return true;
+    return (Array.isArray(task.subtasks) ? task.subtasks : []).some(child => contains(child, wanted));
+  };
+  const sourceRootsContainTarget = tasks.value.some(root => matches(root, source) && contains(root, target));
+  const targetRootsContainSource = tasks.value.some(root => matches(root, target) && contains(root, source));
+  return sourceRootsContainTarget || targetRootsContainSource;
+}
+
+/** Optimistically reparent a task in the sidebar tree while the kernel
+ * transaction settles. This prevents the source card from briefly remaining
+ * at the old top level before the authoritative refresh arrives. */
+function optimisticallyReparentTaskInSidebar(sourceId: string, targetId: string): boolean {
+  const result = reparentTaskInHierarchy(tasks.value as any[], sourceId, targetId);
+  if (!result.movedTask) return false;
+  const movedTask = result.movedTask as any;
+  // Task rows do not always carry the SubTask compatibility flag. Derive it
+  // while moving a top-level Task into the nested renderer.
+  if (typeof movedTask.completed !== 'boolean') {
+    movedTask.completed = isCompletedTaskStatus(movedTask.status);
+  }
+  tasks.value = result.tasks as Task[];
+  crdtRepo.syncFromSQLTasks(result.tasks as Task[]);
+  refreshInternalState();
+  return true;
+}
+
+/** Optimistically promote a nested task to the sidebar's top-level list. */
+function optimisticallyDetachTaskInSidebar(
+  sourceId: string,
+  targetId?: string,
+  position?: 'before' | 'after' | 'end'
+): boolean {
+  const result = detachTaskInHierarchy(tasks.value as any[], sourceId, {
+    targetId,
+    position
+  });
+  if (!result.movedTask) return false;
+  const movedTask = result.movedTask as any;
+  if (typeof movedTask.completed !== 'boolean') {
+    movedTask.completed = isCompletedTaskStatus(movedTask.status);
+  }
+  tasks.value = result.tasks as Task[];
+  crdtRepo.syncFromSQLTasks(result.tasks as Task[]);
+  refreshInternalState();
+  return true;
+}
+
+/** Return whether the source currently appears below the target in the tree. */
+function isTaskNestedUnder(sourceId: string, targetId: string): boolean {
+  const normalize = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
+  const source = normalize(sourceId);
+  const target = normalize(targetId);
+  if (!source || !target || source === target) return false;
+  const matches = (task: any, id: string): boolean => [task?.id, task?.blockId, task?.nodeId]
+    .some(value => normalize(value) === id);
+  const contains = (items: any[]): boolean => items.some(item => (
+    matches(item, source)
+      || contains(Array.isArray(item?.subtasks) ? item.subtasks : [])
+  ));
+  const visit = (items: any[]): boolean => items.some(item => {
+    if (matches(item, target)) {
+      return contains(Array.isArray(item?.subtasks) ? item.subtasks : []);
+    }
+    return visit(Array.isArray(item?.subtasks) ? item.subtasks : []);
+  });
+  return visit(Array.isArray(tasks.value) ? tasks.value : []);
+}
+
+function isTaskTopLevel(sourceId: string): boolean {
+  const normalize = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
+  const source = normalize(sourceId);
+  if (!source) return false;
+  return (Array.isArray(tasks.value) ? tasks.value : []).some(task =>
+    [task?.id, task?.blockId, task?.nodeId].some(value => normalize(value) === source)
+  );
+}
+
+/** Return the immediate parent task id for a nested task, if it is present in
+ * the currently rendered hierarchy.  The returned value prefers the task's
+ * custom id so it can be passed directly to repository APIs. */
+function findContainingTaskId(sourceId: string): string {
+  const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+  const source = normalize(sourceId);
+  if (!source) return '';
+  const matches = (task: any): boolean => [task?.id, task?.blockId, task?.nodeId]
+    .some(value => normalize(value) === source);
+  const visit = (tasksList: any[]): string => {
+    for (const task of tasksList) {
+      const children = Array.isArray(task?.subtasks) ? task.subtasks : [];
+      if (children.some((child: any) => matches(child))) {
+        return normalize(task?.id) || normalize(task?.blockId) || normalize(task?.nodeId);
+      }
+      const nested = visit(children);
+      if (nested) return nested;
+    }
+    return '';
+  };
+  return visit(Array.isArray(tasks.value) ? tasks.value : []);
+}
+
+/** Return the top-level task that owns a nested task. Detaching to the task
+ * list must use this owner (rather than the immediate parent), otherwise a
+ * grandchild is only promoted one level and remains nested in the card. */
+function findOutermostContainingTaskId(sourceId: string): string {
+  const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+  const source = normalize(sourceId);
+  if (!source) return '';
+  const matches = (task: any, id: string): boolean => [task?.id, task?.blockId, task?.nodeId]
+    .some(value => normalize(value) === id);
+  const getTaskId = (task: any): string => normalize(task?.id) || normalize(task?.blockId) || normalize(task?.nodeId);
+  const contains = (task: any): boolean => {
+    if (!task) return false;
+    if (matches(task, source)) return true;
+    return (Array.isArray(task.subtasks) ? task.subtasks : []).some((child: any) => contains(child));
+  };
+  for (const task of (Array.isArray(tasks.value) ? tasks.value : [])) {
+    if (contains(task)) return getTaskId(task);
+  }
+  return '';
+}
+
+function resolveDetachParentTaskId(sourceId: string, fallbackParentId: string): string {
+  const outermost = findOutermostContainingTaskId(sourceId);
+  if (outermost) return outermost;
+  // The index keeps every nested node mapped to its root task block as a
+  // fallback for virtualized/stale snapshots where the tree is not present in
+  // `tasks.value` anymore.
+  const normalizedSource = typeof sourceId === 'string' ? sourceId.trim() : '';
+  return (normalizedSource && subtaskToParentMap.get(normalizedSource)) || fallbackParentId;
+}
+
+/** Compare ids that may refer to the same task through custom id, block id, or
+ * node id representations. */
+function taskIdsReferToSameTask(firstId: string, secondId: string): boolean {
+  const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+  const first = normalize(firstId);
+  const second = normalize(secondId);
+  if (!first || !second) return false;
+  if (first === second) return true;
+  const matches = (task: any, id: string): boolean => [task?.id, task?.blockId, task?.nodeId]
+    .some(value => normalize(value) === id);
+  const visit = (list: any[]): boolean => list.some(task => {
+    if (matches(task, first) && matches(task, second)) return true;
+    const ids = [task?.id, task?.blockId, task?.nodeId].map(normalize).filter(Boolean);
+    if (ids.includes(first) && ids.includes(second)) return true;
+    return visit(Array.isArray(task?.subtasks) ? task.subtasks : []);
+  });
+  return visit(Array.isArray(tasks.value) ? tasks.value : []);
 }
 
 function handleDragStart(event: DragEvent, task: Task, sectionKey: string | null = null) {
+  const transferText = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  if (transferText.startsWith('subtask:')) {
+    const sourceId = transferText.slice('subtask:'.length).trim();
+    const parentTaskId = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim()
+      || (typeof (task as any).parentTaskId === 'string' ? String((task as any).parentTaskId).trim() : '');
+    if (sourceId && parentTaskId) {
+      detachedSubtaskDrag.value = { sourceId, parentTaskId };
+    }
+    resetManualTaskDrag();
+    return;
+  }
   if (isMobileFrontend || shouldEnableDesktopCalendarPointerDrag()) {
     event.preventDefault();
     return;
@@ -9874,15 +10397,27 @@ function handleDragStart(event: DragEvent, task: Task, sectionKey: string | null
 }
 
 function handleManualTaskDragOver(event: DragEvent, task: Task, sectionKey: string | null): void {
+  if (detachedSubtaskDrag.value) {
+    event.preventDefault();
+    const target = event.currentTarget as HTMLElement | null;
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    detachedDropTarget.value = {
+      taskId: task.id,
+      position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    };
+    manualTaskDrag.value.targetId = task.id;
+    manualTaskDrag.value.position = detachedDropTarget.value.position;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    return;
+  }
   const drag = manualTaskDrag.value;
   const sourceTask = automaticallySortedTasks.value.find(item => item.id === drag.sourceId);
   if (
     !canManuallyReorderTasks()
     || !drag.sourceId
     || drag.sourceId === task.id
-    || drag.sourceSectionKey !== sectionKey
     || !sourceTask
-    || getDefaultTaskManualOrderGroupKey(sourceTask) !== getDefaultTaskManualOrderGroupKey(task)
   ) {
     return;
   }
@@ -9891,14 +10426,46 @@ function handleManualTaskDragOver(event: DragEvent, task: Task, sectionKey: stri
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'move';
   }
+  const parentTaskId = typeof (task as any).parentTaskId === 'string' ? String((task as any).parentTaskId).trim() : '';
+  if (parentTaskId && task.nodeId) {
+    detachedSubtaskDrag.value = { sourceId: task.nodeId, parentTaskId };
+    if (event.dataTransfer) event.dataTransfer.setData('text/plain', `subtask:${task.nodeId}`);
+    return;
+  }
   const target = event.currentTarget as HTMLElement | null;
   if (!target) return;
   const rect = target.getBoundingClientRect();
   manualTaskDrag.value.targetId = task.id;
-  manualTaskDrag.value.position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+  const relativeY = event.clientY - rect.top;
+  // Keep the middle drop zone generous so nesting is easy to trigger;
+  // only the outer ~15% of a card is reserved for before/after sorting.
+  const edge = Math.max(12, rect.height * 0.15);
+  const position: TaskDropPosition | 'inside' = relativeY < edge
+    ? 'before'
+    : (relativeY > rect.height - edge ? 'after' : 'inside');
+  // Nesting is allowed across visual sections/groups; only sibling sorting
+  // remains constrained to the original section and manual-order group.
+  if (position !== 'inside' && (
+    drag.sourceSectionKey !== sectionKey
+    || getDefaultTaskManualOrderGroupKey(sourceTask) !== getDefaultTaskManualOrderGroupKey(task)
+  )) {
+    manualTaskDrag.value.targetId = null;
+    manualTaskDrag.value.position = null;
+    return;
+  }
+  manualTaskDrag.value.position = position;
 }
 
 function handleManualTaskDragLeave(event: DragEvent, taskId: string): void {
+  if (detachedSubtaskDrag.value && detachedDropTarget.value.taskId === taskId) {
+    const currentTarget = event.currentTarget as HTMLElement | null;
+    const relatedTarget = event.relatedTarget;
+    if (currentTarget && relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) return;
+    detachedDropTarget.value = { taskId: null, position: null };
+    manualTaskDrag.value.targetId = null;
+    manualTaskDrag.value.position = null;
+    return;
+  }
   if (manualTaskDrag.value.targetId !== taskId) return;
   const currentTarget = event.currentTarget as HTMLElement | null;
   const relatedTarget = event.relatedTarget;
@@ -9908,13 +10475,28 @@ function handleManualTaskDragLeave(event: DragEvent, taskId: string): void {
 }
 
 function handleManualTaskDrop(event: DragEvent, task: Task, sectionKey: string | null): void {
+  const transferText = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  const transferParent = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim() || '';
+  if (transferText.startsWith('subtask:') && !detachedSubtaskDrag.value && transferParent) {
+    detachedSubtaskDrag.value = {
+      sourceId: transferText.slice('subtask:'.length).trim(),
+      parentTaskId: transferParent
+    };
+  }
+  if (detachedSubtaskDrag.value && detachedDropTarget.value.taskId === task.id) {
+    event.preventDefault();
+    event.stopPropagation();
+    void handleTaskListDrop(event);
+    return;
+  }
   const drag = manualTaskDrag.value;
+  const transferSourceId = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  const sourceId = transferSourceId || drag.sourceId;
   const position = drag.position;
   if (
     !canManuallyReorderTasks()
-    || !drag.sourceId
-    || drag.sourceId === task.id
-    || drag.sourceSectionKey !== sectionKey
+    || !sourceId
+    || sourceId === task.id
     || drag.targetId !== task.id
     || !position
   ) {
@@ -9923,11 +10505,48 @@ function handleManualTaskDrop(event: DragEvent, task: Task, sectionKey: string |
 
   event.preventDefault();
   event.stopPropagation();
+  if (position === 'inside') {
+    resetManualTaskDrag();
+    const optimisticApplied = optimisticallyReparentTaskInSidebar(sourceId, task.id);
+    structureMoveInFlight.value = true;
+    void TaskRepository.moveTaskIntoTask(sourceId, task.id)
+      .then(() => {
+        return refreshAfterTaskStructureMove({ sourceId, targetId: task.id });
+      })
+      .catch(async (error) => {
+        if (optimisticApplied) {
+          try {
+            await refreshTasks(true, {
+              showLoading: false,
+              compareExisting: false,
+              ignoreThrottle: true,
+              source: 'manual-refresh'
+            });
+          } catch (refreshError) {
+            console.error('[TaskManager] Failed to restore sidebar after optimistic move:', refreshError);
+          }
+        }
+        console.error('[TaskManager] Failed to move task into target task:', error);
+      })
+      .finally(() => {
+        structureMoveInFlight.value = false;
+      });
+    return;
+  }
+  if (
+    drag.sourceSectionKey !== sectionKey
+    || !automaticallySortedTasks.value.some(item =>
+      item.id === sourceId
+      && getDefaultTaskManualOrderGroupKey(item) === getDefaultTaskManualOrderGroupKey(task)
+    )
+  ) {
+    return;
+  }
   const seededOrder = reconcileManualTaskOrder(
     taskManualOrder.value,
     automaticallySortedTasks.value.map(item => item.id)
   );
-  const nextOrder = moveTaskInManualOrder(seededOrder, drag.sourceId, task.id, position);
+  const nextOrder = moveTaskInManualOrder(seededOrder, sourceId, task.id, position);
   taskManualOrder.value = nextOrder;
   resetManualTaskDrag();
   void updateSettings('taskManager', { taskManualOrder: nextOrder });
@@ -9935,6 +10554,214 @@ function handleManualTaskDrop(event: DragEvent, task: Task, sectionKey: string |
 
 function handleManualTaskDragEnd(): void {
   resetManualTaskDrag();
+  detachedSubtaskDrag.value = null;
+  detachedDropTarget.value = { taskId: null, position: null };
+  resetManualTaskDrag();
+}
+
+async function refreshAfterTaskStructureMove(
+  optimisticMove?: {
+    sourceId: string;
+    targetId?: string;
+    detach?: boolean;
+    position?: 'before' | 'after' | 'end';
+  }
+): Promise<void> {
+  // Structural transactions (especially creating a new nested list) can expose
+  // a transient parent-level DOM snapshot immediately after the API resolves.
+  // Wait for the kernel projection to settle before the first read so the
+  // sidebar does not visibly jump back and then forward to the nested result.
+  for (const delay of [700, 1400]) {
+    await new Promise<void>(resolve => {
+      window.setTimeout(() => {
+        void refreshTasks(true, {
+          showLoading: false,
+          compareExisting: false,
+          ignoreThrottle: true,
+          source: 'manual-refresh'
+        }).then(() => {
+          // A live-DOM read can still expose the pre-transaction hierarchy for
+          // one cycle. Keep the optimistic relation in place until a refresh
+          // actually observes the requested placement.
+          if (optimisticMove) {
+            if (optimisticMove.detach) {
+              if (!isTaskTopLevel(optimisticMove.sourceId)) {
+                optimisticallyDetachTaskInSidebar(
+                  optimisticMove.sourceId,
+                  optimisticMove.targetId,
+                  optimisticMove.position
+                );
+              }
+            } else if (optimisticMove.targetId) {
+              if (!isTaskNestedUnder(optimisticMove.sourceId, optimisticMove.targetId)) {
+                optimisticallyReparentTaskInSidebar(optimisticMove.sourceId, optimisticMove.targetId);
+              }
+            } else if (!isTaskTopLevel(optimisticMove.sourceId)) {
+              optimisticallyDetachTaskInSidebar(optimisticMove.sourceId);
+            }
+          }
+        }).finally(resolve);
+      }, delay);
+    });
+  }
+}
+
+async function handleTaskListDrop(event: DragEvent): Promise<void> {
+  const transferText = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  const transferParent = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim() || '';
+  const drag = detachedSubtaskDrag.value || (
+    transferText.startsWith('subtask:') && transferParent
+      ? { sourceId: transferText.slice('subtask:'.length).trim(), parentTaskId: transferParent }
+      : null
+  );
+  if (!drag) return;
+  event.preventDefault();
+  event.stopPropagation();
+  detachedSubtaskDrag.value = null;
+  const target = detachedDropTarget.value;
+  detachedDropTarget.value = { taskId: null, position: null };
+  resetManualTaskDrag();
+  const targetPosition = target.position === 'before' || target.position === 'after'
+    ? target.position
+    : 'end';
+  // Resolve the former parent before applying the optimistic mutation. Once
+  // promoted, the source is top-level and tree-based parent lookup would
+  // otherwise incorrectly resolve the source itself as its own parent.
+  const detachParentTaskId = resolveDetachParentTaskId(drag.sourceId, drag.parentTaskId);
+  const optimisticApplied = optimisticallyDetachTaskInSidebar(
+    drag.sourceId,
+    target.taskId || undefined,
+    targetPosition
+  );
+  try {
+    structureMoveInFlight.value = true;
+    await TaskRepository.moveTaskOutOfParent(
+      drag.sourceId,
+      detachParentTaskId,
+      target.taskId || undefined,
+      targetPosition === 'before' || targetPosition === 'after' ? targetPosition : undefined
+    );
+    await refreshAfterTaskStructureMove({
+      sourceId: drag.sourceId,
+      detach: true,
+      targetId: target.taskId || undefined,
+      position: targetPosition
+    });
+  } catch (error) {
+    if (optimisticApplied) {
+      try {
+        await refreshTasks(true, {
+          showLoading: false,
+          compareExisting: false,
+          ignoreThrottle: true,
+          source: 'manual-refresh'
+        });
+      } catch (refreshError) {
+        console.error('[TaskManager] Failed to restore sidebar after optimistic detach:', refreshError);
+      }
+    }
+    console.error('[TaskManager] Failed to detach subtask:', error);
+  } finally {
+    structureMoveInFlight.value = false;
+  }
+}
+
+function handleTaskListDragOver(event: DragEvent): void {
+  if (!detachedSubtaskDrag.value) return;
+  event.preventDefault();
+  detachedDropTarget.value = { taskId: null, position: 'end' };
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleGlobalSubtaskDragOver(event: DragEvent): void {
+  const overElement = event.target instanceof Element ? event.target : null;
+  // KanbanView owns hierarchy drops for its cards; the hidden context-menu
+  // TaskManager instance must not claim those events first.
+  if (overElement?.closest('.kanban-view, .table-view, .kanban-batch-item, .kanban-list-task-item, .quadrant-task')) return;
+  const text = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  if (!detachedSubtaskDrag.value && !text.startsWith('subtask:')) return;
+  if (!detachedSubtaskDrag.value && text.startsWith('subtask:')) {
+    const sourceId = text.slice('subtask:'.length).trim();
+    const parentTaskId = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim() || '';
+    if (sourceId && parentTaskId) {
+      detachedSubtaskDrag.value = { sourceId, parentTaskId };
+    }
+  }
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleGlobalSubtaskDrop(event: DragEvent): void {
+  if (handledGlobalSubtaskDropEvents.has(event)) return;
+  const dropElement = event.target instanceof Element ? event.target : null;
+  if (dropElement?.closest('.kanban-view, .table-view, .kanban-batch-item, .kanban-list-task-item, .quadrant-task')) return;
+  // A subtask row owns drops onto another subtask (nesting). Do not let the
+  // document-level detach handler steal that event.
+  if (dropElement?.closest('.subtask-item')) return;
+  const text = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  const parent = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim() || '';
+  const drag = detachedSubtaskDrag.value || (text.startsWith('subtask:') && parent
+    ? { sourceId: text.slice('subtask:'.length).trim(), parentTaskId: parent }
+    : null);
+  if (!drag) return;
+  handledGlobalSubtaskDropEvents.add(event);
+  event.preventDefault();
+  event.stopPropagation();
+  const element = event.target instanceof Element ? event.target : null;
+  const row = element?.closest<HTMLElement>('.task-batch-item');
+  let targetId: string | undefined;
+  let position: 'before' | 'after' | undefined;
+  if (row) {
+    targetId = row.querySelector<HTMLElement>('[data-task-id]')?.dataset.taskId;
+    const rect = row.getBoundingClientRect();
+    position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+  }
+  if (targetId && isTaskInDraggedSubtree(drag.sourceId, targetId)) {
+    detachedSubtaskDrag.value = null;
+    detachedDropTarget.value = { taskId: null, position: null };
+    resetManualTaskDrag();
+    return;
+  }
+  detachedSubtaskDrag.value = null;
+  detachedDropTarget.value = { taskId: null, position: null };
+  resetManualTaskDrag();
+  const detachParentTaskId = resolveDetachParentTaskId(drag.sourceId, drag.parentTaskId);
+  const optimisticApplied = optimisticallyDetachTaskInSidebar(
+    drag.sourceId,
+    targetId,
+    position
+  );
+  structureMoveInFlight.value = true;
+  void TaskRepository.moveTaskOutOfParent(
+    drag.sourceId,
+    detachParentTaskId,
+    targetId,
+    position
+  )
+    .then(() => {
+      return refreshAfterTaskStructureMove({
+        sourceId: drag.sourceId,
+        detach: true,
+        targetId,
+        position: position || 'end'
+      });
+    })
+    .catch(async (error) => {
+      if (optimisticApplied) {
+        try {
+          await refreshTasks(true, {
+            showLoading: false,
+            compareExisting: false,
+            ignoreThrottle: true,
+            source: 'manual-refresh'
+          });
+        } catch (refreshError) {
+          console.error('[TaskManager] Failed to restore sidebar after optimistic detach:', refreshError);
+        }
+      }
+      console.error('[TaskManager] Failed to detach subtask:', error);
+    })
+    .finally(() => { structureMoveInFlight.value = false; })
 }
 
 function shouldEnableMobileCalendarDrag(): boolean {
@@ -10445,6 +11272,22 @@ function isFutureVirtualRepeatPreview(task: Task): boolean {
 }
 
 onMounted(async () => {
+  if (props.contextMenuHost) {
+    // The hidden host must still have menu metadata, but it does not need the
+    // sidebar task snapshot, document scans, task-change subscriptions, or
+    // global drag/drop ownership.  Registering those listeners here as well as
+    // on the visible sidebar caused duplicate detach/move requests.
+    resolveTaskModalTeleportTarget();
+    await loadSettings();
+    taskGroups.value = await loadTaskGroups();
+    setupEventListeners();
+    return;
+  }
+  window.addEventListener('pinch-subtask-dragstart', handleSubtaskDragStartEvent);
+  window.addEventListener('pinch-subtask-dragend', handleSubtaskDragEndEvent);
+  window.addEventListener('dragend', handleGlobalDragEnd, true);
+  document.addEventListener('dragover', handleGlobalSubtaskDragOver, true);
+  document.addEventListener('drop', handleGlobalSubtaskDrop, true);
   loadTaskSearchHistory();
   const loadTraceId = beginTaskLoadTrace('sidebar');
   resolveTaskModalTeleportTarget();
@@ -10521,10 +11364,9 @@ onMounted(async () => {
       materializeRepeats: false
     });
     if (cachedTasks.length > 0) {
-      hydrateMemoTitlesFromLiveDom(cachedTasks, TASK_TITLE_HYDRATE_LIMIT);
       tasks.value = syncTaskSnapshotWithLocalOverrides(cachedTasks);
       hydrateMemoTitlesFromLiveDom(tasks.value, TASK_TITLE_HYDRATE_LIMIT);
-      await refreshInternalState();
+      refreshInternalState();
       markTaskLoadFirstTasks('sidebar', loadTraceId, 'cache', tasks.value.length);
       if (tasks.value.length > 0 && tasks.value.length <= FILTER_SWITCH_BROAD_LOAD_THRESHOLD) {
         lastLoadedScope = { includeCompleted: showCompletedTasks.value, includeArchived: false };
@@ -10532,7 +11374,7 @@ onMounted(async () => {
     } else {
       const prefilled = await prefillKernelLightTasks(getCurrentTaskQueryScope() || null);
       if (prefilled) {
-        await refreshInternalState();
+        refreshInternalState();
         markTaskLoadFirstTasks('sidebar', loadTraceId, 'kernel', tasks.value.length);
       } else {
         markTaskLoadFirstTasks('sidebar', loadTraceId, 'empty', 0);
@@ -10584,6 +11426,11 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener('pinch-subtask-dragstart', handleSubtaskDragStartEvent);
+  window.removeEventListener('pinch-subtask-dragend', handleSubtaskDragEndEvent);
+  window.removeEventListener('dragend', handleGlobalDragEnd, true);
+  document.removeEventListener('dragover', handleGlobalSubtaskDragOver, true);
+  document.removeEventListener('drop', handleGlobalSubtaskDrop, true);
   stopObservingTaskScopePageSize();
   clearMobileCalendarPointerGesture();
   clearDesktopCalendarPointerGesture(true);
@@ -11627,6 +12474,29 @@ onUnmounted(() => {
 .task-batch-item.manual-task-drop-after::after {
   bottom: -4px;
 }
+
+.task-batch-item.manual-task-drop-inside {
+  outline: 2px solid color-mix(in srgb, var(--b3-theme-primary) 70%, transparent);
+  outline-offset: 2px;
+  background: color-mix(in srgb, var(--b3-theme-primary) 8%, transparent);
+}
+
+.task-batch-item.subtask-detach-drop-before::before,
+.task-batch-item.subtask-detach-drop-after::after {
+  content: '';
+  position: absolute;
+  z-index: 4;
+  left: 2px;
+  right: 2px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--b3-theme-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 20%, transparent);
+  pointer-events: none;
+}
+
+.task-batch-item.subtask-detach-drop-before::before { top: -6px; }
+.task-batch-item.subtask-detach-drop-after::after { bottom: -6px; }
 
 .task-batch-item.mobile-calendar-drag-source {
   -webkit-touch-callout: none;

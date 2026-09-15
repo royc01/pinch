@@ -145,6 +145,7 @@
     "api.errors.documentNotFound":  "文档不存在",
     "api.errors.moveTaskTargetRequired":  "缺少移动任务所需的目标信息",
     "api.errors.moveTaskNotFound":  "未找到要移动的任务块",
+    "api.errors.moveTaskCycle":  "不能将任务移入自身或其子孙任务",
     "task.new":  "新建任务",
     "task.newLongPressOpenBoard":  "新建任务（长按打开 Pinch 看板）",
     "taskManager.addSubtask":  "添加子任务",

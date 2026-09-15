@@ -10,6 +10,7 @@ interface StoreState {
 }
 
 const stores = new Map<string, StoreState>();
+let lastAttributeMutationTs = 0;
 
 function hasTaskAttribute(attrs: Record<string, string>, name: string): boolean {
   return Object.prototype.hasOwnProperty.call(attrs, name);
@@ -100,25 +101,44 @@ export function applyTaskAttributeChanges(
   const hasBackgroundColor = hasTaskAttribute(attrs, 'custom-task-background-color');
   const hasUrgent = hasTaskAttribute(attrs, 'custom-task-urgent');
   const hasFocusEstimate = hasTaskAttribute(attrs, 'custom-task-focus-estimate');
+  const hasArchived = hasTaskAttribute(attrs, 'custom-task-archived');
+  const hasArchivedAt = hasTaskAttribute(attrs, 'custom-task-archived-at');
+  const hasArchiveReason = hasTaskAttribute(attrs, 'custom-task-archive-reason');
   if (!(
     hasPriority || hasStatus || hasCompletedAt || hasTags || hasGroup || hasPinned || hasDescription
     || hasStartDate || hasStartTime || hasDueDate || hasDueTime
     || hasReminderType || hasReminderCustomTime || hasBackgroundColor || hasUrgent || hasFocusEstimate
+    || hasArchived || hasArchivedAt || hasArchiveReason
   )) {
     return false;
   }
 
-  const now = Date.now();
+  // Keep local attribute writes strictly monotonic. Archive/unarchive can be
+  // triggered in the same millisecond, and equal CRDT timestamps would retain
+  // the previous value instead of applying the latest user action.
+  const now = Math.max(Date.now(), lastAttributeMutationTs + 1);
+  lastAttributeMutationTs = now;
   const targetStates = typeof storeId === 'string' && storeId.length > 0
     ? [ensureStore(storeId)]
     : Array.from(stores.values());
   let applied = false;
 
   targetStates.forEach((state) => {
-    const targetTasks = state.repo.getTasks().filter(task => task.blockId === normalizedBlockId);
-    if (targetTasks.length === 0) {
-      return;
-    }
+    const allTasks = state.repo.getTasks();
+    const directlyMatchedTasks = allTasks.filter(task => task.blockId === normalizedBlockId);
+    // Repeat instances are virtual snapshots without a blockId. When their
+    // template is archived, mirror the attribute change onto every instance
+    // so active views remove them immediately instead of waiting for reload.
+    const repeatSeriesIds = new Set(
+      directlyMatchedTasks
+        .map(task => task.repeatSeriesId)
+        .filter((seriesId): seriesId is string => typeof seriesId === 'string' && seriesId.length > 0)
+    );
+    const targetTasks = repeatSeriesIds.size === 0
+      ? directlyMatchedTasks
+      : allTasks.filter(task => directlyMatchedTasks.includes(task) || (
+        typeof task.repeatSeriesId === 'string' && repeatSeriesIds.has(task.repeatSeriesId)
+      ));
 
     const updateField = (taskId: string, field: string, value: unknown): void => {
       state.repo.updateTaskField(taskId, field as any, value, now);
@@ -176,6 +196,16 @@ export function applyTaskAttributeChanges(
       if (hasFocusEstimate) {
         updateField(task.id, 'focusEstimate', parseTaskFocusEstimateAttribute(attrs['custom-task-focus-estimate'] || ''));
       }
+      if (hasArchived) {
+        updateField(task.id, 'archived', parseTaskBooleanAttribute(attrs['custom-task-archived'] || ''));
+      }
+      if (hasArchivedAt) {
+        updateField(task.id, 'archivedAt', attrs['custom-task-archived-at'] || undefined);
+      }
+      if (hasArchiveReason) {
+        const reason = attrs['custom-task-archive-reason'];
+        updateField(task.id, 'archiveReason', reason === 'manual' || reason === 'auto' ? reason : undefined);
+      }
     });
 
     // Subtasks are stored as part of their top-level task's tree rather than
@@ -207,20 +237,28 @@ export function applyTaskAttributeChanges(
           if (hasBackgroundColor) subtask.backgroundColor = attrs['custom-task-background-color'] || undefined;
           if (hasUrgent) subtask.urgent = parseTaskBooleanAttribute(attrs['custom-task-urgent'] || '');
           if (hasFocusEstimate) subtask.focusEstimate = parseTaskFocusEstimateAttribute(attrs['custom-task-focus-estimate'] || '');
+          if (hasArchived) subtask.archived = parseTaskBooleanAttribute(attrs['custom-task-archived'] || '');
+          if (hasArchivedAt) subtask.archivedAt = attrs['custom-task-archived-at'] || undefined;
+          if (hasArchiveReason) {
+            const reason = attrs['custom-task-archive-reason'];
+            subtask.archiveReason = reason === 'manual' || reason === 'auto' ? reason : undefined;
+          }
           changed = true;
         }
         if (patchNestedSubtasks(subtask.subtasks)) changed = true;
       }
       return changed;
     };
-    const parentTasksWithPatchedSubtasks = state.repo.getTasks().filter(task => patchNestedSubtasks(task.subtasks));
+    const parentTasksWithPatchedSubtasks = allTasks.filter(task => patchNestedSubtasks(task.subtasks));
     if (parentTasksWithPatchedSubtasks.length > 0) {
       state.repo.syncIncrementalTasks(parentTasksWithPatchedSubtasks);
       applied = true;
     }
 
-    state.tasks.value = state.repo.getTasks();
-    applied = true;
+    if (targetTasks.length > 0 || parentTasksWithPatchedSubtasks.length > 0) {
+      state.tasks.value = state.repo.getTasks();
+      applied = true;
+    }
   });
 
   return applied;
@@ -232,6 +270,7 @@ export function resetCrdtRepository(storeId?: string): void {
     return;
   }
   stores.clear();
+  lastAttributeMutationTs = 0;
 }
 
 export function initCrdtRepository(nodeId: string = 'local', storeId: string = 'global'): CRDTTaskRepository {

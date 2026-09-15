@@ -6,7 +6,7 @@ import solarLunar from '@/utils/solarLunar.js';
 import { enqueueStorageMutation, enqueueStorageMutations } from '@/storageMutationCoordinator';
 import { isMissingPluginStorageValue } from '@/utils/pluginStorage';
 import { getAutomaticScheduledTaskStatus } from '@/utils/taskStatusAutomation';
-import { isClosedTaskStatus, isKnownTaskStatus } from '@/utils/taskStatus';
+import { isCompletedTaskStatus, isKnownTaskStatus } from '@/utils/taskStatus';
 
 export type RepeatFrequency = 'none' | 'daily' | 'weekdays' | 'weekend' | 'weekly' | 'monthly' | 'custom';
 type ActiveRepeatFrequency = Exclude<RepeatFrequency, 'none'>;
@@ -1400,7 +1400,7 @@ export async function setRepeatInstanceStatus(seriesId: string, date: string, st
       seriesId,
       date: targetDate,
       status,
-      completedAt: isClosedTaskStatus(status) ? now : undefined,
+      completedAt: isCompletedTaskStatus(status) ? now : undefined,
       updatedAt: now
     };
 

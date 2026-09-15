@@ -111,9 +111,14 @@ export function getTaskStatusDefinitions(): TaskStatusDefinition[] {
 }
 
 export function isClosedTaskStatus(status: string | undefined): boolean {
-  // Custom states are always active/to-do states. Only the built-in terminal
-  // markers may complete a task and turn its list-item checkbox on.
+  // Terminal workflow states (completed and cancelled) are closed for
+  // filtering/grouping, but only `completed` is a completion state.
   return status === 'completed' || status === 'cancelled';
+}
+
+/** Only the completed status carries Siyuan's completion marker/metadata. */
+export function isCompletedTaskStatus(status: string | undefined): boolean {
+  return status === 'completed';
 }
 
 export function isKnownTaskStatus(status: string | undefined): boolean {

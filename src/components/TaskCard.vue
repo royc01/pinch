@@ -220,7 +220,13 @@
         v-if="showSubtasks"
         class="task-subtasks"
         data-disable-description-contextmenu
-        :class="{ collapsed: isCollapsed }"
+        :class="{ collapsed: isCollapsed, 'subtask-sibling-drop-before': siblingDropPosition === 'before', 'subtask-sibling-drop-after': siblingDropPosition === 'after' }"
+        @dragover="handleSubtaskContainerDragOver"
+        @dragleave="handleSubtaskContainerDragLeave"
+        @drop="handleSubtaskContainerDrop"
+        @mousedown.capture.stop="handleSubtaskPointerDown"
+        @mouseup.capture="handleSubtaskPointerUp"
+        @mouseleave="handleSubtaskPointerUp"
       >
         <SubtaskItem
           v-for="subtask in task.subtasks || []"
@@ -230,6 +236,9 @@
           :parent-task-id="task.id"
           @toggle="(_taskId, child) => handleSubtaskToggle(child)"
           @open="(_taskId, child) => handleSubtaskOpen(child)"
+          @dragstart="handleSubtaskDragStart"
+          @dragend="handleSubtaskDragEnd"
+          @dropTarget="handleSubtaskDropTarget"
         />
       </div>
 
@@ -238,7 +247,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { Task, SubTask, TaskGroup } from '@/api';
 import Icon from '@/components/Icon.vue';
 import EmojiIcon from '@/components/EmojiIcon.vue';
@@ -309,6 +318,8 @@ const emit = defineEmits<{
   subtaskOpen: [task: Task, subtask: SubTask];
   dragstart: [event: DragEvent, task: Task];
   dragend: [event: DragEvent, task: Task];
+  subtaskDrop: [event: DragEvent, target: SubTask, position: 'before' | 'inside' | 'after', parentTaskId: string];
+  subtaskSiblingDrop: [event: DragEvent, target: SubTask, position: 'before' | 'after', parentTaskId: string];
   contextMenu: [task: Task, event: MouseEvent];
 }>();
 
@@ -321,6 +332,7 @@ const isCompleted = computed(() => props.completed ?? task.value.status === 'com
 const disableStatusToggle = computed(() => props.disableStatusToggle === true);
 const isExpanded = computed(() => !!props.expanded);
 const isDragging = computed(() => !!props.dragging);
+const siblingDropPosition = ref<'before' | 'after' | null>(null);
 const hasSubtasks = computed(() => (task.value.subtasks?.length ?? 0) > 0);
 const descriptionCanExpand = ref(false);
 const canExpand = computed(() => {
@@ -734,7 +746,17 @@ watch(descriptionBodyRef, (el) => {
   scheduleDescriptionExpandabilityMeasure();
 });
 
+onMounted(() => {
+  // A cancelled native drag may not produce dragleave/drop on the subtask
+  // container. Clear its sibling insertion marker from the global dragend so
+  // the blue line cannot remain after the gesture ends.
+  window.addEventListener('pinch-subtask-dragend', clearSubtaskDropIndicators);
+  window.addEventListener('dragend', clearSubtaskDropIndicators, true);
+});
+
 onUnmounted(() => {
+  window.removeEventListener('pinch-subtask-dragend', clearSubtaskDropIndicators);
+  window.removeEventListener('dragend', clearSubtaskDropIndicators, true);
   disconnectDescriptionResizeObserver();
 });
 
@@ -857,7 +879,92 @@ function handleSubtaskOpen(subtask: SubTask) {
   emit('subtaskOpen', task.value, subtask);
 }
 
+function handleSubtaskDragStart(event: DragEvent, subtask: SubTask, parentTaskId: string): void {
+  emit('dragstart', event, { ...subtask, parentTaskId } as Task);
+}
+
+function handleSubtaskDragEnd(event: DragEvent): void {
+  emit('dragend', event, task.value);
+}
+
+function handleSubtaskDropTarget(event: DragEvent, target: SubTask, position: 'before' | 'inside' | 'after', parentTaskId: string): void {
+  emit('subtaskDrop', event, target, position, parentTaskId);
+}
+
+function handleSubtaskContainerDragOver(event: DragEvent): void {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('.subtask-item')) return;
+  const text = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  if (!text.startsWith('subtask:')) return;
+  const container = event.currentTarget as HTMLElement;
+  const rect = container.getBoundingClientRect();
+  siblingDropPosition.value = event.clientY < rect.top + 7 ? 'before' : (event.clientY > rect.bottom - 7 ? 'after' : null);
+  // The middle of the expanded subtask area belongs to the parent card's
+  // hierarchy drop zone, allowing a dragged subtask to be nested there.
+  if (!siblingDropPosition.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleSubtaskContainerDragLeave(event: DragEvent): void {
+  const current = event.currentTarget as HTMLElement | null;
+  const related = event.relatedTarget;
+  if (current && related instanceof Node && current.contains(related)) return;
+  siblingDropPosition.value = null;
+}
+
+function clearSubtaskDropIndicators(): void {
+  siblingDropPosition.value = null;
+}
+
+function handleSubtaskContainerDrop(event: DragEvent): void {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('.subtask-item')) return;
+  const text = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  if (!text.startsWith('subtask:') || !task.value.subtasks?.length) return;
+  const container = event.currentTarget as HTMLElement;
+  const rect = container.getBoundingClientRect();
+  if (event.clientY >= rect.top + 7 && event.clientY <= rect.bottom - 7) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const position = event.clientY < rect.top + 7 ? 'before' : 'after';
+  siblingDropPosition.value = null;
+  const targetSubtask = position === 'before' ? task.value.subtasks[0] : task.value.subtasks[task.value.subtasks.length - 1];
+  if (targetSubtask) emit('subtaskSiblingDrop', event, targetSubtask, position, task.value.id);
+}
+
+function handleSubtaskPointerDown(event: MouseEvent): void {
+  const card = event.currentTarget instanceof Element
+    ? event.currentTarget.closest<HTMLElement>('.task-card')
+    : null;
+  if (card) {
+    card.dataset.subtaskDragDisabled = card.getAttribute('draggable') || 'true';
+    card.setAttribute('draggable', 'false');
+  }
+}
+
+function handleSubtaskPointerUp(event: MouseEvent): void {
+  const card = event.currentTarget instanceof Element
+    ? event.currentTarget.closest<HTMLElement>('.task-card')
+    : null;
+  if (card && card.dataset.subtaskDragDisabled !== undefined) {
+    card.setAttribute('draggable', card.dataset.subtaskDragDisabled);
+    delete card.dataset.subtaskDragDisabled;
+  }
+}
+
 function handleDragStart(event: DragEvent) {
+  // A nested subtask has its own drag lifecycle. Ignore the bubbled native
+  // event here so the parent card is never treated as the dragged task.
+  const target = event.target instanceof Element ? event.target : null;
+  const transferText = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  if (transferText.startsWith('subtask:')) {
+    return;
+  }
+  if (target?.closest('.subtask-item')) {
+    return;
+  }
   if (!props.draggable || isDescriptionEditing.value) {
     event.preventDefault();
     return;
@@ -866,6 +973,14 @@ function handleDragStart(event: DragEvent) {
 }
 
 function handleDragEnd(event: DragEvent) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('.subtask-item')) {
+    return;
+  }
+  const transferText = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  if (transferText.startsWith('subtask:')) {
+    return;
+  }
   emit('dragend', event, task.value);
 }
 
@@ -1242,9 +1357,27 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .task-subtasks {
   display: flex;
   flex-direction: column;
-  margin-top: 6px;
-  gap: 6px;
+  gap: 0;
 }
+
+.task-subtasks.subtask-sibling-drop-before,
+.task-subtasks.subtask-sibling-drop-after {
+  position: relative;
+}
+.task-subtasks.subtask-sibling-drop-before::before,
+.task-subtasks.subtask-sibling-drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--b3-theme-primary);
+  z-index: 4;
+  pointer-events: none;
+}
+.task-subtasks.subtask-sibling-drop-before::before { top: 4px; }
+.task-subtasks.subtask-sibling-drop-after::after { bottom: 4px; }
 
 .task-subtasks.collapsed {
   display: none;

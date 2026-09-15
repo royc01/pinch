@@ -16,7 +16,11 @@ import {
   type TProtyleAction
 } from "siyuan";
 import { eventBus, Events } from "@/utils/eventBus";
-import { publishTaskChange } from "@/utils/taskChangeCoordinator";
+import {
+  markTaskStructureChangePending,
+  publishTaskChange,
+  publishTaskStructureChange
+} from "@/utils/taskChangeCoordinator";
 import { applyTaskAttributeMutation } from "@/utils/taskMutationService";
 import { normalizeNotebookIds } from "@/utils/notebookIds";
 import {
@@ -37,7 +41,7 @@ import {
   updatePluginStorageReadCache
 } from "@/utils/pluginStorage";
 import { getAutomaticScheduledTaskStatus } from "@/utils/taskStatusAutomation";
-import { isClosedTaskStatus, isKnownTaskStatus } from "@/utils/taskStatus";
+import { isClosedTaskStatus, isCompletedTaskStatus, isKnownTaskStatus } from "@/utils/taskStatus";
 import { formatDate as formatLocalDate } from "@/composables/useDateUtils";
 import { awardTaskCompletion } from "@/rewardRepository";
 import {
@@ -2259,24 +2263,43 @@ export function unicodeToEmoji(icon: string | undefined): string {
 }
 
 async function batchGetBlockAttrs(ids: string[]): Promise<Map<string, any>> {
-  if (ids.length === 0) return new Map();
-  
-  const result = new Map<string, any>();
-  const batchSize = TASK_CONFIG.BATCH_SIZE;
-  
-  for (let i = 0; i < ids.length; i += batchSize) {
-    const batch = ids.slice(i, i + batchSize);
-    const promises = batch.map(id => getBlockAttrs(id).catch((error) => {
-      log_debug('Failed to get block attrs', { id, error });
-      return {};
-    }));
-    const attrsArray = await Promise.all(promises);
-    
-    batch.forEach((id, index) => {
-      result.set(id, attrsArray[index]);
-    });
+  const uniqueIds = Array.from(new Set(
+    ids
+      .map(id => normalizeBlockAttrsId(id))
+      .filter(id => id.length > 0)
+  ));
+  if (uniqueIds.length === 0) return new Map();
+
+  const result = new Map<string, BlockAttrs>();
+  // Keep the SQL payload bounded while replacing one RPC per root document
+  // with one query per chunk.
+  const batchSize = 512;
+
+  for (let i = 0; i < uniqueIds.length; i += batchSize) {
+    const batch = uniqueIds.slice(i, i + batchSize);
+    const idsClause = batch.map(id => `'${escapeSqlLiteral(id)}'`).join(',');
+    try {
+      const rows = await sql(`
+        SELECT block_id, value
+        FROM attributes
+        WHERE name = 'icon'
+          AND block_id IN (${idsClause})
+      `) as Array<{ block_id?: string; value?: string }>;
+
+      for (const row of rows || []) {
+        if (typeof row?.block_id !== 'string' || row.block_id.length === 0) continue;
+        const value = typeof row.value === 'string' ? row.value : '';
+        result.set(row.block_id, { icon: value });
+      }
+    } catch (error) {
+      log_debug('Failed to batch get block attrs', { error, count: batch.length });
+      // Preserve the previous best-effort behavior for kernels that reject
+      // this SQL shape or do not expose the icon attribute table.
+      const attrsArray = await Promise.all(batch.map(id => getBlockAttrs(id).catch(() => ({}))));
+      batch.forEach((id, index) => result.set(id, attrsArray[index] || {}));
+    }
   }
-  
+
   return result;
 }
 
@@ -2314,7 +2337,7 @@ export function buildTaskStatusAttrs(
   completedAt?: string,
   automatic = false
 ): Record<string, string> {
-  if (isClosedTaskStatus(status)) {
+  if (isCompletedTaskStatus(status)) {
     const normalizedCompletedAt = typeof completedAt === 'string' && completedAt.trim().length > 0
       ? completedAt.trim()
       : new Date().toISOString();
@@ -2333,7 +2356,7 @@ export function buildTaskStatusAttrs(
 }
 
 function taskStatusToTaskMarker(status: TaskStatus | undefined): " " | "x" {
-  return isClosedTaskStatus(status) ? 'x' : ' ';
+  return isCompletedTaskStatus(status) ? 'x' : ' ';
 }
 
 async function syncTaskListItemMarkerByStatus(
@@ -3819,10 +3842,11 @@ export class TaskRepository {
 
     // Completed signals from DOM/Markdown are authoritative.
     if (completedByDOM === true || markdownCompleted === true) {
-      return hasValidAttrStatus && isClosedTaskStatus(attrStatus) ? attrStatus : 'completed';
+      return attrStatus === 'cancelled' ? 'cancelled' : (hasValidAttrStatus && isClosedTaskStatus(attrStatus) ? attrStatus : 'completed');
     }
 
     if (completedByDOM === false || markdownCompleted === false) {
+      if (attrStatus === 'cancelled') return 'cancelled';
       if (automatic) {
         return getAutomaticScheduledTaskStatus({
           startDate: attrs['custom-task-start-date'],
@@ -4397,7 +4421,7 @@ export class TaskRepository {
     const tasks = data.tasks.map((t: Task) => ({
       ...t,
       icon: unicodeToEmoji(t.icon),
-      completedAt: t.completedAt || (isClosedTaskStatus(t.status) ? this.parseBlockDateTime(t.updatedAt) || undefined : undefined)
+      completedAt: t.completedAt || (isCompletedTaskStatus(t.status) ? this.parseBlockDateTime(t.updatedAt) || undefined : undefined)
     }));
 
     this.memoryCache = { tasks, timestamp: now, detailLevel: 'full' };
@@ -4624,6 +4648,7 @@ export class TaskRepository {
       const domMap = await getBlockDOMBatch(rows.map(row => row.id));
       const protyleElement = useLiveDom ? document.querySelector('.protyle') : null;
       const result = new Map<string, Task>();
+      const parser = new DOMParser();
 
       for (const row of rows) {
         const attrs = this.buildTaskAttrsFromSqlRow(row);
@@ -4631,7 +4656,6 @@ export class TaskRepository {
         const dom = domMap.get(row.id);
         if (!dom?.dom) continue;
 
-        const parser = new DOMParser();
         const doc = parser.parseFromString(dom.dom, 'text/html');
         const parentListItem =
           doc.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`) ||
@@ -4996,6 +5020,7 @@ export class TaskRepository {
         return left.id.localeCompare(right.id);
       };
 
+      const parser = new DOMParser();
       if (shouldBuildNestedSubtasks) {
         for (const block of allBlocks) {
           const parentTaskId = resolveNearestTaskParentId(block);
@@ -5011,14 +5036,12 @@ export class TaskRepository {
 
         const shouldAlignSubtaskOrder = parentTaskIdsNeedDomOrder.length > 0
           && parentTaskIdsNeedDomOrder.length <= TASK_CONFIG.MAX_DOM_ORDER_SYNC;
-
         if (shouldAlignSubtaskOrder) {
           try {
             const domMap = await getBlockDOMBatch(parentTaskIdsNeedDomOrder);
             for (const parentTaskId of parentTaskIdsNeedDomOrder) {
               const dom = domMap.get(parentTaskId)?.dom;
               if (!dom) continue;
-              const parser = new DOMParser();
               const doc = parser.parseFromString(dom, 'text/html');
               const directSubtasks = this.parseSubtasksFromParsedDoc(doc, parentTaskId);
               const directChildIds = directSubtasks
@@ -5260,7 +5283,6 @@ export class TaskRepository {
             }
           }
           
-          const parser = new DOMParser();
           const doc = parser.parseFromString(dom.dom, 'text/html');
           
           let parentListItem = doc.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`);
@@ -5365,9 +5387,11 @@ export class TaskRepository {
             markdownStatus === 'pending';
 
           if (isCompletedBySignals) {
-            status = hasValidAttrStatus && isClosedTaskStatus(attrStatus) ? attrStatus : 'completed';
+            status = attrStatus === 'cancelled' ? 'cancelled' : (hasValidAttrStatus && isClosedTaskStatus(attrStatus) ? attrStatus : 'completed');
           } else if (isUncheckedBySignals) {
-            if (hasValidAttrStatus && !isClosedTaskStatus(attrStatus)) {
+            if (attrStatus === 'cancelled') {
+              status = 'cancelled';
+            } else if (hasValidAttrStatus && !isClosedTaskStatus(attrStatus)) {
               status = attrStatus!;
             } else {
               status = 'pending';
@@ -5434,7 +5458,6 @@ export class TaskRepository {
 
       const extractTitleFromBlockDom = (domHtml: string, blockId: string): string | null => {
         try {
-          const parser = new DOMParser();
           const doc = parser.parseFromString(domHtml, 'text/html');
           const listItem =
             doc.querySelector(`[data-node-id="${blockId}"][data-type="NodeListItem"]`) ||
@@ -5569,13 +5592,13 @@ export class TaskRepository {
     if (task.status && task.status !== 'pending') {
       attrs['custom-task-status'] = task.status;
     }
-    if (isClosedTaskStatus(task.status)) {
+    if (isCompletedTaskStatus(task.status)) {
       attrs[TASK_COMPLETED_AT_ATTR] = typeof task.completedAt === 'string' && task.completedAt.trim().length > 0
         ? task.completedAt.trim()
         : new Date().toISOString();
     }
 
-    const taskMarkdown = isClosedTaskStatus(task.status) ? `- [x] ${trimmedTitle}` : `- [ ] ${trimmedTitle}`;
+    const taskMarkdown = isCompletedTaskStatus(task.status) ? `- [x] ${trimmedTitle}` : `- [ ] ${trimmedTitle}`;
 
     try {
       log_debug('Creating block task', { notebookId, docPath, taskMarkdown });
@@ -5890,7 +5913,7 @@ export class TaskRepository {
       return '';
     }
     const completedAt = await setRepeatInstanceStatus(task.repeatSeriesId, task.repeatInstanceDate, status);
-    if (isClosedTaskStatus(status)) {
+    if (isCompletedTaskStatus(status)) {
       void awardTaskCompletion({
         ...task,
         status,
@@ -5917,13 +5940,262 @@ export class TaskRepository {
     const containerListId = await this.resolveTaskContainerListId(normalizedRootId);
     const parentId = containerListId || normalizedRootId;
 
+    markTaskStructureChangePending([blockId, normalizedRootId]);
     await moveBlock(blockId, undefined, parentId);
     if (containerListId) {
       await this.markTaskContainerList(containerListId, normalizedRootId);
     }
     await this.clearCache();
+    publishTaskStructureChange([blockId, normalizedRootId]);
 
     return { blockId, parentId };
+  }
+
+  /** Move a task block under another task, making it a nested task. */
+  static async moveTaskIntoTask(taskId: string, targetTaskId: string): Promise<{ blockId: string; parentId: string }> {
+    const normalizedTaskId = typeof taskId === 'string' ? taskId.trim() : '';
+    const normalizedTargetId = typeof targetTaskId === 'string' ? targetTaskId.trim() : '';
+    if (!normalizedTaskId || !normalizedTargetId || normalizedTaskId === normalizedTargetId) {
+      throw new Error(translate('api.errors.moveTaskTargetRequired', 'Missing target information required to move the task'));
+    }
+
+    let blockId = await this.resolveBlockIdByTaskId(normalizedTaskId);
+    let targetBlockId = await this.resolveBlockIdByTaskId(normalizedTargetId);
+    if (!blockId || !targetBlockId) {
+      throw new Error(translate('api.errors.moveTaskNotFound', 'Could not find the task block to move'));
+    }
+
+    // Task metadata may be attached to the paragraph child (`type='p'`).
+    // Structural moves must operate on the owning list-item (`type='i'`).
+    const resolveListItem = async (id: string): Promise<string> => {
+      const rows = await sql(`
+        SELECT id, parent_id, type, subtype FROM blocks
+        WHERE id = '${this.escapeSqlLiteral(id)}' LIMIT 1
+      `) as Array<{ id?: string; parent_id?: string; type?: string; subtype?: string }>;
+      const row = rows?.[0];
+      if (!row) return id;
+      if (String(row.type || '').toLowerCase() === 'i') return id;
+      const parentId = typeof row.parent_id === 'string' ? row.parent_id : '';
+      if (!parentId) return id;
+      const parentRows = await sql(`
+        SELECT id, type, subtype FROM blocks
+        WHERE id = '${this.escapeSqlLiteral(parentId)}' LIMIT 1
+      `) as Array<{ id?: string; type?: string; subtype?: string }>;
+      return String(parentRows?.[0]?.type || '').toLowerCase() === 'i' ? parentId : id;
+    };
+    blockId = await resolveListItem(blockId);
+    targetBlockId = await resolveListItem(targetBlockId);
+    // Prevent cycles by ensuring the target is not inside the source subtree.
+    const escapedSource = this.escapeSqlLiteral(blockId);
+    const escapedTarget = this.escapeSqlLiteral(targetBlockId);
+    const descendants = await sql(`
+      WITH RECURSIVE descendants(id) AS (
+        SELECT id FROM blocks WHERE id = '${escapedSource}'
+        UNION ALL
+        SELECT b.id FROM blocks b JOIN descendants d ON b.parent_id = d.id
+      )
+      SELECT id FROM descendants WHERE id = '${escapedTarget}' LIMIT 1
+    `).catch(() => [] as Array<{ id?: string }>);
+    if (Array.isArray(descendants) && descendants.length > 0) {
+      throw new Error(translate('api.errors.moveTaskCycle', 'Cannot move a task into itself or one of its descendants'));
+    }
+
+    // Prefer the target's existing nested task list so sibling ordering is
+    // preserved. When absent, use the same atomic DOM replacement strategy as
+    // Task Horizon: replace the source item with a newly-created nested list
+    // containing the source item's DOM.
+    let parentId = targetBlockId;
+    try {
+      const childLists = await sql(`
+        SELECT id FROM blocks
+        WHERE parent_id = '${escapedTarget}'
+          AND type = 'l' AND subtype = 't'
+        ORDER BY sort ASC, created ASC
+        LIMIT 1
+      `) as Array<{ id?: string }>;
+      const childListId = childLists?.[0]?.id;
+      if (typeof childListId === 'string' && childListId.trim()) {
+        parentId = childListId.trim();
+      }
+    } catch {
+      // Fall through to nested-list creation below.
+    }
+    if (parentId === targetBlockId) {
+      const sourceDomResponse = await getBlockDOM(blockId);
+      const sourceDom = typeof sourceDomResponse?.dom === 'string' ? sourceDomResponse.dom.trim() : '';
+      if (!sourceDom || !sourceDom.includes(`data-node-id="${blockId}"`)) {
+        throw new Error('Could not read source task DOM');
+      }
+      const listId = (() => {
+        const now = new Date();
+        const stamp = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0'), String(now.getHours()).padStart(2, '0'), String(now.getMinutes()).padStart(2, '0'), String(now.getSeconds()).padStart(2, '0')].join('');
+        return `${stamp}-${Math.random().toString(36).slice(2, 9).padEnd(7, '0')}`;
+      })();
+      const nestedListDom = `<div data-subtype="t" data-node-id="${listId}" data-type="NodeList" class="list" updated="${listId}">${sourceDom}<div class="protyle-attr" contenteditable="false">&ZeroWidthSpace;</div></div>`;
+      let previousChildId = '';
+      try {
+        const targetChildren = await getChildBlocks(targetBlockId);
+        const ids = (Array.isArray(targetChildren) ? targetChildren : [])
+          .map((child: any) => typeof child?.id === 'string' ? child.id.trim() : '')
+          .filter(Boolean);
+        previousChildId = ids[ids.length - 1] || '';
+      } catch {
+        const targetRows = await sql(`
+          SELECT id FROM blocks
+          WHERE parent_id = '${escapedTarget}'
+          ORDER BY sort ASC, created ASC, id ASC
+        `) as Array<{ id?: string }>;
+        previousChildId = typeof targetRows?.[targetRows.length - 1]?.id === 'string'
+          ? targetRows[targetRows.length - 1].id!.trim()
+          : '';
+      }
+      markTaskStructureChangePending([blockId, targetBlockId]);
+      await request('/api/transactions', {
+        reqId: Date.now(),
+        transactions: [{ doOperations: [
+          { action: 'delete', id: blockId },
+          { action: 'insert', id: listId, parentID: targetBlockId, ...(previousChildId ? { previousID: previousChildId } : {}), data: nestedListDom }
+        ] }]
+      });
+      try { await request('/api/sqlite/flushTransaction', {}); } catch { /* older kernels */ }
+      await this.clearCache();
+      publishTaskStructureChange([blockId, targetBlockId]);
+      return { blockId, parentId: listId };
+    }
+    markTaskStructureChangePending([blockId, targetBlockId]);
+    await moveBlock(blockId, undefined, parentId);
+    try { await request('/api/sqlite/flushTransaction', {}); } catch { /* older kernels */ }
+    await this.clearCache();
+    publishTaskStructureChange([blockId, targetBlockId]);
+    return { blockId, parentId };
+  }
+
+  /** Detach a subtask so it becomes a sibling of its former parent task. */
+  static async moveTaskOutOfParent(taskId: string, parentTaskId: string, targetTaskId?: string, position?: 'before' | 'after'): Promise<{ blockId: string; parentId: string }> {
+    let blockId = await this.resolveBlockIdByTaskId(taskId);
+    let parentBlockId = await this.resolveBlockIdByTaskId(parentTaskId);
+    if (!blockId || !parentBlockId || blockId === parentBlockId) {
+      throw new Error(translate('api.errors.moveTaskNotFound', 'Could not find the task block to move'));
+    }
+
+    // Task metadata can be attached to the paragraph child of a list item.
+    // Structural moves must operate on the owning list-item block, otherwise
+    // moving a nested task may detach only its paragraph and make the task
+    // appear to disappear from the hierarchy.
+    const resolveListItem = async (id: string): Promise<string> => {
+      const rows = await sql(`
+        SELECT id, parent_id, type FROM blocks
+        WHERE id = '${this.escapeSqlLiteral(id)}' LIMIT 1
+      `) as Array<{ id?: string; parent_id?: string; type?: string }>;
+      const row = rows?.[0];
+      if (!row || String(row.type || '').toLowerCase() === 'i') return id;
+      const ownerId = typeof row.parent_id === 'string' ? row.parent_id.trim() : '';
+      if (!ownerId) return id;
+      const ownerRows = await sql(`
+        SELECT type FROM blocks
+        WHERE id = '${this.escapeSqlLiteral(ownerId)}' LIMIT 1
+      `) as Array<{ type?: string }>;
+      return String(ownerRows?.[0]?.type || '').toLowerCase() === 'i' ? ownerId : id;
+    };
+    blockId = await resolveListItem(blockId);
+    parentBlockId = await resolveListItem(parentBlockId);
+    // A task can be nested several levels deep.  Walking its ancestors lets us
+    // identify the outermost task list, which is the destination when a drag
+    // is released outside all task cards.  Using only the immediate parent's
+    // list would promote a grandchild by one level and leave it as a subtask.
+    const resolveOutermostTaskList = async (id: string): Promise<string> => {
+      let currentId = id;
+      let outermostListId = '';
+      const visited = new Set<string>();
+      for (let depth = 0; depth < TASK_CONFIG.MAX_SUBTASK_DEPTH + 8 && currentId && !visited.has(currentId); depth++) {
+        visited.add(currentId);
+        const rows = await sql(`
+          SELECT id, parent_id, type, subtype
+          FROM blocks
+          WHERE id = '${this.escapeSqlLiteral(currentId)}' LIMIT 1
+        `) as Array<{ id?: string; parent_id?: string; type?: string; subtype?: string }>;
+        const row = rows?.[0];
+        if (!row) break;
+        const rowId = typeof row.id === 'string' ? row.id.trim() : currentId;
+        if (String(row.type || '').toLowerCase() === 'l' && String(row.subtype || '').toLowerCase() === 't') {
+          outermostListId = rowId;
+        }
+        currentId = typeof row.parent_id === 'string' ? row.parent_id.trim() : '';
+      }
+      return outermostListId;
+    };
+
+    let targetBlockId = targetTaskId ? await this.resolveBlockIdByTaskId(targetTaskId) : '';
+    if (targetBlockId) {
+      targetBlockId = await resolveListItem(targetBlockId);
+      // Guard against stale/hidden task-manager instances attempting to move
+      // a task relative to one of its own descendants. The UI normally blocks
+      // this case, but the repository must enforce it as well.
+      const descendants = await sql(`
+        WITH RECURSIVE descendants(id) AS (
+          SELECT id FROM blocks WHERE id = '${this.escapeSqlLiteral(blockId)}'
+          UNION ALL
+          SELECT b.id FROM blocks b JOIN descendants d ON b.parent_id = d.id
+        )
+        SELECT id FROM descendants WHERE id = '${this.escapeSqlLiteral(targetBlockId)}' LIMIT 1
+      `).catch(() => [] as Array<{ id?: string }>);
+      if (Array.isArray(descendants) && descendants.length > 0) {
+        throw new Error(translate('api.errors.moveTaskCycle', 'Cannot move a task into itself or one of its descendants'));
+      }
+    }
+
+    // With an explicit target, use the target's containing task list. This
+    // supports dropping a nested task before/after a top-level card as well as
+    // reordering within a nested list. Without a target, append to the
+    // outermost list so the task becomes a standalone card.
+    let destinationListId = '';
+    if (targetBlockId) {
+      const targetRows = await sql(`
+        SELECT parent_id FROM blocks
+        WHERE id = '${this.escapeSqlLiteral(targetBlockId)}' LIMIT 1
+      `) as Array<{ parent_id?: string }>;
+      const candidate = typeof targetRows?.[0]?.parent_id === 'string' ? targetRows[0].parent_id.trim() : '';
+      if (candidate) {
+        const listRows = await sql(`
+          SELECT type, subtype FROM blocks
+          WHERE id = '${this.escapeSqlLiteral(candidate)}' LIMIT 1
+        `) as Array<{ type?: string; subtype?: string }>;
+        if (String(listRows?.[0]?.type || '').toLowerCase() === 'l'
+          && String(listRows?.[0]?.subtype || '').toLowerCase() === 't') {
+          destinationListId = candidate;
+        }
+      }
+    }
+    if (!destinationListId) {
+      destinationListId = await resolveOutermostTaskList(blockId);
+    }
+    if (!destinationListId) {
+      throw new Error(translate('api.errors.moveTaskTargetRequired', 'Missing target information required to move the task'));
+    }
+
+    let previousId = '';
+    const siblings = await sql(`
+      SELECT id FROM blocks
+      WHERE parent_id = '${this.escapeSqlLiteral(destinationListId)}'
+      ORDER BY sort ASC, created ASC, id ASC
+    `) as Array<{ id?: string }>;
+    const ids = siblings.map(row => row.id || '').filter(Boolean).filter(id => id !== blockId);
+    if (targetBlockId && position === 'before') {
+      const index = ids.indexOf(targetBlockId);
+      previousId = index > 0 ? ids[index - 1] : '';
+    } else if (targetBlockId && position === 'after') {
+      previousId = targetBlockId;
+    } else {
+      // No target means a drop on the list background: append to the end.
+      previousId = ids[ids.length - 1] || '';
+    }
+
+    markTaskStructureChangePending([blockId, parentBlockId, targetBlockId]);
+    await moveBlock(blockId, previousId || undefined, destinationListId);
+    try { await request('/api/sqlite/flushTransaction', {}); } catch { /* older kernels */ }
+    await this.clearCache();
+    publishTaskStructureChange([blockId, parentBlockId, targetBlockId]);
+    return { blockId, parentId: destinationListId };
   }
   
   static async deleteTask(taskId: string): Promise<void> {

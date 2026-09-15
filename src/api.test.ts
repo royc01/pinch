@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as siyuan from 'siyuan';
-import { setBlockAttrs, type Task, TaskRepository, updateTaskListItemMarker } from './api';
+import { buildTaskStatusAttrs, setBlockAttrs, type Task, TaskRepository, updateTaskListItemMarker } from './api';
 import { resetCrdtRepository, useCrdtTasks } from './crdtStore';
 import { eventBus, Events } from './utils/eventBus';
 import {
@@ -438,6 +438,8 @@ describe('TaskRepository incremental task fetches', () => {
       (TaskRepository as any).parseTaskStatus(attrs, markdown, null);
 
     expect(parseStatus({ 'custom-task-status': 'delayed' }, '- [x] finished')).toBe('completed');
+    expect(parseStatus({ 'custom-task-status': 'cancelled' }, '- [x] cancelled')).toBe('cancelled');
+    expect(parseStatus({ 'custom-task-status': 'cancelled' }, '- [ ] reopened')).toBe('cancelled');
     expect(parseStatus({ 'custom-task-status': 'delayed' }, '- [ ] waiting')).toBe('delayed');
     expect(parseStatus({ 'custom-task-status': 'in-progress' }, 'plain task text')).toBe('in-progress');
     expect(parseStatus({
@@ -447,5 +449,11 @@ describe('TaskRepository incremental task fetches', () => {
       'custom-task-due-date': '2000-01-01'
     }, 'plain task text')).toBe('delayed');
     expect(parseStatus({ 'custom-task-status': 'unknown' }, 'plain task text')).toBe('pending');
+  });
+
+  it('does not attach completion metadata to cancelled status', () => {
+    const attrs = buildTaskStatusAttrs('cancelled');
+    expect(attrs['custom-task-status']).toBe('cancelled');
+    expect(attrs['custom-task-completed-at']).toBe('');
   });
 });

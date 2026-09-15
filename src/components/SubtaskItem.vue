@@ -1,5 +1,5 @@
 <template>
-  <div class="subtask-item" :class="[subtask.completed ? 'completed' : '', `level-${level}`]">
+  <div class="subtask-item" :class="[subtask.completed ? 'completed' : '', `level-${level}`, { 'subtask-drop-target': isDropTarget, 'subtask-drop-before': dropPosition === 'before', 'subtask-drop-after': dropPosition === 'after' }]" draggable="true" @pointerdown="handlePointerDown" @pointerup="handlePointerUp" @pointercancel="handlePointerUp" @dragstart="handleDragStart" @dragend="handleDragEnd" @dragover="handleDragOver" @dragleave="handleDragLeave" @drop="handleDrop">
     <div class="subtask-row">
       <div class="task-checkbox-wrapper" @click="handleClick">
         <TaskCheckbox :checked="subtask.completed" :size="18" />
@@ -41,15 +41,19 @@
         :subtask="child"
         :level="level + 1"
         :parent-task-id="parentTaskId"
+        :parent-subtask-id="subtask.id"
         @toggle="handleChildToggle"
         @open="handleChildOpen"
+        @dragstart="(event, item, parentId) => emit('dragstart', event, item, parentId)"
+        @dragend="(event, item) => emit('dragend', event, item)"
+        @dropTarget="(event, item, position, parentId) => emit('dropTarget', event, item, position, parentId)"
       />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import Icon from './Icon.vue';
 import type { SubTask } from '../api';
@@ -66,6 +70,7 @@ const props = defineProps<{
   subtask: SubTask;
   level: number;
   parentTaskId: string;
+  parentSubtaskId?: string;
 }>();
 
 const { t } = useI18n();
@@ -109,11 +114,104 @@ const dueBadgeTitle = computed(() => {
 });
 const isOverdue = computed(() => overdueDays.value > 0);
 const isDueSoon = computed(() => remainingDays.value !== null);
+const isDropTarget = ref(false);
+const dropPosition = ref<'before' | 'inside' | 'after' | null>(null);
+
+function clearDropTarget(): void {
+  isDropTarget.value = false;
+  dropPosition.value = null;
+}
+
+onMounted(() => {
+  window.addEventListener('pinch-subtask-dragend', clearDropTarget);
+  window.addEventListener('dragend', clearDropTarget, true);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('pinch-subtask-dragend', clearDropTarget);
+  window.removeEventListener('dragend', clearDropTarget, true);
+});
 
 const emit = defineEmits<{
   toggle: [taskId: string, subtask: SubTask];
   open: [taskId: string, subtask: SubTask];
+  dragstart: [event: DragEvent, subtask: SubTask, parentTaskId: string];
+  dragend: [event: DragEvent, subtask: SubTask];
+  dropTarget: [event: DragEvent, subtask: SubTask, position: 'before' | 'inside' | 'after', parentTaskId: string];
 }>();
+
+function handleDragOver(event: DragEvent): void {
+  event.preventDefault();
+  event.stopPropagation();
+  // Browsers commonly hide getData() during dragover for security reasons;
+  // mark the row as a candidate target and validate the source on drop.
+  isDropTarget.value = true;
+  // Hovering a subtask row always means nesting into that subtask.
+  dropPosition.value = 'inside';
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleDragLeave(event: DragEvent): void {
+  const current = event.currentTarget as HTMLElement | null;
+  const related = event.relatedTarget;
+  if (current && related instanceof Node && current.contains(related)) return;
+  isDropTarget.value = false;
+  dropPosition.value = null;
+}
+
+function handleDrop(event: DragEvent): void {
+  isDropTarget.value = false;
+  dropPosition.value = null;
+  event.preventDefault();
+  event.stopPropagation();
+  emit('dropTarget', event, props.subtask, 'inside', props.parentSubtaskId || props.parentTaskId);
+}
+
+function handleDragStart(event: DragEvent): void {
+  event.stopPropagation();
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pinch-subtask-dragstart', {
+      detail: {
+        sourceId: props.subtask.nodeId || props.subtask.id,
+        parentTaskId: props.parentSubtaskId || props.parentTaskId
+      }
+    }));
+  }
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', `subtask:${props.subtask.nodeId || props.subtask.id}`);
+    event.dataTransfer.setData('application/x-pinch-subtask-parent', props.parentSubtaskId || props.parentTaskId);
+  }
+  emit('dragstart', event, props.subtask, props.parentSubtaskId || props.parentTaskId);
+}
+
+function getParentCard(event: Event): HTMLElement | null {
+  const target = event.currentTarget;
+  return target instanceof HTMLElement ? target.closest<HTMLElement>('.task-card') : null;
+}
+
+function handlePointerDown(event: PointerEvent): void {
+  const card = getParentCard(event);
+  if (card) {
+    card.dataset.subtaskDragDisabled = card.getAttribute('draggable') || 'true';
+    card.setAttribute('draggable', 'false');
+  }
+}
+
+function handlePointerUp(event: PointerEvent): void {
+  const card = getParentCard(event);
+  if (card && card.dataset.subtaskDragDisabled !== undefined) {
+    card.setAttribute('draggable', card.dataset.subtaskDragDisabled);
+    delete card.dataset.subtaskDragDisabled;
+  }
+}
+
+function handleDragEnd(event: DragEvent): void {
+  handlePointerUp(event as unknown as PointerEvent);
+  event.stopPropagation();
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('pinch-subtask-dragend'));
+  emit('dragend', event, props.subtask);
+}
 
 function handleClick(event: MouseEvent) {
   event.preventDefault();
@@ -164,6 +262,27 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .subtask-item:hover {
   background: var(--b3-list-hover);
 }
+
+.subtask-item.subtask-drop-target {
+  outline: 2px solid color-mix(in srgb, var(--b3-theme-primary) 75%, transparent);
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--b3-theme-primary) 14%, transparent);
+}
+
+.subtask-item.subtask-drop-before::before,
+.subtask-item.subtask-drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--b3-theme-primary);
+  z-index: 3;
+  pointer-events: none;
+}
+.subtask-item.subtask-drop-before::before { top: -3px; }
+.subtask-item.subtask-drop-after::after { bottom: -3px; }
 
 /* Let the deepest hovered subtask own the highlight. */
 .subtask-item:hover:has(.subtask-item:hover) {
@@ -291,8 +410,8 @@ function getTaskDateTimestamp(value: unknown): number | null {
 .subtasks-children {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 4px;
+  gap: 0;
+  margin-top: 0;
 }
 
 .subtask-item .task-checkbox-wrapper {

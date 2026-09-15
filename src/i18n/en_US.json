@@ -147,6 +147,7 @@
   "api.errors.documentNotFound": "Document not found",
   "api.errors.moveTaskTargetRequired": "Missing target information required to move the task",
   "api.errors.moveTaskNotFound": "Could not find the task block to move",
+  "api.errors.moveTaskCycle": "Cannot move a task into itself or one of its descendants",
   "task.new": "New Task",
   "task.newLongPressOpenBoard": "New Task (long press to open Pinch board)",
   "taskManager.addSubtask": "Add Subtask",

@@ -3,6 +3,8 @@
     class="table-view"
     ref="tableContainerRef"
     @scroll.passive="handleTableScroll"
+    @dragover="handleTableSubtaskBackgroundDragOver"
+    @drop="handleTableSubtaskBackgroundDrop"
   >
     <table
       class="tasks-table"
@@ -420,7 +422,10 @@
                 'is-terminal-row': terminalTableRowKeys.has(row.key),
                 'is-task-dragging': tableDraggedTaskId === row.task.id,
                 'manual-task-drop-before': isTableTaskDropTarget(row.task.id, 'before'),
-                'manual-task-drop-after': isTableTaskDropTarget(row.task.id, 'after')
+                'manual-task-drop-after': isTableTaskDropTarget(row.task.id, 'after'),
+                'manual-task-drop-inside': isTableTaskDropTarget(row.task.id, 'inside') || isTableSubtaskDropTarget(row.task.id, 'inside'),
+                'subtask-detach-drop-before': isTableSubtaskDropTarget(row.task.id, 'before'),
+                'subtask-detach-drop-after': isTableSubtaskDropTarget(row.task.id, 'after')
               }
             ]"
             :draggable="canDragTableTask(row.task)"
@@ -603,9 +608,18 @@
             :class="{
               'subtask-completed': row.subtask.completed,
               'is-terminal-row': terminalTableRowKeys.has(row.key),
-              'is-last-subtask': row.isLast
+              'is-last-subtask': row.isLast,
+              'subtask-drop-before': isTableSubtaskDropTarget(row.subtask.nodeId || row.subtask.id, 'before'),
+              'subtask-drop-inside': isTableSubtaskDropTarget(row.subtask.nodeId || row.subtask.id, 'inside'),
+              'subtask-drop-after': isTableSubtaskDropTarget(row.subtask.nodeId || row.subtask.id, 'after')
             }"
+            :draggable="taskDragEnabled !== false"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
+            @dragstart="handleSubtaskRowDragStart($event, row)"
+            @dragover="handleSubtaskRowDragOver($event, row.subtask, row.task)"
+            @dragleave="handleSubtaskRowDragLeave($event, row.subtask.nodeId || row.subtask.id)"
+            @drop="handleSubtaskRowDrop($event, row.subtask, row.task)"
+            @dragend="resetSubtaskDrag"
           >
             <template v-for="column in visibleTableColumns" :key="column.key">
             <td v-if="column.key === 'expand'" class="col-expand"></td>
@@ -632,7 +646,7 @@
                   class="subtask-title"
                   @click.stop="handleSubtaskClick(row.task, row.subtask, $event)"
                 >
-                  <TaskTitleRich :title="row.subtask.title" />
+                  <TaskTitleRich class="task-title" :title="row.subtask.title" />
                 </button>
               </div>
             </td>
@@ -1265,7 +1279,10 @@ const emit = defineEmits<{
   startTimeUpdate: [task: Task, startTime: string];
   dueTimeUpdate: [task: Task, dueTime: string];
   repeatRuleUpdate: [task: Task, repeat: RepeatFrequency | RepeatRuleInput];
-  taskDrop: [payload: { source: Task; target: Task; position: TaskDropPosition }];
+  taskDrop: [payload: { source: Task; target: Task; position: TaskDropPosition | 'inside' }];
+  subtaskDrop: [event: DragEvent, target: TableSubtask, position: 'before' | 'inside' | 'after', parentTaskId: string];
+  subtaskTaskDrop: [event: DragEvent, target: Task, position: 'before' | 'inside' | 'after'];
+  subtaskBackgroundDrop: [event: DragEvent];
   groupReorder: [payload: { sourceGroupId: string; targetGroupId: string; position: 'before' | 'after' }];
 }>();
 
@@ -1283,10 +1300,12 @@ type SortableColumn = 'title' | 'priority' | 'status' | 'frequency' | 'group' | 
 const sortColumn = ref<SortableColumn | null>(null);
 const sortDirection = ref<'asc' | 'desc'>('asc');
 const tableDraggedTaskId = ref<string | null>(null);
-const tableTaskDropTarget = ref<{ taskId: string | null; position: TaskDropPosition | null }>({
+const tableTaskDropTarget = ref<{ taskId: string | null; position: TaskDropPosition | 'inside' | null }>({
   taskId: null,
   position: null
 });
+const tableSubtaskDropTarget = ref<{ taskId: string | null; position: 'before' | 'inside' | 'after' | null }>({ taskId: null, position: null });
+const tableDraggedSubtask = ref<{ sourceId: string; parentTaskId: string } | null>(null);
 const tableTaskDragOverGroupKey = ref<string | null>(null);
 const tableDraggedGroupId = ref<string | null>(null);
 const tableGroupDragOverId = ref<string | null>(null);
@@ -2128,7 +2147,134 @@ function resetTableTaskDrag(): void {
   resetTableTaskDropTarget();
 }
 
-function isTableTaskDropTarget(taskId: string, position: TaskDropPosition): boolean {
+function resetSubtaskDrag(): void {
+  tableDraggedSubtask.value = null;
+  tableSubtaskDropTarget.value = { taskId: null, position: null };
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('pinch-subtask-dragend'));
+}
+
+function resetTableDragState(): void {
+  resetTableTaskDrag();
+  resetSubtaskDrag();
+}
+
+/**
+ * Browsers expose drag data in the `drop` event, but may hide it while a
+ * drag is hovering (`dragover`). Keep using the source captured at dragstart
+ * so table rows and the table background remain valid drop targets even when
+ * `dataTransfer.getData()` is temporarily unavailable.
+ */
+function getTableSubtaskDragSourceId(event?: DragEvent): string {
+  const localSourceId = tableDraggedSubtask.value?.sourceId?.trim() || '';
+  if (localSourceId) return localSourceId;
+  const text = event?.dataTransfer?.getData('text/plain')?.trim() || '';
+  return text.startsWith('subtask:') ? text.slice('subtask:'.length).trim() : '';
+}
+
+function isTableSubtaskDrag(event?: DragEvent): boolean {
+  return getTableSubtaskDragSourceId(event).length > 0;
+}
+
+function isTableSubtaskDropTarget(taskId: string, position: 'before' | 'inside' | 'after'): boolean {
+  return tableSubtaskDropTarget.value.taskId === taskId
+    && tableSubtaskDropTarget.value.position === position;
+}
+
+function findSubtaskParentId(task: Task, sourceId: string): string {
+  const matches = (item: any) => [item?.id, item?.nodeId, item?.blockId].some(value => String(value || '').trim() === sourceId);
+  const visit = (list: TableSubtask[] | undefined, parentId: string): string => {
+    for (const item of list || []) {
+      if (matches(item)) return parentId;
+      const nested = visit(item.subtasks, item.id);
+      if (nested) return nested;
+    }
+    return '';
+  };
+  return visit(task.subtasks, task.id);
+}
+
+function handleSubtaskRowDragStart(event: DragEvent, row: TableVirtualSubtaskRow): void {
+  const dragTarget = event.target instanceof Element ? event.target : null;
+  if (dragTarget?.closest('input, textarea, select, [contenteditable="true"]')) {
+    event.preventDefault();
+    return;
+  }
+  const sourceId = String(row.subtask.nodeId || row.subtask.id || '').trim();
+  const parentTaskId = findSubtaskParentId(row.task, sourceId);
+  if (!sourceId || !parentTaskId) return;
+  tableDraggedSubtask.value = { sourceId, parentTaskId };
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', `subtask:${sourceId}`);
+    event.dataTransfer.setData('application/x-pinch-subtask-parent', parentTaskId);
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pinch-subtask-dragstart', { detail: { sourceId, parentTaskId } }));
+  }
+}
+
+function resolveSubtaskDropPosition(event: DragEvent, row: HTMLElement): 'before' | 'inside' | 'after' {
+  const rect = row.getBoundingClientRect();
+  const edge = Math.max(8, rect.height * 0.2);
+  const relativeY = event.clientY - rect.top;
+  return relativeY < edge ? 'before' : (relativeY > rect.height - edge ? 'after' : 'inside');
+}
+
+function handleSubtaskRowDragOver(event: DragEvent, target: TableSubtask, parentTask: Task): void {
+  if (!isTableSubtaskDrag(event)) return;
+  const sourceId = getTableSubtaskDragSourceId(event);
+  const targetId = String(target.nodeId || target.id || '').trim();
+  if (!sourceId || !targetId || sourceId === targetId) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const position = resolveSubtaskDropPosition(event, event.currentTarget as HTMLElement);
+  tableSubtaskDropTarget.value = { taskId: targetId, position };
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleSubtaskRowDragLeave(event: DragEvent, targetId: string): void {
+  if (tableSubtaskDropTarget.value.taskId !== targetId) return;
+  const row = event.currentTarget as HTMLElement | null;
+  const related = event.relatedTarget;
+  if (row && related instanceof Node && row.contains(related)) return;
+  tableSubtaskDropTarget.value = { taskId: null, position: null };
+}
+
+function handleSubtaskRowDrop(event: DragEvent, target: TableSubtask, parentTask: Task): void {
+  if (!isTableSubtaskDrag(event)) return;
+  const targetId = String(target.nodeId || target.id || '').trim();
+  const position = tableSubtaskDropTarget.value.taskId === targetId
+    ? tableSubtaskDropTarget.value.position
+    : event.currentTarget instanceof HTMLElement
+      ? resolveSubtaskDropPosition(event, event.currentTarget)
+      : 'inside';
+  if (!position) return;
+  event.preventDefault();
+  event.stopPropagation();
+  emit('subtaskDrop', event, target, position, findSubtaskParentId(parentTask, targetId) || parentTask.id);
+  resetSubtaskDrag();
+}
+
+function handleTableSubtaskBackgroundDragOver(event: DragEvent): void {
+  if (!isTableSubtaskDrag(event)) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('.task-row, .subtask-row')) return;
+  event.preventDefault();
+  tableSubtaskDropTarget.value = { taskId: null, position: null };
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+}
+
+function handleTableSubtaskBackgroundDrop(event: DragEvent): void {
+  if (!isTableSubtaskDrag(event)) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('.task-row, .subtask-row')) return;
+  event.preventDefault();
+  event.stopPropagation();
+  emit('subtaskBackgroundDrop', event);
+  resetSubtaskDrag();
+}
+
+function isTableTaskDropTarget(taskId: string, position: TaskDropPosition | 'inside'): boolean {
   return tableTaskDropTarget.value.taskId === taskId
     && tableTaskDropTarget.value.position === position;
 }
@@ -2150,10 +2296,7 @@ function canDragTableTask(task: Task): boolean {
 
 function canDropTableTask(source: Task, target: Task): boolean {
   if (source.id === target.id || !canDragTableTask(source)) return false;
-  const targetStatus = resolvedGroupMode.value === 'status' ? target.status : source.status;
-  const todayStart = getTodayStartTimestamp();
-  return getDefaultTaskManualOrderGroupKey(source, targetStatus, todayStart)
-    === getDefaultTaskManualOrderGroupKey(target, target.status, todayStart);
+  return true;
 }
 
 function isTableTaskDragBlockedTarget(target: EventTarget | null): boolean {
@@ -2177,6 +2320,15 @@ function handleTableTaskDragStart(event: DragEvent, task: Task): void {
 }
 
 function handleTableTaskDragOver(event: DragEvent, target: Task): void {
+  if (isTableSubtaskDrag(event)) {
+    event.preventDefault();
+    event.stopPropagation();
+    const position = resolveSubtaskDropPosition(event, event.currentTarget as HTMLElement);
+    tableSubtaskDropTarget.value = { taskId: target.id, position };
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    return;
+  }
+  tableSubtaskDropTarget.value = { taskId: null, position: null };
   const source = props.tasks.find(task => task.id === tableDraggedTaskId.value);
   if (!source || !canDropTableTask(source, target)) {
     resetTableTaskDropTarget();
@@ -2188,14 +2340,33 @@ function handleTableTaskDragOver(event: DragEvent, target: Task): void {
   const row = event.currentTarget as HTMLTableRowElement | null;
   if (!row) return;
   const rect = row.getBoundingClientRect();
+  const edge = Math.max(10, rect.height * 0.2);
+  const relativeY = event.clientY - rect.top;
+  const position: TaskDropPosition | 'inside' = relativeY < edge
+    ? 'before'
+    : (relativeY > rect.height - edge ? 'after' : 'inside');
+  if (position !== 'inside') {
+    const todayStart = getTodayStartTimestamp();
+    if (getDefaultTaskManualOrderGroupKey(source) !== getDefaultTaskManualOrderGroupKey(target, target.status, todayStart)) {
+      resetTableTaskDropTarget();
+      return;
+    }
+  }
   tableTaskDropTarget.value = {
     taskId: target.id,
-    position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    position
   };
   tableTaskDragOverGroupKey.value = null;
 }
 
 function handleTableTaskDragLeave(event: DragEvent, taskId: string): void {
+  if (tableSubtaskDropTarget.value.taskId === taskId) {
+    const row = event.currentTarget as HTMLElement | null;
+    const relatedTarget = event.relatedTarget;
+    if (!(row && relatedTarget instanceof Node && row.contains(relatedTarget))) {
+      tableSubtaskDropTarget.value = { taskId: null, position: null };
+    }
+  }
   if (tableTaskDropTarget.value.taskId !== taskId) return;
   const row = event.currentTarget as HTMLElement | null;
   const relatedTarget = event.relatedTarget;
@@ -2203,7 +2374,7 @@ function handleTableTaskDragLeave(event: DragEvent, taskId: string): void {
   tableTaskDropTarget.value = { taskId: null, position: null };
 }
 
-function emitTableTaskDrop(event: DragEvent, target: Task, position: TaskDropPosition): void {
+function emitTableTaskDrop(event: DragEvent, target: Task, position: TaskDropPosition | 'inside'): void {
   const source = props.tasks.find(task => task.id === tableDraggedTaskId.value);
   if (!source || !canDropTableTask(source, target)) return;
   event.preventDefault();
@@ -2213,6 +2384,19 @@ function emitTableTaskDrop(event: DragEvent, target: Task, position: TaskDropPos
 }
 
 function handleTableTaskDrop(event: DragEvent, target: Task): void {
+  if (isTableSubtaskDrag(event)) {
+    const position = tableSubtaskDropTarget.value.taskId === target.id
+      ? tableSubtaskDropTarget.value.position
+      : event.currentTarget instanceof HTMLElement
+        ? resolveSubtaskDropPosition(event, event.currentTarget)
+        : 'inside';
+    if (!position) return;
+    event.preventDefault();
+    event.stopPropagation();
+    emit('subtaskTaskDrop', event, target, position);
+    resetSubtaskDrag();
+    return;
+  }
   const position = tableTaskDropTarget.value.taskId === target.id
     ? tableTaskDropTarget.value.position
     : null;
@@ -3461,8 +3645,8 @@ onMounted(() => {
   }
   window.addEventListener('resize', handleTableViewportResize);
   window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
-  window.addEventListener('blur', resetTableTaskDrag);
-  document.addEventListener('dragend', resetTableTaskDrag, true);
+  window.addEventListener('blur', resetTableDragState);
+  document.addEventListener('dragend', resetTableDragState, true);
   document.addEventListener('mousedown', handleDocumentMouseDown);
 });
 
@@ -3489,8 +3673,8 @@ onUnmounted(() => {
   tableContainerResizeObserver = null;
   window.removeEventListener('resize', handleTableViewportResize);
   window.removeEventListener('pinch-focus-session', handleFocusSessionUpdate);
-  window.removeEventListener('blur', resetTableTaskDrag);
-  document.removeEventListener('dragend', resetTableTaskDrag, true);
+  window.removeEventListener('blur', resetTableDragState);
+  document.removeEventListener('dragend', resetTableDragState, true);
   document.removeEventListener('mousedown', handleDocumentMouseDown);
 });
 
@@ -4623,6 +4807,14 @@ defineExpose({
   cursor: grabbing;
 }
 
+.subtask-row[draggable='true'] {
+  cursor: grab;
+}
+
+.subtask-row[draggable='true']:active {
+  cursor: grabbing;
+}
+
 .task-row.is-task-dragging {
   opacity: 0.55;
   transition: none;
@@ -4633,6 +4825,22 @@ defineExpose({
 }
 
 .task-row.manual-task-drop-after > td {
+  box-shadow: inset 0 -2px 0 var(--b3-theme-primary);
+}
+
+.task-row.manual-task-drop-inside > td,
+.subtask-row.subtask-drop-inside > td {
+  background-color: color-mix(in srgb, var(--b3-theme-primary) 12%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 78%, transparent);
+}
+
+.task-row.subtask-detach-drop-before > td,
+.subtask-row.subtask-drop-before > td {
+  box-shadow: inset 0 2px 0 var(--b3-theme-primary);
+}
+
+.task-row.subtask-detach-drop-after > td,
+.subtask-row.subtask-drop-after > td {
   box-shadow: inset 0 -2px 0 var(--b3-theme-primary);
 }
 

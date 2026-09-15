@@ -99,6 +99,8 @@ type DetachedFocusRequest =
   | { type: 'set-compact'; compact?: boolean }
   | { type: 'set-progress-only'; progressOnly?: boolean }
   | { type: 'get-micro-break-settings' }
+  | { type: 'resolve-asset'; path?: string }
+  | { type: 'resolve-stored-audio'; fileName?: string }
   | { type: 'show-micro-break-dialog'; duration?: number; title?: string; body?: string; variant?: 'micro-break' | 'short-break' | 'focus-complete' }
   | { type: 'hide-micro-break-dialog' }
   | { type: 'cancel-micro-break' };
@@ -139,6 +141,8 @@ let targetOptionsRefreshPromise: Promise<void> | null = null;
 let pendingDetachedFocusOpenSettings = false;
 let pendingDetachedFocusHandoff: FocusTimerHandoffState | null = null;
 let detachedMicroBreakWindow: any | null = null;
+const detachedAssetDataUrlCache = new Map<string, Promise<string>>();
+const detachedStoredAudioDataUrlCache = new Map<string, Promise<string>>();
 
 function notifyDetachedFocusDisableRequest(): void {
   if (typeof window === 'undefined') {
@@ -354,6 +358,154 @@ function closeBrowserWindow(windowLike: any): void {
   } catch {
     // Ignore close failures from stale Electron window handles.
   }
+}
+
+function resolveDetachedAssetUrl(path: string): string {
+  if (!path || /^(?:data:|blob:|https?:\/\/)/i.test(path)) {
+    return path;
+  }
+
+  try {
+    return new URL(path, window.location.origin).toString();
+  } catch {
+    return path;
+  }
+}
+
+function getDetachedAuthHeaders(): Record<string, string> {
+  try {
+    const token = (window as any)?.siyuan?.config?.api?.token;
+    return typeof token === 'string' && token ? { Authorization: `Token ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+
+  if (typeof btoa === 'function') {
+    return `data:${blob.type || 'application/octet-stream'};base64,${btoa(binary)}`;
+  }
+
+  try {
+    const runtimeRequire = getRuntimeRequire();
+    const buffer = runtimeRequire?.('buffer')?.Buffer;
+    if (buffer) {
+      return `data:${blob.type || 'application/octet-stream'};base64,${buffer.from(bytes).toString('base64')}`;
+    }
+  } catch {
+    // Fall through to an empty result when no base64 encoder is available.
+  }
+
+  return '';
+}
+
+/**
+ * Resolve a resource from the host window while its normal same-origin
+ * credentials are available. Detached windows are loaded from data: URLs and
+ * cannot attach those credentials to /plugins or /assets requests.
+ */
+async function getDetachedAssetDataUrl(path: string): Promise<string> {
+  const source = resolveDetachedAssetUrl(path);
+  if (!source || /^(?:data:|blob:)/i.test(source)) {
+    return source;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(source, window.location.origin);
+  } catch {
+    return path;
+  }
+
+  // Do not proxy arbitrary cross-origin resources. They either already work
+  // as-is or require their own CORS policy and should remain untouched.
+  if (typeof window === 'undefined' || parsed.origin !== window.location.origin) {
+    return path;
+  }
+
+  const cacheKey = parsed.toString();
+  const cached = detachedAssetDataUrlCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = fetch(cacheKey, {
+    credentials: 'include',
+    headers: getDetachedAuthHeaders()
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        return '';
+      }
+      return blobToDataUrl(await response.blob());
+    })
+    .catch(() => '');
+  detachedAssetDataUrlCache.set(cacheKey, pending);
+  const resolved = await pending;
+  if (!resolved) {
+    detachedAssetDataUrlCache.delete(cacheKey);
+  }
+  return resolved || source;
+}
+
+async function getDetachedStoredAudioDataUrl(fileName: string): Promise<string> {
+  const normalized = fileName.trim();
+  if (!normalized) {
+    return '';
+  }
+
+  const cached = detachedStoredAudioDataUrlCache.get(normalized);
+  if (cached) {
+    return cached;
+  }
+
+  const endpoint = new URL('/api/file/getFile', window.location.origin).toString();
+  const requestOptions = (includeAuth: boolean): RequestInit => ({
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(includeAuth ? getDetachedAuthHeaders() : {})
+    },
+    body: JSON.stringify({ path: `/data/storage/petal/pinch/audio/${normalized}` })
+  });
+  const readResponse = async (response: Response): Promise<string> => {
+    if (!response.ok) {
+      return '';
+    }
+    const blob = await response.blob();
+    return blob.size > 0 ? blobToDataUrl(blob) : '';
+  };
+
+  const pending = fetch(endpoint, requestOptions(false))
+    .then(async (response) => {
+      const dataUrl = await readResponse(response);
+      if (dataUrl) {
+        return dataUrl;
+      }
+      return readResponse(await fetch(endpoint, requestOptions(true)));
+    })
+    .catch(async () => {
+      try {
+        return readResponse(await fetch(endpoint, requestOptions(true)));
+      } catch {
+        return '';
+      }
+    });
+
+  detachedStoredAudioDataUrlCache.set(normalized, pending);
+  const resolved = await pending;
+  if (!resolved) {
+    detachedStoredAudioDataUrlCache.delete(normalized);
+  }
+  return resolved;
 }
 
 function getMicroBreakHostBounds(remote: RemoteLike): { x: number; y: number; width: number; height: number } {
@@ -1958,6 +2110,38 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       return ipcRenderer.invoke(CHANNEL, { type, ...payload });
     }
 
+    const resolvedAssetUrls = new Map();
+    async function resolveAssetUrl(source) {
+      if (!source) {
+        return source;
+      }
+
+      let absoluteSource = source;
+      try {
+        absoluteSource = new URL(source, state.iconBaseUrl || document.baseURI).toString();
+      } catch {}
+
+      if (/^(?:data:|blob:)/i.test(absoluteSource)) {
+        return absoluteSource;
+      }
+      if (/^https?:\/\//i.test(absoluteSource) && state.iconBaseUrl) {
+        try {
+          if (new URL(absoluteSource).origin !== new URL(state.iconBaseUrl).origin) {
+            return absoluteSource;
+          }
+        } catch {
+          return absoluteSource;
+        }
+      }
+
+      if (!resolvedAssetUrls.has(absoluteSource)) {
+        resolvedAssetUrls.set(absoluteSource, request('resolve-asset', { path: absoluteSource })
+          .then((resolved) => resolved || absoluteSource)
+          .catch(() => absoluteSource));
+      }
+      return resolvedAssetUrls.get(absoluteSource);
+    }
+
     let completeSoundAudioContext = null;
     let customCompletionAudio = null;
     let microBreakAudio = null;
@@ -1986,15 +2170,9 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     async function getStoredAudioUrl(path) {
       if (!path) return '';
       if (!storedAudioUrls.has(path)) {
-        storedAudioUrls.set(path, fetch((state.iconBaseUrl || '') + '/api/file/getFile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: '/data/storage/petal/pinch/audio/' + path })
-        }).then(async (response) => {
-          if (!response.ok) return '';
-          const blob = await response.blob();
-          return blob.size > 0 ? URL.createObjectURL(blob) : '';
-        }).catch(() => ''));
+        storedAudioUrls.set(path, request('resolve-stored-audio', { fileName: path })
+          .then((resolved) => resolved || '')
+          .catch(() => ''));
       }
       return storedAudioUrls.get(path);
     }
@@ -2064,7 +2242,7 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     async function getMicroBreakSoundSource(fileName) {
       return fileName
         ? getStoredAudioUrl(fileName)
-        : (state.iconBaseUrl || '') + '/plugins/pinch/audio/correct.mp3';
+        : resolveAssetUrl((state.iconBaseUrl || '') + '/plugins/pinch/audio/correct.mp3');
     }
 
     async function getMicroBreakAudio(fileName) {
@@ -2370,12 +2548,29 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }
 
       const image = document.createElement('img');
-      image.src = state.iconBaseUrl && !/^(?:https?:)?\\/\\//i.test(icon) && !/^data:/i.test(icon)
+      const source = state.iconBaseUrl && !/^(?:https?:)?\\/\\//i.test(icon) && !/^data:/i.test(icon)
         ? new URL(icon, state.iconBaseUrl).toString()
         : icon;
       image.alt = '';
       image.style.cssText = 'display:block;width:1em;height:1em;object-fit:contain';
       container.appendChild(image);
+      if (/^https?:\\/\\//i.test(source) && state.iconBaseUrl) {
+        try {
+          if (new URL(source).origin !== new URL(state.iconBaseUrl).origin) {
+            image.src = source;
+            return;
+          }
+        } catch {
+          image.src = source;
+          return;
+        }
+      }
+      image.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+      void resolveAssetUrl(source).then((resolved) => {
+        if (image.isConnected) {
+          image.src = resolved || source;
+        }
+      });
     }
 
     function getTargetOptions() {
@@ -3501,6 +3696,10 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
       const settings = await userSettings.load();
       return settings.focus;
     }
+    case 'resolve-asset':
+      return await getDetachedAssetDataUrl(typeof request.path === 'string' ? request.path : '');
+    case 'resolve-stored-audio':
+      return await getDetachedStoredAudioDataUrl(typeof request.fileName === 'string' ? request.fileName : '');
     case 'show-micro-break-dialog': {
       const remote = getRemote();
       if (!remote) {
@@ -3520,9 +3719,17 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
       const title = escapeHtml(requestedTitle || translate('focusTimer.microBreakActiveTitle'));
       const body = escapeHtml(requestedBody || translate('focusTimer.microBreakActiveBody'));
       const secondSuffix = escapeHtml(translate('focusTimer.secondSuffix'));
-      const awardImageUrl = new URL('/plugins/pinch/images/award.png', window.location.origin).toString();
-      const teaImageUrl = new URL('/plugins/pinch/images/tea.png', window.location.origin).toString();
-      const randomImageUrl = new URL('/plugins/pinch/images/random.png', window.location.origin).toString();
+      const imagePath = variant === 'focus-complete'
+        ? '/plugins/pinch/images/award.png'
+        : variant === 'short-break'
+          ? '/plugins/pinch/images/tea.png'
+          : variant === 'micro-break'
+            ? '/plugins/pinch/images/random.png'
+            : '';
+      const imageUrl = imagePath ? await getDetachedAssetDataUrl(imagePath) : '';
+      const awardImageUrl = variant === 'focus-complete' ? imageUrl : '';
+      const teaImageUrl = variant === 'short-break' ? imageUrl : '';
+      const randomImageUrl = variant === 'micro-break' ? imageUrl : '';
       const celebration = variant === 'focus-complete'
         ? `<style>.celebration{position:absolute!important;inset:0!important;width:auto!important;height:auto!important;margin:0!important;overflow:hidden;pointer-events:none;z-index:1}.celebration__halo{position:absolute!important;inset:auto!important;top:calc(50% - 56px)!important;left:calc(50% - 56px)!important;width:112px!important;height:112px!important}.celebration__mark{position:absolute!important;inset:auto!important;top:calc(50% - 65px)!important;left:calc(50% - 65px)!important;width:130px!important;height:130px!important}.celebration i{top:-28px!important;left:var(--x)!important;margin-left:0!important;width:var(--w)!important;height:var(--h)!important;background:var(--c)!important;animation:full-confetti var(--dur) linear var(--d) infinite!important}@keyframes full-confetti{0%{opacity:0;transform:translate3d(0,-20px,0) rotate(0deg)}8%,88%{opacity:.9}100%{opacity:0;transform:translate3d(var(--drift),calc(65vh + 36px),0) rotate(var(--turn))}}</style><div class="celebration" aria-hidden="true"><div class="celebration__halo"></div><div class="celebration__mark">✦</div>${Array.from({ length: 28 }, (_, index) => { const colors = ['#d0a06c', '#e7cf9c', '#bd8a5d', '#f1dfbd']; const x = 3 + ((index * 37) % 94); const drift = ((index * 43) % 120) - 60; const delay = ((index * 37) % 600) / 100; const duration = 4.2 + ((index * 13) % 25) / 10; const width = 4 + (index % 3); const height = 12 + ((index * 7) % 12); const turn = 160 + ((index * 47) % 240); return `<i style="--x:${x}%;--drift:${drift}px;--d:-${delay}s;--dur:${duration}s;--w:${width}px;--h:${height}px;--turn:${turn}deg;--c:${colors[index % colors.length]}"></i>`; }).join('')}</div>`
         : '';

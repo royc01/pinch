@@ -54,6 +54,15 @@ export const useHabitStatistics = ({
   };
 
   /**
+   * Build an index once for date-based lookups within a statistic calculation.
+   * Several streak/progress paths walk a date range and previously performed
+   * `calendar.find(...)` for every day, which becomes O(days * records).
+   */
+  const getCalendarRecordByDate = (habit: Habit): Map<string, Habit['calendar'][number]> => (
+    new Map(habit.calendar.map(record => [record.date, record]))
+  );
+
+  /**
    * Completion rates start on the earlier of the creation date and a completed
    * backfilled check-in. Future records never move the start date.
    */
@@ -93,6 +102,7 @@ export const useHabitStatistics = ({
     if (cached !== null) return cached;
 
     if (habit.frequency === 'custom') {
+      const recordByDate = getCalendarRecordByDate(habit);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const start = startDate ? getNormalizedDate(startDate) : getCompletionStartDate(habit, today);
@@ -102,7 +112,7 @@ export const useHabitStatistics = ({
       }
       let streak = 0;
       while (cursor >= start && isHabitScheduledOnDate(habit, cursor)) {
-        const record = habit.calendar.find(item => item.date === formatDate(cursor));
+        const record = recordByDate.get(formatDate(cursor));
         if (!record?.completed) break;
         streak++;
         cursor.setDate(cursor.getDate() - 1);
@@ -287,6 +297,7 @@ export const useHabitStatistics = ({
     }
 
     if (habit.frequency === 'custom') {
+      const recordByDate = getCalendarRecordByDate(habit);
       const periodStart = new Date(currentYear, currentMonth, 1);
       const startDate = creationDateForCalculation > periodStart ? creationDateForCalculation : periodStart;
       const endDate = new Date(currentYear, currentMonth, today.getDate());
@@ -297,7 +308,7 @@ export const useHabitStatistics = ({
         if (!isHabitScheduledOnDate(habit, cursor)) continue;
         scheduledDays++;
         const dateKey = formatDate(cursor);
-        const record = habit.calendar.find(item => item.date === dateKey);
+        const record = recordByDate.get(dateKey);
         if (record?.completed) completedScheduledDays++;
       }
 
@@ -365,6 +376,7 @@ export const useHabitStatistics = ({
     const currentMonth = today.getMonth();
 
     if (habit.frequency === 'custom') {
+      const recordByDate = getCalendarRecordByDate(habit);
       const start = getCompletionStartDate(habit, new Date(today.getFullYear(), today.getMonth(), today.getDate()));
       let cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       while (cursor >= start && (cursor.getMonth() !== currentMonth || !isHabitScheduledOnDate(habit, cursor))) {
@@ -372,7 +384,7 @@ export const useHabitStatistics = ({
       }
       let streak = 0;
       while (cursor >= start && cursor.getMonth() === currentMonth && isHabitScheduledOnDate(habit, cursor)) {
-        const record = habit.calendar.find(item => item.date === formatDate(cursor));
+        const record = recordByDate.get(formatDate(cursor));
         if (!record?.completed) break;
         streak++;
         cursor.setDate(cursor.getDate() - 1);
@@ -396,7 +408,8 @@ export const useHabitStatistics = ({
     const todayStr = getToday();
     const currentDate = new Date(today);
 
-    const todayRecord = habit.calendar.find(record => record.date === todayStr);
+    const recordByDate = getCalendarRecordByDate(habit);
+    const todayRecord = recordByDate.get(todayStr);
     if (todayRecord && todayRecord.completed) {
       streak++;
     }
@@ -414,7 +427,7 @@ export const useHabitStatistics = ({
         break;
       }
 
-      const record = habit.calendar.find(r => r.date === checkDateStr);
+      const record = recordByDate.get(checkDateStr);
       if (record && record.completed) {
         streak++;
       } else {
@@ -660,13 +673,14 @@ export const useHabitStatistics = ({
 
     const { creationDate, today } = getActiveDateRange(habit);
     if (habit.frequency === 'custom') {
+      const recordByDate = getCalendarRecordByDate(habit);
       let scheduledDays = 0;
       let completedScheduledDays = 0;
 
       for (const cursor = new Date(creationDate); cursor <= today; cursor.setDate(cursor.getDate() + 1)) {
         if (!isHabitScheduledOnDate(habit, cursor)) continue;
         scheduledDays++;
-        const record = habit.calendar.find(item => item.date === formatDate(cursor));
+        const record = recordByDate.get(formatDate(cursor));
         if (record?.completed) completedScheduledDays++;
       }
 

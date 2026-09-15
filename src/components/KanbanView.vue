@@ -226,7 +226,7 @@
             v-else
             type="button"
             class="document-tab"
-            :class="{
+                  :class="{
               active: currentDocumentFilter === option.value,
               draggable: canReorderDocumentTabs,
               'is-dragging': draggedDocumentTabId === option.value,
@@ -920,7 +920,11 @@
                   selected: isKanbanTaskBatchSelected(task.id),
                   'is-batch-mode': isKanbanBatchEditMode,
                   'manual-task-drop-before': isViewManualTaskDropTarget(task.id, 'before'),
-                  'manual-task-drop-after': isViewManualTaskDropTarget(task.id, 'after')
+                  'manual-task-drop-after': isViewManualTaskDropTarget(task.id, 'after'),
+                  'manual-task-drop-inside': isViewManualTaskDropTarget(task.id, 'inside'),
+                  'subtask-detach-drop-inside': isDetachedViewInsideDropTarget(task.id),
+                  'subtask-detach-drop-before': isDetachedViewDropTarget(task.id, 'before'),
+                  'subtask-detach-drop-after': isDetachedViewDropTarget(task.id, 'after')
                 }"
                 @contextmenu="handleKanbanTaskContextMenu(task, $event)"
                 @dragover="handleViewManualTaskDragOver($event, task, column)"
@@ -951,7 +955,7 @@
                   :document-icon-svg="getTaskDocumentIconSvg(task, kanbanFilterDocument)"
                   :document-icon-pending="isTaskDocumentIconPending(task)"
                   :disable-description-context-menu="true"
-                  :show-subtasks="isKanbanTaskExpanded(task.id)"
+                :show-subtasks="isKanbanTaskExpanded(task.id)"
                   :title-tooltip="isKanbanBatchEditMode ? t('taskManager.clickSelectTask') : ''"
                   @card-click="handleKanbanTaskCardClick"
                   @open-content="openKanbanTaskContentInRight"
@@ -964,6 +968,8 @@
                   @description-cancel="cancelInlineDescriptionEdit"
                   @subtask-toggle="handleSubtaskToggle"
                   @subtask-open="handleSubtaskOpen"
+                  @subtask-drop="handleSubtaskDrop"
+                  @subtask-sibling-drop="handleSubtaskSiblingDrop"
                   @dragstart="handleDragStart"
                   @dragend="handleDragEnd"
                 />
@@ -1015,7 +1021,11 @@
                :data-task-id="task.id"
                :class="{
                  'manual-task-drop-before': isQuadrantManualTaskDropTarget(task.id, 'before'),
-                 'manual-task-drop-after': isQuadrantManualTaskDropTarget(task.id, 'after')
+                 'manual-task-drop-after': isQuadrantManualTaskDropTarget(task.id, 'after'),
+                 'manual-task-drop-inside': isQuadrantManualTaskDropTarget(task.id, 'inside'),
+                 'subtask-detach-drop-inside': isQuadrantDetachedInsideDropTarget(task.id),
+                 'subtask-detach-drop-before': isQuadrantDetachedDropTarget(task.id, 'before'),
+                 'subtask-detach-drop-after': isQuadrantDetachedDropTarget(task.id, 'after')
                }"
                @contextmenu="handleKanbanTaskContextMenu(task, $event)"
                @dragover="handleQuadrantTaskDragOver($event, task, quadrant.id)"
@@ -1050,6 +1060,8 @@
               @toggle-status="handleKanbanTaskToggleStatus"
                @toggle-expand="toggleKanbanTaskExpand"
                @subtask-open="handleSubtaskOpen"
+               @subtask-drop="handleSubtaskDrop"
+               @subtask-sibling-drop="handleSubtaskSiblingDrop"
               @dragstart="handleQuadrantDragStart"
               @dragend="handleQuadrantDragEnd"
             />
@@ -1161,7 +1173,11 @@
                 :data-task-id="task.id"
                 :class="{
                   'manual-task-drop-before': isViewManualTaskDropTarget(task.id, 'before'),
-                  'manual-task-drop-after': isViewManualTaskDropTarget(task.id, 'after')
+                  'manual-task-drop-after': isViewManualTaskDropTarget(task.id, 'after'),
+                  'manual-task-drop-inside': isViewManualTaskDropTarget(task.id, 'inside'),
+                  'subtask-detach-drop-inside': isDetachedViewInsideDropTarget(task.id),
+                  'subtask-detach-drop-before': isDetachedViewDropTarget(task.id, 'before'),
+                  'subtask-detach-drop-after': isDetachedViewDropTarget(task.id, 'after')
                 }"
                 @contextmenu="handleKanbanTaskContextMenu(task, $event)"
                 @dragover="handleViewManualTaskDragOver($event, task, section.column)"
@@ -1204,6 +1220,8 @@
                   @description-cancel="cancelInlineDescriptionEdit"
                   @subtask-toggle="handleSubtaskToggle"
                   @subtask-open="handleSubtaskOpen"
+                  @subtask-drop="handleSubtaskDrop"
+                  @subtask-sibling-drop="handleSubtaskSiblingDrop"
                   @dragstart="handleDragStart"
                   @dragend="handleDragEnd"
                 />
@@ -1264,6 +1282,9 @@
       @due-time-update="handleDueTimeUpdate"
        @repeat-rule-update="handleTableRepeatRuleUpdate"
        @task-drop="handleTableTaskDrop"
+       @subtask-drop="handleSubtaskDrop"
+       @subtask-task-drop="handleTableSubtaskTaskDrop"
+       @subtask-background-drop="handleTableSubtaskBackgroundDrop"
        @group-reorder="handleTableGroupReorder"
       />
     <GanttView
@@ -2065,6 +2086,7 @@ import {
   getTaskStatusDefinitions,
   getTaskStatusLabel,
   isClosedTaskStatus,
+  isCompletedTaskStatus,
   resolveTaskStatusColor
 } from '@/utils/taskStatus';
 import { requestTaskCompletionNote, updateTaskMarkdown, skipTaskTemporarily } from '../utils/taskHelpers';
@@ -2080,6 +2102,7 @@ import {
 import { eventBus, Events, type TaskViewSwitchRequest } from '../utils/eventBus';
 import {
   publishTaskChange,
+  publishTaskStructureChange,
   publishTaskAttributeChange,
   type TaskChangePayload
 } from '@/utils/taskChangeCoordinator';
@@ -2815,7 +2838,7 @@ function mergeTasksById(primaryTasks: Task[], secondaryTasks: Task[]): Task[] {
 }
 
 function hasTaskCompletionRecord(task: Task): boolean {
-  return isClosedTaskStatus(task.status)
+  return isCompletedTaskStatus(task.status)
     || (typeof task.completedAt === 'string' && task.completedAt.trim().length > 0);
 }
 
@@ -3162,11 +3185,14 @@ const PENDING_TASK_HEADING_GROUP_TTL_MS = 8000;
 // undo a successful quick-create.
 const pendingOptimisticQuickCreatedTasks = new Map<string, { task: Task; expiresAt: number }>();
 const PENDING_OPTIMISTIC_QUICK_CREATE_TTL_MS = 8000;
+type HierarchyTaskDropPosition = TaskDropPosition | 'inside';
 const draggedTask = ref<Task | null>(null);
+const detachedSubtaskDrag = ref<{ sourceId: string; parentTaskId: string } | null>(null);
+const detachedDropTarget = ref<{ taskId: string | null; position: HierarchyTaskDropPosition | 'end' | null }>({ taskId: null, position: null });
 const dragOverColumnId = ref<string | null>(null);
 const viewManualTaskDrag = ref<{
   targetId: string | null;
-  position: TaskDropPosition | null;
+  position: HierarchyTaskDropPosition | null;
 }>({ targetId: null, position: null });
 const draggedGroupColumnId = ref<string | null>(null);
 const dragOverGroupColumnId = ref<string | null>(null);
@@ -3502,7 +3528,7 @@ const activeKanbanEditDraft = computed(() =>
     : null
 );
 const visibleKanbanTasks = computed(() =>
-  tasks.value.filter(task => isTaskIncludedByNotebookScope(task) && matchesKanbanFilters(task))
+  tasks.value.filter(task => !task.archived && isTaskIncludedByNotebookScope(task) && matchesKanbanFilters(task))
 );
 const quadrantTitles: Record<TaskQuadrantId, string> = {
   'important-urgent': t('quadrantView.importantUrgent'),
@@ -3530,8 +3556,9 @@ const quadrantDraggedTask = ref<Task | null>(null);
 const quadrantDragOverId = ref<TaskQuadrantId | null>(null);
 const quadrantManualTaskDrag = ref<{
   targetId: string | null;
-  position: TaskDropPosition | null;
+  position: HierarchyTaskDropPosition | null;
 }>({ targetId: null, position: null });
+const quadrantDetachedDropTarget = ref<{ taskId: string | null; position: HierarchyTaskDropPosition | 'end' | null }>({ taskId: null, position: null });
 const quadrantSectionMetrics = ref<Record<string, { scrollTop: number; height: number }>>({});
 const QUADRANT_VIRTUAL_THRESHOLD = 60;
 const QUADRANT_VIRTUAL_CARD_HEIGHT = 110;
@@ -4847,7 +4874,7 @@ function openQuickCreateForKanbanColumn(column: KanbanColumn): void {
 interface TableTaskDropPayload {
   source: Task;
   target: Task;
-  position: TaskDropPosition;
+  position: TaskDropPosition | 'inside';
 }
 
 function resolveTableGroupSampleTask(payload: TableGroupActionPayload): Task | null {
@@ -8254,17 +8281,6 @@ watch(tableFilterPopoverVisible, (visible) => {
     void nextTick(updateTableFilterPopoverPosition);
   }
 });
-watch(currentView, () => {
-  closeDocumentTabsDropdown();
-  closeMobileViewSwitcher();
-  closeTaskViewGroupMenu();
-  cancelColumnTitleEdit();
-  clearGroupColumnReorderDragState();
-  if (currentView.value !== 'kanban' && isKanbanBatchEditMode.value) {
-    exitKanbanBatchEditMode();
-  }
-});
-
 watch(kanbanGroupBy, async (mode) => {
   if (mode !== 'group') {
     clearGroupColumnReorderDragState();
@@ -8462,7 +8478,7 @@ function getTaskVisualStatus(task: Task): Task['status'] {
 }
 
 function isTaskCompletedVisual(task: Task): boolean {
-  return isClosedTaskStatus(getTaskVisualStatus(task));
+  return isCompletedTaskStatus(getTaskVisualStatus(task));
 }
 
 function compareTasksLikeSidebar(a: Task, b: Task, todayStart: number, domOrderMap?: Map<string, number>): number {
@@ -9381,7 +9397,9 @@ async function applyKanbanBatchEdit(): Promise<void> {
       updates.map(async (item) => {
         await setBlockAttrs(item.blockId, item.attrs);
         if (item.nextStatus) {
-          await updateTaskMarkdown(item.blockId, item.nextStatus === 'completed');
+          // Only completed uses a checked marker; cancelled remains unchecked
+          // while its explicit status attribute preserves it across reloads.
+          await updateTaskMarkdown(item.blockId, isCompletedTaskStatus(item.nextStatus));
         }
       })
     );
@@ -9408,9 +9426,11 @@ async function applyKanbanBatchEdit(): Promise<void> {
         const targetTask = tasks.value[taskIndex];
         if (update.nextStatus) {
           targetTask.status = update.nextStatus;
-          if (update.nextStatus === 'completed') {
+          if (isCompletedTaskStatus(update.nextStatus)) {
             targetTask.completedAt = targetTask.completedAt || nowIso;
-            hasNewlyCompletedTask = true;
+            if (update.nextStatus === 'completed') {
+              hasNewlyCompletedTask = true;
+            }
           } else {
             delete targetTask.completedAt;
           }
@@ -10622,7 +10642,7 @@ async function loadTasks(
   const shouldStageCalendarTasks = isCalendarTaskViewMode(requestView)
     && currentView.value === requestView
     && !calendarTaskDataReady.value
-    && options.preserveCalendarContent !== true;
+    && (options.preserveCalendarContent !== true || tasks.value.length === 0);
   if (shouldStageCalendarTasks) {
     calendarTaskDataReady.value = false;
   }
@@ -10726,7 +10746,7 @@ async function loadTasks(
     console.error('[KanbanView] Failed to load tasks:', error);
   } finally {
     if (
-      shouldStageCalendarTasks
+      isCalendarTaskViewMode(requestView)
       && requestId === latestTaskLoadRequestId
       && currentView.value === requestView
     ) {
@@ -10747,7 +10767,7 @@ async function refreshTasks() {
 
 async function ensureTasksLoadedForView(
   view: TaskViewMode,
-  options: { silent?: boolean; validateSelection?: boolean } = {}
+  options: { silent?: boolean; validateSelection?: boolean; preserveCalendarContent?: boolean } = {}
 ): Promise<void> {
   if (currentView.value !== view) {
     return;
@@ -11512,6 +11532,14 @@ const incrementalUpdateQueue = createBlockIdBatchQueue({
 
 function setupEventListeners() {
   const unsubscribeChanged = eventBus.on(Events.TASK_CHANGED, (data?: TaskChangePayload) => {
+      // Reparenting changes the visible hierarchy (and may remove a task from
+      // one root while adding it under another). A full silent reload keeps
+      // every mounted view in sync, including views that do not currently
+      // render the moved block directly.
+      if (data?.structureChange) {
+        scheduleRefreshTasks(180, 'silent-full');
+        return;
+      }
       if (data?.blockIds && data.blockIds.length > 0) {
         if (data.attributeChanges) {
           // A subtask editor uses a full task snapshot which is intentionally
@@ -12034,13 +12062,13 @@ async function fastSyncTaskFromDom(
       const previousCompletedAt = task.completedAt;
       const nextStatus: Task['status'] = completed
         ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
-        : (isClosedTaskStatus(task.status) ? 'pending' : (task.status || 'pending'));
+        : (task.status === 'cancelled' ? 'cancelled' : (task.status === 'completed' ? 'pending' : (task.status || 'pending')));
       if (task.status !== nextStatus) {
         task.status = nextStatus;
         changed = true;
       }
       if (completed) {
-        const nextCompletedAt = !isClosedTaskStatus(previousStatus) || !task.completedAt
+        const nextCompletedAt = !isCompletedTaskStatus(previousStatus) || !task.completedAt
           ? new Date().toISOString()
           : task.completedAt;
         if (task.completedAt !== nextCompletedAt) {
@@ -12170,7 +12198,7 @@ async function incrementalUpdateTasks(
       const forcedStatus = task.blockId ? patchedParentStatuses.get(task.blockId) : null;
       if (forcedStatus) {
         task.status = forcedStatus;
-        if (forcedStatus === 'completed') {
+        if (isCompletedTaskStatus(forcedStatus)) {
           task.completedAt = task.completedAt || new Date().toISOString();
         } else {
           delete task.completedAt;
@@ -13182,9 +13210,6 @@ async function handleKanbanEditorMove(): Promise<void> {
     );
     closeKanbanTaskMoveDialog();
     closeKanbanEditor();
-    if (moveResult.blockId) {
-      publishTaskChange([moveResult.blockId]);
-    }
     scheduleRefreshTasks(120, 'silent-full');
   } catch (error) {
     console.error('[KanbanView] Failed to move task:', error);
@@ -14303,9 +14328,6 @@ async function handleKanbanMove(): Promise<void> {
       if (result.status !== 'fulfilled') return;
       successCount += 1;
       movedTaskIds.push(moveTasks[index].id);
-      if (result.value.blockId) {
-        publishTaskChange([result.value.blockId]);
-      }
     });
     applyOptimisticKanbanDocumentMove(
       movedTaskIds,
@@ -14669,6 +14691,7 @@ async function moveTaskBlockToHeadingMeta(blockId: string, headingMeta: TaskHead
 
   try {
     await moveBlock(blockId, movePreviousId, moveParentId);
+    publishTaskStructureChange([blockId, moveParentId]);
   } finally {
     if (placeholderTaskItemId) {
       await deleteBlock(placeholderTaskItemId).catch(() => undefined);
@@ -15053,7 +15076,7 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     return;
   }
 
-  const wasCompleted = isClosedTaskStatus(task.status);
+  const wasCompleted = isCompletedTaskStatus(task.status);
   const newStatus = wasCompleted ? 'pending' : 'completed';
   const shouldPlayCompletionSound = !wasCompleted && isClosedTaskStatus(newStatus);
   const isVirtualRepeatTask = !!task.isVirtual && !!task.repeatSeriesId && !!task.repeatInstanceDate;
@@ -15167,7 +15190,7 @@ function applyBroadcastAttributesToSubtasks(attributeChanges: Record<string, Rec
         if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-status')) {
           const status = normalizeSubtaskStatus(attrs['custom-task-status']);
           subtask.status = status;
-          subtask.completed = status === 'completed';
+          subtask.completed = isCompletedTaskStatus(status);
         }
         if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-description')) {
           subtask.description = attrs['custom-task-description'] || '';
@@ -15225,10 +15248,12 @@ function applyBroadcastAttributesToActiveEditor(attributeChanges: Record<string,
 
 function getSubtaskStatusValue(subtask: SubTask): Task['status'] {
   const normalized = normalizeSubtaskStatus(subtask.status);
-  if (subtask.completed && normalized !== 'completed') {
+  // The compatibility `completed` flag only carries checkbox state. Preserve
+  // either terminal status when it is already explicit on the subtask.
+  if (subtask.completed && !isCompletedTaskStatus(normalized)) {
     return 'completed';
   }
-  if (!subtask.completed && normalized === 'completed') {
+  if (!subtask.completed && isCompletedTaskStatus(normalized)) {
     return 'pending';
   }
   return normalized;
@@ -15347,12 +15372,12 @@ async function handleSubtaskStatusUpdate(parentTask: Task, subtask: SubTask, sta
     { 'custom-task-status': normalizedStatus },
     (targetSubtask) => {
       targetSubtask.status = normalizedStatus;
-      targetSubtask.completed = normalizedStatus === 'completed';
+      targetSubtask.completed = isCompletedTaskStatus(normalizedStatus);
       targetSubtask.updatedAt = new Date().toISOString();
     },
     'Failed to update subtask status',
     async (blockId) => {
-      await updateTaskMarkdown(blockId, normalizedStatus === 'completed');
+      await updateTaskMarkdown(blockId, isCompletedTaskStatus(normalizedStatus));
     }
   );
 }
@@ -15465,7 +15490,8 @@ async function handleDescriptionUpdate(task: Task, description: string) {
     notifyRepeatChanged({
       blockId: targetTask.blockId,
       seriesId: getTaskRepeatSeriesId(targetTask),
-      frequency: targetTask.repeatFrequency
+      frequency: targetTask.repeatFrequency,
+      templateUpdates: { description }
     });
   }
 }
@@ -15481,7 +15507,7 @@ async function handlePriorityUpdate(task: Task, priority: Task['priority']) {
 }
 
 async function handleStatusUpdate(task: Task, status: Task['status']) {
-  const wasCompleted = isClosedTaskStatus(task.status);
+  const wasCompleted = isCompletedTaskStatus(task.status);
   await applyBlockTaskFieldUpdate(
     task,
     { 'custom-task-status': status },
@@ -15489,12 +15515,12 @@ async function handleStatusUpdate(task: Task, status: Task['status']) {
     status,
     'Failed to update task status',
     async (blockId) => {
-      await updateTaskMarkdown(blockId, isClosedTaskStatus(status));
+      await updateTaskMarkdown(blockId, isCompletedTaskStatus(status));
     }
   );
-  if (!wasCompleted && isClosedTaskStatus(status) && taskCompletionSoundEnabled.value) {
+  if (!wasCompleted && isCompletedTaskStatus(status) && taskCompletionSoundEnabled.value) {
     const refreshedTask = tasks.value.find(item => item.id === task.id);
-    if (isClosedTaskStatus(refreshedTask?.status)) {
+    if (isCompletedTaskStatus(refreshedTask?.status)) {
       playTaskCompletionSound();
     }
   }
@@ -15651,7 +15677,7 @@ function syncTaskLocalStatusState(taskId: string, status: Task['status']): void 
   const nowIso = new Date().toISOString();
   const nowTs = Date.now();
   crdtRepo.updateTaskField(taskId, 'status', status, nowTs);
-  crdtRepo.updateTaskField(taskId, 'completedAt', isClosedTaskStatus(status) ? nowIso : undefined, nowTs);
+  crdtRepo.updateTaskField(taskId, 'completedAt', isCompletedTaskStatus(status) ? nowIso : undefined, nowTs);
   updateTasks();
   const updatedTaskIndex = tasks.value.findIndex(t => t.id === taskId);
   if (updatedTaskIndex === -1) {
@@ -15660,7 +15686,7 @@ function syncTaskLocalStatusState(taskId: string, status: Task['status']): void 
 
   const targetTask = tasks.value[updatedTaskIndex];
   targetTask.status = status;
-  if (isClosedTaskStatus(status)) {
+  if (isCompletedTaskStatus(status)) {
     targetTask.completedAt = targetTask.completedAt || nowIso;
   } else {
     delete targetTask.completedAt;
@@ -16174,6 +16200,16 @@ async function handleTableTaskDrop(payload: TableTaskDropPayload): Promise<void>
   const target = tasks.value.find(task => task.id === payload.target.id);
   if (!source || !target || source.id === target.id) return;
 
+  if (payload.position === 'inside') {
+    try {
+      await TaskRepository.moveTaskIntoTask(source.id, target.id);
+      await loadTasks(true, { silent: true, validateSelection: false });
+    } catch (error) {
+      console.error('[KanbanView] Failed to nest table task:', error);
+    }
+    return;
+  }
+
   const targetColumn = getTableTaskDropColumn(target);
   if (!targetColumn) return;
   const targetGroupId = targetColumn.id;
@@ -16216,6 +16252,18 @@ async function handleTableTaskDrop(payload: TableTaskDropPayload): Promise<void>
   }
 }
 
+async function handleTableSubtaskTaskDrop(
+  event: DragEvent,
+  target: Task,
+  position: 'before' | 'inside' | 'after'
+): Promise<void> {
+  await handleDetachedViewDrop(event, target, position);
+}
+
+async function handleTableSubtaskBackgroundDrop(event: DragEvent): Promise<void> {
+  await handleDetachedViewDrop(event, undefined, 'end');
+}
+
 async function handleTableGroupReorder(payload: {
   sourceGroupId: string;
   targetGroupId: string;
@@ -16243,17 +16291,212 @@ function resetViewManualTaskDrag(): void {
   viewManualTaskDrag.value = { targetId: null, position: null };
 }
 
-function isViewManualTaskDropTarget(taskId: string, position: TaskDropPosition): boolean {
+function isViewManualTaskDropTarget(taskId: string, position: HierarchyTaskDropPosition): boolean {
   return viewManualTaskDrag.value.targetId === taskId
     && viewManualTaskDrag.value.position === position;
 }
 
+function isDetachedViewDropTarget(taskId: string, position: 'before' | 'after'): boolean {
+  return detachedSubtaskDrag.value !== null
+    && detachedDropTarget.value.taskId === taskId
+    && detachedDropTarget.value.position === position;
+}
+function isDetachedViewInsideDropTarget(taskId: string): boolean {
+  return detachedSubtaskDrag.value !== null
+    && detachedDropTarget.value.taskId === taskId
+    && detachedDropTarget.value.position === 'inside';
+}
+
+function isTaskInDraggedSubtree(sourceId: string, targetId: string): boolean {
+  const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+  const source = normalize(sourceId);
+  const target = normalize(targetId);
+  if (!source || !target || source === target) return true;
+  const matches = (task: any, id: string) => [task?.id, task?.blockId, task?.nodeId].some(value => normalize(value) === id);
+  const childrenOf = (task: any): any[] => Array.isArray(task?.subtasks) ? task.subtasks : [];
+  const contains = (task: any, id: string): boolean => matches(task, id)
+    || childrenOf(task).some((child: any) => contains(child, id));
+  const findNode = (list: any[], id: string): any | null => {
+    for (const task of list) {
+      if (matches(task, id)) return task;
+      const found = findNode(childrenOf(task), id);
+      if (found) return found;
+    }
+    return null;
+  };
+  const sourceNode = findNode(tasks.value as any[], source);
+  const targetNode = findNode(tasks.value as any[], target);
+  return !!(sourceNode && contains(sourceNode, target)) || !!(targetNode && contains(targetNode, source));
+}
+
+/** Return true when the drop target is a descendant of the dragged task. */
+function isDraggedTaskAncestorOfTarget(sourceId: string, targetId: string): boolean {
+  const normalize = (value: unknown) => typeof value === 'string' ? value.trim() : '';
+  const source = normalize(sourceId);
+  const target = normalize(targetId);
+  if (!source || !target || source === target) return true;
+  const matches = (task: any, id: string) => [task?.id, task?.blockId, task?.nodeId]
+    .some(value => normalize(value) === id);
+  const childrenOf = (task: any): any[] => Array.isArray(task?.subtasks) ? task.subtasks : [];
+  const contains = (task: any, id: string): boolean => matches(task, id)
+    || childrenOf(task).some((child: any) => contains(child, id));
+  const findNode = (list: any[], id: string): any | null => {
+    for (const task of list) {
+      if (matches(task, id)) return task;
+      const found = findNode(childrenOf(task), id);
+      if (found) return found;
+    }
+    return null;
+  };
+  const sourceNode = findNode(tasks.value as any[], source);
+  return !!sourceNode && contains(sourceNode, target);
+}
+
+/** Compare task identifiers that may be custom ids, block ids, or node ids. */
+function taskIdsReferToSameTask(firstId: string, secondId: string): boolean {
+  const normalize = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
+  const first = normalize(firstId);
+  const second = normalize(secondId);
+  if (!first || !second) return false;
+  if (first === second) return true;
+  const matches = (task: any, id: string): boolean => [task?.id, task?.blockId, task?.nodeId]
+    .some(value => normalize(value) === id);
+  const visit = (list: any[]): boolean => list.some((task: any) => {
+    const ids = [task?.id, task?.blockId, task?.nodeId].map(normalize).filter(Boolean);
+    if (ids.includes(first) && ids.includes(second)) return true;
+    if (matches(task, first) && matches(task, second)) return true;
+    return visit(Array.isArray(task?.subtasks) ? task.subtasks : []);
+  });
+  return visit(tasks.value as any[]);
+}
+
+/**
+ * Resolve the root task that owns a nested task. A table/background drop has
+ * no target task, so the repository needs the root task context in order to
+ * promote a deeply nested block all the way to the document's top-level task
+ * list (rather than only one level up). Prefer the current full task tree and
+ * fall back to the parent captured at dragstart for virtual/stale snapshots.
+ */
+function resolveDetachedSubtaskParent(sourceId: string, fallbackParentId: string): string {
+  const normalize = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
+  const source = normalize(sourceId);
+  if (!source) return normalize(fallbackParentId);
+  const matches = (task: any): boolean => [task?.id, task?.blockId, task?.nodeId]
+    .some(value => normalize(value) === source);
+  const getTaskId = (task: any): string => normalize(task?.id)
+    || normalize(task?.blockId)
+    || normalize(task?.nodeId);
+  const contains = (task: any): boolean => {
+    if (!task) return false;
+    if (matches(task)) return true;
+    return (Array.isArray(task.subtasks) ? task.subtasks : []).some((child: any) => contains(child));
+  };
+  for (const root of tasks.value as any[]) {
+    if (contains(root)) return getTaskId(root) || normalize(fallbackParentId);
+  }
+  return normalize(fallbackParentId);
+}
+
+function resetDetachedViewDrag(): void {
+  detachedSubtaskDrag.value = null;
+  detachedDropTarget.value = { taskId: null, position: null };
+  quadrantDetachedDropTarget.value = { taskId: null, position: null };
+}
+
+async function handleSubtaskDrop(
+  event: DragEvent,
+  target: SubTask,
+  position: 'before' | 'inside' | 'after' = 'inside',
+  parentTaskId = ''
+): Promise<void> {
+  const text = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  const transferSourceId = text.startsWith('subtask:') ? text.slice('subtask:'.length).trim() : text;
+  const sourceId = transferSourceId || detachedSubtaskDrag.value?.sourceId || '';
+  const targetId = target?.nodeId || target?.id || '';
+  const sourceParent = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim()
+    || parentTaskId
+    || detachedSubtaskDrag.value?.parentTaskId
+    || '';
+  if (!sourceId || !targetId) return;
+  if (position === 'inside' && sourceParent && taskIdsReferToSameTask(sourceParent, targetId)) {
+    event.preventDefault();
+    event.stopPropagation();
+    resetDetachedViewDrag();
+    try {
+      await TaskRepository.moveTaskOutOfParent(sourceId, sourceParent, targetId, 'after');
+      await loadTasks(true, { silent: true, validateSelection: false });
+    } catch (error) {
+      console.error('[KanbanView] Failed to promote subtask:', error);
+    }
+    return;
+  }
+  if (
+    (position === 'inside' && isTaskInDraggedSubtree(sourceId, targetId))
+    || (position !== 'inside' && isDraggedTaskAncestorOfTarget(sourceId, targetId))
+  ) return;
+  event.preventDefault();
+  event.stopPropagation();
+  resetDetachedViewDrag();
+  try {
+    if (position === 'inside') {
+      await TaskRepository.moveTaskIntoTask(sourceId, targetId);
+    } else if (sourceParent) {
+      await TaskRepository.moveTaskOutOfParent(sourceId, sourceParent, targetId, position);
+    }
+    await loadTasks(true, { silent: true, validateSelection: false });
+  } catch (error) {
+    console.error('[KanbanView] Failed to move subtask:', error);
+  }
+}
+
+async function handleSubtaskSiblingDrop(
+  event: DragEvent,
+  target: SubTask,
+  position: 'before' | 'after',
+  parentTaskId: string
+): Promise<void> {
+  await handleSubtaskDrop(event, target, position, parentTaskId);
+}
+
+async function handleDetachedViewDrop(event: DragEvent, target?: Task, position?: HierarchyTaskDropPosition | 'end'): Promise<void> {
+  const transferText = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  const transferParent = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim() || '';
+  const drag = detachedSubtaskDrag.value || (
+    transferText.startsWith('subtask:') && transferParent
+      ? {
+          sourceId: transferText.slice('subtask:'.length).trim(),
+          parentTaskId: transferParent
+        }
+      : null
+  );
+  if (!drag) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const targetId = target?.id || undefined;
+  const dropPosition = position === 'before' || position === 'after' ? position : undefined;
+  if (targetId && (
+    (position === 'inside' && isTaskInDraggedSubtree(drag.sourceId, targetId))
+    || (position !== 'inside' && isDraggedTaskAncestorOfTarget(drag.sourceId, targetId))
+  )) {
+    resetDetachedViewDrag();
+    return;
+  }
+  resetDetachedViewDrag();
+  try {
+    const parentTaskId = resolveDetachedSubtaskParent(drag.sourceId, drag.parentTaskId);
+    if (position === 'inside' && targetId) {
+      await TaskRepository.moveTaskIntoTask(drag.sourceId, targetId);
+    } else {
+      await TaskRepository.moveTaskOutOfParent(drag.sourceId, parentTaskId, targetId, dropPosition);
+    }
+    await loadTasks(true, { silent: true, validateSelection: false });
+  } catch (error) {
+    console.error('[KanbanView] Failed to detach subtask:', error);
+  }
+}
+
 function canUseViewManualTaskDrop(task: Task, column: KanbanColumn): boolean {
   const source = draggedTask.value;
-  const todayStart = getStartOfDay(new Date()).getTime();
-  const sourceTargetStatus = column.type === 'status' && column.status
-    ? column.status
-    : source ? getTaskVisualStatus(source) : 'pending';
   return !isMobileFrontend
     && (currentView.value === 'kanban' || currentView.value === 'list')
     && !isKanbanBatchEditMode.value
@@ -16263,11 +16506,10 @@ function canUseViewManualTaskDrop(task: Task, column: KanbanColumn): boolean {
     && source.id !== task.id
     && (column.type !== 'heading' || (!!column.headingMeta && source.type === 'block' && !!source.blockId))
     && (column.type !== 'document' || (!!column.documentId && source.type === 'block' && !!source.blockId))
-    && getDefaultTaskManualOrderGroupKey(source, sourceTargetStatus, todayStart)
-      === getDefaultTaskManualOrderGroupKey(task, getTaskVisualStatus(task), todayStart);
+    && !isTaskInDraggedSubtree(source.id, task.id);
 }
 
-function setViewManualTaskDropTarget(taskId: string, position: TaskDropPosition): void {
+function setViewManualTaskDropTarget(taskId: string, position: HierarchyTaskDropPosition): void {
   dragOverColumnId.value = null;
   if (
     viewManualTaskDrag.value.targetId !== taskId
@@ -16321,6 +16563,21 @@ function resolveViewManualTaskDropFromColumn(event: DragEvent, column: KanbanCol
 }
 
 function handleViewManualTaskDragOver(event: DragEvent, task: Task, column: KanbanColumn): void {
+  if (detachedSubtaskDrag.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget as HTMLElement | null;
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    const edge = Math.max(12, rect.height * 0.2);
+    const relativeY = event.clientY - rect.top;
+    detachedDropTarget.value = {
+      taskId: task.id,
+      position: relativeY < edge ? 'before' : (relativeY > rect.height - edge ? 'after' : 'inside')
+    };
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    return;
+  }
   if (!canUseViewManualTaskDrop(task, column)) {
     resetViewManualTaskDrag();
     return;
@@ -16334,11 +16591,29 @@ function handleViewManualTaskDragOver(event: DragEvent, task: Task, column: Kanb
   const target = event.currentTarget as HTMLElement | null;
   if (!target) return;
   const rect = target.getBoundingClientRect();
-  const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-  setViewManualTaskDropTarget(task.id, position);
+  const relativeY = event.clientY - rect.top;
+  const edge = Math.max(12, rect.height * 0.15);
+  const hierarchyPosition: HierarchyTaskDropPosition = relativeY < edge
+    ? 'before'
+    : (relativeY > rect.height - edge ? 'after' : 'inside');
+  if (hierarchyPosition !== 'inside' && (
+    getTaskBoardColumnId(draggedTask.value!) !== column.id
+    || getDefaultTaskManualOrderGroupKey(draggedTask.value!) !== getDefaultTaskManualOrderGroupKey(task)
+  )) {
+    resetViewManualTaskDrag();
+    return;
+  }
+  setViewManualTaskDropTarget(task.id, hierarchyPosition);
 }
 
 function handleViewManualTaskDragLeave(event: DragEvent, taskId: string): void {
+  if (detachedSubtaskDrag.value && detachedDropTarget.value.taskId === taskId) {
+    const currentTarget = event.currentTarget as HTMLElement | null;
+    const relatedTarget = event.relatedTarget;
+    if (currentTarget && relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) return;
+    detachedDropTarget.value = { taskId: null, position: null };
+    return;
+  }
   if (viewManualTaskDrag.value.targetId !== taskId) return;
   const currentTarget = event.currentTarget as HTMLElement | null;
   const relatedTarget = event.relatedTarget;
@@ -16347,6 +16622,10 @@ function handleViewManualTaskDragLeave(event: DragEvent, taskId: string): void {
 }
 
 async function handleViewManualTaskDrop(event: DragEvent, task: Task, column: KanbanColumn): Promise<void> {
+  if (detachedSubtaskDrag.value && detachedDropTarget.value.taskId === task.id) {
+    await handleDetachedViewDrop(event, task, detachedDropTarget.value.position || undefined);
+    return;
+  }
   const source = draggedTask.value;
   const position = viewManualTaskDrag.value.position;
   if (
@@ -16360,6 +16639,18 @@ async function handleViewManualTaskDrop(event: DragEvent, task: Task, column: Ka
 
   event.preventDefault();
   event.stopPropagation();
+  if (position === 'inside') {
+    event.preventDefault();
+    event.stopPropagation();
+    resetViewManualTaskDrag();
+    try {
+      await TaskRepository.moveTaskIntoTask(source.id, task.id);
+      await loadTasks(true, { silent: true, validateSelection: false });
+    } catch (error) {
+      console.error('[KanbanView] Failed to nest task:', error);
+    }
+    return;
+  }
   const sourceColumnId = getTaskBoardColumnId(source);
   const seededOrder = reconcileManualTaskOrder(
     userSettings.taskManager.taskManualOrder || [],
@@ -16393,6 +16684,21 @@ async function handleViewManualTaskDrop(event: DragEvent, task: Task, column: Ka
 }
 
 function handleDragStart(event: DragEvent, task: Task) {
+  const transferText = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  if (transferText.startsWith('subtask:')) {
+    const sourceId = transferText.slice('subtask:'.length).trim();
+    const parentTaskId = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim()
+      || (typeof (task as any).parentTaskId === 'string' ? String((task as any).parentTaskId).trim() : '');
+    if (sourceId && parentTaskId) {
+      detachedSubtaskDrag.value = { sourceId, parentTaskId };
+      detachedDropTarget.value = { taskId: null, position: null };
+      quadrantDetachedDropTarget.value = { taskId: null, position: null };
+    }
+    draggedTask.value = null;
+    resetViewManualTaskDrag();
+    resetQuadrantManualTaskDrag();
+    return;
+  }
   if (!canDragTaskInCurrentBoard(task, isKanbanBatchEditMode.value)) return;
 
   resetViewManualTaskDrag();
@@ -16408,10 +16714,22 @@ function handleDragEnd() {
   draggedTask.value = null;
   dragOverColumnId.value = null;
   resetViewManualTaskDrag();
+  resetDetachedViewDrag();
 }
 
 function handleDragOver(event: DragEvent, column: KanbanColumn) {
   if (isMobileFrontend) return;
+
+  if (detachedSubtaskDrag.value) {
+    event.preventDefault();
+    const target = event.currentTarget as HTMLElement | null;
+    const element = event.target instanceof Element ? event.target : null;
+    if (!element?.closest('.kanban-batch-item, .kanban-list-task-item')) {
+      detachedDropTarget.value = { taskId: null, position: 'end' };
+    }
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    return;
+  }
 
   event.preventDefault();
   if (!draggedTask.value) {
@@ -16486,7 +16804,38 @@ function handleGlobalTaskDrop(): void {
   window.setTimeout(() => handleDragEnd(), 0);
 }
 
+function handleViewSubtaskDragStart(event: Event): void {
+  const detail = (event as CustomEvent).detail as { sourceId?: string; parentTaskId?: string } | undefined;
+  const sourceId = typeof detail?.sourceId === 'string' ? detail.sourceId.trim() : '';
+  const parentTaskId = typeof detail?.parentTaskId === 'string' ? detail.parentTaskId.trim() : '';
+  if (sourceId && parentTaskId) {
+    detachedSubtaskDrag.value = { sourceId, parentTaskId };
+    detachedDropTarget.value = { taskId: null, position: null };
+    quadrantDetachedDropTarget.value = { taskId: null, position: null };
+    draggedTask.value = null;
+    resetViewManualTaskDrag();
+    resetQuadrantManualTaskDrag();
+  }
+}
+
+function handleViewSubtaskDragEnd(): void {
+  resetDetachedViewDrag();
+}
+
 function handleQuadrantDragStart(event: DragEvent, task: Task): void {
+  const transferText = event.dataTransfer?.getData('text/plain')?.trim() || '';
+  if (transferText.startsWith('subtask:')) {
+    const sourceId = transferText.slice('subtask:'.length).trim();
+    const parentTaskId = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim()
+      || (typeof (task as any).parentTaskId === 'string' ? String((task as any).parentTaskId).trim() : '');
+    if (sourceId && parentTaskId) {
+      detachedSubtaskDrag.value = { sourceId, parentTaskId };
+      quadrantDetachedDropTarget.value = { taskId: null, position: null };
+    }
+    quadrantDraggedTask.value = null;
+    resetQuadrantManualTaskDrag();
+    return;
+  }
   if (isMobileFrontend || task.isVirtual) return;
   resetQuadrantManualTaskDrag();
   quadrantDraggedTask.value = task;
@@ -16510,9 +16859,20 @@ function resetQuadrantManualTaskDrag(): void {
   quadrantManualTaskDrag.value = { targetId: null, position: null };
 }
 
-function isQuadrantManualTaskDropTarget(taskId: string, position: TaskDropPosition): boolean {
+function isQuadrantManualTaskDropTarget(taskId: string, position: HierarchyTaskDropPosition): boolean {
   return quadrantManualTaskDrag.value.targetId === taskId
     && quadrantManualTaskDrag.value.position === position;
+}
+
+function isQuadrantDetachedDropTarget(taskId: string, position: 'before' | 'after'): boolean {
+  return detachedSubtaskDrag.value !== null
+    && quadrantDetachedDropTarget.value.taskId === taskId
+    && quadrantDetachedDropTarget.value.position === position;
+}
+function isQuadrantDetachedInsideDropTarget(taskId: string): boolean {
+  return detachedSubtaskDrag.value !== null
+    && quadrantDetachedDropTarget.value.taskId === taskId
+    && quadrantDetachedDropTarget.value.position === 'inside';
 }
 
 function getQuadrantDropFields(task: Task, quadrantId: TaskQuadrantId): Pick<Task, 'priority' | 'urgent'> | null {
@@ -16534,13 +16894,10 @@ function canUseQuadrantManualTaskDrop(task: Task, quadrantId: TaskQuadrantId): b
   const source = quadrantDraggedTask.value;
   const nextFields = source ? getQuadrantDropFields(source, quadrantId) : null;
   if (!source || !nextFields || source.id === task.id) return false;
-  const projectedSource = { ...source, ...nextFields };
-  const todayStart = getStartOfDay(new Date()).getTime();
-  return getDefaultTaskManualOrderGroupKey(projectedSource, getTaskVisualStatus(source), todayStart)
-    === getDefaultTaskManualOrderGroupKey(task, getTaskVisualStatus(task), todayStart);
+  return !isTaskInDraggedSubtree(source.id, task.id);
 }
 
-function setQuadrantManualTaskDropTarget(taskId: string, position: TaskDropPosition): void {
+function setQuadrantManualTaskDropTarget(taskId: string, position: HierarchyTaskDropPosition): void {
   quadrantDragOverId.value = null;
   if (
     quadrantManualTaskDrag.value.targetId !== taskId
@@ -16587,6 +16944,21 @@ function resolveQuadrantManualTaskDropFromSection(event: DragEvent, quadrantId: 
 }
 
 function handleQuadrantTaskDragOver(event: DragEvent, task: Task, quadrantId: TaskQuadrantId): void {
+  if (detachedSubtaskDrag.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget as HTMLElement | null;
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    const edge = Math.max(12, rect.height * 0.2);
+    const relativeY = event.clientY - rect.top;
+    quadrantDetachedDropTarget.value = {
+      taskId: task.id,
+      position: relativeY < edge ? 'before' : (relativeY > rect.height - edge ? 'after' : 'inside')
+    };
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    return;
+  }
   if (!canUseQuadrantManualTaskDrop(task, quadrantId)) {
     resetQuadrantManualTaskDrag();
     return;
@@ -16597,13 +16969,29 @@ function handleQuadrantTaskDragOver(event: DragEvent, task: Task, quadrantId: Ta
   const target = event.currentTarget as HTMLElement | null;
   if (!target) return;
   const rect = target.getBoundingClientRect();
-  setQuadrantManualTaskDropTarget(
-    task.id,
-    event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
-  );
+  const relativeY = event.clientY - rect.top;
+  const edge = Math.max(12, rect.height * 0.15);
+  const position: HierarchyTaskDropPosition = relativeY < edge
+    ? 'before'
+    : (relativeY > rect.height - edge ? 'after' : 'inside');
+  if (position !== 'inside') {
+    const source = quadrantDraggedTask.value;
+    if (!source || getDefaultTaskManualOrderGroupKey(source) !== getDefaultTaskManualOrderGroupKey(task)) {
+      resetQuadrantManualTaskDrag();
+      return;
+    }
+  }
+  setQuadrantManualTaskDropTarget(task.id, position);
 }
 
 function handleQuadrantTaskDragLeave(event: DragEvent, taskId: string): void {
+  if (detachedSubtaskDrag.value && quadrantDetachedDropTarget.value.taskId === taskId) {
+    const target = event.currentTarget as HTMLElement | null;
+    const related = event.relatedTarget;
+    if (target && related instanceof Node && target.contains(related)) return;
+    quadrantDetachedDropTarget.value = { taskId: null, position: null };
+    return;
+  }
   if (quadrantManualTaskDrag.value.targetId !== taskId) return;
   const target = event.currentTarget as HTMLElement | null;
   const relatedTarget = event.relatedTarget;
@@ -16612,6 +17000,14 @@ function handleQuadrantTaskDragLeave(event: DragEvent, taskId: string): void {
 }
 
 function handleQuadrantDragOver(event: DragEvent, quadrantId: TaskQuadrantId): void {
+  if (detachedSubtaskDrag.value) {
+    event.preventDefault();
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest('.quadrant-task')) {
+      quadrantDetachedDropTarget.value = { taskId: null, position: 'end' };
+    }
+    return;
+  }
   if (!quadrantDraggedTask.value) return;
   event.preventDefault();
   if (resolveQuadrantManualTaskDropFromSection(event, quadrantId)) return;
@@ -16635,6 +17031,9 @@ function handleQuadrantDragLeave(event: DragEvent): void {
   }
   quadrantDragOverId.value = null;
   resetQuadrantManualTaskDrag();
+  if (detachedSubtaskDrag.value) {
+    quadrantDetachedDropTarget.value = { taskId: null, position: null };
+  }
 }
 
 async function handleQuadrantTaskDrop(
@@ -16642,6 +17041,10 @@ async function handleQuadrantTaskDrop(
   target: Task,
   quadrantId: TaskQuadrantId
 ): Promise<void> {
+  if (detachedSubtaskDrag.value && quadrantDetachedDropTarget.value.taskId === target.id) {
+    await handleDetachedViewDrop(event, target, quadrantDetachedDropTarget.value.position || undefined);
+    return;
+  }
   const source = quadrantDraggedTask.value;
   const position = quadrantManualTaskDrag.value.position;
   if (
@@ -16653,6 +17056,16 @@ async function handleQuadrantTaskDrop(
 
   event.preventDefault();
   event.stopPropagation();
+  if (position === 'inside') {
+    resetQuadrantManualTaskDrag();
+    try {
+      await TaskRepository.moveTaskIntoTask(source.id, target.id);
+      await loadTasks(true, { silent: true, validateSelection: false });
+    } catch (error) {
+      console.error('[KanbanView] Failed to nest quadrant task:', error);
+    }
+    return;
+  }
   const seededOrder = reconcileManualTaskOrder(
     userSettings.taskManager.taskManualOrder || [],
     [...visibleKanbanTasks.value.map(task => task.id), source.id, target.id]
@@ -16678,6 +17091,13 @@ async function handleQuadrantDrop(
   skipManualOrder = false
 ): Promise<void> {
   event.preventDefault();
+  if (detachedSubtaskDrag.value) {
+    const element = event.target instanceof Element ? event.target : null;
+    if (!element?.closest('.quadrant-task')) {
+      await handleDetachedViewDrop(event, undefined, 'end');
+    }
+    return;
+  }
   if (!skipManualOrder && quadrantManualTaskDrag.value.targetId && quadrantManualTaskDrag.value.position) {
     const target = tasks.value.find(task => task.id === quadrantManualTaskDrag.value.targetId);
     if (target) {
@@ -16748,6 +17168,14 @@ async function handleDrop(event: DragEvent, column: KanbanColumn, skipManualOrde
   if (isMobileFrontend) return;
 
   event.preventDefault();
+
+  if (detachedSubtaskDrag.value) {
+    const element = event.target instanceof Element ? event.target : null;
+    if (!element?.closest('.kanban-batch-item, .kanban-list-task-item')) {
+      await handleDetachedViewDrop(event, undefined, 'end');
+    }
+    return;
+  }
   
   if (!draggedTask.value) return;
 
@@ -16822,9 +17250,6 @@ async function handleDocumentDrop(column: KanbanColumn): Promise<void> {
     crdtRepo.syncFromSQLTasks(optimisticTasks);
     tasks.value = filterTasksByNotebookScope(applyDraggedStatusLocks(crdtRepo.getTasks()));
     invalidateTableFilters();
-    if (moveResult.blockId) {
-      publishTaskChange([moveResult.blockId]);
-    }
     scheduleKernelTaskIndexRefresh(120, false, true);
     scheduleRefreshTasks(680, 'silent-full');
   } catch (error) {
@@ -17032,7 +17457,9 @@ async function handleStatusDrop(targetStatus: Task['status']) {
       await setBlockAttrs(task.blockId, {
         ...buildTaskStatusAttrs(targetStatus as Task['status'], task.completedAt)
       });
-      await updateTaskMarkdown(task.blockId, targetStatus === 'completed');
+      // Cancelled is a workflow status, not a completion marker. Keep the
+      // document task unchecked while persisting the explicit status attr.
+      await updateTaskMarkdown(task.blockId, isCompletedTaskStatus(targetStatus));
     }
     syncTaskLocalStatusState(taskId, targetStatus as Task['status']);
     if (!wasCompleted && targetStatus === 'completed' && taskCompletionSoundEnabled.value) {
@@ -17223,6 +17650,8 @@ onMounted(async () => {
   window.addEventListener('resize', updateKanbanListColumnCount);
   document.addEventListener('dragend', handleGlobalTaskDragEnd, true);
   document.addEventListener('drop', handleGlobalTaskDrop);
+  window.addEventListener('pinch-subtask-dragstart', handleViewSubtaskDragStart);
+  window.addEventListener('pinch-subtask-dragend', handleViewSubtaskDragEnd);
   window.addEventListener('blur', handleGlobalTaskDragEnd);
   nextTick(() => {
     updateCompactViewSwitcherMode();
@@ -17278,6 +17707,8 @@ onUnmounted(() => {
   window.removeEventListener('resize', updateKanbanListColumnCount);
   document.removeEventListener('dragend', handleGlobalTaskDragEnd, true);
   document.removeEventListener('drop', handleGlobalTaskDrop);
+  window.removeEventListener('pinch-subtask-dragstart', handleViewSubtaskDragStart);
+  window.removeEventListener('pinch-subtask-dragend', handleViewSubtaskDragEnd);
   window.removeEventListener('blur', handleGlobalTaskDragEnd);
   if (kanbanViewResizeObserver) {
     kanbanViewResizeObserver.disconnect();
@@ -17373,13 +17804,21 @@ watch([goalDefinitions, goalItems, goalsLoading], () => {
   });
 });
 
-watch(currentView, (nextView) => {
+watch(currentView, (nextView, previousView) => {
+  closeDocumentTabsDropdown();
+  closeMobileViewSwitcher();
   closeDocumentTabContextMenu();
   closeTaskViewGroupMenu();
+  cancelColumnTitleEdit();
+  clearGroupColumnReorderDragState();
   cancelMobileCalendarTaskDrag();
   if (isCalendarTaskViewMode(nextView)) {
     lastCalendarView.value = nextView;
-    calendarTaskDataReady.value = false;
+    // Retain an already loaded snapshot while entering another calendar
+    // mode; loadTasks will replace it once the new repeat window is ready.
+    if (!isCalendarTaskViewMode(previousView)) {
+      calendarTaskDataReady.value = false;
+    }
     calendarRepeatWindowByView.value[nextView] = resolveDefaultRepeatWindowForView(nextView);
     void ensureCalendarLifelogTasksLoaded();
   }
@@ -17414,7 +17853,11 @@ watch(currentView, (nextView) => {
   }
   void ensureTasksLoadedForView(nextView, {
     silent: nextView !== 'gantt',
-    validateSelection: false
+    validateSelection: false,
+    // Keep the previous snapshot mounted while switching view modes. The
+    // replacement load can then update it atomically instead of flashing an
+    // empty calendar and forcing a second full render.
+    preserveCalendarContent: isCalendarTaskViewMode(nextView)
   });
   if (nextView === 'kanban' || nextView === 'list') {
     void ensureTaskGroupsLoaded();
@@ -19741,6 +20184,43 @@ watch(kanbanColumns, () => {
   background: var(--b3-theme-primary);
   pointer-events: none;
 }
+
+.kanban-batch-item.manual-task-drop-inside,
+.kanban-list-task-item.manual-task-drop-inside,
+.quadrant-task.manual-task-drop-inside,
+.kanban-batch-item.subtask-detach-drop-inside,
+.kanban-list-task-item.subtask-detach-drop-inside,
+.quadrant-task.subtask-detach-drop-inside {
+  border-radius: 10px;
+  /* Use a spread shadow instead of an inset outline: the child TaskCard has
+     its own background and would cover an inset outline, leaving only corner
+     fragments visible. */
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 78%, transparent);
+}
+
+.kanban-batch-item.subtask-detach-drop-before::before,
+.kanban-list-task-item.subtask-detach-drop-before::before,
+.quadrant-task.subtask-detach-drop-before::before,
+.kanban-batch-item.subtask-detach-drop-after::after,
+.kanban-list-task-item.subtask-detach-drop-after::after,
+.quadrant-task.subtask-detach-drop-after::after {
+  content: '';
+  position: absolute;
+  z-index: 5;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--b3-theme-primary);
+  pointer-events: none;
+}
+
+.kanban-batch-item.subtask-detach-drop-before::before,
+.kanban-list-task-item.subtask-detach-drop-before::before,
+.quadrant-task.subtask-detach-drop-before::before { top: -5px; }
+.kanban-batch-item.subtask-detach-drop-after::after,
+.kanban-list-task-item.subtask-detach-drop-after::after,
+.quadrant-task.subtask-detach-drop-after::after { bottom: -5px; }
 
 .kanban-batch-item.manual-task-drop-before::before,
 .kanban-list-task-item.manual-task-drop-before::before {
