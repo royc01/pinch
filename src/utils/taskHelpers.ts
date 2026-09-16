@@ -1,4 +1,5 @@
 import { buildTaskStatusAttrs, getBlockAttrs, setBlockAttrs, type TaskStatus, updateTaskListItemMarker } from '../api';
+import { taskStatusToSiyuanTaskMarker } from './taskMarkers';
 import { getLocalCheckinNoteDate, requestCheckinNote, type CheckinNotePromptAnchor } from './checkinNotePrompt';
 
 export function skipTaskTemporarily(
@@ -37,23 +38,25 @@ export async function updateTaskMarkdown(
   blockId: string,
   completed: boolean,
   updateCustomStatus: boolean = false,
-  promptAnchor?: CheckinNotePromptAnchor
+  promptAnchor?: CheckinNotePromptAnchor,
+  status?: TaskStatus
 ): Promise<void> {
   try {
-    const marker = completed ? 'x' : ' ';
-    const completedAt = completed && updateCustomStatus ? new Date().toISOString() : '';
+    const effectiveStatus = status || (completed ? 'completed' : 'pending');
+    const marker = status ? taskStatusToSiyuanTaskMarker(status) : (completed ? 'x' : ' ');
+    const isCompleted = effectiveStatus === 'completed';
+    const completedAt = isCompleted && updateCustomStatus ? new Date().toISOString() : '';
     await updateTaskListItemMarker(blockId, marker);
 
     if (updateCustomStatus) {
-      const status = completed ? 'completed' : 'pending';
-      await setBlockAttrs(blockId, buildTaskStatusAttrs(status, completedAt));
+      await setBlockAttrs(blockId, buildTaskStatusAttrs(effectiveStatus, completedAt));
     }
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('siyuan-block-update', {
-        detail: { id: blockId, completed }
+        detail: { id: blockId, completed: isCompleted, status: effectiveStatus }
       }));
-      if (completed && updateCustomStatus) {
+      if (isCompleted && updateCustomStatus) {
         requestTaskCompletionNote(blockId, completedAt, promptAnchor);
       }
     }

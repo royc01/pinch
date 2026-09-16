@@ -1,5 +1,12 @@
 import { ref } from 'vue';
 
+export {
+  normalizeSiyuanTaskMarker,
+  taskMarkerToStatus,
+  taskStatusToSiyuanTaskMarker,
+  type SiyuanTaskMarker
+} from './taskMarkers';
+
 export const TASK_STATUS_VALUES = [
   'pending',
   'in-progress',

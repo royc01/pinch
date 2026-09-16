@@ -143,9 +143,9 @@ function buildTaskDocumentScopeSql(alias: string = 'b'): string {
 
 function buildTaskDocumentCompletionSql(alias: string = 'b'): string {
   if (showCompletedTasks.value) {
-    return ` AND (${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[x]%' OR ${alias}.markdown LIKE '%[X]%')`;
+    return ` AND (${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[/]%' OR ${alias}.markdown LIKE '%[-]%' OR ${alias}.markdown LIKE '%[x]%' OR ${alias}.markdown LIKE '%[X]%')`;
   }
-  return ` AND ${alias}.markdown LIKE '%[ ]%'`;
+  return ` AND (${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[/]%')`;
 }
 
 async function loadNotebookOptions(): Promise<void> {

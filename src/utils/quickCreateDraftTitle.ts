@@ -1,4 +1,4 @@
-const TASK_MARKER_PREFIX = /^\s*(?:[-*+]\s*)?(?:\{:\s*[^}]*\}\s*)?\[[ xX]\]\s*/;
+const TASK_MARKER_PREFIX = /^\s*(?:[-*+]\s*)?(?:\{:\s*[^}]*\}\s*)?\[[ xX\/\-]\]\s*/;
 
 /**
  * Extract the editable title from the Kramdown of the temporary task used by

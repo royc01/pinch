@@ -1,5 +1,6 @@
 import { escapeSqlLiteral } from './utils/sql';
 import { getAutomaticScheduledTaskStatus } from './utils/taskStatusAutomation';
+import { taskMarkerToStatus } from './utils/taskMarkers';
 
 declare const siyuan: any;
 
@@ -310,6 +311,11 @@ function formatLocalDate(date: Date): string {
 }
 
 function resolveTaskRowStatus(row: KernelTaskRow): string {
+  const marker = (row.markdown || "").match(/\[(x|X| |\/|-)\]/)?.[1];
+  const markerStatus = taskMarkerToStatus(marker);
+  if (markerStatus === "in-progress" || markerStatus === "cancelled") {
+    return markerStatus;
+  }
   const status = normalizeScopeValue(row.custom_task_status);
   const automatic = ["1", "true", "TRUE", "yes", "YES"].includes(
     normalizeScopeValue(row.custom_task_status_automatic)
@@ -325,7 +331,7 @@ function resolveTaskRowStatus(row: KernelTaskRow): string {
   if (status) {
     return status;
   }
-  return /\[[xX]\]/.test(row.markdown || "") ? "completed" : "pending";
+  return markerStatus || "pending";
 }
 
 function isTaskRowArchived(row: KernelTaskRow): boolean {
@@ -333,7 +339,7 @@ function isTaskRowArchived(row: KernelTaskRow): boolean {
 }
 
 function isTaskRowCompleted(row: KernelTaskRow): boolean {
-  return /\[[xX]\]/.test(row.markdown || "");
+  return resolveTaskRowStatus(row) === "completed";
 }
 
 function doesTaskRowMatchParams(row: KernelTaskRow, params: KernelTaskListParams = {}): boolean {
@@ -379,7 +385,7 @@ function isTaskBlockShape(row: Pick<ParentBlockRow, "type" | "subtype" | "markdo
   const markdown = String(row.markdown || "");
   return (row.type === "i" || row.type === "p") &&
     row.subtype === "t" &&
-    (markdown.includes("[ ]") || markdown.includes("[x]") || markdown.includes("[X]"));
+    (markdown.includes("[ ]") || markdown.includes("[/]") || markdown.includes("[-]") || markdown.includes("[x]") || markdown.includes("[X]"));
 }
 
 function normalizeTaskRow(row: any): KernelTaskRow {
@@ -433,8 +439,8 @@ async function kernelSql<T>(stmt: string): Promise<T> {
 
 function buildTaskFilters(params: KernelTaskListParams = {}): string[] {
   const completionSql = params.includeCompleted === false
-    ? "b.markdown LIKE '%[ ]%'"
-    : "(b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%' OR b.markdown LIKE '%[X]%')";
+    ? "(b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[/]%')"
+    : "(b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[/]%' OR b.markdown LIKE '%[-]%' OR b.markdown LIKE '%[x]%' OR b.markdown LIKE '%[X]%')";
   const notebookId = normalizeScopeValue(params.notebookId);
   const excludedNotebookIds = normalizeNotebookIds(params.excludedNotebookIds);
   const documentId = normalizeScopeValue(params.documentId);
@@ -751,7 +757,7 @@ async function queryChangedTaskRows(params: KernelTaskListParams = {}): Promise<
   const filters = [
     "(b.type = 'i' OR b.type = 'p')",
     "b.subtype = 't'",
-    "(b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[x]%' OR b.markdown LIKE '%[X]%')",
+    "(b.markdown LIKE '%[ ]%' OR b.markdown LIKE '%[/]%' OR b.markdown LIKE '%[-]%' OR b.markdown LIKE '%[x]%' OR b.markdown LIKE '%[X]%')",
     `b.updated >= '${escapeSqlLiteral(sinceUpdated)}'`,
   ];
   const notebookId = normalizeScopeValue(params.notebookId);

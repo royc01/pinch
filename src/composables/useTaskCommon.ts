@@ -121,7 +121,7 @@ function collectSubtaskTitles(subtasks: TaskTitleSource['subtasks']): string[] {
 }
 
 function titleHasNestedTaskStructure(rawTitle: string): boolean {
-  return /data-type=["']NodeList(Item)?["']|class=["'][^"']*(?:list|li|protyle-task)|<(?:ul|ol)\b|\n\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(?:x|X| )\]/i.test(rawTitle);
+  return /data-type=["']NodeList(Item)?["']|class=["'][^"']*(?:list|li|protyle-task)|<(?:ul|ol)\b|\n\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(?:x|X| |\/|-)\]/i.test(rawTitle);
 }
 
 export function getTaskDisplayTitle(task: TaskTitleSource | null | undefined): string {

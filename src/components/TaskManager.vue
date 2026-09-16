@@ -1165,7 +1165,7 @@ import {
   collectTaskTitleHydrationBlockIds,
   shouldHydrateTaskTitle
 } from '@/utils/taskTitleHydration';
-import { getTaskElementFromDoc, parseTaskCompleted } from '@/utils/taskDom';
+import { getLiveTaskElement, getTaskElementFromDoc, parseTaskCompleted, parseTaskStatusFromElement } from '@/utils/taskDom';
 import {
   buildTaskReminderAttrs,
   getTaskReminderLabel,
@@ -3232,6 +3232,10 @@ let lastMismatchForceRefreshAt = 0;
 const MISMATCH_FORCE_REFRESH_COOLDOWN = 500;
 let taskScopeRefreshTimer: number | null = null;
 let kernelTaskIndexRefreshTimer: number | null = null;
+// Every task load is asynchronous and source changes can happen while an
+// earlier request is still in flight. Keep a generation so an older result
+// cannot overwrite the snapshot requested by the current source.
+let taskRefreshGeneration = 0;
 let isHydratingFilters = true;
 const FILTER_SWITCH_BROAD_LOAD_THRESHOLD = 5000;
 
@@ -3492,6 +3496,10 @@ watch([filterNotebook, filterDocument], ([newNotebook]) => {
     return;
   }
 
+  // Invalidate an in-flight load immediately, before the debounced scoped
+  // refresh starts. This prevents a previous source's response from painting
+  // after the user has already selected a new source.
+  taskRefreshGeneration += 1;
   normalizeDocumentSelection(newNotebook);
   if (requiresScopeInitialization.value) {
     return;
@@ -6548,7 +6556,7 @@ async function handleSubtaskDrop(event: DragEvent, target: SubTask, position: 'b
           showLoading: false,
           compareExisting: false,
           ignoreThrottle: true,
-          source: 'manual-refresh'
+          source: 'structure-refresh'
         });
       } catch (refreshError) {
         console.error('[TaskManager] Failed to restore sidebar after optimistic move:', refreshError);
@@ -6825,6 +6833,7 @@ async function refreshTasks(
     return;
   }
   lastRefreshTime = now;
+  const refreshGeneration = ++taskRefreshGeneration;
 
    try {
     if (showLoading) {
@@ -6845,10 +6854,20 @@ async function refreshTasks(
       loadScope,
       {
         useLiveDom,
+        // A source switch must observe the latest scoped rows. Reusing a
+        // previously cached empty scoped result is what made the panel appear
+        // blank until the user pressed the manual refresh button.
+        forceFresh: source === 'filter-switch',
         includeRepeatTemplateDate: true,
         repeatWindow: resolveTaskManagerRepeatWindow()
       }
     );
+    // A newer source/filter refresh superseded this request while it was
+    // loading. Ignore the stale response rather than replacing the current
+    // panel with data for the previous source (or a transient empty result).
+    if (refreshGeneration !== taskRefreshGeneration) {
+      return;
+    }
     if (!useLiveDom) {
       preserveInlineMemoTitles(sqlTasks, tasks.value);
       hydrateMemoTitlesFromLiveDom(sqlTasks, TASK_TITLE_HYDRATE_LIMIT);
@@ -7106,14 +7125,25 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
       continue;
     }
 
-    const liveCompleted = parseTaskCompleted(blockId);
+    const liveStatus = parseTaskStatusFromElement(getLiveTaskElement(blockId), blockId);
+    const liveCompleted = liveStatus === null ? null : liveStatus === 'completed';
     const liveTitle = getLiveTaskTitle(blockId);
 
     if (taskIndex.isSubtask) {
       patchTask(tasks.value, blockId, (subtask) => {
-        if (typeof liveCompleted === 'boolean' && subtask.completed !== liveCompleted) {
-          subtask.completed = liveCompleted;
-          changed = true;
+        const nextSubtaskStatus = liveStatus === 'pending'
+          && subtask.status && subtask.status !== 'pending' && subtask.status !== 'completed'
+          ? subtask.status
+          : liveStatus;
+        if (nextSubtaskStatus !== null) {
+          if (subtask.completed !== (nextSubtaskStatus === 'completed')) {
+            subtask.completed = nextSubtaskStatus === 'completed';
+            changed = true;
+          }
+          if (subtask.status !== nextSubtaskStatus) {
+            subtask.status = nextSubtaskStatus;
+            changed = true;
+          }
         }
 
         if (liveTitle !== null && subtask.title !== liveTitle) {
@@ -7128,14 +7158,20 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
     }
 
     patchTask(tasks.value, blockId, (task) => {
-      if (typeof liveCompleted === 'boolean') {
+      if (liveStatus !== null || typeof liveCompleted === 'boolean') {
         const previousStatus = task.status;
         const previousCompletedAt = task.completedAt;
-        const nextStatus: Task['status'] = liveCompleted
-          // A checked marker cannot distinguish completed from cancelled;
-          // preserve the task's existing terminal status when possible.
-          ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
-          : (task.status === 'cancelled' ? 'cancelled' : (task.status === 'completed' ? 'pending' : (task.status || 'pending')));
+        const effectiveLiveStatus = liveStatus && !(liveStatus === 'pending'
+          && task.status !== 'pending' && task.status !== 'completed')
+          ? liveStatus
+          : null;
+        const nextStatus: Task['status'] = effectiveLiveStatus || (
+          liveCompleted
+            // A checked marker cannot distinguish completed from cancelled;
+            // preserve the task's existing terminal status when possible.
+            ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
+            : (task.status === 'cancelled' ? 'cancelled' : (task.status === 'completed' ? 'pending' : (task.status || 'pending')))
+        );
         if (task.status !== nextStatus) {
           task.status = nextStatus;
           changed = true;
@@ -8056,7 +8092,10 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
 
     try {
       const parsedDoc = dom ? parser.parseFromString(dom, 'text/html') : null;
-      const completed = parseTaskCompleted(blockId, parsedDoc);
+      const liveElement = getLiveTaskElement(blockId);
+      const liveStatus = parseTaskStatusFromElement(liveElement, blockId)
+        ?? (parsedDoc ? parseTaskStatusFromElement(getTaskElementFromDoc(parsedDoc, blockId), blockId) : null);
+      const completed = liveStatus === null ? parseTaskCompleted(blockId, parsedDoc) : liveStatus === 'completed';
       const liveTitle = getLiveTaskTitle(blockId);
       const title = liveTitle ?? (parsedDoc ? getTaskTitleFromElement(getTaskElementFromDoc(parsedDoc, blockId), blockId) : null);
       const titleCameFromLiveDom = liveTitle !== null;
@@ -8068,7 +8107,15 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
       if (taskIndex.isSubtask) {
         let changed = false;
         const patched = patchTask(tasks.value, blockId, (subtask) => {
-          if (subtask.completed !== completed) {
+          const nextSubtaskStatus = liveStatus === 'pending'
+            && subtask.status && subtask.status !== 'pending' && subtask.status !== 'completed'
+            ? subtask.status
+            : liveStatus;
+          if (typeof nextSubtaskStatus === 'string' && subtask.status !== nextSubtaskStatus) {
+            subtask.status = nextSubtaskStatus;
+            subtask.completed = nextSubtaskStatus === 'completed';
+            changed = true;
+          } else if (subtask.completed !== completed) {
             subtask.completed = completed;
             changed = true;
           }
@@ -8093,12 +8140,18 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
         const patched = patchTask(tasks.value, blockId, (task) => {
           const previousStatus = task.status;
           const previousCompletedAt = task.completedAt;
-          const nextStatus: Task['status'] = completed
-            // DOM/Markdown only exposes a checked marker. Preserve whichever
-            // terminal status is already attached to the task instead of
-            // collapsing cancelled into completed during synchronization.
-            ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
-            : (task.status === 'cancelled' ? 'cancelled' : (task.status === 'completed' ? 'pending' : (task.status || 'pending')));
+          const effectiveLiveStatus = liveStatus && !(liveStatus === 'pending'
+            && task.status !== 'pending' && task.status !== 'completed')
+            ? liveStatus
+            : null;
+          const nextStatus: Task['status'] = effectiveLiveStatus || (
+            completed
+              // DOM/Markdown only exposes a checked marker. Preserve whichever
+              // terminal status is already attached to the task instead of
+              // collapsing cancelled into completed during synchronization.
+              ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
+              : (task.status === 'cancelled' ? 'cancelled' : (task.status === 'completed' ? 'pending' : (task.status || 'pending')))
+          );
           nextStatusForTask = nextStatus;
           if (task.status !== nextStatus) {
             task.status = nextStatus;
@@ -8286,7 +8339,7 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
         requestTaskCompletionNote(task.id, completedAt, checkinNotePromptAnchor, task.title, task.blockId || task.id);
       }
     } else if (task.type === 'block' && task.blockId) {
-      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true, checkinNotePromptAnchor);
+      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true, checkinNotePromptAnchor, newStatus);
     }
     
     if (!isVirtualRepeatTask) {
@@ -9542,9 +9595,9 @@ async function applyBatchEdit(): Promise<void> {
         applyTaskAttributeMutation(item.blockId, item.attrs);
         await setBlockAttrs(item.blockId, item.attrs);
         if (item.nextStatus) {
-          // Only completed is represented by a checked marker; cancelled is
-          // persisted as an explicit unchecked workflow status.
-          await updateTaskMarkdown(item.blockId, isCompletedTaskStatus(item.nextStatus));
+          // Keep the native marker in sync with the selected workflow status
+          // (including Siyuan's in-progress and abandoned markers).
+          await updateTaskMarkdown(item.blockId, isCompletedTaskStatus(item.nextStatus), false, undefined, item.nextStatus);
         }
       })
     );
@@ -9658,7 +9711,7 @@ async function quickSaveTaskStatus(task: Task, status: Task['status']): Promise<
       crdtRepo.updateTaskField(task.id, 'status', status);
     },
     beforePersist: async (blockId) => {
-      await updateTaskMarkdown(blockId, isCompletedTaskStatus(status));
+      await updateTaskMarkdown(blockId, isCompletedTaskStatus(status), false, undefined, status);
     }
   });
 
@@ -10520,7 +10573,7 @@ function handleManualTaskDrop(event: DragEvent, task: Task, sectionKey: string |
               showLoading: false,
               compareExisting: false,
               ignoreThrottle: true,
-              source: 'manual-refresh'
+              source: 'structure-refresh'
             });
           } catch (refreshError) {
             console.error('[TaskManager] Failed to restore sidebar after optimistic move:', refreshError);
@@ -10578,11 +10631,11 @@ async function refreshAfterTaskStructureMove(
           showLoading: false,
           compareExisting: false,
           ignoreThrottle: true,
-          source: 'manual-refresh'
+          source: 'structure-refresh'
         }).then(() => {
-          // A live-DOM read can still expose the pre-transaction hierarchy for
-          // one cycle. Keep the optimistic relation in place until a refresh
-          // actually observes the requested placement.
+          // The kernel projection can still expose the pre-transaction
+          // hierarchy for one cycle. Keep the optimistic relation in place
+          // until a refresh actually observes the requested placement.
           if (optimisticMove) {
             if (optimisticMove.detach) {
               if (!isTaskTopLevel(optimisticMove.sourceId)) {
@@ -10654,7 +10707,7 @@ async function handleTaskListDrop(event: DragEvent): Promise<void> {
           showLoading: false,
           compareExisting: false,
           ignoreThrottle: true,
-          source: 'manual-refresh'
+          source: 'structure-refresh'
         });
       } catch (refreshError) {
         console.error('[TaskManager] Failed to restore sidebar after optimistic detach:', refreshError);
@@ -10753,7 +10806,7 @@ function handleGlobalSubtaskDrop(event: DragEvent): void {
             showLoading: false,
             compareExisting: false,
             ignoreThrottle: true,
-            source: 'manual-refresh'
+            source: 'structure-refresh'
           });
         } catch (refreshError) {
           console.error('[TaskManager] Failed to restore sidebar after optimistic detach:', refreshError);

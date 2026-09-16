@@ -5,7 +5,9 @@ import {
   isClosedTaskStatus,
   isKnownTaskStatus,
   normalizeTaskStatusDefinitions,
-  resolveTaskStatusColor
+  resolveTaskStatusColor,
+  taskMarkerToStatus,
+  taskStatusToSiyuanTaskMarker
 } from './taskStatus';
 
 const t = (key: string) => key;
@@ -61,5 +63,14 @@ describe('custom task statuses', () => {
     expect(statuses.find(status => status.id === 'review')?.hidden).toBe(true);
     expect(statuses.find(status => status.id === 'pending')?.hidden).toBe(true);
     expect(resolveTaskStatusColor('pinch-background4')).toBe('var(--pinch-background4)');
+  });
+
+  it('maps native Siyuan task markers to Pinch statuses and back', () => {
+    expect(taskMarkerToStatus('/')).toBe('in-progress');
+    expect(taskMarkerToStatus('-')).toBe('cancelled');
+    expect(taskMarkerToStatus('X')).toBe('completed');
+    expect(taskMarkerToStatus(' ')).toBe('pending');
+    expect(taskStatusToSiyuanTaskMarker('in-progress')).toBe('/');
+    expect(taskStatusToSiyuanTaskMarker('cancelled')).toBe('-');
   });
 });

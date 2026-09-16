@@ -294,7 +294,7 @@ export function getTaskTitlePlainText(rawHtml?: string): string {
 
 function stripTaskPrefix(text: string): string {
   return text
-    .replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| )\]\s*/i, '')
+    .replace(/^\s*[-*]\s*(?:\{:[^}]*\})?\s*\[(x|X| |\/|-)\]\s*/i, '')
     .replace(/\s*\{:\s*[^}]*\}\s*/g, ' ')
     .trim();
 }

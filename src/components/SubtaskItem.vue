@@ -4,7 +4,9 @@
       <div class="task-checkbox-wrapper" @click="handleClick">
         <TaskCheckbox :checked="subtask.completed" :size="18" />
       </div>
-      <button type="button" class="subtask-title" @click.stop="handleOpen" v-html="subtask.title"></button>
+      <button type="button" class="subtask-title" @click.stop="handleOpen">
+        <TaskTitleRich class="task-title" :title="subtask.title" />
+      </button>
       <div class="subtask-badges">
         <span
           v-if="priority !== 'none'"
@@ -56,6 +58,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import Icon from './Icon.vue';
+import TaskTitleRich from './TaskTitleRich.vue';
 import type { SubTask } from '../api';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { formatMonthDay } from '@/utils/dateHelpers';
@@ -395,7 +398,9 @@ function getTaskDateTimestamp(value: unknown): number | null {
 
 
 .subtask-title {
+  display: block;
   flex: 1;
+  min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;
@@ -405,6 +410,31 @@ function getTaskDateTimestamp(value: unknown): number | null {
   text-align: left;
   font-size: 14px;
   line-height: 18px;
+  white-space: nowrap;
+}
+
+:global(.subtask-title .task-title-rich) {
+  display: block !important;
+  flex: 1 1 auto;
+  font-size: 14px;
+  line-height: 18px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+
+:global(.subtask-title .task-title-rich *) {
+  display: inline !important;
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+
+:global(.subtask-title .task-title-rich br) {
+  display: none !important;
 }
 
 .subtasks-children {

@@ -541,17 +541,21 @@ function handleTaskBlockUpdate(event: Event): void {
     return;
   }
 
-  const detail = (event as CustomEvent<{ id?: unknown; completed?: unknown }>).detail;
+  const detail = (event as CustomEvent<{ id?: unknown; completed?: unknown; status?: unknown }>).detail;
   const blockId = typeof detail?.id === 'string' ? detail.id.trim() : '';
   if (!blockId || typeof detail?.completed !== 'boolean') {
     return;
   }
 
-  const completedAt = detail.completed ? new Date().toISOString() : undefined;
+  const status = typeof detail.status === 'string' && detail.status.trim()
+    ? detail.status.trim()
+    : (detail.completed ? 'completed' : 'pending');
+  const completed = status === 'completed';
+  const completedAt = completed ? new Date().toISOString() : undefined;
   sharedLifelogTimelineSnapshot.value = null;
   const sharedSnapshotUpdated = patchLifelogTaskSnapshotByBlockId(
     blockId,
-    detail.completed,
+    completed,
     completedAt
   );
   let updated = false;
@@ -562,7 +566,7 @@ function handleTaskBlockUpdate(event: Event): void {
     updated = true;
     return {
       ...task,
-      status: detail.completed ? 'completed' : 'pending',
+      status,
       completedAt
     };
   });

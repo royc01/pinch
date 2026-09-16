@@ -235,9 +235,9 @@ export function useTaskScopeDocuments(options: UseTaskScopeDocumentsOptions) {
 
   function buildCompletionSql(alias: string = 'b'): string {
     if (options.showCompletedTasks.value) {
-      return ` AND (${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[x]%' OR ${alias}.markdown LIKE '%[X]%')`;
+      return ` AND (${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[/]%' OR ${alias}.markdown LIKE '%[-]%' OR ${alias}.markdown LIKE '%[x]%' OR ${alias}.markdown LIKE '%[X]%')`;
     }
-    return ` AND ${alias}.markdown LIKE '%[ ]%'`;
+    return ` AND (${alias}.markdown LIKE '%[ ]%' OR ${alias}.markdown LIKE '%[/]%')`;
   }
 
   function buildArchiveSql(alias: string = 'b'): string {

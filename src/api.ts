@@ -41,7 +41,14 @@ import {
   updatePluginStorageReadCache
 } from "@/utils/pluginStorage";
 import { getAutomaticScheduledTaskStatus } from "@/utils/taskStatusAutomation";
-import { isClosedTaskStatus, isCompletedTaskStatus, isKnownTaskStatus } from "@/utils/taskStatus";
+import {
+  isClosedTaskStatus,
+  isCompletedTaskStatus,
+  isKnownTaskStatus,
+  normalizeSiyuanTaskMarker,
+  taskMarkerToStatus,
+  taskStatusToSiyuanTaskMarker
+} from "@/utils/taskStatus";
 import { formatDate as formatLocalDate } from "@/composables/useDateUtils";
 import { awardTaskCompletion } from "@/rewardRepository";
 import {
@@ -587,10 +594,15 @@ export async function updateTaskListItemMarker(
   id: BlockId,
   marker: string
 ): Promise<IResdoOperations[]> {
-  const normalizedMarker = marker === " " ? " " : "x";
+  const normalizedMarker = normalizeSiyuanTaskMarker(marker);
+  // Keep the endpoint payload compatible with both old and new Siyuan
+  // kernels. Unknown markers retain the previous checked-marker behaviour.
+  const nativeMarker = normalizedMarker === '/' || normalizedMarker === '-'
+    ? normalizedMarker
+    : (normalizedMarker === ' ' ? ' ' : 'x');
   const data = {
     id,
-    marker: normalizedMarker
+    marker: nativeMarker
   };
   const url = "/api/block/updateTaskListItemMarker";
   const result = await request<unknown>(url, data);
@@ -2355,8 +2367,8 @@ export function buildTaskStatusAttrs(
   };
 }
 
-function taskStatusToTaskMarker(status: TaskStatus | undefined): " " | "x" {
-  return isCompletedTaskStatus(status) ? 'x' : ' ';
+function taskStatusToTaskMarker(status: TaskStatus | undefined): " " | "x" | "/" | "-" {
+  return taskStatusToSiyuanTaskMarker(status);
 }
 
 async function syncTaskListItemMarkerByStatus(
@@ -2754,9 +2766,9 @@ export class TaskRepository {
   private static stripTaskMarker(value: unknown): string {
     const text = typeof value === 'string' ? value : '';
     return text
-      .replace(/^\s*[-*+]\s*(?:\{:[^}]*\})?\s*\[[ xX]\]\s*/, '')
-      .replace(/^\s*(?:\{:[^}]*\})?\s*\[[ xX]\]\s*/, '')
-      .replace(/^\s*\[[ xX]\]\s*/, '')
+      .replace(/^\s*[-*+]\s*(?:\{:[^}]*\})?\s*\[[ xX\/\-]\]\s*/, '')
+      .replace(/^\s*(?:\{:[^}]*\})?\s*\[[ xX\/\-]\]\s*/, '')
+      .replace(/^\s*\[[ xX\/\-]\]\s*/, '')
       .trim();
   }
 
@@ -3280,9 +3292,11 @@ export class TaskRepository {
   private static buildTaskCompletionSql(includeCompleted: boolean | undefined, alias: string | null = 'b'): string {
     const target = alias ? `${alias}.markdown` : 'markdown';
     if (includeCompleted === false) {
-      return ` AND ${target} LIKE '%[ ]%'`;
+      // Open tasks include unchecked and in-progress markers. Abandoned tasks
+      // are terminal and therefore excluded alongside completed tasks.
+      return ` AND (${target} LIKE '%[ ]%' OR ${target} LIKE '%[/]%')`;
     }
-    return ` AND (${target} LIKE '%[ ]%' OR ${target} LIKE '%[x]%' OR ${target} LIKE '%[X]%')`;
+    return ` AND (${target} LIKE '%[ ]%' OR ${target} LIKE '%[/]%' OR ${target} LIKE '%[-]%' OR ${target} LIKE '%[x]%' OR ${target} LIKE '%[X]%')`;
   }
 
   private static buildTaskArchiveSql(scope: TaskQueryScope | null, alias: string | null = 'b'): string {
@@ -3832,13 +3846,24 @@ export class TaskRepository {
   private static parseTaskStatus(
     attrs: Record<string, string>,
     markdown: string,
-    completedByDOM: boolean | null
+    completedByDOM: boolean | null,
+    markerFromDOM: string | null = null
   ): TaskStatus {
     const attrStatus = attrs['custom-task-status'] as TaskStatus | undefined;
     const hasValidAttrStatus = !!(attrStatus && isKnownTaskStatus(attrStatus));
-    const markdownMatch = markdown?.match(/\[(x|X| )\]/);
-    const markdownCompleted = markdownMatch ? (markdownMatch[1] === 'x' || markdownMatch[1] === 'X') : null;
+    const markdownMatch = markdown?.match(/\[(x|X| |\/|-)\]/);
+    const markdownMarker = markdownMatch ? markdownMatch[1] : null;
+    const effectiveMarker = markerFromDOM !== null ? markerFromDOM : markdownMarker;
+    const markerStatus = taskMarkerToStatus(effectiveMarker);
+    const markdownCompleted = markerStatus === null ? null : markerStatus === 'completed';
     const automatic = this.parseTaskBooleanFlag(attrs[TASK_STATUS_AUTOMATIC_ATTR]);
+
+    // Native Siyuan markers carry more information than the legacy checkbox
+    // icon. Honour the explicit in-progress/abandoned markers before applying
+    // custom attribute or automatic-date fallbacks.
+    if (markerStatus === 'in-progress' || markerStatus === 'cancelled') {
+      return markerStatus;
+    }
 
     // Completed signals from DOM/Markdown are authoritative.
     if (completedByDOM === true || markdownCompleted === true) {
@@ -4172,6 +4197,22 @@ export class TaskRepository {
     return null;
   }
 
+  private static getTaskMarkerFromElement(root: Element | null, ownerId?: string): string | null {
+    if (!root) return null;
+    const ownerElement = root.getAttribute('data-type') === 'NodeListItem'
+      ? root
+      : (root.closest('[data-type="NodeListItem"]') || root);
+    const nativeMarker = ownerElement.getAttribute('data-task');
+    if (nativeMarker !== null) return normalizeSiyuanTaskMarker(nativeMarker);
+
+    const action = this.getTaskActionElement(ownerElement, ownerId);
+    if (!action) return null;
+    const svg = action.querySelector('use');
+    const href = svg?.getAttribute('xlink:href') || svg?.getAttribute('href') || '';
+    if (!href) return null;
+    return href === '#iconCheck' ? 'x' : ' ';
+  }
+
   private static parseSubtasksFromParsedDoc(doc: Document, parentBlockId: string): SubTask[] {
     const cleanHtmlStyle = (html: string) => html.replace(/\{:\s*[^}]*\}/g, '');
 
@@ -4185,12 +4226,10 @@ export class TaskRepository {
         const nodeId = item.getAttribute('data-node-id');
         if (!nodeId || nodeId === parentBlockId) continue;
 
-        const action = item.querySelector('.protyle-action--task');
-        if (!action) continue;
-
-        const svg = action.querySelector('use');
-        const href = svg?.getAttribute('xlink:href') || svg?.getAttribute('href') || '';
-        const completed = href === '#iconCheck';
+        const marker = this.getTaskMarkerFromElement(item, nodeId);
+        if (marker === null) continue;
+        const status = taskMarkerToStatus(marker) || 'pending';
+        const completed = status === 'completed';
 
         const titleHtml = TaskRepository.getTaskTitleHtmlFromElement(item, nodeId);
         const title = cleanHtmlStyle(titleHtml) || 'Untitled';
@@ -4202,7 +4241,7 @@ export class TaskRepository {
           id: `block_${nodeId}`,
           type: 'block',
           title,
-          status: completed ? 'completed' : 'pending',
+          status,
           completed,
           priority: 'none',
           tags: [],
@@ -4665,6 +4704,7 @@ export class TaskRepository {
 
         let title = titleFromApi || titleFromBlockText;
         let completedByDOM: boolean | null = null;
+        let markerFromDOM: string | null = null;
         if (useLiveDom) {
           const currentElement =
             protyleElement?.querySelector(`[data-node-id="${row.id}"][data-type="NodeListItem"]`)
@@ -4674,12 +4714,11 @@ export class TaskRepository {
           const currentTitle = this.getTaskTitleHtmlFromElement(currentElement || null, row.id);
           title = currentTitle || titleFromBlockText || titleFromApi;
 
-          const currentAction = this.getTaskActionElement(currentElement, row.id);
-          const currentSvg = currentAction?.querySelector('use');
-          const currentHref = currentSvg?.getAttribute('xlink:href') || currentSvg?.getAttribute('href') || '';
-          completedByDOM = currentHref ? currentHref === '#iconCheck' : null;
+          markerFromDOM = this.getTaskMarkerFromElement(currentElement, row.id);
+          const markerStatus = taskMarkerToStatus(markerFromDOM);
+          completedByDOM = markerStatus === null ? null : markerStatus === 'completed';
         }
-        const status = this.parseTaskStatus(attrs, row.markdown || '', completedByDOM);
+        const status = this.parseTaskStatus(attrs, row.markdown || '', completedByDOM, markerFromDOM);
         const archived = this.parseTaskArchivedFlag(attrs['custom-task-archived']);
         const archivedAtRaw = (attrs['custom-task-archived-at'] || '')
           .split(',')
@@ -5128,7 +5167,7 @@ export class TaskRepository {
 
           const childAttrs = blockAttrsMap.get(childId) || {};
           const markdown = typeof childBlock.markdown === 'string' ? childBlock.markdown : '';
-          const markdownMatch = markdown.match(/\[(x|X| )\]/);
+          const markdownMatch = markdown.match(/\[(x|X| |\/|-)\]/);
           const completed = !!markdownMatch && (markdownMatch[1] === 'x' || markdownMatch[1] === 'X');
           const title = buildFastTitleFromBlock(childBlock) || 'Untitled';
           const status = this.parseTaskStatus(childAttrs, markdown, completed);
@@ -5203,7 +5242,7 @@ export class TaskRepository {
               ? rootIcons.get(parentBlock.root_id)
               : undefined;
             const titleFromBlockText = buildFastTitleFromBlock(parentBlock);
-            const title = titleFromBlockText || (markdownHasInlineMemo(parentBlock.markdown || '')
+            const title = titleFromBlockText || ((parentBlock.markdown || '').includes('((')
               ? (() => {
                   const domEntry = domMap.get(parentBlock.id);
                   const domTitle = domEntry?.dom
@@ -5258,6 +5297,7 @@ export class TaskRepository {
           
           let currentTitle = '';
           let isCurrentCompleted: boolean | undefined;
+          let currentMarker: string | null = null;
           {
             const currentDomElement = protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"][data-type="NodeListItem"]`) 
               || protyleElement?.querySelector(`[data-node-id="${parentBlock.id}"]`);
@@ -5274,12 +5314,9 @@ export class TaskRepository {
             
             currentTitle = this.getTaskTitleHtmlFromElement(elementToUse || null, parentBlock.id);
             
-            const currentAction = this.getTaskActionElement(elementToUse, parentBlock.id);
-            const currentSvg = currentAction?.querySelector('use');
-            
-            if (currentSvg) {
-              const currentHref = currentSvg.getAttribute('xlink:href') || currentSvg.getAttribute('href');
-              isCurrentCompleted = currentHref === '#iconCheck';
+            currentMarker = this.getTaskMarkerFromElement(elementToUse, parentBlock.id);
+            if (currentMarker !== null) {
+              isCurrentCompleted = taskMarkerToStatus(currentMarker) === 'completed';
             }
           }
           
@@ -5290,13 +5327,8 @@ export class TaskRepository {
             parentListItem = doc.querySelector(`[data-node-id="${parentBlock.id}"]`);
           }
           
-          const parentAction = this.getTaskActionElement(parentListItem, parentBlock.id);
-          
-          const svg = parentAction?.querySelector('use');
-          const apiHref = svg?.getAttribute('xlink:href') || svg?.getAttribute('href');
-          const apiDomStatus: 'completed' | 'pending' | null = apiHref
-            ? (apiHref === '#iconCheck' ? 'completed' : 'pending')
-            : null;
+          const apiMarker = this.getTaskMarkerFromElement(parentListItem, parentBlock.id);
+          const apiMarkerStatus = taskMarkerToStatus(apiMarker);
           
           const cleanHtmlStyle = (html: string) => html.replace(/\{:\s*[^}]*\}/g, '');
           const collectSubtaskNodeIds = (subtasks: SubTask[] | undefined): void => {
@@ -5327,9 +5359,12 @@ export class TaskRepository {
             return fullSubtasks.map((subtask) => {
               const liveItem = subtask.nodeId ? liveByNodeId.get(subtask.nodeId) : undefined;
               const isCompleted = liveItem?.completed;
-              const status = typeof isCompleted === 'boolean'
-                ? (isCompleted ? 'completed' : (subtask.status === 'completed' ? 'pending' : subtask.status))
-                : subtask.status;
+              const liveStatus = liveItem?.status;
+              const status = liveStatus === 'in-progress' || liveStatus === 'cancelled'
+                ? liveStatus
+                : typeof isCompleted === 'boolean'
+                  ? (isCompleted ? 'completed' : (subtask.status === 'completed' ? 'pending' : subtask.status))
+                  : subtask.status;
               return {
                 ...subtask,
                 title: liveItem?.title || subtask.title,
@@ -5361,17 +5396,16 @@ export class TaskRepository {
           let status: TaskStatus;
 
           let markdownStatus: 'pending' | 'completed' | null = null;
+          let markdownNativeStatus: TaskStatus | null = null;
           if (parentBlock.markdown) {
-            const markdown = parentBlock.markdown.trim();
-            const taskRegex = /\[(x|X| )\]/;
-            const match = markdown.match(taskRegex);
-            if (match) {
-              const statusChar = match[1];
-              if (statusChar === 'x' || statusChar === 'X') {
-                markdownStatus = 'completed';
-              } else {
-                markdownStatus = 'pending';
-              }
+            const markdownMatch = parentBlock.markdown.match(/\[(x|X| |\/|-)\]/);
+            const markdownMarkerStatus = taskMarkerToStatus(markdownMatch?.[1]);
+            if (markdownMarkerStatus === 'in-progress' || markdownMarkerStatus === 'cancelled') {
+              markdownNativeStatus = markdownMarkerStatus;
+            } else if (markdownMarkerStatus === 'completed') {
+              markdownStatus = 'completed';
+            } else if (markdownMarkerStatus !== null) {
+              markdownStatus = 'pending';
             }
           }
           
@@ -5379,14 +5413,20 @@ export class TaskRepository {
           const hasValidAttrStatus = !!(attrStatus && isKnownTaskStatus(attrStatus));
           const isCompletedBySignals =
             isCurrentCompleted === true ||
-            apiDomStatus === 'completed' ||
+            apiMarkerStatus === 'completed' ||
             markdownStatus === 'completed';
           const isUncheckedBySignals =
             isCurrentCompleted === false ||
-            apiDomStatus === 'pending' ||
+            (apiMarkerStatus !== null && apiMarkerStatus !== 'completed') ||
             markdownStatus === 'pending';
 
-          if (isCompletedBySignals) {
+          if (currentMarker === '/' || currentMarker === '-') {
+            status = taskMarkerToStatus(currentMarker) || 'pending';
+          } else if (apiMarker === '/' || apiMarker === '-') {
+            status = taskMarkerToStatus(apiMarker) || 'pending';
+          } else if (markdownNativeStatus) {
+            status = markdownNativeStatus;
+          } else if (isCompletedBySignals) {
             status = attrStatus === 'cancelled' ? 'cancelled' : (hasValidAttrStatus && isClosedTaskStatus(attrStatus) ? attrStatus : 'completed');
           } else if (isUncheckedBySignals) {
             if (attrStatus === 'cancelled') {
@@ -5445,17 +5485,6 @@ export class TaskRepository {
         chunks.push(parentBlocks.slice(i, i + BATCH_SIZE));
       }
 
-      const markdownHasInlineMemo = (md: string): boolean => {
-        const regex = /\(\(([^()]+)\)\)/g;
-        let m: RegExpExecArray | null;
-        while ((m = regex.exec(md)) !== null) {
-          if (!/^[0-9]{14}-[a-z0-9]{7,}$/.test(m[1])) {
-            return true;
-          }
-        }
-        return false;
-      };
-
       const extractTitleFromBlockDom = (domHtml: string, blockId: string): string | null => {
         try {
           const doc = parser.parseFromString(domHtml, 'text/html');
@@ -5470,10 +5499,13 @@ export class TaskRepository {
       };
     
       for (const chunk of chunks) {
-        const needsDomForMemos = !useLiveDom && chunk.some(
-          block => markdownHasInlineMemo(block.markdown || '')
-        );
-        const domMap = (useLiveDom || needsDomForMemos)
+        // SQL title parsing already preserves inline memos and block refs.
+        // Fetching DOM solely to rehydrate those titles made every full
+        // structural refresh issue one DOM batch per ten tasks (often
+        // thousands of requests). Live-DOM refreshes still fetch the DOM for
+        // marker/title reconciliation; the non-live path hydrates visible
+        // titles lazily in the view layer instead.
+        const domMap = useLiveDom
           ? await getBlockDOMBatch(chunk.map(block => block.id))
           : new Map<string, BlockDOMResponse>();
         
@@ -5598,7 +5630,8 @@ export class TaskRepository {
         : new Date().toISOString();
     }
 
-    const taskMarkdown = isCompletedTaskStatus(task.status) ? `- [x] ${trimmedTitle}` : `- [ ] ${trimmedTitle}`;
+    const taskMarker = taskStatusToTaskMarker(task.status);
+    const taskMarkdown = `- [${taskMarker}] ${trimmedTitle}`;
 
     try {
       log_debug('Creating block task', { notebookId, docPath, taskMarkdown });

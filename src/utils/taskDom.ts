@@ -1,3 +1,5 @@
+import { normalizeSiyuanTaskMarker, taskMarkerToStatus } from './taskMarkers';
+
 function getTaskActionElement(root: Element | null, ownerId?: string): Element | null {
   if (!root) return null;
   const matchesOwner = (action: Element): boolean => {
@@ -17,20 +19,32 @@ function getTaskActionElement(root: Element | null, ownerId?: string): Element |
   return fallback && matchesOwner(fallback) ? fallback : null;
 }
 
-export function parseTaskCompletedFromElement(root: Element | null, ownerId?: string): boolean | null {
+/** Read the native marker from a task-list item, falling back to its icon. */
+export function parseTaskMarkerFromElement(root: Element | null, ownerId?: string): string | null {
   if (!root) return null;
 
   const ownerElement = root.getAttribute('data-type') === 'NodeListItem'
     ? root
     : (root.closest('[data-type="NodeListItem"]') || root);
   const marker = ownerElement.getAttribute('data-task');
-  if (marker !== null) return marker.trim().length > 0;
+  if (marker !== null) return normalizeSiyuanTaskMarker(marker);
 
   const action = getTaskActionElement(ownerElement, ownerId);
   if (!action) return null;
   const svg = action.querySelector('use');
   const href = svg?.getAttribute('xlink:href') || svg?.getAttribute('href') || '';
-  return href ? href === '#iconCheck' : null;
+  if (!href) return null;
+  return href === '#iconCheck' ? 'x' : ' ';
+}
+
+/** Parse the Pinch status represented by a task-list item's native marker. */
+export function parseTaskStatusFromElement(root: Element | null, ownerId?: string): string | null {
+  return taskMarkerToStatus(parseTaskMarkerFromElement(root, ownerId));
+}
+
+export function parseTaskCompletedFromElement(root: Element | null, ownerId?: string): boolean | null {
+  const status = parseTaskStatusFromElement(root, ownerId);
+  return status === null ? null : status === 'completed';
 }
 
 export function getLiveTaskElement(blockId: string): Element | null {

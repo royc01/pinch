@@ -434,13 +434,16 @@ describe('TaskRepository incremental task fetches', () => {
   });
 
   it('parses task status consistently across markdown and attributes', () => {
-    const parseStatus = (attrs: Record<string, string>, markdown: string) =>
-      (TaskRepository as any).parseTaskStatus(attrs, markdown, null);
+    const parseStatus = (attrs: Record<string, string>, markdown: string, markerFromDOM: string | null = null) =>
+      (TaskRepository as any).parseTaskStatus(attrs, markdown, null, markerFromDOM);
 
     expect(parseStatus({ 'custom-task-status': 'delayed' }, '- [x] finished')).toBe('completed');
     expect(parseStatus({ 'custom-task-status': 'cancelled' }, '- [x] cancelled')).toBe('cancelled');
     expect(parseStatus({ 'custom-task-status': 'cancelled' }, '- [ ] reopened')).toBe('cancelled');
     expect(parseStatus({ 'custom-task-status': 'delayed' }, '- [ ] waiting')).toBe('delayed');
+    expect(parseStatus({}, '- [/] active')).toBe('in-progress');
+    expect(parseStatus({}, '- [-] abandoned')).toBe('cancelled');
+    expect(parseStatus({}, 'plain task', '/')).toBe('in-progress');
     expect(parseStatus({ 'custom-task-status': 'in-progress' }, 'plain task text')).toBe('in-progress');
     expect(parseStatus({
       'custom-task-status': 'in-progress',

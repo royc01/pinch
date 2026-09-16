@@ -2115,7 +2115,7 @@ import {
   collectTaskTitleHydrationBlockIds,
   shouldHydrateTaskTitle
 } from '@/utils/taskTitleHydration';
-import { getTaskElementFromDoc, parseTaskCompleted } from '@/utils/taskDom';
+import { getLiveTaskElement, getTaskElementFromDoc, parseTaskCompleted, parseTaskStatusFromElement } from '@/utils/taskDom';
 import {
   applyRepeatRuleOptimisticToTasks,
   getDocumentCreationSortKey,
@@ -3248,6 +3248,12 @@ let latestTaskLoadRequestId = 0;
 let deferredInitialTaskSnapshotTimer: number | null = null;
 let taskSnapshotVersion = 0;
 let pendingVisibleTaskLoadCount = 0;
+interface TaskSnapshotCacheEntry {
+  tasks: Task[];
+  mode: TaskLoadMode;
+  repeatWindow: TaskRepeatWindow | null;
+}
+const taskSnapshotCache = new Map<string, TaskSnapshotCacheEntry>();
 const isCalendarView = computed(() =>
   currentView.value === 'month'
   || currentView.value === 'week'
@@ -3712,6 +3718,77 @@ const taskGroupIdSet = computed(() => {
 
 function resolveKanbanGroupColumnOrder(availableIds: string[], storedOrder: string[]): string[] {
   return resolveTaskGroupDisplayOrder(availableIds, storedOrder);
+}
+
+function buildTaskSnapshotCacheKey(
+  scope: TaskQueryScope,
+  mode: TaskLoadMode,
+  repeatWindow: TaskRepeatWindow | null
+): string {
+  return JSON.stringify({
+    notebookId: scope.notebookId || '',
+    includeArchived: scope.includeArchived === true,
+    archivedOnly: scope.archivedOnly === true,
+    includeCompleted: scope.includeCompleted !== false,
+    mode,
+    repeatWindow: repeatWindow
+      ? { startDate: repeatWindow.startDate, endDate: repeatWindow.endDate }
+      : null
+  });
+}
+
+function cloneSubtaskSnapshot(subtasks?: SubTask[]): SubTask[] | undefined {
+  return subtasks?.map(subtask => ({
+    ...subtask,
+    subtasks: cloneSubtaskSnapshot(subtask.subtasks)
+  }));
+}
+
+function cloneTaskSnapshot(tasksToClone: Task[]): Task[] {
+  return tasksToClone.map(task => ({
+    ...task,
+    subtasks: cloneSubtaskSnapshot(task.subtasks)
+  }));
+}
+
+function restoreCachedTaskSnapshot(view: TaskViewMode): boolean {
+  const mode = resolveTaskLoadModeForView(view);
+  const repeatWindow = mode === 'light-with-repeats' ? resolveRequestedRepeatWindowForView(view) : null;
+  const key = buildTaskSnapshotCacheKey(getTaskLoadScope(), mode, repeatWindow);
+  const cached = taskSnapshotCache.get(key);
+  if (!cached || cached.tasks.length === 0) {
+    return false;
+  }
+  syncTaskSnapshot(cloneTaskSnapshot(cached.tasks));
+  loadedTaskLoadMode.value = cached.mode;
+  loadedRepeatWindow.value = cached.repeatWindow;
+  if (isCalendarTaskViewMode(view)) {
+    calendarTaskDataReady.value = true;
+  }
+  return true;
+}
+
+function rememberTaskSnapshot(
+  scope: TaskQueryScope,
+  mode: TaskLoadMode,
+  repeatWindow: TaskRepeatWindow | null,
+  snapshot: Task[]
+): void {
+  if (snapshot.length === 0) {
+    return;
+  }
+  taskSnapshotCache.set(buildTaskSnapshotCacheKey(scope, mode, repeatWindow), {
+    tasks: cloneTaskSnapshot(snapshot),
+    mode,
+    repeatWindow
+  });
+  // Keep the cache bounded while retaining enough recent view windows for
+  // quick back-and-forth navigation.
+  while (taskSnapshotCache.size > 12) {
+    const oldestKey = taskSnapshotCache.keys().next().value;
+    if (!oldestKey) break;
+    taskSnapshotCache.delete(oldestKey);
+  }
 }
 
 const baseGroupColumns = computed<KanbanColumn[]>(() => {
@@ -8102,6 +8179,42 @@ setupFilterTypeWatcher(tableFilterType, tableFilterDocument, () => getDocumentTa
 setupFilterTypeWatcher(ganttFilterType, ganttFilterDocument, () => getDocumentTabTaskMatcher('gantt'));
 setupFilterTypeWatcher(monthFilterType, monthFilterDocument, () => getDocumentTabTaskMatcher('month'));
 
+// Changing the source in the inline filter bar changes the task query scope.
+// The document-selection watcher above only normalizes the secondary tab and
+// previously left the view rendering its old (or empty) snapshot until the
+// user clicked the manual refresh button.
+watch(
+  [kanbanFilterType, listFilterType, tableFilterType, ganttFilterType],
+  (values, oldValues, onCleanup) => {
+    if (isHydratingSettings.value) {
+      return;
+    }
+    const view = currentView.value;
+    const sourceIndex = view === 'kanban' || view === 'quadrant'
+      ? 0
+      : view === 'list'
+        ? 1
+        : view === 'table' || view === 'archive-table' || view === 'stats'
+          ? 2
+          : view === 'gantt'
+            ? 3
+            : -1;
+    if (sourceIndex < 0 || values[sourceIndex] === oldValues[sourceIndex]) {
+      return;
+    }
+    // Let Vue commit the selected source before deriving the scoped request.
+    const timer = window.setTimeout(() => {
+      restoreCachedTaskSnapshot(view);
+      void loadTasks(true, {
+        silent: true,
+        validateSelection: false,
+        view
+      });
+    }, 0);
+    onCleanup(() => window.clearTimeout(timer));
+  }
+);
+
 watch(calendarFilterType, () => {
   if (isHydratingSettings.value) {
     return;
@@ -9397,9 +9510,9 @@ async function applyKanbanBatchEdit(): Promise<void> {
       updates.map(async (item) => {
         await setBlockAttrs(item.blockId, item.attrs);
         if (item.nextStatus) {
-          // Only completed uses a checked marker; cancelled remains unchecked
-          // while its explicit status attribute preserves it across reloads.
-          await updateTaskMarkdown(item.blockId, isCompletedTaskStatus(item.nextStatus));
+          // Keep the native marker in sync with the selected workflow status
+          // (including Siyuan's in-progress and abandoned markers).
+          await updateTaskMarkdown(item.blockId, isCompletedTaskStatus(item.nextStatus), false, undefined, item.nextStatus);
         }
       })
     );
@@ -10736,6 +10849,7 @@ async function loadTasks(
       : sqlTasks;
     hydrateKanbanMemoTitlesSync(nextTasks, KANBAN_TITLE_HYDRATE_LIMIT);
     syncTaskSnapshot(nextTasks);
+    rememberTaskSnapshot(taskLoadScope, mode, fetchRepeatWindow, nextTasks);
     loadedTaskLoadMode.value = mode;
     loadedRepeatWindow.value = fetchRepeatWindow;
     if (validateSelection) {
@@ -10767,14 +10881,19 @@ async function refreshTasks() {
 
 async function ensureTasksLoadedForView(
   view: TaskViewMode,
-  options: { silent?: boolean; validateSelection?: boolean; preserveCalendarContent?: boolean } = {}
+  options: {
+    silent?: boolean;
+    validateSelection?: boolean;
+    preserveCalendarContent?: boolean;
+    forceRefresh?: boolean;
+  } = {}
 ): Promise<void> {
   if (currentView.value !== view) {
     return;
   }
   const mode = resolveTaskLoadModeForView(view);
   const repeatWindow = mode === 'light-with-repeats' ? resolveRequestedRepeatWindowForView(view) : null;
-  if (
+  if (!options.forceRefresh &&
     isTaskLoadModeSatisfied(loadedTaskLoadMode.value, mode)
     && isTaskLoadWindowSatisfied(loadedRepeatWindow.value, repeatWindow)
   ) {
@@ -10783,7 +10902,19 @@ async function ensureTasksLoadedForView(
     }
     return;
   }
-  await loadTasks(false, {
+  if (options.forceRefresh && restoreCachedTaskSnapshot(view)) {
+    // Paint the most recent snapshot immediately, then reconcile in the
+    // background so switching views never flashes an empty panel.
+    void loadTasks(true, {
+      ...options,
+      silent: true,
+      mode,
+      repeatWindow,
+      view
+    });
+    return;
+  }
+  await loadTasks(options.forceRefresh === true, {
     ...options,
     mode,
     repeatWindow,
@@ -12041,7 +12172,9 @@ async function fastSyncTaskFromDom(
     }
 
     const parsedDoc = dom ? parser.parseFromString(dom, 'text/html') : null;
-    const completed = parseTaskCompleted(blockId, parsedDoc);
+    const liveStatus = parseTaskStatusFromElement(getLiveTaskElement(blockId), blockId)
+      ?? (parsedDoc ? parseTaskStatusFromElement(getTaskElementFromDoc(parsedDoc, blockId), blockId) : null);
+    const completed = liveStatus === null ? parseTaskCompleted(blockId, parsedDoc) : liveStatus === 'completed';
     const title = getLiveKanbanTaskTitle(blockId)
       ?? (parsedDoc ? getTaskTitleFromElement(getTaskElementFromDoc(parsedDoc, blockId)) : null);
     if (completed === null) {
@@ -12060,9 +12193,15 @@ async function fastSyncTaskFromDom(
       let changed = false;
       const previousStatus = task.status;
       const previousCompletedAt = task.completedAt;
-      const nextStatus: Task['status'] = completed
-        ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
-        : (task.status === 'cancelled' ? 'cancelled' : (task.status === 'completed' ? 'pending' : (task.status || 'pending')));
+      const effectiveLiveStatus = liveStatus && !(liveStatus === 'pending'
+        && task.status !== 'pending' && task.status !== 'completed')
+        ? liveStatus
+        : null;
+      const nextStatus: Task['status'] = effectiveLiveStatus || (
+        completed
+          ? (isClosedTaskStatus(task.status) ? task.status : 'completed')
+          : (task.status === 'cancelled' ? 'cancelled' : (task.status === 'completed' ? 'pending' : (task.status || 'pending')))
+      );
       if (task.status !== nextStatus) {
         task.status = nextStatus;
         changed = true;
@@ -12100,7 +12239,15 @@ async function fastSyncTaskFromDom(
 
     const subtaskEntry = subtaskNodeMap.get(blockId);
     if (subtaskEntry) {
-      if (subtaskEntry.subtask.completed !== completed) {
+      const nextSubtaskStatus = liveStatus === 'pending'
+        && subtaskEntry.subtask.status && subtaskEntry.subtask.status !== 'pending' && subtaskEntry.subtask.status !== 'completed'
+        ? subtaskEntry.subtask.status
+        : liveStatus;
+      if (typeof nextSubtaskStatus === 'string' && subtaskEntry.subtask.status !== nextSubtaskStatus) {
+        subtaskEntry.subtask.status = nextSubtaskStatus;
+        subtaskEntry.subtask.completed = nextSubtaskStatus === 'completed';
+        hasPatched = true;
+      } else if (subtaskEntry.subtask.completed !== completed) {
         subtaskEntry.subtask.completed = completed;
         hasPatched = true;
       }
@@ -15099,7 +15246,7 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     }
 
     if (task.type === 'block' && task.blockId) {
-      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true, getCheckinNotePromptAnchor(eventTarget));
+      await updateTaskMarkdown(task.blockId, newStatus === 'completed', true, getCheckinNotePromptAnchor(eventTarget), newStatus);
       crdtRepo.updateTaskField(task.id, 'status', newStatus);
       syncTaskLocalStatusState(task.id, newStatus);
       invalidateTableFilters();
@@ -15377,7 +15524,7 @@ async function handleSubtaskStatusUpdate(parentTask: Task, subtask: SubTask, sta
     },
     'Failed to update subtask status',
     async (blockId) => {
-      await updateTaskMarkdown(blockId, isCompletedTaskStatus(normalizedStatus));
+      await updateTaskMarkdown(blockId, isCompletedTaskStatus(normalizedStatus), false, undefined, normalizedStatus);
     }
   );
 }
@@ -15515,7 +15662,7 @@ async function handleStatusUpdate(task: Task, status: Task['status']) {
     status,
     'Failed to update task status',
     async (blockId) => {
-      await updateTaskMarkdown(blockId, isCompletedTaskStatus(status));
+      await updateTaskMarkdown(blockId, isCompletedTaskStatus(status), false, undefined, status);
     }
   );
   if (!wasCompleted && isCompletedTaskStatus(status) && taskCompletionSoundEnabled.value) {
@@ -17457,9 +17604,8 @@ async function handleStatusDrop(targetStatus: Task['status']) {
       await setBlockAttrs(task.blockId, {
         ...buildTaskStatusAttrs(targetStatus as Task['status'], task.completedAt)
       });
-      // Cancelled is a workflow status, not a completion marker. Keep the
-      // document task unchecked while persisting the explicit status attr.
-      await updateTaskMarkdown(task.blockId, isCompletedTaskStatus(targetStatus));
+      // Persist both the explicit status attribute and Siyuan's native marker.
+      await updateTaskMarkdown(task.blockId, isCompletedTaskStatus(targetStatus), false, undefined, targetStatus);
     }
     syncTaskLocalStatusState(taskId, targetStatus as Task['status']);
     if (!wasCompleted && targetStatus === 'completed' && taskCompletionSoundEnabled.value) {
@@ -17556,6 +17702,7 @@ onMounted(async () => {
       if (cachedTasks.length > 0 && !hasInitialTaskScope) {
         hydrateKanbanMemoTitlesSync(cachedTasks, KANBAN_TITLE_HYDRATE_LIMIT);
         scheduleInitialTaskSnapshot(cachedTasks);
+        rememberTaskSnapshot(initialTaskScope, 'full', null, cachedTasks);
         loadedTaskLoadMode.value = 'full';
         scheduleKanbanTitleHydration(120);
         shouldRunMountedReconcile = true;
@@ -17568,6 +17715,7 @@ onMounted(async () => {
         );
         if (lightTasks.length > 0) {
           scheduleInitialTaskSnapshot(lightTasks);
+          rememberTaskSnapshot(initialTaskScope, 'light-base', null, lightTasks);
           loadedTaskLoadMode.value = 'light-base';
           shouldRunMountedReconcile = true;
           markTaskLoadFirstTasks('view', loadTraceId, 'kernel', lightTasks.length);
@@ -17854,6 +18002,10 @@ watch(currentView, (nextView, previousView) => {
   void ensureTasksLoadedForView(nextView, {
     silent: nextView !== 'gantt',
     validateSelection: false,
+    // A view switch can require a different repeat window or scoped source.
+    // Always reconcile once after the switch instead of trusting the previous
+    // view's loaded-mode marker, which could leave the new view blank.
+    forceRefresh: true,
     // Keep the previous snapshot mounted while switching view modes. The
     // replacement load can then update it atomically instead of flashing an
     // empty calendar and forcing a second full render.
