@@ -62,6 +62,8 @@ type DetachedFocusWindowState = {
   activeOwner: FocusSessionOwner | null;
   theme: DetachedFocusTheme;
   iconBaseUrl: string;
+  audioDirectory: string;
+  apiToken: string;
   focusSettings: Record<string, unknown> | null;
 };
 
@@ -373,6 +375,18 @@ function getDetachedAssetUrl(path: string): string {
     return url.toString();
   } catch {
     return path;
+  }
+}
+
+function getDetachedAudioDirectory(): string {
+  try {
+    const workspaceDir = (window as any)?.siyuan?.config?.system?.workspaceDir;
+    if (typeof workspaceDir !== 'string' || !workspaceDir.trim()) {
+      return '';
+    }
+    return `${workspaceDir.replace(/[\\/]+$/, '')}/data/storage/petal/pinch/audio`;
+  } catch {
+    return '';
   }
 }
 
@@ -790,6 +804,8 @@ function getDetachedFocusWindowState(): DetachedFocusWindowState {
     activeOwner: getActiveFocusSessionOwner(),
     theme: latestThemeSnapshot,
     iconBaseUrl: window.location.origin,
+    audioDirectory: getDetachedAudioDirectory(),
+    apiToken: getDetachedAssetToken(),
     focusSettings: latestFocusSettings
   };
 }
@@ -1866,6 +1882,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       activeOwner: null,
       theme: null,
       iconBaseUrl: '',
+      audioDirectory: '',
+      apiToken: '',
       durationMarks: [5, 10, 15, 25, 30, 45, 60],
       durationOptions: [5, 10, 15, 25, 30, 45, 60, 'unlimited'],
       shortBreakMarks: [1, 3, 5, 10, 15],
@@ -2003,18 +2021,55 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     }
     const storedAudioUrls = new Map();
 
+    async function getLocalStoredAudioUrl(path) {
+      if (!path || !state.audioDirectory || typeof require !== 'function') return '';
+      try {
+        const fs = require('fs');
+        const pathModule = require('path');
+        const fileName = pathModule.basename(String(path));
+        const root = pathModule.resolve(state.audioDirectory);
+        const filePath = pathModule.resolve(root, fileName);
+        if (filePath !== root && !filePath.startsWith(root + pathModule.sep)) return '';
+        const bytes = await fs.promises.readFile(filePath);
+        if (!bytes || bytes.length === 0) return '';
+        const extension = String(fileName).split('.').pop().toLowerCase();
+        const mime = extension === 'mp3' ? 'audio/mpeg'
+          : extension === 'wav' ? 'audio/wav'
+            : extension === 'm4a' ? 'audio/mp4'
+              : extension === 'webm' ? 'audio/webm'
+                : 'audio/ogg';
+        return URL.createObjectURL(new Blob([bytes], { type: mime }));
+      } catch {
+        return '';
+      }
+    }
+
     async function getStoredAudioUrl(path) {
       if (!path) return '';
       if (!storedAudioUrls.has(path)) {
-        storedAudioUrls.set(path, fetch((state.iconBaseUrl || '') + '/api/file/getFile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: '/data/storage/petal/pinch/audio/' + path })
-        }).then(async (response) => {
-          if (!response.ok) return '';
-          const blob = await response.blob();
-          return blob.size > 0 ? URL.createObjectURL(blob) : '';
-        }).catch(() => ''));
+        storedAudioUrls.set(path, (async () => {
+          const localUrl = await getLocalStoredAudioUrl(path);
+          if (localUrl) return localUrl;
+
+          // Fallback for environments where the workspace path is not exposed.
+          // A data: URL cannot send the host window's session cookie, so pass
+          // the API token in the query string when one is available.
+          try {
+            const endpoint = new URL('/api/file/getFile', state.iconBaseUrl || document.baseURI);
+            if (state.apiToken) endpoint.searchParams.set('token', state.apiToken);
+            const response = await fetch(endpoint.toString(), {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: '/data/storage/petal/pinch/audio/' + path })
+            });
+            if (!response.ok) return '';
+            const blob = await response.blob();
+            return blob.size > 0 ? URL.createObjectURL(blob) : '';
+          } catch {
+            return '';
+          }
+        })());
       }
       return storedAudioUrls.get(path);
     }
@@ -3157,6 +3212,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       }
       state.activeOwner = hostState.activeOwner ?? null;
       state.iconBaseUrl = hostState.iconBaseUrl || state.iconBaseUrl;
+      state.audioDirectory = hostState.audioDirectory || state.audioDirectory;
+      state.apiToken = hostState.apiToken || state.apiToken;
       applyTheme(hostState.theme);
       applyFocusSettings(hostState.focusSettings);
       if (!isActive()) {
