@@ -40,6 +40,19 @@ describe('goal persistence safety', () => {
     await expect(loadGoals()).rejects.toThrow('read failed');
   });
 
+  it('treats a disposed plugin read as cancellation without logging or poisoning storage health', async () => {
+    plugin.loadData.mockRejectedValueOnce({ code: 410, msg: 'Plugin lifecycle has ended', data: null });
+    const repository = await import('./goalRepository');
+
+    await expect(repository.loadGoals()).resolves.toEqual([]);
+    expect(console.error).not.toHaveBeenCalled();
+
+    plugin.loadData.mockResolvedValue(storedGoals());
+    await expect(repository.loadGoals()).resolves.toHaveLength(1);
+    await expect(repository.saveGoals(storedGoals().goals)).resolves.toBeUndefined();
+    expect(plugin.saveData).toHaveBeenCalled();
+  });
+
   it('returns the last good snapshot but blocks mutation after a read failure', async () => {
     const repository = await import('./goalRepository');
     plugin.loadData.mockResolvedValueOnce(storedGoals());

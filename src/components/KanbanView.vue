@@ -13349,7 +13349,7 @@ async function handleKanbanEditorMove(): Promise<void> {
 
   isKanbanTaskMoveSubmitting.value = true;
   try {
-    const moveResult = await TaskRepository.moveTask(task.id, kanbanMoveSelectedDocument.value);
+    const moveResult = await TaskRepository.moveTask(task.id, kanbanMoveSelectedDocument.value, task.blockId);
     applyOptimisticKanbanDocumentMove(
       [task.id],
       kanbanMoveSelectedDocument.value,
@@ -14467,7 +14467,7 @@ async function handleKanbanMove(): Promise<void> {
   isKanbanTaskMoveSubmitting.value = true;
   try {
     const results = await Promise.allSettled(
-      moveTasks.map(task => TaskRepository.moveTask(task.id, kanbanMoveSelectedDocument.value))
+      moveTasks.map(task => TaskRepository.moveTask(task.id, kanbanMoveSelectedDocument.value, task.blockId))
     );
     let successCount = 0;
     const movedTaskIds: string[] = [];
@@ -17380,7 +17380,7 @@ async function handleDocumentDrop(column: KanbanColumn): Promise<void> {
   draggedTask.value = null;
   dragOverColumnId.value = null;
   try {
-    const moveResult = await TaskRepository.moveTask(task.id, targetDocumentId);
+    const moveResult = await TaskRepository.moveTask(task.id, targetDocumentId, task.blockId);
     // The kernel index can lag behind a block move. Update the local snapshot
     // first so the card immediately leaves its source document column, then
     // refresh the index in the background to reconcile its final metadata.

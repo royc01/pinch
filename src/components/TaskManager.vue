@@ -8671,7 +8671,7 @@ async function handleTaskEditorMove(): Promise<void> {
 
   isTaskMoveSubmitting.value = true;
   try {
-    await TaskRepository.moveTask(task.id, taskMoveSelectedDocument.value);
+    await TaskRepository.moveTask(task.id, taskMoveSelectedDocument.value, task.blockId);
     closeTaskMoveDialog();
     closeTaskEditorSidebar();
     await refreshTasks(true, { showLoading: false, compareExisting: false, source: 'task-move' });

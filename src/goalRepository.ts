@@ -8,7 +8,7 @@ import { usePlugin } from './main';
 import { eventBus, Events } from './utils/eventBus';
 import { setTaskGoalMembership, type GoalTaskSource } from './utils/goalTaskMembership';
 import { enqueueStorageMutation } from './storageMutationCoordinator';
-import { isMissingPluginStorageValue } from './utils/pluginStorage';
+import { isMissingPluginStorageValue, isPluginLifecycleEndedError } from './utils/pluginStorage';
 
 export interface GoalTaskMember {
   taskId: string;
@@ -501,6 +501,13 @@ export async function loadGoals(): Promise<Goal[]> {
     goalsCache = cloneGoals(snapshot.goals);
     return cloneGoals(snapshot.goals);
   } catch (error) {
+    // A delayed refresh from the outgoing plugin instance can finish after
+    // SiYuan has already disposed that instance. This is cancellation, not a
+    // storage failure: do not poison the repository health state or emit an
+    // alarming console error during an otherwise successful task move.
+    if (isPluginLifecycleEndedError(error)) {
+      return goalsCache ? cloneGoals(goalsCache) : [];
+    }
     const normalizedError = markGoalReadFailure(error);
     console.error('[Goals] loadGoals: read failed', error);
     if (goalsCache) {

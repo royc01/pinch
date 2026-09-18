@@ -4384,6 +4384,183 @@ export class TaskRepository {
     return null;
   }
 
+  /**
+   * Resolve the block that owns a task structurally.
+   *
+   * Older task data can keep `custom-task-id` on the paragraph inside a task
+   * list item. Attribute updates may use that paragraph, but moving it would
+   * detach only the paragraph and leave the list item behind. Some kernels
+   * react to that invalid tree transition by rebuilding the document (and, in
+   * affected versions, reloading the client). Always move the owning list item
+   * instead.
+   */
+  private static async resolveStructuralTaskBlockId(blockId: string): Promise<string> {
+    const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+    if (!normalizedBlockId) return '';
+
+    try {
+      const rows = await sql(`
+        SELECT id, parent_id, type
+        FROM blocks
+        WHERE id = '${this.escapeSqlLiteral(normalizedBlockId)}'
+        LIMIT 1
+      `) as Array<{ id?: string; parent_id?: string; type?: string }>;
+      const row = rows?.[0];
+      if (!row) return normalizedBlockId;
+      if (String(row.type || '').toLowerCase() === 'i') return normalizedBlockId;
+
+      const parentId = typeof row.parent_id === 'string' ? row.parent_id.trim() : '';
+      if (!parentId) return normalizedBlockId;
+      const parentRows = await sql(`
+        SELECT id, type
+        FROM blocks
+        WHERE id = '${this.escapeSqlLiteral(parentId)}'
+        LIMIT 1
+      `) as Array<{ id?: string; type?: string }>;
+      return String(parentRows?.[0]?.type || '').toLowerCase() === 'i'
+        ? parentId
+        : normalizedBlockId;
+    } catch {
+      return normalizedBlockId;
+    }
+  }
+
+  private static generateStructuralBlockId(): string {
+    const now = new Date();
+    const stamp = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+      String(now.getHours()).padStart(2, '0'),
+      String(now.getMinutes()).padStart(2, '0'),
+      String(now.getSeconds()).padStart(2, '0')
+    ].join('');
+    return `${stamp}-${Math.random().toString(36).slice(2, 9).padEnd(7, '0')}`;
+  }
+
+  private static async getFreshBlockDom(blockId: string): Promise<string> {
+    const normalizedBlockId = typeof blockId === 'string' ? blockId.trim() : '';
+    if (!normalizedBlockId) return '';
+    try {
+      // Structural moves must not reuse the short DOM cache. A cached DOM can
+      // outlive an index rebuild and recreate a block in the wrong document.
+      const response = await request<BlockDOMResponse>('/api/block/getBlockDOM', { id: normalizedBlockId });
+      return typeof response?.dom === 'string' ? response.dom.trim() : '';
+    } catch {
+      return '';
+    }
+  }
+
+  private static async resolveSafeTaskContainerList(
+    rootId: string
+  ): Promise<{ listId: string; previousId: string } | null> {
+    const normalizedRootId = typeof rootId === 'string' ? rootId.trim() : '';
+    if (!normalizedRootId) return null;
+
+    try {
+      const rows = await sql(`
+        SELECT l.id,
+          MAX(CASE
+            WHEN a.name = '${this.TASK_CONTAINER_ATTR}' AND a.value = '1' THEN 1
+            ELSE 0
+          END) AS marked
+        FROM blocks l
+        LEFT JOIN attributes a ON a.block_id = l.id
+        WHERE l.root_id = '${this.escapeSqlLiteral(normalizedRootId)}'
+          AND l.parent_id = '${this.escapeSqlLiteral(normalizedRootId)}'
+          AND l.type = 'l'
+          AND l.subtype = 't'
+        GROUP BY l.id
+        ORDER BY marked DESC, l.sort ASC, l.created ASC
+        LIMIT 32
+      `) as Array<{ id?: string }>;
+
+      for (const row of rows || []) {
+        const listId = typeof row?.id === 'string' ? row.id.trim() : '';
+        if (!listId) continue;
+        const rawDom = await this.getFreshBlockDom(listId);
+        if (!rawDom) continue;
+        const parsed = new DOMParser().parseFromString(rawDom, 'text/html');
+        const list = parsed.querySelector(`[data-node-id="${listId}"][data-type="NodeList"]`);
+        if (!list) continue;
+        const itemIds = Array.from(list.children)
+          .filter(child => child instanceof Element && child.getAttribute('data-type') === 'NodeListItem')
+          .map(child => child.getAttribute('data-node-id')?.trim() || '')
+          .filter(Boolean);
+        // Never merge into an empty indexed list. Empty lists are precisely
+        // the transient/stale containers that made moveBlock reload 3.8.x.
+        if (itemIds.length === 0) continue;
+        return { listId, previousId: itemIds[itemIds.length - 1] };
+      }
+    } catch {
+      // Fall through to a fresh list under the document root.
+    }
+    return null;
+  }
+
+  private static async moveTaskItemIntoExistingList(
+    blockId: string,
+    listId: string,
+    previousId: string
+  ): Promise<void> {
+    const sourceDom = await this.getFreshBlockDom(blockId);
+    if (!sourceDom || !sourceDom.includes(`data-node-id="${blockId}"`)) {
+      throw new Error(translate('api.errors.moveTaskNotFound', 'Could not find the task block to move'));
+    }
+
+    await request('/api/transactions', {
+      reqId: Date.now(),
+      transactions: [{ doOperations: [
+        { action: 'delete', id: blockId },
+        {
+          action: 'insert',
+          id: blockId,
+          parentID: listId,
+          ...(previousId ? { previousID: previousId } : {}),
+          data: sourceDom
+        }
+      ] }]
+    });
+    try { await request('/api/sqlite/flushTransaction', {}); } catch { /* older kernels */ }
+    invalidateBlockDOMCache();
+  }
+
+  /**
+   * Atomically reparent a task item by recreating it with the same block ID in
+   * a fresh task list. This is the proven path used by cross-document nesting
+   * and deliberately avoids `/api/block/moveBlock`, whose behaviour depends on
+   * stale/empty list containers in SiYuan 3.8.x.
+   */
+  private static async moveTaskItemIntoFreshList(
+    blockId: string,
+    targetParentId: string,
+    previousId = ''
+  ): Promise<string> {
+    const sourceDom = await this.getFreshBlockDom(blockId);
+    if (!sourceDom || !sourceDom.includes(`data-node-id="${blockId}"`)) {
+      throw new Error(translate('api.errors.moveTaskNotFound', 'Could not find the task block to move'));
+    }
+
+    const listId = this.generateStructuralBlockId();
+    const listDom = `<div data-subtype="t" data-node-id="${listId}" data-type="NodeList" class="list" updated="${listId}">${sourceDom}<div class="protyle-attr" contenteditable="false">&ZeroWidthSpace;</div></div>`;
+    await request('/api/transactions', {
+      reqId: Date.now(),
+      transactions: [{ doOperations: [
+        { action: 'delete', id: blockId },
+        {
+          action: 'insert',
+          id: listId,
+          parentID: targetParentId,
+          ...(previousId ? { previousID: previousId } : {}),
+          data: listDom
+        }
+      ] }]
+    });
+    try { await request('/api/sqlite/flushTransaction', {}); } catch { /* older kernels */ }
+    invalidateBlockDOMCache();
+    return listId;
+  }
+
   private static setSubtaskCompletion(subtasks: SubTask[] | undefined, subtaskId: string, completed: boolean): boolean {
     if (!Array.isArray(subtasks) || subtasks.length === 0) return false;
 
@@ -5958,30 +6135,47 @@ export class TaskRepository {
     return completedAt;
   }
 
-  static async moveTask(taskId: string, targetRootId: string): Promise<{ blockId: string; parentId: string }> {
+  static async moveTask(taskId: string, targetRootId: string, preferredBlockId?: string): Promise<{ blockId: string; parentId: string }> {
     const normalizedTaskId = typeof taskId === 'string' ? taskId.trim() : '';
     const normalizedRootId = typeof targetRootId === 'string' ? targetRootId.trim() : '';
     if (!normalizedTaskId || !normalizedRootId) {
       throw new Error(translate('api.errors.moveTaskTargetRequired', 'Missing target information required to move the task'));
     }
 
-    const blockId = await this.resolveBlockIdByTaskId(normalizedTaskId);
+    const normalizedPreferredBlockId = typeof preferredBlockId === 'string' ? preferredBlockId.trim() : '';
+    const resolvedBlockId = normalizedPreferredBlockId || await this.resolveBlockIdByTaskId(normalizedTaskId);
+    if (!resolvedBlockId) {
+      throw new Error(translate('api.errors.moveTaskNotFound', 'Could not find the task block to move'));
+    }
+    const blockId = await this.resolveStructuralTaskBlockId(resolvedBlockId);
     if (!blockId) {
       throw new Error(translate('api.errors.moveTaskNotFound', 'Could not find the task block to move'));
     }
 
-    const containerListId = await this.resolveTaskContainerListId(normalizedRootId);
-    const parentId = containerListId || normalizedRootId;
+    // The picker supplies a document root ID. Validate its type, then use a
+    // DOM-verified non-empty list when one exists. Reparenting remains an
+    // atomic delete+insert transaction and never calls moveBlock.
+    const targetRows = await sql(`
+      SELECT id, type
+      FROM blocks
+      WHERE id = '${this.escapeSqlLiteral(normalizedRootId)}'
+        AND type = 'd'
+      LIMIT 1
+    `) as Array<{ id?: string; type?: string }>;
+    if (!targetRows?.[0]?.id) {
+      throw new Error(translate('api.errors.documentNotFound', 'Document not found'));
+    }
 
     markTaskStructureChangePending([blockId, normalizedRootId]);
-    await moveBlock(blockId, undefined, parentId);
-    if (containerListId) {
-      await this.markTaskContainerList(containerListId, normalizedRootId);
+    const existingContainer = await this.resolveSafeTaskContainerList(normalizedRootId);
+    const listId = existingContainer?.listId || await this.moveTaskItemIntoFreshList(blockId, normalizedRootId);
+    if (existingContainer) {
+      await this.moveTaskItemIntoExistingList(blockId, existingContainer.listId, existingContainer.previousId);
     }
     await this.clearCache();
     publishTaskStructureChange([blockId, normalizedRootId]);
 
-    return { blockId, parentId };
+    return { blockId, parentId: listId };
   }
 
   /** Move a task block under another task, making it a nested task. */
@@ -6054,17 +6248,6 @@ export class TaskRepository {
       // Fall through to nested-list creation below.
     }
     if (parentId === targetBlockId) {
-      const sourceDomResponse = await getBlockDOM(blockId);
-      const sourceDom = typeof sourceDomResponse?.dom === 'string' ? sourceDomResponse.dom.trim() : '';
-      if (!sourceDom || !sourceDom.includes(`data-node-id="${blockId}"`)) {
-        throw new Error('Could not read source task DOM');
-      }
-      const listId = (() => {
-        const now = new Date();
-        const stamp = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0'), String(now.getHours()).padStart(2, '0'), String(now.getMinutes()).padStart(2, '0'), String(now.getSeconds()).padStart(2, '0')].join('');
-        return `${stamp}-${Math.random().toString(36).slice(2, 9).padEnd(7, '0')}`;
-      })();
-      const nestedListDom = `<div data-subtype="t" data-node-id="${listId}" data-type="NodeList" class="list" updated="${listId}">${sourceDom}<div class="protyle-attr" contenteditable="false">&ZeroWidthSpace;</div></div>`;
       let previousChildId = '';
       try {
         const targetChildren = await getChildBlocks(targetBlockId);
@@ -6083,14 +6266,7 @@ export class TaskRepository {
           : '';
       }
       markTaskStructureChangePending([blockId, targetBlockId]);
-      await request('/api/transactions', {
-        reqId: Date.now(),
-        transactions: [{ doOperations: [
-          { action: 'delete', id: blockId },
-          { action: 'insert', id: listId, parentID: targetBlockId, ...(previousChildId ? { previousID: previousChildId } : {}), data: nestedListDom }
-        ] }]
-      });
-      try { await request('/api/sqlite/flushTransaction', {}); } catch { /* older kernels */ }
+      const listId = await this.moveTaskItemIntoFreshList(blockId, targetBlockId, previousChildId);
       await this.clearCache();
       publishTaskStructureChange([blockId, targetBlockId]);
       return { blockId, parentId: listId };

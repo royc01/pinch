@@ -318,6 +318,146 @@ describe('TaskRepository incremental task fetches', () => {
     });
   });
 
+  it('moves the owning list item when legacy task attributes are stored on its paragraph', async () => {
+    vi.spyOn(TaskRepository as any, 'resolveBlockIdByTaskId').mockResolvedValue('paragraph-1');
+    vi.spyOn(TaskRepository as any, 'markTaskContainerList').mockResolvedValue(undefined);
+    vi.spyOn(TaskRepository, 'clearCache').mockResolvedValue();
+
+    const requests: Array<{ url: string; data: any }> = [];
+    vi.spyOn(siyuan, 'fetchPost').mockImplementation((url: string, data: any, callback?: (response: any) => void) => {
+      requests.push({ url, data });
+      if (url === '/api/query/sql') {
+        const statement = String(data?.stmt || '');
+        if (statement.includes("id = 'paragraph-1'")) {
+          callback?.({ code: 0, data: [{ id: 'paragraph-1', parent_id: 'list-item-1', type: 'p' }] });
+          return;
+        }
+        if (statement.includes("id = 'list-item-1'")) {
+          callback?.({ code: 0, data: [{ id: 'list-item-1', type: 'i' }] });
+          return;
+        }
+        if (statement.includes("id = 'target-doc-1'")) {
+          callback?.({ code: 0, data: [{ id: 'target-doc-1', type: 'd' }] });
+          return;
+        }
+      }
+      if (url === '/api/block/getBlockDOM') {
+        callback?.({
+          code: 0,
+          data: { dom: '<div data-node-id="list-item-1" data-type="NodeListItem"></div>' }
+        });
+        return;
+      }
+      callback?.({ code: 0, data: [] });
+    });
+
+    const result = await TaskRepository.moveTask('task-1', 'target-doc-1');
+    expect(result.blockId).toBe('list-item-1');
+    expect(result.parentId).toMatch(/^\d{14}-[a-z0-9]{7}$/);
+
+    const transaction = requests.find(item => item.url === '/api/transactions');
+    expect(transaction?.data.transactions[0].doOperations).toEqual([
+      { action: 'delete', id: 'list-item-1' },
+      expect.objectContaining({
+        action: 'insert',
+        id: result.parentId,
+        parentID: 'target-doc-1',
+        data: expect.stringContaining('data-node-id="list-item-1"')
+      })
+    ]);
+    expect(requests.some(item => item.url === '/api/block/moveBlock')).toBe(false);
+  });
+
+  it('rejects a stale move target before calling the kernel move API', async () => {
+    vi.spyOn(TaskRepository as any, 'resolveBlockIdByTaskId').mockResolvedValue('list-item-1');
+    vi.spyOn(TaskRepository as any, 'resolveStructuralTaskBlockId').mockResolvedValue('list-item-1');
+    const moveRequests: any[] = [];
+    vi.spyOn(siyuan, 'fetchPost').mockImplementation((url: string, data: any, callback?: (response: any) => void) => {
+      if (url === '/api/block/moveBlock') moveRequests.push(data);
+      callback?.({ code: 0, data: [] });
+    });
+
+    await expect(TaskRepository.moveTask('task-1', 'missing-doc')).rejects.toThrow('Document not found');
+    expect(moveRequests).toEqual([]);
+  });
+
+  it('falls back to an atomic fresh list when no DOM-verified container is available', async () => {
+    vi.spyOn(TaskRepository as any, 'resolveBlockIdByTaskId').mockResolvedValue('list-item-1');
+    vi.spyOn(TaskRepository as any, 'resolveStructuralTaskBlockId').mockResolvedValue('list-item-1');
+    const resolveContainer = vi.spyOn(TaskRepository as any, 'resolveTaskContainerListId').mockResolvedValue('stale-list-1');
+    vi.spyOn(TaskRepository as any, 'markTaskContainerList').mockResolvedValue(undefined);
+    vi.spyOn(TaskRepository, 'clearCache').mockResolvedValue();
+    const requests: Array<{ url: string; data: any }> = [];
+    vi.spyOn(siyuan, 'fetchPost').mockImplementation((url: string, data: any, callback?: (response: any) => void) => {
+      requests.push({ url, data });
+      if (url === '/api/query/sql') {
+        callback?.({ code: 0, data: [{ id: 'target-doc-1', type: 'd' }] });
+        return;
+      }
+      if (url === '/api/block/getBlockDOM') {
+        callback?.({
+          code: 0,
+          data: { dom: '<div data-node-id="list-item-1" data-type="NodeListItem"></div>' }
+        });
+        return;
+      }
+      callback?.({ code: 0, data: [] });
+    });
+
+    const result = await TaskRepository.moveTask('task-1', 'target-doc-1');
+    const operations = requests.find(item => item.url === '/api/transactions')?.data.transactions[0].doOperations;
+    expect(operations?.[1]).toMatchObject({
+      action: 'insert',
+      id: result.parentId,
+      parentID: 'target-doc-1'
+    });
+    expect(resolveContainer).not.toHaveBeenCalled();
+    expect(requests.some(item => item.url === '/api/block/moveBlock')).toBe(false);
+  });
+
+  it('atomically merges into the end of a DOM-verified task list without moveBlock', async () => {
+    vi.spyOn(TaskRepository as any, 'resolveBlockIdByTaskId').mockResolvedValue('list-item-1');
+    vi.spyOn(TaskRepository as any, 'resolveStructuralTaskBlockId').mockResolvedValue('list-item-1');
+    vi.spyOn(TaskRepository as any, 'resolveSafeTaskContainerList').mockResolvedValue({
+      listId: 'target-list-1',
+      previousId: 'existing-item-1'
+    });
+    vi.spyOn(TaskRepository as any, 'markTaskContainerList').mockResolvedValue(undefined);
+    vi.spyOn(TaskRepository, 'clearCache').mockResolvedValue();
+    const requests: Array<{ url: string; data: any }> = [];
+    vi.spyOn(siyuan, 'fetchPost').mockImplementation((url: string, data: any, callback?: (response: any) => void) => {
+      requests.push({ url, data });
+      if (url === '/api/query/sql') {
+        callback?.({ code: 0, data: [{ id: 'target-doc-1', type: 'd' }] });
+        return;
+      }
+      if (url === '/api/block/getBlockDOM') {
+        callback?.({
+          code: 0,
+          data: { dom: '<div data-node-id="list-item-1" data-type="NodeListItem"></div>' }
+        });
+        return;
+      }
+      callback?.({ code: 0, data: [] });
+    });
+
+    await expect(TaskRepository.moveTask('task-1', 'target-doc-1')).resolves.toEqual({
+      blockId: 'list-item-1',
+      parentId: 'target-list-1'
+    });
+    expect(requests.find(item => item.url === '/api/transactions')?.data.transactions[0].doOperations).toEqual([
+      { action: 'delete', id: 'list-item-1' },
+      {
+        action: 'insert',
+        id: 'list-item-1',
+        parentID: 'target-list-1',
+        previousID: 'existing-item-1',
+        data: '<div data-node-id="list-item-1" data-type="NodeListItem"></div>'
+      }
+    ]);
+    expect(requests.some(item => item.url === '/api/block/moveBlock')).toBe(false);
+  });
+
   it('updates the shared task state before views reconcile from storage', async () => {
     const { syncFromSQL: syncGlobalTasks, tasks: globalTasks } = useCrdtTasks();
     const { syncFromSQL: syncSidebarTasks, tasks: sidebarTasks } = useCrdtTasks('task-manager');
