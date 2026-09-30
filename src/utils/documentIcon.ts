@@ -6,6 +6,24 @@ function hexToEmoji(hex: string): string | undefined {
   }
 }
 
+export const DEFAULT_DOCUMENT_ICON_SYMBOL = '#iconFile';
+export const DEFAULT_NOTEBOOK_ICON_SYMBOL = '#iconNotebook';
+
+export function isSvgDefaultFileTreeIconEnabled(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return (window.siyuan as any)?.config?.fileTree?.useSVGDefaultIcon === true;
+}
+
+export function getDefaultDocumentIconValue(): string {
+  return isSvgDefaultFileTreeIconEnabled() ? DEFAULT_DOCUMENT_ICON_SYMBOL : '📄';
+}
+
+export function getDefaultNotebookIconValue(): string {
+  return isSvgDefaultFileTreeIconEnabled() ? DEFAULT_NOTEBOOK_ICON_SYMBOL : '🗃';
+}
+
 export function normalizeDocumentIconValue(value: unknown): string | undefined {
   if (typeof value !== 'string') {
     return undefined;
@@ -38,6 +56,10 @@ export function normalizeDocumentIconValue(value: unknown): string | undefined {
   const unquoted = decoded.replace(/^['"]+|['"]+$/g, '').trim();
   if (!unquoted) {
     return undefined;
+  }
+
+  if (/^#icon[A-Za-z0-9_-]+$/.test(unquoted)) {
+    return unquoted;
   }
 
   const isDocumentIconAssetPath = (candidate: string): boolean => (

@@ -378,7 +378,7 @@
                     v-if="documentIconsReady"
                     class="group-row-document-emoji-icon"
                     :value="getTaskDocumentGroupIconRaw(row.group)"
-                    fallback="📄"
+                    :fallback="getDefaultDocumentIconValue()"
                   />
                 </span>
                 <span class="group-row-title">
@@ -594,7 +594,7 @@
                     v-if="!isTaskDocumentIconPending(row.task)"
                     class="task-document-emoji-icon"
                     :value="getTaskDocumentIconRaw(row.task)"
-                    fallback="📄"
+                    :fallback="getDefaultDocumentIconValue()"
                   />
                 </span>
                 <span class="task-document-title-text">{{ getTaskDocumentTitleText(row.task) }}</span>
@@ -737,7 +737,7 @@
                     v-if="!isTaskDocumentIconPending(row.task)"
                     class="task-document-emoji-icon"
                     :value="getTaskDocumentIconRaw(row.task)"
-                    fallback="📄"
+                    :fallback="getDefaultDocumentIconValue()"
                   />
                 </span>
                 <span class="task-document-title-text">{{ getTaskDocumentTitleText(row.task) }}</span>
@@ -917,6 +917,7 @@ import {
   toggleTaskTagSelection
 } from '@/utils/taskTags';
 import { resolveDocumentIconColorIndex } from '@/utils/documentIconColor';
+import { getDefaultDocumentIconValue } from '@/utils/documentIcon';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import { usePlugin } from '@/main';
 import { isPluginLifecycleEndedError } from '@/utils/pluginStorage';
@@ -3879,6 +3880,7 @@ function getTaskDocumentIconRaw(task: Task): string {
     if (typeof mapped === 'string' && mapped.trim().length > 0) {
       return mapped.trim();
     }
+    return '';
   }
   return typeof task.icon === 'string' ? task.icon.trim() : '';
 }

@@ -1,7 +1,14 @@
 <template>
   <span class="emoji-icon" :title="titleText">
+    <svg
+      v-if="symbolId"
+      class="emoji-icon-symbol"
+      aria-hidden="true"
+    >
+      <use :href="`#${symbolId}`" :xlink:href="`#${symbolId}`"></use>
+    </svg>
     <img
-      v-if="imageSrc"
+      v-else-if="imageSrc"
       class="emoji-icon-image"
       :src="imageSrc"
       :alt="displayText"
@@ -28,7 +35,11 @@ const displayText = computed(() => {
   return value || props.fallback;
 });
 
-const titleText = computed(() => displayText.value || undefined);
+const symbolId = computed(() => {
+  const match = displayText.value.match(/^#(icon[A-Za-z0-9_-]+)$/);
+  return match?.[1] || '';
+});
+const titleText = computed(() => symbolId.value ? undefined : (displayText.value || undefined));
 const imageSrc = computed(() => resolveEmojiImageSrc(displayText.value));
 
 function normalizeIconValue(value: string | undefined): string {
@@ -92,5 +103,12 @@ function resolveEmojiImageSrc(value: string): string {
   height: 100%;
   display: block;
   object-fit: contain;
+}
+
+.emoji-icon-symbol {
+  width: 100%;
+  height: 100%;
+  display: block;
+  fill: currentColor;
 }
 </style>

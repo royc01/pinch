@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/api';
 import {
   createCalendarTaskDateFields,
+  getCalendarTaskRenderDateValues,
   getEffectiveDueDate,
   normalizeOptionalDateValue,
   saveCalendarTaskDates
@@ -40,6 +41,33 @@ describe('calendar task date fields', () => {
       startTime: '',
       dueDate: '2026-04-10',
       dueTime: ''
+    });
+  });
+
+  it('renders an ordinary repeat instance on its occurrence date even with a stale template cutoff', () => {
+    expect(getCalendarTaskRenderDateValues(task({
+      startDate: '2026-09-16',
+      dueDate: '2026-09-30',
+      repeatSeriesId: 'series-1',
+      repeatInstanceDate: '2026-09-23',
+      isVirtual: true
+    }))).toEqual({
+      startDate: '2026-09-23',
+      dueDate: '2026-09-23'
+    });
+  });
+
+  it('preserves the date span of an explicit repeat window', () => {
+    expect(getCalendarTaskRenderDateValues(task({
+      startDate: '2026-09-23',
+      dueDate: '2026-09-26',
+      repeatSeriesId: 'series-1',
+      repeatInstanceDate: '2026-09-23',
+      isVirtual: true,
+      isRepeatWindow: true
+    }))).toEqual({
+      startDate: '2026-09-23',
+      dueDate: '2026-09-26'
     });
   });
 });

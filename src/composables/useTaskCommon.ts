@@ -4,6 +4,7 @@ import type { SubTask, Task } from '@/api';
 import { translate } from '@/composables/useI18n';
 import { getTaskStatusLabel } from '@/utils/taskStatus';
 import { getTaskTitlePlainText } from '@/utils/taskHtml';
+import { getDefaultNotebookIconValue } from '@/utils/documentIcon';
 
 export function getStatusLabel(status: string): string {
   return getTaskStatusLabel(status, key => translate(key, status));
@@ -179,7 +180,7 @@ export function useNotebooks() {
             id: nb.id,
             name: nb.name,
             // SiYuan returns an empty icon for notebooks that use its default icon.
-            icon: nb.icon || '1f5c3'
+            icon: nb.icon || getDefaultNotebookIconValue()
           }));
       }
     } catch (error) {

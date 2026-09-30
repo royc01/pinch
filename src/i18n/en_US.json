@@ -150,6 +150,7 @@
   "api.errors.moveTaskCycle": "Cannot move a task into itself or one of its descendants",
   "task.new": "New Task",
   "task.newLongPressOpenBoard": "New Task (long press to open Pinch board)",
+  "task.newLongPressOpenHome": "New Task (long press to open Pinch home)",
   "taskManager.addSubtask": "Add Subtask",
   "taskManager.block": "Document",
   "taskManager.cancel": "Cancel",

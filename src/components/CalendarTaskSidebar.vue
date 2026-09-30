@@ -179,7 +179,7 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { type Task } from "@/api";
 import { getTaskDisplayTitle } from "@/composables/useTaskCommon";
 import { useI18n } from "@/composables/useI18n";
-import { normalizeDocumentIconValue } from "@/utils/documentIcon";
+import { getDefaultNotebookIconValue, normalizeDocumentIconValue } from "@/utils/documentIcon";
 import { getTaskTitlePlainText } from "@/utils/taskHtml";
 import Icon from "./Icon.vue";
 import EmojiIcon from "./EmojiIcon.vue";
@@ -246,7 +246,7 @@ const notebookNames = computed(() => new Map(
 const notebookIcons = computed(() => new Map(
   (props.notebooks || []).map(notebook => [
     notebook.id,
-    normalizeDocumentIconValue(notebook.icon) || ''
+    normalizeDocumentIconValue(notebook.icon) || getDefaultNotebookIconValue()
   ])
 ));
 const miniMonth = ref(new Date());

@@ -148,6 +148,7 @@
     "api.errors.moveTaskCycle":  "不能将任务移入自身或其子孙任务",
     "task.new":  "新建任务",
     "task.newLongPressOpenBoard":  "新建任务（长按打开 Pinch 看板）",
+    "task.newLongPressOpenHome":  "新建任务（长按打开 Pinch 主页）",
     "taskManager.addSubtask":  "添加子任务",
     "taskManager.block":  "文档",
     "taskManager.cancel":  "取消",

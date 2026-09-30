@@ -27,7 +27,7 @@
       v-else-if="document"
       class="column-title-document-icon"
       :value="documentIcon"
-      fallback="📄"
+      :fallback="getDefaultDocumentIconValue()"
     />
   </span>
 </template>
@@ -36,6 +36,7 @@
 import Icon from '@/components/Icon.vue';
 import EmojiIcon from '@/components/EmojiIcon.vue';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
+import { getDefaultDocumentIconValue } from '@/utils/documentIcon';
 
 withDefaults(defineProps<{
   batchMode?: boolean;

@@ -210,7 +210,7 @@
             v-else-if="!documentIconPending"
             class="task-document-emoji-icon"
             :value="documentIconRaw"
-            fallback="📄"
+            :fallback="getDefaultDocumentIconValue()"
           />
         </span>
         <span class="task-document-title-text">{{ documentTitleText }}</span>
@@ -265,6 +265,7 @@ import { resolveTaskTagIds } from '@/utils/taskTags';
 import type { Goal } from '@/goalRepository';
 import { getEffectiveGoalIdsForTask } from '@/utils/goalTaskMembership';
 import { useTaskFocusProgress } from '@/composables/useTaskFocusProgress';
+import { getDefaultDocumentIconValue } from '@/utils/documentIcon';
 
 defineOptions({
   name: 'TaskCard'

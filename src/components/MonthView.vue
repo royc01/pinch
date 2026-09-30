@@ -419,7 +419,7 @@ import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
 import { useHabitEmojis } from '@/composables/useHabitEmojis';
-import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
+import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import { persistTaskBackgroundColor } from '@/utils/taskBackgroundColorPersistence';
 import {
@@ -450,6 +450,7 @@ import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import {
   createCalendarTaskDateFields,
+  getCalendarTaskRenderDateValues,
   getEffectiveDueDate,
   normalizeOptionalDateValue,
   saveCalendarTaskDates,
@@ -1291,16 +1292,15 @@ watch(() => props.tasks, (newTasks) => {
 }, { deep: true });
 
 function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date } | null {
-  const startValue = task.startDate || task.dueDate;
-  if (!startValue) return null;
+  const dateValues = getCalendarTaskRenderDateValues(task);
+  if (!dateValues) return null;
 
-  const taskStart = new Date(startValue);
+  const taskStart = new Date(dateValues.startDate);
   taskStart.setHours(0, 0, 0, 0);
 
-  // Both ordinary and virtual tasks may span multiple days.  Ignoring the
-  // due date for ordinary tasks made a resized task render as a one-day chip.
-  const endValue = task.dueDate || startValue;
-  const taskEnd = new Date(endValue);
+  // Ordinary tasks and explicit repeat windows may span multiple days.
+  // Single-day repeat instances are normalized by the shared helper above.
+  const taskEnd = new Date(dateValues.dueDate);
   taskEnd.setHours(23, 59, 59, 999);
 
   return { taskStart, taskEnd };
@@ -3950,6 +3950,11 @@ async function clearTaskDates(task: Task): Promise<void> {
 async function saveTaskRepeatRule(task: Task, repeat: RepeatFrequency | RepeatRuleInput) {
   if (!task) return;
   const frequency = typeof repeat === 'string' ? repeat : repeat.frequency;
+  const existingSeries = frequency === 'none'
+    ? await getRepeatSeriesForTask(task).catch(() => null)
+    : null;
+  const previousSeriesId = (typeof task.repeatSeriesId === 'string' && task.repeatSeriesId.trim())
+    || existingSeries?.id;
   contextMenuRepeatFrequency.value = frequency;
   if (frequency === 'none') {
     patchLocalTask(task.id, {
@@ -3962,7 +3967,39 @@ async function saveTaskRepeatRule(task: Task, repeat: RepeatFrequency | RepeatRu
     patchLocalTask(task.id, { repeatFrequency: frequency });
   }
   try {
-    await TaskRepository.setTaskRepeatRule(task, repeat);
+    const updatedSeries = await TaskRepository.setTaskRepeatRule(task, repeat);
+    if (frequency === 'none') {
+      // Removing a recurrence must also remove its already-materialized
+      // virtual cards from the current month immediately. The parent task
+      // refresh is asynchronous and otherwise leaves stale instances visible
+      // until the next navigation or reload.
+      if (previousSeriesId) {
+        const nextTasks = localTasks.value.filter(taskItem =>
+          !(taskItem.isVirtual === true && taskItem.repeatSeriesId === previousSeriesId)
+        );
+        if (nextTasks.length !== localTasks.value.length) {
+          localTasks.value = nextTasks;
+        }
+      }
+    } else if (updatedSeries) {
+      const { start, end } = visibleCalendarRange.value;
+      const rebuilt = await rebuildAffectedRepeatTasks(
+        localTasks.value,
+        {
+          blockId: task.blockId || updatedSeries.templateBlockId,
+          seriesId: updatedSeries.id,
+          frequency: updatedSeries.frequency
+        },
+        {
+          startDate: formatDate(start),
+          endDate: formatDate(end),
+          includeTemplateDate: true
+        }
+      );
+      if (rebuilt.handled && rebuilt.touched) {
+        localTasks.value = rebuilt.nextTasks;
+      }
+    }
     hideContextMenu();
   } catch (error) {
   }

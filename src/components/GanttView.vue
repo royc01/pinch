@@ -597,6 +597,7 @@ import {
 } from '@/utils/taskColor';
 import { TASK_BACKGROUND_COLOR_OPTIONS } from '@/utils/taskGroupShared';
 import { getTaskTitlePlainText } from '@/utils/taskHtml';
+import { getDefaultDocumentIconValue } from '@/utils/documentIcon';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GANTT_ROW_HEIGHT = 42;
@@ -2264,8 +2265,9 @@ function getTaskDocumentIcon(task?: Task, sectionId?: string): string {
     : (sectionId || '').split(':').at(-1)?.trim() || '';
   const mappedIcon = rootId ? props.documentIconByRootId?.get(rootId)?.trim() : '';
   if (mappedIcon) return mappedIcon;
+  if (rootId) return getDefaultDocumentIconValue();
   const taskIcon = typeof task?.icon === 'string' ? task.icon.trim() : '';
-  return taskIcon || '📄';
+  return taskIcon || getDefaultDocumentIconValue();
 }
 
 function getTaskDocumentId(task: Task): string {
@@ -2345,7 +2347,7 @@ function buildDocumentSections(): GanttSection[] {
     return [{
       id: selectedSection.id,
       title: selectedSection.title,
-      emoji: '📄',
+      emoji: getDefaultDocumentIconValue(),
       rows,
       summaryTasks: displayableTasks.value,
       ...{ emoji: getTaskDocumentIcon(displayableTasks.value[0], selectedSection.id) }
@@ -2376,7 +2378,7 @@ function buildDocumentSections(): GanttSection[] {
     sectionByDocument.set(id, {
       id,
       title: getTaskDocumentTitle(row.primaryTask),
-      emoji: '📄',
+      emoji: getDefaultDocumentIconValue(),
       rows: [row],
       summaryTasks: summaryTasksByDocument.get(id) || [],
       ...{ emoji: getTaskDocumentIcon(row.primaryTask, id) }
@@ -2395,7 +2397,7 @@ function buildDocumentSections(): GanttSection[] {
       section = {
         id,
         title: primaryTask ? getTaskDocumentTitle(primaryTask) : t('ganttView.unassignedDocument'),
-        emoji: '📄',
+        emoji: getDefaultDocumentIconValue(),
         rows: [],
         summaryTasks,
         ...{ emoji: getTaskDocumentIcon(primaryTask, id) }

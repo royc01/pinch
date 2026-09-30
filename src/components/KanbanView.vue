@@ -1343,78 +1343,17 @@
     />
     <WeekView
       ref="calendarWeekViewRef"
-      v-if="currentView === 'week'"
-       :tasks="showCalendarTasks && calendarTaskDataReady ? weekViewTasks : []"
-       :sidebar-tasks="showCalendarTasks && calendarTaskDataReady ? weekSidebarTasks : []"
+      v-if="isWeekBasedCalendarView"
+      :tasks="showCalendarTasks && calendarTaskDataReady ? activeWeekViewTasks : []"
+      :sidebar-tasks="showCalendarTasks && calendarTaskDataReady ? activeWeekSidebarTasks : []"
       :sidebar-collapsed="calendarSidebarCollapsed"
       :notebooks="notebooks"
       :document-title-by-root-id="documentTitleByRootId"
-      :lifelog-tasks="showCalendarTaskLifelog ? weekLifelogTasks : []"
+      :lifelog-tasks="showCalendarTaskLifelog ? activeWeekLifelogTasks : []"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
-      :show-focus-records="showCalendarFocusLifelog"
-      :show-habits="showCalendarHabits"
-      :show-task-lifelog="showCalendarTaskLifelog"
-      :show-habit-lifelog="showCalendarHabitLifelog"
-      :show-records-lifelog="showCalendarRecordsLifelog"
-      :display-options="calendarSidebarDisplayOptions"
-      :calendar-view-options="calendarHeaderViewOptions"
-      :current-calendar-view="currentView"
-      @task-date-changed="handleTaskDateChanged"
-      @task-color-changed="handleGanttTaskColorChanged"
-      @task-date-save-requested="handleCalendarTaskDateSaveRequested"
-      @task-click="handleTaskEditClick"
-      @task-edit="handleCalendarTaskEdit"
-      @task-create-requested="handleCalendarTaskCreateRequested"
-      @visible-range-change="handleWeekVisibleRangeChange"
-      @calendar-view-change="handleCalendarViewChange"
-      @calendar-display-toggle="toggleCalendarDisplayOption"
-      @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
-    />
-    <WeekView
-      ref="calendarWeekViewRef"
-      v-if="currentView === 'day'"
-       :tasks="showCalendarTasks && calendarTaskDataReady ? dayViewTasks : []"
-       :sidebar-tasks="showCalendarTasks && calendarTaskDataReady ? daySidebarTasks : []"
-      :sidebar-collapsed="calendarSidebarCollapsed"
-      :notebooks="notebooks"
-      :document-title-by-root-id="documentTitleByRootId"
-      :lifelog-tasks="showCalendarTaskLifelog ? dayLifelogTasks : []"
-      :task-groups="taskGroups"
-      :goals="goalDefinitions"
-      :fixed-days-count="1"
-      :show-focus-records="showCalendarFocusLifelog"
-      :show-habits="showCalendarHabits"
-      :show-task-lifelog="showCalendarTaskLifelog"
-      :show-habit-lifelog="showCalendarHabitLifelog"
-      :show-records-lifelog="showCalendarRecordsLifelog"
-      :display-options="calendarSidebarDisplayOptions"
-      :calendar-view-options="calendarHeaderViewOptions"
-      :current-calendar-view="currentView"
-      @task-date-changed="handleTaskDateChanged"
-      @task-color-changed="handleGanttTaskColorChanged"
-      @task-date-save-requested="handleCalendarTaskDateSaveRequested"
-      @task-click="handleTaskEditClick"
-      @task-edit="handleCalendarTaskEdit"
-      @task-create-requested="handleCalendarTaskCreateRequested"
-      @visible-range-change="handleWeekVisibleRangeChange"
-      @calendar-view-change="handleCalendarViewChange"
-      @calendar-display-toggle="toggleCalendarDisplayOption"
-      @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
-    />
-    <WeekView
-      ref="calendarWeekViewRef"
-      v-if="currentView === 'three-day'"
-      :tasks="showCalendarTasks ? dayViewTasks : []"
-      :sidebar-tasks="showCalendarTasks ? daySidebarTasks : []"
-      :sidebar-collapsed="calendarSidebarCollapsed"
-      :notebooks="notebooks"
-      :document-title-by-root-id="documentTitleByRootId"
-      :lifelog-tasks="showCalendarTaskLifelog ? dayLifelogTasks : []"
-      :task-groups="taskGroups"
-      :goals="goalDefinitions"
-      :fixed-days-count="3"
-      :fixed-center-today="true"
+      :fixed-days-count="activeWeekFixedDays"
+      :fixed-center-today="activeWeekFixedCenterToday"
       :show-focus-records="showCalendarFocusLifelog"
       :show-habits="showCalendarHabits"
       :show-task-lifelog="showCalendarTaskLifelog"
@@ -2068,6 +2007,7 @@ import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBloc
 import {
   extractDocumentIconFromBlockRow,
   extractDocumentIconFromDom,
+  getDefaultDocumentIconValue,
   normalizeDocumentIconValue
 } from '@/utils/documentIcon';
 import {
@@ -3238,6 +3178,11 @@ watch(
 );
 const loadedTaskLoadMode = ref<TaskLoadMode | null>(null);
 const loadedRepeatWindow = ref<TaskRepeatWindow | null>(null);
+// The load mode alone is not enough to decide whether a view can reuse the
+// current snapshot: each view may have a different notebook/document scope.
+// Keep the scope key alongside the snapshot so switching between views with
+// the same scope is instant without accidentally reusing another scope.
+const loadedTaskLoadScopeKey = ref<string | null>(null);
 const calendarRepeatWindowByView = ref<Record<CalendarTaskViewMode, TaskRepeatWindow>>({
   month: resolveDefaultRepeatWindowForView('month'),
   week: resolveDefaultRepeatWindowForView('week'),
@@ -3737,6 +3682,16 @@ function buildTaskSnapshotCacheKey(
   });
 }
 
+function buildTaskLoadScopeKey(scope: TaskQueryScope): string {
+  return JSON.stringify({
+    notebookId: scope.notebookId || '',
+    documentId: scope.documentId || '',
+    includeArchived: scope.includeArchived === true,
+    archivedOnly: scope.archivedOnly === true,
+    includeCompleted: scope.includeCompleted !== false
+  });
+}
+
 function cloneSubtaskSnapshot(subtasks?: SubTask[]): SubTask[] | undefined {
   return subtasks?.map(subtask => ({
     ...subtask,
@@ -3753,15 +3708,21 @@ function cloneTaskSnapshot(tasksToClone: Task[]): Task[] {
 
 function restoreCachedTaskSnapshot(view: TaskViewMode): boolean {
   const mode = resolveTaskLoadModeForView(view);
-  const repeatWindow = mode === 'light-with-repeats' ? resolveRequestedRepeatWindowForView(view) : null;
+  const repeatWindow = mode === 'light-with-repeats'
+    ? expandRepeatWindowForCalendarLoad(view, resolveRequestedRepeatWindowForView(view))
+    : null;
   const key = buildTaskSnapshotCacheKey(getTaskLoadScope(), mode, repeatWindow);
   const cached = taskSnapshotCache.get(key);
   if (!cached || cached.tasks.length === 0) {
     return false;
   }
-  syncTaskSnapshot(cloneTaskSnapshot(cached.tasks));
+  // CRDT synchronization reads the SQL task objects and creates its own
+  // task instances. Re-cloning the cached tree here only blocks the click
+  // handler for large task sets without protecting any mutable state.
+  syncTaskSnapshot(cached.tasks);
   loadedTaskLoadMode.value = cached.mode;
   loadedRepeatWindow.value = cached.repeatWindow;
+  loadedTaskLoadScopeKey.value = buildTaskLoadScopeKey(getTaskLoadScope());
   if (isCalendarTaskViewMode(view)) {
     calendarTaskDataReady.value = true;
   }
@@ -4490,13 +4451,13 @@ function getKanbanColumnDocumentIcon(column: KanbanColumn): string {
   }
   const documentId = typeof column.documentId === 'string' ? column.documentId.trim() : '';
   if (!documentId) {
-    return '📄';
+    return getDefaultDocumentIconValue();
   }
   const mapped = documentIconByRootId.value.get(documentId);
   if (typeof mapped === 'string' && mapped.trim().length > 0) {
     return mapped.trim();
   }
-  return resolveDocumentTabHeaderIcon(column) || '📄';
+  return resolveDocumentTabHeaderIcon(column) || getDefaultDocumentIconValue();
 }
 
 function normalizeDocumentTabMatchText(value: unknown): string {
@@ -6677,9 +6638,10 @@ function getTaskDocumentIcon(task: Task): string {
     if (mapped) {
       return mapped;
     }
+    return getDefaultDocumentIconValue();
   }
   const fallback = typeof task.icon === 'string' ? task.icon.trim() : '';
-  return fallback || '📄';
+  return fallback || getDefaultDocumentIconValue();
 }
 
 async function migrateRemovedTaskStatuses(removedStatusIds: string[]): Promise<void> {
@@ -8549,6 +8511,27 @@ const dayLifelogTasks = computed(() => {
     matchesCalendarLifelogTask(task, dayFilterType.value, dayFilterDocument.value)
   );
 });
+
+const isWeekBasedCalendarView = computed(() =>
+  currentView.value === 'week'
+  || currentView.value === 'day'
+  || currentView.value === 'three-day'
+);
+const activeWeekViewTasks = computed(() =>
+  currentView.value === 'week' ? weekViewTasks.value : dayViewTasks.value
+);
+const activeWeekSidebarTasks = computed(() =>
+  currentView.value === 'week' ? weekSidebarTasks.value : daySidebarTasks.value
+);
+const activeWeekLifelogTasks = computed(() =>
+  currentView.value === 'week' ? weekLifelogTasks.value : dayLifelogTasks.value
+);
+const activeWeekFixedDays = computed(() => {
+  if (currentView.value === 'day') return 1;
+  if (currentView.value === 'three-day') return 3;
+  return undefined;
+});
+const activeWeekFixedCenterToday = computed(() => currentView.value === 'three-day');
 
 watch(tasks, () => {
   invalidateTableFilters();
@@ -10852,6 +10835,7 @@ async function loadTasks(
     rememberTaskSnapshot(taskLoadScope, mode, fetchRepeatWindow, nextTasks);
     loadedTaskLoadMode.value = mode;
     loadedRepeatWindow.value = fetchRepeatWindow;
+    loadedTaskLoadScopeKey.value = buildTaskLoadScopeKey(taskLoadScope);
     if (validateSelection) {
       void validateDocumentSelection();
     }
@@ -10893,8 +10877,10 @@ async function ensureTasksLoadedForView(
   }
   const mode = resolveTaskLoadModeForView(view);
   const repeatWindow = mode === 'light-with-repeats' ? resolveRequestedRepeatWindowForView(view) : null;
+  const scopeKey = buildTaskLoadScopeKey(getTaskLoadScope());
   if (!options.forceRefresh &&
-    isTaskLoadModeSatisfied(loadedTaskLoadMode.value, mode)
+    loadedTaskLoadScopeKey.value === scopeKey
+    && isTaskLoadModeSatisfied(loadedTaskLoadMode.value, mode)
     && isTaskLoadWindowSatisfied(loadedRepeatWindow.value, repeatWindow)
   ) {
     if (isCalendarTaskViewMode(view)) {
@@ -10902,16 +10888,10 @@ async function ensureTasksLoadedForView(
     }
     return;
   }
-  if (options.forceRefresh && restoreCachedTaskSnapshot(view)) {
-    // Paint the most recent snapshot immediately, then reconcile in the
-    // background so switching views never flashes an empty panel.
-    void loadTasks(true, {
-      ...options,
-      silent: true,
-      mode,
-      repeatWindow,
-      view
-    });
+  if (restoreCachedTaskSnapshot(view)) {
+    // A cached snapshot is already scoped and can be painted synchronously.
+    // The next task event or an explicit refresh will reconcile it; do not
+    // block a click on another backend round trip.
     return;
   }
   await loadTasks(options.forceRefresh === true, {
@@ -17704,6 +17684,7 @@ onMounted(async () => {
         scheduleInitialTaskSnapshot(cachedTasks);
         rememberTaskSnapshot(initialTaskScope, 'full', null, cachedTasks);
         loadedTaskLoadMode.value = 'full';
+        loadedTaskLoadScopeKey.value = buildTaskLoadScopeKey(initialTaskScope);
         scheduleKanbanTitleHydration(120);
         shouldRunMountedReconcile = true;
         markTaskLoadFirstTasks('view', loadTraceId, 'cache', cachedTasks.length);
@@ -17717,6 +17698,7 @@ onMounted(async () => {
           scheduleInitialTaskSnapshot(lightTasks);
           rememberTaskSnapshot(initialTaskScope, 'light-base', null, lightTasks);
           loadedTaskLoadMode.value = 'light-base';
+          loadedTaskLoadScopeKey.value = buildTaskLoadScopeKey(initialTaskScope);
           shouldRunMountedReconcile = true;
           markTaskLoadFirstTasks('view', loadTraceId, 'kernel', lightTasks.length);
         }
@@ -18002,13 +17984,9 @@ watch(currentView, (nextView, previousView) => {
   void ensureTasksLoadedForView(nextView, {
     silent: nextView !== 'gantt',
     validateSelection: false,
-    // A view switch can require a different repeat window or scoped source.
-    // Always reconcile once after the switch instead of trusting the previous
-    // view's loaded-mode marker, which could leave the new view blank.
-    forceRefresh: true,
-    // Keep the previous snapshot mounted while switching view modes. The
-    // replacement load can then update it atomically instead of flashing an
-    // empty calendar and forcing a second full render.
+    // Keep the previous snapshot mounted while switching view modes. A
+    // matching per-view snapshot is restored synchronously; a missing one is
+    // loaded through the normal cached task path without clearing the cache.
     preserveCalendarContent: isCalendarTaskViewMode(nextView)
   });
   if (nextView === 'kanban' || nextView === 'list') {

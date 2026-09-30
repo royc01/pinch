@@ -23,6 +23,33 @@ export function getEffectiveDueDate(startDate: string, dueDate: string | null | 
   return normalizeOptionalDateValue(dueDate) || startDate;
 }
 
+export function getCalendarTaskRenderDateValues(
+  task: Pick<Task, 'startDate' | 'dueDate' | 'repeatSeriesId' | 'repeatInstanceDate' | 'isRepeatWindow'>
+): { startDate: string; dueDate: string } | null {
+  const instanceDate = typeof task.repeatInstanceDate === 'string'
+    ? task.repeatInstanceDate.trim()
+    : '';
+  const isSingleDayRepeatInstance = !!task.repeatSeriesId
+    && !!instanceDate
+    && task.isRepeatWindow !== true;
+
+  if (isSingleDayRepeatInstance) {
+    // A recurrence cutoff belongs to the series/template, not to each
+    // occurrence. Async snapshots can briefly copy that cutoff onto virtual
+    // cards, so anchor ordinary occurrences to their authoritative date.
+    return { startDate: instanceDate, dueDate: instanceDate };
+  }
+
+  const startDate = task.startDate || task.dueDate || '';
+  if (!startDate) {
+    return null;
+  }
+  return {
+    startDate,
+    dueDate: task.dueDate || startDate
+  };
+}
+
 interface SaveCalendarTaskDatesOptions {
   task: Task;
   fields: Partial<CalendarTaskDateFields>;

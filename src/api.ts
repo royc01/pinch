@@ -66,6 +66,7 @@ import {
 import {
   extractDocumentIconFromBlockRow,
   extractDocumentIconFromDom,
+  getDefaultDocumentIconValue,
   normalizeDocumentIconValue
 } from "@/utils/documentIcon";
 import {
@@ -2238,7 +2239,7 @@ function scheduleBlockDOMLoad(id: string): Promise<BlockDOMResponse | undefined>
 const DEBUG = false;
 
 export const TASK_CONFIG = {
-  CACHE_VERSION: 11,
+  CACHE_VERSION: 12,
   CACHE_DURATION: 10 * 60 * 1000,
   BATCH_SIZE: 10,
   SQL_PAGE_SIZE: 1000,
@@ -2256,7 +2257,7 @@ export const TASK_CONFIG = {
 } as const;
 
 export function unicodeToEmoji(icon: string | undefined): string {
-  if (!icon) return '📄';
+  if (!icon) return getDefaultDocumentIconValue();
   
   const hasEmoji = /^[\u{1F300}-\u{1F9FF}]/u.test(icon);
   if (hasEmoji) return icon;
@@ -2267,7 +2268,7 @@ export function unicodeToEmoji(icon: string | undefined): string {
       const codePoint = parseInt(icon, 16);
       return String.fromCodePoint(codePoint);
     } catch {
-      return '📄';
+      return getDefaultDocumentIconValue();
     }
   }
   
@@ -2864,7 +2865,7 @@ export class TaskRepository {
       ...taskFields,
       hPath: row.hpath,
       notebookId: row.box,
-      icon: '\uD83D\uDCC4',
+      icon: getDefaultDocumentIconValue(),
       archived,
       completedAt: this.resolveTaskCompletedAt(attrs, status, row.updated),
       archivedAt: archived && attrs['custom-task-archived-at'] ? attrs['custom-task-archived-at'] : undefined,
@@ -4924,7 +4925,7 @@ export class TaskRepository {
           ...taskFields,
           hPath: row.hpath,
           notebookId: row.box,
-          icon: row.root_id ? (rootIcons.get(row.root_id) || '\uD83D\uDCC4') : '\uD83D\uDCC4',
+          icon: row.root_id ? (rootIcons.get(row.root_id) || getDefaultDocumentIconValue()) : getDefaultDocumentIconValue(),
           subtasks: subtasks.length > 0 ? subtasks : undefined,
           archived,
           completedAt: this.resolveTaskCompletedAt(attrs, status, row.updated),
@@ -5369,7 +5370,9 @@ export class TaskRepository {
             rootId: childBlock.root_id,
             hPath: childBlock.hpath,
             notebookId: childBlock.box,
-            icon: detailLevel === 'full' ? rootIcons.get(childBlock.root_id) || '📄' : '📄',
+            icon: detailLevel === 'full'
+              ? rootIcons.get(childBlock.root_id) || getDefaultDocumentIconValue()
+              : getDefaultDocumentIconValue(),
             archived,
             completedAt: this.resolveTaskCompletedAt(childAttrs, status, childBlock.updated),
             createdAt: this.parseBlockDateTime(childBlock.created),
@@ -5455,7 +5458,7 @@ export class TaskRepository {
               ...taskFields,
               hPath: parentBlock.hpath,
               notebookId: parentBlock.box,
-              icon: docIcon || '📄',
+              icon: docIcon || getDefaultDocumentIconValue(),
               subtasks,
               archived,
               completedAt: this.resolveTaskCompletedAt(attrs, status, parentBlock.updated),
@@ -5642,7 +5645,7 @@ export class TaskRepository {
             ...taskFields,
             hPath: parentBlock.hpath,
             notebookId: parentBlock.box,
-            icon: docIcon || '📄',
+            icon: docIcon || getDefaultDocumentIconValue(),
             subtasks: subtasks.length > 0 ? subtasks : undefined,
             archived,
             completedAt: this.resolveTaskCompletedAt(attrs, status, parentBlock.updated),

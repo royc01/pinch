@@ -1117,7 +1117,7 @@ import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, parseTa
 import { requestTaskCompletionNote, updateTaskMarkdown, skipTaskTemporarily } from '@/utils/taskHelpers';
 import { getCheckinNotePromptAnchor } from '@/utils/checkinNotePrompt';
 import { escapeSqlLiteral } from '@/utils/sql';
-import { usePlugin } from '@/main';
+import { openGlobalTaskCreateDialog, usePlugin } from '@/main';
 import { useUserSettings } from '@/composables/useUserSettings';
 import { useGoals } from '@/composables/useGoals';
 import { useTaskFilters } from '@/composables/useTaskFilters';
@@ -2293,6 +2293,15 @@ function setTimelineVirtualRowRef(rowKey: string, el: unknown): void {
 }
 
 function openTaskModal(): void {
+  if (isMobileFrontend) {
+    void openGlobalTaskCreateDialog().then((opened) => {
+      if (!opened) {
+        resolveTaskModalTeleportTarget();
+        showTaskModal.value = true;
+      }
+    });
+    return;
+  }
   resolveTaskModalTeleportTarget();
   showTaskModal.value = true;
 }
@@ -11334,6 +11343,10 @@ onMounted(async () => {
     await loadSettings();
     taskGroups.value = await loadTaskGroups();
     setupEventListeners();
+    // The hidden host owns the teleported task-card context menu when the
+    // sidebar is unavailable, so it must also observe clicks outside that
+    // menu to close it.
+    document.addEventListener('mousedown', handleTaskFilterOutsideClick, true);
     return;
   }
   window.addEventListener('pinch-subtask-dragstart', handleSubtaskDragStartEvent);

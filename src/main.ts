@@ -729,6 +729,18 @@ function registerTaskCommands(pluginInstance: Plugin): void {
 function createMobileBreadcrumbTaskButton() {
   let longPressTimer: number | null = null;
   let handledLongPress = false;
+  let activePointerId: number | null = null;
+
+  const activatePinchHome = () => {
+    if (handledLongPress) {
+      return;
+    }
+    handledLongPress = true;
+    activePointerId = null;
+    clearLongPressTimer();
+    closeMobileTaskCreateDialog();
+    openPinchDockView();
+  };
 
   const clearLongPressTimer = () => {
     if (longPressTimer !== null) {
@@ -737,15 +749,25 @@ function createMobileBreadcrumbTaskButton() {
     }
   };
 
-  const startLongPress = () => {
+  const startLongPress = (event: PointerEvent) => {
+    if (event.isPrimary === false || (event.pointerType === 'mouse' && event.button !== 0)) {
+      return;
+    }
+
     clearLongPressTimer();
     handledLongPress = false;
+    activePointerId = event.pointerId;
     longPressTimer = window.setTimeout(() => {
-      handledLongPress = true;
-      clearLongPressTimer();
-      closeMobileTaskCreateDialog();
-      openPinchDockView();
+      activatePinchHome();
     }, MOBILE_BREADCRUMB_LONG_PRESS_MS);
+  };
+
+  const finishLongPress = (event: PointerEvent) => {
+    if (activePointerId !== event.pointerId) {
+      return;
+    }
+    activePointerId = null;
+    clearLongPressTimer();
   };
 
   const button = document.createElement('button');
@@ -753,40 +775,46 @@ function createMobileBreadcrumbTaskButton() {
   button.className = 'block__icon fn__flex-center ariaLabel';
   button.dataset.pinchMobileTaskCreate = 'true';
   button.innerHTML = '<svg style="width:18px;height:18px;"><use xlink:href="#ht-custom-icon"></use></svg>';
-  button.setAttribute('aria-label', translate('task.new', 'New task'));
+  const buttonLabel = translate('task.new', 'New task');
+  const longPressHint = translate('task.newLongPressOpenHome', 'New task (long press to open Pinch home)');
+  button.setAttribute('aria-label', buttonLabel);
+  button.setAttribute('title', longPressHint);
   button.addEventListener('pointerdown', (event) => {
     event.stopPropagation();
-    startLongPress();
+    startLongPress(event);
   });
-  button.addEventListener('touchstart', () => {
-    startLongPress();
+  button.addEventListener('pointerup', finishLongPress);
+  button.addEventListener('pointercancel', finishLongPress);
+  // Some mobile WebViews expose touch events without a usable PointerEvent.
+  // Keep a touch fallback, while avoiding a duplicate timer when both APIs fire.
+  button.addEventListener('touchstart', (event) => {
+    if (activePointerId !== null) {
+      return;
+    }
+    event.stopPropagation();
+    startLongPress({
+      isPrimary: true,
+      button: 0,
+      pointerId: -1,
+      pointerType: 'touch'
+    } as PointerEvent);
   }, { passive: true });
-  button.addEventListener('mousedown', () => {
-    startLongPress();
-  });
-  button.addEventListener('pointerup', () => {
-    clearLongPressTimer();
-  });
   button.addEventListener('touchend', () => {
-    clearLongPressTimer();
+    if (activePointerId === -1) {
+      activePointerId = null;
+      clearLongPressTimer();
+    }
   });
   button.addEventListener('touchcancel', () => {
-    clearLongPressTimer();
-  });
-  button.addEventListener('mouseup', () => {
-    clearLongPressTimer();
-  });
-  button.addEventListener('pointerleave', () => {
-    clearLongPressTimer();
-  });
-  button.addEventListener('mouseleave', () => {
-    clearLongPressTimer();
-  });
-  button.addEventListener('pointercancel', () => {
-    clearLongPressTimer();
+    if (activePointerId === -1) {
+      activePointerId = null;
+      clearLongPressTimer();
+    }
   });
   button.addEventListener('contextmenu', (event) => {
     event.preventDefault();
+    event.stopPropagation();
+    activatePinchHome();
   });
   button.addEventListener('click', (event) => {
     event.preventDefault();
@@ -950,7 +978,7 @@ async function openTaskCreateFromMobileBreadcrumb() {
   }
 }
 
-async function openGlobalTaskCreateDialog() {
+export async function openGlobalTaskCreateDialog() {
   return openTaskCreateFromMobileBreadcrumb();
 }
 
@@ -1238,6 +1266,47 @@ function findPinchDockTrigger(): HTMLElement | null {
   return null;
 }
 
+function findMobilePinchToolbarTrigger(): Element | null {
+  if (!isMobileFrontend()) {
+    return null;
+  }
+
+  const trigger = document.querySelector<Element>(
+    '.toolbar__scroll [data-mobile-plugin-dock-tab="pinchPinch-habit"]'
+  ) || document.querySelector<Element>(
+    '[data-mobile-plugin-dock-tab="pinchPinch-habit"]'
+  );
+  if (!trigger) {
+    return null;
+  }
+
+  // The mobile toolbar is horizontally scrollable. Bring the plugin tab into
+  // view before invoking the same click handler as a user tap.
+  if (typeof trigger.scrollIntoView === 'function') {
+    try {
+      trigger.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
+    } catch {
+      trigger.scrollIntoView();
+    }
+  }
+  return trigger;
+}
+
+function revealMobileRightSidePanel(): void {
+  const panel = document.querySelector<HTMLElement>('.side-panel.side-panel--right');
+  if (!panel) {
+    return;
+  }
+
+  // SiYuan normally applies this state after a real edge-swipe. Mirror the
+  // state here so a programmatic toolbar click also brings the panel onscreen.
+  panel.classList.remove('fn__none');
+  panel.classList.add('side-panel--open');
+  panel.style.transform = 'translate3d(0, 0, 0)';
+  panel.style.visibility = 'visible';
+  panel.style.pointerEvents = 'auto';
+}
+
 export function openPinchDockView(): boolean {
   const model = pinchDockModel;
   if (model && (typeof model.showDock === 'function' || typeof model.toggleModel === 'function')) {
@@ -1246,6 +1315,17 @@ export function openPinchDockView(): boolean {
       model.toggleModel?.(PINCH_DOCK_TYPE, true);
     } catch {
     }
+  }
+
+  const mobileToolbarTrigger = findMobilePinchToolbarTrigger();
+  if (mobileToolbarTrigger) {
+    revealMobileRightSidePanel();
+    mobileToolbarTrigger.dispatchEvent(new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      view: window
+    }));
+    return true;
   }
 
   if (isPinchDockViewVisible()) {
@@ -1374,4 +1454,3 @@ export function initKanbanView(element: HTMLElement) {
   kanbanApp = createApp(KanbanView);
   kanbanApp.mount(container);
 }
-

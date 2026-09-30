@@ -726,6 +726,7 @@ import { openHabitTrackerFocusTimer } from '@/main';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 import {
   createCalendarTaskDateFields,
+  getCalendarTaskRenderDateValues,
   getEffectiveDueDate,
   normalizeOptionalDateValue,
   saveCalendarTaskDates
@@ -2074,16 +2075,15 @@ function getWeekBounds() {
 const weekBounds = computed(() => getWeekBounds());
 
 function getTaskDateRangeForRender(task: Task): { startDate: Date; endDate: Date } | null {
-  const startValue = task.startDate || task.dueDate;
-  if (!startValue) return null;
+  const dateValues = getCalendarTaskRenderDateValues(task);
+  if (!dateValues) return null;
 
-  const startDate = new Date(startValue);
+  const startDate = new Date(dateValues.startDate);
   startDate.setHours(0, 0, 0, 0);
 
-  // Ordinary tasks can span multiple days as well; always honor their due
-  // date so resizing a task renders across its full duration.
-  const endValue = task.dueDate || startValue;
-  const endDate = new Date(endValue);
+  // Ordinary tasks and explicit repeat windows may span multiple days.
+  // Single-day repeat instances are normalized by the shared helper above.
+  const endDate = new Date(dateValues.dueDate);
   endDate.setHours(23, 59, 59, 999);
 
   return { startDate, endDate };
