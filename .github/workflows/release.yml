@@ -16,17 +16,17 @@ permissions:
 
 jobs:
   quality-and-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # A manually dispatched run starts from the default branch, so explicitly
           # check out the selected tag in that case.
           ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           registry-url: "https://registry.npmjs.org"

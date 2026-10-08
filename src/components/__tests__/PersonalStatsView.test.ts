@@ -1,4 +1,4 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import type { FocusSessionRecord, Habit, Task } from '@/api';
 import type { GoalListItem } from '@/composables/useGoals';
@@ -182,7 +182,7 @@ function mountStats(props: {
       taskGroups: [],
       goalItems: props.goalItems ?? [],
       goalTasks: props.goalTasks ?? [],
-      sourceLabel: '蜈ｨ驛ｨ',
+      sourceLabel: '全部',
       documentLabel: '',
       completeTask: props.completeTask,
       rescheduleTask: props.rescheduleTask,
@@ -447,11 +447,11 @@ describe('PersonalStatsView', () => {
 
     expect(wrapper.find('.overview-dashboard').exists()).toBe(true);
 
-    await findButtonByText(wrapper, '.stats-tabs button', '莉ｻ蜉｡').trigger('click');
+    await findButtonByText(wrapper, '.stats-tabs button', '任务').trigger('click');
     expect(wrapper.find('.tasks-panel').exists()).toBe(true);
     expect(wrapper.find('.overview-dashboard').exists()).toBe(false);
 
-    await findButtonByText(wrapper, '.stats-tabs button', '荵諠ｯ荳惹ｸ捺ｳｨ').trigger('click');
+    await findButtonByText(wrapper, '.stats-tabs button', '习惯与专注').trigger('click');
     expect(wrapper.find('.habits-panel').exists()).toBe(true);
     expect(wrapper.find('.focus-panel').exists()).toBe(true);
   });
@@ -1458,8 +1458,8 @@ describe('PersonalStatsView', () => {
     expect(wrapper.findAll('.summary-task-row')).not.toHaveLength(0);
 
     await wrapper.findAll('.summary-mode-chip')[1].trigger('click');
-    expect(wrapper.find('.summary-mode-chip.active').text()).toContain('譛・');
-    expect(wrapper.find('.summary-period-actions .panel-chip').text()).toContain('譛・');
+    expect(wrapper.find('.summary-mode-chip.active').text()).toContain('月');
+    expect(wrapper.find('.summary-period-actions .panel-chip').text()).toContain('月');
   });
 
   it('counts scheduled habit occurrences without requiring calendar rows for the denominator', async () => {
@@ -1592,11 +1592,11 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats({ tasks: [
       createTask({
         id: 'rich-completed', notebookId: 'notebook-1', status: 'completed', completedAt: '2026-10-06T12:00:00',
-        title: '隸ｺ譌･譛嶺ｸｭ蠢・ｫ・垳<span data-type="strong">隸ｺ譌･譛礼大ｸ・ｧよ勹蜿ｰ</span>{: style="color: var(--b3-font-color1);"}'
+        title: '完成项目 🚀<span data-type="strong">整理计划与安排</span>{: style="color: var(--b3-font-color1);"}'
       }),
       createTask({
         id: 'rich-unfinished', notebookId: 'notebook-1',
-        title: '迥迚帶ｵｷ 垳&lt;span data-type="strong"&gt;譬第ｭ｣轢大ｸ・lt;/span&gt;{: style="color: var(--b3-font-color2);"}'
+        title: '待办事项 🚀&lt;span data-type="strong"&gt;核对清单&lt;/span&gt;{: style="color: var(--b3-font-color2);"}'
       })
     ] });
     await flushPromises();
@@ -1604,29 +1604,29 @@ describe('PersonalStatsView', () => {
     await flushPromises();
 
     const titles = wrapper.findAll('.summary-task-title');
-    expect(titles.map(title => title.text())).toEqual(['隸ｺ譌･譛嶺ｸｭ蠢・ｫ・垳隸ｺ譌･譛礼大ｸ・ｧよ勹蜿ｰ', '迥迚帶ｵｷ 垳譬第ｭ｣轢大ｸ・']);
+    expect(titles.map(title => title.text())).toEqual(['完成项目 🚀整理计划与安排', '待办事项 🚀核对清单']);
     expect(titles[0].find('[data-type~="strong"]').attributes('style')).toContain('color: var(--b3-font-color1)');
-    expect(titles[1].find('[data-type~="strong"]').text()).toBe('譬第ｭ｣轢大ｸ・');
+    expect(titles[1].find('[data-type~="strong"]').text()).toBe('核对清单');
 
     await wrapper.find('.summary-save-button').trigger('click');
     await flushPromises();
     const markdown = apiMocks.createDocWithMd.mock.calls[0][2];
-    expect(markdown).toContain('- 隸ｺ譌･譛嶺ｸｭ蠢・ｫ・垳隸ｺ譌･譛礼大ｸ・ｧよ勹蜿ｰ');
-    expect(markdown).toContain('- 迥迚帶ｵｷ 垳譬第ｭ｣轢大ｸ・');
+    expect(markdown).toContain('- 完成项目 🚀整理计划与安排');
+    expect(markdown).toContain('- 待办事项 🚀核对清单');
     expect(markdown).not.toMatch(/<\/?span|&lt;|\{:\s*style=/);
   });
 
   it.each([
-    '/Pinch/蜻ｨ-2026-10-05',
+    '/Pinch/周-2026-10-05',
     '/Pinch/week-2026-10-05',
-    '/Pinch/summaries/蜻ｨ-2026-10-05',
+    '/Pinch/summaries/周-2026-10-05',
     '/Pinch/summaries/week-2026-10-05'
   ])('shows a saved summary from another notebook and prevents another save: %s', async (path) => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-07T12:00:00'));
     apiMocks.lsNotebooks.mockResolvedValue({ notebooks: [
-      { id: 'notebook-a', name: '隨碑ｮｰ譛ｬ A', closed: false },
-      { id: 'notebook-b', name: '隨碑ｮｰ譛ｬ B', closed: false }
+      { id: 'notebook-a', name: '笔记本 A', closed: false },
+      { id: 'notebook-b', name: '笔记本 B', closed: false }
     ] });
     apiMocks.getIDsByHPath.mockImplementation(async (notebookId, documentPath) =>
       notebookId === 'notebook-a' && documentPath === path ? ['saved-in-a'] : []
@@ -1637,18 +1637,18 @@ describe('PersonalStatsView', () => {
     await flushPromises();
 
     expect((wrapper.find('.summary-notebook-select').element as HTMLSelectElement).value).toBe('notebook-b');
-    expect(wrapper.find('.summary-document-path').text()).toBe(`/隨碑ｮｰ譛ｬ A${path}`);
+    expect(wrapper.find('.summary-document-path').text()).toBe(`/笔记本 A${path}`);
     expect(siyuanMocks.Protyle).toHaveBeenCalledWith(
       expect.anything(), expect.anything(), expect.objectContaining({ blockId: 'saved-in-a', rootId: 'saved-in-a' })
     );
     expect(wrapper.find('.summary-save-button').attributes('disabled')).toBeDefined();
-    expect(wrapper.find('.summary-save-button').text()).toBe('譛ｬ蜻ｨ譛溷ｷｲ菫晏ｭ・');
+    expect(wrapper.find('.summary-save-button').text()).toBe('本周期已保存');
 
     const lookupCount = apiMocks.getIDsByHPath.mock.calls.length;
     await wrapper.find('.summary-notebook-select').setValue('notebook-a');
     await wrapper.find('.summary-notebook-select').setValue('notebook-b');
     await flushPromises();
-    expect(wrapper.find('.summary-document-path').text()).toBe(`/隨碑ｮｰ譛ｬ A${path}`);
+    expect(wrapper.find('.summary-document-path').text()).toBe(`/笔记本 A${path}`);
     expect(apiMocks.getIDsByHPath).toHaveBeenCalledTimes(lookupCount);
     expect(siyuanMocks.Protyle).toHaveBeenCalledTimes(1);
     expect(siyuanMocks.destroyProtyle).not.toHaveBeenCalled();
@@ -1663,8 +1663,8 @@ describe('PersonalStatsView', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-07T12:00:00'));
     apiMocks.lsNotebooks.mockResolvedValue({ notebooks: [
-      { id: 'notebook-a', name: '隨碑ｮｰ譛ｬ A', closed: false },
-      { id: 'notebook-b', name: '隨碑ｮｰ譛ｬ B', closed: false }
+      { id: 'notebook-a', name: '笔记本 A', closed: false },
+      { id: 'notebook-b', name: '笔记本 B', closed: false }
     ] });
     const wrapper = mountStats({ tasks: [createTask({ notebookId: 'notebook-b' })] });
     await flushPromises();
@@ -1673,26 +1673,26 @@ describe('PersonalStatsView', () => {
     expect(wrapper.find('.summary-save-button').attributes('disabled')).toBeUndefined();
 
     apiMocks.getIDsByHPath.mockImplementation(async (notebookId, path) =>
-      notebookId === 'notebook-a' && path === '/Pinch/蜻ｨ-2026-10-05' ? ['new-summary-in-a'] : []
+      notebookId === 'notebook-a' && path === '/Pinch/周-2026-10-05' ? ['new-summary-in-a'] : []
     );
     await wrapper.find('.summary-save-button').trigger('click');
     await flushPromises();
 
     expect(apiMocks.createDocWithMd).not.toHaveBeenCalled();
-    expect(wrapper.find('.summary-document-path').text()).toBe('/隨碑ｮｰ譛ｬ A/Pinch/蜻ｨ-2026-10-05');
+    expect(wrapper.find('.summary-document-path').text()).toBe('/笔记本 A/Pinch/周-2026-10-05');
     expect(wrapper.find('.summary-save-button').attributes('disabled')).toBeDefined();
-    expect(siyuanMocks.showMessage).toHaveBeenCalledWith('霑吩ｸｪ鞫倩ｦ∵枚譯｣蟾ｲ扈丞ｭ伜惠', 3000, 'info');
+    expect(siyuanMocks.showMessage).toHaveBeenCalledWith('这个摘要文档已经存在', 3000, 'info');
   });
 
   it('allows a different period to be saved and restores the existing summary on return', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-07T12:00:00'));
     apiMocks.lsNotebooks.mockResolvedValue({ notebooks: [
-      { id: 'notebook-a', name: '隨碑ｮｰ譛ｬ A', closed: false },
-      { id: 'notebook-b', name: '隨碑ｮｰ譛ｬ B', closed: false }
+      { id: 'notebook-a', name: '笔记本 A', closed: false },
+      { id: 'notebook-b', name: '笔记本 B', closed: false }
     ] });
     apiMocks.getIDsByHPath.mockImplementation(async (notebookId, path) =>
-      notebookId === 'notebook-a' && path === '/Pinch/蜻ｨ-2026-10-05' ? ['current-summary-in-a'] : []
+      notebookId === 'notebook-a' && path === '/Pinch/周-2026-10-05' ? ['current-summary-in-a'] : []
     );
     const wrapper = mountStats({ tasks: [createTask({ notebookId: 'notebook-b' })] });
     await flushPromises();
@@ -1705,13 +1705,13 @@ describe('PersonalStatsView', () => {
     expect(wrapper.find('.summary-save-button').attributes('disabled')).toBeUndefined();
     await wrapper.find('.summary-save-button').trigger('click');
     await flushPromises();
-    expect(apiMocks.createDocWithMd).toHaveBeenCalledWith('notebook-b', '/Pinch/蜻ｨ-2026-09-28', expect.any(String));
-    expect(wrapper.find('.summary-document-path').text()).toBe('/隨碑ｮｰ譛ｬ B/Pinch/蜻ｨ-2026-09-28');
+    expect(apiMocks.createDocWithMd).toHaveBeenCalledWith('notebook-b', '/Pinch/周-2026-09-28', expect.any(String));
+    expect(wrapper.find('.summary-document-path').text()).toBe('/笔记本 B/Pinch/周-2026-09-28');
     expect(wrapper.find('.summary-save-button').attributes('disabled')).toBeDefined();
 
     await wrapper.findAll('.summary-period-nav')[1].trigger('click');
     await flushPromises();
-    expect(wrapper.find('.summary-document-path').text()).toBe('/隨碑ｮｰ譛ｬ A/Pinch/蜻ｨ-2026-10-05');
+    expect(wrapper.find('.summary-document-path').text()).toBe('/笔记本 A/Pinch/周-2026-10-05');
     expect(wrapper.find('.summary-save-button').attributes('disabled')).toBeDefined();
     expect(siyuanMocks.destroyProtyle).toHaveBeenCalledTimes(2);
   });
@@ -1722,7 +1722,7 @@ describe('PersonalStatsView', () => {
     let resolveLookup!: (ids: string[]) => void;
     const pendingLookup = new Promise<string[]>(resolve => { resolveLookup = resolve; });
     apiMocks.getIDsByHPath.mockImplementation(async (_notebookId, path) =>
-      path === '/Pinch/蜻ｨ-2026-10-05' ? pendingLookup : []
+      path === '/Pinch/周-2026-10-05' ? pendingLookup : []
     );
     const wrapper = mountStats();
     await flushPromises();
@@ -1746,7 +1746,7 @@ describe('PersonalStatsView', () => {
     let resolveHabits!: (habits: Habit[]) => void;
     apiMocks.getHabits.mockReturnValue(new Promise<Habit[]>(resolve => { resolveHabits = resolve; }));
     apiMocks.getIDsByHPath.mockImplementation(async (_notebookId, path) =>
-      path === '/Pinch/蜻ｨ-2026-10-05' ? ['saved-summary'] : []
+      path === '/Pinch/周-2026-10-05' ? ['saved-summary'] : []
     );
     const wrapper = mountStats();
     await flushPromises();
@@ -1766,8 +1766,8 @@ describe('PersonalStatsView', () => {
   it('does not create a summary when another notebook cannot be checked', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     apiMocks.lsNotebooks.mockResolvedValue({ notebooks: [
-      { id: 'notebook-a', name: '隨碑ｮｰ譛ｬ A', closed: false },
-      { id: 'notebook-b', name: '隨碑ｮｰ譛ｬ B', closed: false }
+      { id: 'notebook-a', name: '笔记本 A', closed: false },
+      { id: 'notebook-b', name: '笔记本 B', closed: false }
     ] });
     const wrapper = mountStats({ tasks: [createTask({ notebookId: 'notebook-b' })] });
     await flushPromises();
@@ -1781,13 +1781,13 @@ describe('PersonalStatsView', () => {
     await flushPromises();
 
     expect(apiMocks.createDocWithMd).not.toHaveBeenCalled();
-    expect(siyuanMocks.showMessage).toHaveBeenCalledWith('鞫倩ｦ∵枚譯｣菫晏ｭ伜､ｱ雍･', 3000, 'error');
+    expect(siyuanMocks.showMessage).toHaveBeenCalledWith('摘要文档保存失败', 3000, 'error');
   });
 
   it.each([
-    { currentTasks: 2, previousTasks: 1, currentFocus: 30, previousFocus: 90, expected: '螳梧・莉ｻ蜉｡ +1 鬘ｹ ﾂｷ 荳捺ｳｨ 竏・h' },
-    { currentTasks: 1, previousTasks: 2, currentFocus: 90, previousFocus: 30, expected: '螳梧・莉ｻ蜉｡ 竏・ 鬘ｹ ﾂｷ 荳捺ｳｨ +1h' },
-    { currentTasks: 0, previousTasks: 0, currentFocus: 0, previousFocus: 0, expected: '螳梧・莉ｻ蜉｡蜥御ｸ捺ｳｨ譌ｶ髟ｿ謖∝ｹｳ' }
+    { currentTasks: 2, previousTasks: 1, currentFocus: 30, previousFocus: 90, expected: '完成任务 +1 项 · 专注 −1h' },
+    { currentTasks: 1, previousTasks: 2, currentFocus: 90, previousFocus: 30, expected: '完成任务 −1 项 · 专注 +1h' },
+    { currentTasks: 0, previousTasks: 0, currentFocus: 0, previousFocus: 0, expected: '完成任务和专注时长持平' }
   ])('compares completed tasks and focus time independently: $expected', async ({ currentTasks, previousTasks, currentFocus, previousFocus, expected }) => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-07T12:00:00'));
@@ -1816,11 +1816,11 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats();
     await flushPromises();
 
-    const todayButton = findButtonByText(wrapper, '.range-switch button', '莉頑律');
+    const todayButton = findButtonByText(wrapper, '.range-switch button', '今日');
     await todayButton.trigger('click');
 
     expect(todayButton.attributes('aria-selected')).toBe('true');
-    expect(findOverviewMetric(wrapper, '莉頑律螳梧・').exists()).toBe(true);
+    expect(findOverviewMetric(wrapper, '今日完成').exists()).toBe(true);
   });
 
   it('emits an overdue drilldown from the attention list', async () => {
@@ -1828,7 +1828,7 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats({ tasks: [createTask({ dueDate: yesterday })] });
     await flushPromises();
 
-    const overdueAction = wrapper.findAll('.attention-item').find(item => item.text().includes('蠖灘燕騾ｾ譛・'));
+    const overdueAction = wrapper.findAll('.attention-item').find(item => item.text().includes('当前逾期'));
     expect(overdueAction).toBeDefined();
     await overdueAction!.trigger('click');
 
@@ -1841,15 +1841,15 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats();
     await flushPromises();
 
-    expect(wrapper.find('.attention-empty').text()).toContain('蠖灘燕闃ょ･冗ｨｳ螳・');
+    expect(wrapper.find('.attention-empty').text()).toContain('当前节奏稳定');
 
-    await findButtonByText(wrapper, '.stats-tabs button', '莉ｻ蜉｡').trigger('click');
-    expect(wrapper.find('.panel-empty').text()).toContain('霑俶ｲ｡譛牙庄螟咲尨逧・ｻｻ蜉｡謨ｰ謐ｮ');
+    await findButtonByText(wrapper, '.stats-tabs button', '任务').trigger('click');
+    expect(wrapper.find('.panel-empty').text()).toContain('还没有可复盘的任务数据');
 
-    await findButtonByText(wrapper, '.stats-tabs button', '荵諠ｯ荳惹ｸ捺ｳｨ').trigger('click');
+    await findButtonByText(wrapper, '.stats-tabs button', '习惯与专注').trigger('click');
     const emptyMessages = wrapper.findAll('.panel-empty').map(item => item.text());
-    expect(emptyMessages).toContain('霑俶ｲ｡譛牙・蟒ｺ荵諠ｯ縲・');
-    expect(emptyMessages).toContain('霑吩ｸｪ蜻ｨ譛滄㈹霑俶ｲ｡譛我ｸ捺ｳｨ隶ｰ蠖輔・');
+    expect(emptyMessages).toContain('还没有创建习惯。');
+    expect(emptyMessages).toContain('这个周期里还没有专注记录。');
   });
 
   it('applies a habit broadcast immediately and ignores an older pending load', async () => {
@@ -1865,20 +1865,20 @@ describe('PersonalStatsView', () => {
     });
     await wrapper.vm.$nextTick();
 
-    expect(findOverviewMetric(wrapper, '荵諠ｯ謇灘今').find('strong').text()).toBe('100%');
+    expect(findOverviewMetric(wrapper, '习惯打卡').find('strong').text()).toBe('100%');
 
     resolveInitialLoad([]);
     await flushPromises();
 
-    expect(findOverviewMetric(wrapper, '荵諠ｯ謇灘今').find('strong').text()).toBe('100%');
+    expect(findOverviewMetric(wrapper, '习惯打卡').find('strong').text()).toBe('100%');
   });
 
   it('customizes overview cards and persists the selection', async () => {
     const wrapper = mountStats();
     await flushPromises();
 
-    await findButtonByText(wrapper, '.overview-customize-btn', '閾ｪ螳壻ｹ牙今迚・').trigger('click');
-    const habitOption = wrapper.findAll('.overview-card-option').find(option => option.text().includes('荵諠ｯ謇ｧ陦・'));
+    await findButtonByText(wrapper, '.overview-customize-btn', '自定义卡片').trigger('click');
+    const habitOption = wrapper.findAll('.overview-card-option').find(option => option.text().includes('习惯执行'));
     expect(habitOption).toBeDefined();
     expect(habitOption!.find('.task-checkbox').attributes('width')).toBe('18');
     expect(habitOption!.find('.task-checkbox').classes()).not.toContain('checked');
@@ -1887,20 +1887,20 @@ describe('PersonalStatsView', () => {
 
     expect(wrapper.find('.habit-rhythm-card').exists()).toBe(true);
     expect(localStorageData.get('pinch.personal-stats.overview-cards')).toBeUndefined();
-    expect(wrapper.find('.overview-unsaved').text()).toBe('譛ｪ菫晏ｭ・');
+    expect(wrapper.find('.overview-unsaved').text()).toBe('未保存');
     await wrapper.find('.overview-customizer-save').trigger('click');
     expect(localStorageData.get('pinch.personal-stats.overview-cards')).toContain('habit-rhythm');
     expect(wrapper.find('.overview-customizer').exists()).toBe(false);
     expect(wrapper.find('.overview-save-status').exists()).toBe(false);
-    expect(siyuanMocks.showMessage).toHaveBeenCalledWith('蜊｡迚・・鄂ｮ蟾ｲ菫晏ｭ・', 2200, 'info');
+    expect(siyuanMocks.showMessage).toHaveBeenCalledWith('卡片配置已保存', 2200, 'info');
 
     wrapper.unmount();
     const restoredWrapper = mountStats();
     await flushPromises();
     expect(restoredWrapper.find('.habit-rhythm-card').exists()).toBe(true);
 
-    await findButtonByText(restoredWrapper, '.overview-customize-btn', '閾ｪ螳壻ｹ牙今迚・').trigger('click');
-    await findButtonByText(restoredWrapper, '.overview-customizer-reset', '諱｢螟埼ｻ倩ｮ､').trigger('click');
+    await findButtonByText(restoredWrapper, '.overview-customize-btn', '自定义卡片').trigger('click');
+    await findButtonByText(restoredWrapper, '.overview-customizer-reset', '恢复默认').trigger('click');
     expect(restoredWrapper.find('.habit-rhythm-card').exists()).toBe(false);
     expect(restoredWrapper.findAll('.overview-kpi')).toHaveLength(4);
     expect(localStorageData.get('pinch.personal-stats.overview-cards')).toContain('habit-rhythm');
@@ -1912,9 +1912,9 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats();
     await flushPromises();
     await wrapper.find('.overview-customize-btn').trigger('click');
-    expect(wrapper.find('.stats-tabs-actions .overview-customize-btn').text()).toBe('蜿匁ｶ育ｼ冶ｾ・');
+    expect(wrapper.find('.stats-tabs-actions .overview-customize-btn').text()).toBe('取消编辑');
     expect(wrapper.findAll('.overview-card-group legend').map(item => item.text())).toEqual([
-      '雜句漢荳取署驢・', '陦悟勘荳主屓鬘ｾ', '謚募・荳取・髟ｿ'
+      '趋势与提醒', '行动与回顾', '投入与成长'
     ]);
     expect(wrapper.findAll('.overview-card-option')).toHaveLength(13);
     expect(wrapper.find('.overview-kpi .overview-card-hide').exists()).toBe(false);
@@ -1924,10 +1924,10 @@ describe('PersonalStatsView', () => {
     expect(wrapper.find('[data-card-id="attention"]').exists()).toBe(false);
     expect(wrapper.findAll('.overview-kpi')).toHaveLength(4);
     expect(wrapper.find('.habit-rhythm-card').exists()).toBe(true);
-    expect(wrapper.find('.overview-customizer-status').text()).toContain('蟾ｲ譏ｾ遉ｺ 2 蠑蜿ｯ騾牙今迚・');
+    expect(wrapper.find('.overview-customizer-status').text()).toContain('已显示 2 张可选卡片');
     await wrapper.find('.stats-tabs-actions .overview-customize-btn').trigger('click');
     expect(wrapper.find('.overview-customizer').exists()).toBe(false);
-    expect(wrapper.find('.stats-tabs-actions .overview-customize-btn').text()).toBe('閾ｪ螳壻ｹ牙今迚・');
+    expect(wrapper.find('.stats-tabs-actions .overview-customize-btn').text()).toBe('自定义卡片');
     expect(wrapper.find('.stats-tabs-actions .overview-customize-btn').attributes('aria-expanded')).toBe('false');
     expect(wrapper.find('[data-card-id="attention"]').exists()).toBe(true);
     expect(wrapper.find('.habit-rhythm-card').exists()).toBe(false);
@@ -2070,7 +2070,7 @@ describe('PersonalStatsView', () => {
     await wrapper.find('[data-card-id="attention"]').trigger('dragover', { dataTransfer, clientX: 150, clientY: 50 });
     await wrapper.find('[data-card-id="recent-activity"]').trigger('drop', { dataTransfer });
     expect(order()).toEqual(['activity', 'recent-activity', 'attention', 'today-actions']);
-    expect(wrapper.find('.overview-unsaved').text()).toBe('譛ｪ菫晏ｭ・');
+    expect(wrapper.find('.overview-unsaved').text()).toBe('未保存');
     expect(wrapper.find('.is-drag-preview').exists()).toBe(false);
     await wrapper.find('.overview-customizer-cancel').trigger('click');
     expect(order()).toEqual(saved);
@@ -2186,7 +2186,7 @@ describe('PersonalStatsView', () => {
     expect(card.attributes('tabindex')).toBeUndefined();
     await wrapper.find('.overview-customize-btn').trigger('click');
     expect(card.attributes('tabindex')).toBe('0');
-    expect(card.attributes('aria-label')).toContain('閨夂┬蜊｡迚・錘菴ｿ逕ｨ譁ｹ蜷鷹醗');
+    expect(card.attributes('aria-label')).toContain('聚焦卡片后使用方向键');
     const icon = card.find('.overview-card-drag-handle');
     expect(icon.element.tagName).toBe('SPAN');
     expect(icon.attributes('tabindex')).toBeUndefined();
@@ -2217,7 +2217,7 @@ describe('PersonalStatsView', () => {
     vi.mocked(window.localStorage.setItem).mockImplementationOnce(() => { throw new Error('Storage full'); });
     await wrapper.find('.overview-customizer-save').trigger('click');
     expect(wrapper.find('.overview-customizer').exists()).toBe(true);
-    expect(wrapper.find('.overview-save-status').text()).toContain('菫晏ｭ伜､ｱ雍･');
+    expect(wrapper.find('.overview-save-status').text()).toContain('保存失败');
     expect(siyuanMocks.showMessage).not.toHaveBeenCalled();
     expect(wrapper.find('.habit-rhythm-card').exists()).toBe(true);
     expect(localStorageData.get('pinch.personal-stats.overview-cards')).toBeUndefined();
@@ -2235,7 +2235,7 @@ describe('PersonalStatsView', () => {
     expect(wrapper.find('.overview-customizer').exists()).toBe(true);
     expect(wrapper.findAll('.overview-kpi')).toHaveLength(4);
     expect(wrapper.find('.overview-kpi .overview-card-hide').exists()).toBe(false);
-    expect(wrapper.find('.overview-customizer-status').text()).toContain('蟾ｲ譏ｾ遉ｺ 0 蠑蜿ｯ騾牙今迚・');
+    expect(wrapper.find('.overview-customizer-status').text()).toContain('已显示 0 张可选卡片');
     await wrapper.find('.overview-customizer-cancel').trigger('click');
     await wrapper.find('.overview-empty-selection .overview-customizer-reset').trigger('click');
     expect(wrapper.findAll('.overview-kpi')).toHaveLength(4);
@@ -2336,7 +2336,7 @@ describe('PersonalStatsView', () => {
     expect(wrapper.findAll('[data-card-id]')).toHaveLength(9);
     expect(wrapper.find('.today-actions-card').text()).toContain('40m');
     expect(wrapper.find('.today-task-list').text()).toContain('Today task');
-    expect(wrapper.find('.today-actions-card .overview-detail-metrics').text()).toContain('莉頑律螳梧・1');
+    expect(wrapper.find('.today-actions-card .overview-detail-metrics').text()).toContain('今日完成1');
     expect(wrapper.find('.goal-progress-detail-card').text()).toContain('Launch project');
     expect(wrapper.find('.habit-execution-list').text()).toContain('Drink water');
     expect(wrapper.find('.focus-allocation-list').text()).toContain('Today task');
@@ -2406,15 +2406,15 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats({ tasks });
     await flushPromises();
     const card = wrapper.find('.upcoming-deadlines-card');
-    expect(card.text()).toContain('4 鬘ｹ莉ｻ蜉｡蜊ｳ蟆・穐豁｢');
+    expect(card.text()).toContain('4 项任务即将截止');
     expect(card.findAll('.overview-highlight-row strong').map(row => row.text())).toEqual(['Tomorrow morning', 'Tomorrow evening', 'Day two']);
-    expect(card.text()).toContain('蜑ｩ菴・1 螟ｩ');
+    expect(card.text()).toContain('剩余 1 天');
     await card.find('.overview-highlight-row').trigger('click');
     expect(apiMocks.openBlockById).toHaveBeenCalledWith('early');
     await card.find('.overview-list-toggle').trigger('click');
     expect(card.find('.overview-list-toggle').attributes('aria-expanded')).toBe('true');
     expect(card.findAll('.overview-highlight-row strong').map(row => row.text())).toEqual(['Tomorrow morning', 'Tomorrow evening', 'Day two', 'Day seven']);
-    await findButtonByText(wrapper, '.range-switch button', '莉頑律').trigger('click');
+    await findButtonByText(wrapper, '.range-switch button', '今日').trigger('click');
     expect(card.findAll('.overview-highlight-row')).toHaveLength(4);
     await card.find('.overview-list-toggle').trigger('click');
     expect(card.findAll('.overview-highlight-row')).toHaveLength(3);
@@ -2436,9 +2436,9 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats({ tasks });
     await flushPromises();
     const card = wrapper.find('.stagnant-tasks-card');
-    expect(card.text()).toContain('3 鬘ｹ莉ｻ蜉｡髴隕・㍾譁ｰ謗ｨ霑・');
+    expect(card.text()).toContain('3 项任务需要重新推进');
     expect(card.findAll('.overview-highlight-row strong').map(row => row.text())).toEqual(['Oldest update', 'Creation fallback', 'Seven days idle']);
-    expect(card.text()).toContain('7 螟ｩ譛ｪ譖ｴ譁ｰ');
+    expect(card.text()).toContain('7 天未更新');
     await card.find('.overview-highlight-row').trigger('click');
     expect(apiMocks.openBlockById).toHaveBeenCalledWith('old');
     await wrapper.setProps({ tasks: tasks.map(task => task.id === 'old' ? { ...task, updatedAt: now.toISOString() } : task) });
@@ -2467,15 +2467,15 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats();
     await flushPromises();
     const card = wrapper.find('.today-habits-card');
-    expect(card.text()).toContain('4 荳ｪ荵諠ｯ蠕・遠蜊｡');
-    expect(card.text()).toContain('莉頑律蟾ｲ螳梧・ 1/3 谺｡');
+    expect(card.text()).toContain('4 个习惯待打卡');
+    expect(card.text()).toContain('今日已完成 1/3 次');
     await card.find('.overview-list-toggle').trigger('click');
     expect(card.findAll('.overview-highlight-row strong').map(row => row.text())).toEqual(['Partial habit', 'Pending habit', 'Scheduled today', 'Weekly remaining']);
     await card.find('.overview-highlight-row').trigger('click');
     expect(wrapper.emitted('open-detail')).toContainEqual([{ target: 'habit-detail', habitId: 'partial' }]);
     eventBus.emit(Events.HABITS_UPDATED, { source: 'habit-tracker', habits: habitData.map(habit => habit.id === 'partial' ? { ...habit, calendar: [checkin(today, 3, 3)] } : habit) });
     await wrapper.vm.$nextTick();
-    expect(card.text()).toContain('3 荳ｪ荵諠ｯ蠕・遠蜊｡');
+    expect(card.text()).toContain('3 个习惯待打卡');
     expect(card.text()).not.toContain('Partial habit');
   });
 
@@ -2497,11 +2497,11 @@ describe('PersonalStatsView', () => {
     const restored = mountStats();
     await flushPromises();
     expect(order(restored)).toEqual(['habit-rhythm', 'upcoming-deadlines', 'activity', 'stagnant-tasks', 'today-habits', 'unscheduled-tasks', 'estimate-vs-actual']);
-    expect(restored.find('.upcoming-deadlines-card .overview-inline-empty').text()).toContain('豐｡譛牙ｾ・ｮ梧・逧・穐豁｢莉ｻ蜉｡');
-    expect(restored.find('.stagnant-tasks-card .overview-inline-empty').text()).toContain('豐｡譛芽ｿ樒ｻｭ 7 螟ｩ蜿贋ｻ･荳頑悴譖ｴ譁ｰ');
-    expect(restored.find('.today-habits-card .overview-inline-empty').text()).toContain('豐｡譛牙ｾ・遠蜊｡逧・ｹ諠ｯ');
-    expect(restored.find('.unscheduled-tasks-card .overview-inline-empty').text()).toContain('豐｡譛牙ｰ壽悴螳画賜譌･譛・');
-    expect(restored.find('.estimate-vs-actual-card .overview-inline-empty').text()).toContain('譛ｬ蜻ｨ譛溯ｿ俶ｲ｡譛牙ｷｲ螳梧・莉ｻ蜉｡');
+    expect(restored.find('.upcoming-deadlines-card .overview-inline-empty').text()).toContain('没有待完成的截止任务');
+    expect(restored.find('.stagnant-tasks-card .overview-inline-empty').text()).toContain('没有连续 7 天及以上未更新');
+    expect(restored.find('.today-habits-card .overview-inline-empty').text()).toContain('没有待打卡的习惯');
+    expect(restored.find('.unscheduled-tasks-card .overview-inline-empty').text()).toContain('没有尚未安排日期');
+    expect(restored.find('.estimate-vs-actual-card .overview-inline-empty').text()).toContain('本周期还没有已完成任务');
   });
 
   it('lists only unfinished high-priority tasks with neither a start date nor a deadline', async () => {
@@ -2526,13 +2526,13 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats({ tasks });
     await flushPromises();
     const card = wrapper.find('.unscheduled-tasks-card');
-    expect(card.text()).toContain('4 鬘ｹ鬮倅ｼ伜・郤ｧ莉ｻ蜉｡蟆壽悴螳画賜譌･譛・');
+    expect(card.text()).toContain('4 项高优先级任务尚未安排日期');
     expect(card.findAll('.overview-highlight-row strong').map(row => row.text())).toEqual(['Oldest waiting', 'Middle waiting', 'Blank dates']);
     await card.find('.overview-highlight-row').trigger('click');
     expect(apiMocks.openBlockById).toHaveBeenCalledWith('old');
     await card.find('.overview-list-toggle').trigger('click');
     expect(card.findAll('.overview-highlight-row')).toHaveLength(4);
-    await findButtonByText(wrapper, '.range-switch button', '莉頑律').trigger('click');
+    await findButtonByText(wrapper, '.range-switch button', '今日').trigger('click');
     expect(card.findAll('.overview-highlight-row')).toHaveLength(4);
     await wrapper.setProps({ tasks: tasks.map(task => task.id === 'old' ? { ...task, startDate: today } : task) });
     expect(card.findAll('.overview-highlight-row strong').map(row => row.text())).toEqual(['Middle waiting', 'Blank dates', 'Newest waiting']);
@@ -2579,20 +2579,20 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats({ tasks });
     await flushPromises();
     const card = wrapper.find('.estimate-vs-actual-card');
-    expect(card.text()).toContain('6 鬘ｹ蟾ｲ螳梧・莉ｻ蜉｡荳ｭ・・ 鬘ｹ蜿ｯ蟇ｹ豈・');
+    expect(card.text()).toContain('6 项已完成任务中，4 项可对比');
     expect(card.findAll('.overview-detail-metrics strong').map(metric => metric.text())).toEqual(['2h30m', '2h40m']);
-    expect(card.text()).toContain('霎・｢・ｼｰ螟・7%');
-    expect(card.text()).toContain('1 鬘ｹ譛ｪ莨ｰ譌ｶ');
-    expect(card.text()).toContain('1 鬘ｹ譌蜈ｳ閨比ｸ捺ｳｨ');
+    expect(card.text()).toContain('较预估多 7%');
+    expect(card.text()).toContain('1 项未估时');
+    expect(card.text()).toContain('1 项无关联专注');
     expect(card.findAll('.overview-highlight-row strong').map(row => row.text())).toEqual(['Over estimate', 'Under estimate', 'Archived completion']);
-    expect(card.findAll('.overview-highlight-row')[0].text()).toContain('螟・40m');
-    expect(card.findAll('.overview-highlight-row')[1].text()).toContain('蟆・30m');
+    expect(card.findAll('.overview-highlight-row')[0].text()).toContain('多 40m');
+    expect(card.findAll('.overview-highlight-row')[1].text()).toContain('少 30m');
     await card.find('.overview-highlight-row').trigger('click');
     expect(apiMocks.openBlockById).toHaveBeenCalledWith('block-over');
     await card.find('.overview-list-toggle').trigger('click');
-    expect(card.findAll('.overview-highlight-row')[3].text()).toContain('荳朱｢・ｼｰ荳閾ｴ');
-    await findButtonByText(wrapper, '.range-switch button', '莉頑律').trigger('click');
-    expect(card.text()).toContain('5 鬘ｹ蟾ｲ螳梧・莉ｻ蜉｡荳ｭ・・ 鬘ｹ蜿ｯ蟇ｹ豈・');
+    expect(card.findAll('.overview-highlight-row')[3].text()).toContain('与预估一致');
+    await findButtonByText(wrapper, '.range-switch button', '今日').trigger('click');
+    expect(card.text()).toContain('5 项已完成任务中，3 项可对比');
     expect(card.findAll('.overview-detail-metrics strong').map(metric => metric.text())).toEqual(['2h', '2h10m']);
     expect(card.text()).not.toContain('Equal estimate');
   });
@@ -2609,20 +2609,20 @@ describe('PersonalStatsView', () => {
     const wrapper = mountStats({ tasks });
     await flushPromises();
     const card = wrapper.find('.estimate-vs-actual-card');
-    expect(card.text()).toContain('3 鬘ｹ蟾ｲ螳梧・莉ｻ蜉｡荳ｭ・・ 鬘ｹ蜿ｯ蟇ｹ豈・');
-    expect(card.text()).toContain('2 鬘ｹ譛ｪ莨ｰ譌ｶ');
-    expect(card.text()).toContain('3 鬘ｹ譌蜈ｳ閨比ｸ捺ｳｨ');
+    expect(card.text()).toContain('3 项已完成任务中，0 项可对比');
+    expect(card.text()).toContain('2 项未估时');
+    expect(card.text()).toContain('3 项无关联专注');
     expect(card.find('.overview-detail-metrics').exists()).toBe(false);
-    expect(card.find('.overview-inline-empty').text()).toContain('證よ裏豕募ｯｹ豈・');
+    expect(card.find('.overview-inline-empty').text()).toContain('暂无法对比');
     apiMocks.getFocusTimerData.mockResolvedValue({
       dailyRecords: [],
       sessionRecords: [{ id: 'new-focus', date: today, minutes: 45, timestamp: now.getTime(), targetType: 'task', targetId: 'ready', targetBlockId: 'ready' }]
     });
     window.dispatchEvent(new Event('pinch-focus-session'));
     await flushPromises();
-    expect(card.text()).toContain('3 鬘ｹ蟾ｲ螳梧・莉ｻ蜉｡荳ｭ・・ 鬘ｹ蜿ｯ蟇ｹ豈・');
+    expect(card.text()).toContain('3 项已完成任务中，1 项可对比');
     expect(card.findAll('.overview-detail-metrics strong').map(metric => metric.text())).toEqual(['1h', '45m']);
-    expect(card.text()).toContain('霎・｢・ｼｰ蟆・25%');
+    expect(card.text()).toContain('较预估少 25%');
   });
 
   it('shows actionable empty states and level progress in the retained cards', async () => {
@@ -2630,10 +2630,10 @@ describe('PersonalStatsView', () => {
     rewardMocks.getRewardSnapshot.mockResolvedValue({ ...emptyRewardSnapshot, currentLevelXp: 20, nextLevelXp: 40, levelProgressPercent: 50 });
     const wrapper = mountStats();
     await flushPromises();
-    expect(wrapper.find('.today-actions-card').text()).toContain('莉雁､ｩ豐｡譛牙ｾ・萱謌夜ｾ譛滉ｻｻ蜉｡');
-    expect(wrapper.find('.goal-progress-detail-card').text()).toContain('蠖灘燕豐｡譛牙ｾ・耳霑帷噪逶ｮ譬・');
-    expect(wrapper.find('.habit-rhythm-card').text()).toContain('譛ｬ蜻ｨ譛滓ｲ｡譛蛾怙隕∵鴬陦檎噪荵諠ｯ');
-    expect(wrapper.find('.focus-summary-card').text()).toContain('霑吩ｸｪ蜻ｨ譛滄㈹霑俶ｲ｡譛我ｸ捺ｳｨ隶ｰ蠖・');
+    expect(wrapper.find('.today-actions-card').text()).toContain('今天没有待办或逾期任务');
+    expect(wrapper.find('.goal-progress-detail-card').text()).toContain('当前没有待推进的目标');
+    expect(wrapper.find('.habit-rhythm-card').text()).toContain('本周期没有需要执行的习惯');
+    expect(wrapper.find('.focus-summary-card').text()).toContain('这个周期里还没有专注记录');
     expect(wrapper.find('.growth-summary-card .overview-summary-progress span').attributes('style')).toContain('50%');
     await wrapper.find('.today-actions-button').trigger('click');
     expect(wrapper.emitted('drilldown')).toContainEqual([expect.objectContaining({ target: 'table', statuses: ['pending', 'in-progress', 'delayed'] })]);
