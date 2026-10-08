@@ -13,7 +13,7 @@
         </div>
       </div>
       <div class="calendar-task-mini-weekdays">
-        <span v-for="day in mondayFirstWeekdays" :key="day">{{ day }}</span>
+        <span v-for="day in weekDayLabels" :key="day">{{ day }}</span>
       </div>
       <div class="calendar-task-mini-days">
         <button
@@ -55,6 +55,36 @@
         >
           <i></i>
         </button>
+      </div>
+      <div
+        v-if="weekStartsOnSunday !== undefined"
+        class="calendar-task-sidebar-display-option calendar-task-sidebar-week-start"
+      >
+        <span>{{ t('kanbanView.calendarWeekStart') }}</span>
+        <div
+          class="calendar-task-sidebar-week-start-options"
+          role="group"
+          :aria-label="t('kanbanView.calendarWeekStart')"
+        >
+          <button
+            type="button"
+            class="calendar-task-sidebar-week-start-btn"
+            :class="{ active: !weekStartsOnSunday }"
+            :aria-pressed="!weekStartsOnSunday"
+            @click="emit('week-start-change', false)"
+          >
+            {{ t('date.weekdayMonShort') }}
+          </button>
+          <button
+            type="button"
+            class="calendar-task-sidebar-week-start-btn"
+            :class="{ active: weekStartsOnSunday }"
+            :aria-pressed="weekStartsOnSunday"
+            @click="emit('week-start-change', true)"
+          >
+            {{ t('date.weekdaySunShort') }}
+          </button>
+        </div>
       </div>
     </div>
     <div class="calendar-task-sidebar-search">
@@ -195,12 +225,14 @@ const props = defineProps<{
   selectedStartDate?: Date;
   selectedDaysCount?: number;
   displayOptions?: Array<{ key: string; label: string; enabled: boolean }>;
+  weekStartsOnSunday?: boolean;
 }>();
 const emit = defineEmits<{
   "task-toggle": [task: Task];
   "task-edit": [task: Task, anchor: { x: number; y: number }];
   "date-select": [date: Date];
   "calendar-display-toggle": [key: string];
+  "week-start-change": [weekStartsOnSunday: boolean];
   "calendar-task-drag-start": [payload: { task: Task; clientX: number; clientY: number }];
   "calendar-task-drag-move": [payload: { task: Task; clientX: number; clientY: number }];
   "calendar-task-drag-end": [payload: { task: Task; clientX: number; clientY: number }];
@@ -272,7 +304,8 @@ function handleTaskClick(event: MouseEvent, task: Task) {
 function formatKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
-const mondayFirstWeekdays = computed(() => [
+const weekDayLabels = computed(() => {
+  const mondayFirst = [
   t("date.weekdayMonShort"),
   t("date.weekdayTueShort"),
   t("date.weekdayWedShort"),
@@ -280,7 +313,9 @@ const mondayFirstWeekdays = computed(() => [
   t("date.weekdayFriShort"),
   t("date.weekdaySatShort"),
   t("date.weekdaySunShort"),
-]);
+  ];
+  return props.weekStartsOnSunday ? [mondayFirst[6], ...mondayFirst.slice(0, 6)] : mondayFirst;
+});
 const miniCalendarTitle = computed(
   () =>
     `${miniMonth.value.getFullYear()} ${miniMonth.value.getMonth() + 1}${t("date.monthSuffix")}`,
@@ -297,7 +332,8 @@ const miniDays = computed(() => {
   const month = miniMonth.value;
   const first = new Date(month.getFullYear(), month.getMonth(), 1);
   const start = new Date(first);
-  start.setDate(1 - ((first.getDay() + 6) % 7));
+  const dayOffset = props.weekStartsOnSunday ? first.getDay() : (first.getDay() + 6) % 7;
+  start.setDate(1 - dayOffset);
   const today = formatKey(new Date());
   const selectedStart = props.selectedStartDate
     ? new Date(props.selectedStartDate)
@@ -628,8 +664,11 @@ async function loadNotebookNames() {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 4px 0;
   overflow-y: auto;
+      margin-top: -4px;
 }
 .calendar-task-sidebar-notebook-group {
   padding: 5px;
@@ -859,6 +898,30 @@ async function loadNotebookNames() {
 }
 .calendar-task-sidebar-display-option + .calendar-task-sidebar-display-option {
   border-top: 1px solid var(--b3-theme-border);
+}
+.calendar-task-sidebar-week-start-options {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--b3-list-hover);
+}
+.calendar-task-sidebar-week-start-btn {
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--b3-theme-on-surface);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+.calendar-task-sidebar-week-start-btn:hover,
+.calendar-task-sidebar-week-start-btn.active {
+  color: var(--b3-theme-on-background);
+  background: var(--b3-theme-background);
+  box-shadow: var(--pinch-shadow);
 }
 .calendar-task-sidebar-switch {
   width: 26px;

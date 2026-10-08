@@ -8,6 +8,7 @@ import type { StoredTaskFilterExpressionItem } from '@/composables/useTaskFilter
 import { normalizeTaskStatusDefinitions, type TaskStatusDefinition } from '@/utils/taskStatus';
 
 export type TaskViewSwitcherId = 'kanban' | 'list' | 'table' | 'quadrant' | 'gantt' | 'archive-table' | 'stats' | 'month' | 'week' | 'three-day' | 'day';
+export type TaskViewSwitcherDisplayId = 'kanban' | 'list' | 'table' | 'quadrant' | 'gantt' | 'calendar' | 'archive-table' | 'stats';
 export type SidebarSectionId = 'week-dates' | 'habit-list' | 'stand-container';
 export type TaskCreateDefaultTarget = 'last' | 'inbox' | 'daily-note' | 'specified-document';
 
@@ -32,6 +33,7 @@ export interface UserSettings {
     customCompletionSoundVolume?: number;
     customMicroBreakSoundFile?: string;
     customMicroBreakSoundVolume?: number;
+    customFocusDurationMinutes?: number;
   };
   kanban: {
     currentView?: TaskViewSwitcherId;
@@ -107,6 +109,7 @@ export interface UserSettings {
     tableExtraFilters?: string[];
     tableFilterExpression?: StoredTaskFilterExpressionItem[];
     hiddenViewSwitcherIds?: TaskViewSwitcherId[];
+    viewSwitcherOrder?: TaskViewSwitcherDisplayId[];
   };
   taskManager: {
     filterStatus: string;
@@ -172,7 +175,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     whiteNoiseVolume: 0.3,
     customWhiteNoiseVolume: 0.3,
     customCompletionSoundVolume: 0.3,
-    customMicroBreakSoundVolume: 0.3
+    customMicroBreakSoundVolume: 0.3,
+    customFocusDurationMinutes: 40
   },
   kanban: {
     currentView: 'table',
@@ -242,7 +246,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     tableGroupFilters: [],
     tableExtraFilters: [],
     tableFilterExpression: [],
-    hiddenViewSwitcherIds: []
+    hiddenViewSwitcherIds: [],
+    viewSwitcherOrder: ['stats', 'kanban', 'list', 'table', 'quadrant', 'gantt', 'calendar', 'archive-table']
   },
   taskManager: {
     filterStatus: 'all',
@@ -447,6 +452,10 @@ const TASK_VIEW_SWITCHER_IDS: readonly TaskViewSwitcherId[] = [
   'stats'
 ];
 
+const TASK_VIEW_SWITCHER_DISPLAY_IDS: readonly TaskViewSwitcherDisplayId[] = [
+  'stats', 'kanban', 'list', 'table', 'quadrant', 'gantt', 'calendar', 'archive-table'
+];
+
 const SIDEBAR_SECTION_IDS: readonly SidebarSectionId[] = [
   'week-dates',
   'habit-list',
@@ -476,6 +485,13 @@ function mergeWithDefaults(input: unknown): UserSettings {
       microBreakDurationSeconds: normalizePositiveInteger(
         (rawFocus as { microBreakDurationSeconds?: unknown }).microBreakDurationSeconds,
         DEFAULT_SETTINGS.focus.microBreakDurationSeconds
+      ),
+      customFocusDurationMinutes: Math.min(
+        720,
+        normalizePositiveInteger(
+          (rawFocus as { customFocusDurationMinutes?: unknown }).customFocusDurationMinutes,
+          DEFAULT_SETTINGS.focus.customFocusDurationMinutes
+        )
       )
     },
     kanban: {
@@ -517,9 +533,20 @@ function mergeWithDefaults(input: unknown): UserSettings {
       tableGroupFilters: normalizeStringArray((rawKanban as { tableGroupFilters?: unknown }).tableGroupFilters),
       tableExtraFilters: normalizeStringArray((rawKanban as { tableExtraFilters?: unknown }).tableExtraFilters),
       tableFilterExpression: normalizeTaskFilterExpression((rawKanban as { tableFilterExpression?: unknown }).tableFilterExpression),
-      hiddenViewSwitcherIds: normalizeAllowedStringArray(
-        (rawKanban as { hiddenViewSwitcherIds?: unknown }).hiddenViewSwitcherIds,
-        TASK_VIEW_SWITCHER_IDS
+      hiddenViewSwitcherIds: (() => {
+        const rawHiddenIds = normalizeStringArray(
+          (rawKanban as { hiddenViewSwitcherIds?: unknown }).hiddenViewSwitcherIds
+        );
+        // Migrate the old grouped calendar ID to the internal view IDs used by
+        // the runtime switcher.
+        if (rawHiddenIds.includes('calendar')) {
+          rawHiddenIds.push('month', 'week', 'three-day', 'day');
+        }
+        return normalizeAllowedStringArray(rawHiddenIds, TASK_VIEW_SWITCHER_IDS);
+      })(),
+      viewSwitcherOrder: normalizeOrderedAllowedStringArray(
+        (rawKanban as { viewSwitcherOrder?: unknown }).viewSwitcherOrder,
+        TASK_VIEW_SWITCHER_DISPLAY_IDS
       )
     },
     taskManager: {

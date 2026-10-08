@@ -7,10 +7,12 @@
         :notebooks="notebooks"
         :document-title-by-root-id="documentTitleByRootId"
         :display-options="displayOptions"
+        :week-starts-on-sunday="weekStartsOnSunday"
         @task-toggle="toggleTaskStatus"
         @task-edit="(task, anchor) => emit('taskEdit', task, anchor)"
         @date-select="focusMonth"
         @calendar-display-toggle="emit('calendarDisplayToggle', $event)"
+        @week-start-change="emit('weekStartChange', $event)"
         @calendar-task-drag-start="handleCalendarTaskDragStart"
         @calendar-task-drag-move="handleCalendarTaskDragMove"
         @calendar-task-drag-end="handleCalendarTaskDragEnd"
@@ -55,7 +57,8 @@
         </div>
         <div class="month-title-row">
           <div class="month-title">{{ monthTitle }}</div>
-          <button
+          <div class="month-title-actions">
+            <button
             type="button"
             class="month-task-collapse-btn ariaLabel"
             :class="{ active: isTasksCollapsed }"
@@ -70,6 +73,7 @@
               <path d="M16.29,14.29,12,18.59l-4.29-4.3a1,1,0,0,0-1.42,1.42l5,5a1,1,0,0,0,1.42,0l5-5a1,1,0,0,0-1.42-1.42ZM7.71,9.71,12,5.41l4.29,4.3a1,1,0,0,0,1.42,0,1,1,0,0,0,0-1.42l-5-5a1,1,0,0,0-1.42,0l-5,5A1,1,0,0,0,7.71,9.71Z" />
             </svg>
           </button>
+          </div>
         </div>
       </div>
       <div class="calendar-grid">
@@ -396,7 +400,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue';
+import { ref, computed, watch, nextTick, onActivated, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue';
 import type { FocusSessionRecord, Habit, MoodData, MoodManualEntry, Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
 import {
@@ -496,6 +500,7 @@ interface Props {
   calendarViewOptions?: CalendarViewOption[];
   currentCalendarView?: CalendarViewMode;
   displayOptions?: Array<{ key: string; label: string; enabled: boolean }>;
+  weekStartsOnSunday?: boolean;
   showFocusRecords?: boolean;
   showHabits?: boolean;
   showTaskLifelog?: boolean;
@@ -610,6 +615,7 @@ const {
   updateNote: updateCheckinNote
 } = useCheckinNotes();
 const calendarViewOptions = computed(() => props.calendarViewOptions || []);
+const weekStartsOnSunday = computed(() => props.weekStartsOnSunday === true);
 const showFocusRecords = computed(() => props.showFocusRecords !== false);
 const showHabits = computed(() => props.showHabits !== false);
 const showLifelog = computed(() => props.showLifelog !== false);
@@ -638,6 +644,7 @@ const emit = defineEmits<{
   visibleRangeChange: [payload: { startDate: string; endDate: string }];
   calendarViewChange: [view: CalendarViewMode];
   calendarDisplayToggle: [key: string];
+  weekStartChange: [weekStartsOnSunday: boolean];
   sidebarCollapsedChange: [collapsed: boolean];
 }>();
 
@@ -1141,7 +1148,7 @@ watch(showFocusRecords, (visible, wasVisible) => {
 });
 
 watch([showHabits, showHabitLifelog], ([showTaskChips, showLifelog], previous) => {
-  if ((showTaskChips || showLifelog) && !(previous[0] || previous[1])) {
+  if ((showTaskChips && !previous[0]) || (showLifelog && !previous[1])) {
     void refreshHabitCheckins();
   }
 });
@@ -1341,7 +1348,7 @@ watch(() => localTasks.value.map(task => task.id).join('|'), () => {
 const visibleCalendarRange = computed(() => {
   const start = new Date(baseDate.value);
   start.setHours(0, 0, 0, 0);
-  const dayOfWeek = (start.getDay() + 6) % 7;
+  const dayOfWeek = weekStartsOnSunday.value ? start.getDay() : (start.getDay() + 6) % 7;
   start.setDate(start.getDate() - dayOfWeek);
 
   const end = new Date(start);
@@ -1358,6 +1365,8 @@ function emitVisibleCalendarRange(): void {
     endDate: formatDate(end)
   });
 }
+
+onActivated(emitVisibleCalendarRange);
 
 watch(
   visibleCalendarRange,
@@ -1514,22 +1523,25 @@ const taskPositionsMap = computed(() => {
   return positionMap;
 });
 
-const weekdays = computed(() => [
-  t('date.weekdayMonShort'),
-  t('date.weekdayTueShort'),
-  t('date.weekdayWedShort'),
-  t('date.weekdayThuShort'),
-  t('date.weekdayFriShort'),
-  t('date.weekdaySatShort'),
-  t('date.weekdaySunShort')
-]);
+const weekdays = computed(() => {
+  const mondayFirst = [
+    t('date.weekdayMonShort'),
+    t('date.weekdayTueShort'),
+    t('date.weekdayWedShort'),
+    t('date.weekdayThuShort'),
+    t('date.weekdayFriShort'),
+    t('date.weekdaySatShort'),
+    t('date.weekdaySunShort')
+  ];
+  return weekStartsOnSunday.value ? [mondayFirst[6], ...mondayFirst.slice(0, 6)] : mondayFirst;
+});
 
 const calendarDays = computed<MonthCalendarDay[]>(() => {
   const days: MonthCalendarDay[] = [];
   
   const startDate = new Date(baseDate.value);
   startDate.setHours(0, 0, 0, 0);
-  const dayOfWeek = (startDate.getDay() + 6) % 7;
+  const dayOfWeek = weekStartsOnSunday.value ? startDate.getDay() : (startDate.getDay() + 6) % 7;
   startDate.setDate(startDate.getDate() - dayOfWeek);
   
   const today = new Date();
@@ -1900,7 +1912,9 @@ const lifelogTimelineSubtitle = computed(() => formatTemplate('weekView.lifelogT
 
 const lifelogTimelineDateStripDays = computed<LifelogTimelineDateStripDay[]>(() => (
   calendarDays.value.map(day => {
-    const weekdayIndex = (day.date.getDay() + 6) % 7;
+    const weekdayIndex = weekStartsOnSunday.value
+      ? day.date.getDay()
+      : (day.date.getDay() + 6) % 7;
     const weekdayLabel = weekdays.value[weekdayIndex] || '';
     const hasRecord = Boolean(
       getFocusDaySummary(day.key)
@@ -2022,6 +2036,10 @@ function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePane
     id: `focus-${event.id}`,
     sourceId: event.id,
     type: event.type,
+    timeValue: event.endTime,
+    timeEditable: true,
+    timeSourceId: event.id,
+    timeEventId: event.id,
     timeLabel: `${event.startTime} - ${event.endTime}`,
     sortMinutes,
     title: event.title,
@@ -2039,6 +2057,10 @@ function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimel
     id: `habit-${event.id}`,
     sourceId: event.id,
     type: event.type,
+    timeValue: formatSortMinutes(sortMinutes),
+    timeEditable: true,
+    timeSourceId: event.habitId,
+    timeEventId: event.id,
     timeLabel: formatSortMinutes(sortMinutes),
     sortMinutes,
     title: event.title,
@@ -2104,6 +2126,10 @@ function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimel
     id: `task-${event.id}`,
     sourceId: event.taskId,
     type: event.type,
+    timeValue: formatTaskCompletedTime(event),
+    timeEditable: true,
+    timeSourceId: event.taskId,
+    timeEventId: event.id,
     timeLabel: formatTaskCompletedTime(event),
     sortMinutes,
     title: event.title,
@@ -2124,6 +2150,11 @@ function manualNoteEventToTimelineItem(event: ManualNoteLifelogEvent): LifelogTi
     id: `manual-${event.id}`,
     sourceId: event.id,
     type: event.type,
+    date: event.date,
+    timeValue: formatManualNoteTimestamp(event),
+    timeEditable: true,
+    timeSourceId: event.id,
+    timeEventId: event.id,
     timeLabel: formatManualNoteTimestamp(event),
     sortMinutes,
     title: t('monthView.lifelogManualNote'),
@@ -4358,6 +4389,12 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.month-title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .month-task-collapse-btn {

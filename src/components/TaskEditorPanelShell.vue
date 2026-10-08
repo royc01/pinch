@@ -139,6 +139,33 @@
         </div>
       </div>
       <slot />
+      <div v-if="normalizedTaskPath && showOpenContent" class="task-editor-location">
+        <button
+          type="button"
+          class="task-editor-location-btn"
+          :aria-label="t('taskCard.openContent')"
+          :title="normalizedTaskPath"
+          @click.stop="$emit('openContent')"
+        >
+          <svg
+            viewBox="0 0 1024 1024"
+            width="14"
+            height="14"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M762.16587005 783.91942371c0 16.31516594-10.87677684 27.19194278-27.1919428 27.1919428H240.08057629c-16.31516594 0-27.1919428-10.87677684-27.1919428-27.1919428V289.02607275c0-16.31516594 10.87677684-27.1919428-27.1919428-27.1919428h179.4668199V180.25830298H240.08057629c-59.8222733 0-108.76776977 48.94549646-108.76776977 108.76776977V783.91942371c0 59.8222733 48.94549646 108.76776977 108.76776977 108.76776977h494.89335096c59.8222733 0 108.76776977-48.94549646 108.76776977-108.76776977v-179.4668199h-81.57582697V783.91942371z"
+              fill="currentColor"
+            />
+            <path
+              d="M832.86492018 142.18958335h-239.2890932c-21.75355367 0-43.50710736 16.31516594-43.50710735 43.50710875s16.31516594 43.50710736 43.50710735 43.50710733h141.39810027l-244.72748092 244.72748094c-16.31516594 16.31516594-16.31516594 43.50710736 0 59.8222733s43.50710736 43.50710736 59.8222733 0l244.72748094-244.72748092v141.39810027c0 21.75355367 16.31516594 43.50710736 43.50710733 43.50710735s43.50710736-21.75355367 43.50710875-43.50710735V185.6966921c-10.87677684-21.75355367-27.19194278-43.50710736-48.94549647-43.50710875z"
+              fill="currentColor"
+            />
+          </svg>
+          <span class="task-editor-location-path">{{ normalizedTaskPath }}</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -163,6 +190,8 @@ const props = withDefaults(defineProps<{
   showFocus?: boolean;
   showOpenContent?: boolean;
   priorityStyle?: Record<string, string>;
+  taskPath?: string;
+  taskNotebookName?: string;
 }>(), {
   mode: 'sidebar',
   panelStyle: () => ({}),
@@ -176,7 +205,9 @@ const props = withDefaults(defineProps<{
   showPriority: false,
   showFocus: false,
   showOpenContent: false,
-  priorityStyle: () => ({})
+  priorityStyle: () => ({}),
+  taskPath: '',
+  taskNotebookName: ''
 });
 
 const emit = defineEmits<{
@@ -197,6 +228,20 @@ const moreMenuControlRef = ref<HTMLElement | null>(null);
 const moreMenuVisible = ref(false);
 const { t } = useI18n();
 defineExpose({ panelEl: panelRef });
+
+const normalizedTaskPath = computed(() => {
+  const path = props.taskPath?.trim().replace(/^\/+/, '').replace(/\/+$/, '') || '';
+  const notebookName = props.taskNotebookName?.trim().replace(/^\/+|\/+$/g, '') || '';
+  if (!notebookName) {
+    return path ? `/${path}` : '';
+  }
+  if (!path) {
+    return `/${notebookName}`;
+  }
+  return path === notebookName || path.startsWith(`${notebookName}/`)
+    ? `/${path}`
+    : `/${notebookName}/${path}`;
+});
 
 const showMoreActions = computed(() => props.showMove || props.showArchive || props.showDelete);
 
@@ -482,5 +527,47 @@ function handleDocumentPointerDown(event: PointerEvent): void {
 .task-editor-sidebar-close:hover {
   background: var(--b3-list-hover);
   color: var(--b3-theme-error);
+}
+
+.task-editor-location {
+  flex: 0 0 auto;
+  margin: 0 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--b3-border-color, var(--b3-theme-border));
+}
+
+.task-editor-location-btn {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.task-editor-location-btn:hover {
+  color: #f98f7a;
+}
+
+.task-editor-location-btn svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.task-editor-location-path {
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  user-select: text;
 }
 </style>

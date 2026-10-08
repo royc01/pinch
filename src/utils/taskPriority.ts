@@ -12,7 +12,6 @@ export interface TaskPriorityOption extends TaskPriorityStyle {
 }
 
 export interface TaskPriorityShortOption extends TaskPriorityOption {
-  value: TaskPriorityLevel;
   shortLabel: string;
 }
 
@@ -51,12 +50,15 @@ export function getTaskPriorityLabel(
   return t('taskManager.priorityLowLabel');
 }
 
-export function getTaskPriorityShortLabel(priority: TaskPriorityLevel, t: (key: string) => string): string {
+export function getTaskPriorityShortLabel(priority: TaskPriorityValue, t: (key: string) => string): string {
   if (priority === 'high') {
     return t('taskManager.priorityHigh');
   }
   if (priority === 'medium') {
     return t('taskManager.priorityMedium');
+  }
+  if (priority === 'none') {
+    return t('taskManager.priorityNone');
   }
   return t('taskManager.priorityLow');
 }
@@ -70,7 +72,7 @@ export function buildTaskPriorityOptions(t: (key: string) => string): TaskPriori
 }
 
 export function buildTaskPriorityShortOptions(t: (key: string) => string): TaskPriorityShortOption[] {
-  return (['low', 'medium', 'high'] as TaskPriorityLevel[]).map(priority => ({
+  return (['none', 'low', 'medium', 'high'] as TaskPriorityValue[]).map(priority => ({
     value: priority,
     shortLabel: getTaskPriorityShortLabel(priority, t),
     label: getTaskPriorityLabel(priority, t),

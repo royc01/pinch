@@ -212,9 +212,27 @@
             <div class="duration-marks">
               <span v-for="(mark, index) in durationOptions" :key="`${mark}-${index}`"
                     class="duration-mark"
+                    :title="mark === 'custom' ? t('focusTimer.customDuration') : undefined"
                     :style="{ left: `${(index / (durationOptions.length - 1)) * 100}%` }">
-                {{ mark === 'unlimited' ? t('focusTimer.unlimited') : mark }}
+                {{ mark === 'unlimited' ? t('focusTimer.unlimited') : mark === 'custom' ? t('focusTimer.customDurationMark') : mark }}
               </span>
+            </div>
+            <div v-if="isCustomDurationSelected" class="custom-duration-control">
+              <input
+                ref="customDurationInputRef"
+                v-model.number="customDurationInput"
+                class="custom-duration-input"
+                type="number"
+                inputmode="numeric"
+                :min="FOCUS_DURATION_MIN_MINUTES"
+                :max="FOCUS_DURATION_MAX_MINUTES"
+                step="1"
+                :aria-label="t('focusTimer.customDuration')"
+                :disabled="isTimerActive"
+                @change="commitCustomDuration"
+                @keydown="handleCustomDurationKeydown"
+              />
+              <span>{{ t('focusTimer.minuteSuffix') }}</span>
             </div>
           </div>
         </div>
@@ -633,6 +651,17 @@ import {
   showDetachedMicroBreakWindow,
   subscribeDetachedMicroBreakCancel
 } from '@/utils/detachedFocusWindow';
+import {
+  CUSTOM_FOCUS_DURATION_INDEX,
+  DEFAULT_CUSTOM_FOCUS_DURATION_MINUTES,
+  DEFAULT_FOCUS_DURATION_INDEX,
+  FOCUS_DURATION_MARKS,
+  FOCUS_DURATION_MAX_MINUTES,
+  FOCUS_DURATION_MIN_MINUTES,
+  FOCUS_DURATION_OPTIONS,
+  getFocusDurationOptionIndex,
+  normalizeFocusDuration
+} from '@/utils/focusDuration';
 
 interface Props {
   show: boolean;
@@ -666,7 +695,6 @@ interface Sound {
   icon: string;
 }
 type TimerMode = 'countdown' | 'countup';
-type DurationOption = number | 'unlimited';
 interface FocusCalendarDay {
   date: number | null;
   dateString: string;
@@ -682,8 +710,8 @@ interface FocusBackfillTimelineItem {
   meta: string;
 }
 
-const durationMarks = [5, 10, 15, 25, 30, 45, 60];
-const durationOptions: DurationOption[] = [...durationMarks, 'unlimited'];
+const durationMarks = FOCUS_DURATION_MARKS;
+const durationOptions = FOCUS_DURATION_OPTIONS;
 const shortBreakMarks = [1, 3, 5, 10, 15];
 const pomodoroSetMarks = [1, 2, 3, 4, 5, 6, 7, 8];
 const backfillDurationOptions = [15, 25, 45, 60];
@@ -715,7 +743,10 @@ const githubAudioFiles: Record<string, string> = {
 };
 
 const selectedDuration = ref<number>(25);
-const durationIndex = ref<number>(3);
+const durationIndex = ref<number>(DEFAULT_FOCUS_DURATION_INDEX);
+const customDurationInput = ref<number>(DEFAULT_CUSTOM_FOCUS_DURATION_MINUTES);
+const lastCustomDuration = ref<number>(DEFAULT_CUSTOM_FOCUS_DURATION_MINUTES);
+const customDurationInputRef = ref<HTMLInputElement | null>(null);
 const shortBreakDurationIndex = ref<number>(2);
 const shortBreakDuration = ref<number>(5);
 const pomodoroSets = ref<number>(1);
@@ -849,6 +880,7 @@ const timerModeLabel = computed(() => (timerMode.value === 'countdown' ? t('focu
 const focusDurationValueText = computed(() =>
   timerMode.value === 'countup' ? t('focusTimer.countup') : `${selectedDuration.value}${t('focusTimer.minuteSuffix')}`
 );
+const isCustomDurationSelected = computed(() => durationIndex.value === CUSTOM_FOCUS_DURATION_INDEX);
 const isTimerActive = computed(() =>
   isRunning.value || isPaused.value
 );
@@ -1138,11 +1170,44 @@ const updateDurationByIndex = () => {
   const option = durationOptions[durationIndex.value];
   if (option === 'unlimited') {
     timerMode.value = 'countup';
+  } else if (option === 'custom') {
+    timerMode.value = 'countdown';
+    customDurationInput.value = lastCustomDuration.value;
+    selectedDuration.value = lastCustomDuration.value;
+    void nextTick(() => {
+      customDurationInputRef.value?.focus();
+      customDurationInputRef.value?.select();
+    });
   } else {
     timerMode.value = 'countdown';
     selectedDuration.value = option;
   }
   resetPhaseProgress();
+};
+
+const commitCustomDuration = () => {
+  if (isTimerActive.value) return;
+  const minutes = normalizeFocusDuration(customDurationInput.value, lastCustomDuration.value);
+  const shouldPersist = minutes !== lastCustomDuration.value;
+  customDurationInput.value = minutes;
+  lastCustomDuration.value = minutes;
+  selectedDuration.value = minutes;
+  timerMode.value = 'countdown';
+  durationIndex.value = CUSTOM_FOCUS_DURATION_INDEX;
+  resetPhaseProgress();
+  if (shouldPersist) {
+    const settings = { customFocusDurationMinutes: minutes };
+    void updateSettings('focus', settings).then(() => {
+      window.dispatchEvent(new CustomEvent('pinch-focus-settings-updated', { detail: settings }));
+    });
+  }
+};
+
+const handleCustomDurationKeydown = (event: KeyboardEvent) => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  commitCustomDuration();
+  (event.currentTarget as HTMLInputElement | null)?.blur();
 };
 
 const updateShortBreakDuration = () => {
@@ -1988,6 +2053,14 @@ onMounted(async () => {
 
   try {
     await loadSettings();
+    const storedCustomDuration = normalizeFocusDuration(
+      userSettings.focus.customFocusDurationMinutes,
+      DEFAULT_CUSTOM_FOCUS_DURATION_MINUTES
+    );
+    lastCustomDuration.value = storedCustomDuration;
+    if (!isCustomDurationSelected.value) {
+      customDurationInput.value = storedCustomDuration;
+    }
     enableAudio.value = userSettings.focus.whiteNoiseEnabled === true;
     const storedSound = userSettings.focus.selectedWhiteNoiseId;
     if (typeof storedSound === 'string') {
@@ -2033,11 +2106,13 @@ watch(linkedTarget, (nextTarget) => {
   resetPhaseProgress();
 
   if (typeof nextTarget.preferredDuration === 'number' && Number.isFinite(nextTarget.preferredDuration)) {
-    const duration = nextTarget.preferredDuration;
-    const nextIndex = durationMarks.indexOf(duration);
+    const duration = normalizeFocusDuration(nextTarget.preferredDuration);
     timerMode.value = 'countdown';
     selectedDuration.value = duration;
-    durationIndex.value = nextIndex >= 0 ? nextIndex : 3;
+    durationIndex.value = getFocusDurationOptionIndex(duration);
+    if (durationIndex.value === CUSTOM_FOCUS_DURATION_INDEX) {
+      customDurationInput.value = duration;
+    }
   }
 }, { immediate: true });
 
@@ -2849,6 +2924,40 @@ watch(isLinkedTargetLocked, (locked) => {
   opacity: 0.6;
   transition: all 0.2s;
   transform: translateX(-50%);
+}
+
+.custom-duration-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-height: 30px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+}
+
+.custom-duration-input {
+  box-sizing: border-box;
+  width: 88px;
+  height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--b3-border-color);
+  border-radius: 6px;
+  outline: none;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font: inherit;
+  text-align: right;
+}
+
+.custom-duration-input:focus {
+  border-color: var(--b3-theme-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
+}
+
+.custom-duration-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .sound-btn {

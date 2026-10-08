@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Goal } from '../goalRepository';
-import { getGoalIdsForTask, isTaskInGoalScope, setTaskGoalMembership } from './goalTaskMembership';
+import {
+  getGoalIdsForTask,
+  isTaskInGoalScope,
+  moveTaskGoalBetweenGroups,
+  setTaskGoalMembership
+} from './goalTaskMembership';
 
 describe('goal task membership', () => {
   it('maps virtual repeat instances back to the template task member', () => {
@@ -204,5 +209,37 @@ describe('goal task membership', () => {
       createdAt: '2026-07-06T00:00:00.000Z',
       updatedAt: '2026-07-06T00:00:00.000Z'
     })).toBe(false);
+  });
+
+  it('moves only the displayed goal while preserving other goal memberships', () => {
+    const task = { id: 'task-1', blockId: 'block-1' };
+    const goals: Goal[] = ['goal-a', 'goal-b', 'goal-c'].map(id => ({
+      id,
+      name: id,
+      members: [],
+      taskMembers: id === 'goal-c' ? [] : [{ taskId: task.id, blockId: task.blockId }]
+    }));
+
+    const moved = moveTaskGoalBetweenGroups(goals, task, ['goal-a', 'goal-b'], 'goal-a', 'goal-c');
+
+    expect(getGoalIdsForTask(moved, task)).toEqual(['goal-b', 'goal-c']);
+    expect(moved.find(goal => goal.id === 'goal-a')?.excludedTaskMembers).toEqual([
+      expect.objectContaining({ taskId: 'task-1' })
+    ]);
+  });
+
+  it('clears every effective goal when moved to the unassigned group', () => {
+    const task = { id: 'task-1' };
+    const goals: Goal[] = ['goal-a', 'goal-b'].map(id => ({
+      id,
+      name: id,
+      members: [],
+      taskMembers: [{ taskId: task.id }]
+    }));
+
+    const moved = moveTaskGoalBetweenGroups(goals, task, ['goal-a', 'goal-b'], 'goal-a', '');
+
+    expect(getGoalIdsForTask(moved, task)).toEqual([]);
+    expect(moved.every(goal => goal.excludedTaskMembers?.some(member => member.taskId === task.id))).toBe(true);
   });
 });

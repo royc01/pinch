@@ -20,6 +20,16 @@ import {
 import { translate } from '@/composables/useI18n';
 import type { FocusTimerHandoffState } from '@/utils/focusTimerHandoff';
 import { userSettings, DEFAULT_SETTINGS } from '@/utils/userSettings';
+import {
+  CUSTOM_FOCUS_DURATION_INDEX,
+  DEFAULT_CUSTOM_FOCUS_DURATION_MINUTES,
+  DEFAULT_FOCUS_DURATION_INDEX,
+  FOCUS_DURATION_MARKS,
+  FOCUS_DURATION_MAX_MINUTES,
+  FOCUS_DURATION_MIN_MINUTES,
+  FOCUS_DURATION_OPTIONS,
+  normalizeFocusDuration
+} from '@/utils/focusDuration';
 
 type ElectronLike = {
   ipcMain: {
@@ -93,6 +103,7 @@ type DetachedFocusRequest =
       selectedWhiteNoiseId?: string;
       whiteNoiseVolume?: number;
     }
+  | { type: 'update-custom-focus-duration'; minutes?: number }
   | { type: 'load-target-options'; mode?: FocusTargetPickerMode }
   | { type: 'set-linked-target'; target?: FocusTimerLinkedTarget | null }
   | { type: 'complete-linked-target'; target?: FocusTimerLinkedTarget | null }
@@ -1426,6 +1437,35 @@ const DETACHED_FOCUS_WINDOW_STYLES_V2 = String.raw`
       white-space: nowrap;
     }
 
+    .custom-duration-control {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      min-height: 28px;
+      color: var(--b3-theme-on-surface);
+      font-size: 11px;
+    }
+
+    .custom-duration-input {
+      box-sizing: border-box;
+      width: 78px;
+      height: 28px;
+      padding: 3px 7px;
+      border: 1px solid var(--b3-border-color);
+      border-radius: 6px;
+      outline: none;
+      background: var(--b3-theme-background);
+      color: var(--b3-theme-on-background);
+      font: inherit;
+      text-align: right;
+    }
+
+    .custom-duration-input:focus {
+      border-color: var(--pinch-focus-accent);
+      box-shadow: 0 0 0 2px rgba(249, 143, 122, 0.18);
+    }
+
     .linked-target-setting {
       gap: 10px;
     }
@@ -1636,6 +1676,8 @@ function buildDetachedFocusWindowHtmlV2(initialState: DetachedFocusWindowState):
   const serializedChannel = serializeForScript(DETACHED_FOCUS_REQUEST_CHANNEL);
   const serializedIcons = serializeForScript(DETACHED_FOCUS_ICON_MAP);
   const serializedCountupAutosaveInterval = serializeForScript(DETACHED_FOCUS_COUNTUP_AUTOSAVE_INTERVAL_MS);
+  const serializedDurationMarks = serializeForScript(FOCUS_DURATION_MARKS);
+  const serializedDurationOptions = serializeForScript(FOCUS_DURATION_OPTIONS);
   const detachedText = {
     closeMiniFocus: translate('focusTimer.closeMiniFocus'),
     miniExitConfirm: translate('focusTimer.miniExitConfirm'),
@@ -1658,6 +1700,8 @@ function buildDetachedFocusWindowHtmlV2(initialState: DetachedFocusWindowState):
     searchTag: translate('focusTimer.searchTag'),
     loading: translate('taskManager.loading'),
     focusDuration: translate('focusTimer.focusDuration'),
+    customDuration: translate('focusTimer.customDuration'),
+    customDurationMark: translate('focusTimer.customDurationMark'),
     minuteSuffix: translate('focusTimer.minuteSuffix'),
     secondSuffix: translate('focusTimer.secondSuffix'),
     shortBreakDuration: translate('focusTimer.shortBreakDuration'),
@@ -1819,8 +1863,22 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
               <span id="focusDurationValue" class="duration-value">25${htmlText.minuteSuffix}</span>
             </div>
             <div class="duration-slider-container">
-              <input id="focusDurationSlider" class="duration-slider" type="range" min="0" max="7" step="1" value="3" />
+              <input id="focusDurationSlider" class="duration-slider" type="range" min="0" max="${FOCUS_DURATION_OPTIONS.length - 1}" step="1" value="${DEFAULT_FOCUS_DURATION_INDEX}" />
               <div id="focusMarks" class="duration-marks"></div>
+              <div id="customDurationControl" class="custom-duration-control" hidden>
+                <input
+                  id="customDurationInput"
+                  class="custom-duration-input"
+                  type="number"
+                  inputmode="numeric"
+                  min="${FOCUS_DURATION_MIN_MINUTES}"
+                  max="${FOCUS_DURATION_MAX_MINUTES}"
+                  step="1"
+                  value="${DEFAULT_CUSTOM_FOCUS_DURATION_MINUTES}"
+                  aria-label="${htmlText.customDuration}"
+                />
+                <span>${htmlText.minuteSuffix}</span>
+              </div>
             </div>
           </div>
           <div class="setting-section">
@@ -1876,6 +1934,11 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     const ICONS = ${serializedIcons};
     const I18N = ${serializedI18n};
     const COUNTUP_AUTOSAVE_INTERVAL_MS = ${serializedCountupAutosaveInterval};
+    const DURATION_MARKS = ${serializedDurationMarks};
+    const DURATION_OPTIONS = ${serializedDurationOptions};
+    const CUSTOM_DURATION_INDEX = ${CUSTOM_FOCUS_DURATION_INDEX};
+    const MIN_CUSTOM_DURATION = ${FOCUS_DURATION_MIN_MINUTES};
+    const MAX_CUSTOM_DURATION = ${FOCUS_DURATION_MAX_MINUTES};
     const { ipcRenderer } = require('electron');
     const state = {
       linkedTarget: null,
@@ -1884,13 +1947,15 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       iconBaseUrl: '',
       audioDirectory: '',
       apiToken: '',
-      durationMarks: [5, 10, 15, 25, 30, 45, 60],
-      durationOptions: [5, 10, 15, 25, 30, 45, 60, 'unlimited'],
+      durationMarks: DURATION_MARKS,
+      durationOptions: DURATION_OPTIONS,
       shortBreakMarks: [1, 3, 5, 10, 15],
       pomodoroSetMarks: [1, 2, 3, 4, 5, 6, 7, 8],
-      durationIndex: 3,
+      durationIndex: ${DEFAULT_FOCUS_DURATION_INDEX},
       shortBreakDurationIndex: 2,
       selectedDuration: 25,
+      customDuration: ${DEFAULT_CUSTOM_FOCUS_DURATION_MINUTES},
+      lastCustomDuration: ${DEFAULT_CUSTOM_FOCUS_DURATION_MINUTES},
       shortBreakDuration: 5,
       pomodoroSets: 1,
       timerMode: 'countdown',
@@ -1934,6 +1999,8 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     const breakDurationValueEl = document.getElementById('breakDurationValue');
     const setCountValueEl = document.getElementById('setCountValue');
     const focusDurationSliderEl = document.getElementById('focusDurationSlider');
+    const customDurationControlEl = document.getElementById('customDurationControl');
+    const customDurationInputEl = document.getElementById('customDurationInput');
     const breakDurationSliderEl = document.getElementById('breakDurationSlider');
     const setCountSliderEl = document.getElementById('setCountSlider');
     const focusMarksEl = document.getElementById('focusMarks');
@@ -1976,14 +2043,48 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
     function buildMarks(container, values) {
       container.innerHTML = values.map((value, index) => {
         const left = values.length > 1 ? (index / (values.length - 1)) * 100 : 0;
-        const label = value === 'unlimited' ? '∞' : value;
-        return '<span class="duration-mark" style="left:' + left + '%">' + label + '</span>';
+        const label = value === 'unlimited' ? '∞' : (value === 'custom' ? I18N.customDurationMark : value);
+        const title = value === 'custom' ? ' title="' + I18N.customDuration + '"' : '';
+        return '<span class="duration-mark"' + title + ' style="left:' + left + '%">' + label + '</span>';
       }).join('');
     }
 
     buildMarks(focusMarksEl, state.durationOptions);
     buildMarks(breakMarksEl, state.shortBreakMarks);
     buildMarks(setMarksEl, state.pomodoroSetMarks);
+
+    function normalizeCustomDuration(value, fallback = state.lastCustomDuration) {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) {
+        return fallback;
+      }
+      return Math.max(MIN_CUSTOM_DURATION, Math.min(Math.round(numericValue), MAX_CUSTOM_DURATION));
+    }
+
+    function getDurationOptionIndex(minutes) {
+      const presetIndex = state.durationMarks.indexOf(minutes);
+      return presetIndex >= 0 ? presetIndex : CUSTOM_DURATION_INDEX;
+    }
+
+    function commitCustomDuration() {
+      if (isActive()) {
+        return;
+      }
+      const minutes = normalizeCustomDuration(customDurationInputEl.value);
+      const shouldPersist = minutes !== state.lastCustomDuration;
+      state.customDuration = minutes;
+      state.lastCustomDuration = minutes;
+      state.selectedDuration = minutes;
+      state.timerMode = 'countdown';
+      state.durationIndex = CUSTOM_DURATION_INDEX;
+      customDurationInputEl.value = String(minutes);
+      resetPhaseProgress();
+      render();
+      if (shouldPersist) {
+        void request('update-custom-focus-duration', { minutes });
+      }
+    }
+
     const whiteNoiseIcons = { rain: 'rain', jungle: 'jungle', waves: 'waves', campfire: 'campfire', river: 'river' };
     Array.from(whiteNoiseOptionsEl.querySelectorAll('[data-sound]')).forEach((button) => {
       const soundId = button.getAttribute('data-sound');
@@ -2497,6 +2598,12 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       if (Number.isFinite(nextSettings.whiteNoiseVolume)) {
         whiteNoiseVolume = Math.max(0, Math.min(nextSettings.whiteNoiseVolume, 1));
       }
+      if (Number.isFinite(nextSettings.customFocusDurationMinutes)) {
+        state.lastCustomDuration = normalizeCustomDuration(nextSettings.customFocusDurationMinutes);
+        if (state.durationIndex !== CUSTOM_DURATION_INDEX) {
+          state.customDuration = state.lastCustomDuration;
+        }
+      }
       renderWhiteNoise();
       if (state.isRunning && !state.isBreakMode) {
         void startMicroBreakReminder(microBreakSettings);
@@ -2539,8 +2646,13 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
 
       clearTimer();
       state.timerMode = handoffState.timerMode === 'countup' ? 'countup' : 'countdown';
-      state.selectedDuration = Number.isFinite(handoffState.selectedDuration) ? handoffState.selectedDuration : 25;
-      state.durationIndex = Number.isFinite(handoffState.durationIndex) ? handoffState.durationIndex : 3;
+      state.selectedDuration = normalizeCustomDuration(handoffState.selectedDuration, 25);
+      state.durationIndex = state.timerMode === 'countup'
+        ? state.durationOptions.indexOf('unlimited')
+        : getDurationOptionIndex(state.selectedDuration);
+      if (state.durationIndex === CUSTOM_DURATION_INDEX) {
+        state.customDuration = state.selectedDuration;
+      }
       state.shortBreakDuration = Number.isFinite(handoffState.shortBreakDuration) ? handoffState.shortBreakDuration : 5;
       state.shortBreakDurationIndex = Number.isFinite(handoffState.shortBreakDurationIndex) ? handoffState.shortBreakDurationIndex : 2;
       state.pomodoroSets = Number.isFinite(handoffState.pomodoroSets) ? handoffState.pomodoroSets : 1;
@@ -2942,6 +3054,11 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       focusDurationSliderEl.value = String(state.durationIndex);
       breakDurationSliderEl.value = String(state.shortBreakDurationIndex);
       setCountSliderEl.value = String(state.pomodoroSets);
+      customDurationControlEl.hidden = state.durationIndex !== CUSTOM_DURATION_INDEX;
+      customDurationInputEl.disabled = active;
+      if (document.activeElement !== customDurationInputEl) {
+        customDurationInputEl.value = String(state.customDuration);
+      }
 
       focusDurationValueEl.textContent = state.timerMode === 'countup' ? I18N.countup : state.selectedDuration + I18N.minuteSuffix;
       breakDurationValueEl.textContent = state.shortBreakDuration + I18N.minuteSuffix;
@@ -3181,12 +3298,23 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       const option = state.durationOptions[state.durationIndex];
       if (option === 'unlimited') {
         state.timerMode = 'countup';
+      } else if (option === 'custom') {
+        state.timerMode = 'countdown';
+        state.customDuration = state.lastCustomDuration;
+        state.selectedDuration = state.lastCustomDuration;
+        state.showSettings = true;
       } else {
         state.timerMode = 'countdown';
         state.selectedDuration = option;
       }
       resetPhaseProgress();
       render();
+      if (option === 'custom') {
+        setTimeout(() => {
+          customDurationInputEl.focus();
+          customDurationInputEl.select();
+        }, 0);
+      }
     }
 
     function applyLinkedTarget(nextTarget) {
@@ -3198,10 +3326,13 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
         closeTargetPicker();
       }
       if (nextTarget && typeof nextTarget.preferredDuration === 'number' && Number.isFinite(nextTarget.preferredDuration)) {
-        const nextIndex = state.durationMarks.indexOf(nextTarget.preferredDuration);
+        const duration = normalizeCustomDuration(nextTarget.preferredDuration, 25);
         state.timerMode = 'countdown';
-        state.selectedDuration = nextTarget.preferredDuration;
-        state.durationIndex = nextIndex >= 0 ? nextIndex : 3;
+        state.selectedDuration = duration;
+        state.durationIndex = getDurationOptionIndex(duration);
+        if (state.durationIndex === CUSTOM_DURATION_INDEX) {
+          state.customDuration = duration;
+        }
         resetPhaseProgress();
       }
     }
@@ -3346,12 +3477,32 @@ ${DETACHED_FOCUS_WINDOW_STYLES_V2}
       const option = state.durationOptions[state.durationIndex];
       if (option === 'unlimited') {
         state.timerMode = 'countup';
+      } else if (option === 'custom') {
+        state.timerMode = 'countdown';
+        state.customDuration = state.lastCustomDuration;
+        state.selectedDuration = state.lastCustomDuration;
       } else {
         state.timerMode = 'countdown';
         state.selectedDuration = option || 25;
       }
       resetPhaseProgress();
       render();
+      if (option === 'custom') {
+        setTimeout(() => {
+          customDurationInputEl.focus();
+          customDurationInputEl.select();
+        }, 0);
+      }
+    });
+
+    customDurationInputEl.addEventListener('change', commitCustomDuration);
+    customDurationInputEl.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') {
+        return;
+      }
+      event.preventDefault();
+      commitCustomDuration();
+      customDurationInputEl.blur();
     });
 
     breakDurationSliderEl.addEventListener('input', () => {
@@ -3694,6 +3845,20 @@ async function handleDetachedFocusRequest(_event: unknown, request?: DetachedFoc
         ...(typeof request.selectedWhiteNoiseId === 'string' ? { selectedWhiteNoiseId: request.selectedWhiteNoiseId } : {}),
         ...(Number.isFinite(request.whiteNoiseVolume) ? { whiteNoiseVolume: Math.max(0, Math.min(request.whiteNoiseVolume!, 1)) } : {})
       };
+      await userSettings.update('focus', updates);
+      const settings = await userSettings.get('focus');
+      syncDetachedFocusWindowFocusSettings(settings);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('pinch-focus-settings-updated', { detail: updates }));
+      }
+      return true;
+    }
+    case 'update-custom-focus-duration': {
+      const minutes = normalizeFocusDuration(
+        request.minutes,
+        DEFAULT_CUSTOM_FOCUS_DURATION_MINUTES
+      );
+      const updates = { customFocusDurationMinutes: minutes };
       await userSettings.update('focus', updates);
       const settings = await userSettings.get('focus');
       syncDetachedFocusWindowFocusSettings(settings);

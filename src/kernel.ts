@@ -132,6 +132,23 @@ type KernelBlockDOMBatchResult = {
   source: "kernel";
 };
 
+type CalendarDavRequestParams = {
+  url: string;
+  username: string;
+  password: string;
+  method: 'PROPFIND' | 'REPORT' | 'PUT' | 'DELETE';
+  transport?: 'proxy' | 'direct';
+  headers?: Record<string, string>;
+  body?: string;
+};
+
+type CalendarDavProxyResponse = {
+  status?: number;
+  statusText?: string;
+  headers?: Record<string, string> | Record<string, string[]>;
+  body?: string | { content?: string };
+};
+
 const DEFAULT_TASK_LIMIT = 500;
 // Keep the index large enough for real workspaces. Callers still pass a
 // smaller presentation limit; this cap is only the maximum rows retained by
@@ -147,6 +164,7 @@ const TASK_SQL_BATCH_CONCURRENCY = 4;
 const MAX_TASK_PARENT_DEPTH = 12;
 const MAX_BLOCK_DOM_BATCH_SIZE = 512;
 const BLOCK_DOM_BATCH_CONCURRENCY = 8;
+const CALENDAR_DAV_METHODS = new Set(['PROPFIND', 'REPORT', 'GET', 'PUT', 'DELETE']);
 const TASK_ATTRIBUTE_NAMES = [
   'custom-task-id',
   'custom-task-status',
@@ -1112,6 +1130,125 @@ async function getBlockDOMBatch(
   };
 }
 
+function encodeBase64Utf8(value: string): string {
+  // Keep this self-contained: the SiYuan kernel runtime may expose neither
+  // browser TextEncoder nor btoa.
+  const bytes: number[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    let codePoint = value.charCodeAt(index);
+    if (codePoint >= 0xd800 && codePoint <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        codePoint = 0x10000 + ((codePoint - 0xd800) << 10) + (next - 0xdc00);
+        index += 1;
+      }
+    }
+    if (codePoint >= 0xd800 && codePoint <= 0xdfff) codePoint = 0xfffd;
+    if (codePoint <= 0x7f) {
+      bytes.push(codePoint);
+    } else if (codePoint <= 0x7ff) {
+      bytes.push(0xc0 | (codePoint >> 6), 0x80 | (codePoint & 0x3f));
+    } else if (codePoint <= 0xffff) {
+      bytes.push(0xe0 | (codePoint >> 12), 0x80 | ((codePoint >> 6) & 0x3f), 0x80 | (codePoint & 0x3f));
+    } else {
+      bytes.push(0xf0 | (codePoint >> 18), 0x80 | ((codePoint >> 12) & 0x3f), 0x80 | ((codePoint >> 6) & 0x3f), 0x80 | (codePoint & 0x3f));
+    }
+  }
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let result = '';
+  for (let index = 0; index < bytes.length; index += 3) {
+    const first = bytes[index];
+    const second = bytes[index + 1];
+    const third = bytes[index + 2];
+    const combined = (first << 16) | ((second || 0) << 8) | (third || 0);
+    result += alphabet[(combined >> 18) & 63];
+    result += alphabet[(combined >> 12) & 63];
+    result += second === undefined ? '=' : alphabet[(combined >> 6) & 63];
+    result += third === undefined ? '=' : alphabet[combined & 63];
+  }
+  return result;
+}
+
+async function performCalendarDavRequest(params: CalendarDavRequestParams) {
+  const url = new URL(typeof params?.url === 'string' ? params.url.trim() : '');
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error('CalDAV URL must use HTTP or HTTPS');
+  }
+  const method = typeof params?.method === 'string' ? params.method.toUpperCase() : '';
+  if (!CALENDAR_DAV_METHODS.has(method)) {
+    throw new Error('Unsupported CalDAV method');
+  }
+  const username = typeof params?.username === 'string' ? params.username : '';
+  const password = typeof params?.password === 'string' ? params.password : '';
+  const headers: Record<string, string> = {
+    ...(params?.headers && typeof params.headers === 'object' ? params.headers : {}),
+    Authorization: `Basic ${encodeBase64Utf8(`${username}:${password}`)}`
+  };
+  let contentType = 'text/plain';
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === 'content-type') {
+      contentType = headers[key];
+      delete headers[key];
+    }
+  }
+  const proxyPayload = {
+    url: url.toString(),
+    method,
+    timeout: 30000,
+    contentType,
+    headers: Object.entries(headers).map(([key, value]) => ({ [key]: value })),
+    payload: encodeBase64Utf8(typeof params?.body === 'string' ? params.body : ''),
+    payloadEncoding: 'base64',
+    responseEncoding: 'text'
+  };
+  const readResponse = (data: CalendarDavProxyResponse) => {
+    const responseHeaders: Record<string, string> = {};
+    for (const [name, value] of Object.entries(data.headers || {})) {
+      responseHeaders[name.toLowerCase()] = Array.isArray(value) ? value.join(', ') : String(value);
+    }
+    const body = typeof data.body === 'string' ? data.body : data.body?.content || '';
+    return {
+      status: data.status || 0,
+      statusText: data.statusText || '',
+      headers: responseHeaders,
+      body: data.status === 204 ? '' : body
+    };
+  };
+
+  // Kernel client.fetch accepts SiYuan API paths only. External direct
+  // requests belong in calendarHttpTransport in the rendering process.
+  if (params?.transport === 'direct') throw new Error('Direct calendar requests require the rendering process');
+  const response = await siyuan.client.fetch('/api/network/forwardProxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(proxyPayload)
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  const envelope = await response.json() as { code?: number; msg?: string; data?: CalendarDavProxyResponse };
+  if (envelope.code !== 0 || !envelope.data) {
+    throw new Error(envelope.msg || 'Internal error');
+  }
+  return readResponse(envelope.data);
+}
+
+async function calendarDavRequest(params: CalendarDavRequestParams) {
+  try {
+    return await performCalendarDavRequest(params);
+  } catch (error) {
+    // Do not throw through SiYuan's plugin RPC layer: it turns every handler
+    // exception into the unhelpful JSON-RPC message "Internal error".
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      status: 599,
+      statusText: 'CalDAV request failed',
+      headers: {},
+      body: JSON.stringify({ error: message })
+    };
+  }
+}
+
 siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind("ping", () => ({
     ok: true,
@@ -1126,6 +1263,7 @@ siyuan.plugin.lifecycle.onload = async () => {
   await siyuan.rpc.bind("getTaskRowsByDateRange", getTaskRowsByDateRange, "Get lightweight task rows in a date range");
   await siyuan.rpc.bind("getTaskStats", getTaskStats, "Get lightweight task statistics");
   await siyuan.rpc.bind("getBlockDOMBatch", getBlockDOMBatch, "Get block DOM for multiple block IDs");
+  await siyuan.rpc.bind("calendarDavRequest", calendarDavRequest, "Proxy one authenticated CalDAV request");
 };
 
 if ("onrunning" in siyuan.plugin.lifecycle) {
@@ -1141,4 +1279,5 @@ siyuan.plugin.lifecycle.onunload = async () => {
   await siyuan.rpc.unbind("getTaskRowsByDateRange");
   await siyuan.rpc.unbind("getTaskStats");
   await siyuan.rpc.unbind("getBlockDOMBatch");
+  await siyuan.rpc.unbind("calendarDavRequest");
 };

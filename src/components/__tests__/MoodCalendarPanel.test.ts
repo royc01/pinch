@@ -5,7 +5,8 @@ import type { FocusSessionRecord, Habit, Task } from '@/api';
 const apiMocks = vi.hoisted(() => ({
   getFocusTimerData: vi.fn(),
   loadTaskGroups: vi.fn(),
-  getAllTasks: vi.fn()
+  getAllTasks: vi.fn(),
+  openBlockById: vi.fn()
 }));
 
 vi.mock('@/api', async (importOriginal) => {
@@ -14,6 +15,7 @@ vi.mock('@/api', async (importOriginal) => {
     ...actual,
     getFocusTimerData: apiMocks.getFocusTimerData,
     loadTaskGroups: apiMocks.loadTaskGroups,
+    openBlockById: apiMocks.openBlockById,
     TaskRepository: {
       ...actual.TaskRepository,
       getAllTasks: apiMocks.getAllTasks
@@ -59,10 +61,19 @@ const CheckinNotesOverviewStub = {
 };
 
 const LifelogTimelinePanelStub = {
+  props: ['items'],
+  emits: ['open-source'],
   template: `
     <section class="timeline-stub">
       <div class="lifelog-timeline-header">Timeline header</div>
       <slot name="after-header" />
+      <template v-for="item in items" :key="item.id">
+        <button
+          v-if="item.openable"
+          class="open-source-stub"
+          @click="$emit('open-source', item)"
+        />
+      </template>
     </section>
   `
 };
@@ -73,6 +84,7 @@ describe('MoodCalendarPanel record modes', () => {
     apiMocks.getFocusTimerData.mockResolvedValue({ dailyRecords: [], sessionRecords: [] });
     apiMocks.loadTaskGroups.mockResolvedValue([]);
     apiMocks.getAllTasks.mockResolvedValue([]);
+    apiMocks.openBlockById.mockResolvedValue(true);
   });
 
   it('switches between all records, annotations, and favorites', async () => {
@@ -182,5 +194,44 @@ describe('MoodCalendarPanel record modes', () => {
 
     const timeline = wrapper.find('.timeline-stub');
     expect(timeline.find('.lifelog-timeline-header').element.nextElementSibling).toBe(summary.element);
+  });
+
+  it('opens the source for a completed task from the timeline action', async () => {
+    const date = new Date().toISOString().slice(0, 10);
+    apiMocks.getAllTasks.mockResolvedValue([{
+      id: 'task-1',
+      blockId: 'block-task-1',
+      type: 'standalone',
+      title: 'Task 1',
+      status: 'completed',
+      priority: 'none',
+      tags: [],
+      createdAt: `${date}T08:00:00`,
+      updatedAt: `${date}T09:00:00`,
+      completedAt: `${date}T09:00:00`
+    }]);
+
+    const wrapper = mount(MoodCalendarPanel, {
+      props: {
+        show: true,
+        moodData: {},
+        habits: [],
+        currentMonth: 0,
+        weekdays: [],
+        generateMonthViewData: () => [{ date, data: null, isCurrentMonth: true, isToday: true }],
+        getLargeMoodSvg: () => ''
+      },
+      global: {
+        stubs: {
+          Icon: true,
+          LifelogTimelinePanel: LifelogTimelinePanelStub,
+          CheckinNotesOverview: CheckinNotesOverviewStub
+        }
+      }
+    });
+    await flushPromises();
+
+    await wrapper.find('.open-source-stub').trigger('click');
+    expect(apiMocks.openBlockById).toHaveBeenCalledWith('block-task-1');
   });
 });

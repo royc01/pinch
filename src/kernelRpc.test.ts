@@ -71,4 +71,15 @@ describe('kernel RPC transport', () => {
       { source: 'http' },
     ]);
   });
+
+  it('allows the CalDAV proxy to finish beyond the task RPC timeout', async () => {
+    const timer = vi.spyOn(window, 'setTimeout');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true, json: async () => ({ jsonrpc: '2.0', id: 1, result: { status: 207 } })
+    } as Response);
+    await callPinchKernel('calendarDavRequest', { method: 'REPORT' });
+    expect(timer).toHaveBeenLastCalledWith(expect.any(Function), 65000);
+    await callPinchKernel('ping');
+    expect(timer).toHaveBeenLastCalledWith(expect.any(Function), 12000);
+  });
 });

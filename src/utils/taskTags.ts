@@ -2,7 +2,7 @@ function normalizeTaskTagId(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export type TaskTagBatchAction = 'set-primary' | 'add' | 'remove';
+export type TaskTagBatchAction = 'add' | 'remove' | 'clear';
 
 export function normalizeTaskTagIds(input: unknown): string[] {
   if (!Array.isArray(input)) {
@@ -38,16 +38,26 @@ export function filterKnownTaskTagIds(tags: unknown, knownTagIds: ReadonlySet<st
   return normalizeTaskTagIds(tags).filter(tagId => knownTagIds.has(tagId));
 }
 
+export function resolveTaskTagGroupIds(
+  tags: unknown,
+  groupId: unknown,
+  knownTagIds: { has(tagId: string): boolean },
+  noneId: string
+): string[] {
+  const matchedTagIds = resolveTaskTagIds(tags, groupId)
+    .filter(tagId => knownTagIds.has(tagId));
+  return matchedTagIds.length > 0 ? matchedTagIds : [noneId];
+}
+
 export function resolveTaskTagIds(tags: unknown, groupId?: unknown): string[] {
   const normalizedTags = normalizeTaskTagIds(tags);
-  const primaryTagId = normalizeTaskTagId(groupId);
-  if (!primaryTagId) {
+  const legacyGroupId = normalizeTaskTagId(groupId);
+  if (!legacyGroupId || normalizedTags.includes(legacyGroupId)) {
     return normalizedTags;
   }
-  if (normalizedTags.includes(primaryTagId)) {
-    return [primaryTagId, ...normalizedTags.filter((tagId) => tagId !== primaryTagId)];
-  }
-  return [primaryTagId, ...normalizedTags];
+  // custom-task-group predates multi-tag storage. Keep reading it so old tasks
+  // retain their tag, but never let it reorder an existing tag selection.
+  return [...normalizedTags, legacyGroupId];
 }
 
 export function buildTaskTagState(tags: unknown, groupId?: unknown): {
@@ -81,18 +91,9 @@ export function buildTaskTagAttrs(tags: unknown, groupId?: unknown): {
     primaryTagId,
     attrs: {
       'custom-task-tags': tagIds.length > 0 ? JSON.stringify(tagIds) : '',
-      'custom-task-group': primaryTagId
+      'custom-task-group': ''
     }
   };
-}
-
-export function setPrimaryTaskTag(tags: unknown, primaryTagId: unknown): string[] {
-  const normalizedPrimary = normalizeTaskTagId(primaryTagId);
-  if (!normalizedPrimary) {
-    return [];
-  }
-  const normalizedTags = normalizeTaskTagIds(tags);
-  return [normalizedPrimary, ...normalizedTags.filter((tagId) => tagId !== normalizedPrimary)];
 }
 
 export function removeTaskTags(tags: unknown, removedTagIds: Iterable<string>): string[] {
@@ -114,10 +115,27 @@ export function toggleTaskTagSelection(tags: unknown, targetTagId: unknown): str
   if (existingIndex === -1) {
     return [...normalizedTags, normalizedTarget];
   }
-  if (existingIndex === 0) {
-    return normalizedTags.slice(1);
+  return normalizedTags.filter((tagId) => tagId !== normalizedTarget);
+}
+
+export function moveTaskTagBetweenGroups(
+  tags: unknown,
+  sourceTagId: unknown,
+  targetTagId: unknown
+): string[] {
+  const normalizedTags = normalizeTaskTagIds(tags);
+  const normalizedSource = normalizeTaskTagId(sourceTagId);
+  const normalizedTarget = normalizeTaskTagId(targetTagId);
+  if (!normalizedTarget) {
+    return [];
   }
-  return [normalizedTarget, ...normalizedTags.filter((tagId) => tagId !== normalizedTarget)];
+  if (normalizedSource === normalizedTarget) {
+    return normalizedTags;
+  }
+  const remaining = normalizedSource
+    ? normalizedTags.filter(tagId => tagId !== normalizedSource)
+    : normalizedTags;
+  return remaining.includes(normalizedTarget) ? remaining : [...remaining, normalizedTarget];
 }
 
 export function applyTaskTagBatchAction(
@@ -127,8 +145,8 @@ export function applyTaskTagBatchAction(
 ): string[] {
   const normalizedTags = normalizeTaskTagIds(tags);
   const normalizedTarget = normalizeTaskTagId(targetTagId);
-  if (action === 'set-primary') {
-    return setPrimaryTaskTag(normalizedTags, normalizedTarget);
+  if (action === 'clear') {
+    return [];
   }
   if (!normalizedTarget) {
     return normalizedTags;

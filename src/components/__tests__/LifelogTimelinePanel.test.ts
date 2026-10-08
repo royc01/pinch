@@ -23,12 +23,14 @@ function mountPanel(item: LifelogTimelinePanelItem) {
       title: 'Timeline',
       subtitle: '',
       items: [item],
+      enableTimeEditing: true,
       emptyText: 'Empty',
       closeLabel: 'Close',
       deleteLabel: 'Delete'
     },
     global: {
       stubs: {
+        Teleport: true,
         Icon: true,
         EmojiIcon: true
       }
@@ -95,5 +97,68 @@ describe('LifelogTimelinePanel annotations', () => {
 
     expect(wrapper.emitted('update-item')).toEqual([[item, 'Updated manual note']]);
     expect(wrapper.emitted('update-annotation')).toBeUndefined();
+  });
+
+  it('edits an editable timeline time inline', async () => {
+    const item = makeItem({ type: 'manual-note', timeLabel: '10:00', timeValue: '10:00', timeEditable: true });
+    const wrapper = mountPanel(item);
+
+    await wrapper.find('.lifelog-timeline-time').trigger('click');
+    const input = wrapper.find('input[type="time"]');
+    expect(input.exists()).toBe(true);
+    await input.setValue('11:30');
+    await input.trigger('keydown', { key: 'Enter' });
+
+    expect(wrapper.emitted('update-time')).toEqual([[item, '11:30']]);
+  });
+});
+
+describe('LifelogTimelinePanel mounting', () => {
+  it('teleports the drawer backdrop to the document body', () => {
+    const wrapper = mount(LifelogTimelinePanel, {
+      props: {
+        show: true,
+        title: 'Timeline',
+        subtitle: '',
+        items: [],
+        emptyText: 'Empty',
+        closeLabel: 'Close',
+        deleteLabel: 'Delete'
+      },
+      global: {
+        stubs: {
+          Icon: true,
+          EmojiIcon: true
+        }
+      }
+    });
+
+    expect(wrapper.find('.lifelog-timeline-backdrop').exists()).toBe(false);
+    expect(document.body.querySelector('.lifelog-timeline-backdrop.is-drawer')).not.toBeNull();
+    wrapper.unmount();
+  });
+
+  it('keeps the embedded timeline in its component layout', () => {
+    const wrapper = mount(LifelogTimelinePanel, {
+      props: {
+        show: true,
+        title: '',
+        subtitle: '',
+        items: [],
+        emptyText: 'Empty',
+        closeLabel: 'Close',
+        deleteLabel: 'Delete',
+        variant: 'embedded'
+      },
+      global: {
+        stubs: {
+          Icon: true,
+          EmojiIcon: true
+        }
+      }
+    });
+
+    expect(wrapper.find('.lifelog-timeline-backdrop.is-embedded').exists()).toBe(true);
+    wrapper.unmount();
   });
 });

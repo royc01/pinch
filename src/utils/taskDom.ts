@@ -47,14 +47,14 @@ export function parseTaskCompletedFromElement(root: Element | null, ownerId?: st
   return status === null ? null : status === 'completed';
 }
 
-export function getLiveTaskElement(blockId: string): Element | null {
+export function getLiveTaskElement(blockId: string, searchRoot: ParentNode = document): Element | null {
   for (const selector of [
     `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
     `.protyle [data-node-id="${blockId}"]`,
     `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
     `[data-node-id="${blockId}"]`
   ]) {
-    const matched = document.querySelector(selector);
+    const matched = searchRoot.querySelector(selector);
     if (matched) return matched;
   }
   return null;

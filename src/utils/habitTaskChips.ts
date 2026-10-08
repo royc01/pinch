@@ -54,10 +54,6 @@ function formatHabitChipTitle(habit: Habit, date: string): string {
   return `${name || 'Habit'}${progress}`;
 }
 
-function shouldBuildHabitChipForFrequency(habit: Habit): boolean {
-  return !habit.frequency || habit.frequency === 'daily' || habit.frequency === 'custom';
-}
-
 function getHabitTaskChipColor(habit: Habit): string {
   const colorIndex = normalizeHabitEmojiColorIndex(habit.emojiColorIndex) ?? resolveHabitEmojiColorIndex(habit.emoji);
   return getHabitBackgroundColorValue(colorIndex);
@@ -67,7 +63,7 @@ export function buildHabitTaskChips(habits: Habit[], dates: Array<{ key: string;
   const chips: Task[] = [];
 
   for (const habit of habits) {
-    if (!shouldBuildHabitChipForFrequency(habit) || habit.isPaused) {
+    if (habit.isPaused) {
       continue;
     }
 

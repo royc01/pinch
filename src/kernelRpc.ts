@@ -2,6 +2,8 @@ import type { IKernelPluginRpc } from "siyuan";
 
 const PINCH_KERNEL_PLUGIN_NAME = "pinch";
 const PINCH_KERNEL_RPC_TIMEOUT_MS = 12000;
+// The CalDAV forward proxy itself allows 30 seconds for an upstream request.
+const CALENDAR_DAV_RPC_TIMEOUT_MS = 65000;
 const PINCH_KERNEL_RPC_RETRY_AFTER_MS = 30000;
 
 let kernelRpcUnavailableUntil = 0;
@@ -154,7 +156,7 @@ async function callPinchKernelHttp<T>(method: string, params?: unknown): Promise
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => {
     controller.abort();
-  }, PINCH_KERNEL_RPC_TIMEOUT_MS);
+  }, method === 'calendarDavRequest' ? CALENDAR_DAV_RPC_TIMEOUT_MS : PINCH_KERNEL_RPC_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(`/api/plugin/rpc/${PINCH_KERNEL_PLUGIN_NAME}`, {

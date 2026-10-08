@@ -484,7 +484,7 @@ const { t } = useI18n();
 const habitTags = ref<Tag[]>([]);
 const { rewardSnapshot } = useRewards();
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
-type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
+type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'calendar-sync' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
 type TaskManagerExpose = {
   openTaskScopeDialog: (initialTab?: TaskScopeDialogTab) => Promise<void> | void;
   closeTaskScopeDialog: () => void;
@@ -732,6 +732,11 @@ function emitHabitsUpdated(nextHabits: Habit[] = habits.value): void {
   });
 }
 
+function notifyHabitsChanged(): void {
+  triggerRef(habits);
+  emitHabitsUpdated(habits.value);
+}
+
 async function persistHabit(habit: Habit): Promise<void> {
   habits.value = reconcilePersistedHabits(await upsertHabit(habit));
   emitHabitsUpdated(habits.value);
@@ -874,7 +879,7 @@ const {
   clearCurrentStreakCacheForHabit,
   clearCompletionRateCacheForHabit,
   saveHabit: persistHabit,
-  triggerHabitsRef: () => triggerRef(habits),
+  triggerHabitsRef: notifyHabitsChanged,
   animationOriginalStatus,
   showAnimation,
   animationHabitId,

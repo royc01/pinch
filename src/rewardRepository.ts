@@ -3,7 +3,7 @@ import { eventBus, Events } from '@/utils/eventBus';
 import type { Habit, HabitDifficulty, Task } from '@/api';
 import { translate } from '@/composables/useI18n';
 import { enqueueStorageMutation } from '@/storageMutationCoordinator';
-import { isMissingPluginStorageValue } from '@/utils/pluginStorage';
+import { isMissingPluginStorageValue, isPluginLifecycleEndedError } from '@/utils/pluginStorage';
 
 export type RewardSource = 'habit' | 'task' | 'focus' | 'system';
 
@@ -92,6 +92,12 @@ export interface RewardUpdatePayload {
   snapshot: RewardSnapshot;
   latestEntries: RewardLedgerEntry[];
   newBadges: RewardBadge[];
+}
+
+export interface RewardWorkbenchData {
+  snapshot: RewardSnapshot;
+  entries: RewardLedgerEntry[];
+  redemptions: RewardRedemption[];
 }
 
 interface RewardAwardInput {
@@ -1233,7 +1239,9 @@ async function loadRewardState(
     cachedRewardState = normalized;
     return cloneRewardState(normalized);
   } catch (error) {
-    console.error('[Rewards] Failed to load reward data:', error);
+    if (!isPluginLifecycleEndedError(error)) {
+      console.error('[Rewards] Failed to load reward data:', error);
+    }
     if (failClosed) {
       throw error;
     }
@@ -1423,19 +1431,35 @@ export function createEmptyRewardSnapshot(): RewardSnapshot {
 
 export async function getRewardSnapshot(forceRefresh: boolean = false): Promise<RewardSnapshot> {
   return enqueueRewardMutation(async () => {
-    let state = await loadRewardState(forceRefresh);
-    let syncTimestamp = state.updatedAt || new Date().toISOString();
-    let badgeSyncResult = unlockBadges(state, syncTimestamp);
-    if (badgeSyncResult.changed) {
-      state = await loadRewardState(true, true);
-      syncTimestamp = state.updatedAt || new Date().toISOString();
-      badgeSyncResult = unlockBadges(state, syncTimestamp);
-    }
-    if (badgeSyncResult.changed) {
-      state.updatedAt = syncTimestamp;
-      await saveRewardState(state);
-    }
+    const state = await loadRewardSnapshotState(forceRefresh);
     return buildRewardSnapshot(state);
+  });
+}
+
+async function loadRewardSnapshotState(forceRefresh: boolean, failClosed = false): Promise<RewardState> {
+  let state = await loadRewardState(forceRefresh, failClosed);
+  let syncTimestamp = state.updatedAt || new Date().toISOString();
+  let badgeSyncResult = unlockBadges(state, syncTimestamp);
+  if (badgeSyncResult.changed) {
+    state = await loadRewardState(true, true);
+    syncTimestamp = state.updatedAt || new Date().toISOString();
+    badgeSyncResult = unlockBadges(state, syncTimestamp);
+  }
+  if (badgeSyncResult.changed) {
+    state.updatedAt = syncTimestamp;
+    await saveRewardState(state);
+  }
+  return state;
+}
+
+export async function getRewardWorkbenchData(forceRefresh = false): Promise<RewardWorkbenchData> {
+  return enqueueRewardMutation(async () => {
+    const state = await loadRewardSnapshotState(forceRefresh, true);
+    return {
+      snapshot: buildRewardSnapshot(state),
+      entries: state.ledger.map(cloneLedgerEntry),
+      redemptions: state.redemptions.map(cloneRewardRedemption)
+    };
   });
 }
 
@@ -1567,7 +1591,7 @@ export async function deleteRewardShopItem(itemId: string): Promise<RewardSnapsh
   });
 }
 
-export async function redeemRewardShopItem(itemId: string): Promise<{ snapshot: RewardSnapshot; redemption: RewardRedemption }> {
+export async function redeemRewardShopItem(itemId: string, expectedCost?: number): Promise<{ snapshot: RewardSnapshot; redemption: RewardRedemption }> {
   const normalizedItemId = typeof itemId === 'string' ? itemId.trim() : '';
   if (!normalizedItemId) {
     throw new Error(formatRewardMessage(
@@ -1584,6 +1608,10 @@ export async function redeemRewardShopItem(itemId: string): Promise<{ snapshot: 
         'rewardRepository.errors.redeemTargetNotFound',
         'Reward item to redeem was not found'
       ));
+    }
+
+    if (expectedCost !== undefined && item.cost !== expectedCost) {
+      throw new Error(formatRewardMessage('rewardRepository.errors.priceChanged', 'The reward price changed. Please confirm the updated price.'));
     }
 
     const availableCoins = Math.max(0, state.totalCoins - state.spentCoins);

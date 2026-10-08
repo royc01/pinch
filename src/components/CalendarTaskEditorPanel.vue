@@ -13,6 +13,8 @@
     :show-priority="showPriority && mode !== 'dock'"
     :show-focus="showFocus"
     :show-open-content="showOpenContent"
+    :task-path="task?.hPath || ''"
+    :task-notebook-name="taskNotebookName"
     :priority-style="priorityStyle"
     @panel-mousedown="$emit('panelMousedown')"
     @pin="$emit('pin')"
@@ -36,7 +38,7 @@
       :add-description-label="t('taskManager.addDescription', 'Add description')"
       @open-description="$emit('update:panel', 'description')"
       @update:description="$emit('update:description', $event)"
-      @commit-description="$emit('commitDescription')"
+      @commit-description="$emit('commitDescription', $event)"
       @close-description="$emit('update:panel', null)"
     />
 
@@ -229,6 +231,7 @@ const props = withDefaults(defineProps<{
   showFocus?: boolean;
   showOpenContent?: boolean;
   priorityStyle?: Record<string, string>;
+  taskNotebookName?: string;
   backgroundColors: CalendarTaskEditorColorOption[];
   startDate: string;
   startTime: string;
@@ -268,6 +271,7 @@ const props = withDefaults(defineProps<{
   showFocus: false,
   showOpenContent: false,
   priorityStyle: () => ({}),
+  taskNotebookName: '',
   goalOptions: () => [],
   selectedTagIds: () => [],
   selectedGoalIds: () => [],
@@ -304,7 +308,7 @@ const emit = defineEmits<{
   selectStatus: [value: Task['status']];
   selectPriority: [value: Task['priority']];
   saveRepeatRule: [value: RepeatFrequency | RepeatRuleInput];
-  commitDescription: [];
+  commitDescription: [value?: string];
   manageGroups: [];
   manageGoals: [];
 }>();

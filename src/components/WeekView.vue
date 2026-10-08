@@ -6,12 +6,14 @@
       :notebooks="notebooks"
       :document-title-by-root-id="documentTitleByRootId"
       :display-options="displayOptions"
+      :week-starts-on-sunday="!isDayViewContext && !isThreeDayViewContext ? weekStartsOnSunday : undefined"
       :selected-start-date="currentWeekStart"
       :selected-days-count="daysCount"
       @task-toggle="toggleTaskStatus"
       @task-edit="(task, anchor) => emit('taskEdit', task, anchor)"
       @date-select="focusSelectedDate"
       @calendar-display-toggle="emit('calendarDisplayToggle', $event)"
+      @week-start-change="emit('weekStartChange', $event)"
       @calendar-task-drag-start="handleCalendarTaskDragStart"
       @calendar-task-drag-move="handleCalendarTaskDragMove"
       @calendar-task-drag-end="handleCalendarTaskDragEnd"
@@ -54,7 +56,9 @@
         </button>
         </div>
       </div>
-      <div class="header-title">{{ displayWeekTitle }}</div>
+      <div class="header-title-row">
+        <div class="header-title">{{ displayWeekTitle }}</div>
+      </div>
     </div>
     
     <div class="week-body">
@@ -684,7 +688,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, onActivated, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import type { FocusSessionRecord, Habit, MoodData, MoodManualEntry, Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
 import {
@@ -780,6 +784,7 @@ interface Props {
   calendarViewOptions?: CalendarViewOption[];
   currentCalendarView?: CalendarViewMode;
   displayOptions?: Array<{ key: string; label: string; enabled: boolean }>;
+  weekStartsOnSunday?: boolean;
   showFocusRecords?: boolean;
   showHabits?: boolean;
   showTaskLifelog?: boolean;
@@ -867,6 +872,7 @@ const {
   updateNote: updateCheckinNote
 } = useCheckinNotes();
 const calendarViewOptions = computed(() => props.calendarViewOptions || []);
+const weekStartsOnSunday = computed(() => props.weekStartsOnSunday === true);
 const showFocusRecords = computed(() => props.showFocusRecords !== false);
 const showHabits = computed(() => props.showHabits !== false);
 const showLifelog = computed(() => props.showLifelog !== false);
@@ -956,6 +962,7 @@ const emit = defineEmits<{
   'visibleRangeChange': [payload: { startDate: string; endDate: string }];
   'calendarViewChange': [view: CalendarViewMode];
   'calendarDisplayToggle': [key: string];
+  'weekStartChange': [weekStartsOnSunday: boolean];
   'sidebarCollapsedChange': [collapsed: boolean];
 }>();
 
@@ -1137,19 +1144,21 @@ const MOBILE_TIMED_TASK_OPERATION_MOVE_THRESHOLD_PX = 10;
 const MOBILE_TIMED_TASK_SNAP_MINUTES = Math.min(CALENDAR_CONSTANTS.LAYOUT.TIME_SNAP_MINUTES, 5);
 const mobileMiniWeekdayLabels = computed(() => {
   const monday = new Date(2024, 0, 1);
-  return Array.from({ length: 7 }, (_, index) => {
+  const labels = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(monday);
     date.setDate(monday.getDate() + index);
     return formatLocaleWeekday(date, 'narrow');
   });
+  return weekStartsOnSunday.value ? [labels[6], ...labels.slice(0, 6)] : labels;
 });
 const mobileWeekdayNames = computed(() => {
   const monday = new Date(2024, 0, 1);
-  return Array.from({ length: 7 }, (_, index) => {
+  const labels = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(monday);
     date.setDate(monday.getDate() + index);
     return formatLocaleWeekday(date, 'short');
   });
+  return weekStartsOnSunday.value ? [labels[6], ...labels.slice(0, 6)] : labels;
 });
 const viewportWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth);
 const daysScrollRef = ref<HTMLElement | null>(null);
@@ -1601,17 +1610,33 @@ function findWeekDayHitZone(point: ExternalTaskDropPoint, zones: WeekDayHitZone[
   return null;
 }
 
+watch(weekStartsOnSunday, (_value, previous) => {
+  if (daysCount.value !== 7 || resolveFixedDaysCount(props.fixedDaysCount) !== null) {
+    return;
+  }
+  // Use a day shared by both week conventions so toggling back and forth
+  // preserves the selected week, including when its first day is Sunday.
+  const anchor = new Date(currentWeekStart.value);
+  if (previous) anchor.setDate(anchor.getDate() + 1);
+  currentWeekStart.value = getMondayStart(anchor);
+  invalidateWeekDropZoneCache();
+});
+
 watch(
-  () => props.fixedDaysCount,
-  (nextCount) => {
-    if (typeof nextCount !== 'number' || !Number.isFinite(nextCount)) {
-      return;
+  () => [props.fixedDaysCount, props.fixedCenterToday] as const,
+  ([nextCount, centerToday]) => {
+    const normalized = resolveFixedDaysCount(nextCount);
+    if (normalized === null) {
+      daysCount.value = 7;
+      currentWeekStart.value = getMondayStart(currentWeekStart.value);
+    } else {
+      daysCount.value = normalized;
+      currentWeekStart.value = centerToday
+        ? resolveCenteredStartDateFromToday(normalized)
+        : getTodayStart();
     }
-    const normalized = Math.max(
-      CALENDAR_CONSTANTS.LAYOUT.MIN_DAYS,
-      Math.min(CALENDAR_CONSTANTS.LAYOUT.MAX_DAYS, Math.round(nextCount))
-    );
-    daysCount.value = normalized;
+    daysSwitcherOpen.value = false;
+    invalidateWeekDropZoneCache();
   },
   { immediate: true }
 );
@@ -1710,27 +1735,30 @@ watch(() => props.tasks, (newTasks) => {
 
 async function refreshFocusSessions(): Promise<void> {
   try {
-    const [data, habits] = await Promise.all([
-      getFocusTimerData(),
-      getHabits()
-    ]);
+    const data = await getFocusTimerData();
     focusSessionRecords.value = data.sessionRecords;
-    habitRecords.value = habits;
   } catch (error) {
     console.error('[WeekView] Failed to load focus sessions', error);
   }
 }
 
 async function refreshWeekLifelogRecords(): Promise<void> {
+  await Promise.all([refreshHabitCheckins(), refreshMoodRecords()]);
+}
+
+async function refreshHabitCheckins(): Promise<void> {
   try {
-    const [habits, moodData] = await Promise.all([
-      getHabits(),
-      getMoodData()
-    ]);
-    habitRecords.value = habits;
-    moodRecords.value = moodData;
+    habitRecords.value = await getHabits();
   } catch (error) {
-    console.error('[WeekView] Failed to load lifelog records', error);
+    console.error('[WeekView] Failed to load habit checkins', error);
+  }
+}
+
+async function refreshMoodRecords(): Promise<void> {
+  try {
+    moodRecords.value = await getMoodData();
+  } catch (error) {
+    console.error('[WeekView] Failed to load mood records', error);
   }
 }
 
@@ -1746,7 +1774,7 @@ function handleHabitsUpdated(payload?: { source?: string; habits?: Habit[] }): v
     habitRecords.value = [...payload.habits];
     return;
   }
-  void refreshWeekLifelogRecords();
+  void refreshHabitCheckins();
 }
 
 function handleMoodUpdated(payload?: { moodData?: MoodData }): void {
@@ -1754,16 +1782,29 @@ function handleMoodUpdated(payload?: { moodData?: MoodData }): void {
     moodRecords.value = { ...payload.moodData };
     return;
   }
-  void refreshWeekLifelogRecords();
+  void refreshMoodRecords();
 }
 
+watch(showFocusRecords, (visible, previous) => {
+  if (visible && !previous) void refreshFocusSessions();
+});
+
+watch([showHabits, showHabitLifelog], ([chips, logs], [previousChips, previousLogs]) => {
+  if ((chips && !previousChips) || (logs && !previousLogs)) void refreshHabitCheckins();
+});
+
+watch(showRecordsLifelog, (visible, previous) => {
+  if (visible && !previous) void refreshMoodRecords();
+});
+
 const weekdays = computed(() => {
-  const sunday = new Date(2024, 0, 7);
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(sunday);
-    date.setDate(sunday.getDate() + index);
+  const monday = new Date(2024, 0, 1);
+  const labels = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
     return formatLocaleWeekday(date, 'short');
   });
+  return weekStartsOnSunday.value ? [labels[6], ...labels.slice(0, 6)] : labels;
 });
 
 function timeToMinutes(time: string): number {
@@ -1812,7 +1853,9 @@ const weekDays = computed<WeekDay[]>(() => {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     
-    const dayOfWeek = date.getDay();
+    const dayOfWeek = weekStartsOnSunday.value
+      ? date.getDay()
+      : (date.getDay() + 6) % 7;
     
     days.push({
       key: `${year}-${month}-${day}`,
@@ -1826,19 +1869,18 @@ const weekDays = computed<WeekDay[]>(() => {
   return days;
 });
 
-watch(
-  weekDays,
-  (days) => {
-    if (days.length === 0) {
-      return;
-    }
-    emit('visibleRangeChange', {
-      startDate: days[0].key,
-      endDate: days[days.length - 1].key
-    });
-  },
-  { immediate: true }
-);
+function emitVisibleCalendarRange(): void {
+  const days = weekDays.value;
+  if (days.length === 0) return;
+  emit('visibleRangeChange', {
+    startDate: days[0].key,
+    endDate: days[days.length - 1].key
+  });
+}
+
+watch(weekDays, emitVisibleCalendarRange, { immediate: true });
+// KeepAlive retains the browsed dates while the parent changes load scopes.
+onActivated(emitVisibleCalendarRange);
 
 watch(
   () => weekDays.value.map(day => day.key).join('|'),
@@ -1857,12 +1899,12 @@ watch(isAllDaySectionCollapsed, () => {
 });
 
 function getMondayStart(date: Date): Date {
-  const monday = new Date(date);
-  monday.setHours(0, 0, 0, 0);
-  const day = monday.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  monday.setDate(monday.getDate() + diff);
-  return monday;
+  const weekStart = new Date(date);
+  weekStart.setHours(0, 0, 0, 0);
+  const day = weekStart.getDay();
+  const diff = weekStartsOnSunday.value ? -day : (day === 0 ? -6 : 1 - day);
+  weekStart.setDate(weekStart.getDate() + diff);
+  return weekStart;
 }
 
 const mobileDayWeekDates = computed(() => {
@@ -1897,9 +1939,7 @@ function focusMobileDay(date: Date): void {
 }
 
 const mobileWeekStartDate = computed(() => {
-  const mondayStart = new Date(currentWeekStart.value);
-  mondayStart.setHours(0, 0, 0, 0);
-  return mondayStart;
+  return getMondayStart(currentWeekStart.value);
 });
 
 const mobileWeekBounds = computed(() => {
@@ -1952,7 +1992,9 @@ const mobileMiniCalendarDays = computed<MobileMiniCalendarDay[]>(() => {
   const monthStart = new Date(year, month, 1);
   monthStart.setHours(0, 0, 0, 0);
 
-  const mondayOffset = (monthStart.getDay() + 6) % 7;
+  const mondayOffset = weekStartsOnSunday.value
+    ? monthStart.getDay()
+    : (monthStart.getDay() + 6) % 7;
   const gridStart = new Date(monthStart);
   gridStart.setDate(gridStart.getDate() - mondayOffset);
 
@@ -3539,6 +3581,14 @@ function lifelogEventToTimelineListItem(event: WeekLifelogEvent): LifelogTimelin
     type: event.type,
     date: event.date,
     timeLabel: getWeekLifelogTimeLabel(event, startTime, endTime),
+    timeValue: event.type === 'focus' ? endTime : startTime,
+    timeEditable: true,
+    timeSourceId: event.type === 'habit-checkin'
+      ? event.habitId
+      : event.type === 'task-completed'
+        ? event.taskId
+        : event.sourceId || event.id,
+    timeEventId: event.id,
     sortMinutes: startMinutes,
     title,
     isTaskTitle: event.type === 'task-completed',
@@ -6514,6 +6564,18 @@ onUnmounted(() => {
   font-size: 26px;
   font-weight: 700;
   color: var(--b3-theme-on-background);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
 }
 
 .calendar-toolbar-actions {

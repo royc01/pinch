@@ -154,7 +154,7 @@
                   :key="option.value"
                   type="button"
                   class="task-modal-group-chip"
-                  :class="{ active: isTaskModalGroupSelected(option.value), primary: isTaskModalPrimaryGroup(option.value), special: option.special }"
+                  :class="{ active: isTaskModalGroupSelected(option.value), special: option.special }"
                   :style="{
                     '--group-chip-bg': option.colorCss || 'var(--b3-list-hover)',
                     '--group-chip-color': option.textColor || 'var(--b3-theme-on-surface)'
@@ -162,9 +162,6 @@
                   @click="selectTaskModalGroup(option.value)"
                 >
                   <span class="task-modal-group-chip-label">{{ option.label }}</span>
-                  <span v-if="isTaskModalPrimaryGroup(option.value)" class="task-modal-group-chip-primary">
-                    {{ tt('taskManager.primaryTagShort') }}
-                  </span>
                 </button>
               </div>
             </div>
@@ -672,10 +669,6 @@ function isTaskModalGroupSelected(value: string): boolean {
     return taskModalSelectedTagIds.value.length === 0;
   }
   return taskModalSelectedTagIds.value.includes(value);
-}
-
-function isTaskModalPrimaryGroup(value: string): boolean {
-  return value !== TASK_GROUP_NONE_ID && taskModalSelectedTagIds.value[0] === value;
 }
 
 function selectTaskModalGroup(value: string): void {

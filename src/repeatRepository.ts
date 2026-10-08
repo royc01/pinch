@@ -1420,6 +1420,36 @@ export async function setRepeatInstanceStatus(seriesId: string, date: string, st
   });
 }
 
+export async function updateRepeatInstanceCompletedAt(
+  seriesId: string,
+  date: string,
+  completedAt: string
+): Promise<boolean> {
+  const normalizedDate = parseDate(date);
+  const normalizedCompletedAt = typeof completedAt === 'string' ? completedAt.trim() : '';
+  if (!seriesId || !normalizedDate || !normalizedCompletedAt || Number.isNaN(new Date(normalizedCompletedAt).getTime())) {
+    return false;
+  }
+
+  return serializeStorageMutation(REPEAT_RECORDS_FILE, async () => {
+    const targetDate = formatDate(normalizedDate);
+    const key = buildRecordKey(seriesId, targetDate);
+    const records = await readRepeatRecordsFromStorage();
+    const index = records.findIndex(record => record.key === key);
+    if (index < 0 || !isCompletedTaskStatus(records[index].status)) {
+      return false;
+    }
+    records[index] = {
+      ...records[index],
+      completedAt: normalizedCompletedAt,
+      updatedAt: new Date().toISOString()
+    };
+    await persistRepeatRecords(records);
+    emitRepeatChanged({ seriesId });
+    return true;
+  });
+}
+
 export async function materializeRepeatTasks<T extends RepeatTaskLike>(
   baseTasks: T[],
   options: RepeatMaterializeOptions = {}

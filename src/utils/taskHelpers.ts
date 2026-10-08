@@ -40,7 +40,7 @@ export async function updateTaskMarkdown(
   updateCustomStatus: boolean = false,
   promptAnchor?: CheckinNotePromptAnchor,
   status?: TaskStatus
-): Promise<void> {
+): Promise<string> {
   try {
     const effectiveStatus = status || (completed ? 'completed' : 'pending');
     const marker = status ? taskStatusToSiyuanTaskMarker(status) : (completed ? 'x' : ' ');
@@ -60,6 +60,7 @@ export async function updateTaskMarkdown(
         requestTaskCompletionNote(blockId, completedAt, promptAnchor);
       }
     }
+    return completedAt;
   } catch (error) {
     console.error('[TaskHelpers] updateTaskMarkdown failed:', { blockId, completed, error });
     throw error;

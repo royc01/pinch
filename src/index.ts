@@ -9,6 +9,7 @@ import { configurePinchKernelRpc } from '@/kernelRpc'
 import { invalidateBlockDOMCache } from '@/api'
 import { invalidatePluginStorageReadCache } from '@/utils/pluginStorage'
 import { publishTaskChange, resetTaskChangeCoordinator } from '@/utils/taskChangeCoordinator'
+import { disposeCalendarSyncSettings, initializeCalendarSyncSettings } from '@/utils/calendarSyncSettings'
 
 let PluginInfo = {
   version: '',
@@ -34,6 +35,8 @@ export default class HabitTrackerPlugin extends Plugin {
   public readonly version = version
 
   private debounceTimer: any = null;
+  private loadGeneration = 0;
+  private loaded = false;
   private pendingTransactionBatches: Array<{
     transactions: any[];
     transactionIndex: number;
@@ -42,6 +45,8 @@ export default class HabitTrackerPlugin extends Plugin {
   private readonly MAX_OPERATIONS_PER_FLUSH = 240;
 
   async onload() {
+    const generation = ++this.loadGeneration;
+    this.loaded = false;
     const frontEnd = getFrontend();
     this.platform = frontEnd as SyFrontendTypes
     this.isMobile = frontEnd === "mobile" || frontEnd === "browser-mobile"
@@ -60,10 +65,14 @@ export default class HabitTrackerPlugin extends Plugin {
     }
 
     configurePinchKernelRpc(this.kernel?.rpc);
+    const settingsReady = await initializeCalendarSyncSettings(this);
+    if (!settingsReady || generation !== this.loadGeneration) return;
+    this.loaded = true;
     init(this);
   }
 
   onLayoutReady() {
+    if (!this.loaded) return;
     this.setupWebSocketListener();
     onLayoutReady(this);
   }
@@ -79,7 +88,7 @@ export default class HabitTrackerPlugin extends Plugin {
   }
 
   private handleIncrementalUpdate = (transactions: any[]) => {
-    if (!Array.isArray(transactions) || transactions.length === 0) {
+    if (!this.loaded || !Array.isArray(transactions) || transactions.length === 0) {
       return;
     }
 
@@ -168,6 +177,14 @@ export default class HabitTrackerPlugin extends Plugin {
   }
 
   onunload() {
+    this.loadGeneration += 1;
+    this.loaded = false;
+    disposeCalendarSyncSettings(this);
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    this.pendingTransactionBatches = [];
     configurePinchKernelRpc(null)
     resetTaskChangeCoordinator()
     destroy()

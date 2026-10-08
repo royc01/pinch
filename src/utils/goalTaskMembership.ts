@@ -200,6 +200,55 @@ export function setTaskGoalMembership(goals: Goal[], task: GoalTaskSource, goalI
   });
 }
 
+export function moveTaskGoalBetweenGroups(
+  goals: Goal[],
+  task: GoalTaskSource,
+  currentGoalIds: readonly string[],
+  sourceGoalId: unknown,
+  targetGoalId: unknown
+): Goal[] {
+  const taskMember = buildGoalTaskMember(task);
+  if (!taskMember) {
+    return goals || [];
+  }
+
+  const normalizedSource = normalizeId(sourceGoalId);
+  const normalizedTarget = normalizeId(targetGoalId);
+  if (normalizedSource === normalizedTarget) {
+    return goals || [];
+  }
+
+  const removedGoalIds = normalizedTarget
+    ? new Set(normalizedSource ? [normalizedSource] : [])
+    : new Set((currentGoalIds || []).map(goalId => normalizeId(goalId)).filter(Boolean));
+
+  return (goals || []).map((goal) => {
+    if (!removedGoalIds.has(goal.id) && goal.id !== normalizedTarget) {
+      return goal;
+    }
+
+    const taskMembers = (goal.taskMembers || []).filter(member => !isSameGoalTaskMember(member, taskMember));
+    const excludedTaskMembers = (goal.excludedTaskMembers || [])
+      .filter(member => !isSameGoalTaskMember(member, taskMember));
+
+    if (goal.id === normalizedTarget) {
+      return {
+        ...goal,
+        taskMembers: [...taskMembers, taskMember],
+        excludedTaskMembers
+      };
+    }
+
+    // A task can inherit a goal from its document. Keep an explicit exclusion
+    // when it is dragged away so the old goal does not immediately reappear.
+    return {
+      ...goal,
+      taskMembers,
+      excludedTaskMembers: [...excludedTaskMembers, taskMember]
+    };
+  });
+}
+
 export function toggleTaskGoalMembership(goals: Goal[], task: GoalTaskSource, goalId: string): Goal[] {
   const normalizedGoalId = normalizeId(goalId);
   if (!normalizedGoalId) {

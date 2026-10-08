@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   awardTaskCompletion,
   getRewardSnapshot,
+  getRewardWorkbenchData,
+  redeemRewardShopItem,
   type RewardBadge,
   type RewardLedgerEntry,
   type RewardSource,
   type RewardState
 } from './rewardRepository';
+import { eventBus, Events } from '@/utils/eventBus';
 
 const { mockPlugin } = vi.hoisted(() => ({
   mockPlugin: {
@@ -83,6 +86,86 @@ describe('reward repository', () => {
     mockPlugin.saveData.mockResolvedValue(undefined);
   });
 
+  it('returns a consistent cloned workbench history beyond the eight recent records', async () => {
+    const state = createRewardState({
+      totalXp: 12, totalCoins: 30, spentCoins: 5,
+      ledger: createLedgerEntries('system-history', 12, 'system', () => ({ note: 'original' })),
+      redemptions: Array.from({ length: 10 }, (_, index) => ({
+        id: `redeem-${index}`, itemId: 'shop', itemTitle: 'Reward', cost: 1, redeemedAt: '2026-10-07'
+      }))
+    });
+    mockPlugin.loadData.mockResolvedValue(state);
+    const data = await getRewardWorkbenchData(true);
+    expect(data.snapshot).toMatchObject({ ledgerCount: 12, totalXp: 12, availableCoins: 25 });
+    expect(data.snapshot.recentEntries).toHaveLength(8);
+    expect(data.entries).toHaveLength(12);
+    expect(data.redemptions).toHaveLength(10);
+    data.entries[0].title = 'mutated';
+    data.entries[0].meta!.note = 'mutated';
+    data.redemptions[0].itemTitle = 'mutated';
+    const again = await getRewardWorkbenchData();
+    expect(again.entries[0].title).toBe('system-history-1');
+    expect(again.entries[0].meta!.note).toBe('original');
+    expect(again.redemptions[0].itemTitle).toBe('Reward');
+    expect(mockPlugin.saveData).not.toHaveBeenCalled();
+  });
+
+  it('rejects unavailable workbench history instead of returning empty data', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      mockPlugin.loadData.mockRejectedValue(new Error('read failed'));
+      await expect(getRewardWorkbenchData(true)).rejects.toThrow('read failed');
+      expect(mockPlugin.saveData).not.toHaveBeenCalled();
+    } finally { errorLog.mockRestore(); }
+  });
+
+  it('rejects changed confirmed prices and insufficient fresh balances without saving', async () => {
+    const item = { id: 'shop', title: 'Break', cost: 10, createdAt: '2026-10-07', updatedAt: '2026-10-07' };
+    mockPlugin.loadData.mockResolvedValue(createRewardState({ totalCoins: 20, shopItems: [item] }));
+    await expect(redeemRewardShopItem('shop', 5)).rejects.toThrow();
+    expect(mockPlugin.saveData).not.toHaveBeenCalled();
+    mockPlugin.loadData.mockResolvedValue(createRewardState({ totalCoins: 20, spentCoins: 15, shopItems: [item] }));
+    await expect(redeemRewardShopItem('shop', 10)).rejects.toThrow();
+    expect(mockPlugin.saveData).not.toHaveBeenCalled();
+  });
+
+  it('persists a confirmed redemption once and publishes the saved balance', async () => {
+    mockPlugin.loadData.mockResolvedValue(createRewardState({
+      totalCoins: 20, spentCoins: 5,
+      shopItems: [{ id: 'shop', title: 'Break', cost: 10, createdAt: '2026-10-07', updatedAt: '2026-10-07' }]
+    }));
+    const updates = vi.fn();
+    const unsubscribe = eventBus.on(Events.REWARDS_UPDATED, updates);
+    try {
+      const result = await redeemRewardShopItem('shop', 10);
+      expect(result.snapshot.availableCoins).toBe(5);
+      expect(result.redemption).toMatchObject({ itemId: 'shop', itemTitle: 'Break', cost: 10 });
+      expect(mockPlugin.saveData).toHaveBeenCalledTimes(1);
+      expect(mockPlugin.saveData.mock.calls[0][1]).toMatchObject({ spentCoins: 15, redemptions: [result.redemption] });
+      expect(updates).toHaveBeenCalledTimes(1);
+      expect(updates.mock.calls[0][0].snapshot.availableCoins).toBe(5);
+    } finally { unsubscribe(); }
+  });
+
+  it('does not publish or deduct a redemption when saving fails', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockPlugin.loadData.mockResolvedValue(createRewardState({
+      totalCoins: 20,
+      shopItems: [{ id: 'shop', title: 'Break', cost: 10, createdAt: '2026-10-07', updatedAt: '2026-10-07' }]
+    }));
+    await getRewardWorkbenchData(true);
+    mockPlugin.saveData.mockRejectedValueOnce(new Error('save failed'));
+    const updates = vi.fn();
+    const unsubscribe = eventBus.on(Events.REWARDS_UPDATED, updates);
+    try {
+      await expect(redeemRewardShopItem('shop', 10)).rejects.toThrow('save failed');
+      expect(updates).not.toHaveBeenCalled();
+      const data = await getRewardWorkbenchData();
+      expect(data.snapshot.availableCoins).toBe(20);
+      expect(data.redemptions).toHaveLength(0);
+    } finally { unsubscribe(); errorLog.mockRestore(); }
+  });
+
   it.each(['', '   '])('treats blank plugin storage as a new reward store', async (storedValue) => {
     mockPlugin.loadData.mockResolvedValue(storedValue);
 
@@ -90,6 +173,25 @@ describe('reward repository', () => {
 
     expect(snapshot.ledgerCount).toBe(0);
     expect(snapshot.totalXp).toBe(0);
+  });
+
+  it('keeps the reward snapshot on lifecycle cancellation but rejects reward writes', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      mockPlugin.loadData.mockResolvedValue(createRewardState({ totalXp: 12, totalCoins: 8 }));
+      const snapshot = await getRewardSnapshot(true);
+      mockPlugin.saveData.mockClear();
+      const ended = { code: 410, msg: 'Plugin lifecycle has ended', data: null };
+      mockPlugin.loadData.mockRejectedValue(ended);
+      await expect(getRewardSnapshot(true)).resolves.toEqual(snapshot);
+      await expect(awardTaskCompletion({
+        id: 'cancelled-task', title: 'Cancelled', priority: 'none', status: 'completed', completedAt: '2026-10-06T00:00:00.000Z'
+      })).rejects.toBe(ended);
+      expect(errorLog).not.toHaveBeenCalled();
+      expect(mockPlugin.saveData).not.toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   it('keeps at most one highest badge per group in the snapshot', async () => {

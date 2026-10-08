@@ -1,11 +1,12 @@
 <template>
-  <div
-    v-if="show"
-    class="lifelog-timeline-backdrop"
-    :class="[`is-${variant}`, { 'is-fill-height': fillHeight }]"
-    @mousedown.self="handleBackdropMouseDown"
-    @wheel.stop
-  >
+  <Teleport to="body" :disabled="variant !== 'drawer'">
+    <div
+      v-if="show"
+      class="lifelog-timeline-backdrop"
+      :class="[`is-${variant}`, { 'is-fill-height': fillHeight }]"
+      @mousedown.self="handleBackdropMouseDown"
+      @wheel.stop
+    >
     <aside class="lifelog-timeline-panel" @mousedown.stop @click.stop>
       <div v-if="dateStripDays.length > 0 || title || subtitle || variant === 'drawer'" class="lifelog-timeline-header">
         <div class="lifelog-timeline-title-wrap">
@@ -108,7 +109,29 @@
             </span>
           </div>
           <div class="lifelog-timeline-content">
-            <div class="lifelog-timeline-time">{{ item.timeLabel }}</div>
+            <div v-if="editingTimeItemId !== item.id" class="lifelog-timeline-time" :class="{ 'is-editable': canEditTime(item) }" @click.stop="startTimeEdit(item)">
+              <button
+                v-if="canEditTime(item)"
+                type="button"
+                class="lifelog-timeline-time-button"
+                :aria-label="item.timeLabel"
+                @click.stop="startTimeEdit(item)"
+              >{{ item.timeLabel }}</button>
+              <template v-else>{{ item.timeLabel }}</template>
+            </div>
+            <input
+              v-else
+              v-model="editingTimeValue"
+              type="time"
+              class="lifelog-timeline-time-input"
+              :aria-label="item.timeLabel"
+              autofocus
+              @keydown.enter.prevent="saveTimeEdit(item)"
+              @keydown.esc.prevent="cancelTimeEdit"
+              @blur="saveTimeEdit(item)"
+              @mousedown.stop
+              @click.stop
+            />
             <div
               class="lifelog-timeline-card"
               :draggable="Boolean(getCardDragMarkdown(item))"
@@ -297,7 +320,8 @@
         </div>
       </div>
     </aside>
-  </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -314,6 +338,10 @@ export interface LifelogTimelinePanelItem {
   type: LifelogEventType;
   date?: string;
   timeLabel: string;
+  timeValue?: string;
+  timeEditable?: boolean;
+  timeSourceId?: string;
+  timeEventId?: string;
   sortMinutes: number;
   title: string;
   isTaskTitle?: boolean;
@@ -382,6 +410,7 @@ const props = withDefaults(defineProps<{
   currentPeriod?: string;
   previousPeriodLabel?: string;
   nextPeriodLabel?: string;
+  enableTimeEditing?: boolean;
 }>(), {
   showEditor: false,
   draft: '',
@@ -399,7 +428,8 @@ const props = withDefaults(defineProps<{
   dateStripDays: () => [],
   currentPeriod: '',
   previousPeriodLabel: '',
-  nextPeriodLabel: ''
+  nextPeriodLabel: '',
+  enableTimeEditing: false
 });
 
 const emit = defineEmits<{
@@ -411,6 +441,7 @@ const emit = defineEmits<{
   'clear-draft': [];
   'delete-item': [item: LifelogTimelinePanelItem];
   'update-item': [item: LifelogTimelinePanelItem, text: string];
+  'update-time': [item: LifelogTimelinePanelItem, time: string];
   'update-annotation': [item: LifelogTimelinePanelItem, text: string];
   'toggle-star': [item: LifelogTimelinePanelItem];
   'open-source': [item: LifelogTimelinePanelItem];
@@ -424,6 +455,8 @@ const editingItemId = ref<string | null>(null);
 const editingText = ref('');
 const editingAnnotationItemId = ref<string | null>(null);
 const editingAnnotationText = ref('');
+const editingTimeItemId = ref<string | null>(null);
+const editingTimeValue = ref('');
 
 function getBadgeClass(badge: LifelogTimelinePanelBadge): string[] {
   if (badge.type === 'goal') {
@@ -459,6 +492,7 @@ watch(
       pendingDeleteItem.value = null;
       cancelItemEdit();
       cancelAnnotationEdit();
+      cancelTimeEdit();
     }
   },
   { immediate: true }
@@ -546,6 +580,41 @@ function startItemEdit(item: LifelogTimelinePanelItem): void {
   cancelAnnotationEdit();
   editingItemId.value = item.id;
   editingText.value = item.note;
+}
+
+function getTimeValue(item: LifelogTimelinePanelItem): string {
+  const value = item.timeValue || item.timeLabel.match(/\b(\d{1,2}:\d{2})\b/)?.[1] || '';
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  return match ? `${match[1].padStart(2, '0')}:${match[2]}` : '';
+}
+
+function canEditTime(item: LifelogTimelinePanelItem): boolean {
+  return props.enableTimeEditing && item.timeEditable === true;
+}
+
+function startTimeEdit(item: LifelogTimelinePanelItem): void {
+  if (!canEditTime(item)) return;
+  cancelItemEdit();
+  cancelAnnotationEdit();
+  editingTimeItemId.value = item.id;
+  editingTimeValue.value = getTimeValue(item);
+}
+
+function cancelTimeEdit(): void {
+  editingTimeItemId.value = null;
+  editingTimeValue.value = '';
+}
+
+function saveTimeEdit(item: LifelogTimelinePanelItem): void {
+  if (editingTimeItemId.value !== item.id) return;
+  const value = editingTimeValue.value.trim();
+  const [hours, minutes] = value.split(':').map(Number);
+  if (!/^\d{2}:\d{2}$/.test(value) || hours > 23 || minutes > 59 || value === getTimeValue(item)) {
+    cancelTimeEdit();
+    return;
+  }
+  emit('update-time', item, value);
+  cancelTimeEdit();
 }
 
 function cancelItemEdit(): void {
@@ -853,6 +922,30 @@ function handleBackdropMouseDown(): void {
   line-height: 1.2;
   text-align: left;
   white-space: nowrap;
+}
+
+.lifelog-timeline-time.is-editable {
+  cursor: pointer;
+}
+
+.lifelog-timeline-time-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: inherit;
+}
+
+.lifelog-timeline-time-input {
+  width: 86px;
+  margin: 7px 0;
+  padding: 2px 4px;
+  border: 1px solid var(--b3-theme-primary);
+  border-radius: 4px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  font-size: 11px;
 }
 
 .lifelog-timeline-line {

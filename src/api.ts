@@ -1952,6 +1952,51 @@ export async function upsertFocusSessionRecord(
   }
 }
 
+export async function updateFocusSessionRecordTimestamp(
+  sessionId: string,
+  timestamp: number
+): Promise<boolean> {
+  try {
+    const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';
+    const nextTimestamp = Number(timestamp);
+    if (!normalizedSessionId || !Number.isFinite(nextTimestamp) || nextTimestamp <= 0) {
+      return false;
+    }
+
+    return await mutateFocusTimerData((data) => {
+      const record = data.sessionRecords.find(item => item.id === normalizedSessionId);
+      if (!record) return { value: false, changed: false };
+
+      const previousDate = record.date;
+      const nextDate = formatLocalDate(new Date(nextTimestamp));
+      const minutes = Math.max(0, Math.floor(Number(record.minutes) || 0));
+      const previousDaily = data.dailyRecords.find(item => item.date === previousDate);
+      if (previousDaily) {
+        previousDaily.sessions = Math.max(0, Math.floor(Number(previousDaily.sessions) || 0) - 1);
+        previousDaily.minutes = Math.max(0, Math.floor(Number(previousDaily.minutes) || 0) - minutes);
+        previousDaily.timestamp = Date.now();
+      }
+
+      let nextDaily = data.dailyRecords.find(item => item.date === nextDate);
+      if (!nextDaily) {
+        nextDaily = { date: nextDate, sessions: 0, minutes: 0, timestamp: Date.now() };
+        data.dailyRecords.push(nextDaily);
+      }
+      nextDaily.sessions += 1;
+      nextDaily.minutes += minutes;
+      nextDaily.timestamp = Date.now();
+
+      record.date = nextDate;
+      record.timestamp = nextTimestamp;
+      data.dailyRecords = data.dailyRecords.filter(item => item.sessions > 0 || item.minutes > 0);
+      return { value: true, changed: true };
+    });
+  } catch (error) {
+    console.error('Error updating focus session timestamp:', error);
+    throw error;
+  }
+}
+
 export async function deleteFocusSessionRecord(sessionId: string): Promise<boolean> {
   try {
     const normalizedSessionId = typeof sessionId === 'string' ? sessionId.trim() : '';

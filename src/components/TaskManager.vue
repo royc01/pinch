@@ -487,9 +487,11 @@
           :show-archive="!!activeTaskEditTask"
           :is-archived="isActiveTaskArchived"
           :show-delete="!!activeTaskEditTask"
-          :show-focus="!!activeTaskEditTask"
-          :show-open-content="!!activeTaskEditTask"
-          @backdrop-click="closeTaskEditorSidebar"
+           :show-focus="!!activeTaskEditTask"
+           :show-open-content="!!activeTaskEditTask"
+           :task-path="activeTaskEditTask?.hPath || ''"
+           :task-notebook-name="activeTaskEditTask?.notebookId ? (enabledNotebookNameById.get(activeTaskEditTask.notebookId) || activeTaskEditTask.notebookId) : ''"
+           @backdrop-click="closeTaskEditorSidebar"
           @panel-mousedown="handleTaskEditorSidebarPanelMouseDown"
           @pin="handleTaskEditorPinToggle"
           @move="openTaskMoveDialog"
@@ -672,6 +674,7 @@
                v-else-if="row.type === 'task' && row.task"
                :ref="(el) => setTimelineVirtualRowRef(row.key, el)"
                class="task-batch-item timeline-virtual-task"
+               :data-task-row-key="row.key"
             :class="{
               selected: isTaskBatchSelected(row.task.id),
               'is-batch-mode': isBatchEditMode,
@@ -701,7 +704,7 @@
               <span class="task-timeline-node"></span>
             </div>
              <TaskCard
-               v-memo="[row.task.status, row.task.priority, row.task.title, row.task.description, row.task.subtasks, getInlineDescriptionDraft(row.task), row.task.dueDate, row.task.dueTime, row.task.groupId, row.task.pinned, row.task.focusEstimate?.unit, row.task.focusEstimate?.value, row.task.taskId, row.task.sourceBlockId, (row.task.tags || []).join(','), row.task.blockId, row.task.repeatSeriesId, taskGroups, goalDefinitions, getTaskManagerGoalIds(row.task).join(','), expandedSubtasks.has(row.task.id), expandedDescriptions.has(row.task.id), shouldShowTaskCardDetails, inlineEditingDescriptionTaskId === row.task.id, isBatchEditMode, shouldUseNativeTaskCardDrag(), shouldEnableMobileCalendarDrag(), shouldEnableDesktopCalendarPointerDrag(), isFutureVirtualRepeatPreview(row.task)]"
+               v-memo="[row.task.status, row.task.priority, row.task.title, row.task.description, row.task.subtasks, getInlineDescriptionDraft(row.task), row.task.dueDate, row.task.dueTime, row.task.groupId, row.task.pinned, row.task.focusEstimate?.unit, row.task.focusEstimate?.value, row.task.taskId, row.task.sourceBlockId, (row.task.tags || []).join(','), row.task.blockId, row.task.repeatSeriesId, taskGroups, goalDefinitions, getTaskManagerGoalIds(row.task).join(','), expandedSubtasks.has(row.task.id), expandedDescriptions.has(row.task.id), shouldShowTaskCardDetails, inlineEditingDescriptionTaskId === row.task.id, inlineEditingDescriptionRowKey, isBatchEditMode, shouldUseNativeTaskCardDrag(), shouldEnableMobileCalendarDrag(), shouldEnableDesktopCalendarPointerDrag(), isFutureVirtualRepeatPreview(row.task)]"
                :data-task-id="row.task.id"
               :task="row.task"
                :completed="isCompletedTaskStatus(row.task.status)"
@@ -714,7 +717,7 @@
               :show-status-badge="true"
               :draggable="shouldUseNativeTaskCardDrag()"
               :expanded="expandedSubtasks.has(row.task.id) || expandedDescriptions.has(row.task.id)"
-              :description-editing="inlineEditingDescriptionTaskId === row.task.id"
+              :description-editing="inlineEditingDescriptionTaskId === row.task.id && inlineEditingDescriptionRowKey === row.key"
               :description-draft="getInlineDescriptionDraft(row.task)"
               :show-description="shouldShowTaskCardDetails"
               :show-badges="shouldShowTaskCardDetails"
@@ -722,7 +725,7 @@
               :show-open-content="row.task.type === 'block'"
               :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
               :disable-context-menu="shouldEnableMobileCalendarDrag()"
-              :ref="(el) => setTaskCardRef(row.task.id, el)"
+              :ref="(el) => setTaskCardRef(row.task.id, row.key, el)"
               @card-click="handleTaskCardClick"
               @open-content="handleTaskClick"
               @start-focus="handleTaskCardStartFocus"
@@ -800,6 +803,7 @@
                v-for="task in section.tasks"
                :key="task.id"
                class="task-batch-item"
+               :data-task-row-key="`group:${section.key}:task:${task.id}`"
               :class="{
                 selected: isTaskBatchSelected(task.id),
                 'is-batch-mode': isBatchEditMode,
@@ -828,7 +832,7 @@
                 <span class="task-timeline-node"></span>
               </div>
                <TaskCard
-                 v-memo="[task.status, task.priority, task.title, task.description, task.subtasks, getInlineDescriptionDraft(task), task.dueDate, task.dueTime, task.groupId, task.pinned, task.focusEstimate?.unit, task.focusEstimate?.value, task.taskId, task.sourceBlockId, (task.tags || []).join(','), task.blockId, task.repeatSeriesId, taskGroups, goalDefinitions, getTaskManagerGoalIds(task).join(','), expandedSubtasks.has(task.id), expandedDescriptions.has(task.id), shouldShowTaskCardDetails, inlineEditingDescriptionTaskId === task.id, isBatchEditMode, shouldUseNativeTaskCardDrag(), shouldEnableMobileCalendarDrag(), shouldEnableDesktopCalendarPointerDrag(), isFutureVirtualRepeatPreview(task)]"
+                 v-memo="[task.status, task.priority, task.title, task.description, task.subtasks, getInlineDescriptionDraft(task), task.dueDate, task.dueTime, task.groupId, task.pinned, task.focusEstimate?.unit, task.focusEstimate?.value, task.taskId, task.sourceBlockId, (task.tags || []).join(','), task.blockId, task.repeatSeriesId, taskGroups, goalDefinitions, getTaskManagerGoalIds(task).join(','), expandedSubtasks.has(task.id), expandedDescriptions.has(task.id), shouldShowTaskCardDetails, inlineEditingDescriptionTaskId === task.id, inlineEditingDescriptionRowKey, isBatchEditMode, shouldUseNativeTaskCardDrag(), shouldEnableMobileCalendarDrag(), shouldEnableDesktopCalendarPointerDrag(), isFutureVirtualRepeatPreview(task)]"
                  :data-task-id="task.id"
                 :task="task"
                  :completed="isCompletedTaskStatus(task.status)"
@@ -841,7 +845,7 @@
                 :show-status-badge="true"
                 :draggable="shouldUseNativeTaskCardDrag()"
                 :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
-                :description-editing="inlineEditingDescriptionTaskId === task.id"
+                :description-editing="inlineEditingDescriptionTaskId === task.id && inlineEditingDescriptionRowKey === `group:${section.key}:task:${task.id}`"
                 :description-draft="getInlineDescriptionDraft(task)"
                 :show-description="shouldShowTaskCardDetails"
                 :show-badges="shouldShowTaskCardDetails"
@@ -849,7 +853,7 @@
                 :show-open-content="task.type === 'block'"
                 :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
                 :disable-context-menu="shouldEnableMobileCalendarDrag()"
-                :ref="(el) => setTaskCardRef(task.id, el)"
+                :ref="(el) => setTaskCardRef(task.id, `group:${section.key}:task:${task.id}`, el)"
                 @card-click="handleTaskCardClick"
                 @open-content="handleTaskClick"
                 @start-focus="handleTaskCardStartFocus"
@@ -880,6 +884,7 @@
              v-for="task in virtualDisplayedTasks"
              :key="task.id"
              class="task-batch-item"
+             :data-task-row-key="`task:${task.id}`"
           :class="{
             selected: isTaskBatchSelected(task.id),
             'is-batch-mode': isBatchEditMode,
@@ -903,7 +908,7 @@
           @drop="handleManualTaskDrop($event, task, null)"
         >
            <TaskCard
-             v-memo="[task.status, task.priority, task.title, task.description, task.subtasks, getInlineDescriptionDraft(task), task.dueDate, task.dueTime, task.groupId, task.pinned, task.focusEstimate?.unit, task.focusEstimate?.value, task.taskId, task.sourceBlockId, (task.tags || []).join(','), task.blockId, task.repeatSeriesId, taskGroups, goalDefinitions, getTaskManagerGoalIds(task).join(','), expandedSubtasks.has(task.id), expandedDescriptions.has(task.id), shouldShowTaskCardDetails, inlineEditingDescriptionTaskId === task.id, isBatchEditMode, shouldUseNativeTaskCardDrag(), shouldEnableMobileCalendarDrag(), shouldEnableDesktopCalendarPointerDrag(), isFutureVirtualRepeatPreview(task)]"
+             v-memo="[task.status, task.priority, task.title, task.description, task.subtasks, getInlineDescriptionDraft(task), task.dueDate, task.dueTime, task.groupId, task.pinned, task.focusEstimate?.unit, task.focusEstimate?.value, task.taskId, task.sourceBlockId, (task.tags || []).join(','), task.blockId, task.repeatSeriesId, taskGroups, goalDefinitions, getTaskManagerGoalIds(task).join(','), expandedSubtasks.has(task.id), expandedDescriptions.has(task.id), shouldShowTaskCardDetails, inlineEditingDescriptionTaskId === task.id, inlineEditingDescriptionRowKey, isBatchEditMode, shouldUseNativeTaskCardDrag(), shouldEnableMobileCalendarDrag(), shouldEnableDesktopCalendarPointerDrag(), isFutureVirtualRepeatPreview(task)]"
              :data-task-id="task.id"
             :task="task"
               :completed="isCompletedTaskStatus(task.status)"
@@ -916,7 +921,7 @@
             :show-status-badge="true"
             :draggable="shouldUseNativeTaskCardDrag()"
             :expanded="expandedSubtasks.has(task.id) || expandedDescriptions.has(task.id)"
-            :description-editing="inlineEditingDescriptionTaskId === task.id"
+            :description-editing="inlineEditingDescriptionTaskId === task.id && inlineEditingDescriptionRowKey === `task:${task.id}`"
             :description-draft="getInlineDescriptionDraft(task)"
             :show-description="shouldShowTaskCardDetails"
             :show-badges="shouldShowTaskCardDetails"
@@ -924,7 +929,7 @@
             :show-open-content="task.type === 'block'"
             :title-tooltip="isBatchEditMode ? t('taskManager.clickSelectTask') : t('taskManager.clickEditTask')"
             :disable-context-menu="shouldEnableMobileCalendarDrag()"
-            :ref="(el) => setTaskCardRef(task.id, el)"
+            :ref="(el) => setTaskCardRef(task.id, `task:${task.id}`, el)"
             @card-click="handleTaskCardClick"
             @open-content="handleTaskClick"
             @start-focus="handleTaskCardStartFocus"
@@ -1006,6 +1011,7 @@
       :goal-tasks="goalTasks"
       :task-view-options="taskScopeViewOptions"
       :hidden-task-view-ids="userSettings.kanban.hiddenViewSwitcherIds"
+      :view-switcher-order="userSettings.kanban.viewSwitcherOrder"
       :sidebar-section-options="taskScopeSidebarSectionOptions"
       :hidden-sidebar-section-ids="userSettings.sidebar.hiddenSectionIds"
       :sidebar-section-order="userSettings.sidebar.sectionOrder"
@@ -1249,6 +1255,7 @@ import {
   filterKnownTaskTagIds,
   matchesTaskTagFilter,
   removeTaskTags,
+  resolveTaskTagGroupIds,
   resolveTaskTagIds,
   toggleTaskTagSelection,
   type TaskTagBatchAction
@@ -1261,7 +1268,7 @@ import {
   setTaskGoalMembership,
   toggleTaskGoalMembership
 } from '@/utils/goalTaskMembership';
-import type { SidebarSectionId, TaskViewSwitcherId } from '@/utils/userSettings';
+import type { SidebarSectionId, TaskViewSwitcherDisplayId, TaskViewSwitcherId } from '@/utils/userSettings';
 
 interface MobileCalendarDragEventPayload {
   task: Task;
@@ -1373,7 +1380,7 @@ const isRefreshButtonSpinning = ref(false);
 const showTaskModal = ref(false);
 const showTaskScopeDialog = ref(false);
 const taskScopeDocumentsRefreshing = ref(false);
-type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
+type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'calendar-sync' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
 const taskScopeDialogInitialTab = ref<TaskScopeDialogTab>('scope');
 const taskScopeDialogElevated = ref(false);
 const taskScopePageStyle = ref<Record<string, string>>({});
@@ -1469,6 +1476,7 @@ interface KernelDiagnosticsState {
 const taskEditDraft = ref<TaskEditDraft | null>(null);
 const taskEditorActualFocus = ref({ minutes: 0, sessions: 0 });
 const inlineEditingDescriptionTaskId = ref<string | null>(null);
+const inlineEditingDescriptionRowKey = ref<string | null>(null);
 const inlineDescriptionDraftByTaskId = new Map<string, string>();
 const inlineDescriptionSavingTaskIds = new Set<string>();
 let inlineDescriptionContextSyncRaf: number | null = null;
@@ -1763,7 +1771,7 @@ const isBatchEditMode = ref(false);
 const batchSelectedTaskIds = ref<Set<string>>(new Set());
 const batchEditStatus = ref<string>('');
 const batchEditPriority = ref<string>('');
-const batchEditTagAction = ref<BatchTagActionSelection>('set-primary');
+const batchEditTagAction = ref<BatchTagActionSelection>('add');
 const batchEditGroupId = ref<string>('');
 const isBatchApplying = ref(false);
 const taskQuickDateMenu = ref<{
@@ -1888,12 +1896,11 @@ const batchEditPriorityOptions: Array<{ value: string; text: string }> = [
   { value: 'high', text: t('taskManager.priorityHigh') }
 ];
 const batchEditTagActionOptions: Array<{ value: TaskTagBatchAction; text: string }> = [
-  { value: 'set-primary', text: t('taskManager.batchSetPrimaryTag') },
   { value: 'add', text: t('taskManager.batchAddTag') },
   { value: 'remove', text: t('taskManager.batchRemoveTag') }
 ];
 const taskGroupStatusOrder = computed<Task['status'][]>(() => getTaskStatusDefinitions().map(status => status.id));
-const taskCardContextMenu = ref<{ task: Task; x: number; y: number; source?: 'view' | 'sidebar'; sourceView?: string } | null>(null);
+const taskCardContextMenu = ref<{ task: Task; x: number; y: number; rowKey?: string; source?: 'view' | 'sidebar'; sourceView?: string } | null>(null);
 const taskCardContextStatusOptions = computed(() => buildTaskStatusSelectOptions(t)
   .filter(option => option.value)
   .map(option => ({ value: String(option.value), label: option.text })));
@@ -1932,9 +1939,6 @@ const allVisibleTasksSelected = computed(() => {
 });
 const batchEditGroupOptions = computed(() => [
   { value: '', text: t('taskManager.tagNoChange') },
-  ...(batchEditTagAction.value === 'set-primary'
-    ? [{ value: TASK_GROUP_NONE_ID, text: t('taskManager.noTag') }]
-    : []),
   ...visibleTaskGroups.value.map(group => ({
     value: group.id,
     text: group.name || t('taskManager.untitledTag')
@@ -1969,15 +1973,15 @@ function isBatchPriority(value: string): value is Task['priority'] {
 }
 
 function normalizeBatchTagAction(value: unknown): TaskTagBatchAction {
-  return value === 'add' || value === 'remove' || value === 'set-primary'
+  return value === 'add' || value === 'remove' || value === 'clear'
     ? value
-    : 'set-primary';
+    : 'add';
 }
 
 function setBatchEditTagAction(value: unknown): void {
   const nextAction = normalizeBatchTagAction(value);
   batchEditTagAction.value = nextAction;
-  if (nextAction !== 'set-primary' && batchEditGroupId.value === TASK_GROUP_NONE_ID) {
+  if (nextAction === 'clear' || batchEditGroupId.value === TASK_GROUP_NONE_ID) {
     batchEditGroupId.value = '';
   }
 }
@@ -1985,7 +1989,7 @@ function setBatchEditTagAction(value: unknown): void {
 function resetBatchEditInputs(): void {
   batchEditStatus.value = '';
   batchEditPriority.value = '';
-  batchEditTagAction.value = 'set-primary';
+  batchEditTagAction.value = 'add';
   batchEditGroupId.value = '';
 }
 
@@ -2310,16 +2314,31 @@ function openTaskGroupDialog(): void {
   void openTaskScopeDialog('tags');
 }
 
-function setTaskCardRef(taskId: string, el: unknown): void {
+function setTaskCardRef(taskId: string, rowKey: string, el: unknown): void {
   setTaskRowRef(taskId, el);
   if (el && typeof el === 'object' && 'openDescriptionEditor' in el) {
-    taskCardInstances.set(taskId, el as {
+    taskCardInstances.set(rowKey, el as {
       openDescriptionEditor?: () => void;
       closeDescriptionEditor?: () => void;
     });
     return;
   }
-  taskCardInstances.delete(taskId);
+  taskCardInstances.delete(rowKey);
+}
+
+function resolveTaskCardRowKey(taskId: string, rowKey?: string | null): string {
+  if (rowKey && taskCardInstances.has(rowKey)) return rowKey;
+  const rowSuffix = `:${taskId}`;
+  for (const key of taskCardInstances.keys()) {
+    if (key === `task:${taskId}` || key.endsWith(rowSuffix)) {
+      return key;
+    }
+  }
+  return rowKey || `task:${taskId}`;
+}
+
+function getTaskCardInstance(taskId: string, rowKey?: string | null) {
+  return taskCardInstances.get(resolveTaskCardRowKey(taskId, rowKey));
 }
 
 function openTaskGroupDialogFromEditor(): void {
@@ -4772,6 +4791,19 @@ function rememberLocalTaskFieldOverride<K extends keyof Task>(
   });
 }
 
+function getLocalTaskTitleOverride(taskId: string): string | null {
+  const normalizedTaskId = normalizeTaskDateIdentityValue(taskId);
+  const override = normalizedTaskId ? localTaskFieldOverrides.get(normalizedTaskId) : undefined;
+  if (!override) {
+    return null;
+  }
+  if (override.expiresAt <= Date.now()) {
+    localTaskFieldOverrides.delete(normalizedTaskId);
+    return null;
+  }
+  return typeof override.values.title === 'string' ? override.values.title : null;
+}
+
 function applyLocalTaskFieldOverrides(task: Task): Task {
   const override = localTaskFieldOverrides.get(task.id);
   if (override && override.expiresAt <= Date.now()) {
@@ -5454,11 +5486,17 @@ const taskGroupedSections = computed<TaskGroupedSection[]>(() => {
         completedTasks.push(task);
         return;
       }
-      const rawGroupId = typeof task.groupId === 'string' ? task.groupId.trim() : '';
-      const groupId = rawGroupId && taskGroupIdSet.value.has(rawGroupId) ? rawGroupId : TASK_GROUP_NONE_ID;
-      const list = grouped.get(groupId) || [];
-      list.push(task);
-      grouped.set(groupId, list);
+      const tagIds = resolveTaskTagGroupIds(
+        task.tags,
+        task.groupId,
+        taskGroupIdSet.value,
+        TASK_GROUP_NONE_ID
+      );
+      tagIds.forEach((tagId) => {
+        const tagged = grouped.get(tagId) || [];
+        tagged.push(task);
+        grouped.set(tagId, tagged);
+      });
     });
 
     const sections: TaskGroupedSection[] = [];
@@ -5907,9 +5945,10 @@ async function hydrateVisibleTaskTitles(): Promise<void> {
       if (index === undefined) return;
       const currentTask = tasks.value[index];
       if (!currentTask) return;
-      if (currentTask.title !== updatedTask.title) {
-        currentTask.title = updatedTask.title;
-        crdtRepo.updateTaskField(currentTask.id, 'title', updatedTask.title);
+      const protectedTask = applyLocalTaskFieldOverrides(updatedTask);
+      if (currentTask.title !== protectedTask.title) {
+        currentTask.title = protectedTask.title;
+        crdtRepo.updateTaskField(currentTask.id, 'title', protectedTask.title);
       }
     });
   } catch (error) {
@@ -6061,6 +6100,7 @@ function toggleTaskCardDetailsFromMenu() {
   showTaskCardDetails.value = !showTaskCardDetails.value;
   if (!showTaskCardDetails.value && inlineEditingDescriptionTaskId.value) {
     inlineEditingDescriptionTaskId.value = null;
+    inlineEditingDescriptionRowKey.value = null;
   }
   closeTaskGroupMenu();
   nextTick(() => {
@@ -6233,6 +6273,14 @@ function getTaskCardContextTask(): Task | null {
   return taskCardContextMenu.value?.task || null;
 }
 
+function getTaskRowKeyFromEvent(event?: MouseEvent): string {
+  if (!event) return '';
+  const element = event.currentTarget instanceof Element
+    ? event.currentTarget
+    : (event.target instanceof Element ? event.target : null);
+  return element?.closest<HTMLElement>('[data-task-row-key]')?.dataset.taskRowKey || '';
+}
+
 function handleTaskCardContextMenu(task: Task, event: MouseEvent): void {
   if (isBatchEditMode.value) {
     toggleTaskBatchSelection(task.id);
@@ -6241,7 +6289,8 @@ function handleTaskCardContextMenu(task: Task, event: MouseEvent): void {
   taskCardContextMenu.value = {
     task,
     x: event.clientX,
-    y: event.clientY
+    y: event.clientY,
+    rowKey: getTaskRowKeyFromEvent(event)
   };
 }
 
@@ -6311,13 +6360,14 @@ function handleTaskCardContextEnterBatchEdit(): void {
 function handleTaskCardContextDescription(): void {
   const task = getTaskCardContextTask();
   if (!task) return;
-  taskCardInstances.get(task.id)?.openDescriptionEditor?.();
+  const rowKey = taskCardContextMenu.value?.rowKey || '';
+  getTaskCardInstance(task.id, rowKey)?.openDescriptionEditor?.();
   closeTaskCardContextMenu();
-  scheduleInlineDescriptionEdit(task);
+  scheduleInlineDescriptionEdit(task, rowKey);
 }
 
-function handleTaskCardDescriptionStart(task: Task): void {
-  scheduleInlineDescriptionEdit(task);
+function handleTaskCardDescriptionStart(task: Task, event?: MouseEvent): void {
+  scheduleInlineDescriptionEdit(task, getTaskRowKeyFromEvent(event));
 }
 
 function cancelPendingInlineDescriptionContextSync(): void {
@@ -6327,13 +6377,13 @@ function cancelPendingInlineDescriptionContextSync(): void {
   }
 }
 
-function scheduleInlineDescriptionEdit(task: Task): void {
+function scheduleInlineDescriptionEdit(task: Task, rowKey = ''): void {
   primeInlineDescriptionEdit(task);
   cancelPendingInlineDescriptionContextSync();
   requestAnimationFrame(() => {
     inlineDescriptionContextSyncRaf = requestAnimationFrame(() => {
       inlineDescriptionContextSyncRaf = null;
-      startInlineDescriptionEdit(task, true);
+      startInlineDescriptionEdit(task, true, rowKey);
     });
   });
 }
@@ -6342,6 +6392,9 @@ async function prepareTaskCardContextAction(task: Task): Promise<Task | null> {
   const targetTask = await resolveTaskEditorTargetTask(task);
   await hydrateTaskFocusEstimate(targetTask);
   if (!ensureTaskEditDraft(targetTask)) return null;
+  if (taskEditMenuTaskId.value && taskEditMenuTaskId.value !== targetTask.id) {
+    rememberActiveTaskEditorTitleOverride();
+  }
   activeTaskEditOverride.value = targetTask;
   taskEditMenuTaskId.value = targetTask.id;
   return targetTask;
@@ -6393,6 +6446,9 @@ async function handleCardSubtaskOpen(_parentTask: Task, subtask: SubTask): Promi
   const editorTask = fullTask || ({ ...subtask, blockId, type: 'block' } as Task);
   if (!ensureTaskEditDraft(editorTask)) return;
 
+  if (taskEditMenuTaskId.value && taskEditMenuTaskId.value !== editorTask.id) {
+    rememberActiveTaskEditorTitleOverride();
+  }
   activeTaskEditOverride.value = editorTask;
   taskEditMenuTaskId.value = editorTask.id;
   await openTaskEditorPopover(editorTask);
@@ -6728,6 +6784,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     documentGroups: nextDocumentGroupsPayload,
     goals: nextGoals,
     hiddenTaskViewIds,
+    viewSwitcherOrder,
     hiddenSidebarSectionIds,
     sidebarSectionOrder,
     defaultTaskCreateTarget,
@@ -6773,7 +6830,8 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     ...(shouldFinalizeInit ? { scopeInitialized: true } : {})
   });
   await updateSettings('kanban', {
-    hiddenViewSwitcherIds: hiddenTaskViewIds as TaskViewSwitcherId[]
+    hiddenViewSwitcherIds: hiddenTaskViewIds as TaskViewSwitcherId[],
+    viewSwitcherOrder: viewSwitcherOrder as TaskViewSwitcherDisplayId[]
   });
   await updateSettings('sidebar', {
     hiddenSectionIds: hiddenSidebarSectionIds as SidebarSectionId[],
@@ -7155,11 +7213,12 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
           }
         }
 
-        if (liveTitle !== null && subtask.title !== liveTitle) {
+        const effectiveTitle = getLocalTaskTitleOverride(subtask.id) ?? liveTitle;
+        if (effectiveTitle !== null && subtask.title !== effectiveTitle) {
           // The active editor DOM is authoritative. Match the kanban sync
           // path and apply it directly instead of retaining an older cached
           // title merely because it contains an inline memo.
-          subtask.title = liveTitle;
+          subtask.title = effectiveTitle;
           changed = true;
         }
       }, 'nodeId');
@@ -7202,13 +7261,14 @@ function applyImmediateLiveDomTaskPatch(blockIds: string[]): boolean {
         }
       }
 
-      if (liveTitle !== null) {
+      const effectiveTitle = getLocalTaskTitleOverride(task.id) ?? liveTitle;
+      if (effectiveTitle !== null) {
         // Use the same direct live-DOM update strategy as KanbanView.
-        if (task.title !== liveTitle) {
-          task.title = liveTitle;
-          crdtRepo.updateTaskField(task.id, 'title', liveTitle);
+        if (task.title !== effectiveTitle) {
+          task.title = effectiveTitle;
+          crdtRepo.updateTaskField(task.id, 'title', effectiveTitle);
           syncRepeatTemplateTaskLocally(task, (instance) => {
-            instance.title = liveTitle;
+            instance.title = effectiveTitle;
           });
           changed = true;
         }
@@ -7304,6 +7364,7 @@ function setupEventListeners() {
 
   const unsubscribe = eventBus.on(Events.TASK_CHANGED, (data?: TaskChangePayload) => {
     if (structureMoveInFlight.value) return;
+    rememberActiveTaskEditorTitleOverride(data?.blockIds);
     if (data?.structureChange) {
       // Structural moves alter both parent subtasks and top-level membership;
       // reconcile the complete snapshot so all TaskManager instances update.
@@ -7717,14 +7778,15 @@ async function incrementalUpdateTasks(
       if (forcedTitle) {
         newTask.title = forcedTitle;
       }
+      const protectedTask = applyLocalTaskFieldOverrides(newTask);
       const currentTask = blockIdToTaskIndex.get(blockId)?.task;
-      if (currentTask?.subtasks && newTask.subtasks) {
-        newTask.subtasks = mergeIncrementalSubtaskPresentation(currentTask.subtasks, newTask.subtasks);
-      } else if (currentTask?.subtasks && !newTask.subtasks) {
-        newTask.subtasks = currentTask.subtasks;
+      if (currentTask?.subtasks && protectedTask.subtasks) {
+        protectedTask.subtasks = mergeIncrementalSubtaskPresentation(currentTask.subtasks, protectedTask.subtasks);
+      } else if (currentTask?.subtasks && !protectedTask.subtasks) {
+        protectedTask.subtasks = currentTask.subtasks;
       }
-      crdtRepo.syncIncrementalTasks([newTask]);
-      updatedTasks.push(newTask);
+      crdtRepo.syncIncrementalTasks([protectedTask]);
+      updatedTasks.push(protectedTask);
     }
 
     await flushExternalTaskStatusAttrSync(uniqueBlockIds);
@@ -7950,29 +8012,61 @@ function cleanTaskTitleHtml(html: string): string {
   return html.replace(/\{:\s*[^}]*\}/g, '').trim();
 }
 
+function getTaskTitleFromRoot(blockId: string, root: ParentNode): string | null {
+  const currentElement = getLiveTaskElement(blockId, root);
+  if (!currentElement) return null;
+  const currentParagraph = getOwnTaskParagraph(currentElement, blockId);
+  const editable = currentParagraph?.querySelector('[contenteditable="true"]');
+  const editableTitle = cleanTaskTitleHtml(editable?.innerHTML || '');
+  if (editableTitle.length > 0) {
+    return editableTitle;
+  }
+  const liveTitle = cleanTaskTitleHtml(currentParagraph?.innerHTML || '');
+  return liveTitle.length > 0 ? liveTitle : null;
+}
+
 function getLiveTaskTitle(blockId: string): string | null {
   if (!blockId) return null;
-  const selectors = [
-    `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
-    `.protyle [data-node-id="${blockId}"]`,
-    `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
-    `[data-node-id="${blockId}"]`
-  ];
-  for (const selector of selectors) {
-    const currentElement = document.querySelector(selector);
-    if (!currentElement) continue;
-    const currentParagraph = getOwnTaskParagraph(currentElement, blockId);
-    const editable = currentParagraph?.querySelector('[contenteditable="true"]');
-    const liveTitle = cleanTaskTitleHtml(currentParagraph?.innerHTML || '');
-    const editableTitle = cleanTaskTitleHtml(editable?.innerHTML || '');
-    if (editableTitle.length > 0) {
-      return editableTitle;
-    }
-    if (liveTitle.length > 0) {
-      return liveTitle;
-    }
+  const activeBlockId = typeof activeTaskEditTask.value?.blockId === 'string'
+    ? activeTaskEditTask.value.blockId.trim()
+    : '';
+  if (activeBlockId === blockId) {
+    const editorRoot = getTaskEditorSidebarMountElement();
+    const editorTitle = editorRoot ? getTaskTitleFromRoot(blockId, editorRoot) : null;
+    if (editorTitle) return editorTitle;
   }
-  return null;
+  return getTaskTitleFromRoot(blockId, document);
+}
+
+function rememberActiveTaskEditorTitleOverride(changedBlockIds?: string[]): void {
+  const task = activeTaskEditTask.value;
+  const blockId = typeof task?.blockId === 'string' ? task.blockId.trim() : '';
+  if (!task || !blockId || (changedBlockIds && !changedBlockIds.includes(blockId))) {
+    return;
+  }
+  const editorRoot = getTaskEditorSidebarMountElement();
+  const liveTitle = editorRoot ? getTaskTitleFromRoot(blockId, editorRoot) : null;
+  if (!liveTitle) {
+    return;
+  }
+
+  const now = Date.now();
+  let touched = patchTask(tasks.value, task.id, (item) => {
+    item.title = liveTitle;
+    crdtRepo.updateTaskField(item.id, 'title', liveTitle, now);
+    rememberLocalTaskFieldOverride(item.id, 'title', liveTitle, 8000);
+  });
+  task.title = liveTitle;
+  rememberLocalTaskFieldOverride(task.id, 'title', liveTitle, 8000);
+  const repeatTouched = syncRepeatTemplateTaskLocally(task, (instance) => {
+    instance.title = liveTitle;
+    crdtRepo.updateTaskField(instance.id, 'title', liveTitle, now);
+    rememberLocalTaskFieldOverride(instance.id, 'title', liveTitle, 8000);
+  });
+  touched = touched || repeatTouched;
+  if (touched) {
+    tasks.value = [...tasks.value];
+  }
 }
 
 function hasInlineMemoTitle(title: string): boolean {
@@ -8128,10 +8222,11 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
             subtask.completed = completed;
             changed = true;
           }
-          if (title !== null && subtask.title !== title) {
+          const effectiveTitle = getLocalTaskTitleOverride(subtask.id) ?? title;
+          if (effectiveTitle !== null && subtask.title !== effectiveTitle) {
             const currentTitle = typeof subtask.title === 'string' ? subtask.title : '';
-            if (titleCameFromLiveDom || !shouldSkipMemoTitleDowngrade(currentTitle, title)) {
-              subtask.title = title;
+            if (titleCameFromLiveDom || !shouldSkipMemoTitleDowngrade(currentTitle, effectiveTitle)) {
+              subtask.title = effectiveTitle;
               changed = true;
             }
           }
@@ -8181,15 +8276,16 @@ async function fastSyncTaskFromDom(blockIds: string[]): Promise<{
           if (previousStatus !== task.status || previousCompletedAt !== task.completedAt) {
             queueExternalTaskStatusAttrSync(blockId, nextStatus, task.completedAt);
           }
-          if (title !== null) {
+          const effectiveTitle = getLocalTaskTitleOverride(task.id) ?? title;
+          if (effectiveTitle !== null) {
             const currentTitle = typeof task.title === 'string' ? task.title : '';
-            if (titleCameFromLiveDom || !shouldSkipMemoTitleDowngrade(currentTitle, title)) {
-              patchedParentTitles.set(blockId, title);
-              if (task.title !== title) {
-                task.title = title;
-                crdtRepo.updateTaskField(task.id, 'title', title);
+            if (titleCameFromLiveDom || !shouldSkipMemoTitleDowngrade(currentTitle, effectiveTitle)) {
+              patchedParentTitles.set(blockId, effectiveTitle);
+              if (task.title !== effectiveTitle) {
+                task.title = effectiveTitle;
+                crdtRepo.updateTaskField(task.id, 'title', effectiveTitle);
                 syncRepeatTemplateTaskLocally(task, (instance) => {
-                  instance.title = title;
+                  instance.title = effectiveTitle;
                 });
                 changed = true;
               }
@@ -8482,7 +8578,10 @@ async function scrollTaskEditorSidebarToBlock(
   return false;
 }
 
-function closeTaskEditorSidebar(): void {
+function closeTaskEditorSidebar(options: { captureTitle?: boolean } = {}): void {
+  if (options.captureTitle !== false) {
+    rememberActiveTaskEditorTitleOverride();
+  }
   taskEditorSidebarVisible.value = false;
   unlockTaskEditorParentScroll();
   cancelTaskEditorSidebarPositionUpdate();
@@ -8602,9 +8701,13 @@ function handleTaskEditorRepeatRuleSave(value: RepeatFrequency | RepeatRuleInput
   void quickSaveTaskRepeatRule(activeTaskEditTask.value, value);
 }
 
-function handleTaskEditorDescriptionCommit(): void {
+function handleTaskEditorDescriptionCommit(value?: string): void {
   if (!activeTaskEditTask.value || !activeTaskEditDraft.value) return;
-  void quickSaveTaskDescription(activeTaskEditTask.value, activeTaskEditDraft.value.description || '');
+  const description = typeof value === 'string'
+    ? value
+    : (activeTaskEditDraft.value.description || '');
+  activeTaskEditDraft.value.description = description;
+  void quickSaveTaskDescription(activeTaskEditTask.value, description);
   taskEditorQuickPanel.value = null;
 }
 
@@ -8662,7 +8765,7 @@ async function handleTaskEditorDelete(): Promise<void> {
       tasks.value = crdtRepo.getTasks();
       updateTaskIndex();
     }
-    closeTaskEditorSidebar();
+    closeTaskEditorSidebar({ captureTitle: false });
     if (blockId) {
       eventBus.emit(Events.TASK_DELETED, { blockId });
     } else {
@@ -8979,6 +9082,12 @@ async function openTaskEditorFromMenu(task: Task): Promise<void> {
   if (!ensureTaskEditDraft(targetTask)) {
     return;
   }
+  if (taskEditMenuTaskId.value && taskEditMenuTaskId.value !== taskId) {
+    rememberActiveTaskEditorTitleOverride();
+  }
+  activeTaskEditOverride.value = tasks.value.some(item => item.id === taskId)
+    ? null
+    : targetTask;
   taskEditMenuTaskId.value = taskId;
   await openTaskEditorPopover(targetTask);
 }
@@ -9095,7 +9204,7 @@ function primeInlineDescriptionEdit(task: Task): void {
   }
 }
 
-function startInlineDescriptionEdit(task: Task, preserveExistingDraft = false): void {
+function startInlineDescriptionEdit(task: Task, preserveExistingDraft = false, rowKey = ''): void {
   if (isBatchEditMode.value) {
     toggleTaskBatchSelection(task.id);
     return;
@@ -9104,6 +9213,7 @@ function startInlineDescriptionEdit(task: Task, preserveExistingDraft = false): 
     return;
   }
   inlineEditingDescriptionTaskId.value = task.id;
+  inlineEditingDescriptionRowKey.value = resolveTaskCardRowKey(task.id, rowKey);
   if (!preserveExistingDraft) {
     inlineDescriptionDraftByTaskId.set(task.id, task.description || '');
   } else {
@@ -9112,9 +9222,10 @@ function startInlineDescriptionEdit(task: Task, preserveExistingDraft = false): 
 }
 
 function clearInlineDescriptionEdit(taskId: string): void {
-  taskCardInstances.get(taskId)?.closeDescriptionEditor?.();
+  getTaskCardInstance(taskId, inlineEditingDescriptionRowKey.value)?.closeDescriptionEditor?.();
   if (inlineEditingDescriptionTaskId.value === taskId) {
     inlineEditingDescriptionTaskId.value = null;
+    inlineEditingDescriptionRowKey.value = null;
   }
   inlineDescriptionDraftByTaskId.delete(taskId);
 }
@@ -9498,13 +9609,7 @@ async function applyBatchEdit(): Promise<void> {
   const validGroupIds = visibleTaskGroupIdSet.value;
   let nextTagSelection: { action: TaskTagBatchAction; tagId: string } | null = null;
   if (rawGroupSelection) {
-    if (rawGroupSelection === TASK_GROUP_NONE_ID) {
-      if (nextTagAction !== 'set-primary') {
-        showMessage(t('taskManager.selectValidTag'), 2200, 'error');
-        return;
-      }
-      nextTagSelection = { action: nextTagAction, tagId: '' };
-    } else if (validGroupIds.has(rawGroupSelection)) {
+    if (validGroupIds.has(rawGroupSelection)) {
       nextTagSelection = { action: nextTagAction, tagId: rawGroupSelection };
     } else {
       showMessage(t('taskManager.selectValidTag'), 2200, 'error');

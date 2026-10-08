@@ -189,7 +189,7 @@
           :key="option.value"
           type="button"
           class="task-group-chip"
-          :class="{ active: isGroupOptionSelected(option.value), primary: isPrimaryGroupOption(option.value), special: option.special }"
+          :class="{ active: isGroupOptionSelected(option.value), special: option.special }"
           :style="{
             '--group-chip-bg': option.colorCss || 'var(--b3-list-hover)',
             '--group-chip-color': option.textColor || 'var(--b3-theme-on-surface)'
@@ -197,9 +197,6 @@
           @click="emitSelectGroup(option.value)"
         >
           <span class="task-group-chip-label">{{ option.label }}</span>
-          <span v-if="isPrimaryGroupOption(option.value)" class="task-group-chip-primary">
-            {{ t('taskManager.primaryTagShort') }}
-          </span>
         </button>
       </div>
       <div v-if="goalOptions.length > 0" class="task-editor-goal-section">
@@ -357,14 +354,13 @@
           <span>{{ t('taskManager.date') }}</span>
         </span>
         <span class="task-editor-property-value">
-          <span v-if="hasAnyDate" class="task-editor-property-pill is-date-range" :class="{ 'is-single-date': !dateRange.start || !dateRange.due }">
-            <span v-if="dateRange.start" class="task-editor-date-range-item">
-              <span class="task-editor-date-range-label">{{ t('taskManager.startDate') }}</span>
-              <span class="task-editor-date-range-value">{{ dateRange.start }}</span>
+          <span v-if="hasAnyDate" class="task-editor-property-pill is-date-range">
+            <span class="task-editor-date-range-item" :class="{ 'is-empty': !dateRange.start }">
+              <span class="task-editor-date-range-value">{{ dateRange.start || t('taskManager.addDate') }}</span>
             </span>
-            <span v-if="dateRange.due" class="task-editor-date-range-item">
-              <span class="task-editor-date-range-label">{{ t('taskManager.dueDate') }}</span>
-              <span class="task-editor-date-range-value">{{ dateRange.due }}</span>
+            <Icon class="task-editor-date-range-arrow" name="right" width="11" height="11" />
+            <span class="task-editor-date-range-item" :class="{ 'is-empty': !dateRange.due }">
+              <span class="task-editor-date-range-value">{{ dateRange.due || t('taskManager.addDate') }}</span>
             </span>
           </span>
           <span v-else class="task-editor-property-placeholder">{{ t('taskManager.notSet') }}</span>
@@ -1129,10 +1125,6 @@ function isGroupOptionSelected(value: string): boolean {
   return props.selectedTagIds.includes(value);
 }
 
-function isPrimaryGroupOption(value: string): boolean {
-  return value !== TASK_GROUP_NONE_ID && props.selectedTagIds[0] === value;
-}
-
 function isGoalOptionSelected(value: string): boolean {
   return props.selectedGoalIds.includes(value);
 }
@@ -1368,9 +1360,11 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-height: 30px;
   padding: 3px 6px;
   border: none;
   border-radius: 6px;
+  box-sizing: border-box;
   background: transparent;
   color: var(--b3-theme-on-background);
   font: inherit;
@@ -1459,36 +1453,40 @@ onUnmounted(() => {
 }
 
 .task-editor-property-pill.is-date-range {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
+  display: inline-flex;
+  gap: 6px;
   padding: 0;
-  border-radius: 0;
   background: transparent;
   text-align: left;
 }
 
-.task-editor-property-pill.is-date-range.is-single-date {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .task-editor-date-range-item {
-  display: grid;
-  gap: 6px;
+  display: inline-flex;
+  align-items: center;
   min-width: 0;
-}
-
-.task-editor-date-range-label {
-  color: var(--b3-theme-on-surface);
-  font-size: 10px;
-  line-height: 1.25;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--b3-list-hover);
+  box-sizing: border-box;
 }
 
 .task-editor-date-range-value {
   color: var(--b3-theme-on-background);
-  font-size: 14px;
-  line-height: 1.2;
+  font-size: 12px;
+  line-height: 1.25;
   white-space: nowrap;
+}
+
+.task-editor-date-range-item.is-empty .task-editor-date-range-value {
+  color: var(--b3-theme-on-surface);
+  opacity: 0.62;
+}
+
+.task-editor-date-range-arrow {
+  flex: 0 0 auto;
+  color: var(--b3-theme-on-surface);
+  opacity: 0.62;
 }
 
 .task-editor-property-pill.is-priority {

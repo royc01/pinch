@@ -381,6 +381,13 @@
                     :fallback="getDefaultDocumentIconValue()"
                   />
                 </span>
+                <span v-else-if="row.group.mode === 'goal'" class="group-row-document-icon" aria-hidden="true">
+                  <EmojiIcon
+                    class="group-row-document-emoji-icon"
+                    :value="getTaskGoalGroupIconRaw(row.group)"
+                    fallback="🎯"
+                  />
+                </span>
                 <span class="group-row-title">
                   <span class="group-row-label">{{ getGroupDisplayLabel(row.group) }}</span>
                   <span class="group-row-count">{{ getGroupItemCountLabel(row.group.tasks.length) }}</span>
@@ -414,6 +421,7 @@
           <tr
             v-else-if="row.kind === 'task'"
             class="task-row"
+            :data-task-row-key="row.key"
             :class="[
               `status-${row.task.status}`,
               `priority-${row.task.priority}`,
@@ -431,10 +439,10 @@
             :draggable="canDragTableTask(row.task)"
             :ref="(el) => setTableRowRef(row, el as HTMLTableRowElement | null)"
             @contextmenu="handleTaskRowContextMenu(row.task, $event)"
-            @dragstart="handleTableTaskDragStart($event, row.task)"
+            @dragstart="handleTableTaskDragStart($event, row.task, row.groupId)"
             @dragover="handleTableTaskDragOver($event, row.task)"
             @dragleave="handleTableTaskDragLeave($event, row.task.id)"
-            @drop="handleTableTaskDrop($event, row.task)"
+            @drop="handleTableTaskDrop($event, row.task, row.groupId)"
             @dragend="resetTableTaskDrag"
           >
             <template v-for="column in visibleTableColumns" :key="column.key">
@@ -477,19 +485,20 @@
             <td
               v-if="column.key === 'description'"
               class="col-description"
-              :class="{ 'is-editing': editingDescriptions.has(row.task.id) }"
-              @click.stop="startDescriptionEdit(row.task)"
+              :class="{ 'is-editing': isDescriptionEditingRow(row) }"
+              @click.stop="startDescriptionEdit(row.task, $event)"
             >
               <div
-                v-if="!editingDescriptions.has(row.task.id)"
+                v-if="!isDescriptionEditingRow(row)"
                 class="task-description"
                 :class="{ editable: true, empty: !row.task.description }"
                 v-html="row.task.description || '&nbsp;'"
               ></div>
               <textarea
-                v-if="editingDescriptions.has(row.task.id)"
+                v-if="isDescriptionEditingRow(row)"
                 class="task-description-edit"
                 :data-task-id="row.task.id"
+                :data-task-row-key="row.key"
                 :value="getDescriptionDraft(row.task)"
                 @input.stop="handleDescriptionInput(row.task, $event)"
                 @blur.stop="commitDescriptionEdit(row.task)"
@@ -913,6 +922,7 @@ import { formatRepeatRuleLabel } from '@/utils/repeatRuleLabel';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 import {
   areTaskTagIdsEqual,
+  resolveTaskTagGroupIds,
   resolveTaskTagIds,
   toggleTaskTagSelection
 } from '@/utils/taskTags';
@@ -960,7 +970,7 @@ interface Props {
 type TableTaskGroupSection = {
   key: string;
   id: string;
-  mode: 'group' | 'heading' | 'date' | 'document';
+  mode: 'group' | 'heading' | 'date' | 'document' | 'goal';
   label: string;
   tasks: Task[];
   style?: Record<string, string>;
@@ -978,6 +988,7 @@ type TableVirtualTaskRow = {
   key: string;
   heightKey: string;
   task: Task;
+  groupId?: string;
 };
 
 type TableVirtualSubtaskRow = {
@@ -1280,7 +1291,8 @@ const emit = defineEmits<{
   startTimeUpdate: [task: Task, startTime: string];
   dueTimeUpdate: [task: Task, dueTime: string];
   repeatRuleUpdate: [task: Task, repeat: RepeatFrequency | RepeatRuleInput];
-  taskDrop: [payload: { source: Task; target: Task; position: TaskDropPosition | 'inside' }];
+  taskDrop: [payload: { source: Task; target: Task; position: TaskDropPosition | 'inside'; sourceGroupId?: string; targetGroupId?: string }];
+  taskGroupDrop: [payload: { source: Task; sourceGroupId?: string; targetGroupId: string }];
   subtaskDrop: [event: DragEvent, target: TableSubtask, position: 'before' | 'inside' | 'after', parentTaskId: string];
   subtaskTaskDrop: [event: DragEvent, target: Task, position: 'before' | 'inside' | 'after'];
   subtaskBackgroundDrop: [event: DragEvent];
@@ -1289,6 +1301,7 @@ const emit = defineEmits<{
 
 const expandedTasks = ref<Set<string>>(new Set());
 const editingDescriptions = ref<Set<string>>(new Set());
+const editingDescriptionRowKey = ref<string | null>(null);
 const descriptionDraftByTaskId = ref(new Map<string, string>());
 const editingSubtaskDescriptions = ref<Set<string>>(new Set());
 const subtaskDescriptionDraftByKey = ref(new Map<string, string>());
@@ -1301,6 +1314,7 @@ type SortableColumn = 'title' | 'priority' | 'status' | 'frequency' | 'group' | 
 const sortColumn = ref<SortableColumn | null>(null);
 const sortDirection = ref<'asc' | 'desc'>('asc');
 const tableDraggedTaskId = ref<string | null>(null);
+const tableDraggedTaskGroupId = ref<string | undefined>(undefined);
 const tableTaskDropTarget = ref<{ taskId: string | null; position: TaskDropPosition | 'inside' | null }>({
   taskId: null,
   position: null
@@ -1926,7 +1940,7 @@ const groupPopoverOptions = computed(() => buildTaskGroupOptions(props.taskGroup
   fallback: getGroupFallbackLabel()
 }));
 const resolvedGroupMode = computed(() => normalizeTaskViewGroupMode(props.groupMode, 'status'));
-const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date', 'document'].includes(resolvedGroupMode.value));
+const isGroupedDisplayMode = computed(() => ['group', 'heading', 'date', 'document', 'goal'].includes(resolvedGroupMode.value));
 const supportsGroupActions = computed(() => ['group', 'heading'].includes(resolvedGroupMode.value));
 const documentGroupOrderIndex = computed(() => new Map(
   (props.documentGroupOrder || []).map((documentId, index) => [documentId, index])
@@ -2145,6 +2159,7 @@ function resetTableTaskDropTarget(): void {
 
 function resetTableTaskDrag(): void {
   tableDraggedTaskId.value = null;
+  tableDraggedTaskGroupId.value = undefined;
   resetTableTaskDropTarget();
 }
 
@@ -2307,12 +2322,13 @@ function isTableTaskDragBlockedTarget(target: EventTarget | null): boolean {
   return !!element?.closest('button, input, textarea, select, a, [contenteditable="true"]');
 }
 
-function handleTableTaskDragStart(event: DragEvent, task: Task): void {
+function handleTableTaskDragStart(event: DragEvent, task: Task, groupId?: string): void {
   if (!canDragTableTask(task) || isTableTaskDragBlockedTarget(event.target)) {
     event.preventDefault();
     return;
   }
   tableDraggedTaskId.value = task.id;
+  tableDraggedTaskGroupId.value = groupId;
   resetTableTaskDropTarget();
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
@@ -2375,16 +2391,27 @@ function handleTableTaskDragLeave(event: DragEvent, taskId: string): void {
   tableTaskDropTarget.value = { taskId: null, position: null };
 }
 
-function emitTableTaskDrop(event: DragEvent, target: Task, position: TaskDropPosition | 'inside'): void {
+function emitTableTaskDrop(
+  event: DragEvent,
+  target: Task,
+  position: TaskDropPosition | 'inside',
+  targetGroupId?: string
+): void {
   const source = props.tasks.find(task => task.id === tableDraggedTaskId.value);
   if (!source || !canDropTableTask(source, target)) return;
   event.preventDefault();
   event.stopPropagation();
-  emit('taskDrop', { source, target, position });
+  emit('taskDrop', {
+    source,
+    target,
+    position,
+    sourceGroupId: tableDraggedTaskGroupId.value,
+    targetGroupId
+  });
   resetTableTaskDrag();
 }
 
-function handleTableTaskDrop(event: DragEvent, target: Task): void {
+function handleTableTaskDrop(event: DragEvent, target: Task, targetGroupId?: string): void {
   if (isTableSubtaskDrag(event)) {
     const position = tableSubtaskDropTarget.value.taskId === target.id
       ? tableSubtaskDropTarget.value.position
@@ -2401,7 +2428,7 @@ function handleTableTaskDrop(event: DragEvent, target: Task): void {
   const position = tableTaskDropTarget.value.taskId === target.id
     ? tableTaskDropTarget.value.position
     : null;
-  if (position) emitTableTaskDrop(event, target, position);
+  if (position) emitTableTaskDrop(event, target, position, targetGroupId);
 }
 
 function getTableGroupDropTarget(group: TableTaskGroupSection): Task | null {
@@ -2411,7 +2438,9 @@ function getTableGroupDropTarget(group: TableTaskGroupSection): Task | null {
 }
 
 function handleTableGroupDragOver(event: DragEvent, group: TableTaskGroupSection): void {
-  if (!getTableGroupDropTarget(group)) return;
+  const source = props.tasks.find(task => task.id === tableDraggedTaskId.value);
+  const supportsEmptyGroupDrop = group.mode === 'group' || group.mode === 'goal';
+  if (!source || (!supportsEmptyGroupDrop && !getTableGroupDropTarget(group))) return;
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
   tableTaskDropTarget.value = { taskId: null, position: null };
@@ -2428,7 +2457,22 @@ function handleTableGroupDragLeave(event: DragEvent, groupKey: string): void {
 
 function handleTableGroupDrop(event: DragEvent, group: TableTaskGroupSection): void {
   const target = getTableGroupDropTarget(group);
-  if (target) emitTableTaskDrop(event, target, 'before');
+  if (target) {
+    const targetGroupId = group.mode === 'group' || group.mode === 'goal' ? group.id : undefined;
+    emitTableTaskDrop(event, target, 'before', targetGroupId);
+    return;
+  }
+  if (group.mode !== 'group' && group.mode !== 'goal') return;
+  const source = props.tasks.find(task => task.id === tableDraggedTaskId.value);
+  if (!source || tableDraggedTaskGroupId.value === group.id) return;
+  event.preventDefault();
+  event.stopPropagation();
+  emit('taskGroupDrop', {
+    source,
+    sourceGroupId: tableDraggedTaskGroupId.value,
+    targetGroupId: group.id
+  });
+  resetTableTaskDrag();
 }
 
 function getTableGroupReorderId(group: TableTaskGroupSection): string {
@@ -2556,12 +2600,12 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
   if (resolvedGroupMode.value === 'group') {
     const buckets = new Map<string, Task[]>();
     for (const task of sortedTasks.value) {
-      const rawGroupId = getTaskGroupId(task);
-      const resolvedGroupId = rawGroupId && groupLookup.value.has(rawGroupId) ? rawGroupId : '';
-      if (!buckets.has(resolvedGroupId)) {
-        buckets.set(resolvedGroupId, []);
-      }
-      buckets.get(resolvedGroupId)!.push(task);
+      const tagIds = resolveTaskTagGroupIds(task.tags, task.groupId, groupLookup.value, '');
+      tagIds.forEach((tagId) => {
+        const tagged = buckets.get(tagId) || [];
+        tagged.push(task);
+        buckets.set(tagId, tagged);
+      });
     }
 
     return customGroupOrder.value
@@ -2607,6 +2651,43 @@ const groupedTasks = computed<TableTaskGroupSection[]>(() => {
         return a.label.localeCompare(b.label, 'zh-CN');
       })
       .map(({ order: _order, ...group }) => group);
+  }
+
+  if (resolvedGroupMode.value === 'goal') {
+    const buckets = new Map<string, { label: string; tasks: Task[]; order: number }>();
+    (props.goals || []).forEach((goal, index) => {
+      const goalId = typeof goal?.id === 'string' ? goal.id.trim() : '';
+      if (!goalId) return;
+      buckets.set(`goal:${goalId}`, {
+        label: goal.name?.trim() || t('taskManager.untitledGoal'),
+        tasks: [],
+        order: index
+      });
+    });
+    buckets.set('goal:unassigned', {
+      label: t('ganttView.unassignedGoal'),
+      tasks: [],
+      order: Number.MAX_SAFE_INTEGER
+    });
+
+    for (const task of sortedTasks.value) {
+      const goalIds = resolveTaskGoalIds(task).filter(goalId => buckets.has(`goal:${goalId}`));
+      if (goalIds.length === 0) {
+        buckets.get('goal:unassigned')!.tasks.push(task);
+        continue;
+      }
+      goalIds.forEach(goalId => buckets.get(`goal:${goalId}`)!.tasks.push(task));
+    }
+
+    return Array.from(buckets.entries())
+      .sort(([, left], [, right]) => left.order - right.order)
+      .map(([key, group]) => ({
+        key,
+        id: key,
+        mode: 'goal' as const,
+        label: group.label,
+        tasks: group.tasks
+      }));
   }
 
   if (resolvedGroupMode.value === 'date') {
@@ -2741,13 +2822,15 @@ function getTaskProgressText(task: Task): string {
   return `${completed}/${total}`;
 }
 
-function buildTaskVirtualRows(task: Task): TableVirtualRow[] {
+function buildTaskVirtualRows(task: Task, keyPrefix = '', groupId?: string): TableVirtualRow[] {
+  const rowPrefix = keyPrefix ? `${keyPrefix}:` : '';
   const rows: TableVirtualRow[] = [
     {
       kind: 'task',
-      key: `task:${task.id}`,
-      heightKey: `task:${task.id}`,
-      task
+      key: `${rowPrefix}task:${task.id}`,
+      heightKey: `${rowPrefix}task:${task.id}`,
+      task,
+      groupId
     }
   ];
   const visibleSubtasks = getVisibleSubtasks(task);
@@ -2763,8 +2846,8 @@ function buildTaskVirtualRows(task: Task): TableVirtualRow[] {
         const isLast = index === subtasks.length - 1;
         rows.push({
           kind: 'subtask',
-          key: `subtask:${task.id}:${path}`,
-          heightKey: `subtask:${task.id}:${path}`,
+          key: `${rowPrefix}subtask:${task.id}:${path}`,
+          heightKey: `${rowPrefix}subtask:${task.id}:${path}`,
           task,
           subtask,
           depth,
@@ -2806,7 +2889,8 @@ const tableRows = computed<TableVirtualRow[]>(() => {
       continue;
     }
     for (const task of group.tasks) {
-      rows.push(...buildTaskVirtualRows(task));
+      const dragGroupId = group.mode === 'group' || group.mode === 'goal' ? group.id : undefined;
+      rows.push(...buildTaskVirtualRows(task, `group:${group.key}`, dragGroupId));
     }
   }
   return rows;
@@ -3904,6 +3988,14 @@ function getTaskDocumentGroupIconRaw(group: TableTaskGroupSection): string {
   return firstTask ? getTaskDocumentIconRaw(firstTask) : '';
 }
 
+function getTaskGoalGroupIconRaw(group: TableTaskGroupSection): string {
+  if (group.mode !== 'goal') {
+    return '';
+  }
+  const goalId = group.key.startsWith('goal:') ? group.key.slice('goal:'.length) : '';
+  return goalLookup.value.get(goalId)?.emoji || '🎯';
+}
+
 function getTaskDocumentTitleText(task: Task): string {
   const rawPath = typeof task.hPath === 'string' ? task.hPath.trim() : '';
   if (!rawPath) {
@@ -4140,7 +4232,12 @@ function getDescriptionDraft(task: Task): string {
   return task.description || '';
 }
 
-function startDescriptionEdit(task: Task) {
+function isDescriptionEditingRow(row: TableVirtualTaskRow): boolean {
+  return editingDescriptions.value.has(row.task.id)
+    && editingDescriptionRowKey.value === row.key;
+}
+
+function startDescriptionEdit(task: Task, event?: MouseEvent) {
   if (editingDescriptions.value.has(task.id)) {
     return;
   }
@@ -4153,15 +4250,23 @@ function startDescriptionEdit(task: Task) {
     } else {
       editingDescriptions.value.delete(activeEditingId);
       descriptionDraftByTaskId.value.delete(activeEditingId);
+      editingDescriptionRowKey.value = null;
     }
   }
 
+  const rowElement = event?.currentTarget instanceof Element
+    ? event.currentTarget.closest<HTMLElement>('[data-task-row-key]')
+    : null;
+  const rowKey = rowElement?.dataset.taskRowKey || `task:${task.id}`;
   editingDescriptions.value.clear();
   editingDescriptions.value.add(task.id);
+  editingDescriptionRowKey.value = rowKey;
   descriptionDraftByTaskId.value.set(task.id, task.description || '');
 
   nextTick(() => {
-    const textarea = document.querySelector(`.task-description-edit[data-task-id="${task.id}"]`) as HTMLTextAreaElement | null;
+    const textarea = document.querySelector(
+      `.task-description-edit[data-task-id="${task.id}"][data-task-row-key="${rowKey}"]`
+    ) as HTMLTextAreaElement | null;
     if (textarea) {
       textarea.focus();
       const length = textarea.value.length;
@@ -4182,6 +4287,7 @@ function commitDescriptionEdit(task: Task) {
 
   const draft = descriptionDraftByTaskId.value.get(task.id) || '';
   editingDescriptions.value.delete(task.id);
+  editingDescriptionRowKey.value = null;
   descriptionDraftByTaskId.value.delete(task.id);
 
   if (draft === (task.description || '')) {
@@ -4196,6 +4302,7 @@ function cancelDescriptionEdit(taskId: string) {
     return;
   }
   editingDescriptions.value.delete(taskId);
+  editingDescriptionRowKey.value = null;
   descriptionDraftByTaskId.value.delete(taskId);
 }
 

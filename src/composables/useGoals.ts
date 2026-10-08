@@ -62,7 +62,9 @@ export const useGoals = () => {
 
     try {
       const goalsPromise = loadGoals();
-      const tasksPromise = TaskRepository.getBlockTasks(taskUseCache, undefined, { useLiveDom: false });
+      // Keep completed archive records for the goal workbench's weekly review.
+      // Progress and next-action selectors independently exclude archived tasks.
+      const tasksPromise = TaskRepository.getBlockTasks(taskUseCache, { includeArchived: true }, { useLiveDom: false });
       // Keep a rejection observed while goal definitions are resolved first.
       // We still await it below so task-scan failures follow the normal error path.
       void tasksPromise.catch(() => undefined);
@@ -120,7 +122,7 @@ export const useGoals = () => {
     const { taskUseCache = false } = options;
     let tasks: Task[] = [];
     try {
-      tasks = await TaskRepository.getBlockTasks(taskUseCache, undefined, { useLiveDom: false });
+      tasks = await TaskRepository.getBlockTasks(taskUseCache, { includeArchived: true }, { useLiveDom: false });
     } catch (error) {
       console.error('[Goals] refreshGoalDocuments: task refresh failed', error);
     }

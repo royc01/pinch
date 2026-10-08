@@ -86,6 +86,7 @@
             :title="lifelogTimelineDayTitle"
             :subtitle="lifelogTimelineSubtitle"
             :items="lifelogTimelineItems"
+            :enable-time-editing="true"
             :empty-text="t('moodTracker.noRecords')"
             :close-label="t('common.close')"
             :delete-label="t('common.delete')"
@@ -111,6 +112,7 @@
             @clear-draft="clearLifelogTimelineDraft"
             @delete-item="deleteLifelogTimelineItem"
             @update-item="updateLifelogTimelineItem"
+            @update-time="updateLifelogTimelineTime"
             @update-annotation="updateLifelogTimelineAnnotation"
             @toggle-star="toggleLifelogTimelineStar"
             @open-source="openLifelogTimelineSource"
@@ -164,6 +166,8 @@ import {
   getFocusTimerData,
   loadTaskGroups,
   removeMoodEntry,
+  updateFocusSessionRecordTimestamp,
+  upsertHabit,
   upsertMoodEntry,
   TaskRepository,
   openBlockById,
@@ -204,6 +208,7 @@ import {
   summarizeTaskCompletedLifelogEventsByDay
 } from '@/utils/lifelogEvents';
 import { resolveTaskTagIds } from '@/utils/taskTags';
+import { updateRepeatInstanceCompletedAt } from '@/repeatRepository';
 
 interface MoodStatItem {
   type: string;
@@ -725,6 +730,9 @@ function focusEventToTimelineItem(event: FocusLifelogEvent): LifelogTimelinePane
     id: `focus-${event.id}`,
     sourceId: event.id,
     type: event.type,
+    timeValue: event.endTime,
+    timeEditable: true,
+    timeSourceId: event.id,
     timeLabel: `${event.startTime} - ${event.endTime}`,
     sortMinutes,
     title: event.title,
@@ -776,6 +784,10 @@ function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimel
     id: `habit-${event.id}`,
     sourceId: event.id,
     type: event.type,
+    timeValue: formatSortMinutes(sortMinutes),
+    timeEditable: true,
+    timeSourceId: event.habitId,
+    timeEventId: event.id,
     timeLabel: formatSortMinutes(sortMinutes),
     sortMinutes,
     title: event.title,
@@ -783,7 +795,14 @@ function habitEventToTimelineItem(event: HabitCheckinLifelogEvent): LifelogTimel
     note: event.note || '',
     icon: 'squareCheck'
   }, event.date, getCheckinNoteEventKeys(event));
-  return { ...item, annotationContext: context, starred: item.annotationStarred, favoritable: Boolean(item.annotation), openable: true };
+  return {
+    ...item,
+    annotationContext: context,
+    openContext: context,
+    starred: item.annotationStarred,
+    favoritable: Boolean(item.annotation),
+    openable: true
+  };
 }
 
 function getTaskCompletedSourceTask(event: TaskCompletedLifelogEvent): Task | null {
@@ -849,6 +868,10 @@ function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimel
     id: `task-${event.id}`,
     sourceId: event.taskId,
     type: event.type,
+    timeValue: formatTimestamp(event.completedAt, event.date),
+    timeEditable: true,
+    timeSourceId: event.taskId,
+    timeEventId: event.id,
     timeLabel: formatTimestamp(event.completedAt, event.date),
     sortMinutes,
     title: event.title,
@@ -860,16 +883,28 @@ function taskEventToTimelineItem(event: TaskCompletedLifelogEvent): LifelogTimel
       ...getTaskCompletedGoalBadges(event)
     ]
   }, event.date, getCheckinNoteEventKeys(event));
-  return { ...item, annotationContext: context, starred: item.annotationStarred, favoritable: Boolean(item.annotation), openable: true };
+  return {
+    ...item,
+    annotationContext: context,
+    openContext: context,
+    starred: item.annotationStarred,
+    favoritable: Boolean(item.annotation),
+    openable: true
+  };
 }
 
 function manualNoteEventToTimelineItem(event: ManualNoteLifelogEvent): LifelogTimelinePanelItem {
   const sortMinutes = timeToSortMinutes(event.createdAt || event.updatedAt, 21 * 60);
+  const timeValue = formatTimestamp(event.createdAt || event.updatedAt, '00:00');
   return {
     id: `manual-${event.id}`,
     sourceId: event.id,
     type: event.type,
+    timeSourceId: event.id,
+    date: event.date,
     timeLabel: formatTimestamp(event.createdAt || event.updatedAt, event.date),
+    timeValue,
+    timeEditable: true,
     sortMinutes,
     title: t('monthView.lifelogManualNote'),
     meta: t('monthView.lifelogManualNote'),
@@ -900,7 +935,21 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
   const sharedSnapshot = sharedLifelogTimelineSnapshot.value;
   if (sharedSnapshot?.date === dayKey) {
     return sharedSnapshot.items.map(item => {
-      if (!item.annotationKey) return item;
+      const withEditableTime = (target: LifelogTimelinePanelItem): LifelogTimelinePanelItem => (
+        ['manual-note', 'focus', 'habit-checkin', 'task-completed'].includes(target.type)
+          ? {
+            ...target,
+            date: target.date || dayKey,
+            timeEditable: true,
+            timeValue: target.timeValue || target.timeLabel.match(/\b(\d{1,2}:\d{2})\b/)?.[1],
+            timeSourceId: target.timeSourceId || target.sourceId,
+            timeEventId: target.timeEventId || target.id
+          }
+          : target
+      );
+      if (!item.annotationKey) {
+        return withEditableTime(item);
+      }
       const hydrated = hydrateCheckinNoteTimelineTarget(
         item,
         item.annotationDate || dayKey,
@@ -908,13 +957,13 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
       );
       const record = recordViewItems.value.find(candidate => candidate.eventKeys.includes(item.annotationKey || ''));
       const context = record ? getRecordCheckinContext(record) : undefined;
-      return {
+      return withEditableTime({
         ...hydrated,
         annotationContext: context,
         starred: hydrated.annotationStarred,
         favoritable: Boolean(hydrated.annotation),
         openable: Boolean(context)
-      };
+      });
     });
   }
 
@@ -1078,7 +1127,7 @@ async function persistMoodRecords(nextMoodData: MoodData): Promise<void> {
 
 async function openCheckinNoteSource(context: CheckinNoteContext): Promise<void> {
   if (context.type === 'task') {
-    await openBlockById(context.sourceId, { focus: true });
+    await openBlockById(context.sourceId);
     return;
   }
   if (context.type === 'habit') {
@@ -1213,6 +1262,120 @@ async function updateLifelogTimelineItem(item: LifelogTimelinePanelItem, text: s
     await persistMoodRecords(nextMoodData);
   } catch (error) {
     console.error('[MoodCalendarPanel] Failed to update manual lifelog entry', error);
+  }
+}
+
+async function updateLifelogTimelineTime(item: LifelogTimelinePanelItem, time: string): Promise<void> {
+  if (!/^\d{2}:\d{2}$/.test(time)) return;
+  const [hours, minutes] = time.split(':').map(Number);
+  if (hours > 23 || minutes > 59) return;
+
+  const date = item.date || selectedLifelogDate.value;
+  const timestampDate = new Date(`${date}T${time}:00`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(timestampDate.getTime())) return;
+  const timestamp = timestampDate.getTime();
+
+  if (item.type === 'focus') {
+    const sessionId = item.timeSourceId || item.sourceId;
+    if (!sessionId) return;
+    try {
+      const updated = await updateFocusSessionRecordTimestamp(sessionId, timestamp);
+      if (updated) {
+        focusSessionRecords.value = focusSessionRecords.value.map(record => (
+          record.id === sessionId
+            ? { ...record, date, timestamp }
+            : record
+        ));
+        sharedLifelogTimelineSnapshot.value = null;
+        window.dispatchEvent(new CustomEvent('pinch-focus-session'));
+      }
+    } catch (error) {
+      console.error('[MoodCalendarPanel] Failed to update focus lifelog time', error);
+    }
+    return;
+  }
+
+  if (item.type === 'habit-checkin') {
+    const eventId = item.timeEventId || item.id.replace(/^habit-/, '');
+    const lifelogEvent = habitCheckinLifelogEvents.value.find(event => event.id === eventId);
+    const habitId = item.timeSourceId || lifelogEvent?.habitId;
+    const habit = props.habits?.find(candidate => candidate.id === habitId);
+    if (!habit || !lifelogEvent) return;
+    const nextCalendar = habit.calendar.map(day => {
+      if (day.date !== lifelogEvent.date) return day;
+      const nextDay = { ...day };
+      if (lifelogEvent.checkinIndex && Array.isArray(nextDay.checkinTimestamps)) {
+        const timestamps = [...nextDay.checkinTimestamps];
+        timestamps[lifelogEvent.checkinIndex - 1] = timestamp;
+        nextDay.checkinTimestamps = timestamps;
+        nextDay.timestamp = timestamps[0] || timestamp;
+      } else {
+        nextDay.timestamp = timestamp;
+      }
+      return nextDay;
+    });
+    try {
+      const persisted = await upsertHabit({ ...habit, calendar: nextCalendar });
+      sharedLifelogTimelineSnapshot.value = null;
+      eventBus.emit(Events.HABITS_UPDATED, { source: 'mood-calendar', habits: persisted });
+    } catch (error) {
+      console.error('[MoodCalendarPanel] Failed to update habit lifelog time', error);
+    }
+    return;
+  }
+
+  if (item.type === 'task-completed') {
+    const taskId = item.timeSourceId || item.sourceId;
+    const lifelogEvent = taskCompletedLifelogEvents.value.find(event => (
+      event.id === (item.timeEventId || item.id).replace(/^task-/, '')
+    )) || taskCompletedLifelogEvents.value.find(event => event.taskId === taskId);
+    const task = lifelogEvent ? getTaskCompletedSourceTask(lifelogEvent) : null;
+    if (!task || !lifelogEvent) return;
+    try {
+      const completedAt = timestampDate.toISOString();
+      if (task.repeatSeriesId && task.repeatInstanceDate) {
+        const updated = await updateRepeatInstanceCompletedAt(task.repeatSeriesId, task.repeatInstanceDate, completedAt);
+        if (!updated) return;
+      } else {
+        await TaskRepository.updateTask(task.id, { completedAt });
+      }
+      const updatedTask = { ...task, completedAt };
+      lifelogTasks.value = lifelogTasks.value.map(candidate => candidate.id === task.id ? updatedTask : candidate);
+      sharedLifelogTasks.value = sharedLifelogTasks.value.map(candidate => candidate.id === task.id ? { ...updatedTask } : candidate);
+      sharedLifelogTimelineSnapshot.value = null;
+      eventBus.emit(Events.TASK_UPDATED, { blockId: task.blockId, taskId: task.id });
+      await refreshLifelogTasks(true);
+    } catch (error) {
+      console.error('[MoodCalendarPanel] Failed to update task lifelog time', error);
+    }
+    return;
+  }
+
+  if (item.type !== 'manual-note' || !item.sourceId) return;
+
+  const now = new Date().toISOString();
+  let changed = false;
+  const nextMoodData: MoodData = {};
+  for (const [date, entry] of Object.entries(props.moodData)) {
+    const entries = Array.isArray(entry.entries)
+      ? entry.entries.map(entryItem => {
+        if (entryItem.id !== item.sourceId) return entryItem;
+        changed = true;
+        const nextDate = new Date(`${date}T${time}:00`);
+        if (Number.isNaN(nextDate.getTime())) return entryItem;
+        const nextTimestamp = nextDate.toISOString();
+        return { ...entryItem, createdAt: nextTimestamp, updatedAt: now };
+      })
+      : [];
+    const nextEntry = { ...entry, ...(entries.length > 0 ? { entries } : { entries: undefined }) };
+    if (nextEntry.emoji || nextEntry.note || entries.length > 0) nextMoodData[date] = nextEntry;
+  }
+  if (!changed) return;
+  try {
+    sharedLifelogTimelineSnapshot.value = null;
+    await persistMoodRecords(nextMoodData);
+  } catch (error) {
+    console.error('[MoodCalendarPanel] Failed to update manual lifelog time', error);
   }
 }
 

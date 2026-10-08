@@ -152,6 +152,40 @@ describe('UserSettingsManager', () => {
     });
   });
 
+  it('normalizes task view switcher visibility and order', () => {
+    const storage = {
+      getItem: vi.fn().mockReturnValue(JSON.stringify({
+        kanban: {
+          hiddenViewSwitcherIds: ['calendar', 'table', 'unknown'],
+          viewSwitcherOrder: ['stats', 'table', 'stats', 'unknown']
+        }
+      })),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+    const manager = new UserSettingsManager();
+
+    expect(manager.loadLocalSnapshot()?.kanban).toMatchObject({
+      hiddenViewSwitcherIds: ['table', 'month', 'week', 'three-day', 'day'],
+      viewSwitcherOrder: ['stats', 'table', 'kanban', 'list', 'quadrant', 'gantt', 'calendar', 'archive-table']
+    });
+  });
+
+  it('normalizes the remembered custom focus duration', () => {
+    const storage = {
+      getItem: vi.fn().mockReturnValue(JSON.stringify({
+        focus: { customFocusDurationMinutes: 900 }
+      })),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+    const manager = new UserSettingsManager();
+
+    expect(manager.loadLocalSnapshot()?.focus.customFocusDurationMinutes).toBe(720);
+  });
+
   it('does not let stale plugin storage overwrite the local snapshot', async () => {
     const storage = {
       getItem: vi.fn().mockReturnValue(JSON.stringify({ kanban: { kanbanFilterSource: 'notebook:local' } })),

@@ -311,7 +311,7 @@ const emit = defineEmits<{
   startFocus: [task: Task];
   toggleExpand: [task: Task];
   toggleStatus: [task: Task, event?: MouseEvent];
-  descriptionStartEdit: [task: Task];
+  descriptionStartEdit: [task: Task, event?: MouseEvent];
   descriptionInput: [taskId: string, event: Event];
   descriptionSave: [task: Task];
   descriptionCancel: [taskId: string];
@@ -330,6 +330,7 @@ const task = computed(() => props.task);
 const showOpenContent = computed(() => props.showOpenContent === true);
 const { actualFocus } = useTaskFocusProgress(task);
 const isCompleted = computed(() => props.completed ?? task.value.status === 'completed');
+const isCancelled = computed(() => task.value.status === 'cancelled');
 const disableStatusToggle = computed(() => props.disableStatusToggle === true);
 const isExpanded = computed(() => !!props.expanded);
 const isDragging = computed(() => !!props.dragging);
@@ -418,7 +419,7 @@ const todayTimestamp = computed(() => {
   return today.getTime();
 });
 const overdueDays = computed(() => {
-  if (isCompleted.value) return 0;
+  if (isCompleted.value || isCancelled.value) return 0;
   const dueTimestamp = dueDateTimestamp.value;
   if (dueTimestamp === null) return 0;
   return Math.max(0, Math.floor((todayTimestamp.value - dueTimestamp) / MILLISECONDS_PER_DAY));
@@ -430,7 +431,7 @@ const overdueDaysText = computed(() => {
   return formatTemplate('personalStats.overdueDaysTemplate', { days: overdueDays.value });
 });
 const remainingDays = computed(() => {
-  if (isCompleted.value) return null;
+  if (isCompleted.value || isCancelled.value) return null;
   const dueTimestamp = dueDateTimestamp.value;
   if (dueTimestamp === null) return null;
   const days = Math.floor((dueTimestamp - todayTimestamp.value) / MILLISECONDS_PER_DAY);
@@ -460,8 +461,14 @@ const startBadgeText = computed(() => {
   }
   return startDateText.value;
 });
-const badgeDateText = computed(() => showStartDate.value ? startDateText.value : dueDateText.value);
+const badgeDateText = computed(() => {
+  if (isCancelled.value) return '';
+  return showStartDate.value ? startDateText.value : dueDateText.value;
+});
 const dueBadgeText = computed(() => {
+  if (isCancelled.value) {
+    return '';
+  }
   if (showStartDate.value) {
     return startBadgeText.value;
   }
@@ -480,6 +487,9 @@ const dueBadgeText = computed(() => {
   return dueText.value;
 });
 const dueBadgeTitle = computed(() => {
+  if (isCancelled.value) {
+    return '';
+  }
   if (showStartDate.value) {
     return startDateText.value
       ? formatTemplate('taskCard.startDateTitleTemplate', { startText: startDateText.value })
@@ -819,9 +829,9 @@ function handleToggleStatus(event: MouseEvent) {
   emit('toggleStatus', task.value, event);
 }
 
-function handleDescriptionStart() {
+function handleDescriptionStart(event?: MouseEvent) {
   openDescriptionEditor();
-  emit('descriptionStartEdit', task.value);
+  emit('descriptionStartEdit', task.value, event);
 }
 
 function openDescriptionEditor(): void {

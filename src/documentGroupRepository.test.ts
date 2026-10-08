@@ -36,6 +36,30 @@ describe('document group persistence safety', () => {
     await expect(loadDocumentGroups()).rejects.toThrow('read failed');
   });
 
+  it('treats an unloaded instance as cancellation and permits a later healthy load', async () => {
+    plugin.loadData.mockRejectedValueOnce({ code: 410, msg: 'Plugin lifecycle has ended', data: null });
+    const repository = await import('./documentGroupRepository');
+    await expect(repository.loadDocumentGroups()).resolves.toEqual([]);
+    expect(console.error).not.toHaveBeenCalled();
+    plugin.loadData.mockResolvedValue(storedGroups());
+    await expect(repository.loadDocumentGroups()).resolves.toHaveLength(1);
+    await expect(repository.saveDocumentGroups(storedGroups().groups)).resolves.toBeUndefined();
+  });
+
+  it('preserves the last good groups on cancellation and keeps strict reads fail closed', async () => {
+    const repository = await import('./documentGroupRepository');
+    plugin.loadData.mockResolvedValueOnce(storedGroups());
+    await repository.loadDocumentGroups();
+    const ended = { code: 410, msg: 'Plugin lifecycle has ended', data: null };
+    plugin.loadData.mockRejectedValueOnce(ended);
+    await expect(repository.loadDocumentGroups()).resolves.toMatchObject([{ id: 'group-1' }]);
+    plugin.loadData.mockRejectedValueOnce(ended);
+    await expect(repository.loadDocumentGroupsStrict()).rejects.toBe(ended);
+    expect(console.error).not.toHaveBeenCalled();
+    plugin.loadData.mockResolvedValue(storedGroups());
+    await expect(repository.saveDocumentGroups(storedGroups().groups)).resolves.toBeUndefined();
+  });
+
   it('returns the last good snapshot but blocks mutation after a read failure', async () => {
     const repository = await import('./documentGroupRepository');
     plugin.loadData.mockResolvedValueOnce(storedGroups());

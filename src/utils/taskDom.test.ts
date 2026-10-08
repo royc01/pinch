@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getLiveTaskElement,
   parseTaskCompletedFromElement,
   parseTaskMarkerFromElement,
   parseTaskStatusFromElement
@@ -24,5 +25,18 @@ describe('native Siyuan task markers', () => {
     expect(parseTaskCompletedFromElement(abandoned)).toBe(false);
     expect(parseTaskStatusFromElement(done)).toBe('completed');
     expect(parseTaskCompletedFromElement(done)).toBe(true);
+  });
+
+  it('limits live task lookup to the preferred editor root', () => {
+    const staleRoot = document.createElement('div');
+    staleRoot.className = 'protyle';
+    staleRoot.innerHTML = '<div data-node-id="task-1">Old title</div>';
+    document.body.appendChild(staleRoot);
+
+    const editorRoot = document.createElement('div');
+    editorRoot.innerHTML = '<div class="protyle"><div data-node-id="task-1">New title</div></div>';
+
+    expect(getLiveTaskElement('task-1', editorRoot)?.textContent).toBe('New title');
+    staleRoot.remove();
   });
 });

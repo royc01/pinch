@@ -292,6 +292,10 @@
         </div>
       </div>
 
+      <div v-else-if="activeTab === 'calendar-sync'" class="task-scope-content calendar-sync-tab-content">
+        <CalendarSyncSettingsPanel />
+      </div>
+
       <div v-else-if="activeTab === 'pomodoro-settings'" class="task-scope-content pomodoro-settings-tab-content">
         <div class="task-scope-display-section">
           <div class="task-scope-display-title">{{ t('focusTimer.microBreak') }}</div>
@@ -458,18 +462,38 @@
         <div class="task-scope-display-section view-switcher-section">
           <div class="task-scope-display-title">{{ t('taskScopeDialog.viewSwitcherOptions') }}</div>
           <div class="task-scope-display-grid">
-            <label
-              v-for="option in taskViewOptions"
+            <div
+              v-for="(option, index) in orderedTaskViewOptions"
               :key="option.id"
-              class="task-scope-display-item"
+              class="task-scope-display-item sortable"
             >
               <span class="task-scope-name">{{ option.label }}</span>
-              <SySwitch
-                class="task-scope-toggle"
-                :model-value="isTaskViewVisible(option.id)"
-                @update:model-value="toggleTaskViewVisible(option.id, $event)"
-              />
-            </label>
+              <div class="task-scope-display-controls">
+                <button
+                  type="button"
+                  class="task-scope-order-btn up ariaLabel"
+                  :aria-label="t('taskScopeDialog.moveUp')"
+                  :disabled="index === 0"
+                  @click="moveTaskView(option.id, -1)"
+                >
+                  <Icon name="arrowDown" width="14" height="14" class="icon" />
+                </button>
+                <button
+                  type="button"
+                  class="task-scope-order-btn ariaLabel"
+                  :aria-label="t('taskScopeDialog.moveDown')"
+                  :disabled="index === orderedTaskViewOptions.length - 1"
+                  @click="moveTaskView(option.id, 1)"
+                >
+                  <Icon name="arrowDown" width="14" height="14" class="icon" />
+                </button>
+                <SySwitch
+                  class="task-scope-toggle"
+                  :model-value="isTaskViewVisible(option.id)"
+                  @update:model-value="toggleTaskViewVisible(option.id, $event)"
+                />
+              </div>
+            </div>
           </div>
         </div>
         <div class="task-scope-display-section">
@@ -565,6 +589,7 @@ import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor 
 import { putFile, readDir, removeFile } from '@/api';
 import { getCustomFocusAudioUrl } from '@/utils/completionSound';
 import { loadFiletreeDocumentTree, type FiletreeDocumentTreeDocument } from '@/utils/filetreeDocumentTree';
+import CalendarSyncSettingsPanel from '@/components/CalendarSyncSettingsPanel.vue';
 
 interface NotebookItem {
   id: string;
@@ -591,6 +616,7 @@ export interface TaskScopeDialogSavePayload {
   documentGroups: DocumentGroup[];
   goals: Goal[];
   hiddenTaskViewIds: string[];
+  viewSwitcherOrder: string[];
   hiddenSidebarSectionIds: string[];
   sidebarSectionOrder: string[];
   defaultTaskCreateTarget: string;
@@ -634,6 +660,7 @@ interface Props {
   goalTasks?: Task[];
   taskViewOptions?: TaskScopeDisplayOption[];
   hiddenTaskViewIds?: string[];
+  viewSwitcherOrder?: string[];
   sidebarSectionOptions?: TaskScopeDisplayOption[];
   hiddenSidebarSectionIds?: string[];
   sidebarSectionOrder?: string[];
@@ -652,7 +679,7 @@ interface Props {
 
 const props = defineProps<Props>();
 const { t } = useI18n();
-type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
+type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'calendar-sync' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
 type SettingsTabId = Exclude<TaskScopeDialogTab, 'home'>;
 type SettingsNavItemId = SettingsTabId | 'reward-shop';
 
@@ -678,6 +705,7 @@ const localDocumentGroups = ref<DocumentGroup[]>([]);
 const localTaskGroups = ref<TaskGroup[]>([]);
 const localGoals = ref<Goal[]>([]);
 const localHiddenTaskViewIds = ref<string[]>([]);
+const localViewSwitcherOrder = ref<string[]>([]);
 const localHiddenSidebarSectionIds = ref<string[]>([]);
 const localSidebarSectionOrder = ref<string[]>([]);
 const localDefaultTaskCreateTarget = ref('last');
@@ -760,6 +788,12 @@ const hasGoalTab = computed(() =>
 );
 const hasTagTab = computed(() => Array.isArray(props.taskGroups));
 const taskViewOptions = computed(() => props.taskViewOptions || []);
+const orderedTaskViewOptions = computed(() => {
+  const optionsById = new Map(taskViewOptions.value.map(option => [option.id, option]));
+  return normalizeOptionIds(localViewSwitcherOrder.value, taskViewOptions.value)
+    .map(id => optionsById.get(id))
+    .filter((option): option is TaskScopeDisplayOption => Boolean(option));
+});
 const taskViewOptionIds = computed(() =>
   Array.from(new Set(taskViewOptions.value.flatMap(option => option.hiddenIds?.length ? option.hiddenIds : [option.id])))
 );
@@ -774,6 +808,7 @@ const availableTabs = computed<SettingsTabId[]>(() => {
     tabs.push('display');
   }
   tabs.push('task-settings');
+  tabs.push('calendar-sync');
   tabs.push('pomodoro-settings');
   if (hasGoalTab.value) {
     tabs.push('goals');
@@ -792,13 +827,15 @@ const availableTabs = computed<SettingsTabId[]>(() => {
 const settingsNavItems = computed(() => {
   const tabItems = availableTabs.value.map(id => ({
   id,
-   iconSize: ['display', 'scope', 'task-settings'].includes(id) ? 18 : 22,
+   iconSize: ['display', 'scope', 'task-settings'].includes(id) ? 18 : id === 'calendar-sync' ? 20 : 22,
   icon: id === 'display'
     ? 'displayNav'
     : id === 'scope'
       ? 'scopeNav'
       : id === 'task-settings'
         ? 'taskSettingsNav'
+      : id === 'calendar-sync'
+        ? 'calendarSyncNav'
       : id === 'pomodoro-settings'
       ? 'focusNav'
       : id === 'goals'
@@ -810,8 +847,10 @@ const settingsNavItems = computed(() => {
         : '',
   label: id === 'display'
     ? t('taskScopeDialog.displaySettings')
-    : id === 'task-settings'
-      ? t('taskScopeDialog.taskSettings')
+      : id === 'task-settings'
+        ? t('taskScopeDialog.taskSettings')
+      : id === 'calendar-sync'
+        ? t('calendarSync.title')
       : id === 'pomodoro-settings'
         ? t('taskScopeDialog.pomodoroSettings')
         : id === 'goals'
@@ -852,8 +891,10 @@ const goalTasks = computed(() => props.goalTasks || []);
 const activeHint = computed(() =>
   activeTab.value === 'scope'
     ? dialogHint.value
-    : activeTab.value === 'task-settings'
-      ? t('taskScopeDialog.taskSettingsHint')
+     : activeTab.value === 'task-settings'
+       ? t('taskScopeDialog.taskSettingsHint')
+      : activeTab.value === 'calendar-sync'
+        ? t('calendarSync.hint')
       : activeTab.value === 'pomodoro-settings'
         ? t('taskScopeDialog.pomodoroSettingsHint')
        : activeTab.value === 'document-groups'
@@ -1074,6 +1115,7 @@ function syncLocalSelection(resetActiveTab = false): void {
   localGoals.value = cloneGoals(props.goals || []);
   localHiddenTaskViewIds.value = normalizeOptionIds(props.hiddenTaskViewIds || [], taskViewOptionIds.value.map(id => ({ id, label: id })))
     .filter(id => (props.hiddenTaskViewIds || []).includes(id));
+  localViewSwitcherOrder.value = normalizeOptionIds(props.viewSwitcherOrder || [], taskViewOptions.value);
   localHiddenSidebarSectionIds.value = normalizeOptionIds(props.hiddenSidebarSectionIds || [], sidebarSectionOptions.value)
     .filter(id => (props.hiddenSidebarSectionIds || []).includes(id));
   localSidebarSectionOrder.value = normalizeOptionIds(props.sidebarSectionOrder || [], sidebarSectionOptions.value);
@@ -1351,6 +1393,15 @@ function toggleTaskViewVisible(id: string, visible: boolean): void {
   localHiddenTaskViewIds.value = Array.from(current);
 }
 
+function moveTaskView(id: string, direction: -1 | 1): void {
+  const order = normalizeOptionIds(localViewSwitcherOrder.value, taskViewOptions.value);
+  const index = order.indexOf(id);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+  [order[index], order[nextIndex]] = [order[nextIndex], order[index]];
+  localViewSwitcherOrder.value = order;
+}
+
 function isSidebarSectionVisible(id: string): boolean {
   return !localHiddenSidebarSectionIds.value.includes(id);
 }
@@ -1411,6 +1462,7 @@ function save(): void {
     goals: cloneGoals(localGoals.value),
     hiddenTaskViewIds: normalizeOptionIds(localHiddenTaskViewIds.value, taskViewOptionIds.value.map(id => ({ id, label: id })))
       .filter(id => localHiddenTaskViewIds.value.includes(id)),
+    viewSwitcherOrder: normalizeOptionIds(localViewSwitcherOrder.value, taskViewOptions.value),
     hiddenSidebarSectionIds: normalizeOptionIds(localHiddenSidebarSectionIds.value, sidebarSectionOptions.value)
       .filter(id => localHiddenSidebarSectionIds.value.includes(id)),
     sidebarSectionOrder: normalizeOptionIds(localSidebarSectionOrder.value, sidebarSectionOptions.value),
@@ -1465,6 +1517,7 @@ watch(
     () => props.taskGroups,
     () => props.taskViewOptions,
     () => props.hiddenTaskViewIds,
+    () => props.viewSwitcherOrder,
     () => props.sidebarSectionOptions,
     () => props.hiddenSidebarSectionIds,
     () => props.sidebarSectionOrder,
@@ -1519,7 +1572,7 @@ watch([
   localExcludedNotebookIds, localShowCompletedTasks, localAutoRecognizeTaskDate,
   localTaskCompletionSoundEnabled, localStartKeywordsText, localDueKeywordsText,
   localRangeKeywordsText, localAfternoonKeywordsText, localShowDocumentGroupNotebookPath,
-  localDocumentGroups, localGoals, localTaskStatuses, localHiddenTaskViewIds, localHiddenSidebarSectionIds,
+  localDocumentGroups, localGoals, localTaskStatuses, localHiddenTaskViewIds, localViewSwitcherOrder, localHiddenSidebarSectionIds,
   localSidebarSectionOrder, localDefaultTaskCreateTarget, localDefaultTaskCreateNotebook,
   localDefaultTaskCreateDocument, localMicroBreakEnabled, localMicroBreakPopup,
   localMicroBreakSystemNotification, localMicroBreakSound, localMicroBreakMinIntervalMinutes,
@@ -1978,6 +2031,26 @@ watch([
 .task-settings-tab-content {
   gap: 12px;
   padding: 8px 14px 12px;
+  overflow-y: auto;
+}
+
+.calendar-sync-tab-content {
+  gap: 12px;
+  padding: 8px 14px 12px;
+  overflow-y: auto;
+}
+
+/* Give calendar settings their own scrolling surface. The sticky tabs then
+ * remain the clipping edge while the active panel scrolls underneath them. */
+.task-scope-dialog:not(.is-sidebar-presentation) .calendar-sync-tab-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.task-scope-dialog:not(.is-sidebar-presentation) .calendar-sync-tab-content > :deep(.calendar-sync-settings) {
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 

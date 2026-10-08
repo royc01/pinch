@@ -1,6 +1,6 @@
 import { usePlugin } from '@/main';
 import { enqueueStorageMutation } from '@/storageMutationCoordinator';
-import { isMissingPluginStorageValue } from '@/utils/pluginStorage';
+import { isMissingPluginStorageValue, isPluginLifecycleEndedError } from '@/utils/pluginStorage';
 
 export interface DocumentGroupMember {
   documentId: string;
@@ -284,6 +284,9 @@ export async function loadDocumentGroups(): Promise<DocumentGroup[]> {
     documentGroupsReadFailure = null;
     return cloneDocumentGroups(groups);
   } catch (error) {
+    if (isPluginLifecycleEndedError(error)) {
+      return documentGroupsCache ? cloneDocumentGroups(documentGroupsCache) : [];
+    }
     const normalizedError = markDocumentGroupReadFailure(error);
     console.error('[DocumentGroups] loadDocumentGroups: failed to read data', error);
     if (documentGroupsCache) {
@@ -300,6 +303,7 @@ export async function loadDocumentGroupsStrict(): Promise<DocumentGroup[]> {
     documentGroupsReadFailure = null;
     return cloneDocumentGroups(groups);
   } catch (error) {
+    if (isPluginLifecycleEndedError(error)) throw error;
     markDocumentGroupReadFailure(error);
     console.error('[DocumentGroups] loadDocumentGroupsStrict: failed to read data', error);
     throw error;

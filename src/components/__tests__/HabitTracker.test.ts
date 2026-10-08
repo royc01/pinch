@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import HabitTracker from '../HabitTracker.vue';
 import { getHabits, upsertHabit } from '@/api';
+import { eventBus, Events } from '@/utils/eventBus';
 
 vi.mock('@/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api')>();
@@ -204,7 +205,22 @@ describe('HabitTracker', () => {
     ]);
 
     const wrapper = await mountHabitTracker();
+    const emitSpy = vi.spyOn(eventBus, 'emit');
     await wrapper.find('.habit-toggle').trigger('click');
+
+    expect(emitSpy).toHaveBeenCalledWith(
+      Events.HABITS_UPDATED,
+      expect.objectContaining({
+        source: 'habit-tracker',
+        habits: [
+          expect.objectContaining({
+            id: '1',
+            calendar: [expect.objectContaining({ completedCount: 1 })]
+          })
+        ]
+      })
+    );
+
     await flushPromises();
 
     expect(upsertHabit).toHaveBeenCalledWith(

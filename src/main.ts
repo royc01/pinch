@@ -24,6 +24,7 @@ import {
   type TaskViewSwitchRequest
 } from '@/utils/eventBus';
 import { destroyDetachedFocusWindow } from '@/utils/detachedFocusWindow';
+import { startCalendarSync, stopCalendarSync } from '@/calendarSync';
 
 // Ensure the data directory exists.
 import { ensureDataDir } from '@/utils';
@@ -992,6 +993,7 @@ export function init(pluginInstance: Plugin) {
   registerTaskQuickMetaInputTrigger();
   startMobileBreadcrumbButtonObserver();
   startTaskReminderScheduler();
+  startCalendarSync();
 
   // Ensure the data directory exists.
   ensureDataDir('/data/storage/petal/Pinch-habit');
@@ -1067,6 +1069,7 @@ export function init(pluginInstance: Plugin) {
 
 export function destroy() {
   stopTaskReminderScheduler();
+  stopCalendarSync();
   stopMobileBreadcrumbButtonObserver();
   unregisterTaskBlockIconMenu();
   unregisterTaskQuickMetaInputTrigger();

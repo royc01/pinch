@@ -37,13 +37,13 @@ describe('shared task attribute changes', () => {
 
     expect(globalTasks.value[0]).toMatchObject({
       priority: 'high',
-      tags: ['tag-b', 'tag-a'],
-      groupId: 'tag-b'
+      tags: ['tag-a', 'tag-b'],
+      groupId: 'tag-a'
     });
     expect(sidebarTasks.value[0]).toMatchObject({
       priority: 'high',
-      tags: ['tag-b', 'tag-a'],
-      groupId: 'tag-b'
+      tags: ['tag-a', 'tag-b'],
+      groupId: 'tag-a'
     });
 
     applyTaskAttributeChanges('block-1', {

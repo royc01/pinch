@@ -575,7 +575,7 @@ async function handleReminderNotificationClick(
   }
 
   try {
-    await openBlockById(reminder.blockId, { focus: true });
+    await openBlockById(reminder.blockId);
   } catch {
   }
 }

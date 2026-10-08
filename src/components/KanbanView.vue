@@ -761,6 +761,7 @@
         v-for="column in kanbanColumns" 
         :key="column.id" 
         class="kanban-column"
+        :data-column-id="column.id"
         :class="[
           column.type === 'status' ? `status-${column.status}` : '',
           column.type === 'group' ? 'group-column' : '',
@@ -916,6 +917,7 @@
                 :key="task.id"
                 class="kanban-batch-item"
                 :data-task-id="task.id"
+                :data-task-row-key="`${column.id}:${task.id}`"
                 :class="{
                   selected: isKanbanTaskBatchSelected(task.id),
                   'is-batch-mode': isKanbanBatchEditMode,
@@ -944,7 +946,7 @@
                   :draggable="canDragTaskInCurrentBoard(task, isKanbanBatchEditMode)"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
                   :expanded="isKanbanTaskExpanded(task.id)"
-                  :description-editing="inlineEditingDescriptionTaskId === task.id"
+                  :description-editing="inlineEditingDescriptionTaskId === task.id && inlineEditingDescriptionRowKey === `${column.id}:${task.id}`"
                   :description-draft="getInlineDescriptionDraft(task)"
                   :show-description="showKanbanTaskCardDetails"
                   :show-badges="showKanbanTaskCardDetails"
@@ -1101,6 +1103,7 @@
             v-for="section in column.sections"
             :key="section.id"
             class="kanban-list-section"
+            :data-column-id="section.column.id"
             :class="[
               section.column.type === 'status' ? `status-${section.column.status}` : '',
               section.column.type === 'group' ? 'group-column' : '',
@@ -1168,9 +1171,10 @@
               <div
                 v-for="task in getVisibleTasksForListSection(section)"
                 :key="task.id"
-                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, (task.tags || []).join(','), task.focusEstimate?.unit, task.focusEstimate?.value, task.isVirtual, task.taskId, task.blockId, task.sourceBlockId, task.repeatSeriesId, goalDefinitions, getKanbanTaskCardGoalIds(task).join(','), getTaskDocumentTitle(task), getTaskDocumentIcon(task), getTaskDocumentIconSvg(task, listFilterDocument), shouldShowBoardTaskDocumentTitle(task, listFilterDocument), activeBoardGroupBy, isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, !!(draggedTask && draggedTask.id === task.id), viewManualTaskDrag.targetId === task.id, viewManualTaskDrag.position]"
+                v-memo="[task.status, task.priority, task.title, task.pinned, task.dueDate, task.dueTime, task.groupId, (task.tags || []).join(','), task.focusEstimate?.unit, task.focusEstimate?.value, task.isVirtual, task.taskId, task.blockId, task.sourceBlockId, task.repeatSeriesId, goalDefinitions, getKanbanTaskCardGoalIds(task).join(','), getTaskDocumentTitle(task), getTaskDocumentIcon(task), getTaskDocumentIconSvg(task, listFilterDocument), shouldShowBoardTaskDocumentTitle(task, listFilterDocument), activeBoardGroupBy, isKanbanTaskExpanded(task.id), showKanbanTaskCardDetails, inlineEditingDescriptionTaskId === task.id, inlineEditingDescriptionRowKey, !!(draggedTask && draggedTask.id === task.id), viewManualTaskDrag.targetId === task.id, viewManualTaskDrag.position]"
                 class="kanban-list-task-item"
                 :data-task-id="task.id"
+                :data-task-row-key="`${section.id}:${task.id}`"
                 :class="{
                   'manual-task-drop-before': isViewManualTaskDropTarget(task.id, 'before'),
                   'manual-task-drop-after': isViewManualTaskDropTarget(task.id, 'after'),
@@ -1197,7 +1201,7 @@
                   :draggable="canDragTaskInCurrentBoard(task)"
                   :dragging="!!(draggedTask && draggedTask.id === task.id)"
                   :expanded="isKanbanTaskExpanded(task.id)"
-                  :description-editing="inlineEditingDescriptionTaskId === task.id"
+                  :description-editing="inlineEditingDescriptionTaskId === task.id && inlineEditingDescriptionRowKey === `${section.id}:${task.id}`"
                   :description-draft="getInlineDescriptionDraft(task)"
                   :show-description="showKanbanTaskCardDetails"
                   :show-badges="showKanbanTaskCardDetails"
@@ -1282,6 +1286,7 @@
       @due-time-update="handleDueTimeUpdate"
        @repeat-rule-update="handleTableRepeatRuleUpdate"
        @task-drop="handleTableTaskDrop"
+       @task-group-drop="handleTableTaskGroupDrop"
        @subtask-drop="handleSubtaskDrop"
        @subtask-task-drop="handleTableSubtaskTaskDrop"
        @subtask-background-drop="handleTableSubtaskBackgroundDrop"
@@ -1311,12 +1316,14 @@
       @goal-due-date-changed="handleGanttGoalDueDateChanged"
       @document-order-change="handleGanttDocumentOrderChange"
     />
-    <MonthView 
-      ref="calendarMonthViewRef"
-      v-if="currentView === 'month'" 
+     <KeepAlive>
+     <MonthView
+       ref="calendarMonthViewRef"
+       v-if="currentView === 'month'"
        :tasks="showCalendarTasks && calendarTaskDataReady ? monthViewTasks : []"
        :sidebar-tasks="showCalendarTasks && calendarTaskDataReady ? monthSidebarTasks : []"
-      :sidebar-collapsed="calendarSidebarCollapsed"
+       :sidebar-collapsed="calendarSidebarCollapsed"
+       :week-starts-on-sunday="weekStartsOnSunday"
       :notebooks="notebooks"
       :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? monthLifelogTasks : []"
@@ -1339,14 +1346,16 @@
       @visible-range-change="handleMonthVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
+      @week-start-change="handleCalendarWeekStartChange"
       @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
     />
-    <WeekView
-      ref="calendarWeekViewRef"
-      v-if="isWeekBasedCalendarView"
+     <WeekView
+       ref="calendarWeekViewRef"
+       v-else-if="isWeekBasedCalendarView"
       :tasks="showCalendarTasks && calendarTaskDataReady ? activeWeekViewTasks : []"
       :sidebar-tasks="showCalendarTasks && calendarTaskDataReady ? activeWeekSidebarTasks : []"
       :sidebar-collapsed="calendarSidebarCollapsed"
+      :week-starts-on-sunday="weekStartsOnSunday"
       :notebooks="notebooks"
       :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="showCalendarTaskLifelog ? activeWeekLifelogTasks : []"
@@ -1371,17 +1380,26 @@
       @visible-range-change="handleWeekVisibleRangeChange"
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
-      @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
-    />
+      @week-start-change="handleCalendarWeekStartChange"
+       @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
+     />
+     </KeepAlive>
     <PersonalStatsView
       v-if="currentView === 'stats'"
       :tasks="statsViewTasks"
       :task-groups="taskGroups"
       :goal-items="goalItems"
+      :goal-tasks="goalTasks"
+      :goal-tasks-loading="goalsLoading"
       :source-label="statsViewSourceLabel"
       :document-label="statsViewDocumentLabel"
+      :complete-task="handleStatsTaskComplete"
+      :reschedule-task="handleStatsTaskReschedule"
+      :undo-complete-task="handleStatsTaskUndoComplete"
       @drilldown="handleStatsDrilldown"
       @open-detail="handleStatsDetailOpen"
+      @edit-task="openKanbanEditor"
+      @create-goal-task="handleStatsGoalTaskCreate"
     />
 
     <Teleport to="body">
@@ -1571,6 +1589,8 @@
         :show-urgent="!!activeKanbanEditTask"
         :urgent-active="activeKanbanEditTask?.urgent === true"
         :show-open-content="!!activeKanbanEditTask"
+        :task-path="activeKanbanEditTask?.hPath || ''"
+        :task-notebook-name="activeKanbanEditTask?.notebookId ? (enabledNotebookNameById.get(activeKanbanEditTask.notebookId) || activeKanbanEditTask.notebookId) : ''"
         @panel-mousedown="handleKanbanEditorPanelMouseDown"
         @pin="handleKanbanEditorPinToggle"
         @move="openKanbanTaskMoveDialog"
@@ -1719,7 +1739,8 @@
             ref="calendarDockEditorPanelRef"
             mode="dock"
             :title="t('taskManager.editTask')"
-            :task="activeKanbanEditTask"
+             :task="activeKanbanEditTask"
+             :task-notebook-name="activeKanbanEditTask?.notebookId ? (enabledNotebookNameById.get(activeKanbanEditTask.notebookId) || activeKanbanEditTask.notebookId) : ''"
             :panel="kanbanEditorQuickPanel"
             :panel-style="calendarDockEditorPanelStyle"
             :show-pin="!!activeKanbanEditTask"
@@ -1892,6 +1913,7 @@
       :goal-tasks="tasks"
       :task-view-options="taskScopeViewOptions"
       :hidden-task-view-ids="userSettings.kanban.hiddenViewSwitcherIds"
+      :view-switcher-order="userSettings.kanban.viewSwitcherOrder"
       :sidebar-section-options="taskScopeSidebarSectionOptions"
       :hidden-sidebar-section-ids="userSettings.sidebar.hiddenSectionIds"
       :sidebar-section-order="userSettings.sidebar.sectionOrder"
@@ -2119,10 +2141,11 @@ import GanttView from '@/components/GanttView.vue';
 import MonthView from '@/components/MonthView.vue';
 import WeekView from '@/components/WeekView.vue';
 import PersonalStatsView from '@/components/PersonalStatsView.vue';
+import { completePersonalStatsTask, reschedulePersonalStatsTask, resolvePersonalStatsActionTask, undoPersonalStatsTaskCompletion } from '@/utils/personalStatsTaskActions';
 import TaskManager from '@/components/TaskManager.vue';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
 import TaskScopeDialog, { type TaskScopeDialogSavePayload, type TaskScopeDisplayOption } from '@/components/TaskScopeDialog.vue';
-import { taskViewSwitcherDisplayOptions } from '@/utils/taskViewSwitcher';
+import { TASK_VIEW_SWITCHER_DISPLAY_IDS, taskViewSwitcherDisplayOptions } from '@/utils/taskViewSwitcher';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
 import { useGoals } from '@/composables/useGoals';
 import { getPinchDockElement, openHabitTrackerFocusTimer, openHabitTrackerPanel, openPinchDockView, usePlugin } from '@/main';
@@ -2168,9 +2191,10 @@ import {
   buildTaskTagState,
   filterKnownTaskTagIds,
   matchesTaskTagFilter,
+  moveTaskTagBetweenGroups,
   removeTaskTags,
+  resolveTaskTagGroupIds,
   resolveTaskTagIds,
-  setPrimaryTaskTag,
   toggleTaskTagSelection,
   type TaskTagBatchAction
 } from '@/utils/taskTags';
@@ -2178,10 +2202,19 @@ import {
   getEffectiveGoalIdsForTask,
   getGoalIdsForTask,
   isTaskDirectGoalMember,
+  isTaskExcludedFromGoal,
+  moveTaskGoalBetweenGroups,
   setTaskGoalMembership,
   toggleTaskGoalMembership
 } from '@/utils/goalTaskMembership';
-import type { SidebarSectionId, TaskViewSwitcherId } from '@/utils/userSettings';
+import type { SidebarSectionId, TaskViewSwitcherDisplayId, TaskViewSwitcherId } from '@/utils/userSettings';
+import {
+  buildCalendarLifelogFetchOptions,
+  buildTaskFetchOptionsForLoadMode,
+  isTaskLoadModeSatisfied,
+  resolveTaskLoadModeForView,
+  type TaskLoadMode
+} from '@/utils/taskViewLoadMode';
 import {
   applyManualTaskOrderWithinGroups,
   getDefaultTaskManualOrderGroupKey,
@@ -2208,6 +2241,7 @@ const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const {
   goalDefinitions,
   goalDocuments,
+  goalTasks,
   goalItems,
   goalsLoading,
   loadGoalsData,
@@ -2242,6 +2276,7 @@ try {
 const loading = ref(false);
 const calendarLifelogTasks = ref<Task[]>([]);
 let calendarLifelogLoadRequestId = 0;
+let calendarLifelogLoadedWindow: TaskRepeatWindow | null = null;
 const showTaskScopeDialog = ref(false);
 const taskScopeDocumentsRefreshing = ref(false);
 type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
@@ -2256,17 +2291,18 @@ const kanbanGroupModeOptions = [
   { value: 'date', text: t('taskManager.groupByDate') },
   { value: 'document', text: t('taskManager.groupByDocument') },
   { value: 'group', text: t('taskManager.groupByTag') },
-  { value: 'heading', text: t('taskManager.groupByHeading') }
+  { value: 'heading', text: t('taskManager.groupByHeading') },
+  { value: 'goal', text: t('taskManager.groupByGoal') }
 ] as const;
 const tableGroupModeOptions = [
   { value: 'status', text: t('taskManager.groupByNone') },
   { value: 'date', text: t('taskManager.groupByDate') },
   { value: 'document', text: t('taskManager.groupByDocument') },
   { value: 'group', text: t('taskManager.groupByTag') },
-  { value: 'heading', text: t('taskManager.groupByHeading') }
+  { value: 'heading', text: t('taskManager.groupByHeading') },
+  { value: 'goal', text: t('taskManager.groupByGoal') }
 ] as const;
 type TaskViewMode = TaskViewSwitcherId;
-type TaskLoadMode = 'full' | 'light-with-repeats' | 'light-base';
 type CalendarTaskViewMode = Extract<TaskViewMode, 'month' | 'week' | 'three-day' | 'day'>;
 type GanttGroupMode = 'goal' | 'document' | 'none';
 type StatsDrilldownPayload = {
@@ -2361,7 +2397,27 @@ const taskViewSortOptions: Array<{ value: TaskSortField; text: string }> = [
 ];
 const viewSwitcherOptions = computed(() => {
   const hidden = new Set(userSettings.kanban.hiddenViewSwitcherIds || []);
-  const visible = baseViewSwitcherOptions.filter(option => !hidden.has(option.value));
+  // Older settings may have persisted the grouped calendar ID. Treat it as
+  // hiding all of the calendar's internal views for backwards compatibility.
+  if (hidden.has('calendar' as TaskViewMode)) {
+    ['month', 'week', 'three-day', 'day'].forEach(view => hidden.add(view as TaskViewMode));
+  }
+  const baseByValue = new Map(baseViewSwitcherOptions.map(option => [option.value, option]));
+  const storedOrder = userSettings.kanban.viewSwitcherOrder || [];
+  const orderedDisplayIds = [
+    ...storedOrder,
+    ...TASK_VIEW_SWITCHER_DISPLAY_IDS.filter(id => !storedOrder.includes(id))
+  ];
+  const ordered = orderedDisplayIds.flatMap(id => {
+    if (id === 'calendar') {
+      return ['month', 'week', 'three-day', 'day']
+        .map(view => baseByValue.get(view as TaskViewMode))
+        .filter((option): option is ViewSwitcherOption => Boolean(option));
+    }
+    const option = baseByValue.get(id as TaskViewMode);
+    return option ? [option] : [];
+  });
+  const visible = ordered.filter(option => !hidden.has(option.value));
   return visible.length > 0 ? visible : baseViewSwitcherOptions;
 });
 const calendarViewOrder: CalendarTaskViewMode[] = ['month', 'week', 'three-day', 'day'];
@@ -2574,12 +2630,13 @@ function selectPrimaryView(option: PrimaryViewSwitcherOption): void {
 }
 
 function handleCalendarViewChange(view: CalendarTaskViewMode): void {
-  if (viewSwitcherOptions.value.some(option => option.value === view)) {
-    lastCalendarView.value = view;
-    prepareForTaskViewChange(view);
-    if (currentView.value !== view) {
-      currentView.value = view;
-    }
+  if (!isCalendarTaskViewMode(view)) {
+    return;
+  }
+  lastCalendarView.value = view;
+  prepareForTaskViewChange(view);
+  if (currentView.value !== view) {
+    currentView.value = view;
   }
 }
 
@@ -2659,37 +2716,6 @@ function isTaskLoadWindowSatisfied(
   return doesTaskRepeatWindowCover(available, requested);
 }
 
-function resolveTaskLoadModeForView(view: TaskViewMode): TaskLoadMode {
-  if (view === 'stats') {
-    return 'light-base';
-  }
-  if (view === 'month' || view === 'week' || view === 'day' || view === 'three-day') {
-    return 'light-with-repeats';
-  }
-  return 'full';
-}
-
-function getTaskLoadModeRank(mode: TaskLoadMode): number {
-  switch (mode) {
-    case 'full':
-      return 2;
-    case 'light-with-repeats':
-      return 1;
-    default:
-      return 0;
-  }
-}
-
-function isTaskLoadModeSatisfied(
-  available: TaskLoadMode | null,
-  requested: TaskLoadMode
-): boolean {
-  if (!available) {
-    return false;
-  }
-  return getTaskLoadModeRank(available) >= getTaskLoadModeRank(requested);
-}
-
 function shouldPrefillWithLightTasks(mode: TaskLoadMode): boolean {
   return mode === 'full';
 }
@@ -2742,41 +2768,6 @@ function expandRepeatWindowForCalendarLoad(
   return buildTaskRepeatWindow(addDays(start, -bufferDays), addDays(end, bufferDays));
 }
 
-function buildTaskFetchOptionsForLoadMode(mode: TaskLoadMode, repeatWindow: TaskRepeatWindow | null = null) {
-  if (mode === 'light-base') {
-    return {
-      useLiveDom: false,
-      detailLevel: 'light' as const,
-      materializeRepeats: false
-    };
-  }
-  if (mode === 'light-with-repeats') {
-    return {
-      useLiveDom: false,
-      detailLevel: 'light' as const,
-      repeatWindow: repeatWindow ?? undefined,
-      constrainBaseTasksToRepeatWindow: true
-    };
-  }
-  return {
-    useLiveDom: false,
-    detailLevel: 'full' as const,
-    repeatWindow: repeatWindow ?? undefined,
-    includeRepeatTemplateDate: true
-  };
-}
-
-function mergeTasksById(primaryTasks: Task[], secondaryTasks: Task[]): Task[] {
-  const merged = new Map<string, Task>();
-  for (const task of secondaryTasks) {
-    merged.set(task.id, task);
-  }
-  for (const task of primaryTasks) {
-    merged.set(task.id, task);
-  }
-  return Array.from(merged.values());
-}
-
 function hasTaskCompletionRecord(task: Task): boolean {
   return isCompletedTaskStatus(task.status)
     || (typeof task.completedAt === 'string' && task.completedAt.trim().length > 0);
@@ -2789,16 +2780,16 @@ function matchesCalendarLifelogTask(
 ): boolean {
   if (!isTaskIncludedByNotebookScope(task)) return false;
   if (task.type !== 'block') return false;
-  if (task.isVirtual === true) return false;
   if (!hasTaskCompletionRecord(task)) return false;
   return matchesTaskBySourceAndDocument(task, sourceValue, documentId);
 }
 
 async function ensureCalendarLifelogTasksLoaded(forceRefresh: boolean = false): Promise<void> {
-  // Month/week/day share the same completed-task source. Once populated,
-  // switching among them is a presentation-only change; task events and the
-  // explicit refresh paths below still request a fresh snapshot.
-  if (!forceRefresh && calendarLifelogTasks.value.length > 0) {
+  const repeatWindow = resolveRequestedRepeatWindowForView(currentView.value);
+  if (!repeatWindow) return;
+  // Completion dates can differ from occurrence dates. Reload repeat records
+  // when navigating so the log includes instances completed in this window.
+  if (!forceRefresh && areTaskRepeatWindowsEqual(calendarLifelogLoadedWindow, repeatWindow)) {
     return;
   }
   const requestId = ++calendarLifelogLoadRequestId;
@@ -2806,23 +2797,13 @@ async function ensureCalendarLifelogTasksLoaded(forceRefresh: boolean = false): 
     const allTasks = await TaskRepository.getAllTasks(
       !forceRefresh,
       { includeArchived: true },
-      {
-        useLiveDom: false,
-        detailLevel: 'light',
-        materializeRepeats: false
-      }
+      buildCalendarLifelogFetchOptions(repeatWindow)
     );
     if (requestId !== calendarLifelogLoadRequestId) {
       return;
     }
-    if (
-      !forceRefresh
-      && calendarLifelogTasks.value.length > 0
-      && allTasks.length < calendarLifelogTasks.value.length
-    ) {
-      return;
-    }
     calendarLifelogTasks.value = filterTasksByNotebookScope(allTasks);
+    calendarLifelogLoadedWindow = { ...repeatWindow };
   } catch (error) {
     console.warn('[KanbanView] Failed to load calendar lifelog tasks:', error);
   }
@@ -2929,7 +2910,7 @@ const kanbanBatchMenuSubmenu = ref<'status' | 'priority' | null>(null);
 const kanbanBatchTagSubmenuAction = ref<TaskTagBatchAction | null>(null);
 const kanbanBatchEditStatus = ref<string>('');
 const kanbanBatchEditPriority = ref<string>('');
-const kanbanBatchEditTagAction = ref<BatchTagActionSelection>('set-primary');
+const kanbanBatchEditTagAction = ref<BatchTagActionSelection>('add');
 const kanbanBatchEditGroupId = ref<string>('');
 const isKanbanBatchApplying = ref(false);
 const kanbanBatchLassoBox = ref<{ active: boolean; left: number; top: number; width: number; height: number }>({
@@ -2991,6 +2972,7 @@ const showCalendarTaskLifelog = ref(false);
 const showCalendarHabitLifelog = ref(false);
 const showCalendarFocusLifelog = ref(false);
 const showCalendarRecordsLifelog = ref(false);
+const weekStartsOnSunday = ref(false);
 const savedCalendarDisplaySettings = loadCalendarDisplaySettings();
 if (savedCalendarDisplaySettings) {
   showCalendarTasks.value = savedCalendarDisplaySettings.showTasks;
@@ -2999,6 +2981,7 @@ if (savedCalendarDisplaySettings) {
   showCalendarHabitLifelog.value = savedCalendarDisplaySettings.showHabitLifelog;
   showCalendarFocusLifelog.value = savedCalendarDisplaySettings.showFocusLifelog;
   showCalendarRecordsLifelog.value = savedCalendarDisplaySettings.showRecordsLifelog;
+  weekStartsOnSunday.value = savedCalendarDisplaySettings.weekStartsOnSunday;
 }
 const calendarLifelogDisplayOptions = computed(() => [
   { key: 'task', label: 'kanbanView.showCalendarTaskLifelog', visible: showCalendarTaskLifelog.value, toggle: toggleCalendarTaskLifelogVisible },
@@ -3011,7 +2994,7 @@ const calendarSidebarDisplayOptions = computed(() => [
   { key: 'habits', label: 'kanbanView.showCalendarHabits', enabled: showCalendarHabits.value },
   ...calendarLifelogDisplayOptions.value.map(option => ({ key: option.key, label: option.label, enabled: option.visible }))
 ]);
-watch([showCalendarTasks, showCalendarHabits, showCalendarTaskLifelog, showCalendarHabitLifelog, showCalendarFocusLifelog, showCalendarRecordsLifelog], saveCalendarDisplaySettings);
+watch([showCalendarTasks, showCalendarHabits, showCalendarTaskLifelog, showCalendarHabitLifelog, showCalendarFocusLifelog, showCalendarRecordsLifelog, weekStartsOnSunday], saveCalendarDisplaySettings);
 const collapsedKanbanListSectionIds = ref<Set<string>>(new Set());
 const hiddenDocumentTabIds = ref(new Set<string>());
 const mobileViewSwitcherVisible = ref(false);
@@ -3127,6 +3110,8 @@ const pendingOptimisticQuickCreatedTasks = new Map<string, { task: Task; expires
 const PENDING_OPTIMISTIC_QUICK_CREATE_TTL_MS = 8000;
 type HierarchyTaskDropPosition = TaskDropPosition | 'inside';
 const draggedTask = ref<Task | null>(null);
+const draggedTaskSourceTagId = ref('');
+const draggedTaskSourceGoalId = ref('');
 const detachedSubtaskDrag = ref<{ sourceId: string; parentTaskId: string } | null>(null);
 const detachedDropTarget = ref<{ taskId: string | null; position: HierarchyTaskDropPosition | 'end' | null }>({ taskId: null, position: null });
 const dragOverColumnId = ref<string | null>(null);
@@ -3244,6 +3229,7 @@ function handleCalendarVisibleRangeChange(view: CalendarTaskViewMode, repeatWind
   if (currentView.value !== view) {
     return;
   }
+  void ensureCalendarLifelogTasksLoaded();
   void ensureTasksLoadedForView(view, {
     silent: true,
     validateSelection: false
@@ -3305,6 +3291,7 @@ const taskCompletionSoundEnabled = computed(() => userSettings.taskManager.taskC
 const showDocumentGroupNotebookPath = computed(() => userSettings.taskManager.showDocumentGroupNotebookPath !== false);
 const kanbanSubtaskHydratingIds = new Set<string>();
 const inlineEditingDescriptionTaskId = ref<string | null>(null);
+const inlineEditingDescriptionRowKey = ref<string | null>(null);
 const inlineDescriptionDraftByTaskId = ref(new Map<string, string>());
 const inlineDescriptionSavingTaskIds = new Set<string>();
 const kanbanEditorVisible = ref(false);
@@ -3366,6 +3353,7 @@ const kanbanEditorDraft = ref<{
   groupId: string;
   priority: Task['priority'];
 } | null>(null);
+let kanbanEditorDescriptionDirtyTaskId: string | null = null;
 const kanbanEditorQuickPanel = ref<'due' | 'description' | 'group' | 'reminder' | 'status' | null>(null);
 const kanbanEditorRepeatFrequency = ref<RepeatFrequency>('none');
 const kanbanEditorRepeatRule = ref<RepeatRule | null>(null);
@@ -3607,7 +3595,7 @@ type KanbanDateGroupKey = 'overdue' | 'today' | 'thisWeek' | 'thisMonth' | 'othe
 type KanbanColumn = {
   id: string;
   title: string;
-  type: 'status' | 'group' | 'heading' | 'date' | 'document' | 'action';
+  type: 'status' | 'group' | 'heading' | 'date' | 'document' | 'goal' | 'action';
   actionKind?: 'group-add' | 'heading-add';
   status?: Task['status'];
   groupId?: string;
@@ -3616,6 +3604,7 @@ type KanbanColumn = {
   dateGroupKey?: KanbanDateGroupKey;
   documentId?: string;
   notebookId?: string;
+  goalId?: string;
 };
 
 type KanbanListSection = {
@@ -3708,7 +3697,7 @@ function cloneTaskSnapshot(tasksToClone: Task[]): Task[] {
 
 function restoreCachedTaskSnapshot(view: TaskViewMode): boolean {
   const mode = resolveTaskLoadModeForView(view);
-  const repeatWindow = mode === 'light-with-repeats'
+  const repeatWindow = mode === 'full-with-repeats'
     ? expandRepeatWindowForCalendarLoad(view, resolveRequestedRepeatWindowForView(view))
     : null;
   const key = buildTaskSnapshotCacheKey(getTaskLoadScope(), mode, repeatWindow);
@@ -3881,6 +3870,22 @@ const documentColumns = computed<KanbanColumn[]>(() => {
   });
 });
 
+const goalColumns = computed<KanbanColumn[]>(() => {
+  const columns = goalDefinitions.value.map(goal => ({
+    id: `goal:${goal.id}`,
+    title: goal.name?.trim() || t('taskManager.untitledGoal'),
+    type: 'goal' as const,
+    goalId: goal.id
+  }));
+  columns.push({
+    id: 'goal:unassigned',
+    title: t('ganttView.unassignedGoal'),
+    type: 'goal' as const,
+    goalId: ''
+  });
+  return columns;
+});
+
 const addGroupColumn: KanbanColumn = { id: ADD_GROUP_COLUMN_ID, title: '', type: 'action', actionKind: 'group-add' };
 const addHeadingColumn: KanbanColumn = { id: ADD_HEADING_COLUMN_ID, title: '', type: 'action', actionKind: 'heading-add' };
 const kanbanListGroupActionColumn = computed<KanbanColumn | null>(() => {
@@ -3901,6 +3906,9 @@ const kanbanColumns = computed<KanbanColumn[]>(() => {
   }
   if (activeBoardGroupBy.value === 'document') {
     return documentColumns.value;
+  }
+  if (activeBoardGroupBy.value === 'goal') {
+    return goalColumns.value;
   }
   return showCompletedTasks.value
     ? statusColumns.value
@@ -4085,7 +4093,6 @@ const kanbanBatchPriorityOptions: Array<{ value: string; text: string }> = [
   { value: 'high', text: t('taskManager.priorityHigh') }
 ];
 const kanbanBatchTagActionOptions: Array<{ value: TaskTagBatchAction; text: string }> = [
-  { value: 'set-primary', text: t('taskManager.batchSetPrimaryTag') },
   { value: 'add', text: t('taskManager.batchAddTag') },
   { value: 'remove', text: t('taskManager.batchRemoveTag') }
 ];
@@ -4428,6 +4435,10 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
       backgroundColor: 'var(--b3-theme-background)',
       color: 'var(--b3-theme-on-background)'
     };
+  }
+
+  if (column.type === 'goal') {
+    return { backgroundColor: 'var(--b3-theme-primary)' };
   }
 
   return { backgroundColor: 'transparent' };
@@ -4913,6 +4924,14 @@ interface TableTaskDropPayload {
   source: Task;
   target: Task;
   position: TaskDropPosition | 'inside';
+  sourceGroupId?: string;
+  targetGroupId?: string;
+}
+
+interface TableTaskGroupDropPayload {
+  source: Task;
+  sourceGroupId?: string;
+  targetGroupId: string;
 }
 
 function resolveTableGroupSampleTask(payload: TableGroupActionPayload): Task | null {
@@ -5897,6 +5916,7 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     documentGroups: nextDocumentGroupsPayload,
     goals: nextGoals,
     hiddenTaskViewIds,
+    viewSwitcherOrder,
     hiddenSidebarSectionIds,
     sidebarSectionOrder,
     defaultTaskCreateTarget,
@@ -5941,7 +5961,8 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     defaultTaskCreateDocument
   });
   await updateSettings('kanban', {
-    hiddenViewSwitcherIds: hiddenTaskViewIds as TaskViewSwitcherId[]
+    hiddenViewSwitcherIds: hiddenTaskViewIds as TaskViewSwitcherId[],
+    viewSwitcherOrder: viewSwitcherOrder as TaskViewSwitcherDisplayId[]
   });
   await updateSettings('sidebar', {
     hiddenSectionIds: hiddenSidebarSectionIds as SidebarSectionId[],
@@ -6197,7 +6218,8 @@ const {
 function getKanbanScopedGoalIds(task: Task): string[] {
   return goalDefinitions.value
     .filter(goal => isTaskDirectGoalMember(goal, task)
-      || (!isTaskExcludedFromDocumentScope(task, goal.excludedDocumentKeys)
+      || (!isTaskExcludedFromGoal(goal, task)
+        && !isTaskExcludedFromDocumentScope(task, goal.excludedDocumentKeys)
         && goal.members.some(member => matchesTaskDocumentMemberScope(task, member))))
     .map(goal => goal.id);
 }
@@ -7117,8 +7139,63 @@ async function handleStatsDrilldown(payload: StatsDrilldownPayload): Promise<voi
   currentView.value = payload.target === 'archive-table' ? 'archive-table' : 'table';
 }
 
+async function handleStatsTaskComplete(task: Task): Promise<Task> {
+  const currentTask = await resolvePersonalStatsActionTask(task, tasks.value);
+  const completedAt = await completePersonalStatsTask(currentTask);
+  syncTaskLocalStatusState(task.id, 'completed', completedAt);
+  updateTaskLocalField(task.id, 'statusAutomatic', false);
+  const completedTask = { ...currentTask, status: 'completed', statusAutomatic: false, completedAt, updatedAt: new Date().toISOString() };
+  syncStatsGoalTaskSnapshot(completedTask);
+  if (!tasks.value.some(item => item.id === task.id)) syncCalendarLifelogTask(completedTask);
+  invalidateTableFilters();
+  if (taskCompletionSoundEnabled.value) playTaskCompletionSound();
+  return completedTask;
+}
+
+async function handleStatsTaskUndoComplete(completed: Task, previous: Task): Promise<void> {
+  const currentTask = await resolvePersonalStatsActionTask(completed, tasks.value);
+  await undoPersonalStatsTaskCompletion(currentTask, completed, previous);
+  syncTaskLocalStatusState(previous.id, previous.status);
+  updateTaskLocalField(previous.id, 'statusAutomatic', previous.statusAutomatic === true);
+  const restoredTask = { ...currentTask, status: previous.status, statusAutomatic: previous.statusAutomatic === true, completedAt: undefined, updatedAt: new Date().toISOString() };
+  syncStatsGoalTaskSnapshot(restoredTask);
+  if (!tasks.value.some(item => item.id === previous.id)) syncCalendarLifelogTask(restoredTask);
+  invalidateTableFilters();
+}
+
+async function handleStatsTaskReschedule(task: Task, dueDate: string): Promise<void> {
+  const currentTask = await resolvePersonalStatsActionTask(task, tasks.value);
+  const patch = await reschedulePersonalStatsTask(currentTask, dueDate);
+  if (!patch.dueDate) return;
+  updateTaskLocalField(task.id, 'dueDate', patch.dueDate);
+  updateTaskLocalField(task.id, 'updatedAt', patch.updatedAt);
+  if (patch.status) {
+    syncTaskLocalStatusState(task.id, patch.status);
+    updateTaskLocalField(task.id, 'statusAutomatic', true);
+  }
+  const updatedTask = { ...currentTask, ...patch };
+  syncStatsGoalTaskSnapshot(updatedTask);
+  syncCalendarLifelogTask(updatedTask);
+  invalidateTableFilters();
+}
+
 function handleStatsDetailOpen(payload: StatsDetailPayload): void {
   openHabitTrackerPanel(payload);
+}
+
+function syncStatsGoalTaskSnapshot(task: Task): void {
+  goalTasks.value = goalTasks.value.map(item => item.id === task.id ? { ...item, ...task } : item);
+}
+
+async function handleStatsGoalTaskCreate(goalId: string): Promise<void> {
+  const goal = goalDefinitions.value.find(item => item.id === goalId);
+  if (!goal) return;
+  const member = goal.members.find(item => enabledNotebooks.value.some(notebook => notebook.id === item.notebookId));
+  await handleTaskCreateRequested(getDefaultCreateTaskPayload(), {
+    defaultGoalId: goal.id,
+    preferredNotebookId: member?.notebookId,
+    preferredDocumentId: member?.documentId
+  });
 }
 
 const showDocumentTabs = computed(() =>
@@ -7253,6 +7330,7 @@ function toggleCalendarHabitsVisible(): void {
 
 function toggleCalendarTaskLifelogVisible(): void {
   showCalendarTaskLifelog.value = !showCalendarTaskLifelog.value;
+  if (showCalendarTaskLifelog.value) void ensureCalendarLifelogTasksLoaded(true);
 }
 
 function toggleCalendarHabitLifelogVisible(): void {
@@ -7278,6 +7356,10 @@ function toggleCalendarDisplayOption(key: string): void {
   }
 }
 
+function handleCalendarWeekStartChange(value: boolean): void {
+  weekStartsOnSunday.value = value;
+}
+
 interface CalendarDisplaySettings {
   showTasks: boolean;
   showHabits: boolean;
@@ -7285,6 +7367,7 @@ interface CalendarDisplaySettings {
   showHabitLifelog: boolean;
   showFocusLifelog: boolean;
   showRecordsLifelog: boolean;
+  weekStartsOnSunday: boolean;
   /** Legacy setting, retained only to migrate existing local preferences. */
   showLifelog?: boolean;
 }
@@ -7306,7 +7389,8 @@ function loadCalendarDisplaySettings(): CalendarDisplaySettings | null {
       showTaskLifelog: parsed.showTaskLifelog ?? parsed.showLifelog === true,
       showHabitLifelog: parsed.showHabitLifelog ?? parsed.showLifelog === true,
       showFocusLifelog: parsed.showFocusLifelog ?? parsed.showLifelog === true,
-      showRecordsLifelog: parsed.showRecordsLifelog ?? parsed.showLifelog === true
+      showRecordsLifelog: parsed.showRecordsLifelog ?? parsed.showLifelog === true,
+      weekStartsOnSunday: parsed.weekStartsOnSunday === true
     };
   } catch (error) {
     console.warn('[KanbanView] Failed to load calendar display settings', error);
@@ -7326,7 +7410,8 @@ function saveCalendarDisplaySettings(): void {
       showTaskLifelog: showCalendarTaskLifelog.value,
       showHabitLifelog: showCalendarHabitLifelog.value,
       showFocusLifelog: showCalendarFocusLifelog.value,
-      showRecordsLifelog: showCalendarRecordsLifelog.value
+      showRecordsLifelog: showCalendarRecordsLifelog.value,
+      weekStartsOnSunday: weekStartsOnSunday.value
     }));
   } catch (error) {
     console.warn('[KanbanView] Failed to save calendar display settings', error);
@@ -7394,6 +7479,7 @@ function toggleKanbanTaskCardDetailsFromMenu(): void {
   showKanbanTaskCardDetails.value = !showKanbanTaskCardDetails.value;
   if (!showKanbanTaskCardDetails.value && inlineEditingDescriptionTaskId.value) {
     inlineEditingDescriptionTaskId.value = null;
+    inlineEditingDescriptionRowKey.value = null;
   }
   closeTaskViewGroupMenu();
   nextTick(() => {
@@ -8186,13 +8272,11 @@ watch(calendarFilterType, () => {
     return;
   }
   calendarTaskDataReady.value = false;
-  // The kernel's incremental index can occasionally return a reduced
-  // snapshot. Use the same authoritative refresh as the manual button so a
-  // source switch never replaces visible tasks with an incomplete result.
+  // Reconcile the selected source using the same complete fetch as the board.
   void loadTasks(true, {
     silent: true,
     validateSelection: false,
-    mode: 'light-with-repeats',
+    mode: 'full-with-repeats',
     repeatWindow: resolveRequestedRepeatWindowForView(view),
     view
   });
@@ -8822,15 +8906,17 @@ function isKanbanBatchPriority(value: string): value is Task['priority'] {
 }
 
 function normalizeKanbanBatchTagAction(value: unknown): TaskTagBatchAction {
-  return value === 'add' || value === 'remove' || value === 'set-primary'
+  return value === 'add' || value === 'remove' || value === 'clear'
     ? value
-    : 'set-primary';
+    : 'add';
 }
 
 function setKanbanBatchEditTagAction(value: unknown): void {
   const nextAction = normalizeKanbanBatchTagAction(value);
   kanbanBatchEditTagAction.value = nextAction;
-  if (nextAction !== 'set-primary' && kanbanBatchEditGroupId.value === TASK_GROUP_NONE_ID) {
+  if (nextAction === 'clear') {
+    kanbanBatchEditGroupId.value = TASK_GROUP_NONE_ID;
+  } else if (kanbanBatchEditGroupId.value === TASK_GROUP_NONE_ID) {
     kanbanBatchEditGroupId.value = '';
   }
 }
@@ -8838,7 +8924,7 @@ function setKanbanBatchEditTagAction(value: unknown): void {
 function resetKanbanBatchEditInputs(): void {
   kanbanBatchEditStatus.value = '';
   kanbanBatchEditPriority.value = '';
-  kanbanBatchEditTagAction.value = 'set-primary';
+  kanbanBatchEditTagAction.value = 'add';
   kanbanBatchEditGroupId.value = '';
 }
 
@@ -9101,7 +9187,7 @@ async function applyKanbanBatchTagEdit(action: TaskTagBatchAction, groupId: stri
 }
 
 async function clearKanbanBatchTags(): Promise<void> {
-  await applyKanbanBatchTagEdit('set-primary', TASK_GROUP_NONE_ID);
+  await applyKanbanBatchTagEdit('clear', TASK_GROUP_NONE_ID);
 }
 
 function getKanbanMoveTasks(): Task[] {
@@ -9225,7 +9311,7 @@ function toggleSelectAllVisibleKanbanTasks(): void {
 }
 
 function getKanbanColumnSelectableTaskIds(column: KanbanColumn): string[] {
-  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading' && column.type !== 'date') {
+  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading' && column.type !== 'date' && column.type !== 'goal') {
     return [];
   }
   return getTasksForColumn(column).map(task => task.id);
@@ -9391,14 +9477,10 @@ async function applyKanbanBatchEdit(): Promise<void> {
   const rawGroupSelection = typeof kanbanBatchEditGroupId.value === 'string' ? kanbanBatchEditGroupId.value.trim() : '';
   const validGroupIds = visibleTaskGroupIdSet.value;
   let nextTagSelection: { action: TaskTagBatchAction; tagId: string } | null = null;
-  if (rawGroupSelection) {
-    if (rawGroupSelection === TASK_GROUP_NONE_ID) {
-      if (nextTagAction !== 'set-primary') {
-        await pushMsg(t('taskManager.selectValidTag'), 2200);
-        return;
-      }
-      nextTagSelection = { action: nextTagAction, tagId: '' };
-    } else if (validGroupIds.has(rawGroupSelection)) {
+  if (nextTagAction === 'clear') {
+    nextTagSelection = { action: 'clear', tagId: '' };
+  } else if (rawGroupSelection) {
+    if (validGroupIds.has(rawGroupSelection)) {
       nextTagSelection = { action: nextTagAction, tagId: rawGroupSelection };
     } else {
       await pushMsg(t('taskManager.selectValidTag'), 2200);
@@ -10035,11 +10117,8 @@ const kanbanTasksByGroup = computed<Record<string, Task[]>>(() => {
 
   const sourceTasks = visibleKanbanTasks.value;
   for (const task of sourceTasks) {
-    const groupId = getGroupColumnIdForTask(task);
-    if (!grouped[groupId]) {
-      grouped[groupId] = [];
-    }
-    grouped[groupId].push(task);
+    const tagIds = resolveTaskTagGroupIds(task.tags, task.groupId, taskGroupIdSet.value, TASK_GROUP_NONE_ID);
+    tagIds.forEach(tagId => grouped[tagId].push(task));
   }
 
   const sortContext = createSidebarSortContext();
@@ -10144,6 +10223,27 @@ const kanbanTasksByDocument = computed<Record<string, Task[]>>(() => {
   return grouped;
 });
 
+const kanbanTasksByGoal = computed<Record<string, Task[]>>(() => {
+  const grouped: Record<string, Task[]> = {};
+  goalColumns.value.forEach(column => {
+    grouped[column.id] = [];
+  });
+  for (const task of visibleKanbanTasks.value) {
+    const goalIds = getKanbanTaskCardGoalIds(task);
+    if (goalIds.length === 0) {
+      if (grouped['goal:unassigned']) grouped['goal:unassigned'].push(task);
+      continue;
+    }
+    goalIds.forEach(goalId => {
+      const key = `goal:${goalId}`;
+      if (grouped[key]) grouped[key].push(task);
+    });
+  }
+  const sortContext = createSidebarSortContext();
+  Object.values(grouped).forEach(list => sortTasksForCurrentTaskView(list, sortContext));
+  return grouped;
+});
+
 function getFilteredTasksForStatus(status?: string): Task[] {
   if (!status) return [];
   return kanbanTasksByVisualStatus.value[status] || [];
@@ -10163,11 +10263,14 @@ function getTasksForColumn(column: KanbanColumn): Task[] {
   if (column.type === 'document') {
     return kanbanTasksByDocument.value[column.id] || [];
   }
+  if (column.type === 'goal') {
+    return kanbanTasksByGoal.value[column.id] || [];
+  }
   return kanbanTasksByGroup.value[column.id] || [];
 }
 
 function shouldUseKanbanVirtualList(column: KanbanColumn, taskCount: number): boolean {
-  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading' && column.type !== 'date' && column.type !== 'document') {
+  if (column.type !== 'status' && column.type !== 'group' && column.type !== 'heading' && column.type !== 'date' && column.type !== 'document' && column.type !== 'goal') {
     return false;
   }
   if (taskCount <= KANBAN_VIRTUAL_THRESHOLD) {
@@ -10288,24 +10391,56 @@ function cleanTaskTitleHtml(html: string): string {
   return html.replace(/\{:\s*[^}]*\}/g, '').trim();
 }
 
+function getKanbanTaskTitleFromRoot(blockId: string, root: ParentNode): string | null {
+  const currentElement = getLiveTaskElement(blockId, root);
+  if (!currentElement) return null;
+  const currentParagraph = currentElement.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
+  const liveTitle = cleanTaskTitleHtml(currentParagraph?.innerHTML || '');
+  return liveTitle.length > 0 ? liveTitle : null;
+}
+
 function getLiveKanbanTaskTitle(blockId: string): string | null {
   if (!blockId) return null;
-  const selectors = [
-    `.protyle [data-node-id="${blockId}"][data-type="NodeListItem"]`,
-    `.protyle [data-node-id="${blockId}"]`,
-    `[data-node-id="${blockId}"][data-type="NodeListItem"]`,
-    `[data-node-id="${blockId}"]`
-  ];
-  for (const selector of selectors) {
-    const currentElement = document.querySelector(selector);
-    if (!currentElement) continue;
-    const currentParagraph = currentElement.querySelector('[data-type="NodeParagraph"] [contenteditable="true"]');
-    const liveTitle = cleanTaskTitleHtml(currentParagraph?.innerHTML || '');
-    if (liveTitle.length > 0) {
-      return liveTitle;
-    }
+  const activeBlockId = typeof activeKanbanEditTask.value?.blockId === 'string'
+    ? activeKanbanEditTask.value.blockId.trim()
+    : '';
+  if (activeBlockId === blockId) {
+    const editorRoot = getKanbanEditorMountElement();
+    const editorTitle = editorRoot ? getKanbanTaskTitleFromRoot(blockId, editorRoot) : null;
+    if (editorTitle) return editorTitle;
   }
-  return null;
+  return getKanbanTaskTitleFromRoot(blockId, document);
+}
+
+function rememberActiveKanbanEditorTitleOverride(changedBlockIds?: string[]): void {
+  const task = activeKanbanEditTask.value;
+  const blockId = typeof task?.blockId === 'string' ? task.blockId.trim() : '';
+  if (!task || !blockId || (changedBlockIds && !changedBlockIds.includes(blockId))) {
+    return;
+  }
+  const editorRoot = getKanbanEditorMountElement();
+  const liveTitle = editorRoot ? getKanbanTaskTitleFromRoot(blockId, editorRoot) : null;
+  if (!liveTitle) {
+    return;
+  }
+
+  const now = Date.now();
+  const seriesId = getTaskRepeatSeriesId(task);
+  let touched = false;
+  tasks.value.forEach((item) => {
+    if (item.id !== task.id && (!seriesId || item.repeatSeriesId !== seriesId)) {
+      return;
+    }
+    item.title = liveTitle;
+    crdtRepo.updateTaskField(item.id, 'title', liveTitle, now);
+    rememberLocalTaskFieldOverride(item.id, 'title', liveTitle, 8000);
+    touched = true;
+  });
+  task.title = liveTitle;
+  rememberLocalTaskFieldOverride(task.id, 'title', liveTitle, 8000);
+  if (touched) {
+    tasks.value = [...tasks.value];
+  }
 }
 
 function hydrateKanbanMemoTitlesSync(taskList: Task[], limit = KANBAN_TITLE_HYDRATE_LIMIT): void {
@@ -10380,7 +10515,7 @@ async function hydrateVisibleKanbanTitles(): Promise<void> {
       if (lockedStatus) {
         updatedTask.status = lockedStatus;
       }
-      Object.assign(tasks.value[index], updatedTask);
+      Object.assign(tasks.value[index], applyLocalTaskFieldOverrides(updatedTask));
       touched = true;
     });
 
@@ -10722,9 +10857,9 @@ async function loadTasks(
     silent = false,
     validateSelection = true,
     mode = resolveTaskLoadModeForView(requestView),
-    repeatWindow = mode === 'light-with-repeats' ? resolveRequestedRepeatWindowForView(requestView) : null
+    repeatWindow = mode === 'full-with-repeats' ? resolveRequestedRepeatWindowForView(requestView) : null
   } = options;
-  const fetchRepeatWindow = mode === 'light-with-repeats'
+  const fetchRepeatWindow = mode === 'full-with-repeats'
     ? expandRepeatWindowForCalendarLoad(requestView, repeatWindow)
     : repeatWindow;
   const taskLoadScope = getTaskLoadScope();
@@ -10770,64 +10905,21 @@ async function loadTasks(
       }
     }
     const fetchOptions = buildTaskFetchOptionsForLoadMode(mode, fetchRepeatWindow);
-    let sqlTasks: Task[];
-    if (mode === 'light-with-repeats' && fetchRepeatWindow?.startDate && fetchRepeatWindow?.endDate) {
-      try {
-        // The two snapshots are independent. Starting both requests together
-        // removes one full backend round trip from the calendar's first paint.
-        const [rangeResult, baseTasks] = await Promise.all([
-          TaskRepository.getKernelLightTasksByDateRange(
-            fetchRepeatWindow.startDate,
-            fetchRepeatWindow.endDate,
-            taskLoadScope,
-            {
-              materializeRepeats: true,
-              force: forceRefresh
-            }
-          ),
-          TaskRepository.getAllTasks(
-            !forceRefresh,
-            taskLoadScope,
-            {
-              ...fetchOptions,
-              materializeRepeats: false,
-              repeatWindow: undefined,
-              constrainBaseTasksToRepeatWindow: false
-            }
-          )
-        ]);
-        // A partial range index is safe for a preview but not as the source of
-        // truth: repeat instances exist only in this result, so accepting it
-        // would replace the calendar with an incomplete set until a later
-        // refresh happens to return every page.
-        if (rangeResult.partial) {
-          throw new Error('Calendar range task query returned a partial result');
-        }
-        sqlTasks = mergeTasksById(rangeResult.tasks, baseTasks);
-      } catch (error) {
-        if (!isKernelRpcUnavailable(error)) {
-          console.debug('[KanbanView] kernel date-range task fetch skipped', error);
-        }
-        sqlTasks = await TaskRepository.getAllTasks(
-          !forceRefresh,
-          taskLoadScope,
-          fetchOptions
-        );
-      }
-    } else {
-      sqlTasks = await TaskRepository.getAllTasks(
-        !forceRefresh,
-        taskLoadScope,
-        fetchOptions
-      );
-    }
+    // Calendar and board reconcile against the same complete source. Only
+    // repeat occurrences are limited to the window; the sidebar keeps all
+    // base tasks, including tasks without scheduled dates.
+    const sqlTasks = await TaskRepository.getAllTasks(
+      !forceRefresh,
+      taskLoadScope,
+      fetchOptions
+    );
     if (requestId !== latestTaskLoadRequestId) {
       return;
     }
     if (options.view && currentView.value !== options.view) {
       return;
     }
-    const nextTasks = mode === 'light-with-repeats'
+    const nextTasks = mode === 'full-with-repeats'
       ? filterTasksForCalendarWindow(sqlTasks, fetchRepeatWindow)
       : sqlTasks;
     hydrateKanbanMemoTitlesSync(nextTasks, KANBAN_TITLE_HYDRATE_LIMIT);
@@ -10860,7 +10952,7 @@ async function loadTasks(
 }
 
 async function refreshTasks() {
-  await loadTasks(true);
+  await Promise.all([loadTasks(true), ensureCalendarLifelogTasksLoaded(true)]);
 }
 
 async function ensureTasksLoadedForView(
@@ -10876,7 +10968,7 @@ async function ensureTasksLoadedForView(
     return;
   }
   const mode = resolveTaskLoadModeForView(view);
-  const repeatWindow = mode === 'light-with-repeats' ? resolveRequestedRepeatWindowForView(view) : null;
+  const repeatWindow = mode === 'full-with-repeats' ? resolveRequestedRepeatWindowForView(view) : null;
   const scopeKey = buildTaskLoadScopeKey(getTaskLoadScope());
   if (!options.forceRefresh &&
     loadedTaskLoadScopeKey.value === scopeKey
@@ -11014,7 +11106,7 @@ function scheduleKernelTaskIndexRefresh(delay = 220, reloadCalendarTasks = true,
           validateSelection: false,
           preserveCalendarContent: true,
           mode,
-          repeatWindow: mode === 'light-with-repeats'
+          repeatWindow: mode === 'full-with-repeats'
             ? resolveRequestedRepeatWindowForView(currentView.value)
             : null
         });
@@ -11152,6 +11244,18 @@ function rememberLocalTaskFieldOverride<K extends keyof Task>(
     } as Partial<Task>,
     expiresAt: Date.now() + ttlMs
   });
+}
+
+function getLocalTaskTitleOverride(taskId: string): string | null {
+  const override = localTaskFieldOverrides.get(taskId);
+  if (!override) {
+    return null;
+  }
+  if (override.expiresAt <= Date.now()) {
+    localTaskFieldOverrides.delete(taskId);
+    return null;
+  }
+  return typeof override.values.title === 'string' ? override.values.title : null;
 }
 
 function rememberLocalRepeatSeriesClear(seriesId: string, ttlMs = 8000): void {
@@ -11643,6 +11747,7 @@ const incrementalUpdateQueue = createBlockIdBatchQueue({
 
 function setupEventListeners() {
   const unsubscribeChanged = eventBus.on(Events.TASK_CHANGED, (data?: TaskChangePayload) => {
+      rememberActiveKanbanEditorTitleOverride(data?.blockIds);
       // Reparenting changes the visible hierarchy (and may remove a task from
       // one root while adding it under another). A full silent reload keeps
       // every mounted view in sync, including views that do not currently
@@ -12201,11 +12306,12 @@ async function fastSyncTaskFromDom(
       if (previousStatus !== task.status || previousCompletedAt !== task.completedAt) {
         queueExternalTaskStatusAttrSync(blockId, nextStatus, task.completedAt);
       }
-      if (title !== null) {
-        patchedParentTitles.set(blockId, title);
-        if (task.title !== title) {
-          task.title = title;
-          crdtRepo.updateTaskField(task.id, 'title', title);
+      const effectiveTitle = getLocalTaskTitleOverride(task.id) ?? title;
+      if (effectiveTitle !== null) {
+        patchedParentTitles.set(blockId, effectiveTitle);
+        if (task.title !== effectiveTitle) {
+          task.title = effectiveTitle;
+          crdtRepo.updateTaskField(task.id, 'title', effectiveTitle);
           changed = true;
         }
       }
@@ -12310,9 +12416,7 @@ async function incrementalUpdateTasks(
       return;
     }
     
-    const canUseLightIncremental =
-      loadedTaskLoadMode.value === 'light-base' ||
-      loadedTaskLoadMode.value === 'light-with-repeats';
+    const canUseLightIncremental = loadedTaskLoadMode.value === 'light-base';
     const updatedTasksMap = await TaskRepository.getTasksByBlockIds(
       Array.from(parentBlockIds),
       false,
@@ -12522,6 +12626,7 @@ function hideCalendarDockEditorHost(): void {
 
 function resetKanbanEditorState(): void {
   suppressNextKanbanEditorOutsideMouseDown = false;
+  kanbanEditorDescriptionDirtyTaskId = null;
   activeKanbanEditOverride.value = null;
   kanbanEditorTaskId.value = null;
   kanbanEditorStatusTaskId.value = null;
@@ -12686,7 +12791,7 @@ function handleInlineDescriptionInput(taskId: string, event: Event): void {
   inlineDescriptionDraftByTaskId.value.set(taskId, target?.value || '');
 }
 
-function startInlineDescriptionEdit(task: Task): void {
+function startInlineDescriptionEdit(task: Task, event?: MouseEvent): void {
   if (isKanbanBatchEditMode.value) {
     if (isKanbanBatchCardClickSuppressed()) {
       return;
@@ -12700,6 +12805,10 @@ function startInlineDescriptionEdit(task: Task): void {
   if (inlineEditingDescriptionTaskId.value === task.id) {
     return;
   }
+  const rowElement = event?.currentTarget instanceof Element
+    ? event.currentTarget.closest<HTMLElement>('[data-task-row-key]')
+    : null;
+  inlineEditingDescriptionRowKey.value = rowElement?.dataset.taskRowKey || `task:${task.id}`;
   inlineEditingDescriptionTaskId.value = task.id;
   inlineDescriptionDraftByTaskId.value.set(task.id, task.description || '');
 }
@@ -12707,6 +12816,7 @@ function startInlineDescriptionEdit(task: Task): void {
 function clearInlineDescriptionEdit(taskId: string): void {
   if (inlineEditingDescriptionTaskId.value === taskId) {
     inlineEditingDescriptionTaskId.value = null;
+    inlineEditingDescriptionRowKey.value = null;
   }
   inlineDescriptionDraftByTaskId.value.delete(taskId);
 }
@@ -12837,13 +12947,28 @@ async function handleKanbanEditorPinToggle(): Promise<void> {
 function handleKanbanEditorDescriptionInput(value: string): void {
   if (!activeKanbanEditDraft.value) return;
   activeKanbanEditDraft.value.description = value;
+  kanbanEditorDescriptionDirtyTaskId = activeKanbanEditDraft.value.taskId;
 }
 
-async function handleKanbanEditorDescriptionCommit(): Promise<void> {
+async function handleKanbanEditorDescriptionCommit(value?: string): Promise<void> {
   if (!activeKanbanEditTask.value || !activeKanbanEditDraft.value) return;
-  const description = activeKanbanEditDraft.value.description || '';
-  await handleDescriptionUpdate(activeKanbanEditTask.value, description);
+  const task = activeKanbanEditTask.value;
+  const draft = activeKanbanEditDraft.value;
+  const description = typeof value === 'string'
+    ? value
+    : (draft.description || '');
+  draft.description = description;
+  kanbanEditorDescriptionDirtyTaskId = null;
+  await handleDescriptionUpdate(task, description);
   invalidateTableFilters();
+}
+
+function flushKanbanEditorDescriptionBeforeClose(): void {
+  const draft = activeKanbanEditDraft.value;
+  if (!draft || kanbanEditorDescriptionDirtyTaskId !== draft.taskId) {
+    return;
+  }
+  void handleKanbanEditorDescriptionCommit(draft.description || '');
 }
 
 function normalizeKanbanEditorDateFields(value: {
@@ -13425,6 +13550,8 @@ async function handleKanbanEditorDelete(): Promise<void> {
 }
 
 function closeKanbanEditor(): void {
+  flushKanbanEditorDescriptionBeforeClose();
+  rememberActiveKanbanEditorTitleOverride();
   const wasCalendarDockEditor = calendarDockEditorActive.value;
   if (wasCalendarDockEditor) {
     kanbanEditorVisible.value = false;
@@ -13817,6 +13944,10 @@ async function openKanbanEditor(
 ): Promise<void> {
   const shouldUseCalendarDock = options.calendarDock === true;
   const targetTask = await resolveKanbanEditorTargetTask(task);
+  if (targetTask && kanbanEditorTaskId.value && kanbanEditorTaskId.value !== targetTask.id) {
+    rememberActiveKanbanEditorTitleOverride();
+    flushKanbanEditorDescriptionBeforeClose();
+  }
   const blockId = typeof targetTask?.blockId === 'string' ? targetTask.blockId.trim() : '';
   if (!targetTask || targetTask.type !== 'block' || !blockId) {
     const message = task.isVirtual ? t('kanbanView.repeatTemplateMissing') : t('kanbanView.taskCannotEdit');
@@ -15663,7 +15794,7 @@ async function setTaskStatusAutomatically(task: Task, status: Task['status']): P
 
 async function handleGroupUpdate(task: Task, groupId: string) {
   const currentTagIds = resolveTaskTagIds(task.tags, task.groupId);
-  const nextTagIds = groupId ? setPrimaryTaskTag(currentTagIds, groupId) : [];
+  const nextTagIds = groupId ? toggleTaskTagSelection(currentTagIds, groupId) : [];
   await applyBlockTaskTagUpdate(task, nextTagIds, 'Failed to update task group');
   invalidateTableFilters();
 }
@@ -15795,7 +15926,7 @@ function updateTaskLocalTagState(taskId: string, tagIds: string[]): void {
   }
 }
 
-function syncTaskLocalStatusState(taskId: string, status: Task['status']): void {
+function syncTaskLocalStatusState(taskId: string, status: Task['status'], completedAt?: string): void {
   const taskIndex = tasks.value.findIndex(t => t.id === taskId);
   if (taskIndex === -1) {
     return;
@@ -15804,7 +15935,7 @@ function syncTaskLocalStatusState(taskId: string, status: Task['status']): void 
   const nowIso = new Date().toISOString();
   const nowTs = Date.now();
   crdtRepo.updateTaskField(taskId, 'status', status, nowTs);
-  crdtRepo.updateTaskField(taskId, 'completedAt', isCompletedTaskStatus(status) ? nowIso : undefined, nowTs);
+  crdtRepo.updateTaskField(taskId, 'completedAt', isCompletedTaskStatus(status) ? (completedAt || nowIso) : undefined, nowTs);
   updateTasks();
   const updatedTaskIndex = tasks.value.findIndex(t => t.id === taskId);
   if (updatedTaskIndex === -1) {
@@ -15814,7 +15945,7 @@ function syncTaskLocalStatusState(taskId: string, status: Task['status']): void 
   const targetTask = tasks.value[updatedTaskIndex];
   targetTask.status = status;
   if (isCompletedTaskStatus(status)) {
-    targetTask.completedAt = targetTask.completedAt || nowIso;
+    targetTask.completedAt = completedAt || targetTask.completedAt || nowIso;
   } else {
     delete targetTask.completedAt;
   }
@@ -16308,6 +16439,15 @@ function getTableTaskDropColumn(task: Task): KanbanColumn | null {
       notebookId: typeof task.notebookId === 'string' ? task.notebookId.trim() : ''
     };
   }
+  if (activeTableGroupBy.value === 'goal') {
+    const goalId = getKanbanTaskCardGoalIds(task)[0] || '';
+    return {
+      id: goalId ? `goal:${goalId}` : 'goal:unassigned',
+      title: '',
+      type: 'goal',
+      goalId
+    };
+  }
   if (activeTableGroupBy.value === 'date') return null;
   const status = getTaskVisualStatus(task);
   return { id: `status-${status}`, title: '', type: 'status', status };
@@ -16317,6 +16457,10 @@ function getTableTaskDropGroupId(task: Task): string {
   if (activeTableGroupBy.value === 'group') return getGroupColumnIdForTask(task);
   if (activeTableGroupBy.value === 'heading') return getHeadingColumnIdForTask(task);
   if (activeTableGroupBy.value === 'document') return getDocumentColumnIdForTask(task);
+  if (activeTableGroupBy.value === 'goal') {
+    const goalId = getKanbanTaskCardGoalIds(task)[0] || '';
+    return goalId ? `goal:${goalId}` : 'goal:unassigned';
+  }
   if (activeTableGroupBy.value === 'date') return '';
   return `status-${getTaskVisualStatus(task)}`;
 }
@@ -16337,10 +16481,24 @@ async function handleTableTaskDrop(payload: TableTaskDropPayload): Promise<void>
     return;
   }
 
-  const targetColumn = getTableTaskDropColumn(target);
+  const targetColumn = (activeTableGroupBy.value === 'group' || activeTableGroupBy.value === 'goal')
+    && payload.targetGroupId !== undefined
+    ? {
+      id: payload.targetGroupId || (activeTableGroupBy.value === 'goal' ? 'goal:unassigned' : TASK_GROUP_NONE_ID),
+      title: '',
+      type: activeTableGroupBy.value as 'group' | 'goal',
+      groupId: activeTableGroupBy.value === 'group' ? payload.targetGroupId : undefined,
+      goalId: activeTableGroupBy.value === 'goal'
+        ? payload.targetGroupId.replace(/^goal:/, '').replace(/^unassigned$/, '')
+        : undefined
+    }
+    : getTableTaskDropColumn(target);
   if (!targetColumn) return;
   const targetGroupId = targetColumn.id;
-  const sourceGroupId = getTableTaskDropGroupId(source);
+  const sourceGroupId = (activeTableGroupBy.value === 'group' || activeTableGroupBy.value === 'goal')
+    && payload.sourceGroupId !== undefined
+    ? (payload.sourceGroupId || (activeTableGroupBy.value === 'goal' ? 'goal:unassigned' : TASK_GROUP_NONE_ID))
+    : getTableTaskDropGroupId(source);
   const seededOrder = reconcileManualTaskOrder(
     userSettings.taskManager.taskManualOrder || [],
     [
@@ -16357,10 +16515,18 @@ async function handleTableTaskDrop(payload: TableTaskDropPayload): Promise<void>
   );
 
   draggedTask.value = source;
+  draggedTaskSourceTagId.value = activeTableGroupBy.value === 'group' && payload.sourceGroupId
+    ? payload.sourceGroupId
+    : '';
+  draggedTaskSourceGoalId.value = activeTableGroupBy.value === 'goal' && payload.sourceGroupId
+    ? payload.sourceGroupId.replace(/^goal:/, '').replace(/^unassigned$/, '')
+    : '';
   try {
     if (sourceGroupId !== targetGroupId) {
       if (activeTableGroupBy.value === 'group') {
         await handleGroupDrop(targetColumn);
+      } else if (activeTableGroupBy.value === 'goal') {
+        await handleGoalDrop(targetColumn);
       } else if (activeTableGroupBy.value === 'heading') {
         await handleHeadingDrop(targetColumn);
       } else if (activeTableGroupBy.value === 'document') {
@@ -16371,9 +16537,56 @@ async function handleTableTaskDrop(payload: TableTaskDropPayload): Promise<void>
     }
 
     const movedTask = tasks.value.find(task => task.id === source.id) || source;
-    if (getTableTaskDropGroupId(movedTask) === targetGroupId) {
+    const movedIntoTarget = activeTableGroupBy.value === 'group'
+      ? (targetGroupId === TASK_GROUP_NONE_ID
+        ? resolveTaskTagIds(movedTask.tags, movedTask.groupId).filter(id => taskGroupIdSet.value.has(id)).length === 0
+        : resolveTaskTagIds(movedTask.tags, movedTask.groupId).includes(targetGroupId))
+      : activeTableGroupBy.value === 'goal'
+        ? (targetGroupId === 'goal:unassigned'
+          ? getKanbanTaskCardGoalIds(movedTask).length === 0
+          : getKanbanTaskCardGoalIds(movedTask).includes(targetGroupId.replace(/^goal:/, '')))
+      : getTableTaskDropGroupId(movedTask) === targetGroupId;
+    if (movedIntoTarget) {
       await updateSettings('taskManager', { taskManualOrder: nextOrder });
     }
+  } finally {
+    handleDragEnd();
+  }
+}
+
+async function handleTableTaskGroupDrop(payload: TableTaskGroupDropPayload): Promise<void> {
+  if (isMobileFrontend || (activeTableGroupBy.value !== 'group' && activeTableGroupBy.value !== 'goal')) return;
+  const source = tasks.value.find(task => task.id === payload.source.id);
+  if (!source) return;
+
+  const targetGroupId = payload.targetGroupId.trim();
+  if (!targetGroupId || payload.sourceGroupId === targetGroupId) return;
+
+  draggedTask.value = source;
+  draggedTaskSourceTagId.value = activeTableGroupBy.value === 'group' && payload.sourceGroupId
+    ? payload.sourceGroupId
+    : '';
+  draggedTaskSourceGoalId.value = activeTableGroupBy.value === 'goal' && payload.sourceGroupId
+    ? payload.sourceGroupId.replace(/^goal:/, '').replace(/^unassigned$/, '')
+    : '';
+
+  try {
+    if (activeTableGroupBy.value === 'group') {
+      await handleGroupDrop({
+        id: targetGroupId,
+        title: '',
+        type: 'group',
+        groupId: targetGroupId === TASK_GROUP_NONE_ID ? '' : targetGroupId
+      });
+      return;
+    }
+
+    await handleGoalDrop({
+      id: targetGroupId,
+      title: '',
+      type: 'goal',
+      goalId: targetGroupId.replace(/^goal:/, '').replace(/^unassigned$/, '')
+    });
   } finally {
     handleDragEnd();
   }
@@ -16407,8 +16620,22 @@ function getTaskBoardColumnId(task: Task): string {
   if (activeBoardGroupBy.value === 'group') return getGroupColumnIdForTask(task);
   if (activeBoardGroupBy.value === 'heading') return getHeadingColumnIdForTask(task);
   if (activeBoardGroupBy.value === 'document') return getDocumentColumnIdForTask(task);
+  if (activeBoardGroupBy.value === 'goal') {
+    const goalId = getKanbanTaskCardGoalIds(task)[0] || '';
+    return goalId ? `goal:${goalId}` : 'goal:unassigned';
+  }
   if (activeBoardGroupBy.value === 'date') return '';
   return `status-${getTaskVisualStatus(task)}`;
+}
+
+function getDraggedTaskBoardColumnId(task: Task): string {
+  if (activeBoardGroupBy.value === 'group' && draggedTaskSourceTagId.value) {
+    return draggedTaskSourceTagId.value;
+  }
+  if (activeBoardGroupBy.value === 'goal') {
+    return draggedTaskSourceGoalId.value ? `goal:${draggedTaskSourceGoalId.value}` : 'goal:unassigned';
+  }
+  return getTaskBoardColumnId(task);
 }
 
 function resetViewManualTaskDrag(): void {
@@ -16724,7 +16951,7 @@ function handleViewManualTaskDragOver(event: DragEvent, task: Task, column: Kanb
     ? 'before'
     : (relativeY > rect.height - edge ? 'after' : 'inside');
   if (hierarchyPosition !== 'inside' && (
-    getTaskBoardColumnId(draggedTask.value!) !== column.id
+    getDraggedTaskBoardColumnId(draggedTask.value!) !== column.id
     || getDefaultTaskManualOrderGroupKey(draggedTask.value!) !== getDefaultTaskManualOrderGroupKey(task)
   )) {
     resetViewManualTaskDrag();
@@ -16778,7 +17005,7 @@ async function handleViewManualTaskDrop(event: DragEvent, task: Task, column: Ka
     }
     return;
   }
-  const sourceColumnId = getTaskBoardColumnId(source);
+  const sourceColumnId = getDraggedTaskBoardColumnId(source);
   const seededOrder = reconcileManualTaskOrder(
     userSettings.taskManager.taskManualOrder || [],
     [
@@ -16801,7 +17028,12 @@ async function handleViewManualTaskDrop(event: DragEvent, task: Task, column: Ka
   try {
     await handleDrop(event, column, true);
     const movedTask = tasks.value.find(item => item.id === source.id) || source;
-    if (getTaskBoardColumnId(movedTask) === column.id) {
+    const movedIntoTargetColumn = activeBoardGroupBy.value === 'goal'
+      ? (column.goalId
+        ? getKanbanTaskCardGoalIds(movedTask).includes(column.goalId)
+        : getKanbanTaskCardGoalIds(movedTask).length === 0)
+      : getTaskBoardColumnId(movedTask) === column.id;
+    if (movedIntoTargetColumn) {
       await updateSettings('taskManager', { taskManualOrder: nextOrder });
     }
   } finally {
@@ -16830,6 +17062,15 @@ function handleDragStart(event: DragEvent, task: Task) {
 
   resetViewManualTaskDrag();
   draggedTask.value = task;
+  const sourceColumn = event.target instanceof Element
+    ? event.target.closest<HTMLElement>('[data-column-id]')?.dataset.columnId || ''
+    : '';
+  draggedTaskSourceTagId.value = activeBoardGroupBy.value === 'group'
+    ? (sourceColumn === TASK_GROUP_NONE_ID ? '' : sourceColumn)
+    : '';
+  draggedTaskSourceGoalId.value = activeBoardGroupBy.value === 'goal'
+    ? sourceColumn.replace(/^goal:/, '').replace(/^unassigned$/, '')
+    : '';
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/json', JSON.stringify(task));
@@ -16839,6 +17080,8 @@ function handleDragStart(event: DragEvent, task: Task) {
 
 function handleDragEnd() {
   draggedTask.value = null;
+  draggedTaskSourceTagId.value = '';
+  draggedTaskSourceGoalId.value = '';
   dragOverColumnId.value = null;
   resetViewManualTaskDrag();
   resetDetachedViewDrag();
@@ -16871,7 +17114,7 @@ function handleDragOver(event: DragEvent, column: KanbanColumn) {
     if (column.type !== 'group') {
       return;
     }
-    const currentGroupId = getGroupColumnIdForTask(draggedTask.value);
+    const currentGroupId = draggedTaskSourceTagId.value || getGroupColumnIdForTask(draggedTask.value);
     if (currentGroupId !== column.id) {
       dragOverColumnId.value = column.id;
     }
@@ -16900,6 +17143,19 @@ function handleDragOver(event: DragEvent, column: KanbanColumn) {
       ? draggedTask.value.rootId.trim()
       : '';
     if (currentDocumentId !== column.documentId) {
+      dragOverColumnId.value = column.id;
+    }
+    return;
+  }
+
+  if (activeBoardGroupBy.value === 'goal') {
+    if (column.type !== 'goal') {
+      return;
+    }
+    const sourceColumnId = draggedTaskSourceGoalId.value
+      ? `goal:${draggedTaskSourceGoalId.value}`
+      : 'goal:unassigned';
+    if (sourceColumnId !== column.id) {
       dragOverColumnId.value = column.id;
     }
     return;
@@ -17339,8 +17595,54 @@ async function handleDrop(event: DragEvent, column: KanbanColumn, skipManualOrde
     return;
   }
 
+
+  if (activeBoardGroupBy.value === 'goal') {
+    if (column.type !== 'goal') {
+      return;
+    }
+    await handleGoalDrop(column);
+    return;
+  }
+
   if (column.type === 'status' && column.status) {
     await handleStatusDrop(column.status);
+  }
+}
+
+async function handleGoalDrop(column: KanbanColumn): Promise<void> {
+  const task = draggedTask.value;
+  if (!task || column.type !== 'goal') return;
+
+  const targetGoalId = typeof column.goalId === 'string' ? column.goalId.trim() : '';
+  const sourceGoalId = draggedTaskSourceGoalId.value;
+  if (sourceGoalId === targetGoalId) return;
+
+  const previousGoals = goalDefinitions.value;
+  const currentGoalIds = getKanbanTaskCardGoalIds(task);
+  const nextGoals = moveTaskGoalBetweenGroups(
+    previousGoals,
+    task,
+    currentGoalIds,
+    sourceGoalId,
+    targetGoalId
+  );
+
+  isDropping.value = true;
+  goalDefinitions.value = nextGoals;
+  draggedTask.value = null;
+  draggedTaskSourceGoalId.value = '';
+  dragOverColumnId.value = null;
+  invalidateTableFilters();
+
+  try {
+    await saveGoalDefinitions(nextGoals);
+  } catch (error) {
+    console.error('[KanbanView] Failed to update task goal via drag:', error);
+    goalDefinitions.value = previousGoals;
+    invalidateTableFilters();
+    await pushMsg(t('kanbanView.moveTaskFailedRetry'), 3000);
+  } finally {
+    isDropping.value = false;
   }
 }
 
@@ -17406,9 +17708,11 @@ async function handleGroupDrop(column: KanbanColumn) {
   const targetGroupId = column.id === TASK_GROUP_NONE_ID ? '' : (column.groupId || column.id);
   const normalizedTargetGroupId = typeof targetGroupId === 'string' ? targetGroupId.trim() : '';
   const oldTagIds = resolveTaskTagIds(currentTask.tags, currentTask.groupId);
-  const nextTagIds = normalizedTargetGroupId
-    ? setPrimaryTaskTag(oldTagIds, normalizedTargetGroupId)
-    : [];
+  const nextTagIds = moveTaskTagBetweenGroups(
+    oldTagIds,
+    draggedTaskSourceTagId.value,
+    normalizedTargetGroupId
+  );
   const nextTagState = buildTaskTagState(nextTagIds);
   
   if (oldGroupId === normalizedTargetGroupId && areTaskTagIdsEqual(oldTagIds, nextTagState.tagIds)) {
@@ -17436,6 +17740,7 @@ async function handleGroupDrop(column: KanbanColumn) {
 
   // End drag visual state immediately to avoid long "dragging" flicker while async sync is running.
   draggedTask.value = null;
+  draggedTaskSourceTagId.value = '';
   dragOverColumnId.value = null;
   
   try {
@@ -17710,12 +18015,9 @@ onMounted(async () => {
 
   let initialLoadCompletionPromise: Promise<void> | null = null;
   if (!shouldRunMountedReconcile) {
-    const shouldLoadInitialTasksInBackground = initialLoadMode === 'light-with-repeats';
-    // Calendar's light snapshot is allowed to render in the background, but
-    // it must not reuse an in-progress or stale task-index snapshot as its
-    // final result. A manual refresh already forces this path; doing the same
-    // for the initial calendar load prevents an occasional sparse calendar
-    // after the plugin has been reloaded.
+    const shouldLoadInitialTasksInBackground = initialLoadMode === 'full-with-repeats';
+    // Reconcile the initial calendar snapshot in the background so loading
+    // the complete source does not block the calendar controls.
     const initialTaskLoadPromise = loadTasks(isCalendarTaskViewMode(initialView), {
       silent: shouldLoadInitialTasksInBackground,
       validateSelection: false,

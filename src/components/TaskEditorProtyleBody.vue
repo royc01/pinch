@@ -63,7 +63,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'open-description': [];
   'update:description': [value: string];
-  'commit-description': [];
+  'commit-description': [value: string];
   'close-description': [];
 }>();
 
@@ -102,8 +102,9 @@ function handleDescriptionInput(event: Event): void {
 }
 
 function handleDescriptionCommit(): void {
+  const description = descriptionRef.value?.value ?? props.description;
   localDescriptionOpen.value = false;
-  emit('commit-description');
+  emit('commit-description', description);
   emit('close-description');
 }
 

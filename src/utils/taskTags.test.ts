@@ -5,7 +5,9 @@ import {
   buildTaskTagState,
   filterKnownTaskTagIds,
   matchesTaskTagFilter,
-  parseTaskTagIdsAttribute
+  moveTaskTagBetweenGroups,
+  parseTaskTagIdsAttribute,
+  resolveTaskTagGroupIds
 } from './taskTags';
 
 describe('task tags', () => {
@@ -29,8 +31,26 @@ describe('task tags', () => {
 
     expect(buildTaskTagAttrs(nextTagIds).attrs).toEqual({
       'custom-task-tags': '["group_writing","group_reading"]',
-      'custom-task-group': 'group_writing'
+      'custom-task-group': ''
     });
+  });
+
+  it('keeps all selected tags equal and only uses the legacy group as a fallback', () => {
+    expect(buildTaskTagState(['tag-b', 'tag-a'], 'tag-a').tagIds).toEqual(['tag-b', 'tag-a']);
+    expect(buildTaskTagState(['tag-b'], 'tag-a').tagIds).toEqual(['tag-b', 'tag-a']);
+    expect(buildTaskTagState([], 'tag-a').tagIds).toEqual(['tag-a']);
+  });
+
+  it('moves only the source tag between groups and preserves other tags', () => {
+    expect(moveTaskTagBetweenGroups(['tag-a', 'tag-c'], 'tag-a', 'tag-b')).toEqual(['tag-c', 'tag-b']);
+    expect(moveTaskTagBetweenGroups(['tag-a', 'tag-c'], 'tag-a', '')).toEqual([]);
+  });
+
+  it('returns every valid grouping tag and only uses the untagged group as a fallback', () => {
+    const known = new Set(['tag-a', 'tag-b']);
+    expect(resolveTaskTagGroupIds(['tag-a', 'unknown', 'tag-b'], '', known, '__none__'))
+      .toEqual(['tag-a', 'tag-b']);
+    expect(resolveTaskTagGroupIds(['unknown'], '', known, '__none__')).toEqual(['__none__']);
   });
 
   it('parses and normalizes a persisted tag attribute', () => {
