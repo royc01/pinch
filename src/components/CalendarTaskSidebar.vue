@@ -124,74 +124,79 @@
       </button>
     </div>
     <div
+      ref="listRef"
       class="calendar-task-sidebar-list"
+      @scroll.passive="handleListScroll"
     >
+      <div v-if="virtualList.top > 0" class="calendar-task-sidebar-spacer" :style="{ height: `${virtualList.top}px` }"></div>
       <div
-        v-for="notebook in groups"
-        :key="notebook.id"
+        v-for="group in virtualList.groups"
+        :key="group.notebook.id"
         class="calendar-task-sidebar-notebook-group"
       >
         <button
+          v-if="group.showHeader"
           type="button"
           class="calendar-task-sidebar-group-header calendar-task-sidebar-notebook-header"
-          :class="{ collapsed: collapsedIds.has(notebook.id) }"
-          @click="toggleGroup(notebook.id)"
+          :class="{ collapsed: collapsedIds.has(group.notebook.id) }"
+          @click="toggleGroup(group.notebook.id)"
         >
           <span class="calendar-task-sidebar-group-toggle"
             ><Icon name="chevronDown" width="16" height="16"
           /></span>
           <EmojiIcon
-            v-if="notebook.icon"
+            v-if="group.notebook.icon"
             class="calendar-task-sidebar-notebook-icon"
-            :value="notebook.icon"
+            :value="group.notebook.icon"
           />
           <span class="calendar-task-sidebar-group-name">{{
-            notebook.name
+            group.notebook.name
           }}</span>
           <span class="calendar-task-sidebar-group-count">{{
-            notebook.taskCount
+            group.notebook.taskCount
           }}</span>
         </button>
-        <template v-if="!collapsedIds.has(notebook.id)">
-          <template v-for="document in notebook.documents" :key="document.id">
+        <div v-if="group.top > 0" class="calendar-task-sidebar-spacer" :style="{ height: `${group.top}px` }"></div>
+          <template v-for="row in group.rows" :key="row.id">
             <button
+              v-if="row.kind === 'document'"
               type="button"
               class="calendar-task-sidebar-group-header calendar-task-sidebar-document-header"
-              :class="{ collapsed: collapsedIds.has(document.id) }"
-              @click="toggleGroup(document.id)"
+              :class="{ collapsed: collapsedIds.has(row.id) }"
+              @click="toggleGroup(row.id)"
             >
               <span class="calendar-task-sidebar-group-toggle"
                 ><Icon name="chevronDown" width="14" height="14"
               /></span>
-              <span class="calendar-task-sidebar-group-name">{{ document.name }}</span>
-              <span class="calendar-task-sidebar-group-count">{{ document.tasks.length }}</span>
+              <span class="calendar-task-sidebar-group-name">{{ row.document.name }}</span>
+              <span class="calendar-task-sidebar-group-count">{{ row.document.tasks.length }}</span>
             </button>
             <button
-              v-for="task in collapsedIds.has(document.id) ? [] : document.tasks"
-              :key="task.id"
+              v-else
               type="button"
               class="calendar-task-sidebar-task calendar-task-sidebar-document-task ariaLabel"
               draggable="false"
-              :class="{ 'is-pointer-dragging': pointerDrag.active && pointerDrag.task?.id === task.id }"
-              :aria-label="getTaskDisplayTitle(task)"
-              @pointerdown="handleTaskPointerDown($event, task)"
+              :class="{ 'is-pointer-dragging': pointerDrag.active && pointerDrag.task?.id === row.task.id }"
+              :aria-label="getTaskDisplayTitle(row.task)"
+              @pointerdown="handleTaskPointerDown($event, row.task)"
               @dragstart.prevent
-              @click="handleTaskClick($event, task)"
+              @click="handleTaskClick($event, row.task)"
             >
               <span
                 class="task-checkbox-wrapper calendar-task-sidebar-task-checkbox"
                 @pointerdown.stop
                 @dragstart.stop
-                @click.stop="emit('task-toggle', task)"
-                ><TaskCheckbox :checked="task.status === 'completed'" :size="14"
+                @click.stop="emit('task-toggle', row.task)"
+                ><TaskCheckbox :checked="row.task.status === 'completed'" :size="14"
               /></span>
-              <TaskTitlePlain class="calendar-task-sidebar-task-title" :title="task.title" />
+              <TaskTitlePlain class="calendar-task-sidebar-task-title" :title="row.task.title" />
             </button>
           </template>
-        </template>
+        <div v-if="group.bottom > 0" class="calendar-task-sidebar-spacer" :style="{ height: `${group.bottom}px` }"></div>
       </div>
+      <div v-if="virtualList.bottom > 0" class="calendar-task-sidebar-spacer" :style="{ height: `${virtualList.bottom}px` }"></div>
       <div v-if="groups.length === 0" class="calendar-task-sidebar-empty">
-        {{ t("taskManager.noTasks") }}
+        {{ t(isPreparingTasks ? "taskManager.loading" : "taskManager.noTasks") }}
       </div>
     </div>
     <div
@@ -205,7 +210,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { type Task } from "@/api";
 import { getTaskDisplayTitle } from "@/composables/useTaskCommon";
 import { useI18n } from "@/composables/useI18n";
@@ -217,16 +222,18 @@ import TaskCheckbox from "./TaskCheckbox.vue";
 import TaskTitlePlain from './TaskTitlePlain.vue';
 import TaskSearchHistoryPopover from './TaskSearchHistoryPopover.vue';
 import { recordTaskSearchHistory } from '@/utils/taskSearchHistory';
+import { cancelLayoutMeasurement, scheduleLayoutMeasurement } from '@/utils/layoutMeasurement';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   tasks: Task[];
+  active?: boolean;
   notebooks?: Array<{ id: string; name: string; icon?: string }>;
   documentTitleByRootId?: Map<string, string>;
   selectedStartDate?: Date;
   selectedDaysCount?: number;
   displayOptions?: Array<{ key: string; label: string; enabled: boolean }>;
   weekStartsOnSunday?: boolean;
-}>();
+}>(), { active: true });
 const emit = defineEmits<{
   "task-toggle": [task: Task];
   "task-edit": [task: Task, anchor: { x: number; y: number }];
@@ -253,6 +260,51 @@ function reuseSearchHistory(value: string): void {
   searchHistoryVisible.value = false;
 }
 const showCompleted = ref(false);
+const preparedTasks = shallowRef<Task[]>([]);
+const isPreparingTasks = ref(false);
+let prepareTasksTimer: ReturnType<typeof setTimeout> | null = null;
+let prepareTasksVersion = 0;
+
+function cancelTaskPreparation(): void {
+  prepareTasksVersion++;
+  if (prepareTasksTimer !== null) clearTimeout(prepareTasksTimer);
+  prepareTasksTimer = null;
+  isPreparingTasks.value = false;
+}
+
+function prepareSidebarTasks(tasks: Task[]): void {
+  cancelTaskPreparation();
+  if (props.active === false || tasks === preparedTasks.value) return;
+  if (tasks.length <= 500) {
+    preparedTasks.value = tasks;
+    return;
+  }
+  isPreparingTasks.value = true;
+  const version = prepareTasksVersion;
+  let index = 0;
+  const prepareChunk = () => {
+    prepareTasksTimer = null;
+    if (version !== prepareTasksVersion || props.active === false) return;
+    const start = performance.now();
+    while (index < tasks.length) {
+      const task = tasks[index++];
+      if (!task.archived && !task.isVirtual) {
+        getTaskDisplayTitle(task);
+        getTaskTitlePlainText(task.title);
+      }
+      if (performance.now() - start >= 4) break;
+    }
+    if (index < tasks.length) {
+      prepareTasksTimer = setTimeout(prepareChunk, 0);
+    } else {
+      preparedTasks.value = tasks;
+      isPreparingTasks.value = false;
+    }
+  };
+  // A timer, rather than a microtask, lets input and paint run between chunks.
+  prepareTasksTimer = setTimeout(prepareChunk, 0);
+}
+watch(() => props.tasks, prepareSidebarTasks, { immediate: true });
 const isInitialContentAnimation = ref(false);
 let initialContentAnimationTimer: ReturnType<typeof setTimeout> | null = null;
 let hasAnimatedInitialTasks = false;
@@ -405,6 +457,7 @@ function documentName(task: Task) {
 }
 const groups = computed(() => {
   const search = query.value.trim().toLocaleLowerCase();
+  const titles = new Map<string, string>();
   const result = new Map<
     string,
     {
@@ -414,16 +467,18 @@ const groups = computed(() => {
       documents: Map<string, { id: string; name: string; tasks: Task[] }>;
     }
   >();
-  for (const task of props.tasks) {
+  for (const task of preparedTasks.value) {
+    const title = getTaskDisplayTitle(task);
     if (
       task.isVirtual ||
       task.archived ||
       (!showCompleted.value && task.status === "completed") ||
       !hasVisibleTaskTitle(task) ||
       (search &&
-        !getTaskDisplayTitle(task).toLocaleLowerCase().includes(search))
+        !title.toLocaleLowerCase().includes(search))
     )
       continue;
+    titles.set(task.id, title);
     const id = notebookId(task);
     if (!result.has(id))
       result.set(id, {
@@ -445,7 +500,7 @@ const groups = computed(() => {
         .map((document) => ({
           ...document,
           tasks: document.tasks.sort((a, b) =>
-            getTaskDisplayTitle(a).localeCompare(getTaskDisplayTitle(b)),
+            titles.get(a.id)!.localeCompare(titles.get(b.id)!),
           ),
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
@@ -462,6 +517,125 @@ const groups = computed(() => {
           : a.name.localeCompare(b.name),
     );
 });
+
+type SidebarDocument = (typeof groups.value)[number]['documents'][number];
+type SidebarRow = { id: string; kind: 'document'; document: SidebarDocument }
+  | { id: string; kind: 'task'; task: Task };
+const listRef = ref<HTMLElement | null>(null);
+const listScrollTop = ref(0);
+const listHeight = ref(600);
+let listResizeObserver: ResizeObserver | null = null;
+let sidebarActive = true;
+
+// Cache group/row offsets independently of scroll position. Group cards retain
+// their full height while only the nearby buttons are mounted.
+const sidebarLayout = computed(() => {
+  let top = 0;
+  const layout = groups.value.map(notebook => {
+    const rows: SidebarRow[] = [];
+    const offsets = [28];
+    if (!collapsedIds.value.has(notebook.id)) {
+      for (const document of notebook.documents) {
+        rows.push({ id: document.id, kind: 'document', document });
+        offsets.push(offsets[offsets.length - 1] + 30);
+        if (!collapsedIds.value.has(document.id)) {
+          for (const task of document.tasks) {
+            rows.push({ id: `task:${task.id}`, kind: 'task', task });
+            offsets.push(offsets[offsets.length - 1] + 28);
+          }
+        }
+      }
+    }
+    const contentHeight = offsets[offsets.length - 1];
+    const group = { notebook, rows, offsets, top, height: contentHeight + 10, contentHeight };
+    top += group.height + 8;
+    return group;
+  });
+  return { groups: layout, height: Math.max(0, top - 8) };
+});
+
+function indexAtOffset(offsets: number[], offset: number): number {
+  let low = 0;
+  let high = offsets.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (offsets[middle] <= offset) low = middle;
+    else high = middle - 1;
+  }
+  return low;
+}
+
+const virtualList = computed(() => {
+  const layout = sidebarLayout.value;
+  const scrollTop = Math.min(listScrollTop.value, Math.max(0, layout.height - listHeight.value));
+  const start = Math.max(0, scrollTop - 224);
+  const end = scrollTop + listHeight.value + 224;
+  const visible = layout.groups.filter(group => group.top + group.height >= start && group.top <= end);
+  return {
+    top: visible[0]?.top || 0,
+    bottom: visible.length ? Math.max(0, layout.height - visible[visible.length - 1].top - visible[visible.length - 1].height) : 0,
+    groups: visible.map(group => {
+      const localStart = Math.max(0, start - group.top - 5);
+      const localEnd = end - group.top - 5;
+      const first = Math.min(group.rows.length, indexAtOffset(group.offsets, localStart));
+      const last = Math.min(group.rows.length, indexAtOffset(group.offsets, localEnd) + 1);
+      const showHeader = localStart < 28;
+      return {
+        notebook: group.notebook,
+        showHeader,
+        rows: group.rows.slice(first, last),
+        top: group.offsets[first] - (showHeader ? 28 : 0),
+        bottom: group.contentHeight - group.offsets[last]
+      };
+    })
+  };
+});
+
+function measureListViewport(): (() => void) | void {
+  const element = listRef.value;
+  if (!sidebarActive || !element) return;
+  const height = element.clientHeight;
+  const scrollTop = element.scrollTop;
+  return () => {
+    if (height > 0) listHeight.value = height;
+    listScrollTop.value = scrollTop;
+  };
+}
+
+function handleListScroll(event: Event): void {
+  listScrollTop.value = (event.currentTarget as HTMLElement).scrollTop;
+}
+
+function activateSidebar(): void {
+  if (props.active === false) return;
+  if (props.tasks !== preparedTasks.value && prepareTasksTimer === null) prepareSidebarTasks(props.tasks);
+  sidebarActive = true;
+  scheduleLayoutMeasurement(measureListViewport);
+  if (!listResizeObserver && typeof ResizeObserver !== 'undefined') {
+    listResizeObserver = new ResizeObserver(() => scheduleLayoutMeasurement(measureListViewport));
+    if (listRef.value) listResizeObserver.observe(listRef.value);
+  }
+}
+
+function deactivateSidebar(): void {
+  sidebarActive = false;
+  cancelTaskPreparation();
+  removePointerDragListeners();
+  clearPointerDrag(true);
+  cancelLayoutMeasurement(measureListViewport);
+  listResizeObserver?.disconnect();
+  listResizeObserver = null;
+}
+
+onMounted(activateSidebar);
+onActivated(activateSidebar);
+onDeactivated(deactivateSidebar);
+onUnmounted(deactivateSidebar);
+watch(() => props.active, active => {
+  if (active === false) deactivateSidebar();
+  else { prepareSidebarTasks(props.tasks); activateSidebar(); }
+});
+
 function toggleGroup(id: string) {
   const next = new Set(collapsedIds.value);
   next.has(id) ? next.delete(id) : next.add(id);
@@ -664,11 +838,20 @@ async function loadNotebookNames() {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   box-sizing: border-box;
   padding: 4px 0;
   overflow-y: auto;
       margin-top: -4px;
+}
+.calendar-task-sidebar-spacer {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+.calendar-task-sidebar-notebook-group + .calendar-task-sidebar-notebook-group {
+  margin-top: 8px;
+}
+.calendar-task-sidebar-notebook-group {
+  flex: 0 0 auto;
 }
 .calendar-task-sidebar-notebook-group {
   padding: 5px;

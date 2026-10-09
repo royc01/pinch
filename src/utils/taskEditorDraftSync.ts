@@ -1,5 +1,6 @@
 import type { Task } from '@/api';
 import type { TaskAttributeChanges } from './taskChangeCoordinator';
+import { buildTaskTagState, parseTaskTagIdsAttribute } from './taskTags';
 
 export interface TaskEditorDraftSyncTarget {
   taskId: string;
@@ -47,8 +48,16 @@ export function syncTaskEditorDraftFromAttributeChanges(
     applied = true;
   }
   if (hasAttribute('custom-task-tags') || hasAttribute('custom-task-group')) {
-    draft.tags = [...task.tags];
-    draft.groupId = task.groupId || '';
+    const tagState = buildTaskTagState(
+      hasAttribute('custom-task-tags')
+        ? parseTaskTagIdsAttribute(attrs['custom-task-tags'])
+        : task.tags,
+      hasAttribute('custom-task-group')
+        ? attrs['custom-task-group']
+        : task.groupId
+    );
+    draft.tags = [...tagState.tagIds];
+    draft.groupId = tagState.primaryTagId;
     applied = true;
   }
   if (

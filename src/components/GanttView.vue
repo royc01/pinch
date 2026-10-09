@@ -574,7 +574,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue';
 import { TaskRepository } from '@/api';
 import type { SubTask, Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
@@ -973,7 +973,7 @@ async function hydrateGanttSubtaskTrees(tasks: Task[]): Promise<void> {
     // Use the full SQL tree here so nested task attributes and descendants are
     // available to the Gantt outline.
     const fullTasks = await TaskRepository.getBlockTasks(
-      false,
+      true,
       undefined,
       { useLiveDom: false, detailLevel: 'full' }
     );
@@ -1486,15 +1486,15 @@ function cleanupGoalDueDateDrag(): void {
   draggingGoalDueDateId.value = null;
 }
 
-onBeforeUnmount(() => {
+let isGanttViewActive = false;
+
+function deactivateGanttView(): void {
+  isGanttViewActive = false;
   cleanupTaskBarDrag();
   cleanupGoalDueDateDrag();
   cleanupSidebarResize();
-  unbindContextMenuOutsidePointerDown();
-  optimisticTaskDateTimers.forEach(timer => window.clearTimeout(timer));
-  optimisticTaskDateTimers.clear();
-  optimisticGoalDueDateTimers.forEach(timer => window.clearTimeout(timer));
-  optimisticGoalDueDateTimers.clear();
+  hideContextMenu();
+  ganttSearchHistoryVisible.value = false;
   resizeObserver?.disconnect();
   resizeObserver = null;
   if (metricsAnimationFrame !== null) {
@@ -1506,6 +1506,16 @@ onBeforeUnmount(() => {
     currentTimeUpdateInterval = null;
   }
   window.removeEventListener('resize', updateShellMetrics);
+}
+
+onDeactivated(deactivateGanttView);
+onBeforeUnmount(() => {
+  deactivateGanttView();
+  subtaskHydrationRequestId += 1;
+  optimisticTaskDateTimers.forEach(timer => window.clearTimeout(timer));
+  optimisticTaskDateTimers.clear();
+  optimisticGoalDueDateTimers.forEach(timer => window.clearTimeout(timer));
+  optimisticGoalDueDateTimers.clear();
 });
 
 function parseExternalTask(event: DragEvent): Task | null {
@@ -1709,6 +1719,7 @@ function updateShellMetrics(): void {
 }
 
 function scheduleShellMetricsUpdate(): void {
+  if (!isGanttViewActive) return;
   if (metricsAnimationFrame !== null) return;
   metricsAnimationFrame = window.requestAnimationFrame(() => {
     metricsAnimationFrame = null;
@@ -1850,11 +1861,15 @@ function scheduleScrollTodayIntoView(): void {
   });
 }
 
-onMounted(() => {
+function activateGanttView(): void {
+  if (isGanttViewActive) return;
+  isGanttViewActive = true;
+  currentTime.value = new Date();
   currentTimeUpdateInterval = window.setInterval(() => {
     currentTime.value = new Date();
   }, 60000);
   void nextTick(() => {
+    if (!isGanttViewActive) return;
     updateShellMetrics();
     if (typeof ResizeObserver !== 'undefined' && ganttShellRef.value) {
     resizeObserver = new ResizeObserver(scheduleShellMetricsUpdate);
@@ -1862,16 +1877,23 @@ onMounted(() => {
     } else {
       window.addEventListener('resize', updateShellMetrics);
     }
-    scrollTodayIntoView();
   });
+}
+
+onMounted(() => {
+  activateGanttView();
+  scheduleScrollTodayIntoView();
 });
+onActivated(activateGanttView);
 
 watch(timelineWeeks, () => {
   scheduleScrollTodayIntoView();
 });
 
 watch(
-  () => props.tasks,
+  () => optimisticTaskDates.value.size === 0 ? [] : props.tasks
+    .filter(task => optimisticTaskDates.value.has(task.id))
+    .map(task => ({ id: task.id, startDate: task.startDate, dueDate: task.dueDate })),
   (tasks) => {
     if (optimisticTaskDates.value.size === 0) return;
 
@@ -1895,12 +1917,13 @@ watch(
     if (next.size !== optimisticTaskDates.value.size) {
       optimisticTaskDates.value = next;
     }
-  },
-  { deep: true }
+  }
 );
 
 watch(
-  () => props.goals,
+  () => optimisticGoalDueDates.value.size === 0 ? [] : (props.goals || [])
+    .filter(goal => optimisticGoalDueDates.value.has(goal.id))
+    .map(goal => ({ id: goal.id, dueDate: goal.dueDate })),
   (goals) => {
     if (optimisticGoalDueDates.value.size === 0) return;
 
@@ -1923,8 +1946,7 @@ watch(
     if (next.size !== optimisticGoalDueDates.value.size) {
       optimisticGoalDueDates.value = next;
     }
-  },
-  { deep: true }
+  }
 );
 
 const timelineDays = computed<TimelineDay[]>(() => {

@@ -66,6 +66,14 @@
   background-color: var(--b3-list-hover);
 }
 
+.calendar-content-layout {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
 html[data-theme-mode='dark'],
 body[data-theme-mode='dark'],
 body.b3-theme-dark,

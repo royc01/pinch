@@ -1,7 +1,7 @@
 <template>
-  <div class="calendar-view-layout">
+  <div :class="sharedSidebar ? 'calendar-content-layout' : 'calendar-view-layout'">
     <CalendarTaskSidebar
-      v-if="!sidebarCollapsed"
+      v-if="!sharedSidebar && !sidebarCollapsed"
       :tasks="sidebarTasks || tasks"
       :notebooks="notebooks"
       :document-title-by-root-id="documentTitleByRootId"
@@ -193,7 +193,7 @@
           </div>
         </div>
         
-        <div class="all-day-section" :style="{ height: isAllDaySectionCollapsed ? '30px' : allDaySectionHeight + 'px' }">
+        <div class="all-day-section" :class="{ 'virtual-all-day-section': allDayTaskRowCount > 100 }" :style="{ height: isAllDaySectionCollapsed ? '30px' : allDaySectionHeight + 'px' }">
           <div class="all-day-label-in-section" @click="toggleAllDaySection">
             <span class="collapse-btn">
               <Icon
@@ -203,11 +203,12 @@
               />
             </span>
           </div>
-          <div class="all-day-columns" :class="{ collapsed: isAllDaySectionCollapsed }" :style="{ overflow: isAllDaySectionCollapsed ? 'hidden' : 'visible' }">
+          <div ref="allDayViewportRef" class="all-day-columns" :class="{ collapsed: isAllDaySectionCollapsed }" :style="{ overflow: isAllDaySectionCollapsed ? 'hidden' : allDayTaskRowCount > 100 ? 'auto' : 'visible' }" @scroll.passive="handleAllDayViewportScroll">
             <div 
               v-for="(day, index) in weekDays" 
               :key="day.key"
               class="all-day-column"
+              :style="allDayTaskRowCount > 100 && !isAllDaySectionCollapsed ? { height: `${allDaySectionHeight}px` } : undefined"
               :data-day-key="day.key"
               :class="{
                 today: day.isToday,
@@ -223,7 +224,7 @@
             >
             </div>
             
-            <div class="all-day-tasks-layer">
+            <div class="all-day-tasks-layer" :style="allDayTaskRowCount > 100 && !isAllDaySectionCollapsed ? { height: `${allDaySectionHeight}px` } : undefined">
               <div
                 v-for="task in visibleTasks"
                 :key="task.id"
@@ -688,7 +689,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onActivated, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { assignCalendarTaskPositions } from '@/utils/calendarTaskPositions';
+import { cancelLayoutMeasurement, scheduleLayoutMeasurement } from '@/utils/layoutMeasurement';
+import { ref, computed, onActivated, onDeactivated, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import type { FocusSessionRecord, Habit, MoodData, MoodManualEntry, Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
 import {
@@ -749,7 +752,7 @@ import {
   type TaskCompletedLifelogEvent
 } from '@/utils/lifelogEvents';
 import { eventBus, Events } from '@/utils/eventBus';
-import { publishLifelogTaskSnapshot } from '@/utils/lifelogTaskSnapshot';
+import { getLifelogTaskSnapshotSignature, publishLifelogTaskSnapshot } from '@/utils/lifelogTaskSnapshot';
 import { publishLifelogTimelineSnapshot } from '@/utils/lifelogTimelineSnapshot';
 import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/utils/habitTaskChips';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
@@ -774,6 +777,7 @@ interface Props {
   tasks: Task[];
   sidebarTasks?: Task[];
   sidebarCollapsed?: boolean;
+  sharedSidebar?: boolean;
   notebooks?: Array<{ id: string; name: string; icon?: string }>;
   documentTitleByRootId?: Map<string, string>;
   lifelogTasks?: Task[];
@@ -964,6 +968,7 @@ const emit = defineEmits<{
   'calendarDisplayToggle': [key: string];
   'weekStartChange': [weekStartsOnSunday: boolean];
   'sidebarCollapsedChange': [collapsed: boolean];
+  'lifelogRequested': [];
 }>();
 
 interface ExternalTaskDropPoint {
@@ -1220,9 +1225,9 @@ async function centerCurrentTimeInViewport(behavior: ScrollBehavior = 'auto'): P
 
 const localTasks = ref<Task[]>([]);
 watch(
-  taskCompletedLifelogSourceTasks,
-  (tasks) => publishLifelogTaskSnapshot(tasks),
-  { deep: true, immediate: true }
+  () => getLifelogTaskSnapshotSignature(taskCompletedLifelogSourceTasks.value),
+  () => publishLifelogTaskSnapshot(taskCompletedLifelogSourceTasks.value),
+  { immediate: true }
 );
 const focusSessionRecords = ref<FocusSessionRecord[]>([]);
 const habitRecords = ref<Habit[]>([]);
@@ -1396,6 +1401,7 @@ function handleTimedTaskMouseDownWithSelection(event: MouseEvent, task: Task, da
 }
 
 function handleCalendarTaskDateClearKeydown(event: KeyboardEvent): void {
+  if (!weekLayoutActive) return;
   if (event.key !== 'Delete' && event.key !== 'Backspace') return;
   const target = event.target as HTMLElement | null;
   if (target?.closest('input, textarea, select, [contenteditable="true"], .context-menu, .task-modal, .task-editor-protyle-body.is-sidebar .protyle')) return;
@@ -1726,12 +1732,13 @@ function getTasksHash(tasks: Task[]): string {
   ).join('|');
 }
 
-watch(() => props.tasks, (newTasks) => {
-  taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
+const tasksRenderHash = computed(() => getTasksHash(props.tasks));
+watch([() => props.tasks, tasksRenderHash], ([newTasks, hash]) => {
+  taskSyncGuard.syncTasks(newTasks, isDragging.value, () => hash);
   if (newTasks.length > 0) {
     playInitialContentAnimation();
   }
-}, { deep: true, immediate: true });
+}, { immediate: true });
 
 async function refreshFocusSessions(): Promise<void> {
   try {
@@ -1740,10 +1747,6 @@ async function refreshFocusSessions(): Promise<void> {
   } catch (error) {
     console.error('[WeekView] Failed to load focus sessions', error);
   }
-}
-
-async function refreshWeekLifelogRecords(): Promise<void> {
-  await Promise.all([refreshHabitCheckins(), refreshMoodRecords()]);
 }
 
 async function refreshHabitCheckins(): Promise<void> {
@@ -1763,10 +1766,12 @@ async function refreshMoodRecords(): Promise<void> {
 }
 
 function handleFocusSessionUpdate(): void {
+  if (!showFocusRecords.value && !lifelogTimelineDayKey.value) return;
   void refreshFocusSessions();
 }
 
 function handleHabitsUpdated(payload?: { source?: string; habits?: Habit[] }): void {
+  if (!showHabits.value && !showHabitLifelog.value && !lifelogTimelineDayKey.value) return;
   if (payload?.source === 'week-view') {
     return;
   }
@@ -1778,6 +1783,7 @@ function handleHabitsUpdated(payload?: { source?: string; habits?: Habit[] }): v
 }
 
 function handleMoodUpdated(payload?: { moodData?: MoodData }): void {
+  if (!showRecordsLifelog.value && !lifelogTimelineDayKey.value) return;
   if (payload?.moodData && typeof payload.moodData === 'object') {
     moodRecords.value = { ...payload.moodData };
     return;
@@ -1880,7 +1886,10 @@ function emitVisibleCalendarRange(): void {
 
 watch(weekDays, emitVisibleCalendarRange, { immediate: true });
 // KeepAlive retains the browsed dates while the parent changes load scopes.
-onActivated(emitVisibleCalendarRange);
+onActivated(() => {
+  emitVisibleCalendarRange();
+  if (lifelogTimelineDayKey.value) emit('lifelogRequested');
+});
 
 watch(
   () => weekDays.value.map(day => day.key).join('|'),
@@ -2228,9 +2237,6 @@ const timedTaskRanges = computed(() => {
 });
 
 const taskPositionsMap = computed(() => {
-  const positionMap = new Map<string, number>();
-  const dailyPositionSlots = new Map<string, number[]>();
-  
   const sortedTasks = [...weekTasks.value].sort((a, b) => {
     const aStart = a.rangeStart.getTime();
     const bStart = b.rangeStart.getTime();
@@ -2240,49 +2246,8 @@ const taskPositionsMap = computed(() => {
     const bEnd = b.rangeEnd.getTime();
     return (bEnd - bStart) - (aEnd - aStart);
   });
-  
-  for (const task of sortedTasks) {
-    const taskDays: string[] = [];
-    const currentDay = new Date(task.rangeStart);
-    while (currentDay <= task.rangeEnd) {
-      const dateKey = formatDate(currentDay);
-      taskDays.push(dateKey);
-      currentDay.setDate(currentDay.getDate() + 1);
-    }
-    
-    let assignedPosition = 0;
-    
-    for (let pos = 0; ; pos++) {
-      let positionAvailable = true;
-      
-      for (const dayKey of taskDays) {
-        if (!dailyPositionSlots.has(dayKey)) {
-          dailyPositionSlots.set(dayKey, []);
-        }
-        
-        const daySlots = dailyPositionSlots.get(dayKey)!;
-        if (daySlots[pos] !== undefined) {
-          positionAvailable = false;
-          break;
-        }
-      }
-      
-      if (positionAvailable) {
-        assignedPosition = pos;
-        
-        for (const dayKey of taskDays) {
-          const daySlots = dailyPositionSlots.get(dayKey)!;
-          daySlots[pos] = task.rangeEnd.getTime();
-        }
-        
-        break;
-      }
-    }
-    
-    positionMap.set(task.id, assignedPosition);
-  }
-  
-  return positionMap;
+  return assignCalendarTaskPositions(sortedTasks, task => task.id,
+    task => task.rangeStart.getTime(), task => task.rangeEnd.getTime());
 });
 
 const allDayTaskRowCount = computed(() => {
@@ -2298,10 +2263,66 @@ const allDaySectionHeight = computed(() => {
   return allDayTaskRowCount.value * CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT + 6;
 });
 
+const allDayViewportRef = ref<HTMLElement | null>(null);
+const allDayScrollTop = ref(0);
+const allDayViewportHeight = ref(320);
+let weekLayoutActive = true;
+let allDayResizeObserver: ResizeObserver | null = null;
+
+function readAllDayViewport(): (() => void) | void {
+  if (!weekLayoutActive || !allDayViewportRef.value) return;
+  const height = allDayViewportRef.value.clientHeight;
+  const scrollTop = allDayViewportRef.value.scrollTop;
+  return () => {
+    if (height > 0) allDayViewportHeight.value = height;
+    allDayScrollTop.value = scrollTop;
+  };
+}
+
+function handleAllDayViewportScroll(event: Event): void {
+  allDayScrollTop.value = (event.currentTarget as HTMLElement).scrollTop;
+}
+
+function activateAllDayViewport(): void {
+  weekLayoutActive = true;
+  if (timeUpdateInterval === null) {
+    currentTime.value = new Date();
+    timeUpdateInterval = setInterval(() => { currentTime.value = new Date(); }, 60000);
+  }
+  scheduleLayoutMeasurement(readAllDayViewport);
+  if (!allDayResizeObserver && allDayViewportRef.value && typeof ResizeObserver !== 'undefined') {
+    allDayResizeObserver = new ResizeObserver(() => scheduleLayoutMeasurement(readAllDayViewport));
+    allDayResizeObserver.observe(allDayViewportRef.value);
+  }
+}
+
+function deactivateAllDayViewport(): void {
+  weekLayoutActive = false;
+  if (timeUpdateInterval !== null) {
+    clearInterval(timeUpdateInterval);
+    timeUpdateInterval = null;
+  }
+  cancelLayoutMeasurement(readAllDayViewport);
+  allDayResizeObserver?.disconnect();
+  allDayResizeObserver = null;
+}
+
+onMounted(activateAllDayViewport);
+onActivated(activateAllDayViewport);
+onDeactivated(deactivateAllDayViewport);
+onUnmounted(deactivateAllDayViewport);
+
+watch(allDayViewportRef, () => { if (weekLayoutActive) activateAllDayViewport(); });
+
 const visibleTasks = computed(() => {
+  const step = CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT;
+  const first = !isAllDaySectionCollapsed.value && allDayTaskRowCount.value > 100
+    ? Math.max(0, Math.floor(allDayScrollTop.value / step) - 8) : 0;
+  const last = !isAllDaySectionCollapsed.value && allDayTaskRowCount.value > 100
+    ? Math.ceil((allDayScrollTop.value + allDayViewportHeight.value) / step) + 8 : maxVisibleTasks.value;
   return weekTasks.value.filter(task => {
     const position = taskPositionsMap.value.get(task.id) || 0;
-    return position < maxVisibleTasks.value;
+    return position >= first && position < last;
   });
 });
 
@@ -3030,6 +3051,7 @@ function handleCalendarTaskDragCancel(): void {
 }
 
 function handleTaskManagerCalendarPointerDrag(event: Event): void {
+  if (!weekLayoutActive) return;
   const detail = (event as CustomEvent<TaskManagerCalendarDragDetail>).detail;
   if (!detail || (detail.phase !== 'cancel' && !detail.task)) return;
   if (detail.phase === 'start' || detail.phase === 'move') {
@@ -3635,6 +3657,10 @@ const lifelogTimelineItems = computed(() => {
 });
 watch(lifelogTimelineDayKey, (dayKey) => {
   if (dayKey) {
+    emit('lifelogRequested');
+    if (!showHabits.value && !showHabitLifelog.value) void refreshHabitCheckins();
+    if (!showRecordsLifelog.value) void refreshMoodRecords();
+    if (!showFocusRecords.value) void refreshFocusSessions();
     void ensureCheckinNoteDatesLoaded([dayKey]);
   }
 }, { immediate: true });
@@ -6404,16 +6430,18 @@ async function setTaskBackgroundColor(task: Task, color: string) {
 defineExpose({
   updateExternalTaskDrag,
   clearExternalTaskDrag: clearWeekDragOverState,
-  dropExternalTask
+  dropExternalTask,
+  selectSidebarDate: focusSelectedDate,
+  startSidebarTaskDrag: handleCalendarTaskDragStart,
+  moveSidebarTaskDrag: handleCalendarTaskDragMove,
+  endSidebarTaskDrag: handleCalendarTaskDragEnd,
+  cancelSidebarTaskDrag: handleCalendarTaskDragCancel
 });
 
 onMounted(() => {
   document.addEventListener('keydown', handleCalendarTaskDateClearKeydown);
   window.addEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
   handleViewportResize();
-  timeUpdateInterval = setInterval(() => {
-    currentTime.value = new Date();
-  }, 60000);
   document.addEventListener('pointermove', handleDocumentMobileTaskPointerMove);
   document.addEventListener('pointerup', handleDocumentMobileTaskPointerUp);
   document.addEventListener('pointercancel', handleDocumentMobileTaskPointerCancel);
@@ -6432,8 +6460,9 @@ onMounted(() => {
   window.addEventListener('pinch-focus-session', handleFocusSessionUpdate);
   unsubscribeHabitUpdates = eventBus.on(Events.HABITS_UPDATED, handleHabitsUpdated);
   unsubscribeMoodUpdates = eventBus.on(Events.MOOD_UPDATED, handleMoodUpdated);
-  void refreshFocusSessions();
-  void refreshWeekLifelogRecords();
+  if (showFocusRecords.value) void refreshFocusSessions();
+  if (showHabits.value || showHabitLifelog.value) void refreshHabitCheckins();
+  if (showRecordsLifelog.value) void refreshMoodRecords();
   void centerCurrentTimeInViewport();
 });
 
@@ -6443,9 +6472,6 @@ onUnmounted(() => {
   }
   document.removeEventListener('keydown', handleCalendarTaskDateClearKeydown);
   window.removeEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
-  if (timeUpdateInterval) {
-    clearInterval(timeUpdateInterval);
-  }
   clearMobileTaskDrag();
   clearMobileAllDayTaskGesture({ restorePreview: true });
   clearMobileTimedTaskGesture({ restorePreview: true });
@@ -7011,6 +7037,10 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--b3-border-color);
   position: relative;
   display: flex;
+}
+.all-day-section.virtual-all-day-section {
+  max-height: 40%;
+  min-height: 30px;
 }
 
 .all-day-label-in-section {

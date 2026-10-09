@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getTaskTitlePlainText, sanitizeTaskTitleHtml } from './taskHtml';
 
 describe('sanitizeTaskTitleHtml', () => {
@@ -68,5 +68,21 @@ describe('sanitizeTaskTitleHtml', () => {
   it('parses HTML-escaped task titles before rendering them', () => {
     expect(sanitizeTaskTitleHtml('&lt;strong&gt;sad11&lt;/strong&gt;'))
       .toBe('<span data-type="strong">sad11</span>');
+  });
+
+  it('reuses parsed plain titles across views for a 6501-task dataset', () => {
+    const titles = Array.from({ length: 6501 }, (_, index) => `<strong>Cached title ${index}</strong>`);
+    for (const title of titles) getTaskTitlePlainText(title);
+    const createElement = vi.spyOn(document, 'createElement');
+    try {
+      for (let index = 0; index < titles.length; index++) {
+        expect(getTaskTitlePlainText(titles[index])).toBe(`Cached title ${index}`);
+      }
+      expect(createElement).not.toHaveBeenCalled();
+      expect(getTaskTitlePlainText('<strong>Changed cached title</strong>')).toBe('Changed cached title');
+      expect(createElement).toHaveBeenCalled();
+    } finally {
+      createElement.mockRestore();
+    }
   });
 });

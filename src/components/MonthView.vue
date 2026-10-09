@@ -1,8 +1,8 @@
 ﻿<template>
   <div class="month-view" :class="{ 'initial-content-animation': isInitialContentAnimation }">
-    <div class="calendar-view-layout">
+    <div :class="sharedSidebar ? 'calendar-content-layout' : 'calendar-view-layout'">
       <CalendarTaskSidebar
-        v-if="!sidebarCollapsed"
+        v-if="!sharedSidebar && !sidebarCollapsed"
         :tasks="sidebarTasks || tasks"
         :notebooks="notebooks"
         :document-title-by-root-id="documentTitleByRootId"
@@ -76,7 +76,7 @@
           </div>
         </div>
       </div>
-      <div class="calendar-grid">
+      <div ref="calendarViewportRef" class="calendar-grid" @scroll.passive="handleMonthViewportScroll" @wheel.passive="handleWheel">
         <div class="weekday-header">
           <div v-for="weekday in weekdays" :key="weekday" class="weekday">
             {{ weekday }}
@@ -167,7 +167,7 @@
             </div>
             <div class="week-tasks-layer">
               <div 
-                v-for="task in getTasksForWeek(week).filter(task => isTaskVisibleInMonth(task, week))"
+                v-for="task in getVisibleTasksForWeek(week)"
                 :key="task.id"
                 class="ariaLabel"
                 :aria-label="getTaskDisplayTitle(task)"
@@ -400,7 +400,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onActivated, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue';
+import { assignCalendarTaskPositions } from '@/utils/calendarTaskPositions';
+import { cancelLayoutMeasurement, scheduleLayoutMeasurement } from '@/utils/layoutMeasurement';
+import { ref, computed, watch, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue';
 import type { FocusSessionRecord, Habit, MoodData, MoodManualEntry, Task, TaskGroup } from '@/api';
 import type { Goal } from '@/goalRepository';
 import {
@@ -479,7 +481,7 @@ import {
   tasksToCompletedLifelogEvents
 } from '@/utils/lifelogEvents';
 import { eventBus, Events } from '@/utils/eventBus';
-import { publishLifelogTaskSnapshot } from '@/utils/lifelogTaskSnapshot';
+import { getLifelogTaskSnapshotSignature, publishLifelogTaskSnapshot } from '@/utils/lifelogTaskSnapshot';
 import { publishLifelogTimelineSnapshot } from '@/utils/lifelogTimelineSnapshot';
 import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/utils/habitTaskChips';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
@@ -492,6 +494,7 @@ interface Props {
   tasks: Task[];
   sidebarTasks?: Task[];
   sidebarCollapsed?: boolean;
+  sharedSidebar?: boolean;
   notebooks?: Array<{ id: string; name: string; icon?: string }>;
   lifelogTasks?: Task[];
   taskGroups?: TaskGroup[];
@@ -646,6 +649,7 @@ const emit = defineEmits<{
   calendarDisplayToggle: [key: string];
   weekStartChange: [weekStartsOnSunday: boolean];
   sidebarCollapsedChange: [collapsed: boolean];
+  lifelogRequested: [];
 }>();
 
 type EventListener = (...args: any[]) => void;
@@ -937,6 +941,7 @@ function handleTaskMouseDownWithSelection(event: MouseEvent, task: Task): void {
 }
 
 function handleCalendarTaskDateClearKeydown(event: KeyboardEvent): void {
+  if (!monthLayoutActive) return;
   if (event.key !== 'Delete' && event.key !== 'Backspace') return;
   const target = event.target as HTMLElement | null;
   if (target?.closest('input, textarea, select, [contenteditable="true"], .context-menu, .task-modal, .task-editor-protyle-body.is-sidebar .protyle')) return;
@@ -1049,9 +1054,9 @@ const taskCompletedLifelogSourceTasks = computed(() => {
   return Array.from(tasksById.values());
 });
 watch(
-  taskCompletedLifelogSourceTasks,
-  (tasks) => publishLifelogTaskSnapshot(tasks),
-  { deep: true, immediate: true }
+  () => getLifelogTaskSnapshotSignature(taskCompletedLifelogSourceTasks.value),
+  () => publishLifelogTaskSnapshot(taskCompletedLifelogSourceTasks.value),
+  { immediate: true }
 );
 const taskCompletedLifelogSourceTaskById = computed(() => {
   const taskById = new Map<string, Task>();
@@ -1116,10 +1121,12 @@ async function refreshMoodRecords(): Promise<void> {
 }
 
 function handleFocusSessionUpdate(): void {
+  if (!showFocusRecords.value && !lifelogDayKey.value) return;
   void refreshFocusSessions();
 }
 
 function handleHabitsUpdated(payload?: { source?: string; habits?: Habit[] }): void {
+  if (!showHabits.value && !showHabitLifelog.value && !lifelogDayKey.value) return;
   if (payload?.source === 'month-view') {
     return;
   }
@@ -1131,6 +1138,7 @@ function handleHabitsUpdated(payload?: { source?: string; habits?: Habit[] }): v
 }
 
 function handleMoodUpdated(payload?: { moodData?: MoodData }): void {
+  if (!showRecordsLifelog.value && !lifelogDayKey.value) return;
   if (payload?.moodData && typeof payload.moodData === 'object') {
     moodRecords.value = { ...payload.moodData };
     return;
@@ -1291,12 +1299,13 @@ function getTasksHash(tasks: Task[]): string {
   ).join('|');
 }
 
-watch(() => props.tasks, (newTasks) => {
-  taskSyncGuard.syncTasks(newTasks, isDragging.value, getTasksHash);
+const tasksRenderHash = computed(() => getTasksHash(props.tasks));
+watch([() => props.tasks, tasksRenderHash], ([newTasks, hash]) => {
+  taskSyncGuard.syncTasks(newTasks, isDragging.value, () => hash);
   if (newTasks.length > 0) {
     playInitialContentAnimation();
   }
-}, { deep: true });
+});
 
 function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date } | null {
   const dateValues = getCalendarTaskRenderDateValues(task);
@@ -1366,7 +1375,10 @@ function emitVisibleCalendarRange(): void {
   });
 }
 
-onActivated(emitVisibleCalendarRange);
+onActivated(() => {
+  emitVisibleCalendarRange();
+  if (lifelogDayKey.value) emit('lifelogRequested');
+});
 
 watch(
   visibleCalendarRange,
@@ -1462,9 +1474,6 @@ function buildHabitTaskChipRanges(): TaskRenderRange[] {
 }
 
 const taskPositionsMap = computed(() => {
-  const positionMap = new Map<string, number>();
-  const dailyPositionSlots = new Map<string, number[]>();
-  
   const sortedRanges = [
     ...normalizedTaskRanges.value,
     ...buildHabitTaskChipRanges()
@@ -1478,49 +1487,8 @@ const taskPositionsMap = computed(() => {
       const bEnd = b.endMs;
       return (bEnd - bStart) - (aEnd - aStart);
     });
-  
-  for (const range of sortedRanges) {
-    const taskDays: string[] = [];
-    const currentDay = new Date(range.displayStart);
-    while (currentDay <= range.displayEnd) {
-      const dateKey = formatDate(currentDay);
-      taskDays.push(dateKey);
-      currentDay.setDate(currentDay.getDate() + 1);
-    }
-    
-    let assignedPosition = 0;
-    
-    for (let pos = 0; ; pos++) {
-      let positionAvailable = true;
-      
-      for (const dayKey of taskDays) {
-        if (!dailyPositionSlots.has(dayKey)) {
-          dailyPositionSlots.set(dayKey, []);
-        }
-        
-        const daySlots = dailyPositionSlots.get(dayKey)!;
-        if (daySlots[pos] !== undefined) {
-          positionAvailable = false;
-          break;
-        }
-      }
-      
-      if (positionAvailable) {
-        assignedPosition = pos;
-        
-        for (const dayKey of taskDays) {
-          const daySlots = dailyPositionSlots.get(dayKey)!;
-          daySlots[pos] = range.displayEndMs;
-        }
-        
-        break;
-      }
-    }
-    
-    positionMap.set(range.task.id, assignedPosition);
-  }
-  
-  return positionMap;
+  return assignCalendarTaskPositions(sortedRanges, range => range.task.id,
+    range => range.displayStart.getTime(), range => range.displayEndMs);
 });
 
 const weekdays = computed(() => {
@@ -1694,25 +1662,60 @@ function getCollapsedVisibleTaskSlots(week: any[]): number {
   return collapsedVisibleTaskSlots.value.get(getWeekKey(week)) ?? 1;
 }
 
+let monthLayoutActive = true;
+const calendarViewportRef = ref<HTMLElement | null>(null);
+const monthViewport = ref({ scrollTop: 0, height: 600 });
+const monthViewportScrollable = ref(false);
+const measuredWeekTops = ref(new Map<string, number>());
+onActivated(() => { monthLayoutActive = true; syncCollapsedTaskSlots(); });
+onDeactivated(() => { monthLayoutActive = false; cancelLayoutMeasurement(readCollapsedTaskSlots); });
+onUnmounted(() => { monthLayoutActive = false; cancelLayoutMeasurement(readCollapsedTaskSlots); });
+
 function syncCollapsedTaskSlots(): void {
-  if (!isTasksCollapsed.value || !weeksContainerRef.value || calendarWeeks.value.length === 0) {
+  if (monthLayoutActive) scheduleLayoutMeasurement(readCollapsedTaskSlots);
+}
+
+function readCollapsedTaskSlots(): (() => void) | void {
+  if (!monthLayoutActive || !weeksContainerRef.value || calendarWeeks.value.length === 0) {
     return;
+  }
+
+  const viewport = calendarViewportRef.value;
+  const scrollTop = viewport?.scrollTop || 0;
+  const height = viewport?.clientHeight || monthViewport.value.height;
+  const scrollable = !!viewport && viewport.scrollHeight > height + 1;
+  const viewportTop = viewport?.getBoundingClientRect().top || 0;
+  const weekTops = new Map<string, number>();
+  for (const [key, element] of weekRowElements) {
+    weekTops.set(key, element.getBoundingClientRect().top - viewportTop + scrollTop);
   }
 
   const { topOffset, positionStep, chipHeight } = monthTaskLayout.value;
   // The task layer itself is inset by 6px. Keep only that required clearance so
   // a nearly-full row can still use its final task slot.
   const bottomPadding = isCompactMobileLayout.value ? 4 : 6;
-  const fallbackWeekHeight = weeksContainerRef.value.clientHeight / calendarWeeks.value.length;
+  const fallbackWeekHeight = isTasksCollapsed.value ? weeksContainerRef.value.clientHeight / calendarWeeks.value.length : 0;
   const nextSlots = new Map<string, number>();
 
-  for (const week of calendarWeeks.value) {
+  for (const week of isTasksCollapsed.value ? calendarWeeks.value : []) {
     const rowHeight = weekRowElements.get(getWeekKey(week))?.clientHeight || fallbackWeekHeight;
     const slots = Math.floor((rowHeight - topOffset - chipHeight - bottomPadding) / positionStep) + 1;
     nextSlots.set(getWeekKey(week), Math.max(1, slots));
   }
 
-  collapsedVisibleTaskSlots.value = nextSlots;
+  const previous = collapsedVisibleTaskSlots.value;
+  const slotsChanged = isTasksCollapsed.value && (previous.size !== nextSlots.size || [...nextSlots].some(([key, count]) => previous.get(key) !== count));
+  const topsChanged = measuredWeekTops.value.size !== weekTops.size || [...weekTops].some(([key, top]) => measuredWeekTops.value.get(key) !== top);
+  return () => {
+    monthViewportScrollable.value = scrollable;
+    if (slotsChanged) collapsedVisibleTaskSlots.value = nextSlots;
+    if (topsChanged) measuredWeekTops.value = weekTops;
+    if (monthViewport.value.scrollTop !== scrollTop || monthViewport.value.height !== height) monthViewport.value = { scrollTop, height };
+  };
+}
+
+function handleMonthViewportScroll(event: Event): void {
+  monthViewport.value = { ...monthViewport.value, scrollTop: (event.currentTarget as HTMLElement).scrollTop };
 }
 
 async function toggleTasksCollapsed(): Promise<void> {
@@ -1784,6 +1787,18 @@ const weeklyTasks = computed(() => {
   return result;
 });
 
+watch(weeklyTasks, () => { void nextTick().then(syncCollapsedTaskSlots); });
+
+const estimatedWeekTops = computed(() => {
+  const tops = new Map<string, number>();
+  let top = 34;
+  for (const week of calendarWeeks.value) {
+    tops.set(getWeekKey(week), top);
+    top += Math.max(80, Number.parseFloat(getWeekRowStyle(week).minHeight || '80')) + 1;
+  }
+  return tops;
+});
+
 function getWeekKey(week: any[]): string {
   return week.map((d: any) => d.key).join('-');
 }
@@ -1793,8 +1808,28 @@ function getTasksForWeek(week: any[]): WeekTask[] {
   return weeklyTasks.value.get(weekKey) || [];
 }
 
-function isTaskVisibleInMonth(task: WeekTask, week: any[]): boolean {
-  return !isTasksCollapsed.value || task.position < getCollapsedVisibleTaskSlots(week);
+const visibleWeeklyTasks = computed(() => {
+  const visible = new Map<string, WeekTask[]>();
+  const { topOffset, positionStep, chipHeight } = monthTaskLayout.value;
+  const { scrollTop, height } = monthViewport.value;
+  for (const [key, tasks] of weeklyTasks.value) {
+    if (isTasksCollapsed.value) {
+      const slots = collapsedVisibleTaskSlots.value.get(key) ?? 1;
+      visible.set(key, tasks.filter(task => task.position < slots));
+    } else if (tasks.length <= 100) {
+      visible.set(key, tasks);
+    } else {
+      const weekTop = measuredWeekTops.value.get(key) ?? estimatedWeekTops.value.get(key) ?? 0;
+      const first = Math.floor((scrollTop - 192 - weekTop - topOffset - chipHeight) / positionStep);
+      const last = Math.ceil((scrollTop + height + 192 - weekTop - topOffset) / positionStep);
+      visible.set(key, tasks.filter(task => task.position >= first && task.position <= last));
+    }
+  }
+  return visible;
+});
+
+function getVisibleTasksForWeek(week: any[]): WeekTask[] {
+  return visibleWeeklyTasks.value.get(getWeekKey(week)) || [];
 }
 
 function getTasksForDay(week: any[], dayIndex: number): WeekTask[] {
@@ -1803,10 +1838,23 @@ function getTasksForDay(week: any[], dayIndex: number): WeekTask[] {
     .sort((first, second) => first.position - second.position);
 }
 
+const collapsedTaskCountsByWeek = computed(() => {
+  const countsByWeek = new Map<string, number[]>();
+  if (!isTasksCollapsed.value) return countsByWeek;
+  for (const [key, tasks] of weeklyTasks.value) {
+    const counts = Array(7).fill(0) as number[];
+    const slots = collapsedVisibleTaskSlots.value.get(key) ?? 1;
+    for (const task of tasks) {
+      if (task.position < slots) continue;
+      for (let day = task.startDayOfWeek; day <= task.endDayOfWeek; day++) counts[day]++;
+    }
+    countsByWeek.set(key, counts);
+  }
+  return countsByWeek;
+});
+
 function getCollapsedTaskCount(week: any[], dayIndex: number): number {
-  return getTasksForDay(week, dayIndex)
-    .filter(task => task.position >= getCollapsedVisibleTaskSlots(week))
-    .length;
+  return collapsedTaskCountsByWeek.value.get(getWeekKey(week))?.[dayIndex] || 0;
 }
 
 function getMoreTasksButtonStyle(week: any[], dayIndex: number): Record<string, string> {
@@ -2252,6 +2300,10 @@ const lifelogTimelineItems = computed<LifelogTimelinePanelItem[]>(() => {
 });
 watch(lifelogDayKey, (dayKey) => {
   if (dayKey) {
+    emit('lifelogRequested');
+    if (!showHabits.value && !showHabitLifelog.value) void refreshHabitCheckins();
+    if (!showRecordsLifelog.value) void refreshMoodRecords();
+    if (!showFocusRecords.value) void refreshFocusSessions();
     void ensureCheckinNoteDatesLoaded([dayKey]);
   }
 }, { immediate: true });
@@ -3051,6 +3103,7 @@ function handleCalendarTaskDragCancel(): void {
 }
 
 function handleTaskManagerCalendarPointerDrag(event: Event): void {
+  if (!monthLayoutActive) return;
   const detail = (event as CustomEvent<TaskManagerCalendarDragDetail>).detail;
   if (!detail || (detail.phase !== 'cancel' && !detail.task)) return;
   if (detail.phase === 'start' || detail.phase === 'move') {
@@ -3157,20 +3210,13 @@ function changeLifelogTimelinePeriod(offset: number): void {
   lifelogDayKey.value = `${year}-${month}-01`;
 }
 
+let lastWheelNavigationTime = -Infinity;
 function handleWheel(event: WheelEvent) {
-  const target = event.target instanceof Element ? event.target : null;
-  if (target?.closest('.calendar-task-sidebar-list')) {
-    return;
-  }
-
-  if (lifelogDayKey.value) {
-    event.stopPropagation();
-    return;
-  }
-
-  event.preventDefault();
-  closeLifelogDay();
-  
+  if (!monthLayoutActive || monthViewportScrollable.value || lifelogDayKey.value
+    || event.ctrlKey || !event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+  const now = Date.now();
+  if (now - lastWheelNavigationTime < 200) return;
+  lastWheelNavigationTime = now;
   const daysToScroll = event.deltaY > 0 ? 7 : -7;
   const newDate = new Date(baseDate.value);
   newDate.setDate(newDate.getDate() + daysToScroll);
@@ -4103,10 +4149,6 @@ onMounted(() => {
     void refreshMoodRecords();
   }
 
-  const container = document.querySelector('.month-view');
-  if (container) {
-    eventManager.add(container as HTMLElement, 'wheel', handleWheel, 'wheel');
-  }
   eventManager.add(document, 'click', handleGlobalClick, 'globalClick');
   eventManager.add(document, 'mousemove', handleCreateSelectionMouseMove as EventListener, 'createSelectionMousemove');
   eventManager.add(document, 'mouseup', finishCreateSelection as EventListener, 'createSelectionMouseup');
@@ -4239,7 +4281,12 @@ function handleContextMenuEditTask(task: Task): void {
 defineExpose({
   updateExternalTaskDrag,
   clearExternalTaskDrag: clearDragOverState,
-  dropExternalTask
+  dropExternalTask,
+  selectSidebarDate: focusMonth,
+  startSidebarTaskDrag: handleCalendarTaskDragStart,
+  moveSidebarTaskDrag: handleCalendarTaskDragMove,
+  endSidebarTaskDrag: handleCalendarTaskDragEnd,
+  cancelSidebarTaskDrag: handleCalendarTaskDragCancel
 });
 
 onUnmounted(() => {

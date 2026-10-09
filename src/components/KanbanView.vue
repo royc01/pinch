@@ -1236,6 +1236,7 @@
       </div>
     </div>
     
+    <KeepAlive :max="2">
     <TableView 
       v-if="isTableTaskView"
       ref="tableViewRef"
@@ -1293,7 +1294,7 @@
        @group-reorder="handleTableGroupReorder"
       />
     <GanttView
-      v-if="currentView === 'gantt'"
+      v-else-if="currentView === 'gantt'"
       :tasks="ganttViewTasks"
       :goals="goalDefinitions"
       :task-groups="taskGroups"
@@ -1316,17 +1317,38 @@
       @goal-due-date-changed="handleGanttGoalDueDateChanged"
       @document-order-change="handleGanttDocumentOrderChange"
     />
+    </KeepAlive>
+     <CalendarViewShell
+       :active="isCalendarView"
+       :sidebar-collapsed="calendarSidebarCollapsed"
+       :tasks="showCalendarTasks && calendarTaskDataReady ? sharedCalendarSidebarTasks : emptyCalendarTasks"
+       :notebooks="notebooks"
+       :document-title-by-root-id="documentTitleByRootId"
+       :display-options="calendarSidebarDisplayOptions"
+       :week-starts-on-sunday="currentView === 'day' || currentView === 'three-day' ? undefined : weekStartsOnSunday"
+       :selected-start-date="calendarSidebarSelectedStartDate"
+       :selected-days-count="calendarSidebarSelectedDaysCount"
+       @task-toggle="handleKanbanTaskToggleStatus"
+       @task-edit="handleCalendarTaskEdit"
+       @date-select="activeMobileCalendarDropController?.selectSidebarDate($event)"
+       @calendar-display-toggle="toggleCalendarDisplayOption"
+       @week-start-change="handleCalendarWeekStartChange"
+       @calendar-task-drag-start="activeMobileCalendarDropController?.startSidebarTaskDrag($event)"
+       @calendar-task-drag-move="activeMobileCalendarDropController?.moveSidebarTaskDrag($event)"
+       @calendar-task-drag-end="activeMobileCalendarDropController?.endSidebarTaskDrag($event)"
+       @calendar-task-drag-cancel="activeMobileCalendarDropController?.cancelSidebarTaskDrag()"
+     >
      <KeepAlive>
      <MonthView
        ref="calendarMonthViewRef"
        v-if="currentView === 'month'"
+       shared-sidebar
        :tasks="showCalendarTasks && calendarTaskDataReady ? monthViewTasks : []"
-       :sidebar-tasks="showCalendarTasks && calendarTaskDataReady ? monthSidebarTasks : []"
        :sidebar-collapsed="calendarSidebarCollapsed"
        :week-starts-on-sunday="weekStartsOnSunday"
       :notebooks="notebooks"
       :document-title-by-root-id="documentTitleByRootId"
-      :lifelog-tasks="showCalendarTaskLifelog ? monthLifelogTasks : []"
+      :lifelog-tasks="monthLifelogTasks"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
       :show-focus-records="showCalendarFocusLifelog"
@@ -1344,6 +1366,7 @@
       @task-date-save-requested="handleCalendarTaskDateSaveRequested"
       @task-create-requested="handleCalendarTaskCreateRequested"
       @visible-range-change="handleMonthVisibleRangeChange"
+      @lifelog-requested="ensureCalendarLifelogTasksLoaded(false, true)"
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
       @week-start-change="handleCalendarWeekStartChange"
@@ -1352,13 +1375,13 @@
      <WeekView
        ref="calendarWeekViewRef"
        v-else-if="isWeekBasedCalendarView"
+       shared-sidebar
       :tasks="showCalendarTasks && calendarTaskDataReady ? activeWeekViewTasks : []"
-      :sidebar-tasks="showCalendarTasks && calendarTaskDataReady ? activeWeekSidebarTasks : []"
       :sidebar-collapsed="calendarSidebarCollapsed"
       :week-starts-on-sunday="weekStartsOnSunday"
       :notebooks="notebooks"
       :document-title-by-root-id="documentTitleByRootId"
-      :lifelog-tasks="showCalendarTaskLifelog ? activeWeekLifelogTasks : []"
+      :lifelog-tasks="activeWeekLifelogTasks"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
       :fixed-days-count="activeWeekFixedDays"
@@ -1378,12 +1401,14 @@
       @task-edit="handleCalendarTaskEdit"
       @task-create-requested="handleCalendarTaskCreateRequested"
       @visible-range-change="handleWeekVisibleRangeChange"
+      @lifelog-requested="ensureCalendarLifelogTasksLoaded(false, true)"
       @calendar-view-change="handleCalendarViewChange"
       @calendar-display-toggle="toggleCalendarDisplayOption"
       @week-start-change="handleCalendarWeekStartChange"
        @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
      />
      </KeepAlive>
+     </CalendarViewShell>
     <PersonalStatsView
       v-if="currentView === 'stats'"
       :tasks="statsViewTasks"
@@ -2024,6 +2049,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from 'vue';
+import { useTaskHeightOffsets } from '@/composables/useTaskHeightOffsets';
+import { cancelLayoutMeasurement, scheduleLayoutMeasurement } from '@/utils/layoutMeasurement';
 import { Protyle, getFrontend } from 'siyuan';
 import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, listDocsByPath, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '../api';
 import {
@@ -2140,6 +2167,7 @@ import TableView from '@/components/TableView.vue';
 import GanttView from '@/components/GanttView.vue';
 import MonthView from '@/components/MonthView.vue';
 import WeekView from '@/components/WeekView.vue';
+import CalendarViewShell from '@/components/CalendarViewShell.vue';
 import PersonalStatsView from '@/components/PersonalStatsView.vue';
 import { completePersonalStatsTask, reschedulePersonalStatsTask, resolvePersonalStatsActionTask, undoPersonalStatsTaskCompletion } from '@/utils/personalStatsTaskActions';
 import TaskManager from '@/components/TaskManager.vue';
@@ -2193,6 +2221,7 @@ import {
   matchesTaskTagFilter,
   moveTaskTagBetweenGroups,
   removeTaskTags,
+  parseTaskTagIdsAttribute,
   resolveTaskTagGroupIds,
   resolveTaskTagIds,
   toggleTaskTagSelection,
@@ -2362,6 +2391,11 @@ type MobileCalendarDropController = {
   updateExternalTaskDrag: (point: ExternalCalendarDropPoint, task?: Task) => { label: string } | null;
   clearExternalTaskDrag: () => void;
   dropExternalTask: (task: Task, point: ExternalCalendarDropPoint) => Promise<boolean>;
+  selectSidebarDate: (date: Date) => void;
+  startSidebarTaskDrag: (payload: MobileCalendarDragPayload) => void;
+  moveSidebarTaskDrag: (payload: MobileCalendarDragPayload) => void;
+  endSidebarTaskDrag: (payload: MobileCalendarDragPayload) => Promise<void>;
+  cancelSidebarTaskDrag: () => void;
 };
 type MobileCalendarDragSession = {
   active: boolean;
@@ -2776,15 +2810,17 @@ function hasTaskCompletionRecord(task: Task): boolean {
 function matchesCalendarLifelogTask(
   task: Task,
   sourceValue: string,
-  documentId: string
+  documentId: string,
+  view: CalendarTaskViewMode
 ): boolean {
   if (!isTaskIncludedByNotebookScope(task)) return false;
   if (task.type !== 'block') return false;
   if (!hasTaskCompletionRecord(task)) return false;
-  return matchesTaskBySourceAndDocument(task, sourceValue, documentId);
+  return matchesTaskBySourceAndDocument(task, sourceValue, documentId, view);
 }
 
-async function ensureCalendarLifelogTasksLoaded(forceRefresh: boolean = false): Promise<void> {
+async function ensureCalendarLifelogTasksLoaded(forceRefresh: boolean = false, requestedByPanel: boolean = false): Promise<void> {
+  if (!showCalendarTaskLifelog.value && !requestedByPanel) return;
   const repeatWindow = resolveRequestedRepeatWindowForView(currentView.value);
   if (!repeatWindow) return;
   // Completion dates can differ from occurrence dates. Reload repeat records
@@ -2802,6 +2838,7 @@ async function ensureCalendarLifelogTasksLoaded(forceRefresh: boolean = false): 
     if (requestId !== calendarLifelogLoadRequestId) {
       return;
     }
+    if (!showCalendarTaskLifelog.value && !requestedByPanel) return;
     calendarLifelogTasks.value = filterTasksByNotebookScope(allTasks);
     calendarLifelogLoadedWindow = { ...repeatWindow };
   } catch (error) {
@@ -3190,6 +3227,13 @@ const isCalendarView = computed(() =>
   || currentView.value === 'day'
   || currentView.value === 'three-day'
 );
+
+// A cached view snapshot is only a rendering shortcut. Any optimistic task
+// mutation must invalidate it, otherwise switching views can restore the
+// pre-mutation status/date until the next explicit refresh.
+function invalidateTaskSnapshotCache(): void {
+  taskSnapshotCache.clear();
+}
 const showMobileCalendarTaskDrawerButton = computed(() =>
   isMobileFrontend && isCalendarView.value
 );
@@ -3466,8 +3510,13 @@ const activeKanbanEditDraft = computed(() =>
     ? kanbanEditorDraft.value
     : null
 );
+const boardTasksByView = Object.fromEntries(
+  (['kanban', 'list', 'quadrant'] as const).map(view => [view, computed(() =>
+    tasks.value.filter(task => !task.archived && isTaskIncludedByNotebookScope(task) && matchesKanbanFilters(task, view))
+  )])
+);
 const visibleKanbanTasks = computed(() =>
-  tasks.value.filter(task => !task.archived && isTaskIncludedByNotebookScope(task) && matchesKanbanFilters(task))
+  boardTasksByView[currentView.value === 'list' ? 'list' : currentView.value === 'quadrant' ? 'quadrant' : 'kanban'].value
 );
 const quadrantTitles: Record<TaskQuadrantId, string> = {
   'important-urgent': t('quadrantView.importantUrgent'),
@@ -3540,20 +3589,40 @@ function getQuadrantSpacerStyle(quadrantId: string, quadrantTasks: Task[]): Reco
   };
 }
 
-function updateQuadrantSectionMetrics(quadrantId: string, element: HTMLElement): void {
-  const next = { scrollTop: element.scrollTop, height: element.clientHeight };
-  const previous = quadrantSectionMetrics.value[quadrantId];
-  if (previous?.scrollTop === next.scrollTop && previous.height === next.height) return;
-  quadrantSectionMetrics.value = { ...quadrantSectionMetrics.value, [quadrantId]: next };
+const quadrantSectionElements = new Map<string, HTMLElement>();
+
+function measureQuadrantSectionMetrics(): (() => void) | void {
+  if (currentView.value !== 'quadrant') return;
+  const next = { ...quadrantSectionMetrics.value };
+  let changed = false;
+  for (const [id, element] of quadrantSectionElements) {
+    const metrics = { scrollTop: element.scrollTop, height: element.clientHeight };
+    if (next[id]?.scrollTop !== metrics.scrollTop || next[id]?.height !== metrics.height) {
+      next[id] = metrics;
+      changed = true;
+    }
+  }
+  if (changed) return () => { quadrantSectionMetrics.value = next; };
 }
 
 function setQuadrantSectionTasksRef(quadrantId: string, element: HTMLElement | null): void {
-  if (element) updateQuadrantSectionMetrics(quadrantId, element);
+  if (!element) {
+    quadrantSectionElements.delete(quadrantId);
+    return;
+  }
+  if (quadrantSectionElements.get(quadrantId) === element) return;
+  quadrantSectionElements.set(quadrantId, element);
+  scheduleLayoutMeasurement(measureQuadrantSectionMetrics);
 }
 
 function handleQuadrantSectionScroll(event: Event, quadrantId: string): void {
   const element = event.target as HTMLElement | null;
-  if (element) updateQuadrantSectionMetrics(quadrantId, element);
+  if (!element) return;
+  const previous = quadrantSectionMetrics.value[quadrantId];
+  quadrantSectionMetrics.value = {
+    ...quadrantSectionMetrics.value,
+    [quadrantId]: { scrollTop: element.scrollTop, height: previous?.height || 420 }
+  };
 }
 const visibleKanbanExpandableTaskIds = computed(() =>
   visibleKanbanTasks.value
@@ -6263,8 +6332,8 @@ function scheduleDocumentScopeTreeRetryIfNeeded(): void {
   }, 420);
 }
 
-function getDocumentTabScopeStorageKey(sourceValue: string): string {
-  const viewScope = isCalendarTaskViewMode(currentView.value) ? 'calendar' : currentView.value;
+function getDocumentTabScopeStorageKey(sourceValue: string, view: TaskViewMode = currentView.value): string {
+  const viewScope = isCalendarTaskViewMode(view) ? 'calendar' : view;
   return `${viewScope}:${sourceValue}`;
 }
 
@@ -6294,11 +6363,13 @@ function matchesTaskBySource(task: Task, sourceValue: string): boolean {
   return group.members.some(member => matchesTaskDocumentMemberScope(task, member));
 }
 
-function matchesTaskBySourceAndDocument(task: Task, sourceValue: string, documentId: string = 'all'): boolean {
+function matchesTaskBySourceAndDocument(
+  task: Task, sourceValue: string, documentId: string = 'all', view: TaskViewMode = currentView.value
+): boolean {
   if (!matchesTaskBySource(task, sourceValue)) {
     return false;
   }
-  const documentScope = documentTabScopesBySource.value[getDocumentTabScopeStorageKey(sourceValue)];
+  const documentScope = documentTabScopesBySource.value[getDocumentTabScopeStorageKey(sourceValue, view)];
   if (documentScope && !taskMatchesDocumentScope(task, documentScope.id, taskDocumentPathLookup.value, documentScope)) {
     return false;
   }
@@ -6404,7 +6475,8 @@ function matchesKanbanFiltersByDocumentScope(
   if (!matchesTaskBySourceAndDocument(
     task,
     getBoardFilterTypeForView(view),
-    includeDocumentFilter ? getBoardFilterDocumentForView(view) : 'all'
+    includeDocumentFilter ? getBoardFilterDocumentForView(view) : 'all',
+    view
   )) {
     return false;
   }
@@ -6443,7 +6515,7 @@ function getDocumentTabTaskMatcher(view: TaskViewMode): DocumentOptionsTaskMatch
   }
 }
 
-function matchesGanttDocumentCandidate(task: Task, sourceValue: string): boolean {
+function matchesGanttDocumentCandidate(task: Task, sourceValue: string, view: TaskViewMode = currentView.value): boolean {
   if (task.type !== 'block') return false;
   if (task.archived) return false;
   if (!isGanttTopLevelTask(task)) return false;
@@ -6451,7 +6523,7 @@ function matchesGanttDocumentCandidate(task: Task, sourceValue: string): boolean
     return false;
   }
 
-  return matchesTaskBySourceAndDocument(task, sourceValue);
+  return matchesTaskBySourceAndDocument(task, sourceValue, 'all', view);
 }
 
 function getDocumentEntriesByNotebook(
@@ -8507,7 +8579,7 @@ const calendarTopLevelTasks = computed(() => {
 
 const ganttViewTasks = computed(() => {
   return calendarTopLevelTasks.value.filter(task => {
-    if (!matchesGanttDocumentCandidate(task, ganttFilterType.value)) {
+    if (!matchesGanttDocumentCandidate(task, ganttFilterType.value, 'gantt')) {
       return false;
     }
     if (ganttFilterDocument.value !== 'all' && !taskMatchesDocumentScope(task, ganttFilterDocument.value, taskDocumentPathLookup.value)) {
@@ -8523,7 +8595,7 @@ const monthViewTasks = computed(() => {
     if (task.type !== 'block') return false;
     if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
-    if (!matchesTaskBySourceAndDocument(task, monthFilterType.value, monthFilterDocument.value)) {
+    if (!matchesTaskBySourceAndDocument(task, monthFilterType.value, monthFilterDocument.value, 'month')) {
       return false;
     }
     
@@ -8531,30 +8603,28 @@ const monthViewTasks = computed(() => {
   });
 });
 
-const monthSidebarTasks = computed(() => {
+const emptyCalendarTasks: Task[] = [];
+const sharedCalendarSidebarTasks = computed(() => {
   return calendarTopLevelTasks.value.filter(task => {
     if (task.type !== 'block' || task.archived) return false;
-    return matchesTaskBySourceAndDocument(task, monthFilterType.value, monthFilterDocument.value);
+    return matchesTaskBySourceAndDocument(task, calendarFilterType.value, calendarFilterDocument.value, 'month');
   });
 });
 
-const weekSidebarTasks = computed(() => {
-  return calendarTopLevelTasks.value.filter(task =>
-    task.type === 'block' && !task.archived
-    && matchesTaskBySourceAndDocument(task, weekFilterType.value, weekFilterDocument.value)
-  );
+const calendarSidebarSelectedStartDate = computed(() => {
+  if (!isWeekBasedCalendarView.value) return undefined;
+  return parseTaskWindowDate(calendarRepeatWindowByView.value[currentView.value as CalendarTaskViewMode].startDate) ?? undefined;
 });
-
-const daySidebarTasks = computed(() => {
-  return calendarTopLevelTasks.value.filter(task =>
-    task.type === 'block' && !task.archived
-    && matchesTaskBySourceAndDocument(task, dayFilterType.value, dayFilterDocument.value)
-  );
+const calendarSidebarSelectedDaysCount = computed(() => {
+  if (!calendarSidebarSelectedStartDate.value) return undefined;
+  const window = calendarRepeatWindowByView.value[currentView.value as CalendarTaskViewMode];
+  const end = parseTaskWindowDate(window.endDate);
+  return end ? Math.round((end.getTime() - calendarSidebarSelectedStartDate.value.getTime()) / 86400000) + 1 : undefined;
 });
 
 const monthLifelogTasks = computed(() => {
   return calendarLifelogTasks.value.filter(task =>
-    matchesCalendarLifelogTask(task, monthFilterType.value, monthFilterDocument.value)
+    matchesCalendarLifelogTask(task, monthFilterType.value, monthFilterDocument.value, 'month')
   );
 });
 
@@ -8563,7 +8633,7 @@ const weekViewTasks = computed(() => {
     if (task.type !== 'block') return false;
     if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
-    if (!matchesTaskBySourceAndDocument(task, weekFilterType.value, weekFilterDocument.value)) {
+    if (!matchesTaskBySourceAndDocument(task, weekFilterType.value, weekFilterDocument.value, 'week')) {
       return false;
     }
     
@@ -8573,7 +8643,7 @@ const weekViewTasks = computed(() => {
 
 const weekLifelogTasks = computed(() => {
   return calendarLifelogTasks.value.filter(task =>
-    matchesCalendarLifelogTask(task, weekFilterType.value, weekFilterDocument.value)
+    matchesCalendarLifelogTask(task, weekFilterType.value, weekFilterDocument.value, 'week')
   );
 });
 
@@ -8582,7 +8652,7 @@ const dayViewTasks = computed(() => {
     if (task.type !== 'block') return false;
     if (task.archived) return false;
     if (!task.startDate && !task.dueDate) return false;
-    if (!matchesTaskBySourceAndDocument(task, dayFilterType.value, dayFilterDocument.value)) {
+    if (!matchesTaskBySourceAndDocument(task, dayFilterType.value, dayFilterDocument.value, 'day')) {
       return false;
     }
 
@@ -8592,7 +8662,7 @@ const dayViewTasks = computed(() => {
 
 const dayLifelogTasks = computed(() => {
   return calendarLifelogTasks.value.filter(task =>
-    matchesCalendarLifelogTask(task, dayFilterType.value, dayFilterDocument.value)
+    matchesCalendarLifelogTask(task, dayFilterType.value, dayFilterDocument.value, 'day')
   );
 });
 
@@ -8603,9 +8673,6 @@ const isWeekBasedCalendarView = computed(() =>
 );
 const activeWeekViewTasks = computed(() =>
   currentView.value === 'week' ? weekViewTasks.value : dayViewTasks.value
-);
-const activeWeekSidebarTasks = computed(() =>
-  currentView.value === 'week' ? weekSidebarTasks.value : daySidebarTasks.value
 );
 const activeWeekLifelogTasks = computed(() =>
   currentView.value === 'week' ? weekLifelogTasks.value : dayLifelogTasks.value
@@ -9880,8 +9947,8 @@ function matchesTableSearch(task: Task): boolean {
   return tokens.every(token => haystack.includes(token));
 }
 
-function matchesKanbanFilters(task: Task): boolean {
-  return matchesKanbanFiltersByDocumentScope(task, true) && matchesTableSearch(task);
+function matchesKanbanFilters(task: Task, view: TaskViewMode): boolean {
+  return matchesKanbanFiltersByDocumentScope(task, true, view) && matchesTableSearch(task);
 }
 
 function matchesTableFiltersByArchivedState(
@@ -9904,7 +9971,8 @@ function matchesTableFiltersByArchivedState(
   if (!matchesTaskBySourceAndDocument(
     task,
     tableFilterType.value,
-    includeDocumentFilter ? tableFilterDocument.value : 'all'
+    includeDocumentFilter ? tableFilterDocument.value : 'all',
+    archivedOnly ? 'archive-table' : 'table'
   )) return false;
   if (!archivedOnly && !showCompletedTasks.value && getTaskVisualStatus(task) === 'completed') return false;
   if (!matchesTableSearch(task)) return false;
@@ -10330,15 +10398,18 @@ function getKanbanTaskEstimatedHeight(columnId: string, task: Task): number {
     ?? estimateExpandedKanbanTaskHeight(kanbanColumnEstimatedHeights.value[columnId] || KANBAN_VIRTUAL_CARD_HEIGHT, task);
 }
 
+const kanbanHeightOffsetsByColumn = new Map<string, ReturnType<typeof useTaskHeightOffsets<Task>>>();
+
 function getKanbanTaskHeightOffsets(column: KanbanColumn, tasks: Task[]): number[] {
-  const offsets = new Array(tasks.length + 1);
-  offsets[0] = 0;
-  for (let index = 0; index < tasks.length; index += 1) {
-    const task = tasks[index];
-    const gap = index < tasks.length - 1 ? KANBAN_VIRTUAL_CARD_GAP : 0;
-    offsets[index + 1] = offsets[index] + getKanbanTaskEstimatedHeight(column.id, task) + gap;
+  let getOffsets = kanbanHeightOffsetsByColumn.get(column.id);
+  if (!getOffsets) {
+    const columnId = column.id;
+    getOffsets = useTaskHeightOffsets<Task>(
+      task => getKanbanTaskEstimatedHeight(columnId, task), KANBAN_VIRTUAL_CARD_GAP
+    );
+    kanbanHeightOffsetsByColumn.set(columnId, getOffsets);
   }
-  return offsets;
+  return getOffsets(tasks);
 }
 
 function getKanbanVirtualRange(column: KanbanColumn, tasks: Task[]) {
@@ -10696,13 +10767,10 @@ function getListTaskEstimatedHeight(task: Task): number {
     ?? estimateExpandedKanbanTaskHeight(listViewEstimatedCardHeight.value || LIST_VIRTUAL_CARD_HEIGHT, task);
 }
 
+const getListTaskHeightOffsets = useTaskHeightOffsets<Task>(getListTaskEstimatedHeight);
+
 function getListSectionHeightOffsets(section: KanbanListSection): number[] {
-  const offsets = new Array(section.tasks.length + 1);
-  offsets[0] = 0;
-  for (let index = 0; index < section.tasks.length; index += 1) {
-    offsets[index + 1] = offsets[index] + getListTaskEstimatedHeight(section.tasks[index]);
-  }
-  return offsets;
+  return getListTaskHeightOffsets(section.tasks);
 }
 
 function getListSectionEstimatedBodyHeight(section: KanbanListSection): number {
@@ -13150,6 +13218,9 @@ async function saveKanbanEditorDateFields(
           dueTime: updatedTask.dueTime,
           ...(automaticStatus ? { status: automaticStatus, statusAutomatic: true } : {})
         });
+        if (automaticStatus) {
+          syncTaskLocalStatusState(updatedTask.id, automaticStatus);
+        }
         applyKanbanEditorTaskDateChange(updatedTask);
         notifyRepeatChanged({
           blockId,
@@ -13176,6 +13247,9 @@ async function saveKanbanEditorDateFields(
       dueTime: updatedTask.dueTime,
       ...(automaticStatus ? { status: automaticStatus, statusAutomatic: true } : {})
     });
+    if (automaticStatus) {
+      syncTaskLocalStatusState(updatedTask.id, automaticStatus);
+    }
     applyKanbanEditorTaskDateChange(updatedTask);
     invalidateTableFilters();
   } catch (error) {
@@ -14180,6 +14254,8 @@ function applyExternalTaskDateChange(updatedTask: Task): void {
     crdtRepo.syncIncrementalTasks([nextTask]);
     tasks.value = applyDraggedStatusLocks(crdtRepo.getTasks());
   }
+
+  invalidateTaskSnapshotCache();
 
   if (updatedTask.repeatFrequency === 'none' && previousRepeatSeriesId) {
     rememberLocalRepeatSeriesClear(previousRepeatSeriesId);
@@ -15457,7 +15533,15 @@ function applyBroadcastAttributesToSubtasks(attributeChanges: Record<string, Rec
         if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-start-time')) subtask.startTime = attrs['custom-task-start-time'] || undefined;
         if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-due-date')) subtask.dueDate = attrs['custom-task-due-date'] || '';
         if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-due-time')) subtask.dueTime = attrs['custom-task-due-time'] || undefined;
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-tags')) {
+          subtask.tags = parseTaskTagIdsAttribute(attrs['custom-task-tags']);
+        }
         if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-group')) subtask.groupId = attrs['custom-task-group'] || undefined;
+        if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-tags') || Object.prototype.hasOwnProperty.call(attrs, 'custom-task-group')) {
+          const tagState = buildTaskTagState(subtask.tags, subtask.groupId);
+          subtask.tags = [...tagState.tagIds];
+          subtask.groupId = tagState.primaryTagId || undefined;
+        }
         if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-completed-at')) subtask.completedAt = attrs['custom-task-completed-at'] || undefined;
         if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-pinned')) subtask.pinned = attrs['custom-task-pinned'] === '1';
         if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-reminder-type')) subtask.reminderType = (attrs['custom-task-reminder-type'] || undefined) as Task['reminderType'];
@@ -15496,7 +15580,15 @@ function applyBroadcastAttributesToActiveEditor(attributeChanges: Record<string,
   if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-start-time')) activeTask.startTime = attrs['custom-task-start-time'] || undefined;
   if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-due-date')) activeTask.dueDate = attrs['custom-task-due-date'] || '';
   if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-due-time')) activeTask.dueTime = attrs['custom-task-due-time'] || undefined;
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-tags')) {
+    activeTask.tags = parseTaskTagIdsAttribute(attrs['custom-task-tags']);
+  }
   if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-group')) activeTask.groupId = attrs['custom-task-group'] || undefined;
+  if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-tags') || Object.prototype.hasOwnProperty.call(attrs, 'custom-task-group')) {
+    const tagState = buildTaskTagState(activeTask.tags, activeTask.groupId);
+    activeTask.tags = [...tagState.tagIds];
+    activeTask.groupId = tagState.primaryTagId || undefined;
+  }
   if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-completed-at')) activeTask.completedAt = attrs['custom-task-completed-at'] || undefined;
   if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-pinned')) activeTask.pinned = attrs['custom-task-pinned'] === '1';
   if (Object.prototype.hasOwnProperty.call(attrs, 'custom-task-reminder-type')) activeTask.reminderType = (attrs['custom-task-reminder-type'] || undefined) as Task['reminderType'];
@@ -15890,6 +15982,7 @@ function updateTaskLocalField<K extends keyof Task>(taskId: string, field: K, va
     });
   }
   tasks.value = applyLocalTaskFieldOverridesToList(applyDraggedStatusLocks(crdtRepo.getTasks()));
+  invalidateTaskSnapshotCache();
 }
 
 function updateTaskLocalTagState(taskId: string, tagIds: string[]): void {
@@ -15920,6 +16013,11 @@ function updateTaskLocalTagState(taskId: string, tagIds: string[]): void {
   }
   tasks.value[updatedTaskIndex].tags = [...nextTagState.tagIds];
   tasks.value[updatedTaskIndex].groupId = nextTagState.primaryTagId || undefined;
+  invalidateTaskSnapshotCache();
+  if (activeKanbanEditOverride.value?.id === taskId) {
+    activeKanbanEditOverride.value.tags = [...nextTagState.tagIds];
+    activeKanbanEditOverride.value.groupId = nextTagState.primaryTagId || undefined;
+  }
   if (kanbanEditorDraft.value?.taskId === taskId) {
     kanbanEditorDraft.value.tags = [...nextTagState.tagIds];
     kanbanEditorDraft.value.groupId = nextTagState.primaryTagId;
@@ -15936,6 +16034,13 @@ function syncTaskLocalStatusState(taskId: string, status: Task['status'], comple
   const nowTs = Date.now();
   crdtRepo.updateTaskField(taskId, 'status', status, nowTs);
   crdtRepo.updateTaskField(taskId, 'completedAt', isCompletedTaskStatus(status) ? (completedAt || nowIso) : undefined, nowTs);
+  rememberLocalTaskFieldOverride(taskId, 'status', status);
+  rememberLocalTaskFieldOverride(
+    taskId,
+    'completedAt',
+    isCompletedTaskStatus(status) ? (completedAt || nowIso) : undefined
+  );
+  invalidateTaskSnapshotCache();
   updateTasks();
   const updatedTaskIndex = tasks.value.findIndex(t => t.id === taskId);
   if (updatedTaskIndex === -1) {
@@ -18101,6 +18206,7 @@ onMounted(async () => {
     kanbanViewResizeObserver = new ResizeObserver(() => {
       updateCompactViewSwitcherMode();
       updateKanbanListColumnCount();
+      scheduleLayoutMeasurement(measureQuadrantSectionMetrics);
     });
     kanbanViewResizeObserver.observe(container);
   });
@@ -18108,6 +18214,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   isKanbanViewMounted = false;
+  cancelLayoutMeasurement(measureQuadrantSectionMetrics);
+  quadrantSectionElements.clear();
   if (deferredInitialTaskSnapshotTimer !== null) {
     window.clearTimeout(deferredInitialTaskSnapshotTimer);
     deferredInitialTaskSnapshotTimer = null;
@@ -18251,7 +18359,6 @@ watch(currentView, (nextView, previousView) => {
     if (!isCalendarTaskViewMode(previousView)) {
       calendarTaskDataReady.value = false;
     }
-    calendarRepeatWindowByView.value[nextView] = resolveDefaultRepeatWindowForView(nextView);
     void ensureCalendarLifelogTasksLoaded();
   }
   if (
@@ -18301,18 +18408,6 @@ watch(currentView, (nextView, previousView) => {
       scheduleAllKanbanMetricsUpdates();
       scheduleListViewMetricsUpdate();
     });
-    if (nextView === 'list') {
-      nextTick(() => {
-        if (currentView.value !== nextView) {
-          return;
-        }
-        const el = listViewRef.value;
-        if (el) {
-          listViewMetrics.value = { scrollTop: el.scrollTop, height: el.clientHeight };
-          updateListViewMetricsAndMeasurements(el);
-        }
-      });
-    }
     return;
   }
   if (nextView === 'table' || nextView === 'archive-table') {
@@ -18322,12 +18417,7 @@ watch(currentView, (nextView, previousView) => {
 
 watch(kanbanColumns, () => {
   nextTick(() => {
-    for (const column of kanbanColumns.value) {
-      const el = kanbanColumnElements.get(column.id);
-      if (el) {
-        updateKanbanColumnMetrics(column.id, el);
-      }
-    }
+    scheduleAllKanbanMetricsUpdates();
     scheduleKanbanTitleHydration(160);
   });
 });

@@ -1,6 +1,6 @@
-import { computed, type Ref } from 'vue';
+import { computed, ref, type ComputedRef, type Ref } from 'vue';
 import type { Task } from '@/api';
-import { createTaskDocumentScopeMatcher } from '@/utils/taskDocumentScope';
+import { createTaskDocumentScopeMatcher, type TaskDocumentScopeMatcher } from '@/utils/taskDocumentScope';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
 
 export interface TaskFilters {
@@ -10,139 +10,78 @@ export interface TaskFilters {
   archiveMode?: Ref<'active' | 'archived' | 'all'>;
 }
 
-const filterCache = new Map<string, Task[] | Record<string, Task[]>>();
-let cacheVersion = 0;
+type ArchiveMode = 'active' | 'archived' | 'all';
 
-function getTableCacheKey(
-  notebook: string,
-  document: string,
-  archiveMode: 'active' | 'archived' | 'all',
-  tasksLength: number,
-  titleVisibilityKey: string
-): string {
-  return `table:${notebook}:${document}:${archiveMode}:${tasksLength}:${titleVisibilityKey}:${cacheVersion}`;
-}
-
-function getKanbanCacheKey(
-  priority: string,
-  notebook: string,
-  document: string,
-  archiveMode: 'active' | 'archived' | 'all',
-  tasksLength: number,
-  titleVisibilityKey: string
-): string {
-  return `kanban:${priority}:${notebook}:${document}:${archiveMode}:${tasksLength}:${titleVisibilityKey}:${cacheVersion}`;
-}
-
-function getTitleVisibilityCacheKey(tasks: Task[]): string {
-  return tasks
-    // Include archive state so an in-place optimistic archive/unarchive update
-    // invalidates the derived filter cache without requiring a full reload.
-    .map(task => `${task.id}:${task.archived === true ? 1 : 0}:${hasVisibleTaskTitle(task.title) ? 1 : 0}`)
-    .join('|');
+function remember<K, V>(cache: Map<K, V>, key: K, value: V): V {
+  cache.delete(key);
+  cache.set(key, value);
+  if (cache.size > 50) {
+    cache.delete(cache.keys().next().value!);
+  }
+  return value;
 }
 
 export function useTaskFilters(tasks: Ref<Task[]>, filters: TaskFilters) {
-  const filtered = computed(() => {
-    const archiveMode = filters.archiveMode?.value || 'active';
-    const documentScope = createTaskDocumentScopeMatcher(filters.document.value, tasks.value);
-    const titleVisibilityKey = getTitleVisibilityCacheKey(tasks.value);
-    const key = getTableCacheKey(
-      filters.notebook.value,
-      documentScope.cacheKey,
-      archiveMode,
-      tasks.value.length,
-      titleVisibilityKey
-    );
-    
-    const cached = filterCache.get(key);
-    if (cached && Array.isArray(cached)) {
-      return cached;
-    }
-
-    const result = tasks.value.filter(task => {
-      if (task.type !== 'block') return false;
-      if (!hasVisibleTaskTitle(task.title)) return false;
-      if (archiveMode === 'active' && task.archived) return false;
-      if (archiveMode === 'archived' && !task.archived) return false;
-      if (filters.notebook.value !== 'all' && task.notebookId !== filters.notebook.value) {
-        return false;
-      }
-      if (!documentScope.matches(task)) {
-        return false;
-      }
-      return true;
-    });
-    
-    filterCache.set(key, result);
-    
-    if (filterCache.size > 50) {
-      const keys = Array.from(filterCache.keys());
-      keys.slice(0, 25).forEach(k => filterCache.delete(k));
-    }
-
-    return result;
+  // Cache reactive computations per collection. A cache hit must not build a
+  // fingerprint of every task, and equal-sized collections must never share
+  // results. Vue invalidates each entry when its actual task fields change.
+  const revision = ref(0);
+  const visibleTasks = computed(() => {
+    revision.value;
+    return tasks.value.filter(task => task.type === 'block' && hasVisibleTaskTitle(task.title));
   });
+  const scopes = new Map<string, ComputedRef<TaskDocumentScopeMatcher>>();
+  const taskCache = new Map<string, ComputedRef<Task[]>>();
+  const statusCache = new Map<string, ComputedRef<Record<string, Task[]>>>();
+
+  function getScope(documentId: string): TaskDocumentScopeMatcher {
+    const scope = scopes.get(documentId) || computed(() => {
+      revision.value;
+      return createTaskDocumentScopeMatcher(documentId, tasks.value);
+    });
+    return remember(scopes, documentId, scope).value;
+  }
+
+  function getFiltered(notebook: string, documentId: string, archiveMode: ArchiveMode): ComputedRef<Task[]> {
+    const key = JSON.stringify([notebook, documentId, archiveMode]);
+    const entry = taskCache.get(key) || computed(() => {
+      const scope = getScope(documentId);
+      return visibleTasks.value.filter(task => {
+        if (archiveMode === 'active' && task.archived) return false;
+        if (archiveMode === 'archived' && !task.archived) return false;
+        if (notebook !== 'all' && task.notebookId !== notebook) return false;
+        return scope.matches(task);
+      });
+    });
+    return remember(taskCache, key, entry);
+  }
+
+  const filtered = computed(() => getFiltered(
+    filters.notebook.value,
+    filters.document.value,
+    filters.archiveMode?.value || 'active'
+  ).value);
 
   const filteredByStatus = computed(() => {
-    const priorityValue = filters.priority?.value ?? 'all';
+    const notebook = filters.notebook.value;
+    const documentId = filters.document.value;
     const archiveMode = filters.archiveMode?.value || 'active';
-    const documentScope = createTaskDocumentScopeMatcher(filters.document.value, tasks.value);
-    const titleVisibilityKey = getTitleVisibilityCacheKey(tasks.value);
-    const key = getKanbanCacheKey(
-      priorityValue,
-      filters.notebook.value,
-      documentScope.cacheKey,
-      archiveMode,
-      tasks.value.length,
-      titleVisibilityKey
-    );
-    
-    const cached = filterCache.get(key);
-    if (cached && !Array.isArray(cached)) {
-      return cached as Record<string, Task[]>;
-    }
-
-    const result: Record<string, Task[]> = {
-      'pending': [],
-      'in-progress': [],
-      'delayed': [],
-      'completed': [],
-      'cancelled': []
-    };
-    
-    for (const task of tasks.value) {
-      if (!hasVisibleTaskTitle(task.title)) continue;
-      if (task.type !== 'block') continue;
-      if (archiveMode === 'active' && task.archived) continue;
-      if (archiveMode === 'archived' && !task.archived) continue;
-      if (priorityValue !== 'all' && task.priority !== priorityValue) continue;
-      if (filters.notebook.value !== 'all' && task.notebookId !== filters.notebook.value) continue;
-      if (!documentScope.matches(task)) continue;
-      
-      if (result[task.status]) {
-        result[task.status].push(task);
+    const priority = filters.priority?.value || 'all';
+    const key = JSON.stringify([notebook, documentId, archiveMode, priority]);
+    const entry = statusCache.get(key) || computed(() => {
+      const result: Record<string, Task[]> = {
+        pending: [], 'in-progress': [], delayed: [], completed: [], cancelled: []
+      };
+      for (const task of getFiltered(notebook, documentId, archiveMode).value) {
+        if (priority !== 'all' && task.priority !== priority) continue;
+        result[task.status]?.push(task);
       }
-    }
-    
-    filterCache.set(key, result);
-    
-    if (filterCache.size > 50) {
-      const keys = Array.from(filterCache.keys());
-      keys.slice(0, 25).forEach(k => filterCache.delete(k));
-    }
-
-    return result;
+      return result;
+    });
+    return remember(statusCache, key, entry).value;
   });
 
-  const invalidateCache = () => {
-    cacheVersion++;
-    filterCache.clear();
-  };
+  const invalidateCache = () => { revision.value += 1; };
 
-  return {
-    filtered,
-    filteredByStatus,
-    invalidateCache
-  };
+  return { filtered, filteredByStatus, invalidateCache };
 }

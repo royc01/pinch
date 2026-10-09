@@ -3,6 +3,8 @@ import { formatTaskTitleHtml } from '@/utils/taskTitleFormat';
 const TASK_HTML_CACHE_LIMIT = 500;
 const sanitizedHtmlCache = new Map<string, string>();
 const sanitizedTaskTitleHtmlCache = new Map<string, string>();
+const plainTaskTitleCache = new Map<string, string>();
+const PLAIN_TASK_TITLE_CACHE_LIMIT = 10000;
 
 function cacheHtml(cache: Map<string, string>, key: string, value: string): string {
   if (!cache.has(key) && cache.size >= TASK_HTML_CACHE_LIMIT) {
@@ -280,16 +282,28 @@ export function sanitizeTaskTitleHtml(rawHtml?: string): string {
  * inline formatting markup or SiYuan attribute markers.
  */
 export function getTaskTitlePlainText(rawHtml?: string): string {
-  const html = sanitizeTaskTitleHtml(rawHtml);
-  if (!html) {
-    return '';
+  const rawTitle = rawHtml || '';
+  const cached = plainTaskTitleCache.get(rawTitle);
+  if (cached !== undefined) {
+    // Keep titles used by the current dataset when another view reads them.
+    plainTaskTitleCache.delete(rawTitle);
+    plainTaskTitleCache.set(rawTitle, cached);
+    return cached;
   }
-
-  const container = document.createElement('div');
-  container.innerHTML = html;
-  return (container.textContent || container.innerText || '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let text = rawTitle;
+  // Literal titles need no HTML parser. Keep every formatting/entity marker
+  // on the existing rich-title path so both forms produce identical text.
+  if (/[<>&*_~^=$#`\[\]{}()\\\u0000-\u001f]/.test(rawTitle)) {
+    const container = document.createElement('div');
+    container.innerHTML = sanitizeTaskTitleHtml(rawHtml);
+    text = container.textContent || container.innerText || '';
+  }
+  const plainTitle = text.replace(/\s+/g, ' ').trim();
+  if (plainTaskTitleCache.size >= PLAIN_TASK_TITLE_CACHE_LIMIT) {
+    plainTaskTitleCache.delete(plainTaskTitleCache.keys().next().value!);
+  }
+  plainTaskTitleCache.set(rawTitle, plainTitle);
+  return plainTitle;
 }
 
 function stripTaskPrefix(text: string): string {

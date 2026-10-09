@@ -1,3 +1,5 @@
+import { MinHeap } from './calendarTaskPositions';
+
 export interface OverlapLaneAssignment {
   laneIndex: number;
   laneCount: number;
@@ -31,20 +33,19 @@ export function assignOverlapLanes<T extends object>(
   const flushCluster = () => {
     if (cluster.length === 0) return;
 
-    const laneEnds: number[] = [];
+    const active = new MinHeap<{ end: number; laneIndex: number }>((a, b) => a.end - b.end);
+    const available = new MinHeap<number>((a, b) => a - b);
+    let laneCount = 0;
     const assigned: Array<{ item: T; laneIndex: number }> = [];
     for (const entry of cluster) {
-      let laneIndex = laneEnds.findIndex(end => end <= entry.start);
-      if (laneIndex === -1) {
-        laneIndex = laneEnds.length;
-        laneEnds.push(entry.end);
-      } else {
-        laneEnds[laneIndex] = entry.end;
+      while (active.peek() && active.peek()!.end <= entry.start) {
+        available.push(active.pop()!.laneIndex);
       }
+      const laneIndex = available.pop() ?? laneCount++;
+      active.push({ end: entry.end, laneIndex });
       assigned.push({ item: entry.item, laneIndex });
     }
 
-    const laneCount = Math.max(1, laneEnds.length);
     for (const { item, laneIndex } of assigned) {
       result.push({ ...item, laneIndex, laneCount });
     }

@@ -885,7 +885,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
+import { cancelLayoutMeasurement, scheduleLayoutMeasurement } from '@/utils/layoutMeasurement';
+import { ref, computed, nextTick, watch, onActivated, onDeactivated, onMounted, onUnmounted } from 'vue';
 import { getFocusTimerData, Task, TaskGroup, type FocusSessionRecord } from '@/api';
 import TaskCheckbox from '@/components/TaskCheckbox.vue';
 import Icon from '@/components/Icon.vue';
@@ -1337,8 +1338,6 @@ const tableScrollTop = ref(0);
 const tableViewportHeight = ref(0);
 const tableRowHeights = ref<Record<string, number>>({});
 const tableVisibleRowElements = new Map<string, HTMLTableRowElement>();
-let tableMetricsRaf: number | null = null;
-let tableMeasureRaf: number | null = null;
 let tableScrollSettleTimer: number | null = null;
 let tableContainerResizeObserver: ResizeObserver | null = null;
 let isTableScrollActive = false;
@@ -1844,8 +1843,7 @@ function isVirtualTaskForToday(task: Task): boolean {
   return false;
 }
 
-function compareTasksDefault(a: Task, b: Task, domOrderMap?: Map<string, number>): number {
-  const todayStart = getTodayStartTimestamp();
+function compareTasksDefault(a: Task, b: Task, domOrderMap: Map<string, number>, todayStart: number): number {
   const isACompleted = a.status === 'completed';
   const isBCompleted = b.status === 'completed';
 
@@ -2066,8 +2064,9 @@ function compareOptionalTableText(left: string, right: string): number {
 
 const sortedTasks = computed(() => {
   const domOrderMap = buildLiveTaskDomOrderMap();
+  const todayStart = getTodayStartTimestamp();
   if (!sortColumn.value) {
-    const tasks = [...displayableTasks.value].sort((a, b) => compareTasksDefault(a, b, domOrderMap));
+    const tasks = [...displayableTasks.value].sort((a, b) => compareTasksDefault(a, b, domOrderMap, todayStart));
     if (props.taskSortBy && props.taskSortBy !== 'default') {
       return sortTasksKeepingPinnedManualOrder(
         tasks,
@@ -2079,7 +2078,7 @@ const sortedTasks = computed(() => {
     return applyManualTaskOrderWithinGroups(
       tasks,
       props.manualTaskOrder || [],
-      task => getDefaultTaskManualOrderGroupKey(task, task.status, getTodayStartTimestamp())
+      task => getDefaultTaskManualOrderGroupKey(task, task.status, todayStart)
     );
   }
 
@@ -2980,7 +2979,7 @@ const tableVirtualRange = computed(() => {
   if (!shouldUseTableVirtualList.value) {
     return { start: 0, end: rows.length, top: 0, bottom: 0 };
   }
-  const viewportHeight = tableViewportHeight.value || tableContainerRef.value?.clientHeight || 600;
+  const viewportHeight = tableViewportHeight.value || 600;
   const scrollTop = tableScrollTop.value;
   const { tops, bottoms, total } = tableRowMetrics.value;
   const firstVisibleIndex = findTableRowStartIndex(bottoms, scrollTop);
@@ -3221,16 +3220,22 @@ function handleColumnDragEnd(): void {
   clearColumnDragClasses();
 }
 
-function syncTableViewportMetrics(): void {
+function readTableViewportMetrics(): (() => void) | void {
+  if (!isTableViewActive) return;
   const container = tableContainerRef.value;
   if (!container) {
     return;
   }
-  tableScrollTop.value = container.scrollTop;
-  tableViewportHeight.value = container.clientHeight;
+  const scrollTop = container.scrollTop;
+  const height = container.clientHeight;
+  return () => {
+    tableScrollTop.value = scrollTop;
+    if (height > 0) tableViewportHeight.value = height;
+  };
 }
 
-function measureVisibleTableRowHeights(): void {
+function measureVisibleTableRowHeights(): (() => void) | void {
+  if (!isTableViewActive) return;
   if (!shouldUseTableVirtualList.value) {
     return;
   }
@@ -3257,25 +3262,17 @@ function measureVisibleTableRowHeights(): void {
     nextHeights[heightKey] = nextHeight;
   }
   if (nextHeights) {
-    tableRowHeights.value = nextHeights;
+    const measuredHeights = nextHeights;
+    return () => { tableRowHeights.value = measuredHeights; };
   }
 }
 
 function scheduleTableRowMeasurement(): void {
-  if (!shouldUseTableVirtualList.value) {
-    if (tableMeasureRaf !== null) {
-      cancelAnimationFrame(tableMeasureRaf);
-      tableMeasureRaf = null;
-    }
+  if (!isTableViewActive || !shouldUseTableVirtualList.value) {
+    cancelLayoutMeasurement(measureVisibleTableRowHeights);
     return;
   }
-  if (tableMeasureRaf !== null) {
-    cancelAnimationFrame(tableMeasureRaf);
-  }
-  tableMeasureRaf = window.requestAnimationFrame(() => {
-    tableMeasureRaf = null;
-    measureVisibleTableRowHeights();
-  });
+  scheduleLayoutMeasurement(measureVisibleTableRowHeights);
 }
 
 function scheduleTableScrollSettle(): void {
@@ -3289,14 +3286,12 @@ function scheduleTableScrollSettle(): void {
   }, 140);
 }
 
+function syncTableViewportMetrics(): void {
+  if (isTableViewActive) scheduleLayoutMeasurement(readTableViewportMetrics);
+}
+
 function scheduleTableViewportMetrics(): void {
-  if (tableMetricsRaf !== null) {
-    cancelAnimationFrame(tableMetricsRaf);
-  }
-  tableMetricsRaf = window.requestAnimationFrame(() => {
-    tableMetricsRaf = null;
-    syncTableViewportMetrics();
-  });
+  syncTableViewportMetrics();
 }
 
 function handleTableViewportResize(): void {
@@ -3305,11 +3300,7 @@ function handleTableViewportResize(): void {
   scheduleTableRowMeasurement();
   if (!hasManualColumnWidths.value) {
     defaultTableColumnWidths.value = {};
-    nextTick(() => {
-      window.requestAnimationFrame(() => {
-        syncDefaultTableColumnWidths();
-      });
-    });
+    nextTick(syncDefaultTableColumnWidths);
   }
 }
 
@@ -3368,14 +3359,18 @@ function captureTableColumnWidths(): Partial<Record<TableColumnKey, number>> {
   return nextWidths;
 }
 
-function syncDefaultTableColumnWidths(): void {
-  if (hasManualColumnWidths.value) {
+function readDefaultTableColumnWidths(): (() => void) | void {
+  if (!isTableViewActive || hasManualColumnWidths.value) {
     return;
   }
   const capturedWidths = captureTableColumnWidths();
   if (Object.keys(capturedWidths).length > 0) {
-    defaultTableColumnWidths.value = capturedWidths;
+    return () => { defaultTableColumnWidths.value = capturedWidths; };
   }
+}
+
+function syncDefaultTableColumnWidths(): void {
+  if (isTableViewActive) scheduleLayoutMeasurement(readDefaultTableColumnWidths);
 }
 
 function getDefaultTableColumnWidths(): Partial<Record<TableColumnKey, number>> {
@@ -3715,10 +3710,14 @@ watch(
   }
 );
 
-onMounted(() => {
-  void hydrateTableColumnVisibility();
+let isTableViewActive = false;
+
+function activateTableView(): void {
+  if (isTableViewActive) return;
+  isTableViewActive = true;
   void refreshTaskFocusDurations();
   nextTick(() => {
+    if (!isTableViewActive) return;
     syncTableViewportMetrics();
     isTableScrollActive = false;
     scheduleTableRowMeasurement();
@@ -3733,23 +3732,25 @@ onMounted(() => {
   window.addEventListener('blur', resetTableDragState);
   document.addEventListener('dragend', resetTableDragState, true);
   document.addEventListener('mousedown', handleDocumentMouseDown);
-});
+}
 
-onUnmounted(() => {
-  focusDurationLoadVersion += 1;
-  repeatRuleLoadVersion += 1;
-  tableColumnVisibilityLoadVersion += 1;
+function deactivateTableView(): void {
+  isTableViewActive = false;
+  closeDatePopover();
+  closeTimePopover();
+  priorityPopover.value = null;
+  statusPopover.value = null;
+  groupPopover.value = null;
+  goalPopover.value = null;
+  repeatEditorVisible.value = false;
+  columnSettingsVisible.value = false;
+  resetTableDragState();
   activeColumnResize = null;
   activeResizeColumn.value = null;
   cleanupColumnResizeInteraction();
-  if (tableMetricsRaf !== null) {
-    cancelAnimationFrame(tableMetricsRaf);
-    tableMetricsRaf = null;
-  }
-  if (tableMeasureRaf !== null) {
-    cancelAnimationFrame(tableMeasureRaf);
-    tableMeasureRaf = null;
-  }
+  cancelLayoutMeasurement(readTableViewportMetrics);
+  cancelLayoutMeasurement(measureVisibleTableRowHeights);
+  cancelLayoutMeasurement(readDefaultTableColumnWidths);
   if (tableScrollSettleTimer !== null) {
     clearTimeout(tableScrollSettleTimer);
     tableScrollSettleTimer = null;
@@ -3761,6 +3762,19 @@ onUnmounted(() => {
   window.removeEventListener('blur', resetTableDragState);
   document.removeEventListener('dragend', resetTableDragState, true);
   document.removeEventListener('mousedown', handleDocumentMouseDown);
+}
+
+onMounted(() => {
+  void hydrateTableColumnVisibility();
+  activateTableView();
+});
+onActivated(activateTableView);
+onDeactivated(deactivateTableView);
+onUnmounted(() => {
+  focusDurationLoadVersion += 1;
+  repeatRuleLoadVersion += 1;
+  tableColumnVisibilityLoadVersion += 1;
+  deactivateTableView();
 });
 
 function toggleSort(column: SortableColumn) {

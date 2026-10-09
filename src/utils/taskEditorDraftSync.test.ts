@@ -77,4 +77,34 @@ describe('task editor draft sync', () => {
     });
     expect('pinned' in kanbanDraft).toBe(false);
   });
+
+  it('uses broadcast tag attributes when the active view task snapshot is stale', () => {
+    const draft = {
+      taskId: 'task-1',
+      status: 'pending' as Task['status'],
+      priority: 'none' as Task['priority'],
+      pinned: false,
+      startDate: '',
+      startTime: '',
+      dueDate: '',
+      dueTime: '',
+      description: '',
+      reminderType: undefined,
+      reminderCustomTime: '',
+      tags: [],
+      groupId: ''
+    };
+
+    const staleTask = { ...task, tags: [], groupId: '' };
+    const changed = syncTaskEditorDraftFromAttributeChanges(staleTask, draft, {
+      'block-1': {
+        'custom-task-tags': '["tag-a"]',
+        'custom-task-group': ''
+      }
+    });
+
+    expect(changed).toBe(true);
+    expect(draft.tags).toEqual(['tag-a']);
+    expect(draft.groupId).toBe('tag-a');
+  });
 });
