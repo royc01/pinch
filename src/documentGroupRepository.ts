@@ -13,6 +13,8 @@ export interface DocumentGroup {
   id: string;
   name: string;
   emoji?: string;
+  /** Hide this group from task source pickers while keeping it manageable here. */
+  hidden?: boolean;
   members: DocumentGroupMember[];
   /** Explicit opt-outs from a selected ancestor document. */
   excludedDocumentKeys?: string[];
@@ -36,6 +38,7 @@ let documentGroupsReadFailure: Error | null = null;
 function cloneDocumentGroup(group: DocumentGroup): DocumentGroup {
   return {
     ...group,
+    hidden: group.hidden === true ? true : undefined,
     members: group.members.map(member => ({ ...member })),
     excludedDocumentKeys: group.excludedDocumentKeys ? [...group.excludedDocumentKeys] : undefined
   };
@@ -129,6 +132,9 @@ function assertValidDocumentGroups(input: unknown): asserts input is unknown[] {
     }
     if (group.emoji !== undefined && typeof group.emoji !== 'string') {
       throw new Error(`[DocumentGroups] Invalid emoji for group at index ${groupIndex}`);
+    }
+    if (group.hidden !== undefined && typeof group.hidden !== 'boolean') {
+      throw new Error(`[DocumentGroups] Invalid hidden for group at index ${groupIndex}`);
     }
     if (group.order !== undefined && (typeof group.order !== 'number' || !Number.isFinite(group.order))) {
       throw new Error(`[DocumentGroups] Invalid order for group at index ${groupIndex}`);
@@ -253,6 +259,7 @@ function normalizeDocumentGroups(input: unknown): DocumentGroup[] {
 
     const members = normalizeDocumentGroupMembers(group.members);
     const excludedDocumentKeys = normalizeExcludedDocumentKeys(group.excludedDocumentKeys);
+    const hidden = group.hidden === true;
     const emoji = typeof group.emoji === 'string' && group.emoji.trim().length > 0
       ? group.emoji.trim()
       : '📁';
@@ -266,6 +273,7 @@ function normalizeDocumentGroups(input: unknown): DocumentGroup[] {
       id,
       name,
       emoji,
+      hidden,
       members,
       excludedDocumentKeys,
       order,

@@ -1,3 +1,52 @@
+.protyle-wysiwyg [data-type="NodeParagraph"] > .protyle-attr:has(> .pinch-document-task-badges) {
+  position: static;
+  opacity: 1;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+  text-align: left;
+}
+
+.pinch-document-task-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  user-select: none !important;
+  cursor: pointer;
+  line-height: 18px;
+}
+
+.pinch-document-task-badge {
+  display: inline-block;
+  max-width: min(240px, 45vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 18px;
+  background: var(--b3-theme-surface);
+  color: var(--b3-theme-on-surface);
+
+  &:focus-visible {
+    outline: 1px solid var(--b3-theme-primary);
+    outline-offset: 2px;
+  }
+
+  &.is-overdue {
+    background: var(--pinch-background10);
+    color: var(--pinch-font-color10);
+  }
+}
+
+@media print {
+  .pinch-document-task-badges { display: none; }
+}
+
 :root {
   --pinch-background1-color: rgba(100, 71, 58, 0.15);
   --pinch-background2-color: rgba(219, 124, 28, 0.15);

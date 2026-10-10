@@ -1,6 +1,7 @@
 import type {
   CalDavRequestParams,
   CalDavResponse,
+  CalendarComponent,
   CalendarSyncConfig,
   CalendarSyncEvent
 } from '@/calendarSyncTypes';
@@ -162,7 +163,7 @@ function getResponseHref(documentValue: XMLDocument): string {
   return '';
 }
 
-function parseCalendarCollections(documentValue: XMLDocument, baseUrl: string): DiscoveredCalendar[] {
+function parseCalendarCollections(documentValue: XMLDocument, baseUrl: string, component: CalendarComponent): DiscoveredCalendar[] {
   const calendars: DiscoveredCalendar[] = [];
   for (const response of Array.from(documentValue.getElementsByTagNameNS('*', 'response'))) {
     const resourceType = response.getElementsByTagNameNS('*', 'resourcetype')[0];
@@ -171,18 +172,18 @@ function parseCalendarCollections(documentValue: XMLDocument, baseUrl: string): 
     if (!href) continue;
     const displayName = getElementText(response, 'displayname') || undefined;
     const url = normalizeCalendarUrl(new URL(href, baseUrl).toString());
-    if (!supportsCalendarEvents(response)) continue;
+    if (!supportsCalendarComponent(response, component)) continue;
     if (!calendars.some(calendar => calendar.url === url)) calendars.push({ url, displayName });
   }
   return calendars;
 }
 
-function supportsCalendarEvents(element: Element | XMLDocument): boolean {
+function supportsCalendarComponent(element: Element | XMLDocument, component: CalendarComponent): boolean {
   const supported = element.getElementsByTagNameNS('*', 'supported-calendar-component-set')[0];
   // Older servers omit this optional property. An explicit component set is
-  // authoritative, including an empty set: VTODO collections cannot hold VEVENT.
+  // authoritative, including an empty set.
   return !supported || Array.from(supported.getElementsByTagNameNS('*', 'comp'))
-    .some(component => component.getAttribute('name')?.toUpperCase() === 'VEVENT');
+    .some(item => item.getAttribute('name')?.toUpperCase() === component);
 }
 
 function parseXmlResponse(body: string, operation: string, requireComplete = false, allowMissingCalendarData = false): XMLDocument {
@@ -213,7 +214,7 @@ async function discoverCalendarCollectionsAt(
   });
   assertSuccess(principalResponse, 'CalDAV principal discovery', config);
   const principalDocument = parseXmlResponse(principalResponse.body, 'CalDAV principal discovery');
-  const directCalendars = parseCalendarCollections(principalDocument, serverUrl);
+  const directCalendars = parseCalendarCollections(principalDocument, serverUrl, config.caldavComponent || 'VEVENT');
   if (directCalendars.length) return directCalendars;
 
   const currentPrincipal = principalDocument.getElementsByTagNameNS('*', 'current-user-principal')[0];
@@ -240,7 +241,7 @@ async function discoverCalendarCollectionsAt(
     }
     if (homeResponse.status >= 200 && homeResponse.status < 300) {
       const homeDocument = parseXmlResponse(homeResponse.body, 'CalDAV calendar home discovery');
-      const calendars = parseCalendarCollections(homeDocument, startingUrl);
+      const calendars = parseCalendarCollections(homeDocument, startingUrl, config.caldavComponent || 'VEVENT');
       if (calendars.length) return calendars;
       const home = getPropertyHref(homeDocument, 'calendar-home-set');
       homeUrl = home ? normalizeCalendarUrl(new URL(home, startingUrl).toString()) : startingUrl;
@@ -259,9 +260,9 @@ async function listCalendarCollections(config: CalendarSyncConfig, homeUrl: stri
   });
   assertSuccess(listResponse, 'CalDAV calendar discovery', config);
   const listDocument = parseXmlResponse(listResponse.body, 'CalDAV calendar discovery');
-  const calendars = parseCalendarCollections(listDocument, homeUrl);
+  const calendars = parseCalendarCollections(listDocument, homeUrl, config.caldavComponent || 'VEVENT');
   if (!calendars.length) {
-    throw new Error('No CalDAV calendar supporting VEVENT was found');
+    throw new Error(`No CalDAV calendar supporting ${config.caldavComponent || 'VEVENT'} was found`);
   }
   return calendars;
 }
@@ -298,7 +299,7 @@ export async function testCalendarDavConnection(config: CalendarSyncConfig): Pro
   assertSuccess(response, 'CalDAV connection', config);
   const documentValue = parseXmlResponse(response.body, 'CalDAV connection');
   const isCalendarCollection = Array.from(documentValue.getElementsByTagNameNS('*', 'calendar')).length > 0;
-  if (isCalendarCollection && supportsCalendarEvents(documentValue)) return calendarUrl;
+  if (isCalendarCollection && supportsCalendarComponent(documentValue, config.caldavComponent || 'VEVENT')) return calendarUrl;
   return selectCalendar(await discoverCalendarCollections(config), calendarUrl);
 }
 
@@ -313,7 +314,9 @@ export async function listManagedCalendarEvents(config: CalendarSyncConfig): Pro
       '<?xml version="1.0" encoding="utf-8"?>',
       '<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">',
       '<d:prop><d:getetag/><c:calendar-data/></d:prop>',
-      '<c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"/></c:comp-filter></c:filter>',
+      // Read both managed component types so changing the format updates the
+      // existing resource by UID instead of creating duplicates or conflicts.
+      '<c:filter><c:comp-filter name="VCALENDAR"/></c:filter>',
       '</c:calendar-query>'
     ].join('')
   };
@@ -340,7 +343,8 @@ export async function listManagedCalendarEvents(config: CalendarSyncConfig): Pro
       missingData.push({ href: resourceHref, etag: getElementText(item, 'getetag') || undefined });
       continue;
     }
-    if (getIcsProperty(calendarData, 'X-PINCH-MANAGED').toUpperCase() !== 'TRUE') continue;
+    if (!/(?:^|\r?\n)BEGIN:(?:VEVENT|VTODO)(?:\r?\n|$)/i.test(calendarData)
+      || getIcsProperty(calendarData, 'X-PINCH-MANAGED').toUpperCase() !== 'TRUE') continue;
     const uid = getIcsProperty(calendarData, 'UID');
     const href = getElementText(item, 'href');
     if (!uid || !href) continue;
@@ -367,7 +371,8 @@ export async function listManagedCalendarEvents(config: CalendarSyncConfig): Pro
       if (!href || !calendarData) continue;
       const absoluteHref = new URL(href, calendarUrl).toString();
       retrieved.add(absoluteHref);
-      if (getIcsProperty(calendarData, 'X-PINCH-MANAGED').toUpperCase() !== 'TRUE') continue;
+      if (!/(?:^|\r?\n)BEGIN:(?:VEVENT|VTODO)(?:\r?\n|$)/i.test(calendarData)
+        || getIcsProperty(calendarData, 'X-PINCH-MANAGED').toUpperCase() !== 'TRUE') continue;
       const uid = getIcsProperty(calendarData, 'UID');
       if (uid) entries.push({ uid, href: absoluteHref, etag: getElementText(item, 'getetag') || undefined, fingerprint: getIcsProperty(calendarData, 'X-PINCH-FINGERPRINT') || undefined });
     }

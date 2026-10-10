@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reactive, ref } from 'vue';
 import type { Task } from '@/api';
 
+const settingsMocks = vi.hoisted(() => ({ load: vi.fn() }));
 vi.mock('@/main', () => ({ usePlugin: () => ({ loadData: vi.fn().mockResolvedValue(null), saveData: vi.fn() }), openHabitTrackerFocusTimer: vi.fn() }));
 vi.mock('@/composables/useGoals', () => ({ useGoals: () => ({
   goalDefinitions: ref([]), goalDocuments: ref([]), goalTasks: ref([]), goalItems: ref([]),
@@ -13,7 +14,7 @@ vi.mock('@/composables/useUserSettings', async () => {
   const { DEFAULT_SETTINGS } = await import('@/utils/userSettings');
   const settings = reactive(structuredClone(DEFAULT_SETTINGS));
   settings.kanban.currentView = 'week';
-  return { useUserSettings: () => ({ data: settings, loadSettings: vi.fn(), updateSettings: vi.fn() }) };
+  return { useUserSettings: () => ({ data: settings, loadSettings: settingsMocks.load, updateSettings: vi.fn() }) };
 });
 vi.mock('@/kernelBridge', async importOriginal => ({
   ...await importOriginal<Record<string, unknown>>(), refreshKernelTaskIndex: vi.fn()
@@ -27,6 +28,7 @@ const { TaskRepository } = await import('@/api');
 const { resetCrdtRepository } = await import('@/crdtStore');
 const { default: KanbanView } = await import('../KanbanView.vue');
 const { default: WeekView } = await import('../WeekView.vue');
+const { default: MonthView } = await import('../MonthView.vue');
 const { CALENDAR_CONSTANTS } = await import('@/composables/useCalendarConstants');
 const { eventBus, Events } = await import('@/utils/eventBus');
 
@@ -42,6 +44,7 @@ describe('calendar tasks across view switches', () => {
   const elementsFromPointDescriptor = Object.getOwnPropertyDescriptor(document, 'elementsFromPoint');
 
   beforeEach(() => {
+    settingsMocks.load.mockReset().mockResolvedValue(undefined);
     resetCrdtRepository();
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 9, 9, 12));
@@ -167,6 +170,53 @@ describe('calendar tasks across view switches', () => {
     expect(state.monthViewTasks).toBe(scoped);
     state.currentView = 'day';
     expect(state.dayViewTasks).toBe(scoped);
+  });
+
+  it('opens and reuses the month view at the requested local date without replaying navigation or changing scope', async () => {
+    wrapper = shallowMount(KanbanView, {
+      global: { stubs: { CalendarViewShell: false, MonthView: false, KeepAlive: false } }
+    });
+    await flushPromises();
+    const state = (wrapper.vm.$ as any).setupState;
+    state.currentView = 'table';
+    state.calendarFilterType = 'all';
+    state.calendarFilterDocument = 'doc';
+    await flushPromises();
+    const request = { view: 'month', date: '2026-11-27' };
+    eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, request);
+    await flushPromises();
+    const month = wrapper.findComponent(MonthView);
+    expect(state.currentView).toBe('month');
+    expect(state.calendarFilterDocument).toBe('doc');
+    expect(month.find('[data-day-key="2026-11-27"]').classes()).not.toContain('focused-date');
+    const uid = month.vm.$.uid;
+    const focus = vi.spyOn(state.calendarMonthViewRef, 'focusDate');
+    eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, request);
+    await flushPromises();
+    expect(focus).not.toHaveBeenCalled();
+    eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, { view: 'month', date: '2026-11-03' });
+    await flushPromises();
+    expect(focus).toHaveBeenCalledOnce();
+    expect(focus).toHaveBeenLastCalledWith(new Date(2026, 10, 3));
+    expect(wrapper.findComponent(MonthView).vm.$.uid).toBe(uid);
+    expect(month.find('[data-day-key="2026-11-03"]').exists()).toBe(true);
+    eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, { view: 'month', date: '2026-02-30' });
+    await flushPromises();
+    expect(focus).toHaveBeenCalledOnce();
+    expect(month.find('[data-day-key="2026-11-03"]').exists()).toBe(true);
+  });
+
+  it('retains a date navigation request received before initial settings finish loading', async () => {
+    let finishSettings!: () => void;
+    settingsMocks.load.mockImplementationOnce(() => new Promise<void>(resolve => { finishSettings = resolve; }));
+    wrapper = shallowMount(KanbanView, {
+      global: { stubs: { CalendarViewShell: false, MonthView: false, KeepAlive: false } }
+    });
+    eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, { view: 'month', date: '2026-08-12' });
+    finishSettings();
+    await flushPromises();
+    expect((wrapper.vm.$ as any).setupState.currentView).toBe('month');
+    expect(wrapper.findComponent(MonthView).find('[data-day-key="2026-08-12"]').exists()).toBe(true);
   });
 
   it('invalidates covered log reads on deletion and rejects a snapshot requested before the mutation', async () => {

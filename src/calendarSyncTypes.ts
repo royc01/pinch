@@ -1,6 +1,7 @@
 export type CalendarTransport = 'auto' | 'direct' | 'proxy';
 export type CalendarSyncInterval = 'manual' | '15min' | 'hourly' | '4hour' | '12hour' | 'daily' | 'dailyAt';
 export type CalendarProvider = 'caldav' | 'google' | 'microsoft';
+export type CalendarComponent = 'VEVENT' | 'VTODO';
 
 export interface CalendarCloudConfig {
   enabled: boolean;
@@ -25,6 +26,7 @@ export interface CalendarCloudConfig {
 export interface CalendarSyncConfig {
   enabled: boolean;
   provider?: CalendarProvider;
+  caldavComponent?: CalendarComponent;
   calendarUrl: string;
   username: string;
   password: string;

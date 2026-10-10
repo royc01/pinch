@@ -22,7 +22,7 @@
           >
           <div
             class="document-group-item"
-            :class="{ active: group.id === activeGroupId }"
+            :class="{ active: group.id === activeGroupId, 'is-hidden': group.hidden === true }"
             role="button"
             tabindex="0"
             @click="toggleGroupPanel(group.id)"
@@ -47,6 +47,25 @@
                 @update:model-value="updateGroupName(group.id, $event)"
               />
               <span class="document-group-count">{{ group.members.length }}</span>
+              <button
+                type="button"
+                class="document-group-action document-group-visibility ariaLabel"
+                :aria-label="t(group.hidden ? 'documentGroup.showGroup' : 'documentGroup.hideGroup')"
+                :title="t(group.hidden ? 'documentGroup.showGroup' : 'documentGroup.hideGroup')"
+                @click.stop="toggleGroupHidden(group.id)"
+              >
+                <Icon :name="group.hidden ? 'eyeOff' : 'eye'" width="16" height="16" />
+              </button>
+              <button
+                type="button"
+                class="document-group-action document-group-archive ariaLabel"
+                :aria-label="t('documentGroup.archiveGroup')"
+                :title="t('documentGroup.archiveGroup')"
+                :disabled="archivingGroupIds.has(group.id)"
+                @click.stop="void archiveGroupTasks(group.id)"
+              >
+                <Icon name="archive" width="16" height="16" />
+              </button>
               <button
                 type="button"
                 class="document-group-delete ariaLabel"
@@ -206,8 +225,10 @@ import EmojiIcon from '@/components/EmojiIcon.vue';
 import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
+import { TaskRepository, type Task } from '@/api';
 import type { DocumentGroup } from '@/documentGroupRepository';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
+import { buildTaskDocumentPathLookup, taskMatchesDocumentScope } from '@/utils/taskDocumentScope';
 import {
   invalidateFiletreeDocumentTree,
   loadFiletreeDocumentTree
@@ -243,6 +264,7 @@ interface Props {
   groups: DocumentGroup[];
   documents: DocumentGroupManagerDocument[];
   allDocuments?: DocumentGroupManagerDocument[];
+  tasks?: Task[];
   documentsRefreshing?: boolean;
 }
 
@@ -266,6 +288,7 @@ const collapsedNotebookIds = ref(new Set<string>());
 const documentTreeDocuments = ref<DocumentGroupManagerDocument[]>([]);
 const documentTreeLoading = ref(false);
 let documentTreeRequestId = 0;
+const archivingGroupIds = ref(new Set<string>());
 
 // The SQL snapshot normally already has the data needed for the first tree
 // render. Limit expensive file-tree walks to changes in the notebooks being
@@ -310,6 +333,92 @@ function emitGroups(nextGroups: DocumentGroup[]): void {
   const cloned = cloneGroups(nextGroups);
   localGroups.value = cloned;
   emit('update:groups', cloned);
+}
+
+function toggleGroupHidden(groupId: string): void {
+  emitGroups(localGroups.value.map(group => (
+    group.id === groupId ? { ...group, hidden: group.hidden !== true } : group
+  )));
+}
+
+const taskDocumentPathLookup = computed(() => buildTaskDocumentPathLookup(props.tasks || []));
+
+function isTaskInDocumentGroup(group: DocumentGroup, task: Task): boolean {
+  if (task.type !== 'block' || task.archived === true || task.isVirtual) {
+    return false;
+  }
+
+  const excluded = (group.excludedDocumentKeys || []).some(key => {
+    const separator = key.indexOf(':');
+    if (separator <= 0) return false;
+    const notebookId = key.slice(0, separator);
+    const documentId = key.slice(separator + 1);
+    return task.notebookId === notebookId && taskMatchesDocumentScope(
+      task,
+      documentId,
+      taskDocumentPathLookup.value,
+      { notebookId }
+    );
+  });
+  if (excluded) {
+    return false;
+  }
+
+  return group.members.some(member => {
+    if (member.notebookId && task.notebookId !== member.notebookId) return false;
+    return taskMatchesDocumentScope(
+      task,
+      member.documentId,
+      taskDocumentPathLookup.value,
+      { notebookId: member.notebookId, path: member.path }
+    );
+  });
+}
+
+function getArchivableGroupTasks(group: DocumentGroup): Task[] {
+  const seen = new Set<string>();
+  return (props.tasks || []).filter(task => {
+    if (seen.has(task.id) || !isTaskInDocumentGroup(group, task)) {
+      return false;
+    }
+    seen.add(task.id);
+    return true;
+  });
+}
+
+async function archiveGroupTasks(groupId: string): Promise<void> {
+  const group = localGroups.value.find(item => item.id === groupId);
+  if (!group || archivingGroupIds.value.has(groupId)) {
+    return;
+  }
+
+  const tasks = getArchivableGroupTasks(group);
+  const taskLabel = formatTemplate('documentGroup.archiveTaskCount', { count: tasks.length });
+  if (!confirm(`${t('documentGroup.confirmArchivePrefix')}“${group.name || t('documentGroup.untitledGroup')}”？\n${taskLabel}`)) {
+    return;
+  }
+
+  const nextArchiving = new Set(archivingGroupIds.value);
+  nextArchiving.add(groupId);
+  archivingGroupIds.value = nextArchiving;
+  try {
+    const results = await Promise.allSettled(tasks.map(task => TaskRepository.archiveTask(task.id, 'manual')));
+    const archivedAt = new Date().toISOString();
+    results.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return;
+      tasks[index].archived = true;
+      tasks[index].archivedAt = archivedAt;
+      tasks[index].archiveReason = 'manual';
+    });
+    const failures = results.filter(result => result.status === 'rejected');
+    if (failures.length > 0) {
+      console.error('[DocumentGroupManager] Failed to archive group tasks', failures);
+    }
+  } finally {
+    const settled = new Set(archivingGroupIds.value);
+    settled.delete(groupId);
+    archivingGroupIds.value = settled;
+  }
 }
 
 const selectedGroup = computed(() =>
@@ -901,6 +1010,7 @@ watch(
 }
 
 .document-group-panel {
+  box-sizing: border-box;
   height: auto;
   min-height: 0;
   min-width: 0;
@@ -1084,6 +1194,40 @@ watch(
   text-align: center;
   font-size: 12px;
   color: var(--b3-theme-on-surface);
+}
+
+.document-group-action {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.document-group-action:hover {
+  background: var(--b3-list-hover);
+}
+
+.document-group-action:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+
+.document-group-action svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.document-group-item.is-hidden {
+  opacity: .72;
 }
 
 .document-group-delete {

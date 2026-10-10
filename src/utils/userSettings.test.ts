@@ -46,6 +46,31 @@ describe('UserSettingsManager', () => {
     });
   });
 
+  it('keeps all badge types enabled for old settings and defaults omitted options', () => {
+    const storage = globalThis.localStorage;
+    vi.mocked(storage.getItem).mockReturnValue(JSON.stringify({ taskManager: { showDocumentTaskBadges: false } }));
+    const oldSettings = new UserSettingsManager().loadLocalSnapshot();
+    expect(oldSettings?.taskManager.showDocumentTaskBadges).toBe(false);
+    expect(oldSettings?.taskManager.documentTaskBadgeOptions).toEqual({ priority: true, dueDate: true, tags: true });
+    vi.mocked(storage.getItem).mockReturnValue(JSON.stringify({ taskManager: { documentTaskBadgeOptions: { tags: false } } }));
+    expect(new UserSettingsManager().loadLocalSnapshot()?.taskManager.documentTaskBadgeOptions)
+      .toEqual({ priority: true, dueDate: true, tags: false });
+  });
+
+  it('persists selected badge types across settings reloads', async () => {
+    pluginMock.loadData.mockResolvedValue(null);
+    const manager = new UserSettingsManager();
+    await manager.load();
+    const options = { priority: false, dueDate: true, tags: false };
+    await manager.update('taskManager', { documentTaskBadgeOptions: options });
+    expect(pluginMock.saveData).toHaveBeenLastCalledWith('Stand-settings', expect.objectContaining({
+      taskManager: expect.objectContaining({ documentTaskBadgeOptions: options })
+    }));
+    const persisted = vi.mocked(globalThis.localStorage.setItem).mock.calls.at(-1)![1];
+    vi.mocked(globalThis.localStorage.getItem).mockReturnValue(persisted);
+    expect(new UserSettingsManager().loadLocalSnapshot()?.taskManager.documentTaskBadgeOptions).toEqual(options);
+  });
+
   it('hydrates a local snapshot without waiting for plugin storage', () => {
     const storage = {
       getItem: vi.fn().mockReturnValue(JSON.stringify({ kanban: { currentView: 'list' } })),

@@ -1,5 +1,5 @@
 import type { Task } from '@/api';
-import type { CalendarSyncEvent } from '@/calendarSyncTypes';
+import type { CalendarComponent, CalendarSyncEvent } from '@/calendarSyncTypes';
 import { getCalendarTaskRenderDateValues } from '@/utils/calendarTaskDates';
 import { computeTaskReminderTimestamp } from '@/utils/taskReminder';
 import { isClosedTaskStatus } from '@/utils/taskStatus';
@@ -7,6 +7,7 @@ import { isClosedTaskStatus } from '@/utils/taskStatus';
 export interface CalendarEventMappingOptions {
   defaultDurationMinutes: number;
   timezone?: string;
+  component?: CalendarComponent;
 }
 
 function escapeIcsText(value: string): string {
@@ -137,11 +138,43 @@ function buildDescription(task: Task): string {
   return parts.join('\n\n');
 }
 
+function appendTodoDates(task: Task, lines: string[], startDate: string, dueDate: string, timezone: string): void {
+  const isOccurrence = !!(task.repeatSeriesId && task.repeatInstanceDate);
+  const hasStart = !!task.startDate || isOccurrence;
+  const hasDue = !!task.dueDate || isOccurrence;
+  const hasTime = !!(task.startTime || task.dueTime);
+  const start = hasTime
+    ? formatUtcDateTime(zonedDateTimeTimestamp(startDate, task.startTime || '00:00', timezone))
+    : formatIcsDate(startDate);
+  const due = hasTime
+    ? formatUtcDateTime(zonedDateTimeTimestamp(dueDate, task.dueTime || '23:59:59', timezone))
+    : formatIcsDate(dueDate);
+  const parameter = hasTime ? '' : ';VALUE=DATE';
+  // DUE is the actual deadline, not VEVENT's exclusive end. RFC 5545 requires
+  // DUE > DTSTART, so same-day all-day tasks carry only their deadline.
+  if (hasStart && (!hasDue || start < due)) lines.push(`DTSTART${parameter}:${start}`);
+  if (hasDue) lines.push(`DUE${parameter}:${due}`);
+}
+
+function appendTodoStatus(task: Task, lines: string[]): void {
+  const status = task.status === 'completed' ? 'COMPLETED'
+    : task.status === 'cancelled' ? 'CANCELLED'
+    : task.status === 'in-progress' ? 'IN-PROCESS' : 'NEEDS-ACTION';
+  lines.push(`STATUS:${status}`);
+  lines.push(`PERCENT-COMPLETE:${status === 'COMPLETED' ? 100 : 0}`);
+  lines.push(`PRIORITY:${({ high: 1, medium: 5, low: 9, none: 0 })[task.priority] || 0}`);
+  if (status === 'COMPLETED') {
+    const timestamp = Date.parse(task.completedAt || '') || Date.parse(task.updatedAt) || Date.now();
+    lines.push(`COMPLETED:${formatUtcDateTime(timestamp)}`);
+  }
+}
+
 export function taskToCalendarSyncEvent(
   task: Task,
   options: CalendarEventMappingOptions
 ): CalendarSyncEvent | null {
-  if (task.archived || isClosedTaskStatus(task.status)) return null;
+  const component = options.component || 'VEVENT';
+  if (task.archived || component === 'VEVENT' && isClosedTaskStatus(task.status)) return null;
   if (task.repeatSeriesId && !task.isVirtual) return null;
   const dates = getCalendarTaskRenderDateValues(task);
   if (!dates) return null;
@@ -157,7 +190,7 @@ export function taskToCalendarSyncEvent(
   const title = stripHtml(task.title || '') || 'Untitled task';
   const description = buildDescription(task);
   const lines = [
-    'BEGIN:VEVENT',
+    `BEGIN:${component}`,
     `UID:${uid}`,
     `DTSTAMP:${formatUtcDateTime(Date.parse(task.updatedAt) || Date.now())}`,
     `SUMMARY:${escapeIcsText(title)}`,
@@ -166,7 +199,10 @@ export function taskToCalendarSyncEvent(
   ];
 
   const hasTime = !!(task.startTime || task.dueTime);
-  if (!hasTime) {
+  if (component === 'VTODO') {
+    appendTodoDates(task, lines, startDate, endDate, timezone);
+    appendTodoStatus(task, lines);
+  } else if (!hasTime) {
     lines.push(`DTSTART;VALUE=DATE:${formatIcsDate(startDate)}`);
     lines.push(`DTEND;VALUE=DATE:${formatIcsDate(addDays(endDate, 1))}`);
   } else {
@@ -186,7 +222,7 @@ export function taskToCalendarSyncEvent(
   if (description) lines.push(`DESCRIPTION:${escapeIcsText(description)}`);
   if (task.tags?.length) lines.push(`CATEGORIES:${task.tags.map(escapeIcsText).join(',')}`);
 
-  const reminderTimestamp = computeTaskReminderTimestamp(task);
+  const reminderTimestamp = isClosedTaskStatus(task.status) ? null : computeTaskReminderTimestamp(task);
   if (reminderTimestamp !== null) {
     lines.push('BEGIN:VALARM');
     lines.push('ACTION:DISPLAY');
@@ -195,9 +231,9 @@ export function taskToCalendarSyncEvent(
     lines.push('END:VALARM');
   }
 
-  const fingerprint = hashString([...lines, 'END:VEVENT'].join('\r\n'));
+  const fingerprint = hashString([...lines, `END:${component}`].join('\r\n'));
   lines.push(`X-PINCH-FINGERPRINT:${fingerprint}`);
-  lines.push('END:VEVENT');
+  lines.push(`END:${component}`);
   const eventIcs = `${lines.map(foldIcsLine).join('\r\n')}\r\n`;
   const ics = [
     'BEGIN:VCALENDAR',

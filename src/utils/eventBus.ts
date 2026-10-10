@@ -70,6 +70,7 @@ export interface TaskViewSwitchRequest {
   view?: 'kanban' | 'table' | 'quadrant' | 'gantt' | 'day' | 'week' | 'three-day' | 'month' | 'archive-table' | 'stats';
   source?: string;
   documentId?: string;
+  date?: string;
 }
 
 export interface TaskQuickMetaOpenRequest {

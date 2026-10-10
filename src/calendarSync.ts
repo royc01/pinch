@@ -1,5 +1,5 @@
 import { TaskRepository, type Task } from '@/api';
-import type { CalendarSyncConfig, CalendarSyncEvent, CalendarSyncStatus } from '@/calendarSyncTypes';
+import type { CalendarComponent, CalendarSyncConfig, CalendarSyncEvent, CalendarSyncStatus } from '@/calendarSyncTypes';
 import {
   deleteCalendarEvent,
   listManagedCalendarEvents,
@@ -62,11 +62,12 @@ async function loadCalendarTasks(config: CalendarSyncConfig): Promise<Task[]> {
   });
 }
 
-function mapTasks(tasks: Task[], config: CalendarSyncConfig): Map<string, CalendarSyncEvent> {
+function mapTasks(tasks: Task[], config: CalendarSyncConfig, component: CalendarComponent = 'VEVENT'): Map<string, CalendarSyncEvent> {
   const events = new Map<string, CalendarSyncEvent>();
   for (const task of tasks) {
     const event = taskToCalendarSyncEvent(task, {
-      defaultDurationMinutes: config.defaultDurationMinutes
+      defaultDurationMinutes: config.defaultDurationMinutes,
+      component
     });
     if (event) events.set(event.uid, event);
   }
@@ -144,13 +145,16 @@ async function performSync(config: CalendarSyncConfig): Promise<CalendarSyncStat
     message: undefined
   });
 
-  const desiredEvents = await loadMappedCalendarEvents(config);
+  const tasks = await loadCalendarTasks(config);
+  const useTodos = config.enabled && (config.provider || 'caldav') === 'caldav' && config.caldavComponent === 'VTODO';
+  const desiredEvents = mapTasks(tasks, config, useTodos ? 'VTODO' : 'VEVENT');
+  const cloudEvents = useTodos && config.cloud?.enabled ? mapTasks(tasks, config) : desiredEvents;
   const [calendarResult, cloudResult] = await Promise.all([
     config.enabled
       ? Promise.allSettled([(config.provider || 'caldav') === 'caldav' ? performCalDavSync(config, desiredEvents) : performProviderSync(config, desiredEvents)]).then(results => results[0])
       : Promise.resolve(null),
     config.cloud?.enabled
-      ? Promise.allSettled([publishCalendarCloud(config.cloud, buildCalendarFeed(desiredEvents.values()))]).then(results => results[0])
+      ? Promise.allSettled([publishCalendarCloud(config.cloud, buildCalendarFeed(cloudEvents.values()))]).then(results => results[0])
       : Promise.resolve(null)
   ]);
 
@@ -169,7 +173,7 @@ async function performSync(config: CalendarSyncConfig): Promise<CalendarSyncStat
     lastSuccessAt: errors.length ? previousStatus.lastSuccessAt : completedAt,
     ...counts,
     cloudPublishedAt: cloudTargetUnchanged && cloudResult?.status === 'fulfilled' ? cloudResult.value.publishedAt || completedAt : currentStatus.cloudPublishedAt,
-    cloudEventCount: cloudTargetUnchanged && cloudResult?.status === 'fulfilled' ? desiredEvents.size : currentStatus.cloudEventCount,
+    cloudEventCount: cloudTargetUnchanged && cloudResult?.status === 'fulfilled' ? cloudEvents.size : currentStatus.cloudEventCount,
     cloudUrl: cloudTargetUnchanged && cloudResult?.status === 'fulfilled' ? cloudResult.value.url : currentStatus.cloudUrl,
     cloudUrlExpiresAt: cloudTargetUnchanged && cloudResult?.status === 'fulfilled' ? cloudResult.value.expiresAt : currentStatus.cloudUrlExpiresAt,
     cloudError: cloudTargetUnchanged && cloudResult?.status === 'rejected' ? getErrorMessage(cloudResult.reason) : undefined,

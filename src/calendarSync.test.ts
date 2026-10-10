@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CalDavRequestParams, CalendarSyncEvent } from '@/calendarSyncTypes';
+import type { Task } from '@/api';
 
 const { calendarHttpRequest, getAllTasks, taskToCalendarSyncEvent, publishCloud, putFile } = vi.hoisted(() => ({
   calendarHttpRequest: vi.fn(), getAllTasks: vi.fn(), taskToCalendarSyncEvent: vi.fn(), publishCloud: vi.fn(), putFile: vi.fn()
@@ -11,7 +12,7 @@ vi.mock('@/utils/calendarEventMapper', async importOriginal => ({
   ...await importOriginal<typeof import('@/utils/calendarEventMapper')>(), taskToCalendarSyncEvent
 }));
 
-import { exportCalendarIcs, publishCalendarCloudNow, startCalendarSync, stopCalendarSync, syncCalendarNow } from '@/calendarSync';
+import { createCalendarFeedIcs, exportCalendarIcs, publishCalendarCloudNow, startCalendarSync, stopCalendarSync, syncCalendarNow } from '@/calendarSync';
 import { loadCalendarSyncConfig, loadCalendarSyncStatus, saveCalendarSyncConfig, saveCalendarSyncStatus } from '@/utils/calendarSyncSettings';
 
 const root = 'https://calendar.example.test/';
@@ -243,5 +244,65 @@ describe('CalDAV sync discovery and persistence', () => {
     await expect(syncCalendarNow()).resolves.toMatchObject({ state: 'error', message: expect.stringContaining('settings changed') });
     expect(loadCalendarSyncConfig().calendarUrl).toBe(`${root}other/`);
     expect(calendarHttpRequest.mock.calls.some(([params]) => params.method === 'PUT')).toBe(false);
+  });
+
+  it('converts an existing resource in both directions without creating a duplicate and then skips unchanged tasks', async () => {
+    const mapper = await vi.importActual<typeof import('@/utils/calendarEventMapper')>('@/utils/calendarEventMapper');
+    taskToCalendarSyncEvent.mockImplementation(mapper.taskToCalendarSyncEvent);
+    getAllTasks.mockResolvedValue([{ id: 'test', type: 'standalone', title: 'Task', status: 'pending', priority: 'medium', tags: [],
+      dueDate: '2026-10-04', createdAt: '2026-10-01T08:00:00Z', updatedAt: '2026-10-02T08:00:00Z' } satisfies Task]);
+    saveCalendarSyncConfig({ ...loadCalendarSyncConfig(), calendarUrl: target, caldavComponent: 'VTODO' });
+    let remoteIcs = event.ics;
+    calendarHttpRequest.mockImplementation(async (params: CalDavRequestParams) => {
+      if (params.method === 'REPORT') return xml(`<d:response><d:href>/calendars/user/work/pinch-test.ics</d:href><d:propstat><d:prop><d:getetag>"test"</d:getetag><c:calendar-data>${remoteIcs}</c:calendar-data></d:prop></d:propstat></d:response>`);
+      if (params.method === 'PUT') { remoteIcs = params.body!; return { status: 204, headers: {}, body: '' }; }
+      throw new Error(`Unexpected request: ${params.method}`);
+    });
+    await expect(syncCalendarNow()).resolves.toMatchObject({ state: 'success', updated: 1, created: 0 });
+    expect(remoteIcs).toContain('BEGIN:VTODO\r\n');
+    expect(remoteIcs).toContain('DUE;VALUE=DATE:20261004\r\n');
+    expect(calendarHttpRequest).toHaveBeenCalledWith(expect.objectContaining({ method: 'PUT', url: `${target}pinch-test.ics`, headers: expect.objectContaining({ 'If-Match': '"test"' }) }));
+    calendarHttpRequest.mockClear();
+    await expect(syncCalendarNow()).resolves.toMatchObject({ state: 'success', unchanged: 1, updated: 0, created: 0 });
+    expect(calendarHttpRequest).toHaveBeenCalledTimes(1);
+    saveCalendarSyncConfig({ ...loadCalendarSyncConfig(), caldavComponent: 'VEVENT' });
+    await expect(syncCalendarNow()).resolves.toMatchObject({ state: 'success', updated: 1, created: 0 });
+    expect(remoteIcs).toContain('BEGIN:VEVENT\r\n');
+  });
+
+  it('syncs completion state as VTODO while publishing and exporting only unfinished calendar events', async () => {
+    const mapper = await vi.importActual<typeof import('@/utils/calendarEventMapper')>('@/utils/calendarEventMapper');
+    taskToCalendarSyncEvent.mockImplementation(mapper.taskToCalendarSyncEvent);
+    const pending: Task = { id: 'pending', type: 'standalone', title: 'Pending task', status: 'pending', priority: 'high', tags: [],
+      dueDate: '2026-10-04', createdAt: '2026-10-01T08:00:00Z', updatedAt: '2026-10-02T08:00:00Z' };
+    getAllTasks.mockResolvedValue([pending, { ...pending, id: 'completed', status: 'completed', completedAt: '2026-10-04T08:00:00Z' }]);
+    const config = enableCloud();
+    saveCalendarSyncConfig({ ...config, enabled: true, calendarUrl: target, caldavComponent: 'VTODO' });
+    calendarHttpRequest.mockImplementation(async (params: CalDavRequestParams) => params.method === 'REPORT'
+      ? xml('') : { status: 201, headers: {}, body: '' });
+    publishCloud.mockResolvedValue({ url: 'https://cloud.example.test/tasks.ics' });
+    await expect(syncCalendarNow()).resolves.toMatchObject({ state: 'success', created: 2, cloudEventCount: 1 });
+    const writes = calendarHttpRequest.mock.calls.map(([params]) => params).filter(params => params.method === 'PUT');
+    expect(writes).toHaveLength(2);
+    expect(writes.every(params => params.body.includes('BEGIN:VTODO'))).toBe(true);
+    expect(writes.find(params => params.body.includes('STATUS:COMPLETED'))?.body).toContain('PERCENT-COMPLETE:100');
+    const feed = publishCloud.mock.calls[0][1];
+    expect(feed).toContain('BEGIN:VEVENT');
+    expect(feed).not.toContain('BEGIN:VTODO');
+    expect(feed).not.toContain('pinch-completed@');
+    const exported = await createCalendarFeedIcs();
+    expect(exported.eventCount).toBe(1);
+    expect(exported.ics).toBe(feed);
+  });
+
+  it('stops before writing if the component format changes while querying the calendar', async () => {
+    saveCalendarSyncConfig({ ...loadCalendarSyncConfig(), calendarUrl: target });
+    calendarHttpRequest.mockImplementation(async () => {
+      saveCalendarSyncConfig({ ...loadCalendarSyncConfig(), caldavComponent: 'VTODO' });
+      return xml('');
+    });
+    await expect(syncCalendarNow()).resolves.toMatchObject({ state: 'error', message: expect.stringContaining('settings changed') });
+    expect(calendarHttpRequest).toHaveBeenCalledTimes(1);
+    expect(loadCalendarSyncConfig().caldavComponent).toBe('VTODO');
   });
 });

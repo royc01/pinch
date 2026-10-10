@@ -39,4 +39,17 @@ describe('native Siyuan task markers', () => {
     expect(getLiveTaskElement('task-1', editorRoot)?.textContent).toBe('New title');
     staleRoot.remove();
   });
+
+  it('finds native paragraph checkboxes without inheriting a nested task marker', () => {
+    const root = document.createElement('div');
+    root.innerHTML = `<div data-type="NodeListItem" data-node-id="parent">
+      <div data-type="NodeParagraph" data-node-id="paragraph"><div class="protyle-action--task"><svg><use href="#iconUncheck"></use></svg></div></div>
+      <div data-type="NodeListItem" data-node-id="child"><div class="protyle-action--task"><svg><use href="#iconCheck"></use></svg></div></div>
+    </div>`;
+    const parent = root.firstElementChild!;
+    expect(parseTaskCompletedFromElement(parent, 'parent')).toBe(false);
+    expect(parseTaskCompletedFromElement(root.querySelector('[data-node-id="child"]'), 'child')).toBe(true);
+    parent.querySelector('[data-node-id="paragraph"]')!.remove();
+    expect(parseTaskCompletedFromElement(parent, 'parent')).toBeNull();
+  });
 });

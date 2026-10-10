@@ -12,6 +12,12 @@ export type TaskViewSwitcherDisplayId = 'kanban' | 'list' | 'table' | 'quadrant'
 export type SidebarSectionId = 'week-dates' | 'habit-list' | 'stand-container';
 export type TaskCreateDefaultTarget = 'last' | 'inbox' | 'daily-note' | 'specified-document';
 
+export interface DocumentTaskBadgeOptions {
+  priority: boolean;
+  dueDate: boolean;
+  tags: boolean;
+}
+
 export interface UserSettings {
   focus: {
     microBreakEnabled?: boolean;
@@ -123,6 +129,8 @@ export interface UserSettings {
     autoRecognizeTaskDate?: boolean;
     dateRecognitionKeywords?: TaskDateKeywordConfig;
     taskCompletionSoundEnabled?: boolean;
+    showDocumentTaskBadges?: boolean;
+    documentTaskBadgeOptions?: Partial<DocumentTaskBadgeOptions>;
     showDocumentGroupNotebookPath?: boolean;
     scopeInitialized?: boolean;
     lastTaskNotebook?: string;
@@ -261,6 +269,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
     autoRecognizeTaskDate: false,
     dateRecognitionKeywords: {},
     taskCompletionSoundEnabled: true,
+    showDocumentTaskBadges: true,
+    documentTaskBadgeOptions: { priority: true, dueDate: true, tags: true },
     showDocumentGroupNotebookPath: true,
     scopeInitialized: false,
     defaultTaskCreateTarget: 'last',
@@ -314,6 +324,15 @@ function normalizeStringArray(input: unknown): string[] {
     normalized.push(value);
   }
   return normalized;
+}
+
+function normalizeDocumentTaskBadgeOptions(input: unknown): DocumentTaskBadgeOptions {
+  const stored = input && typeof input === 'object' ? input as Partial<DocumentTaskBadgeOptions> : {};
+  return {
+    priority: stored.priority !== false,
+    dueDate: stored.dueDate !== false,
+    tags: stored.tags !== false
+  };
 }
 
 function normalizeTaskFilterExpression(input: unknown): StoredTaskFilterExpressionItem[] {
@@ -552,6 +571,9 @@ function mergeWithDefaults(input: unknown): UserSettings {
     taskManager: {
       ...DEFAULT_SETTINGS.taskManager,
       ...rawTaskManager,
+      documentTaskBadgeOptions: normalizeDocumentTaskBadgeOptions(
+        (rawTaskManager as { documentTaskBadgeOptions?: unknown }).documentTaskBadgeOptions
+      ),
       excludedNotebookIds: normalizeNotebookIds((rawTaskManager as { excludedNotebookIds?: unknown }).excludedNotebookIds),
       taskStatusFilters: normalizeStringArray((rawTaskManager as { taskStatusFilters?: unknown }).taskStatusFilters),
       taskPriorityFilters: normalizeStringArray((rawTaskManager as { taskPriorityFilters?: unknown }).taskPriorityFilters),

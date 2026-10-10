@@ -65,6 +65,27 @@ describe('calendar sync settings target selection', () => {
     expect(loadCalendarSyncConfig().username).toBe('edited-user');
   });
 
+  it('persists the VTODO format and uses it for discovery and connection tests', async () => {
+    mocks.discover.mockResolvedValue([{ url: 'https://calendar.example.test/tasks/', displayName: 'Tasks' }]);
+    mocks.testConnection.mockResolvedValue('https://calendar.example.test/tasks/');
+    wrapper = mount(CalendarSyncSettingsPanel, { attachTo: document.body });
+    const formats = wrapper.findAll('select').find(select => select.find('option[value="VTODO"]').exists())!;
+    await formats.setValue('VTODO');
+    expect(loadCalendarSyncConfig().caldavComponent).toBe('VTODO');
+    expect(wrapper.text()).toContain('calendarSync.todoDescription');
+    await click('calendarSync.discover');
+    expect(mocks.discover).toHaveBeenCalledWith(expect.objectContaining({ caldavComponent: 'VTODO' }));
+    await click('calendarSync.testConnection');
+    expect(mocks.testConnection).toHaveBeenCalledWith(expect.objectContaining({ caldavComponent: 'VTODO' }));
+    wrapper.unmount();
+    wrapper = mount(CalendarSyncSettingsPanel, { attachTo: document.body });
+    const restored = wrapper.findAll('select').find(select => select.find('option[value="VTODO"]').exists())!;
+    expect((restored.element as HTMLSelectElement).value).toBe('VTODO');
+    const provider = wrapper.findAll('select').find(select => select.find('option[value="google"]').exists())!;
+    await provider.setValue('google');
+    expect(wrapper.find('option[value="VTODO"]').exists()).toBe(false);
+  });
+
   it('restores cloud and schedule settings without waiting for an autosave timer', async () => {
     wrapper = mount(CalendarSyncSettingsPanel, { attachTo: document.body });
     await click('calendarSync.tabCloud');

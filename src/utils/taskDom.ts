@@ -4,7 +4,10 @@ function getTaskActionElement(root: Element | null, ownerId?: string): Element |
   if (!root) return null;
   const matchesOwner = (action: Element): boolean => {
     if (!ownerId) return true;
-    return action.closest('[data-node-id]')?.getAttribute('data-node-id') === ownerId;
+    // Native Lute output places the checkbox inside the first paragraph.
+    // The list item, rather than that paragraph or a nested subtask, owns it.
+    const owner = action.closest('[data-type="NodeListItem"]') || action.closest('[data-node-id]');
+    return owner?.getAttribute('data-node-id') === ownerId;
   };
 
   if (root.classList.contains('protyle-action--task') && matchesOwner(root)) {

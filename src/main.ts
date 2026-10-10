@@ -25,6 +25,7 @@ import {
 } from '@/utils/eventBus';
 import { destroyDetachedFocusWindow } from '@/utils/detachedFocusWindow';
 import { startCalendarSync, stopCalendarSync } from '@/calendarSync';
+import { createDocumentTaskBadges } from '@/documentTaskBadges';
 
 // Ensure the data directory exists.
 import { ensureDataDir } from '@/utils';
@@ -39,6 +40,7 @@ let pinchDockModel: any = null;
 let pinchDockElement: HTMLElement | null = null;
 let unsubscribeMobileKanbanCloseRequest: (() => void) | null = null;
 let topBarViewButton: HTMLElement | null = null;
+let stopDocumentTaskBadges: (() => void) | null = null;
 const PINCH_DOCK_TYPE = 'Pinch-habit';
 const KANBAN_TAB_TYPE = 'kanban';
 const MOBILE_BREADCRUMB_LONG_PRESS_MS = 480;
@@ -686,13 +688,15 @@ function registerGlobalTaskCreateCommand(pluginInstance: Plugin): void {
   });
 }
 
+let taskViewSwitchRequestRevision = 0;
 function emitTaskViewSwitchRequest(payload: TaskViewSwitchRequest): void {
+  const revision = ++taskViewSwitchRequestRevision;
   eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
   window.setTimeout(() => {
-    eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
+    if (revision === taskViewSwitchRequestRevision) eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
   }, 220);
   window.setTimeout(() => {
-    eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
+    if (revision === taskViewSwitchRequestRevision) eventBus.emit(Events.KANBAN_VIEW_SWITCH_REQUEST, payload);
   }, 480);
 }
 
@@ -991,6 +995,12 @@ export function init(pluginInstance: Plugin) {
   registerTopBarViewButton(pluginInstance);
   registerTaskBlockIconMenu(pluginInstance);
   registerTaskQuickMetaInputTrigger();
+  stopDocumentTaskBadges?.();
+  stopDocumentTaskBadges = createDocumentTaskBadges(pluginInstance, (blockId, anchor) => {
+    void openTaskQuickMetaMenuByBlockId(blockId, anchor);
+  }, date => {
+    void openTaskViewByRequest({ view: 'month', date });
+  });
   startMobileBreadcrumbButtonObserver();
   startTaskReminderScheduler();
   startCalendarSync();
@@ -1068,6 +1078,8 @@ export function init(pluginInstance: Plugin) {
 }
 
 export function destroy() {
+  stopDocumentTaskBadges?.();
+  stopDocumentTaskBadges = null;
   stopTaskReminderScheduler();
   stopCalendarSync();
   stopMobileBreadcrumbButtonObserver();

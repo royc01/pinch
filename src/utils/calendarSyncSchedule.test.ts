@@ -25,11 +25,15 @@ describe('calendar sync schedule and settings migration', () => {
   });
   it('preserves existing CalDAV credentials and gives old settings safe cloud/schedule defaults', () => {
     const migrated = normalizeCalendarSyncConfig({ username: 'user', password: ' secret ', calendarUrl: 'https://dav.example.test', enabled: true });
-    expect(migrated).toMatchObject({ password: ' secret ', syncInterval: '15min', transport: 'auto', syncOnChange: true, cloud: { enabled: false } });
+    expect(migrated).toMatchObject({ password: ' secret ', caldavComponent: 'VEVENT', syncInterval: '15min', transport: 'auto', syncOnChange: true, cloud: { enabled: false } });
     expect(migrated.cloud!.fileName).toMatch(/^pinch-[a-f0-9]{48}\.ics$/);
     const normalized = normalizeCalendarSyncConfig({ ...migrated, dailySyncTime: '25:00', cloud: { ...migrated.cloud!, s3AccessKeySecret: ' secret ' } });
     expect(normalized.dailySyncTime).toBe('08:00');
     expect(normalized.cloud!.s3AccessKeySecret).toBe(' secret ');
+  });
+  it('keeps VTODO preferences and falls back to VEVENT for an unknown format', () => {
+    expect(normalizeCalendarSyncConfig({ caldavComponent: 'VTODO' }).caldavComponent).toBe('VTODO');
+    expect(normalizeCalendarSyncConfig({ caldavComponent: 'VJOURNAL' }).caldavComponent).toBe('VEVENT');
   });
   it('drops old LAN subscription settings without changing the derived cloud filename or enabling sync', () => {
     const token = '00112233445566778899aabbccddeeff0011223344556677';

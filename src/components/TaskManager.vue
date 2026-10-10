@@ -992,6 +992,8 @@
       :date-recognition-keywords="userSettings.taskManager.dateRecognitionKeywords"
       :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
+      :show-document-task-badges="userSettings.taskManager.showDocumentTaskBadges !== false"
+      :document-task-badge-options="userSettings.taskManager.documentTaskBadgeOptions"
       :task-statuses="userSettings.taskManager.taskStatuses"
       :show-document-group-notebook-path="showDocumentGroupNotebookPath"
       :show-extra="false"
@@ -3113,24 +3115,29 @@ const parsedFilterSource = computed(() => parseDocumentSource(filterNotebook.val
 const taskDocumentPathLookup = computed(() => buildTaskDocumentPathLookup(tasks.value));
 
 const notebookOptions = computed(() => {
+  const selectedSource = filterNotebook.value;
   return [
     { value: 'all', text: t('taskManager.all') },
     ...enabledNotebooks.value.map(nb => ({
       value: buildNotebookDocumentSource(nb.id),
       text: nb.name
     })),
-    ...sortDocumentGroups(documentGroups.value).map(group => ({
-      value: buildGroupDocumentSource(group.id),
-      text: group.name,
-      icon: group.emoji || '📁',
-      kind: 'group' as const
-    })),
-    ...activeGoalItems.value.map(goal => ({
-      value: buildGoalDocumentSource(goal.id),
-      text: goal.name || t('taskManager.untitledGoal'),
-      icon: goal.emoji || '🎯',
-      kind: 'goal' as const
-    }))
+    ...sortDocumentGroups(documentGroups.value)
+      .filter(group => group.hidden !== true || buildGroupDocumentSource(group.id) === selectedSource)
+      .map(group => ({
+        value: buildGroupDocumentSource(group.id),
+        text: group.name,
+        icon: group.emoji || '📁',
+        kind: 'group' as const
+      })),
+    ...activeGoalItems.value
+      .filter(goal => goal.hidden !== true || buildGoalDocumentSource(goal.id) === selectedSource)
+      .map(goal => ({
+        value: buildGoalDocumentSource(goal.id),
+        text: goal.name || t('taskManager.untitledGoal'),
+        icon: goal.emoji || '🎯',
+        kind: 'goal' as const
+      }))
   ];
 });
 
@@ -6792,6 +6799,8 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     showCompletedTasks: nextShowCompletedTasks,
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    showDocumentTaskBadges: nextShowDocumentTaskBadges,
+    documentTaskBadgeOptions: nextDocumentTaskBadgeOptions,
     dateRecognitionKeywords: nextDateRecognitionKeywords,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     documentGroups: nextDocumentGroupsPayload,
@@ -6836,7 +6845,9 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     dateRecognitionKeywords: nextDateRecognitionKeywords,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
     taskStatuses,
+    showDocumentTaskBadges: nextShowDocumentTaskBadges,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
+    documentTaskBadgeOptions: nextDocumentTaskBadgeOptions,
     defaultTaskCreateTarget: defaultTaskCreateTarget as typeof userSettings.taskManager.defaultTaskCreateTarget,
     defaultTaskCreateNotebook,
     defaultTaskCreateDocument,

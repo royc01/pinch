@@ -68,7 +68,7 @@
           </div>
         </div>
       </div>
-      <div ref="calendarViewportRef" class="calendar-grid" @scroll.passive="handleMonthViewportScroll" @wheel.passive="handleWheel">
+      <div ref="calendarViewportRef" class="calendar-grid" @scroll.passive="handleMonthViewportScroll" @wheel.passive="handleWheel" @pointerdown="stopFocusedDayScroll">
         <div class="weekday-header">
           <div v-for="weekday in weekdays" :key="weekday" class="weekday">
             {{ weekday }}
@@ -690,6 +690,9 @@ class EventManager {
 const eventManager = new EventManager();
 
 const baseDate = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+let focusedDayKey: string | null = null;
+let keepFocusedDayVisible = false;
+let focusedDayScrollTop = 0;
 const sidebarCollapsed = computed(() => props.sidebarCollapsed === true);
 const dragOverDay = ref<string | null>(null);
 const MOBILE_BREAKPOINT = 768;
@@ -1605,7 +1608,7 @@ const monthViewport = ref({ scrollTop: 0, height: 600 });
 const monthViewportScrollable = ref(false);
 const measuredWeekTops = ref(new Map<string, number>());
 onActivated(() => { monthLayoutActive.value = true; syncCollapsedTaskSlots(); });
-onDeactivated(() => { monthLayoutActive.value = false; cancelLayoutMeasurement(readCollapsedTaskSlots); });
+onDeactivated(() => { monthLayoutActive.value = false; stopFocusedDayScroll(); cancelLayoutMeasurement(readCollapsedTaskSlots); });
 onUnmounted(() => { monthLayoutActive.value = false; cancelLayoutMeasurement(readCollapsedTaskSlots); });
 
 function syncCollapsedTaskSlots(): void {
@@ -1652,7 +1655,9 @@ function readCollapsedTaskSlots(): (() => void) | void {
 }
 
 function handleMonthViewportScroll(event: Event): void {
-  monthViewport.value = { ...monthViewport.value, scrollTop: (event.currentTarget as HTMLElement).scrollTop };
+  const scrollTop = (event.currentTarget as HTMLElement).scrollTop;
+  if (scrollTop !== focusedDayScrollTop) stopFocusedDayScroll();
+  monthViewport.value = { ...monthViewport.value, scrollTop };
 }
 
 async function toggleTasksCollapsed(): Promise<void> {
@@ -1709,7 +1714,7 @@ const weeklyTasks = computed(() => {
   return reuseWeeklyTasks(result, tasks => tasks);
 });
 
-watch(weeklyTasks, () => { void nextTick().then(syncCollapsedTaskSlots); });
+watch(weeklyTasks, () => { void nextTick().then(() => { syncCollapsedTaskSlots(); scrollFocusedDayIntoView(); }); });
 
 const estimatedWeekTops = computed(() => {
   const tops = new Map<string, number>();
@@ -3111,27 +3116,66 @@ async function handleDrop(day: MonthCalendarDay, event: DragEvent) {
 }
 
 function previousMonth() {
+  clearFocusedDay();
   closeLifelogDay();
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() - 1, 1);
 }
 
 function nextMonth() {
+  clearFocusedDay();
   closeLifelogDay();
   baseDate.value = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + 1, 1);
 }
 
 function goToToday(): void {
+  clearFocusedDay();
   closeLifelogDay();
   const today = new Date();
   baseDate.value = new Date(today.getFullYear(), today.getMonth(), 1);
 }
 
 function focusMonth(date: Date): void {
+  clearFocusedDay();
   closeLifelogDay();
-  baseDate.value = new Date(date.getFullYear(), date.getMonth(), 1);
+  if (baseDate.value.getFullYear() !== date.getFullYear() || baseDate.value.getMonth() !== date.getMonth() || baseDate.value.getDate() !== 1) {
+    baseDate.value = new Date(date.getFullYear(), date.getMonth(), 1);
+  }
+}
+
+function stopFocusedDayScroll(): void {
+  keepFocusedDayVisible = false;
+}
+
+function clearFocusedDay(): void {
+  focusedDayKey = null;
+  stopFocusedDayScroll();
+}
+
+function scrollFocusedDayIntoView(): void {
+  if (!keepFocusedDayVisible || !monthLayoutActive.value || !focusedDayKey) return;
+  const viewport = calendarViewportRef.value;
+  const day = viewport?.querySelector<HTMLElement>(`[data-day-key="${focusedDayKey}"]`);
+  if (!viewport || !day) return;
+  const rect = day.getBoundingClientRect();
+  const top = viewport.scrollTop + rect.top - viewport.getBoundingClientRect().top;
+  const offset = Math.max(0, (viewport.clientHeight - rect.height) / 2);
+  viewport.scrollTop = Math.min(Math.max(0, top - offset), Math.max(0, viewport.scrollHeight - viewport.clientHeight));
+  focusedDayScrollTop = viewport.scrollTop;
+  monthViewport.value = { ...monthViewport.value, scrollTop: viewport.scrollTop };
+}
+
+async function focusDate(date: Date): Promise<void> {
+  if (!Number.isFinite(date.getTime())) return;
+  focusMonth(date);
+  const key = formatDate(date);
+  focusedDayKey = key;
+  keepFocusedDayVisible = true;
+  await nextTick();
+  if (focusedDayKey === key) scrollFocusedDayIntoView();
 }
 
 function changeLifelogTimelinePeriod(offset: number): void {
+  clearFocusedDay();
   const nextDate = new Date(baseDate.value.getFullYear(), baseDate.value.getMonth() + (offset < 0 ? -1 : 1), 1);
   baseDate.value = nextDate;
   const year = nextDate.getFullYear();
@@ -3141,6 +3185,7 @@ function changeLifelogTimelinePeriod(offset: number): void {
 
 let lastWheelNavigationTime = -Infinity;
 function handleWheel(event: WheelEvent) {
+  stopFocusedDayScroll();
   if (!monthLayoutActive.value || monthViewportScrollable.value || lifelogDayKey.value
     || event.ctrlKey || !event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
   const now = Date.now();
@@ -4067,7 +4112,7 @@ onMounted(() => {
   syncCompactMobileLayout();
   window.addEventListener('resize', syncCompactMobileLayout);
   if (weeksContainerRef.value) {
-    monthTasksResizeObserver = new ResizeObserver(syncCollapsedTaskSlots);
+    monthTasksResizeObserver = new ResizeObserver(() => { syncCollapsedTaskSlots(); scrollFocusedDayIntoView(); });
     monthTasksResizeObserver.observe(weeksContainerRef.value);
   }
   document.addEventListener('pointermove', handleDocumentMobileTaskPointerMove);
@@ -4225,6 +4270,7 @@ defineExpose({
   clearExternalTaskDrag: clearDragOverState,
   dropExternalTask,
   selectSidebarDate: focusMonth,
+  focusDate,
   startSidebarTaskDrag: handleCalendarTaskDragStart,
   moveSidebarTaskDrag: handleCalendarTaskDragMove,
   endSidebarTaskDrag: handleCalendarTaskDragEnd,

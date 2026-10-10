@@ -140,3 +140,94 @@ describe('foldIcsLine', () => {
     expect(folded.split('\r\n').slice(1).every(line => line.startsWith(' '))).toBe(true);
   });
 });
+
+describe('VTODO conversion', () => {
+  const options = { defaultDurationMinutes: 30, timezone: 'Asia/Shanghai', component: 'VTODO' as const };
+
+  it('preserves an inclusive deadline, identity, priority and task metadata', () => {
+    const input = task({ startDate: '2026-10-04', dueDate: '2026-10-06', priority: 'high', tags: ['work'], description: 'Release notes' });
+    const todo = taskToCalendarSyncEvent(input, options)!;
+    const event = taskToCalendarSyncEvent(input, { ...options, component: 'VEVENT' })!;
+    expect(todo.uid).toBe(event.uid);
+    expect(todo.resourceName).toBe(event.resourceName);
+    expect(todo.fingerprint).not.toBe(event.fingerprint);
+    expect(todo.ics).toContain('BEGIN:VTODO\r\n');
+    expect(todo.ics).toContain('END:VTODO\r\n');
+    expect(todo.ics).toContain('DTSTART;VALUE=DATE:20261004\r\n');
+    expect(todo.ics).toContain('DUE;VALUE=DATE:20261006\r\n');
+    expect(todo.ics).not.toContain('DTEND');
+    expect(todo.ics).toContain('STATUS:NEEDS-ACTION\r\n');
+    expect(todo.ics).toContain('PRIORITY:1\r\n');
+    expect(todo.ics).toContain('CATEGORIES:work\r\n');
+    expect(todo.ics.replace(/\r\n[ \t]/g, '')).toContain('DESCRIPTION:Release notes\\n\\n#work\\n\\nsiyuan://blocks/20261004-task-block');
+    expect(todo.ics).toContain(`X-PINCH-FINGERPRINT:${todo.fingerprint}\r\n`);
+  });
+
+  it('exports due-only and start-only tasks without inventing a duration', () => {
+    const dueOnly = taskToCalendarSyncEvent(task({ dueDate: '2026-10-04', dueTime: '09:30', reminderType: '30m' }), options)!;
+    expect(dueOnly.ics).toContain('DUE:20261004T013000Z\r\n');
+    expect(dueOnly.ics).not.toContain('DTSTART');
+    expect(dueOnly.ics).not.toContain('DTEND');
+    expect(dueOnly.ics).toContain('BEGIN:VALARM');
+    const startOnly = taskToCalendarSyncEvent(task({ startDate: '2026-10-04' }), options)!;
+    expect(startOnly.ics).toContain('DTSTART;VALUE=DATE:20261004\r\n');
+    expect(startOnly.ics).not.toContain('DUE');
+  });
+
+  it.each([
+    [{ startDate: '2026-10-04', dueDate: '2026-10-04' }, 'DUE;VALUE=DATE:20261004'],
+    [{ startDate: '2026-10-04', dueDate: '2026-10-03' }, 'DUE;VALUE=DATE:20261004'],
+    [{ startDate: '2026-10-04', startTime: '10:00', dueDate: '2026-10-04', dueTime: '09:30' }, 'DUE:20261004T013000Z']
+  ])('keeps DUE later than DTSTART for a zero or reversed range (%j)', (dates, due) => {
+    const todo = taskToCalendarSyncEvent(task(dates), options)!;
+    expect(todo.ics).toContain(`${due}\r\n`);
+    expect(todo.ics).not.toContain('DTSTART');
+  });
+
+  it('uses UTC and consistent date-time types when only one endpoint has a time', () => {
+    const startTimed = taskToCalendarSyncEvent(task({ startDate: '2026-10-04', startTime: '09:30', dueDate: '2026-10-06' }), options)!;
+    expect(startTimed.ics).toContain('DTSTART:20261004T013000Z\r\n');
+    expect(startTimed.ics).toContain('DUE:20261006T155959Z\r\n');
+    const dueTimed = taskToCalendarSyncEvent(task({ startDate: '2026-10-04', dueDate: '2026-10-06', dueTime: '09:30' }), options)!;
+    expect(dueTimed.ics).toContain('DTSTART:20261003T160000Z\r\n');
+    expect(dueTimed.ics).toContain('DUE:20261006T013000Z\r\n');
+    expect(dueTimed.ics).not.toContain('TZID');
+  });
+
+  it.each([
+    ['pending', 'NEEDS-ACTION', 0],
+    ['in-progress', 'IN-PROCESS', 0],
+    ['delayed', 'NEEDS-ACTION', 0],
+    ['custom-status', 'NEEDS-ACTION', 0],
+    ['completed', 'COMPLETED', 100],
+    ['cancelled', 'CANCELLED', 0]
+  ])('maps %s to %s with completion percentage %s', (status, expected, percent) => {
+    const todo = taskToCalendarSyncEvent(task({ status, dueDate: '2026-10-04', completedAt: '2026-10-04T08:30:00Z', reminderType: '30m' }), options)!;
+    expect(todo.ics).toContain(`STATUS:${expected}\r\n`);
+    expect(todo.ics).toContain(`PERCENT-COMPLETE:${percent}\r\n`);
+    if (status === 'completed') expect(todo.ics).toContain('COMPLETED:20261004T083000Z\r\n');
+    else expect(todo.ics).not.toMatch(/\r\nCOMPLETED:/);
+    if (status === 'completed' || status === 'cancelled') expect(todo.ics).not.toContain('BEGIN:VALARM');
+  });
+
+  it.each([['high', 1], ['medium', 5], ['low', 9], ['none', 0]] as const)('maps %s priority to %s', (priority, expected) => {
+    const todo = taskToCalendarSyncEvent(task({ priority, dueDate: '2026-10-04' }), options)!;
+    expect(todo.ics).toContain(`PRIORITY:${expected}\r\n`);
+  });
+
+  it('anchors repeated tasks to their occurrence date instead of the series cutoff', () => {
+    const todo = taskToCalendarSyncEvent(task({ repeatSeriesId: 'series-1', repeatInstanceDate: '2026-10-08', isVirtual: true,
+      startDate: '2026-10-08', dueDate: '2026-12-31' }), options)!;
+    expect(todo.uid).toBe('pinch-series-1-20261008@pinch.siyuan');
+    expect(todo.ics).toContain('DUE;VALUE=DATE:20261008\r\n');
+    expect(todo.ics).not.toContain('20261231');
+    expect(taskToCalendarSyncEvent(task({ repeatSeriesId: 'series-1', startDate: '2026-10-04' }), options)).toBeNull();
+  });
+
+  it('skips archived and undated tasks and rejects invalid dates and times', () => {
+    expect(taskToCalendarSyncEvent(task({ archived: true, dueDate: '2026-10-04' }), options)).toBeNull();
+    expect(taskToCalendarSyncEvent(task(), options)).toBeNull();
+    expect(() => taskToCalendarSyncEvent(task({ dueDate: '2026-02-30' }), options)).toThrow('Invalid calendar task date');
+    expect(() => taskToCalendarSyncEvent(task({ dueDate: '2026-10-04', dueTime: '25:00' }), options)).toThrow('Invalid calendar task time');
+  });
+});

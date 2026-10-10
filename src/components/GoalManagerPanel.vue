@@ -30,7 +30,7 @@
           >
           <div
             class="goal-item"
-            :class="{ active: goal.id === activeGoalId }"
+            :class="{ active: goal.id === activeGoalId, 'is-hidden': goal.hidden === true }"
             role="button"
             tabindex="0"
             @click="toggleGoalPanel(goal.id)"
@@ -58,6 +58,25 @@
               <span class="goal-count">
                 {{ getGoalTaskCount(goal) }}
               </span>
+              <button
+                type="button"
+                class="goal-action goal-visibility ariaLabel"
+                :aria-label="t(goal.hidden ? 'goalManager.showGoal' : 'goalManager.hideGoal')"
+                :title="t(goal.hidden ? 'goalManager.showGoal' : 'goalManager.hideGoal')"
+                @click.stop="toggleGoalHidden(goal.id)"
+              >
+                <Icon :name="goal.hidden ? 'eyeOff' : 'eye'" width="16" height="16" />
+              </button>
+              <button
+                type="button"
+                class="goal-action goal-archive ariaLabel"
+                :aria-label="t('goalManager.archiveGoal')"
+                :title="t('goalManager.archiveGoal')"
+                :disabled="archivingGoalIds.has(goal.id)"
+                @click.stop="void archiveGoalTasks(goal.id)"
+              >
+                <Icon name="archive" width="16" height="16" />
+              </button>
               <button
                 type="button"
                 class="goal-delete ariaLabel"
@@ -286,7 +305,7 @@ import Icon from '@/components/Icon.vue';
 import SyButton from '@/components/SiyuanTheme/SyButton.vue';
 import SyInput from '@/components/SiyuanTheme/SyInput.vue';
 import TaskDatePopover from '@/components/TaskDatePopover.vue';
-import { type Task } from '@/api';
+import { TaskRepository, type Task } from '@/api';
 import {
   buildGoalScopeDocumentsFromTasks,
   type GoalScopeDocument
@@ -305,7 +324,7 @@ import {
 import { isDocumentPathInScope } from '@/utils/taskDocumentScope';
 import TaskTitleRich from '@/components/TaskTitleRich.vue';
 import { hasVisibleTaskTitle } from '@/utils/taskVisibility';
-import { useI18n } from '@/composables/useI18n';
+import { formatTemplate, useI18n } from '@/composables/useI18n';
 
 interface Props {
   layout?: 'split' | 'stacked';
@@ -381,6 +400,7 @@ const dueDatePopover = reactive({
   goalId: '',
   value: ''
 });
+const archivingGoalIds = ref(new Set<string>());
 
 function cloneGoals(goals: Goal[]): Goal[] {
   return (goals || []).map(goal => ({
@@ -396,6 +416,61 @@ function emitGoals(nextGoals: Goal[]): void {
   const clonedGoals = cloneGoals(nextGoals);
   localGoals.value = clonedGoals;
   emit('update:goals', clonedGoals);
+}
+
+function toggleGoalHidden(goalId: string): void {
+  emitGoals(localGoals.value.map(goal => (
+    goal.id === goalId ? { ...goal, hidden: goal.hidden !== true } : goal
+  )));
+}
+
+function getArchivableGoalTasks(goal: Goal): Task[] {
+  const seen = new Set<string>();
+  return (props.tasks || []).filter(task => {
+    if (task.type !== 'block' || task.archived === true || task.isVirtual || seen.has(task.id)) {
+      return false;
+    }
+    if (!isTaskInGoalScope(goal, task)) {
+      return false;
+    }
+    seen.add(task.id);
+    return true;
+  });
+}
+
+async function archiveGoalTasks(goalId: string): Promise<void> {
+  const goal = localGoals.value.find(item => item.id === goalId);
+  if (!goal || archivingGoalIds.value.has(goalId)) {
+    return;
+  }
+
+  const tasks = getArchivableGoalTasks(goal);
+  const taskLabel = formatTemplate('goalManager.archiveTaskCount', { count: tasks.length });
+  if (!confirm(`${t('goalManager.confirmArchivePrefix')}“${goal.name || t('taskManager.untitledGoal')}”？\n${taskLabel}`)) {
+    return;
+  }
+
+  const nextArchiving = new Set(archivingGoalIds.value);
+  nextArchiving.add(goalId);
+  archivingGoalIds.value = nextArchiving;
+  try {
+    const results = await Promise.allSettled(tasks.map(task => TaskRepository.archiveTask(task.id, 'manual')));
+    const archivedAt = new Date().toISOString();
+    results.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return;
+      tasks[index].archived = true;
+      tasks[index].archivedAt = archivedAt;
+      tasks[index].archiveReason = 'manual';
+    });
+    const failures = results.filter(result => result.status === 'rejected');
+    if (failures.length > 0) {
+      console.error('[GoalManager] Failed to archive goal tasks', failures);
+    }
+  } finally {
+    const settled = new Set(archivingGoalIds.value);
+    settled.delete(goalId);
+    archivingGoalIds.value = settled;
+  }
 }
 
 function generateGoalId(): string {
@@ -1344,6 +1419,7 @@ watch(
 }
 
 .goal-panel {
+  box-sizing: border-box;
   height: auto;
   min-height: 0;
   min-width: 0;
@@ -1659,6 +1735,7 @@ watch(
 
 .goal-tree-document-item {
   flex: 1;
+  min-width: 0;
   padding: 7px 10px;
 }
 
@@ -1690,6 +1767,7 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow: hidden;
 }
 
 .goal-item-title-row {
@@ -1698,16 +1776,32 @@ watch(
   gap: 6px;
   min-width: 0;
   width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .goal-document-task-title {
   flex: 1 1 auto;
   min-width: 0;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: nowrap !important;
+  word-break: keep-all;
+  overflow-wrap: normal;
   color: var(--b3-theme-on-background);
   font-size: 12px;
+}
+
+.goal-document-task-title :deep(*) {
+  display: inline !important;
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+
+.goal-document-task-title :deep(br) {
+  display: none !important;
 }
 
 .goal-membership-badges {
@@ -1806,6 +1900,40 @@ watch(
   text-align: center;
   font-size: 12px;
   color: var(--b3-theme-on-surface);
+}
+
+.goal-action {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--b3-theme-on-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.goal-action:hover {
+  background: var(--b3-list-hover);
+}
+
+.goal-action:disabled {
+  opacity: .5;
+  cursor: wait;
+}
+
+.goal-action svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.goal-item.is-hidden {
+  opacity: .72;
 }
 
 .goal-delete {
@@ -1973,14 +2101,18 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow: hidden;
 }
 
 .goal-checkbox-name {
   flex: 1 1 auto;
   min-width: 0;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: nowrap !important;
+  word-break: keep-all;
+  overflow-wrap: normal;
   color: var(--b3-theme-on-background);
 }
 

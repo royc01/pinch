@@ -1925,6 +1925,8 @@
       :date-recognition-keywords="userSettings.taskManager.dateRecognitionKeywords"
       :global-date-recognizing="isGlobalDateRecognitionRunning"
       :task-completion-sound-enabled="taskCompletionSoundEnabled"
+      :show-document-task-badges="userSettings.taskManager.showDocumentTaskBadges !== false"
+      :document-task-badge-options="userSettings.taskManager.documentTaskBadgeOptions"
       :task-statuses="userSettings.taskManager.taskStatuses"
       :show-document-group-notebook-path="showDocumentGroupNotebookPath"
       :show-extra="false"
@@ -3040,7 +3042,7 @@ const hiddenDocumentTabIds = ref(new Set<string>());
 const mobileViewSwitcherVisible = ref(false);
 const mobileViewSwitcherControlRef = ref<HTMLElement | null>(null);
 const mobileViewSwitcherPopoverRef = ref<HTMLElement | null>(null);
-const calendarMonthViewRef = ref<MobileCalendarDropController | null>(null);
+const calendarMonthViewRef = ref<(MobileCalendarDropController & { focusDate: (date: Date) => Promise<void> }) | null>(null);
 const calendarWeekViewRef = ref<MobileCalendarDropController | null>(null);
 const pendingCalendarDateSaves = new Set<Promise<void>>();
 const calendarScheduleHistory = useCalendarScheduleHistory({
@@ -3161,6 +3163,8 @@ const dayFilterType = calendarFilterType;
 const dayFilterDocument = calendarFilterDocument;
 
 const isSettingsLoaded = ref(false);
+const pendingMonthFocus = ref<Date | null>(null);
+let lastMonthFocusRequest: TaskViewSwitchRequest | undefined;
 // A restored SiYuan custom tab mounts before its saved view filters have been
 // read. Keep persistence paused from setup onward, otherwise the temporary
 // default view can save its "all" source before loadUserSettings restores it.
@@ -3257,6 +3261,11 @@ const listViewTaskHeightVersion = ref(0);
 const LIST_VIRTUAL_CARD_HEIGHT = 56;
 const listViewEstimatedCardHeight = ref<number>(LIST_VIRTUAL_CARD_HEIGHT);
 const currentView = ref<TaskViewMode>(normalizeTaskViewMode(userSettings.kanban?.currentView));
+watch([isSettingsLoaded, currentView, calendarMonthViewRef, pendingMonthFocus], ([ready, view, controller, date]) => {
+  if (!ready || view !== 'month' || !controller?.focusDate || !date) return;
+  pendingMonthFocus.value = null;
+  void controller.focusDate(date);
+}, { flush: 'post' });
 const lastCalendarView = ref<CalendarTaskViewMode>('month');
 const calendarSidebarCollapsed = ref(false);
 const calendarTaskDataReady = ref(false);
@@ -4358,26 +4367,39 @@ const documentTitleByRootId = computed(() => {
 const taskDocumentPathLookup = computed(() =>
   buildTaskDocumentPathLookup(tasks.value, documentScopeMetadataByRootId.value)
 );
-const sourceOptions = computed(() => [
+const sourceOptions = computed(() => {
+  const selectedSources = new Set([
+    kanbanFilterType.value,
+    listFilterType.value,
+    tableFilterType.value,
+    ganttFilterType.value,
+    calendarFilterType.value
+  ]);
+  return [
   { value: 'all', text: t('taskManager.all') },
   ...enabledNotebooks.value.map(nb => ({
     value: buildNotebookDocumentSource(nb.id),
     text: nb.name,
     icon: nb.icon
   })),
-  ...sortedDocumentGroups.value.map(group => ({
-    value: buildGroupDocumentSource(group.id),
-    text: group.name,
-    icon: group.emoji || '📁',
-    kind: 'group' as const
-  })),
-  ...goalItems.value.map(goal => ({
-    value: buildGoalDocumentSource(goal.id),
-    text: goal.name || t('taskManager.untitledGoal'),
-    icon: goal.emoji || '🎯',
-    kind: 'goal' as const
-  }))
-]);
+  ...sortedDocumentGroups.value
+    .filter(group => group.hidden !== true || selectedSources.has(buildGroupDocumentSource(group.id)))
+    .map(group => ({
+      value: buildGroupDocumentSource(group.id),
+      text: group.name,
+      icon: group.emoji || '📁',
+      kind: 'group' as const
+    })),
+  ...goalItems.value
+    .filter(goal => goal.hidden !== true || selectedSources.has(buildGoalDocumentSource(goal.id)))
+    .map(goal => ({
+      value: buildGoalDocumentSource(goal.id),
+      text: goal.name || t('taskManager.untitledGoal'),
+      icon: goal.emoji || '🎯',
+      kind: 'goal' as const
+    }))
+  ];
+});
 const taskModalNotebooks = computed<TaskModalNotebook[]>(() =>
   enabledNotebooks.value.map(notebook => ({
     id: notebook.id,
@@ -6072,6 +6094,8 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     autoRecognizeTaskDate: nextAutoRecognizeTaskDate,
     dateRecognitionKeywords: nextDateRecognitionKeywords,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
+    showDocumentTaskBadges: nextShowDocumentTaskBadges,
+    documentTaskBadgeOptions: nextDocumentTaskBadgeOptions,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
     documentGroups: nextDocumentGroupsPayload,
     goals: nextGoals,
@@ -6115,7 +6139,9 @@ async function handleTaskScopeSave(payload: TaskScopeDialogSavePayload) {
     dateRecognitionKeywords: nextDateRecognitionKeywords,
     taskCompletionSoundEnabled: nextTaskCompletionSoundEnabled,
     taskStatuses,
+    showDocumentTaskBadges: nextShowDocumentTaskBadges,
     showDocumentGroupNotebookPath: nextShowDocumentGroupNotebookPath,
+    documentTaskBadgeOptions: nextDocumentTaskBadgeOptions,
     defaultTaskCreateTarget: defaultTaskCreateTarget as typeof userSettings.taskManager.defaultTaskCreateTarget,
     defaultTaskCreateNotebook,
     defaultTaskCreateDocument
@@ -12052,6 +12078,18 @@ function setupEventListeners() {
   const unsubscribeViewSwitchRequested = eventBus.on(
     Events.KANBAN_VIEW_SWITCH_REQUEST,
     (payload?: TaskViewSwitchRequest) => {
+      // Opening a tab replays the same request while it mounts. Apply date
+      // navigation once, and retain it until the month component is ready.
+      if (payload && payload === lastMonthFocusRequest) return;
+      if (payload?.view === 'month' && typeof payload.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(payload.date)) {
+        const date = parseTaskWindowDate(payload.date);
+        if (date && formatDate(date) === payload.date) {
+          lastMonthFocusRequest = payload;
+          pendingMonthFocus.value = date;
+        }
+      } else if (payload?.view !== undefined && payload.view !== 'month') {
+        pendingMonthFocus.value = null;
+      }
       if (payload?.view !== undefined) {
         const nextView = normalizeTaskViewMode(payload.view);
         if (currentView.value !== nextView) {
@@ -18097,13 +18135,11 @@ onMounted(async () => {
   TaskRepository.setAutoRecognizeTaskDateEnabled(userSettings.taskManager.autoRecognizeTaskDate === true);
   applyExcludedNotebookScope(normalizeNotebookIds(userSettings.taskManager.excludedNotebookIds));
   const storedInitialView = normalizeTaskViewMode(userSettings.kanban?.currentView);
-  const initialView = viewSwitcherOptions.value.some(option => option.value === storedInitialView)
+  const initialView = pendingMonthFocus.value ? 'month' : viewSwitcherOptions.value.some(option => option.value === storedInitialView)
     ? storedInitialView
     : viewSwitcherOptions.value[0]?.value || 'table';
   const initialLoadMode = resolveTaskLoadModeForView(initialView);
-  currentView.value = viewSwitcherOptions.value.some(option => option.value === initialView)
-    ? initialView
-    : viewSwitcherOptions.value[0]?.value || 'table';
+  currentView.value = initialView;
   const initialKanbanGroupMode = resolveStoredTaskViewGroupMode(
     userSettings.kanban?.kanbanGroupBy,
     userSettings.kanban?.kanbanGroupMode,

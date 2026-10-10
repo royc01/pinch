@@ -24,6 +24,8 @@ export interface Goal {
   id: string;
   name: string;
   emoji?: string;
+  /** Hide this goal from task source pickers while keeping it manageable here. */
+  hidden?: boolean;
   members: DocumentGroupMember[];
   excludedDocumentKeys?: string[];
   taskMembers?: GoalTaskMember[];
@@ -49,6 +51,7 @@ let goalsReadFailure: Error | null = null;
 function cloneGoal(goal: Goal): Goal {
   return {
     ...goal,
+    hidden: goal.hidden === true ? true : undefined,
     members: goal.members.map(member => ({ ...member })),
     excludedDocumentKeys: goal.excludedDocumentKeys ? [...goal.excludedDocumentKeys] : undefined,
     taskMembers: goal.taskMembers ? goal.taskMembers.map(member => ({ ...member })) : undefined,
@@ -242,6 +245,7 @@ function normalizeGoal(input: unknown, legacyGroupsById: Map<string, DocumentGro
     id,
     name,
     emoji: emoji || undefined,
+    hidden: raw.hidden === true,
     members,
     excludedDocumentKeys: normalizeExcludedDocumentKeys(raw.excludedDocumentKeys),
     taskMembers: normalizeGoalTaskMembers(raw.taskMembers),
@@ -365,6 +369,9 @@ function assertValidGoals(input: unknown): asserts input is unknown[] {
     }
     if (goal.emoji !== undefined && typeof goal.emoji !== 'string') {
       throw new Error(`[Goals] Invalid emoji for goal at index ${goalIndex}`);
+    }
+    if (goal.hidden !== undefined && typeof goal.hidden !== 'boolean') {
+      throw new Error(`[Goals] Invalid hidden for goal at index ${goalIndex}`);
     }
     if (goal.order !== undefined && (typeof goal.order !== 'number' || !Number.isFinite(goal.order))) {
       throw new Error(`[Goals] Invalid order for goal at index ${goalIndex}`);

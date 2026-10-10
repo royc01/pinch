@@ -110,6 +110,38 @@ describe('shared calendar sidebar', () => {
     expect(wrapper!.findAllComponents(CalendarTaskSidebar)).toHaveLength(1);
   });
 
+  it('scrolls to the requested day, follows task layout changes, and releases scrolling to the user', async () => {
+    mountCalendar([]);
+    await flushPromises();
+    const month = wrapper!.findComponent(MonthView);
+    const controller = month.vm.$.exposed as { focusDate: (date: Date) => Promise<void> };
+    const viewport = month.find('.calendar-grid').element as HTMLElement;
+    Object.defineProperties(viewport, { clientHeight: { value: 300 }, scrollHeight: { value: 1600 } });
+    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect);
+    await controller.focusDate(new Date(2026, 10, 27));
+    let dayTop = 900;
+    const day = month.find('[data-day-key="2026-11-27"]');
+    vi.spyOn(day.element, 'getBoundingClientRect').mockImplementation(() => ({ top: 100 + dayTop - viewport.scrollTop, height: 240 } as DOMRect));
+    await controller.focusDate(new Date(2026, 10, 27));
+    expect(day.classes()).not.toContain('focused-date');
+    expect(viewport.scrollTop).toBe(870);
+    await month.find('.calendar-grid').trigger('scroll');
+    dayTop = 1100;
+    await wrapper!.setProps({ tasks: [{ ...tasks(1)[0], startDate: '2026-11-01', dueDate: '2026-11-27' }] });
+    await flushPromises();
+    expect(viewport.scrollTop).toBe(1070);
+    viewport.scrollTop = 80;
+    await month.find('.calendar-grid').trigger('scroll');
+    dayTop = 1200;
+    await wrapper!.setProps({ tasks: [{ ...tasks(1)[0], startDate: '2026-11-02', dueDate: '2026-11-27' }] });
+    await flushPromises();
+    expect(viewport.scrollTop).toBe(80);
+    await controller.focusDate(new Date(Number.NaN));
+    expect(month.find('[data-day-key="2026-11-27"]').exists()).toBe(true);
+    await month.find('.today-btn').trigger('click');
+    expect(month.find('[data-day-key="2026-11-27"]').exists()).toBe(false);
+  });
+
   it('stops the cached week clock while hidden and resumes a single clock on return', async () => {
     const startClock = vi.spyOn(globalThis, 'setInterval');
     const stopClock = vi.spyOn(globalThis, 'clearInterval');

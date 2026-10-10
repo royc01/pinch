@@ -55,6 +55,11 @@
       </label>
       <template v-if="(draft.provider || 'caldav') === 'caldav'">
       <label class="calendar-sync-field">
+        <span>{{ t('calendarSync.component') }}</span>
+        <SySelect v-model="draft.caldavComponent" :options="componentOptions" :disabled="busy" />
+      </label>
+      <div v-if="draft.caldavComponent === 'VTODO'" class="calendar-sync-description">{{ t('calendarSync.todoDescription') }}</div>
+      <label class="calendar-sync-field">
         <span>{{ t('calendarSync.calendarUrl') }}</span>
         <div class="calendar-sync-url-row">
           <SyInput v-model="draft.calendarUrl" type="url" autocomplete="url" placeholder="https://…/calendars/…/" />
@@ -220,6 +225,7 @@ const providerOptions = computed(() => [
   { value: 'google', text: 'Google Calendar' },
   { value: 'microsoft', text: 'Microsoft 365 / Outlook' }
 ]);
+const componentOptions = computed(() => ['VEVENT', 'VTODO'].map(value => ({ value, text: t(`calendarSync.component.${value}`) })));
 const oauthRedirectUri = `${window.location.origin}${window.location.pathname}`;
 const intervalOptions = computed(() => ['manual', '15min', 'hourly', '4hour', '12hour', 'daily', 'dailyAt'].map(value => ({ value, text: t(`calendarSync.interval.${value}`) })));
 
@@ -362,6 +368,7 @@ window.addEventListener(CALENDAR_SYNC_STATUS_CHANGED_EVENT, handleStatusChanged)
 // Persist in the input handler, before a close or page reload can interrupt it.
 watch(draft, autoSave, { deep: true, flush: 'sync' });
 watch(cloud, autoSave, { deep: true, flush: 'sync' });
+watch(() => draft.caldavComponent, () => { discoveredCalendars.value = []; });
 onBeforeUnmount(() => {
   window.removeEventListener(CALENDAR_SYNC_STATUS_CHANGED_EVENT, handleStatusChanged);
 });

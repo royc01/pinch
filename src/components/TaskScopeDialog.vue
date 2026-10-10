@@ -161,6 +161,28 @@
               @update:model-value="localTaskCompletionSoundEnabled = $event"
             />
           </div>
+          <div class="task-scope-auto-item">
+            <div class="task-scope-auto-main">
+              <span class="task-scope-extra-label">{{ t('taskScopeDialog.documentTaskBadges') }}</span>
+              <div class="task-scope-auto-desc">{{ t('taskScopeDialog.documentTaskBadgesDesc') }}</div>
+              <div
+                v-if="localShowDocumentTaskBadges"
+                class="task-scope-badge-options"
+                role="group"
+                :aria-label="t('taskScopeDialog.documentTaskBadges')"
+              >
+                <label v-for="option in documentTaskBadgeOptions" :key="option.id">
+                  <input v-model="localDocumentTaskBadgeOptions[option.id]" type="checkbox" />
+                  <span>{{ t(option.label) }}</span>
+                </label>
+              </div>
+            </div>
+            <SySwitch
+              class="task-scope-toggle"
+              :model-value="localShowDocumentTaskBadges"
+              @update:model-value="localShowDocumentTaskBadges = $event"
+            />
+          </div>
           <details class="task-scope-keyword-settings">
             <summary class="task-scope-keyword-summary">
               <span>{{ t('taskScopeDialog.dateRecognitionKeywords') }}</span>
@@ -430,6 +452,7 @@
           :groups="localDocumentGroups"
           :documents="documentGroupDocuments"
           :all-documents="allDocumentGroupDocuments"
+          :tasks="goalTasks"
           :documents-refreshing="documentsRefreshing"
           @update:groups="localDocumentGroups = $event"
           @refresh-documents="emit('refresh-documents')"
@@ -582,7 +605,7 @@ import type { GoalScopeDocument } from '@/utils/goalScopeDocuments';
 import { normalizeNotebookIds } from '@/utils/taskViewShared';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import type { TaskDateKeywordConfig } from '@/utils/taskDateParser';
-import type { UserSettings } from '@/utils/userSettings';
+import type { DocumentTaskBadgeOptions, UserSettings } from '@/utils/userSettings';
 import { normalizeTaskStatusDefinitions, resolveTaskStatusColor, type TaskStatusDefinition } from '@/utils/taskStatus';
 import { TASK_BACKGROUND_COLOR_OPTIONS } from '@/utils/taskGroupShared';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
@@ -611,6 +634,8 @@ export interface TaskScopeDialogSavePayload {
   showCompletedTasks: boolean;
   autoRecognizeTaskDate: boolean;
   taskCompletionSoundEnabled: boolean;
+  showDocumentTaskBadges: boolean;
+  documentTaskBadgeOptions: DocumentTaskBadgeOptions;
   dateRecognitionKeywords: TaskDateKeywordConfig;
   showDocumentGroupNotebookPath: boolean;
   documentGroups: DocumentGroup[];
@@ -642,6 +667,8 @@ interface Props {
   dateRecognitionKeywords?: TaskDateKeywordConfig;
   globalDateRecognizing?: boolean;
   taskCompletionSoundEnabled?: boolean;
+  showDocumentTaskBadges?: boolean;
+  documentTaskBadgeOptions?: Partial<DocumentTaskBadgeOptions>;
   lockClose?: boolean;
   showExtra?: boolean;
   title?: string;
@@ -696,6 +723,13 @@ const localExcludedNotebookIds = ref<string[]>([]);
 const localShowCompletedTasks = ref(true);
 const localAutoRecognizeTaskDate = ref(false);
 const localTaskCompletionSoundEnabled = ref(true);
+const localShowDocumentTaskBadges = ref(true);
+const localDocumentTaskBadgeOptions = ref<DocumentTaskBadgeOptions>({ priority: true, dueDate: true, tags: true });
+const documentTaskBadgeOptions: Array<{ id: keyof DocumentTaskBadgeOptions; label: string }> = [
+  { id: 'priority', label: 'taskManager.priority' },
+  { id: 'dueDate', label: 'taskManager.dueDate' },
+  { id: 'tags', label: 'taskManager.tags' }
+];
 const localStartKeywordsText = ref('');
 const localDueKeywordsText = ref('');
 const localRangeKeywordsText = ref('');
@@ -1105,6 +1139,12 @@ function syncLocalSelection(resetActiveTab = false): void {
   localShowCompletedTasks.value = props.showCompletedTasks !== false;
   localAutoRecognizeTaskDate.value = props.autoRecognizeTaskDate === true;
   localTaskCompletionSoundEnabled.value = props.taskCompletionSoundEnabled !== false;
+  localShowDocumentTaskBadges.value = props.showDocumentTaskBadges !== false;
+  localDocumentTaskBadgeOptions.value = {
+    priority: props.documentTaskBadgeOptions?.priority !== false,
+    dueDate: props.documentTaskBadgeOptions?.dueDate !== false,
+    tags: props.documentTaskBadgeOptions?.tags !== false
+  };
   localStartKeywordsText.value = formatKeywordText(props.dateRecognitionKeywords?.start);
   localDueKeywordsText.value = formatKeywordText(props.dateRecognitionKeywords?.due);
   localRangeKeywordsText.value = formatKeywordText(props.dateRecognitionKeywords?.range);
@@ -1456,6 +1496,8 @@ function save(): void {
     showCompletedTasks: localShowCompletedTasks.value,
     autoRecognizeTaskDate: localAutoRecognizeTaskDate.value,
     taskCompletionSoundEnabled: localTaskCompletionSoundEnabled.value,
+    showDocumentTaskBadges: localShowDocumentTaskBadges.value,
+    documentTaskBadgeOptions: { ...localDocumentTaskBadgeOptions.value },
     dateRecognitionKeywords: buildDateRecognitionKeywords(),
     showDocumentGroupNotebookPath: localShowDocumentGroupNotebookPath.value,
     documentGroups: cloneDocumentGroups(localDocumentGroups.value),
@@ -1503,15 +1545,17 @@ function scheduleAutoSave(): void {
 watch(
   [
     () => props.show,
+    () => props.initialTab,
     () => props.excludedNotebookIds,
     () => props.notebooks,
     () => props.showCompletedTasks,
     () => props.autoRecognizeTaskDate,
     () => props.dateRecognitionKeywords,
     () => props.taskCompletionSoundEnabled,
+    () => props.showDocumentTaskBadges,
+    () => props.documentTaskBadgeOptions,
     () => props.showDocumentGroupNotebookPath,
     () => props.showScopeTab,
-    () => props.initialTab,
     () => props.documentGroups,
     () => props.goals,
     () => props.taskGroups,
@@ -1526,10 +1570,10 @@ watch(
     () => props.defaultTaskCreateDocument,
     () => props.focusSettings
   ],
-  ([show, , , , , , , , , initialTab], previousValues) => {
+  ([show, initialTab], previousValues) => {
     if (show) {
       const previousShow = previousValues?.[0];
-      const previousInitialTab = previousValues?.[9];
+      const previousInitialTab = previousValues?.[1];
       const shouldReset = show !== previousShow || initialTab !== previousInitialTab;
       if (shouldReset) {
         syncLocalSelection(true);
@@ -1570,7 +1614,7 @@ watch([() => props.show, localDefaultTaskCreateNotebook], () => {
 
 watch([
   localExcludedNotebookIds, localShowCompletedTasks, localAutoRecognizeTaskDate,
-  localTaskCompletionSoundEnabled, localStartKeywordsText, localDueKeywordsText,
+  localTaskCompletionSoundEnabled, localShowDocumentTaskBadges, localDocumentTaskBadgeOptions, localStartKeywordsText, localDueKeywordsText,
   localRangeKeywordsText, localAfternoonKeywordsText, localShowDocumentGroupNotebookPath,
   localDocumentGroups, localGoals, localTaskStatuses, localHiddenTaskViewIds, localViewSwitcherOrder, localHiddenSidebarSectionIds,
   localSidebarSectionOrder, localDefaultTaskCreateTarget, localDefaultTaskCreateNotebook,
@@ -1884,7 +1928,8 @@ watch([
 .task-scope-dialog:not(.is-sidebar-presentation) .goals-tab-content > :deep(.goal-panel-root.is-split-layout),
 .task-scope-dialog:not(.is-sidebar-presentation) .document-groups-tab-content > :deep(.document-group-panel-root.is-split-layout) {
   position: absolute;
-  inset: 0;
+  inset: 8px 0 10px;
+  height: auto;
 }
 
 .task-scope-tabs {
@@ -1941,14 +1986,9 @@ watch([
   overflow-y: auto;
 }
 
-.document-groups-tab-content {
-  padding-top: 8px;
-  min-width: 0;
-  overflow-y: auto;
-}
-
+.document-groups-tab-content,
 .goals-tab-content {
-  padding-top: 8px;
+  padding: 8px 0 10px;
   min-width: 0;
   overflow-y: auto;
 }
@@ -2801,6 +2841,27 @@ watch([
 
 .task-scope-auto-item + .task-scope-auto-item {
   border-top: 1px solid var(--b3-border-color);
+}
+
+.task-scope-badge-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--b3-theme-on-background);
+
+  label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+  }
+
+  input {
+    margin: 0;
+    accent-color: var(--b3-theme-primary);
+  }
 }
 
 .task-scope-keyword-settings {

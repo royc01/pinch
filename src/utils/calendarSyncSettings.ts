@@ -150,6 +150,7 @@ export function normalizeCalendarCloudConfig(value: unknown, token = ''): Calend
 export const DEFAULT_CALENDAR_SYNC_CONFIG: CalendarSyncConfig = Object.freeze({
   enabled: false,
   provider: 'caldav',
+  caldavComponent: 'VEVENT',
   calendarUrl: '',
   username: '',
   password: '',
@@ -182,6 +183,7 @@ export function normalizeCalendarSyncConfig(value: unknown): CalendarSyncConfig 
     enabled: raw.enabled === true,
     provider: (['caldav', 'google', 'microsoft'] as CalendarProvider[]).includes(raw.provider as CalendarProvider)
       ? raw.provider as CalendarProvider : 'caldav',
+    caldavComponent: raw.caldavComponent === 'VTODO' ? 'VTODO' : 'VEVENT',
     calendarUrl: typeof raw.calendarUrl === 'string' ? raw.calendarUrl.trim() : '',
     username: typeof raw.username === 'string' ? raw.username.trim() : '',
     password: typeof raw.password === 'string' ? raw.password : '',
@@ -243,7 +245,9 @@ export function sameCalendarCloudTarget(left?: CalendarCloudConfig, right?: Cale
 export function saveResolvedCalendarUrl(original: CalendarSyncConfig, calendarUrl: string): boolean {
   const current = loadCalendarSyncConfig();
   if (current.calendarUrl !== original.calendarUrl || current.username !== original.username
-    || current.password !== original.password || current.enabled !== original.enabled) return false;
+    || current.password !== original.password || current.enabled !== original.enabled
+    || (current.provider || 'caldav') !== (original.provider || 'caldav')
+    || (current.caldavComponent || 'VEVENT') !== (original.caldavComponent || 'VEVENT')) return false;
   if (current.calendarUrl !== calendarUrl) saveCalendarSyncConfig({ ...current, calendarUrl });
   return true;
 }
