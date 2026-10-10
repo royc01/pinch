@@ -16,6 +16,45 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
   let tasksSyncRequestId = 0;
   let tasksSyncAppliedId = 0;
   let lastTasksHash = '';
+  let indexedTasks: Task[] | null = null;
+  let indexedLength = -1;
+  const indexById = new Map<string, number>();
+
+  function reconcileTask(incoming: Task, local?: Task): Task {
+    if (!local) return { ...incoming };
+    if (incoming === local) return local;
+    for (const key of Object.keys(local)) {
+      if (!(key in incoming)) delete (local as any)[key];
+    }
+    Object.assign(local, incoming);
+    return local;
+  }
+
+  function syncTaskChanges(incomingTasks: Task[]): void {
+    const collection = localTasks.value;
+    if (collection !== indexedTasks || collection.length !== indexedLength) {
+      indexById.clear();
+      collection.forEach((task, index) => indexById.set(task.id, index));
+      indexedTasks = collection;
+      indexedLength = collection.length;
+    }
+    for (const incoming of incomingTasks) {
+      let index = indexById.get(incoming.id);
+      if (index === undefined || collection[index]?.id !== incoming.id) {
+        index = collection.findIndex(task => task.id === incoming.id);
+        if (index < 0) continue;
+        indexById.set(incoming.id, index);
+      }
+      const local = collection[index];
+      if (repeatSeriesClearTaskIds.has(incoming.id) || repeatSeriesClearLocks.has(incoming.repeatSeriesId || '')) continue;
+      const locked = taskSyncLocks.get(incoming.id);
+      if (locked) {
+        if (getTaskSyncFingerprint(incoming) !== locked && !shouldAcceptIncomingWhileLocked(incoming, local)) continue;
+        clearTaskSyncLock(incoming.id);
+      }
+      reconcileTask(incoming, local);
+    }
+  }
 
   function getTaskSyncFingerprint(task: Task): string {
     return [
@@ -154,7 +193,7 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
         incomingTaskIds.add(incomingTask.id);
         const localTask = localTaskMap.get(incomingTask.id);
         if (localTask) {
-          merged.push({ ...localTask });
+          merged.push(localTask);
           continue;
         }
       }
@@ -169,24 +208,24 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
       incomingTaskIds.add(incomingTask.id);
       const expectedFingerprint = taskSyncLocks.get(incomingTask.id);
       if (!expectedFingerprint) {
-        merged.push({ ...incomingTask });
+        merged.push(reconcileTask(incomingTask, localTaskMap.get(incomingTask.id)));
         continue;
       }
 
       const incomingFingerprint = getTaskSyncFingerprint(incomingTask);
       if (incomingFingerprint === expectedFingerprint) {
         clearTaskSyncLock(incomingTask.id);
-        merged.push({ ...incomingTask });
+        merged.push(reconcileTask(incomingTask, localTaskMap.get(incomingTask.id)));
         continue;
       }
 
       const localTask = localTaskMap.get(incomingTask.id);
       if (shouldAcceptIncomingWhileLocked(incomingTask, localTask)) {
         clearTaskSyncLock(incomingTask.id);
-        merged.push({ ...incomingTask });
+        merged.push(reconcileTask(incomingTask, localTaskMap.get(incomingTask.id)));
         continue;
       }
-      merged.push(localTask ? { ...localTask } : { ...incomingTask });
+      merged.push(localTask || { ...incomingTask });
     }
 
     for (const localTask of localTasks.value) {
@@ -196,7 +235,7 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
           clearTaskSyncLock(localTask.id);
           continue;
         }
-        merged.push({ ...localTask });
+        merged.push(localTask);
       }
     }
 
@@ -227,7 +266,10 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
       }
 
       lastTasksHash = newHash;
-      localTasks.value = mergeIncomingTasks(taskSnapshot);
+      const merged = mergeIncomingTasks(taskSnapshot);
+      if (merged.length !== localTasks.value.length || merged.some((task, index) => task !== localTasks.value[index])) {
+        localTasks.value = merged;
+      }
       tasksSyncAppliedId = requestId;
     });
   }
@@ -236,6 +278,7 @@ export function useTaskSyncGuard(localTasks: Ref<Task[]>, options: TaskSyncGuard
     emitTaskDateChanged,
     suppressRepeatSeriesSync,
     syncTasks,
+    syncTaskChanges,
     clearAllTaskSyncLocks
   };
 }

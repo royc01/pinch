@@ -1940,5 +1940,13 @@
   "personalStats.summaryNoInsights": "当前活动还不足以形成更多洞察。",
   "personalStats.summaryGoalsTitle": "进行中的目标",
   "personalStats.unknownDate": "未知日期",
-  "personalStats.untitledTask": "未命名任务"
+  "personalStats.untitledTask": "未命名任务",
+  "calendar.scheduleFilter": "排期筛选",
+  "calendar.allTasks": "全部任务",
+  "calendar.unscheduled": "未排期",
+  "calendar.undoSchedule": "撤销上次调整",
+  "calendar.undoBusy": "正在撤销…",
+  "calendar.undoFailed": "撤销调整失败，请重试",
+  "calendar.undoConflict": "内容已被再次修改，无法撤销",
+  "calendar.undoUnavailable": "未能记录这次调整，无法撤销"
 }

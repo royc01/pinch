@@ -1,24 +1,5 @@
 <template>
-  <div :class="sharedSidebar ? 'calendar-content-layout' : 'calendar-view-layout'">
-    <CalendarTaskSidebar
-      v-if="!sharedSidebar && !sidebarCollapsed"
-      :tasks="sidebarTasks || tasks"
-      :notebooks="notebooks"
-      :document-title-by-root-id="documentTitleByRootId"
-      :display-options="displayOptions"
-      :week-starts-on-sunday="!isDayViewContext && !isThreeDayViewContext ? weekStartsOnSunday : undefined"
-      :selected-start-date="currentWeekStart"
-      :selected-days-count="daysCount"
-      @task-toggle="toggleTaskStatus"
-      @task-edit="(task, anchor) => emit('taskEdit', task, anchor)"
-      @date-select="focusSelectedDate"
-      @calendar-display-toggle="emit('calendarDisplayToggle', $event)"
-      @week-start-change="emit('weekStartChange', $event)"
-      @calendar-task-drag-start="handleCalendarTaskDragStart"
-      @calendar-task-drag-move="handleCalendarTaskDragMove"
-      @calendar-task-drag-end="handleCalendarTaskDragEnd"
-      @calendar-task-drag-cancel="handleCalendarTaskDragCancel"
-    />
+  <div class="calendar-content-layout">
     <div
       class="week-view"
       :class="{
@@ -58,6 +39,15 @@
       </div>
       <div class="header-title-row">
         <div class="header-title">{{ displayWeekTitle }}</div>
+        <button
+          v-if="canUndoSchedule || undoScheduleBusy"
+          type="button"
+          class="calendar-undo-schedule"
+          :disabled="!canUndoSchedule || undoScheduleBusy"
+          @click="emit('undoSchedule')"
+        >
+          {{ t(undoScheduleBusy ? 'calendar.undoBusy' : 'calendar.undoSchedule') }}
+        </button>
       </div>
     </div>
     
@@ -360,9 +350,10 @@
                 {{ t('monthView.collapse') }}
               </button>
             </div>
-            <div class="day-expanded-list">
+            <div ref="expandedTasksViewport" class="day-expanded-list" @scroll.passive="handleExpandedTasksScroll">
+              <div v-if="expandedTasksWindow.top" class="calendar-list-spacer" :style="{ height: `${expandedTasksWindow.top - 4}px` }"></div>
               <div
-                v-for="task in allDayExpandedTasks"
+                v-for="task in expandedTasksWindow.tasks"
                 :key="`expanded-all-day-${task.id}`"
                 class="day-expanded-chip ariaLabel"
                 :aria-label="getTaskDisplayTitle(task)"
@@ -386,6 +377,7 @@
                   <TaskTitlePlain :title="task.title" />
                 </span>
               </div>
+              <div v-if="expandedTasksWindow.bottom" class="calendar-list-spacer" :style="{ height: `${expandedTasksWindow.bottom - 4}px` }"></div>
               <div v-if="allDayExpandedTasks.length === 0" class="day-expanded-empty">
                 {{ t('taskManager.noTasks') }}
               </div>
@@ -689,7 +681,7 @@
 </template>
 
 <script setup lang="ts">
-import { assignCalendarTaskPositions } from '@/utils/calendarTaskPositions';
+import { createIncrementalCalendarPositions, createCalendarDateBuckets } from '@/utils/calendarIncrementalLayout';
 import { cancelLayoutMeasurement, scheduleLayoutMeasurement } from '@/utils/layoutMeasurement';
 import { ref, computed, onActivated, onDeactivated, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import type { FocusSessionRecord, Habit, MoodData, MoodManualEntry, Task, TaskGroup } from '@/api';
@@ -714,12 +706,14 @@ import { CALENDAR_CONSTANTS } from '@/composables/useCalendarConstants';
 import { useDebouncedSave } from '@/composables/useDebouncedSave';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
+import { useCalendarTaskSync } from '@/composables/useCalendarTaskSync';
+import { useCalendarVirtualList } from '@/composables/useCalendarVirtualList';
+import { useCalendarTaskDateCache, createCalendarTaskProjection, createCalendarTaskLayoutCache } from '@/utils/calendarTaskCache';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
 import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
 import { belongsToRepeatSeries, getDayDiff, isRepeatTask as isRepeatTaskEntity, shiftDate } from '@/utils/repeatTaskUtils';
 import { persistTaskBackgroundColor } from '@/utils/taskBackgroundColorPersistence';
 import Icon from './Icon.vue';
-import CalendarTaskSidebar from './CalendarTaskSidebar.vue';
 import TaskTitlePlain from './TaskTitlePlain.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
@@ -733,7 +727,6 @@ import { openHabitTrackerFocusTimer } from '@/main';
 import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 import {
   createCalendarTaskDateFields,
-  getCalendarTaskRenderDateValues,
   getEffectiveDueDate,
   normalizeOptionalDateValue,
   saveCalendarTaskDates
@@ -752,7 +745,6 @@ import {
   type TaskCompletedLifelogEvent
 } from '@/utils/lifelogEvents';
 import { eventBus, Events } from '@/utils/eventBus';
-import { getLifelogTaskSnapshotSignature, publishLifelogTaskSnapshot } from '@/utils/lifelogTaskSnapshot';
 import { publishLifelogTimelineSnapshot } from '@/utils/lifelogTimelineSnapshot';
 import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/utils/habitTaskChips';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
@@ -774,12 +766,11 @@ import {
 import { assignOverlapLanes } from '@/utils/overlapLanes';
 
 interface Props {
+  beginScheduleChange?: import('@/composables/useCalendarScheduleHistory').BeginCalendarScheduleChange;
+  canUndoSchedule?: boolean;
+  undoScheduleBusy?: boolean;
   tasks: Task[];
-  sidebarTasks?: Task[];
   sidebarCollapsed?: boolean;
-  sharedSidebar?: boolean;
-  notebooks?: Array<{ id: string; name: string; icon?: string }>;
-  documentTitleByRootId?: Map<string, string>;
   lifelogTasks?: Task[];
   fixedDaysCount?: number;
   fixedCenterToday?: boolean;
@@ -787,7 +778,6 @@ interface Props {
   goals?: Goal[];
   calendarViewOptions?: CalendarViewOption[];
   currentCalendarView?: CalendarViewMode;
-  displayOptions?: Array<{ key: string; label: string; enabled: boolean }>;
   weekStartsOnSunday?: boolean;
   showFocusRecords?: boolean;
   showHabits?: boolean;
@@ -868,6 +858,14 @@ interface MobileMiniCalendarDay {
 }
 
 const props = defineProps<Props>();
+let scheduleActionDepth = 0;
+async function runScheduleChange<T>(task: Task, operation: () => Promise<T>): Promise<T> {
+  if (scheduleActionDepth) return operation();
+  const action = await props.beginScheduleChange?.(task);
+  scheduleActionDepth++;
+  try { return await operation(); }
+  finally { scheduleActionDepth--; await action?.finish(); }
+}
 const { t } = useI18n();
 const { getMoodSvg } = useHabitEmojis();
 const {
@@ -969,6 +967,7 @@ const emit = defineEmits<{
   'weekStartChange': [weekStartsOnSunday: boolean];
   'sidebarCollapsedChange': [collapsed: boolean];
   'lifelogRequested': [];
+  'undoSchedule': [];
 }>();
 
 interface ExternalTaskDropPoint {
@@ -1224,11 +1223,6 @@ async function centerCurrentTimeInViewport(behavior: ScrollBehavior = 'auto'): P
 }
 
 const localTasks = ref<Task[]>([]);
-watch(
-  () => getLifelogTaskSnapshotSignature(taskCompletedLifelogSourceTasks.value),
-  () => publishLifelogTaskSnapshot(taskCompletedLifelogSourceTasks.value),
-  { immediate: true }
-);
 const focusSessionRecords = ref<FocusSessionRecord[]>([]);
 const habitRecords = ref<Habit[]>([]);
 const moodRecords = ref<MoodData>({});
@@ -1348,7 +1342,7 @@ const {
   upsertTask: upsertLocalTask,
   patchTask: patchLocalTask,
   patchTasksBatch: patchLocalTasksBatch
-} = useTaskLocalMutations(localTasks);
+} = useTaskLocalMutations(localTasks, { preserveIdentity: true });
 
 function emitTaskDateChanged(task: Task): void {
   taskSyncGuard.emitTaskDateChanged(task, (nextTask) => {
@@ -1375,8 +1369,10 @@ const {
   handleTaskMouseDown,
   handleTimedTaskHandleMouseDown,
   handleTimedTaskMouseDown,
-  removeEventListeners
+  removeEventListeners,
+  flushPendingDateSaves
 } = useTaskDrag(localTasks, emitTaskDateChanged, {
+  beginScheduleChange: task => props.beginScheduleChange?.(task) || Promise.resolve({ finish: async () => {} }),
   inactiveHoursOffset: () => isInactiveHoursCollapsed.value ? INACTIVE_HOURS_OFFSET : 0,
   onTimedTaskDragGhostMove: moveTimedTaskDragGhost,
   onAllDayTaskDragGhostMove: moveAllDayTaskDragGhost
@@ -1401,7 +1397,7 @@ function handleTimedTaskMouseDownWithSelection(event: MouseEvent, task: Task, da
 }
 
 function handleCalendarTaskDateClearKeydown(event: KeyboardEvent): void {
-  if (!weekLayoutActive) return;
+  if (!weekLayoutActive.value) return;
   if (event.key !== 'Delete' && event.key !== 'Backspace') return;
   const target = event.target as HTMLElement | null;
   if (target?.closest('input, textarea, select, [contenteditable="true"], .context-menu, .task-modal, .task-editor-protyle-body.is-sidebar .protyle')) return;
@@ -1726,19 +1722,8 @@ const nextNavLabel = computed(() => {
   return formatTemplate('weekView.nextDaysTemplate', { count: offset });
 });
 
-function getTasksHash(tasks: Task[]): string {
-  return tasks.map(t => 
-    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime}:${t.dueTime}:${t.repeatSeriesId || ''}:${t.repeatFrequency || ''}:${t.repeatInstanceDate || ''}:${t.isVirtual === true ? '1' : '0'}:${t.isRepeatWindow === true ? '1' : '0'}:${t.title}:${t.backgroundColor || ''}:${t.groupId || ''}`
-  ).join('|');
-}
-
-const tasksRenderHash = computed(() => getTasksHash(props.tasks));
-watch([() => props.tasks, tasksRenderHash], ([newTasks, hash]) => {
-  taskSyncGuard.syncTasks(newTasks, isDragging.value, () => hash);
-  if (newTasks.length > 0) {
-    playInitialContentAnimation();
-  }
-}, { immediate: true });
+useCalendarTaskSync(() => props.tasks, isDragging, taskSyncGuard);
+watch(() => props.tasks.length, count => { if (count > 0) playInitialContentAnimation(); }, { immediate: true });
 
 async function refreshFocusSessions(): Promise<void> {
   try {
@@ -2125,43 +2110,24 @@ function getWeekBounds() {
 
 const weekBounds = computed(() => getWeekBounds());
 
+const readTaskDates = useCalendarTaskDateCache();
 function getTaskDateRangeForRender(task: Task): { startDate: Date; endDate: Date } | null {
-  const dateValues = getCalendarTaskRenderDateValues(task);
-  if (!dateValues) return null;
-
-  const startDate = new Date(dateValues.startDate);
-  startDate.setHours(0, 0, 0, 0);
-
-  // Ordinary tasks and explicit repeat windows may span multiple days.
-  // Single-day repeat instances are normalized by the shared helper above.
-  const endDate = new Date(dateValues.dueDate);
-  endDate.setHours(23, 59, 59, 999);
-
-  return { startDate, endDate };
+  const dates = readTaskDates(task);
+  return dates ? { startDate: dates.start, endDate: dates.end } : null;
 }
 
 function getTaskRepeatSeriesId(task: Task): string {
   return typeof task.repeatSeriesId === 'string' ? task.repeatSeriesId.trim() : '';
 }
 
-const normalizedTaskRanges = computed(() => {
+const projectTaskRange = createCalendarTaskProjection(task => {
   const { weekStart, weekEnd } = weekBounds.value;
-  const ranges = localTasks.value.flatMap((task) => {
-    const range = getTaskDateRangeForRender(task);
-    if (!range) return [];
-    const { startDate, endDate } = range;
-
-    if (startDate > weekEnd || endDate < weekStart) {
-      return [];
-    }
-
-    return [{
-      task,
-      startDate,
-      endDate,
-      isTimed: Boolean(task.startTime || task.dueTime)
-    }];
-  });
+  const range = getTaskDateRangeForRender(task);
+  if (!range || range.startDate > weekEnd || range.endDate < weekStart) return null;
+  return { task, startDate: range.startDate, endDate: range.endDate, isTimed: Boolean(task.startTime || task.dueTime) };
+});
+const normalizedTaskRanges = computed(() => {
+  const ranges = localTasks.value.map(projectTaskRange).filter((range): range is NonNullable<typeof range> => !!range);
 
   const virtualRepeatSeriesIds = new Set<string>();
   for (const range of ranges) {
@@ -2183,6 +2149,7 @@ const normalizedTaskRanges = computed(() => {
   });
 });
 
+const readAllDayTaskLayout = createCalendarTaskLayoutCache<Omit<WeekAllDayTask, keyof Task>>();
 const weekTasks = computed<WeekAllDayTask[]>(() => {
   const { weekStart, weekEnd } = weekBounds.value;
   const taskRanges = [
@@ -2212,14 +2179,13 @@ const weekTasks = computed<WeekAllDayTask[]>(() => {
       const startDayOfWeek = Math.max(0, startDayOffset);
       const endDayOfWeek = Math.min(daysCount.value - 1, endDayOffset);
 
-      return {
-        ...task,
+      return readAllDayTaskLayout(task, 'all-day', {
         startDayOfWeek,
         endDayOfWeek,
         spanDays: endDayOfWeek - startDayOfWeek + 1,
         rangeStart: startDate,
         rangeEnd: endDate
-      };
+      });
     });
 });
 
@@ -2236,19 +2202,10 @@ const timedTaskRanges = computed(() => {
     }));
 });
 
-const taskPositionsMap = computed(() => {
-  const sortedTasks = [...weekTasks.value].sort((a, b) => {
-    const aStart = a.rangeStart.getTime();
-    const bStart = b.rangeStart.getTime();
-    if (aStart !== bStart) return aStart - bStart;
-
-    const aEnd = a.rangeEnd.getTime();
-    const bEnd = b.rangeEnd.getTime();
-    return (bEnd - bStart) - (aEnd - aStart);
-  });
-  return assignCalendarTaskPositions(sortedTasks, task => task.id,
-    task => task.rangeStart.getTime(), task => task.rangeEnd.getTime());
+const updateTaskPositions = createIncrementalCalendarPositions<WeekAllDayTask>({
+  id: task => task.id, start: task => task.rangeStart.getTime(), end: task => task.rangeEnd.getTime()
 });
+const taskPositionsMap = computed(() => updateTaskPositions(weekTasks.value));
 
 const allDayTaskRowCount = computed(() => {
   const maxPosition = Math.max(0, ...Array.from(taskPositionsMap.value.values()));
@@ -2266,11 +2223,11 @@ const allDaySectionHeight = computed(() => {
 const allDayViewportRef = ref<HTMLElement | null>(null);
 const allDayScrollTop = ref(0);
 const allDayViewportHeight = ref(320);
-let weekLayoutActive = true;
+const weekLayoutActive = ref(true);
 let allDayResizeObserver: ResizeObserver | null = null;
 
 function readAllDayViewport(): (() => void) | void {
-  if (!weekLayoutActive || !allDayViewportRef.value) return;
+  if (!weekLayoutActive.value || !allDayViewportRef.value) return;
   const height = allDayViewportRef.value.clientHeight;
   const scrollTop = allDayViewportRef.value.scrollTop;
   return () => {
@@ -2284,7 +2241,7 @@ function handleAllDayViewportScroll(event: Event): void {
 }
 
 function activateAllDayViewport(): void {
-  weekLayoutActive = true;
+  weekLayoutActive.value = true;
   if (timeUpdateInterval === null) {
     currentTime.value = new Date();
     timeUpdateInterval = setInterval(() => { currentTime.value = new Date(); }, 60000);
@@ -2297,7 +2254,7 @@ function activateAllDayViewport(): void {
 }
 
 function deactivateAllDayViewport(): void {
-  weekLayoutActive = false;
+  weekLayoutActive.value = false;
   if (timeUpdateInterval !== null) {
     clearInterval(timeUpdateInterval);
     timeUpdateInterval = null;
@@ -2312,7 +2269,7 @@ onActivated(activateAllDayViewport);
 onDeactivated(deactivateAllDayViewport);
 onUnmounted(deactivateAllDayViewport);
 
-watch(allDayViewportRef, () => { if (weekLayoutActive) activateAllDayViewport(); });
+watch(allDayViewportRef, () => { if (weekLayoutActive.value) activateAllDayViewport(); });
 
 const visibleTasks = computed(() => {
   const step = CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT;
@@ -2361,6 +2318,7 @@ const allDayExpandedTasks = computed<WeekAllDayTask[]>(() => {
       return getTaskDisplayTitle(a).localeCompare(getTaskDisplayTitle(b), 'zh-Hans-CN');
     });
 });
+const { viewport: expandedTasksViewport, window: expandedTasksWindow, onScroll: handleExpandedTasksScroll } = useCalendarVirtualList(() => allDayExpandedTasks.value, 28);
 
 const earliestHiddenTaskDate = computed(() => {
   const hiddenTasks = weekTasks.value.filter(task => {
@@ -2805,7 +2763,12 @@ async function applyRepeatSeriesDrop(
   return true;
 }
 
-async function applyTaskDropToDay(task: Task, day: WeekDay): Promise<void> {
+function applyTaskDropToDay(...args: Parameters<typeof applyTaskDropToDayImpl>): ReturnType<typeof applyTaskDropToDayImpl> {
+  const task = args[0];
+  return runScheduleChange(task, () => applyTaskDropToDayImpl(...args));
+}
+
+async function applyTaskDropToDayImpl(task: Task, day: WeekDay): Promise<void> {
   try {
     const dateStr = formatDate(day.date);
     const existingBackgroundColor = normalizeTaskBackgroundColorValue(task.backgroundColor);
@@ -2844,7 +2807,12 @@ async function applyTaskDropToDay(task: Task, day: WeekDay): Promise<void> {
   }
 }
 
-async function applyTaskDropToHourCell(task: Task, day: WeekDay, hour: number): Promise<void> {
+function applyTaskDropToHourCell(...args: Parameters<typeof applyTaskDropToHourCellImpl>): ReturnType<typeof applyTaskDropToHourCellImpl> {
+  const task = args[0];
+  return runScheduleChange(task, () => applyTaskDropToHourCellImpl(...args));
+}
+
+async function applyTaskDropToHourCellImpl(task: Task, day: WeekDay, hour: number): Promise<void> {
   try {
     const actualHour = hour - 1;
     const date = new Date(day.date);
@@ -3051,7 +3019,7 @@ function handleCalendarTaskDragCancel(): void {
 }
 
 function handleTaskManagerCalendarPointerDrag(event: Event): void {
-  if (!weekLayoutActive) return;
+  if (!weekLayoutActive.value) return;
   const detail = (event as CustomEvent<TaskManagerCalendarDragDetail>).detail;
   if (!detail || (detail.phase !== 'cancel' && !detail.task)) return;
   if (detail.phase === 'start' || detail.phase === 'move') {
@@ -3063,7 +3031,12 @@ function handleTaskManagerCalendarPointerDrag(event: Event): void {
   }
 }
 
-async function dropExternalTask(task: Task, point: ExternalTaskDropPoint): Promise<boolean> {
+function dropExternalTask(...args: Parameters<typeof dropExternalTaskImpl>): ReturnType<typeof dropExternalTaskImpl> {
+  const task = args[0];
+  return runScheduleChange(task, () => dropExternalTaskImpl(...args));
+}
+
+async function dropExternalTaskImpl(task: Task, point: ExternalTaskDropPoint): Promise<boolean> {
   const target = resolveExternalDropTarget(point, task);
   clearWeekDragOverState();
   if (!target) {
@@ -3345,15 +3318,16 @@ const timedTaskRenderItemsByDay = computed(() => {
   return grouped;
 });
 
+const layoutTimedDays = createCalendarDateBuckets<TimedTaskRenderItem>((a, b) =>
+  a.task === b.task && a.renderDate === b.renderDate && a.renderStartDate === b.renderStartDate
+  && a.renderDueDate === b.renderDueDate && a.renderStartTime === b.renderStartTime && a.renderDueTime === b.renderDueTime);
+const timedTaskLanesByDay = computed(() => layoutTimedDays(timedTaskRenderItemsByDay.value, assignTimedTaskLanes));
+const reserveTimedDays = createCalendarDateBuckets<TimedTaskRenderItem>((a, b) => a === b);
 const tasksByDay = computed(() => {
-  const grouped = new Map<string, TimedTaskRenderItem[]>();
-
-  for (const day of weekDays.value) {
-    const dayItems = timedTaskRenderItemsByDay.value.get(day.key) || [];
-    grouped.set(day.key, assignTimedTaskFocusTrackReserve(assignTimedTaskLanes(dayItems), weekLifelogTimelineByDay.value.get(day.key) || []));
-  }
-  
-  return grouped;
+  const logs = weekLifelogTimelineByDay.value;
+  return reserveTimedDays(timedTaskLanesByDay.value,
+    (items, date) => assignTimedTaskFocusTrackReserve(items, logs.get(date) || []),
+    date => (logs.get(date) || []).map(item => `${item.startTime}|${item.endTime}|${getWeekLifelogVisualMinutes(item)}`).join(';'));
 });
 
 const focusSessionsByDay = computed(() => {
@@ -3665,9 +3639,9 @@ watch(lifelogTimelineDayKey, (dayKey) => {
   }
 }, { immediate: true });
 watch(
-  [lifelogTimelineDayKey, lifelogTimelineItems],
-  ([dayKey, items]) => {
-    if (dayKey) {
+  [lifelogTimelineDayKey, lifelogTimelineItems, weekLayoutActive],
+  ([dayKey, items, active]) => {
+    if (dayKey && active) {
       publishLifelogTimelineSnapshot(dayKey, items);
     }
   },
@@ -4699,7 +4673,12 @@ function previewMobileAllDayTaskHandleDrag(
   return true;
 }
 
-async function commitMobileAllDayTaskMove(
+function commitMobileAllDayTaskMove(...args: Parameters<typeof commitMobileAllDayTaskMoveImpl>): ReturnType<typeof commitMobileAllDayTaskMoveImpl> {
+  const gesture = args[0];
+  return runScheduleChange(gesture.task, () => commitMobileAllDayTaskMoveImpl(...args));
+}
+
+async function commitMobileAllDayTaskMoveImpl(
   gesture: MobileAllDayTaskGesture,
   target: MobileTimedTaskDropTarget | null
 ): Promise<void> {
@@ -4773,7 +4752,12 @@ async function commitMobileAllDayTaskMove(
   }
 }
 
-async function commitMobileAllDayTaskHandleDrag(gesture: MobileAllDayTaskGesture): Promise<void> {
+function commitMobileAllDayTaskHandleDrag(...args: Parameters<typeof commitMobileAllDayTaskHandleDragImpl>): ReturnType<typeof commitMobileAllDayTaskHandleDragImpl> {
+  const gesture = args[0];
+  return runScheduleChange(gesture.task, () => commitMobileAllDayTaskHandleDragImpl(...args));
+}
+
+async function commitMobileAllDayTaskHandleDragImpl(gesture: MobileAllDayTaskGesture): Promise<void> {
   const currentTask = localTasks.value.find(task => task.id === gesture.task.id);
   if (!currentTask) {
     return;
@@ -5393,7 +5377,12 @@ function previewMobileTimedTaskHandleDrag(
   return true;
 }
 
-async function commitMobileTimedTaskMove(
+function commitMobileTimedTaskMove(...args: Parameters<typeof commitMobileTimedTaskMoveImpl>): ReturnType<typeof commitMobileTimedTaskMoveImpl> {
+  const gesture = args[0];
+  return runScheduleChange(gesture.task, () => commitMobileTimedTaskMoveImpl(...args));
+}
+
+async function commitMobileTimedTaskMoveImpl(
   gesture: MobileTimedTaskGesture,
   target: MobileTimedTaskDropTarget | null
 ): Promise<void> {
@@ -5462,7 +5451,12 @@ async function commitMobileTimedTaskMove(
   }
 }
 
-async function commitMobileTimedTaskHandleDrag(gesture: MobileTimedTaskGesture): Promise<void> {
+function commitMobileTimedTaskHandleDrag(...args: Parameters<typeof commitMobileTimedTaskHandleDragImpl>): ReturnType<typeof commitMobileTimedTaskHandleDragImpl> {
+  const gesture = args[0];
+  return runScheduleChange(gesture.task, () => commitMobileTimedTaskHandleDragImpl(...args));
+}
+
+async function commitMobileTimedTaskHandleDragImpl(gesture: MobileTimedTaskGesture): Promise<void> {
   const currentTask = localTasks.value.find(task => task.id === gesture.task.id);
   if (!currentTask) {
     return;
@@ -6340,6 +6334,7 @@ function startFocusForTask(task: Task): void {
 
 async function applyTaskDates(task: Task) {
   if (!task) return;
+  const action = await props.beginScheduleChange?.(task);
 
   emit('taskDateSaveRequested', saveCalendarTaskDates({
     task,
@@ -6349,6 +6344,7 @@ async function applyTaskDates(task: Task) {
     suppressRepeatSeriesSync: taskSyncGuard.suppressRepeatSeriesSync,
     emitTaskDateChanged
   }));
+  await action?.finish();
 }
 
 async function clearTaskDates(task: Task): Promise<void> {
@@ -6428,6 +6424,8 @@ async function setTaskBackgroundColor(task: Task, color: string) {
 }
 
 defineExpose({
+  flushPendingDateSaves,
+  resetScheduleSync: taskSyncGuard.clearAllTaskSyncLocks,
   updateExternalTaskDrag,
   clearExternalTaskDrag: clearWeekDragOverState,
   dropExternalTask,
@@ -6602,6 +6600,31 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
+}
+
+.calendar-undo-schedule {
+  height: 28px;
+  max-width: 150px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 99px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  box-shadow: var(--pinch-shadow);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.calendar-undo-schedule:hover {
+  background: var(--b3-list-hover);
+  border-color: var(--b3-border-color);
+}
+
+.calendar-undo-schedule:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .calendar-toolbar-actions {
@@ -7400,6 +7423,7 @@ onUnmounted(() => {
 }
 
 .day-expanded-panel {
+  max-height: min(60vh, 480px);
   position: absolute;
   border: 1px solid var(--b3-border-color);
   border-radius: 8px;
@@ -7408,7 +7432,7 @@ onUnmounted(() => {
   z-index: 30;
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .all-day-expanded-panel {
@@ -7416,6 +7440,7 @@ onUnmounted(() => {
 }
 
 .day-expanded-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -7440,7 +7465,8 @@ onUnmounted(() => {
 }
 
 .day-expanded-list {
-  overflow: visible;
+  min-height: 0;
+  overflow-y: auto;
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -7448,6 +7474,9 @@ onUnmounted(() => {
 }
 
 .day-expanded-chip {
+  box-sizing: border-box;
+  height: 24px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 4px;

@@ -545,15 +545,18 @@ const repeatBadgeTitle = computed(() => t('taskCard.repeatTask'));
 const isOverdue = computed(() => overdueDays.value > 0);
 const isDueSoon = computed(() => remainingDays.value !== null && remainingDays.value <= DUE_SOON_DAY_LIMIT);
 
+const taskGroupById = computed(() => new Map(
+  (props.taskGroups || []).map(group => [group.id, group])
+));
+
 function getTaskTagPathLabel(tagId: string): string {
-  const groupsById = new Map((props.taskGroups || []).map(group => [group.id, group]));
   const labels: string[] = [];
   const visited = new Set<string>();
-  let current = groupsById.get(tagId);
+  let current = taskGroupById.value.get(tagId);
   while (current && !visited.has(current.id)) {
     visited.add(current.id);
     labels.unshift(current.name?.trim() || t('taskManager.tags'));
-    current = current.parentId ? groupsById.get(current.parentId) : undefined;
+    current = current.parentId ? taskGroupById.value.get(current.parentId) : undefined;
   }
   return labels.join('/');
 }
@@ -561,7 +564,7 @@ function getTaskTagPathLabel(tagId: string): string {
 const resolvedTaskTagBadges = computed(() => (
   resolveTaskTagIds(task.value.tags, task.value.groupId)
     .flatMap((tagId) => {
-      const group = (props.taskGroups || []).find(item => item.id === tagId);
+      const group = taskGroupById.value.get(tagId);
       // A removed or otherwise unknown tag ID can remain in historical task
       // attributes. It is not a usable tag, so do not render a generic badge.
       if (!group) {

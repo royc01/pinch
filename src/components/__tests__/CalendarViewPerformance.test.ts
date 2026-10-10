@@ -56,7 +56,7 @@ describe('large calendar grids', () => {
   });
 
   function mountCalendar(component = MonthView, data = tasks(1)) {
-    wrapper = shallowMount(component, { props: { tasks: data, sharedSidebar: true,
+    wrapper = shallowMount(component, { props: { tasks: data,
       showHabits: false, showHabitLifelog: false, showFocusRecords: false,
       showTaskLifelog: false, showRecordsLifelog: false } });
   }
@@ -136,14 +136,13 @@ describe('large calendar grids', () => {
     { name: 'week', component: WeekView, chip: '.all-day-tasks-layer > .all-day-task', viewport: '.all-day-columns', step: CALENDAR_CONSTANTS.LAYOUT.TASK_CHIP_HEIGHT }
   ])('bounds 6501 same-day tasks in $name and renders the final tasks on scroll', async ({ component, chip, viewport, step }) => {
     const data = tasks(6501);
-    wrapper = shallowMount(component, { props: { tasks: data, sidebarTasks: data,
+    wrapper = shallowMount(component, { props: { tasks: data,
       showHabits: false, showHabitLifelog: false, showFocusRecords: false,
       showTaskLifelog: false, showRecordsLifelog: false },
-      global: { stubs: { CalendarTaskSidebar: false } } });
+      global: { stubs: { TaskTitlePlain: false } } });
     await flushPromises();
     expect(wrapper.findAll(chip).length).toBeGreaterThan(0);
     expect(wrapper.findAll(chip).length).toBeLessThan(100);
-    expect(wrapper.findAll('.calendar-task-sidebar-task').length).toBeLessThan(80);
     const scroll = wrapper.find(viewport);
     (scroll.element as HTMLElement).scrollTop = 6500 * step + (component === MonthView ? 140 : 0);
     await scroll.trigger('scroll');
@@ -170,5 +169,43 @@ describe('large calendar grids', () => {
     await flushPromises();
     expect(wrapper.findAll('.week-tasks-layer > .task-chip, .all-day-tasks-layer > .all-day-task')).toHaveLength(0);
     expect(nestedRead).not.toHaveBeenCalled();
+  });
+
+  it('retains unchanged month weeks and live layout records when a different task moves', async () => {
+    const data = reactive(tasks(2));
+    Object.assign(data[1], { startDate: '2026-10-21', dueDate: '2026-10-21' });
+    mountCalendar(MonthView, data);
+    await flushPromises();
+    const state = (wrapper!.vm.$ as any).setupState;
+    const initial = state.weeklyTasks as Map<string, Task[]>;
+    const changedWeek = [...initial].find(([, tasks]) => tasks.some(task => task.id === 'task-0'))![0];
+    const unchangedWeek = [...initial].find(([, tasks]) => tasks.some(task => task.id === 'task-1'))![0];
+    Object.assign(data[0], { startDate: '2026-10-08', dueDate: '2026-10-08' });
+    await flushPromises();
+    expect(state.weeklyTasks.get(unchangedWeek)).toBe(initial.get(unchangedWeek));
+    expect(state.weeklyTasks.get(changedWeek)).not.toBe(initial.get(changedWeek));
+    data[1].title = 'Live updated title';
+    await flushPromises();
+    expect(initial.get(unchangedWeek)![0].title).toBe('Live updated title');
+    expect(state.weeklyTasks.get(unchangedWeek)).toBe(initial.get(unchangedWeek));
+  });
+
+  it('retains unrelated timed days and all-day records when one time slot changes', async () => {
+    const data = reactive(tasks(3));
+    Object.assign(data[0], { startDate: '2026-10-06', dueDate: '2026-10-06', startTime: '09:00', dueTime: '10:00' });
+    Object.assign(data[1], { startTime: '09:00', dueTime: '10:00' });
+    mountCalendar(WeekView, data);
+    await flushPromises();
+    const state = (wrapper!.vm.$ as any).setupState;
+    const initialDays = state.tasksByDay as Map<string, unknown[]>;
+    const initialAllDay = state.weekTasks[0];
+    data[0].startTime = '08:30';
+    await flushPromises();
+    expect(state.tasksByDay.get('2026-10-07')).toBe(initialDays.get('2026-10-07'));
+    expect(state.tasksByDay.get('2026-10-06')).not.toBe(initialDays.get('2026-10-06'));
+    expect(state.weekTasks[0]).toBe(initialAllDay);
+    (wrapper!.vm as unknown as { selectSidebarDate: (date: Date) => void }).selectSidebarDate(new Date(2026, 9, 14));
+    await flushPromises();
+    expect(state.tasksByDay.has('2026-10-07')).toBe(false);
   });
 });

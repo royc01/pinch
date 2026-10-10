@@ -1,23 +1,6 @@
 ﻿<template>
   <div class="month-view" :class="{ 'initial-content-animation': isInitialContentAnimation }">
-    <div :class="sharedSidebar ? 'calendar-content-layout' : 'calendar-view-layout'">
-      <CalendarTaskSidebar
-        v-if="!sharedSidebar && !sidebarCollapsed"
-        :tasks="sidebarTasks || tasks"
-        :notebooks="notebooks"
-        :document-title-by-root-id="documentTitleByRootId"
-        :display-options="displayOptions"
-        :week-starts-on-sunday="weekStartsOnSunday"
-        @task-toggle="toggleTaskStatus"
-        @task-edit="(task, anchor) => emit('taskEdit', task, anchor)"
-        @date-select="focusMonth"
-        @calendar-display-toggle="emit('calendarDisplayToggle', $event)"
-        @week-start-change="emit('weekStartChange', $event)"
-        @calendar-task-drag-start="handleCalendarTaskDragStart"
-        @calendar-task-drag-move="handleCalendarTaskDragMove"
-        @calendar-task-drag-end="handleCalendarTaskDragEnd"
-        @calendar-task-drag-cancel="handleCalendarTaskDragCancel"
-      />
+    <div class="calendar-content-layout">
       <div class="calendar-container">
       <div class="calendar-toolbar">
         <div class="calendar-toolbar-top">
@@ -58,6 +41,15 @@
         <div class="month-title-row">
           <div class="month-title">{{ monthTitle }}</div>
           <div class="month-title-actions">
+            <button
+              v-if="canUndoSchedule || undoScheduleBusy"
+              type="button"
+              class="calendar-undo-schedule"
+              :disabled="!canUndoSchedule || undoScheduleBusy"
+              @click="emit('undoSchedule')"
+            >
+              {{ t(undoScheduleBusy ? 'calendar.undoBusy' : 'calendar.undoSchedule') }}
+            </button>
             <button
             type="button"
             class="month-task-collapse-btn ariaLabel"
@@ -325,9 +317,10 @@
             <Icon name="close" width="16" height="16" />
           </button>
         </header>
-        <div class="month-day-tasks-list">
+        <div ref="dayTasksViewport" class="month-day-tasks-list" @scroll.passive="handleDayTasksScroll">
+          <div v-if="dayTasksWindow.top" class="calendar-list-spacer" :style="{ height: `${dayTasksWindow.top - 8}px` }"></div>
           <button
-            v-for="task in dayTasksDialogTasks"
+            v-for="task in dayTasksWindow.tasks"
             :key="task.id"
             type="button"
             class="month-day-task-chip"
@@ -352,6 +345,7 @@
             <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
             <TaskTitlePlain class="month-day-task-chip-title" :title="task.title" />
           </button>
+          <div v-if="dayTasksWindow.bottom" class="calendar-list-spacer" :style="{ height: `${dayTasksWindow.bottom - 8}px` }"></div>
         </div>
       </section>
     </div>
@@ -400,7 +394,7 @@
 </template>
 
 <script setup lang="ts">
-import { assignCalendarTaskPositions } from '@/utils/calendarTaskPositions';
+import { createIncrementalCalendarPositions, createCalendarDateBuckets } from '@/utils/calendarIncrementalLayout';
 import { cancelLayoutMeasurement, scheduleLayoutMeasurement } from '@/utils/layoutMeasurement';
 import { ref, computed, watch, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue';
 import type { FocusSessionRecord, Habit, MoodData, MoodManualEntry, Task, TaskGroup } from '@/api';
@@ -423,6 +417,9 @@ import { getTaskPriorityLabel } from '@/utils/taskPriority';
 import { formatDate } from '@/composables/useDateUtils';
 import { useTaskDrag } from '@/composables/useTaskDrag';
 import { useTaskSyncGuard } from '@/composables/useTaskSyncGuard';
+import { useCalendarTaskSync } from '@/composables/useCalendarTaskSync';
+import { useCalendarVirtualList } from '@/composables/useCalendarVirtualList';
+import { useCalendarTaskDateCache, createCalendarTaskProjection, createCalendarTaskLayoutCache } from '@/utils/calendarTaskCache';
 import { useTaskLocalMutations } from '@/composables/useTaskLocalMutations';
 import { useHabitEmojis } from '@/composables/useHabitEmojis';
 import { getRepeatSeriesForTask, notifyRepeatChanged, rebuildAffectedRepeatTasks, updateRepeatSeriesDates, type RepeatFrequency, type RepeatRule, type RepeatRuleInput } from '@/repeatRepository';
@@ -442,7 +439,6 @@ import {
 } from '@/utils/taskGroupShared';
 import solarLunar from '@/utils/solarLunar.js';
 import Icon from './Icon.vue';
-import CalendarTaskSidebar from './CalendarTaskSidebar.vue';
 import TaskTitlePlain from './TaskTitlePlain.vue';
 import TaskCheckbox from './TaskCheckbox.vue';
 import TaskContextMenu from './TaskContextMenu.vue';
@@ -456,7 +452,6 @@ import { createTaskFocusTarget } from '@/utils/focusTimerTarget';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import {
   createCalendarTaskDateFields,
-  getCalendarTaskRenderDateValues,
   getEffectiveDueDate,
   normalizeOptionalDateValue,
   saveCalendarTaskDates,
@@ -481,7 +476,6 @@ import {
   tasksToCompletedLifelogEvents
 } from '@/utils/lifelogEvents';
 import { eventBus, Events } from '@/utils/eventBus';
-import { getLifelogTaskSnapshotSignature, publishLifelogTaskSnapshot } from '@/utils/lifelogTaskSnapshot';
 import { publishLifelogTimelineSnapshot } from '@/utils/lifelogTimelineSnapshot';
 import { buildHabitTaskChips, isHabitTaskChip, parseHabitTaskChipId } from '@/utils/habitTaskChips';
 import { getGoalIdsForTask } from '@/utils/goalTaskMembership';
@@ -491,18 +485,16 @@ import { getCheckinNoteEventKeys } from '@/utils/checkinNoteEvents';
 import { useUserSettings } from '@/composables/useUserSettings';
 
 interface Props {
+  beginScheduleChange?: import('@/composables/useCalendarScheduleHistory').BeginCalendarScheduleChange;
+  canUndoSchedule?: boolean;
+  undoScheduleBusy?: boolean;
   tasks: Task[];
-  sidebarTasks?: Task[];
   sidebarCollapsed?: boolean;
-  sharedSidebar?: boolean;
-  notebooks?: Array<{ id: string; name: string; icon?: string }>;
   lifelogTasks?: Task[];
   taskGroups?: TaskGroup[];
-  documentTitleByRootId?: Map<string, string>;
   goals?: Goal[];
   calendarViewOptions?: CalendarViewOption[];
   currentCalendarView?: CalendarViewMode;
-  displayOptions?: Array<{ key: string; label: string; enabled: boolean }>;
   weekStartsOnSunday?: boolean;
   showFocusRecords?: boolean;
   showHabits?: boolean;
@@ -609,6 +601,14 @@ type PointerCaptureSession = {
 };
 
 const props = defineProps<Props>();
+let scheduleActionDepth = 0;
+async function runScheduleChange<T>(task: Task, operation: () => Promise<T>): Promise<T> {
+  if (scheduleActionDepth) return operation();
+  const action = await props.beginScheduleChange?.(task);
+  scheduleActionDepth++;
+  try { return await operation(); }
+  finally { scheduleActionDepth--; await action?.finish(); }
+}
 const { t } = useI18n();
 const { data: userSettings, loadSettings, updateSettings } = useUserSettings();
 const { getMoodSvg } = useHabitEmojis();
@@ -650,6 +650,7 @@ const emit = defineEmits<{
   weekStartChange: [weekStartsOnSunday: boolean];
   sidebarCollapsedChange: [collapsed: boolean];
   lifelogRequested: [];
+  undoSchedule: [];
 }>();
 
 type EventListener = (...args: any[]) => void;
@@ -910,7 +911,7 @@ const {
   upsertTask: upsertLocalTask,
   patchTask: patchLocalTask,
   patchTasksBatch: patchLocalTasksBatch
-} = useTaskLocalMutations(localTasks);
+} = useTaskLocalMutations(localTasks, { preserveIdentity: true });
 const CREATE_SELECTION_THRESHOLD_PX = 8;
 const createSelection = ref<{
   active: boolean;
@@ -941,7 +942,7 @@ function handleTaskMouseDownWithSelection(event: MouseEvent, task: Task): void {
 }
 
 function handleCalendarTaskDateClearKeydown(event: KeyboardEvent): void {
-  if (!monthLayoutActive) return;
+  if (!monthLayoutActive.value) return;
   if (event.key !== 'Delete' && event.key !== 'Backspace') return;
   const target = event.target as HTMLElement | null;
   if (target?.closest('input, textarea, select, [contenteditable="true"], .context-menu, .task-modal, .task-editor-protyle-body.is-sidebar .protyle')) return;
@@ -979,13 +980,14 @@ const {
   isDragging,
   handleHandleMouseDown,
   handleTaskMouseDown,
-  removeEventListeners
+  removeEventListeners,
+  flushPendingDateSaves
 } = useTaskDrag(localTasks, (task) => {
   if (pendingDeletion.value.has(task.id)) {
     pendingDeletion.value.delete(task.id);
   }
   emitTaskDateChanged(task);
-}, { onAllDayTaskDragGhostMove: moveMonthTaskDragGhost });
+}, { beginScheduleChange: task => props.beginScheduleChange?.(task) || Promise.resolve({ finish: async () => {} }), onAllDayTaskDragGhostMove: moveMonthTaskDragGhost });
 
 interface LunarInfo {
   dayCn: string;
@@ -1053,11 +1055,6 @@ const taskCompletedLifelogSourceTasks = computed(() => {
   }
   return Array.from(tasksById.values());
 });
-watch(
-  () => getLifelogTaskSnapshotSignature(taskCompletedLifelogSourceTasks.value),
-  () => publishLifelogTaskSnapshot(taskCompletedLifelogSourceTasks.value),
-  { immediate: true }
-);
 const taskCompletedLifelogSourceTaskById = computed(() => {
   const taskById = new Map<string, Task>();
   for (const task of taskCompletedLifelogSourceTasks.value) {
@@ -1293,33 +1290,13 @@ function pickRandomTaskBackgroundColor(): string {
   return monthDropColorValues[index];
 }
 
-function getTasksHash(tasks: Task[]): string {
-  return tasks.map(t => 
-    `${t.id}:${t.status}:${t.priority}:${t.startDate}:${t.dueDate}:${t.startTime || ''}:${t.dueTime || ''}:${t.repeatSeriesId || ''}:${t.repeatFrequency || ''}:${t.repeatInstanceDate || ''}:${t.isVirtual === true ? '1' : '0'}:${t.isRepeatWindow === true ? '1' : '0'}:${t.title}:${t.backgroundColor || ''}:${t.groupId || ''}`
-  ).join('|');
-}
+useCalendarTaskSync(() => props.tasks, isDragging, taskSyncGuard);
+watch(() => props.tasks.length, count => { if (count > 0) playInitialContentAnimation(); }, { immediate: true });
 
-const tasksRenderHash = computed(() => getTasksHash(props.tasks));
-watch([() => props.tasks, tasksRenderHash], ([newTasks, hash]) => {
-  taskSyncGuard.syncTasks(newTasks, isDragging.value, () => hash);
-  if (newTasks.length > 0) {
-    playInitialContentAnimation();
-  }
-});
-
+const readTaskDates = useCalendarTaskDateCache();
 function getTaskDateRangeForRender(task: Task): { taskStart: Date; taskEnd: Date } | null {
-  const dateValues = getCalendarTaskRenderDateValues(task);
-  if (!dateValues) return null;
-
-  const taskStart = new Date(dateValues.startDate);
-  taskStart.setHours(0, 0, 0, 0);
-
-  // Ordinary tasks and explicit repeat windows may span multiple days.
-  // Single-day repeat instances are normalized by the shared helper above.
-  const taskEnd = new Date(dateValues.dueDate);
-  taskEnd.setHours(23, 59, 59, 999);
-
-  return { taskStart, taskEnd };
+  const dates = readTaskDates(task);
+  return dates ? { taskStart: dates.start, taskEnd: dates.end } : null;
 }
 
 function getTaskRepeatSeriesId(task: Task): string {
@@ -1387,32 +1364,18 @@ watch(
   }
 );
 
-const normalizedTaskRanges = computed<TaskRenderRange[]>(() => {
+const projectTaskRange = createCalendarTaskProjection<TaskRenderRange | null>(task => {
   const { start: visibleStart, end: visibleEnd } = visibleCalendarRange.value;
-  const ranges: TaskRenderRange[] = [];
-
-  for (const task of localTasks.value) {
-    const range = getTaskDateRangeForRender(task);
-    if (!range) continue;
-
-    if (range.taskEnd < visibleStart || range.taskStart > visibleEnd) {
-      continue;
-    }
-
-    const displayStart = range.taskStart < visibleStart ? visibleStart : range.taskStart;
-    const displayEnd = range.taskEnd > visibleEnd ? visibleEnd : range.taskEnd;
-
-    ranges.push({
-      task,
-      taskStart: range.taskStart,
-      taskEnd: range.taskEnd,
-      displayStart: new Date(displayStart),
-      displayEnd: new Date(displayEnd),
-      startMs: range.taskStart.getTime(),
-      endMs: range.taskEnd.getTime(),
-      displayEndMs: displayEnd.getTime()
-    });
-  }
+  const range = getTaskDateRangeForRender(task);
+  if (!range || range.taskEnd < visibleStart || range.taskStart > visibleEnd) return null;
+  const displayStart = range.taskStart < visibleStart ? visibleStart : range.taskStart;
+  const displayEnd = range.taskEnd > visibleEnd ? visibleEnd : range.taskEnd;
+  return { task, taskStart: range.taskStart, taskEnd: range.taskEnd,
+    displayStart: new Date(displayStart), displayEnd: new Date(displayEnd),
+    startMs: range.taskStart.getTime(), endMs: range.taskEnd.getTime(), displayEndMs: displayEnd.getTime() };
+});
+const normalizedTaskRanges = computed<TaskRenderRange[]>(() => {
+  const ranges = localTasks.value.map(projectTaskRange).filter((range): range is TaskRenderRange => !!range);
 
   const virtualRepeatSeriesIds = new Set<string>();
   for (const range of ranges) {
@@ -1449,47 +1412,15 @@ const habitTaskChips = computed(() =>
   showHabits.value ? buildHabitTaskChips(habitRecords.value, habitTaskChipDates.value) : []
 );
 
-function buildHabitTaskChipRanges(): TaskRenderRange[] {
-  return habitTaskChips.value
-    .map((task) => {
-      const range = getTaskDateRangeForRender(task);
-      if (!range) {
-        return null;
-      }
+const habitTaskChipRanges = computed(() => habitTaskChips.value
+  .map(projectTaskRange).filter((range): range is TaskRenderRange => !!range));
+const allTaskRanges = computed(() => [...normalizedTaskRanges.value, ...habitTaskChipRanges.value]);
 
-      return {
-        task,
-        taskStart: range.taskStart,
-        taskEnd: range.taskEnd,
-        displayStart: new Date(range.taskStart),
-        displayEnd: new Date(range.taskEnd),
-        startMs: range.taskStart.getTime(),
-        endMs: range.taskEnd.getTime(),
-        displayEndMs: range.taskEnd.getTime()
-      };
-    })
-    .filter((range): range is TaskRenderRange =>
-      !!range && Number.isFinite(range.startMs) && Number.isFinite(range.endMs)
-    );
-}
-
-const taskPositionsMap = computed(() => {
-  const sortedRanges = [
-    ...normalizedTaskRanges.value,
-    ...buildHabitTaskChipRanges()
-  ]
-    .sort((a, b) => {
-      const aStart = a.startMs;
-      const bStart = b.startMs;
-      if (aStart !== bStart) return aStart - bStart;
-
-      const aEnd = a.endMs;
-      const bEnd = b.endMs;
-      return (bEnd - bStart) - (aEnd - aStart);
-    });
-  return assignCalendarTaskPositions(sortedRanges, range => range.task.id,
-    range => range.displayStart.getTime(), range => range.displayEndMs);
+const updateTaskPositions = createIncrementalCalendarPositions<TaskRenderRange>({
+  id: range => range.task.id, start: range => range.displayStart.getTime(), end: range => range.displayEndMs,
+  sortStart: range => range.startMs, sortEnd: range => range.endMs
 });
+const taskPositionsMap = computed(() => updateTaskPositions(allTaskRanges.value));
 
 const weekdays = computed(() => {
   const mondayFirst = [
@@ -1643,7 +1574,13 @@ type WeekTask = Task & {
 const isTasksCollapsed = ref(false);
 const collapsedVisibleTaskSlots = ref(new Map<string, number>());
 const dayTasksDialogKey = ref<string | null>(null);
-const dayTasksDialogTasks = ref<WeekTask[]>([]);
+const dayTasksDialogTasks = computed(() => {
+  const key = dayTasksDialogKey.value;
+  if (!key) return [];
+  const week = calendarWeeks.value.find(days => days.some(day => day.key === key));
+  return week ? getTasksForDay(week, week.findIndex(day => day.key === key)) : [];
+});
+const { viewport: dayTasksViewport, window: dayTasksWindow, onScroll: handleDayTasksScroll } = useCalendarVirtualList(() => dayTasksDialogTasks.value, 30);
 const dayTasksDialogStyle = ref<Record<string, string>>({});
 const weeksContainerRef = ref<HTMLElement | null>(null);
 const weekRowElements = new Map<string, HTMLElement>();
@@ -1662,21 +1599,21 @@ function getCollapsedVisibleTaskSlots(week: any[]): number {
   return collapsedVisibleTaskSlots.value.get(getWeekKey(week)) ?? 1;
 }
 
-let monthLayoutActive = true;
+const monthLayoutActive = ref(true);
 const calendarViewportRef = ref<HTMLElement | null>(null);
 const monthViewport = ref({ scrollTop: 0, height: 600 });
 const monthViewportScrollable = ref(false);
 const measuredWeekTops = ref(new Map<string, number>());
-onActivated(() => { monthLayoutActive = true; syncCollapsedTaskSlots(); });
-onDeactivated(() => { monthLayoutActive = false; cancelLayoutMeasurement(readCollapsedTaskSlots); });
-onUnmounted(() => { monthLayoutActive = false; cancelLayoutMeasurement(readCollapsedTaskSlots); });
+onActivated(() => { monthLayoutActive.value = true; syncCollapsedTaskSlots(); });
+onDeactivated(() => { monthLayoutActive.value = false; cancelLayoutMeasurement(readCollapsedTaskSlots); });
+onUnmounted(() => { monthLayoutActive.value = false; cancelLayoutMeasurement(readCollapsedTaskSlots); });
 
 function syncCollapsedTaskSlots(): void {
-  if (monthLayoutActive) scheduleLayoutMeasurement(readCollapsedTaskSlots);
+  if (monthLayoutActive.value) scheduleLayoutMeasurement(readCollapsedTaskSlots);
 }
 
 function readCollapsedTaskSlots(): (() => void) | void {
-  if (!monthLayoutActive || !weeksContainerRef.value || calendarWeeks.value.length === 0) {
+  if (!monthLayoutActive.value || !weeksContainerRef.value || calendarWeeks.value.length === 0) {
     return;
   }
 
@@ -1731,8 +1668,11 @@ watch([calendarWeeks, isTasksCollapsed], () => {
   void nextTick().then(syncCollapsedTaskSlots);
 });
 
+const readWeeklyTaskLayout = createCalendarTaskLayoutCache<Pick<WeekTask, 'startDayOfWeek' | 'endDayOfWeek' | 'spanDays' | 'position'>>();
+const reuseWeeklyTasks = createCalendarDateBuckets<WeekTask>((a, b) => a === b);
 const weeklyTasks = computed(() => {
   const result = new Map<string, WeekTask[]>();
+  const taskRanges = allTaskRanges.value;
   
   for (const week of calendarWeeks.value) {
     const weekKey = week.map(d => d.key).join('-');
@@ -1744,23 +1684,6 @@ const weeklyTasks = computed(() => {
     const weekStartMs = weekStart.getTime();
     const weekEndMs = weekEnd.getTime();
     
-    const taskRanges = [
-      ...normalizedTaskRanges.value,
-      ...habitTaskChips.value.map(task => {
-        const taskStart = new Date(task.startDate || task.dueDate || '');
-        taskStart.setHours(0, 0, 0, 0);
-        const taskEnd = new Date(task.dueDate || task.startDate || '');
-        taskEnd.setHours(23, 59, 59, 999);
-        return {
-          task,
-          taskStart,
-          taskEnd,
-          startMs: taskStart.getTime(),
-          endMs: taskEnd.getTime()
-        };
-      }).filter(range => Number.isFinite(range.startMs) && Number.isFinite(range.endMs))
-    ];
-
     for (const range of taskRanges) {
       if (range.taskEnd < weekStart || range.taskStart > weekEnd) continue;
 
@@ -1772,19 +1695,18 @@ const weeklyTasks = computed(() => {
       
       const position = taskPositionsMap.value.get(range.task.id) ?? 0;
       
-      tasksForWeek.push({
-        ...range.task,
+      tasksForWeek.push(readWeeklyTaskLayout(range.task, weekKey, {
         startDayOfWeek,
         endDayOfWeek,
         spanDays: endDayOfWeek - startDayOfWeek + 1,
         position
-      });
+      }));
     }
     
     result.set(weekKey, tasksForWeek);
   }
   
-  return result;
+  return reuseWeeklyTasks(result, tasks => tasks);
 });
 
 watch(weeklyTasks, () => { void nextTick().then(syncCollapsedTaskSlots); });
@@ -1895,12 +1817,10 @@ function openDayTasks(dayKey: string, week: any[], dayIndex: number, event: Mous
     dayTasksDialogStyle.value.top = `${Math.max(margin, (rect?.bottom ?? margin) + 6)}px`;
   }
   dayTasksDialogKey.value = dayKey;
-  dayTasksDialogTasks.value = getTasksForDay(week, dayIndex);
 }
 
 function closeDayTasks(): void {
   dayTasksDialogKey.value = null;
-  dayTasksDialogTasks.value = [];
   dayTasksDialogStyle.value = {};
 }
 
@@ -2308,9 +2228,9 @@ watch(lifelogDayKey, (dayKey) => {
   }
 }, { immediate: true });
 watch(
-  [lifelogDayKey, lifelogTimelineItems],
-  ([dayKey, items]) => {
-    if (dayKey) {
+  [lifelogDayKey, lifelogTimelineItems, monthLayoutActive],
+  ([dayKey, items, active]) => {
+    if (dayKey && active) {
       publishLifelogTimelineSnapshot(dayKey, items);
     }
   },
@@ -3103,7 +3023,7 @@ function handleCalendarTaskDragCancel(): void {
 }
 
 function handleTaskManagerCalendarPointerDrag(event: Event): void {
-  if (!monthLayoutActive) return;
+  if (!monthLayoutActive.value) return;
   const detail = (event as CustomEvent<TaskManagerCalendarDragDetail>).detail;
   if (!detail || (detail.phase !== 'cancel' && !detail.task)) return;
   if (detail.phase === 'start' || detail.phase === 'move') {
@@ -3115,7 +3035,12 @@ function handleTaskManagerCalendarPointerDrag(event: Event): void {
   }
 }
 
-async function applyTaskDropToDay(task: Task, day: MonthCalendarDay): Promise<void> {
+function applyTaskDropToDay(...args: Parameters<typeof applyTaskDropToDayImpl>): ReturnType<typeof applyTaskDropToDayImpl> {
+  const task = args[0];
+  return runScheduleChange(task, () => applyTaskDropToDayImpl(...args));
+}
+
+async function applyTaskDropToDayImpl(task: Task, day: MonthCalendarDay): Promise<void> {
   try {
     const dateStr = formatDate(day.date);
     const existingBackgroundColor = normalizeTaskBackgroundColorValue(task.backgroundColor);
@@ -3145,16 +3070,20 @@ async function applyTaskDropToDay(task: Task, day: MonthCalendarDay): Promise<vo
       if (assignedBackgroundColor) {
         attrs['custom-task-background-color'] = assignedBackgroundColor;
       }
-      setBlockAttrs(task.blockId, attrs)
-        .then(() => TaskRepository.clearCache())
-        .catch(() => {});
+      await setBlockAttrs(task.blockId, attrs);
+      await TaskRepository.clearCache();
     }
   } catch (error) {
     console.error('[MonthView] handleDrop error', error);
   }
 }
 
-async function dropExternalTask(task: Task, point: ExternalTaskDropPoint): Promise<boolean> {
+function dropExternalTask(...args: Parameters<typeof dropExternalTaskImpl>): ReturnType<typeof dropExternalTaskImpl> {
+  const task = args[0];
+  return runScheduleChange(task, () => dropExternalTaskImpl(...args));
+}
+
+async function dropExternalTaskImpl(task: Task, point: ExternalTaskDropPoint): Promise<boolean> {
   const day = resolveExternalDropDay(point);
   clearDragOverState();
   if (!day) {
@@ -3212,7 +3141,7 @@ function changeLifelogTimelinePeriod(offset: number): void {
 
 let lastWheelNavigationTime = -Infinity;
 function handleWheel(event: WheelEvent) {
-  if (!monthLayoutActive || monthViewportScrollable.value || lifelogDayKey.value
+  if (!monthLayoutActive.value || monthViewportScrollable.value || lifelogDayKey.value
     || event.ctrlKey || !event.deltaY || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
   const now = Date.now();
   if (now - lastWheelNavigationTime < 200) return;
@@ -3492,7 +3421,12 @@ function handleDocumentMobileTaskPointerCancel(event: PointerEvent): void {
   handleMobileTaskPointerCancel(event);
 }
 
-async function commitMobileTaskChipMove(
+function commitMobileTaskChipMove(...args: Parameters<typeof commitMobileTaskChipMoveImpl>): ReturnType<typeof commitMobileTaskChipMoveImpl> {
+  const gesture = args[0];
+  return runScheduleChange(gesture.task, () => commitMobileTaskChipMoveImpl(...args));
+}
+
+async function commitMobileTaskChipMoveImpl(
   gesture: MobileTaskChipGesture,
   target: MobileTaskChipDropTarget | null
 ): Promise<void> {
@@ -3537,7 +3471,12 @@ async function commitMobileTaskChipMove(
   }
 }
 
-async function commitMobileTaskChipHandleDrag(gesture: MobileTaskChipGesture): Promise<void> {
+function commitMobileTaskChipHandleDrag(...args: Parameters<typeof commitMobileTaskChipHandleDragImpl>): ReturnType<typeof commitMobileTaskChipHandleDragImpl> {
+  const gesture = args[0];
+  return runScheduleChange(gesture.task, () => commitMobileTaskChipHandleDragImpl(...args));
+}
+
+async function commitMobileTaskChipHandleDragImpl(gesture: MobileTaskChipGesture): Promise<void> {
   const currentTask = localTasks.value.find(task => task.id === gesture.task.id);
   if (!currentTask) {
     return;
@@ -4006,6 +3945,7 @@ function hideContextMenu() {
 
 async function applyTaskDates(task: Task) {
   if (!task) return;
+  const action = await props.beginScheduleChange?.(task);
 
   emit('taskDateSaveRequested', saveCalendarTaskDates({
     task,
@@ -4015,6 +3955,7 @@ async function applyTaskDates(task: Task) {
     suppressRepeatSeriesSync: taskSyncGuard.suppressRepeatSeriesSync,
     emitTaskDateChanged
   }));
+  await action?.finish();
 }
 
 async function clearTaskDates(task: Task): Promise<void> {
@@ -4120,7 +4061,6 @@ onMounted(() => {
   document.addEventListener('pointerdown', handleCalendarTaskSelectionOutsidePointerDown);
   window.addEventListener('pinch-calendar-task-pointer-drag', handleTaskManagerCalendarPointerDrag as EventListener);
   emitVisibleCalendarRange();
-  taskSyncGuard.syncTasks(props.tasks, false, getTasksHash);
   if (props.tasks.length > 0) {
     playInitialContentAnimation();
   }
@@ -4279,6 +4219,8 @@ function handleContextMenuEditTask(task: Task): void {
 }
 
 defineExpose({
+  flushPendingDateSaves,
+  resetScheduleSync: taskSyncGuard.clearAllTaskSyncLocks,
   updateExternalTaskDrag,
   clearExternalTaskDrag: clearDragOverState,
   dropExternalTask,
@@ -4442,6 +4384,31 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.calendar-undo-schedule {
+  height: 28px;
+  max-width: 150px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 99px;
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  box-shadow: var(--pinch-shadow);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.calendar-undo-schedule:hover {
+  background: var(--b3-list-hover);
+  border-color: var(--b3-border-color);
+}
+
+.calendar-undo-schedule:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .month-task-collapse-btn {
@@ -4806,15 +4773,18 @@ onUnmounted(() => {
 }
 
 .month-day-tasks-dialog {
+  display: flex;
+  flex-direction: column;
   position: fixed;
   width: min(280px, calc(100vw - 16px));
-  overflow: auto;
+  overflow: hidden;
   border-radius: 10px;
   background: var(--b3-theme-background);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
 }
 
 .month-day-tasks-dialog-header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4848,6 +4818,8 @@ onUnmounted(() => {
 }
 
 .month-day-tasks-list {
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -4855,11 +4827,13 @@ onUnmounted(() => {
 }
 
 .month-day-task-chip {
+  box-sizing: border-box;
+  flex-shrink: 0;
   position: relative;
   display: flex;
   align-items: center;
   min-width: 0;
-  height: 16px;
+  height: 22px;
   gap: 2px;
   padding: 3px 5px 3px 8px;
   border: 0;

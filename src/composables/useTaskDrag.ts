@@ -1,12 +1,14 @@
 import { ref, type Ref } from 'vue';
 import { getFrontend } from 'siyuan';
-import { setBlockAttrs, type Task } from '@/api';
+import { TaskRepository, setBlockAttrs, type Task } from '@/api';
 import { getRepeatSeriesForTask, notifyRepeatChanged, updateRepeatSeriesDates } from '@/repeatRepository';
 import { isRepeatTask } from '@/utils/repeatTaskUtils';
 import { formatDate, formatTime } from './useDateUtils';
 import { CALENDAR_CONSTANTS } from './useCalendarConstants';
 import { useDebouncedSave } from './useDebouncedSave';
 import { useTaskLocalMutations } from './useTaskLocalMutations';
+import { onScopeDispose } from 'vue';
+import type { BeginCalendarScheduleChange, CalendarScheduleAction } from './useCalendarScheduleHistory';
 
 interface EventListener {
   element: Document;
@@ -26,6 +28,7 @@ interface RepeatMoveDecisionPayload {
 }
 
 interface UseTaskDragOptions {
+  beginScheduleChange?: BeginCalendarScheduleChange;
   resolveRepeatMoveScope?: (payload: RepeatMoveDecisionPayload) => Promise<RepeatMoveScope> | RepeatMoveScope;
   /** Number of pixels the inactive hours region (0-5am) is collapsed by.
    *  When collapsed, timed-task positioning and drag calculations need to offset
@@ -100,11 +103,26 @@ export function useTaskDrag(
     return typeof offset === 'function' ? offset() : (offset || 0);
   };
 
-  const { scheduleSave } = useDebouncedSave(500);
+  const { scheduleSave, flushSave } = useDebouncedSave(500);
+  let scheduleAction: Promise<CalendarScheduleAction | undefined> | undefined;
+  function beginScheduleAction(task: Task): void {
+    scheduleAction = options.beginScheduleChange?.(task).catch(error => {
+      console.error('Failed to capture calendar schedule:', error);
+      return undefined;
+    });
+  }
+  async function finishScheduleAction(operation: () => Promise<void>): Promise<void> {
+    const pending = scheduleAction;
+    scheduleAction = undefined;
+    const action = await pending;
+    try { await operation(); }
+    finally { await flushSave(); await action?.finish(); }
+  }
+  onScopeDispose(() => { void scheduleAction?.then(action => action?.finish()); });
   const {
     patchTask: patchLocalTask,
     patchTasksBatch: patchLocalTasksBatch
-  } = useTaskLocalMutations(localTasks);
+  } = useTaskLocalMutations(localTasks, { preserveIdentity: true });
 
   const dragState = ref({
     overDay: null as string | null,
@@ -680,6 +698,7 @@ export function useTaskDrag(
     // These handles resize an all-day task by changing its dates. Recurring
     // tasks keep their scheduled dates fixed in the calendar.
     if (isRepeatTask(task)) return;
+    beginScheduleAction(task);
     resetMonthDayCellHitRects();
 
     const effectiveStartDate = task.startDate || task.dueDate;
@@ -767,7 +786,11 @@ export function useTaskDrag(
     dragLastUpdatedDate.value = targetDateStr;
   }
 
-  async function handleHandleMouseUp() {
+  function handleHandleMouseUp(): Promise<void> {
+    return finishScheduleAction(() => handleHandleMouseUpImpl());
+  }
+
+  async function handleHandleMouseUpImpl() {
     const taskId = draggingHandle.value?.task.id;
     if (handleDateChangedDuringDrag && taskId) {
       const updatedTask = getLocalTask(taskId);
@@ -792,6 +815,7 @@ export function useTaskDrag(
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event)) return;
     if (!task.startDate && !task.dueDate) return;
+    beginScheduleAction(task);
     resetMonthDayCellHitRects();
 
     const effectiveStartDate = task.startDate || task.dueDate!;
@@ -944,7 +968,11 @@ export function useTaskDrag(
     dragLastUpdatedDate.value = dragSignature;
   }
 
-  async function handleTaskMouseUp(event: MouseEvent) {
+  function handleTaskMouseUp(event: MouseEvent): Promise<void> {
+    return finishScheduleAction(() => handleTaskMouseUpImpl(event));
+  }
+
+  async function handleTaskMouseUpImpl(event: MouseEvent) {
     if (!draggingTask.value) return;
 
     flushAllDayTaskMove(event);
@@ -1127,6 +1155,7 @@ export function useTaskDrag(
                 attrs['custom-task-due-date'] = targetDate;
               }
               await setBlockAttrs(persistTarget.blockId, attrs);
+              await TaskRepository.clearCache();
             } catch (error) {
             }
           }
@@ -1345,6 +1374,7 @@ export function useTaskDrag(
     if (event.button !== 0) return;
     if (isMobileFrontend) return;
     if (preventConcurrentDragStart(event)) return;
+    beginScheduleAction(task);
     clearTimedTaskHandleMove();
 
     const repeatSeriesSnapshot = isRepeatTask(task)
@@ -1456,7 +1486,11 @@ export function useTaskDrag(
     lastTimedTaskHandlePreviewKey = previewKey;
   }
 
-  async function handleTimedTaskHandleMouseUp() {
+  function handleTimedTaskHandleMouseUp(): Promise<void> {
+    return finishScheduleAction(() => handleTimedTaskHandleMouseUpImpl());
+  }
+
+  async function handleTimedTaskHandleMouseUpImpl() {
     if (!draggingTimedTaskHandle.value) return;
     flushTimedTaskHandleMove();
 
@@ -1583,6 +1617,7 @@ export function useTaskDrag(
     const timedTaskElement = target.closest('.timed-task') as HTMLElement;
     const daysScrollElement = target.closest('.days-scroll') as HTMLElement;
     if (!timedTaskElement || !daysScrollElement) return;
+    beginScheduleAction(task);
 
     const taskRect = timedTaskElement.getBoundingClientRect();
     const clickOffsetX = event.clientX - taskRect.left;
@@ -1733,7 +1768,11 @@ export function useTaskDrag(
     lastTimedTaskPreviewKey = previewKey;
   }
 
-  async function handleTimedTaskMouseUp(event: MouseEvent) {
+  function handleTimedTaskMouseUp(event: MouseEvent): Promise<void> {
+    return finishScheduleAction(() => handleTimedTaskMouseUpImpl(event));
+  }
+
+  async function handleTimedTaskMouseUpImpl(event: MouseEvent) {
     if (!draggingTimedTask.value) return;
     flushTimedTaskMove();
 
@@ -1960,6 +1999,7 @@ export function useTaskDrag(
     handleTaskMouseDown,
     handleTimedTaskHandleMouseDown,
     handleTimedTaskMouseDown,
-    removeEventListeners
+    removeEventListeners,
+    flushPendingDateSaves: flushSave
   };
 }

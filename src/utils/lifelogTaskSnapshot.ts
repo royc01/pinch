@@ -2,17 +2,7 @@ import type { Task } from '@/api';
 import { eventBus, Events } from './eventBus';
 
 let snapshot: Task[] = [];
-
-/** Track fields consumed by task logs without traversing the subtask tree. */
-export function getLifelogTaskSnapshotSignature(tasks: Task[]): string {
-  return JSON.stringify(tasks.map(task => [
-    task.id, task.blockId, task.title, task.description, task.status,
-    task.priority, task.tags, task.completedAt, task.updatedAt,
-    task.startDate, task.dueDate, task.groupId, task.notebookId, task.rootId,
-    task.archived, task.isVirtual, task.repeatSeriesId, task.repeatFrequency,
-    task.repeatInstanceDate
-  ]));
-}
+let indexById = new Map<string, number>();
 
 function cloneTasks(tasks: Task[]): Task[] {
   return tasks.map(task => ({ ...task }));
@@ -24,7 +14,19 @@ export function getLifelogTaskSnapshot(): Task[] {
 
 export function publishLifelogTaskSnapshot(tasks: Task[]): void {
   snapshot = cloneTasks(tasks);
+  indexById = new Map(snapshot.map((task, index) => [task.id, index]));
   eventBus.emit(Events.LIFELOG_TASKS_UPDATED, { tasks: getLifelogTaskSnapshot() });
+}
+
+export function publishLifelogTaskChanges(tasks: Task[]): void {
+  let changed = false;
+  for (const task of tasks) {
+    const index = indexById.get(task.id);
+    if (index === undefined) continue;
+    snapshot[index] = { ...task };
+    changed = true;
+  }
+  if (changed) eventBus.emit(Events.LIFELOG_TASKS_UPDATED, { tasks: getLifelogTaskSnapshot() });
 }
 
 export function patchLifelogTaskSnapshotByBlockId(

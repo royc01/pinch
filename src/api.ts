@@ -2320,7 +2320,8 @@ export function unicodeToEmoji(icon: string | undefined): string {
   return icon;
 }
 
-async function batchGetBlockAttrs(ids: string[]): Promise<Map<string, any>> {
+/** Load document icon attributes for many blocks with bounded SQL payloads. */
+export async function getBlockAttrsBatch(ids: string[]): Promise<Map<string, BlockAttrs>> {
   const uniqueIds = Array.from(new Set(
     ids
       .map(id => normalizeBlockAttrsId(id))
@@ -2786,6 +2787,9 @@ export class TaskRepository {
     timestamp: number;
     detailLevel: TaskFetchDetailLevel;
   } = { tasks: null, timestamp: 0, detailLevel: 'full' };
+  // Keep point lookups O(1) when a full task snapshot is already cached. The
+  // previous implementation rebuilt this index for every single-block lookup.
+  private static memoryTaskByBlockId = new Map<string, Task>();
   private static blockTasksFetchPromise: {
     promise: Promise<Task[]>;
     detailLevel: TaskFetchDetailLevel;
@@ -2808,6 +2812,26 @@ export class TaskRepository {
   private static autoRecognizeTaskDateEnabled: boolean | null = null;
   private static readonly TASK_DATE_INFER_SESSION_STARTED_AT = Date.now();
   private static readonly TASK_DATE_INFER_SESSION_SKEW_MS = 5000;
+
+  private static setMemoryCache(
+    tasks: Task[] | null,
+    timestamp: number,
+    detailLevel: TaskFetchDetailLevel
+  ): void {
+    this.memoryCache = { tasks, timestamp, detailLevel };
+    this.memoryTaskByBlockId.clear();
+    if (!tasks) return;
+
+    for (const task of tasks) {
+      if (task.type !== 'block' || !task.blockId) continue;
+      const existing = this.memoryTaskByBlockId.get(task.blockId);
+      // Virtual repeat instances share their template block ID. Prefer the
+      // persisted template for block-ID lookups.
+      if (!existing || (existing.isVirtual && !task.isVirtual)) {
+        this.memoryTaskByBlockId.set(task.blockId, task);
+      }
+    }
+  }
 
   private static stripTaskMarker(value: unknown): string {
     const text = typeof value === 'string' ? value : '';
@@ -3527,7 +3551,7 @@ export class TaskRepository {
 
     this.cacheGeneration += 1;
     this.excludedNotebookIds = new Set(normalized);
-    this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
+    this.setMemoryCache(null, 0, 'full');
     this.blockTasksFetchPromise = null;
     this.scopedMemoryCache.clear();
     this.scopedBlockTasksFetchPromises.clear();
@@ -4094,7 +4118,7 @@ export class TaskRepository {
     }
 
     try {
-      const rootAttrsMap = await batchGetBlockAttrs(staleRootIds);
+      const rootAttrsMap = await getBlockAttrsBatch(staleRootIds);
       rootAttrsMap.forEach((attrs, rootId) => {
         const icon = normalizeDocumentIconValue(attrs?.icon);
         if (icon) {
@@ -4686,7 +4710,7 @@ export class TaskRepository {
       completedAt: t.completedAt || (isCompletedTaskStatus(t.status) ? this.parseBlockDateTime(t.updatedAt) || undefined : undefined)
     }));
 
-    this.memoryCache = { tasks, timestamp: now, detailLevel: 'full' };
+    this.setMemoryCache(tasks, now, 'full');
     return tasks;
   }
 
@@ -4832,7 +4856,7 @@ export class TaskRepository {
       if (detailLevel === 'full') {
         await this.saveBlockTasksCache(tasks);
       } else {
-        this.memoryCache = { tasks, timestamp: Date.now(), detailLevel };
+        this.setMemoryCache(tasks, Date.now(), detailLevel);
       }
       return tasks;
     })();
@@ -5755,14 +5779,14 @@ export class TaskRepository {
       excludedNotebookIds: this.getExcludedNotebookIdsSorted(),
       updatedAt: new Date().toISOString()
     });
-    this.memoryCache = { tasks, timestamp: Date.now(), detailLevel: 'full' };
+    this.setMemoryCache(tasks, Date.now(), 'full');
   }
   
   static async clearCache(): Promise<void> {
     this.cacheGeneration += 1;
     invalidateBlockDOMCache();
     this.clearLocalBlockTasksCache();
-    this.memoryCache = { tasks: null, timestamp: 0, detailLevel: 'full' };
+    this.setMemoryCache(null, 0, 'full');
     this.blockTasksFetchPromise = null;
     this.scopedMemoryCache.clear();
     this.scopedBlockTasksFetchPromises.clear();
@@ -6560,11 +6584,7 @@ export class TaskRepository {
       enrichedTaskMap.forEach((task, blockId) => {
         cachedMap.set(blockId, task);
       });
-      this.memoryCache = {
-        tasks: Array.from(cachedMap.values()),
-        timestamp: Date.now(),
-        detailLevel: 'full'
-      };
+      this.setMemoryCache(Array.from(cachedMap.values()), Date.now(), 'full');
     }
 
     return enrichedTaskMap;
@@ -6595,16 +6615,9 @@ export class TaskRepository {
           this.memoryCache.detailLevel === 'full' &&
           now - this.memoryCache.timestamp < this.MEMORY_CACHE_DURATION
         ) {
-          const memoryTaskMap = new Map<string, Task>();
-          for (const task of this.memoryCache.tasks) {
-            if (task.type === 'block' && task.blockId) {
-              memoryTaskMap.set(task.blockId, task);
-            }
-          }
-
           const fromMemory = new Map<string, Task>();
           for (const blockId of scopedIds) {
-            const task = memoryTaskMap.get(blockId);
+            const task = this.memoryTaskByBlockId.get(blockId);
             if (task) {
               fromMemory.set(blockId, task);
             }

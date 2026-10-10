@@ -4,6 +4,7 @@ import { setBlockAttrs } from '@/api';
 export function useDebouncedSave(delay: number = 500) {
   const pendingUpdates = ref<Map<string, Record<string, string>>>(new Map());
   let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+  let activeSave: Promise<void> = Promise.resolve();
 
   function scheduleSave(blockId: string, attrs: Record<string, string>) {
     pendingUpdates.value.set(blockId, attrs);
@@ -17,24 +18,27 @@ export function useDebouncedSave(delay: number = 500) {
     }, delay);
   }
 
-  async function flushSave() {
+  function flushSave(): Promise<void> {
     if (saveTimeout) {
       clearTimeout(saveTimeout);
       saveTimeout = null;
     }
 
-    if (pendingUpdates.value.size === 0) return;
+    if (pendingUpdates.value.size === 0) return activeSave;
 
     const updates = Array.from(pendingUpdates.value.entries());
     pendingUpdates.value.clear();
 
-    for (const [blockId, attrs] of updates) {
-      try {
-        await setBlockAttrs(blockId, attrs);
-      } catch (error) {
-        console.error('Failed to save task attributes:', error);
+    activeSave = activeSave.then(async () => {
+      for (const [blockId, attrs] of updates) {
+        try {
+          await setBlockAttrs(blockId, attrs);
+        } catch (error) {
+          console.error('Failed to save task attributes:', error);
+        }
       }
-    }
+    });
+    return activeSave;
   }
 
   async function saveTaskAttrs(

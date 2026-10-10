@@ -1341,13 +1341,13 @@
      <KeepAlive>
      <MonthView
        ref="calendarMonthViewRef"
+       :begin-schedule-change="beginCalendarScheduleChange"
+       :can-undo-schedule="canUndoCalendarSchedule"
+       :undo-schedule-busy="undoCalendarScheduleBusy"
        v-if="currentView === 'month'"
-       shared-sidebar
        :tasks="showCalendarTasks && calendarTaskDataReady ? monthViewTasks : []"
        :sidebar-collapsed="calendarSidebarCollapsed"
        :week-starts-on-sunday="weekStartsOnSunday"
-      :notebooks="notebooks"
-      :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="monthLifelogTasks"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
@@ -1356,7 +1356,6 @@
       :show-task-lifelog="showCalendarTaskLifelog"
       :show-habit-lifelog="showCalendarHabitLifelog"
       :show-records-lifelog="showCalendarRecordsLifelog"
-      :display-options="calendarSidebarDisplayOptions"
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-click="handleTaskEditClick"
@@ -1371,16 +1370,17 @@
       @calendar-display-toggle="toggleCalendarDisplayOption"
       @week-start-change="handleCalendarWeekStartChange"
       @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
+      @undo-schedule="undoCalendarSchedule"
     />
      <WeekView
        ref="calendarWeekViewRef"
+       :begin-schedule-change="beginCalendarScheduleChange"
+       :can-undo-schedule="canUndoCalendarSchedule"
+       :undo-schedule-busy="undoCalendarScheduleBusy"
        v-else-if="isWeekBasedCalendarView"
-       shared-sidebar
       :tasks="showCalendarTasks && calendarTaskDataReady ? activeWeekViewTasks : []"
       :sidebar-collapsed="calendarSidebarCollapsed"
       :week-starts-on-sunday="weekStartsOnSunday"
-      :notebooks="notebooks"
-      :document-title-by-root-id="documentTitleByRootId"
       :lifelog-tasks="activeWeekLifelogTasks"
       :task-groups="taskGroups"
       :goals="goalDefinitions"
@@ -1391,7 +1391,6 @@
       :show-task-lifelog="showCalendarTaskLifelog"
       :show-habit-lifelog="showCalendarHabitLifelog"
       :show-records-lifelog="showCalendarRecordsLifelog"
-      :display-options="calendarSidebarDisplayOptions"
       :calendar-view-options="calendarHeaderViewOptions"
       :current-calendar-view="currentView"
       @task-date-changed="handleTaskDateChanged"
@@ -1406,6 +1405,7 @@
       @calendar-display-toggle="toggleCalendarDisplayOption"
       @week-start-change="handleCalendarWeekStartChange"
        @sidebar-collapsed-change="handleCalendarSidebarCollapsedChange"
+       @undo-schedule="undoCalendarSchedule"
      />
      </KeepAlive>
      </CalendarViewShell>
@@ -2052,7 +2052,7 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick, type Ref } from
 import { useTaskHeightOffsets } from '@/composables/useTaskHeightOffsets';
 import { cancelLayoutMeasurement, scheduleLayoutMeasurement } from '@/utils/layoutMeasurement';
 import { Protyle, getFrontend } from 'siyuan';
-import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, listDocsByPath, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '../api';
+import { TaskRepository, Task, SubTask, TaskGroup, buildTaskStatusAttrs, setBlockAttrs, pushMsg, openBlockById, sql, getBlockKramdown, getBlockAttrs, getBlockAttrsBatch, getBlockDOM, loadTaskGroups, saveTaskGroups, moveBlock, appendBlock, updateBlock, insertBlock, deleteBlock, createDocWithMd, createDailyNote, getHPathByID, getIDsByHPath, listDocsByPath, resolveTaskRepeatMaterializeOptions, type TaskQueryScope, type TaskRepeatWindow } from '../api';
 import {
   extractDocumentIconFromBlockRow,
   extractDocumentIconFromDom,
@@ -2168,6 +2168,10 @@ import GanttView from '@/components/GanttView.vue';
 import MonthView from '@/components/MonthView.vue';
 import WeekView from '@/components/WeekView.vue';
 import CalendarViewShell from '@/components/CalendarViewShell.vue';
+import { useLifelogTaskPublisher } from '@/composables/useLifelogTaskPublisher';
+import { createCalendarRangeCache } from '@/utils/calendarRangeCache';
+import { useCalendarScheduleHistory, calendarScheduleState, CalendarScheduleConflict } from '@/composables/useCalendarScheduleHistory';
+import { captureRepeatSchedule, restoreRepeatSchedule, repeatScheduleMatches } from '@/repeatRepository';
 import PersonalStatsView from '@/components/PersonalStatsView.vue';
 import { completePersonalStatsTask, reschedulePersonalStatsTask, resolvePersonalStatsActionTask, undoPersonalStatsTaskCompletion } from '@/utils/personalStatsTaskActions';
 import TaskManager from '@/components/TaskManager.vue';
@@ -2305,7 +2309,8 @@ try {
 const loading = ref(false);
 const calendarLifelogTasks = ref<Task[]>([]);
 let calendarLifelogLoadRequestId = 0;
-let calendarLifelogLoadedWindow: TaskRepeatWindow | null = null;
+const calendarLifelogRangeCache = createCalendarRangeCache((range, force) =>
+  TaskRepository.getAllTasks(!force, { includeArchived: true }, buildCalendarLifelogFetchOptions(range)));
 const showTaskScopeDialog = ref(false);
 const taskScopeDocumentsRefreshing = ref(false);
 type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
@@ -2396,6 +2401,8 @@ type MobileCalendarDropController = {
   moveSidebarTaskDrag: (payload: MobileCalendarDragPayload) => void;
   endSidebarTaskDrag: (payload: MobileCalendarDragPayload) => Promise<void>;
   cancelSidebarTaskDrag: () => void;
+  flushPendingDateSaves: () => Promise<void>;
+  resetScheduleSync: () => void;
 };
 type MobileCalendarDragSession = {
   active: boolean;
@@ -2819,28 +2826,23 @@ function matchesCalendarLifelogTask(
   return matchesTaskBySourceAndDocument(task, sourceValue, documentId, view);
 }
 
+function invalidateCalendarLifelogCache(): void {
+  calendarLifelogLoadRequestId++;
+  calendarLifelogRangeCache.clear();
+}
+
 async function ensureCalendarLifelogTasksLoaded(forceRefresh: boolean = false, requestedByPanel: boolean = false): Promise<void> {
   if (!showCalendarTaskLifelog.value && !requestedByPanel) return;
   const repeatWindow = resolveRequestedRepeatWindowForView(currentView.value);
   if (!repeatWindow) return;
-  // Completion dates can differ from occurrence dates. Reload repeat records
-  // when navigating so the log includes instances completed in this window.
-  if (!forceRefresh && areTaskRepeatWindowsEqual(calendarLifelogLoadedWindow, repeatWindow)) {
-    return;
-  }
   const requestId = ++calendarLifelogLoadRequestId;
   try {
-    const allTasks = await TaskRepository.getAllTasks(
-      !forceRefresh,
-      { includeArchived: true },
-      buildCalendarLifelogFetchOptions(repeatWindow)
-    );
+    const allTasks = await calendarLifelogRangeCache.load(repeatWindow, forceRefresh);
     if (requestId !== calendarLifelogLoadRequestId) {
       return;
     }
     if (!showCalendarTaskLifelog.value && !requestedByPanel) return;
     calendarLifelogTasks.value = filterTasksByNotebookScope(allTasks);
-    calendarLifelogLoadedWindow = { ...repeatWindow };
   } catch (error) {
     console.warn('[KanbanView] Failed to load calendar lifelog tasks:', error);
   }
@@ -2850,6 +2852,7 @@ function syncCalendarLifelogTask(task: Task): void {
   if (!task?.id || task.type !== 'block' || task.isVirtual === true) {
     return;
   }
+  invalidateCalendarLifelogCache();
   const nextTask = { ...task };
   const taskIndex = calendarLifelogTasks.value.findIndex(item => item.id === task.id);
   if (taskIndex === -1) {
@@ -3039,6 +3042,81 @@ const mobileViewSwitcherControlRef = ref<HTMLElement | null>(null);
 const mobileViewSwitcherPopoverRef = ref<HTMLElement | null>(null);
 const calendarMonthViewRef = ref<MobileCalendarDropController | null>(null);
 const calendarWeekViewRef = ref<MobileCalendarDropController | null>(null);
+const pendingCalendarDateSaves = new Set<Promise<void>>();
+const calendarScheduleHistory = useCalendarScheduleHistory({
+  tasks: () => tasks.value,
+  captureRepeat: task => task.repeatSeriesId || (task.repeatFrequency && task.repeatFrequency !== 'none')
+    ? captureRepeatSchedule(task) : Promise.resolve(null),
+  repeatMatches: repeatScheduleMatches,
+  async settle() {
+    await Promise.all([...pendingCalendarDateSaves]);
+    await Promise.all([
+      calendarMonthViewRef.value?.flushPendingDateSaves(),
+      calendarWeekViewRef.value?.flushPendingDateSaves()
+    ]);
+  },
+  async restore(before, repeatBefore, repeatAfter) {
+    const persisted: Task[] = [];
+    try {
+      for (const previous of before.filter(task => !task.isVirtual)) {
+        const current = tasks.value.find(task => task.id === previous.id);
+        if (!current?.blockId) throw new CalendarScheduleConflict();
+        persisted.push({ ...current });
+        await setBlockAttrs(current.blockId, {
+          'custom-task-start-date': previous.startDate || '',
+          'custom-task-due-date': previous.dueDate || '',
+          'custom-task-start-time': previous.startTime || '',
+          'custom-task-due-time': previous.dueTime || ''
+        });
+      }
+      if (repeatBefore) await restoreRepeatSchedule(repeatBefore, repeatAfter);
+    } catch (error) {
+      for (const task of persisted) {
+        await setBlockAttrs(task.blockId!, {
+          'custom-task-start-date': task.startDate || '', 'custom-task-due-date': task.dueDate || '',
+          'custom-task-start-time': task.startTime || '', 'custom-task-due-time': task.dueTime || ''
+        }).catch(rollbackError => console.error('[Calendar] Undo rollback failed:', rollbackError));
+      }
+      throw error;
+    }
+    calendarMonthViewRef.value?.resetScheduleSync();
+    calendarWeekViewRef.value?.resetScheduleSync();
+    if (repeatBefore) localClearedRepeatSeriesIds.delete(repeatBefore.series.id);
+    for (const previous of before) {
+      const current = tasks.value.find(task => task.id === previous.id);
+      if (!current && previous.isVirtual) continue;
+      const updatedAt = new Date(Math.max(Date.now(), Date.parse(current?.updatedAt || '') + 1 || 0)).toISOString();
+      applyExternalTaskDateChange({ ...(current || previous), ...calendarScheduleState(previous), updatedAt });
+    }
+    if (repeatBefore) {
+      notifyRepeatChanged({ blockId: repeatBefore.series.templateBlockId,
+        seriesId: repeatBefore.series.id, frequency: repeatBefore.series.frequency });
+    }
+    await TaskRepository.clearCache();
+    scheduleKernelTaskIndexRefresh();
+  }
+});
+const { canUndo: canUndoCalendarSchedule, busy: undoCalendarScheduleBusy } = calendarScheduleHistory;
+async function beginCalendarScheduleChange(task: Task) {
+  try { return await calendarScheduleHistory.begin(task); }
+  catch (error) {
+    console.error('[Calendar] Failed to capture schedule:', error);
+    void pushMsg(t('calendar.undoUnavailable'), 3000);
+    return { finish: async () => {} };
+  }
+}
+async function undoCalendarSchedule(): Promise<void> {
+  try { await calendarScheduleHistory.undo(); }
+  catch (error) {
+    console.error('[Calendar] Failed to undo schedule:', error);
+    void pushMsg(t(error instanceof CalendarScheduleConflict ? 'calendar.undoConflict' : 'calendar.undoFailed'), 3000);
+  }
+}
+function trackCalendarDateSave(save: Promise<void>): void {
+  pendingCalendarDateSaves.add(save);
+  void save.finally(() => pendingCalendarDateSaves.delete(save));
+}
+
 const mobileCalendarTaskDrawerVisible = ref(false);
 const mobileCalendarTaskDrag = ref<MobileCalendarDragSession>({
   active: false,
@@ -5860,35 +5938,48 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
   }
 
   const successUpdates = new Map<string, { tagIds: string[]; groupId: string }>();
-  for (const blockId of blockIdsToClear) {
-    try {
-      const localTask = localAffectedTasks.find(task => task.blockId === blockId) || null;
-      let currentTagState = localTask
-        ? buildTaskTagState(localTask.tags, localTask.groupId)
-        : buildTaskTagState([], '');
-      if (!localTask) {
-        const attrs = await getBlockAttrs(blockId);
-        let parsedTags: unknown = [];
-        if (attrs['custom-task-tags']) {
-          try {
-            parsedTags = JSON.parse(attrs['custom-task-tags']);
-          } catch {
-            parsedTags = [];
+  const localTaskByBlockId = new Map(
+    localAffectedTasks
+      .filter(task => typeof task.blockId === 'string' && task.blockId.length > 0)
+      .map(task => [task.blockId as string, task])
+  );
+  // Keep cleanup bounded while allowing independent attribute writes to run
+  // concurrently; serial writes made large tag-tree changes unnecessarily slow.
+  let nextBlockIndex = 0;
+  const clearWorker = async (): Promise<void> => {
+    while (nextBlockIndex < blockIdsToClear.length) {
+      const blockId = blockIdsToClear[nextBlockIndex++];
+      try {
+        const localTask = localTaskByBlockId.get(blockId) || null;
+        let currentTagState = localTask
+          ? buildTaskTagState(localTask.tags, localTask.groupId)
+          : buildTaskTagState([], '');
+        if (!localTask) {
+          const attrs = await getBlockAttrs(blockId);
+          let parsedTags: unknown = [];
+          if (attrs['custom-task-tags']) {
+            try {
+              parsedTags = JSON.parse(attrs['custom-task-tags']);
+            } catch {
+              parsedTags = [];
+            }
           }
+          currentTagState = buildTaskTagState(parsedTags, attrs['custom-task-group']);
         }
-        currentTagState = buildTaskTagState(parsedTags, attrs['custom-task-group']);
+        const nextTagIds = removeTaskTags(currentTagState.tagIds, removedSet);
+        const nextTagAttrs = buildTaskTagAttrs(nextTagIds);
+        await setBlockAttrs(blockId, nextTagAttrs.attrs);
+        successUpdates.set(blockId, {
+          tagIds: nextTagAttrs.tagIds,
+          groupId: nextTagAttrs.primaryTagId
+        });
+      } catch (error) {
+        console.error('[KanbanView] Failed to clear task group attrs:', error);
       }
-      const nextTagIds = removeTaskTags(currentTagState.tagIds, removedSet);
-      const nextTagAttrs = buildTaskTagAttrs(nextTagIds);
-      await setBlockAttrs(blockId, nextTagAttrs.attrs);
-      successUpdates.set(blockId, {
-        tagIds: nextTagAttrs.tagIds,
-        groupId: nextTagAttrs.primaryTagId
-      });
-    } catch (error) {
-      console.error('[KanbanView] Failed to clear task group attrs:', error);
     }
-  }
+  };
+  const workerCount = Math.min(6, blockIdsToClear.length);
+  await Promise.all(Array.from({ length: workerCount }, clearWorker));
 
   const successBlockIds = Array.from(successUpdates.keys());
   const successBlockIdSet = new Set(successBlockIds);
@@ -6808,21 +6899,11 @@ async function refreshTaskDocumentIcons(): Promise<void> {
 
   const unresolvedRootIds = rootIds.filter(id => !nextMap.has(id));
   if (unresolvedRootIds.length > 0) {
-    const attrsList = await Promise.all(unresolvedRootIds.map(async (rootId) => {
-      try {
-        const attrs = await getBlockAttrs(rootId);
-        return { rootId, attrs };
-      } catch {
-        return { rootId, attrs: null as Record<string, string> | null };
-      }
-    }));
-    for (const item of attrsList) {
-      if (!item.attrs) {
-        continue;
-      }
-      const attrIcon = normalizeDocumentIconValue(item.attrs.icon);
+    const attrsByRootId = await getBlockAttrsBatch(unresolvedRootIds);
+    for (const rootId of unresolvedRootIds) {
+      const attrIcon = normalizeDocumentIconValue(attrsByRootId.get(rootId)?.icon);
       if (attrIcon) {
-        nextMap.set(item.rootId, attrIcon);
+        nextMap.set(rootId, attrIcon);
       }
     }
   }
@@ -8590,26 +8671,15 @@ const ganttViewTasks = computed(() => {
   });
 });
 
-const monthViewTasks = computed(() => {
-  return calendarTopLevelTasks.value.filter(task => {
-    if (task.type !== 'block') return false;
-    if (task.archived) return false;
-    if (!task.startDate && !task.dueDate) return false;
-    if (!matchesTaskBySourceAndDocument(task, monthFilterType.value, monthFilterDocument.value, 'month')) {
-      return false;
-    }
-    
-    return true;
-  });
-});
-
 const emptyCalendarTasks: Task[] = [];
-const sharedCalendarSidebarTasks = computed(() => {
-  return calendarTopLevelTasks.value.filter(task => {
-    if (task.type !== 'block' || task.archived) return false;
-    return matchesTaskBySourceAndDocument(task, calendarFilterType.value, calendarFilterDocument.value, 'month');
-  });
-});
+const sharedCalendarSidebarTasks = computed(() => calendarTopLevelTasks.value.filter(task =>
+  task.type === 'block' && !task.archived
+  && matchesTaskBySourceAndDocument(task, calendarFilterType.value, calendarFilterDocument.value, 'month')));
+// Calendar subviews use the same source/document scope and share the actual result.
+const calendarScheduledTasks = computed(() => sharedCalendarSidebarTasks.value.filter(task => task.startDate || task.dueDate));
+const monthViewTasks = calendarScheduledTasks;
+const weekViewTasks = calendarScheduledTasks;
+const dayViewTasks = calendarScheduledTasks;
 
 const calendarSidebarSelectedStartDate = computed(() => {
   if (!isWeekBasedCalendarView.value) return undefined;
@@ -8622,49 +8692,18 @@ const calendarSidebarSelectedDaysCount = computed(() => {
   return end ? Math.round((end.getTime() - calendarSidebarSelectedStartDate.value.getTime()) / 86400000) + 1 : undefined;
 });
 
-const monthLifelogTasks = computed(() => {
-  return calendarLifelogTasks.value.filter(task =>
-    matchesCalendarLifelogTask(task, monthFilterType.value, monthFilterDocument.value, 'month')
-  );
+const calendarFilteredLifelogTasks = computed(() => calendarLifelogTasks.value.filter(task =>
+  matchesCalendarLifelogTask(task, calendarFilterType.value, calendarFilterDocument.value, 'month')));
+const monthLifelogTasks = calendarFilteredLifelogTasks;
+const weekLifelogTasks = calendarFilteredLifelogTasks;
+const dayLifelogTasks = calendarFilteredLifelogTasks;
+const calendarLifelogSnapshotTasks = computed(() => {
+  const byId = new Map(calendarFilteredLifelogTasks.value.map(task => [task.id, task]));
+  for (const task of sharedCalendarSidebarTasks.value) byId.set(task.id, task);
+  return [...byId.values()];
 });
+useLifelogTaskPublisher(() => calendarLifelogSnapshotTasks.value, () => isCalendarView.value);
 
-const weekViewTasks = computed(() => {
-  return calendarTopLevelTasks.value.filter(task => {
-    if (task.type !== 'block') return false;
-    if (task.archived) return false;
-    if (!task.startDate && !task.dueDate) return false;
-    if (!matchesTaskBySourceAndDocument(task, weekFilterType.value, weekFilterDocument.value, 'week')) {
-      return false;
-    }
-    
-    return true;
-  });
-});
-
-const weekLifelogTasks = computed(() => {
-  return calendarLifelogTasks.value.filter(task =>
-    matchesCalendarLifelogTask(task, weekFilterType.value, weekFilterDocument.value, 'week')
-  );
-});
-
-const dayViewTasks = computed(() => {
-  return calendarTopLevelTasks.value.filter(task => {
-    if (task.type !== 'block') return false;
-    if (task.archived) return false;
-    if (!task.startDate && !task.dueDate) return false;
-    if (!matchesTaskBySourceAndDocument(task, dayFilterType.value, dayFilterDocument.value, 'day')) {
-      return false;
-    }
-
-    return true;
-  });
-});
-
-const dayLifelogTasks = computed(() => {
-  return calendarLifelogTasks.value.filter(task =>
-    matchesCalendarLifelogTask(task, dayFilterType.value, dayFilterDocument.value, 'day')
-  );
-});
 
 const isWeekBasedCalendarView = computed(() =>
   currentView.value === 'week'
@@ -10992,7 +11031,10 @@ async function loadTasks(
       : sqlTasks;
     hydrateKanbanMemoTitlesSync(nextTasks, KANBAN_TITLE_HYDRATE_LIMIT);
     syncTaskSnapshot(nextTasks);
-    rememberTaskSnapshot(taskLoadScope, mode, fetchRepeatWindow, nextTasks);
+    // A load can finish after a calendar drop. Cache the reconciled task tree,
+    // including local date/time overrides, so switching views after those
+    // short-lived guards expire cannot restore the original all-day snapshot.
+    rememberTaskSnapshot(taskLoadScope, mode, fetchRepeatWindow, tasks.value);
     loadedTaskLoadMode.value = mode;
     loadedRepeatWindow.value = fetchRepeatWindow;
     loadedTaskLoadScopeKey.value = buildTaskLoadScopeKey(taskLoadScope);
@@ -11020,6 +11062,7 @@ async function loadTasks(
 }
 
 async function refreshTasks() {
+  invalidateCalendarLifelogCache();
   await Promise.all([loadTasks(true), ensureCalendarLifelogTasksLoaded(true)]);
 }
 
@@ -11815,6 +11858,7 @@ const incrementalUpdateQueue = createBlockIdBatchQueue({
 
 function setupEventListeners() {
   const unsubscribeChanged = eventBus.on(Events.TASK_CHANGED, (data?: TaskChangePayload) => {
+      invalidateCalendarLifelogCache();
       rememberActiveKanbanEditorTitleOverride(data?.blockIds);
       // Reparenting changes the visible hierarchy (and may remove a task from
       // one root while adding it under another). A full silent reload keeps
@@ -11872,15 +11916,17 @@ function setupEventListeners() {
   });
 
   const unsubscribeDeleted = eventBus.on(Events.TASK_DELETED, ({ blockId }: { blockId: string }) => {
+    invalidateCalendarLifelogCache();
+    removeCalendarLifelogTaskByBlockId(blockId);
     const taskIndex = tasks.value.findIndex(t => t.blockId === blockId);
     if (taskIndex !== -1) {
       tasks.value = tasks.value.filter(t => t.blockId !== blockId);
-      removeCalendarLifelogTaskByBlockId(blockId);
       invalidateTableFilters();
     }
   });
 
   const unsubscribeUpdated = eventBus.on(Events.TASK_UPDATED, ({ blockId }: { blockId: string }) => {
+    invalidateCalendarLifelogCache();
     if (isDragTaskSyncSuppressed(blockId)) {
       return;
     }
@@ -11895,6 +11941,7 @@ function setupEventListeners() {
   });
 
   const unsubscribeAdded = eventBus.on(Events.TASK_ADDED, async (payload?: { blockId?: string; reason?: string; seriesId?: string; frequency?: string; templateUpdates?: Record<string, unknown>; task?: Task }) => {
+    invalidateCalendarLifelogCache();
     if (payload?.reason === 'repeat-changed' && payload.frequency) {
       applyRepeatTemplateBroadcastUpdates(payload);
       const requestId = ++repeatReconcileRequestId;
@@ -11943,6 +11990,7 @@ function setupEventListeners() {
   });
 
   const unsubscribeDateChanged = eventBus.on(Events.TASK_DATE_CHANGED, (updatedTask: Task) => {
+    invalidateCalendarLifelogCache();
     applyExternalTaskDateChange(updatedTask);
   });
 
@@ -11990,6 +12038,7 @@ function setupEventListeners() {
       if (isSame) {
         return;
       }
+      invalidateCalendarLifelogCache();
       applyExcludedNotebookScope(normalized);
       if (resetFiltersForExcludedNotebooks() || normalizeInvalidNotebookFilters()) {
         void saveUserSettings();
@@ -13088,7 +13137,18 @@ function handleKanbanEditorDateFieldsUpdate(value: KanbanEditorDateFields): void
   activeKanbanEditDraft.value.startTime = normalizedFields.startTime;
   activeKanbanEditDraft.value.dueDate = normalizedFields.dueDate;
   activeKanbanEditDraft.value.dueTime = normalizedFields.dueTime;
-  void saveKanbanEditorDateFields(activeKanbanEditTask.value, normalizedFields);
+  const task = activeKanbanEditTask.value;
+  if (isCalendarView.value) {
+    const save = (async () => {
+      const action = await beginCalendarScheduleChange(task);
+      // Finish after removing this save from the pending set to avoid waiting on itself.
+      try { await saveKanbanEditorDateFields(task, normalizedFields); }
+      finally { pendingCalendarDateSaves.delete(save); await action.finish(); }
+    })();
+    trackCalendarDateSave(save);
+  } else {
+    void saveKanbanEditorDateFields(task, normalizedFields);
+  }
 }
 
 function handleCalendarTaskDateSaveRequested(payload: {
@@ -13097,10 +13157,10 @@ function handleCalendarTaskDateSaveRequested(payload: {
   repeatPersistenceTarget?: Task;
   optimisticApplied?: boolean;
 }): void {
-  void saveKanbanEditorDateFields(payload.task, payload.fields, {
+  trackCalendarDateSave(saveKanbanEditorDateFields(payload.task, payload.fields, {
     repeatPersistenceTarget: payload.repeatPersistenceTarget,
     optimisticApplied: payload.optimisticApplied === true
-  });
+  }));
 }
 
 function handleCalendarEditorDateClear(): void {
@@ -18213,6 +18273,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  calendarLifelogLoadRequestId++;
+  calendarLifelogRangeCache.clear();
   isKanbanViewMounted = false;
   cancelLayoutMeasurement(measureQuadrantSectionMetrics);
   quadrantSectionElements.clear();
@@ -18273,29 +18335,38 @@ onUnmounted(() => {
   listViewTaskHeightCache.clear();
 });
 
+function buildTaskDocumentIconWatchSignature(taskList: Task[]): string {
+  // Many tasks share one document. Deduplicate before sorting so an update in
+  // a large task list scales with documents rather than task rows.
+  const values = new Set<string>();
+  for (const task of taskList) {
+    if (task.type !== 'block') continue;
+    const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+    if (!rootId) continue;
+    const icon = typeof task.icon === 'string' ? task.icon.trim() : '';
+    values.add(`${rootId}:${icon}`);
+  }
+  return Array.from(values).sort().join('|');
+}
+
+function buildTaskDocumentMetadataWatchSignature(taskList: Task[]): string {
+  const values = new Set<string>();
+  for (const task of taskList) {
+    if (task.type !== 'block') continue;
+    const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
+    if (!rootId) continue;
+    const hasPath = typeof task.hPath === 'string' && task.hPath.trim().length > 0 ? '1' : '0';
+    values.add(`${rootId}:${hasPath}`);
+  }
+  return Array.from(values).sort().join('|');
+}
+
 const taskDocumentIconWatchSignature = computed(() =>
-  tasks.value
-    .filter(task => task.type === 'block')
-    .map(task => {
-      const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
-      const icon = typeof task.icon === 'string' ? task.icon.trim() : '';
-      return `${rootId}:${icon}`;
-    })
-    .sort()
-    .join('|')
+  buildTaskDocumentIconWatchSignature(tasks.value)
 );
 
 const taskDocumentMetadataWatchSignature = computed(() =>
-  tasks.value
-    .filter(task => task.type === 'block')
-    .map(task => {
-      const rootId = typeof task.rootId === 'string' ? task.rootId.trim() : '';
-      const hasPath = typeof task.hPath === 'string' && task.hPath.trim().length > 0 ? '1' : '0';
-      return rootId ? `${rootId}:${hasPath}` : '';
-    })
-    .filter(value => value.length > 0)
-    .sort()
-    .join('|')
+  buildTaskDocumentMetadataWatchSignature(tasks.value)
 );
 
 watch(taskDocumentIconWatchSignature, () => {

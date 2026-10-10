@@ -1940,5 +1940,13 @@
   "personalStats.summaryNoInsights": "There is not enough activity to form an insight yet.",
   "personalStats.summaryGoalsTitle": "Goals in view",
   "personalStats.unknownDate": "Unknown date",
-  "personalStats.untitledTask": "Untitled task"
+  "personalStats.untitledTask": "Untitled task",
+  "calendar.scheduleFilter": "Schedule filter",
+  "calendar.allTasks": "All tasks",
+  "calendar.unscheduled": "Unscheduled",
+  "calendar.undoSchedule": "Undo last change",
+  "calendar.undoBusy": "Undoing…",
+  "calendar.undoFailed": "Could not undo the change. Please try again.",
+  "calendar.undoConflict": "The item changed again and cannot be undone.",
+  "calendar.undoUnavailable": "Could not record this change for undo."
 }

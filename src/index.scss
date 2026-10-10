@@ -74,6 +74,11 @@
   overflow: hidden;
 }
 
+.calendar-list-spacer {
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
 html[data-theme-mode='dark'],
 body[data-theme-mode='dark'],
 body.b3-theme-dark,

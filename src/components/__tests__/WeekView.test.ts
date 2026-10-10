@@ -58,10 +58,10 @@ describe('WeekView calendar updates', () => {
 
   function mountWeek(props: Record<string, unknown> = {}) {
     wrapper = shallowMount(WeekView, {
-      props: { tasks: [], displayOptions: [{ key: 'habits', label: 'Habits', enabled: false }],
+      props: { tasks: [],
         showHabits: false, showHabitLifelog: false,
         showFocusRecords: false, showTaskLifelog: false, showRecordsLifelog: false, ...props },
-      global: { stubs: { CalendarTaskSidebar: false, TaskTitlePlain: false } }
+      global: { stubs: { TaskTitlePlain: false } }
     });
     return wrapper;
   }
@@ -70,19 +70,16 @@ describe('WeekView calendar updates', () => {
     return wrapper!.findAll('.day-column').map(day => day.attributes('data-day-key'));
   }
 
-  it('immediately switches both ways through the sidebar without leaving the week', async () => {
+  it('immediately switches both ways without leaving the week', async () => {
     mountWeek({ weekStartsOnSunday: false });
     await flushPromises();
     expect(range()[0]).toBe('2026-10-05');
-    await wrapper!.findAll('.calendar-task-sidebar-week-start-btn')[1].trigger('click');
-    expect(wrapper!.emitted('weekStartChange')?.at(-1)).toEqual([true]);
     await wrapper!.setProps({ weekStartsOnSunday: true });
     expect(range()).toEqual(['2026-10-04', '2026-10-05', '2026-10-06', '2026-10-07',
       '2026-10-08', '2026-10-09', '2026-10-10']);
     expect(wrapper!.emitted('visibleRangeChange')?.at(-1)).toEqual([
       { startDate: '2026-10-04', endDate: '2026-10-10' }
     ]);
-    await wrapper!.findAll('.calendar-task-sidebar-week-start-btn')[0].trigger('click');
     await wrapper!.setProps({ weekStartsOnSunday: false });
     expect(range()[0]).toBe('2026-10-05');
   });

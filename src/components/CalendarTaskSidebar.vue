@@ -123,6 +123,10 @@
         <Icon :name="showCompleted ? 'chevronsHorizontal' : 'chevronsVertical'" width="15" height="15" />
       </button>
     </div>
+    <div class="calendar-task-sidebar-schedule-filter view-switcher" role="group" :aria-label="t('calendar.scheduleFilter')">
+      <button class="view-btn" type="button" :class="{ active: !onlyUnscheduled }" :aria-pressed="!onlyUnscheduled" @click="onlyUnscheduled = false">{{ t('calendar.allTasks') }}</button>
+      <button class="view-btn" type="button" :class="{ active: onlyUnscheduled }" :aria-pressed="onlyUnscheduled" @click="onlyUnscheduled = true">{{ t('calendar.unscheduled') }}</button>
+    </div>
     <div
       ref="listRef"
       class="calendar-task-sidebar-list"
@@ -260,6 +264,7 @@ function reuseSearchHistory(value: string): void {
   searchHistoryVisible.value = false;
 }
 const showCompleted = ref(false);
+const onlyUnscheduled = ref(false);
 const preparedTasks = shallowRef<Task[]>([]);
 const isPreparingTasks = ref(false);
 let prepareTasksTimer: ReturnType<typeof setTimeout> | null = null;
@@ -455,9 +460,9 @@ function documentName(task: Task) {
     t("ganttView.unassignedDocument")
   );
 }
-const groups = computed(() => {
-  const search = query.value.trim().toLocaleLowerCase();
+const sortedGroups = computed(() => {
   const titles = new Map<string, string>();
+  const searchTexts = new Map<string, string>();
   const result = new Map<
     string,
     {
@@ -472,13 +477,11 @@ const groups = computed(() => {
     if (
       task.isVirtual ||
       task.archived ||
-      (!showCompleted.value && task.status === "completed") ||
-      !hasVisibleTaskTitle(task) ||
-      (search &&
-        !title.toLocaleLowerCase().includes(search))
+      !hasVisibleTaskTitle(task)
     )
       continue;
     titles.set(task.id, title);
+    searchTexts.set(task.id, title.toLocaleLowerCase());
     const id = notebookId(task);
     if (!result.has(id))
       result.set(id, {
@@ -493,7 +496,7 @@ const groups = computed(() => {
       documents.set(documentKey, { id: documentKey, name: documentName(task), tasks: [] });
     documents.get(documentKey)!.tasks.push(task);
   }
-  return [...result.values()]
+  const notebooks = [...result.values()]
     .map((notebook) => ({
       ...notebook,
       documents: [...notebook.documents.values()]
@@ -516,6 +519,21 @@ const groups = computed(() => {
           ? -1
           : a.name.localeCompare(b.name),
     );
+  return { notebooks, searchTexts };
+});
+const groups = computed(() => {
+  const { notebooks, searchTexts } = sortedGroups.value;
+  const search = query.value.trim().toLocaleLowerCase();
+  return notebooks.map(notebook => {
+    const documents = notebook.documents.map(document => ({
+      ...document,
+      tasks: document.tasks.filter(task =>
+        (showCompleted.value || task.status !== 'completed')
+        && (!onlyUnscheduled.value || !(task.startDate || task.dueDate))
+        && (!search || searchTexts.get(task.id)!.includes(search)))
+    })).filter(document => document.tasks.length > 0);
+    return { ...notebook, documents, taskCount: documents.reduce((count, document) => count + document.tasks.length, 0) };
+  }).filter(notebook => notebook.taskCount > 0);
 });
 
 type SidebarDocument = (typeof groups.value)[number]['documents'][number];
@@ -758,6 +776,38 @@ async function loadNotebookNames() {
 </script>
 
 <style scoped>
+.calendar-task-sidebar-schedule-filter {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  background: var(--b3-list-hover);
+  border-radius: 99px;
+  box-shadow: var(--pinch-shadow);
+}
+.calendar-task-sidebar-schedule-filter .view-btn {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: 99px;
+  color: var(--b3-theme-on-surface);
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.calendar-task-sidebar-schedule-filter .view-btn:hover {
+  background: var(--b3-theme-background);
+  box-shadow: var(--pinch-shadow);
+}
+.calendar-task-sidebar-schedule-filter .view-btn.active {
+  background: var(--b3-theme-background);
+  color: var(--b3-theme-on-background);
+  box-shadow: var(--pinch-shadow);
+  font-weight: 700;
+}
 .calendar-task-sidebar {
   flex: 0 0 240px;
   width: 240px;

@@ -946,6 +946,52 @@ export async function getRepeatSeriesForTask(
   return series || null;
 }
 
+export interface RepeatScheduleSnapshot {
+  series: RepeatSeries;
+  records: RepeatRecord[];
+}
+const repeatScheduleKeys = ['frequency', 'rule', 'interval', 'weekDays', 'monthDay',
+  'startDate', 'endDate', 'termination', 'spanDays', 'startTime', 'dueTime', 'enabled'] as const;
+
+export function repeatScheduleMatches(a: RepeatScheduleSnapshot | null, b: RepeatScheduleSnapshot | null): boolean {
+  if (!a || !b) return a === b;
+  return a.series.id === b.series.id && repeatScheduleKeys.every(key =>
+    JSON.stringify(a.series[key] ?? null) === JSON.stringify(b.series[key] ?? null));
+}
+
+export async function captureRepeatSchedule(task: Pick<RepeatTaskLike, 'id' | 'blockId' | 'repeatSeriesId'>): Promise<RepeatScheduleSnapshot | null> {
+  return serializeStorageMutations([REPEAT_SERIES_FILE, REPEAT_RECORDS_FILE], async () => {
+    const series = findSeriesForTask(await readRepeatSeriesFromStorage(), task);
+    if (!series) return null;
+    const records = await readRepeatRecordsFromStorage();
+    return { series: cloneRepeatSeries(series), records: cloneRepeatRecords(records.filter(record => record.seriesId === series.id)) };
+  });
+}
+
+/** Restore one series while retaining unrelated edits and newer completion records. */
+export async function restoreRepeatSchedule(snapshot: RepeatScheduleSnapshot, expected: RepeatScheduleSnapshot | null): Promise<void> {
+  await serializeStorageMutations([REPEAT_SERIES_FILE, REPEAT_RECORDS_FILE], async () => {
+    const seriesList = await readRepeatSeriesFromStorage();
+    const index = seriesList.findIndex(series => series.id === snapshot.series.id);
+    const current = index < 0 ? null : { series: seriesList[index], records: [] };
+    if (!repeatScheduleMatches(current, expected)) throw new Error('Repeat schedule changed before undo');
+    const restored = cloneRepeatSeries(index < 0 ? snapshot.series : seriesList[index]);
+    for (const key of repeatScheduleKeys) (restored as any)[key] = snapshot.series[key];
+    restored.updatedAt = new Date().toISOString();
+    if (index < 0) {
+      // Clearing dates deletes instance records. Restore missing records before
+      // reactivating the series, preserving any records written in the meantime.
+      const records = await readRepeatRecordsFromStorage();
+      const keys = new Set(records.map(record => record.key));
+      await persistRepeatRecords([...records, ...snapshot.records.filter(record => !keys.has(record.key))]);
+      seriesList.push(restored);
+    } else {
+      seriesList[index] = restored;
+    }
+    await persistRepeatSeries(seriesList);
+  });
+}
+
 export async function updateRepeatSeriesDates(
   task: Pick<RepeatTaskLike, 'id' | 'blockId' | 'repeatSeriesId'>,
   startDate: string | null,

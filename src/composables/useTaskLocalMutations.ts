@@ -6,6 +6,7 @@ interface TaskMutationOptions {
 }
 
 interface UseTaskLocalMutationsOptions {
+  preserveIdentity?: boolean;
   onTaskUpdated?: (task: Task) => void;
   onCollectionMutated?: () => void;
 }
@@ -28,6 +29,9 @@ export function useTaskLocalMutations(
   localTasks: Ref<Task[]>,
   options: UseTaskLocalMutationsOptions = {}
 ) {
+  function applyPatch(task: Task, patch: Partial<Task>): Task {
+    return options.preserveIdentity ? Object.assign(task, patch) : { ...task, ...patch };
+  }
   function notifyCollectionMutated(): void {
     options.onCollectionMutated?.();
   }
@@ -45,10 +49,7 @@ export function useTaskLocalMutations(
       return null;
     }
 
-    const updatedTask = {
-      ...currentTask,
-      ...patch
-    };
+    const updatedTask = applyPatch(currentTask, patch);
     localTasks.value[index] = updatedTask;
 
     notifyCollectionMutated();
@@ -83,10 +84,7 @@ export function useTaskLocalMutations(
       if (!hasTaskPatchChanges(currentTask, patch)) {
         return;
       }
-      const updatedTask = {
-        ...currentTask,
-        ...patch
-      };
+      const updatedTask = applyPatch(currentTask, patch);
       localTasks.value[index] = updatedTask;
       changedTasks.push(updatedTask);
     });
@@ -108,10 +106,7 @@ export function useTaskLocalMutations(
       if (!hasTaskPatchChanges(currentTask, patch)) {
         return currentTask;
       }
-      const updatedTask = {
-        ...currentTask,
-        ...patch
-      };
+      const updatedTask = applyPatch(currentTask, patch);
       localTasks.value[index] = updatedTask;
 
       notifyCollectionMutated();

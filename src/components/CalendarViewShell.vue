@@ -26,10 +26,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, watch } from 'vue';
+import { provide, ref, shallowRef, watch } from 'vue';
 import type { Task } from '@/api';
 import CalendarTaskSidebar from './CalendarTaskSidebar.vue';
-
+import { calendarTaskDateCacheKey, createCalendarTaskDateCache } from '@/utils/calendarTaskCache';
+provide(calendarTaskDateCacheKey, createCalendarTaskDateCache());
 const props = defineProps<{
   active: boolean;
   sidebarCollapsed: boolean;
@@ -67,6 +68,7 @@ watch([() => props.active, () => props.sidebarCollapsed, () => props.tasks], ([a
   min-width: 0;
 }
 .calendar-shared-content {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;

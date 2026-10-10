@@ -55,7 +55,7 @@ describe('shared calendar sidebar', () => {
           selectedDaysCount: props.view === 'week' ? 7 : undefined,
           onDateSelect: (date: Date) => controller.value?.selectSidebarDate(date)
         }, () => h(KeepAlive, {}, () => props.active ? h(props.view === 'month' ? MonthView : WeekView, {
-          ref: controller, tasks: props.tasks, sharedSidebar: true,
+          ref: controller, tasks: props.tasks,
           showHabits: false, showHabitLifelog: false, showFocusRecords: false,
           showTaskLifelog: false, showRecordsLifelog: false
         }) : h('div')));

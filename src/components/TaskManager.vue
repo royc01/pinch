@@ -2418,35 +2418,48 @@ async function clearRemovedGroupAssignments(removedGroupIds: string[]): Promise<
   }
 
   const successUpdates = new Map<string, { tagIds: string[]; groupId: string }>();
-  for (const blockId of blockIdsToClear) {
-    try {
-      const localTask = localAffectedTasks.find(task => task.blockId === blockId) || null;
-      let currentTagState = localTask
-        ? buildTaskTagState(localTask.tags, localTask.groupId)
-        : buildTaskTagState([], '');
-      if (!localTask) {
-        const attrs = await getBlockAttrs(blockId);
-        let parsedTags: unknown = [];
-        if (attrs['custom-task-tags']) {
-          try {
-            parsedTags = JSON.parse(attrs['custom-task-tags']);
-          } catch {
-            parsedTags = [];
+  const localTaskByBlockId = new Map(
+    localAffectedTasks
+      .filter(task => typeof task.blockId === 'string' && task.blockId.length > 0)
+      .map(task => [task.blockId as string, task])
+  );
+  // Attribute writes are independent. Use a small worker pool so a large
+  // cleanup does not wait for every request serially or flood the kernel.
+  let nextBlockIndex = 0;
+  const clearWorker = async (): Promise<void> => {
+    while (nextBlockIndex < blockIdsToClear.length) {
+      const blockId = blockIdsToClear[nextBlockIndex++];
+      try {
+        const localTask = localTaskByBlockId.get(blockId) || null;
+        let currentTagState = localTask
+          ? buildTaskTagState(localTask.tags, localTask.groupId)
+          : buildTaskTagState([], '');
+        if (!localTask) {
+          const attrs = await getBlockAttrs(blockId);
+          let parsedTags: unknown = [];
+          if (attrs['custom-task-tags']) {
+            try {
+              parsedTags = JSON.parse(attrs['custom-task-tags']);
+            } catch {
+              parsedTags = [];
+            }
           }
+          currentTagState = buildTaskTagState(parsedTags, attrs['custom-task-group']);
         }
-        currentTagState = buildTaskTagState(parsedTags, attrs['custom-task-group']);
+        const nextTagIds = removeTaskTags(currentTagState.tagIds, removedSet);
+        const nextTagAttrs = buildTaskTagAttrs(nextTagIds);
+        await setBlockAttrs(blockId, nextTagAttrs.attrs);
+        successUpdates.set(blockId, {
+          tagIds: nextTagAttrs.tagIds,
+          groupId: nextTagAttrs.primaryTagId
+        });
+      } catch (error) {
+        console.error('[TaskManager] Failed to clear task group attrs:', error);
       }
-      const nextTagIds = removeTaskTags(currentTagState.tagIds, removedSet);
-      const nextTagAttrs = buildTaskTagAttrs(nextTagIds);
-      await setBlockAttrs(blockId, nextTagAttrs.attrs);
-      successUpdates.set(blockId, {
-        tagIds: nextTagAttrs.tagIds,
-        groupId: nextTagAttrs.primaryTagId
-      });
-    } catch (error) {
-      console.error('[TaskManager] Failed to clear task group attrs:', error);
     }
-  }
+  };
+  const workerCount = Math.min(6, blockIdsToClear.length);
+  await Promise.all(Array.from({ length: workerCount }, clearWorker));
 
   const successBlockIds = Array.from(successUpdates.keys());
   const successBlockIdSet = new Set(successBlockIds);

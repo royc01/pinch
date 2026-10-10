@@ -116,6 +116,36 @@ describe('large calendar sidebar', () => {
     expect(frames.size).toBe(0);
   });
 
+  it('reuses grouping and sorting through search, completion and scheduling filters', async () => {
+    const tasks = reactive(makeTasks(20));
+    const compare = vi.spyOn(String.prototype, 'localeCompare');
+    mountSidebar(tasks);
+    await flushPromises();
+    expect(compare).toHaveBeenCalled();
+    compare.mockClear();
+    const search = wrapper!.find('input[type="search"]');
+    await search.setValue('Task 00019');
+    expect(wrapper!.findAll('.calendar-task-sidebar-task')).toHaveLength(1);
+    await search.setValue('Task 000');
+    tasks[0].status = 'completed';
+    await nextTick();
+    await wrapper!.find('.calendar-task-sidebar-completed-toggle').trigger('click');
+    await wrapper!.find('.calendar-task-sidebar-schedule-filter button:nth-child(2)').trigger('click');
+    tasks[1].startDate = '2026-10-07';
+    tasks[2].dueDate = '2026-10-08';
+    await nextTick();
+    expect(wrapper!.findAll('.calendar-task-sidebar-task')).toHaveLength(18);
+    expect(compare).not.toHaveBeenCalled();
+    tasks[1].startDate = '';
+    await nextTick();
+    expect(wrapper!.findAll('.calendar-task-sidebar-task')).toHaveLength(19);
+    tasks[3].title = 'Renamed';
+    await nextTick();
+    expect(compare).toHaveBeenCalled();
+    await search.setValue('Renamed');
+    expect(wrapper!.find('.calendar-task-sidebar-task').attributes('aria-label')).toBe('Renamed');
+  });
+
   it('cancels queued title preparation when hidden and publishes the latest task collection on return', async () => {
     vi.useFakeTimers();
     try {
