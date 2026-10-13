@@ -141,6 +141,21 @@
                   ></textarea>
                   <div v-else ref="quickCreateProtyleMountRef" class="quick-create-protyle"></div>
                 </div>
+                <div v-if="taskModalHasDates" class="quick-create-date-preview">
+                  <span class="quick-create-date-preview-label">{{ tt(hasRecognizedTaskDates ? 'taskManager.recognizedDate' : 'taskManager.taskDates') }}</span>
+                  <button
+                    ref="quickCreateDatePreviewRef"
+                    type="button"
+                    class="quick-create-date-chip"
+                    :title="quickCreateDateSummary"
+                    :aria-label="`${tt('taskManager.editTaskDates')}: ${quickCreateDateSummary}`"
+                    @click="toggleTaskModalQuickPanel('due')"
+                  >
+                    <Icon name="calendar" width="14" height="14" />
+                    <span>{{ quickCreateDateSummary }}</span>
+                  </button>
+                  <button type="button" class="quick-create-date-dismiss" :aria-label="tt('taskManager.clearTaskDates')" @click="clearQuickCreateDates">×</button>
+                </div>
             <div v-if="taskModalQuickPanel === 'group'" class="task-modal-group-panel">
               <div class="task-modal-group-header">
                 <span class="task-modal-group-title">{{ tt('taskManager.selectTag') }}</span>
@@ -292,9 +307,18 @@
     <TaskDatePopover
       v-if="taskModalQuickPanel === 'due'"
       :visible="true"
-      :anchor-el="taskModalDueButtonRef"
-      :model-value="localTask.dueDate || ''"
+      :anchor-el="quickCreateDatePreviewRef || taskModalDueButtonRef"
+      :model-value="quickCreateDateFields.dueDate"
+      :start-date="quickCreateDateFields.startDate"
+      :start-time="quickCreateDateFields.startTime"
+      :due-time="quickCreateDateFields.dueTime"
+      :show-task-editor-details="true"
+      :auto-close="false"
       @update:modelValue="handleTaskModalDateSelect"
+      @update:dateFields="handleQuickCreateDateFields"
+      @update:startDate="handleQuickCreateDateField('startDate', $event)"
+      @update:startTime="handleQuickCreateDateField('startTime', $event)"
+      @update:dueTime="handleQuickCreateDateField('dueTime', $event)"
       @close="taskModalQuickPanel = null"
     />
     <TaskReminderPopover
@@ -303,7 +327,7 @@
       :anchor-el="taskModalReminderButtonRef"
       :model-value="localTask.reminderType"
       :custom-time="localTask.reminderCustomTime || ''"
-      :due-date="localTask.dueDate || ''"
+      :due-date="quickCreateDateFields.dueDate"
       @select="handleTaskModalReminderSelect"
       @close="taskModalQuickPanel = null"
     />
@@ -401,6 +425,9 @@ interface NewTask {
   priority: TaskPriority;
   status: TaskStatus;
   dueDate: string;
+  startDate?: string;
+  startTime?: string;
+  dueTime?: string;
   reminderType?: TaskReminderType;
   reminderCustomTime?: string;
   tags: string[];
@@ -425,6 +452,7 @@ interface Props {
   resolveTarget?: (notebookId: string, documentId: string) => Promise<QuickCreateTarget | null>;
   taskContext?: QuickCreateTaskContext;
   createHeading?: boolean;
+  autoRecognizeTaskDate?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -459,6 +487,8 @@ const selectedNotebook = ref<string>('');
 const selectedDocument = ref<string>('');
 const filetreeDocuments = ref<Document[]>([]);
 const quickCreateLocation = ref<'last' | 'inbox' | 'daily-note' | 'specified-document'>('last');
+const quickCreateDateMode = ref<'auto' | 'manual'>('auto');
+const quickCreateDatePreviewRef = ref<HTMLButtonElement | null>(null);
 const headingTitle = ref('');
 const quickCreateHeadingRef = ref<HTMLInputElement | null>(null);
 const quickCreatePlainInputRef = ref<HTMLTextAreaElement | null>(null);
@@ -487,13 +517,43 @@ const taskModalPriorityStyle = computed(() =>
   TASK_PRIORITY_STYLES[localTask.value.priority] || TASK_PRIORITY_STYLES.none
 );
 
-const taskModalHasDueDate = computed(() => {
-  return !!(localTask.value.dueDate || '').trim();
+interface QuickCreateDateFields {
+  startDate: string;
+  startTime: string;
+  dueDate: string;
+  dueTime: string;
+}
+
+const recognizedTaskDates = computed(() => {
+  if (quickCreateDateMode.value !== 'auto' || !props.autoRecognizeTaskDate
+    || props.taskContext?.startDate || props.taskContext?.dueDate) return null;
+  return TaskRepository.inferTaskDateRangeFromText(localTask.value.title);
+});
+const quickCreateDateFields = computed<QuickCreateDateFields>(() => {
+  const source = quickCreateDateMode.value === 'manual'
+    ? localTask.value
+    : props.taskContext?.startDate || props.taskContext?.dueDate
+      ? props.taskContext
+      : recognizedTaskDates.value || localTask.value;
+  return {
+    startDate: source.startDate || '', startTime: source.startDate ? source.startTime || '' : '',
+    dueDate: source.dueDate || '', dueTime: source.dueDate ? source.dueTime || '' : ''
+  };
+});
+const hasRecognizedTaskDates = computed(() => !!recognizedTaskDates.value);
+const taskModalHasDates = computed(() => !!(quickCreateDateFields.value.startDate || quickCreateDateFields.value.dueDate));
+const taskModalHasDueDate = computed(() => !!quickCreateDateFields.value.dueDate);
+const quickCreateDateSummary = computed(() => {
+  const fields = quickCreateDateFields.value;
+  const start = [fields.startDate, fields.startTime].filter(Boolean).join(' ');
+  const due = [fields.dueDate, fields.dueTime].filter(Boolean).join(' ');
+  if (start && due && start === due) return due;
+  return [start ? `${tt('taskManager.startDate')} ${start}` : '', due ? `${tt('taskManager.dueDate')} ${due}` : ''].filter(Boolean).join(' → ');
 });
 
 const taskModalDueText = computed(() => {
   if (!taskModalHasDueDate.value) return '';
-  return formatMonthDay(localTask.value.dueDate);
+  return formatMonthDay(quickCreateDateFields.value.dueDate);
 });
 
 const taskModalHasDescription = computed(() => {
@@ -938,7 +998,10 @@ async function persistQuickCreateDraftMetadata(): Promise<void> {
   await setBlockAttrs(quickCreateDraft.blockId, {
     'custom-task-priority': localTask.value.priority || 'none',
     'custom-task-description': localTask.value.description || '',
-    'custom-task-due-date': localTask.value.dueDate || '',
+    'custom-task-start-date': quickCreateDateFields.value.startDate,
+    'custom-task-start-time': quickCreateDateFields.value.startTime,
+    'custom-task-due-date': quickCreateDateFields.value.dueDate,
+    'custom-task-due-time': quickCreateDateFields.value.dueTime,
     'custom-task-reminder-type': localTask.value.reminderType || '',
     'custom-task-reminder-custom-time': localTask.value.reminderCustomTime || '',
     'custom-task-group': tagAttrs.attrs['custom-task-group'] || '',
@@ -970,13 +1033,10 @@ async function initializeQuickCreateDraft(): Promise<void> {
       description: '',
       priority: localTask.value.priority || 'none',
       status: context.status || 'pending',
-      startDate: context.startDate,
-      dueDate: context.dueDate || localTask.value.dueDate || undefined,
-      startTime: context.startTime,
-      dueTime: context.dueTime,
+      ...quickCreateDateFields.value,
       tags: localTask.value.tags,
       groupId
-    }, target.notebookId, target.docPath, { emitTaskAdded: false });
+    }, target.notebookId, target.docPath, { emitTaskAdded: false, inferDatesFromTitle: false });
     const currentTargetKey = `${selectedNotebook.value}:${selectedDocument.value}`;
     if (!props.show || currentTargetKey !== requestedTargetKey) {
       await deleteQuickCreateDraftBlock(created.blockId);
@@ -1088,7 +1148,24 @@ function toggleTaskModalQuickPanel(panel: 'due' | 'description' | 'group' | 'rem
 }
 
 function handleTaskModalDateSelect(value: string) {
-  localTask.value.dueDate = value;
+  handleQuickCreateDateField('dueDate', value);
+}
+
+function handleQuickCreateDateFields(fields: QuickCreateDateFields): void {
+  quickCreateDateMode.value = 'manual';
+  Object.assign(localTask.value, fields, {
+    startTime: fields.startDate ? fields.startTime : '',
+    dueTime: fields.dueDate ? fields.dueTime : ''
+  });
+}
+
+function handleQuickCreateDateField(field: keyof QuickCreateDateFields, value: string): void {
+  handleQuickCreateDateFields({ ...quickCreateDateFields.value, [field]: value });
+}
+
+function clearQuickCreateDates(): void {
+  handleQuickCreateDateFields({ startDate: '', startTime: '', dueDate: '', dueTime: '' });
+  taskModalQuickPanel.value = null;
 }
 
 function handleTaskModalReminderSelect(value: TaskReminderSelection) {
@@ -1136,6 +1213,7 @@ function resolveDefaultGoalId(): string {
 watch(() => props.show, (show) => {
   if (show) {
     localTask.value = { ...defaultTask };
+    quickCreateDateMode.value = 'auto';
     quickCreateEditorMode.value = 'plain';
     headingTitle.value = '';
     localTask.value.groupId = resolveDefaultGroupId();
@@ -1174,10 +1252,14 @@ watch(() => props.show, (show) => {
       : selectedDocument.value === PINCH_DAILY_NOTE_OPTION_ID
         ? 'daily-note'
         : 'last';
+    void nextTick(() => {
+      if (!props.show) return;
+      (props.createHeading ? quickCreateHeadingRef.value : quickCreatePlainInputRef.value)?.focus();
+    });
   } else if (quickCreateDraft) {
     void discardQuickCreateDraft();
   }
-});
+}, { immediate: true });
 
 watch([selectedNotebook, selectedDocument], () => {
   if (!props.show) return;
@@ -1247,6 +1329,7 @@ async function handleSubmit(): Promise<void> {
       await pushMsg(tt('kanbanView.enterTaskTitle'), 2000);
       return;
     }
+    localTask.value.title = title;
     const normalizedHeadingTitle = props.createHeading
       ? normalizeHeadingTitle(headingTitle.value)
       : '';
@@ -1258,6 +1341,7 @@ async function handleSubmit(): Promise<void> {
     const tagState = buildTaskTagState(localTask.value.tags, localTask.value.groupId);
     const createdTask: NewTask = {
       ...localTask.value,
+      ...quickCreateDateFields.value,
       title,
       status: context.status || localTask.value.status || 'pending',
       tags: tagState.tagIds,
@@ -1277,14 +1361,10 @@ async function handleSubmit(): Promise<void> {
       try {
         const created = await TaskRepository.createBlockTask({
           ...createdTask,
-          startDate: context.startDate,
-          dueDate: context.dueDate || createdTask.dueDate || undefined,
-          startTime: context.startTime,
-          dueTime: context.dueTime,
           description: createdTask.description || undefined,
           reminderType: createdTask.reminderType,
           reminderCustomTime: createdTask.reminderCustomTime
-        }, target.notebookId, target.docPath);
+        }, target.notebookId, target.docPath, { inferDatesFromTitle: false });
         emit('created', {
           ...target,
           ...created,
@@ -1368,6 +1448,14 @@ async function handleSubmit(): Promise<void> {
 .quick-create-modal-body {
   padding-top: 12px;
 }
+
+.quick-create-date-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.quick-create-date-preview-label { color: var(--b3-theme-on-surface-light); font-size: 12px; }
+.quick-create-date-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-height: 30px; padding: 4px 8px; border: 1px solid var(--b3-theme-border); border-radius: 6px; background: var(--b3-list-hover); color: var(--b3-theme-on-surface); font-size: 12px; cursor: pointer; }
+.quick-create-date-chip > span { overflow-wrap: anywhere; }
+.quick-create-date-dismiss { width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--b3-theme-on-surface-light); font-size: 18px; cursor: pointer; }
+.quick-create-date-dismiss:hover { background: var(--b3-list-hover); }
+.quick-create-date-chip:focus-visible, .quick-create-date-dismiss:focus-visible { outline: 2px solid var(--b3-theme-primary); outline-offset: 2px; }
 
 .quick-create-target-row {
   display: grid;

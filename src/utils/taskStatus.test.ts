@@ -37,7 +37,7 @@ describe('custom task statuses', () => {
       'review', 'completed', 'pending', 'in-progress', 'delayed', 'cancelled'
     ]);
     // Built-in colors cannot be overwritten through persisted settings.
-    expect(statuses.find(status => status.id === 'completed')?.color).toBe('#10b981');
+    expect(statuses.find(status => status.id === 'completed')?.color).toBe('var(--pinch-color6)');
   });
 
   it('uses configured labels while keeping custom states active', () => {
@@ -62,7 +62,7 @@ describe('custom task statuses', () => {
 
     expect(statuses.find(status => status.id === 'review')?.hidden).toBe(true);
     expect(statuses.find(status => status.id === 'pending')?.hidden).toBe(true);
-    expect(resolveTaskStatusColor('pinch-background4')).toBe('var(--pinch-background4)');
+    expect(resolveTaskStatusColor('pinch-background4')).toBe('var(--pinch-color4)');
   });
 
   it('maps native Siyuan task markers to Pinch statuses and back', () => {

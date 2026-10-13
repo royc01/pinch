@@ -175,26 +175,48 @@
               <span class="calendar-task-sidebar-group-name">{{ row.document.name }}</span>
               <span class="calendar-task-sidebar-group-count">{{ row.document.tasks.length }}</span>
             </button>
-            <button
+            <div
               v-else
-              type="button"
-              class="calendar-task-sidebar-task calendar-task-sidebar-document-task ariaLabel"
-              draggable="false"
-              :class="{ 'is-pointer-dragging': pointerDrag.active && pointerDrag.task?.id === row.task.id }"
-              :aria-label="getTaskDisplayTitle(row.task)"
-              @pointerdown="handleTaskPointerDown($event, row.task)"
-              @dragstart.prevent
-              @click="handleTaskClick($event, row.task)"
+              class="calendar-task-sidebar-task-row"
+              :class="{ 'is-context-task': row.contextOnly }"
+              :data-task-id="row.task.id"
+              :data-task-depth="row.depth"
+              :style="{ '--task-depth': row.depth }"
             >
-              <span
-                class="task-checkbox-wrapper calendar-task-sidebar-task-checkbox"
+              <button
+                v-if="row.hasChildren"
+                type="button"
+                class="calendar-task-sidebar-task-toggle ariaLabel"
+                :class="{ collapsed: row.collapsed }"
+                :aria-label="t('taskCard.toggleDetails')"
+                :aria-expanded="!row.collapsed"
                 @pointerdown.stop
-                @dragstart.stop
-                @click.stop="emit('task-toggle', row.task)"
-                ><TaskCheckbox :checked="row.task.status === 'completed'" :size="14"
-              /></span>
-              <TaskTitlePlain class="calendar-task-sidebar-task-title" :title="row.task.title" />
-            </button>
+                @click.stop="toggleTaskBranch(row.id)"
+              >
+                <span class="calendar-task-sidebar-group-toggle">
+                  <Icon name="chevronDown" width="14" height="14" />
+                </span>
+              </button>
+              <button
+                type="button"
+                class="calendar-task-sidebar-task calendar-task-sidebar-document-task ariaLabel"
+                draggable="false"
+                :class="{ 'is-pointer-dragging': pointerDrag.active && pointerDrag.task?.id === row.task.id }"
+                :aria-label="getTaskDisplayTitle(row.task)"
+                @pointerdown="handleTaskPointerDown($event, row.task)"
+                @dragstart.prevent
+                @click="handleTaskClick($event, row.task)"
+              >
+                <span
+                  class="task-checkbox-wrapper calendar-task-sidebar-task-checkbox"
+                  @pointerdown.stop
+                  @dragstart.stop
+                  @click.stop="emit('task-toggle', row.task)"
+                  ><TaskCheckbox :checked="row.task.status === 'completed'" :status="row.task.status" :size="14"
+                /></span>
+                <TaskTitlePlain class="calendar-task-sidebar-task-title" :title="row.task.title" />
+              </button>
+            </div>
           </template>
         <div v-if="group.bottom > 0" class="calendar-task-sidebar-spacer" :style="{ height: `${group.bottom}px` }"></div>
       </div>
@@ -329,6 +351,8 @@ watch(() => props.tasks.length, (count) => {
   }
 }, { immediate: true });
 const collapsedIds = ref(loadCollapsedGroupIds());
+const searchCollapsedTaskIds = ref(new Set<string>());
+watch(query, () => { searchCollapsedTaskIds.value = new Set(); });
 const notebookNames = computed(() => new Map(
   (props.notebooks || []).map(notebook => [notebook.id, notebook.name])
 ));
@@ -460,6 +484,49 @@ function documentName(task: Task) {
     t("ganttView.unassignedDocument")
   );
 }
+
+interface SidebarTaskNode {
+  task: Task;
+  children: SidebarTaskNode[];
+}
+
+// Calendar views share a flat collection, but each task retains its direct
+// subtasks. Reconnect those identities without duplicating the child rows.
+function buildSidebarTaskTree(tasks: Task[]): SidebarTaskNode[] {
+  const nodes = tasks.map(task => ({ task, children: [] } as SidebarTaskNode));
+  const byId = new Map<string, SidebarTaskNode>();
+  for (const node of nodes) {
+    const task = node.task as Task & { nodeId?: string };
+    for (const id of [task.id, task.blockId, task.nodeId]) {
+      if (id) byId.set(id, node);
+    }
+  }
+  const parents = new Map<SidebarTaskNode, SidebarTaskNode>();
+  for (const node of nodes) {
+    for (const subtask of node.task.subtasks || []) {
+      const child = byId.get(subtask.id) || byId.get(subtask.blockId || subtask.nodeId || '');
+      if (!child || parents.has(child)) continue;
+      let ancestor: SidebarTaskNode | undefined = node;
+      while (ancestor && ancestor !== child) ancestor = parents.get(ancestor);
+      if (ancestor === child) continue;
+      node.children.push(child);
+      parents.set(child, node);
+    }
+  }
+  return nodes.filter(node => !parents.has(node));
+}
+
+function filterSidebarTaskTree(nodes: SidebarTaskNode[], matches: Set<string>): SidebarTaskNode[] {
+  const result: SidebarTaskNode[] = [];
+  for (const node of nodes) {
+    const children = filterSidebarTaskTree(node.children, matches);
+    if (matches.has(node.task.id) || children.length) {
+      result.push({ task: node.task, children });
+    }
+  }
+  return result;
+}
+
 const sortedGroups = computed(() => {
   const titles = new Map<string, string>();
   const searchTexts = new Map<string, string>();
@@ -500,12 +567,12 @@ const sortedGroups = computed(() => {
     .map((notebook) => ({
       ...notebook,
       documents: [...notebook.documents.values()]
-        .map((document) => ({
-          ...document,
-          tasks: document.tasks.sort((a, b) =>
+        .map((document) => {
+          const tasks = document.tasks.sort((a, b) =>
             titles.get(a.id)!.localeCompare(titles.get(b.id)!),
-          ),
-        }))
+          );
+          return { ...document, tasks, roots: buildSidebarTaskTree(tasks) };
+        })
         .sort((a, b) => a.name.localeCompare(b.name)),
       taskCount: [...notebook.documents.values()].reduce(
         (count, document) => count + document.tasks.length,
@@ -525,20 +592,21 @@ const groups = computed(() => {
   const { notebooks, searchTexts } = sortedGroups.value;
   const search = query.value.trim().toLocaleLowerCase();
   return notebooks.map(notebook => {
-    const documents = notebook.documents.map(document => ({
-      ...document,
-      tasks: document.tasks.filter(task =>
+    const documents = notebook.documents.map(document => {
+      const tasks = document.tasks.filter(task =>
         (showCompleted.value || task.status !== 'completed')
         && (!onlyUnscheduled.value || !(task.startDate || task.dueDate))
-        && (!search || searchTexts.get(task.id)!.includes(search)))
-    })).filter(document => document.tasks.length > 0);
+        && (!search || searchTexts.get(task.id)!.includes(search)));
+      const matchingIds = new Set(tasks.map(task => task.id));
+      return { ...document, tasks, matchingIds, roots: filterSidebarTaskTree(document.roots, matchingIds) };
+    }).filter(document => document.tasks.length > 0);
     return { ...notebook, documents, taskCount: documents.reduce((count, document) => count + document.tasks.length, 0) };
   }).filter(notebook => notebook.taskCount > 0);
 });
 
 type SidebarDocument = (typeof groups.value)[number]['documents'][number];
 type SidebarRow = { id: string; kind: 'document'; document: SidebarDocument }
-  | { id: string; kind: 'task'; task: Task };
+  | { id: string; kind: 'task'; task: Task; depth: number; hasChildren: boolean; collapsed: boolean; contextOnly: boolean };
 const listRef = ref<HTMLElement | null>(null);
 const listScrollTop = ref(0);
 const listHeight = ref(600);
@@ -549,6 +617,8 @@ let sidebarActive = true;
 // their full height while only the nearby buttons are mounted.
 const sidebarLayout = computed(() => {
   let top = 0;
+  // A new search opens its matching branches without changing saved folds.
+  const collapsedTaskIds = query.value.trim() ? searchCollapsedTaskIds.value : collapsedIds.value;
   const layout = groups.value.map(notebook => {
     const rows: SidebarRow[] = [];
     const offsets = [28];
@@ -557,10 +627,18 @@ const sidebarLayout = computed(() => {
         rows.push({ id: document.id, kind: 'document', document });
         offsets.push(offsets[offsets.length - 1] + 30);
         if (!collapsedIds.value.has(document.id)) {
-          for (const task of document.tasks) {
-            rows.push({ id: `task:${task.id}`, kind: 'task', task });
-            offsets.push(offsets[offsets.length - 1] + 28);
-          }
+          const append = (nodes: SidebarTaskNode[], depth: number): void => {
+            for (const node of nodes) {
+              const id = `task:${node.task.id}`;
+              const collapsed = collapsedTaskIds.has(id);
+              rows.push({ id, kind: 'task', task: node.task, depth,
+                hasChildren: node.children.length > 0, collapsed,
+                contextOnly: !document.matchingIds.has(node.task.id) });
+              offsets.push(offsets[offsets.length - 1] + 28);
+              if (!collapsed) append(node.children, depth + 1);
+            }
+          };
+          append(document.roots, 0);
         }
       }
     }
@@ -659,6 +737,16 @@ function toggleGroup(id: string) {
   next.has(id) ? next.delete(id) : next.add(id);
   collapsedIds.value = next;
   saveCollapsedGroupIds(next);
+}
+
+function toggleTaskBranch(id: string): void {
+  if (!query.value.trim()) {
+    toggleGroup(id);
+    return;
+  }
+  const next = new Set(searchCollapsedTaskIds.value);
+  next.has(id) ? next.delete(id) : next.add(id);
+  searchCollapsedTaskIds.value = next;
 }
 
 function loadCollapsedGroupIds(): Set<string> {
@@ -948,6 +1036,7 @@ async function loadNotebookNames() {
   background: transparent;
   cursor: grab;
   font-size: 13px;
+  position: relative;
 }
 
 @keyframes pinch-calendar-sidebar-fade-in {
@@ -975,7 +1064,33 @@ async function loadNotebookNames() {
   animation: pinch-calendar-sidebar-task-fade-in 180ms ease-out both;
 }
 .calendar-task-sidebar-document-task {
-  padding-left: 28px;
+  padding-left: calc(35px + var(--task-depth, 0) * 16px);
+}
+.calendar-task-sidebar-task-row {
+  position: relative;
+}
+.calendar-task-sidebar-task-toggle {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  left: calc(15px + var(--task-depth, 0) * 16px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--b3-theme-on-background);
+  cursor: pointer;
+}
+.calendar-task-sidebar-task-toggle:hover {
+  background: var(--b3-list-hover);
+}
+.calendar-task-sidebar-task-row.is-context-task .calendar-task-sidebar-task-title {
+  color: var(--b3-theme-on-surface);
 }
 .calendar-task-sidebar-task:hover {
   background: var(--b3-list-hover);
@@ -989,6 +1104,8 @@ async function loadNotebookNames() {
   transition: transform 0.15s ease;
 }
 .calendar-task-sidebar-group-header.collapsed
+  .calendar-task-sidebar-group-toggle,
+.calendar-task-sidebar-task-toggle.collapsed
   .calendar-task-sidebar-group-toggle {
   transform: rotate(-90deg);
 }
@@ -1015,7 +1132,11 @@ async function loadNotebookNames() {
   font-size: 12px;
 }
 .calendar-task-sidebar-task-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  line-height: 0;
 }
 .calendar-task-sidebar-empty {
   padding: 18px 8px;

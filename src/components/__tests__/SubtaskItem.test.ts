@@ -28,5 +28,6 @@ describe('SubtaskItem', () => {
     expect(strong.text()).toBe('91');
     expect(strong.attributes('style')).toContain('background-color');
     expect(strong.attributes('data-type')).toContain('text');
+    expect(wrapper.find('.subtask-item').attributes('data-subtask-id')).toBe('subtask-1');
   });
 });

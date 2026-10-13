@@ -399,6 +399,14 @@
       </div>
     </div>
 
+    <TaskFilterBar
+      v-show="!isTaskListCollapsed"
+      :expression="taskFilterExpression"
+      :sections="taskFilterSections"
+      @remove-condition="handleTaskFilterToggle"
+      @clear="clearSidebarTaskFilters"
+    />
+
     <div v-if="isBatchEditMode && !isTaskListCollapsed" class="task-batch-toolbar">
       <div class="task-batch-toolbar-header">
         <span class="task-batch-selected-count">{{ t('taskManager.selectedCountPrefix') }} {{ batchSelectedCount }} {{ t('taskManager.selectedCountSuffix') }}</span>
@@ -618,9 +626,7 @@
       @drop="handleTaskListDrop"
       v-show="!isTaskListCollapsed"
     >
-      <div v-if="displayedTasks.length === 0" class="empty-state">
-        {{ t('taskManager.noTasks') }}
-      </div>
+      <TaskFilterEmptyState v-if="displayedTasks.length === 0" :filtered="hasSidebarTaskFilters" @clear="clearSidebarTaskFilters" />
       <div
         v-else-if="shouldUseTimelineVirtualList"
         class="task-grouped-list is-timeline-view task-timeline-virtual-list"
@@ -740,7 +746,7 @@
               @subtask-open="handleCardSubtaskOpen"
               @subtask-drop="handleSubtaskDrop"
               @subtask-sibling-drop="handleSubtaskSiblingDrop"
-              @dragstart="handleDragStart($event, row.task, null)"
+              @dragstart="(event, draggedTask) => handleDragStart(event, draggedTask || row.task, null)"
               @dragend="handleManualTaskDragEnd"
             />
           </div>
@@ -868,7 +874,7 @@
                 @subtask-open="handleCardSubtaskOpen"
                 @subtask-drop="handleSubtaskDrop"
                 @subtask-sibling-drop="handleSubtaskSiblingDrop"
-                @dragstart="handleDragStart($event, task, section.key)"
+                @dragstart="(event, draggedTask) => handleDragStart(event, draggedTask || task, section.key)"
                 @dragend="handleManualTaskDragEnd"
               />
             </div>
@@ -944,7 +950,7 @@
             @subtask-open="handleCardSubtaskOpen"
             @subtask-drop="handleSubtaskDrop"
             @subtask-sibling-drop="handleSubtaskSiblingDrop"
-            @dragstart="handleDragStart($event, task, null)"
+            @dragstart="(event, draggedTask) => handleDragStart(event, draggedTask || task, null)"
             @dragend="handleManualTaskDragEnd"
           />
         </div>
@@ -972,6 +978,7 @@
         :lastSelectedNotebook="taskModalDefaultNotebook"
         :lastSelectedDocument="taskModalDefaultDocument"
         :allow-unlisted-default-document="userSettings.taskManager.defaultTaskCreateTarget === 'specified-document'"
+        :auto-recognize-task-date="autoRecognizeTaskDate"
         presentation="center"
         :overlay-style="taskModalOverlayStyle"
         @close="showTaskModal = false"
@@ -979,11 +986,12 @@
         @manage-groups="openTaskGroupDialog"
       />
     </Teleport>
+    <Teleport to="body" :disabled="taskScopeDialogPresentation === 'sidebar'">
     <TaskScopeDialog
         :show="showTaskScopeDialog"
-      presentation="sidebar"
+      :presentation="taskScopeDialogPresentation"
       :elevated="taskScopeDialogElevated"
-      :page-style="taskScopePageStyle"
+      :page-style="taskScopeDialogPresentation === 'sidebar' ? taskScopePageStyle : undefined"
       :notebooks="notebooks"
       :excluded-notebook-ids="excludedNotebookIds"
       :show-scope-tab="true"
@@ -1030,6 +1038,7 @@
       @open-reward-shop="openRewardShop"
       @save="handleTaskScopeSave"
     />
+    </Teleport>
     <TaskDateQuickMenu
       :show="taskQuickDateMenu.show"
       :x="taskQuickDateMenu.x"
@@ -1087,6 +1096,7 @@
       @remove-tag="handleTaskCardContextRemoveTag"
       @clear-tags="handleTaskCardContextClearTags"
       @manage-tags="handleTaskCardContextManageTags"
+      @open-quick-meta="handleTaskCardContextQuickMeta"
       @toggle-pin="handleTaskCardContextTogglePin"
       @enter-batch-edit="handleTaskCardContextEnterBatchEdit"
       @edit-description="handleTaskCardContextDescription"
@@ -1113,6 +1123,8 @@ import QuickCreateTaskModal, { type Notebook, type Document as TaskDocument, typ
 import TaskScopeDialog, { type TaskScopeDialogSavePayload, type TaskScopeDisplayOption } from '@/components/TaskScopeDialog.vue';
 import { taskViewSwitcherDisplayOptions } from '@/utils/taskViewSwitcher';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
+import TaskFilterBar from '@/components/TaskFilterBar.vue';
+import TaskFilterEmptyState from '@/components/TaskFilterEmptyState.vue';
 import SourceFilterSelect from '@/components/SourceFilterSelect.vue';
 import Icon from '@/components/Icon.vue';
 import TaskEditorMetaPanel from '@/components/TaskEditorMetaPanel.vue';
@@ -1384,6 +1396,7 @@ const showTaskScopeDialog = ref(false);
 const taskScopeDocumentsRefreshing = ref(false);
 type TaskScopeDialogTab = 'home' | 'scope' | 'task-settings' | 'calendar-sync' | 'pomodoro-settings' | 'document-groups' | 'tags' | 'goals' | 'display';
 const taskScopeDialogInitialTab = ref<TaskScopeDialogTab>('scope');
+const taskScopeDialogPresentation = ref<'overlay' | 'sidebar'>('sidebar');
 const taskScopeDialogElevated = ref(false);
 const taskScopePageStyle = ref<Record<string, string>>({});
 let taskScopePageResizeObserver: ResizeObserver | null = null;
@@ -3790,6 +3803,38 @@ const {
   buildActiveGroupStyle: buildActiveGroupChipStyle,
   updatedSingle: true
 });
+
+const sidebarTaskFilterScopes = computed(() => {
+  const scopes: Array<{ key: string; label: string }> = [];
+  if (filterNotebook.value !== 'all') {
+    scopes.push({ key: 'source', label: notebookOptions.value.find(option => option.value === filterNotebook.value)?.text || t('taskManager.notebook') });
+  }
+  if (filterDocument.value !== 'all') {
+    scopes.push({ key: 'document', label: documentOptions.value.find(option => option.value === filterDocument.value)?.text || t('taskManager.document') });
+  }
+  if (taskSearchQuery.value.trim()) {
+    scopes.push({ key: 'search', label: `${t('taskManager.searchTasks')}: ${taskSearchQuery.value.trim()}` });
+  }
+  if (archiveViewMode.value === 'active' && !showCompletedTasks.value) {
+    scopes.push({ key: 'hide-completed', label: t('taskManager.hideCompletedTasks') });
+  }
+  if (taskListViewMode.value === 'timeline' && timelineTaskFilter.value !== 'all') {
+    scopes.push({ key: 'timeline', label: timelineTaskFilterOptions.value.find(option => option.value === timelineTaskFilter.value)?.label || '' });
+  }
+  return scopes;
+});
+const hasSidebarTaskFilters = computed(() => sidebarTaskFilterScopes.value.length > 0 || hasActiveTaskFilters.value);
+
+async function clearSidebarTaskFilters(): Promise<void> {
+  filterDocument.value = 'all';
+  filterNotebook.value = 'all';
+  taskSearchQuery.value = '';
+  timelineTaskFilter.value = 'all';
+  clearTaskFilters();
+  if (archiveViewMode.value === 'active' && !showCompletedTasks.value) {
+    await toggleHideCompletedTasksFromMenu();
+  }
+}
 
 function restoreTaskPopoverFiltersFromSettings(): void {
   const settings = userSettings.taskManager;
@@ -6367,6 +6412,13 @@ function handleTaskCardContextManageTags(): void {
   void openTaskScopeDialog('tags');
 }
 
+function handleTaskCardContextQuickMeta(): void {
+  const contextState = taskCardContextMenu.value;
+  if (!contextState?.task) return;
+  closeTaskCardContextMenu();
+  void openTaskQuickMetaMenu(contextState.task, { x: contextState.x, y: contextState.y });
+}
+
 function handleTaskCardContextEnterBatchEdit(): void {
   const task = getTaskCardContextTask();
   const isViewMenu = taskCardContextMenu.value?.source === 'view';
@@ -6562,9 +6614,14 @@ async function openTaskScopeDialog(initialTab: TaskScopeDialogTab = 'home', elev
     taskGroups.value = await loadTaskGroups();
   }
   taskScopeDialogInitialTab.value = initialTab;
+  taskScopeDialogPresentation.value = !isMobileFrontend && initialTab === 'home' ? 'overlay' : 'sidebar';
   taskScopeDialogElevated.value = elevated;
-  updateTaskScopePageStyle();
-  observeTaskScopePageSize();
+  if (taskScopeDialogPresentation.value === 'sidebar') {
+    updateTaskScopePageStyle();
+    observeTaskScopePageSize();
+  } else {
+    stopObservingTaskScopePageSize();
+  }
   showTaskScopeDialog.value = true;
   if (initialTab === 'goals') {
     // The goal manager can render the shared snapshot immediately. A fresh
@@ -10558,10 +10615,33 @@ function taskIdsReferToSameTask(firstId: string, secondId: string): boolean {
 
 function handleDragStart(event: DragEvent, task: Task, sectionKey: string | null = null) {
   const transferText = event.dataTransfer?.getData('text/plain')?.trim() || '';
-  if (transferText.startsWith('subtask:')) {
-    const sourceId = transferText.slice('subtask:'.length).trim();
-    const parentTaskId = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim()
-      || (typeof (task as any).parentTaskId === 'string' ? String((task as any).parentTaskId).trim() : '');
+  const transferParent = event.dataTransfer?.getData('application/x-pinch-subtask-parent')?.trim() || '';
+  const taskParentId = typeof (task as any).parentTaskId === 'string'
+    ? String((task as any).parentTaskId).trim()
+    : '';
+  const isSubtaskDrag = transferText.startsWith('subtask:') || !!taskParentId || !!transferParent;
+  if (isSubtaskDrag) {
+    const sourceId = transferText.startsWith('subtask:')
+      ? transferText.slice('subtask:'.length).trim()
+      : (typeof (task as Task & { nodeId?: string }).nodeId === 'string'
+        ? (task as Task & { nodeId?: string }).nodeId!.trim()
+        : task.id);
+    const parentTaskId = transferParent || taskParentId;
+    const calendarTask = normalizeCalendarDragTask(task);
+    // SubtaskItem uses a native drag for hierarchy moves. Also expose the
+    // normal task payload so calendar drop targets can schedule that child.
+    if (event.dataTransfer && calendarTask.blockId) {
+      event.dataTransfer.setData('text/plain', `subtask:${sourceId}`);
+      if (parentTaskId) {
+        event.dataTransfer.setData('application/x-pinch-subtask-parent', parentTaskId);
+      }
+      event.dataTransfer.setData('application/json', JSON.stringify(calendarTask));
+    }
+    if (shouldEnableDesktopCalendarPointerDrag() || shouldEnableMobileCalendarDrag()) {
+      event.preventDefault();
+      resetManualTaskDrag();
+      return;
+    }
     if (sourceId && parentTaskId) {
       detachedSubtaskDrag.value = { sourceId, parentTaskId };
     }
@@ -10585,6 +10665,21 @@ function handleDragStart(event: DragEvent, task: Task, sectionKey: string | null
       position: null
     };
   }
+}
+
+function normalizeCalendarDragTask(task: Task): Task {
+  const nodeId = typeof (task as Task & { nodeId?: string }).nodeId === 'string'
+    ? (task as Task & { nodeId?: string }).nodeId!.trim()
+    : '';
+  const blockId = typeof task.blockId === 'string' && task.blockId.trim()
+    ? task.blockId.trim()
+    : nodeId;
+  return {
+    ...task,
+    type: task.type || 'block',
+    id: task.id || blockId,
+    blockId: blockId || undefined
+  } as Task;
 }
 
 function handleManualTaskDragOver(event: DragEvent, task: Task, sectionKey: string | null): void {
@@ -10974,9 +11069,39 @@ function shouldIgnoreMobileCalendarDragTarget(target: EventTarget | null): boole
   if (!element) {
     return false;
   }
+  // Subtask titles are buttons for opening the child, but they also need to
+  // remain a valid calendar drag handle. Keep the checkbox and action controls
+  // excluded while allowing the rest of the subtask row to start a drag.
+  if (element.closest('.subtask-item')) {
+    return !!element.closest('.task-checkbox-wrapper, .task-card-action-btn, input, textarea, select');
+  }
   return !!element.closest(
     'button, input, textarea, select, a, [contenteditable="true"], .task-checkbox-wrapper, .task-card-action-btn'
   );
+}
+
+function resolveCalendarPointerTask(event: PointerEvent, fallback: Task): Task {
+  const target = event.target instanceof Element
+    ? event.target.closest<HTMLElement>('.subtask-item[data-subtask-id]')
+    : null;
+  const subtaskId = target?.dataset.subtaskId?.trim() || '';
+  if (!subtaskId) {
+    return fallback;
+  }
+
+  const matches = (candidate: SubTask): boolean =>
+    [candidate.id, candidate.blockId, candidate.nodeId]
+      .some(value => typeof value === 'string' && value.trim() === subtaskId);
+  const visit = (subtasks: SubTask[] | undefined): SubTask | null => {
+    for (const subtask of subtasks || []) {
+      if (matches(subtask)) return subtask;
+      const nested = visit(subtask.subtasks);
+      if (nested) return nested;
+    }
+    return null;
+  };
+  const subtask = visit(fallback.subtasks);
+  return subtask ? normalizeCalendarDragTask(subtask as Task) : fallback;
 }
 
 function suppressTaskCardClick(taskId: string): void {
@@ -11076,9 +11201,10 @@ function handleDesktopCalendarTaskPointerDown(event: PointerEvent, task: Task): 
     return;
   }
 
+  const dragTask = resolveCalendarPointerTask(event, task);
   clearDesktopCalendarPointerGesture(true);
   desktopCalendarPointerGesture.value = {
-    task,
+    task: dragTask,
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
@@ -11162,11 +11288,12 @@ function handleMobileTaskPointerDown(event: PointerEvent, task: Task): void {
     return;
   }
 
+  const dragTask = resolveCalendarPointerTask(event, task);
   clearMobileCalendarPointerGesture(true);
 
   const timerId = window.setTimeout(() => {
     const gesture = mobileCalendarPointerGesture.value;
-    if (!gesture || gesture.pointerId !== event.pointerId || gesture.task.id !== task.id) {
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.task.id !== dragTask.id) {
       return;
     }
     gesture.started = true;
@@ -11180,7 +11307,7 @@ function handleMobileTaskPointerDown(event: PointerEvent, task: Task): void {
   }, MOBILE_CALENDAR_DRAG_LONG_PRESS_MS);
 
   mobileCalendarPointerGesture.value = {
-    task,
+    task: dragTask,
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
@@ -11384,6 +11511,9 @@ async function handleQuickCreateCreated(payload: QuickCreateCreatedPayload): Pro
         status: task.status || 'pending',
         priority: task.priority || 'none',
         dueDate: task.dueDate || undefined,
+        startDate: task.startDate || undefined,
+        startTime: task.startTime || undefined,
+        dueTime: task.dueTime || undefined,
         tags: tagState.tagIds,
         groupId: tagState.primaryTagId || undefined,
         description: task.description || ''

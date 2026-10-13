@@ -12,6 +12,7 @@
       :last-selected-notebook="lastSelectedNotebook"
       :last-selected-document="lastSelectedDocument"
       :allow-unlisted-default-document="userSettings.taskManager.defaultTaskCreateTarget === 'specified-document'"
+      :auto-recognize-task-date="userSettings.taskManager.autoRecognizeTaskDate === true"
       presentation="center"
       @close="emit('close')"
       @created="handleQuickCreateCreated"
@@ -258,6 +259,9 @@ async function handleQuickCreateCreated(payload: QuickCreateCreatedPayload): Pro
         status: task.status || 'pending',
         priority: task.priority || 'none',
         dueDate: task.dueDate || undefined,
+        startDate: task.startDate || undefined,
+        startTime: task.startTime || undefined,
+        dueTime: task.dueTime || undefined,
         tags: task.tags || [],
         groupId: task.groupId || undefined,
         description: task.description || ''

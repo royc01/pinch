@@ -749,7 +749,20 @@
       </div>
     </div>
 
+    <TaskFilterBar
+      v-if="isSettingsLoaded && (isBoardTaskView || isTableTaskView)"
+      :expression="visibleTaskFilterExpression"
+      :sections="visibleTaskFilterSections"
+      @remove-condition="removeVisibleTaskFilterCondition"
+      @clear="clearVisibleTaskFilters"
+    />
+
     <div v-if="loading && tasks.length === 0" class="loading">{{ t('taskManager.loading') }}</div>
+    <TaskFilterEmptyState
+      v-else-if="isSettingsLoaded && isBoardTaskView && hasVisibleTaskFilters && visibleKanbanTasks.length === 0"
+      :filtered="true"
+      @clear="clearVisibleTaskFilters"
+    />
     <div
       v-else-if="currentView === 'kanban' && isSettingsLoaded"
       ref="kanbanBoardRef"
@@ -1081,9 +1094,7 @@
       class="kanban-list-view"
       @scroll="handleListViewScroll"
     >
-      <div v-if="kanbanListSections.length === 0" class="empty-state">
-        {{ t('taskManager.noTasks') }}
-      </div>
+      <TaskFilterEmptyState v-if="kanbanListSections.length === 0" :filtered="hasVisibleTaskFilters" @clear="clearVisibleTaskFilters" />
       <div v-else class="kanban-list-masonry">
         <div
           v-for="(column, colIndex) in kanbanListMasonryColumns"
@@ -1292,7 +1303,11 @@
        @subtask-task-drop="handleTableSubtaskTaskDrop"
        @subtask-background-drop="handleTableSubtaskBackgroundDrop"
        @group-reorder="handleTableGroupReorder"
-      />
+      >
+        <template #empty>
+          <TaskFilterEmptyState :filtered="hasVisibleTaskFilters" @clear="clearVisibleTaskFilters" />
+        </template>
+      </TableView>
     <GanttView
       v-else-if="currentView === 'gantt'"
       :tasks="ganttViewTasks"
@@ -1904,6 +1919,7 @@
         :last-selected-notebook="quickCreateDialog.defaultNotebookId"
         :last-selected-document="quickCreateDialog.defaultDocumentId"
         :allow-unlisted-default-document="userSettings.taskManager.defaultTaskCreateTarget === 'specified-document'"
+        :auto-recognize-task-date="autoRecognizeTaskDate"
         :default-group-id="quickCreateDefaultGroupId"
         :default-goal-id="quickCreateDialog.defaultGoalId"
         :task-context="quickCreateTaskContext"
@@ -2084,7 +2100,7 @@ import { requestTaskCompletionNote, updateTaskMarkdown, skipTaskTemporarily } fr
 import { getCheckinNotePromptAnchor } from '../utils/checkinNotePrompt';
 import { useTaskFilters } from '../composables/useTaskFilters';
 import { useUserSettings } from '@/composables/useUserSettings';
-import { useNotebooks, stripHtml } from '@/composables/useTaskCommon';
+import { useNotebooks, stripHtml, getTaskDisplayTitle } from '@/composables/useTaskCommon';
 import {
   buildTaskDocumentPathLookup,
   isDocumentPathInScope,
@@ -2178,6 +2194,8 @@ import PersonalStatsView from '@/components/PersonalStatsView.vue';
 import { completePersonalStatsTask, reschedulePersonalStatsTask, resolvePersonalStatsActionTask, undoPersonalStatsTaskCompletion } from '@/utils/personalStatsTaskActions';
 import TaskManager from '@/components/TaskManager.vue';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
+import TaskFilterBar from '@/components/TaskFilterBar.vue';
+import TaskFilterEmptyState from '@/components/TaskFilterEmptyState.vue';
 import TaskScopeDialog, { type TaskScopeDialogSavePayload, type TaskScopeDisplayOption } from '@/components/TaskScopeDialog.vue';
 import { TASK_VIEW_SWITCHER_DISPLAY_IDS, taskViewSwitcherDisplayOptions } from '@/utils/taskViewSwitcher';
 import TaskGroupDialog from '@/components/TaskGroupDialog.vue';
@@ -3046,7 +3064,10 @@ const calendarMonthViewRef = ref<(MobileCalendarDropController & { focusDate: (d
 const calendarWeekViewRef = ref<MobileCalendarDropController | null>(null);
 const pendingCalendarDateSaves = new Set<Promise<void>>();
 const calendarScheduleHistory = useCalendarScheduleHistory({
-  tasks: () => tasks.value,
+  // Calendar views receive a flat projection of the task tree. Keep the
+  // history snapshot flat as well so a subtask drag can be undone using its
+  // own block and date fields.
+  tasks: () => flattenCalendarTaskTree(tasks.value),
   captureRepeat: task => task.repeatSeriesId || (task.repeatFrequency && task.repeatFrequency !== 'none')
     ? captureRepeatSchedule(task) : Promise.resolve(null),
   repeatMatches: repeatScheduleMatches,
@@ -3061,7 +3082,7 @@ const calendarScheduleHistory = useCalendarScheduleHistory({
     const persisted: Task[] = [];
     try {
       for (const previous of before.filter(task => !task.isVirtual)) {
-        const current = tasks.value.find(task => task.id === previous.id);
+        const current = findCalendarTaskInTree(tasks.value, previous);
         if (!current?.blockId) throw new CalendarScheduleConflict();
         persisted.push({ ...current });
         await setBlockAttrs(current.blockId, {
@@ -3085,7 +3106,7 @@ const calendarScheduleHistory = useCalendarScheduleHistory({
     calendarWeekViewRef.value?.resetScheduleSync();
     if (repeatBefore) localClearedRepeatSeriesIds.delete(repeatBefore.series.id);
     for (const previous of before) {
-      const current = tasks.value.find(task => task.id === previous.id);
+      const current = findCalendarTaskInTree(tasks.value, previous);
       if (!current && previous.isVirtual) continue;
       const updatedAt = new Date(Math.max(Date.now(), Date.parse(current?.updatedAt || '') + 1 || 0)).toISOString();
       applyExternalTaskDateChange({ ...(current || previous), ...calendarScheduleState(previous), updatedAt });
@@ -4557,16 +4578,13 @@ function getKanbanColumnDotStyle(column: KanbanColumn): Record<string, string> {
     const configured = getTaskStatusDefinitions().find(status => status.id === column.status);
     if (configured) return { backgroundColor: resolveTaskStatusColor(configured.color) };
     if (column.status === 'pending') {
-      return { backgroundColor: '#f59e0b' };
-    }
-    if (column.status === 'in-progress') {
-      return { backgroundColor: '#3b82f6' };
+      return { backgroundColor: 'var(--pinch-color4)' };
     }
     if (column.status === 'delayed') {
-      return { backgroundColor: '#f97316' };
+      return { backgroundColor: 'var(--pinch-color8)' };
     }
     if (column.status === 'completed') {
-      return { backgroundColor: '#10b981' };
+      return { backgroundColor: 'var(--pinch-color6)' };
     }
     if (column.status === 'cancelled') {
       return { backgroundColor: '#9ca3af' };
@@ -7297,6 +7315,56 @@ const statsViewDocumentLabel = computed(() => {
   return options.find(option => option.value === tableFilterDocument.value)?.text || t('taskManager.all');
 });
 
+const visibleTaskFilterExpression = computed(() => isTableTaskView.value ? tableFilterExpression.value : kanbanFilterExpression.value);
+const visibleTaskFilterSections = computed(() => isTableTaskView.value ? tableFilterSections.value : kanbanFilterSections.value);
+const visibleTaskFilterScopes = computed(() => {
+  const scopes: Array<{ key: string; label: string }> = [];
+  const source = activeSourceFilterType.value;
+  if (source !== 'all') {
+    scopes.push({ key: 'source', label: sourceOptions.value.find(option => option.value === source)?.text || t('taskManager.notebook') });
+  }
+  if (activeDocumentTabScope.value) {
+    scopes.push({ key: 'document-scope', label: activeDocumentTabScope.value.name });
+  }
+  if (currentDocumentFilter.value !== 'all') {
+    scopes.push({ key: 'document', label: documentOptions.value.find(option => option.value === currentDocumentFilter.value)?.text || t('taskManager.document') });
+  }
+  if (tableSearchQuery.value.trim()) {
+    scopes.push({ key: 'search', label: `${t('taskManager.searchTasks')}: ${tableSearchQuery.value.trim()}` });
+  }
+  if (currentView.value !== 'archive-table' && !showCompletedTasks.value) {
+    scopes.push({ key: 'hide-completed', label: t('taskManager.hideCompletedTasks') });
+  }
+  return scopes;
+});
+const hasVisibleTaskFilters = computed(() => visibleTaskFilterScopes.value.length > 0 || visibleTaskFilterExpression.value.length > 0);
+
+function clearCurrentDocumentTabScope(): void {
+  const key = getDocumentTabScopeStorageKey(activeSourceFilterType.value);
+  if (!documentTabScopesBySource.value[key]) return;
+  const next = { ...documentTabScopesBySource.value };
+  delete next[key];
+  documentTabScopesBySource.value = next;
+}
+
+function removeVisibleTaskFilterCondition(group: string, value: string): void {
+  if (isTableTaskView.value) handleTableFilterToggle(group, value);
+  else handleKanbanFilterToggle(group, value);
+}
+
+async function clearVisibleTaskFilters(): Promise<void> {
+  clearCurrentDocumentTabScope();
+  currentDocumentFilter.value = 'all';
+  activeSourceFilterType.value = 'all';
+  clearCurrentDocumentTabScope();
+  tableSearchQuery.value = '';
+  if (isTableTaskView.value) clearTableFilters();
+  else clearKanbanFilters();
+  if (currentView.value !== 'archive-table' && !showCompletedTasks.value) {
+    await toggleHideCompletedTasksFromMenu();
+  }
+}
+
 async function handleStatsDrilldown(payload: StatsDrilldownPayload): Promise<void> {
   clearTableFilters();
 
@@ -8684,6 +8752,63 @@ const calendarTopLevelTasks = computed(() => {
   return tasks.value.filter(isGanttTopLevelTask);
 });
 
+function asCalendarSubtask(subtask: SubTask, parentTaskTitle?: string): Task {
+  return {
+    ...subtask,
+    // Calendar tasks are flattened before being passed to the views. Keep a
+    // transient marker so chips can distinguish a child task from its parent.
+    isSubtask: true,
+    parentTaskTitle,
+    id: subtask.id,
+    title: subtask.title,
+    type: subtask.type || 'block',
+    status: subtask.status || (subtask.completed ? 'completed' : 'pending'),
+    priority: subtask.priority || 'none',
+    tags: Array.isArray(subtask.tags) ? subtask.tags : [],
+    blockId: subtask.blockId || subtask.nodeId,
+    createdAt: subtask.createdAt || '',
+    updatedAt: subtask.updatedAt || ''
+  } as Task;
+}
+
+/** Flatten the persisted task tree for calendar layout and sidebar rendering. */
+function flattenCalendarTaskTree(rootTasks: Task[]): Task[] {
+  const flattened: Task[] = [];
+  const append = (task: Task): void => {
+    flattened.push(task);
+    for (const subtask of task.subtasks || []) {
+      append(asCalendarSubtask(subtask, getTaskDisplayTitle(task)));
+    }
+  };
+  rootTasks.forEach(append);
+  return flattened;
+}
+
+function taskIdentityMatches(candidate: Partial<Task> & { nodeId?: string }, target: Partial<Task> & { nodeId?: string }): boolean {
+  if (candidate.id && target.id && candidate.id === target.id) return true;
+  const targetBlockId = target.blockId || target.nodeId;
+  const candidateBlockId = candidate.blockId || candidate.nodeId;
+  return !!targetBlockId && !!candidateBlockId && targetBlockId === candidateBlockId;
+}
+
+/** Find a calendar task in the authoritative nested task tree. */
+function findCalendarTaskInTree(rootTasks: Task[], target: Partial<Task> & { nodeId?: string }): Task | null {
+  for (const root of rootTasks) {
+    if (taskIdentityMatches(root, target)) return root;
+    const visit = (subtasks: SubTask[] | undefined): SubTask | null => {
+      for (const subtask of subtasks || []) {
+        if (taskIdentityMatches(subtask, target)) return subtask;
+        const nested = visit(subtask.subtasks);
+        if (nested) return nested;
+      }
+      return null;
+    };
+    const found = visit(root.subtasks);
+    if (found) return found as Task;
+  }
+  return null;
+}
+
 const ganttViewTasks = computed(() => {
   return calendarTopLevelTasks.value.filter(task => {
     if (!matchesGanttDocumentCandidate(task, ganttFilterType.value, 'gantt')) {
@@ -8698,7 +8823,8 @@ const ganttViewTasks = computed(() => {
 });
 
 const emptyCalendarTasks: Task[] = [];
-const sharedCalendarSidebarTasks = computed(() => calendarTopLevelTasks.value.filter(task =>
+const calendarTaskTree = computed(() => flattenCalendarTaskTree(calendarTopLevelTasks.value));
+const sharedCalendarSidebarTasks = computed(() => calendarTaskTree.value.filter(task =>
   task.type === 'block' && !task.archived
   && matchesTaskBySourceAndDocument(task, calendarFilterType.value, calendarFilterDocument.value, 'month')));
 // Calendar subviews use the same source/document scope and share the actual result.
@@ -11419,19 +11545,26 @@ function isLocalRepeatSeriesCleared(seriesId: unknown): boolean {
   return true;
 }
 
-function applyLocalTaskFieldOverrides(task: Task): Task {
+function applyLocalTaskFieldOverrides<T extends Task | SubTask>(task: T): T {
+  if (localTaskFieldOverrides.size === 0) return task;
   const override = localTaskFieldOverrides.get(task.id);
-  if (!override) {
-    return task;
+  let nextTask = task;
+  if (override) {
+    if (override.expiresAt <= Date.now()) {
+      localTaskFieldOverrides.delete(task.id);
+    } else {
+      nextTask = { ...task, ...override.values };
+    }
   }
-  if (override.expiresAt <= Date.now()) {
-    localTaskFieldOverrides.delete(task.id);
-    return task;
+  if (nextTask.subtasks?.length) {
+    // Refreshes replace the entire parent's tree. Protect each child's fields
+    // while its persisted date/time change is still reaching the task index.
+    const subtasks = nextTask.subtasks.map(subtask => applyLocalTaskFieldOverrides(subtask));
+    if (subtasks.some((subtask, index) => subtask !== nextTask.subtasks![index])) {
+      nextTask = { ...nextTask, subtasks };
+    }
   }
-  return {
-    ...task,
-    ...override.values
-  };
+  return nextTask;
 }
 
 function applyLocalTaskFieldOverridesToList(taskList: Task[]): Task[] {
@@ -13078,10 +13211,27 @@ async function handleCalendarEditorColorSelect(color: string): Promise<void> {
   }
 
   const nowTs = Date.now();
+  let nestedPatched = false;
   result.updatedTasks.forEach((task) => {
-    crdtRepo.updateTaskField(task.id, 'backgroundColor', result.color, nowTs);
+    const currentTask = findCalendarTaskInTree(tasks.value, task);
+    const parentTask = currentTask ? findParentTaskForCalendarTask(currentTask) : null;
+    if (currentTask && parentTask) {
+      patchSubtaskInTask(parentTask, currentTask.id, (subtask) => {
+        subtask.backgroundColor = result.color;
+        subtask.updatedAt = new Date().toISOString();
+      });
+      crdtRepo.syncIncrementalTasks([parentTask]);
+      nestedPatched = true;
+    } else {
+      crdtRepo.updateTaskField(task.id, 'backgroundColor', result.color, nowTs);
+    }
   });
-  updateTasks();
+  if (nestedPatched) {
+    tasks.value = [...tasks.value];
+    if (activeKanbanEditOverride.value) activeKanbanEditOverride.value.backgroundColor = result.color;
+  } else {
+    updateTasks();
+  }
   invalidateTableFilters();
 }
 
@@ -14283,8 +14433,7 @@ function applyExternalTaskDateChange(updatedTask: Task): void {
     return;
   }
 
-  const existingTask = tasks.value.find(task => task.id === updatedTask.id)
-    || (updatedTask.blockId ? tasks.value.find(task => task.blockId === updatedTask.blockId) : null);
+  const existingTask = findCalendarTaskInTree(tasks.value, updatedTask);
   const taskId = existingTask?.id || updatedTask.id;
   if (!taskId) {
     return;
@@ -14333,6 +14482,39 @@ function applyExternalTaskDateChange(updatedTask: Task): void {
   if (hasOwn('repeatSeriesId')) rememberLocalTaskFieldOverride(taskId, 'repeatSeriesId', nextTask.repeatSeriesId);
   if (hasOwn('repeatInstanceDate')) rememberLocalTaskFieldOverride(taskId, 'repeatInstanceDate', nextTask.repeatInstanceDate);
   if (hasOwn('isVirtual')) rememberLocalTaskFieldOverride(taskId, 'isVirtual', nextTask.isVirtual);
+  if (updatedTask.backgroundColor !== undefined) rememberLocalTaskFieldOverride(taskId, 'backgroundColor', updatedTask.backgroundColor);
+
+  const parentTask = existingTask ? findParentTaskForCalendarTask(existingTask) : null;
+  if (parentTask && existingTask) {
+    patchSubtaskInTask(parentTask, existingTask.id, (subtask) => {
+      subtask.startDate = nextStartDate;
+      subtask.dueDate = nextDueDate;
+      subtask.startTime = nextStartTime || undefined;
+      subtask.dueTime = nextDueTime || undefined;
+      if (updatedTask.backgroundColor !== undefined) {
+        subtask.backgroundColor = updatedTask.backgroundColor;
+      }
+      subtask.updatedAt = nextTask.updatedAt;
+    });
+    crdtRepo.syncIncrementalTasks([parentTask]);
+    tasks.value = [...tasks.value];
+    invalidateTaskSnapshotCache();
+    if (isActiveKanbanEditorDateChangeTarget(taskId, nextTask, updatedTask, existingTask)) {
+      syncActiveKanbanEditorDraftDateFields(nextTask);
+      if (calendarDockEditorActive.value && !nextStartDate && !nextDueDate) {
+        closeKanbanEditor();
+      }
+    }
+    const childBlockId = typeof nextTask.blockId === 'string' ? nextTask.blockId.trim() : '';
+    if (childBlockId) queueIncrementalUpdates([childBlockId], { allowUnknown: true }, 80);
+    scheduleKernelTaskIndexRefresh(260);
+    invalidateTableFilters();
+    nextTick(() => {
+      scheduleAllKanbanMetricsUpdates();
+      scheduleListViewMetricsUpdate();
+    });
+    return;
+  }
 
   if (existingTask) {
     const ts = Date.now();
@@ -14492,8 +14674,37 @@ function removeVirtualRepeatTasksLocally(seriesId: string): void {
 }
 
 function handleTaskDateChanged(updatedTask: Task) {
-  const task = tasks.value.find(t => t.id === updatedTask.id);
+  const task = findCalendarTaskInTree(tasks.value, updatedTask);
   if (!task) return;
+  const parentTask = findParentTaskForCalendarTask(task);
+  if (parentTask) {
+    rememberLocalTaskFieldOverride(task.id, 'startDate', updatedTask.startDate || '');
+    rememberLocalTaskFieldOverride(task.id, 'dueDate', updatedTask.dueDate || '');
+    rememberLocalTaskFieldOverride(task.id, 'startTime', updatedTask.startTime || undefined);
+    rememberLocalTaskFieldOverride(task.id, 'dueTime', updatedTask.dueTime || undefined);
+    if (updatedTask.backgroundColor !== undefined) {
+      rememberLocalTaskFieldOverride(task.id, 'backgroundColor', updatedTask.backgroundColor);
+    }
+    patchSubtaskInTask(parentTask, task.id, (subtask) => {
+      subtask.startDate = updatedTask.startDate || '';
+      subtask.dueDate = updatedTask.dueDate || '';
+      subtask.startTime = updatedTask.startTime || undefined;
+      subtask.dueTime = updatedTask.dueTime || undefined;
+      if (updatedTask.backgroundColor !== undefined) {
+        subtask.backgroundColor = updatedTask.backgroundColor;
+      }
+      subtask.updatedAt = updatedTask.updatedAt || new Date().toISOString();
+    });
+    crdtRepo.syncIncrementalTasks([parentTask]);
+    tasks.value = [...tasks.value];
+    invalidateTaskSnapshotCache();
+    invalidateTableFilters();
+    const childBlockId = typeof task.blockId === 'string' ? task.blockId.trim() : '';
+    if (childBlockId) queueIncrementalUpdates([childBlockId], { allowUnknown: true }, 80);
+    scheduleKernelTaskIndexRefresh(260);
+    eventBus.emit(Events.TASK_DATE_CHANGED, updatedTask);
+    return;
+  }
   let repeatMetadataChanged = false;
   const previousRepeatSeriesId = typeof task.repeatSeriesId === 'string'
     ? task.repeatSeriesId.trim()
@@ -14562,6 +14773,19 @@ function handleGanttTaskColorChanged(updatedTask: Task): void {
   const color = typeof updatedTask.backgroundColor === 'string'
     ? updatedTask.backgroundColor
     : undefined;
+  const nestedTask = findCalendarTaskInTree(tasks.value, updatedTask);
+  const nestedParent = nestedTask ? findParentTaskForCalendarTask(nestedTask) : null;
+  if (nestedTask && nestedParent) {
+    patchSubtaskInTask(nestedParent, nestedTask.id, (subtask) => {
+      subtask.backgroundColor = color;
+      subtask.updatedAt = new Date().toISOString();
+    });
+    crdtRepo.syncIncrementalTasks([nestedParent]);
+    tasks.value = [...tasks.value];
+    invalidateTaskSnapshotCache();
+    invalidateTableFilters();
+    return;
+  }
   const seriesId = typeof updatedTask.repeatSeriesId === 'string'
     ? updatedTask.repeatSeriesId.trim()
     : '';
@@ -14585,14 +14809,7 @@ function handleGanttTaskColorChanged(updatedTask: Task): void {
 
 async function handleGanttTaskDateChanged(updatedTask: Task) {
   try {
-    const parentTask = tasks.value.find(candidate => {
-      const contains = (subtasks: SubTask[] | undefined): boolean => (subtasks || []).some(subtask =>
-        subtask.id === updatedTask.id
-        || subtask.nodeId === updatedTask.blockId
-        || contains(subtask.subtasks)
-      );
-      return contains(candidate.subtasks);
-    });
+    const parentTask = findParentTaskForCalendarTask(updatedTask);
     const subtaskBlockId = typeof updatedTask.blockId === 'string' ? updatedTask.blockId.trim() : '';
     if (parentTask && subtaskBlockId) {
       await setBlockAttrs(subtaskBlockId, {
@@ -15381,7 +15598,10 @@ async function handleSharedQuickCreateCreated(payload: QuickCreateCreatedPayload
     optimisticTask.priority = payload.task.priority || 'none';
     optimisticTask.description = payload.task.description || '';
     optimisticTask.tags = [...(payload.task.tags || [])];
-    optimisticTask.dueDate = payload.task.dueDate || optimisticTask.dueDate;
+    optimisticTask.startDate = payload.task.startDate || undefined;
+    optimisticTask.startTime = payload.task.startTime || undefined;
+    optimisticTask.dueDate = payload.task.dueDate || undefined;
+    optimisticTask.dueTime = payload.task.dueTime || undefined;
     upsertOptimisticQuickCreatedTask(optimisticTask);
     eventBus.emit(Events.TASK_ADDED, { blockId: payload.blockId, task: optimisticTask });
     setTaskHeadingGroupMetaForIds(
@@ -15495,14 +15715,7 @@ async function toggleTaskStatus(task: Task, event?: MouseEvent) {
     return;
   }
 
-  const parentTask = tasks.value.find(candidate => {
-    const contains = (subtasks: SubTask[] | undefined): boolean => (subtasks || []).some(subtask =>
-      subtask.id === task.id
-      || subtask.nodeId === task.blockId
-      || contains(subtask.subtasks)
-    );
-    return contains(candidate.subtasks);
-  });
+  const parentTask = findParentTaskForCalendarTask(task);
   if (parentTask) {
     await handleSubtaskToggle(parentTask, task as SubTask);
     return;
@@ -15559,6 +15772,8 @@ async function handleSubtaskToggle(parentTask: Task, subtask: Task['subtasks'][0
     targetSubtask.status = nextStatus;
     targetSubtask.updatedAt = new Date().toISOString();
   });
+  crdtRepo.syncIncrementalTasks([parentTask]);
+  tasks.value = [...tasks.value];
   
   if (subtask.nodeId) {
     updateTaskMarkdown(subtask.nodeId, newCompleted).catch(() => {});
@@ -15741,6 +15956,16 @@ function patchSubtaskInTask(parentTask: Task, subtaskId: string, patch: (target:
     task.updatedAt = new Date().toISOString();
   }
   return patched;
+}
+
+function findParentTaskForCalendarTask(task: Partial<Task> & { nodeId?: string }): Task | null {
+  for (const root of tasks.value) {
+    const contains = (subtasks: SubTask[] | undefined): boolean => (subtasks || []).some(subtask =>
+      taskIdentityMatches(subtask, task) || contains(subtask.subtasks)
+    );
+    if (contains(root.subtasks)) return root;
+  }
+  return null;
 }
 
 async function applySubtaskFieldUpdate(
@@ -15967,7 +16192,7 @@ async function handleStatusUpdate(task: Task, status: Task['status']) {
     }
   );
   if (!wasCompleted && isCompletedTaskStatus(status) && taskCompletionSoundEnabled.value) {
-    const refreshedTask = tasks.value.find(item => item.id === task.id);
+    const refreshedTask = findCalendarTaskInTree(tasks.value, task);
     if (isCompletedTaskStatus(refreshedTask?.status)) {
       playTaskCompletionSound();
     }
@@ -16061,8 +16286,25 @@ async function handleDueTimeUpdate(task: Task, dueTime: string) {
 }
 
 function updateTaskLocalField<K extends keyof Task>(taskId: string, field: K, value: Task[K]): void {
-  const task = tasks.value.find(item => item.id === taskId);
+  const task = findCalendarTaskInTree(tasks.value, { id: taskId });
   if (!task) {
+    return;
+  }
+  const parentTask = findParentTaskForCalendarTask(task);
+  if (parentTask) {
+    patchSubtaskInTask(parentTask, task.id, (subtask) => {
+      (subtask as Task)[field] = value;
+      subtask.updatedAt = new Date().toISOString();
+    });
+    crdtRepo.syncIncrementalTasks([parentTask]);
+    tasks.value = [...tasks.value];
+    if (activeKanbanEditOverride.value?.id === taskId) {
+      (activeKanbanEditOverride.value as Task)[field] = value;
+    }
+    if (kanbanEditorDraft.value?.taskId === taskId && field in kanbanEditorDraft.value) {
+      (kanbanEditorDraft.value as any)[field] = value;
+    }
+    invalidateTaskSnapshotCache();
     return;
   }
   const now = Date.now();
@@ -16085,8 +16327,28 @@ function updateTaskLocalField<K extends keyof Task>(taskId: string, field: K, va
 
 function updateTaskLocalTagState(taskId: string, tagIds: string[]): void {
   const nextTagState = buildTaskTagState(tagIds);
-  const task = tasks.value.find(item => item.id === taskId);
+  const task = findCalendarTaskInTree(tasks.value, { id: taskId });
   if (!task) {
+    return;
+  }
+  const parentTask = findParentTaskForCalendarTask(task);
+  if (parentTask) {
+    patchSubtaskInTask(parentTask, task.id, (subtask) => {
+      subtask.tags = [...nextTagState.tagIds];
+      subtask.groupId = nextTagState.primaryTagId || undefined;
+      subtask.updatedAt = new Date().toISOString();
+    });
+    crdtRepo.syncIncrementalTasks([parentTask]);
+    tasks.value = [...tasks.value];
+    if (activeKanbanEditOverride.value?.id === taskId) {
+      activeKanbanEditOverride.value.tags = [...nextTagState.tagIds];
+      activeKanbanEditOverride.value.groupId = nextTagState.primaryTagId || undefined;
+    }
+    if (kanbanEditorDraft.value?.taskId === taskId) {
+      kanbanEditorDraft.value.tags = [...nextTagState.tagIds];
+      kanbanEditorDraft.value.groupId = nextTagState.primaryTagId;
+    }
+    invalidateTaskSnapshotCache();
     return;
   }
   const now = Date.now();
@@ -16123,10 +16385,32 @@ function updateTaskLocalTagState(taskId: string, tagIds: string[]): void {
 }
 
 function syncTaskLocalStatusState(taskId: string, status: Task['status'], completedAt?: string): void {
-  const taskIndex = tasks.value.findIndex(t => t.id === taskId);
-  if (taskIndex === -1) {
+  const task = findCalendarTaskInTree(tasks.value, { id: taskId });
+  if (!task) {
     return;
   }
+
+  const parentTask = findParentTaskForCalendarTask(task);
+  if (parentTask) {
+    const nowIso = new Date().toISOString();
+    patchSubtaskInTask(parentTask, task.id, (subtask) => {
+      subtask.status = status;
+      subtask.completed = isCompletedTaskStatus(status);
+      subtask.completedAt = isCompletedTaskStatus(status) ? (completedAt || nowIso) : undefined;
+      subtask.updatedAt = nowIso;
+    });
+    crdtRepo.syncIncrementalTasks([parentTask]);
+    tasks.value = [...tasks.value];
+    if (kanbanEditorDraft.value?.taskId === taskId || kanbanEditorStatusTaskId.value === taskId) {
+      kanbanEditorDraft.value.status = status;
+    }
+    syncCalendarLifelogTask({ ...task, status, completedAt: isCompletedTaskStatus(status) ? (completedAt || nowIso) : undefined });
+    invalidateTaskSnapshotCache();
+    return;
+  }
+
+  const taskIndex = tasks.value.findIndex(t => t.id === taskId);
+  if (taskIndex === -1) return;
 
   const nowIso = new Date().toISOString();
   const nowTs = Date.now();

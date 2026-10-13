@@ -85,6 +85,10 @@
       <Icon name="timer" width="16" height="16" />
       <span>{{ t('taskManager.startFocus') }}</span>
     </div>
+    <div class="context-menu-item edit-item" @click="$emit('quickMeta')">
+      <Icon name="edit" width="16" height="16" />
+      <span>{{ t('taskManager.quickTaskMeta') }}</span>
+    </div>
     <div class="context-menu-item edit-item" @click="$emit('editTask')">
       <Icon name="edit" width="16" height="16" />
       <span>{{ t('taskManager.editTask') }}</span>
@@ -130,6 +134,7 @@ const emit = defineEmits<{
   (event: 'saveDates'): void;
   (event: 'clearTaskDates'): void;
   (event: 'editTask'): void;
+  (event: 'quickMeta'): void;
   (event: 'startFocus'): void;
   (event: 'update:startDate', value: string): void;
   (event: 'update:startTime', value: string): void;

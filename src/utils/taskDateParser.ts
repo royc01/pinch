@@ -323,9 +323,29 @@ function applyTimePeriod(hour: number, period: string, options?: InferTaskDateFr
   return hour;
 }
 
+function normalizeChineseTimeNumbers(title: string): string {
+  const digits = '零一二三四五六七八九';
+  const numeric = (value: string) => {
+    const text = value.replace(/〇/g, '零').replace(/两/g, '二');
+    const parts = text.split('十');
+    if (parts.length === 1) return digits.indexOf(text);
+    if (parts.length !== 2 || parts.some(part => part.length > 1 || (part && !digits.includes(part)))) return -1;
+    return (parts[0] ? digits.indexOf(parts[0]) : 1) * 10 + (parts[1] ? digits.indexOf(parts[1]) : 0);
+  };
+  return title
+    .replace(/([零〇一二两三四五六七八九十]{1,3})(\s*[点時时])/g, (match, hour: string, suffix: string) => {
+      const value = numeric(hour);
+      return value >= 0 && value <= 23 ? `${value}${suffix}` : match;
+    })
+    .replace(/([点時时]\s*)([零〇一二两三四五六七八九十]{1,3})(\s*分)/g, (match, prefix: string, minute: string, suffix: string) => {
+      const value = numeric(minute);
+      return value >= 0 && value <= 59 ? `${prefix}${value}${suffix}` : match;
+    });
+}
+
 function inferTaskTimeFromText(title: string, options?: InferTaskDateFromTextOptions): string | null {
   const patterns = getTaskDateKeywordPatterns(options);
-  const normalized = (title || '')
+  const normalized = normalizeChineseTimeNumbers(title || '')
     .replace(/[０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xFEE0))
     .replace(/：/g, ':')
     .toLowerCase();
@@ -360,7 +380,7 @@ function inferTaskTimeFromText(title: string, options?: InferTaskDateFromTextOpt
 
 function stripTaskTimeText(title: string, options?: InferTaskDateFromTextOptions): string {
   const patterns = getTaskDateKeywordPatterns(options);
-  return (title || '')
+  return normalizeChineseTimeNumbers(title || '')
     .replace(new RegExp(`(${patterns.timePeriod})?\\s*(2[0-3]|[01]?\\d)\\s*[：:]\\s*([0-5]\\d)\\s*(am|pm)?`, 'gi'), '')
     .replace(new RegExp(`(${patterns.chineseTimePeriod})?\\s*(2[0-3]|[01]?\\d)\\s*[点時时](半|[0-5]?\\d分?)?`, 'g'), '')
     .replace(/(?:^|[^a-z\d])(1[0-2]|0?[1-9])(?:\s*(?::)\s*([0-5]\d))?\s*(am|pm)(?![a-z])/gi, '');

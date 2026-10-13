@@ -460,7 +460,7 @@
             <td v-if="column.key === 'title'" class="col-title">
               <div class="title-wrapper">
                 <div class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(row.task)">
-                  <TaskCheckbox :checked="row.task.status === 'completed'" :size="16" />
+                  <TaskCheckbox :checked="row.task.status === 'completed'" :status="row.task.status" :size="16" />
                 </div>
                 <div class="title-main" @click="handleTaskClick(row.task, $event)">
                   <span v-if="row.task.pinned === true" class="task-pinned-indicator ariaLabel" :aria-label="t('taskManager.pinned')">
@@ -648,7 +648,7 @@
               ></span>
               <div class="subtask-title-cell" :style="{ '--subtask-depth': row.depth }">
                 <div class="subtask-checkbox-wrapper" @click.stop="toggleSubtaskStatus(row.task, row.subtask)">
-                  <TaskCheckbox :checked="row.subtask.completed" :size="14" />
+                  <TaskCheckbox :checked="row.subtask.completed" :status="getSubtaskStatus(row.subtask)" :size="14" />
                 </div>
                 <button
                   type="button"
@@ -879,7 +879,7 @@
     />
     
     <div v-if="displayableTasks.length === 0" class="empty-state">
-      {{ t('taskManager.noTasks') }}
+      <slot name="empty">{{ t('taskManager.noTasks') }}</slot>
     </div>
   </div>
 </template>

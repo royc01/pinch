@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { parsePinchColorIndex } from './groupColor';
 
 export {
   normalizeSiyuanTaskMarker,
@@ -53,12 +54,14 @@ const TASK_STATUS_LABEL_KEYS: Record<DefaultTaskStatusValue, string> = {
 };
 
 const DEFAULT_TASK_STATUSES: readonly TaskStatusDefinition[] = [
-  { id: 'pending', color: '#f59e0b', builtIn: true },
-  { id: 'in-progress', color: '#3b82f6', builtIn: true },
-  { id: 'delayed', color: '#f97316', builtIn: true },
-  { id: 'completed', color: '#10b981', builtIn: true },
+  { id: 'pending', color: 'var(--pinch-color4)', builtIn: true },
+  { id: 'in-progress', color: 'var(--pinch-color7)', builtIn: true },
+  { id: 'delayed', color: 'var(--pinch-color8)', builtIn: true },
+  { id: 'completed', color: 'var(--pinch-color6)', builtIn: true },
   { id: 'cancelled', color: '#9ca3af', builtIn: true }
 ];
+
+export const DEFAULT_CUSTOM_TASK_STATUS_COLOR = 'pinch-background6';
 
 const configuredStatuses = ref<TaskStatusDefinition[]>([...DEFAULT_TASK_STATUSES]);
 
@@ -70,7 +73,8 @@ function normalizeColor(value: unknown, fallback: string): string {
 
 export function resolveTaskStatusColor(value: string | undefined): string {
   const color = typeof value === 'string' ? value.trim() : '';
-  return /^pinch-background(?:[1-9]|10)$/.test(color) ? `var(--${color})` : (color || '#6366f1');
+  const paletteIndex = parsePinchColorIndex(color || DEFAULT_CUSTOM_TASK_STATUS_COLOR);
+  return paletteIndex ? `var(--pinch-color${paletteIndex})` : color;
 }
 
 /** Validates persisted settings and restores missing built-ins. */
@@ -89,7 +93,7 @@ export function normalizeTaskStatusDefinitions(input: unknown): TaskStatusDefini
     normalized.push(builtIn ? { ...builtIn, hidden: raw.hidden === true } : {
       id,
       name: typeof raw.name === 'string' ? raw.name.trim().slice(0, 40) || undefined : undefined,
-      color: normalizeColor(raw.color, 'pinch-background1'),
+      color: normalizeColor(raw.color, DEFAULT_CUSTOM_TASK_STATUS_COLOR),
       hidden: raw.hidden === true,
       builtIn: false
     });

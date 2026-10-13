@@ -16,7 +16,7 @@
           @click.stop="handleToggleStatus"
           @mousedown.stop
         >
-          <TaskCheckbox :checked="isCompleted" :size="18" :disabled="disableStatusToggle" />
+          <TaskCheckbox :checked="isCompleted" :status="task.status" :size="18" :disabled="disableStatusToggle" />
         </div>
         <div class="task-title-wrap" @click="handleCardClick">
           <span v-if="isPinned" class="task-pinned-indicator ariaLabel" :aria-label="t('taskManager.pinned')">

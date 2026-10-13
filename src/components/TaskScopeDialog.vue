@@ -292,20 +292,15 @@
               maxlength="40"
               :style="getTaskStatusInputStyle(status)"
             />
-            <Icon
+            <button
               v-if="!status.builtIn"
-              name="palette"
-              class="task-group-color-button task-status-color-button ariaLabel"
-              width="18"
-              height="18"
-              :style="{ color: resolveTaskStatusColor(status.color) }"
-              role="button"
-              tabindex="0"
+              type="button"
+              class="task-status-color-button ariaLabel"
               :aria-label="t('taskScopeDialog.statusColor')"
               @click="openStatusColorPicker(status.id)"
-              @keydown.enter.prevent="openStatusColorPicker(status.id)"
-              @keydown.space.prevent="openStatusColorPicker(status.id)"
-            />
+            >
+              <span class="task-status-built-in-dot" :style="{ backgroundColor: resolveTaskStatusColor(status.color) }" aria-hidden="true" />
+            </button>
             <span v-else class="task-status-built-in-dot" :style="{ backgroundColor: resolveTaskStatusColor(status.color) }" aria-hidden="true" />
             <button type="button" class="task-group-visibility task-status-visibility ariaLabel" :class="{ active: status.hidden === true }" :aria-label="status.hidden ? t('taskScopeDialog.showStatusColumn') : t('taskScopeDialog.hideStatusColumn')" @click="toggleTaskStatusHidden(status.id)"><Icon :name="status.hidden ? 'eyeOff' : 'eye'" width="16" height="16" /></button>
             <button v-if="!status.builtIn" type="button" class="task-group-delete task-status-remove ariaLabel" :aria-label="t('common.delete')" @click="removeTaskStatus(status.id)"><Icon name="trash" width="16" height="16" /></button>
@@ -606,7 +601,7 @@ import { normalizeNotebookIds } from '@/utils/taskViewShared';
 import { formatTemplate, useI18n } from '@/composables/useI18n';
 import type { TaskDateKeywordConfig } from '@/utils/taskDateParser';
 import type { DocumentTaskBadgeOptions, UserSettings } from '@/utils/userSettings';
-import { normalizeTaskStatusDefinitions, resolveTaskStatusColor, type TaskStatusDefinition } from '@/utils/taskStatus';
+import { DEFAULT_CUSTOM_TASK_STATUS_COLOR, normalizeTaskStatusDefinitions, resolveTaskStatusColor, type TaskStatusDefinition } from '@/utils/taskStatus';
 import { TASK_BACKGROUND_COLOR_OPTIONS } from '@/utils/taskGroupShared';
 import { resolveGroupColorCss, resolveGroupColorLayerCss, resolveGroupTextColor } from '@/utils/groupColor';
 import { putFile, readDir, removeFile } from '@/api';
@@ -1039,7 +1034,7 @@ function addTaskStatus(): void {
   let index = 1;
   let id = `custom-${index}`;
   while (ids.has(id)) id = `custom-${++index}`;
-  localTaskStatuses.value.push({ id, name: '', color: 'pinch-background1' });
+  localTaskStatuses.value.push({ id, name: '', color: DEFAULT_CUSTOM_TASK_STATUS_COLOR });
 }
 
 function openStatusColorPicker(id: string): void {
@@ -2212,7 +2207,6 @@ watch([
   border: none;
   border-radius: 6px;
   background: none;
-  fill: currentColor;
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -1,8 +1,8 @@
 <template>
-  <div class="subtask-item" :class="[subtask.completed ? 'completed' : '', `level-${level}`, { 'subtask-drop-target': isDropTarget, 'subtask-drop-before': dropPosition === 'before', 'subtask-drop-after': dropPosition === 'after' }]" draggable="true" @pointerdown="handlePointerDown" @pointerup="handlePointerUp" @pointercancel="handlePointerUp" @dragstart="handleDragStart" @dragend="handleDragEnd" @dragover="handleDragOver" @dragleave="handleDragLeave" @drop="handleDrop">
+  <div class="subtask-item" :data-subtask-id="subtask.id" :data-subtask-node-id="subtask.nodeId || subtask.blockId || undefined" :class="[subtask.completed ? 'completed' : '', `level-${level}`, { 'subtask-drop-target': isDropTarget, 'subtask-drop-before': dropPosition === 'before', 'subtask-drop-after': dropPosition === 'after' }]" draggable="true" @pointerdown="handlePointerDown" @pointerup="handlePointerUp" @pointercancel="handlePointerUp" @dragstart="handleDragStart" @dragend="handleDragEnd" @dragover="handleDragOver" @dragleave="handleDragLeave" @drop="handleDrop">
     <div class="subtask-row">
       <div class="task-checkbox-wrapper" @click="handleClick">
-        <TaskCheckbox :checked="subtask.completed" :size="18" />
+        <TaskCheckbox :checked="subtask.completed" :status="status" :size="18" />
       </div>
       <button type="button" class="subtask-title" @click.stop="handleOpen">
         <TaskTitleRich class="task-title" :title="subtask.title" />

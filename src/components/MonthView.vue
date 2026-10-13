@@ -166,6 +166,7 @@
                 :class="[isHabitTaskChip(task) ? 'habit-task-chip' : 'task-chip', {
                   'task-completed': task.status === 'completed',
                   'is-repeat-task': !isHabitTaskChip(task) && isRepeatTaskEntity(task),
+                  'is-subtask-chip': isCalendarSubtask(task),
                   'task-dragging': draggingTask?.task.id === task.id,
                   'keyboard-selected': selectedCalendarTaskId === task.id,
                   'mobile-selected': !isHabitTaskChip(task) && shouldShowMobileTaskChipControls(task.id)
@@ -178,6 +179,12 @@
                 @pointercancel="handleMobileTaskChipPointerCancel"
                 @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
               >
+                <span
+                  v-if="isCalendarSubtask(task)"
+                  class="calendar-subtask-marker"
+                  :title="getCalendarSubtaskParentTitle(task)"
+                  aria-label="sub"
+                >sub</span>
                 <div 
                   v-if="!isHabitTaskChip(task)"
                   class="task-handle task-handle-left"
@@ -206,7 +213,7 @@
                     @mousedown.stop
                     @click.stop="toggleTaskStatus(task, $event)"
                   >
-                    <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
+                    <TaskCheckbox :checked="task.status === 'completed'" :status="task.status" :size="12" />
                   </span>
                   <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
                   <TaskTitlePlain
@@ -296,6 +303,7 @@
       @clearTaskDates="clearTaskDates(contextMenu.task!)"
       @saveRepeatRule="saveTaskRepeatRule(contextMenu.task!, $event)"
       @start-focus="startFocusForTask(contextMenu.task!)"
+      @quick-meta="handleContextMenuQuickMeta(contextMenu.task!)"
       @editTask="handleContextMenuEditTask(contextMenu.task!)"
     />
 
@@ -326,12 +334,19 @@
             class="month-day-task-chip"
             :class="{
               'task-completed': task.status === 'completed',
-              'is-repeat-task': !isHabitTaskChip(task) && isRepeatTaskEntity(task)
+              'is-repeat-task': !isHabitTaskChip(task) && isRepeatTaskEntity(task),
+              'is-subtask-chip': isCalendarSubtask(task)
             }"
             :style="getDayTaskChipStyle(task)"
             @mousedown="!isHabitTaskChip(task) && handleTaskMouseDownWithSelection($event, task)"
             @click="handleDayTaskDialogClick(task, $event)"
           >
+            <span
+              v-if="isCalendarSubtask(task)"
+              class="calendar-subtask-marker"
+              :title="getCalendarSubtaskParentTitle(task)"
+              aria-label="sub"
+            >sub</span>
             <span v-if="!isRepeatTaskEntity(task)" class="month-day-task-chip-accent"></span>
             <svg
               v-if="!isHabitTaskChip(task) && isRepeatTaskEntity(task)"
@@ -341,7 +356,7 @@
             >
               <path d="M987.088 362.926c23.912 45.21 37.31 96.8 36.904 151.5C1022.678 690.73 877.12 832 700.808 832H384v94.99c0 44.95-52.354 64.536-81.942 34.95l-160-160c-18.744-18.746-18.744-49.138 0-67.882l160-160C332.276 543.84 384 565.372 384 608v96h317.75c105.624 0 193.15-84.364 194.24-189.984 0.31-30.09-6.34-58.624-18.436-84.092-8.724-18.37-4.842-40.248 9.6-54.568 9.49-9.412 17.282-17.11 23.752-23.572 22.736-22.704 61.158-17.262 76.182 11.142zM128.01 509.984c1.09-105.62 88.616-189.984 194.24-189.984H640v95.01c0 44.748 52.242 64.624 81.942 34.93l160-160c18.744-18.746 18.744-49.138 0-67.882l-160-160C692.028 32.154 640 52.512 640 97.09V192H323.192C146.88 192 1.322 333.27 0.01 509.576c-0.408 54.7 12.99 106.29 36.904 151.5 15.024 28.404 53.446 33.846 76.182 11.14 6.47-6.462 14.26-14.16 23.752-23.572 14.44-14.32 18.324-36.196 9.6-54.568-12.098-25.47-18.748-54.002-18.438-84.092z" />
             </svg>
-            <TaskCheckbox v-if="!isHabitTaskChip(task)" :checked="task.status === 'completed'" :size="12" />
+            <TaskCheckbox v-if="!isHabitTaskChip(task)" :checked="task.status === 'completed'" :status="task.status" :size="12" />
             <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
             <TaskTitlePlain class="month-day-task-chip-title" :title="task.title" />
           </button>
@@ -601,6 +616,12 @@ type PointerCaptureSession = {
 };
 
 const props = defineProps<Props>();
+function isCalendarSubtask(task: Task): boolean {
+  return (task as Task & { isSubtask?: boolean }).isSubtask === true;
+}
+function getCalendarSubtaskParentTitle(task: Task): string {
+  return (task as Task & { parentTaskTitle?: string }).parentTaskTitle || '';
+}
 let scheduleActionDepth = 0;
 async function runScheduleChange<T>(task: Task, operation: () => Promise<T>): Promise<T> {
   if (scheduleActionDepth) return operation();
@@ -4263,6 +4284,20 @@ function handleContextMenuEditTask(task: Task): void {
   hideContextMenu();
 }
 
+function handleContextMenuQuickMeta(task: Task): void {
+  if (!task) {
+    return;
+  }
+  eventBus.emit(Events.TASK_QUICK_META_OPEN_REQUEST, {
+    blockId: task.sourceBlockId || task.blockId || task.id,
+    rootId: task.rootId,
+    anchorX: contextMenu.value.x,
+    anchorY: contextMenu.value.y,
+    task
+  });
+  hideContextMenu();
+}
+
 defineExpose({
   flushPendingDateSaves,
   resetScheduleSync: taskSyncGuard.clearAllTaskSyncLocks,
@@ -4934,6 +4969,29 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.calendar-subtask-marker {
+  position: absolute;
+  top: -5px;
+  right: -3px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 11px;
+  box-sizing: border-box;
+  padding: 0 2px;
+  border: 1px solid var(--pinch-task-chip-color, var(--pinch-color6));
+  border-radius: 3px;
+  background: var(--b3-theme-background);
+  color: var(--pinch-task-chip-color, var(--pinch-color6));
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 9px;
+  pointer-events: auto;
+  cursor: help;
 }
 
 .task-chip {

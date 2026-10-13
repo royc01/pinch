@@ -104,7 +104,8 @@
                 `priority-${task.priority}`,
                 {
                   'task-completed': task.status === 'completed',
-                  'habit-task-chip': isHabitTaskChip(task)
+                  'habit-task-chip': isHabitTaskChip(task),
+                  'is-subtask-chip': isCalendarSubtask(task)
                 }
               ]"
               :style="getMobileTaskChipStyle(task)"
@@ -115,8 +116,14 @@
               @pointercancel="handleMobileTaskPointerCancel"
               @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
             >
+              <span
+                v-if="isCalendarSubtask(task)"
+                class="calendar-subtask-marker"
+                :title="getCalendarSubtaskParentTitle(task)"
+                aria-label="sub"
+              >sub</span>
               <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task, $event)">
-                <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
+                <TaskCheckbox :checked="task.status === 'completed'" :status="task.status" :size="12" />
               </span>
               <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
               <TaskTitlePlain class="mobile-task-chip-title" :title="task.title" />
@@ -226,7 +233,8 @@
                     { 'is-repeat-task': !isHabitTaskChip(task) && isRepeatTaskEntity(task) },
                     { 'task-completed': task.status === 'completed' },
                     { 'mobile-selected': !isHabitTaskChip(task) && shouldShowMobileAllDayTaskControls(task.id) },
-                    { 'keyboard-selected': selectedCalendarTaskId === task.id }
+                    { 'keyboard-selected': selectedCalendarTaskId === task.id },
+                    { 'is-subtask-chip': isCalendarSubtask(task) }
                   ]"
                 :style="getAllDayTaskStyle(task)"
                 @click="!isHabitTaskChip(task) && handleMobileAllDayTaskClick($event, task)"
@@ -236,6 +244,12 @@
                 @pointercancel="handleMobileAllDayTaskPointerCancel"
                 @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
               >
+                <span
+                  v-if="isCalendarSubtask(task)"
+                  class="calendar-subtask-marker"
+                  :title="getCalendarSubtaskParentTitle(task)"
+                  aria-label="sub"
+                >sub</span>
                 <div 
                   v-if="!isHabitTaskChip(task)"
                   class="task-handle task-handle-left"
@@ -264,7 +278,7 @@
                     @mousedown.stop
                     @click.stop="toggleTaskStatus(task, $event)"
                   >
-                    <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
+                    <TaskCheckbox :checked="task.status === 'completed'" :status="task.status" :size="12" />
                   </span>
                   <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
                   <TaskTitlePlain
@@ -360,7 +374,8 @@
                 :style="getExpandedAllDayChipStyle(task)"
                 :class="{
                   'task-completed': task.status === 'completed',
-                  'habit-task-chip': isHabitTaskChip(task)
+                  'habit-task-chip': isHabitTaskChip(task),
+                  'is-subtask-chip': isCalendarSubtask(task)
                 }"
                 @pointerdown="!isHabitTaskChip(task) && handleMobileTaskPointerDown($event, task)"
                 @pointermove="handleMobileTaskPointerMove"
@@ -369,8 +384,9 @@
                 @click="!isHabitTaskChip(task) && handleTaskClick(task, $event)"
                 @contextmenu="!isHabitTaskChip(task) && handleContextMenu($event, task)"
               >
+                <span v-if="isCalendarSubtask(task)" class="calendar-subtask-marker" :title="getCalendarSubtaskParentTitle(task)" aria-label="sub">sub</span>
                 <span class="task-checkbox-wrapper" @click.stop="toggleTaskStatus(task, $event)">
-                  <TaskCheckbox :checked="task.status === 'completed'" :size="12" />
+                  <TaskCheckbox :checked="task.status === 'completed'" :status="task.status" :size="12" />
                 </span>
                 <span class="day-expanded-chip-title" @click.stop="!isHabitTaskChip(task) && handleTaskClick(task, $event)">
                   <span v-if="isHabitTaskChip(task) && task.icon" class="habit-emoji">{{ task.icon }}</span>
@@ -513,7 +529,8 @@
                     { 'task-completed': item.task.status === 'completed' },
                     { 'task-dragging': draggingTimedTask?.task.id === item.task.id },
                     { 'mobile-selected': shouldShowMobileTimedTaskControls(item.task.id) },
-                    { 'keyboard-selected': selectedCalendarTaskId === item.task.id }
+                    { 'keyboard-selected': selectedCalendarTaskId === item.task.id },
+                    { 'is-subtask-chip': isCalendarSubtask(item.task) }
                   ]"
                   :style="getTimedTaskStyle(item)"
                   @click="handleMobileTimedTaskClick($event, item.task)"
@@ -524,6 +541,12 @@
                   @pointercancel="handleMobileTimedTaskPointerCancel"
                   @contextmenu="handleContextMenu($event, item.task)"
                 >
+                  <span
+                    v-if="isCalendarSubtask(item.task)"
+                    class="calendar-subtask-marker"
+                    :title="getCalendarSubtaskParentTitle(item.task)"
+                    aria-label="sub"
+                  >sub</span>
                   <div 
                     class="timed-task-handle timed-task-handle-top"
                     :class="{
@@ -540,7 +563,7 @@
                         @mousedown.stop
                         @click.stop="toggleTaskStatus(item.task, $event)"
                       >
-                        <TaskCheckbox :checked="item.task.status === 'completed'" :size="12" />
+                        <TaskCheckbox :checked="item.task.status === 'completed'" :status="item.task.status" :size="12" />
                       </span>
                       <TaskTitlePlain
                         class="task-title-text"
@@ -633,6 +656,7 @@
       @clearTaskDates="clearTaskDates(contextMenu.task!)"
       @saveRepeatRule="saveTaskRepeatRule(contextMenu.task!, $event)"
       @start-focus="startFocusForTask(contextMenu.task!)"
+      @quick-meta="handleContextMenuQuickMeta(contextMenu.task!)"
       @editTask="handleContextMenuEditTask(contextMenu.task!)"
     />
 
@@ -858,6 +882,12 @@ interface MobileMiniCalendarDay {
 }
 
 const props = defineProps<Props>();
+function isCalendarSubtask(task: Task): boolean {
+  return (task as Task & { isSubtask?: boolean }).isSubtask === true;
+}
+function getCalendarSubtaskParentTitle(task: Task): string {
+  return (task as Task & { parentTaskTitle?: string }).parentTaskTitle || '';
+}
 let scheduleActionDepth = 0;
 async function runScheduleChange<T>(task: Task, operation: () => Promise<T>): Promise<T> {
   if (scheduleActionDepth) return operation();
@@ -6247,6 +6277,20 @@ function handleContextMenuEditTask(task: Task): void {
   hideContextMenu();
 }
 
+function handleContextMenuQuickMeta(task: Task): void {
+  if (!task) {
+    return;
+  }
+  eventBus.emit(Events.TASK_QUICK_META_OPEN_REQUEST, {
+    blockId: task.sourceBlockId || task.blockId || task.id,
+    rootId: task.rootId,
+    anchorX: contextMenu.value.x,
+    anchorY: contextMenu.value.y,
+    task
+  });
+  hideContextMenu();
+}
+
 function showTaskContextMenu(
   task: Task,
   anchor?: { x: number; y: number },
@@ -7282,6 +7326,29 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+.calendar-subtask-marker {
+  position: absolute;
+  top: -5px;
+  right: -3px;
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 11px;
+  box-sizing: border-box;
+  padding: 0 2px;
+  border: 1px solid var(--pinch-task-chip-color, var(--pinch-color6));
+  border-radius: 3px;
+  background: var(--b3-theme-background);
+  color: var(--pinch-task-chip-color, var(--pinch-color6));
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 9px;
+  pointer-events: auto;
+  cursor: help;
+}
+
 .task-title-text {
   flex: 0 1 auto;
   overflow: hidden;
@@ -7786,7 +7853,7 @@ onUnmounted(() => {
   background: var(--pinch-background7);
   border-left: 2px solid transparent;
   pointer-events: auto;
-  overflow: hidden;
+  overflow: visible;
   cursor: default;
   display: flex;
   flex-direction: column;

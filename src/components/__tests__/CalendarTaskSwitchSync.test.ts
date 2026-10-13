@@ -29,6 +29,7 @@ const { resetCrdtRepository } = await import('@/crdtStore');
 const { default: KanbanView } = await import('../KanbanView.vue');
 const { default: WeekView } = await import('../WeekView.vue');
 const { default: MonthView } = await import('../MonthView.vue');
+const { default: CalendarTaskSidebar } = await import('../CalendarTaskSidebar.vue');
 const { CALENDAR_CONSTANTS } = await import('@/composables/useCalendarConstants');
 const { eventBus, Events } = await import('@/utils/eventBus');
 
@@ -142,6 +143,90 @@ describe('calendar tasks across view switches', () => {
     expect(state.restoreCachedTaskSnapshot('week')).toBe(true);
     expect(state.tasks.find((item: Task) => item.id === 'moved')).toMatchObject({
       startTime: '12:00', dueTime: '13:00'
+    });
+  });
+
+  it.each([
+    { view: 'week', target: 'all-day' },
+    { view: 'week', target: 'timed' },
+    { view: 'month', target: 'all-day' }
+  ] as const)('keeps a nested child dropped into $view/$target when an older task tree finishes loading', async ({ view, target }) => {
+    wrapper = shallowMount(KanbanView, { attachTo: document.body,
+      global: { stubs: { CalendarViewShell: false, CalendarTaskSidebar: false, WeekView: false, MonthView: false, KeepAlive: false } } });
+    await flushPromises();
+    const state = (wrapper.vm.$ as any).setupState;
+    const original = [task('parent', { startTime: '09:00', dueTime: '10:00', subtasks: [{
+      ...task('child', { startDate: '', dueDate: '' }), nodeId: 'child', completed: false, subtasks: [{
+        ...task('grandchild', { startDate: '', dueDate: '' }), nodeId: 'grandchild', completed: false
+      }]
+    }] })];
+    vi.mocked(TaskRepository.getAllTasks).mockResolvedValue(structuredClone(original));
+    state.currentView = view;
+    state.syncTaskSnapshot(structuredClone(original));
+    await flushPromises();
+    const sidebar = wrapper.findComponent(CalendarTaskSidebar);
+    const calendarComponent = view === 'month' ? MonthView : WeekView;
+    const calendar = wrapper.findComponent(calendarComponent);
+    const scheduled = () => view === 'month' ? state.monthViewTasks : state.weekViewTasks;
+    const chipSelector = target === 'timed' ? '.timed-task.is-subtask-chip'
+      : view === 'month' ? '.task-chip.is-subtask-chip' : '.all-day-task.is-subtask-chip';
+    if (target === 'timed') {
+      (calendar.vm.$.setupState as any).isInactiveHoursCollapsed = false;
+      await flushPromises();
+    }
+    const column = calendar.find(`${target === 'timed' ? '.day-column' : '.all-day-column'}[data-day-key="2026-10-09"]`);
+    const height = target === 'timed' ? CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT * 24 : 100;
+    vi.spyOn(column.element, 'getBoundingClientRect').mockReturnValue({
+      x: 70, y: 0, left: 70, right: 170, top: 0, bottom: height, width: 100, height
+    } as DOMRect);
+    let finishLoad!: (tasks: Task[]) => void;
+    vi.mocked(TaskRepository.getAllTasks).mockImplementationOnce(() => new Promise(resolve => { finishLoad = resolve; }));
+    const loading = state.loadTasks(false, { silent: true, validateSelection: false, view });
+    const source = sidebar.find('[data-task-id="grandchild"] .calendar-task-sidebar-task');
+    await source.trigger('pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 20 });
+    const dropY = target === 'timed' ? CALENDAR_CONSTANTS.LAYOUT.TIME_ROW_HEIGHT * 12 : 20;
+    document.dispatchEvent(Object.assign(new Event('pointermove'), { pointerId: 1, clientX: 100, clientY: dropY }));
+    document.dispatchEvent(Object.assign(new Event('pointerup'), { pointerId: 1, clientX: 100, clientY: dropY }));
+    await flushPromises();
+    expect(calendar.findAll(chipSelector)).toHaveLength(1);
+    const expected = { startDate: '2026-10-09', dueDate: '2026-10-09',
+      ...(target === 'timed' ? { startTime: '12:00', dueTime: '13:00' } : {}),
+      backgroundColor: scheduled().find((item: Task) => item.id === 'grandchild').backgroundColor };
+    expect(scheduled().find((item: Task) => item.id === 'grandchild')).toMatchObject(expected);
+    finishLoad(structuredClone(original));
+    await loading;
+    await flushPromises();
+    expect(scheduled().find((item: Task) => item.id === 'grandchild')).toMatchObject(expected);
+    expect(calendar.findAll(chipSelector)).toHaveLength(1);
+    expect(state.tasks[0]).toMatchObject({ id: 'parent', startTime: '09:00', dueTime: '10:00' });
+
+    state.currentView = 'kanban';
+    await flushPromises();
+    vi.setSystemTime(new Date(2026, 9, 9, 12, 0, 10));
+    state.currentView = view;
+    expect(state.restoreCachedTaskSnapshot(view)).toBe(true);
+    await flushPromises();
+    expect(scheduled().find((item: Task) => item.id === 'grandchild')).toMatchObject(expected);
+    expect(wrapper.findComponent(calendarComponent).findAll(chipSelector)).toHaveLength(1);
+  });
+
+  it('protects external child date clearing from stale trees and accepts later indexed edits', async () => {
+    wrapper = shallowMount(KanbanView);
+    await flushPromises();
+    const state = (wrapper.vm.$ as any).setupState;
+    const child = { ...task('child', { startTime: '12:00', dueTime: '13:00' }), nodeId: 'child', completed: false };
+    const original = [task('parent', { subtasks: [child] })];
+    state.syncTaskSnapshot(structuredClone(original));
+    state.applyExternalTaskDateChange({ ...child, startDate: '', dueDate: '', startTime: '', dueTime: '' });
+    state.syncTaskSnapshot(structuredClone(original));
+    expect(state.weekViewTasks.map((item: Task) => item.id)).toEqual(['parent']);
+    expect(state.tasks[0].subtasks[0]).toMatchObject({ startDate: '', dueDate: '' });
+    vi.setSystemTime(new Date(2026, 9, 9, 12, 0, 10));
+    const fresh = structuredClone(original);
+    Object.assign(fresh[0].subtasks![0], { startDate: '2026-10-10', dueDate: '2026-10-10', startTime: '14:00', dueTime: '15:00' });
+    state.syncTaskSnapshot(fresh);
+    expect(state.weekViewTasks.find((item: Task) => item.id === 'child')).toMatchObject({
+      startDate: '2026-10-10', dueDate: '2026-10-10', startTime: '14:00', dueTime: '15:00'
     });
   });
 

@@ -5,6 +5,14 @@ const NOW = new Date(2026, 4, 14, 9, 0, 0);
 const MAY_19 = new Date(2026, 4, 19, 9, 0, 0);
 
 describe('taskDateParser', () => {
+  it('recognizes Chinese time numerals in a quick-create title', () => {
+    expect(inferTaskDateRangeFromText('明天下午三点交报告', { locale: 'zh_CN', now: NOW })).toEqual({
+      startDate: '2026-05-15', dueDate: '2026-05-15', startTime: '15:00', dueTime: '15:00'
+    });
+    expect(inferTaskDateRangeFromText('明天上午十点二十五分开会', { locale: 'zh_CN', now: NOW })).toMatchObject({
+      startTime: '10:25', dueTime: '10:25'
+    });
+  });
   it('parses Chinese relative dates', () => {
     expect(inferTaskDateFromText('明天提交报告', { locale: 'zh_CN', now: NOW })).toBe('2026-05-15');
     expect(inferTaskDateFromText('大后天回访', { locale: 'zh_CN', now: NOW })).toBe('2026-05-17');

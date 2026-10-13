@@ -5797,7 +5797,7 @@ export class TaskRepository {
     task: Omit<Task, 'id' | 'type' | 'createdAt' | 'updatedAt' | 'blockId' | 'hPath' | 'notebookId'>,
     notebookId: string,
     docPath: string,
-    options: { emitTaskAdded?: boolean } = {}
+    options: { emitTaskAdded?: boolean; inferDatesFromTitle?: boolean } = {}
   ): Promise<{ taskId: string; blockId: string }> {
     const trimmedTitle = task.title?.trim();
     if (!trimmedTitle) {
@@ -5819,7 +5819,7 @@ export class TaskRepository {
     let resolvedStartTime = normalizedStartTime;
     let resolvedDueTime = normalizedDueTime;
 
-    if (!resolvedStartDate && !resolvedDueDate && this.isAutoRecognizeTaskDateEnabled()) {
+    if (!resolvedStartDate && !resolvedDueDate && options.inferDatesFromTitle !== false && this.isAutoRecognizeTaskDateEnabled()) {
       const inferredDateRange = this.extractDateRangeFromTaskTitle(trimmedTitle);
       if (inferredDateRange?.startDate || inferredDateRange?.dueDate) {
         resolvedStartDate = inferredDateRange.startDate || '';

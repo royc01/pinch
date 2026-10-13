@@ -50,6 +50,9 @@
         </button>
       </div>
 
+      <button type="button" class="task-card-context-menu-item" @click="emit('openQuickMeta')">
+        {{ t('taskManager.quickTaskMeta') }}
+      </button>
       <button
         type="button"
         class="task-card-context-menu-item"
@@ -107,6 +110,7 @@ const emit = defineEmits<{
   removeTag: [tagId: string];
   clearTags: [];
   manageTags: [];
+  openQuickMeta: [];
   togglePin: [];
   enterBatchEdit: [];
   editDescription: [];

@@ -159,7 +159,7 @@
                 <Icon :name="row.subtasksExpanded ? 'chevronDown' : 'chevronRight'" width="14" height="14" />
               </button>
               <span v-else class="gantt-task-subtask-spacer" aria-hidden="true"></span>
-              <span class="task-checkbox-wrapper gantt-row-checkbox-wrapper" :style="{ marginLeft: `${(row.depth || 0) * 18}px` }" @click.stop="emit('status-toggle', row.primaryTask)" @pointerdown.stop><TaskCheckbox :checked="row.primaryTask.status === 'completed'" :size="18" /></span>
+              <span class="task-checkbox-wrapper gantt-row-checkbox-wrapper" :style="{ marginLeft: `${(row.depth || 0) * 18}px` }" @click.stop="emit('status-toggle', row.primaryTask)" @pointerdown.stop><TaskCheckbox :checked="row.primaryTask.status === 'completed'" :status="row.primaryTask.status" :size="18" /></span>
               <button type="button" class="gantt-row-title gantt-row-title-btn b3-typography" draggable="false" @pointerdown.stop @mousedown.stop @dragstart.stop.prevent @click.stop.prevent="emit('edit-task', row.primaryTask, $event)"><TaskTitlePlain class="gantt-task-title-content" :title="row.primaryTask.title" :fallback="row.title" /></button>
               <span v-if="isRepeatTask(row.primaryTask)" class="gantt-row-repeat-badge ariaLabel" :aria-label="t('taskCard.repeatTask')"><Icon name="repeat" width="12" height="12" /></span>
               <button type="button" class="task-card-action-btn task-card-open-btn gantt-row-open-btn ariaLabel" :aria-label="t('taskCard.openContent')" @mousedown.stop @click.stop.prevent="emit('task-click', row.primaryTask)"><Icon name="moreHorizontal" width="14" height="14" /></button>
@@ -391,7 +391,7 @@
               @click.stop="emit('status-toggle', row.primaryTask)"
               @pointerdown.stop
             >
-              <TaskCheckbox :checked="row.primaryTask.status === 'completed'" :size="18" />
+              <TaskCheckbox :checked="row.primaryTask.status === 'completed'" :status="row.primaryTask.status" :size="18" />
             </span>
             <button
               type="button"
@@ -499,7 +499,7 @@
               @click.stop="emit('status-toggle', bar.task)"
               @pointerdown.stop
             >
-              <TaskCheckbox :checked="bar.task.status === 'completed'" :size="12" />
+              <TaskCheckbox :checked="bar.task.status === 'completed'" :status="bar.task.status" :size="12" />
             </span>
             <span class="gantt-bar-title">{{ bar.title }}</span>
             <span

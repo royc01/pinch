@@ -217,7 +217,7 @@ function getTaskBlockIdFromElement(element: Element | null): string {
   if (!element) {
     return '';
   }
-  const taskEl = element.closest('[data-node-id][data-subtype="t"]') as HTMLElement | null;
+  const taskEl = element.closest('[data-node-id][data-subtype="t"], [data-node-id][data-task]') as HTMLElement | null;
   if (!taskEl) {
     return '';
   }
@@ -539,6 +539,15 @@ let taskBlockIconMenuListener: ((event: CustomEvent<{
   }) => void };
   blockElements: HTMLElement[];
 }>) => void | Promise<void>) | null = null;
+let taskContentMenuListener: ((event: CustomEvent<{
+  menu: { addItem: (item: {
+    icon?: string;
+    label?: string;
+    click?: () => void | Promise<void>;
+  }) => void };
+  element: HTMLElement;
+  range: Range;
+}>) => void | Promise<void>) | null = null;
 let taskQuickMetaInputListener: ((event: Event) => void) | null = null;
 let taskQuickMetaCompositionStartListener: (() => void) | null = null;
 let taskQuickMetaCompositionEndListener: (() => void) | null = null;
@@ -569,6 +578,13 @@ function registerTaskBlockIconMenu(pluginInstance: Plugin): void {
         void openTaskDateMenuByBlockId(targetBlockId, anchor);
       }
     });
+    detail.menu.addItem({
+      icon: 'iconEdit',
+      label: translate('menu.editTaskQuickMeta', 'Edit task fields'),
+      click: () => {
+        void openTaskQuickMetaMenuByBlockId(targetBlockId, anchor);
+      }
+    });
   };
 
   pluginInstance.eventBus.on('click-blockicon', taskBlockIconMenuListener as any);
@@ -580,6 +596,43 @@ function unregisterTaskBlockIconMenu(): void {
   }
   plugin.eventBus.off('click-blockicon', taskBlockIconMenuListener as any);
   taskBlockIconMenuListener = null;
+}
+
+function registerTaskContentMenu(pluginInstance: Plugin): void {
+  unregisterTaskContentMenu();
+
+  taskContentMenuListener = (event) => {
+    const detail = event.detail;
+    const rangeElement = detail?.range?.startContainer instanceof Element
+      ? detail.range.startContainer
+      : detail?.range?.startContainer?.parentElement || null;
+    const taskBlockId = getTaskBlockIdFromElement(detail?.element || null)
+      || getTaskBlockIdFromElement(rangeElement);
+    if (!taskBlockId) {
+      return;
+    }
+
+    const rangeRect = detail?.range?.getBoundingClientRect?.();
+    const elementRect = detail?.element?.getBoundingClientRect?.();
+    const anchor = buildMenuAnchorFromRect(rangeRect) || buildMenuAnchorFromRect(elementRect);
+    detail.menu.addItem({
+      icon: 'iconEdit',
+      label: translate('menu.editTaskQuickMeta', 'Edit task fields'),
+      click: () => {
+        void openTaskQuickMetaMenuByBlockId(taskBlockId, anchor);
+      }
+    });
+  };
+
+  pluginInstance.eventBus.on('open-menu-content', taskContentMenuListener as any);
+}
+
+function unregisterTaskContentMenu(): void {
+  if (!plugin || !taskContentMenuListener) {
+    return;
+  }
+  plugin.eventBus.off('open-menu-content', taskContentMenuListener as any);
+  taskContentMenuListener = null;
 }
 
 function resolveEditableRootFromEventTarget(target: EventTarget | null): HTMLElement | null {
@@ -994,6 +1047,7 @@ export function init(pluginInstance: Plugin) {
   registerIcons(pluginInstance);
   registerTopBarViewButton(pluginInstance);
   registerTaskBlockIconMenu(pluginInstance);
+  registerTaskContentMenu(pluginInstance);
   registerTaskQuickMetaInputTrigger();
   stopDocumentTaskBadges?.();
   stopDocumentTaskBadges = createDocumentTaskBadges(pluginInstance, (blockId, anchor) => {
@@ -1084,6 +1138,7 @@ export function destroy() {
   stopCalendarSync();
   stopMobileBreadcrumbButtonObserver();
   unregisterTaskBlockIconMenu();
+  unregisterTaskContentMenu();
   unregisterTaskQuickMetaInputTrigger();
   destroyDetachedFocusWindow();
   topBarViewButton?.remove();

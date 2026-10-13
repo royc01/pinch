@@ -6,7 +6,7 @@ type CreatedBlockTask = {
   blockId: string;
 };
 
-type OptimisticTaskFields = Pick<Task, 'title' | 'status' | 'priority' | 'dueDate' | 'tags' | 'groupId' | 'description'>;
+type OptimisticTaskFields = Pick<Task, 'title' | 'status' | 'priority' | 'startDate' | 'startTime' | 'dueDate' | 'dueTime' | 'tags' | 'groupId' | 'description'>;
 
 export function emitOptimisticBlockTaskAdded(
   created: CreatedBlockTask,
