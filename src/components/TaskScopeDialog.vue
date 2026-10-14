@@ -472,7 +472,7 @@
           :all-documents="allDocumentGroupDocuments"
           :tasks="goalTasks"
           :documents-refreshing="documentsRefreshing"
-          @update:goals="localGoals = $event"
+          @update:goals="handleGoalsUpdate"
           @refresh-documents="emit('refresh-documents')"
         />
       </div>
@@ -733,6 +733,10 @@ const localShowDocumentGroupNotebookPath = ref(true);
 const localDocumentGroups = ref<DocumentGroup[]>([]);
 const localTaskGroups = ref<TaskGroup[]>([]);
 const localGoals = ref<Goal[]>([]);
+// An empty list can be a valid user edit (deleting the last goal). Keep that
+// state distinct from the initial empty snapshot while metadata loads in the
+// background, otherwise a stale props snapshot can resurrect the deleted goal.
+const localGoalsEdited = ref(false);
 const localHiddenTaskViewIds = ref<string[]>([]);
 const localViewSwitcherOrder = ref<string[]>([]);
 const localHiddenSidebarSectionIds = ref<string[]>([]);
@@ -952,6 +956,11 @@ function cloneGoals(goals: Goal[]): Goal[] {
   }));
 }
 
+function handleGoalsUpdate(goals: Goal[]): void {
+  localGoals.value = goals;
+  localGoalsEdited.value = true;
+}
+
 function handleTagSave(payload: { groups: TaskGroup[]; orderIds: string[] }): void {
   localTaskGroups.value = payload.groups.map(group => ({ ...group }));
   emit('save-tags', payload);
@@ -1148,6 +1157,7 @@ function syncLocalSelection(resetActiveTab = false): void {
   localDocumentGroups.value = cloneDocumentGroups(props.documentGroups || []);
   localTaskGroups.value = (props.taskGroups || []).map(group => ({ ...group }));
   localGoals.value = cloneGoals(props.goals || []);
+  localGoalsEdited.value = false;
   localHiddenTaskViewIds.value = normalizeOptionIds(props.hiddenTaskViewIds || [], taskViewOptionIds.value.map(id => ({ id, label: id })))
     .filter(id => (props.hiddenTaskViewIds || []).includes(id));
   localViewSwitcherOrder.value = normalizeOptionIds(props.viewSwitcherOrder || [], taskViewOptions.value);
@@ -1593,7 +1603,7 @@ watch(
     if (localDocumentGroups.value.length === 0 && documentGroups?.length) {
       localDocumentGroups.value = cloneDocumentGroups(documentGroups);
     }
-    if (localGoals.value.length === 0 && goals?.length) {
+    if (!localGoalsEdited.value && localGoals.value.length === 0 && goals?.length) {
       localGoals.value = cloneGoals(goals);
     }
     if (localTaskGroups.value.length === 0 && taskGroups?.length) {

@@ -1,7 +1,56 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getTaskTitlePlainText, sanitizeTaskTitleHtml } from './taskHtml';
+import { formatTaskTitleHtml } from './taskTitleFormat';
+
+const videoUrl = 'https://www.bilibili.com/video/BV1Fzszz4Ek7/?cid=33427947694&spm_id_from=333.788.videopod.episodes&vd_source=2850976c3fc6362e80b992da42d66f4c';
+const escapedVideoUrl = videoUrl.replace(/&/g, '&amp;');
+const videoMarkdown = `[${escapedVideoUrl}](${videoUrl.replace(/&/g, '\\&amp;')})`;
+const videoHtml = `<span data-type="a" data-href="${escapedVideoUrl}">${escapedVideoUrl}</span>`;
 
 describe('sanitizeTaskTitleHtml', () => {
+  it.each([
+    ['bare URL', videoUrl],
+    ['Markdown', videoMarkdown],
+    ['repository-formatted Markdown', formatTaskTitleHtml(videoMarkdown)],
+    ['SiYuan HTML', videoHtml],
+    ['escaped SiYuan HTML', videoHtml.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')]
+  ])('preserves the complete URL and destination in %s titles', (_source, rawTitle) => {
+    const container = document.createElement('div');
+    container.innerHTML = sanitizeTaskTitleHtml(rawTitle);
+
+    const link = container.querySelector('[data-type~="a"]');
+    if (_source !== 'bare URL') {
+      expect(link?.getAttribute('data-href')).toBe(videoUrl);
+      expect(link?.textContent).toBe(videoUrl);
+    }
+    expect(container.textContent).toBe(videoUrl);
+    expect(container.querySelector('[data-type~="em"]')).toBeNull();
+    expect(getTaskTitlePlainText(rawTitle)).toBe(videoUrl);
+  });
+
+  it.each([
+    ['==https://example.com/video==', 'mark'],
+    ['$https://example.com/video$', 'inline-math'],
+    ['note ((https://example.com/video))', 'inline-memo']
+  ])('preserves delimiters surrounding a URL in %s', (rawTitle, dataType) => {
+    const container = document.createElement('div');
+    container.innerHTML = sanitizeTaskTitleHtml(rawTitle);
+
+    expect(container.querySelector(`[data-type~="${dataType}"]`)).not.toBeNull();
+    expect(container.textContent).not.toMatch(/==|\$|\(\(/);
+  });
+
+  it('preserves link destinations and marks alongside formatted text', () => {
+    const container = document.createElement('div');
+    container.innerHTML = sanitizeTaskTitleHtml(`**Watch** ==[video](${escapedVideoUrl})==`);
+
+    const link = container.querySelector('[data-type~="a"]');
+    expect(link?.getAttribute('data-href')).toBe(videoUrl);
+    expect(link?.getAttribute('data-type')?.split(' ')).toEqual(expect.arrayContaining(['a', 'mark']));
+    expect(container.querySelector('[data-type~="strong"]')?.textContent).toBe('Watch');
+    expect(container.textContent).toBe('Watch video');
+  });
+
   it('preserves SiYuan inline background attribute markers', () => {
     const title = sanitizeTaskTitleHtml(
       '**12****31**{: style="background-color: var(--b3-font-background2);"}<u>2</u>{: style="background-color: var(--b3-font-background2);"}<u>3</u>'

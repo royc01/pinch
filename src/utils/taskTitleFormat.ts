@@ -4,7 +4,7 @@ const BLOCK_REF_REGEX = /\(\(([0-9]{14}-[a-z0-9]{7,})(?:\s+(?:"((?:\\.|[^"\\])*)
 // it is not mistaken for an inline memo.
 const EMPTY_BLOCK_REF_WITH_ALIAS_REGEX = /\(\(\s+(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')\s*\)\)/g;
 
-type BlockRefToken = { token: string; html: string };
+type InlineToken = { token: string; html: string };
 
 function unescapeQuotedText(text: string): string {
   return text.replace(/\\([\\'"])/g, '$1');
@@ -54,7 +54,9 @@ function convertSiyuanSubscript(text: string): string {
 }
 
 function convertSiyuanMarks(text: string): string {
-  return text.replace(/==([^=\n]+)==/g, '<span data-type="mark">$1</span>');
+  // Marks surrounding rendered elements are applied by sanitizeTaskHtml so
+  // the existing link span keeps its attributes and data-type ordering.
+  return text.replace(/==([^=\n\uE000\uE001]+)==/g, '<span data-type="mark">$1</span>');
 }
 
 function convertSiyuanTags(text: string): string {
@@ -65,15 +67,15 @@ function convertMarkdownLinks(text: string): string {
   return text.replace(/\[([^\]]+?)\]\(([^)]+?)\)/g, (match, label: string, rawHref: string) => {
     const trimmed = rawHref.trim();
     if (!trimmed) return match;
-    const href = trimmed.split(/\s+/)[0];
+    const href = trimmed.split(/\s+/)[0].replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~])/g, '$1');
     if (!href) return match;
     return `<span data-type="a" data-href="${escapeHtmlAttr(href)}">${label}</span>`;
   });
 }
 
-function replaceBlockRefs(text: string): { text: string; tokens: BlockRefToken[] } {
+function replaceBlockRefs(text: string): { text: string; tokens: InlineToken[] } {
   let index = 0;
-  const tokens: BlockRefToken[] = [];
+  const tokens: InlineToken[] = [];
   const createToken = (id: string, aliasDouble?: string, aliasSingle?: string): string => {
     const rawAlias = aliasDouble ?? aliasSingle ?? '';
     const alias = rawAlias.length > 0 ? unescapeQuotedText(rawAlias) : id;
@@ -95,9 +97,10 @@ function replaceBlockRefs(text: string): { text: string; tokens: BlockRefToken[]
   return { text: replaced, tokens };
 }
 
-function restoreBlockRefs(text: string, tokens: BlockRefToken[]): string {
+function restoreInlineTokens(text: string, tokens: InlineToken[]): string {
   let restored = text;
-  for (const token of tokens) {
+  // Later tokens may contain earlier ones, e.g. a formatted memo around a URL.
+  for (const token of [...tokens].reverse()) {
     restored = restored.split(token.token).join(token.html);
   }
   return restored;
@@ -123,15 +126,38 @@ export function formatTaskTitleHtml(text: string): string {
   const cleaned = text.trim();
   if (!cleaned) return '';
   const { text: withTokens, tokens } = replaceBlockRefs(cleaned);
-  const linkConverted = convertMarkdownLinks(withTokens);
-  const markConverted = convertSiyuanMarks(linkConverted);
-  const tagConverted = convertSiyuanTags(markConverted);
-  const strikethroughConverted = convertMarkdownStrikethrough(tagConverted);
-  const codeConverted = convertMarkdownCode(strikethroughConverted);
-  const mathConverted = convertSiyuanInlineMath(codeConverted);
-  const subscriptConverted = convertSiyuanSubscript(mathConverted);
-  const strongConverted = convertMarkdownStrong(subscriptConverted);
-  const emConverted = convertMarkdownEm(strongConverted);
-  const memoConverted = convertInlineMemos(emConverted);
-  return restoreBlockRefs(memoConverted, tokens);
+  const inlineTokens: InlineToken[] = [];
+  const protectInline = (html: string): string => {
+    const token = `\uE000PINCHINLINE${inlineTokens.length}\uE001`;
+    inlineTokens.push({ token, html });
+    return token;
+  };
+  // Protect both editor HTML and newly generated tags: Markdown punctuation
+  // inside attributes (such as spm_id_from in a URL) must remain literal.
+  const protectHtmlTags = (value: string): string => value.replace(
+    /<\/?[a-z](?:[^<>"']|"[^"]*"|'[^']*')*>/gi,
+    protectInline
+  );
+  const linkConverted = protectHtmlTags(convertMarkdownLinks(protectHtmlTags(withTokens)));
+  // URL labels are literal text even when their paths or parameters contain
+  // underscores, hashes, or other inline formatting delimiters.
+  // Limit this to complete text segments so a memo or formatting delimiter
+  // following a URL is still available to its Markdown converter.
+  const urlProtected = linkConverted.replace(
+    /(^|\uE001)(https?:\/\/[^\s<>"'\uE000\uE001]+)(?=$|\uE000)/gi,
+    (_match, prefix: string, url: string) => `${prefix}${protectInline(url)}`
+  );
+  const converters = [
+    convertSiyuanMarks,
+    convertSiyuanTags,
+    convertMarkdownStrikethrough,
+    convertMarkdownCode,
+    convertSiyuanInlineMath,
+    convertSiyuanSubscript,
+    convertMarkdownStrong,
+    convertMarkdownEm,
+    convertInlineMemos
+  ];
+  const converted = converters.reduce((value, convert) => protectHtmlTags(convert(value)), urlProtected);
+  return restoreInlineTokens(restoreInlineTokens(converted, inlineTokens), tokens);
 }
