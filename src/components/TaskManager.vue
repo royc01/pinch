@@ -399,14 +399,6 @@
       </div>
     </div>
 
-    <TaskFilterBar
-      v-show="!isTaskListCollapsed"
-      :expression="taskFilterExpression"
-      :sections="taskFilterSections"
-      @remove-condition="handleTaskFilterToggle"
-      @clear="clearSidebarTaskFilters"
-    />
-
     <div v-if="isBatchEditMode && !isTaskListCollapsed" class="task-batch-toolbar">
       <div class="task-batch-toolbar-header">
         <span class="task-batch-selected-count">{{ t('taskManager.selectedCountPrefix') }} {{ batchSelectedCount }} {{ t('taskManager.selectedCountSuffix') }}</span>
@@ -1123,7 +1115,6 @@ import QuickCreateTaskModal, { type Notebook, type Document as TaskDocument, typ
 import TaskScopeDialog, { type TaskScopeDialogSavePayload, type TaskScopeDisplayOption } from '@/components/TaskScopeDialog.vue';
 import { taskViewSwitcherDisplayOptions } from '@/utils/taskViewSwitcher';
 import TaskFilterPopover from '@/components/TaskFilterPopover.vue';
-import TaskFilterBar from '@/components/TaskFilterBar.vue';
 import TaskFilterEmptyState from '@/components/TaskFilterEmptyState.vue';
 import SourceFilterSelect from '@/components/SourceFilterSelect.vue';
 import Icon from '@/components/Icon.vue';
